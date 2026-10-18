@@ -104,6 +104,8 @@ const Core = ({
   onCancelHistoryResume,
   onCheckMembership,
   onCreate,
+  onSearchStatuses,
+  splitBlocked = false,
   showBookmarks = false,
 }) => (
   <TimelineSplitControllerCore
@@ -118,6 +120,7 @@ const Core = ({
     onSplitRatioCommit={() => {}}
     unavailableMessage={{ id: 'timeline.split_unavailable', defaultMessage: 'Another timeline is already split' }}
     activeSplitId={activeSplitId}
+    splitBlocked={splitBlocked}
     onCreate={onCreate || (() => {})}
     onDestroy={() => {}}
     onSaveReturnAnchor={() => {}}
@@ -127,6 +130,7 @@ const Core = ({
     historyResume={historyResume}
     onSeekTimeline={onSeekTimeline}
     onCheckMembership={onCheckMembership}
+    onSearchStatuses={onSearchStatuses}
     onRestoreJump={onRestoreJump}
     onSettleJumpScroll={jest.fn()}
     onResumeHistory={onResumeHistory}
@@ -199,6 +203,215 @@ describe('timeline navigation exclusion', () => {
     expect(JSON.stringify(onSeekTimeline.mock.calls[0][0])).not.toContain('composer-draft-secret');
     expect(onResumeHistory).not.toHaveBeenCalled();
     expect(onRestoreJump).not.toHaveBeenCalled();
+  });
+
+  const resumeInFlight = ImmutableMap({ phase: 'seek_pending', requestId: 'history-resume-9' });
+  const jumpBlocks = [
+    ['the split is blocked', { splitBlocked: true, activeSplitId: null }],
+    ['another column owns the split', { splitBlocked: false, activeSplitId: otherSplitId }],
+  ];
+
+  it.each(jumpBlocks)('keeps an in-flight resume when a date jump cannot run because %s', async (_label, block) => {
+    const onCancelHistoryResume = jest.fn();
+    const onSeekTimeline = jest.fn(() => Promise.resolve(seekPayload()));
+    const onResumeHistory = jest.fn();
+    const props = {
+      activeSplitId: null,
+      historyResume: resumeInFlight,
+      onCancelHistoryResume,
+      onSeekTimeline,
+      onResumeHistory,
+    };
+    const view = render(<Core {...props} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Find in this timeline' }));
+    fireEvent.change(screen.getByLabelText('Date and time'), { target: { value: '2026-10-17T09:30' } });
+    view.rerender(<Core {...props} {...block} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Jump' }));
+      await Promise.resolve();
+    });
+
+    expect(onCancelHistoryResume).not.toHaveBeenCalled();
+    expect(onSeekTimeline).not.toHaveBeenCalled();
+    expect(onResumeHistory).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it.each(jumpBlocks)('keeps an in-flight resume when a text result jump cannot run because %s', async (_label, block) => {
+    const onCancelHistoryResume = jest.fn();
+    const onSeekTimeline = jest.fn(() => Promise.resolve(seekPayload()));
+    const onCheckMembership = jest.fn(() => Promise.resolve({
+      ok: true,
+      body: {
+        outcome: 'complete',
+        results: [{ id: '50', outcome: 'member' }],
+        limitations: [],
+        limits: { ids: 50, session_candidates: 200, search_page_default: 20, search_page: 40, max_search_pages: 10 },
+      },
+    }));
+    const onSearchStatuses = jest.fn(() => Promise.resolve({
+      ok: true,
+      received: 1,
+      statuses: [{
+        id: '50',
+        created_at: '2026-10-17T01:02:03.000Z',
+        content: '<p>blocked-hit</p>',
+        account: { id: '7', display_name: 'Ada', acct: 'ada' },
+      }],
+    }));
+    const props = {
+      activeSplitId: null,
+      historyResume: resumeInFlight,
+      onCancelHistoryResume,
+      onSeekTimeline,
+      onResumeHistory: jest.fn(),
+      onCheckMembership,
+      onSearchStatuses,
+    };
+    const view = render(<Core {...props} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Find in this timeline' }));
+    fireEvent.change(screen.getByLabelText('What to find'), { target: { value: 'text' } });
+    fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'needle' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    onCheckMembership.mockClear();
+    onSeekTimeline.mockClear();
+    onCancelHistoryResume.mockClear();
+    view.rerender(<Core {...props} {...block} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /blocked-hit/ }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onCancelHistoryResume).not.toHaveBeenCalled();
+    expect(onSeekTimeline).not.toHaveBeenCalled();
+    expect(onCheckMembership).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it.each(jumpBlocks)('keeps a queued explicit resume when a date jump cannot run because %s', async (_label, block) => {
+    remember();
+    const onCreate = jest.fn();
+    const onResumeHistory = jest.fn();
+    const onCancelHistoryResume = jest.fn();
+    const onSeekTimeline = jest.fn(() => Promise.resolve(seekPayload()));
+    const props = {
+      activeSplitId: null,
+      onCreate,
+      onResumeHistory,
+      onCancelHistoryResume,
+      onSeekTimeline,
+    };
+    const view = render(<Core {...props} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resume saved place' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Find in this timeline' }));
+    fireEvent.change(screen.getByLabelText('Date and time'), { target: { value: '2026-10-17T09:30' } });
+    expect(onResumeHistory).not.toHaveBeenCalled();
+
+    view.rerender(<Core {...props} {...block} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Jump' }));
+      await Promise.resolve();
+    });
+
+    expect(onCancelHistoryResume).not.toHaveBeenCalled();
+    expect(onSeekTimeline).not.toHaveBeenCalled();
+
+    view.rerender(
+      <Core
+        {...props}
+        activeSplitId={onCreate.mock.calls[0][0]}
+        splitBlocked={false}
+      />,
+    );
+
+    expect(onResumeHistory).toHaveBeenCalledWith(expect.objectContaining({
+      explicit: true,
+      sourceTimelineId: 'home',
+    }));
+    view.unmount();
+  });
+
+  it.each(jumpBlocks)('keeps a queued explicit resume when a text result jump cannot run because %s', async (_label, block) => {
+    remember();
+    const onCreate = jest.fn();
+    const onResumeHistory = jest.fn();
+    const onCancelHistoryResume = jest.fn();
+    const onSeekTimeline = jest.fn(() => Promise.resolve(seekPayload()));
+    const onCheckMembership = jest.fn(() => Promise.resolve({
+      ok: true,
+      body: {
+        outcome: 'complete',
+        results: [{ id: '50', outcome: 'member' }],
+        limitations: [],
+        limits: { ids: 50, session_candidates: 200, search_page_default: 20, search_page: 40, max_search_pages: 10 },
+      },
+    }));
+    const onSearchStatuses = jest.fn(() => Promise.resolve({
+      ok: true,
+      received: 1,
+      statuses: [{
+        id: '50',
+        created_at: '2026-10-17T01:02:03.000Z',
+        content: '<p>queued-hit</p>',
+        account: { id: '7', display_name: 'Ada', acct: 'ada' },
+      }],
+    }));
+    const props = {
+      activeSplitId: null,
+      onCreate,
+      onResumeHistory,
+      onCancelHistoryResume,
+      onSeekTimeline,
+      onCheckMembership,
+      onSearchStatuses,
+    };
+    const view = render(<Core {...props} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resume saved place' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Find in this timeline' }));
+    fireEvent.change(screen.getByLabelText('What to find'), { target: { value: 'text' } });
+    fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'needle' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    view.rerender(<Core {...props} {...block} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /queued-hit/ }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onCancelHistoryResume).not.toHaveBeenCalled();
+    expect(onSeekTimeline).not.toHaveBeenCalled();
+    expect(onResumeHistory).not.toHaveBeenCalled();
+
+    view.rerender(
+      <Core
+        {...props}
+        activeSplitId={onCreate.mock.calls[0][0]}
+        splitBlocked={false}
+      />,
+    );
+
+    expect(onResumeHistory).toHaveBeenCalledWith(expect.objectContaining({
+      explicit: true,
+      sourceTimelineId: 'home',
+    }));
+    view.unmount();
   });
 
   it('restores an unconfirmed jump once when resume starts, and ignores a later settle', async () => {

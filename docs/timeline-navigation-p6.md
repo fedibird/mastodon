@@ -12,7 +12,7 @@
 
 コントローラが P3 / P4 / P5 を同時に走らせていた。
 
-- 日付・アカウント・投稿 ID・本文検索のジャンプは、進行中の History resume を `reason: seek` で取り消してから、そのカラムの History だけを seek する。無効な投稿 ID では resume を取り消さない。
+- 日付・アカウント・投稿 ID・本文検索のジャンプは、進行中の History resume を `reason: seek` で取り消してから、そのカラムの History だけを seek する。無効な投稿 ID、`splitBlocked`、他カラムが split を所有しているときは resume を取り消さない。
 - 明示的な再開は、未確定のジャンプを一度だけ戻してから resume する。再開ボタンが無効な進行中 resume には割り込まない。
 - History を開く直前の再開予約は、その前にジャンプまたはしおり復帰が始まったら実行しない。予約中のしおり復帰は resume 側を優先し、seek しない。
 - ジャンプの seek が返る前のスクロールは `user_scroll` として記録し、その後の filtered settle では window を戻さない。
@@ -24,7 +24,7 @@ Live の timeline id、Portable Composer の本文、検索語は seek payload �
 
 Node 22.14.0。Jest は `yarn --ignore-engines jest --coverage=false --watchman=false`。
 
-- 変更に隣接する 19 suites / 112 tests、失敗 0。内訳は exclusion、jump、text search、jump scroll、bookmark restore、resume button、split controller、text jump、bookmark panel、history resume DOM、reading bookmark の place / restore / contract / api、timeline position の registry / reduce / policy、jump model / scroll wait。
+- 変更に隣接する 19 suites / 120 tests、失敗 0。内訳は exclusion、jump、text search、jump scroll、bookmark restore、resume button、split controller、text jump、bookmark panel、history resume DOM、reading bookmark の place / restore / contract / api、timeline position の registry / reduce / policy、jump model / scroll wait。実行できない日付ジャンプと本文結果ジャンプは、`splitBlocked` と他カラムの split 所有中に進行中 resume と再開予約を残す。
 - ESLint は変更した JavaScript。新規の error はなし。`timeline_column_jump.js` の `jsx-a11y/no-onchange` は既存の select に対する warning。
 - RSpec は `DB_NAME=mastodon_development RAILS_ENV=test bundle exec rspec spec/controllers/api/v1/fedibird/reading_bookmarks_controller_spec.rb spec/controllers/api/v1/timelines/seek_controller_spec.rb`。25 examples、失敗 0。
 
@@ -84,6 +84,7 @@ Mix は windowed history の対象外。既存の split Jest が実行済みで�
 | P5 復帰 | P3 が seek_pending | seek せず、保護メッセージ | 実行済み | `timeline_reading_bookmark_restore-test` |
 | P5 復帰 | route 変更 | 遅い membership では seek しない | 実行済み | 同 |
 | P4 日付ジャンプ | P3 が seek_pending | resume を取り消してから History だけ seek | 今回追加 | `timeline_navigation_exclusion-test` |
+| P4 日付ジャンプ / 本文結果ジャンプ | `splitBlocked`、または他カラムが split 所有 | seek せず、進行中 resume と再開予約を残す | 今回追加 | 同 |
 | P3 明示再開 | P4 の scroll 未確定 | ジャンプを一度だけ戻し、後から filtered が来ても戻さない | 今回追加 | 同 |
 | P4 ジャンプ | 再開予約のあと、History がまだ開いていない | 予約した resume は実行しない | 今回追加 | 同 |
 | P5 復帰 | 同じ再開予約 | しおりは適用しない。History が開いたら resume だけ | 今回追加 | 同 |

@@ -1667,14 +1667,15 @@ class TimelineSplitControllerCore extends React.Component {
       return Promise.resolve({ outcome: 'unsupported', reason: 'invalid_id', moved: false });
     }
 
+    // An unexecutable jump must not clear a queued or in-flight resume.
+    if (!this.ownsSplit() && this.jumpDisabled()) {
+      return Promise.resolve({ outcome: 'unavailable', reason: 'split_unavailable', moved: false });
+    }
+
     this.abortBookmark({ restore: true });
     this.preemptResumeForSeek();
     this.jumpScrollWait.cancel({ scrollStatus: 'stale', reason: 'stale' });
     const token = ++this.jumpToken;
-
-    if (!this.ownsSplit() && this.jumpDisabled()) {
-      return Promise.resolve({ outcome: 'unavailable', reason: 'split_unavailable', moved: false });
-    }
 
     if (!this.props.onCheckMembership || !this.props.historyContract) {
       return Promise.resolve({ outcome: 'unavailable', reason: 'network', moved: false });
@@ -1746,16 +1747,16 @@ class TimelineSplitControllerCore extends React.Component {
   };
 
   handleJumpSubmit = (query) => {
+    if (!this.ownsSplit() && this.jumpDisabled()) {
+      return Promise.resolve({ outcome: 'unavailable', reason: 'split_unavailable', moved: false });
+    }
+
     this.abortBookmark({ restore: true });
     this.preemptResumeForSeek();
     this.jumpScrollWait.cancel({ scrollStatus: 'stale', reason: 'stale' });
     const token = ++this.jumpToken;
 
     if (!this.ownsSplit()) {
-      if (this.jumpDisabled()) {
-        return Promise.resolve({ outcome: 'unavailable', reason: 'split_unavailable', moved: false });
-      }
-
       this.splitTimeline();
       return this.executeJump(token, query, `${this.splitKeyPrefix()}${this.splitSessionId}`);
     }
