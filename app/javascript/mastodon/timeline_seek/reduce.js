@@ -1,5 +1,6 @@
 import { fromJS } from 'immutable';
 
+import { isDecimalStatusId } from '../timeline_navigation';
 import { beginSeekSession } from '../windowed_history/model';
 import { plainItems, plainWindow, writeWindow } from '../windowed_history/timeline_state';
 import { anchorBeyondSplitBoundary, commitSeekWindow } from './window';
@@ -113,6 +114,32 @@ export const restoreJumpWindow = (timeline, action) => {
       scrollReason: action.reason,
       restored: true,
     }));
+};
+
+// Arms the existing history scroller. Items, the window, live pending, and
+// unread stay as they are. A missing row is left untouched so the caller can
+// fall through to a searchHit seek.
+export const pointLoadedSeek = (timeline, action) => {
+  const current = plainWindow(timeline.get('window'));
+  const items = plainItems(timeline.get('items'));
+
+  if (!current || !action.sessionId || !isDecimalStatusId(action.anchorId) || items.indexOf(action.anchorId) === -1) {
+    return timeline;
+  }
+
+  return timeline.set('seek', seekRecord({
+    id: action.sessionId,
+    phase: 'resolved',
+    generation: current.generation,
+    source: action.source || null,
+    outcome: 'resolved',
+    anchorId: action.anchorId,
+    precision: 'loaded',
+    limitations: ['loaded_window'],
+    scrollStatus: 'pending',
+    scrollRevision: current.revision || 0,
+    scrollReason: null,
+  }));
 };
 
 export const settleSeekScroll = (timeline, action) => {

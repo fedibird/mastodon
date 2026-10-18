@@ -68,15 +68,20 @@ describe('TimelineColumnJumpPanel', () => {
     expect(JSON.stringify(query)).not.toContain('secret');
   });
 
-  it('keeps text search unavailable and Shift+Enter does not submit', () => {
+  it('keeps text search closed on a mix and Shift+Enter does not submit a date jump', () => {
     const onSubmit = jest.fn();
-    renderPanel({ onSubmit });
+    renderPanel({
+      onSubmit,
+      contract: { source: 'mix', path: '/mix', params: {} },
+    });
 
     fireEvent.change(screen.getByLabelText('What to find'), { target: { value: 'text' } });
 
-    expect(screen.getByText('Text search inside this timeline is not available.')).toBeTruthy();
+    expect(screen.getByText('This timeline cannot be searched by text.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Jump' })).toBeDisabled();
+    expect(screen.queryByLabelText('Text')).toBeNull();
 
+    fireEvent.change(screen.getByLabelText('What to find'), { target: { value: 'date' } });
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', shiftKey: true });
 
     expect(onSubmit).not.toHaveBeenCalled();

@@ -24,6 +24,8 @@ import { captureHistorySurface, restoreHistorySurface, subscribeHistorySurface }
 import { jumpAbandonDisposition, jumpScrollDisposition } from 'mastodon/timeline_jump/model';
 import { createJumpScrollWait } from 'mastodon/timeline_jump/scroll_wait';
 import { seekSourceKey } from 'mastodon/timeline_seek/query';
+import { isDecimalStatusId } from 'mastodon/timeline_navigation';
+import { membershipBody, membershipGate, payloadHasSearchText, textJumpRequest, textSearchIdentity } from 'mastodon/timeline_text_search/session';
 import { cancelWindowedHistoryDirection } from '../../../windowed_history/flights';
 import TimelineColumnJumpPanel from './timeline_column_jump';
 
@@ -103,6 +105,12 @@ class TimelineSplitControllerCore extends React.Component {
     onCancelAccountSearch: PropTypes.func,
     onRestoreJump: PropTypes.func,
     onSettleJumpScroll: PropTypes.func,
+    onSearchStatuses: PropTypes.func,
+    onCheckMembership: PropTypes.func,
+    onCancelTextSearch: PropTypes.func,
+    onResolveLoadedRow: PropTypes.func,
+    onPointJump: PropTypes.func,
+    historyBoundaryId: PropTypes.string,
   };
 
   static contextTypes = {
@@ -940,6 +948,14 @@ class TimelineSplitControllerCore extends React.Component {
 
   jumpIsCurrent = (token) => token === this.jumpToken && !this.jumpUnmounted;
 
+  textJumpStillCurrent = (token, flight) => (
+    this.jumpIsCurrent(token)
+    && (this.locationKey || '') === flight.locationKey
+    && (this.props.accountId || '') === flight.accountId
+    && seekSourceKey(this.props.historyContract) === flight.sourceKey
+    && this.instanceId === flight.columnId
+  );
+
   discardJump = ({ close = true } = {}) => {
     const flight = this.jumpFlight;
 
@@ -948,6 +964,10 @@ class TimelineSplitControllerCore extends React.Component {
 
     if (this.props.onCancelAccountSearch) {
       this.props.onCancelAccountSearch();
+    }
+
+    if (this.props.onCancelTextSearch) {
+      this.props.onCancelTextSearch();
     }
 
     this.jumpScrollWait.cancel({ scrollStatus: 'stale', reason: 'stale' });
@@ -1178,6 +1198,124 @@ class TimelineSplitControllerCore extends React.Component {
     });
   };
 
+  executeLoadedJump = (token, plan, splitTimelineId) => {
+    const reading = captureHistorySurface(splitTimelineId);
+
+    this.jumpFlight = {
+      token,
+      phase: 'pending',
+      splitTimelineId,
+      reading,
+    };
+
+    if (!this.props.onPointJump) {
+      return this.executeJump(token, textJumpRequest({ statusId: plan.statusId }).query, splitTimelineId);
+    }
+
+    return Promise.resolve(this.props.onPointJump({
+      splitTimelineId,
+      anchorId: plan.anchorId,
+      statusId: plan.statusId,
+      contract: this.props.historyContract,
+    })).then(pointed => {
+      if (!this.jumpIsCurrent(token)) {
+        return { outcome: 'stale', reason: 'stale', moved: false };
+      }
+
+      if (!pointed || !pointed.sessionId) {
+        return this.executeJump(token, textJumpRequest({ statusId: plan.statusId }).query, splitTimelineId);
+      }
+
+      return this.finishJumpScroll(token, {
+        outcome: 'resolved',
+        reason: 'loaded',
+        precision: 'loaded',
+        limitations: ['loaded_window'],
+        scroll: { sessionId: pointed.sessionId },
+      }, pointed.snapshot, splitTimelineId);
+    });
+  };
+
+  handleTextResultJump = ({ statusId } = {}) => {
+    const token = ++this.jumpToken;
+
+    if (!isDecimalStatusId(statusId)) {
+      return Promise.resolve({ outcome: 'unsupported', reason: 'invalid_id', moved: false });
+    }
+
+    if (!this.ownsSplit() && this.jumpDisabled()) {
+      return Promise.resolve({ outcome: 'unavailable', reason: 'split_unavailable', moved: false });
+    }
+
+    if (!this.props.onCheckMembership || !this.props.historyContract) {
+      return Promise.resolve({ outcome: 'unavailable', reason: 'network', moved: false });
+    }
+
+    const flight = {
+      locationKey: this.locationKey || '',
+      accountId: this.props.accountId || '',
+      sourceKey: seekSourceKey(this.props.historyContract),
+      columnId: this.instanceId,
+    };
+    const payload = membershipBody(textSearchIdentity({
+      contract: this.props.historyContract,
+      accountId: flight.accountId,
+      columnId: flight.columnId,
+      locationKey: flight.locationKey,
+      splitSessionId: this.ownsSplit() ? this.getSplitTimelineId() : '',
+    }), [statusId]);
+
+    if (payloadHasSearchText(payload) || payload.ids.length !== 1) {
+      return Promise.resolve({ outcome: 'unsupported', reason: 'search_text_not_accepted', moved: false });
+    }
+
+    return Promise.resolve(this.props.onCheckMembership(payload)).then(response => {
+      if (!this.textJumpStillCurrent(token, flight)) {
+        return { outcome: 'stale', reason: 'stale', moved: false };
+      }
+
+      const gate = membershipGate(response, statusId);
+
+      if (!gate.ok) {
+        return { outcome: gate.outcome, reason: gate.reason, moved: false };
+      }
+
+      if (!this.ownsSplit()) {
+        if (this.jumpDisabled()) {
+          return { outcome: 'unavailable', reason: 'split_unavailable', moved: false };
+        }
+
+        this.splitTimeline();
+        const opened = textJumpRequest({ statusId });
+
+        return this.executeJump(token, opened.query, `${this.splitKeyPrefix()}${this.splitSessionId}`);
+      }
+
+      const loaded = this.props.onResolveLoadedRow ? this.props.onResolveLoadedRow(statusId) : null;
+      const plan = textJumpRequest({
+        statusId,
+        loadedDisplayRowId: loaded,
+        boundaryId: this.props.historyBoundaryId,
+      });
+
+      if (!plan.ok) {
+        return { outcome: 'unavailable', reason: plan.reason, moved: false };
+      }
+
+      if (plan.mode === 'loaded') {
+        return this.executeLoadedJump(token, plan, this.getSplitTimelineId());
+      }
+
+      return this.executeJump(token, plan.query, this.getSplitTimelineId());
+    }).catch(() => {
+      if (!this.textJumpStillCurrent(token, flight)) {
+        return { outcome: 'stale', reason: 'stale', moved: false };
+      }
+
+      return { outcome: 'unavailable', reason: 'network', moved: false };
+    });
+  };
+
   handleJumpSubmit = (query) => {
     const token = ++this.jumpToken;
 
@@ -1269,6 +1407,14 @@ class TimelineSplitControllerCore extends React.Component {
         onSearchAccounts={this.props.onSearchJumpAccounts}
         onInvalidate={this.handleJumpInvalidate}
         onClose={this.handleJumpClose}
+        accountId={this.props.accountId}
+        columnId={this.instanceId}
+        locationKey={this.locationKey || ''}
+        splitSessionId={this.ownsSplit() ? this.getSplitTimelineId() : ''}
+        onSearchStatuses={this.props.onSearchStatuses}
+        onCheckMembership={this.props.onCheckMembership}
+        onCancelTextSearch={this.props.onCancelTextSearch}
+        onJumpStatus={this.handleTextResultJump}
       />
     );
   }

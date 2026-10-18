@@ -1,7 +1,7 @@
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 
 import { TIMELINE_SPLIT_CREATE, TIMELINE_SPLIT_DESTROY, TIMELINE_SPLIT_KEEP_HISTORY, TIMELINE_SPLIT_KEEP_LIVE } from '../../actions/timelines';
-import { WINDOW_SEEK_BEGIN, WINDOW_SEEK_COMMIT, WINDOW_SEEK_FAIL, WINDOW_SEEK_RESTORE, WINDOW_SEEK_SCROLL } from '../../timeline_seek/constants';
+import { WINDOW_SEEK_BEGIN, WINDOW_SEEK_COMMIT, WINDOW_SEEK_FAIL, WINDOW_SEEK_POINT, WINDOW_SEEK_RESTORE, WINDOW_SEEK_SCROLL } from '../../timeline_seek/constants';
 import { WINDOW_HISTORY_REQUEST, WINDOW_HISTORY_SUCCESS } from '../../windowed_history/types';
 import timelines from '../timelines';
 import { beginHistoryRequest } from '../../windowed_history/model';
@@ -396,5 +396,43 @@ describe('timeline seek reducer', () => {
     expect(keptReader.getIn([splitId, 'items'])).toEqual(committed.getIn([splitId, 'items']));
     expect(keptReader.getIn([splitId, 'seek', 'scrollStatus'])).toBe('user_scroll');
     expect(keptReader.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['400']));
+  });
+
+  it('points a loaded row without moving history items, live pending, or a saved resume', () => {
+    const split = create(withHome());
+    const resume = ImmutableMap({
+      requestId: 'resume-1',
+      phase: 'restoring',
+      seekSessionId: null,
+      reason: null,
+    });
+    const armed = split.setIn([splitId, 'historyResume'], resume).setIn([splitId, 'unread'], 3);
+    const pointed = timelines(armed, {
+      type: WINDOW_SEEK_POINT,
+      timeline: splitId,
+      sessionId: 'point-1',
+      anchorId: '100',
+      source: sourceKey,
+    });
+
+    expect(pointed.getIn([splitId, 'items'])).toEqual(armed.getIn([splitId, 'items']));
+    expect(pointed.getIn([splitId, 'window'])).toEqual(armed.getIn([splitId, 'window']));
+    expect(pointed.getIn([splitId, 'unread'])).toBe(3);
+    expect(pointed.getIn([splitId, 'historyResume'])).toEqual(resume);
+    expect(pointed.getIn([splitId, 'seek', 'scrollStatus'])).toBe('pending');
+    expect(pointed.getIn([splitId, 'seek', 'anchorId'])).toBe('100');
+    expect(pointed.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['400']));
+    expect(pointed.getIn(['home', 'unread'])).toBe(1);
+
+    const missing = timelines(armed, {
+      type: WINDOW_SEEK_POINT,
+      timeline: splitId,
+      sessionId: 'point-2',
+      anchorId: '1',
+      source: sourceKey,
+    });
+
+    expect(missing.getIn([splitId, 'seek'])).toBeUndefined();
+    expect(missing.getIn([splitId, 'items'])).toEqual(armed.getIn([splitId, 'items']));
   });
 });

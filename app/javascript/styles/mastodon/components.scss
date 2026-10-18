@@ -6385,20 +6385,58 @@ a.status-card.compact:hover {
     text-align: left;
   }
 
-  &__accounts {
+  &__stack,
+  &__results,
+  &__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  &__stack {
+    margin-bottom: 8px;
+  }
+
+  &__accounts,
+  &__results {
     list-style: none;
     margin: 0;
     padding: 0;
   }
 
-  &__account {
+  &__account,
+  &__hit {
     display: block;
     width: 100%;
     margin-top: 4px;
 
-    &[aria-pressed='true'] {
+    &[aria-pressed='true'],
+    &[aria-current='true'] {
       box-shadow: inset 0 0 0 2px $highlight-text-color;
     }
+  }
+
+  &__hit {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    margin-top: 0;
+    font: inherit;
+    text-align: left;
+    border: 0;
+    border-radius: 4px;
+    padding: 8px;
+    background: lighten($ui-base-color, 12%);
+    color: $primary-text-color;
+    cursor: pointer;
+  }
+
+  &__hit-account,
+  &__hit-time,
+  &__hit-excerpt {
+    display: block;
+    max-width: 100%;
   }
 }
 

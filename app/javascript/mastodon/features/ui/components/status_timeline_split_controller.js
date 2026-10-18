@@ -11,7 +11,8 @@ import {
 } from '../../../actions/timelines';
 import { cancelWindowedHistory } from '../../../windowed_history/flights';
 import api from '../../../api';
-import { seekWindowedTimeline, settleWindowSeekScroll } from '../../../actions/timeline_seek';
+import { pointLoadedWindow, seekWindowedTimeline, settleWindowSeekScroll } from '../../../actions/timeline_seek';
+import { loadedDisplayRowId } from '../../../timeline_text_search/session';
 import { WINDOW_SEEK_RESTORE } from '../../../timeline_seek/constants';
 import { me } from '../../../initial_state';
 import { captureHistoryPosition, cancelHistoryResume, resumeHistoryPosition } from '../../../actions/timeline_position';
@@ -45,6 +46,7 @@ const mapStateToProps = (state, ownProps) => {
     historyResume: activeSplitId ? state.getIn(['timelines', activeSplitId, 'historyResume']) || null : null,
     historyItemIds: activeSplitId ? state.getIn(['timelines', activeSplitId, 'items']) || null : null,
     historySeek: activeSplitId ? state.getIn(['timelines', activeSplitId, 'seek']) || null : null,
+    historyBoundaryId: activeSplitId ? state.getIn(['timelines', activeSplitId, 'window', 'boundaryId']) || undefined : undefined,
     accountId: ownProps.accountId || accountIdFromInitialState(me),
   };
 };
@@ -63,6 +65,7 @@ class StatusTimelineSplitController extends React.Component {
     historyResume: PropTypes.object,
     historyItemIds: PropTypes.object,
     historySeek: PropTypes.object,
+    historyBoundaryId: PropTypes.string,
     accountId: PropTypes.string,
     historyContract: PropTypes.object,
   };
@@ -148,6 +151,85 @@ class StatusTimelineSplitController extends React.Component {
     }
   };
 
+  cancelTextFlight = () => {
+    if (this.textSearchCancel) {
+      this.textSearchCancel();
+      this.textSearchCancel = null;
+    }
+
+    if (this.textMembershipCancel) {
+      this.textMembershipCancel();
+      this.textMembershipCancel = null;
+    }
+  };
+
+  handleSearchTimelineStatuses = ({ q, offset, limit }) => {
+    if (this.textSearchCancel) {
+      this.textSearchCancel();
+      this.textSearchCancel = null;
+    }
+
+    return this.props.dispatch((dispatch, getState) => api(getState).get('/api/v2/search', {
+      cancelToken: new CancelToken(cancel => {
+        this.textSearchCancel = cancel;
+      }),
+      params: {
+        q,
+        type: 'statuses',
+        offset,
+        limit,
+        resolve: false,
+      },
+    }).then(response => {
+      const data = response.data || {};
+      const statuses = Array.isArray(data.statuses) ? data.statuses : [];
+
+      return { ok: true, statuses, received: statuses.length };
+    }).catch(error => {
+      if (isCancel(error)) {
+        return { ok: false, reason: 'cancelled', statuses: [], received: 0 };
+      }
+
+      return { ok: false, reason: 'network', statuses: [], received: 0 };
+    }));
+  };
+
+  handleCheckTimelineMembership = (body) => {
+    if (this.textMembershipCancel) {
+      this.textMembershipCancel();
+      this.textMembershipCancel = null;
+    }
+
+    return this.props.dispatch((dispatch, getState) => api(getState).post('/api/v1/timelines/membership', body, {
+      cancelToken: new CancelToken(cancel => {
+        this.textMembershipCancel = cancel;
+      }),
+    }).then(response => ({
+      ok: true,
+      body: response.data,
+    })).catch(error => {
+      if (isCancel(error)) {
+        return { ok: false, reason: 'cancelled' };
+      }
+
+      return { ok: false, reason: 'network' };
+    }));
+  };
+
+  handleResolveLoadedRow = (statusId) => this.props.dispatch((dispatch, getState) => {
+    const splitId = this.props.activeSplitId;
+    const items = splitId ? getState().getIn(['timelines', splitId, 'items']) : null;
+    const statuses = getState().get('statuses');
+
+    return loadedDisplayRowId(items, statusId, (rowId) => {
+      const reblogId = statuses && statuses.getIn([rowId, 'reblog', 'id']);
+
+      return reblogId !== undefined && reblogId !== null ? String(reblogId) : null;
+    });
+  });
+
+  handlePointJump = (payload) => this.props.dispatch(pointLoadedWindow(payload));
+
   handleSettleJumpScroll = ({ splitTimelineId, sessionId, revision, anchorId, scrolled, reason }) => {
     this.props.dispatch(settleWindowSeekScroll(splitTimelineId, {
       sessionId,
@@ -170,7 +252,7 @@ class StatusTimelineSplitController extends React.Component {
   };
 
   render () {
-    const { dispatch, activeSplitId, splitReturnAnchor, splitBlocked, historyResume, historyItemIds, historySeek, accountId, historyContract, ...rest } = this.props;
+    const { dispatch, activeSplitId, splitReturnAnchor, splitBlocked, historyResume, historyItemIds, historySeek, historyBoundaryId, accountId, historyContract, ...rest } = this.props;
 
     return (
       <TimelineSplitControllerCore
@@ -181,11 +263,17 @@ class StatusTimelineSplitController extends React.Component {
         historyResume={historyResume}
         historyItemIds={historyItemIds}
         historySeek={historySeek}
+        historyBoundaryId={historyBoundaryId}
         accountId={accountId}
         historyContract={historyContract}
         onSeekTimeline={this.handleSeekTimeline}
         onSearchJumpAccounts={this.handleSearchJumpAccounts}
         onCancelAccountSearch={this.handleCancelAccountSearch}
+        onSearchStatuses={this.handleSearchTimelineStatuses}
+        onCheckMembership={this.handleCheckTimelineMembership}
+        onCancelTextSearch={this.cancelTextFlight}
+        onResolveLoadedRow={this.handleResolveLoadedRow}
+        onPointJump={this.handlePointJump}
         onRestoreJump={this.handleRestoreJump}
         onSettleJumpScroll={this.handleSettleJumpScroll}
         onCreate={this.handleCreate}
