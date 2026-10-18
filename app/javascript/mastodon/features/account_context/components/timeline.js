@@ -112,6 +112,53 @@ class AccountContextTimeline extends React.PureComponent {
     dispatch(pageAccountContext({ hostTimelineId: hostKey, direction: 'newer' }));
   };
 
+  idsKey = (ids) => (ids && typeof ids.join === 'function' ? ids.join('\n') : '');
+
+  rememberScroll = (ids, top) => {
+    if (!ids) {
+      return;
+    }
+
+    const next = (this.scrollTops || []).filter(entry => entry.ids !== ids);
+
+    next.push({ ids, top });
+    this.scrollTops = next.slice(-4);
+  };
+
+  getSnapshotBeforeUpdate (prevProps) {
+    if (!this.node || prevProps.statusIds === this.props.statusIds) {
+      return null;
+    }
+
+    const list = this.node.querySelector('.scrollable');
+
+    if (!list) {
+      return null;
+    }
+
+    return {
+      top: list.scrollTop,
+      ids: this.idsKey(prevProps.statusIds),
+    };
+  }
+
+  componentDidUpdate (prevProps, _prevState, snapshot) {
+    if (snapshot) {
+      this.rememberScroll(snapshot.ids, snapshot.top);
+    }
+
+    if (prevProps.statusIds === this.props.statusIds) {
+      return;
+    }
+
+    const saved = (this.scrollTops || []).find(entry => entry.ids === this.idsKey(this.props.statusIds));
+    const list = this.node && this.node.querySelector('.scrollable');
+
+    if (list && saved && list.scrollTop !== saved.top) {
+      list.scrollTop = saved.top;
+    }
+  }
+
   handleSeekScroll = ({ sessionId, revision, anchorId, scrolled }) => {
     const { dispatch, hostKey, session, statusIds, contextSource } = this.props;
     const article = this.node ? this.node.querySelector(`article[data-id="${anchorId}"]`) : null;

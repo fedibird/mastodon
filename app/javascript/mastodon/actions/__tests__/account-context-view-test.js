@@ -9,7 +9,7 @@ import { accountContextHostId } from '../../timeline_seek/account_context';
 import { seekSourceKey } from '../../timeline_seek/query';
 import { accountHistoryContract } from '../../windowed_history/sources';
 import { accountContextFilters } from '../../timeline_seek/account_context';
-import { closeAccountContext, lookupReblogWrapper, openAccountContext } from '../account_context_view';
+import { closeAccountContext, lookupReblogWrapper, openAccountContext, settleAccountContextView } from '../account_context_view';
 
 const mockGet = jest.fn();
 const mockPost = jest.fn();
@@ -92,6 +92,29 @@ const boostStatus = fromJS({
   id: anchor,
   account: { id: '42' },
   reblog: { id: '9007199254740991', account: { id: '7' } },
+});
+
+const settleDisplay = (store, host, opened) => {
+  const timelineId = accountContextHostId(host);
+  const source = store.getState().getIn(['accountContextViews', 'sessions', host, 'sourceKey']);
+
+  return store.dispatch(settleAccountContextView({
+    hostTimelineId: host,
+    renderedIds: store.getState().getIn(['timelines', timelineId, 'items']),
+    articlePresent: true,
+    sessionId: opened.scroll.sessionId,
+    scrollRevision: opened.scroll.revision,
+    source,
+  }));
+};
+
+const otherAccountBoost = () => accountContextTarget({
+  kind: 'boost',
+  status: fromJS({
+    id: '9007199254740777',
+    account: { id: '99' },
+    reblog: { id: '9007199254740666', account: { id: '3' } },
+  }),
 });
 
 describe('openAccountContext', () => {
@@ -203,20 +226,14 @@ describe('openAccountContext', () => {
     const store = storeWithProfile();
     const timelineId = accountContextHostId(splitHost);
     const targetA = accountContextTarget({ kind: 'quote', status: quoteStatus });
+    const openedA = await store.dispatch(openAccountContext({ hostTimelineId: splitHost, target: targetA }));
 
-    await store.dispatch(openAccountContext({ hostTimelineId: splitHost, target: targetA }));
+    settleDisplay(store, splitHost, openedA);
 
     const keptItems = store.getState().getIn(['timelines', timelineId, 'items']);
     const keptWindow = store.getState().getIn(['timelines', timelineId, 'window']);
     const keptSource = store.getState().getIn(['timelines', timelineId, 'contextSource']);
-    const targetB = accountContextTarget({
-      kind: 'boost',
-      status: fromJS({
-        id: '9007199254740777',
-        account: { id: '99' },
-        reblog: { id: '9007199254740666', account: { id: '3' } },
-      }),
-    });
+    const targetB = otherAccountBoost();
 
     mockPost.mockImplementation(() => Promise.resolve({
       data: {
@@ -277,6 +294,136 @@ describe('openAccountContext', () => {
     expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'notice'])).toBeNull();
     expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'seekSessionId'])).toBe(second.scroll.sessionId);
     expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(keptItems);
+    expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
+  });
+
+  it('restores the previous source when the new anchor is not in the DOM', async () => {
+    const store = storeWithProfile();
+    const timelineId = accountContextHostId(splitHost);
+    const openedA = await store.dispatch(openAccountContext({
+      hostTimelineId: splitHost,
+      target: accountContextTarget({ kind: 'quote', status: quoteStatus }),
+    }));
+
+    settleDisplay(store, splitHost, openedA);
+
+    const keptItems = store.getState().getIn(['timelines', timelineId, 'items']);
+    const keptWindow = store.getState().getIn(['timelines', timelineId, 'window']);
+    const keptSource = store.getState().getIn(['timelines', timelineId, 'contextSource']);
+    const openedB = await store.dispatch(openAccountContext({
+      hostTimelineId: splitHost,
+      target: otherAccountBoost(),
+    }));
+    const sourceB = store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'sourceKey']);
+
+    expect(openedB.opened).toBe(true);
+    expect(sourceB).not.toBe(keptSource);
+
+    const missing = store.dispatch(settleAccountContextView({
+      hostTimelineId: splitHost,
+      renderedIds: store.getState().getIn(['timelines', timelineId, 'items']),
+      articlePresent: false,
+      sessionId: openedB.scroll.sessionId,
+      scrollRevision: openedB.scroll.revision,
+      source: sourceB,
+    }));
+
+    expect(missing.reason).toBe('not_loaded');
+    expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(keptItems);
+    expect(store.getState().getIn(['timelines', timelineId, 'window'])).toEqual(keptWindow);
+    expect(store.getState().getIn(['timelines', timelineId, 'contextSource'])).toBe(keptSource);
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'accountId'])).toBe('42');
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'sourceKey'])).toBe(keptSource);
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'notice'])).toBe('not_loaded');
+    expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
+  });
+
+  it('restores the previous source when the new anchor is filtered out', async () => {
+    const store = storeWithProfile();
+    const timelineId = accountContextHostId(splitHost);
+    const openedA = await store.dispatch(openAccountContext({
+      hostTimelineId: splitHost,
+      target: accountContextTarget({ kind: 'quote', status: quoteStatus }),
+    }));
+
+    settleDisplay(store, splitHost, openedA);
+
+    const keptItems = store.getState().getIn(['timelines', timelineId, 'items']);
+    const keptSource = store.getState().getIn(['timelines', timelineId, 'contextSource']);
+    const openedB = await store.dispatch(openAccountContext({
+      hostTimelineId: splitHost,
+      target: otherAccountBoost(),
+    }));
+
+    const filtered = store.dispatch(settleAccountContextView({
+      hostTimelineId: splitHost,
+      renderedIds: ImmutableList(['1']),
+      articlePresent: true,
+      sessionId: openedB.scroll.sessionId,
+      scrollRevision: openedB.scroll.revision,
+      source: store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'sourceKey']),
+    }));
+
+    expect(filtered.reason).toBe('filtered');
+    expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(keptItems);
+    expect(store.getState().getIn(['timelines', timelineId, 'contextSource'])).toBe(keptSource);
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'accountId'])).toBe('42');
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'notice'])).toBe('filtered');
+  });
+
+  it('restores the last settled account when a later switch fails during an unfinished one', async () => {
+    const store = storeWithProfile();
+    const timelineId = accountContextHostId(splitHost);
+    const openedA = await store.dispatch(openAccountContext({
+      hostTimelineId: splitHost,
+      target: accountContextTarget({ kind: 'quote', status: quoteStatus }),
+    }));
+
+    settleDisplay(store, splitHost, openedA);
+
+    const keptItems = store.getState().getIn(['timelines', timelineId, 'items']);
+    const keptWindow = store.getState().getIn(['timelines', timelineId, 'window']);
+    const keptSource = store.getState().getIn(['timelines', timelineId, 'contextSource']);
+    const resolvers = [];
+
+    mockPost.mockImplementation(() => new Promise(resolve => {
+      resolvers.push(resolve);
+    }));
+
+    const pendingB = store.dispatch(openAccountContext({
+      hostTimelineId: splitHost,
+      target: otherAccountBoost(),
+    }));
+
+    mockPost.mockImplementation(() => Promise.resolve({
+      data: {
+        version: 1,
+        outcome: 'not_found',
+        capability: 'supported',
+        reason: 'not_found',
+        limitations: [],
+      },
+    }));
+
+    const failed = await store.dispatch(openAccountContext({
+      hostTimelineId: splitHost,
+      target: accountContextTarget({
+        kind: 'quote',
+        status: quoteStatus.set('id', '9007199254740555').setIn(['account', 'id'], '77'),
+      }),
+    }));
+
+    resolvers[0]({ data: resolvedBody('9007199254740777') });
+    const lateB = await pendingB;
+
+    expect(failed.restored).toBe(true);
+    expect(lateB.stale).toBe(true);
+    expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(keptItems);
+    expect(store.getState().getIn(['timelines', timelineId, 'window'])).toEqual(keptWindow);
+    expect(store.getState().getIn(['timelines', timelineId, 'contextSource'])).toBe(keptSource);
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'accountId'])).toBe('42');
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'statusId'])).toBe(anchor);
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'notice'])).toBe('not_found');
     expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
   });
 });

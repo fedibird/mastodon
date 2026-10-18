@@ -2,13 +2,17 @@
 
 # One visible boost wrapper for one account and one original status.
 #
-# The query is bounded to two rows (account_id + reblog_of_id, newest first).
-# It does not scan the account timeline and it does not fetch remote posts.
-# Rows StatusPolicy will not show are treated as missing, so a viewer who
-# cannot see a boost gets the same response as a viewer looking at an account
-# with no boost. Ambiguous means two visible rows. The original status id is
-# never returned as the wrapper id.
+# The query reads at most SCAN_LIMIT newest rows for this account and original
+# status, plus one extra row to see whether the page is truncated. It does not
+# scan the whole account timeline and it does not fetch remote posts.
+# Rows StatusPolicy will not show are treated as missing. Two visible rows are
+# ambiguous. One visible row on a truncated page is unknown: another visible
+# row may sit past the page, so the lookup does not guess. A page of only
+# hidden rows stays absent, including when the page is truncated, so a hidden
+# boost is not distinguishable from no boost. The original status id is never
+# returned as the wrapper id.
 class AccountContext::ReblogWrapperLookup
+  SCAN_LIMIT = 8
   Result = Struct.new(:state, :reason, :status_id, :account_id, keyword_init: true)
 
   def self.call(viewer:, original:, account_id:)
@@ -31,13 +35,14 @@ class AccountContext::ReblogWrapperLookup
     rows = Status.include_expired
                  .where(account_id: account.id, reblog_of_id: @original.id)
                  .reorder(id: :desc)
-                 .limit(2)
+                 .limit(SCAN_LIMIT + 1)
                  .to_a
+    truncated = rows.size > SCAN_LIMIT
+    visible = rows.first(SCAN_LIMIT).select { |wrapper| StatusPolicy.new(@viewer, wrapper).show? }
 
-    visible = rows.select { |wrapper| StatusPolicy.new(@viewer, wrapper).show? }
-
-    return absent(account) if visible.empty?
     return unknown('ambiguous', account) if visible.size > 1
+    return unknown('scan_limited', account) if truncated && visible.size == 1
+    return absent(account) if visible.empty?
 
     wrapper = visible.first
     return unknown('original_id', account) if wrapper.id.to_s == @original.id.to_s

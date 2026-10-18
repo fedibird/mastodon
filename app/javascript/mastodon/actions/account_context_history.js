@@ -20,7 +20,7 @@ const sameHost = (timeline, source) => (
   && timeline.get('window')
 );
 
-export function openAccountContextHost({ hostTimelineId, contract } = {}) {
+export function openAccountContextHost({ hostTimelineId, contract, preserveItems = false } = {}) {
   return (dispatch, getState) => {
     const timelineId = accountContextHostId(hostTimelineId);
 
@@ -36,6 +36,20 @@ export function openAccountContextHost({ hostTimelineId, contract } = {}) {
     }
 
     cancelWindowedHistory(timelineId);
+
+    // Keep the posts on screen until the new seek commits. The source key
+    // still changes so the request is the active one; a failure restores it.
+    if (preserveItems && existing && existing.get('contextHost') === true && existing.get('window')) {
+      dispatch({
+        type: ACCOUNT_CONTEXT_OPEN,
+        timeline: timelineId,
+        source,
+        preserveItems: true,
+      });
+
+      return timelineId;
+    }
+
     dispatch({
       type: ACCOUNT_CONTEXT_OPEN,
       timeline: timelineId,
@@ -64,9 +78,9 @@ export function closeAccountContextHost(hostTimelineId) {
 }
 
 // Status id → account context window. The profile timeline id is not the host.
-export function seekAccountContext({ hostTimelineId, contract, statusId } = {}) {
+export function seekAccountContext({ hostTimelineId, contract, statusId, preserveItems = false } = {}) {
   return (dispatch, getState) => {
-    const timelineId = dispatch(openAccountContextHost({ hostTimelineId, contract }));
+    const timelineId = dispatch(openAccountContextHost({ hostTimelineId, contract, preserveItems }));
 
     if (!timelineId || typeof statusId !== 'string') {
       return Promise.resolve(normalizeSeekResult({

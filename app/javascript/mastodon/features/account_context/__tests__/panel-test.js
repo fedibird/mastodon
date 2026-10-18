@@ -48,10 +48,10 @@ jest.mock('../../../filter_reconciliation/surface', () => ({
 import AccountContextLayer from '..';
 import timelines from '../../../reducers/timelines';
 import accountContextViews from '../../../reducers/account_context_views';
-import { accountContextHostId } from '../../../timeline_seek/account_context';
+import { ACCOUNT_CONTEXT_OPEN, accountContextFilters, accountContextHostId } from '../../../timeline_seek/account_context';
+import { WINDOW_SEEK_RESTORE } from '../../../timeline_seek/constants';
 import { seekSourceKey } from '../../../timeline_seek/query';
 import { accountHistoryContract } from '../../../windowed_history/sources';
-import { accountContextFilters } from '../../../timeline_seek/account_context';
 
 const anchor = '9007199254740993';
 const hostKey = 'home:split:column:session';
@@ -247,5 +247,45 @@ describe('AccountContextLayer', () => {
     expect(store.getState().get('timelines').has(accountContextHostId(otherHost))).toBe(true);
     expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
     expect(store.getState().getIn(['accountContextViews', 'order']).toArray()).toEqual([otherHost]);
+  });
+
+  it('puts the list scroll back when the previous posts return', () => {
+    const store = buildStore();
+    const view = render(
+      <Provider store={store}>
+        <AccountContextLayer />
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    const timelineId = accountContextHostId(hostKey);
+    const items = store.getState().getIn(['timelines', timelineId, 'items']);
+    const windowState = store.getState().getIn(['timelines', timelineId, 'window']);
+
+    list.scrollTop = 180;
+
+    act(() => {
+      store.dispatch({
+        type: ACCOUNT_CONTEXT_OPEN,
+        timeline: timelineId,
+        source: 'account?switched',
+        window: windowState.toJS(),
+      });
+    });
+
+    expect(store.getState().getIn(['timelines', timelineId, 'items']).size).toBe(0);
+
+    act(() => {
+      store.dispatch({
+        type: WINDOW_SEEK_RESTORE,
+        timeline: timelineId,
+        items,
+        windowState,
+        reason: 'not_loaded',
+        replaceWindow: true,
+      });
+    });
+
+    expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(items);
+    expect(list.scrollTop).toBe(180);
   });
 });

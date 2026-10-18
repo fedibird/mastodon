@@ -4,6 +4,7 @@ export const ACCOUNT_CONTEXT_VIEW_OPEN = 'ACCOUNT_CONTEXT_VIEW_OPEN';
 export const ACCOUNT_CONTEXT_VIEW_SEEK = 'ACCOUNT_CONTEXT_VIEW_SEEK';
 export const ACCOUNT_CONTEXT_VIEW_NOTICE = 'ACCOUNT_CONTEXT_VIEW_NOTICE';
 export const ACCOUNT_CONTEXT_VIEW_RESTORE = 'ACCOUNT_CONTEXT_VIEW_RESTORE';
+export const ACCOUNT_CONTEXT_VIEW_COMMIT = 'ACCOUNT_CONTEXT_VIEW_COMMIT';
 export const ACCOUNT_CONTEXT_VIEW_CLOSE = 'ACCOUNT_CONTEXT_VIEW_CLOSE';
 
 const initialState = ImmutableMap({
@@ -25,6 +26,8 @@ export default function accountContextViews(state = initialState, action) {
     }
 
     return state.withMutations(map => {
+      const prior = map.getIn(['sessions', action.hostKey]);
+
       map.set('order', remember(map.get('order'), action.hostKey));
       map.setIn(['sessions', action.hostKey], ImmutableMap({
         hostKey: action.hostKey,
@@ -41,6 +44,9 @@ export default function accountContextViews(state = initialState, action) {
         scrollRevision: null,
         previousItems: null,
         previousWindow: null,
+        previousSourceKey: null,
+        previousSession: null,
+        committed: action.committed || (prior && prior.get('committed')) || null,
       }));
     });
   case ACCOUNT_CONTEXT_VIEW_SEEK: {
@@ -63,6 +69,8 @@ export default function accountContextViews(state = initialState, action) {
       scrollRevision: action.scrollRevision === undefined ? null : action.scrollRevision,
       previousItems: previous.items || null,
       previousWindow: previous.windowState || null,
+      previousSourceKey: previous.sourceKey || null,
+      previousSession: previous.session || null,
     }));
   }
   case ACCOUNT_CONTEXT_VIEW_NOTICE: {
@@ -95,6 +103,30 @@ export default function accountContextViews(state = initialState, action) {
       notice: action.notice || 'unknown',
       seekSessionId: null,
       scrollRevision: null,
+      previousItems: null,
+      previousWindow: null,
+      previousSourceKey: null,
+      previousSession: null,
+      committed: current.get('committed'),
+    }));
+  }
+  case ACCOUNT_CONTEXT_VIEW_COMMIT: {
+    const current = state.getIn(['sessions', action.hostKey]);
+
+    if (!current || current.get('generation') !== action.generation || !action.committed) {
+      return state;
+    }
+
+    if (action.seekSessionId && current.get('seekSessionId') && current.get('seekSessionId') !== action.seekSessionId) {
+      return state;
+    }
+
+    return state.setIn(['sessions', action.hostKey], current.merge({
+      committed: action.committed,
+      previousItems: null,
+      previousWindow: null,
+      previousSourceKey: null,
+      previousSession: null,
     }));
   }
   case ACCOUNT_CONTEXT_VIEW_CLOSE:

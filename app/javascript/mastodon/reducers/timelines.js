@@ -312,7 +312,19 @@ const keepLiveTimeline = (source, liveAtTop) => {
 };
 
 const openAccountContext = (state, action) => {
-  if (typeof action.timeline !== 'string' || action.timeline.indexOf(ACCOUNT_CONTEXT_PREFIX) !== 0 || !action.window) {
+  if (typeof action.timeline !== 'string' || action.timeline.indexOf(ACCOUNT_CONTEXT_PREFIX) !== 0) {
+    return state;
+  }
+
+  if (action.preserveItems) {
+    const existing = state.get(action.timeline);
+
+    if (existing && existing.get('contextHost') === true && existing.get('window')) {
+      return state.set(action.timeline, existing.set('contextSource', action.source));
+    }
+  }
+
+  if (!action.window) {
     return state;
   }
 

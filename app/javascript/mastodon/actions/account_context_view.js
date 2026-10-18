@@ -1,3 +1,4 @@
+import { Map as ImmutableMap } from 'immutable';
 import api from 'mastodon/api';
 
 import { ACCOUNT_CONTEXT_OPEN, accountContextFilters, accountContextHostId } from '../timeline_seek/account_context';
@@ -7,6 +8,7 @@ import { accountHistoryContract } from '../windowed_history/sources';
 import { closeAccountContextHost, expandAccountContext, seekAccountContext, settleAccountContextScroll } from './account_context_history';
 import {
   ACCOUNT_CONTEXT_VIEW_CLOSE,
+  ACCOUNT_CONTEXT_VIEW_COMMIT,
   ACCOUNT_CONTEXT_VIEW_NOTICE,
   ACCOUNT_CONTEXT_VIEW_OPEN,
   ACCOUNT_CONTEXT_VIEW_RESTORE,
@@ -46,21 +48,66 @@ const stillCurrent = (state, hostKey, generation, sourceKey) => {
   );
 };
 
-const snapshotHost = (state, hostKey) => {
-  const timelineId = accountContextHostId(hostKey);
-  const timeline = timelineId && state.getIn(['timelines', timelineId]);
-  const session = state.getIn(['accountContextViews', 'sessions', hostKey]);
-
-  if (!timeline || timeline.get('contextHost') !== true || !timeline.get('window') || !session) {
+const heldFromCommitted = (committed) => {
+  if (!committed || !committed.get('windowState') || !committed.get('session')) {
     return null;
   }
 
   return {
-    sourceKey: timeline.get('contextSource'),
-    items: timeline.get('items'),
-    windowState: timeline.get('window'),
-    session,
+    sourceKey: committed.get('sourceKey'),
+    items: committed.get('items'),
+    windowState: committed.get('windowState'),
+    session: committed.get('session'),
   };
+};
+
+const committedRecord = (held) => {
+  if (!held || !held.windowState || !held.session) {
+    return null;
+  }
+
+  return ImmutableMap({
+    sourceKey: held.sourceKey,
+    items: held.items,
+    windowState: held.windowState,
+    session: held.session,
+  });
+};
+
+// The restore target is the last display whose seek scroll settled, or a
+// ready timeline whose scroll is not still pending. An in-flight switch only
+// has an empty or unconfirmed window, so it is not a restore target.
+const restoreTarget = (state, hostKey) => {
+  const timelineId = accountContextHostId(hostKey);
+  const timeline = timelineId && state.getIn(['timelines', timelineId]);
+  const session = state.getIn(['accountContextViews', 'sessions', hostKey]);
+  const stored = heldFromCommitted(session && session.get('committed'));
+  const seek = timeline && timeline.get('seek');
+
+  if (!session) {
+    return null;
+  }
+
+  if (seek && seek.get('scrollStatus') === 'pending') {
+    return stored;
+  }
+
+  if (
+    session.get('phase') === 'ready'
+    && timeline
+    && timeline.get('contextHost') === true
+    && timeline.get('window')
+    && timeline.get('contextSource') === session.get('sourceKey')
+  ) {
+    return {
+      sourceKey: timeline.get('contextSource'),
+      items: timeline.get('items'),
+      windowState: timeline.get('window'),
+      session,
+    };
+  }
+
+  return stored;
 };
 
 const restoreHeldHost = (dispatch, hostKey, generation, held, notice) => {
@@ -104,7 +151,7 @@ export function openAccountContext({ hostTimelineId, target } = {}) {
     }));
     const sourceKey = seekSourceKey(contract);
     const generation = nextRequestSerial();
-    const held = snapshotHost(getState(), hostKey);
+    const held = restoreTarget(getState(), hostKey);
     const timelineId = accountContextHostId(hostKey);
 
     dispatch({
@@ -117,12 +164,14 @@ export function openAccountContext({ hostTimelineId, target } = {}) {
       reply: !!target.reply,
       reblog: !!target.reblog,
       sourceKey,
+      committed: committedRecord(held),
     });
 
     return dispatch(seekAccountContext({
       hostTimelineId: hostKey,
       contract,
       statusId: target.statusId,
+      preserveItems: true,
     })).then(result => {
       const scroll = result && result.scroll;
       const liveSeekId = getState().getIn(['timelines', timelineId, 'seek', 'id']);
@@ -135,12 +184,14 @@ export function openAccountContext({ hostTimelineId, target } = {}) {
         return { ...result, opened: false, stale: true };
       }
 
-      // A failed switch must put back the source that was on screen. The
-      // previous captured after the host reset is only the empty window.
+      // A failed switch restores the last settled display. The snapshot taken
+      // after a source change is the empty window of the attempt, not that display.
       if (result.outcome !== 'resolved' && held) {
         restoreHeldHost(dispatch, hostKey, generation, held, result.outcome || result.reason || 'unknown');
         return { ...result, opened: false, restored: true, hostKey, generation };
       }
+
+      const previous = held && held.sourceKey !== sourceKey ? held : result.previous;
 
       dispatch({
         type: ACCOUNT_CONTEXT_VIEW_SEEK,
@@ -150,7 +201,7 @@ export function openAccountContext({ hostTimelineId, target } = {}) {
         outcome: result.outcome,
         seekSessionId: scroll ? scroll.sessionId : null,
         scrollRevision: scroll ? scroll.revision : null,
-        previous: result.previous,
+        previous,
       });
 
       return { ...result, opened: true, hostKey, generation };
@@ -218,16 +269,36 @@ export function settleAccountContextView({
       items: session.get('previousItems'),
       windowState: session.get('previousWindow'),
     } : null;
+    const previousSource = session.get('previousSourceKey');
+    const crossSource = !!(
+      previousSource
+      && previousSource !== session.get('sourceKey')
+      && session.get('previousSession')
+      && stored
+    );
 
     const plan = dispatch(settleAccountContextScroll({
       hostTimelineId: hostKey,
       renderedIds,
       articlePresent,
-      previous: stored,
+      previous: crossSource ? null : stored,
       sessionId,
       scrollRevision,
       source,
     }));
+
+    if ((plan.reason === 'filtered' || plan.reason === 'not_loaded') && crossSource) {
+      if (stillCurrent(getState(), hostKey, session.get('generation'), source)) {
+        restoreHeldHost(dispatch, hostKey, session.get('generation'), {
+          sourceKey: previousSource,
+          items: session.get('previousItems'),
+          windowState: session.get('previousWindow'),
+          session: session.get('previousSession'),
+        }, plan.reason);
+      }
+
+      return plan;
+    }
 
     if (plan.reason === 'filtered' || plan.reason === 'not_loaded') {
       dispatch({
@@ -236,6 +307,24 @@ export function settleAccountContextView({
         generation: session.get('generation'),
         seekSessionId: sessionId,
         notice: plan.reason,
+      });
+    }
+
+    if (plan.scroll) {
+      const shown = getState().getIn(['timelines', timelineId]);
+      const shownSession = getState().getIn(['accountContextViews', 'sessions', hostKey]) || session;
+
+      dispatch({
+        type: ACCOUNT_CONTEXT_VIEW_COMMIT,
+        hostKey,
+        generation: shownSession.get('generation'),
+        seekSessionId: sessionId,
+        committed: committedRecord({
+          sourceKey: shownSession.get('sourceKey'),
+          items: shown && shown.get('items'),
+          windowState: shown && shown.get('window'),
+          session: shownSession,
+        }),
       });
     }
 
