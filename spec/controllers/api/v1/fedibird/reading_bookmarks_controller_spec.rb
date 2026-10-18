@@ -221,6 +221,69 @@ describe Api::V1::Fedibird::ReadingBookmarksController do
     end
   end
 
+  describe 'source context' do
+    it 'stores allowlisted context for the open sources and does not keep a token' do
+      create_place(name: 'Limited place', source: 'limited', context: { visibilities: %w(unlisted public) })
+      limited = JSON.parse(response.body)
+      expect(response).to have_http_status(201)
+      expect(limited['source']).to eq('limited')
+      expect(limited['source_timeline_id']).to eq('limited')
+      expect(limited['context']).to eq('visibilities' => %w(public unlisted))
+
+      create_place(name: 'Public remote', source: 'public', context: { remote: true, only_media: false })
+      public_row = JSON.parse(response.body)
+      expect(public_row['source_timeline_id']).to eq('public')
+      expect(public_row['context']).to include('remote' => true, 'only_media' => false, 'without_bot' => false)
+
+      create_place(name: 'Tag place', source: 'hashtag', context: { hashtag: '#SeekNews', any: ['extra'] })
+      tag = JSON.parse(response.body)
+      expect(tag['source_timeline_id']).to eq('hashtag:SeekNews')
+      expect(tag['context']).to eq('hashtag' => 'SeekNews', 'any' => ['extra'])
+      expect(response.body).not_to include('public-body-phrase')
+
+      create_place(name: 'Domain place', source: 'domain', context: { domain: 'Example.COM', local: false })
+      domain = JSON.parse(response.body)
+      expect(domain['source']).to eq('domain')
+      expect(domain['context']['domain']).to eq('example.com')
+      expect(domain['source_timeline_id']).to eq('domain:example.com')
+
+      create_place(name: 'Personal place', source: 'personal', context: { only_media: true })
+      personal = JSON.parse(response.body)
+      expect(personal['source']).to eq('personal')
+      expect(personal['context']).to eq('only_media' => true, 'without_media' => false)
+
+      secret = 'bookmark-token-secret'
+      expect { create_place(name: 'Token place', context: { token: secret }) }.not_to change(TimelineReadingBookmark, :count)
+      expect(response).to have_http_status(422)
+      expect(JSON.parse(response.body)['error']).to eq('search_or_content_not_accepted')
+      expect(response.body).not_to include(secret)
+
+      expect { create_place(name: 'Local domain', source: 'domain', context: { domain: 'example.com', local: true }) }.not_to change(TimelineReadingBookmark, :count)
+      expect(JSON.parse(response.body)['error']).to eq('invalid_context')
+    end
+
+    it 'does not publish a blocked author anchor or its text' do
+      author = Fabricate(:account)
+      secret = Fabricate(:status, account: author, visibility: :public, text: 'blocked-anchor-body')
+      author.block!(user.account)
+
+      create_place(name: 'Blocked anchor', anchor: anchor(secret.id.to_s))
+      body = JSON.parse(response.body)
+
+      expect(response).to have_http_status(201)
+      expect(body['availability']['anchor']).to eq('not_found')
+      expect(response.body).not_to include('blocked-anchor-body')
+    end
+
+    it 'refuses a read-only token' do
+      readonly = Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: 'read:statuses')
+      allow(controller).to receive(:doorkeeper_token) { readonly }
+
+      expect { create_place(name: 'Read only') }.not_to change(TimelineReadingBookmark, :count)
+      expect(response).to have_http_status(403)
+    end
+  end
+
   describe 'GET #capabilities' do
     it 'describes retention and closed sources' do
       get :capabilities

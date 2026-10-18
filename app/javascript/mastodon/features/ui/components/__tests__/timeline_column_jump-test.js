@@ -151,6 +151,34 @@ describe('TimelineColumnJumpPanel', () => {
     expect(screen.queryByLabelText('Account')).toBeNull();
   });
 
+  it('does not jump a post id on an IME enter or the enter that closes composition', () => {
+    const onSubmit = jest.fn(() => Promise.resolve({ outcome: 'resolved', moved: true }));
+    const id = '9223372036854775807';
+
+    renderPanel({ onSubmit });
+    fireEvent.change(screen.getByLabelText('What to find'), { target: { value: 'status' } });
+
+    const input = screen.getByLabelText('Post ID');
+
+    fireEvent.change(input, { target: { value: id } });
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+    fireEvent.submit(input.closest('form'));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter' });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Jump' }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0][0].target.id).toBe(id);
+    expect(JSON.stringify(onSubmit.mock.calls[0][0])).not.toContain('変換');
+  });
+
   it('sends a large post id as a string', () => {
     const onSubmit = jest.fn(() => Promise.resolve({ outcome: 'not_found', reason: 'not_found', moved: false }));
     const id = '9223372036854775807';

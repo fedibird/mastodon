@@ -629,6 +629,7 @@ class TimelineSplitControllerCore extends React.Component {
     }
 
     if (prevProps.columnId !== this.props.columnId && prevProps.columnId) {
+      this.discardJump();
       this.abortBookmark({ restore: true });
     }
 
@@ -687,7 +688,8 @@ class TimelineSplitControllerCore extends React.Component {
 
     if (this.pendingExplicitResume && this.ownsSplit()) {
       this.pendingExplicitResume = false;
-      if (this.props.onResumeHistory) {
+
+      if (!this.jumpFlight && !this.bookmarkFlight && this.props.onResumeHistory) {
         this.props.onResumeHistory(this.resumePayload({ explicit: true }));
       }
     } else if (previousLocationKey !== nextLocationKey) {
@@ -924,6 +926,12 @@ class TimelineSplitControllerCore extends React.Component {
       return;
     }
 
+    // A jump or bookmark already owns this history pane. Automatic resume
+    // stays unused until the next route entry, so it cannot seek over them.
+    if (this.jumpFlight || this.bookmarkFlight) {
+      return;
+    }
+
     const saved = this.savedPosition();
     const items = this.props.historyItemIds;
     const statusId = saved && saved.position && saved.position.anchor && saved.position.anchor.statusId;
@@ -959,6 +967,7 @@ class TimelineSplitControllerCore extends React.Component {
       return;
     }
 
+    this.discardJump();
     this.abortBookmark({ restore: true });
 
     if (!this.ownsSplit()) {
@@ -1146,7 +1155,7 @@ class TimelineSplitControllerCore extends React.Component {
     const armedResume = this.surfaceId ? peekSurfaceResume(this.surfaceId) : null;
     const foreignArm = armedResume && String(armedResume.requestId || '').indexOf('reading-bookmark-') !== 0;
 
-    if (HISTORY_RESUME_IN_FLIGHT.indexOf(phase) !== -1 || foreignArm) {
+    if (HISTORY_RESUME_IN_FLIGHT.indexOf(phase) !== -1 || foreignArm || this.pendingExplicitResume) {
       return Promise.resolve({ ok: false, moved: false, place: 'protected', reason: 'resume_protected' });
     }
 
@@ -1378,7 +1387,18 @@ class TimelineSplitControllerCore extends React.Component {
 
     const flight = this.jumpFlight;
 
-    if (!flight || flight.phase !== 'scroll' || flight.splitTimelineId !== splitTimelineId) {
+    if (!flight || flight.splitTimelineId !== splitTimelineId) {
+      return;
+    }
+
+    // A scroll during seek already belongs to the reader. Record it before a
+    // session id exists so a later filtered settle does not rewind.
+    if (flight.phase === 'pending') {
+      flight.userCancelled = true;
+      return;
+    }
+
+    if (flight.phase !== 'scroll') {
       return;
     }
 
@@ -1497,6 +1517,19 @@ class TimelineSplitControllerCore extends React.Component {
   };
 
   finishJumpScroll = (token, result, snapshot, splitTimelineId) => {
+    if (!this.jumpIsCurrent(token)) {
+      return Promise.resolve({ outcome: 'stale', reason: 'stale', moved: false });
+    }
+
+    if (this.jumpFlight && this.jumpFlight.userCancelled) {
+      this.jumpFlight = null;
+      return Promise.resolve({
+        ...result,
+        moved: false,
+        reason: 'user_scroll',
+      });
+    }
+
     const sessionId = result.scroll && result.scroll.sessionId;
 
     if (!sessionId) {
@@ -1624,13 +1657,20 @@ class TimelineSplitControllerCore extends React.Component {
     });
   };
 
-  handleTextResultJump = ({ statusId } = {}) => {
-    this.abortBookmark({ restore: true });
-    const token = ++this.jumpToken;
+  preemptResumeForSeek = () => {
+    this.pendingExplicitResume = false;
+    this.cancelInFlightResume('seek');
+  };
 
+  handleTextResultJump = ({ statusId } = {}) => {
     if (!isDecimalStatusId(statusId)) {
       return Promise.resolve({ outcome: 'unsupported', reason: 'invalid_id', moved: false });
     }
+
+    this.abortBookmark({ restore: true });
+    this.preemptResumeForSeek();
+    this.jumpScrollWait.cancel({ scrollStatus: 'stale', reason: 'stale' });
+    const token = ++this.jumpToken;
 
     if (!this.ownsSplit() && this.jumpDisabled()) {
       return Promise.resolve({ outcome: 'unavailable', reason: 'split_unavailable', moved: false });
@@ -1707,6 +1747,8 @@ class TimelineSplitControllerCore extends React.Component {
 
   handleJumpSubmit = (query) => {
     this.abortBookmark({ restore: true });
+    this.preemptResumeForSeek();
+    this.jumpScrollWait.cancel({ scrollStatus: 'stale', reason: 'stale' });
     const token = ++this.jumpToken;
 
     if (!this.ownsSplit()) {
