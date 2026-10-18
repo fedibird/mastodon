@@ -93,12 +93,13 @@ const RESTORE_REASONS = ['filtered', 'not_loaded'];
 
 // Puts the pre-jump history window back when the row never became the
 // visible anchor. A loaded scroll and a reader scroll are left alone.
+// replaceWindow covers a bookmark seek that moved the window and then
+// rejected without a session id. A different session id is not overwritten.
 export const restoreJumpWindow = (timeline, action) => {
   const seek = timeline.get('seek');
   const scrollStatus = seek && seek.get('scrollStatus');
 
-  // A loaded jump and a reader scroll stay on the window the reader is looking at.
-  if (!seek || seek.get('id') !== action.sessionId || scrollStatus === 'loaded' || scrollStatus === 'user_scroll') {
+  if (scrollStatus === 'loaded' || scrollStatus === 'user_scroll') {
     return timeline;
   }
 
@@ -106,14 +107,29 @@ export const restoreJumpWindow = (timeline, action) => {
     return timeline;
   }
 
-  return timeline
+  const sessionMatches = !!(seek && action.sessionId && seek.get('id') === action.sessionId);
+
+  if (!sessionMatches && !action.replaceWindow) {
+    return timeline;
+  }
+
+  if (action.replaceWindow && action.sessionId && seek && seek.get('id') !== action.sessionId) {
+    return timeline;
+  }
+
+  let restored = timeline
     .set('items', action.items)
-    .set('window', action.windowState)
-    .set('seek', seek.merge({
+    .set('window', action.windowState);
+
+  if (seek && (sessionMatches || action.replaceWindow)) {
+    restored = restored.set('seek', seek.merge({
       scrollStatus: action.reason,
       scrollReason: action.reason,
       restored: true,
     }));
+  }
+
+  return restored;
 };
 
 // Arms the existing history scroller. Items, the window, live pending, and

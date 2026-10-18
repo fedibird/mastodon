@@ -443,7 +443,9 @@ class TimelineReadingBookmarksPanel extends React.PureComponent {
       const reason = result && result.reason;
       let place = result && result.place ? result.place : (reason || 'unavailable');
 
-      if (reason === 'missing' || reason === 'not_accessible' || reason === 'network' || reason === 'uncertain' || reason === 'resume_protected') {
+      if (reason === 'network' && result && result.rollback) {
+        place = 'unavailable';
+      } else if (reason === 'missing' || reason === 'not_accessible' || reason === 'network' || reason === 'uncertain' || reason === 'resume_protected') {
         place = reason;
       }
 

@@ -108,6 +108,7 @@ class TimelineSplitControllerCore extends React.Component {
     onSearchJumpAccounts: PropTypes.func,
     onCancelAccountSearch: PropTypes.func,
     onRestoreJump: PropTypes.func,
+    onReadHistoryWindow: PropTypes.func,
     onSettleJumpScroll: PropTypes.func,
     onSearchStatuses: PropTypes.func,
     onCheckMembership: PropTypes.func,
@@ -982,6 +983,10 @@ class TimelineSplitControllerCore extends React.Component {
 
   bookmarkColumnKey = () => this.props.columnId || this.instanceId;
 
+  readBookmarkWindow = (splitTimelineId) => (
+    this.props.onReadHistoryWindow ? this.props.onReadHistoryWindow(splitTimelineId) : null
+  );
+
   bookmarkStillCurrent = (flight) => {
     if (!flight || flight.token !== this.bookmarkToken || this.bookmarkUnmounted) {
       return false;
@@ -1066,7 +1071,18 @@ class TimelineSplitControllerCore extends React.Component {
   noteBookmarkUserScroll = (splitTimelineId) => {
     const flight = this.bookmarkFlight;
 
-    if (!flight || flight.phase !== 'scroll' || flight.splitTimelineId !== splitTimelineId) {
+    if (!flight || flight.splitTimelineId !== splitTimelineId) {
+      return;
+    }
+
+    // A scroll during membership or seek already belongs to the reader.
+    // Record it before a session id exists so a later failure does not rewind.
+    if (flight.phase === 'pending') {
+      flight.userCancelled = true;
+      return;
+    }
+
+    if (flight.phase !== 'scroll') {
       return;
     }
 
@@ -1186,6 +1202,16 @@ class TimelineSplitControllerCore extends React.Component {
       resumeBlocked: false,
       surfaceArmed: false,
       captureReading: () => captureHistorySurface(splitTimelineId),
+      captureWindow: () => {
+        const read = this.readBookmarkWindow(splitTimelineId);
+
+        if (!read || !read.items || !read.windowState) {
+          return null;
+        }
+
+        return { items: read.items, windowState: read.windowState };
+      },
+      userScrolled: () => !!flight.userCancelled,
       checkMembership: (statusId) => {
         if (!this.props.onCheckMembership) {
           return Promise.resolve({ ok: false, reason: 'network' });
@@ -1220,22 +1246,43 @@ class TimelineSplitControllerCore extends React.Component {
         const armedNow = peekSurfaceResume(splitTimelineId);
 
         if (HISTORY_RESUME_IN_FLIGHT.indexOf(phaseNow) !== -1 || (armedNow && armedNow.requestId !== requestId)) {
-          return Promise.resolve({ result: { outcome: 'unavailable', reason: 'resume_protected' } });
+          return Promise.resolve({
+            result: { outcome: 'unavailable', reason: 'resume_protected' },
+            windowChanged: false,
+          });
         }
 
         if (!this.props.onSeekTimeline) {
-          return Promise.resolve({ result: { outcome: 'unsupported', reason: 'window_required' } });
+          return Promise.resolve({
+            result: { outcome: 'unsupported', reason: 'window_required' },
+            windowChanged: false,
+          });
         }
+
+        const before = this.readBookmarkWindow(splitTimelineId);
 
         return Promise.resolve(this.props.onSeekTimeline({
           sourceTimelineId: this.props.sourceTimelineId,
           splitTimelineId,
           contract: this.props.historyContract,
           query,
-        })).then(payload => ({
-          result: payload && payload.result ? payload.result : (payload || { outcome: 'unavailable', reason: 'network' }),
-          snapshot: payload && payload.snapshot,
-        }));
+        })).then(payload => {
+          const after = this.readBookmarkWindow(splitTimelineId);
+          const comparable = !!(before && after && before.items && before.windowState && after.items && after.windowState);
+          const reported = {
+            result: payload && payload.result ? payload.result : (payload || { outcome: 'unavailable', reason: 'network' }),
+            snapshot: (payload && payload.snapshot) || (before && before.items && before.windowState ? {
+              items: before.items,
+              windowState: before.windowState,
+            } : null),
+          };
+
+          if (comparable) {
+            reported.windowChanged = before.items !== after.items || before.windowState !== after.windowState;
+          }
+
+          return reported;
+        });
       },
       markScroll: ({ sessionId, snapshot, reading }) => {
         flight.phase = 'scroll';
@@ -1249,23 +1296,33 @@ class TimelineSplitControllerCore extends React.Component {
         this.noticeBookmarkScroll();
         return waited;
       },
-      rollback: ({ snapshot, sessionId, reason, reading }) => {
-        if (!this.bookmarkStillCurrent(flight) || !snapshot || !this.props.onRestoreJump) {
+      rollback: ({ snapshot, sessionId, reason, reading, replaceWindow }) => {
+        if (!this.bookmarkStillCurrent(flight) || flight.userCancelled || !snapshot || !snapshot.items || !snapshot.windowState || !this.props.onRestoreJump) {
           return;
         }
+
+        const live = this.readBookmarkWindow(splitTimelineId);
+        const liveStatus = live && live.scrollStatus;
+
+        if (liveStatus === 'loaded' || liveStatus === 'user_scroll') {
+          return;
+        }
+
+        const resolvedSessionId = sessionId || (live && live.seekId) || null;
 
         flight.restored = true;
         this.pendingReadingRestore = reading && reading.statusId ? {
           splitTimelineId,
-          sessionId,
+          sessionId: resolvedSessionId,
           anchor: reading,
         } : null;
         this.props.onRestoreJump({
           splitTimelineId,
-          sessionId,
+          sessionId: resolvedSessionId,
           items: snapshot.items,
           windowState: snapshot.windowState,
           reason: reason === 'filtered' ? 'filtered' : 'not_loaded',
+          replaceWindow: !!replaceWindow && !sessionId && !resolvedSessionId,
         });
       },
     }).then(result => {

@@ -398,6 +398,68 @@ describe('timeline seek reducer', () => {
     expect(keptReader.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['400']));
   });
 
+  it('puts a failed seek window back when the session id was lost', () => {
+    const split = create(withHome());
+    const beforeItems = split.getIn([splitId, 'items']);
+    const beforeWindow = split.getIn([splitId, 'window']);
+    const failed = timelines(timelines(split, {
+      type: WINDOW_SEEK_BEGIN,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      source: sourceKey,
+    }), {
+      type: WINDOW_SEEK_FAIL,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      outcome: 'unavailable',
+      reason: 'network',
+    });
+    const restored = timelines(failed, {
+      type: WINDOW_SEEK_RESTORE,
+      timeline: splitId,
+      items: beforeItems,
+      windowState: beforeWindow,
+      reason: 'not_loaded',
+      replaceWindow: true,
+    });
+
+    expect(restored.getIn([splitId, 'items'])).toEqual(beforeItems);
+    expect(restored.getIn([splitId, 'window', 'generation'])).toBe(beforeWindow.get('generation'));
+    expect(restored.getIn([splitId, 'seek', 'restored'])).toBe(true);
+    expect(restored.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['400']));
+
+    const keptLoaded = timelines(failed.setIn([splitId, 'seek', 'scrollStatus'], 'loaded'), {
+      type: WINDOW_SEEK_RESTORE,
+      timeline: splitId,
+      items: beforeItems,
+      windowState: beforeWindow,
+      reason: 'not_loaded',
+      replaceWindow: true,
+    });
+    const keptReader = timelines(failed.setIn([splitId, 'seek', 'scrollStatus'], 'user_scroll'), {
+      type: WINDOW_SEEK_RESTORE,
+      timeline: splitId,
+      items: beforeItems,
+      windowState: beforeWindow,
+      reason: 'not_loaded',
+      replaceWindow: true,
+    });
+    const otherSession = timelines(failed, {
+      type: WINDOW_SEEK_RESTORE,
+      timeline: splitId,
+      sessionId: 'seek-other',
+      items: beforeItems,
+      windowState: beforeWindow,
+      reason: 'not_loaded',
+      replaceWindow: true,
+    });
+
+    expect(keptLoaded.getIn([splitId, 'window', 'generation'])).toBe(failed.getIn([splitId, 'window', 'generation']));
+    expect(keptReader.getIn([splitId, 'window', 'generation'])).toBe(failed.getIn([splitId, 'window', 'generation']));
+    expect(otherSession.getIn([splitId, 'window', 'generation'])).toBe(failed.getIn([splitId, 'window', 'generation']));
+    expect(keptLoaded.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['400']));
+  });
+
   it('points a loaded row without moving history items, live pending, or a saved resume', () => {
     const split = create(withHome());
     const resume = ImmutableMap({

@@ -193,4 +193,131 @@ describe('reading bookmark restore', () => {
     expect(scrollRestoreDecision({ place: 'exact', scroll: { scrollStatus: 'not_loaded' } }).rollback).toBe(true);
     expect(bookmarkSeekQuery('80').target.id).toBe('80');
   });
+
+  const shiftedWindow = (prior, next) => {
+    let seen = false;
+
+    return () => {
+      if (!seen) {
+        seen = true;
+        return prior;
+      }
+
+      return next;
+    };
+  };
+
+  it('restores the pre-seek window when seek rejects and this flight is still current', async () => {
+    const prior = { items: ['100'], windowState: { revision: 1 } };
+    const moved = { items: ['80'], windowState: { revision: 2 } };
+    const { calls, run } = harness({
+      seek: jest.fn(() => Promise.reject(new Error('seek failed'))),
+      captureWindow: shiftedWindow(prior, moved),
+    });
+    const result = await run;
+
+    expect(result).toMatchObject({
+      ok: false,
+      rollback: true,
+      restored: true,
+      place: 'unavailable',
+      reason: 'network',
+    });
+    expect(calls.rollback).toHaveBeenCalledWith(expect.objectContaining({
+      snapshot: prior,
+      sessionId: null,
+      reading,
+      replaceWindow: true,
+    }));
+  });
+
+  it('does not restore when seek rejects after the flight went stale or the reader scrolled', async () => {
+    const prior = { items: ['100'], windowState: { revision: 1 } };
+    const moved = { items: ['80'], windowState: { revision: 2 } };
+    const staleBox = { current: true };
+    const stale = harness({
+      isCurrent: () => staleBox.current,
+      seek: jest.fn(() => {
+        staleBox.current = false;
+        return Promise.reject(new Error('seek failed'));
+      }),
+      captureWindow: shiftedWindow(prior, moved),
+    });
+    const scrolled = harness({
+      seek: jest.fn(() => Promise.reject(new Error('seek failed'))),
+      captureWindow: shiftedWindow(prior, moved),
+      userScrolled: () => true,
+    });
+
+    expect((await stale.run).place).toBe('stale');
+    expect(stale.calls.rollback).not.toHaveBeenCalled();
+    expect((await scrolled.run).place).toBe('user_scroll');
+    expect(scrolled.calls.rollback).not.toHaveBeenCalled();
+  });
+
+  it('restores when seek resolves without a scroll session', async () => {
+    const { calls, run } = harness({
+      seek: jest.fn(() => Promise.resolve({
+        result: { outcome: 'resolved', anchorId: '80', precision: 'exact' },
+        snapshot,
+        windowChanged: true,
+      })),
+    });
+    const result = await run;
+
+    expect(result).toMatchObject({ rollback: true, place: 'unavailable', reason: 'not_loaded' });
+    expect(calls.rollback).toHaveBeenCalledWith(expect.objectContaining({
+      snapshot,
+      replaceWindow: true,
+      reading,
+    }));
+  });
+
+  it('restores an unavailable seek only when the window changed', async () => {
+    const changed = await harness({
+      seek: jest.fn(() => Promise.resolve({
+        result: { outcome: 'unavailable', reason: 'network' },
+        snapshot,
+        windowChanged: true,
+      })),
+    }).run;
+    const untouched = harness({
+      seek: jest.fn(() => Promise.resolve({
+        result: { outcome: 'unavailable', reason: 'window_required' },
+        snapshot,
+        windowChanged: false,
+      })),
+    });
+
+    expect(changed).toMatchObject({ rollback: true, place: 'unavailable', reason: 'network' });
+    expect((await untouched.run).rollback).toBe(false);
+    expect(untouched.calls.rollback).not.toHaveBeenCalled();
+  });
+
+  it('does not restore a stale seek result even when a snapshot exists', async () => {
+    const { calls, run } = harness({
+      seek: jest.fn(() => Promise.resolve({
+        result: { outcome: 'stale', reason: 'session_replaced' },
+        snapshot,
+        windowChanged: true,
+      })),
+    });
+    const result = await run;
+
+    expect(result.place).toBe('stale');
+    expect(result.rollback).toBe(false);
+    expect(calls.rollback).not.toHaveBeenCalled();
+  });
+
+  it('does not restore a rejected seek whose window is still the captured one', async () => {
+    const prior = { items: ['100'], windowState: { revision: 1 } };
+    const { calls, run } = harness({
+      seek: jest.fn(() => Promise.reject(new Error('before begin'))),
+      captureWindow: () => prior,
+    });
+    const result = await run;
+
+    expect(result).toMatchObject({ rollback: false, place: 'unavailable', reason: 'network' });
+    expect(calls.rollback).not.toHaveBeenCalled();
+  });
 });

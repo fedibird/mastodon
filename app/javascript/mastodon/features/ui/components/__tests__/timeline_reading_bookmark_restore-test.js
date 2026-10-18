@@ -103,6 +103,7 @@ const renderBookmarks = (props = {}) => {
       onSeekTimeline={onSeekTimeline}
       onCheckMembership={onCheckMembership}
       onRestoreJump={onRestoreJump}
+      onReadHistoryWindow={props.onReadHistoryWindow}
       onSettleJumpScroll={props.onSettleJumpScroll || jest.fn()}
       onResumeHistory={onResumeHistory}
       onCaptureHistoryPosition={onCaptureHistoryPosition}
@@ -376,5 +377,37 @@ describe('timeline reading bookmark restore', () => {
 
     expect(await screen.findByText('That post is outside the retained range, or its place in this timeline is unknown. History was not moved.')).toBeTruthy();
     expect(onSeekTimeline).not.toHaveBeenCalled();
+  });
+
+  it('puts the pre-seek window back when seek rejects', async () => {
+    const prior = { items, windowState, seekId: null, scrollStatus: null };
+    const moved = {
+      items: ['80'],
+      windowState: { anchorId: '80', revision: 2, generation: 2 },
+      seekId: 'seek-fail',
+      scrollStatus: null,
+    };
+    let seeking = false;
+    const onSeekTimeline = jest.fn(() => {
+      seeking = true;
+      return Promise.reject(new Error('seek failed'));
+    });
+    const onRestoreJump = jest.fn();
+    const onReadHistoryWindow = jest.fn(() => (seeking ? moved : prior));
+
+    renderBookmarks({ onSeekTimeline, onRestoreJump, onReadHistoryWindow });
+    await openPanel();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Return' }));
+    });
+
+    expect(onRestoreJump).toHaveBeenCalledWith(expect.objectContaining({
+      splitTimelineId: splitId,
+      sessionId: 'seek-fail',
+      items,
+      windowState,
+      reason: 'not_loaded',
+    }));
+    expect(await screen.findByText('Could not return to that post. History was put back.')).toBeTruthy();
   });
 });

@@ -268,7 +268,24 @@ class StatusTimelineSplitController extends React.Component {
 
   handleDeleteReadingBookmark = (bookmark) => this.withReadingBookmarkClient(client => deleteReadingBookmark(client, bookmark.id));
 
-  handleRestoreJump = ({ splitTimelineId, sessionId, items, windowState, reason }) => {
+  handleReadHistoryWindow = (splitTimelineId) => this.props.dispatch((dispatch, getState) => {
+    const timeline = getState().getIn(['timelines', splitTimelineId]);
+
+    if (!timeline) {
+      return null;
+    }
+
+    const seek = timeline.get('seek');
+
+    return {
+      items: timeline.get('items'),
+      windowState: timeline.get('window'),
+      seekId: seek ? seek.get('id') : null,
+      scrollStatus: seek ? seek.get('scrollStatus') : null,
+    };
+  });
+
+  handleRestoreJump = ({ splitTimelineId, sessionId, items, windowState, reason, replaceWindow }) => {
     this.props.dispatch({
       type: WINDOW_SEEK_RESTORE,
       timeline: splitTimelineId,
@@ -276,6 +293,7 @@ class StatusTimelineSplitController extends React.Component {
       items,
       windowState,
       reason,
+      replaceWindow: !!replaceWindow,
     });
   };
 
@@ -303,6 +321,7 @@ class StatusTimelineSplitController extends React.Component {
         onResolveLoadedRow={this.handleResolveLoadedRow}
         onPointJump={this.handlePointJump}
         onRestoreJump={this.handleRestoreJump}
+        onReadHistoryWindow={this.handleReadHistoryWindow}
         onSettleJumpScroll={this.handleSettleJumpScroll}
         onCreate={this.handleCreate}
         onDestroy={this.handleDestroy}

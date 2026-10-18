@@ -98,9 +98,56 @@ const stopped = (place, reason) => ({
   reason,
 });
 
+const usableSnapshot = (snapshot) => !!(snapshot && snapshot.items && snapshot.windowState);
+
+const readWindow = (captureWindow) => {
+  if (typeof captureWindow !== 'function') {
+    return null;
+  }
+
+  try {
+    return captureWindow();
+  } catch (error) {
+    return null;
+  }
+};
+
+// An explicit flag wins. Otherwise compare the window taken before seek with
+// the window after it. A throw with no comparable pair is treated as a
+// possible change so the pre-seek snapshot can still be put back.
+const windowDidChange = (sought, thrown, prior, after) => {
+  if (!thrown && sought && typeof sought.windowChanged === 'boolean') {
+    return sought.windowChanged;
+  }
+
+  if (prior && after) {
+    return prior.items !== after.items || prior.windowState !== after.windowState;
+  }
+
+  return true;
+};
+
+const seekResultOf = (thrown, sought) => {
+  if (thrown || !sought) {
+    return {};
+  }
+
+  return sought.result || sought;
+};
+
+const heldSnapshot = (sought, prior) => {
+  if (usableSnapshot(sought && sought.snapshot)) {
+    return sought.snapshot;
+  }
+
+  return usableSnapshot(prior) ? prior : null;
+};
+
 // Membership is checked immediately before seek. A saved unchecked or member
 // flag does not skip it. Scroll settle is the first success. A reader scroll
-// keeps the window the reader is looking at.
+// keeps the window the reader is looking at. Seek failures put the pre-seek
+// history window back only when that snapshot exists, this flight is still
+// current, and the reader has not scrolled.
 export const runBookmarkRestore = async ({
   bookmark,
   contract,
@@ -113,6 +160,8 @@ export const runBookmarkRestore = async ({
   waitForScroll,
   rollback,
   captureReading,
+  captureWindow,
+  userScrolled,
   armAnchor,
   clearAnchor,
 } = {}) => {
@@ -166,16 +215,30 @@ export const runBookmarkRestore = async ({
   }
 
   const reading = typeof captureReading === 'function' ? captureReading() : null;
+  const priorWindow = readWindow(captureWindow);
+  const readerMoved = () => typeof userScrolled === 'function' && !!userScrolled();
 
   if (typeof armAnchor === 'function') {
     armAnchor(bookmark.anchor);
   }
 
-  let sought;
+  let sought = null;
+  let thrown = false;
 
   try {
     sought = await seek(bookmarkSeekQuery(statusId));
   } catch (error) {
+    thrown = true;
+  }
+
+  const afterWindow = readWindow(captureWindow);
+  const snapshot = heldSnapshot(sought, priorWindow);
+  const windowChanged = windowDidChange(sought, thrown, priorWindow, afterWindow);
+  const result = seekResultOf(thrown, sought);
+
+  // Old window, this flight, and no reader scroll. A window that never
+  // changed is left alone. Stale work is left alone even if a snapshot exists.
+  const recover = (place, reason) => {
     if (typeof clearAnchor === 'function') {
       clearAnchor();
     }
@@ -184,7 +247,38 @@ export const runBookmarkRestore = async ({
       return staleResult();
     }
 
-    return stopped('unavailable', 'network');
+    if (readerMoved()) {
+      return stopped('user_scroll', 'user_scroll');
+    }
+
+    if (windowChanged === false || !snapshot) {
+      return stopped(place, reason);
+    }
+
+    const sessionId = (result.scroll && result.scroll.sessionId) || result.sessionId || null;
+
+    if (typeof rollback === 'function') {
+      rollback({
+        snapshot,
+        sessionId,
+        reason: 'not_loaded',
+        reading,
+        replaceWindow: !sessionId,
+      });
+    }
+
+    return {
+      ok: false,
+      moved: false,
+      rollback: true,
+      restored: true,
+      place,
+      reason,
+    };
+  };
+
+  if (thrown) {
+    return recover('unavailable', 'network');
   }
 
   if (typeof isCurrent === 'function' && !isCurrent()) {
@@ -195,7 +289,6 @@ export const runBookmarkRestore = async ({
     return staleResult();
   }
 
-  const result = sought && sought.result ? sought.result : (sought || {});
   const seekDecision = seekRestoreDecision(result, statusId);
 
   if (seekDecision.action === 'ignore') {
@@ -207,25 +300,25 @@ export const runBookmarkRestore = async ({
   }
 
   if (seekDecision.action !== 'scroll') {
-    if (typeof clearAnchor === 'function') {
-      clearAnchor();
-    }
-
-    return stopped(seekDecision.place, seekDecision.reason);
+    return recover(seekDecision.place, seekDecision.reason);
   }
 
   const sessionId = result.scroll && result.scroll.sessionId;
 
   if (!sessionId) {
+    return recover('unavailable', 'not_loaded');
+  }
+
+  if (readerMoved()) {
     if (typeof clearAnchor === 'function') {
       clearAnchor();
     }
 
-    return stopped('unavailable', 'not_loaded');
+    return stopped('user_scroll', 'user_scroll');
   }
 
   if (typeof markScroll === 'function') {
-    markScroll({ sessionId, snapshot: sought.snapshot, reading });
+    markScroll({ sessionId, snapshot, reading });
   }
 
   const scroll = await waitForScroll(sessionId);
@@ -244,14 +337,14 @@ export const runBookmarkRestore = async ({
     return staleResult();
   }
 
-  if (scrollDecision.action === 'leave') {
+  if (scrollDecision.action === 'leave' || readerMoved()) {
     return stopped('user_scroll', 'user_scroll');
   }
 
   if (scrollDecision.rollback) {
     if (typeof rollback === 'function') {
       rollback({
-        snapshot: sought.snapshot,
+        snapshot,
         sessionId,
         reason: scrollDecision.reason,
         reading,
