@@ -3,6 +3,8 @@ import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import { defineMessages, FormattedMessage, injectIntl } from 'react-intl';
 
+import { isAdministrator } from 'mastodon/initial_state';
+
 import { reblogWrapperTarget } from '../../../account_context/target';
 import { lookupReblogWrapper, openAccountContext } from '../../../actions/account_context_view';
 
@@ -81,6 +83,10 @@ class ReblogWrapperLink extends React.PureComponent {
   };
 
   render () {
+    if (isAdministrator !== true) {
+      return null;
+    }
+
     const { phase, reason } = this.state;
     const notice = noticeMessage[reason] || messages.unknown;
 

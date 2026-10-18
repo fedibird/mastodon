@@ -2,6 +2,8 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { defineMessages, FormattedMessage } from 'react-intl';
 
+import { isAdministrator } from 'mastodon/initial_state';
+
 import { accountContextSurfaceKey, accountContextTarget } from '../../../account_context/target';
 
 const messages = defineMessages({
@@ -49,6 +51,12 @@ class AccountContextActions extends React.PureComponent {
   };
 
   render () {
+    // Timeline Navigation stays administrator-only until the UI is settled.
+    // Moderator, regular accounts, and signed-out sessions do not get the entry.
+    if (isAdministrator !== true) {
+      return null;
+    }
+
     const hostTimelineId = accountContextSurfaceKey(this.props.hostTimelineId);
     const status = this.props.status;
 
