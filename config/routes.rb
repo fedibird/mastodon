@@ -656,6 +656,12 @@ Rails.application.routes.draw do
           resource :posting_context, only: :show, module: :accounts, controller: :posting_contexts
           resource :posting_context_revalidation, only: [:show, :create], path: 'posting_context/revalidation', module: :accounts, controller: :posting_context_revalidations
         end
+
+        resources :reading_bookmarks, only: [:index, :show, :create, :update, :destroy] do
+          collection do
+            get :capabilities
+          end
+        end
       end
 
       resource :instance, only: [:show] do

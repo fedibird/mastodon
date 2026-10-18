@@ -26,5 +26,5 @@ Rails.application.config.filter_parameters += [
   # Exact names only. A bare :q or :text would redact every key that contains
   # those letters. Membership rejects search text; ids are not a search query
   # but they are still not useful in the log.
-  /\A(?:q|query|text|raw|body|ids)\z/,
+  /\A(?:q|query|text|raw|body|ids|spoiler_text|spoiler|content|statuses|window|items|pages)\z/,
 ]
