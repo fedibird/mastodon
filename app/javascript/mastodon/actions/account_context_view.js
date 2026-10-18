@@ -1,6 +1,7 @@
 import api from 'mastodon/api';
 
-import { accountContextFilters, accountContextHostId } from '../timeline_seek/account_context';
+import { ACCOUNT_CONTEXT_OPEN, accountContextFilters, accountContextHostId } from '../timeline_seek/account_context';
+import { WINDOW_SEEK_RESTORE } from '../timeline_seek/constants';
 import { seekSourceKey } from '../timeline_seek/query';
 import { accountHistoryContract } from '../windowed_history/sources';
 import { closeAccountContextHost, expandAccountContext, seekAccountContext, settleAccountContextScroll } from './account_context_history';
@@ -8,13 +9,21 @@ import {
   ACCOUNT_CONTEXT_VIEW_CLOSE,
   ACCOUNT_CONTEXT_VIEW_NOTICE,
   ACCOUNT_CONTEXT_VIEW_OPEN,
+  ACCOUNT_CONTEXT_VIEW_RESTORE,
   ACCOUNT_CONTEXT_VIEW_SEEK,
 } from '../reducers/account_context_views';
 import { accountContextSurfaceKey } from '../account_context/target';
 
 export { accountContextSurfaceKey } from '../account_context/target';
 
-const previousBySession = new Map();
+// Survives close. A reopened host must not reuse the id of a request that
+// can still resolve.
+let requestSerial = 0;
+
+const nextRequestSerial = () => {
+  requestSerial += 1;
+  return requestSerial;
+};
 
 const sessionContract = (session) => {
   if (!session) {
@@ -37,6 +46,50 @@ const stillCurrent = (state, hostKey, generation, sourceKey) => {
   );
 };
 
+const snapshotHost = (state, hostKey) => {
+  const timelineId = accountContextHostId(hostKey);
+  const timeline = timelineId && state.getIn(['timelines', timelineId]);
+  const session = state.getIn(['accountContextViews', 'sessions', hostKey]);
+
+  if (!timeline || timeline.get('contextHost') !== true || !timeline.get('window') || !session) {
+    return null;
+  }
+
+  return {
+    sourceKey: timeline.get('contextSource'),
+    items: timeline.get('items'),
+    windowState: timeline.get('window'),
+    session,
+  };
+};
+
+const restoreHeldHost = (dispatch, hostKey, generation, held, notice) => {
+  const timelineId = accountContextHostId(hostKey);
+  const plainWindow = typeof held.windowState.toJS === 'function' ? held.windowState.toJS() : held.windowState;
+
+  dispatch({
+    type: ACCOUNT_CONTEXT_OPEN,
+    timeline: timelineId,
+    source: held.sourceKey,
+    window: plainWindow,
+  });
+  dispatch({
+    type: WINDOW_SEEK_RESTORE,
+    timeline: timelineId,
+    items: held.items,
+    windowState: held.windowState,
+    reason: 'not_loaded',
+    replaceWindow: true,
+  });
+  dispatch({
+    type: ACCOUNT_CONTEXT_VIEW_RESTORE,
+    hostKey,
+    generation,
+    session: held.session,
+    notice,
+  });
+};
+
 export function openAccountContext({ hostTimelineId, target } = {}) {
   return (dispatch, getState) => {
     const hostKey = accountContextSurfaceKey(hostTimelineId);
@@ -50,7 +103,9 @@ export function openAccountContext({ hostTimelineId, target } = {}) {
       reblog: !!target.reblog,
     }));
     const sourceKey = seekSourceKey(contract);
-    const generation = (getState().getIn(['accountContextViews', 'sessions', hostKey, 'generation']) || 0) + 1;
+    const generation = nextRequestSerial();
+    const held = snapshotHost(getState(), hostKey);
+    const timelineId = accountContextHostId(hostKey);
 
     dispatch({
       type: ACCOUNT_CONTEXT_VIEW_OPEN,
@@ -70,13 +125,21 @@ export function openAccountContext({ hostTimelineId, target } = {}) {
       statusId: target.statusId,
     })).then(result => {
       const scroll = result && result.scroll;
+      const liveSeekId = getState().getIn(['timelines', timelineId, 'seek', 'id']);
 
-      if (scroll && scroll.sessionId) {
-        previousBySession.set(scroll.sessionId, result.previous || null);
+      if (!stillCurrent(getState(), hostKey, generation, sourceKey) || result.outcome === 'stale') {
+        return { ...result, opened: false, stale: true };
       }
 
-      if (!stillCurrent(getState(), hostKey, generation, sourceKey)) {
+      if (scroll && scroll.sessionId && liveSeekId && scroll.sessionId !== liveSeekId) {
         return { ...result, opened: false, stale: true };
+      }
+
+      // A failed switch must put back the source that was on screen. The
+      // previous captured after the host reset is only the empty window.
+      if (result.outcome !== 'resolved' && held) {
+        restoreHeldHost(dispatch, hostKey, generation, held, result.outcome || result.reason || 'unknown');
+        return { ...result, opened: false, restored: true, hostKey, generation };
       }
 
       dispatch({
@@ -154,7 +217,7 @@ export function settleAccountContextView({
     const stored = session.get('previousItems') ? {
       items: session.get('previousItems'),
       windowState: session.get('previousWindow'),
-    } : previousBySession.get(sessionId);
+    } : null;
 
     const plan = dispatch(settleAccountContextScroll({
       hostTimelineId: hostKey,

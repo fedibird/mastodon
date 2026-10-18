@@ -4,9 +4,10 @@
 #
 # The query is bounded to two rows (account_id + reblog_of_id, newest first).
 # It does not scan the account timeline and it does not fetch remote posts.
-# Zero rows is "absent". A row StatusPolicy will not show is "unavailable".
-# Two rows is "unknown" / ambiguous. The original status id is never returned
-# as the wrapper id.
+# Rows StatusPolicy will not show are treated as missing, so a viewer who
+# cannot see a boost gets the same response as a viewer looking at an account
+# with no boost. Ambiguous means two visible rows. The original status id is
+# never returned as the wrapper id.
 class AccountContext::ReblogWrapperLookup
   Result = Struct.new(:state, :reason, :status_id, :account_id, keyword_init: true)
 
@@ -33,11 +34,12 @@ class AccountContext::ReblogWrapperLookup
                  .limit(2)
                  .to_a
 
-    return absent(account) if rows.empty?
-    return unknown('ambiguous', account) if rows.size > 1
+    visible = rows.select { |wrapper| StatusPolicy.new(@viewer, wrapper).show? }
 
-    wrapper = rows.first
-    return unavailable(account) unless StatusPolicy.new(@viewer, wrapper).show?
+    return absent(account) if visible.empty?
+    return unknown('ambiguous', account) if visible.size > 1
+
+    wrapper = visible.first
     return unknown('original_id', account) if wrapper.id.to_s == @original.id.to_s
 
     resolved(account, wrapper)
@@ -55,10 +57,6 @@ class AccountContext::ReblogWrapperLookup
 
   def absent(account)
     Result.new(state: 'absent', reason: 'not_found', status_id: nil, account_id: account.id)
-  end
-
-  def unavailable(account)
-    Result.new(state: 'unavailable', reason: 'not_permitted', status_id: nil, account_id: account.id)
   end
 
   def resolved(account, wrapper)

@@ -3,6 +3,7 @@ import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 export const ACCOUNT_CONTEXT_VIEW_OPEN = 'ACCOUNT_CONTEXT_VIEW_OPEN';
 export const ACCOUNT_CONTEXT_VIEW_SEEK = 'ACCOUNT_CONTEXT_VIEW_SEEK';
 export const ACCOUNT_CONTEXT_VIEW_NOTICE = 'ACCOUNT_CONTEXT_VIEW_NOTICE';
+export const ACCOUNT_CONTEXT_VIEW_RESTORE = 'ACCOUNT_CONTEXT_VIEW_RESTORE';
 export const ACCOUNT_CONTEXT_VIEW_CLOSE = 'ACCOUNT_CONTEXT_VIEW_CLOSE';
 
 const initialState = ImmutableMap({
@@ -49,6 +50,10 @@ export default function accountContextViews(state = initialState, action) {
       return state;
     }
 
+    if (current.get('seekSessionId') && action.seekSessionId !== current.get('seekSessionId')) {
+      return state;
+    }
+
     const previous = action.previous || {};
 
     return state.setIn(['sessions', action.hostKey], current.merge({
@@ -74,6 +79,22 @@ export default function accountContextViews(state = initialState, action) {
     return state.setIn(['sessions', action.hostKey], current.merge({
       phase: action.notice ? 'notice' : current.get('phase'),
       notice: action.notice || null,
+    }));
+  }
+  case ACCOUNT_CONTEXT_VIEW_RESTORE: {
+    const current = state.getIn(['sessions', action.hostKey]);
+    const prior = action.session;
+
+    if (!current || !prior || current.get('generation') !== action.generation) {
+      return state;
+    }
+
+    return state.setIn(['sessions', action.hostKey], prior.merge({
+      generation: action.generation,
+      phase: 'notice',
+      notice: action.notice || 'unknown',
+      seekSessionId: null,
+      scrollRevision: null,
     }));
   }
   case ACCOUNT_CONTEXT_VIEW_CLOSE:

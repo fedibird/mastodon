@@ -198,4 +198,85 @@ describe('openAccountContext', () => {
     expect(mockPost).not.toHaveBeenCalled();
     expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
   });
+
+  it('restores the previous account window when a switch to another account fails', async () => {
+    const store = storeWithProfile();
+    const timelineId = accountContextHostId(splitHost);
+    const targetA = accountContextTarget({ kind: 'quote', status: quoteStatus });
+
+    await store.dispatch(openAccountContext({ hostTimelineId: splitHost, target: targetA }));
+
+    const keptItems = store.getState().getIn(['timelines', timelineId, 'items']);
+    const keptWindow = store.getState().getIn(['timelines', timelineId, 'window']);
+    const keptSource = store.getState().getIn(['timelines', timelineId, 'contextSource']);
+    const targetB = accountContextTarget({
+      kind: 'boost',
+      status: fromJS({
+        id: '9007199254740777',
+        account: { id: '99' },
+        reblog: { id: '9007199254740666', account: { id: '3' } },
+      }),
+    });
+
+    mockPost.mockImplementation(() => Promise.resolve({
+      data: {
+        version: 1,
+        outcome: 'not_found',
+        capability: 'supported',
+        reason: 'not_found',
+        limitations: [],
+      },
+    }));
+
+    const failed = await store.dispatch(openAccountContext({ hostTimelineId: splitHost, target: targetB }));
+
+    expect(failed.restored).toBe(true);
+    expect(failed.opened).toBe(false);
+    expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(keptItems);
+    expect(store.getState().getIn(['timelines', timelineId, 'window'])).toEqual(keptWindow);
+    expect(store.getState().getIn(['timelines', timelineId, 'contextSource'])).toBe(keptSource);
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'accountId'])).toBe('42');
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'statusId'])).toBe(anchor);
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'sourceKey'])).toBe(keptSource);
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'notice'])).toBe('not_found');
+    expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
+  });
+
+  it('does not let a closed request rewrite the same host after it reopens', async () => {
+    const store = storeWithProfile();
+    const resolvers = [];
+    const timelineId = accountContextHostId(splitHost);
+    const target = accountContextTarget({ kind: 'quote', status: quoteStatus });
+
+    mockPost.mockImplementation(() => new Promise(resolve => {
+      resolvers.push(resolve);
+    }));
+
+    const first = store.dispatch(openAccountContext({ hostTimelineId: splitHost, target }));
+    const firstGeneration = store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'generation']);
+
+    store.dispatch(closeAccountContext(splitHost));
+    mockPost.mockImplementation((_path, body) => Promise.resolve({
+      data: resolvedBody(body.seek_target.id),
+    }));
+    mockGet.mockImplementation(page);
+
+    const second = await store.dispatch(openAccountContext({ hostTimelineId: splitHost, target }));
+    const secondGeneration = store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'generation']);
+    const keptItems = store.getState().getIn(['timelines', timelineId, 'items']);
+
+    resolvers[0]({ data: resolvedBody(anchor) });
+    const stale = await first;
+
+    expect(stale.stale).toBe(true);
+    expect(stale.opened).toBe(false);
+    expect(second.opened).toBe(true);
+    expect(secondGeneration).toBeGreaterThan(firstGeneration);
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'generation'])).toBe(secondGeneration);
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'phase'])).toBe('ready');
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'notice'])).toBeNull();
+    expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'seekSessionId'])).toBe(second.scroll.sessionId);
+    expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(keptItems);
+    expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
+  });
 });
