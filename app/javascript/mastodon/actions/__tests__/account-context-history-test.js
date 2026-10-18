@@ -8,7 +8,7 @@ import { SEEK_KIND } from '../../timeline_seek/constants';
 import { createSeekQuery, seekSourceKey } from '../../timeline_seek/query';
 import { accountHistoryContract } from '../../windowed_history/sources';
 import { expandAccountContext, openAccountContextHost, seekAccountContext, settleAccountContextScroll } from '../account_context_history';
-import { seekWindowedTimeline } from '../timeline_seek';
+import { pointLoadedWindow, seekWindowedTimeline } from '../timeline_seek';
 
 const mockGet = jest.fn();
 const mockPost = jest.fn();
@@ -447,5 +447,60 @@ describe('account context history', () => {
     expect(store.getState().getIn(['timelines', timelineId, 'items']).size).toBe(0);
     expect(store.getState().getIn(['timelines', timelineId, 'contextSource'])).toBe(seekSourceKey(contractB));
     expect(store.getState().getIn(['timelines', profileId, 'pendingItems']).toArray()).toEqual(['9007199254740999']);
+  });
+
+  it('does not seek or point a previous contract into the host that replaced it', async () => {
+    const store = storeWithNeighbors();
+    const timelineId = `account-context:${hostKey}`;
+    const contractB = accountHistoryContract('42', accountContextFilters({ reblog: true }));
+
+    await store.dispatch(seekAccountContext({
+      hostTimelineId: hostKey,
+      contract,
+      statusId: anchor,
+    }));
+    await store.dispatch(seekAccountContext({
+      hostTimelineId: hostKey,
+      contract: contractB,
+      statusId: anchor,
+    }));
+
+    const items = store.getState().getIn(['timelines', timelineId, 'items']);
+    const seek = store.getState().getIn(['timelines', timelineId, 'seek']);
+    mockPost.mockClear();
+    mockGet.mockClear();
+
+    const stale = await store.dispatch(seekWindowedTimeline({
+      sourceTimelineId: timelineId,
+      splitTimelineId: timelineId,
+      contract,
+      query: createSeekQuery({
+        kind: SEEK_KIND.STATUS,
+        source: 'account',
+        target: { id: anchor },
+      }),
+    }));
+
+    expect(stale.outcome).toBe('stale');
+    expect(stale.reason).toBe('split_inactive');
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(items);
+    expect(store.getState().getIn(['timelines', timelineId, 'seek'])).toEqual(seek);
+    expect(store.getState().getIn(['timelines', timelineId, 'contextSource'])).toBe(seekSourceKey(contractB));
+    expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
+    expect(store.getState().getIn(['timelines', splitId, 'items']).toArray()).toEqual(['700', '600']);
+
+    const pointed = store.dispatch(pointLoadedWindow({
+      splitTimelineId: timelineId,
+      anchorId: anchor,
+      contract,
+    }));
+
+    expect(pointed.sessionId).toBeNull();
+    expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(items);
+    expect(store.getState().getIn(['timelines', timelineId, 'seek'])).toEqual(seek);
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(mockGet).not.toHaveBeenCalled();
   });
 });

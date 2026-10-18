@@ -25,7 +25,7 @@ import {
   claimWindowedHistoryFlight,
   releaseWindowedHistoryFlight,
 } from '../windowed_history/flights';
-import { activeWindowedTimeline } from '../windowed_history/host';
+import { activeWindowedTimeline, isAccountContextTimeline } from '../windowed_history/host';
 import { historyRequestParams } from '../windowed_history/sources';
 import { plainWindow } from '../windowed_history/timeline_state';
 
@@ -92,6 +92,12 @@ export function pointLoadedWindow({ splitTimelineId, anchorId, contract } = {}) 
       windowState: before.get('window'),
     } : null;
 
+    const sourceKey = seekSourceKey(contract);
+
+    if (isAccountContextTimeline(splitTimelineId) && !activeWindowedTimeline(getState(), splitTimelineId, splitTimelineId, sourceKey)) {
+      return { sessionId: null, snapshot };
+    }
+
     cancelWindowedHistory(splitTimelineId);
 
     const sessionId = nextSessionId();
@@ -101,7 +107,7 @@ export function pointLoadedWindow({ splitTimelineId, anchorId, contract } = {}) 
       timeline: splitTimelineId,
       sessionId,
       anchorId,
-      source: seekSourceKey(contract),
+      source: sourceKey,
     });
 
     const seek = getState().getIn(['timelines', splitTimelineId, 'seek']);
@@ -126,7 +132,7 @@ export function seekWindowedTimeline({
     const sourceKey = seekSourceKey(contract);
     const cap = capabilityFor(parsed && parsed.source, built.kind);
 
-    if (!parsed || !activeWindowedTimeline(getState(), sourceTimelineId, splitTimelineId)) {
+    if (!parsed || !activeWindowedTimeline(getState(), sourceTimelineId, splitTimelineId, sourceKey)) {
       return Promise.resolve(normalizeSeekResult({ outcome: 'stale', capability: 'unavailable', reason: 'split_inactive' }));
     }
 
@@ -171,7 +177,7 @@ export function seekWindowedTimeline({
       }
 
       return seekIsCurrent({
-        active: activeWindowedTimeline(getState(), sourceTimelineId, splitTimelineId),
+        active: activeWindowedTimeline(getState(), sourceTimelineId, splitTimelineId, sourceKey),
         sessionId,
         phase: seek.get('phase'),
         generation: seek.get('generation'),
