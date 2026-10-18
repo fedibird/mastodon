@@ -97,6 +97,36 @@ describe Api::V1::Timelines::SeekController do
     expect(response.body).not_to include('personal-foreign-body')
   end
 
+  it 'resolves an account status from explicit filters and does not leak a private body' do
+    status = Fabricate(:status, account: author, visibility: :public)
+    secret = Fabricate(:status, account: author, visibility: :private, text: 'account-private-secret')
+
+    post_seek(
+      source: 'account',
+      kind: 'status',
+      context: { account_id: author.id.to_s, exclude_replies: 'false', exclude_reblogs: 'false', tagged: '', only_media: 'false' },
+      seek_target: { id: status.id.to_s }
+    )
+    body = JSON.parse(response.body)
+    expect(response).to have_http_status(200)
+    expect(body['outcome']).to eq('resolved')
+    expect(body['anchor_id']).to eq(status.id.to_s)
+
+    post_seek(
+      source: 'account',
+      kind: 'status',
+      context: { account_id: author.id.to_s, exclude_replies: 'false', exclude_reblogs: 'false' },
+      seek_target: { id: secret.id.to_s }
+    )
+    hidden = JSON.parse(response.body)
+    expect(hidden['outcome']).to eq('not_found')
+    expect(hidden).not_to have_key('anchor_id')
+    expect(response.body).not_to include('account-private-secret')
+
+    post_seek(source: 'account', kind: 'date', context: { account_id: author.id.to_s }, seek_target: { at: status.created_at.iso8601 })
+    expect(JSON.parse(response.body)['reason']).to eq('date_seek_not_implemented')
+  end
+
   it 'rejects search text in the target' do
     post :create, params: {
       version: 1,

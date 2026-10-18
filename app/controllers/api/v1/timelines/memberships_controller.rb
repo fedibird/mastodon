@@ -31,6 +31,7 @@ class Api::V1::Timelines::MembershipsController < Api::BaseController
       :source,
       context: [
         :remote, :domain, :only_media, :without_media, :without_bot, :hashtag, :tagged, :id, :list_id, :group_id,
+        :account_id, :exclude_replies, :exclude_reblogs,
         { visibilities: [] }, { any: [] }, { all: [] }, { none: [] }
       ],
       ids: []

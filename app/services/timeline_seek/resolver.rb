@@ -102,6 +102,8 @@ class TimelineSeek::Resolver
       return TimelineSeek::Result.unsupported('missing_account') if @account.nil?
 
       TimelineSeek::FeedReader.new(PersonalFeed.new(@account, personal_options))
+    when 'account'
+      account_reader
     else
       TimelineSeek::Result.unsupported('unknown_source')
     end
@@ -155,6 +157,10 @@ class TimelineSeek::Resolver
       return resolve_redis_status(reader, status_id, extra)
     end
 
+    if @source == 'account'
+      return resolve_account_status(reader, status_id, extra)
+    end
+
     # contains? is the feed scope, not viewer authorization. A group scope can
     # still return an id StatusPolicy#show? rejects.
     if reader.contains?(status_id)
@@ -171,6 +177,74 @@ class TimelineSeek::Resolver
         TimelineSeek::Result.not_in_source(capability: @entry.level, limitations: extra)
       end
     end
+  end
+
+  def resolve_account_status(reader, status_id, limitations)
+    return TimelineSeek::Result.unavailable('not_loaded', capability: @entry.level, limitations: limitations) if account_remote_gap?(status_id)
+
+    if reader.contains?(status_id)
+      denied = concealed(status_id)
+      return denied if denied
+      return TimelineSeek::Result.not_visible(capability: @entry.level, limitations: limitations, reason: 'viewer_filter') if account_hidden?(status_id)
+
+      return TimelineSeek::Result.resolved(status_id, capability: @entry.level, limitations: limitations)
+    end
+
+    conceal_or(status_id) do
+      if reader.unfiltered&.contains?(status_id)
+        TimelineSeek::Result.not_visible(capability: @entry.level, limitations: limitations, reason: 'viewer_filter')
+      else
+        TimelineSeek::Result.not_in_source(capability: @entry.level, limitations: limitations)
+      end
+    end
+  end
+
+  # A remote account can have posts this server has never fetched. Absence
+  # from the local table is not proof the post does not exist.
+  def account_remote_gap?(status_id)
+    target = account_record
+    return false if target.nil? || target.domain.blank?
+
+    !Status.unscoped.where(id: status_id).exists?
+  end
+
+  def account_hidden?(status_id)
+    TimelineSeek::HideFilter.new(@account, 'account').hidden_ids([status_id]).include?(status_id)
+  end
+
+  def account_reader
+    target = account_record
+    return TimelineSeek::Result.unsupported('missing_source') if target.nil?
+    return TimelineSeek::Result.unavailable('account_unavailable', capability: @entry&.level || 'supported') if target.suspended?
+
+    filtered = AccountStatusesFeed.new(target, @account, account_feed_options(viewer_filters: true, hide_personal: hide_personal_from_account?))
+    plain = AccountStatusesFeed.new(target, @account, account_feed_options(viewer_filters: false, hide_personal: false))
+    TimelineSeek::FeedReader.new(filtered, unfiltered: TimelineSeek::FeedReader.new(plain))
+  end
+
+  def account_record
+    account_id = parse_id(@context[:account_id] || @context[:id])
+    return nil if account_id.nil?
+
+    Account.find_by(id: account_id)
+  end
+
+  def account_feed_options(viewer_filters:, hide_personal:)
+    raw_tag = @context[:tagged]
+    missing_tag = raw_tag.present? && clean_tag(raw_tag).nil?
+    {
+      exclude_replies: flag(:exclude_replies),
+      exclude_reblogs: flag(:exclude_reblogs),
+      only_media: flag(:only_media),
+      tagged: missing_tag ? nil : raw_tag,
+      tag_missing: missing_tag,
+      hide_personal: hide_personal,
+      viewer_filters: viewer_filters,
+    }
+  end
+
+  def hide_personal_from_account?
+    !!@user&.setting_hide_personal_from_account
   end
 
   def resolve_redis_status(reader, status_id, limitations)

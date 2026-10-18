@@ -7,8 +7,10 @@ module TimelineSeek
     VERSION = 1
     LEVELS = %w(supported approximate unavailable unsupported).freeze
     KINDS = %w(status date account searchHit membership).freeze
+    # Bookmark and split-history sources. Account context seek is a separate
+    # temporary history host, so it stays out of this list.
     WINDOWED_SOURCES = %w(home limited list hashtag public domain group personal).freeze
-    CLOSED_SOURCES = %w(account direct notifications mix).freeze
+    CLOSED_SOURCES = %w(direct notifications mix).freeze
 
     Entry = Struct.new(:level, :reason, keyword_init: true)
 
@@ -25,6 +27,9 @@ module TimelineSeek
     PERSONAL_ACCOUNT = Entry.new(level: 'unsupported', reason: 'personal_is_not_an_account_timeline').freeze
     CLOSED = Entry.new(level: 'unsupported', reason: 'source_has_no_windowed_history').freeze
     UNKNOWN = Entry.new(level: 'unsupported', reason: 'unknown_source').freeze
+    ACCOUNT_DATE = Entry.new(level: 'unsupported', reason: 'date_seek_not_implemented').freeze
+    ACCOUNT_KIND = Entry.new(level: 'unsupported', reason: 'account_probe_not_implemented').freeze
+    ACCOUNT_SEARCH = Entry.new(level: 'unsupported', reason: 'search_not_implemented').freeze
 
     MATRIX = {
       'home' => { 'status' => REDIS_STATUS, 'date' => REDIS_DATE, 'account' => REDIS_ACCOUNT, 'searchHit' => REDIS_SEARCH, 'membership' => REDIS_MEMBERSHIP },
@@ -35,6 +40,8 @@ module TimelineSeek
       'domain' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => DB_ACCOUNT, 'searchHit' => DB_SEARCH, 'membership' => DB_MEMBERSHIP },
       'group' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => DB_ACCOUNT, 'searchHit' => DB_SEARCH, 'membership' => DB_MEMBERSHIP },
       'personal' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => PERSONAL_ACCOUNT, 'searchHit' => DB_SEARCH, 'membership' => DB_MEMBERSHIP },
+      # status and membership only. Date, account probe, and search stay unsupported.
+      'account' => { 'status' => DB_STATUS, 'date' => ACCOUNT_DATE, 'account' => ACCOUNT_KIND, 'searchHit' => ACCOUNT_SEARCH, 'membership' => DB_MEMBERSHIP },
     }.freeze
 
     def self.lookup(source, kind)

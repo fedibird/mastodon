@@ -51,6 +51,7 @@ import {
   noteHistoryResumeOnSeek,
   settleHistoryResume,
 } from '../timeline_position/reduce';
+import { ACCOUNT_CONTEXT_CLOSE, ACCOUNT_CONTEXT_OPEN, ACCOUNT_CONTEXT_PREFIX } from '../timeline_seek/account_context';
 import { beginSeekState, commitSeekState, failSeekState, pointLoadedSeek, restoreJumpWindow, settleSeekScroll } from '../timeline_seek/reduce';
 import {
   failHistory,
@@ -304,6 +305,33 @@ const keepLiveTimeline = (source, liveAtTop) => {
   });
 };
 
+const openAccountContext = (state, action) => {
+  if (typeof action.timeline !== 'string' || action.timeline.indexOf(ACCOUNT_CONTEXT_PREFIX) !== 0 || !action.window) {
+    return state;
+  }
+
+  return state.set(action.timeline, initialTimeline.merge({
+    contextHost: true,
+    contextSource: action.source,
+    items: ImmutableList(),
+    pendingItems: ImmutableList(),
+    unread: 0,
+    online: false,
+    isLoading: false,
+    hasMore: true,
+    top: false,
+    window: fromJS(action.window),
+  }));
+};
+
+const closeAccountContext = (state, action) => {
+  if (state.getIn([action.timeline, 'contextHost']) !== true) {
+    return state;
+  }
+
+  return state.delete(action.timeline);
+};
+
 const destroyTimelineSplit = (state, action) => {
   const { sourceTimeline, splitTimeline, keep, liveAtTop } = action;
   const source = state.get(sourceTimeline, initialTimeline);
@@ -443,6 +471,10 @@ export default function timelines(state = initialState, action) {
     });
 
     return state;
+  case ACCOUNT_CONTEXT_OPEN:
+    return openAccountContext(state, action);
+  case ACCOUNT_CONTEXT_CLOSE:
+    return closeAccountContext(state, action);
   case TIMELINE_SPLIT_CREATE:
     return createTimelineSplit(state, action.sourceTimeline, action.splitTimeline, action.anchorId);
   case TIMELINE_SPLIT_DESTROY:

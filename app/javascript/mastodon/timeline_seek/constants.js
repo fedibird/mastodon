@@ -54,4 +54,4 @@ export const WINDOW_SEEK_POINT = 'WINDOW_SEEK_POINT';
 
 export const SEEK_PAGE_LIMIT = 40;
 
-export const CLOSED_SOURCES = Object.freeze(['account', 'direct', 'notifications', 'mix']);
+export const CLOSED_SOURCES = Object.freeze(['direct', 'notifications', 'mix']);

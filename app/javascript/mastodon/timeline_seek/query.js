@@ -47,6 +47,14 @@ export const seekSourceFromContract = (contract) => {
     }
   }
 
+  if (contract.source === 'account') {
+    const accountId = idFromPath(contract.path, /\/accounts\/([^/?#]+)\/statuses/);
+
+    if (accountId) {
+      context.account_id = accountId;
+    }
+  }
+
   return {
     source: contract.source,
     context,

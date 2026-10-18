@@ -25,6 +25,7 @@ import {
   claimWindowedHistoryFlight,
   releaseWindowedHistoryFlight,
 } from '../windowed_history/flights';
+import { activeWindowedTimeline } from '../windowed_history/host';
 import { historyRequestParams } from '../windowed_history/sources';
 import { plainWindow } from '../windowed_history/timeline_state';
 
@@ -34,10 +35,6 @@ const nextSessionId = () => {
   seekSerial += 1;
   return `timeline-seek-${seekSerial}`;
 };
-
-const activeSplit = (state, sourceTimelineId, splitTimelineId) => (
-  !!splitTimelineId && state.getIn(['timelines', sourceTimelineId, 'splitTimelineId']) === splitTimelineId
-);
 
 const statusList = (data) => {
   if (!data) {
@@ -129,7 +126,7 @@ export function seekWindowedTimeline({
     const sourceKey = seekSourceKey(contract);
     const cap = capabilityFor(parsed && parsed.source, built.kind);
 
-    if (!parsed || !activeSplit(getState(), sourceTimelineId, splitTimelineId)) {
+    if (!parsed || !activeWindowedTimeline(getState(), sourceTimelineId, splitTimelineId)) {
       return Promise.resolve(normalizeSeekResult({ outcome: 'stale', capability: 'unavailable', reason: 'split_inactive' }));
     }
 
@@ -174,7 +171,7 @@ export function seekWindowedTimeline({
       }
 
       return seekIsCurrent({
-        active: activeSplit(getState(), sourceTimelineId, splitTimelineId),
+        active: activeWindowedTimeline(getState(), sourceTimelineId, splitTimelineId),
         sessionId,
         phase: seek.get('phase'),
         generation: seek.get('generation'),

@@ -15,6 +15,7 @@ module TimelineSeek
       'domain' => 'public',
       'group' => 'public',
       'personal' => 'public',
+      'account' => 'account',
     }.freeze
 
     def initialize(account, source)

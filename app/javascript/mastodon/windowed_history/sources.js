@@ -93,6 +93,20 @@ export const personalHistoryContract = ({ onlyMedia, withoutMedia } = {}) => ({
   },
 });
 
+// Identity is the account and the request filters, not the column or scroll host.
+// Booleans stay present so a replies view cannot collide with the posts view.
+export const accountHistoryContract = (accountId, { excludeReplies = true, excludeReblogs = true, tagged = '', onlyMedia = false } = {}) => ({
+  source: 'account',
+  capability: HISTORY_CAPABILITY.DATABASE,
+  path: `/api/v1/accounts/${accountId}/statuses`,
+  params: {
+    exclude_replies: !!excludeReplies,
+    exclude_reblogs: !!excludeReblogs,
+    tagged: typeof tagged === 'string' ? tagged : '',
+    only_media: !!onlyMedia,
+  },
+});
+
 export const historyRequestParams = (contract, direction, cursor, limit) => {
   const params = {
     ...(contract && contract.params ? contract.params : {}),
