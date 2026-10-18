@@ -3,7 +3,7 @@
 class Api::V1::Fedibird::ReadingBookmarksController < Api::BaseController
   before_action -> { doorkeeper_authorize! :read, :'read:statuses' }, only: [:index, :show, :capabilities]
   before_action -> { doorkeeper_authorize! :write, :'write:statuses' }, only: [:create, :update, :destroy]
-  before_action :authorize_list_write!, only: [:create, :update]
+  before_action :authorize_list_write!, only: [:create, :update, :destroy]
   before_action :require_user!
 
   def index
@@ -54,17 +54,29 @@ class Api::V1::Fedibird::ReadingBookmarksController < Api::BaseController
     params.to_unsafe_h
   end
 
+  # write:lists is required when this write touches a list bookmark.
+  # That is the stored source or any submitted source. Omitting source, or
+  # sending a non-list source, does not drop the requirement for a row that
+  # is already a list. Destroy uses the same rule.
   def authorize_list_write!
-    return unless list_source?
+    return unless list_write?
 
     doorkeeper_authorize! :write, :'write:lists'
   end
 
-  def list_source?
-    source = params[:source].presence || params.dig(:reading_bookmark, :source).presence
-    if source.blank? && params[:id].present? && current_user
-      source = current_user.timeline_reading_bookmarks.where(id: params[:id]).pick(:source)
-    end
-    source.to_s == 'list'
+  def list_write?
+    sources = submitted_sources
+    sources << stored_source if params[:id].present?
+    sources.any? { |source| source == 'list' }
+  end
+
+  def submitted_sources
+    [params[:source], params.dig(:reading_bookmark, :source)].filter_map { |value| value.to_s.presence }
+  end
+
+  def stored_source
+    return if current_user.nil?
+
+    current_user.timeline_reading_bookmarks.where(id: params[:id]).pick(:source)
   end
 end

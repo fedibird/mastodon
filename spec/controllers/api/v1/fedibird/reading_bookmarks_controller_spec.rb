@@ -192,6 +192,33 @@ describe Api::V1::Fedibird::ReadingBookmarksController do
       expect(response).to have_http_status(200)
       expect(user.timeline_reading_bookmarks).to be_empty
     end
+
+    it 'does not let a non-list source drop write:lists' do
+      list = Fabricate(:list, account: user.account, title: 'scoped-list-title')
+      create_place(name: 'List place', source: 'list', context: { id: list.id.to_s })
+      id = JSON.parse(response.body)['id']
+      narrow = Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: 'read:statuses write:statuses')
+      allow(controller).to receive(:doorkeeper_token) { narrow }
+      controller.instance_variable_set(:@current_user, nil)
+
+      patch :update, params: { id: id, name: 'Renamed without scope', lock_version: 0 }
+      expect(response).to have_http_status(403)
+      expect(user.timeline_reading_bookmarks.find(id).name).to eq('List place')
+
+      patch :update, params: { id: id, name: 'Moved without scope', source: 'public', lock_version: 0 }
+      expect(response).to have_http_status(403)
+      expect(user.timeline_reading_bookmarks.find(id).source).to eq('list')
+
+      delete :destroy, params: { id: id }
+      expect(response).to have_http_status(403)
+      expect(user.timeline_reading_bookmarks.find(id).name).to eq('List place')
+
+      create_place(name: 'Home place')
+      home_id = JSON.parse(response.body)['id']
+      patch :update, params: { id: home_id, name: 'Home renamed', lock_version: 0 }
+      expect(response).to have_http_status(200)
+      expect(user.timeline_reading_bookmarks.find(home_id).name).to eq('Home renamed')
+    end
   end
 
   describe 'GET #capabilities' do
