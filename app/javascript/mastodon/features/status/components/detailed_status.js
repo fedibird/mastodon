@@ -23,6 +23,7 @@ import EditedTimestamp from 'mastodon/components/edited_timestamp';
 import AnimatedNumber from 'mastodon/components/animated_number';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
+import AccountContextActions from '../../account_context/components/actions';
 import { enableReaction, enableStatusReference, hideListOfEmojiReactionsToPosts, hideListOfFavouritesToPosts, hideListOfReblogsToPosts, hideListOfReferredByToPosts } from 'mastodon/initial_state';
 
 const messages = defineMessages({
@@ -101,6 +102,8 @@ class DetailedStatus extends ImmutablePureComponent {
     addEmojiReaction: PropTypes.func.isRequired,
     removeEmojiReaction: PropTypes.func.isRequired,
     onReference: PropTypes.func,
+    contextHostId: PropTypes.string,
+    onOpenAccountContext: PropTypes.func,
     reactionLimitReached: PropTypes.bool,
   };
 
@@ -543,6 +546,7 @@ class DetailedStatus extends ImmutablePureComponent {
             <DisplayName account={status.get('account')} localDomain={this.props.domain} />
           </a>
 
+          <AccountContextActions status={this.props.status} hostTimelineId={this.props.contextHostId || 'status:route'} onOpen={this.props.onOpenAccountContext} />
           <StatusContent status={status} translationWrapper={this.props.status} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} onTranslate={this.props.onTranslate && this.handleTranslate} />
 
           {!(status.get('hidden') && status.get('spoiler_text').length > 0) && <>

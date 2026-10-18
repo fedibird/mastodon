@@ -7,6 +7,7 @@ import LoadingIndicator from '../../components/loading_indicator';
 import { fetchReblogs, expandReblogs } from '../../actions/interactions';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import AccountContainer from '../../containers/account_container';
+import ReblogWrapperLink from '../account_context/components/reblog_wrapper_link';
 import Column from '../ui/components/column';
 import ScrollableList from '../../components/scrollable_list';
 import Icon from 'mastodon/components/icon';
@@ -81,7 +82,7 @@ class Reblogs extends ImmutablePureComponent {
   }
 
   render () {
-    const { intl, accountIds, multiColumn, hasMore, isLoading, columnWidth } = this.props;
+    const { intl, accountIds, multiColumn, hasMore, isLoading, columnWidth, columnId } = this.props;
 
     if (!accountIds) {
       return (
@@ -115,9 +116,16 @@ class Reblogs extends ImmutablePureComponent {
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
         >
-          {accountIds.map(id =>
-            <AccountContainer key={id} id={id} withNote={false} />,
-          )}
+          {accountIds.map(id => (
+            <div key={id} className='account-context-reblog-row'>
+              <AccountContainer id={id} withNote={false} />
+              <ReblogWrapperLink
+                accountId={id}
+                originalStatusId={this.props.params.statusId}
+                hostTimelineId={columnId ? `reblogs:${columnId}:${this.props.params.statusId}` : `reblogs:route:${this.props.params.statusId}`}
+              />
+            </div>
+          ))}
         </ScrollableList>
       </Column>
     );

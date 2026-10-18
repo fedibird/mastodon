@@ -6,6 +6,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { List as ImmutableList } from 'immutable';
 import { createSelector } from 'reselect';
 import { fetchStatus } from '../../actions/statuses';
+import { openAccountContext } from '../../actions/account_context_view';
 import MissingIndicator from '../../components/missing_indicator';
 import DetailedStatus from './components/detailed_status';
 import ActionBar from './components/action_bar';
@@ -561,6 +562,12 @@ class Status extends ImmutablePureComponent {
     }
   }
 
+  contextHostId = () => (this.props.columnId ? `column:${this.props.columnId}` : 'status:route')
+
+  handleOpenAccountContext = (hostTimelineId, target) => {
+    this.props.dispatch(openAccountContext({ hostTimelineId, target }));
+  }
+
   renderChildren (list) {
     return list.map(id => (
       <StatusContainer
@@ -569,6 +576,7 @@ class Status extends ImmutablePureComponent {
         onMoveUp={this.handleMoveUp}
         onMoveDown={this.handleMoveDown}
         contextType='thread'
+        contextHostId={this.contextHostId()}
       />
     ));
   }
@@ -678,6 +686,8 @@ class Status extends ImmutablePureComponent {
                 <DetailedStatus
                   key={`details-${status.get('id')}`}
                   status={status}
+                  contextHostId={this.contextHostId()}
+                  onOpenAccountContext={this.handleOpenAccountContext}
                   referenced={referenced}
                   contextReferenced={contextReferenced}
                   onOpenVideo={this.handleOpenVideo}

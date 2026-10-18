@@ -10,6 +10,7 @@ import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
 import StatusContent from './status_content';
 import StatusActionBar from './status_action_bar';
+import AccountContextActions from '../features/account_context/components/actions';
 import AccountActionBar from './account_action_bar';
 import Card from '../features/status/components/card';
 import { injectIntl, defineMessages, FormattedMessage } from 'react-intl';
@@ -957,6 +958,7 @@ class Status extends ImmutablePureComponent {
           })} tabIndex={this.props.muted ? null : 0} data-featured={featured ? 'true' : null} aria-label={textForScreenReader(intl, status, rebloggedByText)} ref={this.handleRef}
         >
           {prepend}
+          <AccountContextActions status={this.props.status} hostTimelineId={this.props.contextHostId || scrollKey || 'timeline'} onOpen={this.props.onOpenAccountContext} />
 
           <div className={classNames('status', `status-${status.get('visibility')}`, { 'status-reply': !!status.get('in_reply_to_id'), muted: this.props.muted, 'status-with-expiration': expires_date, 'status-expired': expired, referenced, 'context-referenced': contextReferenced, 'status-immediate': this.props.immediate && new_features_policy === 'tester' })} data-id={status.get('id')}>
             <AccountActionBar account={status.get('account')} {...other} />

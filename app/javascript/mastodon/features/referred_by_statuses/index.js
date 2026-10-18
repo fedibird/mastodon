@@ -85,7 +85,7 @@ class ReferredByStatuses extends ImmutablePureComponent {
   }
 
   render () {
-    const { intl, statusIds, multiColumn, hasMore, isLoading, columnWidth } = this.props;
+    const { intl, statusIds, multiColumn, hasMore, isLoading, columnWidth, columnId } = this.props;
 
     if (!statusIds) {
       return (
@@ -95,7 +95,7 @@ class ReferredByStatuses extends ImmutablePureComponent {
       );
     }
 
-    const emptyMessage = <FormattedMessage id='empty_column.referred_by_statuses' defaultMessage="There are no referred by posts yet. When someone refers a post, it will appear here." />;
+    const emptyMessage = <FormattedMessage id='empty_column.referred_by_statuses' defaultMessage='There are no referred by posts yet. When someone refers a post, it will appear here.' />;
 
     return (
       <Column bindToDocument={!multiColumn} ref={this.setRef} label={intl.formatMessage(messages.heading)} columnWidth={columnWidth}>
@@ -114,6 +114,7 @@ class ReferredByStatuses extends ImmutablePureComponent {
         <StatusList
           statusIds={statusIds}
           scrollKey='referred-by-statuses'
+          contextHostId={columnId ? `referred-by:${columnId}:${this.props.params.statusId}` : `referred-by:route:${this.props.params.statusId}`}
           hasMore={hasMore}
           isLoading={isLoading}
           onLoadMore={this.handleLoadMore}

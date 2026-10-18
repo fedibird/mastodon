@@ -148,6 +148,7 @@ class StatusReferences extends ImmutablePureComponent {
         onMoveUp={this.handleMoveUp}
         onMoveDown={this.handleMoveDown}
         contextType='thread'
+        contextHostId={this.props.columnId ? `references:${this.props.columnId}:${this.props.params.statusId}` : `references:route:${this.props.params.statusId}`}
       />
     ));
   }
