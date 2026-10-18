@@ -7,7 +7,7 @@ import { accountContextFilters } from '../../timeline_seek/account_context';
 import { SEEK_KIND } from '../../timeline_seek/constants';
 import { createSeekQuery, seekSourceKey } from '../../timeline_seek/query';
 import { accountHistoryContract } from '../../windowed_history/sources';
-import { expandAccountContext, openAccountContextHost, seekAccountContext, settleAccountContextScroll } from '../account_context_history';
+import { closeAccountContextHost, expandAccountContext, openAccountContextHost, seekAccountContext, settleAccountContextScroll } from '../account_context_history';
 import { pointLoadedWindow, seekWindowedTimeline } from '../timeline_seek';
 
 const mockGet = jest.fn();
@@ -502,5 +502,110 @@ describe('account context history', () => {
     expect(store.getState().getIn(['timelines', timelineId, 'seek'])).toEqual(seek);
     expect(mockPost).not.toHaveBeenCalled();
     expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  const seekPageAndClose = async (hostTimelineId) => {
+    const store = storeWithNeighbors();
+    const timelineId = `account-context:${hostTimelineId}`;
+    const homeItems = store.getState().getIn(['timelines', 'home', 'items']);
+    const splitItems = store.getState().getIn(['timelines', splitId, 'items']);
+
+    const result = await store.dispatch(seekAccountContext({
+      hostTimelineId,
+      contract,
+      statusId: anchor,
+    }));
+
+    expect(result.outcome).toBe('resolved');
+    expect(result.anchorId).toBe(anchor);
+    const hosted = store.getState().getIn(['timelines', timelineId, 'items']);
+    expect(hosted.toArray()).toContain(anchor);
+    expect(store.getState().getIn(['timelines', timelineId, 'contextHost'])).toBe(true);
+
+    const olderId = idAt(100);
+    mockGet.mockClear();
+    mockGet.mockImplementation(path => {
+      if (/^\/api\/v1\/statuses\/[^/]+$/.test(String(path))) {
+        return Promise.resolve({ status: 200, data: { id: anchor, reblog: null } });
+      }
+
+      return Promise.resolve({ status: 200, data: [{ id: idAt(200) }, { id: olderId }] });
+    });
+    await store.dispatch(expandAccountContext({
+      hostTimelineId,
+      contract,
+      direction: 'older',
+    }));
+
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/accounts/42/statuses', expect.objectContaining({
+      params: expect.objectContaining({ max_id: hosted.last() }),
+    }));
+    expect(store.getState().getIn(['timelines', timelineId, 'items']).toArray()).toContain(olderId);
+    expect(store.getState().getIn(['timelines', timelineId, 'items']).size).toBeGreaterThan(hosted.size);
+
+    store.dispatch(closeAccountContextHost(hostTimelineId));
+
+    expect(store.getState().get('timelines').has(timelineId)).toBe(false);
+    expect(store.getState().getIn(['timelines', 'home', 'items'])).toEqual(homeItems);
+    expect(store.getState().getIn(['timelines', 'home', 'splitTimelineId'])).toBe(splitId);
+    expect(store.getState().getIn(['timelines', splitId, 'items'])).toEqual(splitItems);
+    expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
+    expect(store.getState().getIn(['timelines', profileId, 'pendingItems']).toArray()).toEqual(['9007199254740999']);
+  };
+
+  it('seeks, pages, and closes a context host opened from an ordinary column id', async () => {
+    await seekPageAndClose('column:42:posts');
+  });
+
+  it('seeks, pages, and closes a context host opened from a split timeline id', async () => {
+    await seekPageAndClose('home:split:session1');
+  });
+
+  it('still drops seek and history updates for a split the live column does not own', () => {
+    const store = storeWithNeighbors();
+    const orphan = 'home:split:orphan';
+    const homeItems = store.getState().getIn(['timelines', 'home', 'items']);
+    const splitItems = store.getState().getIn(['timelines', splitId, 'items']);
+
+    store.dispatch({
+      type: 'WINDOW_SEEK_BEGIN',
+      timeline: orphan,
+      sourceTimeline: 'home',
+      sessionId: 'seek-orphan',
+      source: 'home',
+    });
+    store.dispatch({
+      type: 'WINDOW_SEEK_COMMIT',
+      timeline: orphan,
+      sourceTimeline: 'home',
+      sessionId: 'seek-orphan',
+      anchorId: anchor,
+      newerIds: [],
+      olderIds: [],
+    });
+    store.dispatch({
+      type: 'WINDOW_HISTORY_REQUEST',
+      timeline: orphan,
+      sourceTimeline: 'home',
+      direction: 'older',
+      cursor: '600',
+      requestId: 'req-orphan',
+      generation: 1,
+    });
+    store.dispatch({
+      type: 'WINDOW_HISTORY_SUCCESS',
+      timeline: orphan,
+      sourceTimeline: 'home',
+      statuses: [{ id: '1' }],
+      direction: 'older',
+      requestId: 'req-orphan',
+      generation: 1,
+    });
+
+    expect(store.getState().get('timelines').has(orphan)).toBe(false);
+    expect(store.getState().getIn(['timelines', 'home', 'items'])).toEqual(homeItems);
+    expect(store.getState().getIn(['timelines', 'home', 'splitTimelineId'])).toBe(splitId);
+    expect(store.getState().getIn(['timelines', splitId, 'items'])).toEqual(splitItems);
+    expect(store.getState().getIn(['timelines', splitId, 'seek'])).toBeUndefined();
   });
 });

@@ -227,6 +227,12 @@ const splitSourceTimeline = (timeline) => {
 };
 
 const isStaleSplitTimeline = (state, timeline) => {
+  // A context host may be opened from a column id that already contains
+  // ":split:". That host is not the split owned by the text before the marker.
+  if (state.getIn([timeline, 'contextHost']) === true) {
+    return false;
+  }
+
   const sourceTimeline = splitSourceTimeline(timeline);
 
   if (!sourceTimeline) {
