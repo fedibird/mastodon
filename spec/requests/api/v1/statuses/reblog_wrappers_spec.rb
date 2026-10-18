@@ -101,26 +101,26 @@ RSpec.describe 'Account context reblog wrapper lookup', type: :request do
     expect(body_as_json[:id]).to be_nil
   end
 
-  it 'does not guess when another visible wrapper may sit past the scan' do
-    older = Fabricate(:status, account: booster, reblog: original, text: '')
-    AccountContext::ReblogWrapperLookup::SCAN_LIMIT.times do |index|
-      row = older.dup
-      row.id = nil
-      row.uri = "#{older.uri}/hidden-#{index}"
-      row.visibility = :private
-      row.save!(validate: false)
-    end
-    visible = older.dup
-    visible.id = nil
-    visible.uri = "#{older.uri}/visible"
-    visible.visibility = :public
-    visible.save!(validate: false)
+  it 'does not change the response when hidden duplicates are added beside one visible boost' do
+    visible = Fabricate(:status, account: booster, reblog: original, text: '')
 
     lookup(booster.id)
+    alone = body_as_json
 
-    expect(body_as_json[:state]).to eq 'unknown'
-    expect(body_as_json[:reason]).to eq 'scan_limited'
-    expect(body_as_json[:id]).to be_nil
+    AccountContext::ReblogWrapperLookup::SCAN_LIMIT.times do |index|
+      hidden = visible.dup
+      hidden.id = nil
+      hidden.uri = "#{visible.uri}/hidden-#{index}"
+      hidden.visibility = :private
+      hidden.save!(validate: false)
+    end
+    lookup(booster.id)
+
+    expect(response).to have_http_status(200)
+    expect(body_as_json).to eq alone
+    expect(body_as_json[:state]).to eq 'resolved'
+    expect(body_as_json[:id]).to eq visible.id.to_s
+    expect(body_as_json[:reason]).to be_nil
   end
 
   it 'counts only visible wrappers when deciding a boost is ambiguous' do

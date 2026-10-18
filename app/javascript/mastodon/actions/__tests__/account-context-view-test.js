@@ -426,4 +426,39 @@ describe('openAccountContext', () => {
     expect(store.getState().getIn(['accountContextViews', 'sessions', splitHost, 'notice'])).toBe('not_found');
     expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
   });
+
+  it('keeps only the latest window in the committed session after repeated switches', async () => {
+    const store = storeWithProfile();
+    const targets = [
+      accountContextTarget({ kind: 'quote', status: quoteStatus }),
+      otherAccountBoost(),
+      accountContextTarget({
+        kind: 'quote',
+        status: quoteStatus.set('id', '9007199254740555').setIn(['account', 'id'], '77'),
+      }),
+    ];
+
+    for (const target of targets) {
+      const opened = await store.dispatch(openAccountContext({ hostTimelineId: splitHost, target }));
+
+      settleDisplay(store, splitHost, opened);
+    }
+
+    const session = store.getState().getIn(['accountContextViews', 'sessions', splitHost]);
+    const committed = session.get('committed');
+    const restored = committed.get('session');
+
+    expect(committed.get('items').size).toBeGreaterThan(0);
+    expect(restored.get('accountId')).toBe('77');
+    expect(restored.get('statusId')).toBe('9007199254740555');
+    expect(restored.has('committed')).toBe(false);
+    expect(restored.has('previousItems')).toBe(false);
+    expect(restored.has('previousWindow')).toBe(false);
+    expect(restored.has('previousSession')).toBe(false);
+    expect(restored.has('previousSourceKey')).toBe(false);
+    expect(session.get('previousItems')).toBeNull();
+    expect(session.get('previousWindow')).toBeNull();
+    expect(session.get('previousSession')).toBeNull();
+    expect(committed.getIn(['session', 'committed'])).toBeUndefined();
+  });
 });

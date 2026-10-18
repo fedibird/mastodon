@@ -61,8 +61,28 @@ const heldFromCommitted = (committed) => {
   };
 };
 
+// Restore needs the identity of the display, not the snapshot that display
+// was holding. Nesting `committed` or `previous*` keeps every earlier window.
+const restoreSession = (session) => {
+  if (!session || typeof session.get !== 'function' || !session.get('accountId')) {
+    return null;
+  }
+
+  return ImmutableMap({
+    hostKey: session.get('hostKey'),
+    kind: session.get('kind'),
+    accountId: session.get('accountId'),
+    statusId: session.get('statusId'),
+    reply: !!session.get('reply'),
+    reblog: !!session.get('reblog'),
+    sourceKey: session.get('sourceKey') || '',
+  });
+};
+
 const committedRecord = (held) => {
-  if (!held || !held.windowState || !held.session) {
+  const session = restoreSession(held && held.session);
+
+  if (!held || !held.windowState || !session) {
     return null;
   }
 
@@ -70,7 +90,7 @@ const committedRecord = (held) => {
     sourceKey: held.sourceKey,
     items: held.items,
     windowState: held.windowState,
-    session: held.session,
+    session,
   });
 };
 
@@ -191,7 +211,12 @@ export function openAccountContext({ hostTimelineId, target } = {}) {
         return { ...result, opened: false, restored: true, hostKey, generation };
       }
 
-      const previous = held && held.sourceKey !== sourceKey ? held : result.previous;
+      const previous = held && held.sourceKey !== sourceKey ? {
+        sourceKey: held.sourceKey,
+        items: held.items,
+        windowState: held.windowState,
+        session: restoreSession(held.session),
+      } : result.previous;
 
       dispatch({
         type: ACCOUNT_CONTEXT_VIEW_SEEK,
