@@ -337,6 +337,7 @@ class ListTimeline extends React.PureComponent {
             <Fragment>
               {split.splitButton}
               {split.jumpButton}
+              {split.bookmarkButton}
               {split.resumeButton}
               <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
               {split.closeLiveButton}
@@ -370,6 +371,8 @@ class ListTimeline extends React.PureComponent {
         </ColumnHeader>
 
         {split.jumpPanel}
+
+        {split.bookmarkPanel}
 
         {portableComposer ? <ColumnDropHint /> : null}
 

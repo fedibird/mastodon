@@ -412,6 +412,7 @@ class HashtagTimeline extends React.PureComponent {
             <Fragment>
               {split.splitButton}
               {split.jumpButton}
+              {split.bookmarkButton}
               {split.resumeButton}
               <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
               {followButton}
@@ -426,6 +427,8 @@ class HashtagTimeline extends React.PureComponent {
         </ColumnHeader>
 
         {split.jumpPanel}
+
+        {split.bookmarkPanel}
 
         {portableComposer ? <ColumnDropHint /> : null}
 

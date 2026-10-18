@@ -16,6 +16,13 @@ import { loadedDisplayRowId } from '../../../timeline_text_search/session';
 import { WINDOW_SEEK_RESTORE } from '../../../timeline_seek/constants';
 import { me } from '../../../initial_state';
 import { captureHistoryPosition, cancelHistoryResume, resumeHistoryPosition } from '../../../actions/timeline_position';
+import {
+  createReadingBookmark,
+  deleteReadingBookmark,
+  fetchReadingBookmarks,
+  updateReadingBookmark,
+} from '../../../reading_bookmarks/api';
+import { contractFromBookmark, readingBookmarkFailure } from '../../../reading_bookmarks/place';
 import TimelineSplitControllerCore, {
   STATUS_TIMELINE_SPLIT_LAYOUT_CLASS,
   clampTimelineSplitRatio,
@@ -240,6 +247,27 @@ class StatusTimelineSplitController extends React.Component {
     }));
   };
 
+  withReadingBookmarkClient = (work) => this.props.dispatch((dispatch, getState) => (
+    Promise.resolve(work(api(getState))).catch(error => Promise.reject(readingBookmarkFailure(error)))
+  ));
+
+  handleListReadingBookmarks = () => this.withReadingBookmarkClient(client => fetchReadingBookmarks(client));
+
+  handleCreateReadingBookmark = ({ name, anchor }) => this.withReadingBookmarkClient(client => createReadingBookmark(client, {
+    name,
+    contract: this.props.historyContract,
+    anchor,
+  }));
+
+  handleRenameReadingBookmark = (bookmark, name) => this.withReadingBookmarkClient(client => updateReadingBookmark(client, bookmark.id, {
+    name,
+    contract: contractFromBookmark(bookmark),
+    anchor: bookmark.anchor,
+    lockVersion: bookmark.lockVersion,
+  }));
+
+  handleDeleteReadingBookmark = (bookmark) => this.withReadingBookmarkClient(client => deleteReadingBookmark(client, bookmark.id));
+
   handleRestoreJump = ({ splitTimelineId, sessionId, items, windowState, reason }) => {
     this.props.dispatch({
       type: WINDOW_SEEK_RESTORE,
@@ -283,6 +311,10 @@ class StatusTimelineSplitController extends React.Component {
         onCaptureHistoryPosition={this.handleCaptureHistoryPosition}
         onResumeHistory={this.handleResumeHistory}
         onCancelHistoryResume={this.handleCancelHistoryResume}
+        onListReadingBookmarks={this.handleListReadingBookmarks}
+        onCreateReadingBookmark={this.handleCreateReadingBookmark}
+        onRenameReadingBookmark={this.handleRenameReadingBookmark}
+        onDeleteReadingBookmark={this.handleDeleteReadingBookmark}
       />
     );
   }
