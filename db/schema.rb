@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_16_233100) do
+ActiveRecord::Schema.define(version: 2026_10_18_020000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1662,6 +1662,25 @@ ActiveRecord::Schema.define(version: 2026_10_16_233100) do
     t.index ["tag_id"], name: "index_tag_follows_on_tag_id"
   end
 
+  create_table "timeline_reading_bookmarks", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "name", limit: 100, null: false
+    t.string "source", limit: 16, null: false
+    t.jsonb "context", default: {}, null: false
+    t.integer "anchor_version", default: 1, null: false
+    t.string "anchor_status_id", limit: 19, null: false
+    t.string "display_row_id", limit: 128
+    t.integer "offset_px", null: false
+    t.string "alignment", limit: 8, null: false
+    t.datetime "captured_at"
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["user_id", "name"], name: "index_timeline_reading_bookmarks_on_user_and_name", unique: true
+    t.index ["user_id", "updated_at"], name: "index_timeline_reading_bookmarks_on_user_and_updated_at"
+    t.check_constraint "((char_length((name)::text) >= 1) AND (char_length((name)::text) <= 100)) AND ((name)::text !~ '[[:cntrl:]]'::text) AND (btrim((name)::text) = (name)::text) AND ((source)::text = ANY ((ARRAY['home'::character varying, 'limited'::character varying, 'list'::character varying, 'hashtag'::character varying, 'public'::character varying, 'domain'::character varying, 'group'::character varying, 'personal'::character varying])::text[])) AND ((alignment)::text = ANY ((ARRAY['top'::character varying, 'center'::character varying])::text[])) AND (anchor_version = 1) AND ((offset_px >= '-1000000'::integer) AND (offset_px <= 1000000)) AND ((anchor_status_id)::text ~ '^[1-9][0-9]{0,18}$'::text) AND ((display_row_id IS NULL) OR (((char_length((display_row_id)::text) >= 1) AND (char_length((display_row_id)::text) <= 128)) AND ((display_row_id)::text !~ '[[:cntrl:]]'::text))) AND (octet_length((context)::text) <= 2048)", name: "timeline_reading_bookmarks_shape"
+  end
+
   create_table "tombstones", force: :cascade do |t|
     t.bigint "account_id"
     t.string "uri", null: false
@@ -2018,6 +2037,7 @@ ActiveRecord::Schema.define(version: 2026_10_16_233100) do
   add_foreign_key "tag_follow_deliveries", "tag_follows", on_delete: :cascade
   add_foreign_key "tag_follows", "accounts", on_delete: :cascade
   add_foreign_key "tag_follows", "tags", on_delete: :cascade
+  add_foreign_key "timeline_reading_bookmarks", "users", on_delete: :cascade
   add_foreign_key "tombstones", "accounts", on_delete: :cascade
   add_foreign_key "user_external_credentials", "users", on_delete: :cascade
   add_foreign_key "user_invite_requests", "users", on_delete: :cascade
