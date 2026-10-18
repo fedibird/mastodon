@@ -94,6 +94,43 @@ describe Api::V1::Accounts::StatusesController do
         end
       end
     end
+
+    it 'applies media, reply, boost, tag, and personal filters to pinned statuses' do
+      account = user.account
+      tag = Fabricate(:tag, name: 'pinfilter')
+      other = Fabricate(:status, account: Fabricate(:account), visibility: :public)
+
+      kept = Fabricate(:status, account: account, visibility: :public, text: 'kept pinned')
+      untagged = Fabricate(:status, account: account, visibility: :public, text: 'untagged pinned')
+      reply = Fabricate(:status, account: account, visibility: :public, text: 'reply pinned', thread: other)
+      plain = Fabricate(:status, account: account, visibility: :public, text: 'no media pinned')
+      personal = Fabricate(:status, account: account, visibility: :personal, text: 'personal pinned secret')
+      boost = Fabricate(:status, account: account, visibility: :public, text: 'boost pinned', reblog: other)
+      loose = Fabricate(:status, account: account, visibility: :public, text: 'unpinned match')
+
+      [kept, reply, plain, personal, boost].each { |status| status.tags << tag }
+      [kept, untagged, reply, personal, boost, loose].each do |status|
+        Fabricate(:media_attachment, account: account, status: status)
+      end
+      [kept, untagged, reply, plain, personal].each do |status|
+        Fabricate(:status_pin, account: account, status: status)
+      end
+      StatusPin.new(account: account, status: boost).save(validate: false)
+      user.settings.hide_personal_from_account = true
+
+      get :index, params: {
+        account_id: account.id,
+        pinned: true,
+        only_media: true,
+        exclude_replies: true,
+        exclude_reblogs: true,
+        tagged: tag.name,
+      }
+
+      ids = body_as_json.map { |item| item[:id].to_i }
+      expect(ids).to eq [kept.id]
+      expect(response.body).not_to include('personal pinned secret', 'untagged pinned', 'reply pinned', 'no media pinned', 'boost pinned', 'unpinned match')
+    end
   end
 
   describe 'GET #index min_id pagination' do

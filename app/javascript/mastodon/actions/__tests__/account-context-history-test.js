@@ -5,9 +5,9 @@ import thunk from 'redux-thunk';
 import timelines from '../../reducers/timelines';
 import { accountContextFilters } from '../../timeline_seek/account_context';
 import { SEEK_KIND } from '../../timeline_seek/constants';
-import { createSeekQuery } from '../../timeline_seek/query';
+import { createSeekQuery, seekSourceKey } from '../../timeline_seek/query';
 import { accountHistoryContract } from '../../windowed_history/sources';
-import { expandAccountContext, seekAccountContext, settleAccountContextScroll } from '../account_context_history';
+import { expandAccountContext, openAccountContextHost, seekAccountContext, settleAccountContextScroll } from '../account_context_history';
 import { seekWindowedTimeline } from '../timeline_seek';
 
 const mockGet = jest.fn();
@@ -91,9 +91,21 @@ const idAt = (offset) => String(9007199254740000 + offset);
 
 const pageIds = (start) => Array.from({ length: 40 }, (_, index) => idAt(start + index));
 
+const settleContext = (store, result, { renderedIds, articlePresent, usedContract = contract } = {}) => store.dispatch(settleAccountContextScroll({
+  hostTimelineId: hostKey,
+  renderedIds,
+  articlePresent,
+  previous: result.previous,
+  sessionId: result.scroll && result.scroll.sessionId,
+  scrollRevision: result.scroll && result.scroll.revision,
+  source: seekSourceKey(usedContract),
+}));
+
 const page = (path, config) => {
-  if (path === `/api/v1/statuses/${anchor}`) {
-    return Promise.resolve({ status: 200, data: { id: anchor, reblog: null } });
+  const statusMatch = String(path).match(/^\/api\/v1\/statuses\/([^/]+)$/);
+
+  if (statusMatch) {
+    return Promise.resolve({ status: 200, data: { id: statusMatch[1], reblog: null } });
   }
 
   const params = config && config.params || {};
@@ -144,12 +156,10 @@ describe('account context history', () => {
     expect(store.getState().getIn(['timelines', splitId, 'historyResume', 'phase'])).toBe('armed');
     expect(store.getState().getIn(['timelines', 'home', 'pendingItems']).toArray()).toEqual(['800']);
 
-    const loaded = store.dispatch(settleAccountContextScroll({
-      hostTimelineId: hostKey,
+    const loaded = settleContext(store, result, {
       renderedIds: ImmutableList(['9007199254740994', anchor, '9007199254740992']),
       articlePresent: true,
-      previous: result.previous,
-    }));
+    });
     expect(loaded).toEqual({ scroll: true, reason: 'loaded', anchorId: anchor });
     expect(store.getState().getIn(['timelines', `account-context:${hostKey}`, 'seek', 'scrollStatus'])).toBe('loaded');
 
@@ -186,12 +196,10 @@ describe('account context history', () => {
       contract,
       statusId: anchor,
     }));
-    store.dispatch(settleAccountContextScroll({
-      hostTimelineId: hostKey,
+    settleContext(store, first, {
       renderedIds: ImmutableList([anchor]),
       articlePresent: true,
-      previous: first.previous,
-    }));
+    });
     const kept = store.getState().getIn(['timelines', `account-context:${hostKey}`, 'items']);
 
     mockPost.mockImplementation(() => Promise.resolve({
@@ -211,12 +219,10 @@ describe('account context history', () => {
       contract,
       statusId: '9007199254740991',
     }));
-    const filtered = store.dispatch(settleAccountContextScroll({
-      hostTimelineId: hostKey,
+    const filtered = settleContext(store, second, {
       renderedIds: ImmutableList(['9007199254740995']),
       articlePresent: true,
-      previous: second.previous,
-    }));
+    });
 
     expect(filtered.reason).toBe('filtered');
     expect(store.getState().getIn(['timelines', `account-context:${hostKey}`, 'items'])).toEqual(kept);
@@ -226,12 +232,10 @@ describe('account context history', () => {
       contract,
       statusId: '9007199254740991',
     }));
-    const unloaded = store.dispatch(settleAccountContextScroll({
-      hostTimelineId: hostKey,
+    const unloaded = settleContext(store, moved, {
       renderedIds: moved && store.getState().getIn(['timelines', `account-context:${hostKey}`, 'items']),
       articlePresent: false,
-      previous: moved.previous,
-    }));
+    });
 
     expect(unloaded.reason).toBe('not_loaded');
     expect(store.getState().getIn(['timelines', `account-context:${hostKey}`, 'items'])).toEqual(kept);
@@ -319,5 +323,129 @@ describe('account context history', () => {
     expect(missed.outcome).toBe('not_in_source');
     expect(store.getState().getIn(['timelines', `account-context:${hostKey}`, 'items'])).toEqual(items);
     expect(store.getState().getIn(['timelines', splitId, 'items']).toArray()).toEqual(['700', '600']);
+  });
+
+  it('does not let an older settle restore over a newer seek in either order', async () => {
+    const anchorB = idAt(888);
+    const timelineId = `account-context:${hostKey}`;
+
+    mockPost.mockImplementation((_path, body) => {
+      const id = body.seek_target.id;
+
+      return Promise.resolve({
+        data: { ...resolvedBody, anchor_id: id, display_row_id: id },
+      });
+    });
+
+    const run = async (firstId, secondId) => {
+      const store = storeWithNeighbors();
+      const first = await store.dispatch(seekAccountContext({
+        hostTimelineId: hostKey,
+        contract,
+        statusId: firstId,
+      }));
+      const second = await store.dispatch(seekAccountContext({
+        hostTimelineId: hostKey,
+        contract,
+        statusId: secondId,
+      }));
+      const items = store.getState().getIn(['timelines', timelineId, 'items']);
+
+      const stale = settleContext(store, first, {
+        renderedIds: ImmutableList([firstId]),
+        articlePresent: true,
+      });
+
+      expect(stale).toEqual({ scroll: false, reason: 'stale' });
+      expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(items);
+      expect(items.toArray()).toContain(secondId);
+      expect(store.getState().getIn(['timelines', timelineId, 'seek', 'id'])).toBe(second.scroll.sessionId);
+      expect(store.getState().getIn(['timelines', timelineId, 'seek', 'scrollStatus'])).toBe('pending');
+      expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
+
+      const current = settleContext(store, second, {
+        renderedIds: items,
+        articlePresent: true,
+      });
+
+      expect(current).toEqual({ scroll: true, reason: 'loaded', anchorId: secondId });
+      expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(items);
+    };
+
+    await run(anchor, anchorB);
+    await run(anchorB, anchor);
+  });
+
+  it('does not page a contract the host has already left', async () => {
+    const store = storeWithNeighbors();
+    const timelineId = `account-context:${hostKey}`;
+    const contractB = accountHistoryContract('42', accountContextFilters({ reblog: true }));
+
+    await store.dispatch(seekAccountContext({
+      hostTimelineId: hostKey,
+      contract,
+      statusId: anchor,
+    }));
+    await store.dispatch(seekAccountContext({
+      hostTimelineId: hostKey,
+      contract: contractB,
+      statusId: anchor,
+    }));
+
+    const items = store.getState().getIn(['timelines', timelineId, 'items']);
+    mockGet.mockClear();
+    mockGet.mockImplementation(() => Promise.resolve({
+      status: 200,
+      data: [{ id: '777' }, { id: '776' }],
+    }));
+
+    await store.dispatch(expandAccountContext({
+      hostTimelineId: hostKey,
+      contract,
+      direction: 'older',
+    }));
+
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(store.getState().getIn(['timelines', timelineId, 'items'])).toEqual(items);
+    expect(store.getState().getIn(['timelines', timelineId, 'contextSource'])).toBe(seekSourceKey(contractB));
+    expect(store.getState().getIn(['timelines', profileId, 'items']).toArray()).toEqual(['100', '90']);
+  });
+
+  it('drops a page that resolves after the host contract changes', async () => {
+    const store = storeWithNeighbors();
+    const timelineId = `account-context:${hostKey}`;
+    const contractB = accountHistoryContract('42', accountContextFilters({ reblog: true }));
+
+    await store.dispatch(seekAccountContext({
+      hostTimelineId: hostKey,
+      contract,
+      statusId: anchor,
+    }));
+
+    let release;
+    mockGet.mockImplementation(path => {
+      if (/^\/api\/v1\/statuses\/[^/]+$/.test(String(path))) {
+        return Promise.resolve({ status: 200, data: { id: anchor, reblog: null } });
+      }
+
+      return new Promise(resolve => {
+        release = resolve;
+      });
+    });
+
+    const pending = store.dispatch(expandAccountContext({
+      hostTimelineId: hostKey,
+      contract,
+      direction: 'older',
+    }));
+
+    expect(typeof release).toBe('function');
+    store.dispatch(openAccountContextHost({ hostTimelineId: hostKey, contract: contractB }));
+    release({ status: 200, data: [{ id: '777' }, { id: '776' }] });
+    await pending;
+
+    expect(store.getState().getIn(['timelines', timelineId, 'items']).size).toBe(0);
+    expect(store.getState().getIn(['timelines', timelineId, 'contextSource'])).toBe(seekSourceKey(contractB));
+    expect(store.getState().getIn(['timelines', profileId, 'pendingItems']).toArray()).toEqual(['9007199254740999']);
   });
 });

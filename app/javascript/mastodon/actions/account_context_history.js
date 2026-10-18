@@ -99,26 +99,60 @@ export function seekAccountContext({ hostTimelineId, contract, statusId } = {}) 
 }
 
 export function expandAccountContext({ hostTimelineId, contract, direction } = {}) {
-  return (dispatch) => {
+  return (dispatch, getState) => {
     const timelineId = accountContextHostId(hostTimelineId);
+    const sourceKey = seekSourceKey(contract);
+
+    if (!timelineId || !sourceKey || getState().getIn(['timelines', timelineId, 'contextSource']) !== sourceKey) {
+      return Promise.resolve();
+    }
 
     return dispatch(expandWindowedHistory({
       sourceTimelineId: timelineId,
       splitTimelineId: timelineId,
       contract,
       direction,
+      sourceKey,
     }));
   };
 }
 
+const settleMatchesSeek = (timeline, seek, { sessionId, scrollRevision, source }) => (
+  typeof sessionId === 'string'
+  && sessionId.length > 0
+  && seek.get('id') === sessionId
+  && scrollRevision !== undefined
+  && scrollRevision !== null
+  && seek.get('scrollRevision') === scrollRevision
+  && typeof source === 'string'
+  && source.length > 0
+  && seek.get('source') === source
+  && timeline.get('contextSource') === source
+);
+
 // Same decision StatusList makes one frame after the window renders.
-export function settleAccountContextScroll({ hostTimelineId, renderedIds, articlePresent, previous } = {}) {
+// The caller names the seek it rendered. A later seek on this host is left
+// alone, including its session id and window.
+export function settleAccountContextScroll({
+  hostTimelineId,
+  renderedIds,
+  articlePresent,
+  previous,
+  sessionId,
+  scrollRevision,
+  source,
+} = {}) {
   return (dispatch, getState) => {
     const timelineId = accountContextHostId(hostTimelineId);
-    const seek = timelineId && getState().getIn(['timelines', timelineId, 'seek']);
+    const timeline = timelineId && getState().getIn(['timelines', timelineId]);
+    const seek = timeline && timeline.get('seek');
 
     if (!seek || seek.get('scrollStatus') !== 'pending') {
       return { scroll: false, reason: 'missing' };
+    }
+
+    if (!settleMatchesSeek(timeline, seek, { sessionId, scrollRevision, source })) {
+      return { scroll: false, reason: 'stale' };
     }
 
     const plan = planSeekScroll({
@@ -132,7 +166,7 @@ export function settleAccountContextScroll({ hostTimelineId, renderedIds, articl
       dispatch({
         type: WINDOW_SEEK_RESTORE,
         timeline: timelineId,
-        sessionId: seek.get('id'),
+        sessionId,
         items: previous.items,
         windowState: previous.windowState,
         reason: plan.reason,
@@ -141,8 +175,8 @@ export function settleAccountContextScroll({ hostTimelineId, renderedIds, articl
     }
 
     dispatch(settleWindowSeekScroll(timelineId, {
-      sessionId: seek.get('id'),
-      revision: seek.get('scrollRevision'),
+      sessionId,
+      revision: scrollRevision,
       reason: plan.reason,
       scrolled: plan.scroll,
     }));

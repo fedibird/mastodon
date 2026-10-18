@@ -60,9 +60,12 @@ export function expandWindowedHistory({
   direction,
   gapCursor = null,
   anchorId = null,
+  sourceKey,
 } = {}) {
   return (dispatch, getState) => {
-    if (!activeWindowedTimeline(getState(), sourceTimelineId, splitTimelineId) || !contract || !contract.path) {
+    const hostIsCurrent = () => activeWindowedTimeline(getState(), sourceTimelineId, splitTimelineId, sourceKey);
+
+    if (!hostIsCurrent() || !contract || !contract.path) {
       return Promise.resolve();
     }
 
@@ -111,7 +114,7 @@ export function expandWindowedHistory({
     return api(getState).get(contract.path, { params, cancelToken: flight.cancelToken }).then(response => {
       releaseWindowedHistoryFlight(splitTimelineId, direction, flight);
 
-      if (!activeWindowedTimeline(getState(), sourceTimelineId, splitTimelineId)) {
+      if (!hostIsCurrent()) {
         return;
       }
 
@@ -151,7 +154,7 @@ export function expandWindowedHistory({
     }).catch(error => {
       releaseWindowedHistoryFlight(splitTimelineId, direction, flight);
 
-      if (!activeWindowedTimeline(getState(), sourceTimelineId, splitTimelineId)) {
+      if (!hostIsCurrent()) {
         return;
       }
 
