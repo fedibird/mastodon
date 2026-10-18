@@ -101,25 +101,103 @@ RSpec.describe 'Account context reblog wrapper lookup', type: :request do
     expect(body_as_json[:id]).to be_nil
   end
 
-  it 'does not change the response when hidden duplicates are added beside one visible boost' do
+  it 'does not change the response when nine newer hidden wrappers are added beside one visible boost' do
     visible = Fabricate(:status, account: booster, reblog: original, text: '')
 
     lookup(booster.id)
     alone = body_as_json
 
-    AccountContext::ReblogWrapperLookup::SCAN_LIMIT.times do |index|
-      hidden = visible.dup
-      hidden.id = nil
-      hidden.uri = "#{visible.uri}/hidden-#{index}"
-      hidden.visibility = :private
-      hidden.save!(validate: false)
-    end
+    add_hidden_wrappers(visible, 9)
     lookup(booster.id)
 
     expect(response).to have_http_status(200)
     expect(body_as_json).to eq alone
     expect(body_as_json[:state]).to eq 'resolved'
     expect(body_as_json[:id]).to eq visible.id.to_s
+    expect(body_as_json[:reason]).to be_nil
+  end
+
+  it 'stays ambiguous when nine newer hidden wrappers precede two visible boosts' do
+    first = Fabricate(:status, account: booster, reblog: original, text: '')
+    duplicate_wrapper(first, 'other', visibility: :public)
+    add_hidden_wrappers(first, 9)
+
+    lookup(booster.id)
+
+    expect(response).to have_http_status(200)
+    expect(body_as_json[:state]).to eq 'unknown'
+    expect(body_as_json[:reason]).to eq 'ambiguous'
+    expect(body_as_json[:id]).to be_nil
+  end
+
+  it 'keeps a follower-visible private boost when newer direct wrappers are added' do
+    viewer.account.follow!(booster)
+    visible = Fabricate(:status, account: booster, reblog: original, text: '', visibility: :private)
+
+    lookup(booster.id)
+    alone = body_as_json
+
+    add_hidden_wrappers(visible, 9, visibility: :direct)
+    lookup(booster.id)
+
+    expect(body_as_json).to eq alone
+    expect(body_as_json[:state]).to eq 'resolved'
+    expect(body_as_json[:id]).to eq visible.id.to_s
+  end
+
+  it 'gives a blocked viewer the same response as no boost' do
+    lookup(booster.id)
+    absent_body = body_as_json
+
+    Fabricate(:status, account: booster, reblog: original, text: '')
+    booster.block!(viewer.account)
+    lookup(booster.id)
+
+    expect(body_as_json).to eq absent_body
+    expect(body_as_json[:state]).to eq 'absent'
+    expect(body_as_json[:id]).to be_nil
+  end
+
+  it 'still resolves a public boost when the viewer blocks the booster' do
+    wrapper = Fabricate(:status, account: booster, reblog: original, text: '')
+    viewer.account.block!(booster)
+
+    lookup(booster.id)
+
+    expect(body_as_json[:state]).to eq 'resolved'
+    expect(body_as_json[:id]).to eq wrapper.id.to_s
+  end
+
+  it 'resolves a direct boost that mentions the viewer when newer personal wrappers are added' do
+    visible = Fabricate(:status, account: booster, reblog: original, text: '')
+    visible.update_columns(visibility: Status.visibilities.fetch('direct'))
+    Fabricate(:mention, account: viewer.account, status: visible)
+
+    lookup(booster.id)
+    alone = body_as_json
+
+    add_hidden_wrappers(visible, 9, visibility: :personal)
+    lookup(booster.id)
+
+    expect(body_as_json).to eq alone
+    expect(body_as_json[:state]).to eq 'resolved'
+    expect(body_as_json[:id]).to eq visible.id.to_s
+  end
+
+  it 'resolves an expired public boost only after the viewer has favourited the original' do
+    wrapper = Fabricate(:status, account: booster, reblog: original, text: '')
+    wrapper.update_columns(expired_at: 1.hour.ago)
+
+    lookup(booster.id)
+    expect(body_as_json[:state]).to eq 'absent'
+    expect(body_as_json[:id]).to be_nil
+
+    Fabricate(:favourite, account: viewer.account, status: original)
+    add_hidden_wrappers(wrapper, 9)
+    lookup(booster.id)
+
+    expect(body_as_json[:state]).to eq 'resolved'
+    expect(body_as_json[:id]).to eq wrapper.id.to_s
     expect(body_as_json[:reason]).to be_nil
   end
 
@@ -164,5 +242,20 @@ RSpec.describe 'Account context reblog wrapper lookup', type: :request do
 
     expect(body_as_json[:state]).to eq 'absent'
     expect(body_as_json[:id]).to be_nil
+  end
+
+  def duplicate_wrapper(status, suffix, visibility: status.visibility)
+    copy = status.dup
+    copy.id = nil
+    copy.uri = "#{status.uri}/#{suffix}"
+    copy.visibility = visibility
+    copy.save!(validate: false)
+    copy
+  end
+
+  def add_hidden_wrappers(status, count, visibility: :private)
+    count.times do |index|
+      duplicate_wrapper(status, "hidden-#{visibility}-#{index}", visibility: visibility)
+    end
   end
 end
