@@ -503,6 +503,7 @@ Rails.application.routes.draw do
       resources :statuses, only: [:index, :create, :show, :update, :destroy] do
         scope module: :statuses do
           resources :reblogged_by, controller: :reblogged_by_accounts, only: :index
+          resource :reblog_wrapper, only: :show, controller: :reblog_wrappers
           resources :favourited_by, controller: :favourited_by_accounts, only: :index
           resources :emoji_reactioned_by, controller: :emoji_reactioned_by, only: :index
           resources :referred_by, controller: :referred_by_statuses, only: :index

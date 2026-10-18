@@ -1,0 +1,135 @@
+.account-context-layer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: stretch;
+  pointer-events: none;
+  max-width: 100%;
+}
+
+.account-context-panel {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 100vw);
+  height: 100%;
+  min-height: 0;
+  background: $ui-base-color;
+  color: $primary-text-color;
+  border-left: 1px solid lighten($ui-base-color, 12%);
+  box-shadow: -8px 0 24px rgba($base-shadow-color, 0.35);
+
+  &__header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 0 0 auto;
+    padding: 12px;
+    border-bottom: 1px solid lighten($ui-base-color, 8%);
+  }
+
+  &__back {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: $highlight-text-color;
+    font: inherit;
+    cursor: pointer;
+    padding: 4px 0;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  &__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+}
+
+.account-context-timeline {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  .scrollable {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+  }
+
+  &__notice {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 10px 12px;
+    background: lighten($ui-base-color, 8%);
+    color: $secondary-text-color;
+    font-size: 14px;
+  }
+}
+
+.account-context-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 4px 0 4px 68px;
+}
+
+.detailed-status .account-context-actions,
+.account-context-reblog {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.account-context-link {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: $highlight-text-color;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+
+  &:disabled {
+    cursor: progress;
+    opacity: 0.7;
+  }
+}
+
+.account-context-reblog {
+  padding: 0 12px 8px;
+}
+
+.account-context-reblog__notice {
+  margin: 4px 0 0;
+  color: $secondary-text-color;
+  font-size: 13px;
+}
+
+@media screen and (max-width: 630px) {
+  .account-context-layer {
+    left: 0;
+  }
+
+  .account-context-panel {
+    width: 100%;
+  }
+
+  .account-context-actions {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+}

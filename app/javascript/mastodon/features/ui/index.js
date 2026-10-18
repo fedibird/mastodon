@@ -99,6 +99,7 @@ import {
 } from './util/async-components';
 import { me, enableEmptyColumn, maxAttachments } from '../../initial_state';
 import { closeOnboarding, INTRODUCTION_VERSION } from 'mastodon/actions/onboarding';
+import AccountContextLayer from '../account_context';
 
 // Dummy import, to make sure that <Status /> ends up in the application bundle.
 // Without this it ends up in ~8 very commonly used bundles.
@@ -743,6 +744,7 @@ class UI extends React.PureComponent {
           {layout !== 'mobile' && <PictureInPicture />}
           <NotificationsContainer />
           <LoadingBarContainer className='loading-bar' />
+          <AccountContextLayer />
           <ModalContainer />
           <HashtagMenuController />
           <UploadArea active={draggingOver} onClose={this.closeUploadModal} />

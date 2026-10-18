@@ -53,6 +53,7 @@ import { initBoostModal } from '../actions/boosts';
 import { initReport } from '../actions/reports';
 import { initAddFilter } from '../actions/filters';
 import { openModal } from '../actions/modal';
+import { openAccountContext } from '../actions/account_context_view';
 import { deployPictureInPicture } from '../actions/picture_in_picture';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import { boostModal, deleteModal, followModal, unfollowModal, subscribeModal, unsubscribeModal, confirmDomainBlock } from '../initial_state';
@@ -390,6 +391,10 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
 
   onAddFilter (status) {
     dispatch(initAddFilter(status, { contextType }));
+  },
+
+  onOpenAccountContext (hostTimelineId, target) {
+    dispatch(openAccountContext({ hostTimelineId, target }));
   },
 
 });

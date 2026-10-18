@@ -451,7 +451,7 @@ class StatusList extends ImmutablePureComponent {
   )
 
   render () {
-    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, onLoadNewer, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, windowedHistory, anchorResolution, historyUnbounded, onCommitWindowAnchor, hasNewer, newerLoading, newerStatus, olderStatus, prepend, seekScrollPending, seekSessionId, seekAnchorId, seekScrollRevision, onSeekScroll, historySurfaceId, onUserScroll, ...other } = this.props;
+    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, onLoadNewer, timelineId, dataTimelineId, contextHostId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, windowedHistory, anchorResolution, historyUnbounded, onCommitWindowAnchor, hasNewer, newerLoading, newerStatus, olderStatus, prepend, seekScrollPending, seekSessionId, seekAnchorId, seekScrollRevision, onSeekScroll, historySurfaceId, onUserScroll, ...other } = this.props;
 
     void badgeRevision;
     void onCommitWindowAnchor;
@@ -463,6 +463,12 @@ class StatusList extends ImmutablePureComponent {
     void historySurfaceId;
     void onUserScroll;
     const { isLoading, isPartial } = other;
+    const surfaceTimelineId = dataTimelineId || timelineId;
+    const rowHostId = contextHostId || (
+      typeof surfaceTimelineId === 'string' && surfaceTimelineId.indexOf(':split:') !== -1
+        ? surfaceTimelineId
+        : (this.props.scrollKey || surfaceTimelineId || 'timeline')
+    );
     const contextTypeFor = (statusId) => contextTypeForId ? (contextTypeForId(statusId) || timelineId) : timelineId;
     const warningTitlesFor = (statusId) => warningTitlesForId ? warningTitlesForId(statusId) : undefined;
 
@@ -487,6 +493,7 @@ class StatusList extends ImmutablePureComponent {
           id={statusId}
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
+          contextHostId={rowHostId}
           contextType={contextTypeFor(statusId)}
           warningTitles={warningTitlesFor(statusId)}
           sourceBadges={sourceBadgesForId ? sourceBadgesForId(statusId) : undefined}
@@ -506,6 +513,7 @@ class StatusList extends ImmutablePureComponent {
           featured
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
+          contextHostId={rowHostId}
           contextType={contextTypeFor(statusId)}
           sourceBadges={sourceBadgesForId ? sourceBadgesForId(statusId) : undefined}
           showThread

@@ -66,6 +66,7 @@ import favourite_domains from './favourite_domains';
 import favourite_tags from './favourite_tags';
 import tags from './tags';
 import server from './server';
+import accountContextViews from './account_context_views';
 
 const reducers = {
   announcements,
@@ -133,6 +134,7 @@ const reducers = {
   favourite_tags,
   tags,
   server,
+  accountContextViews,
 };
 
 const combined = combineReducers(reducers);
