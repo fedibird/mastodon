@@ -28,8 +28,8 @@ describe TimelineSeek::Resolver do
   end
 
   describe 'capability gate' do
-    it 'does not pretend account, direct, notifications, or mix timelines can seek' do
-      %w(account direct notifications mix).each do |source|
+    it 'does not pretend direct, notifications, or mix timelines can seek' do
+      %w(direct notifications mix).each do |source|
         result = resolve(source: source, kind: 'status', target: { id: '1' })
 
         expect(result.outcome).to eq('unsupported')

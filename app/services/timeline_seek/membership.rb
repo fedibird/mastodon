@@ -161,8 +161,21 @@ class TimelineSeek::Membership
     confirmed = filtered & visible
     hidden = TimelineSeek::HideFilter.new(@account, @source).hidden_ids(confirmed.to_a).to_set
     unfiltered = unfiltered_ids(reader, (visible - filtered).to_a)
+    unloaded = unloaded_remote_ids(reader, ids, records)
 
-    { reader: reader, filtered: filtered, hidden: hidden, visible: visible, unfiltered: unfiltered, retained: retained }
+    { reader: reader, filtered: filtered, hidden: hidden, visible: visible, unfiltered: unfiltered, retained: retained, unloaded: unloaded }
+  end
+
+  # Remote account posts that are not in this database are unknown. A discarded
+  # row still exists, so a delete stays not_found instead of not_loaded.
+  def unloaded_remote_ids(reader, ids, records)
+    return Set.new unless reader.respond_to?(:remote_account?) && reader.remote_account?
+
+    missing = ids.reject { |id| records.key?(id) }
+    return Set.new if missing.empty?
+
+    stored = Status.unscoped.where(id: missing).pluck(:id)
+    (missing - stored).to_set
   end
 
   def filtered_ids(reader, ids, retained)
@@ -233,6 +246,7 @@ class TimelineSeek::Membership
 
     id = row[:id]
     text = row[:text]
+    return row_for(text, 'unknown', 'not_loaded') if batch[:unloaded]&.include?(id)
     return row_for(text, 'not_found') unless batch[:visible].include?(id)
 
     if batch[:filtered].include?(id)

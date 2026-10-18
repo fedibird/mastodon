@@ -1,5 +1,7 @@
 import { List as ImmutableList } from 'immutable';
 
+import { accountHistoryContract } from '../../windowed_history/sources';
+import { accountContextFilters } from '../account_context';
 import { capabilityFor, capabilityMatrix, seekKinds, windowedHistoryContracts } from '../capability';
 import { CLOSED_SOURCES, MEMBERSHIP_ID_LIMIT, MEMBERSHIP_SEARCH_PAGE_DEFAULT, MEMBERSHIP_SEARCH_PAGE_MAX, MEMBERSHIP_SESSION_CANDIDATE_LIMIT, SEEK_CAPABILITY, SEEK_KIND } from '../constants';
 import { createSeekQuery, seekSourceFromContract, seekSourceKey } from '../query';
@@ -26,6 +28,11 @@ describe('timeline seek capability', () => {
     });
 
     expect(capabilityFor('personal', SEEK_KIND.ACCOUNT).level).toBe(SEEK_CAPABILITY.UNSUPPORTED);
+    expect(capabilityFor('account', SEEK_KIND.STATUS).level).toBe(SEEK_CAPABILITY.SUPPORTED);
+    expect(capabilityFor('account', SEEK_KIND.MEMBERSHIP).level).toBe(SEEK_CAPABILITY.SUPPORTED);
+    expect(capabilityFor('account', SEEK_KIND.DATE).level).toBe(SEEK_CAPABILITY.UNSUPPORTED);
+    expect(capabilityFor('account', SEEK_KIND.ACCOUNT).level).toBe(SEEK_CAPABILITY.UNSUPPORTED);
+    expect(capabilityFor('account', SEEK_KIND.SEARCH_HIT).level).toBe(SEEK_CAPABILITY.UNSUPPORTED);
     expect(capabilityFor('home', SEEK_KIND.STATUS).level).toBe(SEEK_CAPABILITY.APPROXIMATE);
     expect(capabilityFor('public', SEEK_KIND.STATUS).level).toBe(SEEK_CAPABILITY.SUPPORTED);
     expect(capabilityFor('public', SEEK_KIND.DATE).level).toBe(SEEK_CAPABILITY.APPROXIMATE);
@@ -49,6 +56,27 @@ describe('timeline seek capability', () => {
     expect(parsed.context.column).toBeUndefined();
     expect(seekSourceKey(contract)).toContain('hashtag?');
     expect(seekSourceKey(contract)).not.toContain('secret');
+  });
+
+  it('keeps account filter combinations on separate source keys', () => {
+    const posts = accountHistoryContract('42', accountContextFilters());
+    const replies = accountHistoryContract('42', accountContextFilters({ reply: true }));
+    const boosts = accountHistoryContract('42', accountContextFilters({ reblog: true }));
+    const tagged = accountHistoryContract('42', accountContextFilters({ tagged: 'photos' }));
+    const media = accountHistoryContract('42', accountContextFilters({ onlyMedia: true }));
+    const otherAccount = accountHistoryContract('7', accountContextFilters());
+    const replyQuote = accountHistoryContract('42', accountContextFilters({ reply: true }));
+    const replyReference = accountHistoryContract('42', accountContextFilters({ reply: true, tagged: 'photos' }));
+
+    const keys = [posts, replies, boosts, tagged, media, otherAccount, replyReference].map(seekSourceKey);
+
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(seekSourceKey(replies)).toBe(seekSourceKey(replyQuote));
+    expect(seekSourceFromContract(boosts).context.account_id).toBe('42');
+    expect(seekSourceFromContract(boosts).context.exclude_reblogs).toBe(false);
+    expect(seekSourceFromContract(replies).context.exclude_replies).toBe(false);
+    expect(seekSourceKey(posts)).not.toContain('column');
+    expect(JSON.stringify(seekSourceFromContract(posts))).not.toContain('secret');
   });
 });
 

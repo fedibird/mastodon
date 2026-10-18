@@ -155,6 +155,10 @@ const isStaleSplitTimeline = (state, timelineId) => {
     return false;
   }
 
+  if (state.getIn(['timelines', timelineId, 'contextHost']) === true) {
+    return false;
+  }
+
   const index = timelineId.indexOf(SPLIT_TIMELINE_MARKER);
 
   if (index <= 0) {

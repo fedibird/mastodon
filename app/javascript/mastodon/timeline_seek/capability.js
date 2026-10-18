@@ -1,4 +1,5 @@
 import {
+  accountHistoryContract,
   domainHistoryContract,
   groupHistoryContract,
   hashtagHistoryContract,
@@ -24,6 +25,9 @@ const redisMembership = entry(SEEK_CAPABILITY.APPROXIMATE, 'redis_retained_windo
 const dbMembership = entry(SEEK_CAPABILITY.SUPPORTED, 'bounded_id_set');
 const personalAccount = entry(SEEK_CAPABILITY.UNSUPPORTED, 'personal_is_not_an_account_timeline');
 const closed = entry(SEEK_CAPABILITY.UNSUPPORTED, 'source_has_no_windowed_history');
+const accountDate = entry(SEEK_CAPABILITY.UNSUPPORTED, 'date_seek_not_implemented');
+const accountKind = entry(SEEK_CAPABILITY.UNSUPPORTED, 'account_probe_not_implemented');
+const accountSearch = entry(SEEK_CAPABILITY.UNSUPPORTED, 'search_not_implemented');
 
 // Same cells as TimelineSeek::Capability. Levels are not upgraded on the client.
 const MATRIX = Object.freeze({
@@ -35,6 +39,7 @@ const MATRIX = Object.freeze({
   domain: Object.freeze({ status: dbStatus, date: dbDate, account: dbAccount, searchHit: dbSearch, membership: dbMembership }),
   group: Object.freeze({ status: dbStatus, date: dbDate, account: dbAccount, searchHit: dbSearch, membership: dbMembership }),
   personal: Object.freeze({ status: dbStatus, date: dbDate, account: personalAccount, searchHit: dbSearch, membership: dbMembership }),
+  account: Object.freeze({ status: dbStatus, date: accountDate, account: accountKind, searchHit: accountSearch, membership: dbMembership }),
 });
 
 export const windowedHistoryContracts = () => ([
@@ -46,6 +51,7 @@ export const windowedHistoryContracts = () => ([
   domainHistoryContract('example.com', { onlyMedia: false, withoutMedia: false, withoutBot: false }),
   groupHistoryContract('1', { onlyMedia: false, withoutMedia: false, tagged: 'photos' }),
   personalHistoryContract({ onlyMedia: false, withoutMedia: false }),
+  accountHistoryContract('1', { excludeReplies: false, excludeReblogs: false, tagged: 'photos', onlyMedia: false }),
 ]);
 
 export const capabilityFor = (source, kind) => {

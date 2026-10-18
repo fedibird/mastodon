@@ -85,10 +85,10 @@ describe('seekWindowedTimeline', () => {
     const result = await store.dispatch(seekWindowedTimeline({
       sourceTimelineId: 'public',
       splitTimelineId: splitId,
-      contract: { source: 'account', path: '/api/v1/accounts/1/statuses', params: {} },
+      contract: { source: 'direct', path: '/api/v1/timelines/direct', params: {} },
       query: createSeekQuery({
         kind: SEEK_KIND.STATUS,
-        source: 'account',
+        source: 'direct',
         target: { id: '5' },
       }),
     }));

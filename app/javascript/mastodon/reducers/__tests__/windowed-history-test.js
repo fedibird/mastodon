@@ -8,6 +8,8 @@ import {
   TIMELINE_SPLIT_KEEP_LIVE,
   TIMELINE_UPDATE,
 } from '../../actions/timelines';
+import { ACCOUNT_CONTEXT_OPEN, emptyAccountContextWindow } from '../../timeline_seek/account_context';
+import { WINDOW_SEEK_BEGIN } from '../../timeline_seek/constants';
 import { WINDOW_HISTORY_FAIL, WINDOW_HISTORY_REQUEST, WINDOW_HISTORY_SUCCESS } from '../../windowed_history/types';
 import timelines from '../timelines';
 
@@ -90,6 +92,56 @@ describe('windowed history reducer', () => {
     expect(stale.get(splitId)).toBeUndefined();
     expect(stale.getIn(['home', 'items'])).toEqual(ImmutableList(['0005100', '0005050']).concat(ids));
     expect(stale.getIn(['home', 'pendingItems'])).toEqual(ImmutableList());
+  });
+
+  it('keeps an owned split writable and drops an unowned split id', () => {
+    const items = ImmutableList(['30', '20', '10']);
+    const split = create(withHome(items, { pendingItems: ImmutableList() }), '20');
+    const orphan = 'home:split:orphan';
+    const requested = timelines(split, {
+      type: WINDOW_HISTORY_REQUEST,
+      timeline: splitId,
+      direction: 'older',
+      cursor: '10',
+      requestId: 'req-live',
+      generation: split.getIn([splitId, 'window', 'generation']),
+    });
+    const ignored = timelines(requested, {
+      type: WINDOW_HISTORY_REQUEST,
+      timeline: orphan,
+      direction: 'older',
+      cursor: '10',
+      requestId: 'req-orphan',
+      generation: 1,
+    });
+
+    expect(requested.getIn([splitId, 'window', 'older', 'requestId'])).toBe('req-live');
+    expect(ignored.get(orphan)).toBeUndefined();
+    expect(ignored.getIn([splitId, 'window', 'older', 'requestId'])).toBe('req-live');
+    expect(ignored.getIn(['home', 'splitTimelineId'])).toBe(splitId);
+    expect(ignored.getIn(['home', 'items'])).toEqual(items);
+  });
+
+  it('seeks a context host whose id contains the split marker', () => {
+    const hostId = 'account-context:home:split:session1';
+    const opened = timelines(ImmutableMap(), {
+      type: ACCOUNT_CONTEXT_OPEN,
+      timeline: hostId,
+      source: 'account?account_id="1"',
+      window: emptyAccountContextWindow(),
+    });
+    const begun = timelines(opened, {
+      type: WINDOW_SEEK_BEGIN,
+      timeline: hostId,
+      sourceTimeline: hostId,
+      sessionId: 'seek-context',
+      source: 'account?account_id="1"',
+    });
+
+    expect(begun.getIn([hostId, 'contextHost'])).toBe(true);
+    expect(begun.getIn([hostId, 'seek', 'id'])).toBe('seek-context');
+    expect(begun.getIn([hostId, 'seek', 'phase'])).toBe('pending');
+    expect(begun.get('home')).toBeUndefined();
   });
 
   it('does not let an older response replace a newer in-flight request', () => {

@@ -43,8 +43,13 @@ module TimelineSeek
     # id < n + 1 is n exactly when n is in this feed's scope.
     def contains?(status_id)
       return false if empty_source? || status_id.nil?
+      return @feed.contains_id?(status_id) if @feed.respond_to?(:contains_id?)
 
       page(1, max_id: status_id.to_i + 1).first&.id == status_id.to_i
+    end
+
+    def remote_account?
+      @feed.respond_to?(:remote_account?) && @feed.remote_account?
     end
 
     def in_retained_set?(status_id)
@@ -68,6 +73,7 @@ module TimelineSeek
     # One id-set query. The caller caps the array; limit is a second bound.
     def scope_ids(status_ids, limit:)
       return [] if empty_source? || status_ids.empty? || redis?
+      return @feed.scope_ids(status_ids, limit: limit) if @feed.respond_to?(:scope_ids)
       return [] unless @feed.respond_to?(:relation)
 
       ids = status_ids.first(limit)

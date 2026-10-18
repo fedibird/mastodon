@@ -32,13 +32,7 @@ class Api::V1::Accounts::StatusesController < Api::BaseController
   def cached_account_statuses
     return cache_collection(tagged_account_statuses, Status) if tagged_id_first_eligible?
 
-    statuses = truthy_param?(:pinned) ? pinned_scope : permitted_account_statuses
-
-    statuses.merge!(only_media_scope)  if truthy_param?(:only_media)
-    statuses.merge!(no_replies_scope)  if truthy_param?(:exclude_replies)
-    statuses.merge!(no_reblogs_scope)  if truthy_param?(:exclude_reblogs)
-    statuses.merge!(hashtag_scope)     if params[:tagged].present?
-    statuses.merge!(no_personal_scope) if current_user&.setting_hide_personal_from_account
+    statuses = truthy_param?(:pinned) ? pinned_statuses : account_statuses_feed.relation
 
     page = params_slice(:max_id, :since_id, :min_id)
 
@@ -55,8 +49,8 @@ class Api::V1::Accounts::StatusesController < Api::BaseController
   end
 
   # only_media joins media_attachments and applies DISTINCT, so it does not
-  # stay an id-only scan. pinned replaces the permission relation with the
-  # pin scope. Both keep the existing path. fetch=true uses
+  # stay an id-only scan. pinned uses the pin relation, then the same request
+  # filters as the feed. Both keep the existing path. fetch=true uses
   # cached_fetch_account_statuses and never reaches here.
   def tagged_id_first_eligible?
     params[:tagged].present? && !truthy_param?(:pinned) && !truthy_param?(:only_media)
@@ -79,9 +73,22 @@ class Api::V1::Accounts::StatusesController < Api::BaseController
   end
 
   def tagged_candidate_scope
-    scope = permitted_account_statuses
-    scope = scope.merge(no_personal_scope) if current_user&.setting_hide_personal_from_account
-    scope
+    account_statuses_feed.permission_scope
+  end
+
+  # Same permission and request filters as the rows returned above. Seek uses
+  # this object for a point lookup. viewer_filters stays off so mute and block
+  # choices do not change the profile timeline.
+  def account_statuses_feed
+    @account_statuses_feed ||= AccountStatusesFeed.new(
+      @account,
+      current_account,
+      exclude_replies: truthy_param?(:exclude_replies),
+      exclude_reblogs: truthy_param?(:exclude_reblogs),
+      tagged: params[:tagged],
+      only_media: truthy_param?(:only_media),
+      hide_personal: current_user&.setting_hide_personal_from_account
+    )
   end
 
   # `id > min_id` alone lets the planner walk statuses_pkey. With account_id
@@ -131,6 +138,18 @@ class Api::V1::Accounts::StatusesController < Api::BaseController
 
   def pinned_scope
     @account.pinned_statuses.permitted_for(@account, current_account).without_unreleased_pages
+  end
+
+  # The pin relation replaces the account feed. Media, replies, boosts, the
+  # tag, and the viewer's hide-personal setting still apply on top of it.
+  def pinned_statuses
+    statuses = pinned_scope
+    statuses.merge!(only_media_scope)  if truthy_param?(:only_media)
+    statuses.merge!(no_replies_scope)  if truthy_param?(:exclude_replies)
+    statuses.merge!(no_reblogs_scope)  if truthy_param?(:exclude_reblogs)
+    statuses.merge!(hashtag_scope)     if params[:tagged].present?
+    statuses.merge!(no_personal_scope) if current_user&.setting_hide_personal_from_account
+    statuses
   end
 
   def no_replies_scope

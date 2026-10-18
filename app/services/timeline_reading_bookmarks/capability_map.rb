@@ -26,7 +26,8 @@ module TimelineReadingBookmarks
         rejects: %w(status_text search_text window view token),
         retention: { redis_max_items: FeedManager::MAX_ITEMS },
         sources: source_rows,
-        closed_sources: TimelineSeek::Capability::CLOSED_SOURCES,
+        # Account context seek is not a named bookmark. Keep it listed as closed here.
+        closed_sources: %w(account) + TimelineSeek::Capability::CLOSED_SOURCES,
       }
     end
 

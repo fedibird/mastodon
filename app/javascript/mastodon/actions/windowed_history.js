@@ -9,6 +9,7 @@ import {
   claimWindowedHistoryFlight,
   releaseWindowedHistoryFlight,
 } from '../windowed_history/flights';
+import { activeWindowedTimeline } from '../windowed_history/host';
 import { beginHistoryRequest, resolveCursor, responseIsCurrent } from '../windowed_history/model';
 import { historyRequestParams } from '../windowed_history/sources';
 import { plainItems, plainWindow } from '../windowed_history/timeline_state';
@@ -27,10 +28,6 @@ const nextRequestId = () => {
   requestSerial += 1;
   return `window-history-${requestSerial}`;
 };
-
-const activeSplit = (state, sourceTimelineId, splitTimelineId) => (
-  !!splitTimelineId && state.getIn(['timelines', sourceTimelineId, 'splitTimelineId']) === splitTimelineId
-);
 
 const statusList = (data) => {
   if (!data) {
@@ -63,9 +60,12 @@ export function expandWindowedHistory({
   direction,
   gapCursor = null,
   anchorId = null,
+  sourceKey,
 } = {}) {
   return (dispatch, getState) => {
-    if (!activeSplit(getState(), sourceTimelineId, splitTimelineId) || !contract || !contract.path) {
+    const hostIsCurrent = () => activeWindowedTimeline(getState(), sourceTimelineId, splitTimelineId, sourceKey);
+
+    if (!hostIsCurrent() || !contract || !contract.path) {
       return Promise.resolve();
     }
 
@@ -114,7 +114,7 @@ export function expandWindowedHistory({
     return api(getState).get(contract.path, { params, cancelToken: flight.cancelToken }).then(response => {
       releaseWindowedHistoryFlight(splitTimelineId, direction, flight);
 
-      if (!activeSplit(getState(), sourceTimelineId, splitTimelineId)) {
+      if (!hostIsCurrent()) {
         return;
       }
 
@@ -154,7 +154,7 @@ export function expandWindowedHistory({
     }).catch(error => {
       releaseWindowedHistoryFlight(splitTimelineId, direction, flight);
 
-      if (!activeSplit(getState(), sourceTimelineId, splitTimelineId)) {
+      if (!hostIsCurrent()) {
         return;
       }
 
