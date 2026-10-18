@@ -201,6 +201,7 @@ class LimitedTimeline extends React.PureComponent {
             <Fragment>
               {split.splitButton}
               {split.jumpButton}
+              {split.bookmarkButton}
               {split.resumeButton}
               {split.closeLiveButton}
             </Fragment>
@@ -212,6 +213,8 @@ class LimitedTimeline extends React.PureComponent {
         </ColumnHeader>
 
         {split.jumpPanel}
+
+        {split.bookmarkPanel}
 
         {timeline}
       </Column>

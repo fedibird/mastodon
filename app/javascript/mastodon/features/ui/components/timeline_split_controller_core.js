@@ -20,14 +20,17 @@ import { HISTORY_POSITION_CAPTURE_INTERVAL_MS, HISTORY_RESUME_IN_FLIGHT } from '
 import { historyLayout, historySourceIdentity, historyViewIdentity } from 'mastodon/timeline_position/identity';
 import { autoResumeDecision } from 'mastodon/timeline_position/policy';
 import { getPositionRegistry } from 'mastodon/timeline_position/session';
-import { captureHistorySurface, restoreHistorySurface, subscribeHistorySurface } from 'mastodon/timeline_position/surface';
+import { armSurfaceResume, captureHistorySurface, clearSurfaceResume, peekSurfaceResume, restoreHistorySurface, subscribeHistorySurface } from 'mastodon/timeline_position/surface';
 import { jumpAbandonDisposition, jumpScrollDisposition } from 'mastodon/timeline_jump/model';
 import { createJumpScrollWait } from 'mastodon/timeline_jump/scroll_wait';
 import { seekSourceKey } from 'mastodon/timeline_seek/query';
 import { isDecimalStatusId } from 'mastodon/timeline_navigation';
 import { membershipBody, membershipGate, payloadHasSearchText, textJumpRequest, textSearchIdentity } from 'mastodon/timeline_text_search/session';
+import { readingAnchorFromSurface } from 'mastodon/reading_bookmarks/place';
+import { runBookmarkRestore } from 'mastodon/reading_bookmarks/restore';
 import { cancelWindowedHistoryDirection } from '../../../windowed_history/flights';
 import TimelineColumnJumpPanel from './timeline_column_jump';
+import TimelineReadingBookmarksPanel from './timeline_reading_bookmarks';
 
 const messages = defineMessages({
   split: { id: 'timeline.split', defaultMessage: 'Split timeline' },
@@ -39,6 +42,7 @@ const messages = defineMessages({
   resumeBusy: { id: 'timeline.resume_history_busy', defaultMessage: 'Resuming saved place' },
   resumeFailed: { id: 'timeline.resume_history_failed', defaultMessage: 'Could not resume the saved place' },
   jump: { id: 'timeline.jump', defaultMessage: 'Find in this timeline' },
+  bookmarks: { id: 'timeline.reading_bookmarks', defaultMessage: 'Reading bookmarks' },
 });
 
 export const STATUS_TIMELINE_SPLIT_LAYOUT_CLASS = 'status-timeline-split';
@@ -104,6 +108,7 @@ class TimelineSplitControllerCore extends React.Component {
     onSearchJumpAccounts: PropTypes.func,
     onCancelAccountSearch: PropTypes.func,
     onRestoreJump: PropTypes.func,
+    onReadHistoryWindow: PropTypes.func,
     onSettleJumpScroll: PropTypes.func,
     onSearchStatuses: PropTypes.func,
     onCheckMembership: PropTypes.func,
@@ -111,6 +116,10 @@ class TimelineSplitControllerCore extends React.Component {
     onResolveLoadedRow: PropTypes.func,
     onPointJump: PropTypes.func,
     historyBoundaryId: PropTypes.string,
+    onListReadingBookmarks: PropTypes.func,
+    onCreateReadingBookmark: PropTypes.func,
+    onRenameReadingBookmark: PropTypes.func,
+    onDeleteReadingBookmark: PropTypes.func,
   };
 
   static contextTypes = {
@@ -121,11 +130,16 @@ class TimelineSplitControllerCore extends React.Component {
     ratio: null,
     positionEpoch: 0,
     jumpOpen: false,
+    bookmarksOpen: false,
   };
 
   jumpToken = 0;
 
   jumpScrollWait = createJumpScrollWait();
+
+  bookmarkToken = 0;
+
+  bookmarkScrollWait = createJumpScrollWait();
 
   constructor (props) {
     super(props);
@@ -412,6 +426,7 @@ class TimelineSplitControllerCore extends React.Component {
       return;
     }
 
+    this.abortBookmark({ restore: false });
     this.discardJump();
     const historyAtTop = this.captureScrollTop('history') <= 1;
 
@@ -441,6 +456,7 @@ class TimelineSplitControllerCore extends React.Component {
       return;
     }
 
+    this.abortBookmark({ restore: false });
     this.discardJump();
     const liveScrollTop = this.captureScrollTop('live');
     const liveAtTop = liveScrollTop <= 1;
@@ -596,21 +612,29 @@ class TimelineSplitControllerCore extends React.Component {
     if (previousLocationKey !== nextLocationKey) {
       this.cancelInFlightResume('route_change');
       this.discardJump();
+      this.abortBookmark({ restore: true });
       this.locationKey = nextLocationKey;
       this.autoResumeKey = null;
     }
 
     if (seekSourceKey(prevProps.historyContract) !== seekSourceKey(this.props.historyContract)) {
       this.discardJump();
+      this.abortBookmark({ restore: true });
     }
 
     if (prevProps.accountId !== this.props.accountId && prevProps.accountId) {
       this.discardJump();
+      this.abortBookmark({ restore: true });
       getPositionRegistry().evictAccount(prevProps.accountId);
+    }
+
+    if (prevProps.columnId !== this.props.columnId && prevProps.columnId) {
+      this.abortBookmark({ restore: true });
     }
 
     if (prevProps.splitContextKey !== this.props.splitContextKey) {
       this.discardJump();
+      this.abortBookmark({ restore: false });
       this.clearSplitScroll();
       this.clearSplitLayoutClass();
 
@@ -628,6 +652,7 @@ class TimelineSplitControllerCore extends React.Component {
 
     if (layoutChanged && this.ownsSplit()) {
       this.discardJump();
+      this.abortBookmark({ restore: false });
       this.clearSplitScroll();
       this.cancelInFlightResume('split_closed');
       this.flushHistoryPosition();
@@ -636,6 +661,10 @@ class TimelineSplitControllerCore extends React.Component {
 
     if (prevProps.activeSplitId && !this.ownsSplit() && this.state.jumpOpen) {
       this.discardJump();
+    }
+
+    if (this.bookmarkFlight && !this.bookmarkStillCurrent(this.bookmarkFlight)) {
+      this.abortBookmark({ restore: true });
     }
 
     if (layoutChanged) {
@@ -666,6 +695,7 @@ class TimelineSplitControllerCore extends React.Component {
     }
 
     this.noticeJumpScroll();
+    this.noticeBookmarkScroll();
     this.restorePendingReading();
 
     if (this.shouldResetDocumentScroll) {
@@ -683,8 +713,10 @@ class TimelineSplitControllerCore extends React.Component {
   componentWillUnmount () {
     this.positionUnmounted = true;
     this.jumpUnmounted = true;
+    this.bookmarkUnmounted = true;
     this.returnAnchorToken = null;
     this.discardJump({ close: false });
+    this.abortBookmark({ restore: true });
     this.cancelInFlightResume('unmount');
     this.flushHistoryPosition();
 
@@ -860,6 +892,7 @@ class TimelineSplitControllerCore extends React.Component {
         }
 
         this.noteJumpUserScroll(id);
+        this.noteBookmarkUserScroll(id);
         this.schedulePositionCapture();
       }
     });
@@ -926,6 +959,8 @@ class TimelineSplitControllerCore extends React.Component {
       return;
     }
 
+    this.abortBookmark({ restore: true });
+
     if (!this.ownsSplit()) {
       if (this.props.splitBlocked || this.props.activeSplitId) {
         return;
@@ -944,6 +979,359 @@ class TimelineSplitControllerCore extends React.Component {
     const otherSplit = !!this.props.activeSplitId && !ownSplit;
 
     return otherSplit || (!ownSplit && !!this.props.splitBlocked);
+  };
+
+  bookmarkColumnKey = () => this.props.columnId || this.instanceId;
+
+  readBookmarkWindow = (splitTimelineId) => (
+    this.props.onReadHistoryWindow ? this.props.onReadHistoryWindow(splitTimelineId) : null
+  );
+
+  bookmarkStillCurrent = (flight) => {
+    if (!flight || flight.token !== this.bookmarkToken || this.bookmarkUnmounted) {
+      return false;
+    }
+
+    if ((this.locationKey || '') !== flight.locationKey) {
+      return false;
+    }
+
+    if ((this.props.accountId || '') !== flight.accountId) {
+      return false;
+    }
+
+    if (seekSourceKey(this.props.historyContract) !== flight.sourceKey) {
+      return false;
+    }
+
+    if (this.bookmarkColumnKey() !== flight.columnKey) {
+      return false;
+    }
+
+    if (this.props.activeSplitId === flight.splitTimelineId) {
+      flight.confirmed = true;
+      return true;
+    }
+
+    return !flight.confirmed && !!flight.openedSplit && !this.props.activeSplitId;
+  };
+
+  clearBookmarkArm = (flight) => {
+    if (flight && flight.armed) {
+      clearSurfaceResume(flight.splitTimelineId, flight.requestId);
+      flight.armed = false;
+    }
+  };
+
+  abortBookmark = ({ restore = false } = {}) => {
+    const flight = this.bookmarkFlight;
+
+    this.bookmarkToken += 1;
+    this.bookmarkFlight = null;
+    this.bookmarkScrollWait.cancel({ scrollStatus: 'stale', reason: 'stale' });
+    this.clearBookmarkArm(flight);
+
+    if (flight && flight.phase === 'pending' && flight.splitTimelineId) {
+      cancelWindowedHistoryDirection(flight.splitTimelineId, 'seek');
+    }
+
+    if (restore && flight) {
+      this.restoreAbandonedBookmark(flight);
+    }
+  };
+
+  restoreAbandonedBookmark = (flight) => {
+    const seek = this.props.historySeek;
+    const scrollStatus = seek && seek.get('id') === flight.sessionId ? seek.get('scrollStatus') : null;
+    const disposition = jumpAbandonDisposition({
+      phase: flight.phase,
+      scrollStatus,
+      userCancelled: flight.userCancelled,
+    });
+
+    if (disposition !== 'restore_once' || flight.restored || !flight.snapshot || !this.props.onRestoreJump) {
+      return;
+    }
+
+    flight.restored = true;
+    this.pendingReadingRestore = {
+      splitTimelineId: flight.splitTimelineId,
+      sessionId: flight.sessionId,
+      anchor: flight.reading,
+    };
+    this.props.onRestoreJump({
+      splitTimelineId: flight.splitTimelineId,
+      sessionId: flight.sessionId,
+      items: flight.snapshot.items,
+      windowState: flight.snapshot.windowState,
+      reason: 'not_loaded',
+    });
+  };
+
+  noteBookmarkUserScroll = (splitTimelineId) => {
+    const flight = this.bookmarkFlight;
+
+    if (!flight || flight.splitTimelineId !== splitTimelineId) {
+      return;
+    }
+
+    // A scroll during membership or seek already belongs to the reader.
+    // Record it before a session id exists so a later failure does not rewind.
+    if (flight.phase === 'pending') {
+      flight.userCancelled = true;
+      return;
+    }
+
+    if (flight.phase !== 'scroll') {
+      return;
+    }
+
+    const seek = this.props.historySeek;
+
+    if (!seek || seek.get('id') !== flight.sessionId || !this.bookmarkScrollWait.pending()) {
+      return;
+    }
+
+    if (seek.get('scrollStatus') === 'loaded') {
+      return;
+    }
+
+    flight.userCancelled = true;
+    this.clearBookmarkArm(flight);
+
+    if (seek.get('scrollStatus') === 'pending' && this.props.onSettleJumpScroll) {
+      this.props.onSettleJumpScroll({
+        splitTimelineId,
+        sessionId: flight.sessionId,
+        revision: seek.get('scrollRevision'),
+        anchorId: seek.get('anchorId'),
+        scrolled: false,
+        reason: 'user_scroll',
+      });
+    }
+
+    this.bookmarkScrollWait.notify(flight.sessionId, { scrollStatus: 'user_scroll', reason: 'user_scroll' });
+  };
+
+  noticeBookmarkScroll = () => {
+    const flight = this.bookmarkFlight;
+
+    if (!flight || flight.phase !== 'scroll') {
+      return;
+    }
+
+    if (!this.bookmarkStillCurrent(flight)) {
+      this.bookmarkScrollWait.cancel({ scrollStatus: 'stale', reason: 'stale' });
+      return;
+    }
+
+    const scroll = this.readJumpScroll(flight.sessionId);
+
+    if (scroll) {
+      this.bookmarkScrollWait.notify(flight.sessionId, scroll);
+    }
+  };
+
+  captureBookmarkAnchor = () => {
+    if (!this.ownsSplit() || !this.surfaceId) {
+      return { ok: false, reason: 'history_closed' };
+    }
+
+    return readingAnchorFromSurface(captureHistorySurface(this.surfaceId));
+  };
+
+  handleBookmarkRestore = (bookmark) => {
+    const resume = this.props.historyResume;
+    const phase = resume && resume.get ? resume.get('phase') : null;
+    const armedResume = this.surfaceId ? peekSurfaceResume(this.surfaceId) : null;
+    const foreignArm = armedResume && String(armedResume.requestId || '').indexOf('reading-bookmark-') !== 0;
+
+    if (HISTORY_RESUME_IN_FLIGHT.indexOf(phase) !== -1 || foreignArm) {
+      return Promise.resolve({ ok: false, moved: false, place: 'protected', reason: 'resume_protected' });
+    }
+
+    const splitReady = this.ownsSplit();
+
+    if (!splitReady && this.jumpDisabled()) {
+      return Promise.resolve({ ok: false, moved: false, place: 'unavailable', reason: 'split_unavailable' });
+    }
+
+    if (!splitReady) {
+      this.splitTimeline();
+    }
+
+    const splitTimelineId = splitReady ? this.getSplitTimelineId() : `${this.splitKeyPrefix()}${this.splitSessionId}`;
+
+    this.abortBookmark({ restore: true });
+
+    if (this.jumpFlight) {
+      this.discardJump({ close: false });
+    }
+
+    const token = this.bookmarkToken;
+    const requestId = `reading-bookmark-${token}`;
+    const flight = {
+      token,
+      requestId,
+      phase: 'pending',
+      splitTimelineId,
+      openedSplit: !splitReady,
+      confirmed: splitReady,
+      locationKey: this.locationKey || '',
+      accountId: this.props.accountId || '',
+      sourceKey: seekSourceKey(this.props.historyContract),
+      columnKey: this.bookmarkColumnKey(),
+      armed: false,
+      userCancelled: false,
+    };
+
+    this.bookmarkFlight = flight;
+
+    const identity = textSearchIdentity({
+      contract: this.props.historyContract,
+      accountId: flight.accountId,
+      columnId: flight.columnKey,
+      locationKey: flight.locationKey,
+      splitSessionId: splitTimelineId,
+    });
+
+    return runBookmarkRestore({
+      bookmark,
+      contract: this.props.historyContract,
+      isCurrent: () => this.bookmarkStillCurrent(flight),
+      resumeBlocked: false,
+      surfaceArmed: false,
+      captureReading: () => captureHistorySurface(splitTimelineId),
+      captureWindow: () => {
+        const read = this.readBookmarkWindow(splitTimelineId);
+
+        if (!read || !read.items || !read.windowState) {
+          return null;
+        }
+
+        return { items: read.items, windowState: read.windowState };
+      },
+      userScrolled: () => !!flight.userCancelled,
+      checkMembership: (statusId) => {
+        if (!this.props.onCheckMembership) {
+          return Promise.resolve({ ok: false, reason: 'network' });
+        }
+
+        const payload = membershipBody(identity, [statusId]);
+
+        if (payloadHasSearchText(payload) || payload.ids.length !== 1) {
+          return Promise.resolve({ ok: false, reason: 'search_text_not_accepted' });
+        }
+
+        return Promise.resolve(this.props.onCheckMembership(payload));
+      },
+      armAnchor: (anchor) => {
+        const existing = peekSurfaceResume(splitTimelineId);
+
+        if (existing && existing.requestId !== requestId) {
+          return;
+        }
+
+        armSurfaceResume(splitTimelineId, {
+          requestId,
+          anchor,
+          allowFallback: false,
+        });
+        flight.armed = true;
+      },
+      clearAnchor: () => this.clearBookmarkArm(flight),
+      seek: (query) => {
+        const resumeNow = this.props.historyResume;
+        const phaseNow = resumeNow && resumeNow.get ? resumeNow.get('phase') : null;
+        const armedNow = peekSurfaceResume(splitTimelineId);
+
+        if (HISTORY_RESUME_IN_FLIGHT.indexOf(phaseNow) !== -1 || (armedNow && armedNow.requestId !== requestId)) {
+          return Promise.resolve({
+            result: { outcome: 'unavailable', reason: 'resume_protected' },
+            windowChanged: false,
+          });
+        }
+
+        if (!this.props.onSeekTimeline) {
+          return Promise.resolve({
+            result: { outcome: 'unsupported', reason: 'window_required' },
+            windowChanged: false,
+          });
+        }
+
+        const before = this.readBookmarkWindow(splitTimelineId);
+
+        return Promise.resolve(this.props.onSeekTimeline({
+          sourceTimelineId: this.props.sourceTimelineId,
+          splitTimelineId,
+          contract: this.props.historyContract,
+          query,
+        })).then(payload => {
+          const after = this.readBookmarkWindow(splitTimelineId);
+          const comparable = !!(before && after && before.items && before.windowState && after.items && after.windowState);
+          const reported = {
+            result: payload && payload.result ? payload.result : (payload || { outcome: 'unavailable', reason: 'network' }),
+            snapshot: (payload && payload.snapshot) || (before && before.items && before.windowState ? {
+              items: before.items,
+              windowState: before.windowState,
+            } : null),
+          };
+
+          if (comparable) {
+            reported.windowChanged = before.items !== after.items || before.windowState !== after.windowState;
+          }
+
+          return reported;
+        });
+      },
+      markScroll: ({ sessionId, snapshot, reading }) => {
+        flight.phase = 'scroll';
+        flight.sessionId = sessionId;
+        flight.snapshot = snapshot;
+        flight.reading = reading;
+      },
+      waitForScroll: (sessionId) => {
+        const waited = this.bookmarkScrollWait.arm(sessionId);
+
+        this.noticeBookmarkScroll();
+        return waited;
+      },
+      rollback: ({ snapshot, sessionId, reason, reading, replaceWindow }) => {
+        if (!this.bookmarkStillCurrent(flight) || flight.userCancelled || !snapshot || !snapshot.items || !snapshot.windowState || !this.props.onRestoreJump) {
+          return;
+        }
+
+        const live = this.readBookmarkWindow(splitTimelineId);
+        const liveStatus = live && live.scrollStatus;
+
+        if (liveStatus === 'loaded' || liveStatus === 'user_scroll') {
+          return;
+        }
+
+        const resolvedSessionId = sessionId || (live && live.seekId) || null;
+
+        flight.restored = true;
+        this.pendingReadingRestore = reading && reading.statusId ? {
+          splitTimelineId,
+          sessionId: resolvedSessionId,
+          anchor: reading,
+        } : null;
+        this.props.onRestoreJump({
+          splitTimelineId,
+          sessionId: resolvedSessionId,
+          items: snapshot.items,
+          windowState: snapshot.windowState,
+          reason: reason === 'filtered' ? 'filtered' : 'not_loaded',
+          replaceWindow: !!replaceWindow && !sessionId && !resolvedSessionId,
+        });
+      },
+    }).then(result => {
+      if (this.bookmarkFlight === flight) {
+        this.bookmarkFlight = null;
+      }
+
+      return result;
+    });
   };
 
   jumpIsCurrent = (token) => token === this.jumpToken && !this.jumpUnmounted;
@@ -1237,6 +1625,7 @@ class TimelineSplitControllerCore extends React.Component {
   };
 
   handleTextResultJump = ({ statusId } = {}) => {
+    this.abortBookmark({ restore: true });
     const token = ++this.jumpToken;
 
     if (!isDecimalStatusId(statusId)) {
@@ -1317,6 +1706,7 @@ class TimelineSplitControllerCore extends React.Component {
   };
 
   handleJumpSubmit = (query) => {
+    this.abortBookmark({ restore: true });
     const token = ++this.jumpToken;
 
     if (!this.ownsSplit()) {
@@ -1418,6 +1808,87 @@ class TimelineSplitControllerCore extends React.Component {
       />
     );
   }
+
+  renderBookmarkButton () {
+    if (!this.props.onListReadingBookmarks || !this.props.onCreateReadingBookmark || !this.props.onSeekTimeline) {
+      return null;
+    }
+
+    const { intl, unavailableMessage } = this.props;
+    const disabled = this.jumpDisabled();
+    const text = intl.formatMessage(disabled && unavailableMessage ? unavailableMessage : messages.bookmarks);
+
+    return (
+      <button
+        key='reading-bookmarks'
+        type='button'
+        ref={this.setBookmarkButton}
+        className={classNames('column-header__button', 'column-header__bookmark-button', { active: this.state.bookmarksOpen })}
+        title={text}
+        aria-label={intl.formatMessage(messages.bookmarks)}
+        aria-expanded={this.state.bookmarksOpen ? 'true' : 'false'}
+        aria-controls={`timeline-bookmarks-${this.instanceId}`}
+        disabled={disabled}
+        onClick={this.handleToggleBookmarks}
+      >
+        <Icon id='bookmark' className='column-header__icon' />
+      </button>
+    );
+  }
+
+  renderBookmarkPanel () {
+    if (!this.state.bookmarksOpen || !this.props.onListReadingBookmarks || !this.props.onCreateReadingBookmark) {
+      return null;
+    }
+
+    return (
+      <TimelineReadingBookmarksPanel
+        contract={this.props.historyContract}
+        panelId={`timeline-bookmarks-${this.instanceId}`}
+        onCapture={this.captureBookmarkAnchor}
+        onList={this.props.onListReadingBookmarks}
+        onCreate={this.props.onCreateReadingBookmark}
+        onRename={this.props.onRenameReadingBookmark}
+        onDelete={this.props.onDeleteReadingBookmark}
+        onRestore={this.handleBookmarkRestore}
+        onClose={this.handleBookmarkClose}
+      />
+    );
+  }
+
+  setBookmarkButton = (node) => {
+    this.bookmarkButton = node;
+  };
+
+  handleToggleBookmarks = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (this.jumpDisabled()) {
+      return;
+    }
+
+    if (this.state.bookmarksOpen) {
+      this.abortBookmark({ restore: true });
+      this.setState({ bookmarksOpen: false });
+      return;
+    }
+
+    this.setState({ bookmarksOpen: true });
+  };
+
+  handleBookmarkClose = () => {
+    if (this.bookmarkUnmounted) {
+      return;
+    }
+
+    this.abortBookmark({ restore: true });
+    this.setState({ bookmarksOpen: false }, () => {
+      if (this.bookmarkButton) {
+        this.bookmarkButton.focus();
+      }
+    });
+  };
 
   renderResumeButton () {
     if (!this.positionIdentity()) {
@@ -1539,6 +2010,8 @@ class TimelineSplitControllerCore extends React.Component {
       splitButton: this.renderSplitButton(),
       jumpButton: this.renderJumpButton(),
       jumpPanel: this.renderJumpPanel(),
+      bookmarkButton: this.renderBookmarkButton(),
+      bookmarkPanel: this.renderBookmarkPanel(),
       resumeButton: this.renderResumeButton(),
       splitter: isSplit ? this.renderSplitter() : null,
       closeLiveButton: isSplit ? this.renderCloseLiveButton() : null,
