@@ -887,6 +887,8 @@ class TimelineColumnJumpPanel extends React.PureComponent {
         aria-busy={busy ? 'true' : 'false'}
         onSubmit={this.handleSubmit}
         onKeyDown={this.handleKeyDown}
+        onCompositionStart={this.handleComposition}
+        onCompositionEnd={this.handleComposition}
       >
         <div className='timeline-jump__row'>
           <label htmlFor={`${panelId}-mode`}>{intl.formatMessage(messages.mode)}</label>

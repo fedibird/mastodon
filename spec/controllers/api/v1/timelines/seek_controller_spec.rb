@@ -80,6 +80,23 @@ describe Api::V1::Timelines::SeekController do
     expect(response.body).not_to include('not-a-group-body')
   end
 
+  it 'does not return another account personal row or an unknown domain body' do
+    secret = Fabricate(:status, account: author, visibility: :public, text: 'personal-foreign-body')
+
+    post_seek(source: 'personal', kind: 'status', seek_target: { id: secret.id.to_s })
+    personal = JSON.parse(response.body)
+    expect(response).to have_http_status(200)
+    expect(personal['outcome']).to eq('not_in_source')
+    expect(personal['anchor_id']).to be_nil
+    expect(response.body).not_to include('personal-foreign-body')
+
+    post_seek(source: 'domain', kind: 'status', context: { domain: 'missing.test' }, seek_target: { id: secret.id.to_s })
+    missing = JSON.parse(response.body)
+    expect(missing['outcome']).to eq('unavailable')
+    expect(missing['reason']).to eq('domain_unavailable')
+    expect(response.body).not_to include('personal-foreign-body')
+  end
+
   it 'rejects search text in the target' do
     post :create, params: {
       version: 1,
