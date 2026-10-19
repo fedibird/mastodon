@@ -66,7 +66,43 @@ CONFIRMED. The policy object is an Account, and the database allows more than on
 
 RISK. A second user row with the same `account_id` passes `owned?`, the `StatusFilter` author short-circuit, `PersonalFeed`, and `Account#permitted_statuses`. Those paths would render user A's projection to user B.
 
-GAP. `ProjectionAccess.allow?` requires `viewer_user_id == external_status_projections.user_id`. Nil user id denies. The paths in the table exclude or 404 a projection unless that check passes. Composite foreign keys and the user/account trigger are in the architecture document. This feature does not add a unique index on `users.account_id`.
+GAP. `ProjectionAccess.allow?` requires `viewer_user_id == external_status_projections.user_id`. Nil user id denies. The paths in the table exclude or 404 a projection unless that check passes. The user/account trigger compares `users.account_id` and `statuses.account_id` on insert. This feature does not add a unique index on `users.account_id` or on `statuses(id, account_id)`.
+
+## Account-scoped favourite, bookmark, and reaction lists
+
+CONFIRMED. These actions load by `account_id` and return status bodies. Destroy of an existing favourite or bookmark does not call `authorize`.
+
+| Symbol | Lines | Behavior |
+| --- | --- | --- |
+| `Api::V1::FavouritesController#index` | `app/controllers/api/v1/favourites_controller.rb` 8–16, 44–46 | `current_account.favourites`, then `REST::StatusSerializer` or the compact serializer. No policy. |
+| `Api::V1::BookmarksController#index` | `app/controllers/api/v1/bookmarks_controller.rb` 8–16, 44–46 | `current_account.bookmarks`. Same render. |
+| `Api::V1::EmojiReactionsController#index` | `app/controllers/api/v1/emoji_reactions_controller.rb` 24–33, 99, 123 | Lines 24–33 render the statuses. Lines 99 and 123 load `current_account.emoji_reactions`. |
+| `Statuses::FavouritesController#destroy` | `app/controllers/api/v1/statuses/favourites_controller.rb` 17–27, 37 | A found favourite skips `authorize`, enqueues `UnfavouriteWorker`, and the action renders that status at line 37. `authorize :show?` runs only when no favourite exists. |
+| `Statuses::BookmarksController#destroy` | `app/controllers/api/v1/statuses/bookmarks_controller.rb` 15–27 | A found bookmark skips `authorize`. `destroy!` is line 25 and the render is line 27. `authorize :show?` runs only when no bookmark exists. |
+| `UnfavouriteWorker#perform` | `app/workers/unfavourite_worker.rb` 6 | Arguments are `account_id` and `status_id`. |
+| `UnfavouriteService#call` | `app/services/unfavourite_service.rb` 7–8 | Destroys the account's favourite. No policy. |
+| `Statuses::EmojiReactionsController#set_status` | `app/controllers/api/v1/statuses/emoji_reactions_controller.rb` 30–32 | `authorize :show?`, which is the account policy. |
+
+RISK. User B, sharing user A's account, receives A's projection from `GET /api/v1/favourites`, bookmarks, and emoji reactions, in compact mode as well. `DELETE` of that favourite or bookmark destroys A's row and renders the body. `show?` does not stop B, because `owned?` is true for the account.
+
+GAP. Those lists filter with `ProjectionAccess`. Destroy returns 404 and keeps the row when the user id does not match, and does not render the body. `UnfavouriteWorker` carries `user_id`. An account-only job does not destroy a projection favourite and does not serialize it.
+
+## Marker lifetime and the statuses indexes
+
+CONFIRMED.
+
+| Symbol | Lines | Behavior |
+| --- | --- | --- |
+| `DeleteAccountService#purge_content!` | `app/services/delete_account_service.rb` 143–146 | `purge_user!` then `purge_statuses!`. |
+| `purge_user!` | `app/services/delete_account_service.rb` 135–139 | Destroys the user when the email is not kept. |
+| `purge_statuses!` | `app/services/delete_account_service.rb` 172–175 | `BatchedRemoveStatusService` on the account's statuses. |
+| `AccountAssociations` | `app/models/concerns/account_associations.rb` 8, 15 | `has_one :user, dependent: :destroy` is declared before `has_many :statuses, dependent: :destroy`. Account destroy removes the user first. |
+| `index_statuses_local_20190824` | `db/schema.rb` 1592 | Partial index on `(id, account_id)`. Visibility public, local or null `uri`, not deleted, not a reblog, reply constrained. Not unique. |
+| `index_statuses_public_20200119` | `db/schema.rb` 1593 | Partial index on `(id, account_id)`. Visibility public, not deleted, not a reblog, reply constrained. Not unique. |
+
+RISK. A `user_id` `ON DELETE CASCADE` on the marker deletes it inside `purge_user!`, before `purge_statuses!`. The status remains. Removal then follows the ordinary personal path, including follower delivery. Account destroy has the same order, because the user association is destroyed before statuses. The same gap exists if one of two users is destroyed and the account stays: the marker goes, the status stays, and the other user passes `owned?`.
+
+GAP. `user_id` is `ON DELETE RESTRICT`. Projection statuses are removed, non-federating, while the marker and `statuses.external_projection` still exist. The status delete then cascades the marker. A direct marker delete while the status exists is rejected unless the removal transaction set `fedibird.projection_status_delete`. A status left with `external_projection` true and no marker is not-found for every caller and is not indexed. No unique index is added on `statuses(id, account_id)`. The partial indexes above are not a foreign-key target.
 
 ## Status policy and serializers
 
@@ -356,7 +392,10 @@ GAP. Admin trend approve/reject rejects projection ids. Backup skips them.
 | `PublishStatusService` skips AP distribute for personal and still link-crawls and webhooks. | Projection writer does not use that service. Callbacks also check the marker. |
 | `ActivityPub::DistributionWorker` will deliver personal if enqueued. | Worker skips projections and personal. |
 | Delete of personal still reaches follower inboxes with a public-addressed Tombstone. | Projection removal does not call `remove_from_remote_reach`. Ordinary personal delete is unchanged until a separate issue. |
-| Chewy indexes personal text. Favourite, Bookmark, and StatusStat call `update_index('statuses')` with no `search_indexable?` filter. The index scope includes every non-reblog. | Projections are outside the index scope, and `delete_if` removes a loaded object. An import of the id after favourite, bookmark, or a full rebuild deletes or skips it. `search_indexable?` is not the guard. |
+| Chewy indexes personal text. Favourite, Bookmark, and StatusStat call `update_index('statuses')` with no `search_indexable?` filter. The index scope includes every non-reblog. | Projections are outside the index scope because `external_projection` is true and because of the marker, and `delete_if` removes a loaded object. An import of the id after favourite, bookmark, or a full rebuild deletes or skips it. A missing marker does not put a true column back into the index. |
+| Favourite and bookmark lists and destroys are account-scoped. Destroy of an existing row skips `authorize`. | Those responses require the projection's `user_id`. The other user of the account gets an empty list and a 404 destroy, and the row stays. |
+| `purge_user!` runs before `purge_statuses!`. | Projection statuses are removed, non-federating, before the user row. `user_id` is `ON DELETE RESTRICT`. |
+| Indexes on `statuses(id, account_id)` are partial and not unique. | No new unique index on that pair. The account match is an insert trigger. |
 | Node user streams forward `timeline:{accountId}` with no visibility check (`streaming/index.js`). | P1 publishes no projection payload. A live owner channel is not claimed. |
 | Self-boost is an `Announce` of the author's own status, with local feed dedup only. `reblog?` rejects direct and limited. A reblog cannot be `direct` (`status.rb` line 131). | Fediverse boost announces the owner's public, unlisted, or private reference Note. Share remains a single `Create`. Direct and limited are refused. |
 | `PreviewCard` is global per URL. | Projections do not attach cards. Public reference Notes may, from a public fetch. |
@@ -379,6 +418,10 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | --- | --- | --- |
 | Owner GET `/api/v1/statuses/:id` | 200, extension present, `visibility_ex` personal | `spec/controllers/api/v1/statuses_controller_spec.rb` |
 | Second `users` row with the same `account_id` GETs that id, and loads `PersonalFeed`, `AccountStatusesFeed`, and `permitted_statuses_from_ids` | 404 or the id absent. `owned?` would have allowed it. The fixture inserts the second user in the database | statuses controller spec, `spec/controllers/api/v1/accounts/statuses_controller_spec.rb`, and a new personal-feed example |
+| That second user GET `/api/v1/favourites`, `/api/v1/bookmarks`, and `/api/v1/emoji_reactions`, including `compact` | id absent | `spec/controllers/api/v1/favourites_controller_spec.rb`, `spec/controllers/api/v1/bookmarks_controller_spec.rb`, emoji reactions controller spec |
+| That second user DELETE favourite and DELETE bookmark | 404, rows remain, no `UnfavouriteWorker`, body not rendered | `spec/controllers/api/v1/statuses/favourites_controller_spec.rb`, `spec/controllers/api/v1/statuses/bookmarks_controller_spec.rb` |
+| That second user DELETE an emoji reaction on the projection | 404, the reaction row stays, body not rendered | new example next to `app/controllers/api/v1/statuses/emoji_reactions_controller.rb` |
+| `UnfavouriteWorker` with only `account_id` | projection favourite remains, body not serialized | `spec/workers/unfavourite_worker_spec.rb` or a new example next to the worker |
 | Caller with the matching account and `viewer_user_id` nil | id absent. Background and backup paths included | writer spec and `spec/services/backup_service_spec.rb` |
 | Other local user GET same id | 404 | statuses controller spec |
 | Unauthenticated GET, HTML permalink, oEmbed | 404 | `spec/controllers/statuses_controller_spec.rb`, `spec/controllers/api/oembed_controller_spec.rb` |
@@ -453,7 +496,9 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | RSS item without guid and without link | skipped, no projection | fetch spec |
 | New CID, same AT URI | same resource id, new revision, no AP Update | identity spec. Parser behavior is UNVERIFIED until P2 uses a real AT URI parser |
 | Attempt to change projection visibility to public | refused, `uri` still null | writer spec |
-| User delete | projections, subscriptions, and identities gone; shared resource remains; no AP Delete for the projection | account deletion spec |
+| User delete | projection statuses removed with no remote Delete before the user row; `DELETE FROM users` while a marker remains raises; the other user of the account keeps their own projections; shared resource remains | account deletion spec |
+| Direct `DELETE` of the marker while the status exists | rejected. `external_projection` stays true. The status is not-found and is not indexed | writer spec |
+| Marker gone, column still true | not-found for every caller, including the former owner. No federated Delete. Repair uses the non-federating path | writer spec |
 | Insert projection with a mismatched subscription user, status account, or resource source | database rejects the row; the writer transaction leaves no status | writer spec |
 | P5 group member from similar text or URL, or from a like record | no member. An explicit AT URI whose DID matches the identity can be added | publication-group spec |
 | Identity disconnect | inbound rows gone; outbound rows deleted only when `absent` or `pending_create` with no request sent; `present` and `unknown` rows remain without a token; public projections remain; vault row revoked | identity spec |
@@ -476,7 +521,7 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 
 ## Rollout checks before a flag may be enabled
 
-P1 `external_bridge_rss` stays off until section A, the projection rows of section B (null `uri`, no distribution, no delete reach, no Redis publish, Chewy absent through favourite and a full import), the local interaction refusals in section C, and sections D and F are green. The two-users row and the mismatch inserts in A and E are part of that gate. The parent-scope rows in F are P6 specs; they do not block the RSS flag. The transaction rollback rows in B do.
+P1 `external_bridge_rss` stays off until section A, the projection rows of section B (null `uri`, no distribution, no delete reach, no Redis publish, Chewy absent through favourite and a full import), the local interaction refusals in section C, and sections D and F are green. The two-users rows, the favourite, bookmark, and emoji-reaction list and destroy rows, the user-delete and marker-delete rows, and the mismatch inserts are part of that gate. The parent-scope rows in F are P6 specs; they do not block the RSS flag. The transaction rollback rows in B do. The migration adds `external_projection` and does not add a unique index on `statuses(id, account_id)`.
 
 P3 stays off until the native rows of section C are green, including lost-ack reconcile, the command-key uniqueness, and the stale-replay rows.
 

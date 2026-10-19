@@ -107,7 +107,13 @@ Ordinary personal posts stay on today's account rules. The gate runs only when a
 | `AccountStatusesFeed` | Profile and seek use `permitted_statuses` | Other users of the same account do not see the projection on the profile or in seek. |
 | `PersonalFeed` | Every personal status of the account | Ordinary personal rows stay. A projection is included only for its `user_id`. |
 | `REST::StatusSerializer` | Renders whatever the controller passed | The controller does not pass a failed gate. `fedibird_external` is omitted unless that same user id was allowed. The other user does not receive the status body either. |
-| Favourite, bookmark, emoji reaction | `show?` or the account | Same gate. The other user gets 404 and no interaction row. |
+| `Api::V1::FavouritesController#index` | `current_account.favourites`, then the status serializer. No `show?` (`app/controllers/api/v1/favourites_controller.rb` lines 8–16 and 44–46) | Drop a projection unless `current_user.id` matches. Compact responses too. An account-level favourite row is not authorization. |
+| `Api::V1::BookmarksController#index` | `current_account.bookmarks` (lines 8–16 and 44–46 of that controller) | Same filter. |
+| `Api::V1::EmojiReactionsController#index` | Renders the loaded statuses (`app/controllers/api/v1/emoji_reactions_controller.rb` lines 24–33). The query is `current_account.emoji_reactions` (lines 99 and 123) | Same filter. |
+| `Statuses::FavouritesController#destroy` | When the account has a favourite, assigns that status and enqueues `UnfavouriteWorker` with no `authorize` (`app/controllers/api/v1/statuses/favourites_controller.rb` lines 17–23). `authorize :show?` runs only when the row is absent (lines 24–27). Both branches render the status (line 37) | Mismatched user: 404, the favourite row stays, no worker. The response body is not rendered. |
+| `Statuses::BookmarksController#destroy` | A found bookmark is assigned with no `authorize` (`app/controllers/api/v1/statuses/bookmarks_controller.rb` lines 15–22). `bookmark.destroy!` is line 25 and the status is rendered at line 27 | Mismatched user: 404, the bookmark row stays. The response body is not rendered. |
+| `UnfavouriteWorker` / `UnfavouriteService` | `perform(account_id, status_id)` (`app/workers/unfavourite_worker.rb` line 6). The service destroys the account's favourite with no policy (`app/services/unfavourite_service.rb` lines 7–8) | The job carries `user_id`. A job that only has `account_id` does not destroy a projection favourite and does not render the body. |
+| Emoji reaction create and destroy | `authorize :show?` in `set_status` (`app/controllers/api/v1/statuses/emoji_reactions_controller.rb` lines 30–32) | `show?` is the account policy. The user gate still applies before render or delete. |
 | `BackupService` | `account.statuses` (`app/services/backup_service.rb` line 30), while `User has_many :backups` | Include a projection only when the backup's `user_id` matches. A job that only has `account_id` skips every projection. |
 | Ancestors, descendants, references, search, oEmbed, outbox, admin trends | Account or public checks | Drop projection ids unless the gate passes. |
 
@@ -115,15 +121,17 @@ Ordinary personal posts stay on today's account rules. The gate runs only when a
 
 The writer and the database both refuse a projection whose user, subscription, status account, and resource source do not agree.
 
-`external_subscriptions` has a unique index on `(id, user_id, external_source_id)`. `external_resources` has a unique index on `(id, external_source_id)`. `statuses` has a unique index on `(id, account_id)` so a composite foreign key can name the account. `id` is already the primary key. The second index is there for the foreign key.
+`external_subscriptions` has a unique index on `(id, user_id, external_source_id)`. `external_resources` has a unique index on `(id, external_source_id)`. `status_id` references `statuses(id)`, which is already the primary key. There is no new unique index on `statuses(id, account_id)`.
+
+The table already has indexes that start with `id, account_id`: `index_statuses_local_20190824` and `index_statuses_public_20200119` (`db/schema.rb` lines 1592–1593). Both are partial. One requires public visibility and a local or null `uri`. The other requires public visibility. Neither is unique. A partial index cannot be the target of a foreign key, and a non-partial unique index on this table is not part of this feature. Projection inserts are rare next to ordinary status writes. The check is a trigger, not an index build.
 
 `external_status_projections` carries `account_id` and `external_source_id`, both not null, plus the columns already listed below. Foreign keys:
 
 - `(external_subscription_id, user_id, external_source_id)` references `external_subscriptions (id, user_id, external_source_id)`
 - `(external_resource_id, external_source_id)` references `external_resources (id, external_source_id)`
-- `(status_id, account_id)` references `statuses (id, account_id)`
+- `status_id` references `statuses(id)` `ON DELETE CASCADE`
 
-A constraint trigger `external_status_projections_user_account`, `BEFORE INSERT OR UPDATE`, loads `users.account_id` for `NEW.user_id` and raises unless it equals `NEW.account_id`. The trigger does not require this user to be the only user of the account. Two users of one account may each own projections. The trigger rejects a user who belongs to a different account.
+A constraint trigger `external_status_projections_user_account`, `BEFORE INSERT OR UPDATE`, loads `users.account_id` for `NEW.user_id` and `statuses.account_id` for `NEW.status_id`. It raises unless both equal `NEW.account_id`. The trigger does not require this user to be the only user of the account. Two users of one account may each own projections. It rejects a user who belongs to a different account, and a status whose `account_id` differs from the projection. Each insert is a primary-key read of `users` and `statuses`. It does not scan or rewrite `statuses`.
 
 The writer, in the same transaction as the status insert, loads the `User`, requires `user.account_id == status.account_id`, requires the subscription and resource composite keys, then inserts the marker. A bypassed writer still fails the foreign keys or the trigger.
 
@@ -140,6 +148,7 @@ The two-users case is not a database error. Both users share `account_id`, so th
 P1 may insert a `statuses` row so `/api/v1/statuses/:id` and existing favourite/bookmark clients keep working. The row is legal only when all of the following hold:
 
 - `external_status_projections.status_id` points at it, unique, and `user_id` is the owner.
+- `statuses.external_projection` is true. The column is nullable and has no default, so existing rows stay null and ordinary inserts stay null. True is set in the same `INSERT` as the status. Null and false are not projections. The column is the privacy bit that remains if the marker row is gone. P1 adds it. A boolean with no default is a catalog change, not a rewrite of `statuses`, and it is not a second copy of `visibility`.
 - `visibility` is `personal` and `searchability` is `personal`.
 - `uri` is null. `Status#local?` is true when `uri` is null, which is acceptable only because the fail-closed list below treats the projection marker as stronger than `local?`.
 - `text` may contain the owner's private copy of public source text. That text is not an ActivityPub `content` value.
@@ -147,7 +156,7 @@ P1 may insert a `statuses` row so `/api/v1/statuses/:id` and existing favourite/
 - `in_reply_to_id`, `reblog_of_id`, and `quote_id` are null.
 - The writer does not call `PostStatusService`, `PublishStatusService`, `ReblogService`, or `RemovalWorker`.
 
-No new column is added to `statuses` in the first migration. PostgreSQL can add a nullable column without rewriting the table, but every status row is hot, and the marker fits in a side table. The callback probe is a unique-index lookup on `external_status_projections.status_id`. If that probe shows up in production profiles, a later migration may add a nullable `statuses.external_projection` with no default and a partial index. That migration is not part of P0 and is not required to start P1.
+`statuses.external_projection` is added in the P1 migration as a nullable boolean with no default. On PostgreSQL 11 and later that is a catalog change. It is not a unique index and it does not rewrite existing rows. A partial index `WHERE external_projection` covers the projection lookup. The marker table still holds `user_id`. Callbacks that only need "is this a projection?" read the column on the status row, which is already set when `after_save` runs. The user gate still reads the marker.
 
 `visibility = personal` still matters as defense in depth, because current fan-out already special-cases it. It is not the boundary. The audit lists paths that ignore it (`ActivityPub::DistributionWorker`, webhooks, Chewy, link crawl, delete reach).
 
@@ -179,8 +188,8 @@ Ordinary `personal` posts keep today's behavior. The new condition is the projec
 
 Normative writer, one transaction, no nested transaction that commits the status early:
 
-1. Insert the status with `uri` null, visibility `personal`, and searchability `personal`. The Chewy callback may stash the id at `after_save`. It must not call `StatusesIndex.import!` inside this transaction.
-2. Insert `external_status_projections` for that `status_id`, `user_id`, `account_id`, and `external_source_id` before commit. The composite foreign keys and the user/account trigger run here.
+1. Insert the status with `uri` null, `external_projection` true, visibility `personal`, and searchability `personal`. The column is set on this `INSERT`, so `after_save` can see it. The Chewy callback may stash the id. It must not call `StatusesIndex.import!` inside this transaction.
+2. Insert `external_status_projections` for that `status_id`, `user_id`, `account_id`, and `external_source_id` before commit. The subscription and resource composite foreign keys, and the user/account trigger, run here. There is no composite foreign key to `statuses`.
 3. If the marker insert fails, roll the transaction back. The status row is gone. `after_create_commit` does not run. The spec also imports the rolled-back id and asserts that no Chewy document remains.
 4. After commit, `store_uri` and the webhook callbacks re-read `ExternalStatusProjection.where(status_id: id).exists?` with an uncached query. A memoized empty association from before the marker insert is not evidence. If the row exists, `store_uri` does not set `uri` and webhooks are not enqueued.
 5. After commit, an import of that status id is allowed. It reloads through the index scope below, which does not return projection ids, and Chewy deletes an id the scope misses. That import is what removes a document if one was written early. It is not run while the transaction is open.
@@ -211,10 +220,13 @@ The scope P1 installs:
 
 ```text
 index_scope Status.include_expired.without_reblogs
+  .where(external_projection: [nil, false])
   .where.not(id: ExternalStatusProjection.select(:status_id))
   .reorder(nil).with_includes,
-  delete_if: -> { ExternalStatusProjection.exists?(status_id: id) }
+  delete_if: -> { external_projection? || ExternalStatusProjection.exists?(status_id: id) }
 ```
+
+`external_projection` true keeps the id out even when the marker row has already been removed. The marker clause covers a row whose column was not set.
 
 `delete_if` covers an object that was loaded anyway, including a `direct_import`. A full rebuild uses the scope, so it does not insert projections and does not recreate one that was deleted. A document that already exists when the marker commits is removed by the post-commit import of that id.
 
@@ -365,7 +377,7 @@ Public fetch jobs carry `subscription_id` or `resource_id` only. They do not car
 
 Names are the contract for later migrations. P0 does not add them. Types are the intended PostgreSQL shape.
 
-Shared tables have **no** `user_id`. Owner tables are `NOT NULL user_id` with `ON DELETE CASCADE` to `users`.
+Shared tables have **no** `user_id`. Owner tables are `NOT NULL user_id` with `ON DELETE CASCADE` to `users`. `external_status_projections.user_id` is the exception: `ON DELETE RESTRICT`, so deleting a user cannot drop the marker and leave the status.
 
 ### `external_sources`
 
@@ -429,18 +441,24 @@ Unique `(user_id, external_source_id)`. No `credential_id`. A subscribe request 
 
 | Column | Constraint |
 | --- | --- |
-| `user_id` | not null, cascade. The read principal |
+| `user_id` | not null. `ON DELETE RESTRICT`. The read principal. Deleting the user does not delete this row |
 | `account_id` | not null. Equals `statuses.account_id` and `users.account_id` for `user_id` |
 | `external_source_id` | not null. Equals the subscription's source and the resource's source |
 | `external_subscription_id` | not null |
 | `external_resource_id` | not null |
-| `status_id` | not null, unique, part of the composite FK to `statuses (id, account_id)` |
+| `status_id` | not null, unique, FK to `statuses(id)` `ON DELETE CASCADE` |
 | `last_seen_revision` | nullable |
 | `source_deleted` | boolean, default false |
 
 Unique `(user_id, external_resource_id)`.
 
-Deleting the user deletes the account through the existing account-deletion flow, which deletes statuses. The projection row then disappears via `status_id` cascade. Account deletion must use the non-federating removal path for any status that still has a projection row. `user_id` cascade covers projection rows if the status is already gone.
+`user_id` does not cascade. `DeleteAccountService#purge_content!` calls `purge_user!` before `purge_statuses!` (`app/services/delete_account_service.rb` lines 144–146). `purge_user!` destroys the user when the email is not kept (lines 135–139). A cascade from that destroy would delete the marker and leave the status, and the later removal would treat it as an ordinary personal post. `ON DELETE RESTRICT` makes `User#destroy` and `DELETE FROM users` fail while any marker for that user remains.
+
+`AccountAssociations` declares `has_one :user, dependent: :destroy` (`app/models/concerns/account_associations.rb` line 8) before `has_many :statuses, dependent: :destroy` (line 15). Destroying the account therefore destroys the user before the statuses. The same `RESTRICT` aborts that destroy while a marker remains. The deletion service removes that user's projection statuses first, in the same transaction, through the non-federating path.
+
+The status is removed first, through the non-federating path, while the marker and `external_projection` are still there. `status_id` cascade then deletes the marker. Only then may the user row go. Deleting one of two users of an account removes that user's projection statuses. The account and the other user's projections stay.
+
+A `BEFORE DELETE` trigger on `external_status_projections` rejects a delete of the marker while `statuses.id` still exists, unless the transaction has set the local setting `fedibird.projection_status_delete` to `on`. The non-federating removal sets that for its transaction and then deletes the status. A direct `DELETE` of the marker, and a user delete, do not set it. If the marker is nevertheless removed and `external_projection` is still true, every read returns not-found, including for the former owner, and no delivery or index import treats the row as a normal personal status. Repair deletes that status through the non-federating path. It does not clear the column and leave the text in place.
 
 ### `external_identities`
 
@@ -748,10 +766,10 @@ Local favourite and bookmark rows follow today's owner-only `show?` once the pro
 
 ## Deletion, disconnect, and moderation
 
-- **Delete projection.** Discard the local status through a path that does not call `remove_from_remote_reach`. Shared resource remains.
+- **Delete projection.** While the marker and `external_projection` still exist, discard the local status through a path that does not call `remove_from_remote_reach`. The status delete cascades the marker. Shared resource remains. Deleting the marker first is rejected.
 - **Delete reference Note.** Normal status removal. Because this Note was federated, normal Delete delivery applies to it. The projection remains.
 - **Disconnect identity.** Provider page calls `revoke!` or `delete!` on the vault. Set `disconnected_at`. Delete inbound rows. Delete outbound rows that never left the server (`remote_state` `absent` or `pending_create` with no request sent). Rows that are `present` or `unknown` stay, with no token, so a lost acknowledgment is not rewritten as inactive. Keep public-source projections.
-- **Delete user.** Existing account deletion removes statuses. Projection markers cascade. Credentials cascade from `User`. Subscriptions, identities, groups, and snapshots cascade from `user_id`. Shared sources, resources, and actors stay. There is no private blob to delete.
+- **Delete user.** Remove that user's projection statuses, non-federating, before `purge_user!`. `user_id` on the marker is `ON DELETE RESTRICT`, so the user row cannot go while a marker remains. Credentials cascade from `User`. Subscriptions, identities, groups, and snapshots cascade from `user_id`. Shared sources, resources, and actors stay. There is no private blob to delete. A second user of the same account is not deleted by this step.
 - **Suspend user.** Workers for that `user_id` no-op. Projections are already owner-only.
 - **Mute external actor.** Owner-level `external_actor_mutes` only.
 - **Reports.** A projection is not a reportable remote account. The owner's federated reference Note is reportable like any other post.
@@ -778,7 +796,7 @@ Each slice is its own review, flag default **off**, and safe to merge without tu
 
 | Phase | Flag | Delivers | Depends on | Gate |
 | --- | --- | --- | --- | --- |
-| P1 | `external_bridge_rss` | Public RSS/Atom subscribe, shared public cache, private projection, fail-closed list, owner extension. No credentials. | This document | The fail-closed list, the user-id read gate, the creation transaction, and the Chewy scope specs land in the same change as the writer. The two-users-one-account case is part of that gate. The streaming files in the audit are part of that gate. Flag stays off until those specs pass. Authenticated feeds are rejected with no shared write. |
+| P1 | `external_bridge_rss` | Public RSS/Atom subscribe, shared public cache, private projection, fail-closed list, owner extension. No credentials. | This document | The fail-closed list, the user-id read gate, the favourite and bookmark list and destroy specs, the creation transaction, the `external_projection` column, the marker-restrict specs, and the Chewy scope specs land in the same change as the writer. The two-users-one-account case is part of that gate. The streaming files in the audit are part of that gate. Flag stays off until those specs pass. Authenticated feeds are rejected with no shared write. No unique index is added on `statuses(id, account_id)`. |
 | P2 | `external_bridge_atproto` | Provider page, `external_identities`, vault `oauth_session`, discovery and issuer binding. No timeline import and no repo writes. | Registry and vault, which exist now | No token in logs or pages. A session whose `sub`, PDS, and `issuer` do not match is not stored. Catalog shows the provider only when the page exists. |
 | P3 | `external_bridge_native_actions` | AT like, repost, reply, and undo against the resolved PDS, with the command log and reconcile rules. | P2 | Opt-in per action. Lost-ack, 401, duplicate-click, and stale-command specs pass. Writes do not target a fixed session host. |
 | P4 | `external_bridge_inbound` | Private inbound replies, likes, and reposts for the owner's identity. | P2. Reply-back uses P3. | No `Notification` or remote `Account` rows. |
@@ -787,7 +805,7 @@ Each slice is its own review, flag default **off**, and safe to merge without tu
 
 X and mixi2 are not a phase. A future issue can add a provider only after `terms_state` is an explicit decision.
 
-P1 verification is the matrix in `docs/private_external_bridge_audit.md`. Performance check for P1 is the unique lookup on `status_id` during status create callbacks, explained against the index, not a new column on `statuses`.
+P1 verification is the matrix in `docs/private_external_bridge_audit.md`. The P1 migration adds nullable `statuses.external_projection` with no default. It does not add a unique index on `statuses(id, account_id)`. The account match is the insert trigger's primary-key reads of `users` and `statuses`. Callbacks that ask whether a status is a projection read that column. The user gate reads the marker through the unique index on `external_status_projections.status_id`.
 
 P2's connection result shows handle, DID, issuer, and PDS origin. It does not print the token, the DPoP key, or the vault error's raw payload. A public read used as a connection check, if any, goes to the resolved PDS or a configured public AppView and does not establish that writes may use that same host.
 
@@ -805,10 +823,12 @@ These are chosen in this document so P1 can be written without inventing a bound
 8. **Ordinary personal-status Delete reach is unchanged by P0.** Projection deletion must not use it. A fix for ordinary personal deletes is a separate issue.
 9. **X and mixi2 stay unreviewed.** No implementation schedule is implied.
 10. **Bridgy Fed behavior with a link Note, and remote display of `Create` plus `Announce`, are experiments, not guarantees.**
-11. **A projection is readable only by its `user_id`.** Account ownership, `owned?`, and the author short-circuit in `StatusFilter` are not sufficient. Two users of one account do not share projections. This feature does not add a unique index on `users.account_id`.
+11. **A projection is readable only by its `user_id`.** Account ownership, `owned?`, the author short-circuit in `StatusFilter`, and an account-level favourite, bookmark, or emoji-reaction row are not sufficient. List and destroy actions re-check the user. Two users of one account do not share projections. This feature does not add a unique index on `users.account_id`.
 12. **Boost is refused for direct and limited.** Reply and quote may still use those parent scopes. `ReblogService` and `StatusPolicy#reblog?` are not bypassed.
 13. **P5 does not create native posts.** A native group member is an AT URI the user submitted whose repo DID matches the linked identity. Like, repost, and reply records are not members.
 14. **Each native intent has its own immutable command key.** A replay after a newer command is `superseded` or `stale_activity_command` and does not write to the PDS.
+15. **`statuses.external_projection` is the privacy bit that survives a missing marker.** The marker's `user_id` is `ON DELETE RESTRICT`. Projection statuses are removed before the user row. A marker delete that leaves the status behind is rejected.
+16. **No full unique index on `statuses(id, account_id)`.** The account match is the insert trigger. Existing `(id, account_id)` indexes are partial and are not a foreign-key target.
 
 ## What P1 can take from this document without guessing
 
@@ -816,8 +836,10 @@ These are chosen in this document so P1 can be written without inventing a bound
 - The shared cache has no user id and no authenticated body. A private fetch does not create a shared row.
 - The projection status is a different row from the reference Note. Only the reference Note has an ActivityPub URI. A Fediverse boost announces that Note.
 - The status row and its projection marker commit together, or neither does. `store_uri` and webhooks re-check the marker after commit. The Chewy document stays absent because the index scope excludes the id, including after favourite and bookmark. P1 does not publish the projection to Redis.
-- The reader passes a user id. The other user of the same account receives not-found.
-- Favourite and bookmark are local unless a later opt-in says otherwise, and only the projection's user can create them.
+- The reader passes a user id. The other user of the same account receives not-found, including on favourite, bookmark, and emoji-reaction lists, and cannot destroy those rows.
+- `external_projection` is set on insert. The marker is not removed while the status exists. User deletion removes the projection status first.
+- The account match is a trigger. P1 does not build a unique index on `statuses(id, account_id)`.
+- Favourite and bookmark are local unless a later opt-in says otherwise, and only the projection's user can create or destroy them.
 - Reply, boost, and quote of a projection are refused on the ordinary API.
 - Secrets stay in the vault. The identity table is the connection.
 - The fail-closed list is part of P1, not a follow-up, and the RSS flag stays off until it is tested.
