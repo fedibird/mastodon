@@ -421,6 +421,34 @@ RSpec.describe ExternalBridge::ProjectionWriter do
   describe 'workers' do
     let(:status) { project_for(user)[:status] }
 
+    it 'refuses a marked nonlocal status whose projection flag was cleared' do
+      bundle = project_for(user)
+      status = bundle[:status]
+      other_user = other
+
+      ActiveRecord::Base.transaction(requires_new: true) do
+        ActiveRecord::Base.connection.execute('ALTER TABLE statuses DISABLE TRIGGER statuses_external_projection_field_guard')
+        status.update_columns(external_projection: nil, uri: 'https://example.invalid/users/a/statuses/9', local: false)
+        damaged = Status.find(status.id)
+
+        expect(damaged.local?).to be false
+        expect(damaged.external_projection).not_to be true
+        expect(ExternalStatusProjection.exists?(status_id: damaged.id)).to be true
+        expect(ExternalBridge::ProjectionPrivacy.private_status?(damaged)).to be true
+        expect(ExternalBridge::ProjectionPrivacy.hidden_from?(damaged, other_user.id)).to be true
+        expect(Status.include_expired.without_reblogs.where(Arel.sql(ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL)).where(id: damaged.id)).not_to exist
+        expect { ActivityPub::NoteSerializer.new(damaged).type }.to raise_error(Status::UnreleasedActivityObject)
+        expect(ActivityPub::DeliveryWorker).not_to receive(:push_bulk)
+        expect(ActivityPub::DeliveryWorker).not_to receive(:perform_async)
+        ActivityPub::DistributionWorker.new.perform(damaged.id)
+
+        raise ActiveRecord::Rollback
+      end
+
+      expect(status.reload.external_projection).to be true
+      expect(status.uri).to be_nil
+    end
+
     it 'does not deliver, update, or remove a projection' do
       expect(ActivityPub::DeliveryWorker).not_to receive(:push_bulk)
       expect(ActivityPub::DeliveryWorker).not_to receive(:perform_async)

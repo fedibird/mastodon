@@ -12,7 +12,7 @@ module ExternalBridge
         return empty unless Feature.permitted?(subscription.user)
 
         result = Result.new(ran: true, attempted: 0, succeeded: 0, failed: 0, skipped: 0)
-        resources_with_retries(subscription, resources, retries).each do |resource|
+        selectable_resources(subscription, resources, retries).each do |resource|
           if suppressed?(subscription, resource)
             result.skipped += 1
             next
@@ -32,22 +32,35 @@ module ExternalBridge
 
       private
 
-      def resources_with_retries(subscription, resources, retries)
+      # A new current item is imported immediately. A known failure, whether it is
+      # still in this page or only in the history, runs when its own attempt is
+      # due and still under the ceiling. An offer (retries: false) does not pull
+      # history and does not spend a parked or not-yet-due failure.
+      def selectable_resources(subscription, resources, retries)
         current = Array(resources)
-        return current unless retries
+        known = ExternalProjectionFailure.where(user_id: subscription.user_id, external_subscription_id: subscription.id).index_by(&:external_resource_id)
+        selected = current.select { |resource| import_now?(known[resource.id], retries) }
+        return selected unless retries
 
-        current_ids = current.map(&:id)
-        failure_ids = ExternalProjectionFailure.where(user_id: subscription.user_id, external_subscription_id: subscription.id)
-                                               .where.not(external_resource_id: current_ids)
-                                               .where('attempt_count < ?', Limits::ITEM_ATTEMPT_CEILING)
-                                               .where('next_attempt_at IS NULL OR next_attempt_at <= ?', Time.current)
-                                               .order(:created_at, :id)
-                                               .limit(Limits::MAX_ITEMS)
-                                               .pluck(:external_resource_id)
-        return current if failure_ids.empty?
+        extra_ids = ExternalProjectionFailure.where(user_id: subscription.user_id, external_subscription_id: subscription.id)
+                                             .where.not(external_resource_id: current.map(&:id))
+                                             .where('attempt_count < ?', Limits::ITEM_ATTEMPT_CEILING)
+                                             .where('next_attempt_at IS NULL OR next_attempt_at <= ?', Time.current)
+                                             .order(:created_at, :id)
+                                             .limit(Limits::MAX_ITEMS)
+                                             .pluck(:external_resource_id)
+        return selected if extra_ids.empty?
 
-        extras = ExternalResource.where(id: failure_ids).index_by(&:id)
-        current + failure_ids.filter_map { |id| extras[id] }
+        extras = ExternalResource.where(id: extra_ids).index_by(&:id)
+        selected + extra_ids.filter_map { |id| extras[id] }
+      end
+
+      def import_now?(failure, retries)
+        return true if failure.nil?
+        return false unless retries
+
+        failure.attempt_count.to_i < Limits::ITEM_ATTEMPT_CEILING &&
+          (failure.next_attempt_at.nil? || failure.next_attempt_at <= Time.current)
       end
 
       def suppressed?(subscription, resource)

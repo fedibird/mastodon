@@ -2,7 +2,9 @@
 
 module ExternalBridge
   module RSS
-    # Subscription rows hold retry and import errors. Shared source rows do not.
+    # Fetch failures use the subscription retry ceiling. A bounded import backlog
+    # does not: item attempt_count and next_attempt_at decide the next page.
+    # Shared source rows hold neither.
     module SubscriptionOutcome
       module_function
 
@@ -15,18 +17,34 @@ module ExternalBridge
       end
 
       def reconcile!(subscription, result)
-        open_count = open_failures(subscription).count
-        open_count = result.failed if open_count < result.failed.to_i
+        open = open_failures(subscription)
         isolated = isolated_failures(subscription).count
-        if open_count.zero?
+        due = open.where('next_attempt_at IS NULL OR next_attempt_at <= ?', Time.current).count
+        earliest = open.where('next_attempt_at > ?', Time.current).minimum(:next_attempt_at)
+        outstanding = [open.count + isolated, result.failed.to_i].max
+
+        if open.none? && result.failed.to_i.zero?
           if isolated.zero?
             synced!(subscription)
           else
             parked!(subscription, isolated)
           end
-        else
-          retry!(subscription, 'import_failed', failed_item_count: open_count + isolated)
+          return
         end
+
+        # One eligible page per run. A later page that is already due is scheduled
+        # immediately, without counting toward the fetch-failure ceiling. A page
+        # that is waiting on next_attempt_at uses that time as the subscription
+        # deadline so the scheduler does not fetch early.
+        subscription.update!(
+          state: 'active',
+          last_error_code: 'import_failed',
+          last_error_at: Time.current,
+          checked_at: Time.current,
+          next_retry_at: due.positive? ? 1.second.ago : earliest,
+          retry_count: 0,
+          failed_item_count: outstanding
+        )
       end
 
       def terminal!(subscription, code)

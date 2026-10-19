@@ -33,8 +33,9 @@ module ExternalBridge
       return false if status.nil?
       return true if status.respond_to?(:external_projection) && status.external_projection == true
       return false unless status.is_a?(Status)
-      return false if status.local? == false
 
+      # A marker is enough even when uri/local and the column disagree.
+      # local? must not make a marked row federatable.
       marker_exists?(status)
     end
 

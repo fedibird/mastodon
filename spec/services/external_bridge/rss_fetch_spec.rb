@@ -818,5 +818,96 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       expect(ExternalStatusProjection.find_by!(user_id: user.id, external_resource_id: parked.id)).to be_present
       expect(ExternalProjectionFailure.where(external_resource_id: parked.id)).to be_empty
     end
+
+    it 'parks a bad guid that stays in the feed and imports it only after resume' do
+      url = 'https://feeds.example/stuck-guid.xml'
+      document = rss_document(rss_item(guid: 'bad', title: 'Bad') + rss_item(guid: 'good', title: 'Good', link: 'https://example.com/good'))
+      stub_request(:get, url).to_return(status: 200, body: document)
+      failing = true
+      allow(ExternalBridge::ProjectionWriter).to receive(:new).and_wrap_original do |method, *args|
+        writer = method.call(*args)
+        allow(writer).to receive(:create!).and_wrap_original do |create, **kwargs|
+          raise ActiveRecord::RecordInvalid, Status.new if failing && kwargs[:resource].canonical_key.end_with?('item:bad')
+
+          create.call(**kwargs)
+        end
+        writer
+      end
+
+      subscription = described_class.new.call(user: user, url: url)
+      source = subscription.external_source
+      failure = ExternalProjectionFailure.find_by!(external_subscription_id: subscription.id)
+      expect(failure.attempt_count).to eq 1
+      expect(failure.next_attempt_at).to be > Time.current
+      expect(subscription.reload.retry_count).to eq 0
+      expect(subscription.state).to eq 'active'
+
+      source.update!(fetched_at: 2.hours.ago, checked_at: 2.hours.ago)
+      subscription.update!(next_retry_at: 1.second.ago, checked_at: 2.hours.ago)
+      ExternalBridge::RSS::RefreshSource.new.call(source.id)
+      expect(failure.reload.attempt_count).to eq 1
+
+      (ExternalBridge::RSS::Limits::ITEM_ATTEMPT_CEILING - 1).times do
+        failure.update!(next_attempt_at: 1.second.ago)
+        subscription.update!(state: 'active', next_retry_at: 1.second.ago, checked_at: 2.hours.ago)
+        source.update!(fetched_at: 2.hours.ago, checked_at: 2.hours.ago)
+        ExternalBridge::RSS::RefreshSource.new.call(source.id)
+      end
+      expect(failure.reload.attempt_count).to eq ExternalBridge::RSS::Limits::ITEM_ATTEMPT_CEILING
+      expect(failure.next_attempt_at).to be_nil
+      expect(subscription.reload.state).to eq 'active'
+      expect(subscription.retry_count).to eq 0
+      expect(ExternalStatusProjection.where(user_id: user.id, external_resource_id: failure.external_resource_id)).to be_empty
+
+      3.times do
+        subscription.update!(state: 'active', next_retry_at: nil, checked_at: 2.hours.ago)
+        source.update!(fetched_at: 2.hours.ago, checked_at: 2.hours.ago)
+        ExternalBridge::RSS::RefreshSource.new.call(source.id)
+        expect(failure.reload.attempt_count).to eq ExternalBridge::RSS::Limits::ITEM_ATTEMPT_CEILING
+      end
+
+      failing = false
+      described_class.new.resume!(user: user, subscription_id: subscription.id)
+      expect(ExternalStatusProjection.find_by!(user_id: user.id, external_resource_id: failure.external_resource_id)).to be_present
+      expect(ExternalProjectionFailure.where(id: failure.id)).to be_empty
+    end
+
+    it 'drains more than five pages of importable failures without a terminal error' do
+      url = 'https://pages.example/backlog.xml'
+      stub_request(:get, url).to_return(status: 200, body: rss_document(rss_item(guid: 'live', title: 'Live')))
+      subscription = described_class.new.call(user: user, url: url)
+      source = subscription.external_source
+      pages = ExternalBridge::RSS::RetryPolicy::CEILING + 1
+      total = pages * ExternalBridge::RSS::Limits::MAX_ITEMS
+      total.times do |index|
+        resource = ExternalResource.create!(
+          external_source: source,
+          protocol: 'rss',
+          canonical_key: "page-#{index}",
+          title: "Page #{index}",
+          body: 'ready'
+        )
+        failure = ExternalProjectionFailure.create!(
+          user: user,
+          external_subscription: subscription,
+          external_resource: resource,
+          error_code: 'import_failed',
+          attempt_count: 0
+        )
+        failure.update_columns(created_at: (total - index).minutes.ago, next_attempt_at: nil)
+      end
+
+      subscription.update!(next_retry_at: 1.second.ago, checked_at: 2.hours.ago)
+      pages.times do
+        expect(subscription.reload.state).to eq 'active'
+        Scheduler::ExternalBridgeRSSRefreshScheduler.new.perform
+      end
+
+      expect(subscription.reload.state).to eq 'active'
+      expect(subscription.retry_count).to eq 0
+      expect(subscription.last_error_code).to be_nil
+      expect(ExternalProjectionFailure.where(external_subscription_id: subscription.id)).to be_empty
+      expect(ExternalStatusProjection.where(external_subscription_id: subscription.id).count).to eq(total + 1)
+    end
   end
 end
