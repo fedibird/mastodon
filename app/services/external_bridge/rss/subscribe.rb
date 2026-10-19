@@ -32,6 +32,7 @@ module ExternalBridge
 
         subscription = owned!(user, subscription_id)
         subscription.update!(state: 'active', last_error_code: nil, last_error_at: nil, next_retry_at: nil, retry_count: 0)
+        subscription.external_projection_failures.update_all(attempt_count: 0, next_attempt_at: nil)
         RefreshSource.new.call(subscription.external_source_id, subscription_id: subscription.id)
         subscription.reload
       end

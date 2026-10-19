@@ -9,6 +9,8 @@
 #  external_subscription_id :bigint(8)        not null
 #  external_resource_id     :bigint(8)        not null
 #  error_code               :string           not null
+#  attempt_count            :integer          default(0), not null
+#  next_attempt_at          :datetime
 #  created_at               :datetime         not null
 #  updated_at               :datetime         not null
 #

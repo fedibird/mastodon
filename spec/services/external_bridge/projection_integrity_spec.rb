@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'rails_helper'
+require 'open3'
+require 'digest'
 
 RSpec.describe ExternalBridge::ProjectionWriter do
   let(:user) { Fabricate(:user) }
@@ -47,6 +49,84 @@ RSpec.describe ExternalBridge::ProjectionWriter do
       expect(schema).to include('execute ExternalBridge::Schema::DEFINITIONS_SQL')
       expect(schema).to include('INCLUDE (id)')
       expect(dumped).not_to include('INCLUDE (id)')
+    end
+
+    it 'dumps and loads the projection guards into a scratch database' do
+      schema_file = Rails.root.join('db/schema.rb')
+      retained = Digest::SHA256.file(schema_file).hexdigest
+      dump_path = Rails.root.join('tmp/external_bridge_schema_probe.rb')
+      FileUtils.rm_f(dump_path)
+      probe = nil
+
+      dump_out, dump_status = Open3.capture2e(
+        { 'RAILS_ENV' => 'test', 'SCHEMA' => dump_path.to_s },
+        'bundle', 'exec', 'rake', 'db:schema:dump',
+        chdir: Rails.root.to_s
+      )
+      expect(dump_status).to be_success, dump_out
+      expect(File.read(dump_path)).to include('execute ExternalBridge::Schema::DEFINITIONS_SQL')
+      expect(Digest::SHA256.file(schema_file).hexdigest).to eq retained
+      expect(File.read(schema_file)).to include('INCLUDE (id)')
+
+      load_out, load_status = Open3.capture2e(
+        { 'RAILS_ENV' => 'test', 'SCHEMA' => dump_path.to_s, 'DB_NAME' => 'eb_schema_probe' },
+        'bundle', 'exec', 'rake', 'db:create', 'db:schema:load',
+        chdir: Rails.root.to_s
+      )
+      expect(load_status).to be_success, load_out
+
+      probe = scratch_database_connection('eb_schema_probe_test')
+      triggers = probe.exec(<<~SQL).values.flatten.sort
+        SELECT tgname FROM pg_trigger
+        WHERE NOT tgisinternal AND tgname IN (
+          'external_status_projections_user_account',
+          'external_status_projections_guard_delete',
+          'statuses_external_projection_field_guard',
+          'users_external_projection_account_guard'
+        )
+      SQL
+      expect(triggers).to eq %w(
+        external_status_projections_guard_delete
+        external_status_projections_user_account
+        statuses_external_projection_field_guard
+        users_external_projection_account_guard
+      ).sort
+
+      constraints = probe.exec(<<~SQL).values.flatten.sort
+        SELECT conname FROM pg_constraint
+        WHERE contype = 'f' AND conname IN (
+          'fk_external_projections_subscription_owner',
+          'fk_external_projections_resource_source'
+        )
+      SQL
+      expect(constraints).to eq %w(fk_external_projections_resource_source fk_external_projections_subscription_owner)
+
+      function_body = probe.exec("SELECT prosrc FROM pg_proc WHERE proname = 'external_status_projections_enforce_owner_account'").getvalue(0, 0)
+      expect(function_body).to include('external_projection')
+      expect(function_body).to include(ExternalBridge::Schema::PERSONAL_VISIBILITY.to_s)
+      expect(Digest::SHA256.file(schema_file).hexdigest).to eq retained
+    ensure
+      probe&.close
+      FileUtils.rm_f(dump_path) if dump_path
+      Open3.capture2e(
+        { 'RAILS_ENV' => 'test', 'DB_NAME' => 'eb_schema_probe' },
+        'bundle', 'exec', 'rake', 'db:drop',
+        chdir: Rails.root.to_s
+      )
+    end
+
+    def scratch_database_connection(dbname)
+      config = ActiveRecord::Base.connection_db_config.configuration_hash
+      options = { dbname: dbname }
+      host = config[:host] || config['host']
+      port = config[:port] || config['port']
+      username = config[:username] || config['username']
+      password = config[:password] || config['password']
+      options[:host] = host if host.present?
+      options[:port] = port if port.present?
+      options[:user] = username if username.present?
+      options[:password] = password if password.present?
+      PG.connect(options)
     end
 
     it 'keeps the account-match trigger as an ordinary BEFORE row trigger' do
@@ -149,6 +229,34 @@ RSpec.describe ExternalBridge::ProjectionWriter do
           (#{user.id}, #{user.account_id}, #{marker.external_source_id}, #{foreign.id}, #{other_resource.id}, #{extra.id}, false, NOW(), NOW())
       SQL
       expect(ExternalStatusProjection.where(status_id: extra.id)).to be_empty
+    end
+
+    it 'rejects a marker on a public status or an ordinary personal status' do
+      expect(Status.visibilities[:personal]).to eq ExternalBridge::Schema::PERSONAL_VISIBILITY
+      public_status = Fabricate(:status, account: user.account, visibility: :public)
+      ordinary = Fabricate(:status, account: user.account, visibility: :personal, searchability: :personal)
+      resource = ExternalResource.create!(
+        external_source: marker.external_source,
+        protocol: 'rss',
+        canonical_key: "guard-#{SecureRandom.hex(4)}",
+        title: 'Guard',
+        body: 'Guard'
+      )
+
+      [public_status, ordinary].each do |candidate|
+        expect_database_rejection(<<~SQL.squish)
+          INSERT INTO external_status_projections
+            (user_id, account_id, external_source_id, external_subscription_id, external_resource_id, status_id, source_deleted, created_at, updated_at)
+          VALUES
+            (#{user.id}, #{user.account_id}, #{marker.external_source_id}, #{marker.external_subscription_id}, #{resource.id}, #{candidate.id}, false, NOW(), NOW())
+        SQL
+        expect(ExternalStatusProjection.where(status_id: candidate.id)).to be_empty
+      end
+
+      expect(public_status.reload.visibility).to eq 'public'
+      expect(public_status.external_projection).not_to be true
+      expect(ordinary.reload.visibility).to eq 'personal'
+      expect(ordinary.external_projection).not_to be true
     end
 
     it 'hides a flagged status with no marker from every caller, including the owner' do

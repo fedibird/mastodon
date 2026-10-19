@@ -408,6 +408,8 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       fail_bad = false
       source = subscription.external_source
       source.update!(fetched_at: 1.hour.ago, checked_at: 1.hour.ago)
+      subscription.update!(next_retry_at: 1.second.ago)
+      ExternalProjectionFailure.where(user_id: user.id).update_all(next_attempt_at: 1.second.ago)
       stub_request(:get, feed_url).to_return(status: 200, body: rss_document(rss_item(guid: 'C', title: 'Gamma', link: 'https://example.com/c')))
       ExternalBridge::RSS::RefreshSource.new.call(source.id)
       expect(ExternalStatusProjection.where(user_id: user.id).count).to eq 3
@@ -447,6 +449,7 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       described_class.new.call(user: other, url: feed_url)
       source = ExternalSource.find_by!(canonical_key: feed_url)
       source.update!(fetched_at: 1.hour.ago, checked_at: 1.hour.ago)
+      ExternalSubscription.where(external_source_id: source.id).update_all(checked_at: 2.hours.ago)
 
       stub_request(:get, feed_url).to_return(status: 200, body: rss_document(rss_item(guid: 'C', title: 'Gamma', link: 'https://example.com/c')))
       ExternalBridge::RSS::RefreshSource.new.call(source.id)
@@ -478,6 +481,7 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       source.update!(fetched_at: 1.hour.ago)
       before_row = source.reload.attributes.slice('etag', 'title', 'checked_at', 'fetched_at', 'last_modified', 'updated_at', 'canonical_key')
       body = source.external_resources.first.body
+      ExternalSubscription.where(external_source_id: source.id).update_all(checked_at: 2.hours.ago)
 
       stub_request(:get, feed_url).to_return(status: 401, body: 'no', headers: { 'ETag' => 'W/"private"' })
       ExternalBridge::RSS::RefreshSourceWorker.new.perform(source.id)
@@ -564,6 +568,7 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
         subscription = described_class.new.call(user: user, url: url)
         source = subscription.external_source
         age_source(source)
+        subscription.update!(checked_at: 2.hours.ago)
         before_row = source.reload.attributes.slice('etag', 'title', 'checked_at', 'fetched_at', 'updated_at')
 
         stub_request(:get, url).to_return(status: code.to_i, body: 'later')
@@ -593,6 +598,7 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       url = 'https://feeds.example/retry-ceiling.xml'
       stub_request(:get, url).to_return(status: 200, body: rss_document(rss_item(guid: 'seed')))
       subscription = described_class.new.call(user: user, url: url)
+      subscription.update!(checked_at: 2.hours.ago)
       stub_request(:get, url).to_return(status: 503, body: 'down')
       ExternalBridge::RSS::RetryPolicy::CEILING.times do
         subscription.update!(next_retry_at: 1.second.ago) if subscription.reload.next_retry_at.present?
@@ -628,6 +634,7 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       expect(ExternalResource.exists?(dropped.id)).to be true
 
       source.update!(fetched_at: 1.hour.ago)
+      ExternalSubscription.where(external_source_id: source.id).update_all(checked_at: 2.hours.ago)
       stub_request(:get, feed_url).to_return(
         status: 200,
         body: rss_document(rss_item(guid: 'keep', title: 'Keep') + rss_item(guid: 'drop', title: 'Drop', link: 'https://example.com/drop'))
@@ -655,6 +662,161 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       end
       expect(statements).not_to be_empty
       expect(ExternalSource.where(canonical_key: 'https://feeds.example/locked-write.xml').count).to eq 1
+    end
+  end
+
+  describe 'staggered subscriber backoff' do
+    let(:url) { 'https://feeds.example/stagger.xml' }
+
+    def subscribe_both
+      stub_request(:get, url).to_return(status: 200, body: rss_document(rss_item(guid: 'shared', title: 'Shared')))
+      owner = described_class.new.call(user: user, url: url)
+      described_class.new.call(user: other, url: url)
+      owner.external_source
+    end
+
+    it 'does not advance a waiting subscriber when another subscriber is due' do
+      source = subscribe_both
+      waiting = ExternalSubscription.find_by!(user: other, external_source: source)
+      due = ExternalSubscription.find_by!(user: user, external_source: source)
+      waiting.update!(retry_count: 2, next_retry_at: 4.hours.from_now, last_error_code: 'http_429', checked_at: Time.current)
+      due.update!(checked_at: 2.hours.ago, next_retry_at: nil, retry_count: 0)
+      waiting_deadline = waiting.next_retry_at
+      waiting_checked = waiting.checked_at
+
+      stub_request(:get, url).to_return(status: 429, body: 'slow')
+      Scheduler::ExternalBridgeRSSRefreshScheduler.new.perform
+
+      due.reload
+      waiting.reload
+      expect(due.retry_count).to eq 1
+      expect(due.last_error_code).to eq 'http_429'
+      expect(waiting.retry_count).to eq 2
+      expect(waiting.next_retry_at).to be_within(1.second).of(waiting_deadline)
+      expect(waiting.checked_at).to be_within(1.second).of(waiting_checked)
+      expect(waiting.last_error_code).to eq 'http_429'
+      expect(a_request(:get, url)).to have_been_made.times(2)
+
+      due.update!(next_retry_at: 1.second.ago)
+      stub_request(:get, url).to_return(status: 200, body: rss_document(rss_item(guid: 'fresh', title: 'Fresh', link: 'https://example.com/fresh')))
+      Scheduler::ExternalBridgeRSSRefreshScheduler.new.perform
+
+      waiting.reload
+      fresh = source.external_resources.find_by!(title: 'Fresh')
+      expect(ExternalStatusProjection.find_by!(user_id: other.id, external_resource_id: fresh.id)).to be_present
+      expect(waiting.retry_count).to eq 2
+      expect(waiting.next_retry_at).to be_within(1.second).of(waiting_deadline)
+      expect(waiting.checked_at).to be_within(1.second).of(waiting_checked)
+      expect(waiting.last_error_code).to eq 'http_429'
+    end
+
+    it 'accounts a targeted resume without charging the other subscriber' do
+      source = subscribe_both
+      waiting = ExternalSubscription.find_by!(user: other, external_source: source)
+      resumed = ExternalSubscription.find_by!(user: user, external_source: source)
+      waiting.update!(retry_count: 3, next_retry_at: 5.hours.from_now, last_error_code: 'http_503', checked_at: 1.hour.ago)
+      resumed.update!(state: 'error', retry_count: 5, next_retry_at: nil, last_error_code: 'http_503')
+      deadline = waiting.next_retry_at
+
+      stub_request(:get, url).to_return(status: 429, body: 'slow')
+      described_class.new.resume!(user: user, subscription_id: resumed.id)
+
+      expect(resumed.reload.retry_count).to eq 1
+      expect(resumed.last_error_code).to eq 'http_429'
+      expect(waiting.reload.retry_count).to eq 3
+      expect(waiting.next_retry_at).to be_within(1.second).of(deadline)
+      expect(waiting.last_error_code).to eq 'http_503'
+    end
+  end
+
+  describe 'bounded historical retries' do
+    it 'retries a bounded oldest page and later reaches the items it skipped' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/backlog.xml', title: 'Backlog', fetched_at: Time.current, checked_at: Time.current)
+      subscription = ExternalSubscription.create!(user: user, external_source: source, state: 'active', checked_at: Time.current)
+      resources = Array.new(ExternalBridge::RSS::Limits::MAX_ITEMS + 5) do |index|
+        ExternalResource.create!(
+          external_source: source,
+          protocol: 'rss',
+          canonical_key: "hist-#{index}",
+          title: "Historical #{index}",
+          body: 'rotated out'
+        )
+      end
+      resources.each_with_index do |resource, index|
+        failure = ExternalProjectionFailure.create!(
+          user: user,
+          external_subscription: subscription,
+          external_resource: resource,
+          error_code: 'import_failed',
+          attempt_count: 0
+        )
+        failure.update_columns(created_at: (resources.size - index).minutes.ago)
+      end
+
+      failing = true
+      allow(ExternalBridge::ProjectionWriter).to receive(:new).and_wrap_original do |method, *args|
+        writer = method.call(*args)
+        allow(writer).to receive(:create!).and_wrap_original do |create, **kwargs|
+          raise ActiveRecord::RecordInvalid, Status.new if failing
+
+          create.call(**kwargs)
+        end
+        writer
+      end
+
+      materialize = ExternalBridge::RSS::Materialize.new
+      first = materialize.call(subscription: subscription, resources: [], retries: true)
+      expect(first.attempted).to eq ExternalBridge::RSS::Limits::MAX_ITEMS
+      oldest = resources.first(ExternalBridge::RSS::Limits::MAX_ITEMS)
+      newest = resources.last(5)
+      expect(ExternalProjectionFailure.where(external_resource_id: oldest.map(&:id)).pluck(:attempt_count).uniq).to eq [1]
+      expect(ExternalProjectionFailure.where(external_resource_id: newest.map(&:id)).pluck(:attempt_count).uniq).to eq [0]
+
+      second = materialize.call(subscription: subscription, resources: [], retries: true)
+      expect(second.attempted).to eq 5
+      expect(ExternalProjectionFailure.where(external_resource_id: oldest.map(&:id)).pluck(:attempt_count).uniq).to eq [1]
+      expect(ExternalProjectionFailure.where(external_resource_id: newest.map(&:id)).pluck(:attempt_count).uniq).to eq [1]
+
+      failing = false
+      travel_to(20.minutes.from_now) do
+        third = materialize.call(subscription: subscription, resources: [], retries: true)
+        expect(third.succeeded).to eq ExternalBridge::RSS::Limits::MAX_ITEMS
+      end
+      expect(ExternalStatusProjection.where(user_id: user.id).count).to eq ExternalBridge::RSS::Limits::MAX_ITEMS
+      expect(ExternalStatusProjection.where(user_id: user.id, external_resource_id: newest.map(&:id))).to be_empty
+
+      travel_to(40.minutes.from_now) do
+        fourth = materialize.call(subscription: subscription.reload, resources: [], retries: true)
+        expect(fourth.succeeded).to eq 5
+      end
+      expect(ExternalStatusProjection.where(user_id: user.id).count).to eq resources.size
+      expect(ExternalProjectionFailure.where(external_subscription_id: subscription.id)).to be_empty
+    end
+
+    it 'imports a parked item again after the owner resumes' do
+      url = 'https://feeds.example/resume-parked.xml'
+      stub_request(:get, url).to_return(status: 200, body: rss_document(rss_item(guid: 'live', title: 'Live')))
+      subscription = described_class.new.call(user: user, url: url)
+      parked = ExternalResource.create!(
+        external_source: subscription.external_source,
+        protocol: 'rss',
+        canonical_key: 'hist-parked',
+        title: 'Parked',
+        body: 'come back'
+      )
+      ExternalProjectionFailure.create!(
+        user: user,
+        external_subscription: subscription,
+        external_resource: parked,
+        error_code: 'import_failed',
+        attempt_count: ExternalBridge::RSS::Limits::ITEM_ATTEMPT_CEILING,
+        next_attempt_at: nil
+      )
+
+      described_class.new.resume!(user: user, subscription_id: subscription.id)
+
+      expect(ExternalStatusProjection.find_by!(user_id: user.id, external_resource_id: parked.id)).to be_present
+      expect(ExternalProjectionFailure.where(external_resource_id: parked.id)).to be_empty
     end
   end
 end

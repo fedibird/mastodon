@@ -15,12 +15,17 @@ module ExternalBridge
       end
 
       def reconcile!(subscription, result)
-        failed = ExternalProjectionFailure.where(external_subscription_id: subscription.id).count
-        failed = result.failed if failed < result.failed.to_i
-        if failed.zero?
-          synced!(subscription)
+        open_count = open_failures(subscription).count
+        open_count = result.failed if open_count < result.failed.to_i
+        isolated = isolated_failures(subscription).count
+        if open_count.zero?
+          if isolated.zero?
+            synced!(subscription)
+          else
+            parked!(subscription, isolated)
+          end
         else
-          retry!(subscription, 'import_failed', failed_item_count: failed)
+          retry!(subscription, 'import_failed', failed_item_count: open_count + isolated)
         end
       end
 
@@ -72,6 +77,30 @@ module ExternalBridge
           retry_count: 0,
           failed_item_count: 0
         )
+      end
+
+      # Items that reached the per-item ceiling stay recorded so resume can
+      # reset them. They do not keep advancing this subscription's retry_count.
+      def parked!(subscription, isolated)
+        subscription.update!(
+          state: 'active',
+          last_error_code: 'import_failed',
+          last_error_at: Time.current,
+          checked_at: Time.current,
+          next_retry_at: nil,
+          retry_count: 0,
+          failed_item_count: isolated
+        )
+      end
+
+      def open_failures(subscription)
+        ExternalProjectionFailure.where(external_subscription_id: subscription.id)
+                                 .where('attempt_count < ?', Limits::ITEM_ATTEMPT_CEILING)
+      end
+
+      def isolated_failures(subscription)
+        ExternalProjectionFailure.where(external_subscription_id: subscription.id)
+                                 .where('attempt_count >= ?', Limits::ITEM_ATTEMPT_CEILING)
       end
     end
   end

@@ -17,6 +17,9 @@
 #  created_at         :datetime         not null
 #  updated_at         :datetime         not null
 #
+# A row is due when its own next_retry_at has arrived, or, when that column is
+# empty, when checked_at is empty or older than the public-cache freshness
+# window. Another subscriber of the same source does not make this row due.
 class ExternalSubscription < ApplicationRecord
   STATES = %w(active paused error).freeze
 
@@ -28,4 +31,18 @@ class ExternalSubscription < ApplicationRecord
   validates :state, inclusion: { in: STATES }
 
   scope :active, -> { where(state: 'active') }
+
+  scope :due_for_refresh, lambda {
+    where(
+      <<~SQL.squish,
+        (external_subscriptions.next_retry_at IS NOT NULL AND external_subscriptions.next_retry_at <= :now)
+        OR (
+          external_subscriptions.next_retry_at IS NULL
+          AND (external_subscriptions.checked_at IS NULL OR external_subscriptions.checked_at < :cutoff)
+        )
+      SQL
+      now: Time.current,
+      cutoff: ExternalBridge::RSS::Limits::FRESH_FOR.ago
+    )
+  }
 end

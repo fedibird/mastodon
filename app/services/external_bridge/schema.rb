@@ -4,7 +4,14 @@ module ExternalBridge
   # Rails 6.1 schema dump does not emit triggers or composite foreign keys.
   # schema.rb and a schema dumper hook both execute this SQL so schema:load
   # keeps the projection guards. The statements are idempotent.
+  #
+  # db:schema:dump and db:schema:load do not boot the application on their own.
+  # lib/tasks/external_bridge_schema.rake adds the :environment prerequisite so
+  # this constant and the dumper hook exist before those tasks run.
   module Schema
+    # Status.visibilities[:personal]. Numeric so schema:load does not need the model.
+    PERSONAL_VISIBILITY = 200
+
     DEFINITIONS_SQL = <<~SQL
       ALTER TABLE external_status_projections
         DROP CONSTRAINT IF EXISTS fk_external_projections_subscription_owner;
@@ -27,6 +34,8 @@ module ExternalBridge
       DECLARE
         user_account_id bigint;
         status_account_id bigint;
+        status_projection boolean;
+        status_visibility integer;
       BEGIN
         IF TG_OP = 'UPDATE' AND (
           NEW.user_id IS DISTINCT FROM OLD.user_id OR
@@ -38,7 +47,14 @@ module ExternalBridge
         END IF;
 
         SELECT account_id INTO user_account_id FROM users WHERE id = NEW.user_id FOR SHARE;
-        SELECT account_id INTO status_account_id FROM statuses WHERE id = NEW.status_id FOR SHARE;
+        SELECT account_id, external_projection, visibility
+          INTO status_account_id, status_projection, status_visibility
+          FROM statuses WHERE id = NEW.status_id FOR SHARE;
+
+        IF status_projection IS NOT TRUE OR status_visibility IS DISTINCT FROM #{PERSONAL_VISIBILITY} THEN
+          RAISE EXCEPTION 'external_status_projections require a personal external projection'
+            USING ERRCODE = 'check_violation';
+        END IF;
 
         IF user_account_id IS NULL
            OR status_account_id IS NULL

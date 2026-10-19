@@ -301,6 +301,7 @@ RSpec.describe 'Private RSS projection access' do
       expect(ExternalProjectionSuppression.exists?(user_id: owner.id, external_resource_id: resource_id)).to be true
 
       ExternalSource.find(created.external_source_id).update!(fetched_at: 1.hour.ago)
+      ExternalSubscription.where(external_source_id: created.external_source_id).update_all(checked_at: 2.hours.ago)
       ExternalBridge::RSS::RefreshSource.new.call(created.external_source_id)
       expect(ExternalStatusProjection.where(user_id: owner.id, external_resource_id: resource_id)).to be_empty
 

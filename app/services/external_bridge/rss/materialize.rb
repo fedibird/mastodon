@@ -5,14 +5,14 @@ module ExternalBridge
     class Materialize
       Result = Struct.new(:ran, :attempted, :succeeded, :failed, :skipped, keyword_init: true)
 
-      def call(subscription:, resources:)
+      def call(subscription:, resources:, retries: true)
         empty = Result.new(ran: false, attempted: 0, succeeded: 0, failed: 0, skipped: 0)
         return empty unless subscription.state == 'active'
         return empty unless subscription.user&.functional?
         return empty unless Feature.permitted?(subscription.user)
 
         result = Result.new(ran: true, attempted: 0, succeeded: 0, failed: 0, skipped: 0)
-        resources_with_retries(subscription, resources).each do |resource|
+        resources_with_retries(subscription, resources, retries).each do |resource|
           if suppressed?(subscription, resource)
             result.skipped += 1
             next
@@ -32,13 +32,22 @@ module ExternalBridge
 
       private
 
-      def resources_with_retries(subscription, resources)
+      def resources_with_retries(subscription, resources, retries)
         current = Array(resources)
-        extra_ids = ExternalProjectionFailure.where(user_id: subscription.user_id, external_subscription_id: subscription.id).pluck(:external_resource_id)
-        missing_ids = extra_ids - current.map(&:id)
-        return current if missing_ids.empty?
+        return current unless retries
 
-        current + ExternalResource.where(id: missing_ids).to_a
+        current_ids = current.map(&:id)
+        failure_ids = ExternalProjectionFailure.where(user_id: subscription.user_id, external_subscription_id: subscription.id)
+                                               .where.not(external_resource_id: current_ids)
+                                               .where('attempt_count < ?', Limits::ITEM_ATTEMPT_CEILING)
+                                               .where('next_attempt_at IS NULL OR next_attempt_at <= ?', Time.current)
+                                               .order(:created_at, :id)
+                                               .limit(Limits::MAX_ITEMS)
+                                               .pluck(:external_resource_id)
+        return current if failure_ids.empty?
+
+        extras = ExternalResource.where(id: failure_ids).index_by(&:id)
+        current + failure_ids.filter_map { |id| extras[id] }
       end
 
       def suppressed?(subscription, resource)
@@ -83,6 +92,13 @@ module ExternalBridge
         failure = ExternalProjectionFailure.find_or_initialize_by(user_id: subscription.user_id, external_resource_id: resource.id)
         failure.external_subscription = subscription
         failure.error_code = 'import_failed'
+        count = failure.attempt_count.to_i + 1
+        failure.attempt_count = count
+        failure.next_attempt_at = if count >= Limits::ITEM_ATTEMPT_CEILING
+                                    nil
+                                  else
+                                    Time.current + RetryPolicy.delay(count, resource.id)
+                                  end
         failure.save!
       end
 

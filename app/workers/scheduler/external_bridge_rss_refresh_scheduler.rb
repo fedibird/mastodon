@@ -13,17 +13,10 @@ class Scheduler::ExternalBridgeRSSRefreshScheduler
     tester_ids = ExternalBridge::Feature.tester_ids
     return if tester_ids.empty?
 
-    cutoff = ExternalBridge::RSS::Limits::FRESH_FOR.ago
-    due = <<~SQL.squish
-      (external_subscriptions.next_retry_at IS NOT NULL AND external_subscriptions.next_retry_at <= :now)
-      OR (
-        external_subscriptions.next_retry_at IS NULL
-        AND (external_subscriptions.checked_at IS NULL OR external_subscriptions.checked_at < :cutoff)
-      )
-    SQL
+    # A source is queued when at least one allowed subscription is due.
+    # RefreshSource accounts retry state only for those due rows.
     ids = ExternalSource.joins(:external_subscriptions)
-                        .merge(ExternalSubscription.active.where(user_id: tester_ids))
-                        .where(due, now: Time.current, cutoff: cutoff)
+                        .merge(ExternalSubscription.active.due_for_refresh.where(user_id: tester_ids))
                         .distinct
                         .limit(BATCH)
                         .pluck('external_sources.id')

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_19_200000) do
+ActiveRecord::Schema.define(version: 2026_10_19_220000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -579,6 +579,8 @@ ActiveRecord::Schema.define(version: 2026_10_19_200000) do
     t.bigint "external_subscription_id", null: false
     t.bigint "external_resource_id", null: false
     t.string "error_code", null: false
+    t.integer "attempt_count", default: 0, null: false
+    t.datetime "next_attempt_at"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["external_subscription_id"], name: "index_external_projection_failures_on_subscription"

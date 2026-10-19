@@ -6,6 +6,9 @@ module ExternalBridge
       MAX_RESPONSE_BYTES = 1.megabyte
       MAX_TEXT_BYTES = 1.megabyte
       MAX_ITEMS = 40
+      # A refresh may replay at most one page of historical import failures.
+      # After this many attempts an item is left alone until the owner resumes.
+      ITEM_ATTEMPT_CEILING = 5
       MAX_KEY_BYTES = 2_000
       # btree index entries must stay under a page. Literal keys at or under
       # this size are stored as-is. Longer feed+item keys use a SHA256 form.
