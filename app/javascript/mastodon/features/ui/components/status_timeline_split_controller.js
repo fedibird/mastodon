@@ -14,7 +14,7 @@ import api from '../../../api';
 import { pointLoadedWindow, seekWindowedTimeline, settleWindowSeekScroll } from '../../../actions/timeline_seek';
 import { loadedDisplayRowId } from '../../../timeline_text_search/session';
 import { WINDOW_SEEK_RESTORE } from '../../../timeline_seek/constants';
-import { me } from '../../../initial_state';
+import { isAdministrator, me } from '../../../initial_state';
 import { captureHistoryPosition, cancelHistoryResume, resumeHistoryPosition } from '../../../actions/timeline_position';
 import {
   createReadingBookmark,
@@ -312,6 +312,7 @@ class StatusTimelineSplitController extends React.Component {
         historyBoundaryId={historyBoundaryId}
         accountId={accountId}
         historyContract={historyContract}
+        timelineNavigationVisible={isAdministrator}
         onSeekTimeline={this.handleSeekTimeline}
         onSearchJumpAccounts={this.handleSearchJumpAccounts}
         onCancelAccountSearch={this.handleCancelAccountSearch}
