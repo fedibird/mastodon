@@ -70,11 +70,70 @@ A second user fetching the same public feed reads the same `external_resources` 
 
 `StatusPolicy#owned?` is `author.id == current_account&.id` (`app/policies/status_policy.rb`). A shared synthetic account would make every projection on that account visible to anyone acting as that account, and a per-user synthetic account would be a local actor: `Account#local?` is `domain.nil?`, local actors are Webfinger-discoverable, and `FanOutOnWriteService` calls `status.account.user` while delivering. `users.account_id` is indexed and is not unique (`db/schema.rb`, `index_users_on_account_id`).
 
-The projection status therefore uses the **owner's real local account** as `statuses.account_id`. The privacy principal is `external_status_projections.user_id`, which must equal that account's user. Guards compare `user_id`. They do not stop at `owned?`.
+The projection status uses the **owner's real local account** as `statuses.account_id`. That account is where the row has to live so existing status clients can address it. It is not the security principal. `external_status_projections.user_id` is the principal. Account equality is not enough to read the row, because more than one `users` row can point at the same `account_id`. The next section is the read rule.
 
 External authors are `external_actors` rows. They are not followable, not Webfinger subjects, and not `Account.protocol` values. `Account.protocol` remains `ostatus` or `activitypub`. There is no `statuses.protocol`. `ap_object_type` remains `note` or a future `page` and is not reused.
 
-Stock Mastodon clients will show the owner's account on the projection, because that is `status.account`. That mis-attribution stays on the owner's own sessions: the projection is never federated. The Fedibird client reads the owner-only `fedibird_external` extension below. Creating a phantom actor so that stock clients show the external display name is out of scope. This is a review decision; the default is no phantom actor.
+Stock Mastodon clients will show the owner's account on the projection, because that is `status.account`. That mis-attribution stays on the owning user's own sessions: the projection is never federated. The Fedibird client reads the owner-only `fedibird_external` extension below. Creating a phantom actor so that stock clients show the external display name is out of scope. This is a review decision; the default is no phantom actor.
+
+## Viewer is the User, not the Account
+
+`Account` declares `has_one :user` (`app/models/concerns/account_associations.rb` line 8). `users.account_id` is indexed and is not unique (`db/schema.rb` line 1824, `index_users_on_account_id`). A second `users` row with the same `account_id` is a legal insert. `has_one` does not stop it.
+
+The policy and feed layer takes an Account:
+
+- `StatusPolicy` is constructed with `current_account` (`app/policies/status_policy.rb` lines 4–8). `owned?` is `author.id == current_account&.id` (lines 75–77).
+- `StatusFilter#filtered?` returns false, meaning visible, when `account.id == status.account_id`, before the policy runs (`app/lib/status_filter.rb` lines 14–16).
+- `Status.permitted_for` returns `all` when the viewer account is the author (`app/models/status.rb` lines 772–773).
+- `Account#permitted_statuses` uses that scope and, for the author, starts from every status of the account (`app/models/account.rb` lines 513–519).
+- `PersonalFeed` is constructed with an Account and loads personal statuses by `account_id` (`app/models/personal_feed.rb` lines 3–10 and 51–53).
+- `AccountStatusesFeed#permission_scope` calls `permitted_statuses` (`app/models/account_statuses_feed.rb` lines 16–19).
+- `Api::V1::StatusesController#set_status` loads by id and `authorize`s `:show?` (`app/controllers/api/v1/statuses_controller.rb` lines 166–174). `#set_statuses` calls `permitted_statuses_from_ids` with `current_account&.id` (lines 150–151).
+- `current_account` is `current_user&.account` (`app/controllers/application_controller.rb` lines 142–146). An OAuth token's resource owner is a User (`app/controllers/api/base_controller.rb` lines 114–119). A job that only receives `account_id` has no User.
+
+This feature does not add a unique index on `users.account_id`. That would change every local account, and it is a separate decision. Until that exists, "the account's user" is not a single principal.
+
+Fail closed: a projection is readable only through a new gate, `ProjectionAccess.allow?(viewer_user_id, status_id)`. That is true only when `viewer_user_id` equals `external_status_projections.user_id`. Every other result is the same not-found a missing status gets. `owned?` true is not success. `viewer_user_id` nil is denial, including background jobs, serializers, and feed builders that only have an Account.
+
+Ordinary personal posts stay on today's account rules. The gate runs only when a projection row exists.
+
+| Path | What it does today | P1 gate |
+| --- | --- | --- |
+| `Api::V1::StatusesController#set_status`, `#show`, `#context` | `authorize :show?` with the account | Marker present and `current_user.id` differs, or `current_user` is nil: 404 before a body is rendered. |
+| `StatusesController` HTML, ActivityPub JSON, embed, history | Loads the status, then renders | Same gate. ActivityPub JSON is not rendered for a projection. |
+| `Status.permitted_statuses_from_ids` | `StatusFilter`, author short-circuit | The caller passes `viewer_user_id`. A projection is dropped unless it matches. Nil drops every projection. The author short-circuit does not keep it. |
+| `Status.permitted_for` author branch | `all` | Excludes projection ids. This method has no User argument, so it cannot include them. |
+| `Account#permitted_statuses` | Author sees the account's statuses | Excludes projection ids. A user-scoped relation is a different scope. |
+| `AccountStatusesFeed` | Profile and seek use `permitted_statuses` | Other users of the same account do not see the projection on the profile or in seek. |
+| `PersonalFeed` | Every personal status of the account | Ordinary personal rows stay. A projection is included only for its `user_id`. |
+| `REST::StatusSerializer` | Renders whatever the controller passed | The controller does not pass a failed gate. `fedibird_external` is omitted unless that same user id was allowed. The other user does not receive the status body either. |
+| Favourite, bookmark, emoji reaction | `show?` or the account | Same gate. The other user gets 404 and no interaction row. |
+| `BackupService` | `account.statuses` (`app/services/backup_service.rb` line 30), while `User has_many :backups` | Include a projection only when the backup's `user_id` matches. A job that only has `account_id` skips every projection. |
+| Ancestors, descendants, references, search, oEmbed, outbox, admin trends | Account or public checks | Drop projection ids unless the gate passes. |
+
+### Join invariants
+
+The writer and the database both refuse a projection whose user, subscription, status account, and resource source do not agree.
+
+`external_subscriptions` has a unique index on `(id, user_id, external_source_id)`. `external_resources` has a unique index on `(id, external_source_id)`. `statuses` has a unique index on `(id, account_id)` so a composite foreign key can name the account. `id` is already the primary key. The second index is there for the foreign key.
+
+`external_status_projections` carries `account_id` and `external_source_id`, both not null, plus the columns already listed below. Foreign keys:
+
+- `(external_subscription_id, user_id, external_source_id)` references `external_subscriptions (id, user_id, external_source_id)`
+- `(external_resource_id, external_source_id)` references `external_resources (id, external_source_id)`
+- `(status_id, account_id)` references `statuses (id, account_id)`
+
+A constraint trigger `external_status_projections_user_account`, `BEFORE INSERT OR UPDATE`, loads `users.account_id` for `NEW.user_id` and raises unless it equals `NEW.account_id`. The trigger does not require this user to be the only user of the account. Two users of one account may each own projections. The trigger rejects a user who belongs to a different account.
+
+The writer, in the same transaction as the status insert, loads the `User`, requires `user.account_id == status.account_id`, requires the subscription and resource composite keys, then inserts the marker. A bypassed writer still fails the foreign keys or the trigger.
+
+Mismatch cases the spec inserts directly and expects a database error, with no status left behind when the writer transaction rolls back:
+
+- `projection.user_id` differs from `subscription.user_id`
+- `status.account_id` differs from `users.account_id` for that user
+- `resource.external_source_id` differs from `subscription.external_source_id`
+
+The two-users case is not a database error. Both users share `account_id`, so the trigger allows each of their own rows. The read gate is what hides user A's projection from user B.
 
 ## Projection status contract
 
@@ -103,32 +162,63 @@ Any path that loads a status id must treat "a projection row exists" as private,
 | `PublishStatusService` and `ActivityPub::DistributionWorker` | Do not enqueue. The worker also skips projections itself, including `personal`, which it does not skip today. |
 | `FanOutOnWriteService`, `PushUpdateWorker`, `streaming/index.js` | Publish no Redis payload for a projection. P1 owner reads use PostgreSQL. Node does not enforce this; see the audit. |
 | `trigger_create_webhooks` / `trigger_update_webhooks` | Do not enqueue. |
-| `search_indexable?` / `StatusesIndex` | Do not index the projection. Personal posts are indexed today; projections must not be. |
+| `search_indexable?` / `StatusesIndex` | Do not index the projection. The index scope and `delete_if` are the guard. `search_indexable?` is not, because Favourite, Bookmark, and `StatusStat` reindex without it. See Search index. |
 | `FetchLinkCardService` / `LinkCrawlWorker` | Do not run. |
 | `RemoveStatusService#remove_from_remote_reach` | Do not deliver Delete or Undo. |
 | `BackupService` outbox export | Skip projection ids. A backup must not turn the private text into an ActivityPub Note. |
 | `ReblogService`, quote, `PostStatusService` reply, `ProcessStatusReferenceService` | Refuse the projection as a target. |
-| `FavouriteService` / bookmarks / emoji reactions | Local row only, and only for the owner. No `ActivityPub::DeliveryWorker`, no trend registration, no notification to anyone but the owner. |
-| REST, HTML, oEmbed, RSS, ActivityPub show, outbox, search, trends, streaming, admin trend review | Non-owners receive the same not-found they get for a status they cannot see. Unauthenticated callers receive not-found. |
-| `Status.permitted_for` | A mention row must not make a projection visible. Projections do not create mentions. The scope also excludes projection ids for every viewer except the owning user. |
+| `FavouriteService` / bookmarks / emoji reactions | Local row only, and only when `ProjectionAccess` allows that `user_id`. The other user of the same account is refused. No `ActivityPub::DeliveryWorker`, no trend registration, no notification. |
+| REST, HTML, oEmbed, RSS, ActivityPub show, outbox, search, trends, streaming, admin trend review, `PersonalFeed`, `AccountStatusesFeed` | Not-found unless `viewer_user_id` equals the marker. The other user of the same account, an unauthenticated caller, and a caller with only an Account are not-found. |
+| `Status.permitted_for` / `permitted_statuses_from_ids` | The author branch and the `StatusFilter` author short-circuit exclude projection ids. A mention row must not make one visible. Projections do not create mentions. |
 
 Ordinary `personal` posts keep today's behavior. The new condition is the projection marker, not a change to personal-post federation. One current behavior is called out because P1 must not inherit it: deleting a local personal status still builds follower inboxes in `StatusReachFinder` (`unsafe: true` disables the direct/limited early return) and `ActivityPub::DeleteSerializer#to` addresses Public. Projection deletion must not call that path. Changing delete reach for ordinary personal posts is a separate bugfix, not this bridge.
 
 ### Creation transaction
 
-`Status#store_uri`, the webhook callbacks, and the Chewy `update_index` hook run on `after_create_commit`. They do not run if the transaction rolls back. The marker lives in another table, so the writer has to make that marker visible before those callbacks observe the status.
+`Status#store_uri` and the webhook callbacks are `after_create_commit` (`app/models/status.rb` lines 673 and 678–679). They do not run if the transaction rolls back. Chewy does not use that hook. `Chewy.use_after_commit_callbacks` is false (`config/initializers/chewy.rb` line 25), so `update_index` runs on `after_save`. `Status`'s `if: :search_indexable?` (`app/models/status.rb` line 63) is evaluated then, which is before a marker inserted later in the same transaction. `search_indexable?` is `!ap_page?` today (lines 396–398). It is not the proof that a projection stays out of `StatusesIndex`.
 
 Normative writer, one transaction, no nested transaction that commits the status early:
 
-1. Insert the status with `uri` null, visibility `personal`, and searchability `personal`.
-2. Insert `external_status_projections` for that `status_id` and the owner's `user_id` before commit.
-3. If the marker insert fails, roll the transaction back. The status row is gone. `after_create_commit` does not run, so there is no URI write, webhook, or index update.
-4. After commit, each callback re-reads `ExternalStatusProjection.where(status_id: id).exists?` with an uncached query. A memoized empty association from before the marker insert is not evidence. If the row exists, `store_uri` does not set `uri`, webhooks are not enqueued, and `search_indexable?` is false.
-5. No worker is enqueued inside the transaction. Any worker that still receives the id re-checks the marker and returns before delivery, indexing, or HTTP.
+1. Insert the status with `uri` null, visibility `personal`, and searchability `personal`. The Chewy callback may stash the id at `after_save`. It must not call `StatusesIndex.import!` inside this transaction.
+2. Insert `external_status_projections` for that `status_id`, `user_id`, `account_id`, and `external_source_id` before commit. The composite foreign keys and the user/account trigger run here.
+3. If the marker insert fails, roll the transaction back. The status row is gone. `after_create_commit` does not run. The spec also imports the rolled-back id and asserts that no Chewy document remains.
+4. After commit, `store_uri` and the webhook callbacks re-read `ExternalStatusProjection.where(status_id: id).exists?` with an uncached query. A memoized empty association from before the marker insert is not evidence. If the row exists, `store_uri` does not set `uri` and webhooks are not enqueued.
+5. After commit, an import of that status id is allowed. It reloads through the index scope below, which does not return projection ids, and Chewy deletes an id the scope misses. That import is what removes a document if one was written early. It is not run while the transaction is open.
+6. No delivery or fetch worker is enqueued inside the transaction. Any worker that still receives the id re-checks the marker and returns before delivery or HTTP.
 
-A crash after commit leaves a personal status with a marker and a null `uri`. That is private. It is not a success path that federates. The P1 spec rolls back between the two inserts and asserts that no status, marker, webhook job, or Chewy document remains. A second example commits both rows and asserts `uri` is null, no webhook was enqueued, and the status id is absent from `StatusesIndex`.
+A crash after commit leaves a personal status with a marker and a null `uri`. That is private. It is not a success path that federates. The P1 spec rolls back between the two inserts and asserts that no status, marker, webhook job, or Chewy document remains. A second example commits both rows and asserts `uri` is null, no webhook was enqueued, and a raw get of the status id in `StatusesIndex` is empty after refresh.
 
 Owner streaming is not part of this commit. P1 does not publish the new id to Redis. The Node process forwards whatever Ruby already published; it is not a second authorization of the projection.
+
+### Search index
+
+`StatusesIndex` currently scopes to `Status.include_expired.without_reblogs` (`app/chewy/statuses_index.rb` line 133). That scope includes a personal projection. These models call `update_index('statuses', ...)` without `search_indexable?`:
+
+| Model | Line | When it fires |
+| --- | --- | --- |
+| `Favourite` | `app/models/favourite.rb` 16 | create and update, unconditional |
+| `Bookmark` | `app/models/bookmark.rb` 16 | the `if Chewy.enabled?` is evaluated when the class loads; afterwards the callback is unconditional |
+| `StatusStat` | `app/models/status_stat.rb` 21 | favourite and unfavourite update the counter, then this callback |
+| `Mention` | `app/models/mention.rb` 17 | a mention row, which projections must not create |
+| `StatusReference` | `app/models/status_reference.rb` 16 | indexes `target_status` |
+| `PreviewCard` | `app/models/preview_card.rb` 69 | indexes joined statuses |
+
+No other model under `app/models` calls `update_index('statuses')`. Emoji reactions have no Chewy callback of their own. If a reaction updates `StatusStat`, the `StatusStat` row above is the one that matters.
+
+Chewy 7.6.0 reloads ids through that index scope on `import!` (`Orm#import_objects` in the installed gem). An id the scope does not return is sent as a delete, not as an index action. `CustomSidekiq` forwards ids to `import!` (`lib/chewy/strategy/custom_sidekiq.rb`). `direct_import: true` skips the reload. This app does not set it, and P1 must not pass it for `StatusesIndex`.
+
+The scope P1 installs:
+
+```text
+index_scope Status.include_expired.without_reblogs
+  .where.not(id: ExternalStatusProjection.select(:status_id))
+  .reorder(nil).with_includes,
+  delete_if: -> { ExternalStatusProjection.exists?(status_id: id) }
+```
+
+`delete_if` covers an object that was loaded anyway, including a `direct_import`. A full rebuild uses the scope, so it does not insert projections and does not recreate one that was deleted. A document that already exists when the marker commits is removed by the post-commit import of that id.
+
+The spec sequence is create, refresh, favourite, refresh, bookmark, refresh, unfavourite, refresh, unbookmark, refresh. After each refresh a raw get of the status id is absent. A second example plants a document, commits the marker, runs the post-commit import, and asserts the document is gone. A third example runs a full `StatusesIndex` import of the scope and asserts the id is still absent.
 
 ### Owner-only REST extension
 
@@ -174,7 +264,7 @@ Link crawl may run on this Note, because it is a normal post. `FetchLinkCardServ
 | --- | --- | --- |
 | Share a link | New reference Note every time (`kind = standalone_share`) | One `Create` at the chosen scope. No `Announce`. |
 | Reply or quote | Auxiliary parent at a compatible scope, then a status whose `in_reply_to_id` or `quote_id` is that parent | `Create` of the parent only when that scope does not already have one, then `Create` of the reply or quote. |
-| Boost | Reblog wrapper whose `reblog_of_id` is the owner's reference Note at a compatible scope | `Announce` of that Note by the owner's account. `Create` of the Note only if it does not already exist. Never `Announce` the external URL or the projection. |
+| Boost | Reblog wrapper whose `reblog_of_id` is the owner's reference Note at `public`, `unlisted`, or `private` | `Announce` of that Note by the owner's account. `Create` of the Note only if it does not already exist. Direct and limited are refused: no wrapper and no `Announce`. Never `Announce` the external URL or the projection. |
 | Undo boost | Discard that reblog wrapper | `Undo` of that `Announce` only. The reference Note stays. |
 | Native reply or like | `external_activities` only | No ActivityPub activity. |
 
@@ -182,13 +272,13 @@ A share is not a boost. Calling a boost a share would drop unreblog: today's unr
 
 Baseline behavior this uses, and does not widen:
 
-- `StatusPolicy#reblog?` allows the owner to reblog their own non-mention-required status, including a private one (`!private? || owned?`). It does not forbid the reblogger and the author being the same account. `ReblogService` rejects `personal` (line 41) and, when the original is `hidden?`, forces the wrapper's visibility to the original's (lines 24–29). A public reference can be boosted at a narrower visibility. A private reference cannot be boosted to public by that path.
+- `StatusPolicy#reblog?` allows the owner to reblog their own non-mention-required status, including a private one (`!private? || owned?`, lines 37–39). It is false for direct and limited, because `requires_mention?` is those two visibilities (lines 71–73). It does not forbid the reblogger and the author being the same account. `ReblogService` rejects `personal` (line 41) and, when the original is `hidden?`, forces the wrapper's visibility to the original's (lines 24–29). `Status` rejects a reblog whose visibility is `direct` (line 131). A public or unlisted reference can be boosted at `public`, `unlisted`, or `private`. A private reference stays private. Direct and limited are not boost visibilities. P6 does not call another distributor to get around `reblog?` or that validation.
 - One account has at most one reblog of a given status (`ReblogService` returns the existing row). A second boost click does not send a second `Announce`.
 - `ActivityPub::ActivityPresenter.from_status` sets type `Announce` for a reblog (line 10). The object is the original's URI, except when the booster is the author, the original is a local private status, and the Note is inlined (lines 18–20). A public or unlisted self-boost does not inline a second copy of the body.
 - `FeedManager#add_to_feed` skips a reblog when the original is already within `REBLOG_FALLOFF` of the top of that local feed (lines 533–539). That dedup is local. It is not a promise about remote servers or relays.
 - `ActivityPub::DistributionWorker#relay!` runs for public visibility. A public `Create` and a later public `Announce` are two activities. They are not two `Create`s. Followers who already stored the Note receive an Announce of its URI.
 
-If the reference Note already exists at a compatible scope, a boost distributes only the `Announce`. The original `Create` is not sent again. If it does not exist, the confirm step states the audience and that both a link post and a boost will be published. The `Create` is distributed once, then the `Announce`. Remote software may still show both. That is the same shape as publishing a post and boosting it. P6 records what a Mastodon follower and a relay actually display before the flag is turned on. This design does not relabel the boost as a share to hide that second activity.
+If a public, unlisted, or private reference Note already exists, a boost distributes only the `Announce`. A direct or limited Note is not that target. The original `Create` is not sent again. If none of those three exists, and the requested visibility is one of them, the confirm step states the audience and that both a link post and a boost will be published. The `Create` is distributed once, then the `Announce`. Remote software may still show both. That is the same shape as publishing a post and boosting it. P6 records what a Mastodon follower and a relay actually display before the flag is turned on. This design does not relabel the boost as a share to hide that second activity.
 
 Undo of the boost removes the wrapper and sends Undo of the Announce. Delete of the reference Note is a separate action, uses the normal Delete path for that Note, and also removes its reblogs through `RemoveStatusService#remove_reblogs`. The projection is neither the Announce object nor the Delete object.
 
@@ -196,7 +286,7 @@ Undo of the boost removes the wrapper and sends Undo of the Announce. Delete of 
 
 An auxiliary parent is not unique for the whole `(user, resource)` pair. The unique key is `(user_id, external_resource_id, distribution_scope)`.
 
-`distribution_scope` is `public`, `unlisted`, `private`, or `direct:` / `limited:` plus the sorted recipient account ids. `mutual` is not a parent scope.
+`distribution_scope` is `public`, `unlisted`, `private`, or `direct:` / `limited:` plus the sorted recipient account ids. `mutual` is not a parent scope. Direct and limited parents exist for reply and quote. They are not boost targets. A boost of either scope is refused before a wrapper or an `Announce` is created.
 
 Reuse:
 
@@ -339,10 +429,12 @@ Unique `(user_id, external_source_id)`. No `credential_id`. A subscribe request 
 
 | Column | Constraint |
 | --- | --- |
-| `user_id` | not null, cascade |
+| `user_id` | not null, cascade. The read principal |
+| `account_id` | not null. Equals `statuses.account_id` and `users.account_id` for `user_id` |
+| `external_source_id` | not null. Equals the subscription's source and the resource's source |
 | `external_subscription_id` | not null |
 | `external_resource_id` | not null |
-| `status_id` | not null, unique, FK to `statuses` `ON DELETE CASCADE` |
+| `status_id` | not null, unique, part of the composite FK to `statuses (id, account_id)` |
 | `last_seen_revision` | nullable |
 | `source_deleted` | boolean, default false |
 
@@ -394,8 +486,7 @@ One row is one native object the owner created, or the in-flight attempt to crea
 | `verb` | `like`, `repost`, or `reply` |
 | `desired` | `active` or `inactive` |
 | `remote_state` | `absent`, `pending_create`, `present`, `pending_delete`, or `unknown` |
-| `idempotency_key` | not null |
-| `generation` | integer, incremented on each user intent change |
+| `generation` | integer. The latest accepted command's generation. Not an idempotency key |
 | `subject_uri` | AT URI of the record being liked, reposted, or replied to |
 | `subject_cid` | nullable CID observed when the attempt started |
 | `native_activity_uri` | AT URI of the like, repost, or reply record once known |
@@ -403,7 +494,9 @@ One row is one native object the owner created, or the in-flight attempt to crea
 | `attempt_count`, `last_error_code` | no token and no raw body |
 | `local_favourite_id`, `local_status_id` | nullable. Local rows are not evidence of remote success |
 
-Unique `(user_id, external_identity_id, idempotency_key)`. The key is not globally unique: two users can reuse the same client string. A second unique index is `(user_id, external_identity_id, subject_uri, verb)` where `verb` is `like` or `repost`. That row stays through unlike and a later like. It is not deleted to make room for a second like row. Replies are outside that index; each reply has its own key and its own `native_activity_uri`.
+This row does not store the client's idempotency key. A single column would be overwritten on unlike, and a later retry of the like key would look new. Per-intent keys live on `external_activity_commands`.
+
+Unique `(user_id, external_identity_id, subject_uri, verb)` where `verb` is `like` or `repost`. That row stays through unlike and a later like. It is not deleted to make room for a second like row. Replies are outside that index; each reply has its own command and its own `native_activity_uri`.
 
 `like → unlike → like` uses that one like row:
 
@@ -411,13 +504,39 @@ Unique `(user_id, external_identity_id, idempotency_key)`. The key is not global
 2. Unlike sets `desired = inactive` and `remote_state = pending_delete`, then `deleteRecord` of **that** URI and rkey. It does not invent a second like URI. On success, `remote_state = absent`. The old URI stays in `native_activity_uri` until the next successful create replaces it, so a retry still knows what to delete.
 3. A later like creates a new record and a new rkey. It does not reuse a rkey whose delete is unconfirmed.
 
-Lost response: if the HTTP call was sent and the response was lost or timed out, set `remote_state = unknown`. Do not set `present` and do not send another `createRecord` just because the local idempotency key matches. Reconcile first with `getRecord` or `listRecords` for this DID, collection, and subject. If a record exists, adopt its URI and CID. If it does not, the next attempt may create one. A retried idempotency key returns the same row and re-enters that reconcile. It is not proof the provider committed nothing.
+Lost response: if the HTTP call was sent and the response was lost or timed out, set `remote_state = unknown`. Do not set `present` and do not send another `createRecord` just because a command key matches. Reconcile first with `getRecord` or `listRecords` for this DID, collection, and subject. If a record exists, adopt its URI and CID. If it does not, the next attempt may create one. A retry of the latest command returns that command and re-enters that reconcile. It is not proof the provider committed nothing. A retry of an older command does not.
 
 401 or a revoked credential: stop. Do not refresh by sending the token to a different host. If the write might have left the process, `remote_state` stays `unknown` until a later authorized reconcile. Revocation does not claim the remote like is gone.
 
 Concurrent clicks: the unique subject index plus `generation` makes the second request either observe the current generation or lose the update. The loser does not start a second PDS write.
 
 Local favourite and the native like commit independently. A remote failure does not delete the local favourite. A local failure does not invent `remote_state = present`. There is no automatic remote rollback. Compensation is a later delete of the stored `native_activity_uri` after reconcile shows the record exists.
+
+### `external_activity_commands`
+
+One immutable row per client intent. Like, unlike, and a later like are three rows. The activity row's `generation` points at the latest one.
+
+| Column | Constraint |
+| --- | --- |
+| `user_id` | not null, cascade |
+| `external_identity_id` | not null |
+| `external_activity_id` | not null once the activity row exists |
+| `idempotency_key` | not null, never updated |
+| `verb` | `like`, `repost`, or `reply` |
+| `desired` | `active` or `inactive`. The intent of this command, not the current activity state |
+| `generation` | integer assigned when this command becomes latest |
+| `expected_generation` | the generation the client sent. `0` when the activity row does not exist yet |
+| `subject_uri` | AT URI this command applies to |
+
+Unique `(user_id, external_identity_id, idempotency_key)`. Two users may send the same string.
+
+Acceptance:
+
+1. The key already exists and it is the latest command. Return it and re-enter reconcile for that command. Do not start a second transition. If the key exists and its `generation` is older, do not change `desired`, do not call the PDS, and respond `superseded` with the current activity state.
+2. The key is new and `expected_generation` equals the activity's current `generation`. Insert the command, increment `generation`, and perform that transition.
+3. The key is new and `expected_generation` does not match. Respond `stale_activity_command`. No PDS write and no change to `desired`.
+
+A replay of the original like after unlike is refused by both checks: the old key hits rule 1, and a new key that still carries the like's `expected_generation` hits rule 3. Neither creates a new like record. The next like the user actually requests sends the current `generation` and a new key, then uses a new rkey as above.
 
 ### `inbound_interactions`
 
@@ -440,7 +559,9 @@ Unique `(user_id, external_actor_id)`. A mute hides that actor's projections fro
 
 ### `publication_groups` and `publication_group_members`
 
-A group exists only when the user completes an explicit crosspost. Members are either a `local_status_id` or a `(protocol, native_object_id)` already known from an `external_activity`. Unique member identity inside the group. Text or URL similarity must not insert a member.
+P3's verbs are like, repost, and reply. The capability list has no `create_post`. A like, repost, or reply record is not a crosspost member, and P5 does not create a native post.
+
+A group exists only when the user explicitly adds members. A local member is a `local_status_id` the user selected. A native member is an AT URI the user submitted, after a read of that record shows its repo DID equals `external_identities.subject`. The read uses the resolved PDS or a configured public AppView. It does not send the user token to a URL the user typed. Text, canonical URL, and CID similarity do not insert a member. Unique member identity inside the group. Owner-only reaction counts sum snapshots for those linked records only. Native posting can be a later phase. It is not P3 or P5.
 
 ### `external_ap_references`
 
@@ -452,7 +573,7 @@ A group exists only when the user completes an explicit crosspost. Members are e
 | `kind` | `auxiliary_parent` or `standalone_share` |
 | `distribution_scope` | not null for `auxiliary_parent`. The frozen scope string |
 
-Partial unique index on `(user_id, external_resource_id, distribution_scope)` where `kind = auxiliary_parent`. Standalone shares are not unique. A boost does not insert its own reference kind. It reblogs the reference Note. A Note created so that a boost has a target is an `auxiliary_parent` at that scope, so a later reply can reuse it under the scope rules. Deleting the Note deletes the reference row. It does not delete the projection.
+Partial unique index on `(user_id, external_resource_id, distribution_scope)` where `kind = auxiliary_parent`. Standalone shares are not unique. A boost does not insert its own reference kind. It reblogs a public, unlisted, or private reference Note. A Note created so that a boost has a target is an `auxiliary_parent` at one of those three scopes, so a later reply can reuse it under the scope rules. A direct or limited parent is never selected as a boost target. Deleting the Note deletes the reference row. It does not delete the projection.
 
 ### Reaction snapshots
 
@@ -521,7 +642,7 @@ Sudo matches the external-services pages: mutation routes require a recent chall
 | Favourite / unfavourite | Local favourite only | Separate control: also like on the connected identity |
 | Bookmark | Local bookmark only. Bookmarks are already local | None |
 | Reply | **422**. A normal reply would be a real status pointing at the projection | Two controls: "Reply on Fediverse" (reference flow) and "Reply on Bluesky" (native) |
-| Boost | **422** on the projection. `ReblogService` already rejects `personal`, and the marker is a second refusal | "Share" is one `Create`. "Boost" is `Announce` of the owner's reference Note, after confirm if that Note must be created |
+| Boost | **422** on the projection. `ReblogService` already rejects `personal`, and the marker is a second refusal. Direct and limited reference Notes are also refused | "Share" is one `Create`. "Boost" is `Announce` of the owner's public, unlisted, or private reference Note, after confirm if that Note must be created |
 | Quote | **422** | Quote the auxiliary parent only after the user confirms that parent will be published |
 | Emoji reaction | **422** on a projection. Today's service notifies a local author or delivers to a remote inbox | None in the first slices |
 
@@ -554,7 +675,7 @@ Local favourite and bookmark rows follow today's owner-only `show?` once the pro
 | Native side | None unless the user opted in. Opt-in uses the like row's `desired` / `remote_state` transitions and `createRecord` or `deleteRecord` on the resolved PDS. |
 | ActivityPub | None. The author account is the owner's own account, so today's `FavouriteService` would notify the owner. The projection path must not fan that notification out as if a third party acted, and must not call `Trends.statuses.register`. |
 | Consent | Local favourite needs no extra consent. Native like needs a connected capability and an explicit opt-in. |
-| Idempotency | Local `find_or_create` by `(account, status)`. Native key is unique per `(user, identity, idempotency_key)`. A retry reconciles before another create. One like row per subject. |
+| Idempotency | Local `find_or_create` by `(account, status)`. Native keys are unique per `(user, identity, idempotency_key)` on the command row. A retry of the latest command reconciles before another create. A retry of an older command is `superseded` or `stale_activity_command` and does not create. One like row per subject. |
 | Failure | `remote_state` is `unknown` or stays pending. It is not `present` without a stored `native_activity_uri` from a response or a reconcile. The local favourite is unchanged if the user asked for both. A native-only request that never reaches `present` creates no local favourite. |
 | No identity / revoked | Local favourite still works. Native opt-in returns `external_identity_required` or `credential_revoked`. A write that may have left the server stays `unknown` until reconcile. |
 
@@ -575,7 +696,7 @@ Local favourite and bookmark rows follow today's owner-only `show?` once the pro
 | Native side | Native reply posts as the linked identity. The target id is the native object id, not the projection id. |
 | ActivityPub | Parent `Create` plus reply `Create`, at the visibilities the user confirmed. No activity for a native-only reply. |
 | Consent | Required before the parent is created. Required again for the native post if it is a separate button. |
-| Idempotency | Auxiliary parent unique on `(user, resource, distribution_scope)`. A lost race reloads the winner. Native reply retries reconcile the `native_activity_uri` before another `createRecord`. |
+| Idempotency | Auxiliary parent unique on `(user, resource, distribution_scope)`. A lost race reloads the winner. Native reply retries of the latest command reconcile `native_activity_uri` before another `createRecord`. An older command does not post again. |
 | Failure | If the parent is created and the reply save fails, the parent remains; the confirm step already named its audience. A wider reply does not widen an older parent. Native failure leaves `remote_state` unknown or absent and does not delete a Fediverse reply that already succeeded. |
 | No identity / revoked | Fediverse reply can still be offered. Native reply is refused before any local "sent" state. |
 
@@ -583,11 +704,11 @@ Local favourite and bookmark rows follow today's owner-only `show?` once the pro
 
 | | |
 | --- | --- |
-| Local effect | Fediverse **share** creates a standalone reference Note and stops. Fediverse **boost** creates a reblog of the owner's reference Note at a compatible scope, creating that Note only when the confirm step said it would. Neither mode reblogs the projection. Native repost uses the repost row on `external_activities`. |
+| Local effect | Fediverse **share** creates a standalone reference Note and stops. Fediverse **boost** creates a reblog of the owner's reference Note at `public`, `unlisted`, or `private`, creating that Note only when the confirm step said it would. Direct and limited are refused with no wrapper. Neither mode reblogs the projection. Native repost uses the repost row on `external_activities`. |
 | Native side | `createRecord` or `deleteRecord` of the repost record on the resolved PDS. Undo deletes the stored `native_activity_uri`. |
-| ActivityPub | Share: one `Create`, no `Announce`. Boost: `Announce` of the reference Note. `Create` of that Note only on first publication at that scope. Undo boost: `Undo` of the `Announce` only. Never `Announce` the external URL or the projection. A native unrepost does not emit ActivityPub `Undo`. |
+| ActivityPub | Share: one `Create`, no `Announce`. Boost: `Announce` of a public, unlisted, or private reference Note. `Create` of that Note only on first publication at that scope. Direct and limited produce no `Announce`. Undo boost: `Undo` of the `Announce` only. Never `Announce` the external URL or the projection. A native unrepost does not emit ActivityPub `Undo`. |
 | Consent | Share confirms the Note's audience. Boost confirms the Announce, and also confirms the Note's audience when the Note does not exist yet. Native repost is a separate opt-in. |
-| Idempotency | A second Fediverse boost finds the existing reblog wrapper and does not send another `Announce`. A second share is a new Note only after another confirm. Native repost follows the same reconcile rules as like. |
+| Idempotency | A second Fediverse boost finds the existing reblog wrapper and does not send another `Announce`. A second share is a new Note only after another confirm. A direct or limited boost request does not create a parent to boost. Native repost follows the same command and reconcile rules as like. |
 | Failure | If Note creation succeeds and the wrapper save fails, the Note remains and the UI does not claim the boost succeeded. Native `unknown` is not shown as a completed repost. |
 | No identity / revoked | Fediverse share and boost can proceed. Native repost is refused, or left `unknown` if a write may already have been sent. |
 
@@ -657,11 +778,11 @@ Each slice is its own review, flag default **off**, and safe to merge without tu
 
 | Phase | Flag | Delivers | Depends on | Gate |
 | --- | --- | --- | --- | --- |
-| P1 | `external_bridge_rss` | Public RSS/Atom subscribe, shared public cache, private projection, fail-closed list, owner extension. No credentials. | This document | The fail-closed list and the creation-transaction specs land in the same change as the writer. The streaming files in the audit are part of that gate. Flag stays off until those specs pass. Authenticated feeds are rejected with no shared write. |
+| P1 | `external_bridge_rss` | Public RSS/Atom subscribe, shared public cache, private projection, fail-closed list, owner extension. No credentials. | This document | The fail-closed list, the user-id read gate, the creation transaction, and the Chewy scope specs land in the same change as the writer. The two-users-one-account case is part of that gate. The streaming files in the audit are part of that gate. Flag stays off until those specs pass. Authenticated feeds are rejected with no shared write. |
 | P2 | `external_bridge_atproto` | Provider page, `external_identities`, vault `oauth_session`, discovery and issuer binding. No timeline import and no repo writes. | Registry and vault, which exist now | No token in logs or pages. A session whose `sub`, PDS, and `issuer` do not match is not stored. Catalog shows the provider only when the page exists. |
-| P3 | `external_bridge_native_actions` | AT like, repost, reply, and undo against the resolved PDS, with the reconcile rules. | P2 | Opt-in per action. Lost-ack, 401, and duplicate-click specs pass. Writes do not target a fixed session host. |
+| P3 | `external_bridge_native_actions` | AT like, repost, reply, and undo against the resolved PDS, with the command log and reconcile rules. | P2 | Opt-in per action. Lost-ack, 401, duplicate-click, and stale-command specs pass. Writes do not target a fixed session host. |
 | P4 | `external_bridge_inbound` | Private inbound replies, likes, and reposts for the owner's identity. | P2. Reply-back uses P3. | No `Notification` or remote `Account` rows. |
-| P5 | `external_bridge_publication_groups` | Explicit crosspost groups and owner-only per-platform counts. | P3 and P4 for native counts. Local projection counts can display earlier. | Counts are not written to `status_stat` or trends. |
+| P5 | `external_bridge_publication_groups` | Explicit groups of a local status the user selected and native records the user linked after a DID check. Owner-only counts for those records. | P2 for the identity. P3 and P4 only when a count comes from an interaction sync. | No `create_post`. No member inserted from text or URL similarity. Counts are not written to `status_stat` or trends. |
 | P6 | `external_bridge_ap_reference` | Reference Notes, scoped auxiliary parents, share `Create`, and boost `Announce` of that Note. | P1, plus the federation experiments | Create, Announce, and Undo are each recorded against a remote Mastodon follower and a relay. Bridgy Fed result recorded. Content template tested. Projection ids absent from ActivityPub. |
 
 X and mixi2 are not a phase. A future issue can add a provider only after `terms_state` is an explicit decision.
@@ -679,19 +800,24 @@ These are chosen in this document so P1 can be written without inventing a bound
 3. **Auxiliary parents are unique per user, resource, and distribution scope, and that scope is frozen.** A wider audience creates a new parent after confirm. Every explicit share is still a new standalone Note.
 4. **Disconnect deletes inbound payloads and outbound rows that never left the server (`absent`, or `pending_create` with no request sent), and keeps public RSS projections.** Rows that are `present` or `unknown` stay, with no token. A lost acknowledgment is not rewritten as inactive. Confirm.
 5. **AT writes go to the PDS resolved from the DID document. Tokens are not sent to a user-typed URL.** A hostname may start discovery. It becomes a session only after `sub`, PDS metadata, and `issuer` match. App passwords are out of scope. Confirm before P2.
-6. **Projection bodies stay out of `StatusesIndex`, unlike today's personal posts.** Owner search of imports needs a later index keyed by `user_id`.
+6. **Projection bodies stay out of `StatusesIndex`.** The index scope excludes their ids and `delete_if` removes a loaded object. Favourite, bookmark, and `StatusStat` imports cannot put the id back. `search_indexable?` is not that guard. Owner search of imports needs a later index keyed by `user_id`.
 7. **P1 does not download external media into `media_attachments` or public system paths.**
 8. **Ordinary personal-status Delete reach is unchanged by P0.** Projection deletion must not use it. A fix for ordinary personal deletes is a separate issue.
 9. **X and mixi2 stay unreviewed.** No implementation schedule is implied.
 10. **Bridgy Fed behavior with a link Note, and remote display of `Create` plus `Announce`, are experiments, not guarantees.**
+11. **A projection is readable only by its `user_id`.** Account ownership, `owned?`, and the author short-circuit in `StatusFilter` are not sufficient. Two users of one account do not share projections. This feature does not add a unique index on `users.account_id`.
+12. **Boost is refused for direct and limited.** Reply and quote may still use those parent scopes. `ReblogService` and `StatusPolicy#reblog?` are not bypassed.
+13. **P5 does not create native posts.** A native group member is an AT URI the user submitted whose repo DID matches the linked identity. Like, repost, and reply records are not members.
+14. **Each native intent has its own immutable command key.** A replay after a newer command is `superseded` or `stale_activity_command` and does not write to the PDS.
 
 ## What P1 can take from this document without guessing
 
 - The owner is `user_id`. The status account is that user's real local account. There is no synthetic actor.
 - The shared cache has no user id and no authenticated body. A private fetch does not create a shared row.
 - The projection status is a different row from the reference Note. Only the reference Note has an ActivityPub URI. A Fediverse boost announces that Note.
-- The status row and its projection marker commit together, or neither does. Callbacks re-check the marker after commit. P1 does not publish the projection to Redis.
-- Favourite and bookmark are local unless a later opt-in says otherwise.
+- The status row and its projection marker commit together, or neither does. `store_uri` and webhooks re-check the marker after commit. The Chewy document stays absent because the index scope excludes the id, including after favourite and bookmark. P1 does not publish the projection to Redis.
+- The reader passes a user id. The other user of the same account receives not-found.
+- Favourite and bookmark are local unless a later opt-in says otherwise, and only the projection's user can create them.
 - Reply, boost, and quote of a projection are refused on the ordinary API.
 - Secrets stay in the vault. The identity table is the connection.
 - The fail-closed list is part of P1, not a follow-up, and the RSS flag stays off until it is tested.

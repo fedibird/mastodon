@@ -38,9 +38,35 @@ There is no `Status#protocol` and no `statuses.protocol` column. `Account.protoc
 
 RISK. A local projection created with `Status.create!` gets an ActivityPub URI, a Chewy document, and a webhook even when visibility is personal. Account post counters skip personal. The URI is `account_status_url` for a note (`ActivityPub::TagManager#uri_for`, lines 37–48).
 
-GAP. `store_uri`, `search_indexable?`, and webhook callbacks must no-op when a projection row exists. `permitted_for`'s mention branch must not return a projection to other users.
+GAP. `store_uri` and webhook callbacks must no-op when a projection row exists. `search_indexable?` returning false is not sufficient; the index scope has to exclude the id. `permitted_for`'s author branch and mention branch must not return a projection.
 
-The callbacks are `after_create_commit` (`store_uri` at 673, webhooks at 678–679) plus Chewy's `update_index` at line 63. They run only after a successful commit. The P1 writer inserts the status and the marker in that same transaction and does not commit the status in a nested transaction. A failed marker insert rolls both back, so the callbacks do not run. After a successful commit the callbacks must query the marker again, uncached, because an association loaded before the marker insert would still look empty. The spec for that ordering is in the test matrix. Owner streaming is not produced by a successful commit.
+`store_uri` and the webhooks are `after_create_commit` (lines 673 and 678–679). They run only after a successful commit. Chewy is not in that set. `config/initializers/chewy.rb` line 25 sets `Chewy.use_after_commit_callbacks` to false, so `update_index` is an `after_save` hook and `if: :search_indexable?` runs inside the transaction, before a marker inserted afterwards. The P1 writer inserts the status and the marker in that same transaction and does not commit the status in a nested transaction. A failed marker insert rolls both back, so `after_create_commit` does not run. Chewy's post-commit import is specified in the timelines section: the index scope excludes the id, and an import of a missing id deletes rather than inserts. Owner streaming is not produced by a successful commit.
+
+## Account versus User
+
+CONFIRMED. The policy object is an Account, and the database allows more than one User on that Account.
+
+| Symbol | Lines | Behavior |
+| --- | --- | --- |
+| `AccountAssociations` `has_one :user` | `app/models/concerns/account_associations.rb` 8 | Association only. No unique index is declared here. |
+| `index_users_on_account_id` | `db/schema.rb` 1824 | Not unique. |
+| `StatusPolicy#initialize` / `#owned?` | `app/policies/status_policy.rb` 4–8, 75–77 | Compares `author.id` with `current_account.id`. |
+| `StatusFilter#filtered?` | `app/lib/status_filter.rb` 14–16 | Returns visible when the viewer account is the author, before `show?`. |
+| `Status.permitted_for` | `app/models/status.rb` 772–773 | Author account receives `all`. |
+| `Status.permitted_statuses_from_ids` | 754–763 | Builds `StatusFilter` from an account id. |
+| `Account#permitted_statuses` | `app/models/account.rb` 513–519 | Author starts from every status of the account, then `permitted_for`. |
+| `PersonalFeed#personal_scope` | `app/models/personal_feed.rb` 51–53 | `account_id` and personal visibility. No user id. |
+| `AccountStatusesFeed#permission_scope` | `app/models/account_statuses_feed.rb` 16–19 | `permitted_statuses(viewer)`. |
+| `Api::V1::StatusesController#set_status` | `app/controllers/api/v1/statuses_controller.rb` 166–174 | `authorize :show?` after `Status.find`. |
+| `current_account` | `app/controllers/application_controller.rb` 142–146 | `current_user&.account`. |
+| OAuth resource owner | `app/controllers/api/base_controller.rb` 114–119 | `User.find(doorkeeper_token.resource_owner_id)`. |
+| `BackupService` outbox | `app/services/backup_service.rb` 30 | Iterates `account.statuses`. `User` has `has_many :backups`. |
+
+`User` has `belongs_to :account` (`app/models/user.rb` line 83) and no uniqueness validation on `account_id`.
+
+RISK. A second user row with the same `account_id` passes `owned?`, the `StatusFilter` author short-circuit, `PersonalFeed`, and `Account#permitted_statuses`. Those paths would render user A's projection to user B.
+
+GAP. `ProjectionAccess.allow?` requires `viewer_user_id == external_status_projections.user_id`. Nil user id denies. The paths in the table exclude or 404 a projection unless that check passes. Composite foreign keys and the user/account trigger are in the architecture document. This feature does not add a unique index on `users.account_id`.
 
 ## Status policy and serializers
 
@@ -145,6 +171,26 @@ CONFIRMED.
 
 `StatusesIndex` stores `searchable_by` and `searchability` (`app/chewy/statuses_index.rb` lines 215–216). Personal text is indexed because `search_indexable?` allows it. `SearchQueryTransformer` can restrict queries to `searchable_by` of the current account. That is a query filter, not an index-time exclusion.
 
+`index_scope` is `Status.include_expired.without_reblogs.reorder(nil).with_includes` (line 133). It does not exclude a projection.
+
+CONFIRMED indirect reindex, Chewy 7.6.0. `Chewy.use_after_commit_callbacks` is false, so these callbacks are `after_save` / `after_destroy`, and the Sidekiq worker calls `StatusesIndex.import!` with ids. `Orm#import_objects` reloads those ids through `index_scope`. An id the scope does not return is a delete. `direct_import` is unset in this app. `delete_if` on the scope is what deletes an object that was loaded anyway.
+
+| Caller | Lines | Filter |
+| --- | --- | --- |
+| `Status` | `app/models/status.rb` 63 | `if: :search_indexable?`, which is `!ap_page?` (lines 396–398) |
+| `Favourite` | `app/models/favourite.rb` 16 | none |
+| `Bookmark` | `app/models/bookmark.rb` 16 | `if Chewy.enabled?` at class load, then none |
+| `StatusStat` | `app/models/status_stat.rb` 21 | none. Favourite count updates reach this row |
+| `Mention` | `app/models/mention.rb` 17 | none |
+| `StatusReference` | `app/models/status_reference.rb` 16 | indexes `target_status` |
+| `PreviewCard` | `app/models/preview_card.rb` 69 | indexes the joined statuses |
+
+No other file under `app/models` calls `update_index('statuses')`.
+
+RISK. A projection that survives create with no document is inserted when the owner favourites or bookmarks it, and again when `status_stat.favourites_count` changes. A full import of the current scope inserts it too. Setting `search_indexable?` false does not stop those callers.
+
+GAP. The scope gains `where.not(id: ExternalStatusProjection.select(:status_id))` and `delete_if` on the marker. P1 does not pass `direct_import: true`. The post-commit import of a new projection id deletes a document that already exists. The spec asserts a raw document get after create, favourite, bookmark, unfavourite, unbookmark, and a full scope import.
+
 `PublishStatusService` (`app/services/publish_status_service.rb`):
 
 - Skips mention delivery for personal (lines 48–50).
@@ -154,7 +200,7 @@ CONFIRMED.
 
 RISK. A projection published through `PostStatusService` lands on the owner's home Redis feed and streaming channel, is link-crawled, and is indexed. If its id is ever written into another account's feed ZSET, `Feed#filtered_scope` will render it. If visibility is anything but personal, follower and public fan-out run.
 
-GAP. The projection writer must not call `PublishStatusService`. Index and link-crawl hooks must skip the marker even if a later bug calls them. Feed reads must drop projection ids for every account except the owner.
+GAP. The projection writer must not call `PublishStatusService`. Index and link-crawl hooks must skip the marker even if a later bug calls them. Feed reads must drop projection ids unless `viewer_user_id` matches the marker. The author account is not that match.
 
 ## ActivityPub
 
@@ -310,9 +356,9 @@ GAP. Admin trend approve/reject rejects projection ids. Backup skips them.
 | `PublishStatusService` skips AP distribute for personal and still link-crawls and webhooks. | Projection writer does not use that service. Callbacks also check the marker. |
 | `ActivityPub::DistributionWorker` will deliver personal if enqueued. | Worker skips projections and personal. |
 | Delete of personal still reaches follower inboxes with a public-addressed Tombstone. | Projection removal does not call `remove_from_remote_reach`. Ordinary personal delete is unchanged until a separate issue. |
-| Chewy indexes personal text. | Projections are not indexed. The marker is committed in the same transaction as the status, and the index callback re-reads it. |
+| Chewy indexes personal text. Favourite, Bookmark, and StatusStat call `update_index('statuses')` with no `search_indexable?` filter. The index scope includes every non-reblog. | Projections are outside the index scope, and `delete_if` removes a loaded object. An import of the id after favourite, bookmark, or a full rebuild deletes or skips it. `search_indexable?` is not the guard. |
 | Node user streams forward `timeline:{accountId}` with no visibility check (`streaming/index.js`). | P1 publishes no projection payload. A live owner channel is not claimed. |
-| Self-boost is an `Announce` of the author's own status, with local feed dedup only. | Fediverse boost announces the owner's reference Note. Share remains a single `Create`. |
+| Self-boost is an `Announce` of the author's own status, with local feed dedup only. `reblog?` rejects direct and limited. A reblog cannot be `direct` (`status.rb` line 131). | Fediverse boost announces the owner's public, unlisted, or private reference Note. Share remains a single `Create`. Direct and limited are refused. |
 | `PreviewCard` is global per URL. | Projections do not attach cards. Public reference Notes may, from a public fetch. |
 | Favourite of a local status notifies the author and may register trends. | Projection favourite is local and does not register trends. Native like is opt-in. |
 | Reblog of personal is already rejected. | Projection reblog, reply, and quote are rejected even if visibility is corrupted. |
@@ -332,7 +378,9 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | Case | Expect | Spec target |
 | --- | --- | --- |
 | Owner GET `/api/v1/statuses/:id` | 200, extension present, `visibility_ex` personal | `spec/controllers/api/v1/statuses_controller_spec.rb` |
-| Other local user GET same id | 404 | same |
+| Second `users` row with the same `account_id` GETs that id, and loads `PersonalFeed`, `AccountStatusesFeed`, and `permitted_statuses_from_ids` | 404 or the id absent. `owned?` would have allowed it. The fixture inserts the second user in the database | statuses controller spec, `spec/controllers/api/v1/accounts/statuses_controller_spec.rb`, and a new personal-feed example |
+| Caller with the matching account and `viewer_user_id` nil | id absent. Background and backup paths included | writer spec and `spec/services/backup_service_spec.rb` |
+| Other local user GET same id | 404 | statuses controller spec |
 | Unauthenticated GET, HTML permalink, oEmbed | 404 | `spec/controllers/statuses_controller_spec.rb`, `spec/controllers/api/oembed_controller_spec.rb` |
 | Other user's home, list, public, tag, account statuses, and AP outbox | id absent | `spec/services/fan_out_on_write_service_spec.rb`, `spec/controllers/api/v1/accounts/statuses_controller_spec.rb`, `spec/controllers/activitypub/outboxes_controller_spec.rb` |
 | Redis `timeline:public` and the other account's `timeline:{id}` | no publish of the projection id. Node is not relied on to drop it | fan-out spec. Subscription behavior is `streaming/index.js`, cited above |
@@ -348,7 +396,10 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | Case | Expect | Spec target |
 | --- | --- | --- |
 | Marker insert raises inside the writer transaction | no status row, no marker, no webhook job, no Chewy document | new projection writer spec |
-| Both rows commit | `uri` null, no webhook, id absent from `StatusesIndex`, no Redis publish | same |
+| Both rows commit | `uri` null, no webhook, raw Chewy get absent after refresh, no Redis publish | same |
+| Create, favourite, bookmark, unfavourite, unbookmark, refresh after each | raw Chewy document absent after every refresh | new index spec |
+| Full `StatusesIndex` import of the scope | projection id still absent | index spec |
+| Document planted, then marker commit and post-commit import | document gone | index spec |
 | Projection `uri` is null after create | column null | same |
 | `ActivityPub::DistributionWorker` given the id | no `DeliveryWorker` | `spec/workers/activitypub/distribution_worker_spec.rb` |
 | Update worker and `UpdateStatusService` | refused or no delivery | `spec/workers/activitypub/status_update_distribution_worker_spec.rb` |
@@ -357,6 +408,7 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | Boost when a reference Note already exists | one `Announce` of that Note's URI, no second `Create` | reference spec, plus `spec/services/reblog_service_spec.rb` |
 | Boost when it does not exist | confirm required; then one `Create` and one `Announce`; unreblog sends Undo and leaves the Note | reference spec |
 | Boost of the projection id or of the external URL | no `Announce` | reference spec |
+| Boost of a direct or limited reference Note, and a boost requested as direct or limited | refusal from `reblog?` or the visibility validation. No wrapper, no `Announce` | `spec/services/reblog_service_spec.rb` |
 | Reference delete | Delete refers to the reference URI only. Reblogs of that Note are removed. The projection remains | remove-status spec |
 | Outbox and profile RSS | reference appears according to its visibility; projection does not | outboxes spec, accounts controller |
 
@@ -371,7 +423,10 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | Native like with revoked credential | `credential_revoked`, vault `with_credential` not yielding | same, plus vault spec style |
 | Retry after a lost 200 | no second `createRecord` until reconcile; adopted URI if the record exists; `remote_state` stays `unknown` until then | activities spec |
 | Like, unlike, like | one row; unlike deletes the stored `native_activity_uri`; the next like uses a new rkey | activities spec |
-| Two users submit the same idempotency string | two rows. Uniqueness is `(user, identity, key)` | activities spec |
+| Two users submit the same idempotency string | two command rows. Uniqueness is `(user, identity, key)` | activities spec |
+| Replay the like key after unlike | `superseded`, `desired` stays inactive, no second `createRecord` | activities spec |
+| New key carrying the like's `expected_generation` after unlike | `stale_activity_command`, no PDS write | activities spec |
+| New key whose `expected_generation` is the current generation | accepted, generation increments, new rkey on the next like | activities spec |
 | Concurrent double click | one PDS write | activities spec |
 | Native failure after local favourite | local row remains, `remote_state` is not `present`, and the same request does not send a compensating `deleteRecord` | activities spec |
 | 401 from the resolved PDS after the write may have left | stop, `remote_state` stays `unknown`, no retry against another host | activities spec |
@@ -399,6 +454,8 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | New CID, same AT URI | same resource id, new revision, no AP Update | identity spec. Parser behavior is UNVERIFIED until P2 uses a real AT URI parser |
 | Attempt to change projection visibility to public | refused, `uri` still null | writer spec |
 | User delete | projections, subscriptions, and identities gone; shared resource remains; no AP Delete for the projection | account deletion spec |
+| Insert projection with a mismatched subscription user, status account, or resource source | database rejects the row; the writer transaction leaves no status | writer spec |
+| P5 group member from similar text or URL, or from a like record | no member. An explicit AT URI whose DID matches the identity can be added | publication-group spec |
 | Identity disconnect | inbound rows gone; outbound rows deleted only when `absent` or `pending_create` with no request sent; `present` and `unknown` rows remain without a token; public projections remain; vault row revoked | identity spec |
 | Bridgy Fed or another bridge observing a reference Note | UNVERIFIED experiment, required before the P6 flag can be turned on. Record the remote result in the P6 issue | manual experiment notes, not a unit stub presented as proof |
 
@@ -419,13 +476,15 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 
 ## Rollout checks before a flag may be enabled
 
-P1 `external_bridge_rss` stays off until section A, the projection rows of section B (null `uri`, no distribution, no delete reach, no Redis publish), the local interaction refusals in section C, and sections D and F are green. The parent-scope rows in F are P6 specs; they do not block the RSS flag. The transaction rollback rows in B do.
+P1 `external_bridge_rss` stays off until section A, the projection rows of section B (null `uri`, no distribution, no delete reach, no Redis publish, Chewy absent through favourite and a full import), the local interaction refusals in section C, and sections D and F are green. The two-users row and the mismatch inserts in A and E are part of that gate. The parent-scope rows in F are P6 specs; they do not block the RSS flag. The transaction rollback rows in B do.
 
-P3 stays off until the native rows of section C are green, including lost-ack reconcile and the scoped idempotency key.
+P3 stays off until the native rows of section C are green, including lost-ack reconcile, the command-key uniqueness, and the stale-replay rows.
 
 P4 stays off until the inbound row of section C is green.
 
-P6 stays off until section B's reference and boost rows are green and the experiments in section E are recorded for both `Create` and `Announce`. A passing unit test that stubs the remote server does not replace that experiment.
+P5 stays off until the publication-group row in section E is green. That phase does not add `create_post`.
+
+P6 stays off until section B's reference and boost rows are green, including the direct and limited refusal, and the experiments in section E are recorded for both `Create` and `Announce`. A passing unit test that stubs the remote server does not replace that experiment.
 
 ## Unverified items that must not be described as done
 
