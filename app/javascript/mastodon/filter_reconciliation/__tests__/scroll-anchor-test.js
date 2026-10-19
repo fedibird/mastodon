@@ -142,6 +142,65 @@ it('does not assign scrollTop when the correction frames see no layout change', 
   raf.mockRestore();
 });
 
+it.each([1, 0.75])('does not rewind %spx of inertia when the row rect only follows the scroll', (distance) => {
+  const frames = [];
+  const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.push(callback);
+    return frames.length;
+  });
+  const { node, rows } = setup();
+  let sets = 0;
+  let top = 350;
+  Object.defineProperty(node, 'scrollTop', {
+    configurable: true,
+    get: () => top,
+    set (value) {
+      sets += 1;
+      top = Number(value) || 0;
+    },
+  });
+  const surface = new FilterSurface(jest.fn(), node, { ids: ['1'], scrollKey: 'route' });
+  const before = rows[3].getBoundingClientRect().top;
+  surface.prepare();
+  top += distance;
+  frames.shift()();
+  frames.shift()();
+  expect(sets).toBe(0);
+  expect(top).toBe(350 + distance);
+  expect(rows[3].getBoundingClientRect().top).toBe(before - distance);
+  surface.destroy();
+  raf.mockRestore();
+});
+
+it('still corrects a real row-height change when the scroller has not moved', () => {
+  const frames = [];
+  const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.push(callback);
+    return frames.length;
+  });
+  const { node, rows, heights } = setup();
+  let sets = 0;
+  let top = 350;
+  Object.defineProperty(node, 'scrollTop', {
+    configurable: true,
+    get: () => top,
+    set (value) {
+      sets += 1;
+      top = Number(value) || 0;
+    },
+  });
+  const surface = new FilterSurface(jest.fn(), node, { ids: ['1'], scrollKey: 'route' });
+  const before = rows[3].getBoundingClientRect().top;
+  surface.prepare();
+  heights[1] = 0;
+  frames.shift()();
+  frames.shift()();
+  expect(sets).toBeGreaterThan(0);
+  expect(rows[3].getBoundingClientRect().top).toBe(before);
+  surface.destroy();
+  raf.mockRestore();
+});
+
 it.each([
   ['touchmove', 'touchmove'],
   ['momentum after touchend', 'touchend'],

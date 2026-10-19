@@ -34,19 +34,27 @@ export const captureFilterAnchor = (node, scroller, top) => {
   };
 };
 
+// A scroll smaller than this is the same tolerance as a layout write. The
+// stale check used to allow a full pixel, so a 0.6–1px inertia step was
+// written back and the native momentum stopped.
+const POSITION_EPSILON = 0.5;
+
 export const restoreFilterAnchor = (snapshot, node, scroller, top) => {
   if (!snapshot || !node || !scroller || snapshot.abandoned) return;
-  // A later frame must not treat the correction we just wrote as a user
-  // scroll. Movement after the snapshot, including scrollbar and momentum
-  // that never reach a pointer listener, makes the snapshot stale.
-  if (isProgrammaticTopScroll(scroller) || Math.abs(scroller.scrollTop - snapshot.offset) > 1) {
+  // Travel is user momentum or a scrollbar move. A layout change leaves
+  // scrollTop where the snapshot recorded it and only moves row rects.
+  // Any travel outside the epsilon makes the snapshot stale, including
+  // when the row rect merely follows that travel. Our own correction
+  // updates snapshot.offset, so the next frame is not treated as travel.
+  const travel = scroller.scrollTop - snapshot.offset;
+  if (isProgrammaticTopScroll(scroller) || Math.abs(travel) > POSITION_EPSILON) {
     snapshot.abandoned = true;
     return;
   }
   const anchor = snapshot.rows.find(row => node.contains(row.node) && row.node.getBoundingClientRect().height > 0);
   if (anchor) {
     const delta = anchor.node.getBoundingClientRect().top - top - anchor.offset;
-    if (Math.abs(delta) > 0.5) {
+    if (Math.abs(delta) > POSITION_EPSILON) {
       scroller.scrollTop += delta;
       snapshot.offset = scroller.scrollTop;
     }

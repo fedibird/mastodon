@@ -532,6 +532,93 @@ describe('header smooth scroll', () => {
     expect(nativeScrollTop.get.call(list)).toBe(200);
     expect(isProgrammaticTopScroll(list)).toBe(false);
   });
+
+  it.each([0, 0.25])('stops the header animation when an explicit seek delta is %s', (delta) => {
+    const listRef = React.createRef();
+    const { container } = render(
+      <Provider store={store()}>
+        <ScrollableList ref={listRef} scrollKey='home' trackScroll={false} hasMore={false}>
+          <Row key='100' id='100' />
+          <Row key='90' id='90' />
+          <Row key='80' id='80' />
+        </ScrollableList>
+      </Provider>,
+    );
+    const list = container.querySelector('.scrollable');
+    let alive = false;
+
+    list.querySelectorAll('article').forEach((article, index) => {
+      const id = ['100', '90', '80'][index];
+
+      article.getBoundingClientRect = () => ({
+        top: (index * 100) - nativeScrollTop.get.call(list),
+        bottom: ((index + 1) * 100) - nativeScrollTop.get.call(list),
+        height: 100,
+        left: 0,
+        right: 320,
+        width: 320,
+      });
+      article.setAttribute('data-id', id);
+    });
+    list.getBoundingClientRect = () => ({ top: 0, bottom: 400, height: 400, left: 0, right: 320, width: 320 });
+    nativeScrollTop.set.call(list, 1800);
+    list.scrollTo = (options = {}) => {
+      const top = options.top || 0;
+
+      if (options.behavior !== 'smooth') {
+        alive = false;
+        nativeScrollTop.set.call(list, top);
+        return;
+      }
+
+      const start = nativeScrollTop.get.call(list);
+      let ticks = 0;
+      let expected = start;
+
+      alive = true;
+      const step = () => {
+        if (!alive) {
+          return;
+        }
+
+        const actual = nativeScrollTop.get.call(list);
+
+        // Session release alone does not stop Chrome. Only a new scroll
+        // or a scrollTop write does.
+        if (Math.abs(actual - expected) > 0.5) {
+          alive = false;
+          return;
+        }
+
+        ticks += 1;
+        const next = ticks >= 8 ? top : start + ((top - start) * ticks / 8);
+
+        nativeScrollTop.set.call(list, next);
+        expected = next;
+
+        if (next !== top) {
+          requestAnimationFrame(step);
+        }
+      };
+
+      requestAnimationFrame(step);
+    };
+    scrollTop(list);
+    flushFrames(1);
+    const mid = nativeScrollTop.get.call(list);
+
+    expect(mid).toBeGreaterThan(0);
+    const moved = listRef.current.scrollToLoadedStatus('80', { offsetPx: 200 - mid - delta });
+
+    expect(moved.ok).toBe(true);
+    expect(alive).toBe(false);
+    const held = nativeScrollTop.get.call(list);
+
+    flushFrames(8);
+    expect(nativeScrollTop.get.call(list)).toBe(held);
+    expect(Math.abs(held - mid)).toBeLessThanOrEqual(0.5);
+    expect(isProgrammaticTopScroll(list)).toBe(false);
+  });
 });
 
 const buildSplitStore = () => {

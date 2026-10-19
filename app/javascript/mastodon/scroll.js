@@ -155,7 +155,7 @@ const armSession = (node) => {
   return session;
 };
 
-const animate = (node, key, target) => {
+const animate = (node, key, target, sessionId) => {
   const startTime = Date.now();
   const offset = node[key];
   const gap = target - offset;
@@ -170,7 +170,7 @@ const animate = (node, key, target) => {
     if (key === 'scrollTop') {
       const session = sessions.get(node);
 
-      if (!session || !session.active) {
+      if (!session || session.id !== sessionId || !session.active) {
         return;
       }
     }
@@ -182,7 +182,11 @@ const animate = (node, key, target) => {
 
     if (done) {
       if (key === 'scrollTop') {
-        releaseSession(node);
+        const session = sessions.get(node);
+
+        if (session && session.id === sessionId) {
+          releaseSession(node);
+        }
       }
 
       return;
@@ -204,12 +208,18 @@ export const isProgrammaticTopScroll = (node) => {
   return !!(session && session.active);
 };
 
-// Explicit navigation replaces the header animation. Filter and height
-// corrections must not call this; they yield until the header scroll ends.
+// Explicit navigation replaces the header animation. Releasing the session
+// flag does not stop a native smooth scroll, so pin it. A zero-delta seek
+// would otherwise leave the browser running toward the top. Filter and
+// height corrections must not call this.
 export const releaseProgrammaticTopScroll = (node) => {
-  if (node) {
-    releaseSession(node);
+  const session = node && sessions.get(node);
+
+  if (!session || !session.active) {
+    return;
   }
+
+  pinScroll(node);
 };
 
 export const scrollRight = (node, position) => supportsSmoothScroll() ? node.scrollTo({ left: position, behavior: 'smooth' }) : animate(node, 'scrollLeft', position);
@@ -232,7 +242,7 @@ export const scrollTop = (node) => {
   if (supportsSmoothScroll()) {
     node.scrollTo({ top: 0, behavior: 'smooth' });
   } else {
-    stopAnimation = animate(node, 'scrollTop', 0);
+    stopAnimation = animate(node, 'scrollTop', 0, session.id);
   }
 
   if (node.scrollTop <= 0) {

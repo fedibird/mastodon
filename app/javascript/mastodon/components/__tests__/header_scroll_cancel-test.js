@@ -153,4 +153,38 @@ describe('header scroll cancel', () => {
     cancel();
     expect(sets).toEqual([1600]);
   });
+
+  it('does not let an older fallback animation finish the newer header session', () => {
+    const proto = Object.getPrototypeOf(document.documentElement.style);
+    const behavior = Object.getOwnPropertyDescriptor(proto, 'scrollBehavior');
+
+    delete proto.scrollBehavior;
+
+    const node = document.createElement('div');
+    let now = 10000;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+
+    document.body.appendChild(node);
+    nativeScrollTop.set.call(node, 900);
+
+    try {
+      sets.length = 0;
+      scrollTop(node);
+      now = 10500;
+      scrollTop(node);
+      const during = node.scrollTop;
+
+      now = 11000;
+      flushFrames();
+      expect(isProgrammaticTopScroll(node)).toBe(true);
+      expect(node.scrollTop).toBeGreaterThan(10);
+      expect(node.scrollTop).not.toBe(0);
+      expect(during).toBe(900);
+    } finally {
+      clock.mockRestore();
+      if (behavior) {
+        Object.defineProperty(proto, 'scrollBehavior', behavior);
+      }
+    }
+  });
 });
