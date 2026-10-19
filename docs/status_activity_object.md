@@ -5,6 +5,11 @@ posts remain Notes. Nothing in this change delivers a Page, exposes
 `post_title` or `ap_object_type` on the REST API, adds a composer field,
 or enables Lemmy or PieFed delegated posting.
 
+`ap_object_type` is only `note` or a future `page`. It is not an
+external source protocol, and neither is `Account.protocol`. The private
+external-resource bridge in `docs/private_external_bridge.md` keeps that
+split and does not publish external articles as Pages.
+
 ## Data model
 
 `statuses.post_title` is nullable text. `statuses.ap_object_type` is a
