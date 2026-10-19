@@ -40,6 +40,8 @@ RISK. A local projection created with `Status.create!` gets an ActivityPub URI, 
 
 GAP. `store_uri`, `search_indexable?`, and webhook callbacks must no-op when a projection row exists. `permitted_for`'s mention branch must not return a projection to other users.
 
+The callbacks are `after_create_commit` (`store_uri` at 673, webhooks at 678–679) plus Chewy's `update_index` at line 63. They run only after a successful commit. The P1 writer inserts the status and the marker in that same transaction and does not commit the status in a nested transaction. A failed marker insert rolls both back, so the callbacks do not run. After a successful commit the callbacks must query the marker again, uncached, because an association loaded before the marker insert would still look empty. The spec for that ordering is in the test matrix. Owner streaming is not produced by a successful commit.
+
 ## Status policy and serializers
 
 CONFIRMED. `app/policies/status_policy.rb`.
@@ -114,7 +116,18 @@ CONFIRMED unless marked otherwise.
 
 GAP. Every list above needs a projection exclusion for non-owners, including the mention branch. Owner personal-timeline inclusion is allowed. Public RSS, oEmbed, embed, and profile HTML must keep excluding them even if visibility is wrong.
 
-UNVERIFIED. Node streaming subscription auth. This repo publishes to Redis; the Node process was not re-reviewed line by line in this pass. Ruby `PushUpdateWorker` is covered below.
+Node streaming is not an authorization layer for projections. CONFIRMED in `streaming/index.js`:
+
+| Path | Lines | What it actually checks |
+| --- | --- | --- |
+| `channelNameToIds`, case `user` | 1057–1061 | Subscribes to `timeline:${accountId}` for the token's account. `needsFiltering` is false. |
+| `channelNameToIds`, case `direct` | 1397–1401 | `timeline:direct:${accountId}`. `needsFiltering` is false. |
+| `channelNameToIds`, case `list` | 1429–1437 | Authorizes list ownership, then `timeline:list:${id}` with `needsFiltering` false. |
+| `streamFrom` | 824–827 | When `needsFiltering` is false, or the event is not `update` / `status.update`, the payload is transmitted as published. |
+| Public, hashtag, and group cases | 1083 and following | `needsFiltering` true. The filter at 844–880 is block, mute, domain block, and keyword filters. It does not read `visibility` or a projection marker. |
+| `checkScopes` | 531–560 | Public channel names skip OAuth scopes. User channels require `read` or `read:statuses`. |
+
+A payload Ruby publishes on `timeline:public` or on another account's `timeline:{id}` is delivered to whoever is allowed to subscribe to that Redis channel. The Node process will not notice that the status is a projection. P1's gate is that the writer publishes nothing. Owner-only streaming is not established by these files, and a live owner channel is not a P1 deliverable. A later phase that wants one has to name the Redis channel and prove a second account's user stream does not receive it.
 
 ## Timelines, Redis, streaming, search
 
@@ -160,7 +173,10 @@ CONFIRMED.
 | `RemoveStatusService#remove_from_remote_reach` | 116–127 | `StatusReachFinder` with `unsafe: true`, then `DeliveryWorker` of Delete or Undo. No personal check. Called for local non-page statuses (line 40). |
 | `StatusReachFinder#followers_inboxes` | 76–84 | Direct and limited return empty only when not `unsafe`. Unsafe personal therefore uses `delivery_followers.inboxes`. |
 | `ActivityPub::DeleteSerializer#to` | 39–44 | Addresses Public, plus an audience account if present. Tombstone id is `uri_for(status)`. |
-| `ReblogService` | 41–50 | Rejects `personal`. Otherwise creates a status and enqueues both distribution workers with no further personal check. |
+| `ReblogService` | 20–29, 41–50 | Returns an existing reblog for the same account and target. Rejects `personal`. Hidden originals keep their visibility. Otherwise creates a status and enqueues both distribution workers. |
+| `ActivityPub::ActivityPresenter.from_status` | `app/presenters/activitypub/activity_presenter.rb` 7–23 | A reblog is type `Announce` (line 10). The object is the original URI, unless the author boosts their own local private status, in which case the Note is inlined (lines 18–20). |
+| `FeedManager#add_to_feed` | `app/lib/feed_manager.rb` 533–539 | A reblog is not inserted when the original is already within `REBLOG_FALLOFF` of the top of that local feed. |
+| `ActivityPub::UndoAnnounceSerializer` | `app/serializers/activitypub/undo_announce_serializer.rb` 9–26 | Undo of a reblog targets the Announce. It is not a Delete of the original. |
 | `BackupService` | 30 | Exports `account.statuses.without_unreleased_pages` as ActivityPub activities. Personal statuses are included. |
 
 Inbound Create can store a remote status as personal when both audience arrays are empty. That is existing ingest, not this bridge. Those rows are remote (`uri` present) and are not projections.
@@ -255,7 +271,7 @@ CONFIRMED.
 
 RISK. A projection that created `MediaAttachment` rows or preview images would publish those files on the usual media URLs. Authenticated feed bodies placed in `Rails.cache` or Redis without the user and binding id would leak across users.
 
-GAP. P1 stores text on the projection and the shared public resource only. It does not download media. Authenticated bodies use `external_private_blobs` and the `v1:external_private/...` key. Deletion of a projection does not deliver ActivityPub and does not delete the shared public resource.
+GAP. P1 stores text on the projection and, only after a public 2xx fetch, on the shared resource. It does not download media. An authenticated or failed fetch writes no shared row and no private blob. That private model is not specified here. Deletion of a projection does not deliver ActivityPub and does not delete the shared public resource.
 
 UNVERIFIED. Exact Paperclip/filesystem cache headers for a hypothetical private attachment. Not needed for P1 because no attachment is created.
 
@@ -294,7 +310,9 @@ GAP. Admin trend approve/reject rejects projection ids. Backup skips them.
 | `PublishStatusService` skips AP distribute for personal and still link-crawls and webhooks. | Projection writer does not use that service. Callbacks also check the marker. |
 | `ActivityPub::DistributionWorker` will deliver personal if enqueued. | Worker skips projections and personal. |
 | Delete of personal still reaches follower inboxes with a public-addressed Tombstone. | Projection removal does not call `remove_from_remote_reach`. Ordinary personal delete is unchanged until a separate issue. |
-| Chewy indexes personal text. | Projections are not indexed. |
+| Chewy indexes personal text. | Projections are not indexed. The marker is committed in the same transaction as the status, and the index callback re-reads it. |
+| Node user streams forward `timeline:{accountId}` with no visibility check (`streaming/index.js`). | P1 publishes no projection payload. A live owner channel is not claimed. |
+| Self-boost is an `Announce` of the author's own status, with local feed dedup only. | Fediverse boost announces the owner's reference Note. Share remains a single `Create`. |
 | `PreviewCard` is global per URL. | Projections do not attach cards. Public reference Notes may, from a public fetch. |
 | Favourite of a local status notifies the author and may register trends. | Projection favourite is local and does not register trends. Native like is opt-in. |
 | Reblog of personal is already rejected. | Projection reblog, reply, and quote are rejected even if visibility is corrupted. |
@@ -317,6 +335,7 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | Other local user GET same id | 404 | same |
 | Unauthenticated GET, HTML permalink, oEmbed | 404 | `spec/controllers/statuses_controller_spec.rb`, `spec/controllers/api/oembed_controller_spec.rb` |
 | Other user's home, list, public, tag, account statuses, and AP outbox | id absent | `spec/services/fan_out_on_write_service_spec.rb`, `spec/controllers/api/v1/accounts/statuses_controller_spec.rb`, `spec/controllers/activitypub/outboxes_controller_spec.rb` |
+| Redis `timeline:public` and the other account's `timeline:{id}` | no publish of the projection id. Node is not relied on to drop it | fan-out spec. Subscription behavior is `streaming/index.js`, cited above |
 | Context of an unrelated status | projection absent | statuses controller spec |
 | Favourited-by and reblogged-by | 404 for non-owner | `spec/controllers/api/v1/statuses/favourited_by_accounts_controller_spec.rb` and the reblogged-by spec |
 | Search `in:all` and a raw Chewy document | no projection document | `spec/controllers/api/v2/search_controller_spec.rb`, `spec/models/status_searchable_text_spec.rb` |
@@ -328,12 +347,17 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 
 | Case | Expect | Spec target |
 | --- | --- | --- |
-| Projection `uri` is null after create | column null | new projection writer spec |
+| Marker insert raises inside the writer transaction | no status row, no marker, no webhook job, no Chewy document | new projection writer spec |
+| Both rows commit | `uri` null, no webhook, id absent from `StatusesIndex`, no Redis publish | same |
+| Projection `uri` is null after create | column null | same |
 | `ActivityPub::DistributionWorker` given the id | no `DeliveryWorker` | `spec/workers/activitypub/distribution_worker_spec.rb` |
 | Update worker and `UpdateStatusService` | refused or no delivery | `spec/workers/activitypub/status_update_distribution_worker_spec.rb` |
 | `RemoveStatusService` on the projection | no remote Delete, no follower inbox | `spec/services/remove_status_service_spec.rb` |
 | Reference Note create | `Create` actor is the Fedibird user; object id is the reference URI; body matches the template and does not include the fixture article body | new reference spec |
-| Reference delete | Delete refers to the reference URI only | remove-status spec |
+| Boost when a reference Note already exists | one `Announce` of that Note's URI, no second `Create` | reference spec, plus `spec/services/reblog_service_spec.rb` |
+| Boost when it does not exist | confirm required; then one `Create` and one `Announce`; unreblog sends Undo and leaves the Note | reference spec |
+| Boost of the projection id or of the external URL | no `Announce` | reference spec |
+| Reference delete | Delete refers to the reference URI only. Reblogs of that Note are removed. The projection remains | remove-status spec |
 | Outbox and profile RSS | reference appears according to its visibility; projection does not | outboxes spec, accounts controller |
 
 ### C. Interactions
@@ -345,8 +369,12 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | Ordinary reply, reblog, quote, emoji reaction | 422, no new status | `spec/services/reblog_service_spec.rb`, post-status spec |
 | Native like without identity | `external_identity_required`, no succeeded activity | new `spec/services/external_bridge/activities_spec.rb` |
 | Native like with revoked credential | `credential_revoked`, vault `with_credential` not yielding | same, plus vault spec style |
-| Retry of the same idempotency key | one provider call | activities spec |
-| Native failure after local favourite | local row remains, activity `failed` | activities spec |
+| Retry after a lost 200 | no second `createRecord` until reconcile; adopted URI if the record exists; `remote_state` stays `unknown` until then | activities spec |
+| Like, unlike, like | one row; unlike deletes the stored `native_activity_uri`; the next like uses a new rkey | activities spec |
+| Two users submit the same idempotency string | two rows. Uniqueness is `(user, identity, key)` | activities spec |
+| Concurrent double click | one PDS write | activities spec |
+| Native failure after local favourite | local row remains, `remote_state` is not `present`, and the same request does not send a compensating `deleteRecord` | activities spec |
+| 401 from the resolved PDS after the write may have left | stop, `remote_state` stays `unknown`, no retry against another host | activities spec |
 | Inbound sync | rows in `inbound_interactions` only. Zero new `Notification` or `Account` | new inbound spec |
 
 ### D. Shared cache and trends
@@ -354,8 +382,9 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | Case | Expect | Spec target |
 | --- | --- | --- |
 | Two users, one public feed fixture | one `external_resources` row, two projections, no `user_id` on the resource | new fetch spec |
-| Authenticated fixture | body only in `external_private_blobs` for that user and binding | fetch spec |
-| Replaced credential (new binding) | old private blob not readable | fetch spec |
+| Authenticated fixture, 401, and a redirect onto a private address | no `external_sources` row, no `external_resources` row, no public cache key, no ETag stored. Caller receives `authenticated_source_rejected` or the SSRF error | fetch spec |
+| User B fetches after user A's rejected private URL | still no shared row | fetch spec |
+| Previously public source later returns 401 | shared ETag unchanged; that user's subscription `error`; other users' public copies unchanged | fetch spec |
 | Projection text contains a URL | no `PreviewCard`, no `LinkCrawlWorker` | `spec/services/fetch_link_card_service_spec.rb` |
 | Public reference with the same URL | card allowed; trend register only if the reference is public | `spec/services/fetch_link_card_trend_metadata_spec.rb` |
 | Private favourite | `Trends::Statuses` score unchanged | trends model spec |
@@ -369,8 +398,8 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | RSS item without guid and without link | skipped, no projection | fetch spec |
 | New CID, same AT URI | same resource id, new revision, no AP Update | identity spec. Parser behavior is UNVERIFIED until P2 uses a real AT URI parser |
 | Attempt to change projection visibility to public | refused, `uri` still null | writer spec |
-| User delete | projections, subscriptions, identities, private blobs gone; shared resource remains; no AP Delete for the projection | account deletion spec |
-| Identity disconnect | inbound and pending activities for that identity gone; public projections remain; vault row revoked | identity spec |
+| User delete | projections, subscriptions, and identities gone; shared resource remains; no AP Delete for the projection | account deletion spec |
+| Identity disconnect | inbound rows gone; outbound rows deleted only when `absent` or `pending_create` with no request sent; `present` and `unknown` rows remain without a token; public projections remain; vault row revoked | identity spec |
 | Bridgy Fed or another bridge observing a reference Note | UNVERIFIED experiment, required before the P6 flag can be turned on. Record the remote result in the P6 issue | manual experiment notes, not a unit stub presented as proof |
 
 ### F. SSRF, XML, and secrets
@@ -378,26 +407,31 @@ Fail closed means: non-owner and unauthenticated callers get 404 for the project
 | Case | Expect | Spec target |
 | --- | --- | --- |
 | Feed URL to a literal private address, and a redirect to one | `Mastodon::PrivateNetworkAddressError` or host validation error, no row | fetch spec using `Request` |
-| Userinfo or token query in the feed URL | rejected or stored only as an authenticated fetch with the secret in the vault, never in `canonical_key` | fetch spec |
+| Userinfo or token query in the feed URL | rejected, no shared row, secret not stored | fetch spec |
+| Followers-only parent, then a public reply | new public parent after confirm; the followers-only parent stays followers-only | reference spec |
+| Public parent, then a followers-only reply | reuses the public parent; no second parent | reference spec |
+| Two concurrent parent creates at the same scope | one Note and one `Create` | reference spec |
+| Parent deleted, then another reply | confirm a new parent; old replies are not retargeted | reference spec |
+| Visibility edit of an auxiliary parent | refused | reference spec |
 | XXE / external entity in fixture XML | entity not fetched | fetch spec |
 | Job payload and log lines for a failed fetch | no token, no ciphertext, no `encrypted_payload` | activities spec and vault spec |
 | Generic `POST /settings/external_services/:provider` | route absent | routes spec |
 
 ## Rollout checks before a flag may be enabled
 
-P1 `external_bridge_rss` stays off until section A, the ActivityPub rows of section B, the local interaction refusals in section C, and sections D and F are green on that change.
+P1 `external_bridge_rss` stays off until section A, the projection rows of section B (null `uri`, no distribution, no delete reach, no Redis publish), the local interaction refusals in section C, and sections D and F are green. The parent-scope rows in F are P6 specs; they do not block the RSS flag. The transaction rollback rows in B do.
 
-P3 stays off until the native rows of section C are green.
+P3 stays off until the native rows of section C are green, including lost-ack reconcile and the scoped idempotency key.
 
 P4 stays off until the inbound row of section C is green.
 
-P6 stays off until section B's reference rows are green and the Bridgy Fed experiment in section E is recorded. A passing unit test that stubs the remote server does not replace that experiment.
+P6 stays off until section B's reference and boost rows are green and the experiments in section E are recorded for both `Create` and `Announce`. A passing unit test that stubs the remote server does not replace that experiment.
 
 ## Unverified items that must not be described as done
 
 - Remote server reaction to today's personal-status Delete.
 - Bridgy Fed, or any other bridge, looping on a link-only Note.
-- Node streaming source filters beyond the Ruby publisher.
+- Whether a future owner Redis channel would stay limited to that socket. The current Node paths are cited above and do not perform that check. P1 publishes no projection payload.
 - AT URI parsing, CID replacement, and PDS session behavior. No client is in the tree.
 - X and mixi2 API availability and terms.
 - Whether a stock client can be taught the `fedibird_external` extension. The server contract does not depend on that.

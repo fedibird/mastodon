@@ -16,7 +16,7 @@ This bridge links a Fedibird user to external resources and, when they choose, t
 ## Invariants
 
 1. **Private projection by default.** An imported feed item or external post is visible only to the user who imported it. There is no shared synthetic actor, no instance-wide status, and no automatic ActivityPub relay. Two users following the same feed have two projections, two favourite rows, and two bookmark rows. Neither user can observe that the other subscribed.
-2. **Shared fetch, never shared social state.** Public source bytes may be fetched once and cached. Credentials, subscription membership, read state, annotations, and interactions are stored per user. An authenticated response is never written into the shared cache.
+2. **Shared fetch, never shared social state.** A fetch with no credential may be cached once and reused. Credentials, subscription membership, read state, annotations, and interactions are stored per user. P1 through P3 accept public fetches only. An authenticated or follower-only fetch is rejected and writes nothing to the shared tables, including ETag, HTTP status, and error bodies. A private resource identity is not this document's blob table; it is a later model with its own keys.
 3. **Local Status compatibility without a public object.** The owner may see a projection through existing status surfaces. That row is not an ActivityPub object. Its URI stays null. `visibility = personal` is not a sufficient guard: `StatusPolicy#owned?` compares `account_id`, and several fan-out paths do not check `personal` themselves. See the audit.
 4. **Public text only when the user publishes a different status.** A federated share is a new Note on the user's real local account. Its body is at most an optional title line, a protocol label, and the canonical URL. It does not contain the external article or post text, its media, or an actor pretending to be the external author. The private projection's id is never that Note's `id`.
 5. **Native actions use the user's own external account.** A Fedibird favourite is not a Bluesky like unless the user has connected an identity, the provider capability allows it, and the user opts in for that action. Local state and the remote call fail separately. Missing or revoked credentials produce a failure, not a pretended success.
@@ -41,7 +41,9 @@ This bridge links a Fedibird user to external resources and, when they choose, t
 | Inbound interaction | One native reply, like, or repost addressed to the owner, stored privately. |
 | Publication group | An explicit mapping the user created between their own Fedibird post and their own native posts. |
 | AP reference | A normal local Note the user published, containing only the link template below. |
-| Auxiliary parent | The single AP reference reused as `inReplyTo` / quote target for later federation. Distinct from a standalone share. |
+| Auxiliary parent | An AP reference used as `inReplyTo` or quote target. Reused only inside one distribution scope. Distinct from a standalone share and from a boost wrapper. |
+| Distribution scope | The visibility and, for direct or limited, the recipient set of a reference Note. Auxiliary parents are unique per user, resource, and this scope. |
+| Fediverse boost | `Announce` of the owner's reference Note by the owner's real account. Never `Announce` of the external URL or the private projection. |
 
 ## Three records, three audiences
 
@@ -50,9 +52,9 @@ public fetch                         owner only                         owner's 
 ─────────────────────────            ─────────────────────────          ─────────────────────────
 external_sources                     external_subscriptions             external_ap_references
 external_resources                   external_status_projections        statuses row (real Note)
-external_actors                      favourites / bookmarks             ActivityPub Create
-(no user_id, no token)               inbound_interactions               canonical URL + label
-                                     external_activities
+external_actors                      favourites / bookmarks             ActivityPub Create, or
+(no user_id, no token,               inbound_interactions               Announce of that Note
+ public responses only)              external_activities
                                      publication_groups
 
         │                                    │                                    │
@@ -99,7 +101,7 @@ Any path that loads a status id must treat "a projection row exists" as private,
 | `Status#store_uri` | Do not set `uri`. |
 | `ActivityPub::TagManager#uri_for` / `#url_for` | Do not build an account status URL for a projection. Callers serialize nothing. |
 | `PublishStatusService` and `ActivityPub::DistributionWorker` | Do not enqueue. The worker also skips projections itself, including `personal`, which it does not skip today. |
-| `FanOutOnWriteService`, `PushUpdateWorker` | Do not insert or render a projection except an owner-scoped read model that does not publish to `timeline:` channels for other accounts. |
+| `FanOutOnWriteService`, `PushUpdateWorker`, `streaming/index.js` | Publish no Redis payload for a projection. P1 owner reads use PostgreSQL. Node does not enforce this; see the audit. |
 | `trigger_create_webhooks` / `trigger_update_webhooks` | Do not enqueue. |
 | `search_indexable?` / `StatusesIndex` | Do not index the projection. Personal posts are indexed today; projections must not be. |
 | `FetchLinkCardService` / `LinkCrawlWorker` | Do not run. |
@@ -111,6 +113,22 @@ Any path that loads a status id must treat "a projection row exists" as private,
 | `Status.permitted_for` | A mention row must not make a projection visible. Projections do not create mentions. The scope also excludes projection ids for every viewer except the owning user. |
 
 Ordinary `personal` posts keep today's behavior. The new condition is the projection marker, not a change to personal-post federation. One current behavior is called out because P1 must not inherit it: deleting a local personal status still builds follower inboxes in `StatusReachFinder` (`unsafe: true` disables the direct/limited early return) and `ActivityPub::DeleteSerializer#to` addresses Public. Projection deletion must not call that path. Changing delete reach for ordinary personal posts is a separate bugfix, not this bridge.
+
+### Creation transaction
+
+`Status#store_uri`, the webhook callbacks, and the Chewy `update_index` hook run on `after_create_commit`. They do not run if the transaction rolls back. The marker lives in another table, so the writer has to make that marker visible before those callbacks observe the status.
+
+Normative writer, one transaction, no nested transaction that commits the status early:
+
+1. Insert the status with `uri` null, visibility `personal`, and searchability `personal`.
+2. Insert `external_status_projections` for that `status_id` and the owner's `user_id` before commit.
+3. If the marker insert fails, roll the transaction back. The status row is gone. `after_create_commit` does not run, so there is no URI write, webhook, or index update.
+4. After commit, each callback re-reads `ExternalStatusProjection.where(status_id: id).exists?` with an uncached query. A memoized empty association from before the marker insert is not evidence. If the row exists, `store_uri` does not set `uri`, webhooks are not enqueued, and `search_indexable?` is false.
+5. No worker is enqueued inside the transaction. Any worker that still receives the id re-checks the marker and returns before delivery, indexing, or HTTP.
+
+A crash after commit leaves a personal status with a marker and a null `uri`. That is private. It is not a success path that federates. The P1 spec rolls back between the two inserts and asserts that no status, marker, webhook job, or Chewy document remains. A second example commits both rows and asserts `uri` is null, no webhook was enqueued, and the status id is absent from `StatusesIndex`.
+
+Owner streaming is not part of this commit. P1 does not publish the new id to Redis. The Node process forwards whatever Ruby already published; it is not a second authorization of the projection.
 
 ### Owner-only REST extension
 
@@ -150,18 +168,50 @@ The canonical URL is the item's public link, not the projection URI and not an A
 
 Link crawl may run on this Note, because it is a normal post. `FetchLinkCardService` will store a global `PreviewCard` for that public URL. `Trends::Links#register` already requires both the status and its original to be public. A public reference may therefore enter link trends under today's rules. The card must be built from the public HTTP response, never from projection text or from an authenticated body. A personal, unlisted, private, or direct reference does not qualify for that trend register.
 
-### Auxiliary parent versus standalone share
+### Share, reply, and boost are different activities
 
 | User action | Record | ActivityPub effect |
 | --- | --- | --- |
-| Share a link to the Fediverse | New reference Note every time (`kind = standalone_share`) | One `Create` at the chosen visibility. Not an `Announce`. |
-| Reply or quote on the Fediverse | Reuse one auxiliary parent per `(user, resource)` (`kind = auxiliary_parent`), then a second status whose `in_reply_to_id` or `quote_id` is that parent | `Create` of the parent if it did not exist, then `Create` of the reply or quote. |
-| Boost on the Fediverse | Same as share: `Create` the reference Note. Do not `Announce` the projection or the external URL. | A later boost of that Note is an ordinary boost of the user's own post. |
-| Reply or like on the native service | `external_activities` only | No ActivityPub activity. |
+| Share a link | New reference Note every time (`kind = standalone_share`) | One `Create` at the chosen scope. No `Announce`. |
+| Reply or quote | Auxiliary parent at a compatible scope, then a status whose `in_reply_to_id` or `quote_id` is that parent | `Create` of the parent only when that scope does not already have one, then `Create` of the reply or quote. |
+| Boost | Reblog wrapper whose `reblog_of_id` is the owner's reference Note at a compatible scope | `Announce` of that Note by the owner's account. `Create` of the Note only if it does not already exist. Never `Announce` the external URL or the projection. |
+| Undo boost | Discard that reblog wrapper | `Undo` of that `Announce` only. The reference Note stays. |
+| Native reply or like | `external_activities` only | No ActivityPub activity. |
 
-Creating an auxiliary parent publishes that parent to its audience. The confirm step says so before the parent is created. A native reply does not create a parent.
+A share is not a boost. Calling a boost a share would drop unreblog: today's unreblog sends `ActivityPub::UndoAnnounceSerializer` and does not delete the boosted status. The boost target has to be an object this server can dereference as the owner's own Note. The private projection has no ActivityPub id. The external URL is not that Note.
 
-The reply's ActivityPub `inReplyTo` is the auxiliary parent's local URI. It is not the external URL, not the AT URI, and not the projection. Remote servers may still notice the URL inside the text. Whether Bridgy Fed or another bridge will fetch that URL and post back is **not established**. P6 does not ship until an experiment records the result. Mitigations that are in this design anyway: the object id is the local status URI, the actor is the Fedibird user, and nothing sets the external author as `attributedTo`.
+Baseline behavior this uses, and does not widen:
+
+- `StatusPolicy#reblog?` allows the owner to reblog their own non-mention-required status, including a private one (`!private? || owned?`). It does not forbid the reblogger and the author being the same account. `ReblogService` rejects `personal` (line 41) and, when the original is `hidden?`, forces the wrapper's visibility to the original's (lines 24–29). A public reference can be boosted at a narrower visibility. A private reference cannot be boosted to public by that path.
+- One account has at most one reblog of a given status (`ReblogService` returns the existing row). A second boost click does not send a second `Announce`.
+- `ActivityPub::ActivityPresenter.from_status` sets type `Announce` for a reblog (line 10). The object is the original's URI, except when the booster is the author, the original is a local private status, and the Note is inlined (lines 18–20). A public or unlisted self-boost does not inline a second copy of the body.
+- `FeedManager#add_to_feed` skips a reblog when the original is already within `REBLOG_FALLOFF` of the top of that local feed (lines 533–539). That dedup is local. It is not a promise about remote servers or relays.
+- `ActivityPub::DistributionWorker#relay!` runs for public visibility. A public `Create` and a later public `Announce` are two activities. They are not two `Create`s. Followers who already stored the Note receive an Announce of its URI.
+
+If the reference Note already exists at a compatible scope, a boost distributes only the `Announce`. The original `Create` is not sent again. If it does not exist, the confirm step states the audience and that both a link post and a boost will be published. The `Create` is distributed once, then the `Announce`. Remote software may still show both. That is the same shape as publishing a post and boosting it. P6 records what a Mastodon follower and a relay actually display before the flag is turned on. This design does not relabel the boost as a share to hide that second activity.
+
+Undo of the boost removes the wrapper and sends Undo of the Announce. Delete of the reference Note is a separate action, uses the normal Delete path for that Note, and also removes its reblogs through `RemoveStatusService#remove_reblogs`. The projection is neither the Announce object nor the Delete object.
+
+### Auxiliary parent scope
+
+An auxiliary parent is not unique for the whole `(user, resource)` pair. The unique key is `(user_id, external_resource_id, distribution_scope)`.
+
+`distribution_scope` is `public`, `unlisted`, `private`, or `direct:` / `limited:` plus the sorted recipient account ids. `mutual` is not a parent scope.
+
+Reuse:
+
+- A child at scope S may use an existing parent at S.
+- A child at `unlisted` or `private` may use an existing `public` parent. A `private` child may use an existing `unlisted` parent. Pointing a narrower reply at a broader parent does not publish the parent to anyone new.
+- Direct and limited reuse only the exact recipient set.
+- A wider child must not reuse a narrower parent and must not change that parent's visibility. The confirm step creates a new parent at the wider scope and names that audience. Example: a followers-only parent already exists, and the user asks for a public reply. The public reply gets a new public parent. The followers-only parent stays followers-only.
+
+Parent visibility, recipient set, and circle are frozen. `UpdateStatusService` refuses those changes on an auxiliary parent. A standalone share is not selected as a parent and may be edited under the normal status rules.
+
+Creation takes one transaction and a lock on the unique key. A concurrent insert that loses the unique index reloads the winner and does not distribute a second `Create`. Both requests must include `confirm_parent_scope` equal to the scope that would be created. Without it, the response is `parent_confirmation_required` and nothing is inserted.
+
+Deleting the parent deletes the reference row with the status. The bridge does not retarget existing replies or quotes onto a later parent. The next reply at that scope confirms a new parent. Orphaned replies follow the existing `in_reply_to_id` delete behavior and are not republished.
+
+The reply's ActivityPub `inReplyTo` is the chosen parent's local URI. It is not the external URL, not the AT URI, and not the projection. Remote servers may still notice the URL inside the text. Whether Bridgy Fed or another bridge will fetch that URL and post back is **not established**. P6 does not ship until an experiment records the result for both a `Create` and an `Announce` of the reference Note. Mitigations that are in this design anyway: the object id is the local status URI, the actor is the Fedibird user, and nothing sets the external author as `attributedTo`.
 
 `Formatter#format_bridgy_fed` rewrites spoiler text for display of bridged content this instance already ingested. It is not a license to republish external bodies, and this bridge does not call it to manufacture posts.
 
@@ -178,9 +228,9 @@ Normalization, applied only after every redirect hop has passed `Request` / `Pri
 - drop the default port
 - drop a trailing slash only when the path is empty
 - preserve query order
-- reject userinfo. A username or password in the URL is not stored. The user must use a vault credential, and that feed is then authenticated rather than shared.
+- reject userinfo. A username or password in the URL is not stored. The subscribe attempt is rejected. P1 through P3 have no authenticated-feed model to put it in.
 
-If the query contains `token`, `key`, `sig`, `signature`, or `access_token`, the fetch is authenticated even when the response was reachable. It is not written to `external_resources`.
+If the query contains `token`, `key`, `sig`, `signature`, or `access_token`, the attempt is rejected the same way. No shared row is inserted to remember that the URL was tried.
 
 Item key, first match:
 
@@ -197,35 +247,29 @@ Revision: the CID. A new CID at the same AT URI updates the shared row's revisio
 
 A missing public record sets `source_deleted_at` on the shared row. That is a public observation. It does not delete other users' projections. Each projection hides or keeps the last public copy under the owner's local retention choice. P1's choice is: keep the projection text, mark it source-deleted, and do not refetch it into the shared body.
 
-Native like and repost records have their own AT URIs. Those URIs are `external_activities.native_activity_id`, not the subject resource key.
+Native like and repost records have their own AT URIs and CIDs. Those are columns on the owner's `external_activities` row, not the subject resource key.
 
-Authenticated or follower-only records are not shared. They use `external_private_blobs`.
+A public record fetched with no user token may be an `external_resources` row. A follower-only record, a record fetched with `Authorization`, or a non-2xx response is not. P1 through P3 reject that fetch. They do not create a shared source or resource, and they do not write a private blob as a stand-in. The owner's own native object can still be named on an `external_activities` row when the user performs a native action, without copying an authenticated body into `external_resources`.
 
 ### URL canonicalization limits
 
-Redirects can collapse two user-entered URLs onto one source. That merge is allowed for the shared public source and forbidden for subscriptions: each user keeps their own subscription row. Private query tokens must be stripped before any shared key is computed. If a token cannot be stripped with confidence, the URL is rejected.
+Redirects can collapse two user-entered URLs onto one source. That merge is allowed only after every hop is a public 2xx response. Each user still keeps their own subscription row. A query that contains `token`, `key`, `sig`, `signature`, or `access_token` is rejected. Those parameters are not stripped into a shared key, and the attempt writes no source, resource, or cache entry.
 
 ## Cache keys
 
-Public material, no credential on the request:
+Public material, no credential on the request and a completed 2xx response:
 
 ```text
 v1:external_public/<protocol>/<sha256(canonical_key)>/<revision>
 ```
 
-Authenticated material:
+There is no private cache key in this design. A later private-resource model must not reuse `v1:external_public`, and it must not store an authenticated body under a key that another user can read. Personal DeepL's `user` / `credential` / `binding` partition is the pattern that later model has to follow. It is not implemented by a column on `external_resources`.
 
-```text
-v1:external_private/user/<user_id>/credential/<credential_id>/binding/<binding_id>/<protocol>/<sha256(canonical_key)>/<revision>
-```
-
-The digest input is the canonical key after secrets are removed. The key does not contain the token, the API password, or a raw URL that still has a userinfo or token query. This matches the Personal DeepL partition (`user` / `credential` / `binding`) and does not reuse `v3:translations/...`.
-
-Public cache entries may be reused across users. Private cache entries are deleted when the credential is replaced (the binding id changes), revoked, or the user is deleted. A shared entry stores no `user_id`.
+The digest input is the canonical key after secrets are removed. The key does not contain a token or a raw URL that still has userinfo or a token query. A shared entry stores no `user_id`. A rejected or failed fetch writes no cache entry.
 
 Caps, required before P1 writes a body: at most 1 MiB of stored text, a recorded `truncated` flag, and a response byte limit on the HTTP client. XML parsers for RSS must disable network entity resolution. The HTTP client is the existing `Request` class, which rejects private addresses, not a new open client.
 
-Job arguments are `owner_user_id`, `subscription_id` or `resource_id`, `credential_id`, `provider`, `purpose`, and `credential_type`. The worker reloads rows and calls `with_credential`. It does not receive a URL and a secret together.
+Public fetch jobs carry `subscription_id` or `resource_id` only. They do not carry a credential id. A later authenticated job, if a private model exists, follows the vault rule: `owner_user_id`, `credential_id`, `provider`, `purpose`, and `credential_type`, and never a URL and a secret together.
 
 ## Data model
 
@@ -240,11 +284,10 @@ Shared tables have **no** `user_id`. Owner tables are `NOT NULL user_id` with `O
 | `id` | primary key |
 | `protocol` | `rss`, `atom`, `atproto` in the phases below. `x` and `mixi2` are reserved and unused until a terms review |
 | `canonical_key` | not null |
-| `fetch_class` | `public` or `authenticated` |
-| `etag`, `last_modified`, `fetched_at`, `http_status` | nullable |
+| `etag`, `last_modified`, `fetched_at` | nullable, and only from a completed public 2xx response |
 | `title`, `site_url` | nullable public metadata |
 
-Unique `(protocol, canonical_key)`. No subscriber count column.
+Unique `(protocol, canonical_key)`. No subscriber count, no `fetch_class`, and no HTTP status from an authenticated or failed response. A 401, 403, redirect to a private address, or token-bearing URL does not insert or update this row. If a previously public source later answers 401, the shared ETag is left as it was and the owner's subscription goes to `error`. The 401 body is discarded.
 
 ### `external_actors`
 
@@ -269,27 +312,28 @@ Unique `(protocol, native_id)`.
 | `canonical_key` | not null |
 | `revision` | CID or content digest of the public body. Not an identity |
 | `canonical_url` | nullable public link |
-| `title`, `body`, `body_digest` | public fetched text only. Null when `fetch_class` would have been authenticated |
+| `title`, `body`, `body_digest` | text from a public 2xx fetch only. Never null-as-a-placeholder for an authenticated body |
 | `published_at`, `source_deleted_at`, `truncated` | |
 | `fetched_at` | |
 
 Unique `(protocol, canonical_key)`. Index `(external_source_id, published_at)`.
 
-### `external_private_blobs`
+### Authenticated resources are not this schema
 
-Owner-scoped body for an authenticated fetch. Unique `(user_id, credential_id, binding_id, canonical_key_digest)`. `ON DELETE CASCADE` from `users`. No foreign key into `external_resources.body`. Replaced bindings orphan old blobs; a revocation job deletes them.
+`external_private_blobs` is not part of the model. A user-scoped body that still points at a globally unique `(protocol, canonical_key)` would publish existence, and an ETag on `external_sources` would publish authorization-dependent validators. P1 through P3 reject those fetches instead.
+
+A later design, not this one, has to give the private source and the private resource a primary key that includes `user_id`, `credential_id`, and `binding_id`, with no foreign key to a global resource id, and with ETag and error metadata only on the owner row. Projections of those resources would reference that owner-scoped id. Until that design is reviewed, no projection has an `external_resource_id` produced by a private fetch.
 
 ### `external_subscriptions`
 
 | Column | Constraint |
 | --- | --- |
 | `user_id` | not null, cascade |
-| `external_source_id` | not null |
-| `credential_id` | nullable FK to `user_external_credentials`. Null for public RSS |
+| `external_source_id` | not null. The source must already be a public row, or be created by this user's public 2xx fetch in the same transaction |
 | `state` | `active`, `paused`, `error` |
 | `last_error_code` | nullable class or provider code. No response body and no token |
 
-Unique `(user_id, external_source_id)`.
+Unique `(user_id, external_source_id)`. No `credential_id`. A subscribe request that needs a credential returns `authenticated_source_rejected` and inserts neither a subscription nor a source.
 
 ### `external_status_projections`
 
@@ -314,10 +358,12 @@ The connection metadata model required by `docs/external_services.md` when a pro
 | --- | --- |
 | `user_id` | not null, cascade |
 | `provider` | registry key, for example `bluesky` |
-| `subject` | stable remote subject, the DID for AT Protocol |
-| `handle`, `display_name` | nullable |
-| `credential_id` | nullable FK. The vault row's `provider`, `purpose`, and `credential_type` are fixed by that provider's controller |
-| `scopes` | text array of granted capabilities, not a free-form token scope dump of secrets |
+| `subject` | DID. Bound from the token `sub` after the checks in the OAuth section. Not a handle |
+| `issuer` | authorization-server origin that issued the session. Not a secret |
+| `resource_origin` | PDS origin the session was bound to. Not a secret |
+| `handle`, `display_name` | nullable, re-verified. Not an identity key |
+| `credential_id` | nullable FK. The vault holds the refresh token and the session DPoP key. It does not hold the instance confidential-client key |
+| `granted_scopes` | scopes the token response returned. Not a copy of the token |
 | `disconnected_at` | nullable |
 | `terms_state` | `unreviewed`, `approved`, `rejected`. X and mixi2 stay `unreviewed` |
 
@@ -330,27 +376,48 @@ Suggested vault classification for a later Bluesky issue, not created here:
 ```text
 provider        = bluesky
 purpose         = identity
-credential_type = (chosen in that issue: oauth refresh token or app password)
+credential_type = oauth_session
 ```
 
-The browser cannot choose those values. There is no `POST /settings/external_services/:provider`.
+The payload is the refresh token and the DPoP key material for that session. An app password is not this classification. The browser cannot choose these values. There is no `POST /settings/external_services/:provider`. The confidential client's signing key is an instance secret, separate from `USER_EXTERNAL_CREDENTIAL_KEYS`, because it is not owned by one user.
 
 ### `external_activities`
+
+One row is one native object the owner created, or the in-flight attempt to create or delete it. Unlike and unrepost are not separate rows. They are transitions on the row that remembers the native record.
 
 | Column | Constraint |
 | --- | --- |
 | `user_id` | not null, cascade |
 | `external_identity_id` | not null |
-| `external_resource_id` | nullable for replies that target a native post |
+| `external_resource_id` | nullable. Set only for a public resource. A native action on the owner's own object may leave this null and store `subject_uri` instead |
 | `external_status_projection_id` | nullable |
-| `action` | `like`, `unlike`, `repost`, `unrepost`, `reply` |
-| `idempotency_key` | not null, unique |
-| `state` | `pending`, `succeeded`, `failed`, `undone` |
-| `native_activity_id` | nullable until the provider accepts |
-| `attempt_count`, `last_error_code` | no token, no raw body |
-| `local_favourite_id`, `local_status_id` | nullable links to local rows when the user also asked for a local effect |
+| `verb` | `like`, `repost`, or `reply` |
+| `desired` | `active` or `inactive` |
+| `remote_state` | `absent`, `pending_create`, `present`, `pending_delete`, or `unknown` |
+| `idempotency_key` | not null |
+| `generation` | integer, incremented on each user intent change |
+| `subject_uri` | AT URI of the record being liked, reposted, or replied to |
+| `subject_cid` | nullable CID observed when the attempt started |
+| `native_activity_uri` | AT URI of the like, repost, or reply record once known |
+| `native_activity_cid` | nullable CID of that record |
+| `attempt_count`, `last_error_code` | no token and no raw body |
+| `local_favourite_id`, `local_status_id` | nullable. Local rows are not evidence of remote success |
 
-Partial unique index: one row in `pending` or `succeeded` per `(user_id, external_identity_id, external_resource_id, action)` for `like` and `repost`. Replies use the client idempotency key only, so several replies can exist.
+Unique `(user_id, external_identity_id, idempotency_key)`. The key is not globally unique: two users can reuse the same client string. A second unique index is `(user_id, external_identity_id, subject_uri, verb)` where `verb` is `like` or `repost`. That row stays through unlike and a later like. It is not deleted to make room for a second like row. Replies are outside that index; each reply has its own key and its own `native_activity_uri`.
+
+`like → unlike → like` uses that one like row:
+
+1. `desired = active`, `remote_state = pending_create`. `createRecord` on the resolved PDS. On success, store `native_activity_uri` and `native_activity_cid`, set `remote_state = present`.
+2. Unlike sets `desired = inactive` and `remote_state = pending_delete`, then `deleteRecord` of **that** URI and rkey. It does not invent a second like URI. On success, `remote_state = absent`. The old URI stays in `native_activity_uri` until the next successful create replaces it, so a retry still knows what to delete.
+3. A later like creates a new record and a new rkey. It does not reuse a rkey whose delete is unconfirmed.
+
+Lost response: if the HTTP call was sent and the response was lost or timed out, set `remote_state = unknown`. Do not set `present` and do not send another `createRecord` just because the local idempotency key matches. Reconcile first with `getRecord` or `listRecords` for this DID, collection, and subject. If a record exists, adopt its URI and CID. If it does not, the next attempt may create one. A retried idempotency key returns the same row and re-enters that reconcile. It is not proof the provider committed nothing.
+
+401 or a revoked credential: stop. Do not refresh by sending the token to a different host. If the write might have left the process, `remote_state` stays `unknown` until a later authorized reconcile. Revocation does not claim the remote like is gone.
+
+Concurrent clicks: the unique subject index plus `generation` makes the second request either observe the current generation or lose the update. The loser does not start a second PDS write.
+
+Local favourite and the native like commit independently. A remote failure does not delete the local favourite. A local failure does not invent `remote_state = present`. There is no automatic remote rollback. Compensation is a later delete of the stored `native_activity_uri` after reconcile shows the record exists.
 
 ### `inbound_interactions`
 
@@ -383,8 +450,9 @@ A group exists only when the user completes an explicit crosspost. Members are e
 | `external_resource_id` | not null |
 | `status_id` | not null, unique, the reference Note |
 | `kind` | `auxiliary_parent` or `standalone_share` |
+| `distribution_scope` | not null for `auxiliary_parent`. The frozen scope string |
 
-Partial unique index on `(user_id, external_resource_id)` where `kind = auxiliary_parent`. Standalone shares are not unique. Deleting the Note deletes the reference row. It does not delete the projection.
+Partial unique index on `(user_id, external_resource_id, distribution_scope)` where `kind = auxiliary_parent`. Standalone shares are not unique. A boost does not insert its own reference kind. It reblogs the reference Note. A Note created so that a boost has a target is an `auxiliary_parent` at that scope, so a later reply can reuse it under the scope rules. Deleting the Note deletes the reference row. It does not delete the projection.
 
 ### Reaction snapshots
 
@@ -408,9 +476,40 @@ read_inbound
 
 Capabilities are false until the provider implements them. The client cannot turn a capability on. X and mixi2 additionally require `terms_state = approved` on the identity, set only by a reviewed provider class, not by a request parameter.
 
-Authenticated calls use a fixed endpoint table in the provider class. Bluesky's first slice uses server-configured hosts (the public AppView and the official session host). A user-supplied PDS URL is not accepted, because the vault forbids a credential plus an arbitrary URL. Custom PDS support is a later review.
+Public RSS fetches use `Request` with no vault access. They still have a per-host rate limit and a response size limit.
 
-Public RSS fetches use `Request` with no vault access. They still have a per-host rate limit and a response size limit. Authenticated fetches have a per-user budget as well.
+### AT Protocol OAuth and write routing
+
+This is the P2 session contract and the P3 write contract. P2 does not perform like, repost, or reply writes. P3 does not send those writes to a fixed Bluesky host.
+
+The authoritative profile is the AT Protocol OAuth specification. In that profile the PDS is the resource server. The authorization server is often the same origin and is sometimes a separate entryway. Bluesky's own directory lists `https://bsky.social` as an entryway and per-user PDS hosts under `bsky.network`, with public reads available at `https://public.api.bsky.app`. Those names are examples of the split. They are not the write endpoint for every account.
+
+Two different inputs:
+
+- **A URL the user types is not a place a stored token is sent.** The vault still forbids a credential plus an arbitrary URL. After a token exists, request targets come only from resolution and metadata.
+- **Discovery is allowed to start from a handle, a DID, or a hosting hostname,** because the OAuth profile permits a hostname start when the user does not have a working handle. A hostname start does not bind an account. The session is stored only after the checks below succeed.
+
+P2 minimum, in order:
+
+1. The user supplies a handle, a DID, or a hosting hostname. They do not supply a token, and they do not supply the URL that will receive the token.
+2. A handle resolves to a DID and the DID document claims that handle. Both directions are required. A DID is resolved directly. All handle methods and DID methods the profile requires are in scope; an account that this server cannot resolve is `discovery_rejected`, not sent to `bsky.social`.
+3. The DID document's `#atproto_pds` service is the PDS. The client fetches `https://<pds-origin>/.well-known/oauth-protected-resource` and reads its single `authorization_servers` entry, then `/.well-known/oauth-authorization-server` on that origin. `issuer` must match that origin. Metadata must advertise the profile this client needs: `atproto`, PAR, PKCE `S256`, and DPoP. A redirect or a non-200 metadata response fails discovery.
+4. Every resolution and metadata URL is `https`, has no userinfo, and is checked with `Request` / `PrivateAddressCheck` on every hop, including redirects. A failure here aborts before any token request.
+5. Fedibird acts as a confidential client. `client_id` is a public metadata URL. The client signing key is an instance key. The authorization uses PAR, PKCE, and DPoP. The scope list is `atproto` plus the smallest repo scope that can create and delete like, repost, and reply records. If the server only offers `transition:generic`, the consent screen says that scope is app-password-equivalent, can write any repository record, and is not limited to the three verbs. `transition:chat.bsky` and `transition:email` are not requested.
+6. The token response's `sub` is a DID. The client resolves that DID again, reads the PDS, confirms the PDS metadata names the authorization server that just issued the token, and confirms `issuer`. On mismatch the tokens are discarded and nothing is stored.
+7. The vault row is `oauth_session` for this user. `external_identities` stores `subject`, `issuer`, `resource_origin`, and `granted_scopes`. Handles are display data.
+
+Refresh tokens are single-use. One refresh for a session runs at a time. Refresh goes to the bound `issuer` only. If a later DID resolution shows a different authorization server, the refresh token is not sent there. The user signs in again.
+
+P3 write, immediately before `com.atproto.repo.createRecord` or `deleteRecord`:
+
+1. Resolve the DID document again.
+2. The write origin is the current `#atproto_pds` endpoint, not `bsky.social`, not `public.api.bsky.app`, and not a hostname the user typed earlier if that hostname was only the entryway.
+3. If that origin differs from `resource_origin`, do not send the current access token to the old host or the new host. Refresh only when the new PDS's protected-resource metadata still names the bound `issuer`. If the issuer changed, stop with `reauthentication_required`.
+4. The DPoP proof's `htu` is the PDS request URL. A 401 stops the attempt. It does not retry against another host.
+5. Public reads of public records, including P1-style shared cache fills, may use a server-configured public AppView and must not attach the user token. A follower-only read is `authenticated_source_rejected` until the private resource model exists.
+
+App passwords are out of scope for P2 and P3. They have no `issuer`, no DPoP binding, and no `sub` check against a DID document. Support is any account whose handle or DID, PDS, and authorization server pass these checks. It is not "Bluesky-hosted accounts on one session host." Accounts that fail discovery are unsupported for that attempt, with `discovery_rejected`.
 
 Sudo matches the external-services pages: mutation routes require a recent challenge, secrets never enter the challenge, the flash, or the redirect. There is no credential REST API.
 
@@ -422,7 +521,7 @@ Sudo matches the external-services pages: mutation routes require a recent chall
 | Favourite / unfavourite | Local favourite only | Separate control: also like on the connected identity |
 | Bookmark | Local bookmark only. Bookmarks are already local | None |
 | Reply | **422**. A normal reply would be a real status pointing at the projection | Two controls: "Reply on Fediverse" (reference flow) and "Reply on Bluesky" (native) |
-| Boost | **422**. `ReblogService` already rejects `personal`, and the projection marker is a second refusal | "Share to Fediverse" runs the reference flow |
+| Boost | **422** on the projection. `ReblogService` already rejects `personal`, and the marker is a second refusal | "Share" is one `Create`. "Boost" is `Announce` of the owner's reference Note, after confirm if that Note must be created |
 | Quote | **422** | Quote the auxiliary parent only after the user confirms that parent will be published |
 | Emoji reaction | **422** on a projection. Today's service notifies a local author or delivers to a remote inbox | None in the first slices |
 
@@ -439,25 +538,25 @@ Local favourite and bookmark rows follow today's owner-only `show?` once the pro
 | | |
 | --- | --- |
 | Local effect | Subscription row. For each accepted item, one projection and one personal status for this user only. |
-| Native side | None for public RSS. AT read of non-public records uses the identity credential against the fixed endpoint. |
+| Native side | None. Public AT records may be read from a public AppView without the user token. Anything that requires a token is rejected. |
 | ActivityPub | None. |
 | Consent | The user adds the source. Public RSS needs no remote account. |
 | Idempotency | Unique `(user, source)` and `(user, resource)`. A refetch updates `last_seen_revision` in place. |
-| Failure | Subscription `error` with a code. Partial item failure skips that item and continues. No projection is left without its marker row: status and marker commit in one transaction. |
-| No identity | Public RSS succeeds. Authenticated sources fail with `external_identity_required`. |
-| Revoked credential | Authenticated fetch fails closed. Existing public projections stay. Private blobs are not served. |
+| Failure | A failed or non-public fetch inserts no shared source, resource, actor, or cache entry. An existing public subscription can move to `error` without updating the shared ETag from that response. Partial item failure skips that item. Status and marker commit in one transaction, or neither does. |
+| No identity | Public RSS and other public fetches succeed. Authenticated sources return `authenticated_source_rejected`. |
+| Revoked credential | Does not apply to public fetch. Existing public projections stay. No private blob is served, because none is stored. |
 
 ### Favourite / unfavourite
 
 | | |
 | --- | --- |
 | Local effect | `Favourite` on the projection status for the owner. Unfavourite destroys that row. `status_stat.favourites_count` changes only on that status. |
-| Native side | None unless the user opted in. Opt-in writes `external_activities` (`like` / `unlike`) and calls the provider. |
+| Native side | None unless the user opted in. Opt-in uses the like row's `desired` / `remote_state` transitions and `createRecord` or `deleteRecord` on the resolved PDS. |
 | ActivityPub | None. The author account is the owner's own account, so today's `FavouriteService` would notify the owner. The projection path must not fan that notification out as if a third party acted, and must not call `Trends.statuses.register`. |
 | Consent | Local favourite needs no extra consent. Native like needs a connected capability and an explicit opt-in. |
-| Idempotency | Local `find_or_create` by `(account, status)`. Native partial unique index on the open like. Retries reuse `idempotency_key`. |
-| Failure | Native failure leaves `state = failed` and does not roll back the local favourite if the user asked for both. The UI shows the native failure. A native-only request that fails creates no local favourite. |
-| No identity / revoked | Local favourite still works. Native opt-in returns `external_identity_required` or `credential_revoked` and does not create a succeeded activity. |
+| Idempotency | Local `find_or_create` by `(account, status)`. Native key is unique per `(user, identity, idempotency_key)`. A retry reconciles before another create. One like row per subject. |
+| Failure | `remote_state` is `unknown` or stays pending. It is not `present` without a stored `native_activity_uri` from a response or a reconcile. The local favourite is unchanged if the user asked for both. A native-only request that never reaches `present` creates no local favourite. |
+| No identity / revoked | Local favourite still works. Native opt-in returns `external_identity_required` or `credential_revoked`. A write that may have left the server stays `unknown` until reconcile. |
 
 ### Bookmark
 
@@ -472,25 +571,25 @@ Local favourite and bookmark rows follow today's owner-only `show?` once the pro
 
 | | |
 | --- | --- |
-| Local effect | Fediverse reply: auxiliary parent plus a new status by the user, `in_reply_to` the parent, not the projection. Native reply: an `external_activities` row of `action = reply`, optional local note only if the user also composed a Fediverse reply. |
+| Local effect | Fediverse reply: auxiliary parent plus a new status by the user, `in_reply_to` the parent, not the projection. Native reply: an `external_activities` row with `verb = reply`, optional local note only if the user also composed a Fediverse reply. |
 | Native side | Native reply posts as the linked identity. The target id is the native object id, not the projection id. |
 | ActivityPub | Parent `Create` plus reply `Create`, at the visibilities the user confirmed. No activity for a native-only reply. |
 | Consent | Required before the parent is created. Required again for the native post if it is a separate button. |
-| Idempotency | Auxiliary parent unique index. Reply post uses the normal status idempotency the client already has. Native reply uses `idempotency_key` so a retry does not double-post. |
-| Failure | If the parent is created and the reply save fails, the parent remains; it was disclosed in the confirm step. Native failure does not delete a Fediverse reply that already succeeded. `state = failed`, retryable only while the credential is usable. |
+| Idempotency | Auxiliary parent unique on `(user, resource, distribution_scope)`. A lost race reloads the winner. Native reply retries reconcile the `native_activity_uri` before another `createRecord`. |
+| Failure | If the parent is created and the reply save fails, the parent remains; the confirm step already named its audience. A wider reply does not widen an older parent. Native failure leaves `remote_state` unknown or absent and does not delete a Fediverse reply that already succeeded. |
 | No identity / revoked | Fediverse reply can still be offered. Native reply is refused before any local "sent" state. |
 
 ### Boost / repost / undo
 
 | | |
 | --- | --- |
-| Local effect | Fediverse share creates a standalone reference Note (`Create`). It does not create a reblog of the projection. Native repost creates an `external_activities` row. |
-| Native side | Provider repost as the linked identity, targeting the native object id. Undo targets `native_activity_id`. |
-| ActivityPub | `Create` of the reference only. No `Announce` of the external object. Undo of a native repost does not emit ActivityPub `Undo` unless the user separately unreblogs their own reference Note. |
-| Consent | Explicit for each side. |
-| Idempotency | Native partial unique index. A second share click creates another standalone Note only when the user confirms another share. |
-| Failure | Same split as favourite: each side's failure is visible and does not forge the other side's success. |
-| No identity / revoked | Fediverse share can proceed. Native repost is refused. |
+| Local effect | Fediverse **share** creates a standalone reference Note and stops. Fediverse **boost** creates a reblog of the owner's reference Note at a compatible scope, creating that Note only when the confirm step said it would. Neither mode reblogs the projection. Native repost uses the repost row on `external_activities`. |
+| Native side | `createRecord` or `deleteRecord` of the repost record on the resolved PDS. Undo deletes the stored `native_activity_uri`. |
+| ActivityPub | Share: one `Create`, no `Announce`. Boost: `Announce` of the reference Note. `Create` of that Note only on first publication at that scope. Undo boost: `Undo` of the `Announce` only. Never `Announce` the external URL or the projection. A native unrepost does not emit ActivityPub `Undo`. |
+| Consent | Share confirms the Note's audience. Boost confirms the Announce, and also confirms the Note's audience when the Note does not exist yet. Native repost is a separate opt-in. |
+| Idempotency | A second Fediverse boost finds the existing reblog wrapper and does not send another `Announce`. A second share is a new Note only after another confirm. Native repost follows the same reconcile rules as like. |
+| Failure | If Note creation succeeds and the wrapper save fails, the Note remains and the UI does not claim the boost succeeded. Native `unknown` is not shown as a completed repost. |
+| No identity / revoked | Fediverse share and boost can proceed. Native repost is refused, or left `unknown` if a write may already have been sent. |
 
 ### Quote
 
@@ -499,7 +598,7 @@ Local favourite and bookmark rows follow today's owner-only `show?` once the pro
 | Local effect | Quote status whose `quote_id` is the auxiliary parent. |
 | Native side | None unless a later provider capability exists. AT quote-post is not in the first native slice; do not map it onto reply silently. |
 | ActivityPub | `Create` with the existing quote URI fields pointing at the parent's local URI. |
-| Consent | Same parent warning as reply. |
+| Consent | Same scope confirm as reply. A quote does not widen an existing narrower parent. |
 | Failure | Do not quote the projection if parent creation fails. |
 
 ### Native inbound
@@ -522,16 +621,16 @@ Local favourite and bookmark rows follow today's owner-only `show?` once the pro
 | Native side | None. |
 | ActivityPub | Normal `Create` / later `Delete` of that Note only. |
 | Consent | The publish confirm, including audience. |
-| Idempotency | Auxiliary parent unique index. Repeating the reply action reuses the parent. |
-| Failure | A failed `Create` delivery follows today's distribution retry. The private projection is unchanged. |
-| Visibility change | Editing the reference Note uses `UpdateStatusService` like any other post. Editing a projection through that service is refused. Promoting a projection to public by changing `visibility` is refused: the public object must be a new reference built from the template, not the projection row with a new visibility. |
+| Idempotency | One auxiliary parent per `(user, resource, distribution_scope)`. A repeated reply at that scope reuses it. A repeated share creates a new standalone Note only when confirmed again. |
+| Failure | A failed `Create` delivery follows today's distribution retry for that reference Note only. The private projection is unchanged. A failed `Announce` does not send a second `Create`. |
+| Visibility change | Auxiliary parent scope is frozen. A different audience creates a different parent after confirm. Standalone shares may be edited under normal status rules and are not parents. Editing a projection is refused. Promoting a projection by changing `visibility` is refused: the federated object is a new reference built from the template. |
 
 ## Deletion, disconnect, and moderation
 
 - **Delete projection.** Discard the local status through a path that does not call `remove_from_remote_reach`. Shared resource remains.
 - **Delete reference Note.** Normal status removal. Because this Note was federated, normal Delete delivery applies to it. The projection remains.
-- **Disconnect identity.** Provider page calls `revoke!` or `delete!` on the vault. Set `disconnected_at`. Delete inbound rows and pending outbound activities for that identity. Keep public-source projections. Succeeded native activities stay as history with no token.
-- **Delete user.** Existing account deletion removes statuses. Projection markers cascade. Credentials cascade from `User`. Subscriptions, identities, groups, snapshots, and private blobs cascade from `user_id`. Shared sources, resources, and actors stay.
+- **Disconnect identity.** Provider page calls `revoke!` or `delete!` on the vault. Set `disconnected_at`. Delete inbound rows. Delete outbound rows that never left the server (`remote_state` `absent` or `pending_create` with no request sent). Rows that are `present` or `unknown` stay, with no token, so a lost acknowledgment is not rewritten as inactive. Keep public-source projections.
+- **Delete user.** Existing account deletion removes statuses. Projection markers cascade. Credentials cascade from `User`. Subscriptions, identities, groups, and snapshots cascade from `user_id`. Shared sources, resources, and actors stay. There is no private blob to delete.
 - **Suspend user.** Workers for that `user_id` no-op. Projections are already owner-only.
 - **Mute external actor.** Owner-level `external_actor_mutes` only.
 - **Reports.** A projection is not a reportable remote account. The owner's federated reference Note is reportable like any other post.
@@ -543,14 +642,14 @@ Local favourite and bookmark rows follow today's owner-only `show?` once the pro
 - Cross-user comments, reader lists, favourite counts, or popularity ranks for external resources.
 - Copying external body or media into a federated Note.
 - Automatic ActivityPub delivery of native inbound likes, replies, or reposts.
-- `Announce` of an external URL or of a projection.
+- `Announce` of an external URL or of a private projection. `Announce` of the owner's own reference Note is the Fediverse boost, not a share.
 - Merging objects because the text or the URL looks similar.
 - A Fedibird-operated PDS, hybrid account, or AT account migration.
 - Enabling `PostingIdentity` `bluesky`.
 - X and mixi2 adapters, until a later issue sets `terms_state`.
 - A generic plugin loader or a generic secret POST.
 - New values of `Account.protocol`, a `statuses.protocol` column, or `ap_object_type` as a source protocol.
-- Putting authenticated bodies or tokens into Redis, Chewy, logs, Sidekiq arguments, REST, or the shared tables.
+- Putting authenticated bodies or tokens into Redis, Chewy, logs, Sidekiq arguments, REST, or the shared tables. P1 through P3 do not store those bodies anywhere else either.
 
 ## Roadmap
 
@@ -558,39 +657,40 @@ Each slice is its own review, flag default **off**, and safe to merge without tu
 
 | Phase | Flag | Delivers | Depends on | Gate |
 | --- | --- | --- | --- | --- |
-| P1 | `external_bridge_rss` | Public RSS/Atom subscribe, shared public cache, private projection, fail-closed list, owner extension. No credentials. | This document | The fail-closed list lands in the same change as the writer. Flag stays off until those specs pass. Authenticated feeds are rejected. |
-| P2 | `external_bridge_atproto` | Bluesky provider page, `external_identities`, vault credential, fixed hosts, connection test. No timeline import required. | Registry and vault, which exist now | No token in logs or pages. Catalog shows the provider only when the page exists. |
-| P3 | `external_bridge_native_actions` | AT like, repost, reply, undo, and the state machine. | P2 | Opt-in per action. Revoked and missing identity covered by specs. |
+| P1 | `external_bridge_rss` | Public RSS/Atom subscribe, shared public cache, private projection, fail-closed list, owner extension. No credentials. | This document | The fail-closed list and the creation-transaction specs land in the same change as the writer. The streaming files in the audit are part of that gate. Flag stays off until those specs pass. Authenticated feeds are rejected with no shared write. |
+| P2 | `external_bridge_atproto` | Provider page, `external_identities`, vault `oauth_session`, discovery and issuer binding. No timeline import and no repo writes. | Registry and vault, which exist now | No token in logs or pages. A session whose `sub`, PDS, and `issuer` do not match is not stored. Catalog shows the provider only when the page exists. |
+| P3 | `external_bridge_native_actions` | AT like, repost, reply, and undo against the resolved PDS, with the reconcile rules. | P2 | Opt-in per action. Lost-ack, 401, and duplicate-click specs pass. Writes do not target a fixed session host. |
 | P4 | `external_bridge_inbound` | Private inbound replies, likes, and reposts for the owner's identity. | P2. Reply-back uses P3. | No `Notification` or remote `Account` rows. |
 | P5 | `external_bridge_publication_groups` | Explicit crosspost groups and owner-only per-platform counts. | P3 and P4 for native counts. Local projection counts can display earlier. | Counts are not written to `status_stat` or trends. |
-| P6 | `external_bridge_ap_reference` | Reference Notes and auxiliary parents. | P1, plus the Bridgy Fed experiment | Experiment result recorded. Content template tested. Projection ids absent from ActivityPub. |
+| P6 | `external_bridge_ap_reference` | Reference Notes, scoped auxiliary parents, share `Create`, and boost `Announce` of that Note. | P1, plus the federation experiments | Create, Announce, and Undo are each recorded against a remote Mastodon follower and a relay. Bridgy Fed result recorded. Content template tested. Projection ids absent from ActivityPub. |
 
 X and mixi2 are not a phase. A future issue can add a provider only after `terms_state` is an explicit decision.
 
 P1 verification is the matrix in `docs/private_external_bridge_audit.md`. Performance check for P1 is the unique lookup on `status_id` during status create callbacks, explained against the index, not a new column on `statuses`.
 
-P2's connection test calls one fixed endpoint and returns only safe metadata (handle, subject). It does not print the token or the vault error's raw payload.
+P2's connection result shows handle, DID, issuer, and PDS origin. It does not print the token, the DPoP key, or the vault error's raw payload. A public read used as a connection check, if any, goes to the resolved PDS or a configured public AppView and does not establish that writes may use that same host.
 
 ## Review decisions
 
 These are chosen in this document so P1 can be written without inventing a boundary. They are still open to change before P1 merges.
 
 1. **No phantom actor.** Stock clients show the owner's account on a projection. Confirm or replace with a design that still is not Webfinger-discoverable and still fails `owned?` safely.
-2. **Fediverse share is `Create` of a link Note, not `Announce` of the external URL.** Confirm before any experiment tries Announce.
-3. **One auxiliary parent per user and resource; every explicit share is a new Note.** Confirm.
-4. **Disconnect deletes inbound payloads and pending outbound activities, and keeps public RSS projections.** Confirm.
-5. **First AT slice refuses user-supplied PDS hosts.** Confirm before custom PDS work.
+2. **Share is one `Create`. Boost is `Announce` of the owner's reference Note, with `Create` only when that Note is new.** Neither announces the external URL or the projection. Undo of a boost does not delete the Note. Remote display of the pair is an experiment, not a claim that followers see one item.
+3. **Auxiliary parents are unique per user, resource, and distribution scope, and that scope is frozen.** A wider audience creates a new parent after confirm. Every explicit share is still a new standalone Note.
+4. **Disconnect deletes inbound payloads and outbound rows that never left the server (`absent`, or `pending_create` with no request sent), and keeps public RSS projections.** Rows that are `present` or `unknown` stay, with no token. A lost acknowledgment is not rewritten as inactive. Confirm.
+5. **AT writes go to the PDS resolved from the DID document. Tokens are not sent to a user-typed URL.** A hostname may start discovery. It becomes a session only after `sub`, PDS metadata, and `issuer` match. App passwords are out of scope. Confirm before P2.
 6. **Projection bodies stay out of `StatusesIndex`, unlike today's personal posts.** Owner search of imports needs a later index keyed by `user_id`.
 7. **P1 does not download external media into `media_attachments` or public system paths.**
 8. **Ordinary personal-status Delete reach is unchanged by P0.** Projection deletion must not use it. A fix for ordinary personal deletes is a separate issue.
 9. **X and mixi2 stay unreviewed.** No implementation schedule is implied.
-10. **Bridgy Fed behavior with a link Note is an experiment, not a guarantee.**
+10. **Bridgy Fed behavior with a link Note, and remote display of `Create` plus `Announce`, are experiments, not guarantees.**
 
 ## What P1 can take from this document without guessing
 
 - The owner is `user_id`. The status account is that user's real local account. There is no synthetic actor.
-- The shared cache has no user id and no authenticated body.
-- The projection status is a different row from the reference Note, and only the reference Note has an ActivityPub URI.
+- The shared cache has no user id and no authenticated body. A private fetch does not create a shared row.
+- The projection status is a different row from the reference Note. Only the reference Note has an ActivityPub URI. A Fediverse boost announces that Note.
+- The status row and its projection marker commit together, or neither does. Callbacks re-check the marker after commit. P1 does not publish the projection to Redis.
 - Favourite and bookmark are local unless a later opt-in says otherwise.
 - Reply, boost, and quote of a projection are refused on the ordinary API.
 - Secrets stay in the vault. The identity table is the connection.
