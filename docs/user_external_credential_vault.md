@@ -130,3 +130,5 @@ See `docs/personal_deepl_translation.md`. The vault itself does not choose a pro
 Personal DeepL credentials are entered on the HTML settings page `/settings/external_services/deepl`. `/settings/external_credentials` redirects to the external services hub. The settings UI models connections; this vault stores secrets. See `docs/external_services.md`. That flow is a browser session, not a REST API.
 
 If a job is added later, its arguments may contain only `owner_user_id`, `credential_id`, `provider`, `purpose`, and `credential_type`. The worker loads the row and calls `with_credential`.
+
+`docs/private_external_bridge.md` is the design for a later private RSS and native-identity bridge. That design stores connection metadata on its own models and stores secrets only through this vault. It does not add a second ciphertext column, a generic JSON secret, or a credential-plus-arbitrary-URL client. Cache keys for any authenticated external fetch must follow the same user, credential, and binding partition as Personal DeepL.

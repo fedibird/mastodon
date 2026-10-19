@@ -2,6 +2,8 @@
 
 This document is the design source of truth for the settings UI and future provider integrations. Secret storage stays in the user credential vault. See `docs/user_external_credential_vault.md` for the vault threat model and `docs/personal_deepl_translation.md` for the current DeepL translation behavior.
 
+The private external-resource bridge in `docs/private_external_bridge.md` reuses this registry and the vault. It does not add a generic credential form, a metadata JSON column, or a catalog entry. Bluesky, X, and mixi2 stay out of the catalog until a later phase adds a real provider page.
+
 ## External service connection != credential
 
 An external service connection is the user-facing relationship with a remote service. A credential is only one piece of secret material that may be needed to operate that connection.
