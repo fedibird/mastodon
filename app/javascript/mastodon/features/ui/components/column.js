@@ -2,7 +2,7 @@ import React from 'react';
 import ColumnHeader from './column_header';
 import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
-import { scrollTop } from '../../../scroll';
+import { isProgrammaticTopScroll, scrollTop } from '../../../scroll';
 import { isMobile } from '../../../is_mobile';
 import classNames from 'classnames';
 
@@ -39,13 +39,27 @@ export default class Column extends React.PureComponent {
 
 
   handleScroll = debounce(() => {
-    if (typeof this._interruptScrollAnimation !== 'undefined') {
+    const scrollable = this.node && this.node.querySelector('.scrollable');
+
+    // The inner list's smooth scroll does not bubble. If this column still
+    // hears a scroll while that animation is running, it is not a new gesture.
+    if (scrollable && isProgrammaticTopScroll(scrollable)) {
+      return;
+    }
+
+    if (typeof this._interruptScrollAnimation === 'function') {
       this._interruptScrollAnimation();
     }
   }, 200)
 
   setRef = (c) => {
     this.node = c;
+  }
+
+  componentWillUnmount () {
+    if (typeof this._interruptScrollAnimation === 'function') {
+      this._interruptScrollAnimation();
+    }
   }
 
   render () {
