@@ -198,6 +198,9 @@ defaults: &defaults
   reject_pattern: ''
   reject_blurhash: ''
   max_frequently_used_emojis: 16
+  # Public RSS/Atom private projections. Off until an operator opts in
+  # from a Rails console: Setting.external_bridge_rss = true
+  external_bridge_rss: false
   action_review_policies:
     follow_import: 'off'
     account_migration: 'off'

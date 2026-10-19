@@ -11,6 +11,8 @@ class EmojiReactionService < BaseService
 
     return if account.nil? || status.nil? || shortcode.nil?
 
+    ExternalBridge::Guards.reject_target!(status)
+
     custom_emoji = CustomEmoji.find_by(shortcode: shortcode, domain: domain)
 
     return if custom_emoji.present? && domain.present? && !EmojiReaction.where(status_id: status.id, custom_emoji_id: custom_emoji.id).present?

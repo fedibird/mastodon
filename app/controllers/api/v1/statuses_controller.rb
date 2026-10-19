@@ -104,6 +104,7 @@ class Api::V1::StatusesController < Api::BaseController
 
     sender = session_sender_account!
     @status = Status.where(account: sender).find(params[:id])
+    raise ActiveRecord::RecordNotFound if ExternalBridge::ProjectionPrivacy.hidden_from?(@status, current_user.id)
     authorize @status, :update?
 
     @status = UpdateStatusService.new.call(@status, current_account.id, edit_options)
@@ -114,6 +115,14 @@ class Api::V1::StatusesController < Api::BaseController
   def destroy
     @status = Status.include_expired.where(account_id: current_account.id).find(status_params[:id])
     authorize @status, :destroy?
+    if ExternalBridge::ProjectionPrivacy.private_status?(@status)
+      raise ActiveRecord::RecordNotFound unless ExternalBridge::ProjectionAccess.allow?(current_user.id, @status)
+
+      status_id = @status.id.to_s
+      ExternalBridge::ProjectionPurge.purge_status!(@status)
+      render json: { id: status_id }
+      return
+    end
 
     # Explicit redraft cannot safely reuse media that an open report still
     # needs. Refuse before discard so the post and its attachments stay put.
@@ -165,7 +174,7 @@ class Api::V1::StatusesController < Api::BaseController
 
   def set_status
     @status = Status.include_expired.find(status_params[:id])
-    if @status.ap_page?
+    if @status.ap_page? || ExternalBridge::ProjectionPrivacy.hidden_from?(@status, current_user&.id)
       render json: { error: 'Not Found' }, status: :not_found
       return
     end

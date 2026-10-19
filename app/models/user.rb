@@ -44,6 +44,7 @@
 #  sign_up_ip                :inet
 #  skip_sign_in_token        :boolean
 #  time_zone                 :string
+#  role_id                   :bigint(8)
 #
 
 require 'resolv'
@@ -96,6 +97,9 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   # Destroyed with the user. user_external_credentials.user_id also uses
   # ON DELETE CASCADE so a SQL-level user delete cannot orphan ciphertext.
   has_many :external_credentials, class_name: 'UserExternalCredential', inverse_of: :user, dependent: :destroy
+  # ON DELETE RESTRICT. DeleteUser or DeleteAccountService purges statuses first.
+  has_many :external_status_projections, inverse_of: :user, dependent: :restrict_with_exception
+  has_many :external_subscriptions, inverse_of: :user, dependent: :destroy
   # Destroyed with the user. user_posting_contexts.user_id also uses
   # ON DELETE CASCADE so a SQL-level user delete cannot orphan a style.
   has_many :user_posting_contexts, inverse_of: :user, dependent: :destroy

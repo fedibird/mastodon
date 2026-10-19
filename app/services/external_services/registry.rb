@@ -9,6 +9,7 @@ module ExternalServices
   class Registry
     PROVIDERS = [
       DeepL,
+      RSS,
     ].freeze
 
     def self.providers

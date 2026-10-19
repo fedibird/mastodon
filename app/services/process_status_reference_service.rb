@@ -42,6 +42,7 @@ class ProcessStatusReferenceService
   def process_reference(urls, ids, status_id)
     target_statuses = urls_to_target_statuses(urls, status_id).uniq
     target_statuses = target_statuses + Status.where(id: ids - target_statuses.map(&:id)).where(visibility: [:public, :unlisted, :private])
+    target_statuses.reject! { |target_status| ExternalBridge::ProjectionPrivacy.private_status?(target_status) }
 
     references = target_statuses.filter_map do |target_status|
       StatusReference.create(status_id: status_id, target_status_id: target_status.id)

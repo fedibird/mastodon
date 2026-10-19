@@ -10,7 +10,7 @@ class Api::V1::Statuses::FavouritesController < Api::BaseController
   def create
     raise Mastodon::NotPermittedError if current_user.setting_disable_reactions
 
-    FavouriteService.new.call(current_account, @status)
+    FavouriteService.new.call(current_account, @status, viewer_user: current_user)
     render json: @status, serializer: REST::StatusSerializer
   end
 
@@ -19,8 +19,12 @@ class Api::V1::Statuses::FavouritesController < Api::BaseController
 
     if fav
       @status = fav.status
+      if ExternalBridge::ProjectionPrivacy.hidden_from?(@status, current_user.id)
+        not_found
+        return
+      end
       count = [@status.favourites_count - 1, 0].max
-      UnfavouriteWorker.perform_async(current_account.id, @status.id)
+      UnfavouriteWorker.perform_async(current_account.id, @status.id, current_user.id)
     else
       @status = Status.include_expired.find(params[:status_id])
       authorize @status, :show?

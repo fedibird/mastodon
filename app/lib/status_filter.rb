@@ -13,6 +13,7 @@ class StatusFilter
 
   def filtered?
     return true if status.ap_page?
+    return true if projection_hidden?
     return false if !account.nil? && account.id == status.account_id
 
     blocked_by_policy? || (account_present? && filtered_status?) || silenced_account?
@@ -22,6 +23,15 @@ class StatusFilter
 
   def account_present?
     !account.nil?
+  end
+
+  def projection_hidden?
+    decision = @options[:projection_decision]
+    if decision
+      !decision.visible?(status)
+    else
+      ExternalBridge::ProjectionPrivacy.hidden_from?(status, ExternalBridge::Viewer.user_id)
+    end
   end
 
   def filtered_status?

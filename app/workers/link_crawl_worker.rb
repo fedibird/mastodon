@@ -7,11 +7,14 @@ class LinkCrawlWorker
   sidekiq_options queue: 'pull', retry: 0, lock: :until_executed
 
   def perform(status_id)
-    FetchLinkCardService.new.call(Status.find(status_id))
+    status = Status.find(status_id)
+    return if ExternalBridge::ProjectionPrivacy.private_status?(status)
+
+    FetchLinkCardService.new.call(status)
   rescue ActiveRecord::RecordNotFound, ActiveRecord::RecordNotUnique, Mastodon::RaceConditionError
     true
   ensure
-    done_process(status_id)
+    done_process(status_id) unless ExternalBridge::ProjectionPrivacy.private_id?(status_id)
   end
 
   private

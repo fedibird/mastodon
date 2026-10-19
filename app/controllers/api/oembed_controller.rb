@@ -17,7 +17,7 @@ class Api::OEmbedController < Api::BaseController
   end
 
   def require_public_status!
-    not_found if @status.hidden? || @status.ap_page?
+    not_found if @status.blank? || @status.hidden? || @status.ap_page? || ExternalBridge::ProjectionPrivacy.private_status?(@status)
   end
 
   def status_finder

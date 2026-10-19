@@ -2160,6 +2160,39 @@ en:
         description: Use your own DeepL API key to translate posts.
         name: DeepL
         subtitle: Personal translation
+      rss:
+        description: Import a public RSS or Atom feed as private posts on your account.
+        name: RSS
+        subtitle: "%{count} public feeds"
+  external_bridge:
+    disabled: RSS import is turned off on this server. Existing private imports stay private.
+    feed_url: Feed URL
+    items: Imported items
+    no_items: No imported items yet.
+    no_subscriptions: No feeds yet.
+    pause: Pause
+    resume: Resume
+    source_deleted: Removed at the source
+    subscribe: Subscribe
+    subscribed: Feed subscribed.
+    subscriptions: Feeds
+    unsubscribe: Unsubscribe
+    unsubscribed: Feed removed. Shared public cache is unchanged.
+    untitled: (untitled)
+    errors:
+      account_mismatch: The feed could not be saved for this account.
+      authenticated_source_rejected: That address needs a login or a token, so it was not fetched.
+      feature_disabled: RSS import is turned off on this server.
+      fetch_failed: The feed could not be fetched.
+      malformed_feed: The response was not a public RSS or Atom feed.
+      not_found: That feed was not found.
+      oversized_feed: The feed is larger than the import limit.
+      private_address: That address is not a public feed.
+      projection_immutable: This imported post cannot be edited or made public.
+      projection_not_target: Replies, boosts, quotes, and reactions are not available for an imported post.
+      rate_limited: This feed host has been requested too many times. Try again later.
+      unsupported_url: Enter a public http or https feed URL.
+      user_not_functional: This account cannot import feeds right now.
   external_credentials:
     ambiguous: More than one DeepL credential exists, so personal DeepL cannot be used. Delete the credentials you do not need.
     api_key_label: API key

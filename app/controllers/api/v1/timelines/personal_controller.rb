@@ -41,6 +41,7 @@ class Api::V1::Timelines::PersonalController < Api::BaseController
       current_account,
       only_media: media_only?,
       without_media: without_media?,
+      viewer_user_id: current_user&.id,
     )
   end
 

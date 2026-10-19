@@ -18,6 +18,7 @@ class ActivityPub::TagManager
   end
 
   def url_for(target)
+    return nil if ExternalBridge::ProjectionPrivacy.private_target?(target)
     return unsupported_uri_scheme?(target.url) ? nil : target.url if target.respond_to?(:local?) && !target.local?
 
     return unless target.respond_to?(:object_type)
@@ -35,6 +36,7 @@ class ActivityPub::TagManager
   end
 
   def uri_for(target)
+    return nil if ExternalBridge::ProjectionPrivacy.private_target?(target)
     return target.uri if target.respond_to?(:local?) && !target.local?
 
     case target.object_type

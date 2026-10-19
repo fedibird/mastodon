@@ -464,6 +464,7 @@ class TimelineSeek::Resolver
     {
       only_media: flag(:only_media),
       without_media: flag(:without_media),
+      viewer_user_id: @user&.id,
     }
   end
 

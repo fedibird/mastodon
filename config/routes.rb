@@ -158,6 +158,11 @@ Rails.application.routes.draw do
     delete 'deepl_credentials/:id', to: redirect('/settings/external_services/deepl', status: 303)
 
     resources :external_services, only: [:index, :new]
+    get 'external_services/rss', to: 'external_services/rss#show', as: :external_services_rss
+    post 'external_services/rss/subscriptions', to: 'external_services/rss_subscriptions#create', as: :external_services_rss_subscriptions
+    post 'external_services/rss/subscriptions/:id/pause', to: 'external_services/rss_subscriptions#pause', as: :pause_external_services_rss_subscription
+    post 'external_services/rss/subscriptions/:id/resume', to: 'external_services/rss_subscriptions#resume', as: :resume_external_services_rss_subscription
+    delete 'external_services/rss/subscriptions/:id', to: 'external_services/rss_subscriptions#destroy', as: :external_services_rss_subscription
     get 'external_services/deepl', to: 'external_services/deepl#show', as: :external_services_deepl
     post 'external_services/deepl/credential', to: 'external_services/deepl_credentials#create', as: :external_services_deepl_credential
     delete 'external_services/deepl/credentials/:id', to: 'external_services/deepl_credentials#destroy', as: :external_services_deepl_credential_record
@@ -683,6 +688,18 @@ Rails.application.routes.draw do
       end
 
       resource :domain_blocks, only: [:show, :create, :destroy]
+
+      namespace :external_bridge do
+        namespace :rss do
+          resources :subscriptions, only: [:index, :create, :destroy] do
+            member do
+              post :pause
+              post :resume
+            end
+            resources :statuses, only: :index, module: :subscriptions
+          end
+        end
+      end
 
       resource :directory,       only: [:show]
       resource :group_directory, only: [:show]

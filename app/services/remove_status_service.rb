@@ -13,6 +13,8 @@ class RemoveStatusService < BaseService
   # @option  [Boolean] :original_removed
   # @option  [Boolean] :mark_expired
   def call(status, **options)
+    return if ExternalBridge::ProjectionPrivacy.private_status?(status)
+
     @status        = status
     @account       = status.account
     @options       = options

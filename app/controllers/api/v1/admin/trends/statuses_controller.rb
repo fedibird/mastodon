@@ -21,6 +21,8 @@ class Api::V1::Admin::Trends::StatusesController < Api::V1::Trends::StatusesCont
     authorize [:admin, :status], :review?
 
     status = Status.find(params[:id])
+    raise ActiveRecord::RecordNotFound if ExternalBridge::ProjectionPrivacy.private_status?(status)
+
     status.update(trendable: true)
     render json: status, serializer: REST::Admin::Trends::StatusSerializer
   end
@@ -29,6 +31,8 @@ class Api::V1::Admin::Trends::StatusesController < Api::V1::Trends::StatusesCont
     authorize [:admin, :status], :review?
 
     status = Status.find(params[:id])
+    raise ActiveRecord::RecordNotFound if ExternalBridge::ProjectionPrivacy.private_status?(status)
+
     status.update(trendable: false)
     render json: status, serializer: REST::Admin::Trends::StatusSerializer
   end

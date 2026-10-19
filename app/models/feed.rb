@@ -76,7 +76,7 @@ class Feed
   end
 
   def filtered_scope(ids, visibilities)
-    scope = Status.where(id: ids).without_unreleased_pages
+    scope = Status.where(id: ids).without_unreleased_pages.where(Arel.sql(ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL))
     scope = scope.joins(:account).merge(Account.without_suspended)
     scope = scope.where(visibility: visibilities) unless visibilities.empty?
     scope

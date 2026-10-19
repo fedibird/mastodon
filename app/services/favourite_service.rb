@@ -8,7 +8,14 @@ class FavouriteService < BaseService
   # @param [Account] account
   # @param [Status] status
   # @return [Favourite]
-  def call(account, status)
+  def call(account, status, viewer_user: nil)
+    viewer = viewer_user || User.find_by(id: ExternalBridge::Viewer.user_id)
+    if ExternalBridge::ProjectionPrivacy.private_status?(status)
+      raise Mastodon::NotPermittedError unless ExternalBridge::ProjectionAccess.allow?(viewer&.id, status)
+
+      return Favourite.find_by(account: account, status: status) || Favourite.create!(account: account, status: status)
+    end
+
     authorize_with account, status, :favourite?
 
     favourite = Favourite.find_by(account: account, status: status)

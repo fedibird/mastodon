@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_18_020000) do
+ActiveRecord::Schema.define(version: 2026_10_19_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -559,6 +559,93 @@ ActiveRecord::Schema.define(version: 2026_10_18_020000) do
     t.datetime "updated_at", null: false
     t.index ["device_id"], name: "index_encrypted_messages_on_device_id"
     t.index ["from_account_id"], name: "index_encrypted_messages_on_from_account_id"
+  end
+
+  create_table "external_actors", force: :cascade do |t|
+    t.string "protocol", null: false
+    t.text "native_id", null: false
+    t.string "handle"
+    t.string "display_name"
+    t.text "profile_url"
+    t.text "avatar_remote_url"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["protocol", "native_id"], name: "index_external_actors_on_protocol_and_native_id", unique: true
+    t.check_constraint "(protocol)::text = ANY ((ARRAY['rss'::character varying, 'atom'::character varying])::text[])", name: "external_actors_protocol_check"
+  end
+
+  create_table "external_resources", force: :cascade do |t|
+    t.bigint "external_source_id", null: false
+    t.bigint "external_actor_id"
+    t.string "protocol", null: false
+    t.text "canonical_key", null: false
+    t.text "revision"
+    t.text "canonical_url"
+    t.text "title"
+    t.text "body"
+    t.text "byline"
+    t.string "body_digest"
+    t.datetime "published_at"
+    t.datetime "source_deleted_at"
+    t.boolean "truncated", default: false, null: false
+    t.datetime "fetched_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_actor_id"], name: "index_external_resources_on_external_actor_id"
+    t.index ["external_source_id", "published_at"], name: "index_external_resources_on_source_and_published_at"
+    t.index ["id", "external_source_id"], name: "index_external_resources_on_id_and_source", unique: true
+    t.index ["protocol", "canonical_key"], name: "index_external_resources_on_protocol_and_canonical_key", unique: true
+    t.check_constraint "(protocol)::text = ANY ((ARRAY['rss'::character varying, 'atom'::character varying])::text[])", name: "external_resources_protocol_check"
+  end
+
+  create_table "external_sources", force: :cascade do |t|
+    t.string "protocol", null: false
+    t.text "canonical_key", null: false
+    t.text "etag"
+    t.text "last_modified"
+    t.datetime "fetched_at"
+    t.datetime "checked_at"
+    t.text "title"
+    t.text "site_url"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["canonical_key"], name: "index_external_sources_on_canonical_key"
+    t.index ["protocol", "canonical_key"], name: "index_external_sources_on_protocol_and_canonical_key", unique: true
+    t.check_constraint "(protocol)::text = ANY ((ARRAY['rss'::character varying, 'atom'::character varying])::text[])", name: "external_sources_protocol_check"
+  end
+
+  create_table "external_status_projections", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "account_id", null: false
+    t.bigint "external_source_id", null: false
+    t.bigint "external_subscription_id", null: false
+    t.bigint "external_resource_id", null: false
+    t.bigint "status_id", null: false
+    t.text "last_seen_revision"
+    t.boolean "source_deleted", default: false, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id"], name: "index_external_status_projections_on_account_id"
+    t.index ["external_subscription_id"], name: "index_external_status_projections_on_subscription"
+    t.index ["status_id"], name: "index_external_status_projections_on_status_id", unique: true
+    t.index ["user_id", "external_resource_id"], name: "index_external_status_projections_on_user_and_resource", unique: true
+    t.index ["user_id"], name: "index_external_status_projections_on_user_id"
+  end
+
+  create_table "external_subscriptions", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "external_source_id", null: false
+    t.string "state", default: "active", null: false
+    t.string "last_error_code"
+    t.datetime "last_error_at"
+    t.datetime "checked_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_source_id"], name: "index_external_subscriptions_on_external_source_id"
+    t.index ["id", "user_id", "external_source_id"], name: "index_external_subscriptions_on_id_user_and_source", unique: true
+    t.index ["user_id", "external_source_id"], name: "index_external_subscriptions_on_user_and_source", unique: true
+    t.index ["user_id"], name: "index_external_subscriptions_on_user_id"
+    t.check_constraint "(state)::text = ANY ((ARRAY['active'::character varying, 'paused'::character varying, 'error'::character varying])::text[])", name: "external_subscriptions_state_check"
   end
 
   create_table "favourite_domains", force: :cascade do |t|
@@ -1586,6 +1673,7 @@ ActiveRecord::Schema.define(version: 2026_10_18_020000) do
     t.bigint "audience_account_id"
     t.text "post_title"
     t.string "ap_object_type"
+    t.boolean "external_projection"
     t.index ["account_id", "id", "visibility", "updated_at"], name: "index_statuses_20210710", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL))"
     t.index ["account_id", "id"], name: "index_statuses_private_searchable", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL) AND (reblog_of_id IS NULL) AND (searchability = ANY (ARRAY[0, 1, 2])))"
     t.index ["audience_account_id"], name: "index_statuses_on_audience_account_id"
@@ -1930,6 +2018,13 @@ ActiveRecord::Schema.define(version: 2026_10_18_020000) do
   add_foreign_key "emoji_reactions", "statuses", on_delete: :cascade
   add_foreign_key "encrypted_messages", "accounts", column: "from_account_id", on_delete: :cascade
   add_foreign_key "encrypted_messages", "devices", on_delete: :cascade
+  add_foreign_key "external_resources", "external_actors", on_delete: :nullify
+  add_foreign_key "external_resources", "external_sources", on_delete: :restrict
+  add_foreign_key "external_status_projections", "accounts", on_delete: :restrict
+  add_foreign_key "external_status_projections", "statuses", on_delete: :cascade
+  add_foreign_key "external_status_projections", "users", on_delete: :restrict
+  add_foreign_key "external_subscriptions", "external_sources", on_delete: :restrict
+  add_foreign_key "external_subscriptions", "users", on_delete: :cascade
   add_foreign_key "favourite_domains", "accounts", on_delete: :cascade
   add_foreign_key "favourite_tags", "accounts", on_delete: :cascade
   add_foreign_key "favourite_tags", "tags", on_delete: :cascade
@@ -2147,5 +2242,114 @@ ActiveRecord::Schema.define(version: 2026_10_18_020000) do
              FROM login_activities
             WHERE (login_activities.success = true)) t0
     GROUP BY user_id, ip;
+  SQL
+
+  # Composite foreign keys and projection triggers are not represented by the
+  # Rails 6.1 schema dumper. schema:load must keep them.
+  execute <<~SQL
+    ALTER TABLE external_status_projections
+      ADD CONSTRAINT fk_external_projections_subscription_owner
+      FOREIGN KEY (external_subscription_id, user_id, external_source_id)
+      REFERENCES external_subscriptions (id, user_id, external_source_id);
+    ALTER TABLE external_status_projections
+      ADD CONSTRAINT fk_external_projections_resource_source
+      FOREIGN KEY (external_resource_id, external_source_id)
+      REFERENCES external_resources (id, external_source_id);
+
+    CREATE OR REPLACE FUNCTION external_status_projections_enforce_owner_account()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    DECLARE
+      user_account_id bigint;
+      status_account_id bigint;
+    BEGIN
+      IF TG_OP = 'UPDATE' AND (
+        NEW.user_id IS DISTINCT FROM OLD.user_id OR
+        NEW.account_id IS DISTINCT FROM OLD.account_id OR
+        NEW.status_id IS DISTINCT FROM OLD.status_id
+      ) THEN
+        RAISE EXCEPTION 'external_status_projections identifiers are immutable'
+          USING ERRCODE = 'check_violation';
+      END IF;
+      SELECT account_id INTO user_account_id FROM users WHERE id = NEW.user_id FOR SHARE;
+      SELECT account_id INTO status_account_id FROM statuses WHERE id = NEW.status_id FOR SHARE;
+      IF user_account_id IS NULL
+         OR status_account_id IS NULL
+         OR user_account_id IS DISTINCT FROM NEW.account_id
+         OR status_account_id IS DISTINCT FROM NEW.account_id THEN
+        RAISE EXCEPTION 'external_status_projections account mismatch'
+          USING ERRCODE = 'check_violation';
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+    DROP TRIGGER IF EXISTS external_status_projections_user_account ON external_status_projections;
+    CREATE TRIGGER external_status_projections_user_account
+    BEFORE INSERT OR UPDATE OF user_id, account_id, status_id
+    ON external_status_projections
+    FOR EACH ROW
+    EXECUTE FUNCTION external_status_projections_enforce_owner_account();
+
+    CREATE OR REPLACE FUNCTION external_status_projections_guard_delete()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF current_setting('fedibird.projection_status_delete', true) IS DISTINCT FROM 'on' THEN
+        IF EXISTS (SELECT 1 FROM statuses WHERE id = OLD.status_id) THEN
+          RAISE EXCEPTION 'external status projection cannot be deleted while its status exists'
+            USING ERRCODE = 'check_violation';
+        END IF;
+      END IF;
+      RETURN OLD;
+    END;
+    $$;
+    DROP TRIGGER IF EXISTS external_status_projections_guard_delete ON external_status_projections;
+    CREATE TRIGGER external_status_projections_guard_delete
+    BEFORE DELETE ON external_status_projections
+    FOR EACH ROW
+    EXECUTE FUNCTION external_status_projections_guard_delete();
+
+    CREATE OR REPLACE FUNCTION statuses_external_projection_field_guard()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF OLD.external_projection IS TRUE
+         OR EXISTS (SELECT 1 FROM external_status_projections WHERE status_id = OLD.id) THEN
+        IF NEW.account_id IS DISTINCT FROM OLD.account_id
+           OR NEW.visibility IS DISTINCT FROM OLD.visibility
+           OR NEW.searchability IS DISTINCT FROM OLD.searchability
+           OR NEW.uri IS DISTINCT FROM OLD.uri
+           OR NEW.external_projection IS DISTINCT FROM TRUE
+           OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at
+           OR NEW.reblog_of_id IS DISTINCT FROM OLD.reblog_of_id
+           OR NEW.in_reply_to_id IS DISTINCT FROM OLD.in_reply_to_id
+           OR NEW.quote_id IS DISTINCT FROM OLD.quote_id THEN
+          RAISE EXCEPTION 'external projection status fields are immutable'
+            USING ERRCODE = 'check_violation';
+        END IF;
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+    DROP TRIGGER IF EXISTS statuses_external_projection_field_guard ON statuses;
+    CREATE TRIGGER statuses_external_projection_field_guard
+    BEFORE UPDATE OF account_id, visibility, searchability, uri, external_projection, deleted_at, reblog_of_id, in_reply_to_id, quote_id
+    ON statuses
+    FOR EACH ROW
+    EXECUTE FUNCTION statuses_external_projection_field_guard();
+
+    CREATE OR REPLACE FUNCTION users_external_projection_account_guard()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF NEW.account_id IS DISTINCT FROM OLD.account_id
+         AND EXISTS (SELECT 1 FROM external_status_projections WHERE user_id = OLD.id) THEN
+        RAISE EXCEPTION 'users.account_id cannot change while projections exist'
+          USING ERRCODE = 'check_violation';
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+    DROP TRIGGER IF EXISTS users_external_projection_account_guard ON users;
+    CREATE TRIGGER users_external_projection_account_guard
+    BEFORE UPDATE OF account_id ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION users_external_projection_account_guard();
   SQL
 end

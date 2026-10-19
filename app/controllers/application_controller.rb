@@ -34,6 +34,7 @@ class ApplicationController < ActionController::Base
     service_unavailable
   end
 
+  before_action :assign_external_bridge_viewer
   before_action :store_current_location, except: :raise_not_found, unless: :devise_controller?
   before_action :require_functional!, if: :user_signed_in?
 
@@ -137,6 +138,12 @@ class ApplicationController < ActionController::Base
 
   def use_seamless_external_login?
     Devise.pam_authentication || Devise.ldap_authentication
+  end
+
+  def assign_external_bridge_viewer
+    ExternalBridge::Viewer.user_id = current_user&.id
+  rescue ActiveRecord::RecordNotFound
+    ExternalBridge::Viewer.user_id = nil
   end
 
   def current_account

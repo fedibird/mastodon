@@ -22,7 +22,7 @@ class ActivityPub::StatusUpdateDistributionWorker < ActivityPub::DistributionWor
   private
 
   def skip_distribution?
-    @status.personal_visibility? || @status.ap_page?
+    @status.personal_visibility? || @status.ap_page? || ExternalBridge::ProjectionPrivacy.private_status?(@status)
   end
 
   # StatusReachFinder already includes public relays. A second relay
