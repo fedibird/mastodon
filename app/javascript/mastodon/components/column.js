@@ -45,9 +45,13 @@ export default class Column extends React.PureComponent {
   }
 
   componentWillUnmount () {
+    if (typeof this._interruptScrollAnimation === 'function') {
+      this._interruptScrollAnimation();
+    }
+
     if (this.props.bindToDocument) {
       document.removeEventListener('wheel', this.handleWheel);
-    } else {
+    } else if (this.node) {
       this.node.removeEventListener('wheel', this.handleWheel);
     }
   }

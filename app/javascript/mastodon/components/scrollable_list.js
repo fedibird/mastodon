@@ -13,6 +13,7 @@ import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from
 import LoadingIndicator from './loading_indicator';
 import { connect } from 'react-redux';
 import { FilterSurface } from '../filter_reconciliation/surface';
+import { isProgrammaticTopScroll, releaseProgrammaticTopScroll } from '../scroll';
 import {
   TIMELINE_ANCHOR_REASONS,
   TIMELINE_ANCHOR_VERSION,
@@ -88,7 +89,8 @@ class ScrollableList extends PureComponent {
       const scrollHeight = this.getScrollHeight();
       const clientHeight = this.getClientHeight();
       const offset = scrollHeight - scrollTop - clientHeight;
-      const anchorJump = this._isAnchorJumpScroll(scrollTop);
+      const headerScroll = this._headerScrollActive();
+      const anchorJump = headerScroll || this._isAnchorJumpScroll(scrollTop);
 
       // A jump to an already loaded row must not page in more. A real user
       // scroll, including one that arrives before this throttled call runs,
@@ -107,6 +109,13 @@ class ScrollableList extends PureComponent {
 
       if (!anchorJump && !this._suppressUserScroll && this.props.onUserScroll) {
         this.props.onUserScroll();
+      }
+
+      if (headerScroll) {
+        // The header is driving this scroller to the top. Drop queued
+        // anchor frames so they cannot apply after the smooth scroll ends.
+        this._anchorGeneration = (this._anchorGeneration || 0) + 1;
+        this._cancelAnchorCorrection();
       }
 
       if (!anchorJump && this._anchorScrollSuppressedLoad) {
@@ -181,7 +190,23 @@ class ScrollableList extends PureComponent {
     }
   }
 
+  _headerScrollActive = () => {
+    if (isProgrammaticTopScroll(this._getScrollingElement())) {
+      this._programmaticTopScrollSeen = true;
+      return true;
+    }
+
+    if (!this._programmaticTopScrollSeen) {
+      return false;
+    }
+
+    // The trailing throttle can fire once after the smooth scroll releases.
+    this._programmaticTopScrollSeen = false;
+    return true;
+  }
+
   _markUserScrollIntent = () => {
+    this._programmaticTopScrollSeen = false;
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     this._clearRestoreToken();
     this._anchorScrollSuppressedLoad = false;
@@ -202,6 +227,10 @@ class ScrollableList extends PureComponent {
   }
 
   setScrollTop = newScrollTop => {
+    if (isProgrammaticTopScroll(this._getScrollingElement())) {
+      return;
+    }
+
     if (this.getScrollTop() !== newScrollTop) {
       this.lastScrollWasSynthetic = true;
 
@@ -226,6 +255,7 @@ class ScrollableList extends PureComponent {
     if (!this.mouseMovedRecently && this.getScrollTop() === 0) {
       // Only set if we just started moving and are scrolled to the top.
       this.scrollToTopOnMouseIdle = true;
+      this._mouseIdleScrollTop = this.getScrollTop();
     }
 
     // Save setting this flag for last, so we can do the comparison above.
@@ -278,7 +308,9 @@ class ScrollableList extends PureComponent {
   }
 
   handleMouseIdle = () => {
-    if (this.scrollToTopOnMouseIdle && !this.props.preventScroll) {
+    // Scrollbar movement may never reach the pointer listeners. If the
+    // scroller left the position that armed this snap, the snap is stale.
+    if (this.scrollToTopOnMouseIdle && !this.props.preventScroll && Math.abs(this.getScrollTop() - (this._mouseIdleScrollTop || 0)) <= 1) {
       this.setScrollTop(0);
     }
 
@@ -502,6 +534,7 @@ class ScrollableList extends PureComponent {
       frames: 2,
       shouldAbort: () => (
         this._anchorUnmounted ||
+        isProgrammaticTopScroll(this._getScrollingElement()) ||
         this._anchorGeneration !== generation ||
         this._currentLocationKey() !== locationKey ||
         Math.abs(this.getScrollTop() - cursor.top) > 1
@@ -559,6 +592,8 @@ class ScrollableList extends PureComponent {
       return missing;
     }
 
+    releaseProgrammaticTopScroll(this._getScrollingElement());
+
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     const generation = this._anchorGeneration;
     const host = this.getTimelineScrollHost(kind);
@@ -585,6 +620,8 @@ class ScrollableList extends PureComponent {
     if (missing) {
       return missing;
     }
+
+    releaseProgrammaticTopScroll(this._getScrollingElement());
 
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     const generation = this._anchorGeneration;

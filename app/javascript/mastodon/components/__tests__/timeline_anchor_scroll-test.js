@@ -252,6 +252,27 @@ describe('ScrollableList timeline anchor', () => {
     expect(list.scrollTop).toBe(180);
   });
 
+  it('does not snap a scrollbar move back to the top on mouse idle', () => {
+    const ref = React.createRef();
+    const { container } = render(
+      <Provider store={store()}>
+        <ScrollableList ref={ref} scrollKey='home' trackScroll={false} hasMore={false}>
+          {rows(['100', '90'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    const list = container.querySelector('.scrollable');
+
+    layoutArticles(list, { 100: 180, 90: 180 });
+    list.scrollTop = 0;
+    ref.current.handleMouseMove();
+    ref.current.handleMouseMove.flush();
+    expect(ref.current.scrollToTopOnMouseIdle).toBe(true);
+    list.scrollTop = 420;
+    ref.current.handleMouseIdle();
+    expect(list.scrollTop).toBe(420);
+  });
+
   it('treats a jump scroll event as synthetic so it does not load more or cancel correction', () => {
     const ref = React.createRef();
     const onLoadMore = jest.fn();
