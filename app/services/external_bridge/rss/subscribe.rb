@@ -31,14 +31,34 @@ module ExternalBridge
         raise Error, :tester_only unless Feature.tester?(user)
 
         subscription = owned!(user, subscription_id)
-        subscription.update!(state: 'active', last_error_code: nil)
+        subscription.update!(state: 'active', last_error_code: nil, last_error_at: nil, next_retry_at: nil, retry_count: 0)
         RefreshSource.new.call(subscription.external_source_id, subscription_id: subscription.id)
+        subscription.reload
+      end
+
+      def restore!(user:, subscription_id:, resource_id: nil)
+        raise Error, :feature_disabled unless Feature.enabled?
+        raise Error, :tester_only unless Feature.tester?(user)
+
+        subscription = owned!(user, subscription_id)
+        raise Error, :user_not_functional unless user&.functional?
+
+        scope = ExternalProjectionSuppression.where(user_id: user.id, external_resource_id: source_resource_ids(subscription))
+        scope = scope.where(external_resource_id: resource_id) if resource_id.present?
+        ids = scope.pluck(:external_resource_id)
+        raise Error, :not_found if ids.empty?
+
+        scope.delete_all
+        resources = ExternalResource.where(id: ids).to_a
+        result = Materialize.new.call(subscription: subscription, resources: resources)
+        SubscriptionOutcome.reconcile!(subscription, result) if result.ran
         subscription.reload
       end
 
       def unsubscribe!(user:, subscription_id:)
         subscription = owned!(user, subscription_id)
         ApplicationRecord.transaction do
+          ExternalProjectionSuppression.where(user_id: user.id, external_resource_id: source_resource_ids(subscription)).delete_all
           ProjectionPurge.purge_subscription!(subscription)
           subscription.destroy!
         end
@@ -82,18 +102,24 @@ module ExternalBridge
         subscription.last_error_code = nil
         subscription.last_error_at = nil
         subscription.checked_at = Time.current
+        subscription.next_retry_at = nil
         subscription.save!
         subscription
       end
 
       def materialize!(subscription, source)
         resources = source.external_resources.order(published_at: :desc, id: :desc).limit(Limits::MAX_ITEMS).to_a
-        Materialize.new.call(subscription: subscription, resources: resources)
+        result = Materialize.new.call(subscription: subscription, resources: resources)
+        SubscriptionOutcome.reconcile!(subscription, result) if result.ran
         subscription
       end
 
       def owned!(user, subscription_id)
         ExternalSubscription.find_by(id: subscription_id, user_id: user.id) || raise(Error, :not_found)
+      end
+
+      def source_resource_ids(subscription)
+        ExternalResource.where(external_source_id: subscription.external_source_id).select(:id)
       end
 
       def record_existing_error(source, user, code)
@@ -102,7 +128,7 @@ module ExternalBridge
         subscription = ExternalSubscription.find_by(user_id: user.id, external_source_id: source.id)
         return if subscription.nil?
 
-        subscription.update!(state: 'error', last_error_code: code, last_error_at: Time.current, checked_at: Time.current)
+        SubscriptionOutcome.fetch_failure!(subscription, code)
       end
     end
   end

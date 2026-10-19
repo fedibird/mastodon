@@ -31,10 +31,9 @@ module ExternalBridge
           feed = Parser.parse!(response.body)
           resources = Ingest.new.apply_public!(source, feed, response)
           materialize_targets(targets, resources)
-        elsif [401, 403].include?(response.code)
-          mark_subscriptions(targets, 'authenticated_source_rejected')
         else
-          mark_subscriptions(targets, "http_#{response.code}")
+          code = [401, 403].include?(response.code) ? 'authenticated_source_rejected' : "http_#{response.code}"
+          mark_subscriptions(targets, code)
         end
       end
 
@@ -46,17 +45,17 @@ module ExternalBridge
 
       def materialize_targets(targets, resources)
         targets.each do |subscription|
-          Materialize.new.call(subscription: subscription, resources: resources)
-          subscription.update!(state: 'active', last_error_code: nil, last_error_at: nil, checked_at: Time.current)
+          result = Materialize.new.call(subscription: subscription, resources: resources)
+          SubscriptionOutcome.reconcile!(subscription, result) if result.ran
         rescue StandardError => e
           Rails.logger.info("[ExternalBridge::RSS] subscriber refresh failed subscription=#{subscription.id} code=#{e.class}")
-          subscription.update!(state: 'error', last_error_code: 'import_failed', last_error_at: Time.current, checked_at: Time.current)
+          SubscriptionOutcome.retry!(subscription, 'import_failed')
         end
       end
 
       def mark_subscriptions(targets, code)
         targets.each do |subscription|
-          subscription.update!(state: 'error', last_error_code: code, last_error_at: Time.current, checked_at: Time.current)
+          SubscriptionOutcome.fetch_failure!(subscription, code)
         end
       end
 

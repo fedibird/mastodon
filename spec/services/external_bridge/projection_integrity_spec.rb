@@ -18,6 +18,37 @@ RSpec.describe ExternalBridge::ProjectionWriter do
       expect(indexes.none? { |index| index.unique && index.columns == %w(id account_id) }).to be true
     end
 
+    it 'reinstalls projection triggers from the schema definition after they are dropped' do
+      connection = ActiveRecord::Base.connection
+      ActiveRecord::Base.transaction(requires_new: true) do
+        connection.execute(<<~SQL)
+          DROP TRIGGER IF EXISTS users_external_projection_account_guard ON users;
+          DROP TRIGGER IF EXISTS statuses_external_projection_field_guard ON statuses;
+          DROP TRIGGER IF EXISTS external_status_projections_guard_delete ON external_status_projections;
+          DROP TRIGGER IF EXISTS external_status_projections_user_account ON external_status_projections;
+          ALTER TABLE external_status_projections DROP CONSTRAINT IF EXISTS fk_external_projections_subscription_owner;
+          ALTER TABLE external_status_projections DROP CONSTRAINT IF EXISTS fk_external_projections_resource_source;
+        SQL
+        expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_status_projections_guard_delete' AND NOT tgisinternal")).to be_nil
+
+        connection.execute(ExternalBridge::Schema::DEFINITIONS_SQL)
+        expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_status_projections_guard_delete' AND NOT tgisinternal")).to eq 1
+        expect(connection.select_value("SELECT 1 FROM pg_constraint WHERE conname = 'fk_external_projections_subscription_owner'")).to eq 1
+        raise ActiveRecord::Rollback
+      end
+    end
+
+    it 'keeps the trigger SQL in a schema dump' do
+      stream = StringIO.new
+      ActiveRecord::SchemaDumper.dump(ActiveRecord::Base.connection, stream)
+      dumped = stream.string
+      schema = File.read(Rails.root.join('db/schema.rb'))
+      expect(dumped).to include('execute ExternalBridge::Schema::DEFINITIONS_SQL')
+      expect(schema).to include('execute ExternalBridge::Schema::DEFINITIONS_SQL')
+      expect(schema).to include('INCLUDE (id)')
+      expect(dumped).not_to include('INCLUDE (id)')
+    end
+
     it 'keeps the account-match trigger as an ordinary BEFORE row trigger' do
       row = ActiveRecord::Base.connection.select_one(<<~SQL.squish)
         SELECT tgtype, tgconstraint = 0 AS ordinary

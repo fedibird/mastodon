@@ -14,9 +14,16 @@ class Scheduler::ExternalBridgeRSSRefreshScheduler
     return if tester_ids.empty?
 
     cutoff = ExternalBridge::RSS::Limits::FRESH_FOR.ago
+    due = <<~SQL.squish
+      (external_subscriptions.next_retry_at IS NOT NULL AND external_subscriptions.next_retry_at <= :now)
+      OR (
+        external_subscriptions.next_retry_at IS NULL
+        AND (external_subscriptions.checked_at IS NULL OR external_subscriptions.checked_at < :cutoff)
+      )
+    SQL
     ids = ExternalSource.joins(:external_subscriptions)
                         .merge(ExternalSubscription.active.where(user_id: tester_ids))
-                        .where('external_subscriptions.checked_at IS NULL OR external_subscriptions.checked_at < ?', cutoff)
+                        .where(due, now: Time.current, cutoff: cutoff)
                         .distinct
                         .limit(BATCH)
                         .pluck('external_sources.id')

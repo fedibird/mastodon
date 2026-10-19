@@ -266,6 +266,50 @@ RSpec.describe 'Private RSS projection access' do
       expect(ExternalSubscription.where(user_id: roommate.id)).to be_empty
     end
 
+    it 'returns 422 when every imported item fails and does not claim the feed is synced' do
+      stub_request(:get, 'https://feeds.example/all-fail.xml').to_return(
+        status: 200,
+        body: rss_document(rss_item(guid: 'nope', body: 'Hidden'))
+      )
+      allow(ExternalBridge::ProjectionWriter).to receive(:new).and_wrap_original do |method, *args|
+        writer = method.call(*args)
+        allow(writer).to receive(:create!).and_raise(ActiveRecord::RecordInvalid, Status.new)
+        writer
+      end
+
+      post '/api/v1/external_bridge/rss/subscriptions', params: { url: 'https://feeds.example/all-fail.xml' }, headers: owner_headers
+      expect(response).to have_http_status(422)
+      expect(body_as_json[:failed_item_count]).to eq 1
+      expect(body_as_json[:last_error_code]).to eq 'import_failed'
+      expect(ExternalStatusProjection.where(user_id: owner.id, external_subscription_id: body_as_json[:id])).to be_empty
+    end
+
+    it 'does not resurrect a status the owner deleted' do
+      stub_request(:get, 'https://feeds.example/resurrect.xml').to_return(
+        status: 200,
+        body: rss_document(rss_item(guid: 'alive', body: 'Come back'))
+      )
+      post '/api/v1/external_bridge/rss/subscriptions', params: { url: 'https://feeds.example/resurrect.xml' }, headers: owner_headers
+      expect(response).to have_http_status(201)
+      subscription_id = body_as_json[:id]
+      created = ExternalStatusProjection.find_by!(external_subscription_id: subscription_id)
+      resource_id = created.external_resource_id
+
+      delete "/api/v1/statuses/#{created.status_id}", headers: owner_headers
+      expect(response).to have_http_status(200)
+      expect(ExternalStatusProjection.exists?(created.id)).to be false
+      expect(ExternalProjectionSuppression.exists?(user_id: owner.id, external_resource_id: resource_id)).to be true
+
+      ExternalSource.find(created.external_source_id).update!(fetched_at: 1.hour.ago)
+      ExternalBridge::RSS::RefreshSource.new.call(created.external_source_id)
+      expect(ExternalStatusProjection.where(user_id: owner.id, external_resource_id: resource_id)).to be_empty
+
+      post "/api/v1/external_bridge/rss/subscriptions/#{subscription_id}/restore", params: { resource_id: resource_id }, headers: owner_headers
+      expect(response).to have_http_status(200)
+      expect(ExternalStatusProjection.find_by!(user_id: owner.id, external_resource_id: resource_id)).to be_present
+      expect(ExternalProjectionSuppression.where(user_id: owner.id, external_resource_id: resource_id)).to be_empty
+    end
+
     it 'has no generic external service provider route' do
       route = Rails.application.routes.routes.find { |entry| entry.path.spec.to_s.include?('/settings/external_services/:provider') }
       expect(route).to be_nil

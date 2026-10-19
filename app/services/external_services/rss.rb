@@ -110,7 +110,7 @@ module ExternalServices
 
       def card_status(user, rows)
         return :unavailable unless ExternalBridge::Feature.permitted?(user)
-        return :warning if rows.any? { |row| row.state == 'error' }
+        return :warning if rows.any? { |row| row.state == 'error' || row.failed_item_count.to_i.positive? || row.last_error_code.present? }
 
         :connected
       end

@@ -695,6 +695,7 @@ Rails.application.routes.draw do
             member do
               post :pause
               post :resume
+              post :restore
             end
             resources :statuses, only: :index, module: :subscriptions
           end

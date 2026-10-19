@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_19_180000) do
+ActiveRecord::Schema.define(version: 2026_10_19_200000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -574,6 +574,27 @@ ActiveRecord::Schema.define(version: 2026_10_19_180000) do
     t.check_constraint "(protocol)::text = ANY ((ARRAY['rss'::character varying, 'atom'::character varying])::text[])", name: "external_actors_protocol_check"
   end
 
+  create_table "external_projection_failures", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "external_subscription_id", null: false
+    t.bigint "external_resource_id", null: false
+    t.string "error_code", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_subscription_id"], name: "index_external_projection_failures_on_subscription"
+    t.index ["user_id", "external_resource_id"], name: "index_external_projection_failures_on_user_and_resource", unique: true
+    t.index ["user_id"], name: "index_external_projection_failures_on_user_id"
+  end
+
+  create_table "external_projection_suppressions", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "external_resource_id", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["user_id", "external_resource_id"], name: "index_external_projection_suppressions_on_user_and_resource", unique: true
+    t.index ["user_id"], name: "index_external_projection_suppressions_on_user_id"
+  end
+
   create_table "external_resources", force: :cascade do |t|
     t.bigint "external_source_id", null: false
     t.bigint "external_actor_id"
@@ -639,6 +660,9 @@ ActiveRecord::Schema.define(version: 2026_10_19_180000) do
     t.string "last_error_code"
     t.datetime "last_error_at"
     t.datetime "checked_at"
+    t.datetime "next_retry_at"
+    t.integer "retry_count", default: 0, null: false
+    t.integer "failed_item_count", default: 0, null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["external_source_id"], name: "index_external_subscriptions_on_external_source_id"
@@ -2018,6 +2042,11 @@ ActiveRecord::Schema.define(version: 2026_10_19_180000) do
   add_foreign_key "emoji_reactions", "statuses", on_delete: :cascade
   add_foreign_key "encrypted_messages", "accounts", column: "from_account_id", on_delete: :cascade
   add_foreign_key "encrypted_messages", "devices", on_delete: :cascade
+  add_foreign_key "external_projection_failures", "external_resources", on_delete: :restrict
+  add_foreign_key "external_projection_failures", "external_subscriptions", on_delete: :cascade
+  add_foreign_key "external_projection_failures", "users", on_delete: :cascade
+  add_foreign_key "external_projection_suppressions", "external_resources", on_delete: :restrict
+  add_foreign_key "external_projection_suppressions", "users", on_delete: :cascade
   add_foreign_key "external_resources", "external_actors", on_delete: :nullify
   add_foreign_key "external_resources", "external_sources", on_delete: :restrict
   add_foreign_key "external_status_projections", "accounts", on_delete: :restrict
@@ -2245,111 +2274,6 @@ ActiveRecord::Schema.define(version: 2026_10_19_180000) do
   SQL
 
   # Composite foreign keys and projection triggers are not represented by the
-  # Rails 6.1 schema dumper. schema:load must keep them.
-  execute <<~SQL
-    ALTER TABLE external_status_projections
-      ADD CONSTRAINT fk_external_projections_subscription_owner
-      FOREIGN KEY (external_subscription_id, user_id, external_source_id)
-      REFERENCES external_subscriptions (id, user_id, external_source_id);
-    ALTER TABLE external_status_projections
-      ADD CONSTRAINT fk_external_projections_resource_source
-      FOREIGN KEY (external_resource_id, external_source_id)
-      REFERENCES external_resources (id, external_source_id);
-
-    CREATE OR REPLACE FUNCTION external_status_projections_enforce_owner_account()
-    RETURNS trigger LANGUAGE plpgsql AS $$
-    DECLARE
-      user_account_id bigint;
-      status_account_id bigint;
-    BEGIN
-      IF TG_OP = 'UPDATE' AND (
-        NEW.user_id IS DISTINCT FROM OLD.user_id OR
-        NEW.account_id IS DISTINCT FROM OLD.account_id OR
-        NEW.status_id IS DISTINCT FROM OLD.status_id
-      ) THEN
-        RAISE EXCEPTION 'external_status_projections identifiers are immutable'
-          USING ERRCODE = 'check_violation';
-      END IF;
-      SELECT account_id INTO user_account_id FROM users WHERE id = NEW.user_id FOR SHARE;
-      SELECT account_id INTO status_account_id FROM statuses WHERE id = NEW.status_id FOR SHARE;
-      IF user_account_id IS NULL
-         OR status_account_id IS NULL
-         OR user_account_id IS DISTINCT FROM NEW.account_id
-         OR status_account_id IS DISTINCT FROM NEW.account_id THEN
-        RAISE EXCEPTION 'external_status_projections account mismatch'
-          USING ERRCODE = 'check_violation';
-      END IF;
-      RETURN NEW;
-    END;
-    $$;
-    DROP TRIGGER IF EXISTS external_status_projections_user_account ON external_status_projections;
-    CREATE TRIGGER external_status_projections_user_account
-    BEFORE INSERT OR UPDATE OF user_id, account_id, status_id
-    ON external_status_projections
-    FOR EACH ROW
-    EXECUTE FUNCTION external_status_projections_enforce_owner_account();
-
-    CREATE OR REPLACE FUNCTION external_status_projections_guard_delete()
-    RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN
-      IF current_setting('fedibird.projection_status_delete', true) IS DISTINCT FROM 'on' THEN
-        IF EXISTS (SELECT 1 FROM statuses WHERE id = OLD.status_id) THEN
-          RAISE EXCEPTION 'external status projection cannot be deleted while its status exists'
-            USING ERRCODE = 'check_violation';
-        END IF;
-      END IF;
-      RETURN OLD;
-    END;
-    $$;
-    DROP TRIGGER IF EXISTS external_status_projections_guard_delete ON external_status_projections;
-    CREATE TRIGGER external_status_projections_guard_delete
-    BEFORE DELETE ON external_status_projections
-    FOR EACH ROW
-    EXECUTE FUNCTION external_status_projections_guard_delete();
-
-    CREATE OR REPLACE FUNCTION statuses_external_projection_field_guard()
-    RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN
-      IF OLD.external_projection IS TRUE
-         OR EXISTS (SELECT 1 FROM external_status_projections WHERE status_id = OLD.id) THEN
-        IF NEW.account_id IS DISTINCT FROM OLD.account_id
-           OR NEW.visibility IS DISTINCT FROM OLD.visibility
-           OR NEW.searchability IS DISTINCT FROM OLD.searchability
-           OR NEW.uri IS DISTINCT FROM OLD.uri
-           OR NEW.external_projection IS DISTINCT FROM TRUE
-           OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at
-           OR NEW.reblog_of_id IS DISTINCT FROM OLD.reblog_of_id
-           OR NEW.in_reply_to_id IS DISTINCT FROM OLD.in_reply_to_id
-           OR NEW.quote_id IS DISTINCT FROM OLD.quote_id THEN
-          RAISE EXCEPTION 'external projection status fields are immutable'
-            USING ERRCODE = 'check_violation';
-        END IF;
-      END IF;
-      RETURN NEW;
-    END;
-    $$;
-    DROP TRIGGER IF EXISTS statuses_external_projection_field_guard ON statuses;
-    CREATE TRIGGER statuses_external_projection_field_guard
-    BEFORE UPDATE OF account_id, visibility, searchability, uri, external_projection, deleted_at, reblog_of_id, in_reply_to_id, quote_id
-    ON statuses
-    FOR EACH ROW
-    EXECUTE FUNCTION statuses_external_projection_field_guard();
-
-    CREATE OR REPLACE FUNCTION users_external_projection_account_guard()
-    RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN
-      IF NEW.account_id IS DISTINCT FROM OLD.account_id
-         AND EXISTS (SELECT 1 FROM external_status_projections WHERE user_id = OLD.id) THEN
-        RAISE EXCEPTION 'users.account_id cannot change while projections exist'
-          USING ERRCODE = 'check_violation';
-      END IF;
-      RETURN NEW;
-    END;
-    $$;
-    DROP TRIGGER IF EXISTS users_external_projection_account_guard ON users;
-    CREATE TRIGGER users_external_projection_account_guard
-    BEFORE UPDATE OF account_id ON users
-    FOR EACH ROW
-    EXECUTE FUNCTION users_external_projection_account_guard();
-  SQL
+  # Rails 6.1 schema dumper. schema:load executes the application definition.
+  execute ExternalBridge::Schema::DEFINITIONS_SQL
 end

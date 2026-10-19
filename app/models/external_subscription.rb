@@ -11,6 +11,9 @@
 #  last_error_code    :string
 #  last_error_at      :datetime
 #  checked_at         :datetime
+#  next_retry_at      :datetime
+#  retry_count        :integer          default(0), not null
+#  failed_item_count  :integer          default(0), not null
 #  created_at         :datetime         not null
 #  updated_at         :datetime         not null
 #
@@ -20,6 +23,7 @@ class ExternalSubscription < ApplicationRecord
   belongs_to :user
   belongs_to :external_source
   has_many :external_status_projections, dependent: :restrict_with_exception
+  has_many :external_projection_failures, dependent: :destroy
 
   validates :state, inclusion: { in: STATES }
 

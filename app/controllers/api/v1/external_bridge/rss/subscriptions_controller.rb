@@ -12,7 +12,8 @@ class Api::V1::ExternalBridge::RSS::SubscriptionsController < Api::BaseControlle
 
   def create
     subscription = ExternalBridge::RSS::Subscribe.new.call(user: current_user, url: params[:url])
-    render json: subscription_json(subscription), status: 201
+    status = incomplete_import?(subscription) ? 422 : 201
+    render json: subscription_json(subscription), status: status
   rescue ExternalBridge::Error => e
     render json: { error: e.code }, status: e.http_status
   end
@@ -38,7 +39,22 @@ class Api::V1::ExternalBridge::RSS::SubscriptionsController < Api::BaseControlle
     render json: { error: e.code }, status: e.http_status
   end
 
+  def restore
+    subscription = ExternalBridge::RSS::Subscribe.new.restore!(
+      user: current_user,
+      subscription_id: params[:id],
+      resource_id: params[:resource_id]
+    )
+    render json: subscription_json(subscription)
+  rescue ExternalBridge::Error => e
+    render json: { error: e.code }, status: e.http_status
+  end
+
   private
+
+  def incomplete_import?(subscription)
+    subscription.failed_item_count.to_i.positive? && !subscription.external_status_projections.exists?
+  end
 
   def subscription_json(subscription)
     source = subscription.external_source
@@ -46,6 +62,9 @@ class Api::V1::ExternalBridge::RSS::SubscriptionsController < Api::BaseControlle
       id: subscription.id.to_s,
       state: subscription.state,
       last_error_code: subscription.last_error_code,
+      failed_item_count: subscription.failed_item_count,
+      retry_count: subscription.retry_count,
+      next_retry_at: subscription.next_retry_at,
       checked_at: subscription.checked_at,
       source: {
         protocol: source.protocol,

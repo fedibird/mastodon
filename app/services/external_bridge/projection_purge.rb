@@ -8,14 +8,15 @@ module ExternalBridge
     SETTING_SQL = "SET LOCAL fedibird.projection_status_delete = 'on'"
 
     def self.purge_status!(status)
-      purge_status_ids!([status.id])
+      purge_status_ids!([status.id], suppress: true)
     end
 
-    def self.purge_status_ids!(status_ids)
+    def self.purge_status_ids!(status_ids, suppress: false)
       ids = Array(status_ids).map(&:to_i).uniq.reject(&:zero?)
       return if ids.empty?
 
       ActiveRecord::Base.transaction(requires_new: true) do
+        remember_suppressions!(ids) if suppress
         ActiveRecord::Base.connection.execute(SETTING_SQL)
         Status.unscoped.where(id: ids).delete_all
       end
@@ -42,6 +43,15 @@ module ExternalBridge
       ids = ExternalStatusProjection.where(external_subscription_id: subscription.id).pluck(:status_id)
       purge_status_ids!(ids)
     end
+
+    def self.remember_suppressions!(status_ids)
+      ExternalStatusProjection.where(status_id: status_ids).find_each do |marker|
+        ExternalProjectionFailure.where(user_id: marker.user_id, external_resource_id: marker.external_resource_id).delete_all
+        suppression = ExternalProjectionSuppression.find_or_initialize_by(user_id: marker.user_id, external_resource_id: marker.external_resource_id)
+        suppression.save!
+      end
+    end
+    private_class_method :remember_suppressions!
 
     def self.clear_delete_setting!
       connection = ActiveRecord::Base.connection

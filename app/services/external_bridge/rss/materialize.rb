@@ -3,17 +3,47 @@
 module ExternalBridge
   module RSS
     class Materialize
-      def call(subscription:, resources:)
-        return unless subscription.state == 'active'
-        return unless subscription.user&.functional?
-        return unless Feature.permitted?(subscription.user)
+      Result = Struct.new(:ran, :attempted, :succeeded, :failed, :skipped, keyword_init: true)
 
-        resources.each do |resource|
-          project(subscription, resource)
+      def call(subscription:, resources:)
+        empty = Result.new(ran: false, attempted: 0, succeeded: 0, failed: 0, skipped: 0)
+        return empty unless subscription.state == 'active'
+        return empty unless subscription.user&.functional?
+        return empty unless Feature.permitted?(subscription.user)
+
+        result = Result.new(ran: true, attempted: 0, succeeded: 0, failed: 0, skipped: 0)
+        resources_with_retries(subscription, resources).each do |resource|
+          if suppressed?(subscription, resource)
+            result.skipped += 1
+            next
+          end
+
+          result.attempted += 1
+          if project(subscription, resource)
+            result.succeeded += 1
+            clear_failure(subscription, resource)
+          else
+            result.failed += 1
+            record_failure(subscription, resource)
+          end
         end
+        result
       end
 
       private
+
+      def resources_with_retries(subscription, resources)
+        current = Array(resources)
+        extra_ids = ExternalProjectionFailure.where(user_id: subscription.user_id, external_subscription_id: subscription.id).pluck(:external_resource_id)
+        missing_ids = extra_ids - current.map(&:id)
+        return current if missing_ids.empty?
+
+        current + ExternalResource.where(id: missing_ids).to_a
+      end
+
+      def suppressed?(subscription, resource)
+        ExternalProjectionSuppression.exists?(user_id: subscription.user_id, external_resource_id: resource.id)
+      end
 
       def project(subscription, resource)
         marker = ExternalStatusProjection.find_by(user_id: subscription.user_id, external_resource_id: resource.id)
@@ -27,9 +57,10 @@ module ExternalBridge
             text: status_text(resource)
           )
         end
+        true
       rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid, Error => e
         Rails.logger.info("[ExternalBridge::RSS] projection skipped subscription=#{subscription.id} code=#{e.class}")
-        nil
+        false
       end
 
       def refresh_existing(marker, resource)
@@ -46,6 +77,17 @@ module ExternalBridge
 
       def status_text(resource)
         Excerpt.for(resource)
+      end
+
+      def record_failure(subscription, resource)
+        failure = ExternalProjectionFailure.find_or_initialize_by(user_id: subscription.user_id, external_resource_id: resource.id)
+        failure.external_subscription = subscription
+        failure.error_code = 'import_failed'
+        failure.save!
+      end
+
+      def clear_failure(subscription, resource)
+        ExternalProjectionFailure.where(user_id: subscription.user_id, external_resource_id: resource.id).delete_all
       end
     end
   end
