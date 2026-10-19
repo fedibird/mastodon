@@ -3,14 +3,14 @@
 module ExternalBridge
   module RSS
     class Materialize
-      def call(subscription:, resources:, complete: false)
+      def call(subscription:, resources:)
         return unless subscription.state == 'active'
         return unless subscription.user&.functional?
+        return unless Feature.permitted?(subscription.user)
 
         resources.each do |resource|
           project(subscription, resource)
         end
-        mark_missing(subscription, resources) if complete
       end
 
       private
@@ -27,7 +27,8 @@ module ExternalBridge
             text: status_text(resource)
           )
         end
-      rescue ActiveRecord::RecordNotUnique
+      rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid, Error => e
+        Rails.logger.info("[ExternalBridge::RSS] projection skipped subscription=#{subscription.id} code=#{e.class}")
         nil
       end
 
@@ -43,21 +44,8 @@ module ExternalBridge
         status.update!(text: text) if status.text != text
       end
 
-      def mark_missing(subscription, resources)
-        seen = resources.map(&:id)
-        ExternalStatusProjection.where(external_subscription_id: subscription.id).where.not(external_resource_id: seen).find_each do |marker|
-          marker.update!(source_deleted: true)
-          resource = marker.external_resource
-          next if resource.nil? || resource.source_deleted_at.present?
-
-          resource.update!(source_deleted_at: Time.current)
-        end
-      end
-
       def status_text(resource)
-        parts = [resource.title, resource.byline, resource.canonical_url, resource.body].map { |part| part.to_s.strip }.reject(&:blank?)
-        text, = Sanitizer.capped(parts.join("\n\n"))
-        text.presence || I18n.t('external_bridge.untitled')
+        Excerpt.for(resource)
       end
     end
   end

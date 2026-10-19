@@ -7,12 +7,13 @@ module ExternalServices
     ICON = 'external_services/rss.svg'
 
     class Page
-      attr_reader :subscriptions, :items, :enabled
+      attr_reader :subscriptions, :items, :enabled, :permitted
 
-      def initialize(subscriptions:, items:, enabled:)
+      def initialize(subscriptions:, items:, enabled:, permitted:)
         @subscriptions = subscriptions
         @items = items
         @enabled = enabled
+        @permitted = permitted
       end
     end
 
@@ -37,6 +38,10 @@ module ExternalServices
         ExternalBridge::Feature.enabled?
       end
 
+      def visible_to?(user)
+        ExternalBridge::Feature.permitted?(user)
+      end
+
       def manage_path
         routes.settings_external_services_rss_path
       end
@@ -45,7 +50,7 @@ module ExternalServices
         rows = subscriptions_for(user)
         return [] if rows.empty?
 
-        status = card_status(rows)
+        status = card_status(user, rows)
         [card_for(rows, status)]
       end
 
@@ -66,7 +71,12 @@ module ExternalServices
 
       def page_for(user)
         rows = subscriptions_for(user)
-        Page.new(subscriptions: rows, items: items_for(user), enabled: available?)
+        Page.new(
+          subscriptions: rows,
+          items: items_for(user),
+          enabled: available?,
+          permitted: ExternalBridge::Feature.permitted?(user)
+        )
       end
 
       private
@@ -98,8 +108,8 @@ module ExternalServices
         )
       end
 
-      def card_status(rows)
-        return :unavailable unless available?
+      def card_status(user, rows)
+        return :unavailable unless ExternalBridge::Feature.permitted?(user)
         return :warning if rows.any? { |row| row.state == 'error' }
 
         :connected

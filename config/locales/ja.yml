@@ -2095,6 +2095,7 @@ ja:
         subtitle: "公開フィード %{count}件"
   external_bridge:
     disabled: このサーバーではRSSの取り込みがオフです。すでに取り込んだ非公開投稿は非公開のままです。
+    tester_only: このサーバーではRSSの取り込みはテスターだけが使えます。すでに取り込んだ非公開投稿は非公開のままです。
     feed_url: フィードURL
     items: 取り込んだ項目
     no_items: 取り込んだ項目はまだありません。
@@ -2112,6 +2113,8 @@ ja:
       account_mismatch: このアカウントにはフィードを保存できませんでした。
       authenticated_source_rejected: ログインやトークンが必要なアドレスなので取得しませんでした。
       feature_disabled: このサーバーではRSSの取り込みがオフです。
+      tester_only: このサーバーではRSSの取り込みはテスターだけが使えます。
+      import_failed: 項目の一部を保存できませんでした。
       fetch_failed: フィードを取得できませんでした。
       malformed_feed: 公開のRSSまたはAtomではありませんでした。
       not_found: そのフィードは見つかりませんでした。

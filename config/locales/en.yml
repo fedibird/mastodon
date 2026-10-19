@@ -2166,6 +2166,7 @@ en:
         subtitle: "%{count} public feeds"
   external_bridge:
     disabled: RSS import is turned off on this server. Existing private imports stay private.
+    tester_only: RSS import is limited to testers on this server. Existing private imports stay private.
     feed_url: Feed URL
     items: Imported items
     no_items: No imported items yet.
@@ -2183,6 +2184,8 @@ en:
       account_mismatch: The feed could not be saved for this account.
       authenticated_source_rejected: That address needs a login or a token, so it was not fetched.
       feature_disabled: RSS import is turned off on this server.
+      tester_only: RSS import is limited to testers on this server.
+      import_failed: This feed could not be saved for one of the items.
       fetch_failed: The feed could not be fetched.
       malformed_feed: The response was not a public RSS or Atom feed.
       not_found: That feed was not found.

@@ -234,12 +234,29 @@ RSpec.describe ExternalBridge::ProjectionWriter do
       expect(index_scope.where(id: status.id)).not_to exist
     end
 
-    it 'drops a planted document when the marker is imported' do
-      skip 'Elasticsearch is not available in this environment' unless elasticsearch_available?
+    it 'drops a planted document through favourite, bookmark, stat, and a full rebuild' do
+      skip 'Elasticsearch release gate: cluster is not reachable with ES_ENABLED=true' unless elasticsearch_available?
 
-      StatusesIndex.import!
-      StatusesIndex.import!(status)
-      expect(raw_document(status.id)).to be_nil
+      ordinary = Fabricate(:status, account: user.account, text: 'indexed ordinary')
+      Chewy.strategy(:urgent) do
+        StatusesIndex.import!
+        StatusesIndex.import!(status)
+        expect(raw_document(status.id)).to be_nil
+        expect(raw_document(ordinary.id)).to be_present
+
+        Favourite.create!(account: user.account, status: status)
+        Bookmark.create!(account: user.account, status: status)
+        status.status_stat.update!(favourites_count: 1)
+        StatusesIndex.import!(status)
+        expect(raw_document(status.id)).to be_nil
+
+        Favourite.where(status_id: status.id).delete_all
+        Bookmark.where(status_id: status.id).delete_all
+        status.status_stat.update!(favourites_count: 0)
+        StatusesIndex.import!
+        expect(raw_document(status.id)).to be_nil
+        expect(raw_document(ordinary.id)).to be_present
+      end
     end
 
     def index_scope
@@ -247,6 +264,8 @@ RSpec.describe ExternalBridge::ProjectionWriter do
     end
 
     def elasticsearch_available?
+      return false unless Chewy.enabled?
+
       Chewy.client.cluster.health
       true
     rescue StandardError

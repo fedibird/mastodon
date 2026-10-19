@@ -12,10 +12,10 @@
       %h3= t('external_services.providers.rss.name')
       %p= t('external_services.providers.rss.description')
 
-  - unless @page.enabled
-    %p.warning-hint= t('external_bridge.disabled')
+  - unless @page.permitted
+    %p.warning-hint= @page.enabled ? t('external_bridge.tester_only') : t('external_bridge.disabled')
 
-  - if @page.enabled
+  - if @page.permitted
     = form_with url: settings_external_services_rss_subscriptions_path, method: :post, local: true do
       .fields-group
         = label_tag :url, t('external_bridge.feed_url')
@@ -34,9 +34,9 @@
           %span= subscription.state
           - if subscription.last_error_code.present?
             %span= t("external_bridge.errors.#{subscription.last_error_code}", default: subscription.last_error_code)
-          - if subscription.state == 'active'
+          - if @page.permitted && subscription.state == 'active'
             = button_to t('external_bridge.pause'), pause_external_services_rss_subscription_path(subscription), method: :post
-          - else
+          - elsif @page.permitted
             = button_to t('external_bridge.resume'), resume_external_services_rss_subscription_path(subscription), method: :post
           = button_to t('external_bridge.unsubscribe'), external_services_rss_subscription_path(subscription), method: :delete
 

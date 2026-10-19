@@ -19,38 +19,43 @@ module ExternalBridge
       private
 
       def refresh_locked(source, subscription_id)
+        targets = permitted_subscriptions(source, subscription_id)
+        return if targets.empty?
+
         response = HttpClient.get(source.canonical_key, etag: source.etag, last_modified: source.last_modified)
         if response.code == 304
           source.update!(checked_at: Time.current)
           resources = source.external_resources.order(published_at: :desc, id: :desc).limit(Limits::MAX_ITEMS).to_a
-          materialize_active(source, resources, complete: false)
+          materialize_targets(targets, resources)
         elsif response.code.between?(200, 299)
           feed = Parser.parse!(response.body)
           resources = Ingest.new.apply_public!(source, feed, response)
-          materialize_active(source, resources, complete: feed.items.size < Limits::MAX_ITEMS)
+          materialize_targets(targets, resources)
         elsif [401, 403].include?(response.code)
-          mark_private_failure(source, subscription_id)
+          mark_subscriptions(targets, 'authenticated_source_rejected')
         else
-          mark_error(source, subscription_id, "http_#{response.code}")
+          mark_subscriptions(targets, "http_#{response.code}")
         end
       end
 
-      def materialize_active(source, resources, complete:)
-        source.external_subscriptions.active.includes(:user).find_each do |subscription|
-          Materialize.new.call(subscription: subscription, resources: resources, complete: complete)
-          subscription.update!(state: 'active', last_error_code: nil, last_error_at: nil, checked_at: Time.current)
-        end
-      end
-
-      def mark_private_failure(source, subscription_id)
-        source.update!(checked_at: Time.current)
-        mark_error(source, subscription_id, 'authenticated_source_rejected')
-      end
-
-      def mark_error(source, subscription_id, code)
-        scope = source.external_subscriptions
+      def permitted_subscriptions(source, subscription_id)
+        scope = source.external_subscriptions.active.includes(:user)
         scope = scope.where(id: subscription_id) if subscription_id.present?
-        scope.find_each do |subscription|
+        scope.select { |subscription| Feature.permitted?(subscription.user) }
+      end
+
+      def materialize_targets(targets, resources)
+        targets.each do |subscription|
+          Materialize.new.call(subscription: subscription, resources: resources)
+          subscription.update!(state: 'active', last_error_code: nil, last_error_at: nil, checked_at: Time.current)
+        rescue StandardError => e
+          Rails.logger.info("[ExternalBridge::RSS] subscriber refresh failed subscription=#{subscription.id} code=#{e.class}")
+          subscription.update!(state: 'error', last_error_code: 'import_failed', last_error_at: Time.current, checked_at: Time.current)
+        end
+      end
+
+      def mark_subscriptions(targets, code)
+        targets.each do |subscription|
           subscription.update!(state: 'error', last_error_code: code, last_error_at: Time.current, checked_at: Time.current)
         end
       end
@@ -60,7 +65,7 @@ module ExternalBridge
         return if source.nil?
 
         Rails.logger.info("[ExternalBridge::RSS] refresh failed host_key=#{source.id} code=#{code}")
-        mark_error(source, subscription_id, code)
+        mark_subscriptions(permitted_subscriptions(source, subscription_id), code)
       end
 
       def with_source_lock(source_id)

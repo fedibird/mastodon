@@ -5,6 +5,14 @@ require 'rails_helper'
 describe ExternalServices::Registry do
   let(:user) { Fabricate(:user) }
 
+  it 'hides RSS from the catalog until the user is on the tester list' do
+    Setting.external_bridge_rss = true
+    expect(described_class.catalog_for(user).map(&:provider_key)).not_to include('rss')
+
+    Setting.external_bridge_rss_testers = user.id.to_s
+    expect(described_class.catalog_for(user).map(&:provider_key)).to include('rss')
+  end
+
   it 'lists DeepL only and does not decrypt while building cards' do
     with_vault_keyring do
       store_vault_credential(owner: user, secret: 'registry-safe-deepl-key')

@@ -21,8 +21,8 @@ module ExternalBridge
         request.perform do |response|
           build_response(response, canonical)
         end
-      rescue Mastodon::HostValidationError
-        raise Error, :private_address
+      rescue Mastodon::HostValidationError => e
+        raise Error, (e.message.to_s.include?('authenticated_source_rejected') ? :authenticated_source_rejected : :private_address)
       rescue Mastodon::LengthValidationError
         raise Error, :oversized_feed
       rescue HTTP::Error, OpenSSL::SSL::SSLError, Addressable::URI::InvalidURIError
@@ -39,8 +39,8 @@ module ExternalBridge
           max_hops: 3,
           on_redirect: lambda do |_response, next_request|
             CanonicalURL.normalize!(next_request.uri.to_s)
-          rescue Error
-            raise Mastodon::PrivateNetworkAddressError, next_request.uri.to_s
+          rescue Error => e
+            raise Mastodon::HostValidationError, e.code
           end,
         }
       end

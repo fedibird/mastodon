@@ -5,6 +5,7 @@ module ExternalBridge
     class Subscribe
       def call(user:, url:)
         raise Error, :feature_disabled unless Feature.enabled?
+        raise Error, :tester_only unless Feature.tester?(user)
         raise Error, :user_not_functional unless user&.functional?
 
         canonical = CanonicalURL.normalize!(url)
@@ -27,6 +28,7 @@ module ExternalBridge
 
       def resume!(user:, subscription_id:)
         raise Error, :feature_disabled unless Feature.enabled?
+        raise Error, :tester_only unless Feature.tester?(user)
 
         subscription = owned!(user, subscription_id)
         subscription.update!(state: 'active', last_error_code: nil)
@@ -60,8 +62,8 @@ module ExternalBridge
         end
 
         feed = Parser.parse!(response.body)
-        source = Ingest.new.find_or_create_source!(feed, response.final_url.presence || canonical)
-        Ingest.new.apply_public!(source, feed, response)
+        canonical_key = response.final_url.presence || canonical
+        source, = Ingest.new.write_public!(feed, canonical_key, response)
         subscription = ensure_subscription!(user, source)
         materialize!(subscription, source)
         subscription
@@ -86,7 +88,7 @@ module ExternalBridge
 
       def materialize!(subscription, source)
         resources = source.external_resources.order(published_at: :desc, id: :desc).limit(Limits::MAX_ITEMS).to_a
-        Materialize.new.call(subscription: subscription, resources: resources, complete: false)
+        Materialize.new.call(subscription: subscription, resources: resources)
         subscription
       end
 

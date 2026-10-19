@@ -21,7 +21,12 @@ module ExternalServices
     end
 
     def self.catalog_for(user)
-      providers.select(&:available?).map { |provider| provider.catalog_entry_for(user) }
+      providers.select { |provider| provider.available? && visible_to?(provider, user) }.map { |provider| provider.catalog_entry_for(user) }
     end
+
+    def self.visible_to?(provider, user)
+      !provider.respond_to?(:visible_to?) || provider.visible_to?(user)
+    end
+    private_class_method :visible_to?
   end
 end

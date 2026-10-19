@@ -15,6 +15,18 @@ RSpec.describe 'Private RSS projection access' do
   before { bundle }
 
   describe 'GET /api/v1/statuses/:id' do
+    it 'keeps the owner read when the feature and the tester list are off' do
+      Setting.external_bridge_rss = false
+      Setting.external_bridge_rss_testers = ''
+
+      get "/api/v1/statuses/#{status.id}", headers: owner_headers
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:content]).to include('Owner only article')
+
+      get "/api/v1/statuses/#{status.id}", headers: roommate_headers
+      expect(response).to have_http_status(404)
+    end
+
     it 'returns the owner extension and hides the id from the other user of the account' do
       get "/api/v1/statuses/#{status.id}", headers: owner_headers
 
@@ -222,7 +234,7 @@ RSpec.describe 'Private RSS projection access' do
   describe 'owner subscription API' do
     let(:feed_url) { 'https://feeds.example/owner.xml' }
 
-    before { enable_external_bridge_rss! }
+    before { enable_external_bridge_rss!(owner) }
 
     it 'subscribes, lists items, and unsubscribes without showing another user the membership' do
       stub_request(:get, feed_url).to_return(status: 200, body: rss_document(rss_item(guid: 'owner-guid', body: 'From the feed')))
@@ -247,6 +259,11 @@ RSpec.describe 'Private RSS projection access' do
       expect(ExternalStatusProjection.where(external_subscription_id: subscription_id)).to be_empty
       expect(ExternalSubscription.exists?(bundle[:subscription].id)).to be true
       expect(ExternalSource.where(canonical_key: feed_url)).to exist
+
+      post '/api/v1/external_bridge/rss/subscriptions', params: { url: feed_url }, headers: roommate_headers
+      expect(response).to have_http_status(403)
+      expect(body_as_json[:error]).to eq 'tester_only'
+      expect(ExternalSubscription.where(user_id: roommate.id)).to be_empty
     end
 
     it 'has no generic external service provider route' do

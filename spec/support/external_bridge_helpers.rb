@@ -1,8 +1,15 @@
 # frozen_string_literal: true
 
 module ExternalBridgeHelpers
-  def enable_external_bridge_rss!
+  def enable_external_bridge_rss!(*users)
     Setting.external_bridge_rss = true
+    permit_external_bridge_rss_testers!(*users)
+  end
+
+  def permit_external_bridge_rss_testers!(*users)
+    ids = ExternalBridge::Feature.tester_ids
+    ids |= users.flatten.compact.map { |user| user.id.to_i }
+    Setting.external_bridge_rss_testers = ids.join(',')
   end
 
   def share_account_user(account)

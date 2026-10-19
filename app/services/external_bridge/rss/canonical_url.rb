@@ -2,10 +2,22 @@
 
 module ExternalBridge
   module RSS
-    # Public feed and item URLs. Userinfo and token-like queries are rejected
-    # rather than stripped, so they never become a shared cache key.
+    # Public feed and item URLs. Userinfo and credential-like queries are
+    # rejected rather than stripped, so they never become a shared cache key.
     class CanonicalURL
-      TOKEN_PARAMS = %w(token key sig signature access_token).freeze
+      # Compared after percent-decoding and removing non-alphanumerics.
+      SENSITIVE_NAMES = %w(
+        token accesstoken refreshtoken idtoken
+        key apikey appkey privatekey
+        sig signature
+        password passwd pwd
+        auth authorization
+        secret clientsecret
+        credential credentials
+        session sessionid sid
+        jwt bearer
+        oauth oauthtoken
+      ).freeze
 
       def self.normalize!(value)
         new(value).normalize!
@@ -64,9 +76,42 @@ module ExternalBridge
 
       def reject_token_query!(uri)
         return if uri.query.blank?
+        raise Error, :authenticated_source_rejected if malformed_percent?(uri.query)
+        raise Error, :authenticated_source_rejected if query_names(uri.query).any? { |name| sensitive_name?(name) }
+      end
 
-        params = uri.query.split('&').map { |pair| pair.split('=', 2).first.to_s }
-        raise Error, :authenticated_source_rejected if params.any? { |name| TOKEN_PARAMS.include?(name.downcase) }
+      def malformed_percent?(query)
+        query.match?(/%(?![0-9A-Fa-f]{2})/)
+      end
+
+      def query_names(query)
+        query.split(/[&;]/).map { |pair| pair.split('=', 2).first.to_s }
+      end
+
+      def sensitive_name?(raw)
+        candidate = raw
+        3.times do
+          decoded = decode_component(candidate)
+          return true if decoded.nil?
+          return true if sensitive_token?(decoded)
+
+          break if decoded == candidate
+
+          candidate = decoded
+        end
+        false
+      end
+
+      def decode_component(value)
+        Addressable::URI.unencode_component(value.to_s.tr('+', ' '))
+      rescue ArgumentError, Addressable::URI::InvalidURIError
+        nil
+      end
+
+      def sensitive_token?(name)
+        folded = name.to_s.downcase
+        candidates = [folded, folded.gsub(/\[\d*\]\z/, '')]
+        candidates.any? { |candidate| SENSITIVE_NAMES.include?(candidate.gsub(/[^a-z0-9]/, '')) }
       end
     end
   end
