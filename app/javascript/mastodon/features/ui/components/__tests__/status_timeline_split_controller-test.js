@@ -15,6 +15,11 @@ import settings from 'mastodon/reducers/settings';
 import timelines from 'mastodon/reducers/timelines';
 import StatusTimelineSplitController, { STATUS_TIMELINE_SPLIT_LAYOUT_CLASS } from '../status_timeline_split_controller';
 
+jest.mock('mastodon/initial_state', () => ({
+  ...jest.requireActual('mastodon/initial_state'),
+  isAdministrator: true,
+}));
+
 jest.mock('react-intl', () => {
   const React = require('react');
   const intl = { formatMessage: message => message.defaultMessage || message.id };

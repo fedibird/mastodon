@@ -60,6 +60,11 @@ jest.mock('mastodon/actions/accounts', () => ({
   fetchRelationshipsFromStatuses: () => ({ type: 'REL_STATUSES' }),
 }));
 
+jest.mock('mastodon/initial_state', () => ({
+  ...jest.requireActual('mastodon/initial_state'),
+  isAdministrator: true,
+}));
+
 import { captureHistoryPosition, resumeHistoryPosition } from 'mastodon/actions/timeline_position';
 import { TIMELINE_SPLIT_CREATE, saveTimelineSplitReturnAnchor } from 'mastodon/actions/timelines';
 import { settleWindowSeekScroll } from 'mastodon/actions/timeline_seek';

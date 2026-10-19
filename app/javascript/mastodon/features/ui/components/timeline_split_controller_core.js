@@ -92,6 +92,8 @@ class TimelineSplitControllerCore extends React.Component {
     splitReturnAnchor: PropTypes.object,
     splitBlocked: PropTypes.bool,
     anchorHold: PropTypes.bool,
+    // Omitted stays visible so direct Core callers (mixes, existing tests) keep current controls.
+    timelineNavigationVisible: PropTypes.bool,
     onCreate: PropTypes.func.isRequired,
     onDestroy: PropTypes.func.isRequired,
     onSaveReturnAnchor: PropTypes.func.isRequired,
@@ -2045,6 +2047,7 @@ class TimelineSplitControllerCore extends React.Component {
 
   render () {
     const isSplit = this.ownsSplit();
+    const showTimelineNavigation = this.props.timelineNavigationVisible !== false;
 
     return this.props.children({
       isSplit,
@@ -2053,11 +2056,11 @@ class TimelineSplitControllerCore extends React.Component {
       setColumnRef: this.setColumnRef,
       handleHeaderClick: this.handleHeaderClick,
       splitButton: this.renderSplitButton(),
-      jumpButton: this.renderJumpButton(),
-      jumpPanel: this.renderJumpPanel(),
-      bookmarkButton: this.renderBookmarkButton(),
-      bookmarkPanel: this.renderBookmarkPanel(),
-      resumeButton: this.renderResumeButton(),
+      jumpButton: showTimelineNavigation ? this.renderJumpButton() : null,
+      jumpPanel: showTimelineNavigation ? this.renderJumpPanel() : null,
+      bookmarkButton: showTimelineNavigation ? this.renderBookmarkButton() : null,
+      bookmarkPanel: showTimelineNavigation ? this.renderBookmarkPanel() : null,
+      resumeButton: showTimelineNavigation ? this.renderResumeButton() : null,
       splitter: isSplit ? this.renderSplitter() : null,
       closeLiveButton: isSplit ? this.renderCloseLiveButton() : null,
     });
