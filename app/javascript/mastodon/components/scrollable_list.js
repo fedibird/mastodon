@@ -13,7 +13,7 @@ import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from
 import LoadingIndicator from './loading_indicator';
 import { connect } from 'react-redux';
 import { FilterSurface } from '../filter_reconciliation/surface';
-import { isProgrammaticTopScroll } from '../scroll';
+import { isProgrammaticTopScroll, releaseProgrammaticTopScroll } from '../scroll';
 import {
   TIMELINE_ANCHOR_REASONS,
   TIMELINE_ANCHOR_VERSION,
@@ -255,6 +255,7 @@ class ScrollableList extends PureComponent {
     if (!this.mouseMovedRecently && this.getScrollTop() === 0) {
       // Only set if we just started moving and are scrolled to the top.
       this.scrollToTopOnMouseIdle = true;
+      this._mouseIdleScrollTop = this.getScrollTop();
     }
 
     // Save setting this flag for last, so we can do the comparison above.
@@ -307,7 +308,9 @@ class ScrollableList extends PureComponent {
   }
 
   handleMouseIdle = () => {
-    if (this.scrollToTopOnMouseIdle && !this.props.preventScroll) {
+    // Scrollbar movement may never reach the pointer listeners. If the
+    // scroller left the position that armed this snap, the snap is stale.
+    if (this.scrollToTopOnMouseIdle && !this.props.preventScroll && Math.abs(this.getScrollTop() - (this._mouseIdleScrollTop || 0)) <= 1) {
       this.setScrollTop(0);
     }
 
@@ -589,9 +592,7 @@ class ScrollableList extends PureComponent {
       return missing;
     }
 
-    if (isProgrammaticTopScroll(this._getScrollingElement())) {
-      return { ok: false, reason: 'programmatic_top', moved: false };
-    }
+    releaseProgrammaticTopScroll(this._getScrollingElement());
 
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     const generation = this._anchorGeneration;
@@ -620,9 +621,7 @@ class ScrollableList extends PureComponent {
       return missing;
     }
 
-    if (isProgrammaticTopScroll(this._getScrollingElement())) {
-      return { ok: false, reason: 'programmatic_top', moved: false };
-    }
+    releaseProgrammaticTopScroll(this._getScrollingElement());
 
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     const generation = this._anchorGeneration;

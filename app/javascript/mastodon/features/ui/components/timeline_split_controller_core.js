@@ -359,7 +359,9 @@ class TimelineSplitControllerCore extends React.Component {
 
       const next = this.findScrollable(target);
 
-      if (next) {
+      // The synchronous write above already landed. A second assignment of
+      // the same value aborts native smooth scroll and momentum.
+      if (next && next.scrollTop !== top) {
         next.scrollTop = top;
       }
 

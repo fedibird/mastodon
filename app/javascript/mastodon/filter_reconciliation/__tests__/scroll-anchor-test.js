@@ -115,6 +115,56 @@ it('reads logarithmically many rects even with 2000 retained rows', () => {
   expect(read.mock.calls.length).toBeLessThanOrEqual(18);
 });
 
+it('does not assign scrollTop when the correction frames see no layout change', () => {
+  const frames = [];
+  const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.push(callback);
+    return frames.length;
+  });
+  const { node } = setup();
+  let sets = 0;
+  let top = 350;
+  Object.defineProperty(node, 'scrollTop', {
+    configurable: true,
+    get: () => top,
+    set (value) {
+      sets += 1;
+      top = Number(value) || 0;
+    },
+  });
+  const surface = new FilterSurface(jest.fn(), node, { ids: ['1'], scrollKey: 'route' });
+  surface.prepare();
+  frames.shift()();
+  frames.shift()();
+  expect(sets).toBe(0);
+  expect(top).toBe(350);
+  surface.destroy();
+  raf.mockRestore();
+});
+
+it.each([
+  ['touchmove', 'touchmove'],
+  ['momentum after touchend', 'touchend'],
+  ['scrollbar drag', null],
+])('does not rewind a %s that moved the scroller after the snapshot', (_label, eventName) => {
+  const frames = [];
+  const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.push(callback);
+    return frames.length;
+  });
+  const { node } = setup();
+  const surface = new FilterSurface(jest.fn(), node, { ids: ['1'], scrollKey: 'route' });
+  surface.prepare();
+  if (eventName) node.dispatchEvent(new Event(eventName));
+  node.scrollTop = 900;
+  frames.shift()();
+  frames.shift()();
+  expect(node.scrollTop).toBe(900);
+  expect(surface.snapshot === null || surface.snapshot.abandoned).toBe(true);
+  surface.destroy();
+  raf.mockRestore();
+});
+
 it('keeps the original snapshot for multiple layout changes before the finite correction finishes', () => {
   const { node, rows, heights } = setup();
   const frames = [];

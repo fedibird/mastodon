@@ -1,36 +1,11 @@
 const easingOutQuint = (x, t, b, c, d) => c * ((t = t / d - 1) * t * t * t * t + 1) + b;
 
-const nativeScrollTop = (() => {
-  let proto = typeof Element === 'undefined' ? null : Element.prototype;
-
-  while (proto) {
-    const descriptor = Object.getOwnPropertyDescriptor(proto, 'scrollTop');
-
-    if (descriptor && descriptor.get && descriptor.set) {
-      return descriptor;
-    }
-
-    proto = Object.getPrototypeOf(proto);
-  }
-
-  return null;
-})();
-
-// Chrome cancels a native smooth scroll when anything assigns scrollTop,
-// including `scrollTop += 0`. Header scroll keeps a setter in front of the
-// element so anchor, filter, and height corrections cannot abort it.
+// A header scroll is a session, not a scrollTop setter. Native smooth scroll
+// dies on any assignment, including the current offset, so corrections yield
+// while the session is active and a cancel closure writes only for the
+// session that created it.
 const sessions = new WeakMap();
-
-const readTop = (node) => nativeScrollTop ? nativeScrollTop.get.call(node) : node.scrollTop;
-
-const writeTop = (node, value) => {
-  if (nativeScrollTop) {
-    nativeScrollTop.set.call(node, value);
-    return;
-  }
-
-  node.scrollTop = value;
-};
+let nextSessionId = 1;
 
 const prefersReducedMotion = () => {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -81,25 +56,26 @@ const releaseSession = (node) => {
 
   session.released = true;
   session.active = false;
-
-  if (session.installed) {
-    delete node.scrollTop;
-  }
-
   session.cleanups.forEach(cleanup => cleanup());
   sessions.delete(node);
 };
 
+// An in-flight native smooth scroll keeps moving through a same-value
+// scrollTop write. behavior:instant is what actually aborts it. The closure
+// may do this only while its own session is still active.
 const pinScroll = (node) => {
-  const top = readTop(node);
+  const top = node.scrollTop;
 
   releaseSession(node);
 
-  // Assigning the current offset is what actually cancels a native smooth
-  // scroll. Gesture handlers leave that to the browser; explicit cancel
-  // (wheel on the column chrome, unmount) pins here.
-  if (top > 0) {
-    writeTop(node, top);
+  if (top <= 0 || typeof node.scrollTo !== 'function') {
+    return;
+  }
+
+  try {
+    node.scrollTo({ top, behavior: 'instant' });
+  } catch (error) {
+    node.scrollTop = top;
   }
 };
 
@@ -107,32 +83,14 @@ const armSession = (node) => {
   releaseSession(node);
 
   const session = {
+    id: nextSessionId,
     active: true,
     released: false,
-    allow: false,
-    installed: false,
     cleanups: [],
   };
 
+  nextSessionId += 1;
   sessions.set(node, session);
-
-  if (nativeScrollTop) {
-    Object.defineProperty(node, 'scrollTop', {
-      configurable: true,
-      enumerable: true,
-      get () {
-        return nativeScrollTop.get.call(node);
-      },
-      set (value) {
-        if (session.active && !session.allow) {
-          return;
-        }
-
-        nativeScrollTop.set.call(node, value);
-      },
-    });
-    session.installed = true;
-  }
 
   const onGesture = (event) => {
     if (!isScrollGesture(event)) {
@@ -148,12 +106,19 @@ const armSession = (node) => {
     session.cleanups.push(() => node.removeEventListener(type, onGesture, listen));
   });
 
-  const onScrollEnd = () => releaseSession(node);
+  // Chrome can emit scrollend once while a smooth scroll is still moving.
+  // Releasing there drops the session before the top, so a later cancel can
+  // no longer pin the animation.
+  const onScrollEnd = () => {
+    if (node.scrollTop <= 0) {
+      releaseSession(node);
+    }
+  };
 
   node.addEventListener('scrollend', onScrollEnd);
   session.cleanups.push(() => node.removeEventListener('scrollend', onScrollEnd));
 
-  let last = readTop(node);
+  let last = node.scrollTop;
   let idle = 0;
   const watch = () => {
     if (!session.active) {
@@ -165,7 +130,7 @@ const armSession = (node) => {
       return;
     }
 
-    const top = readTop(node);
+    const top = node.scrollTop;
 
     if (top <= 0) {
       releaseSession(node);
@@ -190,34 +155,32 @@ const armSession = (node) => {
   return session;
 };
 
-const animate = (node, key, target, session) => {
+const animate = (node, key, target) => {
   const startTime = Date.now();
-  const offset = key === 'scrollTop' ? readTop(node) : node[key];
+  const offset = node[key];
   const gap = target - offset;
   const duration = 1000;
   let stopped = false;
 
-  const write = (value) => {
-    if (key === 'scrollTop') {
-      session.allow = true;
-      writeTop(node, value);
-      session.allow = false;
+  const step = () => {
+    if (stopped) {
       return;
     }
 
-    node[key] = value;
-  };
+    if (key === 'scrollTop') {
+      const session = sessions.get(node);
 
-  const step = () => {
-    if (stopped || !session.active) {
-      return;
+      if (!session || !session.active) {
+        return;
+      }
     }
 
     const elapsed = Date.now() - startTime;
+    const done = elapsed >= duration;
 
-    if (elapsed >= duration) {
-      write(target);
+    node[key] = done ? target : easingOutQuint(0, elapsed, offset, gap, duration);
 
+    if (done) {
       if (key === 'scrollTop') {
         releaseSession(node);
       }
@@ -225,7 +188,6 @@ const animate = (node, key, target, session) => {
       return;
     }
 
-    write(easingOutQuint(0, elapsed, offset, gap, duration));
     requestAnimationFrame(step);
   };
 
@@ -242,7 +204,15 @@ export const isProgrammaticTopScroll = (node) => {
   return !!(session && session.active);
 };
 
-export const scrollRight = (node, position) => supportsSmoothScroll() ? node.scrollTo({ left: position, behavior: 'smooth' }) : animate(node, 'scrollLeft', position, { active: true, allow: true });
+// Explicit navigation replaces the header animation. Filter and height
+// corrections must not call this; they yield until the header scroll ends.
+export const releaseProgrammaticTopScroll = (node) => {
+  if (node) {
+    releaseSession(node);
+  }
+};
+
+export const scrollRight = (node, position) => supportsSmoothScroll() ? node.scrollTo({ left: position, behavior: 'smooth' }) : animate(node, 'scrollLeft', position);
 
 export const scrollTop = (node) => {
   if (!node) {
@@ -251,24 +221,31 @@ export const scrollTop = (node) => {
 
   if (prefersReducedMotion()) {
     releaseSession(node);
-    writeTop(node, 0);
+    node.scrollTop = 0;
     return () => {};
   }
 
   const session = armSession(node);
+  const sessionId = session.id;
   let stopAnimation = () => {};
 
   if (supportsSmoothScroll()) {
     node.scrollTo({ top: 0, behavior: 'smooth' });
   } else {
-    stopAnimation = animate(node, 'scrollTop', 0, session);
+    stopAnimation = animate(node, 'scrollTop', 0);
   }
 
-  if (readTop(node) <= 0) {
+  if (node.scrollTop <= 0) {
     releaseSession(node);
   }
 
   return () => {
+    const current = sessions.get(node);
+
+    if (!current || current.id !== sessionId) {
+      return;
+    }
+
     stopAnimation();
     pinScroll(node);
   };

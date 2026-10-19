@@ -216,6 +216,10 @@ const applyAbsoluteFallback = (scroller, fallbackScrollTop) => {
     return false;
   }
 
+  if (Math.abs(scroller.scrollTop - fallbackScrollTop) <= 0.5) {
+    return true;
+  }
+
   scroller.scrollTop = fallbackScrollTop;
 
   return true;
@@ -227,8 +231,13 @@ const applyDocumentDeltaFallback = (scrollHost, visibleTop, fallbackScrollTop) =
   }
 
   const listOffset = visibleTop - scrollHost.list.getBoundingClientRect().top;
+  const delta = fallbackScrollTop - listOffset;
 
-  scrollHost.scroller.scrollTop += fallbackScrollTop - listOffset;
+  if (Math.abs(delta) <= 0.5) {
+    return true;
+  }
+
+  scrollHost.scroller.scrollTop += delta;
 
   return true;
 };
@@ -320,7 +329,9 @@ export const alignDisplayRow = ({
     return failure(TIMELINE_ANCHOR_REASONS.INVALID);
   }
 
-  host.scroller.scrollTop += delta;
+  if (Math.abs(delta) > 0.5) {
+    host.scroller.scrollTop += delta;
+  }
 
   const rowIds = displayRowAnchorIds(found.statusId);
 

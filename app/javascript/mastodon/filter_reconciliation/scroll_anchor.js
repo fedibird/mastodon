@@ -1,4 +1,7 @@
+import { isProgrammaticTopScroll } from '../scroll';
+
 // Geometry only. No status/filter interpretation, observers or perpetual rAF.
+
 export const captureFilterAnchor = (node, scroller, top) => {
   if (!node || !scroller) return null;
   const rows = Array.from(node.querySelectorAll('article[data-id]'));
@@ -32,10 +35,22 @@ export const captureFilterAnchor = (node, scroller, top) => {
 };
 
 export const restoreFilterAnchor = (snapshot, node, scroller, top) => {
-  if (!snapshot || !node || !scroller) return;
+  if (!snapshot || !node || !scroller || snapshot.abandoned) return;
+  // A later frame must not treat the correction we just wrote as a user
+  // scroll. Movement after the snapshot, including scrollbar and momentum
+  // that never reach a pointer listener, makes the snapshot stale.
+  if (isProgrammaticTopScroll(scroller) || Math.abs(scroller.scrollTop - snapshot.offset) > 1) {
+    snapshot.abandoned = true;
+    return;
+  }
   const anchor = snapshot.rows.find(row => node.contains(row.node) && row.node.getBoundingClientRect().height > 0);
-  if (anchor) scroller.scrollTop += anchor.node.getBoundingClientRect().top - top - anchor.offset;
-  else scroller.scrollTop = snapshot.offset;
+  if (anchor) {
+    const delta = anchor.node.getBoundingClientRect().top - top - anchor.offset;
+    if (Math.abs(delta) > 0.5) {
+      scroller.scrollTop += delta;
+      snapshot.offset = scroller.scrollTop;
+    }
+  }
   if (snapshot.focused && !node.contains(snapshot.focused)) {
     const target = anchor?.node || node;
     target.focus({ preventScroll: true });

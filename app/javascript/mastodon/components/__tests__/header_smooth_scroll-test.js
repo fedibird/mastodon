@@ -261,6 +261,7 @@ describe('header smooth scroll', () => {
 
     expect(animation.alive || nativeScrollTop.get.call(list) === 0).toBe(true);
     expect(nativeScrollTop.get.call(list)).toBe(0);
+    expect(writes).toBe(0);
     expect(onUserScroll).not.toHaveBeenCalled();
     expect(onScrollToTop).toHaveBeenCalled();
     expect(isProgrammaticTopScroll(list)).toBe(false);
@@ -427,9 +428,72 @@ describe('header smooth scroll', () => {
     flushFrames(8);
     expect(nativeScrollTop.get.call(list)).toBe(0);
     expect(isProgrammaticTopScroll(list)).toBe(false);
+
+    nativeScrollTop.set.call(list, 500);
+    writes = 0;
+    ref.current.handleScroll();
+    ref.current.handleScroll.flush();
+    ref.current.handleScroll.flush();
+    expect(writes).toBe(0);
+    expect(nativeScrollTop.get.call(list)).toBe(500);
   });
 
-  it('keeps an anchor correction from pulling a header scroll back down', () => {
+  it('does not assign scrollTop when wheels follow a finished header scroll', () => {
+    const column = React.createRef();
+    const view = render(
+      <Column ref={column} label='Home'>
+        <div className='scrollable' />
+      </Column>,
+    );
+    const list = view.container.querySelector('.scrollable');
+
+    nativeScrollTop.set.call(list, 2400);
+    installSmoothScroll(list);
+    column.current.scrollTop();
+    flushFrames(8);
+    expect(nativeScrollTop.get.call(list)).toBe(0);
+    expect(isProgrammaticTopScroll(list)).toBe(false);
+
+    nativeScrollTop.set.call(list, 500);
+    writes = 0;
+    column.current.handleWheel();
+    column.current.handleWheel();
+    column.current.handleWheel();
+    list.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true }));
+    view.unmount();
+
+    expect(writes).toBe(0);
+    expect(nativeScrollTop.get.call(list)).toBe(500);
+  });
+
+  it('ignores a cancel closure once its session has been replaced', () => {
+    const node = document.createElement('div');
+
+    document.body.appendChild(node);
+    nativeScrollTop.set.call(node, 2200);
+    installSmoothScroll(node);
+    const first = scrollTop(node);
+
+    flushFrames(1);
+    const second = scrollTop(node);
+    const top = nativeScrollTop.get.call(node);
+
+    writes = 0;
+    first();
+    expect(isProgrammaticTopScroll(node)).toBe(true);
+    expect(writes).toBe(0);
+    expect(nativeScrollTop.get.call(node)).toBe(top);
+    second();
+    expect(isProgrammaticTopScroll(node)).toBe(false);
+    const pinnedWrites = writes;
+
+    first();
+    second();
+    expect(writes).toBe(pinnedWrites);
+    expect(nativeScrollTop.get.call(node)).toBe(top);
+  });
+
+  it('lets an explicit seek replace an in-progress header scroll', () => {
     const listRef = React.createRef();
     const { container } = render(
       <Provider store={store()}>
@@ -461,11 +525,12 @@ describe('header smooth scroll', () => {
     scrollTop(list);
     flushFrames(1);
 
-    const blocked = listRef.current.scrollToLoadedStatus('80');
+    const moved = listRef.current.scrollToLoadedStatus('80');
 
-    expect(blocked).toEqual({ ok: false, reason: 'programmatic_top', moved: false });
+    expect(moved.ok).toBe(true);
     flushFrames(8);
-    expect(nativeScrollTop.get.call(list)).toBe(0);
+    expect(nativeScrollTop.get.call(list)).toBe(200);
+    expect(isProgrammaticTopScroll(list)).toBe(false);
   });
 });
 
