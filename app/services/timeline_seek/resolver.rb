@@ -315,6 +315,7 @@ class TimelineSeek::Resolver
     # expired_at IS NULL keeps the probe on index_statuses_20210710
     # (account_id, id DESC) instead of walking every row for the account.
     probed = Status.where(account_id: target.id, expired_at: nil).reorder(id: :desc).limit(ACCOUNT_PROBE_LIMIT).to_a
+    ExternalBridge::ProjectionAccess.prepare!(probed)
     probed.each do |status|
       next unless StatusPolicy.new(@account, status).show?
       next unless account_status_in_source?(reader, status.id)

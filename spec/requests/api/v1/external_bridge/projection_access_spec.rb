@@ -89,6 +89,95 @@ RSpec.describe 'Private RSS projection access' do
       marker_queries = queries.count { |sql| sql.include?('external_status_projections') }
       expect(marker_queries).to be <= 2
     end
+
+    it 'uses one marker read for an ordinary filter page and a mixed page' do
+      remote = Fabricate(:account, domain: 'remote.example', username: 'ada')
+      ordinary = Array.new(5) do |index|
+        created = Fabricate(:status, account: remote, text: "Remote note #{index}")
+        created.update_columns(uri: "https://remote.example/users/ada/statuses/#{created.id}", local: false)
+        created
+      end
+      headers = auth_headers_for(stranger, 'read:statuses read:filters')
+
+      ordinary_reads = marker_reads_during do
+        post '/api/v1/fedibird/filters/matches', params: { status_ids: ordinary.map { |item| item.id.to_s } }, headers: headers, as: :json
+      end
+      expect(response).to have_http_status(200)
+      ordinary_payload = JSON.parse(response.body)
+      expect(ordinary_payload['matches'].keys).to match_array(ordinary.map { |item| item.id.to_s })
+      expect(ordinary_reads.size).to eq 1
+      expect(ordinary.map { |item| item.reload.local? }).to all(be false)
+
+      mixed_ids = ordinary.map { |item| item.id.to_s } + [status.id.to_s]
+      mixed_reads = marker_reads_during do
+        post '/api/v1/fedibird/filters/matches', params: { status_ids: mixed_ids }, headers: headers, as: :json
+      end
+      expect(response).to have_http_status(200)
+      mixed_payload = JSON.parse(response.body)
+      expect(mixed_payload['matches'].keys).to match_array(ordinary.map { |item| item.id.to_s })
+      expect(mixed_payload['unavailable']).to include(status.id.to_s)
+      expect(mixed_reads.size).to eq 1
+    end
+
+    it 'preloads markers once while rendering a personal timeline page' do
+      4.times { Fabricate(:status, account: owner.account, visibility: :personal, text: 'Ordinary personal note') }
+
+      reads = marker_reads_during do
+        get '/api/v1/timelines/personal', headers: owner_headers
+      end
+
+      expect(response).to have_http_status(200)
+      expect(response.body).to include('Ordinary personal note')
+      expect(response.body).to include(status.id.to_s)
+      expect(reads.size).to eq 1
+      expect(reads.first).to include('status_id')
+      expect(reads.first).not_to match(/status_id" = \$\d+.*status_id" = \$\d+/m)
+    end
+
+    it 'can use the marker and failure indexes for the bounded lookups' do
+      connection = ActiveRecord::Base.connection
+      ActiveRecord::Base.transaction(requires_new: true) do
+        connection.execute('SET LOCAL enable_seqscan = off')
+        marker_plan = connection.select_values('EXPLAIN SELECT status_id, user_id FROM external_status_projections WHERE status_id IN (1, 2, 3)').join("\n")
+        failure_plan = connection.select_values(<<~SQL).join("\n")
+          EXPLAIN SELECT id FROM external_projection_failures
+          WHERE user_id = 1 AND external_subscription_id = 1 AND external_resource_id IN (1, 2)
+        SQL
+        feed_plan = connection.select_values(<<~SQL).join("\n")
+          EXPLAIN SELECT statuses.id FROM statuses
+          WHERE statuses.id IN (1)
+            AND statuses.external_projection IS NOT TRUE
+            AND NOT EXISTS (
+              SELECT 1 FROM external_status_projections projection_marker
+              WHERE projection_marker.status_id = statuses.id
+            )
+        SQL
+        expect(marker_plan).to include('index_external_status_projections_on_status_id')
+        expect(failure_plan).to include('Index Scan')
+        expect(failure_plan).to include('external_resource_id')
+        expect(failure_plan).not_to include('Seq Scan')
+        expect(feed_plan).to include('index_external_status_projections_on_status_id')
+        index_columns = connection.select_values(<<~SQL)
+          SELECT a.attname
+          FROM pg_index i
+          JOIN pg_class c ON c.oid = i.indexrelid
+          JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+          WHERE c.relname = 'index_external_projection_failures_on_user_and_resource'
+          ORDER BY array_position(i.indkey, a.attnum)
+        SQL
+        expect(index_columns).to eq %w(user_id external_resource_id)
+        raise ActiveRecord::Rollback
+      end
+    end
+
+    def marker_reads_during
+      queries = []
+      callback = lambda do |*, payload|
+        queries << payload[:sql] unless payload[:name] == 'SCHEMA' || payload[:sql].include?('SCHEMA')
+      end
+      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') { yield }
+      queries.select { |sql| sql.match?(/from\s+"?external_status_projections"?/i) && !sql.match?(/from\s+"?statuses"?/i) }
+    end
   end
 
   describe 'lists and local actions' do

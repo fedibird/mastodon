@@ -62,18 +62,21 @@ module ExternalBridge
 
     def marker_exists?(status)
       return false if status.nil? || status.id.nil?
+      return status.instance_variable_get(:@external_projection_marker) if status.instance_variable_defined?(:@external_projection_marker)
 
       if status.association(:external_status_projection).loaded?
-        return status.external_status_projection.present?
+        projection = status.external_status_projection
+        status.instance_variable_set(:@external_projection_marker, projection.present?)
+        status.instance_variable_set(:@external_projection_owner_id, projection&.user_id)
+        return projection.present?
       end
 
-      if status.instance_variable_defined?(:@external_projection_marker)
-        return status.instance_variable_get(:@external_projection_marker)
-      end
-
-      present = ExternalStatusProjection.exists?(status_id: status.id)
-      status.instance_variable_set(:@external_projection_marker, present)
-      present
+      # One indexed read records the owner too. allow? then answers from this
+      # cache, including when the column and the marker disagree.
+      owner_id = ExternalStatusProjection.where(status_id: status.id).pick(:user_id)
+      status.instance_variable_set(:@external_projection_marker, !owner_id.nil?)
+      status.instance_variable_set(:@external_projection_owner_id, owner_id)
+      !owner_id.nil?
     end
   end
 end

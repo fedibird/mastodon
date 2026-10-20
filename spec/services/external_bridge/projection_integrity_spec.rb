@@ -436,6 +436,7 @@ RSpec.describe ExternalBridge::ProjectionWriter do
         expect(ExternalStatusProjection.exists?(status_id: damaged.id)).to be true
         expect(ExternalBridge::ProjectionPrivacy.private_status?(damaged)).to be true
         expect(ExternalBridge::ProjectionPrivacy.hidden_from?(damaged, other_user.id)).to be true
+        expect(ExternalBridge::ProjectionPrivacy.hidden_from?(damaged, user.id)).to be false
         expect(Status.include_expired.without_reblogs.where(Arel.sql(ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL)).where(id: damaged.id)).not_to exist
         expect { ActivityPub::NoteSerializer.new(damaged).type }.to raise_error(Status::UnreleasedActivityObject)
         expect(ActivityPub::DeliveryWorker).not_to receive(:push_bulk)

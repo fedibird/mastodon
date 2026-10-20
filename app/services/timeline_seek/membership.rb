@@ -236,6 +236,7 @@ class TimelineSeek::Membership
   end
 
   def visible_ids(records, maps, status_maps)
+    ExternalBridge::ProjectionAccess.prepare!(records.values)
     records.each_with_object(Set.new) do |(id, record), visible|
       visible << id if StatusPolicy.new(@account, record, maps, status_maps).show?
     end
