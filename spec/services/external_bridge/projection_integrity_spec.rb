@@ -374,7 +374,21 @@ RSpec.describe ExternalBridge::ProjectionWriter do
     end
 
     it 'drops a planted document through favourite, bookmark, stat, and a full rebuild' do
-      skip 'Elasticsearch release gate: cluster is not reachable with ES_ENABLED=true' unless elasticsearch_available?
+      # Release gate. Select this example by file:line or -e 'drops a planted document'.
+      # -e 'raw document' is not in the name, so RSpec runs 0 examples.
+      # ES_ENABLED=true is required. A skip is not a pass. Use a test-only
+      # cluster and ES_PREFIX: this calls StatusesIndex.import!.
+      #
+      #   RAILS_ENV=test ES_ENABLED=true ES_HOST=127.0.0.1 ES_PORT=9200 \
+      #     ES_PREFIX=fedibird-p1-spec bundle exec rspec \
+      #     spec/services/external_bridge/projection_integrity_spec.rb:376 \
+      #     --format documentation
+      skip <<~MSG.squish unless elasticsearch_available?
+        Elasticsearch release gate: cluster is not reachable.
+        ES_ENABLED=true is required. A skip is not a pass.
+        Select this example by file:line or -e "drops a planted document".
+        -e "raw document" matches nothing.
+      MSG
 
       ordinary = Fabricate(:status, account: user.account, text: 'indexed ordinary')
       Chewy.strategy(:urgent) do
