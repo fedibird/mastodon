@@ -793,6 +793,60 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       expect(ExternalProjectionFailure.where(external_subscription_id: subscription.id)).to be_empty
     end
 
+    it 'reads failure state for the current page ids and a limited historical page' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/page-scope.xml', title: 'Scope', fetched_at: Time.current, checked_at: Time.current)
+      subscription = ExternalSubscription.create!(user: user, external_source: source, state: 'active', checked_at: Time.current)
+      current_resources = Array.new(2) do |index|
+        ExternalResource.create!(external_source: source, protocol: 'rss', canonical_key: "cur-#{index}", title: "Current #{index}", body: 'now')
+      end
+      ExternalProjectionFailure.create!(
+        user: user,
+        external_subscription: subscription,
+        external_resource: current_resources.first,
+        error_code: 'import_failed',
+        attempt_count: 1,
+        next_attempt_at: 2.hours.from_now
+      )
+      historical = Array.new(ExternalBridge::RSS::Limits::MAX_ITEMS + 5) do |index|
+        ExternalResource.create!(external_source: source, protocol: 'rss', canonical_key: "old-#{index}", title: "Old #{index}", body: 'later')
+      end
+      historical.each_with_index do |resource, index|
+        failure = ExternalProjectionFailure.create!(
+          user: user,
+          external_subscription: subscription,
+          external_resource: resource,
+          error_code: 'import_failed',
+          attempt_count: 0
+        )
+        failure.update_columns(created_at: (historical.size - index).minutes.ago, next_attempt_at: nil)
+      end
+
+      entries = []
+      callback = lambda do |*, payload|
+        entries << payload unless payload[:name] == 'SCHEMA'
+      end
+      result = nil
+      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+        result = ExternalBridge::RSS::Materialize.new.call(subscription: subscription, resources: current_resources, retries: true)
+      end
+
+      failure_selects = entries.select { |payload| payload[:sql].to_s.match?(/select/i) && payload[:sql].include?('external_projection_failures') }
+      unbounded = failure_selects.reject { |payload| payload[:sql].match?(/LIMIT/i) || payload[:sql].include?('external_resource_id') }
+      expect(unbounded).to be_empty
+      page_lookup = failure_selects.find do |payload|
+        sql = payload[:sql]
+        next false if sql.match?(/LIMIT/i) || sql.match?(/NOT/i)
+
+        binds = Array(payload[:type_casted_binds]).flatten.map(&:to_s)
+        current_resources.all? { |resource| binds.include?(resource.id.to_s) || sql.include?(resource.id.to_s) }
+      end
+      expect(page_lookup).to be_present
+      expect(failure_selects.any? { |payload| payload[:sql].match?(/LIMIT/i) }).to be true
+      expect(result.attempted).to eq(1 + ExternalBridge::RSS::Limits::MAX_ITEMS)
+      expect(ExternalProjectionFailure.find_by!(external_resource_id: current_resources.first.id).attempt_count).to eq 1
+      expect(ExternalStatusProjection.where(user_id: user.id, external_resource_id: current_resources.second.id)).to exist
+    end
+
     it 'imports a parked item again after the owner resumes' do
       url = 'https://feeds.example/resume-parked.xml'
       stub_request(:get, url).to_return(status: 200, body: rss_document(rss_item(guid: 'live', title: 'Live')))

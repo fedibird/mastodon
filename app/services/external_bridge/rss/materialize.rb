@@ -38,21 +38,38 @@ module ExternalBridge
       # history and does not spend a parked or not-yet-due failure.
       def selectable_resources(subscription, resources, retries)
         current = Array(resources)
-        known = ExternalProjectionFailure.where(user_id: subscription.user_id, external_subscription_id: subscription.id).index_by(&:external_resource_id)
+        known = known_failures_for(subscription, current)
         selected = current.select { |resource| import_now?(known[resource.id], retries) }
         return selected unless retries
 
-        extra_ids = ExternalProjectionFailure.where(user_id: subscription.user_id, external_subscription_id: subscription.id)
-                                             .where.not(external_resource_id: current.map(&:id))
-                                             .where('attempt_count < ?', Limits::ITEM_ATTEMPT_CEILING)
-                                             .where('next_attempt_at IS NULL OR next_attempt_at <= ?', Time.current)
-                                             .order(:created_at, :id)
-                                             .limit(Limits::MAX_ITEMS)
-                                             .pluck(:external_resource_id)
+        extra_ids = historical_failure_ids(subscription, current)
         return selected if extra_ids.empty?
 
         extras = ExternalResource.where(id: extra_ids).index_by(&:id)
         selected + extra_ids.filter_map { |id| extras[id] }
+      end
+
+      # Only the ids on this page. A long failure history stays in the
+      # separately limited historical query below.
+      def known_failures_for(subscription, current)
+        ids = current.map(&:id)
+        return {} if ids.empty?
+
+        ExternalProjectionFailure.where(
+          user_id: subscription.user_id,
+          external_subscription_id: subscription.id,
+          external_resource_id: ids
+        ).index_by(&:external_resource_id)
+      end
+
+      def historical_failure_ids(subscription, current)
+        scope = ExternalProjectionFailure.where(user_id: subscription.user_id, external_subscription_id: subscription.id)
+        scope = scope.where.not(external_resource_id: current.map(&:id)) if current.any?
+        scope.where('attempt_count < ?', Limits::ITEM_ATTEMPT_CEILING)
+             .where('next_attempt_at IS NULL OR next_attempt_at <= ?', Time.current)
+             .order(:created_at, :id)
+             .limit(Limits::MAX_ITEMS)
+             .pluck(:external_resource_id)
       end
 
       def import_now?(failure, retries)
