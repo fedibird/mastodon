@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_19_220000) do
+ActiveRecord::Schema.define(version: 2026_10_20_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -572,6 +572,64 @@ ActiveRecord::Schema.define(version: 2026_10_19_220000) do
     t.datetime "updated_at", precision: 6, null: false
     t.index ["protocol", "native_id"], name: "index_external_actors_on_protocol_and_native_id", unique: true
     t.check_constraint "(protocol)::text = ANY ((ARRAY['rss'::character varying, 'atom'::character varying])::text[])", name: "external_actors_protocol_check"
+  end
+
+  create_table "external_identities", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "provider", limit: 64, null: false
+    t.string "subject", limit: 2048, null: false
+    t.string "issuer", limit: 512, null: false
+    t.string "resource_origin", limit: 512, null: false
+    t.string "handle", limit: 253
+    t.string "display_name", limit: 200
+    t.bigint "credential_id"
+    t.string "granted_scopes", default: [], null: false, array: true
+    t.datetime "disconnected_at"
+    t.string "terms_state", limit: 32, default: "unreviewed", null: false
+    t.string "status", limit: 64, default: "connected", null: false
+    t.datetime "session_bound_at"
+    t.bigint "bound_attempt_id"
+    t.datetime "last_checked_at"
+    t.string "last_error_code", limit: 64
+    t.string "revocation_state", limit: 64
+    t.string "token_endpoint", limit: 512, null: false
+    t.string "revocation_endpoint", limit: 512
+    t.integer "refresh_generation", default: 0, null: false
+    t.datetime "refresh_started_at"
+    t.datetime "access_expires_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["credential_id"], name: "index_external_identities_on_credential_id"
+    t.index ["user_id", "provider", "subject"], name: "index_external_identities_on_owner_provider_subject", unique: true
+    t.index ["user_id"], name: "index_external_identities_on_user_id"
+  end
+
+  create_table "external_oauth_attempts", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "provider", limit: 64, default: "bluesky", null: false
+    t.string "state_digest", limit: 64, null: false
+    t.string "browser_binding_digest", limit: 64, null: false
+    t.string "input_kind", limit: 32, null: false
+    t.string "login_hint", limit: 512
+    t.string "intended_subject", limit: 2048
+    t.string "issuer", limit: 512, null: false
+    t.string "resource_origin", limit: 512
+    t.string "authorization_endpoint", limit: 512, null: false
+    t.string "token_endpoint", limit: 512, null: false
+    t.string "par_endpoint", limit: 512, null: false
+    t.string "revocation_endpoint", limit: 512
+    t.string "redirect_uri", limit: 512, null: false
+    t.string "requested_scopes", limit: 1024, null: false
+    t.string "dpop_nonce", limit: 512
+    t.string "binding_id", limit: 36, null: false
+    t.text "encrypted_secrets", null: false
+    t.string "encryption_key_id", limit: 32, null: false
+    t.datetime "expires_at", null: false
+    t.datetime "consumed_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["state_digest"], name: "index_external_oauth_attempts_on_state_digest", unique: true
+    t.index ["user_id"], name: "index_external_oauth_attempts_on_user_id"
   end
 
   create_table "external_projection_failures", force: :cascade do |t|
@@ -2044,6 +2102,9 @@ ActiveRecord::Schema.define(version: 2026_10_19_220000) do
   add_foreign_key "emoji_reactions", "statuses", on_delete: :cascade
   add_foreign_key "encrypted_messages", "accounts", column: "from_account_id", on_delete: :cascade
   add_foreign_key "encrypted_messages", "devices", on_delete: :cascade
+  add_foreign_key "external_identities", "user_external_credentials", column: "credential_id", on_delete: :nullify
+  add_foreign_key "external_identities", "users", on_delete: :cascade
+  add_foreign_key "external_oauth_attempts", "users", on_delete: :cascade
   add_foreign_key "external_projection_failures", "external_resources", on_delete: :restrict
   add_foreign_key "external_projection_failures", "external_subscriptions", on_delete: :cascade
   add_foreign_key "external_projection_failures", "users", on_delete: :cascade
