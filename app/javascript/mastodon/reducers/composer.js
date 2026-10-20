@@ -137,6 +137,8 @@ export const initialState = ImmutableMap({
   interactionCheck: null,
   is_composing: false,
   is_submitting: false,
+  activeSubmitId: null,
+  draftGeneration: 0,
   is_changing_upload: false,
   is_uploading: false,
   is_processing: false,
@@ -362,6 +364,67 @@ const mediaIdentity = state => {
   return media.map(item => String(item.get('id'))).join('\u001f');
 };
 
+const mediaDraftIdentity = state => {
+  const media = state.get('media_attachments');
+
+  if (!media || !media.map) {
+    return '';
+  }
+
+  return media.map(item => [
+    String(item.get('id')),
+    item.get('description') || '',
+    String(item.getIn(['meta', 'focus', 'x']) ?? ''),
+    String(item.getIn(['meta', 'focus', 'y']) ?? ''),
+  ].join('\u001e')).join('\u001f');
+};
+
+const pollIdentity = state => {
+  const poll = state.get('poll');
+
+  if (!poll || !poll.get) {
+    return '';
+  }
+
+  const options = poll.get('options');
+
+  return [
+    options && options.join ? options.join('\u001e') : '',
+    poll.get('multiple') ? '1' : '0',
+    String(poll.get('expires_in') ?? ''),
+  ].join('\u001f');
+};
+
+// Everything a create/update would send. A later edit that returns to the same
+// text still changes this once draftGeneration has moved.
+const draftFingerprint = state => {
+  if (!state || !state.get) {
+    return '';
+  }
+
+  const references = state.get('references');
+
+  return [
+    state.get('text') || '',
+    state.get('spoiler') ? '1' : '0',
+    state.get('spoiler_text') || '',
+    state.get('privacy') || '',
+    state.get('language') || '',
+    state.get('sensitive') ? '1' : '0',
+    state.get('searchability') || '',
+    state.get('circle_id') || '',
+    state.get('scheduled') || '',
+    state.get('expires') || '',
+    state.get('expires_action') || '',
+    state.get('in_reply_to') || '',
+    state.get('quote_from') || '',
+    pollIdentity(state),
+    mediaDraftIdentity(state),
+    references && references.join ? references.join('\u001e') : '',
+    postingContextOutputSignature(state),
+  ].join('\u0001');
+};
+
 const submissionSurfaceMatches = (state, submission) => {
   const current = state.get('surface');
   const submitted = submission.surface;
@@ -394,6 +457,14 @@ const submissionStillCurrent = (state, action) => {
   }
 
   if ((state.getIn(['userPostingStyle', 'selectionGeneration']) || 0) !== (submission.selectionGeneration || 0)) {
+    return false;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(submission, 'draftGeneration') && (state.get('draftGeneration') || 0) !== submission.draftGeneration) {
+    return false;
+  }
+
+  if (submission.token && state.get('idempotencyKey') && state.get('idempotencyKey') !== submission.token) {
     return false;
   }
 
@@ -442,9 +513,27 @@ const reapplyKeptSelection = state => {
   });
 };
 
+const submittedId = action => (action.submission && action.submission.submitId) || action.submitId || null;
+
+// An older request must not drop is_submitting while a newer send is still open.
+const submitTargetsActiveRequest = (state, action) => {
+  const active = state.get('activeSubmitId');
+  const submitted = submittedId(action);
+
+  if (!active || !submitted) {
+    return true;
+  }
+
+  return active === submitted;
+};
+
 const finishSuccessfulSubmit = (state, action) => {
+  if (!submitTargetsActiveRequest(state, action)) {
+    return state;
+  }
+
   if (!submissionStillCurrent(state, action)) {
-    return rememberConsumedSubmission(state.set('is_submitting', false), action);
+    return rememberConsumedSubmission(state.set('is_submitting', false).set('activeSubmitId', null), action);
   }
 
   const kind = action.submission && action.submission.kind;
@@ -465,7 +554,7 @@ const finishSuccessfulSubmit = (state, action) => {
     });
   }
 
-  return rememberConsumedSubmission(stripDelegatedSchedule(next), action);
+  return rememberConsumedSubmission(stripDelegatedSchedule(next).set('activeSubmitId', null), action);
 };
 
 const discardDraftToUsual = state => {
@@ -1274,7 +1363,7 @@ const reduceSurfaceContext = (state, action) => {
   });
 };
 
-export default function composer(state = initialState, action) {
+function reduceComposer(state = initialState, action) {
   switch(action.type) {
   case USER_PREFERENCES_DOCUMENT_ACCEPTED:
     return applyComposerPreferenceDefaults(state, action.document);
@@ -1636,14 +1725,18 @@ export default function composer(state = initialState, action) {
   case COMPOSER_INTERACTION_CHECK_FAIL:
     return acceptInteractionCheck(state, action, 'denied');
   case COMPOSE_SUBMIT_REQUEST:
-    return state.set('is_submitting', true);
+    return state.set('is_submitting', true).set('activeSubmitId', action.submitId || null);
   case COMPOSE_UPLOAD_CHANGE_REQUEST:
     return state.set('is_changing_upload', true);
   case COMPOSE_SUBMIT_SUCCESS:
   case SCHEDULED_STATUS_SUBMIT_SUCCESS:
     return finishSuccessfulSubmit(state, action);
   case COMPOSE_SUBMIT_FAIL:
-    return state.set('is_submitting', false);
+    if (!submitTargetsActiveRequest(state, action)) {
+      return state;
+    }
+
+    return state.set('is_submitting', false).set('activeSubmitId', null);
   case COMPOSE_UPLOAD_CHANGE_FAIL:
     return state.set('is_changing_upload', false);
   case COMPOSE_UPLOAD_REQUEST: {
@@ -2056,4 +2149,14 @@ export default function composer(state = initialState, action) {
   default:
     return state;
   }
-};
+}
+
+export default function composer(state = initialState, action) {
+  const next = reduceComposer(state, action);
+
+  if (!next || next === state || draftFingerprint(next) === draftFingerprint(state)) {
+    return next;
+  }
+
+  return next.set('draftGeneration', (state.get('draftGeneration') || 0) + 1);
+}

@@ -1,7 +1,7 @@
 import { isAdministrator } from '../initial_state';
 import { isExistingPostEdit } from './materialize';
 import {
-  lockedStyleViolatesComposer,
+  lockedStyleHardRejects,
   portablePostingContextReady,
   selectPortablePostingStyleCandidates,
   styleMatchesSurface,
@@ -30,7 +30,7 @@ const singleDedicatedStyle = (styles, composer) => {
 
   const style = dedicated.get(0);
 
-  if (lockedStyleViolatesComposer(composer, style)) {
+  if (lockedStyleHardRejects(composer, style)) {
     return null;
   }
 
@@ -72,7 +72,7 @@ export function decideUsualSelection({ portable, composer, styles, placeAssignme
         return { phase: 'pending', reason: 'catalog_style', scope: 'place' };
       }
 
-      if (!styleMatchesSurface(style, composer.get('surface')) || lockedStyleViolatesComposer(composer, style)) {
+      if (!styleMatchesSurface(style, composer.get('surface')) || lockedStyleHardRejects(composer, style)) {
         return { phase: 'unavailable', scope: 'place', styleId: String(styleId) };
       }
 
@@ -130,7 +130,7 @@ function decideGlobal({ portable, composer, styles, globalAssignment }) {
     return { phase: 'pending', reason: 'catalog_style', scope: 'global' };
   }
 
-  if (portable && (!styleMatchesSurface(style, composer.get('surface')) || lockedStyleViolatesComposer(composer, style))) {
+  if (portable && (!styleMatchesSurface(style, composer.get('surface')) || lockedStyleHardRejects(composer, style))) {
     return { phase: 'none', origin: 'usual', scope: 'global_unfit' };
   }
 

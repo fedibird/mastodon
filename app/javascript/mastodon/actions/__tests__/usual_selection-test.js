@@ -17,7 +17,7 @@ jest.mock('../../api', () => ({
 }));
 
 import api from '../../api';
-import { COMPOSE_CHANGE, COMPOSE_REPLY_CANCEL, COMPOSE_RESET, COMPOSE_SUBMIT_FAIL, COMPOSE_SUBMIT_SUCCESS, SCHEDULED_STATUS_SUBMIT_SUCCESS } from '../compose';
+import { COMPOSE_CHANGE, COMPOSE_POLL_ADD, COMPOSE_POLL_OPTION_CHANGE, COMPOSE_REPLY_CANCEL, COMPOSE_RESET, COMPOSE_SPOILER_TEXT_CHANGE, COMPOSE_SPOILERNESS_CHANGE, COMPOSE_SUBMIT_FAIL, COMPOSE_SUBMIT_REQUEST, COMPOSE_SUBMIT_SUCCESS, SCHEDULED_STATUS_SUBMIT_SUCCESS, classifySubmission } from '../compose';
 import { applyComposerSurface, createComposer, destroyComposer } from '../composer';
 import {
   USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL,
@@ -27,6 +27,8 @@ import {
 import {
   USER_POSTING_STYLES_FETCH_SUCCESS,
   commitUserPostingStyle,
+  retryUsualResolution,
+  returnToUsualSelection,
   saveCurrentStyleAsUsual,
   settleUsualSelection,
 } from '../user_posting_styles';
@@ -114,6 +116,7 @@ const snapshotOf = (record, extra = {}) => ({
   token: record.get('idempotencyKey'),
   instanceId: record.get('instanceId'),
   selectionGeneration: record.getIn(['userPostingStyle', 'selectionGeneration']) || 0,
+  draftGeneration: record.get('draftGeneration') || 0,
   text: record.get('text') || '',
   mediaIds: '',
   surface: record.get('surface') ? { kind: record.get('surface').get('kind'), key: record.get('surface').get('key') } : null,
@@ -438,5 +441,177 @@ describe('usual style selection', () => {
     await store.dispatch(settleUsualSelection(composerId));
     expect(store.getState().getIn(['composers', 'byId', composerId, 'userPostingStyle', 'selectedId'])).toEqual('place');
     expect(store.getState().getIn(['composers', 'byId', composerId, 'privacy'])).toEqual('public');
+  });
+
+  it('clears the applied style when a post succeeds and the usual choice is now none', async () => {
+    const styles = ImmutableList([style('a', 'Usual', { visibility: 'public' })]);
+    const store = buildStore(styles);
+    loadGlobal(store, 'style', 'a');
+    await store.dispatch(settleUsualSelection(PRIMARY_COMPOSER_ID));
+    expect(primary(store).get('privacy')).toEqual('public');
+
+    loadGlobal(store, 'none');
+    await store.dispatch(settleUsualSelection(PRIMARY_COMPOSER_ID));
+    expect(primary(store).getIn(['userPostingStyle', 'selectedId'])).toEqual('a');
+    expect(primary(store).get('privacy')).toEqual('public');
+
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Send A' });
+    store.dispatch({ type: COMPOSE_SUBMIT_SUCCESS, submission: snapshotOf(primary(store)) });
+    await store.dispatch(settleUsualSelection(PRIMARY_COMPOSER_ID));
+
+    expect(primary(store).getIn(['userPostingStyle', 'selectionKind'])).toEqual('none');
+    expect(primary(store).getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+    expect(primary(store).getIn(['userPostingStyle', 'snapshot'])).toBeNull();
+    expect(primary(store).get('privacy')).toEqual('unlisted');
+    expect(primary(store).getIn(['userPostingStyle', 'suppressions'])).toEqual(ImmutableSet());
+  });
+
+  it('confirms usual none after text typed before the first read, without clearing that text', async () => {
+    const store = buildStore(ImmutableList());
+    store.dispatch({ type: 'USER_POSTING_STYLE_RESOLUTION', resolutionRequired: true, selectionKind: 'pending' });
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Early' });
+    await store.dispatch(settleUsualSelection(PRIMARY_COMPOSER_ID));
+    expect(primary(store).getIn(['userPostingStyle', 'selectionKind'])).toEqual('pending');
+    expect(primary(store).getIn(['userPostingStyle', 'defaultsSettledSurface'])).toBeNull();
+    expect(selectComposerEffectiveCreateCapability(store.getState(), PRIMARY_COMPOSER_ID).canAttempt).toBe(false);
+
+    loadGlobal(store, 'none');
+    await store.dispatch(settleUsualSelection(PRIMARY_COMPOSER_ID));
+
+    expect(primary(store).get('text')).toEqual('Early');
+    expect(primary(store).getIn(['userPostingStyle', 'selectionKind'])).toEqual('none');
+    expect(primary(store).getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+    expect(primary(store).getIn(['userPostingStyle', 'defaultsSettledSurface'])).toEqual('primary');
+    expect(selectComposerEffectiveCreateCapability(store.getState(), PRIMARY_COMPOSER_ID).reason).not.toEqual('style_unresolved');
+  });
+
+  it('asks before returning to a fitting place style that would change visibility', async () => {
+    const composerId = 'portable:group-column:123';
+    const styles = ImmutableList([
+      style('a', 'Public place', { visibility: 'public' }),
+      style('b', 'Quiet', { visibility: 'unlisted' }),
+    ]);
+    const store = buildStore(styles);
+    store.dispatch(createComposer(composerId));
+    store.dispatch(applyComposerSurface(composerId, { kind: 'group', key: '123' }, groupPostingContext, '123'));
+    loadPlace(store, 'style', 'a');
+    await store.dispatch(settleUsualSelection(composerId));
+    await store.dispatch(commitUserPostingStyle(composerId, 'b'));
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Draft', meta: { composerId } });
+
+    const portable = () => store.getState().getIn(['composers', 'byId', composerId]);
+    const preview = store.dispatch(returnToUsualSelection(composerId));
+
+    expect(preview.status).toEqual('confirm');
+    expect(portable().getIn(['userPostingStyle', 'selectedId'])).toEqual('b');
+    expect(portable().getIn(['userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(portable().get('text')).toEqual('Draft');
+
+    const applied = store.dispatch(returnToUsualSelection(composerId, { confirmed: true }));
+    expect(applied.status).toEqual('applied');
+    expect(portable().getIn(['userPostingStyle', 'selectedId'])).toEqual('a');
+    expect(portable().getIn(['userPostingStyle', 'usageMode'])).toEqual('usual');
+    expect(portable().get('privacy')).toEqual('public');
+    expect(portable().get('text')).toEqual('Draft');
+  });
+
+  it('reloads the usual style during a one-time choice without changing that choice', async () => {
+    const styles = ImmutableList([style('b', 'Once', { visibility: 'private' })]);
+    const store = buildStore(styles);
+    store.dispatch({
+      type: USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL,
+      scope: 'global',
+      surfaceKey: 'global:default',
+      generation: store.getState().getIn(['userPostingContextAssignments', 'global', 'generation']) || 0,
+    });
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'b'));
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Keep' });
+    api.mockReturnValue({
+      get: jest.fn(() => Promise.resolve({ data: [] })),
+    });
+
+    await store.dispatch(retryUsualResolution(PRIMARY_COMPOSER_ID));
+
+    expect(api().get).toHaveBeenCalled();
+    expect(primary(store).get('text')).toEqual('Keep');
+    expect(primary(store).getIn(['userPostingStyle', 'selectedId'])).toEqual('b');
+    expect(primary(store).getIn(['userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(primary(store).getIn(['userPostingStyle', 'selectionKind'])).toEqual('style');
+  });
+
+  it('does not let a content warning or poll edited while sending be cleared by the old success', () => {
+    const styles = ImmutableList([style('a', 'Usual', { visibility: 'public' })]);
+    const store = buildStore(styles);
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Hello' });
+    store.dispatch({ type: COMPOSE_SPOILERNESS_CHANGE });
+    store.dispatch({ type: COMPOSE_SPOILER_TEXT_CHANGE, text: 'before' });
+    store.dispatch({ type: COMPOSE_POLL_ADD });
+    const sent = snapshotOf(primary(store));
+    store.dispatch({ type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' });
+    store.dispatch({ type: COMPOSE_SPOILER_TEXT_CHANGE, text: 'after' });
+    store.dispatch({ type: COMPOSE_POLL_OPTION_CHANGE, index: 0, title: 'Later' });
+    store.dispatch({ type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-2' });
+
+    store.dispatch({ type: COMPOSE_SUBMIT_SUCCESS, submitId: 'submit-1', submission: { ...sent, submitId: 'submit-1' } });
+    expect(primary(store).get('is_submitting')).toBe(true);
+    expect(primary(store).get('spoiler_text')).toEqual('after');
+    expect(primary(store).getIn(['poll', 'options', 0])).toEqual('Later');
+
+    store.dispatch({ type: COMPOSE_SUBMIT_FAIL, submitId: 'submit-1' });
+    expect(primary(store).get('is_submitting')).toBe(true);
+    expect(primary(store).get('text')).toEqual('Hello');
+
+    const restored = snapshotOf(primary(store).set('text', 'Hello').set('spoiler_text', 'before'));
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Hello again' });
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Hello' });
+    store.dispatch({ type: COMPOSE_SUBMIT_SUCCESS, submitId: 'submit-2', submission: { ...restored, submitId: 'submit-2', text: 'Hello' } });
+    expect(primary(store).get('text')).toEqual('Hello');
+    expect(primary(store).get('spoiler_text')).toEqual('after');
+    expect(primary(store).get('is_submitting')).toBe(false);
+  });
+
+  it('keeps a one-time choice when an existing scheduled post is saved', () => {
+    const scheduled = primary(buildStore(ImmutableList([style('b', 'Once', { visibility: 'private' })])));
+    const drafted = scheduled.set('scheduled_status_id', 'sched-1').set('id', null);
+    expect(classifySubmission(drafted, true)).toEqual('edit');
+    expect(classifySubmission(drafted.set('scheduled', null), false)).toEqual('edit');
+    expect(classifySubmission(drafted.set('scheduled_status_id', null), true)).toEqual('schedule');
+
+    const withChoice = drafted.setIn(['userPostingStyle', 'selectedId'], 'b')
+      .setIn(['userPostingStyle', 'usageMode'], 'once')
+      .setIn(['userPostingStyle', 'selectionKind'], 'style')
+      .set('text', 'Later');
+    const saved = composer(withChoice, {
+      type: COMPOSE_SUBMIT_SUCCESS,
+      submission: snapshotOf(withChoice, { kind: 'edit' }),
+    });
+
+    expect(saved.get('text')).toEqual('');
+    expect(saved.getIn(['userPostingStyle', 'selectedId'])).toEqual('b');
+    expect(saved.getIn(['userPostingStyle', 'usageMode'])).toEqual('once');
+  });
+
+  it('clears a place style when that place settles back to none', async () => {
+    const composerId = 'portable:group-column:123';
+    const store = buildStore(ImmutableList([style('a', 'Place', { visibility: 'public' })]));
+    store.dispatch(createComposer(composerId));
+    store.dispatch(applyComposerSurface(composerId, { kind: 'group', key: '123' }, groupPostingContext, '123'));
+    loadPlace(store, 'style', 'a');
+    await store.dispatch(settleUsualSelection(composerId));
+    const portable = () => store.getState().getIn(['composers', 'byId', composerId]);
+    expect(portable().getIn(['userPostingStyle', 'selectedId'])).toEqual('a');
+
+    loadPlace(store, 'none');
+    store.dispatch({
+      type: 'USER_POSTING_STYLE_RESOLUTION',
+      clearSettled: true,
+      meta: { composerId },
+    });
+    await store.dispatch(settleUsualSelection(composerId));
+
+    expect(portable().getIn(['userPostingStyle', 'selectionKind'])).toEqual('none');
+    expect(portable().getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+    expect(portable().getIn(['userPostingStyle', 'snapshot'])).toBeNull();
+    expect(portable().getIn(['userPostingStyle', 'suppressions'])).toEqual(ImmutableSet());
   });
 });

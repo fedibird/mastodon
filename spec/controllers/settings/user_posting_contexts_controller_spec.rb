@@ -314,7 +314,15 @@ describe Settings::UserPostingContextsController do
 
       get :confirm_destroy, params: { id: style.id }
       expect(response.body).to include(ERB::Util.html_escape(I18n.t('user_posting_contexts.delete_confirm_usual', name: 'Field notes')))
-      expect(response.body).not_to include('is the default in')
+      expect(response.body).not_to include(ERB::Util.html_escape(I18n.t('user_posting_contexts.delete_confirm_with_defaults', name: 'Field notes', count: 1)))
+      expect(I18n.t('user_posting_contexts.delete_confirm_usual', name: 'Field notes')).not_to include('Place defaults are unchanged')
+      expect(I18n.t('user_posting_contexts.delete_confirm_usual', name: 'Field notes')).not_to include('場所ごとの既定は変わりません')
+
+      UserPostingContextAssignment.assign!(user: owner, surface_kind: 'hashtag', surface_key: 'field', style: style)
+      get :confirm_destroy, params: { id: style.id }
+      expect(response.body).to include(ERB::Util.html_escape(I18n.t('user_posting_contexts.delete_confirm_usual', name: 'Field notes')))
+      expect(response.body).to include(ERB::Util.html_escape(I18n.t('user_posting_contexts.delete_confirm_with_defaults', name: 'Field notes', count: 1)))
+      expect(response.body).not_to include('Place defaults are unchanged')
 
       post :update_usual, params: { style_id: '' }
       expect(UserPostingContextAssignment.usual_for(owner).availability_status).to eq('none')

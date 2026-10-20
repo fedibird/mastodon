@@ -4,7 +4,7 @@ import { targetComposerAction } from './composer';
 import { refreshComposerGroupDiscovery, scheduleComposerInteractionCheck } from './posting_identities';
 import { isExistingPostEdit } from '../posting_context/materialize';
 import { normalizeUserPostingStyle, resolveUserPostingStyle } from '../posting_context/user_style_resolver';
-import { composerDraftInProgress, portablePostingContextReady, styleMatchesSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
+import { composerDraftInProgress, lockedStyleViolatesComposer, portablePostingContextReady, styleMatchesSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
 import { decideUsualSelection } from '../posting_context/usual_selection';
 import { selectComposer } from '../selectors/composer';
 import { fetchGlobalUsualStyle, fetchUserPostingContextAssignment, saveGlobalUsualStyle } from './user_posting_context_assignments';
@@ -300,22 +300,86 @@ export function settleUsualSelection(composerId) {
     }
 
     const blocked = blocksAutomaticApply(current, { revalidate });
-
-    dispatch(targetComposerAction({
+    const appliedId = current.getIn(['userPostingStyle', 'selectedId']);
+    const settleSurface = () => dispatch(targetComposerAction({
       type: USER_POSTING_STYLE_DEFAULTS_SETTLED,
       surfaceKey: cacheKey,
     }, composerId));
+    const recordResolution = selectionKind => dispatch(targetComposerAction({
+      type: USER_POSTING_STYLE_RESOLUTION,
+      selectionKind,
+      resolutionScope: decision.scope || null,
+      resolvingUsual: false,
+      revalidateUsual: false,
+    }, composerId));
+    const usualOptions = {
+      selectionOrigin: decision.origin || 'usual',
+      usageMode: 'usual',
+      resolutionScope: decision.scope || null,
+      revalidateUsual: false,
+      expectedSurface: portable ? { kind: currentSurface.get('kind'), key: currentSurface.get('key') } : undefined,
+    };
 
-    if (blocked || decision.phase !== 'style' || !decision.style) {
-      dispatch(targetComposerAction({
-        type: USER_POSTING_STYLE_RESOLUTION,
-        selectionKind: blocked ? null : decision.phase,
-        resolutionScope: decision.scope || null,
-        resolvingUsual: false,
-        revalidateUsual: false,
-      }, composerId));
+    // None is safe to record without copying a style onto text the user already
+    // typed. An applied snapshot stays until a restore that is not protecting
+    // an in-progress draft, and then the old style values are cleared.
+    if (decision.phase === 'none') {
+      if (blocked && appliedId) {
+        settleSurface();
+        dispatch(targetComposerAction({
+          type: USER_POSTING_STYLE_RESOLUTION,
+          resolvingUsual: false,
+          revalidateUsual: false,
+        }, composerId));
+        return Promise.resolve();
+      }
+
+      settleSurface();
+
+      if (!blocked && appliedId) {
+        return dispatch(commitUserPostingStyle(composerId, null, {
+          ...usualOptions,
+          selectionKind: 'none',
+        }));
+      }
+
+      recordResolution('none');
       return Promise.resolve();
     }
+
+    if (decision.phase === 'unavailable') {
+      settleSurface();
+      recordResolution('unavailable');
+      return Promise.resolve();
+    }
+
+    if (decision.phase !== 'style' || !decision.style) {
+      return Promise.resolve();
+    }
+
+    const sameStyle = String(appliedId || '') === String(decision.style.get('id'));
+    const needsExplicitApply = blocked || (portable && lockedStyleViolatesComposer(current, decision.style));
+
+    if (needsExplicitApply) {
+      if (blocked && appliedId) {
+        settleSurface();
+        dispatch(targetComposerAction({
+          type: USER_POSTING_STYLE_RESOLUTION,
+          resolvingUsual: false,
+          revalidateUsual: false,
+        }, composerId));
+      }
+
+      return Promise.resolve();
+    }
+
+    if (sameStyle && !revalidate) {
+      settleSurface();
+      recordResolution('style');
+      return Promise.resolve();
+    }
+
+    settleSurface();
 
     const confirmed = selectComposer(getState(), composerId);
 
@@ -364,16 +428,19 @@ export function retryUsualResolution(composerId) {
   return (dispatch, getState) => {
     const composer = selectComposer(getState(), composerId);
 
-    if (!composer || manualUsage(composer)) {
+    if (!composer || isExistingPostEdit(composer)) {
       return Promise.resolve();
     }
 
-    dispatch(targetComposerAction({
-      type: USER_POSTING_STYLE_RESOLUTION,
-      selectionKind: 'pending',
-      resolvingUsual: true,
-      clearSettled: true,
-    }, composerId));
+    // A one-time or kept choice stays. The saved usual style can still be reread.
+    if (!manualUsage(composer)) {
+      dispatch(targetComposerAction({
+        type: USER_POSTING_STYLE_RESOLUTION,
+        selectionKind: 'pending',
+        resolvingUsual: true,
+        clearSettled: true,
+      }, composerId));
+    }
 
     const surface = composer.get('surface');
     const reads = [

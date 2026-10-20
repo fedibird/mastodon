@@ -467,7 +467,9 @@ export function submitComposer(composerId, routerHistory) {
       return Promise.resolve();
     }
 
-    dispatchToComposer(dispatch, composerId, submitComposeRequest());
+    const submitId = nextSubmissionId();
+
+    dispatchToComposer(dispatch, composerId, submitComposeRequest(submitId));
 
     const mediaAttributes = editing ? media.map(item => {
       const focusX = item.getIn(['meta', 'focus', 'x']);
@@ -555,6 +557,7 @@ export function submitComposer(composerId, routerHistory) {
     if (!latestComposer || !latestMedia || composerRedraftBlocksSubmit(latestComposer) || !selectComposerCanSendAsIdentity(getState(), composerId).canSend) {
       dispatchToComposer(dispatch, composerId, {
         type: COMPOSE_SUBMIT_FAIL,
+        submitId,
         skipLoading: true,
         skipAlert: true,
       });
@@ -568,15 +571,8 @@ export function submitComposer(composerId, routerHistory) {
     }
 
     const willSchedule = !editing && !!(scheduled_in || scheduled_at);
-    let submissionKind = 'new';
-
-    if (editing) {
-      submissionKind = 'edit';
-    } else if (willSchedule) {
-      submissionKind = 'schedule';
-    }
-
-    const submission = submissionSnapshot(latestComposer, submissionKind);
+    const submissionKind = classifySubmission(latestComposer, willSchedule);
+    const submission = submissionSnapshot(latestComposer, submissionKind, submitId);
     const immediateSnapshot = (!editing && !willSchedule)
       ? captureImmediateFeedSnapshot(getState(), composerId, composer)
       : null;
@@ -649,7 +645,7 @@ export function submitComposer(composerId, routerHistory) {
         insertIfOnline(`account:${response.data.account.id}`);
       }
     }).catch(function (error) {
-      dispatchToComposer(dispatch, composerId, submitComposeFail(error));
+      dispatchToComposer(dispatch, composerId, submitComposeFail(error, submitId));
 
       const status = error && error.response && error.response.status;
 
@@ -664,9 +660,10 @@ export function submitCompose(routerHistory) {
   return submitComposer(PRIMARY_COMPOSER_ID, routerHistory);
 };
 
-export function submitComposeRequest() {
+export function submitComposeRequest(submitId) {
   return {
     type: COMPOSE_SUBMIT_REQUEST,
+    submitId,
   };
 };
 
@@ -678,12 +675,38 @@ export function submitComposeSuccess(status, submission) {
   };
 };
 
-export function submitComposeFail(error) {
+export function submitComposeFail(error, submitId) {
   return {
     type: COMPOSE_SUBMIT_FAIL,
     error: error,
+    submitId,
   };
 };
+
+let submissionSerial = 0;
+
+const nextSubmissionId = () => {
+  submissionSerial += 1;
+  return `submit-${submissionSerial}`;
+};
+
+// An existing status or an existing scheduled post is an edit. A new schedule
+// is not, even when the composer will send scheduled_at.
+export function classifySubmission(composer, willSchedule) {
+  const statusId = composer && composer.get('id');
+  const scheduledStatusId = composer && composer.get('scheduled_status_id');
+  const present = value => value !== null && value !== undefined && value !== '';
+
+  if (present(statusId) || present(scheduledStatusId)) {
+    return 'edit';
+  }
+
+  if (willSchedule) {
+    return 'schedule';
+  }
+
+  return 'new';
+}
 
 export function submitScheduledStatusSuccess(status, submission) {
   return {
@@ -693,14 +716,16 @@ export function submitScheduledStatusSuccess(status, submission) {
   };
 };
 
-const submissionSnapshot = (composer, kind) => {
+const submissionSnapshot = (composer, kind, submitId) => {
   const surface = composer.get('surface');
   const media = composer.get('media_attachments');
 
   return {
     token: composer.get('idempotencyKey') || null,
+    submitId: submitId || null,
     instanceId: composer.get('instanceId') || null,
     selectionGeneration: composer.getIn(['userPostingStyle', 'selectionGeneration']) || 0,
+    draftGeneration: composer.get('draftGeneration') || 0,
     text: composer.get('text') || '',
     mediaIds: media && media.map ? media.map(item => String(item.get('id'))).join('\u001f') : '',
     surface: surface && surface.get ? { kind: surface.get('kind'), key: surface.get('key') } : null,

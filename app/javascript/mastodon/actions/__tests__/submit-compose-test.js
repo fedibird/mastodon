@@ -163,6 +163,30 @@ describe('submitCompose', () => {
     expect(importFetchedStatus).not.toHaveBeenCalled();
   });
 
+  it('marks a new schedule as schedule and an existing scheduled post as an edit', async () => {
+    const request = jest.fn()
+      .mockResolvedValueOnce({ data: { ...statusResponse, scheduled_at: '2099-01-01T00:00:00.000Z' } })
+      .mockResolvedValueOnce({ data: { ...statusResponse, scheduled_at: '2099-01-01T00:00:00.000Z' } })
+      .mockResolvedValueOnce({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const router = { location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() };
+
+    const created = await dispatchThunk(submitCompose(router), composeState({ compose: { scheduled: '2099-01-01 00:00' } }));
+    expect(created.find(action => action.type === 'SCHEDULED_STATUS_SUBMIT_SUCCESS').submission.kind).toEqual('schedule');
+
+    const kept = await dispatchThunk(
+      submitCompose(router),
+      composeState({ compose: { scheduled: '2099-01-01 00:00', scheduled_status_id: 'sched-1' } }),
+    );
+    expect(kept.find(action => action.type === 'SCHEDULED_STATUS_SUBMIT_SUCCESS').submission.kind).toEqual('edit');
+
+    const immediate = await dispatchThunk(
+      submitCompose(router),
+      composeState({ compose: { scheduled: null, scheduled_status_id: 'sched-1' } }),
+    );
+    expect(immediate.find(action => action.type === 'COMPOSE_SUBMIT_SUCCESS').submission.kind).toEqual('edit');
+  });
+
   it('sends the selected language with a scheduled post', async () => {
     const request = jest.fn().mockResolvedValue({ data: { ...statusResponse, scheduled_at: '2099-01-01T00:00:00.000Z' } });
     api.mockReturnValue({ request });

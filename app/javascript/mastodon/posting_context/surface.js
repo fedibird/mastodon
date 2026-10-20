@@ -201,31 +201,46 @@ export function portablePostingContextReady(composer) {
   return false;
 }
 
-export function lockedStyleViolatesComposer(composer, style) {
+// A locked destination or a required visibility constraint rejects the style.
+// A confirmation, or a field the current draft will not overwrite, does not.
+const lockedPlanRejection = (composer, style) => {
   const plan = resolveUserPostingStyle(style, composer, { destinationPolicy: 'locked' });
 
-  if (!plan || plan.blocked || plan.needsConfirmation || (plan.unapplied && plan.unapplied.length > 0)) {
-    return true;
+  if (!plan || plan.blocked) {
+    return { hard: true };
   }
 
   if (!plan.destination || plan.destination.action !== 'keep' || plan.destination.changes || plan.destination.policy !== 'locked') {
-    return true;
+    return { hard: true };
   }
 
   const privacy = Object.prototype.hasOwnProperty.call(plan.fields, 'privacy') ? plan.fields.privacy : composer.get('privacy');
   const allowed = composer.getIn(['context', 'constraints', 'allowedVisibilities']);
 
   if (allowed && typeof allowed.includes === 'function' && privacy && !allowed.includes(privacy)) {
-    return true;
+    return { hard: true };
   }
 
   const prohibited = composer.get('prohibited_visibilities');
 
   if (prohibited && typeof prohibited.includes === 'function' && privacy && prohibited.includes(privacy)) {
-    return true;
+    return { hard: true };
   }
 
-  return false;
+  return {
+    hard: false,
+    needsAttention: Boolean(plan.needsConfirmation || (plan.unapplied && plan.unapplied.length > 0)),
+  };
+};
+
+export function lockedStyleHardRejects(composer, style) {
+  return lockedPlanRejection(composer, style).hard;
+}
+
+export function lockedStyleViolatesComposer(composer, style) {
+  const rejection = lockedPlanRejection(composer, style);
+
+  return rejection.hard || rejection.needsAttention;
 }
 
 const selectionBlocksAuto = composer => {

@@ -158,7 +158,7 @@ RSpec.describe 'Embedded posting style settings' do # rubocop:disable Metrics/Bl
     foreign_user = Fabricate(:user)
     foreign = foreign_user.user_posting_contexts.create!(name: 'Secret')
     row = UserPostingContextAssignment.assign!(user: foreign_user, surface_kind: 'hashtag', surface_key: 'private', style: foreign)
-    operations(foreign, row).reject { |_method, path| [settings_user_posting_contexts_path, new_settings_user_posting_context_path, settings_user_posting_context_assignments_path].include?(path) }.each do |method, path|
+    operations(foreign, row).reject { |_method, path| [settings_user_posting_contexts_path, new_settings_user_posting_context_path, settings_user_posting_context_assignments_path, update_usual_settings_user_posting_contexts_path].include?(path) }.each do |method, path|
       public_send(method, path, params: options.merge(id: foreign.id, user_posting_context: attributes))
       expect(response).to have_http_status(:not_found)
       expect_blocked
@@ -166,6 +166,19 @@ RSpec.describe 'Embedded posting style settings' do # rubocop:disable Metrics/Bl
     get settings_user_posting_context_assignments_path(options.merge(user_posting_context_id: foreign.id))
     expect(response).to have_http_status(:not_found)
     expect_blocked
+  end
+
+  it 'does not save another user’s style as the usual style' do
+    foreign_user = Fabricate(:user, role: UserRole.find_by!(name: 'Owner'))
+    foreign = foreign_user.user_posting_contexts.create!(name: 'Secret')
+
+    post update_usual_settings_user_posting_contexts_path, params: options.merge(style_id: foreign.id)
+
+    expect(response).to redirect_to(settings_user_posting_contexts_path(options))
+    expect(flash[:alert]).to eq(I18n.t('user_posting_contexts.usual_invalid'))
+    expect(UserPostingContextAssignment.usual_for(user)).to be_nil
+    expect(UserPostingContextAssignment.usual_for(foreign_user)).to be_nil
+    expect(foreign.reload).to be_persisted
   end
 
   context 'with real CSRF verification' do

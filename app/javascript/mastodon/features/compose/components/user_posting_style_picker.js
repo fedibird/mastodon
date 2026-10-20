@@ -20,6 +20,8 @@ const messages = defineMessages({
   defaultStarOn: { id: 'compose_form.posting_style.default_star_on', defaultMessage: 'Remove the default for this place' },
   settings: { id: 'compose_form.posting_style.settings', defaultMessage: 'Posting style settings' },
   destination: { id: 'compose_form.posting_style.destination', defaultMessage: 'Destination {label}' },
+  explicitNone: { id: 'compose_form.posting_style.explicit_none', defaultMessage: 'Post without a style' },
+  applyStyle: { id: 'compose_form.posting_style.apply_style', defaultMessage: 'Use {name}' },
   pending: { id: 'compose_form.posting_style.pending', defaultMessage: 'Checking the destination' },
   failed: { id: 'compose_form.posting_style.failed', defaultMessage: 'Can’t post because the destination could not be verified' },
   failedError: { id: 'compose_form.posting_style.failed_error', defaultMessage: 'Couldn’t reach the destination. Choose the style again or retry.' },
@@ -156,6 +158,8 @@ class UserPostingStylePicker extends React.PureComponent {
     onReturnToUsual: PropTypes.func,
     onSaveUsual: PropTypes.func,
     onRetryResolution: PropTypes.func,
+    recoveryOnly: PropTypes.bool,
+    recoveryStyleId: PropTypes.string,
   };
 
   state = {
@@ -339,6 +343,18 @@ class UserPostingStylePicker extends React.PureComponent {
   handleOnceUsage = () => {
     if (this.props.onSetUsage) {
       this.props.onSetUsage('once');
+    }
+  };
+
+  handleExplicitNone = () => {
+    if (this.props.onSelect) {
+      this.props.onSelect(null);
+    }
+  };
+
+  handleRecoveryStyle = () => {
+    if (this.props.onSelect && this.props.recoveryStyleId) {
+      this.props.onSelect(this.props.recoveryStyleId);
     }
   };
 
@@ -618,6 +634,47 @@ class UserPostingStylePicker extends React.PureComponent {
     return target;
   }
 
+  recoveryText () {
+    const { intl, selectionKind, resolutionScope } = this.props;
+
+    if (selectionKind === 'failed') {
+      return intl.formatMessage(messages.resolveFailed);
+    }
+
+    if (selectionKind === 'unavailable') {
+      return intl.formatMessage(resolutionScope === 'place' ? messages.placeUnavailable : messages.usualUnavailable);
+    }
+
+    return intl.formatMessage(messages.resolving);
+  }
+
+  renderRecovery () {
+    const { intl, onRetryResolution, onSelect, recoveryStyleId, returnStyleName } = this.props;
+
+    return (
+      <div className='compose-form__style compose-form__style--header' ref={this.setRoot} data-posting-style-picker='recovery'>
+        <p className='compose-form__style-usage'>{this.recoveryText()}</p>
+        <div className='compose-form__style-usage-actions'>
+          {onRetryResolution ? (
+            <button type='button' className='compose-form__style-retry' onClick={onRetryResolution}>
+              {intl.formatMessage(messages.resolveRetry)}
+            </button>
+          ) : null}
+          {recoveryStyleId && onSelect ? (
+            <button type='button' className='compose-form__style-retry' onClick={this.handleRecoveryStyle}>
+              {intl.formatMessage(messages.applyStyle, { name: returnStyleName || intl.formatMessage(messages.usual) })}
+            </button>
+          ) : null}
+          {onSelect ? (
+            <button type='button' className='compose-form__style-retry' onClick={this.handleExplicitNone}>
+              {intl.formatMessage(messages.explicitNone)}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   renderUsageStatus () {
     const { intl, usageMode, resolutionPhase, resolvingUsual } = this.props;
 
@@ -848,6 +905,10 @@ class UserPostingStylePicker extends React.PureComponent {
   }
 
   render () {
+    if (this.props.recoveryOnly) {
+      return this.renderRecovery();
+    }
+
     if (this.props.header) {
       return this.renderHeader();
     }
