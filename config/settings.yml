@@ -205,6 +205,13 @@ defaults: &defaults
   #   Setting.external_bridge_rss_testers = "17,42"
   external_bridge_rss: false
   external_bridge_rss_testers: ''
+  # AT Protocol identity connection. Off, and the tester allowlist is empty,
+  # so nobody can start OAuth until an operator opts in. This does not delete
+  # an identity that was stored while the flag was on.
+  #   Setting.external_bridge_atproto = true
+  #   Setting.external_bridge_atproto_testers = "17,42"
+  external_bridge_atproto: false
+  external_bridge_atproto_testers: ''
   action_review_policies:
     follow_import: 'off'
     account_migration: 'off'

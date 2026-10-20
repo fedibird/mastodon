@@ -10,6 +10,7 @@ module ExternalServices
     PROVIDERS = [
       DeepL,
       RSS,
+      Bluesky,
     ].freeze
 
     def self.providers

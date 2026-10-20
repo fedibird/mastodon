@@ -3,7 +3,7 @@
 module ExternalServices
   # Safe card fields for one connection. This object has no secret payload.
   class Connection
-    IMPLEMENTED_STATUSES = %i(connected warning unavailable).freeze
+    IMPLEMENTED_STATUSES = %i(connected warning unavailable disconnected reauthentication_required).freeze
 
     attr_reader :provider_key, :title, :subtitle, :status, :status_label,
                 :last_used_at, :manage_path, :icon

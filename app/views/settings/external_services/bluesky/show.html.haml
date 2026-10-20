@@ -1,0 +1,58 @@
+- content_for :page_title do
+  = t('external_services.providers.bluesky.name')
+
+.external-services
+  %p
+    = link_to settings_external_services_path, class: 'external-services__back' do
+      = t('external_services.back')
+
+  .external-service-header
+    = render 'settings/external_services/icon', icon: ExternalServices::Bluesky.icon
+    .external-service-header__text
+      %h3= t('external_services.providers.bluesky.name')
+      %p= t('external_services.providers.bluesky.description')
+
+  - unless @page.connectable?
+    %p.warning-hint
+      - if !@page.enabled
+        = t('external_bridge.atproto.disabled')
+      - elsif !@page.permitted
+        = t('external_bridge.atproto.tester_only')
+      - else
+        = t('external_bridge.atproto.errors.signing_key_unavailable')
+
+  - if @page.connectable?
+    = form_with url: settings_external_services_bluesky_authorize_path, method: :post, local: true do
+      .fields-group
+        = label_tag :account, t('external_bridge.atproto.account_label')
+        = text_field_tag :account, nil, required: true, autocomplete: 'off', spellcheck: 'false'
+      %p.hint= t('external_bridge.atproto.account_hint')
+      .fields-group
+        = label_tag :accept_transition_generic, t('external_bridge.atproto.generic_consent')
+        = check_box_tag :accept_transition_generic, '1', false
+      %p.hint= t('external_bridge.atproto.generic_disclosure')
+      .actions
+        = button_tag t('external_bridge.atproto.connect'), type: 'submit', class: 'button'
+
+  %h4= t('external_bridge.atproto.connections')
+  - if @page.identities.empty?
+    %p.hint= t('external_bridge.atproto.none')
+  - else
+    %ul.external-bridge-subscriptions
+      - @page.identities.each do |identity|
+        %li
+          %strong= identity.handle.presence || t('external_bridge.atproto.no_handle')
+          %span= identity.subject
+          %span= identity.issuer
+          %span= identity.resource_origin
+          %span= identity.granted_scopes.join(' ')
+          %span= t("external_bridge.atproto.status.#{identity.status}")
+          - if identity.last_checked_at
+            %time{ datetime: identity.last_checked_at.iso8601 }= l(identity.last_checked_at)
+          - if identity.last_error_code.present?
+            %span= t("external_bridge.atproto.errors.#{identity.last_error_code}", default: t('external_bridge.atproto.errors.authorization_failed'))
+          - if identity.revocation_state.present?
+            %span= t("external_bridge.atproto.revocation.#{identity.revocation_state}", default: t('external_bridge.atproto.errors.authorization_failed'))
+          - if @page.connectable? && identity.disconnected_at.nil? && identity.status != 'reauthentication_required'
+            = button_to t('external_bridge.atproto.check'), settings_check_external_services_bluesky_identity_path(identity), method: :post
+          = button_to t('external_bridge.atproto.disconnect'), settings_external_services_bluesky_identity_path(identity), method: :delete

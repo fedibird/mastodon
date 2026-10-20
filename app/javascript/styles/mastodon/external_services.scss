@@ -118,7 +118,9 @@
   border-color: $passive-text-color;
 }
 
-.external-service-card__badge--unavailable {
+.external-service-card__badge--unavailable,
+.external-service-card__badge--disconnected,
+.external-service-card__badge--reauthentication_required {
   border-color: $error-value-color;
 }
 

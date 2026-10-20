@@ -21,6 +21,8 @@ Rails.application.routes.draw do
   mount LetterOpenerWeb::Engine, at: 'letter_opener' if Rails.env.development?
 
   get 'health', to: 'health#show'
+  get 'oauth/bluesky/client-metadata', to: 'oauth/bluesky/client_metadata#show', as: :oauth_bluesky_client_metadata, defaults: { format: :json }
+  get 'oauth/bluesky/jwks', to: 'oauth/bluesky/jwks#show', as: :oauth_bluesky_jwks, defaults: { format: :json }
 
   authenticate :user, lambda { |user| user.functional? && user.can?(:view_devops) } do
     mount Sidekiq::Web, at: 'sidekiq', as: :sidekiq
@@ -163,6 +165,11 @@ Rails.application.routes.draw do
     post 'external_services/rss/subscriptions/:id/pause', to: 'external_services/rss_subscriptions#pause', as: :pause_external_services_rss_subscription
     post 'external_services/rss/subscriptions/:id/resume', to: 'external_services/rss_subscriptions#resume', as: :resume_external_services_rss_subscription
     delete 'external_services/rss/subscriptions/:id', to: 'external_services/rss_subscriptions#destroy', as: :external_services_rss_subscription
+    get 'external_services/bluesky', to: 'external_services/bluesky#show', as: :external_services_bluesky
+    post 'external_services/bluesky/authorize', to: 'external_services/bluesky_authorizations#create', as: :external_services_bluesky_authorize
+    get 'external_services/bluesky/callback', to: 'external_services/bluesky_callbacks#show', as: :external_services_bluesky_callback
+    delete 'external_services/bluesky/identities/:id', to: 'external_services/bluesky_identities#destroy', as: :external_services_bluesky_identity
+    post 'external_services/bluesky/identities/:id/check', to: 'external_services/bluesky_identities#check', as: :check_external_services_bluesky_identity
     get 'external_services/deepl', to: 'external_services/deepl#show', as: :external_services_deepl
     post 'external_services/deepl/credential', to: 'external_services/deepl_credentials#create', as: :external_services_deepl_credential
     delete 'external_services/deepl/credentials/:id', to: 'external_services/deepl_credentials#destroy', as: :external_services_deepl_credential_record

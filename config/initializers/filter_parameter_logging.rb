@@ -27,4 +27,5 @@ Rails.application.config.filter_parameters += [
   # those letters. Membership rejects search text; ids are not a search query
   # but they are still not useful in the log.
   /\A(?:q|query|text|raw|body|ids|spoiler_text|spoiler|content|statuses|window|items|pages)\z/,
+  /\A(?:code|state|code_verifier|client_assertion|dpop|pkce_verifier|dpop_private_key)\z/,
 ]

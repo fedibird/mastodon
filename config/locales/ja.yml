@@ -2093,6 +2093,10 @@ ja:
         description: 公開RSSまたはAtomを、自分のアカウントの非公開投稿として取り込みます。
         name: RSS
         subtitle: "公開フィード %{count}件"
+      bluesky:
+        description: 自分のAT Protocolアカウントを接続します。この版では、それを使った投稿・いいね・リポストは行いません。
+        name: Bluesky
+        subtitle: "%{issuer}"
   external_bridge:
     disabled: このサーバーではRSSの取り込みがオフです。すでに取り込んだ非公開投稿は非公開のままです。
     tester_only: このサーバーではRSSの取り込みはテスターだけが使えます。すでに取り込んだ非公開投稿は非公開のままです。
@@ -2125,6 +2129,54 @@ ja:
       rate_limited: この配信元へのリクエストが多すぎます。しばらくしてからやり直してください。
       unsupported_url: 公開のhttpまたはhttpsのフィードURLを入力してください。
       user_not_functional: このアカウントでは今フィードを取り込めません。
+    atproto:
+      account_hint: ハンドル、DID、またはPDSかエントリウェイのホスト名です。トークンの送信先ではありません。
+      account_label: アカウントまたはサーバー
+      check: 接続を確認
+      checked: 接続を確認しました。
+      connect: Blueskyを接続
+      connected: Blueskyアカウントを接続しました。
+      connections: 接続したアカウント
+      disabled: このサーバーではBluesky接続はオフです。保存済みの接続は削除されず残ります。
+      disconnect: 接続を解除
+      disconnected: このサーバー上のBluesky接続を解除しました。
+      generic_consent: このサーバーがリポジトリの任意のレコードを書き込めることを理解しました
+      generic_disclosure: このサーバーがいいね、リポスト、返信を分けた権限を出さない場合、接続にはより広い権限が必要です。リポジトリのレコードについてはアプリパスワードに近い権限です。チャット、メール、アカウント管理は要求しません。このサーバーを拒否するときはチェックしないでください。
+      no_handle: 確認済みハンドルはありません
+      none: 接続したBlueskyアカウントはありません。
+      tester_only: このサーバーではBluesky接続はテスターだけが使えます。
+      revocation:
+        not_attempted: リモートのサーバーには失効を依頼していません。
+        not_supported: このサーバーは失効エンドポイントを公開していません。こちらでのみ解除しました。
+        remote_failed: こちらでは解除しました。リモートのサーバーは失効を確認しませんでした。
+        remote_revoked: リモートのサーバーが失効を確認しました。
+      status:
+        connected: 接続済み
+        disconnected: 解除済み
+        paused: 停止中
+        reauthentication_required: 再ログインが必要
+        warning: 確認が必要
+      errors:
+        account_required: ハンドル、DID、またはサーバーのホスト名を入力してください。
+        authorization_failed: Bluesky接続を完了できませんでした。
+        authorization_rejected: Blueskyのサインインが完了しませんでした。何も保存していません。
+        discovery_rejected: そのアカウントまたはサーバーを確認できなかったため、接続していません。
+        feature_disabled: このサーバーではBluesky接続はオフです。既存の接続は保存されたままです。
+        issuer_mismatch: 認可サーバーがアカウントのPDSと一致しないため、保存していません。
+        not_found: その接続は見つかりませんでした。
+        partial_scopes: 要求した権限の一部だけで接続しました。
+        private_address: そのホストは公開サーバーではありません。
+        reauthentication_required: このBluesky接続はサインインが必要です。保存したセッションは別のサーバーへ送っていません。
+        redirect_rejected: サーバーが署名付きリクエストのリダイレクトを試みたため、拒否しました。
+        refresh_unacknowledged: セッションの更新が安全に完了しなかったため、再サインインが必要です。
+        remote_revocation_failed: このサーバーでは接続を解除しました。リモートのサーバーは失効を確認しませんでした。
+        revoked: このBlueskyセッションは失効しています。
+        signing_key_unavailable: このサーバーはまだBlueskyアカウントの接続を行う設定になっていません。
+        stale_callback: より新しいサインインがすでに完了したため、これは破棄しました。
+        state_rejected: そのサインインセッションは無効です。最初からやり直してください。
+        tester_only: このサーバーではBluesky接続はテスターだけが使えます。
+        unsupported_scopes: この接続が受け取らない権限をサーバーが提示しました。
+        vault_unavailable: このサーバーでは資格情報の保管を利用できません。
   external_credentials:
     ambiguous: 複数のDeepL credentialが存在するため、個人DeepLは利用できません。不要なcredentialを削除してください。
     api_key_label: APIキー
