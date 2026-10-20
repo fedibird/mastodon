@@ -499,7 +499,7 @@ Unique `(user_id, provider, subject)`.
 
 `PostingIdentity::KNOWN_KINDS` already names `bluesky`, and `ENABLED_KINDS` is only `local`. This bridge does not enable that kind. A native identity is not a Fedibird posting sender. The ActivityPub actor remains the local account.
 
-Suggested vault classification for a later Bluesky issue, not created here:
+Vault classification used by the P2 Bluesky identity connection:
 
 ```text
 provider        = bluesky
@@ -646,7 +646,7 @@ Two different inputs:
 - **A URL the user types is not a place a stored token is sent.** The vault still forbids a credential plus an arbitrary URL. After a token exists, request targets come only from resolution and metadata.
 - **Discovery is allowed to start from a handle, a DID, or a hosting hostname,** because the OAuth profile permits a hostname start when the user does not have a working handle. A hostname start does not bind an account. The session is stored only after the checks below succeed.
 
-P2 minimum, in order:
+P2 is implemented by the services under `app/services/external_bridge/atproto/` and documented in `docs/atproto_oauth.md`. The flag stays off. P2 minimum, in order:
 
 1. The user supplies a handle, a DID, or a hosting hostname. They do not supply a token, and they do not supply the URL that will receive the token.
 2. A handle resolves to a DID and the DID document claims that handle. Both directions are required. A DID is resolved directly. All handle methods and DID methods the profile requires are in scope; an account that this server cannot resolve is `discovery_rejected`, not sent to `bsky.social`.
