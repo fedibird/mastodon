@@ -100,6 +100,9 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   # ON DELETE RESTRICT. DeleteUser or DeleteAccountService purges statuses first.
   has_many :external_status_projections, inverse_of: :user, dependent: :restrict_with_exception
   has_many :external_subscriptions, inverse_of: :user, dependent: :destroy
+  # ON DELETE CASCADE. A linked DID belongs to this user, not to the account.
+  has_many :external_identities, inverse_of: :user, dependent: :destroy
+  has_many :external_oauth_attempts, inverse_of: :user, dependent: :destroy
   # Destroyed with the user. user_posting_contexts.user_id also uses
   # ON DELETE CASCADE so a SQL-level user delete cannot orphan a style.
   has_many :user_posting_contexts, inverse_of: :user, dependent: :destroy

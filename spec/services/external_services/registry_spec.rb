@@ -21,7 +21,7 @@ describe ExternalServices::Registry do
 
       cards = described_class.connections_for(user)
 
-      expect(described_class.providers).to eq([ExternalServices::DeepL, ExternalServices::RSS])
+      expect(described_class.providers).to eq([ExternalServices::DeepL, ExternalServices::RSS, ExternalServices::Bluesky])
       expect(described_class.catalog_for(user).map(&:provider_key)).to eq(['deepl'])
       expect(cards.size).to eq(1)
       expect(cards.first.provider_key).to eq('deepl')

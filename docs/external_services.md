@@ -2,7 +2,7 @@
 
 This document is the design source of truth for the settings UI and future provider integrations. Secret storage stays in the user credential vault. See `docs/user_external_credential_vault.md` for the vault threat model and `docs/personal_deepl_translation.md` for the current DeepL translation behavior.
 
-The private external-resource bridge in `docs/private_external_bridge.md` reuses this registry and the vault. It does not add a generic credential form, a metadata JSON column, or a catalog entry. Bluesky, X, and mixi2 stay out of the catalog until a later phase adds a real provider page.
+The private external-resource bridge in `docs/private_external_bridge.md` reuses this registry and the vault. It does not add a generic credential form or a metadata JSON column. Bluesky is a real provider page, described in `docs/atproto_oauth.md`, and it stays out of the catalog unless that feature is enabled for the signed-in user. X and mixi2 stay out of the catalog.
 
 ## External service connection != credential
 
@@ -49,7 +49,7 @@ The settings framework therefore lists and navigates **connections**. `UserExter
 - No database generalization in this design's first implementation.
 - No generic metadata JSON column on `UserExternalCredential`.
 - No generic credential mutation endpoint.
-- No Mastodon, Misskey, PeerTube, or Bluesky authentication.
+- No Mastodon, Misskey, or PeerTube authentication. Bluesky is the AT Protocol identity connection described in `docs/atproto_oauth.md`, not a generic secret form.
 - No remote connection test for DeepL.
 - No change to vault encryption, key rotation, or translation provider precedence.
 - The hub status does not mean a remote service accepted a request.
@@ -145,9 +145,9 @@ DeepL currently returns at most one logical connection, even when several creden
 
 The hub links to **Add service** / **サービスを追加**.
 
-The catalog lists only providers implemented in this version. Disabled placeholders for Mastodon, Misskey, PeerTube, or Bluesky are not shown.
+The catalog lists only providers implemented in this version. Disabled placeholders for Mastodon, Misskey, or PeerTube are not shown. Bluesky appears only when `external_bridge_atproto` is on, the user is on the tester allowlist, and the instance signing key is configured.
 
-DeepL is the only catalog entry. If a DeepL connection already exists, including a duplicate or repair state, the entry links to Manage. It does not post a second generic create. If nothing is configured, Add opens the DeepL page, which owns the key form.
+DeepL is always a catalog entry. RSS and Bluesky are catalog entries only for a permitted tester while their flags and, for Bluesky, the OAuth client are actually configured. If a DeepL connection already exists, including a duplicate or repair state, the entry links to Manage. It does not post a second generic create. If nothing is configured, Add opens the DeepL page, which owns the key form.
 
 A catalog entry keeps connection existence separate from presentation status.
 
@@ -234,7 +234,11 @@ Implemented card statuses:
 connected
 warning
 unavailable
+disconnected
+reauthentication_required
 ```
+
+`disconnected` and `reauthentication_required` are produced by the Bluesky identity page. DeepL does not use them.
 
 Documented for later providers, not all produced today:
 
@@ -285,7 +289,7 @@ Provider icons are local files. Font Awesome brand glyphs are not the provider i
 app/javascript/images/external_services/
 ```
 
-Only the icon for a provider that this version renders is vendored. Do not add unused Mastodon, Misskey, PeerTube, or Bluesky files ahead of those providers. Mastodon should first try the existing local Mastodon logo.
+Only the icon for a provider that this version renders is vendored. Do not add unused Mastodon, Misskey, or PeerTube files ahead of those providers. Mastodon should first try the existing local Mastodon logo. The Bluesky card uses a neutral “B” authored for this repository, not the official mark.
 
 Every vendored file is recorded in `app/javascript/images/external_services/README.md` with the service, source, retrieval or version, and license or trademark note. If an official asset's redistribution terms are unclear, use a neutral glyph or initial authored for this repository. Do not copy the official mark.
 

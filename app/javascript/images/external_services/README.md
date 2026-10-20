@@ -15,3 +15,13 @@ The image is decorative. The adjacent service name is the accessible name.
 | License / trademark | Original glyph. No DeepL artwork is copied. |
 
 DeepL publishes brand assets from <https://www.deepl.com/en/press> (checked 2026-09-29). That page offers logos for press and digital use and does not grant a clear license to vendor and redistribute the official mark in this repository. The card uses a neutral “D” in a shared icon box instead.
+
+## Bluesky
+
+| | |
+| --- | --- |
+| Service | Bluesky / AT Protocol |
+| File | `bluesky.svg` |
+| Source | Neutral initial authored for this repository. Not an official Bluesky logo. |
+| Retrieved | 2026-10-20 |
+| License / trademark | Original glyph. No Bluesky artwork is copied. |

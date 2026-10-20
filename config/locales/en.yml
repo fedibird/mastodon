@@ -2164,6 +2164,10 @@ en:
         description: Import a public RSS or Atom feed as private posts on your account.
         name: RSS
         subtitle: "%{count} public feeds"
+      bluesky:
+        description: Connect your own AT Protocol account. Fedibird does not post, like, or repost with it in this version.
+        name: Bluesky
+        subtitle: "%{issuer}"
   external_bridge:
     disabled: RSS import is turned off on this server. Existing private imports stay private.
     tester_only: RSS import is limited to testers on this server. Existing private imports stay private.
@@ -2196,6 +2200,56 @@ en:
       rate_limited: This feed host has been requested too many times. Try again later.
       unsupported_url: Enter a public http or https feed URL.
       user_not_functional: This account cannot import feeds right now.
+    atproto:
+      account_hint: A handle, a DID, or the hostname of your PDS or entryway. This is not the address a token is sent to.
+      account_label: Account or server
+      check: Check connection
+      checked: The connection was checked.
+      connect: Connect Bluesky
+      connected: Bluesky account connected.
+      connections: Connected accounts
+      disabled: Bluesky connections are turned off on this server. Saved connections stay stored and are not deleted.
+      disconnect: Disconnect
+      disconnected: The Bluesky connection was removed on this server.
+      scope_note: This connection requests only the atproto identity permission. Like, repost, and reply are not requested. A later upgrade will ask before requesting a repository permission that this server lists.
+      no_handle: No verified handle
+      none: No Bluesky account is connected.
+      tester_only: Bluesky connections are limited to testers on this server.
+      revocation:
+        not_attempted: The remote server was not asked to revoke this session.
+        not_supported: This server does not publish a revocation endpoint. The session was removed here only.
+        remote_failed: The session was removed here. The remote server did not confirm revocation.
+        remote_revoked: The remote server confirmed revocation of the token this server submitted. That does not by itself cover a refresh token rotated while disconnect was in progress.
+        successor_revoked: The remote server confirmed revocation of the refresh token issued while disconnect was in progress.
+        successor_revoke_failed: The session was removed here. The refresh token issued while disconnect was in progress was not confirmed revoked.
+      status:
+        connected: Connected
+        disconnected: Disconnected
+        paused: Paused
+        reauthentication_required: Sign-in required
+        warning: Needs attention
+      errors:
+        account_required: Enter a handle, DID, or server hostname.
+        attempt_rate_limited: Too many Bluesky sign-in attempts. Wait a few minutes and start again.
+        authorization_failed: The Bluesky connection could not be completed.
+        authorization_rejected: Bluesky did not complete the sign-in. Nothing was stored.
+        discovery_rejected: That account or server could not be verified, so nothing was connected.
+        feature_disabled: Bluesky connections are turned off on this server. Existing connections stay stored.
+        issuer_mismatch: The authorization server does not match the account's PDS, so nothing was stored.
+        not_found: That connection was not found.
+        partial_scopes: Connected with only some of the requested permissions.
+        private_address: That host is not a public server.
+        reauthentication_required: This Bluesky connection needs to be signed in again. The saved session was not sent to a different server.
+        redirect_rejected: The server tried to redirect a signed request, so it was rejected.
+        refresh_unacknowledged: The session refresh did not finish safely, so sign-in is required again.
+        remote_revocation_failed: The connection was removed on this server. The remote server did not confirm revocation.
+        revoked: This Bluesky session was revoked.
+        signing_key_unavailable: This server is not configured to connect Bluesky accounts yet.
+        stale_callback: A newer sign-in already finished, so this one was discarded.
+        state_rejected: That sign-in session is no longer valid. Start again.
+        tester_only: Bluesky connections are limited to testers on this server.
+        unsupported_scopes: The server offered permissions this connection will not accept.
+        vault_unavailable: Credential storage is not available on this server.
   external_credentials:
     ambiguous: More than one DeepL credential exists, so personal DeepL cannot be used. Delete the credentials you do not need.
     api_key_label: API key

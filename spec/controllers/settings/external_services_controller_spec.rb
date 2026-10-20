@@ -108,7 +108,7 @@ describe Settings::ExternalServicesController do
       expect(response.body).not_to include('Misskey')
       expect(response.body).not_to include('PeerTube')
       expect(response.body).not_to include('Bluesky')
-      expect(ExternalServices::Registry.providers).to eq([ExternalServices::DeepL, ExternalServices::RSS])
+      expect(ExternalServices::Registry.providers).to eq([ExternalServices::DeepL, ExternalServices::RSS, ExternalServices::Bluesky])
       expect(ExternalServices::Registry.catalog_for(user).map(&:provider_key)).to eq(['deepl'])
     end
 

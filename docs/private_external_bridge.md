@@ -499,7 +499,7 @@ Unique `(user_id, provider, subject)`.
 
 `PostingIdentity::KNOWN_KINDS` already names `bluesky`, and `ENABLED_KINDS` is only `local`. This bridge does not enable that kind. A native identity is not a Fedibird posting sender. The ActivityPub actor remains the local account.
 
-Suggested vault classification for a later Bluesky issue, not created here:
+Vault classification used by the P2 Bluesky identity connection:
 
 ```text
 provider        = bluesky
@@ -646,17 +646,17 @@ Two different inputs:
 - **A URL the user types is not a place a stored token is sent.** The vault still forbids a credential plus an arbitrary URL. After a token exists, request targets come only from resolution and metadata.
 - **Discovery is allowed to start from a handle, a DID, or a hosting hostname,** because the OAuth profile permits a hostname start when the user does not have a working handle. A hostname start does not bind an account. The session is stored only after the checks below succeed.
 
-P2 minimum, in order:
+P2 is implemented by the services under `app/services/external_bridge/atproto/` and documented in `docs/atproto_oauth.md`. The flag stays off. P2 minimum, in order:
 
 1. The user supplies a handle, a DID, or a hosting hostname. They do not supply a token, and they do not supply the URL that will receive the token.
 2. A handle resolves to a DID and the DID document claims that handle. Both directions are required. A DID is resolved directly. All handle methods and DID methods the profile requires are in scope; an account that this server cannot resolve is `discovery_rejected`, not sent to `bsky.social`.
 3. The DID document's `#atproto_pds` service is the PDS. The client fetches `https://<pds-origin>/.well-known/oauth-protected-resource` and reads its single `authorization_servers` entry, then `/.well-known/oauth-authorization-server` on that origin. `issuer` must match that origin. Metadata must advertise the profile this client needs: `atproto`, PAR, PKCE `S256`, and DPoP. A redirect or a non-200 metadata response fails discovery.
 4. Every resolution and metadata URL is `https`, has no userinfo, and is checked with `Request` / `PrivateAddressCheck` on every hop, including redirects. A failure here aborts before any token request.
-5. Fedibird acts as a confidential client. `client_id` is a public metadata URL. The client signing key is an instance key. The authorization uses PAR, PKCE, and DPoP. The scope list is `atproto` plus the smallest repo scope that can create and delete like, repost, and reply records. If the server only offers `transition:generic`, the consent screen says that scope is app-password-equivalent, can write any repository record, and is not limited to the three verbs. `transition:chat.bsky` and `transition:email` are not requested.
+5. Fedibird acts as a confidential client. `client_id` is a public metadata URL. The client signing key is an instance key. The authorization uses PAR, PKCE, and DPoP. P2 requests only the `atproto` scope. A server that advertises one `repo:` scope, or only `transition:generic`, does not cause this client to request like, repost, reply, or `transition:generic`. Those repository scopes are a later explicit upgrade, and only for scopes that server lists. `transition:chat.bsky` and `transition:email` are not requested.
 6. The token response's `sub` is a DID. The client resolves that DID again, reads the PDS, confirms the PDS metadata names the authorization server that just issued the token, and confirms `issuer`. On mismatch the tokens are discarded and nothing is stored.
 7. The vault row is `oauth_session` for this user. `external_identities` stores `subject`, `issuer`, `resource_origin`, and `granted_scopes`. Handles are display data.
 
-Refresh tokens are single-use. One refresh for a session runs at a time. Refresh goes to the bound `issuer` only. If a later DID resolution shows a different authorization server, the refresh token is not sent there. The user signs in again.
+Refresh tokens are single-use. The in-flight marker is committed before the refresh token is sent, and a later call does not send that token again. Refresh goes to the bound `issuer` only. The token response `sub` must be the DID already stored for that identity. A temporary DID, PDS, or metadata outage before that send leaves the session connected and does not revoke it. If a later DID resolution shows a different authorization server, or the token endpoint no longer matches, the refresh token is not sent there and the user signs in again. The confidential client keeps the signing key that attested PAR for the whole session. Local disconnect is committed before a remote revocation request, including when the stored payload cannot be sent. If a refresh response arrives after that commit, the new refresh token is sent to the bound revocation endpoint and is not stored. Expired open OAuth attempts are deleted in bounded batches. Consumed attempts, including a successful callback whose secrets have been cleared, stay until the rate window and a short callback grace have both elapsed, so the per-user cap still counts them. A revocation result is stored only for the attempt and credential that sent it.
 
 P3 write, immediately before `com.atproto.repo.createRecord` or `deleteRecord`:
 

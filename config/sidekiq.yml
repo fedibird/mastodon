@@ -116,6 +116,10 @@
       every: '15m'
       class: Scheduler::ExternalBridgeRSSRefreshScheduler
       queue: scheduler
+    external_bridge_atproto_attempt_cleanup_scheduler:
+      every: '10m'
+      class: Scheduler::ExternalBridgeAtprotoAttemptCleanupScheduler
+      queue: scheduler
     follow_import_dispatch_scheduler:
       every: '<%= (canonical = ENV["FOLLOW_IMPORT_DISPATCH_INTERVAL"].to_i; alias_n = ENV["FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL"].to_i; n = canonical.positive? ? canonical : alias_n; n.positive? ? n : 60) %>s'
       class: Scheduler::FollowImportDispatchScheduler
