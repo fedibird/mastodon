@@ -39,6 +39,85 @@ describe Settings::ExternalServices::BlueskyController do
     expect(response.body).not_to include(AtprotoOauthHelper::REFRESH_TOKEN)
     expect(response.body).not_to include(AtprotoOauthHelper::ACCESS_TOKEN)
     expect(response.body).not_to include('PRIVATE KEY')
+    expect(response.body).to include(settings_external_services_bluesky_identity_path(ExternalIdentity.find_by(user_id: user.id)))
+  end
+
+  it 'shows handle sign-in, advanced entry, and no token field when OAuth can start' do
+    with_atproto_client do
+      enable_atproto!(user)
+
+      get :show, session: challenge
+    end
+
+    document = Nokogiri::HTML(response.body)
+    field = document.at_css('#bluesky-handle')
+    expect(field['type']).to eq('text')
+    expect(field['placeholder']).to eq('alice.bsky.social')
+    expect(field['value']).to be_blank
+    expect(document.css('input[type="password"]')).to be_empty
+    expect(response.body).to include(I18n.t('external_bridge.atproto.advanced'))
+    expect(response.body).to include(I18n.t('external_bridge.atproto.scope_note'))
+    expect(response.body).to include(I18n.t('external_bridge.atproto.live_gate_note'))
+    expect(response.body).to include(I18n.t('external_bridge.atproto.return_note'))
+    expect(response.body).not_to include('app_password')
+    expect(response.body).not_to include('name="refresh_token"')
+  end
+
+  it 'uses sign-in again for a saved account and keeps disconnect behind a confirmation' do
+    identity = nil
+    with_atproto_client do
+      enable_atproto!(user)
+      identity = connect_atproto!(user: user).fetch(:identity)
+      identity.update!(status: 'reauthentication_required', last_error_code: 'reauthentication_required')
+
+      get :show, session: challenge
+    end
+
+    document = Nokogiri::HTML(response.body)
+    hidden = document.at_css("#bluesky-account-#{identity.id}")
+    expect(hidden['value']).to eq(AtprotoOauthHelper::HANDLE)
+    expect(document.css("form[action='#{settings_external_services_bluesky_authorize_path}'] button").map(&:text).join).to include(I18n.t('external_bridge.atproto.sign_in_again'))
+    disconnect = document.at_css("form[action='#{settings_external_services_bluesky_identity_path(identity)}'] input[type='submit']")
+    expect(disconnect['data-confirm']).to eq(I18n.t('external_bridge.atproto.disconnect_confirm'))
+    expect(disconnect['data-disable-with']).to eq(I18n.t('external_bridge.working'))
+    expect(response.body).to include(identity.issuer)
+    expect(response.body).not_to include(identity.token_endpoint)
+    expect(response.body).not_to include(AtprotoOauthHelper::REFRESH_TOKEN)
+    expect(response.body).not_to include('PRIVATE KEY')
+  end
+
+  it 'offers reconnect and does not offer disconnect after the account is disconnected' do
+    identity = nil
+    with_atproto_client do
+      enable_atproto!(user)
+      identity = connect_atproto!(user: user).fetch(:identity)
+      identity.update!(status: 'disconnected', disconnected_at: Time.zone.parse('2026-10-20 12:00:00 UTC'), revocation_state: 'remote_failed')
+
+      get :show, session: challenge
+    end
+
+    document = Nokogiri::HTML(response.body)
+    expect(document.at_css("#bluesky-account-#{identity.id}")['value']).to eq(AtprotoOauthHelper::HANDLE)
+    expect(document.css("form[action='#{settings_external_services_bluesky_identity_path(identity)}']")).to be_empty
+    expect(response.body).to include(I18n.t('external_bridge.atproto.reconnect'))
+    expect(response.body).to include(I18n.t('external_bridge.atproto.revocation.remote_failed'))
+    expect(response.body).not_to include(identity.token_endpoint)
+  end
+
+  it 'disables a new sign-in when the signing key is missing and still allows disconnect' do
+    identity = nil
+    with_atproto_client do
+      enable_atproto!(user)
+      identity = connect_atproto!(user: user).fetch(:identity)
+    end
+
+    get :show, session: challenge
+
+    document = Nokogiri::HTML(response.body)
+    expect(response.body).to include(I18n.t('external_bridge.atproto.errors.signing_key_unavailable'))
+    expect(document.css('input[name="account"]')).to be_empty
+    expect(document.at_css('button[disabled]')).to be_present
+    expect(document.at_css("form[action='#{settings_external_services_bluesky_identity_path(identity)}']")).to be_present
   end
 end
 

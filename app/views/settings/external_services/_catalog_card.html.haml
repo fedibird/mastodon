@@ -1,0 +1,23 @@
+- if provider.action_label.present?
+  - action_text = provider.action_label
+  - aria_label = t('external_services.catalog_action', action: action_text, service: provider.title)
+- elsif provider.action == :manage
+  - action_text = t('external_services.manage')
+  - aria_label = t('external_services.manage_service', service: provider.title)
+- else
+  - action_text = t('external_services.add')
+  - aria_label = t('external_services.add_service_named', service: provider.title)
+
+%article.external-service-card
+  = render 'icon', icon: provider.icon
+  .external-service-card__content
+    %h4.external-service-card__title= provider.title
+    %p.external-service-card__subtitle= provider.description
+    - if provider.detail.present?
+      %p.external-service-card__subtitle= provider.detail
+  - if provider.status_label
+    %p.external-service-card__status
+      %span{ class: "external-service-card__badge external-service-card__badge--#{provider.status}" }= provider.status_label
+  = link_to provider.path, class: 'external-service-card__manage', aria: { label: aria_label } do
+    = action_text
+    %span{ aria: { hidden: 'true' } } →

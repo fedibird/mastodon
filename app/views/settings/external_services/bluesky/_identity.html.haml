@@ -1,0 +1,53 @@
+%article.external-service-identity{ aria: { labelledby: "bluesky-identity-title-#{identity.id}" } }
+  .external-service-feed__heading
+    %h5.external-service-feed__title{ id: "bluesky-identity-title-#{identity.id}" }= identity.display_name
+    %p.external-service-card__status
+      %span{ class: "external-service-card__badge external-service-card__badge--#{identity.badge}" }= identity.status_label
+  - if identity.handle.present?
+    %p.external-service-identity__line
+      %span.external-service-kicker= t('external_bridge.atproto.account_label')
+      %span.external-service-break= identity.handle
+  %p.external-service-identity__line
+    %span.external-service-kicker= t('external_bridge.atproto.did')
+    %span.external-service-break= identity.subject
+  %p.external-service-feed__meta
+    %span.external-service-kicker= t('external_bridge.last_checked')
+    - if identity.last_checked_at
+      %time{ datetime: identity.last_checked_at.iso8601 }= l(identity.last_checked_at)
+    - else
+      = t('external_services.not_checked')
+  - if identity.error_message
+    %p.warning-hint= identity.error_message
+  %details.external-service-disclosure
+    %summary= t('external_bridge.atproto.details')
+    %dl.external-service-summary
+      %dt= t('external_bridge.atproto.issuer')
+      %dd.external-service-break= identity.issuer
+      %dt= t('external_bridge.atproto.pds')
+      %dd.external-service-break= identity.resource_origin
+      %dt= t('external_bridge.atproto.scopes')
+      %dd.external-service-break= identity.scopes_label
+      - if identity.revocation_label
+        %dt= t('external_bridge.atproto.revocation_label')
+        %dd= identity.revocation_label
+  .external-service-actions
+    - if identity.checkable?
+      - if connectable
+        = button_to t('external_bridge.atproto.check'), settings_check_external_services_bluesky_identity_path(identity.id), method: :post, class: 'button', form_class: 'external-service-inline-form', aria: { label: t('external_bridge.atproto.check_for', name: identity.display_name) }, data: { disable_with: t('external_bridge.working') }
+      - else
+        %button.button{ type: 'button', disabled: true, aria: { describedby: 'bluesky-blocked-reason' } }= t('external_bridge.atproto.check')
+    - elsif identity.reauthentication_required?
+      - if connectable
+        = form_with url: settings_external_services_bluesky_authorize_path, method: :post, local: true, html: { class: 'external-service-inline-form' } do
+          = hidden_field_tag :account, identity.reconnect_identifier, id: "bluesky-account-#{identity.id}"
+          = button_tag t('external_bridge.atproto.sign_in_again'), type: 'submit', class: 'button', aria: { label: t('external_bridge.atproto.sign_in_again_for', name: identity.display_name) }, data: { disable_with: t('external_bridge.working') }
+      - else
+        %button.button{ type: 'button', disabled: true, aria: { describedby: 'bluesky-blocked-reason' } }= t('external_bridge.atproto.sign_in_again')
+    - elsif connectable
+      = form_with url: settings_external_services_bluesky_authorize_path, method: :post, local: true, html: { class: 'external-service-inline-form' } do
+        = hidden_field_tag :account, identity.reconnect_identifier, id: "bluesky-account-#{identity.id}"
+        = button_tag t('external_bridge.atproto.reconnect'), type: 'submit', class: 'button', aria: { label: t('external_bridge.atproto.reconnect_for', name: identity.display_name) }, data: { disable_with: t('external_bridge.working') }
+    - else
+      %button.button{ type: 'button', disabled: true, aria: { describedby: 'bluesky-blocked-reason' } }= t('external_bridge.atproto.reconnect')
+    - unless identity.disconnected?
+      = button_to t('external_bridge.atproto.disconnect'), settings_external_services_bluesky_identity_path(identity.id), method: :delete, class: 'button negative', form_class: 'external-service-inline-form', aria: { label: t('external_bridge.atproto.disconnect_for', name: identity.display_name), describedby: 'bluesky-disconnect-note' }, data: { confirm: t('external_bridge.atproto.disconnect_confirm'), disable_with: t('external_bridge.working') }

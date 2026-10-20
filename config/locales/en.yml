@@ -2138,7 +2138,19 @@ en:
     add: Add
     add_service: Add service
     add_service_named: Add %{service}
+    actions:
+      deepl:
+        add: Set API key
+        manage: Manage
+      rss:
+        add: Add a feed
+        manage: Manage feeds
+      bluesky:
+        add: Connect a Bluesky account
+        manage: Manage connections
+        unavailable: View connection status
     back: Back to external services
+    catalog_action: "%{action} (%{service})"
     catalog_title: Add service
     content: Content
     contract: Contract
@@ -2146,6 +2158,7 @@ en:
     manage: Manage
     manage_service: Manage %{service}
     never: Never
+    not_checked: not yet
     save_delete: Save and delete
     status_label: Status
     status:
@@ -2161,28 +2174,50 @@ en:
         name: DeepL
         subtitle: Personal translation
       rss:
-        description: Import a public RSS or Atom feed as private posts on your account.
+        description: Subscribe to a public RSS or Atom feed. Items become private posts on your account.
         name: RSS
-        subtitle: "%{count} public feeds"
+        subtitle: "%{count} public feeds · %{active} active, %{paused} paused, %{error} fetch errors"
       bluesky:
-        description: Connect your own AT Protocol account. Fedibird does not post, like, or repost with it in this version.
+        description: Connect your own AT Protocol account. This version only checks that the account is yours. It does not import posts, or send likes, reposts, or replies.
         name: Bluesky
-        subtitle: "%{issuer}"
+        subtitle: "%{count} accounts · %{connected} connected, %{reauth} need sign-in, %{disconnected} disconnected"
   external_bridge:
     disabled: RSS import is turned off on this server. Existing private imports stay private.
     tester_only: RSS import is limited to testers on this server. Existing private imports stay private.
+    cadence_note: The times below are the latest check this server recorded. They are not a live connection.
     feed_url: Feed URL
+    feed_url_hint: Public RSS or Atom URLs only. A normal website address is not scanned for a feed, and addresses that need a login or a token are not fetched.
     items: Imported items
+    items_note: The latest 40 imported items. This page does not add a new timeline.
+    last_checked: "Last check:"
+    next: Next
     no_items: No imported items yet.
-    no_subscriptions: No feeds yet.
+    no_subscriptions: No feeds yet. Enter a public feed URL above.
+    no_subscriptions_blocked: There are no feeds to show. New feeds cannot be added from this page.
+    page_nav: Pages
+    partial_item_failure: "%{count} items in this feed could not be imported. That is separate from a failure to fetch the feed."
     pause: Pause
+    pause_for: Pause %{title}
+    previous: Previous
+    privacy_note: Imported posts stay private to you. They are not delivered over ActivityPub, and other people cannot see them.
     resume: Resume
+    resume_for: Resume %{title}
+    retry_status: "Next check: %{time}. Retry count: %{count}."
+    retry_status_unscheduled: "No next check is scheduled. Retry count: %{count}."
     source_deleted: Removed at the source
-    subscribe: Subscribe
+    state:
+      active: Active
+      error: Fetch error
+      paused: Paused
+    subscribe: Add feed
     subscribed: Feed subscribed.
-    subscriptions: Feeds
-    unsubscribe: Unsubscribe
-    unsubscribed: Feed removed. Shared public cache is unchanged.
+    subscriptions: Your feeds
+    unsubscribe: Remove feed
+    unsubscribe_confirm: Remove this feed? This deletes the private posts imported from it, and the favourites and bookmarks on those posts. The shared public feed cache stays. This is not a pause.
+    unsubscribe_for: Remove %{title}
+    unsubscribe_note: Removing a feed deletes the private posts imported from it, and the favourites and bookmarks on those posts. The shared public feed cache stays. This is not a pause.
+    unsubscribed: Feed removed. The private posts imported from it were deleted. The shared public feed cache is unchanged.
+    working: "Working…"
     untitled: (untitled)
     errors:
       account_mismatch: The feed could not be saved for this account.
@@ -2201,18 +2236,37 @@ en:
       unsupported_url: Enter a public http or https feed URL.
       user_not_functional: This account cannot import feeds right now.
     atproto:
-      account_hint: A handle, a DID, or the hostname of your PDS or entryway. This is not the address a token is sent to.
-      account_label: Account or server
+      account_hint: "Example: alice.bsky.social. Enter the public handle. Do not enter an app password or a token."
+      account_label: Bluesky handle
+      advanced: Advanced connection
+      advanced_hint: "The same field also accepts a did:plc, a did:web, or the hostname of your PDS or entryway. It does not choose where a token is sent."
       check: Check connection
+      check_for: Check the connection for %{name}
       checked: The connection was checked.
-      connect: Connect Bluesky
+      connect: Connect a Bluesky account
       connected: Bluesky account connected.
       connections: Connected accounts
+      details: Connection details
+      did: DID
       disabled: Bluesky connections are turned off on this server. Saved connections stay stored and are not deleted.
       disconnect: Disconnect
+      disconnect_confirm: Disconnect this account? Fedibird invalidates the saved sign-in. The remote server may not confirm that the session was revoked.
+      disconnect_for: Disconnect %{name}
+      disconnect_note: Disconnecting invalidates the saved sign-in on Fedibird. The remote server may not confirm that the session was revoked.
       disconnected: The Bluesky connection was removed on this server.
-      scope_note: This connection requests only the atproto identity permission. Like, repost, and reply are not requested. A later upgrade will ask before requesting a repository permission that this server lists.
+      issuer: Authorization server
+      live_gate_note: This page does not show that a live PDS or entryway sign-in has been verified. That check is a separate rollout step.
+      pds: PDS
+      reconnect: Reconnect
+      reconnect_for: Reconnect %{name}
+      return_note: You will leave for the Bluesky authorization page. After it succeeds or fails, you return here.
+      revocation_label: Revocation
+      scope_note: This connection requests only the atproto identity permission. It does not import Bluesky posts, and it does not like, repost, reply, or crosspost.
+      scopes: Permissions granted
+      sign_in_again: Sign in again
+      sign_in_again_for: Sign in again for %{name}
       no_handle: No verified handle
+      no_scopes: None recorded
       none: No Bluesky account is connected.
       tester_only: Bluesky connections are limited to testers on this server.
       revocation:

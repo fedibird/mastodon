@@ -8,17 +8,19 @@ module ExternalServices
   class CatalogEntry
     ACTIONS = %i(add manage).freeze
 
-    attr_reader :provider_key, :title, :description, :icon, :status, :status_label, :action, :path
+    attr_reader :provider_key, :title, :description, :detail, :icon, :status, :status_label, :action, :action_label, :path
 
     def initialize(attributes)
       @provider_key = attributes.fetch(:provider_key)
       @title = attributes.fetch(:title)
       @description = attributes.fetch(:description)
+      @detail = attributes[:detail]
       @icon = attributes.fetch(:icon)
       @configured = attributes.fetch(:configured)
       @status = attributes[:status]
       @status_label = attributes[:status_label]
       @action = attributes.fetch(:action)
+      @action_label = attributes[:action_label]
       @path = attributes.fetch(:path)
 
       raise ArgumentError, 'configured must be boolean' unless @configured == true || @configured == false

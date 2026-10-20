@@ -6,7 +6,7 @@ class Settings::ExternalServices::RSSController < Settings::BaseController
   before_action :require_page_challenge!
 
   def show
-    @page = ExternalServices::RSS.page_for(current_user)
+    @page = ExternalServices::RSS.page_for(current_user, page: params[:page])
   end
 
   private

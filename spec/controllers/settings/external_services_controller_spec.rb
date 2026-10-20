@@ -104,7 +104,7 @@ describe Settings::ExternalServicesController do
       expect(document.css('article.external-service-card').size).to eq(1)
       expect(response.body).to include(I18n.t('external_services.providers.deepl.description'))
       expect(response.body).to include(settings_external_services_deepl_path)
-      expect(response.body).to include(I18n.t('external_services.add'))
+      expect(document.at_css('article.external-service-card a.external-service-card__manage').text).to include(I18n.t('external_services.actions.deepl.add'))
       expect(response.body).not_to include('Misskey')
       expect(response.body).not_to include('PeerTube')
       expect(response.body).not_to include('Bluesky')
@@ -119,7 +119,7 @@ describe Settings::ExternalServicesController do
         get :new, session: challenge
       end
 
-      expect(response.body).to include(I18n.t('external_services.manage'))
+      expect(response.body).to include(I18n.t('external_services.actions.deepl.manage'))
       expect(response.body).to include(I18n.t('external_services.status.warning'))
       expect(response.body).to include(settings_external_services_deepl_path)
       expect(response.body).not_to include('name="api_key"')

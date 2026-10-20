@@ -1,0 +1,27 @@
+- manage_text = connection.manage_label.presence || t('external_services.manage')
+- aria_label = connection.manage_label.present? ? t('external_services.catalog_action', action: manage_text, service: connection.title) : t('external_services.manage_service', service: connection.title)
+
+%article.external-service-card
+  = render 'icon', icon: connection.icon
+  .external-service-card__content
+    %h4.external-service-card__title= connection.title
+    - if connection.lead.present?
+      %p.external-service-card__subtitle= connection.lead
+    %p.external-service-card__subtitle= connection.subtitle
+    %p.external-service-card__activity
+      - if connection.shows_check_time?
+        = t('external_bridge.last_checked')
+        - if connection.last_used_at
+          %time{ datetime: connection.last_used_at.iso8601 }= l(connection.last_used_at)
+        - else
+          = t('external_services.not_checked')
+      - elsif connection.last_used_at
+        = t('external_credentials.last_used')
+        %time{ datetime: connection.last_used_at.iso8601 }= l(connection.last_used_at)
+      - else
+        = t('external_credentials.never_used')
+  %p.external-service-card__status
+    %span{ class: "external-service-card__badge external-service-card__badge--#{connection.status}" }= connection.status_label
+  = link_to connection.manage_path, class: 'external-service-card__manage', aria: { label: aria_label } do
+    = manage_text
+    %span{ aria: { hidden: 'true' } } →

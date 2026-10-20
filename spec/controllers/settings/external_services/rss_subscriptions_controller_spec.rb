@@ -35,4 +35,52 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     expect(response).to redirect_to(settings_external_services_rss_path)
     expect(ExternalSubscription.find_by(user_id: ordinary.id)).to be_nil
   end
+
+  it 'does not subscribe without a recent challenge or echo a rejected URL' do
+    sign_in tester, scope: :user
+    secret_url = 'https://user:secret-token@feeds.example/private.xml'
+
+    expect do
+      post :create, params: { url: secret_url }
+    end.not_to change(ExternalSubscription, :count)
+
+    expect(response).to redirect_to(settings_external_services_rss_path)
+    expect(response.location).not_to include('secret-token')
+    expect(flash[:alert].to_s).not_to include('secret-token')
+    expect(session.to_s).not_to include('secret-token')
+
+    post :create, params: { url: secret_url }, session: challenge
+
+    expect(response).to redirect_to(settings_external_services_rss_path)
+    expect(response.location).not_to include('secret-token')
+    expect(flash[:alert].to_s).not_to include('secret-token')
+    expect(session.to_s).not_to include('secret-token')
+  end
+
+  it 'pauses, resumes, and removes only the signed-in user subscription' do
+    sign_in tester, scope: :user
+    owned = project_for(tester)
+    other = share_account_user(tester.account)
+    foreign = project_for(other)
+
+    post :pause, params: { id: foreign[:subscription].id }, session: challenge
+    expect(foreign[:subscription].reload.state).to eq('active')
+    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.not_found'))
+
+    post :pause, params: { id: owned[:subscription].id }, session: challenge
+    expect(owned[:subscription].reload.state).to eq('paused')
+
+    stub_request(:get, owned[:source].canonical_key).to_return(status: 200, body: rss_document(rss_item(guid: 'resumed')))
+    post :resume, params: { id: owned[:subscription].id }, session: challenge
+    expect(owned[:subscription].reload.state).to eq('active')
+
+    source_id = owned[:source].id
+    delete :destroy, params: { id: owned[:subscription].id }, session: challenge
+    delete :destroy, params: { id: owned[:subscription].id }, session: challenge
+
+    expect(ExternalSubscription.where(id: owned[:subscription].id)).to be_empty
+    expect(ExternalSource.where(id: source_id)).to exist
+    expect(foreign[:subscription].reload).to be_present
+    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.not_found'))
+  end
 end
