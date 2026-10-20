@@ -41,6 +41,8 @@ module ExternalBridge
         Feature.require!(@user)
         raise Error, :signing_key_unavailable unless ClientDocument.configured?
         raise Error, :vault_unavailable unless UserCredentialVault.available?
+
+        AttemptLimiter.assert!(@user)
       end
 
       def pinned_signing_key?
@@ -85,29 +87,39 @@ module ExternalBridge
           binding_id: binding_id,
           secrets: { 'pkce_verifier' => verifier, 'dpop_private_key' => dpop.to_pem }
         )
-        ExternalOauthAttempt.create!(
-          user_id: @user.id,
-          provider: Codes::PROVIDER,
-          state_digest: Digest::SHA256.hexdigest(state),
-          browser_binding_digest: Digest::SHA256.hexdigest(@browser_token),
-          input_kind: discovered.input_kind,
-          login_hint: discovered.login_hint,
-          intended_subject: discovered.did,
-          issuer: discovered.issuer,
-          resource_origin: discovered.resource_origin,
-          authorization_endpoint: discovered.authorization_endpoint,
-          token_endpoint: discovered.token_endpoint,
-          par_endpoint: discovered.par_endpoint,
-          revocation_endpoint: discovered.revocation_endpoint,
-          redirect_uri: ClientDocument.redirect_uri,
-          requested_scopes: scopes.join(' '),
-          dpop_nonce: nonce,
-          binding_id: binding_id,
-          encrypted_secrets: ciphertext,
-          encryption_key_id: key_id,
-          client_key_id: @signing.kid,
-          expires_at: ATTEMPT_TTL.from_now
-        )
+        ExternalOauthAttempt.transaction do
+          lock_owner!
+          AttemptLimiter.assert!(@user)
+          ExternalOauthAttempt.create!(
+            user_id: @user.id,
+            provider: Codes::PROVIDER,
+            state_digest: Digest::SHA256.hexdigest(state),
+            browser_binding_digest: Digest::SHA256.hexdigest(@browser_token),
+            input_kind: discovered.input_kind,
+            login_hint: discovered.login_hint,
+            intended_subject: discovered.did,
+            issuer: discovered.issuer,
+            resource_origin: discovered.resource_origin,
+            authorization_endpoint: discovered.authorization_endpoint,
+            token_endpoint: discovered.token_endpoint,
+            par_endpoint: discovered.par_endpoint,
+            revocation_endpoint: discovered.revocation_endpoint,
+            redirect_uri: ClientDocument.redirect_uri,
+            requested_scopes: scopes.join(' '),
+            dpop_nonce: nonce,
+            binding_id: binding_id,
+            encrypted_secrets: ciphertext,
+            encryption_key_id: key_id,
+            client_key_id: @signing.kid,
+            expires_at: ATTEMPT_TTL.from_now
+          )
+        end
+      end
+
+      def lock_owner!
+        User.lock.find(@user.id)
+      rescue ActiveRecord::RecordNotFound
+        raise Error, :account_required
       end
     end
   end

@@ -458,6 +458,71 @@ describe 'AT Protocol OAuth identity connection' do
     end
   end
 
+  it 'revokes the rotated refresh token when disconnect wins during refresh' do
+    with_atproto_client do
+      world = install_atproto_world!
+      identity = connect_atproto!(user: user, world: world).fetch(:identity)
+      ciphertext = credential_for(identity).encrypted_payload
+      rotated = 'refresh-rotated-SENTINEL-not-stored'
+      world.bodies[:token_handler] = lambda do |request|
+        fields = Rack::Utils.parse_nested_query(request.body.to_s)
+        next atproto_json(atproto_tokens) unless fields['grant_type'] == 'refresh_token'
+
+        ExternalBridge::Atproto::Disconnect.call(user: user, identity_id: identity.id, dns: world.dns)
+        atproto_json(atproto_tokens(refresh: rotated))
+      end
+      reset_atproto_exchanges!
+      travel 5.minutes do
+        expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq('revoked')
+      end
+      row = identity.reload
+      expect(row.status).to eq('disconnected')
+      expect(row.disconnected_at).to be_present
+      expect(row.refresh_generation).to eq(0)
+      expect(row.revocation_state).to eq('successor_revoked')
+      expect(credential_for(identity).reload.revoked_at).to be_present
+      expect(credential_for(identity).encrypted_payload).to eq(ciphertext)
+      revoke_posts = atproto_exchanges.select { |exchange| exchange.method == :post && exchange.uri.path == '/oauth/revoke' }
+      expect(revoke_posts.map { |exchange| exchange.body.to_s }.join).to include(rotated)
+      expect(revoke_posts.map { |exchange| [exchange.uri.host, exchange.uri.path] }.uniq).to eq([[AtprotoOauthHelper::ISSUER_HOST, '/oauth/revoke']])
+      expect(atproto_exchanges.select { |exchange| exchange.method == :post }.map { |exchange| exchange.uri.host }.uniq).to eq([AtprotoOauthHelper::ISSUER_HOST])
+      expect_secret_absent!(rotated)
+      expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq('revoked')
+    end
+  end
+
+  it 'keeps the session disconnected when revocation of the rotated refresh token fails' do
+    with_atproto_client do
+      world = install_atproto_world!
+      identity = connect_atproto!(user: user, world: world).fetch(:identity)
+      ciphertext = credential_for(identity).encrypted_payload
+      rotated = 'refresh-rotated-failed-SENTINEL'
+      world.bodies[:revoke_handler] = lambda do |request|
+        fields = Rack::Utils.parse_nested_query(request.body.to_s)
+        next atproto_json({}) unless fields['token'] == rotated
+
+        { status: 500, body: 'nope' }
+      end
+      world.bodies[:token_handler] = lambda do |request|
+        fields = Rack::Utils.parse_nested_query(request.body.to_s)
+        next atproto_json(atproto_tokens) unless fields['grant_type'] == 'refresh_token'
+
+        ExternalBridge::Atproto::Disconnect.call(user: user, identity_id: identity.id, dns: world.dns)
+        atproto_json(atproto_tokens(refresh: rotated))
+      end
+      reset_atproto_exchanges!
+      travel 5.minutes do
+        expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq('revoked')
+      end
+      expect(identity.reload.status).to eq('disconnected')
+      expect(identity.revocation_state).to eq('successor_revoke_failed')
+      expect(credential_for(identity).reload.encrypted_payload).to eq(ciphertext)
+      expect(credential_for(identity).revoked_at).to be_present
+      expect(atproto_exchanges.select { |exchange| exchange.method == :post && exchange.uri.path == '/oauth/revoke' }.map { |exchange| exchange.body.to_s }.join).to include(rotated)
+      expect_secret_absent!(rotated)
+    end
+  end
+
   it 'requires sign-in again when authorization-server metadata drops atproto' do
     with_atproto_client do
       world = install_atproto_world!

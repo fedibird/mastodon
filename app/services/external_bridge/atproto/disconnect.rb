@@ -94,7 +94,12 @@ module ExternalBridge
         state = post_remote(outbound)
         identity.with_lock do
           identity.reload
-          identity.update!(revocation_state: state) if identity.disconnected_at.present? && identity.status == 'disconnected'
+          # A refresh that already received a rotated token records
+          # successor_revoked or successor_revoke_failed. That result is not
+          # the same as revoking the predecessor this call submitted.
+          next unless identity.disconnected_at.present? && identity.status == 'disconnected' && identity.revocation_state == 'not_attempted'
+
+          identity.update!(revocation_state: state)
         end
       end
 

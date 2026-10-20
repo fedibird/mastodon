@@ -21,6 +21,7 @@ module ExternalBridge
 
       CODES = %w(
         account_required
+        attempt_rate_limited
         authorization_failed
         authorization_rejected
         discovery_rejected

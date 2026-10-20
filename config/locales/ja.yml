@@ -2148,7 +2148,9 @@ ja:
         not_attempted: リモートのサーバーには失効を依頼していません。
         not_supported: このサーバーは失効エンドポイントを公開していません。こちらでのみ解除しました。
         remote_failed: こちらでは解除しました。リモートのサーバーは失効を確認しませんでした。
-        remote_revoked: リモートのサーバーが失効を確認しました。
+        remote_revoked: このサーバーが送ったトークンについて、リモートのサーバーが失効を確認しました。解除の途中で更新されたトークンまでは含みません。
+        successor_revoked: 解除の途中で発行された更新トークンについて、リモートのサーバーが失効を確認しました。
+        successor_revoke_failed: こちらでは解除しました。解除の途中で発行された更新トークンの失効は確認できませんでした。
       status:
         connected: 接続済み
         disconnected: 解除済み
@@ -2157,6 +2159,7 @@ ja:
         warning: 確認が必要
       errors:
         account_required: ハンドル、DID、またはサーバーのホスト名を入力してください。
+        attempt_rate_limited: Blueskyのサインイン試行が多すぎます。数分待ってからやり直してください。
         authorization_failed: Bluesky接続を完了できませんでした。
         authorization_rejected: Blueskyのサインインが完了しませんでした。何も保存していません。
         discovery_rejected: そのアカウントまたはサーバーを確認できなかったため、接続していません。

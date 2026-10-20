@@ -137,7 +137,10 @@ module ExternalBridge
           replace!(identity, exchanged, granted, partial)
         end
       rescue Error => e
-        discard_rotated_token(exchanged) unless e.code == 'revoked'
+        # A disconnect that won the lock must not leave the rotated refresh
+        # token unrevoked. The predecessor revoke is not the successor revoke.
+        successor = discard_rotated_token(exchanged)
+        note_successor_revocation!(identity, successor) if e.code == 'revoked'
         settle_claimed!(identity, e)
         raise
       end
@@ -229,7 +232,7 @@ module ExternalBridge
         tokens = exchanged.is_a?(Hash) ? exchanged['json'] : nil
         refresh = tokens.is_a?(Hash) ? tokens['refresh_token'].to_s : ''
         endpoint = @bundle&.fetch(:revocation_endpoint, nil)
-        return if refresh.blank? || endpoint.blank?
+        return nil if refresh.blank? || endpoint.blank?
 
         TokenClient.post!(
           url: endpoint,
@@ -242,8 +245,24 @@ module ExternalBridge
           failure_code: :reauthentication_required,
           signing: @bundle.fetch(:material)
         )
+        'successor_revoked'
       rescue Error, OpenSSL::PKey::PKeyError
-        nil
+        'successor_revoke_failed'
+      end
+
+      # Records only the successor attempt. It does not clear disconnected_at
+      # or replace the vault row. If this process dies after the token
+      # response and before this POST, the new token was never stored and
+      # cannot be revoked later.
+      def note_successor_revocation!(identity, result)
+        return unless %w(successor_revoked successor_revoke_failed).include?(result)
+
+        identity.with_lock do
+          identity.reload
+          next unless disconnected?(identity)
+
+          identity.update!(revocation_state: result)
+        end
       end
 
       def settle_claimed!(identity, error)

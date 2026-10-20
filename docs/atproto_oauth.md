@@ -90,6 +90,10 @@ Set the new PEM as `ATPROTO_OAUTH_SIGNING_KEY` only after the previous private k
 
 The attempt stores the issuer, PDS origin when one was verified, token endpoint, and requested scopes. It does not store the authorization code.
 
+A user may have at most five unconsumed, unexpired attempts, and at most ten attempts created in the ten-minute window. Another user's attempts do not count. A further start is `attempt_rate_limited` and does not call PAR when the cap is already reached. The locked recheck inside the insert transaction is what makes the cap hold for two overlapping requests.
+
+`Scheduler::ExternalBridgeAtprotoAttemptCleanupScheduler` runs every ten minutes. Each run deletes at most 1,000 rows: expired attempts that were never consumed, and consumed tombstones, in batches of 200. It selects ids and uses `delete_all`. It does not decrypt or log `encrypted_secrets`, and it does not delete an unexpired attempt that has not been consumed. A larger backlog continues on the next run.
+
 ### Callback
 
 `GET /settings/external_services/bluesky/callback` checks, in order:
@@ -125,7 +129,11 @@ A successful token response is stored only when `sub` is the same verified DID a
 
 Refresh tokens are single use. A timeout is `refresh_unacknowledged`. A 401, a revoked or expired vault row, or a missing signing key is `reauthentication_required` or `revoked`. The old ciphertext is replaced only after the subject check and the rest of the response checks succeed.
 
-Disconnect commits the local vault revoke and `disconnected_at` before it tries the remote revocation endpoint. Preparing that request cannot stop the local commit. A decrypted payload that has no refresh token, no DPoP private key, or no configured signing kid is `remote_failed`, and no request is sent. Remote revocation uses the refresh token already read from the vault and the stored revocation endpoint. It does not choose a URL from the request. `revocation_state` is then `remote_revoked` or `remote_failed`. If the process dies between the local commit and the remote call, the row stays disconnected and the credential stays revoked. `not_supported` means the server published no revocation endpoint. `not_attempted` means this server did not send the token, including when the flag no longer permits the user. A failed remote revoke is not reported as success. A callback or refresh that finishes after `disconnected_at` does not reactivate the row.
+If disconnect commits while the refresh POST is in flight, the local row stays disconnected and the vault row stays revoked. The token response can still contain a new refresh token. Revoking the token disconnect already submitted does not revoke that successor on every authorization server. Refresh therefore submits the new refresh token to the same bound revocation endpoint, with the session DPoP key and the pinned client key, including when the local result is `revoked`. The new token is not written to the vault or to the identity row. `successor_revoked` means that POST was accepted. `successor_revoke_failed` means it was not. `remote_revoked` refers only to the token disconnect itself submitted. Disconnect will not overwrite a successor result that was recorded first.
+
+If the process dies after that token response is received and before the successor POST, the new token existed only in memory. It was not stored, so a later process cannot revoke it. That lost acknowledgment is the remaining limit of this path. The local session is still disconnected.
+
+Disconnect commits the local vault revoke and `disconnected_at` before it tries the remote revocation endpoint. Preparing that request cannot stop the local commit. A decrypted payload that has no refresh token, no DPoP private key, or no configured signing kid is `remote_failed`, and no request is sent. Remote revocation uses the refresh token already read from the vault and the stored revocation endpoint. It does not choose a URL from the request. `revocation_state` is then `remote_revoked` or `remote_failed` when no successor token was received. If the process dies between the local commit and the remote call, the row stays disconnected and the credential stays revoked. `not_supported` means the server published no revocation endpoint. `not_attempted` means this server did not send the token, including when the flag no longer permits the user. A failed remote revoke is not reported as success. A callback or refresh that finishes after `disconnected_at` does not reactivate the row.
 
 ## Vault
 

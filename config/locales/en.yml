@@ -2219,7 +2219,9 @@ en:
         not_attempted: The remote server was not asked to revoke this session.
         not_supported: This server does not publish a revocation endpoint. The session was removed here only.
         remote_failed: The session was removed here. The remote server did not confirm revocation.
-        remote_revoked: The remote server confirmed revocation.
+        remote_revoked: The remote server confirmed revocation of the token this server submitted. That does not by itself cover a refresh token rotated while disconnect was in progress.
+        successor_revoked: The remote server confirmed revocation of the refresh token issued while disconnect was in progress.
+        successor_revoke_failed: The session was removed here. The refresh token issued while disconnect was in progress was not confirmed revoked.
       status:
         connected: Connected
         disconnected: Disconnected
@@ -2228,6 +2230,7 @@ en:
         warning: Needs attention
       errors:
         account_required: Enter a handle, DID, or server hostname.
+        attempt_rate_limited: Too many Bluesky sign-in attempts. Wait a few minutes and start again.
         authorization_failed: The Bluesky connection could not be completed.
         authorization_rejected: Bluesky did not complete the sign-in. Nothing was stored.
         discovery_rejected: That account or server could not be verified, so nothing was connected.

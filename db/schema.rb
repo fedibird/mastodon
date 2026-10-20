@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_20_140000) do
+ActiveRecord::Schema.define(version: 2026_10_20_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -631,6 +631,8 @@ ActiveRecord::Schema.define(version: 2026_10_20_140000) do
     t.datetime "updated_at", precision: 6, null: false
     t.index ["state_digest"], name: "index_external_oauth_attempts_on_state_digest", unique: true
     t.index ["user_id"], name: "index_external_oauth_attempts_on_user_id"
+    t.index ["expires_at"], name: "index_external_oauth_attempts_on_open_expires_at", where: "(consumed_at IS NULL)"
+    t.index ["id"], name: "index_external_oauth_attempts_on_consumed_id", where: "(consumed_at IS NOT NULL)"
   end
 
   create_table "external_projection_failures", force: :cascade do |t|
