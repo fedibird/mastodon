@@ -19,6 +19,13 @@ class ExternalIdentity < ApplicationRecord
   validate :credential_belongs_to_owner
   validate :error_code_is_safe
 
+  # The attempt and credential written by the callback that created this session.
+  # Disconnect and refresh capture it before a network call and write a revocation
+  # result only when both values are still current.
+  def oauth_session_stamp
+    [bound_attempt_id, credential_id]
+  end
+
   private
 
   def credential_belongs_to_owner

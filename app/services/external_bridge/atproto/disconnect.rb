@@ -23,6 +23,7 @@ module ExternalBridge
 
         outbound = nil
         already = false
+        stamp = nil
         identity.with_lock do
           identity.reload
           if identity.disconnected_at.present?
@@ -39,10 +40,11 @@ module ExternalBridge
             refresh_started_at: nil,
             access_expires_at: nil
           )
+          stamp = identity.oauth_session_stamp
         end
         return identity.reload if already
 
-        record_remote!(identity, outbound) if outbound
+        record_remote!(identity, outbound, stamp) if outbound
         identity.reload
       end
 
@@ -98,14 +100,17 @@ module ExternalBridge
         payload
       end
 
-      def record_remote!(identity, outbound)
+      def record_remote!(identity, outbound, stamp)
         state = post_remote(outbound)
         identity.with_lock do
           identity.reload
           # A refresh that already received a rotated token records
           # successor_revoked or successor_revoke_failed. That result is not
           # the same as revoking the predecessor this call submitted.
+          # A newer callback replaces bound_attempt_id and credential_id, so a
+          # late response from the previous session must not be written there.
           next unless identity.disconnected_at.present? && identity.status == 'disconnected' && identity.revocation_state == 'not_attempted'
+          next unless identity.oauth_session_stamp == stamp
 
           identity.update!(revocation_state: state)
         end

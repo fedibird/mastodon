@@ -92,6 +92,7 @@ module ExternalBridge
             end
 
             @bundle = prepare!(identity)
+            @session_stamp = identity.oauth_session_stamp
             identity.update!(refresh_started_at: Time.current)
           end
         rescue Error => e
@@ -257,9 +258,10 @@ module ExternalBridge
       def note_successor_revocation!(identity, result)
         return unless %w(successor_revoked successor_revoke_failed).include?(result)
 
+        stamp = @session_stamp
         identity.with_lock do
           identity.reload
-          next unless disconnected?(identity)
+          next unless disconnected?(identity) && identity.oauth_session_stamp == stamp
 
           identity.update!(revocation_state: result)
         end

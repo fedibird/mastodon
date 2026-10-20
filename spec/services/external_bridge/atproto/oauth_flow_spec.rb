@@ -44,6 +44,7 @@ describe 'AT Protocol OAuth identity connection' do
   it 'stores one user-owned session after PAR, PKCE, and a DPoP token response' do
     world = nil
     identity = nil
+    started = nil
     with_atproto_client do |key|
       world = install_atproto_world!
       connected = connect_atproto!(user: user, world: world)
@@ -83,8 +84,12 @@ describe 'AT Protocol OAuth identity connection' do
     expect(secrets['refresh_token']).to eq(AtprotoOauthHelper::REFRESH_TOKEN)
     expect(secrets['issuer']).to eq(atproto_issuer)
     expect(secrets['dpop_private_key']).to include('PRIVATE KEY')
-    expect_secret_absent!(AtprotoOauthHelper::REFRESH_TOKEN, AtprotoOauthHelper::ACCESS_TOKEN, secrets['dpop_private_key'])
-    expect(ExternalOauthAttempt.count).to eq(0)
+    expect_secret_absent!(AtprotoOauthHelper::REFRESH_TOKEN, AtprotoOauthHelper::ACCESS_TOKEN, secrets['dpop_private_key'], started[:verifier])
+    kept = ExternalOauthAttempt.order(:id).last
+    expect(ExternalOauthAttempt.count).to eq(1)
+    expect(kept.user_id).to eq(user.id)
+    expect(kept.consumed_at).to be_present
+    expect(with_atproto_client { ExternalBridge::Atproto::AttemptBox.decrypt(kept) }).to eq('cleared' => '1')
   end
 
   it 'links two DIDs for one user and keeps a second user on the same account out' do
@@ -536,6 +541,65 @@ describe 'AT Protocol OAuth identity connection' do
       expect(credential_for(identity).reload.encrypted_payload).to eq(ciphertext)
       expect(credential_for(identity).revoked_at).to be_present
       expect(atproto_exchanges.select { |exchange| exchange.method == :post && exchange.uri.path == '/oauth/revoke' }.map { |exchange| exchange.body.to_s }.join).to include(rotated)
+      expect_secret_absent!(rotated)
+      expect_repeat_disconnect_unchanged!(identity, world)
+    end
+  end
+
+  it 'restores a cleared tombstone when cleanup removes the attempt during the callback' do
+    with_atproto_client do
+      world = install_atproto_world!
+      started = start_atproto!(user: user, identifier: AtprotoOauthHelper::HANDLE, dns: world.dns)
+      original = ExternalOauthAttempt.order(:id).last
+      created_at = original.created_at
+      world.bodies[:token_handler] = lambda do |_request|
+        ExternalOauthAttempt.where(id: original.id).delete_all
+        atproto_json(atproto_tokens)
+      end
+      finish_atproto!(user: user, state: started[:state], dns: world.dns)
+      kept = ExternalOauthAttempt.find_by!(state_digest: original.state_digest)
+      expect(kept.created_at).to eq(created_at)
+      expect(kept.consumed_at).to be_present
+      expect(ExternalBridge::Atproto::AttemptBox.decrypt(kept)).to eq('cleared' => '1')
+      expect(kept.encrypted_secrets).not_to include(started[:verifier])
+    end
+  end
+
+  it 'does not record a rotated token result on a session connected after disconnect' do
+    with_atproto_client do
+      world = install_atproto_world!
+      identity = connect_atproto!(user: user, world: world).fetch(:identity)
+      rotated = 'refresh-rotated-after-reconnect-SENTINEL'
+      b_token = nil
+      world.bodies[:revoke_handler] = lambda do |request|
+        token = Rack::Utils.parse_nested_query(request.body.to_s)['token']
+        next atproto_json({}) if token == rotated
+        next { status: 500, body: 'nope' } if b_token && token == b_token
+
+        atproto_json({})
+      end
+      world.bodies[:token_handler] = lambda do |request|
+        fields = Rack::Utils.parse_nested_query(request.body.to_s)
+        next atproto_json(atproto_tokens) unless fields['grant_type'] == 'refresh_token'
+
+        ExternalBridge::Atproto::Disconnect.call(user: user, identity_id: identity.id, dns: world.dns)
+        travel 2.seconds
+        started = start_atproto!(user: user, identifier: AtprotoOauthHelper::HANDLE, dns: world.dns)
+        reconnected = finish_atproto!(user: user, state: started[:state], dns: world.dns)
+        b_token = revealed(reconnected)['refresh_token']
+        ExternalBridge::Atproto::Disconnect.call(user: user, identity_id: identity.id, dns: world.dns)
+        atproto_json(atproto_tokens(refresh: rotated))
+      end
+      reset_atproto_exchanges!
+      travel 5.minutes do
+        expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq('revoked')
+      end
+      row = identity.reload
+      expect(row.status).to eq('disconnected')
+      expect(row.revocation_state).to eq('remote_failed')
+      expect(credential_for(row).revoked_at).to be_present
+      revoke_bodies = atproto_exchanges.select { |exchange| exchange.method == :post && exchange.uri.path == '/oauth/revoke' }.map { |exchange| exchange.body.to_s }
+      expect(revoke_bodies.join).to include(rotated)
       expect_secret_absent!(rotated)
       expect_repeat_disconnect_unchanged!(identity, world)
     end

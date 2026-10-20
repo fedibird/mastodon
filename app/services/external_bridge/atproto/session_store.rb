@@ -25,7 +25,7 @@ module ExternalBridge
           revoke_previous!(identity)
           credential = store_credential!(secrets)
           identity = assign!(identity, subject, handle, resource_origin, granted_scopes, partial, credential, secrets)
-          @attempt.destroy!
+          retain_attempt!
           identity
         end
       rescue UserCredentialVault::ConfigurationError
@@ -120,6 +120,27 @@ module ExternalBridge
 
       def access_expiry(secrets)
         Time.iso8601(secrets.fetch('access_expires_at'))
+      end
+
+      # The sliding window counts rows by created_at, including successes.
+      # PKCE and the DPoP private key are replaced with a tombstone. If cleanup
+      # removed the row during the exchange, the same created_at is inserted again.
+      def retain_attempt!
+        cleared = AttemptBox.tombstone(@attempt)
+        consumed_at = @attempt.consumed_at || Time.current
+        updated = ExternalOauthAttempt.where(id: @attempt.id).update_all(
+          consumed_at: consumed_at,
+          encrypted_secrets: cleared,
+          updated_at: Time.current
+        )
+        return if updated == 1
+
+        attributes = @attempt.attributes.except('id')
+        attributes['consumed_at'] = consumed_at
+        attributes['encrypted_secrets'] = cleared
+        attributes['created_at'] = @attempt.created_at
+        attributes['updated_at'] = Time.current
+        ExternalOauthAttempt.create!(attributes)
       end
     end
   end
