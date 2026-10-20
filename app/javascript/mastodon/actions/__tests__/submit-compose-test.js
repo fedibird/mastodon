@@ -53,11 +53,12 @@ import { updateTimeline } from '../timelines';
 import { openModal } from '../modal';
 import { COMPOSE_CHANGE, COMPOSE_POLL_ADD, COMPOSE_POLL_OPTION_CHANGE, COMPOSE_SPOILER_TEXT_CHANGE, COMPOSE_SPOILERNESS_CHANGE, COMPOSE_SUBMIT_REQUEST, COMPOSE_SUBMIT_SUCCESS, changeUploadCompose, submitCompose, submitComposeWithCheck } from '../compose';
 import { applyComposerPostingContext } from '../composer';
-import { setPostingStyleUsage } from '../user_posting_styles';
+import { USER_POSTING_STYLES_FETCH_SUCCESS, commitUserPostingStyle, setPostingStyleUsage } from '../user_posting_styles';
 import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
 import { mitraGroupPostingContext } from '../../posting_context/fixtures/mitra_group_context_fixture';
 import composeReducer from '../../reducers/compose';
 import composerReducer, { initialState as initialComposerState } from '../../reducers/composer';
+import userPostingStyles from '../../reducers/user_posting_styles';
 import { PRIMARY_COMPOSER_ID } from '../../utils/composer';
 
 const dispatchThunk = (thunk, state) => {
@@ -600,12 +601,26 @@ const reduceComposeStore = (state, action) => {
     return state;
   }
 
-  return state.set('compose', composeReducer(state.get('compose'), action));
+  return state
+    .set('compose', composeReducer(state.get('compose'), action))
+    .set('userPostingStyles', userPostingStyles(state.get('userPostingStyles'), action));
 };
 
-const buildComposeStore = (compose = initialComposerState) => createStore(
+const namedStyle = (id, name) => fromJS({
+  id,
+  name,
+  revision: 1,
+  target: { kind: 'none', accountId: null, hashtag: null, label: null },
+  defaults: { visibility: 'public' },
+  managed: { hashtags: [] },
+});
+
+const buildComposeStore = (compose = initialComposerState, styles = ImmutableList()) => createStore(
   reduceComposeStore,
-  ImmutableMap({ compose }),
+  ImmutableMap({
+    compose,
+    userPostingStyles: userPostingStyles(undefined, { type: USER_POSTING_STYLES_FETCH_SUCCESS, styles }),
+  }),
   applyMiddleware(thunk),
 );
 
@@ -815,5 +830,113 @@ describe('resending a draft kept after an older success', () => {
     expect(restored.getIn(['userPostingStyle', 'usageMode'])).toEqual('usual');
     expect(restored.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
     expect(restored.get('idempotencyKey')).not.toEqual(againRequest.mock.calls[0][0].headers['Idempotency-Key']);
+  });
+
+  it('keeps a same-valued style chosen while sending and posts it with a new key', async () => {
+    const { pending, request } = deferRequests();
+    const store = buildComposeStore(initialComposerState, ImmutableList([
+      namedStyle('a', 'Alpha'),
+      namedStyle('b', 'Beta'),
+    ]));
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Draft' });
+    const sentGeneration = store.getState().getIn(['compose', 'userPostingStyle', 'selectionGeneration']);
+
+    const first = store.dispatch(submitCompose(router));
+    const sentKey = request.mock.calls[0][0].headers['Idempotency-Key'];
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'b'));
+    const during = store.getState().get('compose');
+    expect(during.getIn(['userPostingStyle', 'selectedId'])).toEqual('b');
+    expect(during.getIn(['userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(during.getIn(['userPostingStyle', 'selectionGeneration'])).toBeGreaterThan(sentGeneration);
+    expect(during.get('idempotencyKey')).toEqual(sentKey);
+    expect(during.get('privacy')).toEqual('public');
+    expect(during.get('text')).toEqual('Draft');
+
+    pending[0].resolve({ data: statusResponse });
+    await first;
+
+    const kept = store.getState().get('compose');
+    expect(kept.get('text')).toEqual('Draft');
+    expect(kept.getIn(['userPostingStyle', 'selectedId'])).toEqual('b');
+    expect(kept.getIn(['userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(kept.getIn(['userPostingStyle', 'snapshot', 'id'])).toEqual('b');
+    expect(kept.get('is_submitting')).toBe(false);
+    const nextKey = kept.get('idempotencyKey');
+    expect(nextKey).not.toEqual(sentKey);
+
+    const second = store.dispatch(submitCompose(router));
+    expect(request.mock.calls[1][0].headers['Idempotency-Key']).toEqual(nextKey);
+    expect(request.mock.calls[1][0].data.status).toEqual('Draft');
+    expect(request.mock.calls[1][0].data.visibility).toEqual('public');
+    pending[1].resolve({ data: { ...statusResponse, id: 's2' } });
+    await second;
+
+    const done = store.getState().get('compose');
+    expect(done.get('text')).toEqual('');
+    expect(done.get('is_submitting')).toBe(false);
+    expect(done.getIn(['userPostingStyle', 'usageMode'])).toEqual('usual');
+  });
+
+  it('keeps a reapplied style, an explicit none, and a return to the same id', async () => {
+    const styles = ImmutableList([namedStyle('a', 'Alpha'), namedStyle('b', 'Beta')]);
+
+    const reapplied = buildComposeStore(initialComposerState, styles);
+    const { pending: reapplyPending, request: reapplyRequest } = deferRequests();
+    await reapplied.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    reapplied.dispatch({ type: COMPOSE_CHANGE, text: 'Same style' });
+    const reapplyGeneration = reapplied.getState().getIn(['compose', 'userPostingStyle', 'selectionGeneration']);
+    const reapplySend = reapplied.dispatch(submitCompose(router));
+    const reapplyKey = reapplyRequest.mock.calls[0][0].headers['Idempotency-Key'];
+    await reapplied.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    expect(reapplied.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toEqual('a');
+    expect(reapplied.getState().getIn(['compose', 'userPostingStyle', 'selectionGeneration'])).toBeGreaterThan(reapplyGeneration);
+    expect(reapplied.getState().getIn(['compose', 'idempotencyKey'])).toEqual(reapplyKey);
+    reapplyPending[0].resolve({ data: statusResponse });
+    await reapplySend;
+    expect(reapplied.getState().getIn(['compose', 'text'])).toEqual('Same style');
+    expect(reapplied.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toEqual('a');
+    expect(reapplied.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(reapplied.getState().getIn(['compose', 'idempotencyKey'])).not.toEqual(reapplyKey);
+
+    const cleared = buildComposeStore(initialComposerState, styles);
+    const { pending: nonePending, request: noneRequest } = deferRequests();
+    await cleared.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    cleared.dispatch({ type: COMPOSE_CHANGE, text: 'No style' });
+    const noneSend = cleared.dispatch(submitCompose(router));
+    const noneKey = noneRequest.mock.calls[0][0].headers['Idempotency-Key'];
+    await cleared.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, null));
+    expect(cleared.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toBeNull();
+    expect(cleared.getState().getIn(['compose', 'userPostingStyle', 'selectionKind'])).toEqual('none');
+    expect(cleared.getState().getIn(['compose', 'privacy'])).toEqual('public');
+    expect(cleared.getState().getIn(['compose', 'idempotencyKey'])).toEqual(noneKey);
+    nonePending[0].resolve({ data: statusResponse });
+    await noneSend;
+    expect(cleared.getState().getIn(['compose', 'text'])).toEqual('No style');
+    expect(cleared.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toBeNull();
+    expect(cleared.getState().getIn(['compose', 'userPostingStyle', 'selectionKind'])).toEqual('none');
+    expect(cleared.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(cleared.getState().getIn(['compose', 'idempotencyKey'])).not.toEqual(noneKey);
+
+    const returned = buildComposeStore(initialComposerState, styles);
+    const { pending: returnPending, request: returnRequest } = deferRequests();
+    await returned.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    returned.dispatch({ type: COMPOSE_CHANGE, text: 'Back to A' });
+    const sentId = returned.getState().getIn(['compose', 'userPostingStyle', 'selectedId']);
+    const sentGeneration = returned.getState().getIn(['compose', 'userPostingStyle', 'selectionGeneration']);
+    const returnSend = returned.dispatch(submitCompose(router));
+    const returnKey = returnRequest.mock.calls[0][0].headers['Idempotency-Key'];
+    await returned.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'b'));
+    await returned.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    expect(returned.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toEqual(sentId);
+    expect(returned.getState().getIn(['compose', 'userPostingStyle', 'selectionGeneration'])).toBeGreaterThan(sentGeneration);
+    expect(returned.getState().getIn(['compose', 'idempotencyKey'])).toEqual(returnKey);
+    returnPending[0].resolve({ data: statusResponse });
+    await returnSend;
+    expect(returned.getState().getIn(['compose', 'text'])).toEqual('Back to A');
+    expect(returned.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toEqual('a');
+    expect(returned.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(returned.getState().getIn(['compose', 'idempotencyKey'])).not.toEqual(returnKey);
   });
 });

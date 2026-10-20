@@ -456,8 +456,11 @@ const submissionStillCurrent = (state, action) => {
     return false;
   }
 
-  // Usage mode advances selectionGeneration without changing the post.
-  // That post can still complete. The handler reads the current mode.
+  // A style commit advances this even when the sent values stay the same.
+  // A once/keep toggle does not, so that post can still complete.
+  if ((state.getIn(['userPostingStyle', 'selectionGeneration']) || 0) !== (submission.selectionGeneration || 0)) {
+    return false;
+  }
 
   if (Object.prototype.hasOwnProperty.call(submission, 'draftGeneration') && (state.get('draftGeneration') || 0) !== submission.draftGeneration) {
     return false;
@@ -1449,10 +1452,9 @@ function reduceComposer(state = initialState, action) {
       return state;
     }
 
-    return state.withMutations(map => {
-      map.setIn(['userPostingStyle', 'usageMode'], action.usageMode);
-      map.updateIn(['userPostingStyle', 'selectionGeneration'], generation => (generation || 0) + 1);
-    });
+    // The choice of style is unchanged. Leave selectionGeneration so the
+    // in-flight post can finish under the mode selected here.
+    return state.setIn(['userPostingStyle', 'usageMode'], action.usageMode);
   }
   case USER_POSTING_STYLE_RESOLUTION: {
     const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
