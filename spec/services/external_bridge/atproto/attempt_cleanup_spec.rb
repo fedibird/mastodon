@@ -40,9 +40,11 @@ describe 'AT Protocol OAuth attempt retention' do
     ExternalOauthAttempt.create!(attempt_attributes(...))
   end
 
-  it 'deletes abandoned and consumed attempts and keeps an active one for each owner' do
+  it 'deletes abandoned and aged consumed attempts and keeps a fresh tombstone' do
     abandoned = store_attempt!(user, 'abandoned', expires_at: 1.hour.ago, secret: 'verifier-SENTINEL-abandoned')
-    consumed = store_attempt!(user, 'consumed', expires_at: 5.minutes.from_now, consumed_at: Time.current, secret: 'verifier-SENTINEL-consumed')
+    fresh = store_attempt!(user, 'fresh', expires_at: 5.minutes.from_now, consumed_at: Time.current, secret: 'verifier-SENTINEL-fresh')
+    window_open = store_attempt!(user, 'window-open', expires_at: 5.minutes.from_now, consumed_at: 3.minutes.ago, created_at: 5.minutes.ago, secret: 'verifier-SENTINEL-window')
+    aged = store_attempt!(user, 'aged', expires_at: 1.hour.ago, consumed_at: 1.hour.ago, created_at: 1.hour.ago, secret: 'verifier-SENTINEL-aged')
     active = store_attempt!(user, 'active', expires_at: 5.minutes.from_now, secret: 'verifier-SENTINEL-active')
     theirs = store_attempt!(other, 'theirs', expires_at: 5.minutes.from_now, secret: 'verifier-SENTINEL-theirs')
     theirs_old = store_attempt!(other, 'theirs-old', expires_at: 1.hour.ago, secret: 'verifier-SENTINEL-theirs-old')
@@ -54,7 +56,9 @@ describe 'AT Protocol OAuth attempt retention' do
     removed = ExternalBridge::Atproto::AttemptCleanup.call
 
     expect(removed).to eq(3)
-    expect(ExternalOauthAttempt.where(id: [abandoned.id, consumed.id, theirs_old.id])).to be_empty
+    expect(ExternalOauthAttempt.where(id: [abandoned.id, aged.id, theirs_old.id])).to be_empty
+    expect(ExternalOauthAttempt.find(fresh.id).encrypted_secrets).to eq('verifier-SENTINEL-fresh')
+    expect(ExternalOauthAttempt.find(window_open.id).encrypted_secrets).to eq('verifier-SENTINEL-window')
     expect(ExternalOauthAttempt.find(active.id).encrypted_secrets).to eq(active_secret)
     expect(ExternalOauthAttempt.find(theirs.id).user_id).to eq(other.id)
     expect(queries.join).not_to include('verifier-SENTINEL')
@@ -112,5 +116,56 @@ describe 'AT Protocol OAuth attempt retention' do
       expect(ExternalOauthAttempt.where(user_id: user.id, consumed_at: nil).where('expires_at > ?', Time.current).count).to eq(1)
       expect(ExternalOauthAttempt.where(user_id: other.id).count).to eq(ExternalBridge::Atproto::AttemptLimiter::WINDOW_LIMIT)
     end
+  end
+
+  it 'keeps newly consumed attempts through cleanup so the window still rejects an eleventh start' do
+    enable_atproto!(user)
+    with_atproto_client do
+      world = install_atproto_world!
+      limit = ExternalBridge::Atproto::AttemptLimiter::WINDOW_LIMIT
+      limit.times do |index|
+        store_attempt!(user, "kept-#{index}", expires_at: 5.minutes.from_now, consumed_at: Time.current)
+      end
+
+      expect(ExternalBridge::Atproto::AttemptCleanup.call).to eq(0)
+      expect(ExternalOauthAttempt.where(user_id: user.id).count).to eq(limit)
+      reset_atproto_exchanges!
+      expect(atproto_error { start_atproto!(user: user, identifier: AtprotoOauthHelper::HANDLE, dns: world.dns) }.code).to eq('attempt_rate_limited')
+      expect(atproto_exchanges).to be_empty
+
+      ExternalOauthAttempt.where(user_id: user.id).update_all(created_at: 11.minutes.ago, consumed_at: 11.minutes.ago)
+      expect(ExternalBridge::Atproto::AttemptCleanup.call).to eq(limit)
+      started = start_atproto!(user: user, identifier: AtprotoOauthHelper::HANDLE, dns: world.dns)
+      expect(started[:state]).to be_present
+      expect(ExternalOauthAttempt.where(user_id: user.id, consumed_at: nil).count).to eq(1)
+    end
+  end
+
+  it 'retains an in-flight callback and purges old rows only up to the cap' do
+    inflight = store_attempt!(
+      user,
+      'inflight',
+      expires_at: 1.minute.ago,
+      consumed_at: Time.current,
+      created_at: 11.minutes.ago,
+      secret: 'verifier-SENTINEL-inflight'
+    )
+    aged = store_attempt!(user, 'old-consumed', expires_at: 2.hours.ago, consumed_at: 1.hour.ago, created_at: 1.hour.ago, secret: 'verifier-SENTINEL-old-consumed')
+    expired = store_attempt!(other, 'expired-open', expires_at: 2.hours.ago, secret: 'verifier-SENTINEL-expired-open')
+
+    expect(ExternalBridge::Atproto::AttemptBox).not_to receive(:decrypt)
+    expect(ExternalBridge::Atproto::AttemptCleanup.call).to eq(2)
+    expect(ExternalOauthAttempt.find(inflight.id).encrypted_secrets).to eq('verifier-SENTINEL-inflight')
+    expect(ExternalOauthAttempt.where(id: [aged.id, expired.id])).to be_empty
+
+    cap = ExternalBridge::Atproto::AttemptCleanup::BATCH * ExternalBridge::Atproto::AttemptCleanup::MAX_BATCHES
+    backlog = Array.new(cap + 1) do |index|
+      attempt_attributes(user, "backlog-#{index}", expires_at: 3.hours.ago, consumed_at: 1.hour.ago, created_at: 1.hour.ago)
+    end
+    ExternalOauthAttempt.insert_all!(backlog)
+
+    expect(ExternalBridge::Atproto::AttemptCleanup.call).to eq(cap)
+    expect(ExternalOauthAttempt.find(inflight.id).encrypted_secrets).to eq('verifier-SENTINEL-inflight')
+    expect(ExternalOauthAttempt.where(user_id: user.id).where.not(id: inflight.id).count).to eq(1)
   end
 end

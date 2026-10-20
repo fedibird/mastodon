@@ -11,6 +11,22 @@ describe 'AT Protocol OAuth identity connection' do
     UserExternalCredential.find(identity.credential_id)
   end
 
+  def expect_repeat_disconnect_unchanged!(identity, world)
+    row = identity.reload
+    stamp = row.disconnected_at
+    state = row.revocation_state
+    revoked_at = credential_for(row).revoked_at
+    posts = atproto_exchanges.count { |exchange| exchange.method == :post }
+
+    again = ExternalBridge::Atproto::Disconnect.call(user: user, identity_id: identity.id, dns: world.dns)
+
+    expect(again.disconnected_at).to eq(stamp)
+    expect(again.revocation_state).to eq(state)
+    expect(again.status).to eq('disconnected')
+    expect(credential_for(identity).reload.revoked_at).to eq(revoked_at)
+    expect(atproto_exchanges.count { |exchange| exchange.method == :post }).to eq(posts)
+  end
+
   def assertion_kid(exchange)
     fields = Rack::Utils.parse_nested_query(exchange.body.to_s)
     decode_jwt(fields.fetch('client_assertion'))[:header]['kid']
@@ -488,6 +504,7 @@ describe 'AT Protocol OAuth identity connection' do
       expect(atproto_exchanges.select { |exchange| exchange.method == :post }.map { |exchange| exchange.uri.host }.uniq).to eq([AtprotoOauthHelper::ISSUER_HOST])
       expect_secret_absent!(rotated)
       expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq('revoked')
+      expect_repeat_disconnect_unchanged!(identity, world)
     end
   end
 
@@ -520,6 +537,35 @@ describe 'AT Protocol OAuth identity connection' do
       expect(credential_for(identity).revoked_at).to be_present
       expect(atproto_exchanges.select { |exchange| exchange.method == :post && exchange.uri.path == '/oauth/revoke' }.map { |exchange| exchange.body.to_s }.join).to include(rotated)
       expect_secret_absent!(rotated)
+      expect_repeat_disconnect_unchanged!(identity, world)
+    end
+  end
+
+  it 'disconnects a session that was connected again after an earlier disconnect' do
+    with_atproto_client do
+      world = install_atproto_world!
+      identity = connect_atproto!(user: user, world: world).fetch(:identity)
+      first = ExternalBridge::Atproto::Disconnect.call(user: user, identity_id: identity.id, dns: world.dns)
+      expect(first.revocation_state).to eq('remote_revoked')
+      first_at = first.disconnected_at
+
+      travel 2.seconds do
+        started = start_atproto!(user: user, identifier: AtprotoOauthHelper::HANDLE, dns: world.dns)
+        reconnected = finish_atproto!(user: user, state: started[:state], dns: world.dns)
+        expect(reconnected.id).to eq(identity.id)
+        expect(reconnected.status).to eq('connected')
+        expect(reconnected.disconnected_at).to be_nil
+        expect(reconnected.revocation_state).to be_nil
+        expect(credential_for(reconnected).revoked_at).to be_nil
+
+        reset_atproto_exchanges!
+        second = ExternalBridge::Atproto::Disconnect.call(user: user, identity_id: identity.id, dns: world.dns)
+        expect(second.status).to eq('disconnected')
+        expect(second.revocation_state).to eq('remote_revoked')
+        expect(second.disconnected_at).to be > first_at
+        expect(credential_for(identity).reload.revoked_at).to be_present
+        expect(atproto_exchanges.select { |exchange| exchange.method == :post && exchange.uri.path == '/oauth/revoke' }.size).to eq(1)
+      end
     end
   end
 

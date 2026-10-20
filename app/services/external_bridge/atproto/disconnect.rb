@@ -22,8 +22,14 @@ module ExternalBridge
         raise Error, :not_found if identity.nil?
 
         outbound = nil
+        already = false
         identity.with_lock do
           identity.reload
+          if identity.disconnected_at.present?
+            already = true
+            next
+          end
+
           outbound = revocation_material(identity)
           revoke_local!(identity)
           identity.update!(
@@ -34,6 +40,8 @@ module ExternalBridge
             access_expires_at: nil
           )
         end
+        return identity.reload if already
+
         record_remote!(identity, outbound) if outbound
         identity.reload
       end

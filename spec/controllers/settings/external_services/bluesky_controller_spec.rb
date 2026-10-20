@@ -128,4 +128,33 @@ describe Settings::ExternalServices::BlueskyIdentitiesController do
     expect(flash[:alert]).to eq(I18n.t('external_bridge.atproto.errors.not_found'))
     expect(identity.reload.disconnected_at).to be_nil
   end
+
+  it 'keeps the recorded revocation when disconnect is submitted twice' do
+    identity = nil
+    with_atproto_client do
+      enable_atproto!(user)
+      connected = connect_atproto!(user: user)
+      use_atproto_dns!(connected.fetch(:world))
+      identity = connected.fetch(:identity)
+      ExternalBridge::Atproto::Disconnect.call(user: user, identity_id: identity.id, dns: connected.fetch(:world).dns)
+    end
+
+    %w(successor_revoked successor_revoke_failed).each do |state|
+      identity.reload.update!(revocation_state: state, disconnected_at: Time.zone.parse('2026-10-20 12:00:00 UTC'))
+      stamp = identity.reload.disconnected_at
+      revoked_at = identity.credential.reload.revoked_at
+      reset_atproto_exchanges!
+
+      delete :destroy, params: { id: identity.id }, session: challenge
+      delete :destroy, params: { id: identity.id }, session: challenge
+
+      expect(response).to redirect_to(settings_external_services_bluesky_path)
+      row = identity.reload
+      expect(row.revocation_state).to eq(state)
+      expect(row.disconnected_at).to eq(stamp)
+      expect(row.status).to eq('disconnected')
+      expect(row.credential.reload.revoked_at).to eq(revoked_at)
+      expect(atproto_exchanges.select { |exchange| exchange.method == :post }).to be_empty
+    end
+  end
 end
