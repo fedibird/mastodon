@@ -18,6 +18,10 @@ RSpec.describe 'Embedded posting style settings' do # rubocop:disable Metrics/Bl
   end
 
   before do
+    # .env.test sets LOCAL_HTTPS, so the session and Devise cookies are Secure.
+    # An HTTP request spec would drop them on the next request and redirect to
+    # sign-in. Match the cookie scheme instead of stubbing the user.
+    https! if ENV['LOCAL_HTTPS'] == 'true'
     resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
     allow(Webpacker.instance.manifest).to receive(:lookup!, &resolver)
     allow(Webpacker.instance.manifest).to receive(:lookup, &resolver)
@@ -132,7 +136,7 @@ RSpec.describe 'Embedded posting style settings' do # rubocop:disable Metrics/Bl
   end
 
   def operations(record, row)
-    [[:get, settings_user_posting_contexts_path], [:get, new_settings_user_posting_context_path], [:get, edit_settings_user_posting_context_path(record)], [:get, confirm_destroy_settings_user_posting_context_path(record)], [:post, settings_user_posting_contexts_path], [:patch, settings_user_posting_context_path(record)], [:post, duplicate_settings_user_posting_context_path(record)], [:delete, settings_user_posting_context_path(record)], [:post, preview_settings_user_posting_contexts_path(format: :json)], [:get, settings_user_posting_context_assignments_path], [:post, release_settings_user_posting_context_assignment_path(row)], [:post, decline_settings_user_posting_context_assignment_path(row)]]
+    [[:get, settings_user_posting_contexts_path], [:get, new_settings_user_posting_context_path], [:get, edit_settings_user_posting_context_path(record)], [:get, confirm_destroy_settings_user_posting_context_path(record)], [:post, settings_user_posting_contexts_path], [:post, update_usual_settings_user_posting_contexts_path], [:patch, settings_user_posting_context_path(record)], [:post, duplicate_settings_user_posting_context_path(record)], [:delete, settings_user_posting_context_path(record)], [:post, preview_settings_user_posting_contexts_path(format: :json)], [:get, settings_user_posting_context_assignments_path], [:post, release_settings_user_posting_context_assignment_path(row)], [:post, decline_settings_user_posting_context_assignment_path(row)]]
   end
 
   it 'rejects non-administrators and anonymous access for every route' do
@@ -158,7 +162,7 @@ RSpec.describe 'Embedded posting style settings' do # rubocop:disable Metrics/Bl
     foreign_user = Fabricate(:user)
     foreign = foreign_user.user_posting_contexts.create!(name: 'Secret')
     row = UserPostingContextAssignment.assign!(user: foreign_user, surface_kind: 'hashtag', surface_key: 'private', style: foreign)
-    operations(foreign, row).reject { |_method, path| [settings_user_posting_contexts_path, new_settings_user_posting_context_path, settings_user_posting_context_assignments_path].include?(path) }.each do |method, path|
+    operations(foreign, row).reject { |_method, path| [settings_user_posting_contexts_path, new_settings_user_posting_context_path, settings_user_posting_context_assignments_path, update_usual_settings_user_posting_contexts_path].include?(path) }.each do |method, path|
       public_send(method, path, params: options.merge(id: foreign.id, user_posting_context: attributes))
       expect(response).to have_http_status(:not_found)
       expect_blocked
@@ -166,6 +170,19 @@ RSpec.describe 'Embedded posting style settings' do # rubocop:disable Metrics/Bl
     get settings_user_posting_context_assignments_path(options.merge(user_posting_context_id: foreign.id))
     expect(response).to have_http_status(:not_found)
     expect_blocked
+  end
+
+  it 'does not save another user’s style as the usual style' do
+    foreign_user = Fabricate(:user, role: UserRole.find_by!(name: 'Owner'))
+    foreign = foreign_user.user_posting_contexts.create!(name: 'Secret')
+
+    post update_usual_settings_user_posting_contexts_path, params: options.merge(style_id: foreign.id)
+
+    expect(response).to redirect_to(settings_user_posting_contexts_path(options))
+    expect(flash[:alert]).to eq(I18n.t('user_posting_contexts.usual_invalid'))
+    expect(UserPostingContextAssignment.usual_for(user)).to be_nil
+    expect(UserPostingContextAssignment.usual_for(foreign_user)).to be_nil
+    expect(foreign.reload).to be_persisted
   end
 
   context 'with real CSRF verification' do

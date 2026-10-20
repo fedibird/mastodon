@@ -9,6 +9,7 @@ class Settings::UserPostingContextsController < Settings::BaseController
   def index
     @contexts = current_user.user_posting_contexts.includes(:target_account).ordered
     @card_usage = UserPostingContextAssignment::CardUsage.for_user(current_user)
+    @usual = UserPostingContextAssignment.usual_for(current_user)
   end
 
   def new
@@ -49,7 +50,31 @@ class Settings::UserPostingContextsController < Settings::BaseController
   end
 
   def confirm_destroy
-    @reference_count = @context.user_posting_context_assignments.count
+    @place_reference_count = @context.user_posting_context_assignments.places.count
+    usual = UserPostingContextAssignment.usual_for(current_user)
+    @usual_reference = usual.present? && usual.user_posting_context_id == @context.id
+  end
+
+  def update_usual
+    if params[:release].present?
+      current_user.user_posting_context_assignments.find_by(
+        surface_kind: UserPostingContextAssignment::GLOBAL_SURFACE_KIND,
+        surface_key: UserPostingContextAssignment::GLOBAL_SURFACE_KEY
+      )&.destroy!
+      redirect_to settings_user_posting_contexts_path(embedded_settings_options), notice: I18n.t('user_posting_contexts.usual_released')
+      return
+    end
+
+    style = requested_usual_style
+    UserPostingContextAssignment.assign!(
+      user: current_user,
+      surface_kind: UserPostingContextAssignment::GLOBAL_SURFACE_KIND,
+      surface_key: UserPostingContextAssignment::GLOBAL_SURFACE_KEY,
+      style: style
+    )
+    redirect_to settings_user_posting_contexts_path(embedded_settings_options), notice: I18n.t('user_posting_contexts.usual_saved')
+  rescue UserPostingContextAssignment::InvalidAssignment
+    redirect_to settings_user_posting_contexts_path(embedded_settings_options), alert: I18n.t('user_posting_contexts.usual_invalid')
   end
 
   def destroy
@@ -86,6 +111,17 @@ class Settings::UserPostingContextsController < Settings::BaseController
 
   def set_context
     @context = current_user.user_posting_contexts.find(params[:id])
+  end
+
+  def requested_usual_style
+    return nil if params[:style_id].blank?
+
+    style = current_user.user_posting_contexts.find_by(id: params[:style_id])
+    return style if style&.enabled?
+
+    record = UserPostingContextAssignment.new
+    record.errors.add(:base, I18n.t('user_posting_context_assignments.errors.style'))
+    raise UserPostingContextAssignment::InvalidAssignment, record
   end
 
   def preview_context

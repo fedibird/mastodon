@@ -248,6 +248,7 @@ Rails.application.routes.draw do
       end
       collection do
         post :preview
+        post :update_usual
       end
     end
     resources :user_posting_context_assignments, only: [:index] do

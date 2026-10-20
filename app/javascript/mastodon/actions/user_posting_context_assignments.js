@@ -1,4 +1,5 @@
 import api from '../api';
+import { GLOBAL_SURFACE } from '../posting_context/usual_selection';
 import { assignmentSurface, placeDefaultWriteSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
 import { selectComposer } from '../selectors/composer';
 
@@ -27,6 +28,23 @@ const entryGeneration = (state, key) => {
 
   return (entry && entry.get('generation')) || 0;
 };
+
+export function normalizeGlobalAssignment(data) {
+  const surface = data && data.surface;
+
+  if (!surface || surface.kind !== GLOBAL_SURFACE.kind || String(surface.key) !== GLOBAL_SURFACE.key || !STATUSES.includes(data.status)) {
+    return null;
+  }
+
+  const styleId = data.style_id === null || data.style_id === undefined || data.style_id === '' ? null : String(data.style_id);
+
+  return {
+    surface: { kind: GLOBAL_SURFACE.kind, key: GLOBAL_SURFACE.key },
+    assignmentStatus: data.status,
+    styleId: data.status === 'style' || data.status === 'unavailable' ? styleId : null,
+    revision: data.revision === null || data.revision === undefined ? null : Number(data.revision),
+  };
+}
 
 export function normalizeAssignmentPayload(data) {
   const surface = assignmentSurface(data && data.surface);
@@ -123,8 +141,160 @@ export function refreshUserPostingContextAssignments() {
     const surfaces = new Map();
     consumers?.forEach(surface => surfaces.set(surfaceCacheKey(surface), surface.toJS()));
     // A Controller may already have reacted to idle and started this read.
-    return Promise.all(Array.from(surfaces.values(), surface => dispatch(fetchUserPostingContextAssignment(surface))));
+    // The usual style is not a place, so it is refreshed on its own.
+    return Promise.all([
+      dispatch(fetchGlobalUsualStyle({ force: true })),
+      ...Array.from(surfaces.values(), surface => dispatch(fetchUserPostingContextAssignment(surface))),
+    ]);
   };
+}
+
+const globalGeneration = state => (
+  (state.getIn(['userPostingContextAssignments', 'global', 'generation'])) || 0
+);
+
+export function fetchGlobalUsualStyle({ force = false } = {}) {
+  return (dispatch, getState) => {
+    const status = getState().getIn(['userPostingContextAssignments', 'global', 'status']);
+
+    if (!force && (status === 'loading' || status === 'ready' || status === 'saving' || status === 'failed')) {
+      return Promise.resolve();
+    }
+
+    const generation = globalGeneration(getState()) + 1;
+
+    dispatch({
+      type: USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST,
+      scope: 'global',
+      surfaceKey: 'global:default',
+      surface: GLOBAL_SURFACE,
+      generation,
+      skipLoading: true,
+    });
+
+    return api(getState)
+      .get(PATH, { params: { surface_kind: GLOBAL_SURFACE.kind, surface_key: GLOBAL_SURFACE.key } })
+      .then(({ data }) => {
+        const assignment = normalizeGlobalAssignment(data);
+
+        if (!assignment) {
+          dispatch({
+            type: USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL,
+            scope: 'global',
+            surfaceKey: 'global:default',
+            generation,
+            skipLoading: true,
+            skipAlert: true,
+          });
+          return;
+        }
+
+        dispatch({
+          type: USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS,
+          scope: 'global',
+          surfaceKey: 'global:default',
+          surface: GLOBAL_SURFACE,
+          assignment,
+          generation,
+          skipLoading: true,
+        });
+      })
+      .catch(error => {
+        dispatch({
+          type: USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL,
+          scope: 'global',
+          surfaceKey: 'global:default',
+          generation,
+          error,
+          skipLoading: true,
+          skipAlert: true,
+        });
+      });
+  };
+}
+
+const writeGlobalUsualStyle = request => (dispatch, getState) => {
+  if (getState().getIn(['userPostingContextAssignments', 'global', 'writePending'])) {
+    return Promise.resolve();
+  }
+
+  const refreshEpoch = getState().getIn(['userPostingContextAssignments', 'refreshEpoch'], 0);
+  const generation = globalGeneration(getState()) + 1;
+
+  dispatch({
+    type: USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_REQUEST,
+    scope: 'global',
+    surfaceKey: 'global:default',
+    surface: GLOBAL_SURFACE,
+    generation,
+    skipLoading: true,
+  });
+
+  return request(api(getState))
+    .then(({ data }) => {
+      const assignment = normalizeGlobalAssignment(data);
+
+      if (!assignment) {
+        dispatch({
+          type: USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_FAIL,
+          scope: 'global',
+          surfaceKey: 'global:default',
+          generation,
+          skipLoading: true,
+          skipAlert: true,
+        });
+        return;
+      }
+
+      dispatch({
+        type: USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_SUCCESS,
+        scope: 'global',
+        surfaceKey: 'global:default',
+        surface: GLOBAL_SURFACE,
+        assignment,
+        generation,
+        skipLoading: true,
+      });
+    })
+    .catch(error => {
+      dispatch({
+        type: USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_FAIL,
+        scope: 'global',
+        surfaceKey: 'global:default',
+        generation,
+        error,
+        skipLoading: true,
+        skipAlert: true,
+      });
+    }).finally(() => {
+      const superseded = globalGeneration(getState()) !== generation
+        || getState().getIn(['userPostingContextAssignments', 'refreshEpoch'], 0) !== refreshEpoch;
+      const reconciliation = superseded ? dispatch(fetchGlobalUsualStyle({ force: true })) : undefined;
+      dispatch({
+        type: USER_POSTING_CONTEXT_ASSIGNMENT_WRITE_FINISH,
+        scope: 'global',
+        surfaceKey: 'global:default',
+        generation,
+      });
+      return reconciliation;
+    });
+};
+
+export function saveGlobalUsualStyle(styleId) {
+  return writeGlobalUsualStyle(client => client.put(PATH, {
+    surface_kind: GLOBAL_SURFACE.kind,
+    surface_key: GLOBAL_SURFACE.key,
+    style_id: styleId,
+  }));
+}
+
+export function resetGlobalUsualStyle() {
+  return writeGlobalUsualStyle(client => client.delete(PATH, {
+    params: {
+      surface_kind: GLOBAL_SURFACE.kind,
+      surface_key: GLOBAL_SURFACE.key,
+    },
+  }));
 }
 
 const writeAssignment = (surface, request) => (dispatch, getState) => {

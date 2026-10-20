@@ -303,4 +303,48 @@ RSpec.describe UserPostingContextAssignment, type: :model do
     expect(missing.reload.lock_version).to eq(unchanged)
     expect(missing.availability_status).to eq('none')
   end
+
+  it 'stores one usual style at global/default and keeps it out of place counts' do
+    user = Fabricate(:user)
+    other = Fabricate(:user)
+    group = group_account
+    common = style_for(user, name: 'Common')
+    dedicated = style_for(user, name: 'Squad', target_kind: 'group', target_account: group)
+    disabled = style_for(user, name: 'Off', enabled: false)
+    foreign = style_for(other, name: 'Foreign')
+
+    expect(described_class.usual_for(user)).to be_nil
+    expect(described_class.unset_payload('global', 'default')).to include(status: 'unset', style_id: nil)
+
+    saved = described_class.assign!(user: user, surface_kind: 'global', surface_key: 'default', style: common)
+    expect(saved.api_payload).to include(status: 'style', style_id: common.id.to_s)
+    expect(saved.api_payload[:surface]).to eq(kind: 'global', key: 'default')
+
+    none = described_class.assign!(user: user, surface_kind: 'global', surface_key: 'default', style: nil)
+    expect(none.id).to eq(saved.id)
+    expect(none.availability_status).to eq('none')
+
+    described_class.assign!(user: user, surface_kind: 'global', surface_key: 'default', style: dedicated)
+    described_class.assign!(user: user, surface_kind: 'group', surface_key: group.id.to_s, style: dedicated)
+    expect(described_class.reference_counts_by_style(user)).to eq(dedicated.id => 1)
+    expect(described_class.places.where(user: user).count).to eq(1)
+    expect(described_class.usual_for(user).user_posting_context_id).to eq(dedicated.id)
+
+    expect do
+      described_class.assign!(user: user, surface_kind: 'global', surface_key: 'other', style: common)
+    end.to raise_error(described_class::InvalidAssignment)
+    expect do
+      described_class.assign!(user: user, surface_kind: 'global', surface_key: 'default', style: foreign)
+    end.to raise_error(described_class::InvalidAssignment)
+    expect do
+      described_class.assign!(user: user, surface_kind: 'global', surface_key: 'default', style: disabled)
+    end.to raise_error(described_class::InvalidAssignment)
+
+    dedicated.update!(enabled: false)
+    expect(described_class.usual_for(user).reload.availability_status).to eq('unavailable')
+
+    dedicated.destroy!
+    expect(described_class.usual_for(user).reload.availability_status).to eq('none')
+    expect(described_class.usual_for(user).user_posting_context_id).to be_nil
+  end
 end

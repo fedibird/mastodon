@@ -19,8 +19,17 @@ class UserPostingContextAssignment < ApplicationRecord
   # not replaced. Deleting the style nullifies this row into none.
   # Group and list keys are record ids and are not rewritten. Hashtag keys
   # use UserPostingContext::HashtagName. Ownership stays on the user.
-  SURFACE_KINDS = %w(group hashtag list).freeze
+  #
+  # global/default is the user's usual style. It is storage only: it is not
+  # a composer surface, a place count, or a place-list row. unset and none
+  # both mean "no usual style". Other global keys are rejected.
+  PLACE_SURFACE_KINDS = %w(group hashtag list).freeze
+  GLOBAL_SURFACE_KIND = 'global'
+  GLOBAL_SURFACE_KEY = 'default'
+  SURFACE_KINDS = (PLACE_SURFACE_KINDS + [GLOBAL_SURFACE_KIND]).freeze
   STATUSES = %w(unset none style unavailable).freeze
+
+  scope :places, -> { where(surface_kind: PLACE_SURFACE_KINDS) }
 
   class InvalidAssignment < StandardError
     attr_reader :assignment
@@ -90,6 +99,8 @@ class UserPostingContextAssignment < ApplicationRecord
   end
 
   def self.normalized_surface(user, kind, key)
+    return [GLOBAL_SURFACE_KIND, GLOBAL_SURFACE_KEY] if kind == GLOBAL_SURFACE_KIND && key == GLOBAL_SURFACE_KEY
+
     case kind
     when 'group'
       group_surface(key)
@@ -100,8 +111,22 @@ class UserPostingContextAssignment < ApplicationRecord
     end
   end
 
+  # Place counts only. A usual-style row is not a place.
+  def self.reference_counts_by_style(user)
+    return {} if user.nil?
+
+    user.user_posting_context_assignments.places.where.not(user_posting_context_id: nil).group(:user_posting_context_id).count
+  end
+
+  def self.usual_for(user)
+    return nil if user.nil?
+
+    user.user_posting_context_assignments.find_by(surface_kind: GLOBAL_SURFACE_KIND, surface_key: GLOBAL_SURFACE_KEY)
+  end
+
   def self.style_fits_surface?(style, kind, key)
     return false if style.nil?
+    return true if kind == GLOBAL_SURFACE_KIND && key == GLOBAL_SURFACE_KEY
     return true if style.target_kind == 'none'
 
     case kind
@@ -115,15 +140,6 @@ class UserPostingContextAssignment < ApplicationRecord
     else
       false
     end
-  end
-
-  # One grouped read for every style a user references. Callers that need
-  # active and unavailable split still use availability_status on a
-  # preloaded relation, not one count per card.
-  def self.reference_counts_by_style(user)
-    return {} if user.nil?
-
-    user.user_posting_context_assignments.where.not(user_posting_context_id: nil).group(:user_posting_context_id).count
   end
 
   # Settings clears a place by its row id. The surface does not have to

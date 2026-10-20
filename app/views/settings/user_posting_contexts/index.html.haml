@@ -3,6 +3,18 @@
 
 %p= t('user_posting_contexts.description')
 
+%section.user-posting-context-usual{ aria: { labelledby: 'user-posting-context-usual-title' } }
+  %h2#user-posting-context-usual-title= t('user_posting_contexts.usual_title')
+  %p= t('user_posting_contexts.usual_description')
+  - if @usual&.availability_status == 'unavailable'
+    %p.user-posting-context-usual__unavailable{ role: 'status' }= t('user_posting_contexts.usual_unavailable')
+  = form_with url: update_usual_settings_user_posting_contexts_path(embedded_settings_options), method: :post, local: true, class: 'user-posting-context-usual__form' do
+    = label_tag 'usual_style_id', t('user_posting_contexts.usual_label')
+    = select_tag 'style_id', options_for_select(user_posting_context_usual_options(@contexts), user_posting_context_usual_selected(@usual)), id: 'usual_style_id'
+    %button.button{ type: 'submit' }= t('user_posting_contexts.usual_save')
+    - if @usual
+      %button.button{ type: 'submit', name: 'release', value: '1' }= t('user_posting_contexts.usual_release')
+
 %p.user-posting-context-index-actions
   = link_to t('user_posting_contexts.new'), new_settings_user_posting_context_path(embedded_settings_options), class: 'button'
   = link_to t('user_posting_context_assignments.open'), settings_user_posting_context_assignments_path(embedded_settings_options)

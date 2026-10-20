@@ -21,7 +21,7 @@ class UserPostingContextAssignment::CardUsage
   end
 
   def self.for_user(user)
-    rows = user.user_posting_context_assignments.includes(:user_posting_context).order(:id).to_a
+    rows = user.user_posting_context_assignments.places.includes(:user_posting_context).order(:id).to_a
     grouped = Hash.new { |hash, key| hash[key] = { active: [], unavailable: [] } }
 
     rows.each do |row|

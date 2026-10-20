@@ -40,7 +40,15 @@ const reduce = (state, action) => {
     .set('userPostingContextAssignments', userPostingContextAssignments(state.get('userPostingContextAssignments'), action));
 };
 
-const assignmentGets = get => get.mock.calls.filter(call => String(call[0]).includes('user_posting_context_assignments')).length;
+const assignmentGets = get => get.mock.calls.filter(call => {
+  if (!String(call[0]).includes('user_posting_context_assignments')) {
+    return false;
+  }
+
+  const kind = call[1] && call[1].params && call[1].params.surface_kind;
+
+  return kind !== 'global';
+}).length;
 
 describe('UserPostingStyleController place defaults', () => {
   beforeEach(() => {

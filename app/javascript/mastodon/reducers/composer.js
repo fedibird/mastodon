@@ -75,7 +75,7 @@ import { USER_PREFERENCES_DOCUMENT_ACCEPTED } from '../actions/user_preferences'
 import { applyComposerPreferenceDefaults } from '../utils/preference_apply';
 import { consistentLocalFedibirdGroup, consistentSupportedRemoteGroup } from '../posting_identity/group_destination';
 import { composerInteractionInputKey } from '../posting_identity/interaction_input';
-import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
+import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE, USER_POSTING_STYLE_RESOLUTION, USER_POSTING_STYLE_USAGE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
 import { normalizeManagedHashtagName } from '../posting_context/managed_hashtags';
@@ -95,6 +95,7 @@ import {
   notePortableDraftInput,
   reapplySelectedStyle,
   releaseStyleDestination,
+  restoreUsualSelection,
   rememberManualSetting,
   syncSensitiveWithWarning,
   toggleStyleHashtag,
@@ -104,8 +105,16 @@ import { initialSenderIdentity, sessionPostingIdentityId } from '../posting_iden
 import { unescapeHTML } from '../utils/html';
 import { format } from 'date-fns';
 
+let composerInstanceSequence = 0;
+
+export const allocateComposerInstanceId = () => {
+  composerInstanceSequence += 1;
+  return `composer-${composerInstanceSequence}`;
+};
+
 export const initialState = ImmutableMap({
   mounted: 0,
+  instanceId: allocateComposerInstanceId(),
   sensitive: false,
   spoiler: false,
   spoiler_text: '',
@@ -128,6 +137,8 @@ export const initialState = ImmutableMap({
   interactionCheck: null,
   is_composing: false,
   is_submitting: false,
+  activeSubmitId: null,
+  draftGeneration: 0,
   is_changing_upload: false,
   is_uploading: false,
   is_processing: false,
@@ -342,6 +353,275 @@ const emptyPostingContext = () => ImmutableMap({
   }),
   protocol: emptyProtocol(),
 });
+
+const mediaIdentity = state => {
+  const media = state.get('media_attachments');
+
+  if (!media || !media.map) {
+    return '';
+  }
+
+  return media.map(item => String(item.get('id'))).join('\u001f');
+};
+
+const mediaDraftIdentity = state => {
+  const media = state.get('media_attachments');
+
+  if (!media || !media.map) {
+    return '';
+  }
+
+  return media.map(item => [
+    String(item.get('id')),
+    item.get('description') || '',
+    String(item.getIn(['meta', 'focus', 'x']) ?? ''),
+    String(item.getIn(['meta', 'focus', 'y']) ?? ''),
+  ].join('\u001e')).join('\u001f');
+};
+
+const pollIdentity = state => {
+  const poll = state.get('poll');
+
+  if (!poll || !poll.get) {
+    return '';
+  }
+
+  const options = poll.get('options');
+
+  return [
+    options && options.join ? options.join('\u001e') : '',
+    poll.get('multiple') ? '1' : '0',
+    String(poll.get('expires_in') ?? ''),
+  ].join('\u001f');
+};
+
+// Everything a create/update would send. A later edit that returns to the same
+// text still changes this once draftGeneration has moved.
+const draftFingerprint = state => {
+  if (!state || !state.get) {
+    return '';
+  }
+
+  const references = state.get('references');
+
+  return [
+    state.get('text') || '',
+    state.get('spoiler') ? '1' : '0',
+    state.get('spoiler_text') || '',
+    state.get('privacy') || '',
+    state.get('language') || '',
+    state.get('sensitive') ? '1' : '0',
+    state.get('searchability') || '',
+    state.get('circle_id') || '',
+    state.get('scheduled') || '',
+    state.get('expires') || '',
+    state.get('expires_action') || '',
+    state.get('in_reply_to') || '',
+    state.get('quote_from') || '',
+    pollIdentity(state),
+    mediaDraftIdentity(state),
+    references && references.join ? references.join('\u001e') : '',
+    postingContextOutputSignature(state),
+  ].join('\u0001');
+};
+
+const submissionSurfaceMatches = (state, submission) => {
+  const current = state.get('surface');
+  const submitted = submission.surface;
+
+  if (!current && !submitted) {
+    return true;
+  }
+
+  if (!current || !submitted || !current.get) {
+    return false;
+  }
+
+  return current.get('kind') === submitted.kind && String(current.get('key')) === String(submitted.key);
+};
+
+// A success may clear this draft only when it is still the draft that was sent.
+const submissionStillCurrent = (state, action) => {
+  const submission = action.submission;
+
+  if (!submission) {
+    return true;
+  }
+
+  if (state.get('consumedSubmissionToken') && state.get('consumedSubmissionToken') === submission.token) {
+    return false;
+  }
+
+  if (submission.instanceId && state.get('instanceId') !== submission.instanceId) {
+    return false;
+  }
+
+  // A style commit advances this even when the sent values stay the same.
+  // A once/keep toggle does not, so that post can still complete.
+  if ((state.getIn(['userPostingStyle', 'selectionGeneration']) || 0) !== (submission.selectionGeneration || 0)) {
+    return false;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(submission, 'draftGeneration') && (state.get('draftGeneration') || 0) !== submission.draftGeneration) {
+    return false;
+  }
+
+  if (submission.token && state.get('idempotencyKey') && state.get('idempotencyKey') !== submission.token) {
+    return false;
+  }
+
+  if ((state.get('text') || '') !== (submission.text || '')) {
+    return false;
+  }
+
+  if (mediaIdentity(state) !== (submission.mediaIds || '')) {
+    return false;
+  }
+
+  if ((state.getIn(['senderIdentity', 'id']) || null) !== (submission.senderIdentityId || null)) {
+    return false;
+  }
+
+  return submissionSurfaceMatches(state, submission);
+};
+
+const rememberConsumedSubmission = (state, action) => {
+  if (!action.submission || !action.submission.token) {
+    return state;
+  }
+
+  return state.set('consumedSubmissionToken', action.submission.token);
+};
+
+const reopenForUsual = state => (
+  restoreUsualSelection(clearStyleManualState(state)).withMutations(map => {
+    map.setIn(['userPostingStyle', 'styleInputLock'], false);
+  })
+);
+
+const reapplyKeptSelection = state => {
+  const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
+  const kind = state.getIn(['userPostingStyle', 'selectionKind']);
+  const next = reapplySelectedStyle(clearStyleManualState(state).withMutations(map => {
+    map.setIn(['userPostingStyle', 'styleInputLock'], false);
+    map.setIn(['userPostingStyle', 'autoAttemptKey'], null);
+  }), { respectManual: false, resetSuppressions: true });
+
+  return next.withMutations(map => {
+    map.setIn(['userPostingStyle', 'usageMode'], usage);
+    if (kind) {
+      map.setIn(['userPostingStyle', 'selectionKind'], kind);
+    }
+  });
+};
+
+const submittedId = action => (action.submission && action.submission.submitId) || action.submitId || null;
+
+// A kept draft must not send again with the key the server already accepted.
+const advanceSpentIdempotencyKey = (state, action) => {
+  const token = action.submission && action.submission.token;
+
+  if (!token || state.get('idempotencyKey') !== token) {
+    return state;
+  }
+
+  return state.set('idempotencyKey', uuid());
+};
+
+// An older request must not drop is_submitting while a newer send is still open.
+const submitTargetsActiveRequest = (state, action) => {
+  const active = state.get('activeSubmitId');
+  const submitted = submittedId(action);
+
+  if (!active || !submitted) {
+    return true;
+  }
+
+  return active === submitted;
+};
+
+const finishSuccessfulSubmit = (state, action) => {
+  if (!submitTargetsActiveRequest(state, action)) {
+    return state;
+  }
+
+  const submission = action.submission;
+
+  if (submission && submission.instanceId && state.get('instanceId') !== submission.instanceId) {
+    return state;
+  }
+
+  if (submission && submission.token && state.get('consumedSubmissionToken') === submission.token) {
+    return state.set('is_submitting', false).set('activeSubmitId', null);
+  }
+
+  if (!submissionStillCurrent(state, action)) {
+    return advanceSpentIdempotencyKey(
+      rememberConsumedSubmission(state.set('is_submitting', false).set('activeSubmitId', null), action),
+      action,
+    );
+  }
+
+  const kind = action.submission && action.submission.kind;
+  const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
+  const cleared = clearAll(state);
+  let next;
+
+  if (kind === 'edit') {
+    next = reapplyKeptSelection(cleared);
+  } else if (usage === 'keep') {
+    next = reapplyKeptSelection(cleared).setIn(['userPostingStyle', 'usageMode'], 'keep');
+  } else if (usage === 'once') {
+    next = reopenForUsual(cleared);
+  } else {
+    next = reapplyKeptSelection(cleared).withMutations(map => {
+      map.setIn(['userPostingStyle', 'revalidateUsual'], true);
+      map.setIn(['userPostingStyle', 'defaultsSettledSurface'], null);
+    });
+  }
+
+  return rememberConsumedSubmission(stripDelegatedSchedule(next).set('activeSubmitId', null), action);
+};
+
+const discardDraftToUsual = state => {
+  const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
+
+  if (usage === 'once' || usage === 'keep') {
+    return reopenForUsual(clearAll(state));
+  }
+
+  if (state.get('id')) {
+    return reapplyKeptSelection(clearAll(state));
+  }
+
+  return reapplySelectedStyle(state.withMutations(map => {
+    map.set('in_reply_to', null);
+    map.set('quote_from', null);
+    map.set('quote_from_url', null);
+    map.set('reply_status', null);
+    map.set('text', '');
+    map.set('spoiler', false);
+    map.set('spoiler_text', '');
+    map.set('privacy', state.get('default_privacy'));
+    map.set('searchability', effectiveSearchability(state.get('default_privacy'), state.get('default_searchability')));
+    clearSearchabilityOverride(map);
+    map.set('language', state.get('default_language'));
+    map.set('circle_id', null);
+    map.set('poll', null);
+    map.set('idempotencyKey', uuid());
+    map.set('dirty', false);
+    map.set('datetime_form', null);
+    map.set('default_expires', state.get('default_expires_in') ? true : null);
+    map.set('scheduled', null);
+    map.set('expires', state.get('default_expires_in', null));
+    map.set('expires_action', state.get('default_expires_action', 'mark'));
+    map.update('context_references', set => set.clear());
+    map.update('references', set => set.clear());
+    clearScheduledDraftProvenance(map);
+    clearManagedHashtagSuppressions(map);
+    noteInteractionTarget(map);
+  }), { respectManual: true, resetSuppressions: false });
+};
 
 const clearScheduledDraftProvenance = map => {
   map.set('scheduled_status_id', null);
@@ -1109,7 +1389,7 @@ const reduceSurfaceContext = (state, action) => {
   });
 };
 
-export default function composer(state = initialState, action) {
+function reduceComposer(state = initialState, action) {
   switch(action.type) {
   case USER_PREFERENCES_DOCUMENT_ACCEPTED:
     return applyComposerPreferenceDefaults(state, action.document);
@@ -1165,6 +1445,60 @@ export default function composer(state = initialState, action) {
     return beginStyleDestinationRetry(state);
   case USER_POSTING_STYLE_HASHTAG_TOGGLE:
     return toggleStyleHashtag(state, action);
+  case USER_POSTING_STYLE_USAGE: {
+    const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
+
+    if ((action.usageMode !== 'once' && action.usageMode !== 'keep') || (usage !== 'once' && usage !== 'keep') || isExistingPostEdit(state)) {
+      return state;
+    }
+
+    // The choice of style is unchanged. Leave selectionGeneration so the
+    // in-flight post can finish under the mode selected here.
+    return state.setIn(['userPostingStyle', 'usageMode'], action.usageMode);
+  }
+  case USER_POSTING_STYLE_RESOLUTION: {
+    const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
+
+    if (!action.explicit && usage !== 'usual' && action.selectionKind) {
+      return state;
+    }
+
+    return state.withMutations(map => {
+      if (action.resolutionRequired === true) {
+        map.setIn(['userPostingStyle', 'resolutionRequired'], true);
+      }
+
+      if (action.explicit && action.usageMode === 'usual') {
+        map.setIn(['userPostingStyle', 'usageMode'], 'usual');
+        map.updateIn(['userPostingStyle', 'selectionGeneration'], generation => (generation || 0) + 1);
+      }
+
+      if (action.selectionKind) {
+        map.setIn(['userPostingStyle', 'selectionKind'], action.selectionKind);
+      }
+
+      if (action.resolutionScope !== undefined) {
+        map.setIn(['userPostingStyle', 'resolutionScope'], action.resolutionScope);
+      }
+
+      if (action.resolvingUsual === true) {
+        map.setIn(['userPostingStyle', 'resolvingUsual'], true);
+      }
+
+      if (action.resolvingUsual === false) {
+        map.setIn(['userPostingStyle', 'resolvingUsual'], false);
+      }
+
+      if (action.revalidateUsual === false) {
+        map.setIn(['userPostingStyle', 'revalidateUsual'], false);
+      }
+
+      if (action.clearSettled) {
+        map.setIn(['userPostingStyle', 'defaultsSettledSurface'], null);
+        map.setIn(['userPostingStyle', 'revalidateUsual'], true);
+      }
+    });
+  }
   case COMPOSER_CONTEXT_HASHTAG_TOGGLE: {
     if (isExistingPostEdit(state)) {
       return state;
@@ -1371,10 +1705,11 @@ export default function composer(state = initialState, action) {
     });
   case COMPOSE_EDIT_CANCEL:
     return reapplySelectedStyle(clearStyleManualState(clearAll(state)), { respectManual: false, resetSuppressions: true });
+  case COMPOSE_RESET:
+    return discardDraftToUsual(state);
   case COMPOSE_REPLY_CANCEL:
   case COMPOSE_QUOTE_CANCEL:
   case COMPOSE_SCHEDULED_EDIT_CANCEL:
-  case COMPOSE_RESET:
     if (state.get('id')) {
       return reapplySelectedStyle(clearStyleManualState(clearAll(state)), { respectManual: false, resetSuppressions: true });
     }
@@ -1415,17 +1750,18 @@ export default function composer(state = initialState, action) {
   case COMPOSER_INTERACTION_CHECK_FAIL:
     return acceptInteractionCheck(state, action, 'denied');
   case COMPOSE_SUBMIT_REQUEST:
-    return state.set('is_submitting', true);
+    return state.set('is_submitting', true).set('activeSubmitId', action.submitId || null);
   case COMPOSE_UPLOAD_CHANGE_REQUEST:
     return state.set('is_changing_upload', true);
   case COMPOSE_SUBMIT_SUCCESS:
   case SCHEDULED_STATUS_SUBMIT_SUCCESS:
-    return stripDelegatedSchedule(reapplySelectedStyle(clearStyleManualState(clearAll(state)).withMutations(map => {
-      map.setIn(['userPostingStyle', 'styleInputLock'], false);
-      map.setIn(['userPostingStyle', 'autoAttemptKey'], null);
-    }), { respectManual: false, resetSuppressions: true }));
+    return finishSuccessfulSubmit(state, action);
   case COMPOSE_SUBMIT_FAIL:
-    return state.set('is_submitting', false);
+    if (!submitTargetsActiveRequest(state, action)) {
+      return state;
+    }
+
+    return state.set('is_submitting', false).set('activeSubmitId', null);
   case COMPOSE_UPLOAD_CHANGE_FAIL:
     return state.set('is_changing_upload', false);
   case COMPOSE_UPLOAD_REQUEST: {
@@ -1711,18 +2047,40 @@ export default function composer(state = initialState, action) {
   case COMPOSE_POLL_ADD:
     return state.withMutations(map => {
       map.set('poll', initialPoll);
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
       notePortableDraftInput(map);
     });
   case COMPOSE_POLL_REMOVE:
-    return state.set('poll', null);
+    return state.withMutations(map => {
+      map.set('poll', null);
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+    });
   case COMPOSE_POLL_OPTION_ADD:
-    return state.updateIn(['poll', 'options'], options => options.push(action.title));
+    return state.withMutations(map => {
+      map.updateIn(['poll', 'options'], options => options.push(action.title));
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+    });
   case COMPOSE_POLL_OPTION_CHANGE:
-    return state.setIn(['poll', 'options', action.index], action.title);
+    return state.withMutations(map => {
+      map.setIn(['poll', 'options', action.index], action.title);
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+    });
   case COMPOSE_POLL_OPTION_REMOVE:
-    return state.updateIn(['poll', 'options'], options => options.delete(action.index));
+    return state.withMutations(map => {
+      map.updateIn(['poll', 'options'], options => options.delete(action.index));
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+    });
   case COMPOSE_POLL_SETTINGS_CHANGE:
-    return state.update('poll', poll => poll.set('expires_in', action.expiresIn).set('multiple', action.isMultiple));
+    return state.withMutations(map => {
+      map.update('poll', poll => poll.set('expires_in', action.expiresIn).set('multiple', action.isMultiple));
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+    });
   case COMPOSE_LANGUAGE_CHANGE:
     return state.withMutations(map => {
       map.set('language', action.language);
@@ -1838,4 +2196,14 @@ export default function composer(state = initialState, action) {
   default:
     return state;
   }
-};
+}
+
+export default function composer(state = initialState, action) {
+  const next = reduceComposer(state, action);
+
+  if (!next || next === state || draftFingerprint(next) === draftFingerprint(state)) {
+    return next;
+  }
+
+  return next.set('draftGeneration', (state.get('draftGeneration') || 0) + 1);
+}

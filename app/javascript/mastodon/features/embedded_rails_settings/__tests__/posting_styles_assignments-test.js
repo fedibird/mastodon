@@ -156,7 +156,9 @@ it.each(['GET', 'failed GET', 'write', 'failed write'])('does not resurrect a st
   expect(document.querySelectorAll('.compose-form__style-default-mark')).toHaveLength(0);
   expect(composerAt(store, first)).toBe(before[0]);
   expect(composerAt(store, second)).toBe(before[1]);
-  if (kind.includes('write')) expect(get.mock.calls.filter(([path]) => path.includes('user_posting_context_assignments'))).toHaveLength(3);
+  if (kind.includes('write')) {
+    expect(get.mock.calls.filter(([path, options]) => path.includes('user_posting_context_assignments') && (!options || !options.params || options.params.surface_kind !== 'global'))).toHaveLength(3);
+  }
   await act(async () => {
     store.dispatch(createComposer(fresh));
     store.dispatch(applyComposerSurface(fresh, surface, groupPostingContext, '123'));
@@ -249,7 +251,8 @@ it('invalidates 500 cached places but fetches only one mounted surface, then laz
   await act(async () => {
     await store.dispatch(refreshUserPostingContextAssignments());
   });
-  expect(get).toHaveBeenCalledTimes(1); // both mounted controllers share group:123
+  expect(get.mock.calls.filter(([, options]) => options && options.params && options.params.surface_kind !== 'global')).toHaveLength(1);
+  expect(get.mock.calls.filter(([, options]) => options && options.params && options.params.surface_kind === 'global')).toHaveLength(1);
   const closed = store.getState().getIn(['userPostingContextAssignments', 'bySurface', 'group:1000']);
   expect(closed.get('status')).toBe('idle');
   expect(closed.get('styleId')).toBeNull();
@@ -259,8 +262,7 @@ it('invalidates 500 cached places but fetches only one mounted surface, then laz
     store.dispatch(applyComposerSurface(fresh, { kind: 'group', key: '1000' }, groupPostingContext, '1000'));
     view.rerender(<Panels store={store} ids={[first, second, fresh]} />);
   });
-  expect(get).toHaveBeenCalledTimes(2);
-  expect(get.mock.calls[1][1].params.surface_key).toBe('1000');
+  expect(get.mock.calls.filter(([, options]) => options && options.params && options.params.surface_key === '1000')).toHaveLength(1);
   expect(composerAt(store, fresh).getIn(['userPostingStyle', 'selectedId'])).toBeNull();
   expect(composerAt(store, fresh).getIn(['userPostingStyle', 'defaultsSettledSurface'])).toBe('group:1000');
   await act(async () => {
@@ -271,10 +273,12 @@ it('invalidates 500 cached places but fetches only one mounted surface, then laz
   await act(async () => {
     await store.dispatch(refreshUserPostingContextAssignments());
   });
-  expect(get).toHaveBeenCalledTimes(1); // unmounting one of two consumers does not forget the remaining one
+  expect(get.mock.calls.filter(([, options]) => options && options.params && options.params.surface_kind !== 'global')).toHaveLength(1);
+  expect(get.mock.calls.filter(([, options]) => options && options.params && options.params.surface_kind === 'global')).toHaveLength(1);
   view.unmount();
   get.mockClear();
   expect(store.getState().getIn(['userPostingContextAssignments', 'mountedSurfaces']).size).toBe(0);
   await store.dispatch(refreshUserPostingContextAssignments());
-  expect(get).not.toHaveBeenCalled();
+  expect(get.mock.calls.filter(([, options]) => !options || !options.params || options.params.surface_kind !== 'global')).toHaveLength(0);
+  expect(get.mock.calls.filter(([, options]) => options && options.params && options.params.surface_kind === 'global')).toHaveLength(1);
 });

@@ -26,7 +26,7 @@ class Settings::UserPostingContextAssignmentsController < Settings::BaseControll
   end
 
   def change_assignment(operation, notice_key)
-    assignment = current_user.user_posting_context_assignments.find(params[:id])
+    assignment = current_user.user_posting_context_assignments.places.find(params[:id])
     if operation == :release!
       assignment.release!(params[:lock_version])
     else
@@ -41,7 +41,7 @@ class Settings::UserPostingContextAssignmentsController < Settings::BaseControll
 
   def prepare_index
     @filter_style = filter_style
-    scope = current_user.user_posting_context_assignments.includes(:user_posting_context).order(:surface_kind, :surface_key, :id)
+    scope = current_user.user_posting_context_assignments.places.includes(:user_posting_context).order(:surface_kind, :surface_key, :id)
     scope = scope.where(user_posting_context_id: @filter_style.id) if @filter_style
     @assignments = scope.page(params[:page]).per(PER_PAGE)
     @places = UserPostingContextAssignment::PlaceCatalog.for(current_user, @assignments)

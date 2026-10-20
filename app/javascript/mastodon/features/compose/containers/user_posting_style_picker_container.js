@@ -5,10 +5,11 @@ import { injectIntl, defineMessages } from 'react-intl';
 import { List as ImmutableList } from 'immutable';
 import { openModal } from '../../../actions/modal';
 import { fetchUserPostingContextAssignment, resetGuardedPlaceDefault, saveGuardedPlaceDefault } from '../../../actions/user_posting_context_assignments';
-import { commitUserPostingStyle, fetchUserPostingStyles, retryUserPostingStyleDestination } from '../../../actions/user_posting_styles';
+import { commitUserPostingStyle, fetchUserPostingStyles, readUsualDecision, retryUsualResolution, retryUserPostingStyleDestination, returnToUsualSelection, saveCurrentStyleAsUsual, setPostingStyleUsage } from '../../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../../../posting_context/compliance';
 import { placeDefaultWriteSurface, selectPortablePostingStyleCandidates, styleMatchesSurface, surfaceCacheKey } from '../../../posting_context/surface';
 import { resolveUserPostingStyle } from '../../../posting_context/user_style_resolver';
+import { postingStyleBlocksNewPost } from '../../../posting_context/usual_selection';
 import { PORTABLE_COMPOSER_MODE_SIMPLE, selectComposer, selectPortableComposerDisplayMode } from '../../../selectors/composer';
 import { isAdministrator, showComposerPostingStyleSelector } from '../../../initial_state';
 import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
@@ -33,13 +34,17 @@ const findStyle = (state, styleId) => {
 const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
 
-  if (!isAdministrator || showComposerPostingStyleSelector === false) {
+  const selectorHidden = showComposerPostingStyleSelector === false;
+  const recoveryOnly = Boolean(selectorHidden && postingStyleBlocksNewPost(composer));
+
+  if (!isAdministrator || (selectorHidden && !recoveryOnly)) {
     return {
       visible: false,
       catalogFailed: false,
       catalogLoading: false,
       styles: ImmutableList(),
       stylePermitted: false,
+      recoveryOnly: false,
     };
   }
 
@@ -52,8 +57,8 @@ const mapStateToProps = (state, { composerId }) => {
   const catalogFailed = eligible && catalogStatus === 'failed' && !visible;
   const catalogLoading = eligible && !visible && !catalogFailed;
 
-  if (!composer || (!visible && !catalogFailed && !catalogLoading)) {
-    return { visible: false, catalogFailed: false, catalogLoading: false, styles: ImmutableList() };
+  if (!composer || (!recoveryOnly && !visible && !catalogFailed && !catalogLoading)) {
+    return { visible: false, catalogFailed: false, catalogLoading: false, styles: ImmutableList(), recoveryOnly: false };
   }
 
   const compliance = selectComposerPostingContextCompliance(state, composerId);
@@ -91,12 +96,26 @@ const mapStateToProps = (state, { composerId }) => {
     assignmentStyleId: assignment ? assignment.get('styleId') : null,
     assignmentFailure: assignment ? assignment.get('failure') : null,
     defaultsBlocked: portable && !placeDefaultWriteSurface(composer),
-    showStyleControls: showComposerPostingStyleSelector !== false && visible && !catalogFailed,
+    showStyleControls: !selectorHidden && visible && !catalogFailed,
+    recoveryOnly,
     customEmojis: state.get('custom_emojis') || ImmutableList(),
     placeLabel: (composer.getIn(['userPostingStyle', 'snapshot', 'target', 'label']))
       || (composer.getIn(['context', 'protocol', 'activityPub', 'audience', 'acct']))
       || (surface ? String(surface.get('key') || '') : '')
       || null,
+    usageMode: composer.getIn(['userPostingStyle', 'usageMode']) || 'usual',
+    selectionKind: composer.getIn(['userPostingStyle', 'selectionKind']) || 'pending',
+    resolvingUsual: composer.getIn(['userPostingStyle', 'resolvingUsual']) === true,
+    resolutionPhase: (readUsualDecision(state, composerId) || {}).phase || null,
+    resolutionScope: (readUsualDecision(state, composerId) || {}).scope || null,
+    returnStyleName: (() => {
+      const decision = readUsualDecision(state, composerId);
+      return decision && decision.style && decision.style.get ? (decision.style.get('name') || null) : null;
+    })(),
+    recoveryStyleId: (() => {
+      const decision = readUsualDecision(state, composerId);
+      return decision && decision.phase === 'style' && decision.style && decision.style.get ? decision.style.get('id') : null;
+    })(),
   };
 };
 
@@ -163,12 +182,49 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
         dispatch(fetchUserPostingContextAssignment({ kind: surface.get('kind'), key: surface.get('key') }, { force: true }));
       });
     },
+    onSetUsage (usageMode) {
+      dispatch(setPostingStyleUsage(composerId, usageMode));
+    },
+    onReturnToUsual () {
+      dispatch((dispatchGet) => {
+        const result = dispatchGet(returnToUsualSelection(composerId));
+
+        if (!result || result.status !== 'confirm') {
+          return;
+        }
+
+        dispatchGet(openModal('CONFIRM', {
+          message: intl.formatMessage(messages.confirmMessage),
+          confirm: intl.formatMessage(messages.confirm),
+          onConfirm: () => dispatchGet(returnToUsualSelection(composerId, { confirmed: true })),
+        }));
+      });
+    },
+    onSaveUsual () {
+      dispatch(saveCurrentStyleAsUsual(composerId));
+    },
+    onRetryResolution () {
+      dispatch(retryUsualResolution(composerId));
+    },
   };
 };
 
-const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog, contextDetails, header, stylePermitted, ...props }) => {
+const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog, contextDetails, header, stylePermitted, recoveryOnly, ...props }) => {
   if (stylePermitted === false) {
     return null;
+  }
+
+  if (recoveryOnly) {
+    return (
+      <UserPostingStylePicker
+        {...props}
+        header
+        recoveryOnly
+        catalogFailed={catalogFailed}
+        catalogLoading={catalogLoading}
+        onRetryCatalog={onRetryCatalog}
+      />
+    );
   }
 
   if (header && (visible || catalogFailed || catalogLoading)) {
@@ -208,6 +264,7 @@ VisiblePicker.propTypes = {
   contextDetails: PropTypes.node,
   header: PropTypes.bool,
   stylePermitted: PropTypes.bool,
+  recoveryOnly: PropTypes.bool,
 };
 
 export default withComposerId(injectIntl(connect(mapStateToProps, mapDispatchToProps)(VisiblePicker)));
