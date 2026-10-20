@@ -5,7 +5,7 @@ import { injectIntl, defineMessages } from 'react-intl';
 import { List as ImmutableList } from 'immutable';
 import { openModal } from '../../../actions/modal';
 import { fetchUserPostingContextAssignment, resetGuardedPlaceDefault, saveGuardedPlaceDefault } from '../../../actions/user_posting_context_assignments';
-import { commitUserPostingStyle, fetchUserPostingStyles, retryUserPostingStyleDestination } from '../../../actions/user_posting_styles';
+import { commitUserPostingStyle, fetchUserPostingStyles, readUsualDecision, retryUsualResolution, retryUserPostingStyleDestination, returnToUsualSelection, saveCurrentStyleAsUsual, setPostingStyleUsage } from '../../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../../../posting_context/compliance';
 import { placeDefaultWriteSurface, selectPortablePostingStyleCandidates, styleMatchesSurface, surfaceCacheKey } from '../../../posting_context/surface';
 import { resolveUserPostingStyle } from '../../../posting_context/user_style_resolver';
@@ -97,6 +97,15 @@ const mapStateToProps = (state, { composerId }) => {
       || (composer.getIn(['context', 'protocol', 'activityPub', 'audience', 'acct']))
       || (surface ? String(surface.get('key') || '') : '')
       || null,
+    usageMode: composer.getIn(['userPostingStyle', 'usageMode']) || 'usual',
+    selectionKind: composer.getIn(['userPostingStyle', 'selectionKind']) || 'pending',
+    resolvingUsual: composer.getIn(['userPostingStyle', 'resolvingUsual']) === true,
+    resolutionPhase: (readUsualDecision(state, composerId) || {}).phase || null,
+    resolutionScope: (readUsualDecision(state, composerId) || {}).scope || null,
+    returnStyleName: (() => {
+      const decision = readUsualDecision(state, composerId);
+      return decision && decision.style && decision.style.get ? (decision.style.get('name') || null) : null;
+    })(),
   };
 };
 
@@ -162,6 +171,30 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
 
         dispatch(fetchUserPostingContextAssignment({ kind: surface.get('kind'), key: surface.get('key') }, { force: true }));
       });
+    },
+    onSetUsage (usageMode) {
+      dispatch(setPostingStyleUsage(composerId, usageMode));
+    },
+    onReturnToUsual () {
+      dispatch((dispatchGet) => {
+        const result = dispatchGet(returnToUsualSelection(composerId));
+
+        if (!result || result.status !== 'confirm') {
+          return;
+        }
+
+        dispatchGet(openModal('CONFIRM', {
+          message: intl.formatMessage(messages.confirmMessage),
+          confirm: intl.formatMessage(messages.confirm),
+          onConfirm: () => dispatchGet(returnToUsualSelection(composerId, { confirmed: true })),
+        }));
+      });
+    },
+    onSaveUsual () {
+      dispatch(saveCurrentStyleAsUsual(composerId));
+    },
+    onRetryResolution () {
+      dispatch(retryUsualResolution(composerId));
     },
   };
 };

@@ -229,6 +229,12 @@ export function lockedStyleViolatesComposer(composer, style) {
 }
 
 const selectionBlocksAuto = composer => {
+  const usage = composer.getIn(['userPostingStyle', 'usageMode']);
+
+  if (usage === 'once' || usage === 'keep') {
+    return true;
+  }
+
   const origin = composer.getIn(['userPostingStyle', 'selectionOrigin']);
 
   return origin === 'automatic' || origin === 'manual' || origin === 'none' || origin === 'saved_default';

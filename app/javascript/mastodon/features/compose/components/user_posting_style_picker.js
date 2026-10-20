@@ -49,6 +49,21 @@ const messages = defineMessages({
   fieldSensitive: { id: 'compose_form.posting_style.field.sensitive', defaultMessage: 'sensitive media' },
   fieldDestination: { id: 'compose_form.posting_style.field.destination', defaultMessage: 'destination' },
   once: { id: 'compose_form.posting_style.once', defaultMessage: 'Only for this post' },
+  usageOnce: { id: 'compose_form.posting_style.usage_once', defaultMessage: 'Only for this post. After posting, returns to {target}.' },
+  usageKeep: { id: 'compose_form.posting_style.usage_keep', defaultMessage: 'Keep using this choice after posting.' },
+  keepAction: { id: 'compose_form.posting_style.usage_keep_action', defaultMessage: 'Keep using' },
+  onceAction: { id: 'compose_form.posting_style.usage_once_action', defaultMessage: 'Only this post' },
+  returnUsual: { id: 'compose_form.posting_style.return_usual', defaultMessage: 'Return to the usual style' },
+  saveUsual: { id: 'compose_form.posting_style.save_usual', defaultMessage: 'Set as usual style' },
+  returnPlace: { id: 'compose_form.posting_style.return_place', defaultMessage: 'This place’s default: {target}' },
+  returnDedicated: { id: 'compose_form.posting_style.return_dedicated', defaultMessage: 'The style for this place: {target}' },
+  returnGlobal: { id: 'compose_form.posting_style.return_global', defaultMessage: 'Usual style: {target}' },
+  returnNone: { id: 'compose_form.posting_style.return_none', defaultMessage: 'No style' },
+  resolving: { id: 'compose_form.posting_style.resolving', defaultMessage: 'Checking the usual style' },
+  resolveFailed: { id: 'compose_form.posting_style.resolve_failed', defaultMessage: 'Couldn’t load the usual style.' },
+  resolveRetry: { id: 'compose_form.posting_style.resolve_retry', defaultMessage: 'Retry loading the usual style' },
+  usualUnavailable: { id: 'compose_form.posting_style.usual_unavailable', defaultMessage: 'The usual style isn’t available' },
+  placeUnavailable: { id: 'compose_form.posting_style.place_unavailable', defaultMessage: 'The saved style for this place isn’t available' },
   context: { id: 'compose_form.posting_style.context', defaultMessage: 'Posting destination' },
   selected: { id: 'compose_form.posting_style.selected', defaultMessage: 'Selected' },
 });
@@ -131,6 +146,16 @@ class UserPostingStylePicker extends React.PureComponent {
     catalogRefreshFailed: PropTypes.bool,
     catalogLoading: PropTypes.bool,
     onRetryCatalog: PropTypes.func,
+    usageMode: PropTypes.string,
+    selectionKind: PropTypes.string,
+    resolvingUsual: PropTypes.bool,
+    resolutionPhase: PropTypes.string,
+    resolutionScope: PropTypes.string,
+    returnStyleName: PropTypes.string,
+    onSetUsage: PropTypes.func,
+    onReturnToUsual: PropTypes.func,
+    onSaveUsual: PropTypes.func,
+    onRetryResolution: PropTypes.func,
   };
 
   state = {
@@ -303,6 +328,18 @@ class UserPostingStylePicker extends React.PureComponent {
     }
 
     onUseNoStyle();
+  };
+
+  handleKeepUsage = () => {
+    if (this.props.onSetUsage) {
+      this.props.onSetUsage('keep');
+    }
+  };
+
+  handleOnceUsage = () => {
+    if (this.props.onSetUsage) {
+      this.props.onSetUsage('once');
+    }
   };
 
   handleResetDefault = () => {
@@ -553,6 +590,114 @@ class UserPostingStylePicker extends React.PureComponent {
     return notices;
   }
 
+  returnTargetText () {
+    const { intl, resolutionPhase, resolutionScope, returnStyleName } = this.props;
+
+    if (!resolutionPhase || resolutionPhase === 'pending' || resolutionPhase === 'failed') {
+      return null;
+    }
+
+    if (resolutionPhase === 'unavailable') {
+      return intl.formatMessage(resolutionScope === 'place' ? messages.placeUnavailable : messages.usualUnavailable);
+    }
+
+    const target = returnStyleName || intl.formatMessage(messages.returnNone);
+
+    if (resolutionScope === 'place') {
+      return intl.formatMessage(messages.returnPlace, { target });
+    }
+
+    if (resolutionScope === 'dedicated') {
+      return intl.formatMessage(messages.returnDedicated, { target });
+    }
+
+    if (resolutionScope === 'global' || resolutionScope === 'global_unfit') {
+      return intl.formatMessage(messages.returnGlobal, { target });
+    }
+
+    return target;
+  }
+
+  renderUsageStatus () {
+    const { intl, usageMode, resolutionPhase, resolvingUsual } = this.props;
+
+    if (resolutionPhase === undefined && !this.props.onSetUsage && !this.props.onReturnToUsual && !this.props.onRetryResolution) {
+      return null;
+    }
+
+    let text = null;
+
+    if (resolutionPhase === 'failed') {
+      text = intl.formatMessage(messages.resolveFailed);
+    } else if (resolutionPhase === 'pending' || resolvingUsual) {
+      text = intl.formatMessage(messages.resolving);
+    } else if (usageMode === 'once') {
+      text = intl.formatMessage(messages.usageOnce, { target: this.returnTargetText() || intl.formatMessage(messages.returnNone) });
+    } else if (usageMode === 'keep') {
+      text = intl.formatMessage(messages.usageKeep);
+    } else {
+      text = this.returnTargetText();
+    }
+
+    if (!text) {
+      return null;
+    }
+
+    return <p className='compose-form__style-usage'>{text}</p>;
+  }
+
+  renderUsageActions () {
+    const { intl, usageMode, selectionKind, onSetUsage, onReturnToUsual, onSaveUsual, onRetryResolution, resolutionPhase } = this.props;
+
+    if (!onSetUsage && !onReturnToUsual && !onSaveUsual && !onRetryResolution) {
+      return null;
+    }
+
+    const actions = [];
+
+    if (resolutionPhase === 'failed' && onRetryResolution) {
+      actions.push(
+        <button type='button' className='compose-form__style-retry' key='retry' onClick={onRetryResolution}>
+          {intl.formatMessage(messages.resolveRetry)}
+        </button>,
+      );
+    }
+
+    if ((usageMode === 'once' || usageMode === 'keep') && onSetUsage) {
+      actions.push(usageMode === 'once' ? (
+        <button type='button' className='compose-form__style-retry' key='keep' onClick={this.handleKeepUsage}>
+          {intl.formatMessage(messages.keepAction)}
+        </button>
+      ) : (
+        <button type='button' className='compose-form__style-retry' key='once' onClick={this.handleOnceUsage}>
+          {intl.formatMessage(messages.onceAction)}
+        </button>
+      ));
+    }
+
+    if ((usageMode === 'once' || usageMode === 'keep') && onReturnToUsual) {
+      actions.push(
+        <button type='button' className='compose-form__style-retry' key='return' onClick={onReturnToUsual}>
+          {intl.formatMessage(messages.returnUsual)}
+        </button>,
+      );
+    }
+
+    if (onSaveUsual && (selectionKind === 'style' || selectionKind === 'none')) {
+      actions.push(
+        <button type='button' className='compose-form__style-retry' key='save' onClick={onSaveUsual}>
+          {intl.formatMessage(messages.saveUsual)}
+        </button>,
+      );
+    }
+
+    if (actions.length === 0) {
+      return null;
+    }
+
+    return <div className='compose-form__style-usage-actions'>{actions}</div>;
+  }
+
   renderNotices () {
     const { intl, destinationStatus, onRetry } = this.props;
     const notices = this.collectNotices();
@@ -626,6 +771,7 @@ class UserPostingStylePicker extends React.PureComponent {
         ) : null}
         {catalogPending ? <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogLoading)}</p> : null}
         {this.renderNotices()}
+        {this.renderUsageActions()}
         {contextDetails ? (
           <React.Fragment>
             <div className='compose-form__style-separator' />
@@ -695,6 +841,7 @@ class UserPostingStylePicker extends React.PureComponent {
           </span>
         ) : null}
         {defaultActions}
+        {controls ? this.renderUsageStatus() : null}
         {this.renderStyleOverlay(controls, catalogProblem, catalogPending, contextDetails)}
       </div>
     );
@@ -730,6 +877,7 @@ class UserPostingStylePicker extends React.PureComponent {
           {compact ? <span className='compose-form__style-caret' aria-hidden='true'>▾</span> : null}
         </button>
         {label ? <div className='compose-form__style-current-destination'>{intl.formatMessage(messages.destination, { label })}</div> : null}
+        {this.renderUsageStatus()}
         {defaultActions}
         {this.state.open ? null : this.renderNotices()}
         {this.renderStyleOverlay(true, this.props.catalogRefreshFailed, false, null)}

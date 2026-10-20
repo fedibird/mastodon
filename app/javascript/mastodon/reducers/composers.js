@@ -3,7 +3,7 @@ import { COMPOSER_CREATE, COMPOSER_DESTROY } from '../actions/composer';
 import { USER_PREFERENCES_DOCUMENT_ACCEPTED } from '../actions/user_preferences';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
-import composer, { hydrateComposer, initialState as initialComposerState } from './composer';
+import composer, { allocateComposerInstanceId, hydrateComposer, initialState as initialComposerState } from './composer';
 
 const initialState = ImmutableMap({
   byId: ImmutableMap(),
@@ -31,7 +31,7 @@ export default function composers(state = initialState, action) {
       )
       : initialComposerState;
 
-    return state.setIn(['byId', composerId], composerState);
+    return state.setIn(['byId', composerId], composerState.set('instanceId', allocateComposerInstanceId()));
   }
   case COMPOSER_DESTROY:
     if (!isValidPortableComposerId(composerId) || !state.hasIn(['byId', composerId])) {

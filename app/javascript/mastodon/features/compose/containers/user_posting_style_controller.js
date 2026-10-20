@@ -1,8 +1,9 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
-import { fetchUserPostingContextAssignment, registerAssignmentConsumer, unregisterAssignmentConsumer } from '../../../actions/user_posting_context_assignments';
-import { fetchUserPostingStyles, maybeAutoSelectPortablePostingStyle, resolveUserPostingStyleDestination } from '../../../actions/user_posting_styles';
+import { fetchGlobalUsualStyle, fetchUserPostingContextAssignment, registerAssignmentConsumer, unregisterAssignmentConsumer } from '../../../actions/user_posting_context_assignments';
+import { fetchUserPostingStyles, resolveUserPostingStyleDestination, settleUsualSelection, USER_POSTING_STYLE_RESOLUTION } from '../../../actions/user_posting_styles';
+import { targetComposerAction } from '../../../actions/composer';
 import { isAdministrator } from '../../../initial_state';
 import { portablePostingContextReady, surfaceCacheKey } from '../../../posting_context/surface';
 import { selectComposer } from '../../../selectors/composer';
@@ -29,6 +30,12 @@ const mapStateToProps = (state, { composerId }) => {
     styleCount: state.getIn(['userPostingStyles', 'styles']) ? state.getIn(['userPostingStyles', 'styles']).size : 0,
     selectionOrigin: composer ? composer.getIn(['userPostingStyle', 'selectionOrigin']) : null,
     styleInputLock: composer ? composer.getIn(['userPostingStyle', 'styleInputLock']) : false,
+    globalStatus: state.getIn(['userPostingContextAssignments', 'global', 'status']) || 'idle',
+    globalAssignmentStatus: state.getIn(['userPostingContextAssignments', 'global', 'assignmentStatus']) || null,
+    globalStyleId: state.getIn(['userPostingContextAssignments', 'global', 'styleId']) || null,
+    revalidateUsual: Boolean(composer && composer.getIn(['userPostingStyle', 'revalidateUsual'])),
+    defaultsSettledSurface: composer ? composer.getIn(['userPostingStyle', 'defaultsSettledSurface']) : null,
+    resolutionRequired: Boolean(composer && composer.getIn(['userPostingStyle', 'resolutionRequired'])),
     surfaceKind: surface ? surface.get('kind') : null,
     surfaceKey: surface ? String(surface.get('key')) : null,
     contextKey: composer ? composer.getIn(['context', 'key']) : null,
@@ -48,6 +55,7 @@ class UserPostingStyleController extends React.PureComponent {
     surfaceKind: PropTypes.string,
     surfaceKey: PropTypes.string,
     postingContextReady: PropTypes.bool,
+    resolutionRequired: PropTypes.bool,
     dispatch: PropTypes.func.isRequired,
     composerId: PropTypes.string,
   };
@@ -56,17 +64,21 @@ class UserPostingStyleController extends React.PureComponent {
 
   componentDidMount () {
     this.syncAssignmentConsumer();
+    this.markResolutionRequired();
     this.fetchStyles();
     this.fetchAssignment();
+    this.fetchUsual();
     this.resolveIfNeeded();
-    this.autoSelectIfNeeded();
+    this.settleIfNeeded();
   }
 
   componentDidUpdate () {
     this.syncAssignmentConsumer();
+    this.markResolutionRequired();
     this.fetchAssignment();
+    this.fetchUsual();
     this.resolveIfNeeded();
-    this.autoSelectIfNeeded();
+    this.settleIfNeeded();
   }
 
   componentWillUnmount () {
@@ -95,6 +107,25 @@ class UserPostingStyleController extends React.PureComponent {
     }
   }
 
+  fetchUsual () {
+    if (this.props.active && isAdministrator) {
+      this.props.dispatch(fetchGlobalUsualStyle());
+    }
+  }
+
+  markResolutionRequired () {
+    const { active, composerId, resolutionRequired, dispatch } = this.props;
+
+    if (!active || !isAdministrator || !composerId || resolutionRequired) {
+      return;
+    }
+
+    dispatch(targetComposerAction({
+      type: USER_POSTING_STYLE_RESOLUTION,
+      resolutionRequired: true,
+    }, composerId));
+  }
+
   resolveIfNeeded () {
     if (!this.props.active || this.props.destinationLocked || this.props.destinationStatus !== 'needs_resolve') {
       return;
@@ -103,14 +134,14 @@ class UserPostingStyleController extends React.PureComponent {
     this.props.dispatch(resolveUserPostingStyleDestination(this.props.composerId));
   }
 
-  autoSelectIfNeeded () {
-    const { portable, catalogStatus, assignmentFetchStatus, postingContextReady, composerId, dispatch } = this.props;
+  settleIfNeeded () {
+    const { active, composerId, dispatch } = this.props;
 
-    if (!portable || !isAdministrator || catalogStatus !== 'ready' || assignmentFetchStatus !== 'ready' || !postingContextReady || !composerId) {
+    if (!active || !isAdministrator || !composerId) {
       return;
     }
 
-    dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+    dispatch(settleUsualSelection(composerId));
   }
 
   render () {

@@ -583,6 +583,24 @@ body > [data-popper-placement] {
       font-size: 13px;
     }
 
+    &-usage,
+    &-usage-actions {
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+
+    &-usage {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    &-usage-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
     &-button,
     &-option,
     &-settings {

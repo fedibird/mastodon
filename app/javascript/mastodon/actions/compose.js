@@ -568,6 +568,15 @@ export function submitComposer(composerId, routerHistory) {
     }
 
     const willSchedule = !editing && !!(scheduled_in || scheduled_at);
+    let submissionKind = 'new';
+
+    if (editing) {
+      submissionKind = 'edit';
+    } else if (willSchedule) {
+      submissionKind = 'schedule';
+    }
+
+    const submission = submissionSnapshot(latestComposer, submissionKind);
     const immediateSnapshot = (!editing && !willSchedule)
       ? captureImmediateFeedSnapshot(getState(), composerId, composer)
       : null;
@@ -581,7 +590,7 @@ export function submitComposer(composerId, routerHistory) {
       },
     }).then(function (response) {
       if (!editing && response.data.scheduled_at !== null && response.data.scheduled_at !== undefined) {
-        dispatchToComposer(dispatch, composerId, submitScheduledStatusSuccess({ ...response.data }));
+        dispatchToComposer(dispatch, composerId, submitScheduledStatusSuccess({ ...response.data }, submission));
         if (scheduled_status_id) {
           dispatch(deleteScheduledStatus(scheduled_status_id));
         }
@@ -596,7 +605,7 @@ export function submitComposer(composerId, routerHistory) {
       }
 
       dispatch(insertIntoTagHistory(response.data.tags, status, composerId, tagHistorySnapshot));
-      dispatchToComposer(dispatch, composerId, submitComposeSuccess({ ...response.data }));
+      dispatchToComposer(dispatch, composerId, submitComposeSuccess({ ...response.data }, submission));
 
       if (editing) {
         dispatch(importFetchedStatus({ ...response.data }));
@@ -661,10 +670,11 @@ export function submitComposeRequest() {
   };
 };
 
-export function submitComposeSuccess(status) {
+export function submitComposeSuccess(status, submission) {
   return {
     type: COMPOSE_SUBMIT_SUCCESS,
     status: status,
+    submission,
   };
 };
 
@@ -675,10 +685,27 @@ export function submitComposeFail(error) {
   };
 };
 
-export function submitScheduledStatusSuccess(status) {
+export function submitScheduledStatusSuccess(status, submission) {
   return {
     type: SCHEDULED_STATUS_SUBMIT_SUCCESS,
     scheduled_status: status,
+    submission,
+  };
+};
+
+const submissionSnapshot = (composer, kind) => {
+  const surface = composer.get('surface');
+  const media = composer.get('media_attachments');
+
+  return {
+    token: composer.get('idempotencyKey') || null,
+    instanceId: composer.get('instanceId') || null,
+    selectionGeneration: composer.getIn(['userPostingStyle', 'selectionGeneration']) || 0,
+    text: composer.get('text') || '',
+    mediaIds: media && media.map ? media.map(item => String(item.get('id'))).join('\u001f') : '',
+    surface: surface && surface.get ? { kind: surface.get('kind'), key: surface.get('key') } : null,
+    senderIdentityId: composer.getIn(['senderIdentity', 'id']) || null,
+    kind,
   };
 };
 

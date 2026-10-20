@@ -4,8 +4,10 @@ import { targetComposerAction } from './composer';
 import { refreshComposerGroupDiscovery, scheduleComposerInteractionCheck } from './posting_identities';
 import { isExistingPostEdit } from '../posting_context/materialize';
 import { normalizeUserPostingStyle, resolveUserPostingStyle } from '../posting_context/user_style_resolver';
-import { portablePostingContextReady, selectPortableAutoStyle, styleMatchesSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
+import { composerDraftInProgress, portablePostingContextReady, styleMatchesSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
+import { decideUsualSelection } from '../posting_context/usual_selection';
 import { selectComposer } from '../selectors/composer';
+import { fetchGlobalUsualStyle, fetchUserPostingContextAssignment, saveGlobalUsualStyle } from './user_posting_context_assignments';
 
 export const USER_POSTING_STYLES_FETCH_REQUEST = 'USER_POSTING_STYLES_FETCH_REQUEST';
 export const USER_POSTING_STYLES_FETCH_SUCCESS = 'USER_POSTING_STYLES_FETCH_SUCCESS';
@@ -16,6 +18,8 @@ export const USER_POSTING_STYLE_DESTINATION_RETRY = 'USER_POSTING_STYLE_DESTINAT
 export const USER_POSTING_STYLE_HASHTAG_TOGGLE = 'USER_POSTING_STYLE_HASHTAG_TOGGLE';
 export const USER_POSTING_STYLE_AUTO_ATTEMPT = 'USER_POSTING_STYLE_AUTO_ATTEMPT';
 export const USER_POSTING_STYLE_DEFAULTS_SETTLED = 'USER_POSTING_STYLE_DEFAULTS_SETTLED';
+export const USER_POSTING_STYLE_RESOLUTION = 'USER_POSTING_STYLE_RESOLUTION';
+export const USER_POSTING_STYLE_USAGE = 'USER_POSTING_STYLE_USAGE';
 
 const selectStyle = (state, styleId) => {
   const styles = state.getIn(['userPostingStyles', 'styles']);
@@ -104,7 +108,7 @@ export function loadUserPostingStyleDestination(composerId, { selectedId, accoun
   };
 }
 
-export function commitUserPostingStyle(composerId, styleId, { selectionOrigin, expectedSurface } = {}) {
+export function commitUserPostingStyle(composerId, styleId, { selectionOrigin, expectedSurface, usageMode, selectionKind, resolutionScope, revalidateUsual } = {}) {
   return (dispatch, getState) => {
     const composer = selectComposer(getState(), composerId);
 
@@ -149,13 +153,20 @@ export function commitUserPostingStyle(composerId, styleId, { selectionOrigin, e
       && composer.getIn(['userPostingStyle', 'destinationStatus']) === 'failed'
       && String(composer.getIn(['userPostingStyle', 'destinationAccountId'] || '')) === String(plan.destination.accountId || '');
 
+    const origin = selectionOrigin || (style ? 'manual' : 'none');
+    const mode = usageMode || (origin === 'saved_default' || origin === 'automatic' || origin === 'usual' ? 'usual' : 'once');
+
     dispatch(targetComposerAction({
       type: USER_POSTING_STYLE_COMMIT,
       plan,
       snapshot: style,
       resetSuppressions: true,
       restoreParked: false,
-      selectionOrigin: selectionOrigin || (style ? 'manual' : 'none'),
+      selectionOrigin: origin,
+      usageMode: mode,
+      selectionKind: selectionKind || (style ? 'style' : 'none'),
+      resolutionScope: resolutionScope || null,
+      revalidateUsual,
       evaluatedSurface: surface ? { kind: surface.get('kind'), key: surface.get('key') } : null,
     }, composerId));
     dispatch(scheduleComposerInteractionCheck(composerId));
@@ -172,69 +183,153 @@ export function commitUserPostingStyle(composerId, styleId, { selectionOrigin, e
   };
 }
 
-export function maybeAutoSelectPortablePostingStyle(composerId) {
+const manualUsage = composer => {
+  const usage = composer.getIn(['userPostingStyle', 'usageMode']) || 'usual';
+
+  return usage === 'once' || usage === 'keep';
+};
+
+const blocksAutomaticApply = (composer, { revalidate = false } = {}) => {
+  const origin = composer.getIn(['userPostingStyle', 'selectionOrigin']);
+  const manual = composer.getIn(['userPostingStyle', 'manualFields']);
+
+  // Typed text, a manual field, or an explicit choice stays. A post-success
+  // recheck may replace a previous usual/automatic choice.
+  if (composer.getIn(['userPostingStyle', 'styleInputLock']) || composerDraftInProgress(composer) || (manual && manual.size > 0)) {
+    return true;
+  }
+
+  if (origin === 'manual' || origin === 'none') {
+    return true;
+  }
+
+  if (!revalidate && (origin === 'automatic' || origin === 'saved_default' || origin === 'usual')) {
+    return true;
+  }
+
+  return false;
+};
+
+const generationsCurrent = (getState, { portable, cacheKey, placeGeneration, globalGeneration, checkGlobal }) => {
+  const now = getState();
+
+  if (checkGlobal && (now.getIn(['userPostingContextAssignments', 'global', 'generation']) || 0) !== globalGeneration) {
+    return false;
+  }
+
+  if (!portable) {
+    return true;
+  }
+
+  const latest = now.getIn(['userPostingContextAssignments', 'bySurface', cacheKey]);
+
+  return Boolean(latest) && !latest.get('writePending') && (latest.get('generation') || 0) === placeGeneration;
+};
+
+// One resolver for a new draft, a post-success restore, and an explicit
+// return. A manual once/keep choice is left alone. A draft that already
+// considered this place is left alone unless success asked for a recheck.
+export function settleUsualSelection(composerId) {
   return (dispatch, getState) => {
-    const composer = selectComposer(getState(), composerId);
+    const state = getState();
+    const composer = selectComposer(state, composerId);
     const surface = composer && composer.get('surface');
-    const cacheKey = surfaceCacheKey(surface);
-    const assignment = cacheKey && getState().getIn(['userPostingContextAssignments', 'bySurface', cacheKey]);
+    const portable = Boolean(surface);
+    const cacheKey = portable ? surfaceCacheKey(surface) : 'primary';
 
-    if (!composer || !surface || !assignment || assignment.get('status') !== 'ready' || assignment.get('writePending') || composer.get('surfaceMismatch')) {
+    if (!composer || isExistingPostEdit(composer) || manualUsage(composer) || composer.get('surfaceMismatch')) {
       return Promise.resolve();
     }
 
-    // A save makes the same place ready again. Composers that already
-    // considered this place keep their draft; a composer that has not
-    // considered it yet can still take the saved default.
-    if (composer.getIn(['userPostingStyle', 'defaultsSettledSurface']) === cacheKey) {
+    const revalidate = composer.getIn(['userPostingStyle', 'revalidateUsual']) === true;
+
+    if (!revalidate && composer.getIn(['userPostingStyle', 'defaultsSettledSurface']) === cacheKey) {
       return Promise.resolve();
     }
 
-    // Group and hashtag definitions can arrive after the place assignment.
-    // Leaving this unset lets the same assignment be considered once the
-    // posting context is actually ready. none and unavailable still select
-    // nothing, but only after that context exists.
-    if (!portablePostingContextReady(composer)) {
+    if (portable && !portablePostingContextReady(composer)) {
       return Promise.resolve();
     }
 
-    const styles = getState().getIn(['userPostingStyles', 'styles']);
-    const style = selectPortableAutoStyle(styles, composer, assignment);
-    const styleId = assignment.get('styleId');
-    const listed = Boolean(styles && styles.find && styleId && styles.find(item => item.get('id') === String(styleId)));
+    const placeAssignment = portable ? state.getIn(['userPostingContextAssignments', 'bySurface', cacheKey]) : null;
 
-    // The saved style may arrive with a later catalog read. Deciding now
-    // would freeze this composer before that style can be considered.
-    if (assignment.get('assignmentStatus') === 'style' && styleId && !listed) {
+    if (portable && (!placeAssignment || placeAssignment.get('writePending'))) {
+      return Promise.resolve();
+    }
+
+    const decision = decideUsualSelection({
+      portable,
+      composer,
+      styles: state.getIn(['userPostingStyles', 'styles']),
+      placeAssignment,
+      globalAssignment: state.getIn(['userPostingContextAssignments', 'global']),
+      catalogStatus: state.getIn(['userPostingStyles', 'status']),
+    });
+
+    if (decision.phase === 'pending' || decision.phase === 'failed') {
+      const kind = composer.getIn(['userPostingStyle', 'selectionKind']);
+
+      if (kind !== decision.phase) {
+        dispatch(targetComposerAction({
+          type: USER_POSTING_STYLE_RESOLUTION,
+          selectionKind: decision.phase,
+          resolutionScope: decision.scope || null,
+          resolvingUsual: decision.phase === 'pending',
+        }, composerId));
+      }
+
       return Promise.resolve();
     }
 
     const current = selectComposer(getState(), composerId);
     const currentSurface = current && current.get('surface');
+    const placeGeneration = placeAssignment ? (placeAssignment.get('generation') || 0) : 0;
+    const globalGeneration = state.getIn(['userPostingContextAssignments', 'global', 'generation']) || 0;
+    const checkGlobal = !portable || decision.scope === 'global' || decision.scope === 'global_unfit';
 
-    if (!current || current.get('surfaceMismatch') || surfaceCacheKey(currentSurface) !== cacheKey || !portablePostingContextReady(current)) {
+    if (!current || isExistingPostEdit(current) || manualUsage(current) || current.get('surfaceMismatch')) {
       return Promise.resolve();
     }
+
+    if (portable && (surfaceCacheKey(currentSurface) !== cacheKey || !portablePostingContextReady(current))) {
+      return Promise.resolve();
+    }
+
+    if (!generationsCurrent(getState, { portable, cacheKey, placeGeneration, globalGeneration, checkGlobal })) {
+      return Promise.resolve();
+    }
+
+    const blocked = blocksAutomaticApply(current, { revalidate });
 
     dispatch(targetComposerAction({
       type: USER_POSTING_STYLE_DEFAULTS_SETTLED,
       surfaceKey: cacheKey,
     }, composerId));
 
-    if (!style) {
+    if (blocked || decision.phase !== 'style' || !decision.style) {
+      dispatch(targetComposerAction({
+        type: USER_POSTING_STYLE_RESOLUTION,
+        selectionKind: blocked ? null : decision.phase,
+        resolutionScope: decision.scope || null,
+        resolvingUsual: false,
+        revalidateUsual: false,
+      }, composerId));
       return Promise.resolve();
     }
 
     const confirmed = selectComposer(getState(), composerId);
 
-    if (!confirmed || confirmed.get('surfaceMismatch') || surfaceCacheKey(confirmed.get('surface')) !== cacheKey) {
+    if (!confirmed || confirmed.get('surfaceMismatch') || (portable && surfaceCacheKey(confirmed.get('surface')) !== cacheKey) || manualUsage(confirmed) || blocksAutomaticApply(confirmed, { revalidate })) {
       return Promise.resolve();
     }
 
-    const origin = assignment.get('assignmentStatus') === 'style' ? 'saved_default' : 'automatic';
-    const attemptKey = `${currentSurface.get('kind')}:${currentSurface.get('key')}:${origin}:${style.get('id')}`;
+    if (!generationsCurrent(getState, { portable, cacheKey, placeGeneration, globalGeneration, checkGlobal })) {
+      return Promise.resolve();
+    }
 
-    if (confirmed.getIn(['userPostingStyle', 'autoAttemptKey']) === attemptKey) {
+    const attemptKey = `${cacheKey}:${decision.origin}:${decision.scope}:${decision.style.get('id')}`;
+
+    if (!revalidate && confirmed.getIn(['userPostingStyle', 'autoAttemptKey']) === attemptKey) {
       return Promise.resolve();
     }
 
@@ -243,10 +338,168 @@ export function maybeAutoSelectPortablePostingStyle(composerId) {
       autoAttemptKey: attemptKey,
     }, composerId));
 
-    return dispatch(commitUserPostingStyle(composerId, style.get('id'), {
-      selectionOrigin: origin,
-      expectedSurface: { kind: currentSurface.get('kind'), key: currentSurface.get('key') },
+    return dispatch(commitUserPostingStyle(composerId, decision.style.get('id'), {
+      selectionOrigin: decision.origin,
+      usageMode: 'usual',
+      selectionKind: 'style',
+      resolutionScope: decision.scope,
+      revalidateUsual: false,
+      expectedSurface: portable ? { kind: currentSurface.get('kind'), key: currentSurface.get('key') } : undefined,
     }));
+  };
+}
+
+export function maybeAutoSelectPortablePostingStyle(composerId) {
+  return settleUsualSelection(composerId);
+}
+
+export function setPostingStyleUsage(composerId, usageMode) {
+  return targetComposerAction({
+    type: USER_POSTING_STYLE_USAGE,
+    usageMode,
+  }, composerId);
+}
+
+export function retryUsualResolution(composerId) {
+  return (dispatch, getState) => {
+    const composer = selectComposer(getState(), composerId);
+
+    if (!composer || manualUsage(composer)) {
+      return Promise.resolve();
+    }
+
+    dispatch(targetComposerAction({
+      type: USER_POSTING_STYLE_RESOLUTION,
+      selectionKind: 'pending',
+      resolvingUsual: true,
+      clearSettled: true,
+    }, composerId));
+
+    const surface = composer.get('surface');
+    const reads = [
+      dispatch(fetchUserPostingStyles({ force: true })),
+      dispatch(fetchGlobalUsualStyle({ force: true })),
+    ];
+
+    if (surface) {
+      reads.push(dispatch(fetchUserPostingContextAssignment({
+        kind: surface.get('kind'),
+        key: surface.get('key'),
+      }, { force: true })));
+    }
+
+    return Promise.all(reads);
+  };
+}
+
+export function readUsualDecision(state, composerId) {
+  const composer = selectComposer(state, composerId);
+
+  if (!composer) {
+    return null;
+  }
+
+  const surface = composer.get('surface');
+  const portable = Boolean(surface);
+  const cacheKey = portable ? surfaceCacheKey(surface) : null;
+
+  return decideUsualSelection({
+    portable,
+    composer,
+    styles: state.getIn(['userPostingStyles', 'styles']),
+    placeAssignment: cacheKey ? state.getIn(['userPostingContextAssignments', 'bySurface', cacheKey]) : null,
+    globalAssignment: state.getIn(['userPostingContextAssignments', 'global']),
+    catalogStatus: state.getIn(['userPostingStyles', 'status']),
+  });
+}
+
+// Explicit return. Confirmation cancel never calls this with confirmed=true,
+// so the in-progress choice and duration stay as they were.
+export function returnToUsualSelection(composerId, { confirmed = false } = {}) {
+  return (dispatch, getState) => {
+    const composer = selectComposer(getState(), composerId);
+
+    if (!composer || isExistingPostEdit(composer)) {
+      return { status: 'ignored' };
+    }
+
+    const decision = readUsualDecision(getState(), composerId);
+
+    if (!decision || decision.phase === 'pending' || decision.phase === 'failed') {
+      dispatch(retryUsualResolution(composerId));
+      return { status: decision ? decision.phase : 'pending' };
+    }
+
+    if (decision.phase === 'unavailable') {
+      dispatch(targetComposerAction({
+        type: USER_POSTING_STYLE_RESOLUTION,
+        explicit: true,
+        usageMode: 'usual',
+        selectionKind: 'unavailable',
+        resolutionScope: decision.scope || null,
+        resolvingUsual: false,
+        revalidateUsual: false,
+      }, composerId));
+      return { status: 'unavailable' };
+    }
+
+    const style = decision.phase === 'style' ? decision.style : null;
+    const surface = composer.get('surface');
+    const destinationPolicy = surface ? 'locked' : 'change';
+
+    if (destinationPolicy === 'locked' && (composer.get('surfaceMismatch') || (style && !styleMatchesSurface(style, surface)))) {
+      return { status: 'blocked' };
+    }
+
+    const plan = resolveUserPostingStyle(style, composer, { destinationPolicy });
+
+    if (plan.blocked) {
+      return { status: 'blocked' };
+    }
+
+    if (plan.needsConfirmation && !confirmed) {
+      return { status: 'confirm' };
+    }
+
+    const latest = selectComposer(getState(), composerId);
+
+    if (!latest || isExistingPostEdit(latest) || (surface && !surfacesEqual(surface, latest.get('surface')))) {
+      return { status: 'blocked' };
+    }
+
+    dispatch(commitUserPostingStyle(composerId, style ? style.get('id') : null, {
+      selectionOrigin: decision.origin || 'usual',
+      usageMode: 'usual',
+      selectionKind: style ? 'style' : 'none',
+      resolutionScope: decision.scope || null,
+      revalidateUsual: false,
+      expectedSurface: surface ? { kind: surface.get('kind'), key: surface.get('key') } : undefined,
+    }));
+    return { status: 'applied' };
+  };
+}
+
+// Saves the usual style only. The open draft, its values, and its duration stay.
+export function saveCurrentStyleAsUsual(composerId) {
+  return (dispatch, getState) => {
+    const composer = selectComposer(getState(), composerId);
+
+    if (!composer || isExistingPostEdit(composer)) {
+      return Promise.resolve();
+    }
+
+    const kind = composer.getIn(['userPostingStyle', 'selectionKind']);
+    const selectedId = composer.getIn(['userPostingStyle', 'selectedId']);
+
+    if (kind === 'none') {
+      return dispatch(saveGlobalUsualStyle(null));
+    }
+
+    if (kind === 'style' && selectedId) {
+      return dispatch(saveGlobalUsualStyle(selectedId));
+    }
+
+    return Promise.resolve();
   };
 }
 

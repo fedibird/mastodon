@@ -75,7 +75,7 @@ import { USER_PREFERENCES_DOCUMENT_ACCEPTED } from '../actions/user_preferences'
 import { applyComposerPreferenceDefaults } from '../utils/preference_apply';
 import { consistentLocalFedibirdGroup, consistentSupportedRemoteGroup } from '../posting_identity/group_destination';
 import { composerInteractionInputKey } from '../posting_identity/interaction_input';
-import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
+import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE, USER_POSTING_STYLE_RESOLUTION, USER_POSTING_STYLE_USAGE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
 import { normalizeManagedHashtagName } from '../posting_context/managed_hashtags';
@@ -95,6 +95,7 @@ import {
   notePortableDraftInput,
   reapplySelectedStyle,
   releaseStyleDestination,
+  restoreUsualSelection,
   rememberManualSetting,
   syncSensitiveWithWarning,
   toggleStyleHashtag,
@@ -104,8 +105,16 @@ import { initialSenderIdentity, sessionPostingIdentityId } from '../posting_iden
 import { unescapeHTML } from '../utils/html';
 import { format } from 'date-fns';
 
+let composerInstanceSequence = 0;
+
+export const allocateComposerInstanceId = () => {
+  composerInstanceSequence += 1;
+  return `composer-${composerInstanceSequence}`;
+};
+
 export const initialState = ImmutableMap({
   mounted: 0,
+  instanceId: allocateComposerInstanceId(),
   sensitive: false,
   spoiler: false,
   spoiler_text: '',
@@ -342,6 +351,162 @@ const emptyPostingContext = () => ImmutableMap({
   }),
   protocol: emptyProtocol(),
 });
+
+const mediaIdentity = state => {
+  const media = state.get('media_attachments');
+
+  if (!media || !media.map) {
+    return '';
+  }
+
+  return media.map(item => String(item.get('id'))).join('\u001f');
+};
+
+const submissionSurfaceMatches = (state, submission) => {
+  const current = state.get('surface');
+  const submitted = submission.surface;
+
+  if (!current && !submitted) {
+    return true;
+  }
+
+  if (!current || !submitted || !current.get) {
+    return false;
+  }
+
+  return current.get('kind') === submitted.kind && String(current.get('key')) === String(submitted.key);
+};
+
+// A success may clear this draft only when it is still the draft that was sent.
+const submissionStillCurrent = (state, action) => {
+  const submission = action.submission;
+
+  if (!submission) {
+    return true;
+  }
+
+  if (state.get('consumedSubmissionToken') && state.get('consumedSubmissionToken') === submission.token) {
+    return false;
+  }
+
+  if (submission.instanceId && state.get('instanceId') !== submission.instanceId) {
+    return false;
+  }
+
+  if ((state.getIn(['userPostingStyle', 'selectionGeneration']) || 0) !== (submission.selectionGeneration || 0)) {
+    return false;
+  }
+
+  if ((state.get('text') || '') !== (submission.text || '')) {
+    return false;
+  }
+
+  if (mediaIdentity(state) !== (submission.mediaIds || '')) {
+    return false;
+  }
+
+  if ((state.getIn(['senderIdentity', 'id']) || null) !== (submission.senderIdentityId || null)) {
+    return false;
+  }
+
+  return submissionSurfaceMatches(state, submission);
+};
+
+const rememberConsumedSubmission = (state, action) => {
+  if (!action.submission || !action.submission.token) {
+    return state;
+  }
+
+  return state.set('consumedSubmissionToken', action.submission.token);
+};
+
+const reopenForUsual = state => (
+  restoreUsualSelection(clearStyleManualState(state)).withMutations(map => {
+    map.setIn(['userPostingStyle', 'styleInputLock'], false);
+  })
+);
+
+const reapplyKeptSelection = state => {
+  const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
+  const kind = state.getIn(['userPostingStyle', 'selectionKind']);
+  const next = reapplySelectedStyle(clearStyleManualState(state).withMutations(map => {
+    map.setIn(['userPostingStyle', 'styleInputLock'], false);
+    map.setIn(['userPostingStyle', 'autoAttemptKey'], null);
+  }), { respectManual: false, resetSuppressions: true });
+
+  return next.withMutations(map => {
+    map.setIn(['userPostingStyle', 'usageMode'], usage);
+    if (kind) {
+      map.setIn(['userPostingStyle', 'selectionKind'], kind);
+    }
+  });
+};
+
+const finishSuccessfulSubmit = (state, action) => {
+  if (!submissionStillCurrent(state, action)) {
+    return rememberConsumedSubmission(state.set('is_submitting', false), action);
+  }
+
+  const kind = action.submission && action.submission.kind;
+  const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
+  const cleared = clearAll(state);
+  let next;
+
+  if (kind === 'edit') {
+    next = reapplyKeptSelection(cleared);
+  } else if (usage === 'keep') {
+    next = reapplyKeptSelection(cleared).setIn(['userPostingStyle', 'usageMode'], 'keep');
+  } else if (usage === 'once') {
+    next = reopenForUsual(cleared);
+  } else {
+    next = reapplyKeptSelection(cleared).withMutations(map => {
+      map.setIn(['userPostingStyle', 'revalidateUsual'], true);
+      map.setIn(['userPostingStyle', 'defaultsSettledSurface'], null);
+    });
+  }
+
+  return rememberConsumedSubmission(stripDelegatedSchedule(next), action);
+};
+
+const discardDraftToUsual = state => {
+  const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
+
+  if (usage === 'once' || usage === 'keep') {
+    return reopenForUsual(clearAll(state));
+  }
+
+  if (state.get('id')) {
+    return reapplyKeptSelection(clearAll(state));
+  }
+
+  return reapplySelectedStyle(state.withMutations(map => {
+    map.set('in_reply_to', null);
+    map.set('quote_from', null);
+    map.set('quote_from_url', null);
+    map.set('reply_status', null);
+    map.set('text', '');
+    map.set('spoiler', false);
+    map.set('spoiler_text', '');
+    map.set('privacy', state.get('default_privacy'));
+    map.set('searchability', effectiveSearchability(state.get('default_privacy'), state.get('default_searchability')));
+    clearSearchabilityOverride(map);
+    map.set('language', state.get('default_language'));
+    map.set('circle_id', null);
+    map.set('poll', null);
+    map.set('idempotencyKey', uuid());
+    map.set('dirty', false);
+    map.set('datetime_form', null);
+    map.set('default_expires', state.get('default_expires_in') ? true : null);
+    map.set('scheduled', null);
+    map.set('expires', state.get('default_expires_in', null));
+    map.set('expires_action', state.get('default_expires_action', 'mark'));
+    map.update('context_references', set => set.clear());
+    map.update('references', set => set.clear());
+    clearScheduledDraftProvenance(map);
+    clearManagedHashtagSuppressions(map);
+    noteInteractionTarget(map);
+  }), { respectManual: true, resetSuppressions: false });
+};
 
 const clearScheduledDraftProvenance = map => {
   map.set('scheduled_status_id', null);
@@ -1165,6 +1330,61 @@ export default function composer(state = initialState, action) {
     return beginStyleDestinationRetry(state);
   case USER_POSTING_STYLE_HASHTAG_TOGGLE:
     return toggleStyleHashtag(state, action);
+  case USER_POSTING_STYLE_USAGE: {
+    const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
+
+    if ((action.usageMode !== 'once' && action.usageMode !== 'keep') || (usage !== 'once' && usage !== 'keep') || isExistingPostEdit(state)) {
+      return state;
+    }
+
+    return state.withMutations(map => {
+      map.setIn(['userPostingStyle', 'usageMode'], action.usageMode);
+      map.updateIn(['userPostingStyle', 'selectionGeneration'], generation => (generation || 0) + 1);
+    });
+  }
+  case USER_POSTING_STYLE_RESOLUTION: {
+    const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
+
+    if (!action.explicit && usage !== 'usual' && action.selectionKind) {
+      return state;
+    }
+
+    return state.withMutations(map => {
+      if (action.resolutionRequired === true) {
+        map.setIn(['userPostingStyle', 'resolutionRequired'], true);
+      }
+
+      if (action.explicit && action.usageMode === 'usual') {
+        map.setIn(['userPostingStyle', 'usageMode'], 'usual');
+        map.updateIn(['userPostingStyle', 'selectionGeneration'], generation => (generation || 0) + 1);
+      }
+
+      if (action.selectionKind) {
+        map.setIn(['userPostingStyle', 'selectionKind'], action.selectionKind);
+      }
+
+      if (action.resolutionScope !== undefined) {
+        map.setIn(['userPostingStyle', 'resolutionScope'], action.resolutionScope);
+      }
+
+      if (action.resolvingUsual === true) {
+        map.setIn(['userPostingStyle', 'resolvingUsual'], true);
+      }
+
+      if (action.resolvingUsual === false) {
+        map.setIn(['userPostingStyle', 'resolvingUsual'], false);
+      }
+
+      if (action.revalidateUsual === false) {
+        map.setIn(['userPostingStyle', 'revalidateUsual'], false);
+      }
+
+      if (action.clearSettled) {
+        map.setIn(['userPostingStyle', 'defaultsSettledSurface'], null);
+        map.setIn(['userPostingStyle', 'revalidateUsual'], true);
+      }
+    });
+  }
   case COMPOSER_CONTEXT_HASHTAG_TOGGLE: {
     if (isExistingPostEdit(state)) {
       return state;
@@ -1371,10 +1591,11 @@ export default function composer(state = initialState, action) {
     });
   case COMPOSE_EDIT_CANCEL:
     return reapplySelectedStyle(clearStyleManualState(clearAll(state)), { respectManual: false, resetSuppressions: true });
+  case COMPOSE_RESET:
+    return discardDraftToUsual(state);
   case COMPOSE_REPLY_CANCEL:
   case COMPOSE_QUOTE_CANCEL:
   case COMPOSE_SCHEDULED_EDIT_CANCEL:
-  case COMPOSE_RESET:
     if (state.get('id')) {
       return reapplySelectedStyle(clearStyleManualState(clearAll(state)), { respectManual: false, resetSuppressions: true });
     }
@@ -1420,10 +1641,7 @@ export default function composer(state = initialState, action) {
     return state.set('is_changing_upload', true);
   case COMPOSE_SUBMIT_SUCCESS:
   case SCHEDULED_STATUS_SUBMIT_SUCCESS:
-    return stripDelegatedSchedule(reapplySelectedStyle(clearStyleManualState(clearAll(state)).withMutations(map => {
-      map.setIn(['userPostingStyle', 'styleInputLock'], false);
-      map.setIn(['userPostingStyle', 'autoAttemptKey'], null);
-    }), { respectManual: false, resetSuppressions: true }));
+    return finishSuccessfulSubmit(state, action);
   case COMPOSE_SUBMIT_FAIL:
     return state.set('is_submitting', false);
   case COMPOSE_UPLOAD_CHANGE_FAIL:

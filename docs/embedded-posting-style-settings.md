@@ -13,7 +13,20 @@ and framing implementation with its existing `filters` marker and routes.
 Authentication, administrator authorization, current-user scopes, CSRF, form
 validation, optimistic locking, duplication, deletion confirmation and assignment
 pagination/release/decline remain in their existing controllers and forms.
-No API schema or database change is introduced.
+No new table, migration, or API field is introduced. The existing assignment
+table stores the user’s usual style at `surface_kind: global`, `surface_key:
+default` only. That pair is not a composer surface, a place count, or a place
+list row. Other global keys are rejected. unset and none both mean no usual
+style. A disabled reference stays unavailable and is not replaced.
+
+A composer remembers a separate usage duration. Choosing another style, including
+an explicit “no style”, lasts for this post unless the user chooses to keep it.
+A successful new post or a newly accepted scheduled post returns a one-time
+choice to the usual selection. Keeping a choice retains the style only; it does
+not retain that post’s hashtag suppressions. Failed sends, edits of an existing
+post, and reply cancellation do not perform that return. Stale success and
+assignment responses are ignored when the composer instance, draft text, media,
+selection generation, surface, or sender no longer match.
 
 Only literal `embedded=1`, functional-user, authorized HTML renders with status
 200 receive response-local `frame-ancestors 'self'` and `SAMEORIGIN`. Normal

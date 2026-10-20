@@ -4,6 +4,7 @@ import { selectPostingContextRevalidation } from '../selectors/posting_context_r
 import { selectPostingContextDiscovery } from '../selectors/posting_contexts';
 import { selectPostingIdentityDelegationId } from '../selectors/posting_identities';
 import { selectComposerPostingContextCompliance } from './compliance';
+import { postingStyleBlocksNewPost } from './usual_selection';
 import { normalizeManagedHashtagName } from './managed_hashtags';
 import { managedMentionPlacement } from './managed_mentions';
 
@@ -327,7 +328,7 @@ const groupAttempt = ({ permission, delivery, compliance, aligned }) => {
 // permission, delivery, and compliance stay independent.
 // canAttempt means the known conditions allow a send attempt.
 // It does not mean a remote group will accept the post.
-export function selectComposerEffectiveCreateCapability(state, composerId, now = Date.now()) {
+function selectComposerEffectiveCreateCapabilityUnheld(state, composerId, now = Date.now()) {
   const composer = selectComposer(state, composerId);
   const compliance = selectComposerPostingContextCompliance(state, composerId);
 
@@ -406,6 +407,21 @@ export function selectComposerEffectiveCreateCapability(state, composerId, now =
     canAttempt: false,
     reason: 'permission',
   });
+}
+
+export function selectComposerEffectiveCreateCapability(state, composerId, now = Date.now()) {
+  const capability = selectComposerEffectiveCreateCapabilityUnheld(state, composerId, now);
+  const composer = selectComposer(state, composerId);
+
+  if (!capability.canAttempt || !postingStyleBlocksNewPost(composer)) {
+    return capability;
+  }
+
+  return {
+    ...capability,
+    canAttempt: false,
+    reason: 'style_unresolved',
+  };
 }
 
 const REVALIDATION_BLOCKS_CONFIRMATION = {
