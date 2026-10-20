@@ -51,10 +51,11 @@ import api from '../../api';
 import { importFetchedStatus } from '../importer';
 import { updateTimeline } from '../timelines';
 import { openModal } from '../modal';
-import { COMPOSE_CHANGE, COMPOSE_POLL_ADD, COMPOSE_POLL_OPTION_CHANGE, COMPOSE_SPOILER_TEXT_CHANGE, COMPOSE_SPOILERNESS_CHANGE, COMPOSE_SUBMIT_REQUEST, COMPOSE_SUBMIT_SUCCESS, changeUploadCompose, submitCompose, submitComposeWithCheck } from '../compose';
+import { COMPOSE_CHANGE, COMPOSE_POLL_ADD, COMPOSE_POLL_OPTION_CHANGE, COMPOSE_QUOTE, COMPOSE_REPLY, COMPOSE_SPOILER_TEXT_CHANGE, COMPOSE_SPOILERNESS_CHANGE, COMPOSE_SUBMIT_REQUEST, COMPOSE_SUBMIT_SUCCESS, changeUploadCompose, submitCompose, submitComposeWithCheck } from '../compose';
 import { applyComposerPostingContext } from '../composer';
 import { USER_POSTING_STYLES_FETCH_SUCCESS, commitUserPostingStyle, setPostingStyleUsage } from '../user_posting_styles';
 import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
+import { materializeComposerText } from '../../posting_context/materialize';
 import { mitraGroupPostingContext } from '../../posting_context/fixtures/mitra_group_context_fixture';
 import composeReducer from '../../reducers/compose';
 import composerReducer, { initialState as initialComposerState } from '../../reducers/composer';
@@ -938,5 +939,172 @@ describe('resending a draft kept after an older success', () => {
     expect(returned.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toEqual('a');
     expect(returned.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('once');
     expect(returned.getState().getIn(['compose', 'idempotencyKey'])).not.toEqual(returnKey);
+  });
+});
+
+describe('submitCompose reply hashtag destination', () => {
+  const infoStyle = fromJS({
+    id: 'info',
+    name: 'Fedibird info',
+    revision: 2,
+    target: { kind: 'hashtag', accountId: null, hashtag: 'fedibird_info', label: '#fedibird_info' },
+    defaults: {
+      visibility: 'unlisted',
+      language: { mode: 'explicit', code: 'en' },
+      sensitive: true,
+      spoiler: { enabled: true, text: 'note' },
+    },
+    managed: {
+      hashtags: [{ name: 'fedibird', normalizedName: 'fedibird', enforcement: 'advisory' }],
+    },
+  });
+
+  const newsStyle = infoStyle.set('id', 'news').set('name', 'News').setIn(['target', 'hashtag'], 'news').setIn(['managed', 'hashtags'], fromJS([
+    { name: 'memo', normalizedName: 'memo', enforcement: 'advisory' },
+  ]));
+
+  const replyStatus = (id, acct = 'reply_to') => fromJS({
+    id,
+    language: 'ja',
+    visibility: 'private',
+    spoiler_text: 'secret',
+    mentions: [],
+    account: { id: '2', acct },
+  });
+
+  const postedBody = '@reply_to 返信本文\n\n#fedibird #fedibird_info';
+
+  const prepare = async (order, usageMode) => {
+    const store = buildComposeStore(initialComposerState, ImmutableList([infoStyle, newsStyle]));
+    const options = usageMode ? { usageMode } : undefined;
+
+    if (order === 'style-first') {
+      await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'info', options));
+      store.dispatch({ type: COMPOSE_CHANGE, text: '返信本文' });
+      store.dispatch({ type: COMPOSE_REPLY, status: replyStatus('status-private') });
+    } else {
+      store.dispatch({ type: COMPOSE_CHANGE, text: '返信本文' });
+      store.dispatch({ type: COMPOSE_REPLY, status: replyStatus('status-private') });
+      await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'info', options));
+    }
+
+    return store;
+  };
+
+  beforeEach(() => {
+    api.mockReset();
+  });
+
+  it.each(['style-first', 'reply-first'])('posts both tags and the reply id for %s', async order => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const store = await prepare(order);
+
+    expect(materializeComposerText(store.getState().get('compose'))).toEqual(postedBody);
+    await store.dispatch(submitCompose(router));
+
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/api/v1/statuses',
+      method: 'post',
+    }));
+    const data = request.mock.calls[0][0].data;
+    expect(data.status).toEqual(postedBody);
+    expect(data.in_reply_to_id).toEqual('status-private');
+    expect(data.visibility).toEqual('private');
+    expect(data.language).toEqual('ja');
+    expect(data.spoiler_text).toEqual('secret');
+    expect(data.searchability).toEqual('private');
+    expect(data.sensitive).toBe(order === 'style-first');
+  });
+
+  it('posts the destination tag when a quote is turned into a reply', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const store = buildComposeStore(initialComposerState, ImmutableList([infoStyle]));
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'info'));
+    store.dispatch({
+      type: COMPOSE_QUOTE,
+      status: fromJS({
+        id: 'q1',
+        url: 'https://example.test/q1',
+        visibility: 'public',
+        spoiler_text: '',
+      }),
+    });
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationStatus'])).toEqual('skipped');
+    store.dispatch({ type: COMPOSE_CHANGE, text: '返信本文' });
+    store.dispatch({ type: COMPOSE_REPLY, status: replyStatus('status-private') });
+    await store.dispatch(submitCompose(router));
+
+    expect(request.mock.calls[0][0].data.status).toEqual(postedBody);
+    expect(request.mock.calls[0][0].data.in_reply_to_id).toEqual('status-private');
+    expect(request.mock.calls[0][0].data.quote_id).toBeNull();
+  });
+
+  it('restores a once reply and keeps a kept reply', async () => {
+    const request = jest.fn()
+      .mockResolvedValueOnce({ data: statusResponse })
+      .mockResolvedValueOnce({ data: { ...statusResponse, id: 's2' } });
+    api.mockReturnValue({ request });
+
+    const once = await prepare('reply-first');
+    expect(once.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('once');
+    await once.dispatch(submitCompose(router));
+    expect(once.getState().getIn(['compose', 'text'])).toEqual('');
+    expect(once.getState().getIn(['compose', 'in_reply_to'])).toBeNull();
+    expect(once.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('usual');
+    expect(once.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toBeNull();
+
+    const kept = await prepare('style-first', 'keep');
+    expect(kept.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('keep');
+    await kept.dispatch(submitCompose(router));
+    expect(kept.getState().getIn(['compose', 'text'])).toEqual('');
+    expect(kept.getState().getIn(['compose', 'in_reply_to'])).toBeNull();
+    expect(kept.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('keep');
+    expect(kept.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toEqual('info');
+    expect(kept.getState().getIn(['compose', 'userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(materializeComposerText(kept.getState().get('compose'))).toEqual('#fedibird #fedibird_info');
+  });
+
+  it('keeps the reply draft when posting fails', async () => {
+    const request = jest.fn().mockRejectedValue(Object.assign(new Error('network'), { response: undefined }));
+    api.mockReturnValue({ request });
+    const store = await prepare('style-first');
+
+    await store.dispatch(submitCompose(router));
+
+    const draft = store.getState().get('compose');
+    expect(draft.get('is_submitting')).toBe(false);
+    expect(draft.get('in_reply_to')).toEqual('status-private');
+    expect(draft.getIn(['userPostingStyle', 'selectedId'])).toEqual('info');
+    expect(draft.getIn(['userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(materializeComposerText(draft)).toEqual(postedBody);
+    expect(request.mock.calls[0][0].data.status).toEqual(postedBody);
+    expect(request.mock.calls[0][0].data.in_reply_to_id).toEqual('status-private');
+  });
+
+  it('does not let an older success clear a reply or style chosen while sending', async () => {
+    const { pending, request } = deferRequests();
+    const store = await prepare('style-first', 'keep');
+    const first = store.dispatch(submitCompose(router));
+
+    expect(request.mock.calls[0][0].data.status).toEqual(postedBody);
+    expect(request.mock.calls[0][0].data.in_reply_to_id).toEqual('status-private');
+
+    store.dispatch({ type: COMPOSE_REPLY, status: replyStatus('status-next', 'next') });
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'news', { usageMode: 'keep' }));
+    pending[0].resolve({ data: statusResponse });
+    await first;
+
+    const draft = store.getState().get('compose');
+    expect(draft.get('is_submitting')).toBe(false);
+    expect(draft.get('in_reply_to')).toEqual('status-next');
+    expect(draft.get('text')).toContain('@next ');
+    expect(draft.getIn(['userPostingStyle', 'selectedId'])).toEqual('news');
+    expect(draft.getIn(['userPostingStyle', 'usageMode'])).toEqual('keep');
+    expect(materializeComposerText(draft)).toContain('#memo');
+    expect(materializeComposerText(draft)).toContain('#news');
+    expect(materializeComposerText(draft)).not.toContain('#fedibird_info');
   });
 });

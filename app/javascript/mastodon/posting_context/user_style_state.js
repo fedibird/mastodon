@@ -269,6 +269,27 @@ const applyHashtagDestination = map => {
   clearParkedDestination(map);
 };
 
+// Reply keeps only the selected hashtag destination. It does not reapply
+// privacy, language, or the content warning. Quotes and group destinations
+// still use releaseStyleDestination, and a portable surface stays locked.
+export function applyReplyHashtagDestination(map) {
+  if (map.get('surface') || map.getIn(['userPostingStyle', 'destinationPolicy']) === 'locked') {
+    return false;
+  }
+
+  const selectedId = map.getIn(['userPostingStyle', 'selectedId']);
+  const snapshot = map.getIn(['userPostingStyle', 'snapshot']);
+  const hashtag = snapshot && snapshot.getIn(['target', 'hashtag']);
+
+  if (!selectedId || !snapshot || snapshot.getIn(['target', 'kind']) !== 'hashtag' || !hashtag) {
+    return false;
+  }
+
+  applyHashtagDestination(map);
+  map.setIn(['userPostingStyle', 'unapplied'], withoutDestination(map.getIn(['userPostingStyle', 'unapplied'])));
+  return true;
+}
+
 const parkedGroupIsReady = (previous, accountId) => {
   const parkedContext = previous.getIn(['userPostingStyle', 'parkedContext']);
   const parkedAccountId = previous.getIn(['userPostingStyle', 'parkedPostingContextAccountId']);

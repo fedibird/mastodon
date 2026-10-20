@@ -240,6 +240,16 @@ const composeFields = (style, composer, manual, occupied) => {
   return { fields, unapplied, ownedFields };
 };
 
+// A normal reply can take a hashtag destination. Quotes, group destinations,
+// and a locked portable surface stay occupied so their place is left alone.
+const replyHashtagDestination = (composer, kind) => (
+  kind === 'hashtag'
+  && Boolean(composer.get('in_reply_to'))
+  && !composer.get('quote_from')
+  && !composer.get('surface')
+  && composer.getIn(['userPostingStyle', 'destinationPolicy']) !== 'locked'
+);
+
 const destinationPlan = (style, composer, occupied) => {
   const source = composer.getIn(['userPostingStyle', 'destinationSource']);
   const accountId = composer.getIn(['userPostingStyle', 'destinationAccountId']);
@@ -257,7 +267,7 @@ const destinationPlan = (style, composer, occupied) => {
 
   const kind = style.getIn(['target', 'kind']) || 'none';
 
-  if (occupied.has('destination') && kind !== 'none') {
+  if (occupied.has('destination') && kind !== 'none' && !replyHashtagDestination(composer, kind)) {
     return {
       action: 'skip',
       accountId: kind === 'group' ? style.getIn(['target', 'accountId']) : null,

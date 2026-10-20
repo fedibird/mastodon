@@ -85,6 +85,7 @@ import { styleMatchesSurface, surfaceApplyDecision } from '../posting_context/su
 import { resolveUserPostingStyle } from '../posting_context/user_style_resolver';
 import {
   abandonStyleDestination,
+  applyReplyHashtagDestination,
   applySensitiveOnFirstMedia,
   applySensitiveOnLastMediaRemoved,
   clearStyleManualState,
@@ -1607,7 +1608,9 @@ function reduceComposer(state = initialState, action) {
     return state.set('is_composing', action.value);
   case COMPOSE_REPLY:
     return state.withMutations(map => {
-      releaseStyleDestination(map);
+      if (!applyReplyHashtagDestination(map)) {
+        releaseStyleDestination(map);
+      }
 
       if (state.get('id')) {
         map.update('media_attachments', list => list.clear());

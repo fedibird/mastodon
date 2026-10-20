@@ -227,4 +227,54 @@ describe('resolveUserPostingStyle', () => {
     expect(resolveUserPostingStyle(style(), composer({ id: 'status-1' })).blocked).toBe(true);
     expect(resolveUserPostingStyle(style(), composer({ scheduled_status_id: 'sched-1' })).blocked).toBe(true);
   });
+
+  it('applies a hashtag destination on a reply without replacing reply fields', () => {
+    const hashtag = style({
+      target: { kind: 'hashtag', accountId: null, hashtag: 'fedibird_info', label: '#fedibird_info' },
+      defaults: { visibility: 'unlisted', language: { mode: 'explicit', code: 'en' } },
+    });
+    const plan = resolveUserPostingStyle(hashtag, composer({
+      in_reply_to: 's1',
+      text: '@reply_to 返信本文',
+      privacy: 'private',
+      language: 'ja',
+    }));
+
+    expect(plan.blocked).toBe(false);
+    expect(plan.destination).toMatchObject({ action: 'hashtag', hashtag: 'fedibird_info', changes: false });
+    expect(plan.fields.privacy).toBeUndefined();
+    expect(plan.fields.language).toBeUndefined();
+    expect(plan.unapplied).toEqual(expect.arrayContaining(['privacy', 'language']));
+    expect(plan.unapplied).not.toContain('destination');
+    expect(plan.needsConfirmation).toBe(false);
+  });
+
+  it('still skips a hashtag destination for a quote, a group reply, and a portable reply', () => {
+    const hashtag = style({
+      target: { kind: 'hashtag', accountId: null, hashtag: 'fedibird_info', label: '#fedibird_info' },
+    });
+    const quote = resolveUserPostingStyle(hashtag, composer({ quote_from: 'q1', text: 'Quote' }));
+    const portable = resolveUserPostingStyle(hashtag, composer({
+      in_reply_to: 's1',
+      surface: { kind: 'hashtag', key: 'foo' },
+      userPostingStyle: {
+        manualFields: [],
+        destinationSource: null,
+        destinationStatus: 'idle',
+        destinationAccountId: null,
+        destinationPolicy: 'locked',
+      },
+    }));
+    const group = resolveUserPostingStyle(style({
+      target: { kind: 'group', accountId: '123', label: 'localsquad' },
+    }), composer({ in_reply_to: 's1' }));
+
+    expect(quote.destination.action).toEqual('skip');
+    expect(quote.unapplied).toContain('destination');
+    expect(portable.destination.action).toEqual('skip');
+    expect(portable.unapplied).toContain('destination');
+    expect(group.destination.action).toEqual('skip');
+    expect(group.unapplied).toContain('destination');
+    expect(group.needsConfirmation).toBe(false);
+  });
 });
