@@ -57,6 +57,15 @@ export const initialUserPostingStyle = () => ImmutableMap({
   destinationPolicy: null,
   autoAttemptKey: null,
   defaultsSettledSurface: null,
+  // usual follows the resolver. once and keep are manual, including an
+  // explicit "no style". selectionKind is not implied by a null id.
+  usageMode: 'usual',
+  selectionKind: 'pending',
+  selectionGeneration: 0,
+  resolutionRequired: false,
+  resolvingUsual: false,
+  revalidateUsual: false,
+  resolutionScope: null,
 });
 
 const valueKey = field => {
@@ -443,9 +452,35 @@ export function commitUserPostingStyle(state, action) {
 
     applyDestination(map, state, action.plan, action.restoreParked === true);
 
-    if (action.selectionOrigin) {
+    if (action.clearSelectionOrigin) {
+      map.setIn(['userPostingStyle', 'selectionOrigin'], null);
+    } else if (action.selectionOrigin) {
       map.setIn(['userPostingStyle', 'selectionOrigin'], action.selectionOrigin);
     }
+
+    if (action.usageMode === 'once' || action.usageMode === 'keep' || action.usageMode === 'usual') {
+      map.setIn(['userPostingStyle', 'usageMode'], action.usageMode);
+    }
+
+    if (action.selectionKind) {
+      map.setIn(['userPostingStyle', 'selectionKind'], action.selectionKind);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(action, 'resolutionScope')) {
+      map.setIn(['userPostingStyle', 'resolutionScope'], action.resolutionScope || null);
+    }
+
+    if (action.resolvingUsual === true) {
+      map.setIn(['userPostingStyle', 'resolvingUsual'], true);
+    } else if (action.usageMode || action.selectionKind) {
+      map.setIn(['userPostingStyle', 'resolvingUsual'], false);
+    }
+
+    if (action.revalidateUsual === false) {
+      map.setIn(['userPostingStyle', 'revalidateUsual'], false);
+    }
+
+    map.updateIn(['userPostingStyle', 'selectionGeneration'], generation => (generation || 0) + 1);
 
     if (Object.prototype.hasOwnProperty.call(action, 'evaluatedSurface')) {
       const surface = action.evaluatedSurface;
@@ -734,6 +769,43 @@ export function applySensitiveOnLastMediaRemoved(map, state) {
   }
 
   map.set('sensitive', false);
+}
+
+// Drop a temporary style back to an unresolved usual choice. Account
+// defaults replace fields the style owned. The surface and sender stay.
+export function restoreUsualSelection(state) {
+  if (!state.get('userPostingStyle') || isExistingPostEdit(state)) {
+    return state;
+  }
+
+  const policy = state.get('surface') ? 'locked' : 'change';
+  const plan = resolveUserPostingStyle(null, state, { destinationPolicy: policy });
+
+  if (plan.blocked) {
+    return state;
+  }
+
+  const cleared = commitUserPostingStyle(state, {
+    plan,
+    snapshot: null,
+    resetSuppressions: true,
+    clearSelectionOrigin: true,
+    usageMode: 'usual',
+    selectionKind: 'pending',
+    resolutionScope: null,
+    resolvingUsual: true,
+    revalidateUsual: false,
+  });
+
+  return cleared.withMutations(map => {
+    map.setIn(['userPostingStyle', 'defaultsSettledSurface'], null);
+    map.setIn(['userPostingStyle', 'autoAttemptKey'], null);
+    map.setIn(['userPostingStyle', 'styleInputLock'], false);
+    map.setIn(['userPostingStyle', 'evaluatedSurface'], null);
+    map.setIn(['userPostingStyle', 'revalidateUsual'], true);
+    map.setIn(['userPostingStyle', 'resolvingUsual'], true);
+    map.setIn(['userPostingStyle', 'selectionKind'], 'pending');
+  });
 }
 
 export function clearStyleManualState(state) {

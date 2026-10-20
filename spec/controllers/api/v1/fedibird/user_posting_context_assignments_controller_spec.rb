@@ -229,4 +229,61 @@ RSpec.describe Api::V1::Fedibird::UserPostingContextAssignmentsController do
       expect(response).to have_http_status(403)
     end
   end
+
+  describe 'global/default usual style' do
+    it 'starts unset, saves an owned enabled style, stores none, and releases back to unset' do
+      get :show, params: { surface_kind: 'global', surface_key: 'default' }
+      expect(response).to have_http_status(200)
+      expect(body_as_json).to include(status: 'unset', style_id: nil, revision: nil)
+
+      style = style_for(owner, name: 'Usual')
+      dedicated = style_for(owner, name: 'Squad', target_kind: 'group', target_account: group)
+      put :update, params: { surface_kind: 'global', surface_key: 'default', style_id: style.id }, as: :json
+      expect(response).to have_http_status(200)
+      expect(body_as_json).to include(status: 'style', style_id: style.id.to_s)
+      expect(owner.user_posting_context_assignments.count).to eq(1)
+
+      put :update, params: { surface_kind: 'global', surface_key: 'default', style_id: dedicated.id }, as: :json
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:style_id]).to eq(dedicated.id.to_s)
+
+      put :update, params: { surface_kind: 'global', surface_key: 'default', style_id: nil }, as: :json
+      expect(body_as_json).to include(status: 'none', style_id: nil)
+      expect(owner.user_posting_context_assignments.count).to eq(1)
+
+      delete :destroy, params: { surface_kind: 'global', surface_key: 'default' }
+      expect(body_as_json).to include(status: 'unset', style_id: nil)
+      expect(owner.user_posting_context_assignments).to be_empty
+    end
+
+    it 'rejects another global key, another user, and a disabled style' do
+      other = user_with_role('Owner')
+      foreign = style_for(other, name: 'Foreign')
+      disabled = style_for(owner, name: 'Off', enabled: false)
+      style = style_for(owner, name: 'Usual')
+
+      put :update, params: { surface_kind: 'global', surface_key: 'other', style_id: style.id }
+      expect(response).to have_http_status(422)
+
+      put :update, params: { surface_kind: 'global', surface_key: 'default', style_id: foreign.id }
+      expect(response).to have_http_status(422)
+
+      put :update, params: { surface_kind: 'global', surface_key: 'default', style_id: disabled.id }
+      expect(response).to have_http_status(422)
+      expect(owner.user_posting_context_assignments).to be_empty
+    end
+
+    it 'reports a disabled usual style as unavailable and deletion as none' do
+      style = style_for(owner, name: 'Usual')
+      put :update, params: { surface_kind: 'global', surface_key: 'default', style_id: style.id }
+      style.update!(enabled: false)
+
+      get :show, params: { surface_kind: 'global', surface_key: 'default' }
+      expect(body_as_json).to include(status: 'unavailable', style_id: style.id.to_s)
+
+      style.destroy!
+      get :show, params: { surface_kind: 'global', surface_key: 'default' }
+      expect(body_as_json).to include(status: 'none', style_id: nil)
+    end
+  end
 end

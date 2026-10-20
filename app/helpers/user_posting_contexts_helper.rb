@@ -41,6 +41,25 @@ module UserPostingContextsHelper
     end
   end
 
+  def user_posting_context_usual?(context)
+    usual = instance_variable_get(:@usual)
+    usual.present? && usual.user_posting_context_id == context.id
+  end
+
+  def user_posting_context_usual_options(contexts)
+    choices = [[t('user_posting_contexts.usual_none'), '']]
+    contexts.each do |context|
+      choices << [context.name, context.id] if context.enabled?
+    end
+    choices
+  end
+
+  def user_posting_context_usual_selected(usual)
+    return '' if usual.nil? || usual.availability_status != 'style'
+
+    usual.user_posting_context_id
+  end
+
   def user_posting_context_card_usage(context)
     usage = instance_variable_get(:@card_usage)
     return UserPostingContextAssignment::CardUsage::Entry.empty if usage.nil?

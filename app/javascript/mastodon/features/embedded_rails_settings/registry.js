@@ -19,7 +19,7 @@ const postingPathAllowed = (path, method) => {
   const contexts = '/settings/user_posting_contexts';
   const assignments = '/settings/user_posting_context_assignments';
   if (method === 'GET') return path === contexts || path === `${contexts}/new` || /^\/settings\/user_posting_contexts\/[1-9]\d{0,18}\/(edit|confirm_destroy)$/.test(path) || path === assignments;
-  if (method === 'POST') return path === contexts || /^\/settings\/user_posting_contexts\/[1-9]\d{0,18}\/duplicate$/.test(path) || /^\/settings\/user_posting_context_assignments\/[1-9]\d{0,18}\/(release|decline)$/.test(path);
+  if (method === 'POST') return path === contexts || path === `${contexts}/update_usual` || /^\/settings\/user_posting_contexts\/[1-9]\d{0,18}\/duplicate$/.test(path) || /^\/settings\/user_posting_context_assignments\/[1-9]\d{0,18}\/(release|decline)$/.test(path);
   return ['PATCH', 'PUT', 'DELETE'].includes(method) && /^\/settings\/user_posting_contexts\/[1-9]\d{0,18}$/.test(path);
 };
 

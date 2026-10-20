@@ -1,11 +1,12 @@
 - content_for :page_title do
   = t('user_posting_contexts.delete', name: @context.name)
 
-%p{ dir: 'auto' }
-  - if @reference_count.positive?
-    = t('user_posting_contexts.delete_confirm_with_defaults', name: @context.name, count: @reference_count)
-  - else
-    = t('user_posting_contexts.delete_confirm', name: @context.name)
+- if @place_reference_count.positive?
+  %p{ dir: 'auto' }= t('user_posting_contexts.delete_confirm_with_defaults', name: @context.name, count: @place_reference_count)
+- if @usual_reference
+  %p{ dir: 'auto' }= t('user_posting_contexts.delete_confirm_usual', name: @context.name)
+- if !@place_reference_count.positive? && !@usual_reference
+  %p{ dir: 'auto' }= t('user_posting_contexts.delete_confirm', name: @context.name)
 
 = form_with url: settings_user_posting_context_path(@context, embedded_settings_options), method: :delete, local: true, class: 'user-posting-assignment__form' do
   %button.button.user-posting-assignment__danger{ type: 'submit' }= t('user_posting_contexts.delete_menu')

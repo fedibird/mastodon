@@ -1,4 +1,6 @@
 import { fromJS, List as ImmutableList, Map as ImmutableMap, Set as ImmutableSet } from 'immutable';
+import { applyMiddleware, createStore } from 'redux';
+import thunk from 'redux-thunk';
 
 jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
@@ -49,11 +51,15 @@ import api from '../../api';
 import { importFetchedStatus } from '../importer';
 import { updateTimeline } from '../timelines';
 import { openModal } from '../modal';
-import { changeUploadCompose, submitCompose, submitComposeWithCheck } from '../compose';
+import { COMPOSE_CHANGE, COMPOSE_POLL_ADD, COMPOSE_POLL_OPTION_CHANGE, COMPOSE_SPOILER_TEXT_CHANGE, COMPOSE_SPOILERNESS_CHANGE, COMPOSE_SUBMIT_REQUEST, COMPOSE_SUBMIT_SUCCESS, changeUploadCompose, submitCompose, submitComposeWithCheck } from '../compose';
 import { applyComposerPostingContext } from '../composer';
+import { USER_POSTING_STYLES_FETCH_SUCCESS, commitUserPostingStyle, setPostingStyleUsage } from '../user_posting_styles';
 import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
 import { mitraGroupPostingContext } from '../../posting_context/fixtures/mitra_group_context_fixture';
-import composerReducer from '../../reducers/composer';
+import composeReducer from '../../reducers/compose';
+import composerReducer, { initialState as initialComposerState } from '../../reducers/composer';
+import userPostingStyles from '../../reducers/user_posting_styles';
+import { PRIMARY_COMPOSER_ID } from '../../utils/composer';
 
 const dispatchThunk = (thunk, state) => {
   const actions = [];
@@ -161,6 +167,30 @@ describe('submitCompose', () => {
     expect(data.language).toEqual('ja');
     expect(updateTimeline).toHaveBeenCalled();
     expect(importFetchedStatus).not.toHaveBeenCalled();
+  });
+
+  it('marks a new schedule as schedule and an existing scheduled post as an edit', async () => {
+    const request = jest.fn()
+      .mockResolvedValueOnce({ data: { ...statusResponse, scheduled_at: '2099-01-01T00:00:00.000Z' } })
+      .mockResolvedValueOnce({ data: { ...statusResponse, scheduled_at: '2099-01-01T00:00:00.000Z' } })
+      .mockResolvedValueOnce({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const router = { location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() };
+
+    const created = await dispatchThunk(submitCompose(router), composeState({ compose: { scheduled: '2099-01-01 00:00' } }));
+    expect(created.find(action => action.type === 'SCHEDULED_STATUS_SUBMIT_SUCCESS').submission.kind).toEqual('schedule');
+
+    const kept = await dispatchThunk(
+      submitCompose(router),
+      composeState({ compose: { scheduled: '2099-01-01 00:00', scheduled_status_id: 'sched-1' } }),
+    );
+    expect(kept.find(action => action.type === 'SCHEDULED_STATUS_SUBMIT_SUCCESS').submission.kind).toEqual('edit');
+
+    const immediate = await dispatchThunk(
+      submitCompose(router),
+      composeState({ compose: { scheduled: null, scheduled_status_id: 'sched-1' } }),
+    );
+    expect(immediate.find(action => action.type === 'COMPOSE_SUBMIT_SUCCESS').submission.kind).toEqual('edit');
   });
 
   it('sends the selected language with a scheduled post', async () => {
@@ -561,5 +591,352 @@ describe('submitCompose', () => {
     }));
     expect(request.mock.calls[0][0].data.status).toEqual('Hello Mitra');
     expect(request.mock.calls[0][0].data).not.toHaveProperty('audience_account_id');
+  });
+});
+
+const router = { location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() };
+
+const reduceComposeStore = (state, action) => {
+  if (!state || !action || action.type === '@@INIT') {
+    return state;
+  }
+
+  return state
+    .set('compose', composeReducer(state.get('compose'), action))
+    .set('userPostingStyles', userPostingStyles(state.get('userPostingStyles'), action));
+};
+
+const namedStyle = (id, name) => fromJS({
+  id,
+  name,
+  revision: 1,
+  target: { kind: 'none', accountId: null, hashtag: null, label: null },
+  defaults: { visibility: 'public' },
+  managed: { hashtags: [] },
+});
+
+const buildComposeStore = (compose = initialComposerState, styles = ImmutableList()) => createStore(
+  reduceComposeStore,
+  ImmutableMap({
+    compose,
+    userPostingStyles: userPostingStyles(undefined, { type: USER_POSTING_STYLES_FETCH_SUCCESS, styles }),
+  }),
+  applyMiddleware(thunk),
+);
+
+const deferRequests = () => {
+  const pending = [];
+  const request = jest.fn(() => new Promise((resolve, reject) => {
+    pending.push({ resolve, reject });
+  }));
+
+  api.mockReturnValue({ request });
+
+  return { pending, request };
+};
+
+const sentSubmission = compose => ({
+  token: compose.get('idempotencyKey'),
+  submitId: compose.get('activeSubmitId'),
+  instanceId: compose.get('instanceId'),
+  selectionGeneration: compose.getIn(['userPostingStyle', 'selectionGeneration']) || 0,
+  draftGeneration: compose.get('draftGeneration') || 0,
+  text: compose.get('text') || '',
+  mediaIds: '',
+  surface: null,
+  senderIdentityId: compose.getIn(['senderIdentity', 'id']) || null,
+  kind: 'new',
+});
+
+describe('resending a draft kept after an older success', () => {
+  const pollOption = (store, index = 0) => store.getState().getIn(['compose', 'poll', 'options', index]);
+
+  it('posts the edited poll with a new idempotency key and then completes', async () => {
+    const { pending, request } = deferRequests();
+    const store = buildComposeStore();
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Choose' });
+    store.dispatch({ type: COMPOSE_POLL_ADD });
+    store.dispatch({ type: COMPOSE_POLL_OPTION_CHANGE, index: 0, title: 'Now' });
+
+    const first = store.dispatch(submitCompose(router));
+    const sentKey = request.mock.calls[0][0].headers['Idempotency-Key'];
+    expect(request.mock.calls[0][0].data.poll.getIn(['options', 0])).toEqual('Now');
+
+    store.dispatch({ type: COMPOSE_POLL_OPTION_CHANGE, index: 0, title: 'Later' });
+    const editedKey = store.getState().getIn(['compose', 'idempotencyKey']);
+    expect(editedKey).not.toEqual(sentKey);
+
+    pending[0].resolve({ data: statusResponse });
+    await first;
+
+    const kept = store.getState().get('compose');
+    expect(kept.get('is_submitting')).toBe(false);
+    expect(kept.get('text')).toEqual('Choose');
+    expect(pollOption(store)).toEqual('Later');
+    expect(kept.get('idempotencyKey')).toEqual(editedKey);
+    expect(kept.get('consumedSubmissionToken')).toEqual(sentKey);
+
+    const second = store.dispatch(submitCompose(router));
+    expect(request.mock.calls[1][0].headers['Idempotency-Key']).toEqual(editedKey);
+    expect(request.mock.calls[1][0].data.poll.getIn(['options', 0])).toEqual('Later');
+    expect(request.mock.calls[1][0].headers['Idempotency-Key']).not.toEqual(sentKey);
+
+    pending[1].resolve({ data: { ...statusResponse, id: 's2' } });
+    await second;
+
+    const done = store.getState().get('compose');
+    expect(done.get('text')).toEqual('');
+    expect(done.get('poll')).toBeNull();
+    expect(done.get('is_submitting')).toBe(false);
+    expect(done.get('idempotencyKey')).not.toEqual(editedKey);
+  });
+
+  it('does not roll back a key already replaced by a text or warning edit', async () => {
+    const { pending, request } = deferRequests();
+    const store = buildComposeStore();
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Hello' });
+    store.dispatch({ type: COMPOSE_SPOILERNESS_CHANGE });
+    store.dispatch({ type: COMPOSE_SPOILER_TEXT_CHANGE, text: 'before' });
+
+    const first = store.dispatch(submitCompose(router));
+    const sentKey = request.mock.calls[0][0].headers['Idempotency-Key'];
+    store.dispatch({ type: COMPOSE_SPOILER_TEXT_CHANGE, text: 'after' });
+    const editedKey = store.getState().getIn(['compose', 'idempotencyKey']);
+    expect(editedKey).not.toEqual(sentKey);
+
+    pending[0].resolve({ data: statusResponse });
+    await first;
+
+    const kept = store.getState().get('compose');
+    expect(kept.get('idempotencyKey')).toEqual(editedKey);
+    expect(kept.get('spoiler_text')).toEqual('after');
+    expect(kept.get('text')).toEqual('Hello');
+    expect(kept.get('is_submitting')).toBe(false);
+  });
+
+  it('keeps the same key when a failed request is retried without edits', async () => {
+    const { pending, request } = deferRequests();
+    const store = buildComposeStore();
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Retry me' });
+
+    const first = store.dispatch(submitCompose(router));
+    const sentKey = request.mock.calls[0][0].headers['Idempotency-Key'];
+    pending[0].reject(Object.assign(new Error('network'), { response: undefined }));
+    await first;
+
+    expect(store.getState().getIn(['compose', 'idempotencyKey'])).toEqual(sentKey);
+    expect(store.getState().getIn(['compose', 'is_submitting'])).toBe(false);
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Retry me');
+
+    const second = store.dispatch(submitCompose(router));
+    expect(request.mock.calls[1][0].headers['Idempotency-Key']).toEqual(sentKey);
+    expect(request.mock.calls[1][0].data.status).toEqual('Retry me');
+    pending[1].resolve({ data: statusResponse });
+    await second;
+
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('');
+    expect(store.getState().getIn(['compose', 'is_submitting'])).toBe(false);
+  });
+
+  it('leaves the key and submitting flag alone for a duplicate, another instance, or a newer send', async () => {
+    const { pending, request } = deferRequests();
+    const store = buildComposeStore();
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Choose' });
+    store.dispatch({ type: COMPOSE_POLL_ADD });
+    store.dispatch({ type: COMPOSE_POLL_OPTION_CHANGE, index: 0, title: 'Now' });
+
+    const first = store.dispatch(submitCompose(router));
+    const sent = sentSubmission(store.getState().get('compose'));
+    const sentKey = store.getState().getIn(['compose', 'idempotencyKey']);
+
+    store.dispatch({
+      type: COMPOSE_SUBMIT_SUCCESS,
+      submitId: sent.submitId,
+      submission: { ...sent, instanceId: 'composer-other' },
+    });
+    expect(store.getState().getIn(['compose', 'is_submitting'])).toBe(true);
+    expect(store.getState().getIn(['compose', 'idempotencyKey'])).toEqual(sentKey);
+
+    store.dispatch({ type: COMPOSE_POLL_OPTION_CHANGE, index: 0, title: 'Later' });
+    const editedKey = store.getState().getIn(['compose', 'idempotencyKey']);
+    store.dispatch({ type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-newer' });
+    store.dispatch({
+      type: COMPOSE_SUBMIT_SUCCESS,
+      submitId: sent.submitId,
+      submission: sent,
+    });
+    expect(store.getState().getIn(['compose', 'is_submitting'])).toBe(true);
+    expect(store.getState().getIn(['compose', 'activeSubmitId'])).toEqual('submit-newer');
+    expect(store.getState().getIn(['compose', 'idempotencyKey'])).toEqual(editedKey);
+    expect(pollOption(store)).toEqual('Later');
+
+    store.dispatch({ type: COMPOSE_SUBMIT_REQUEST, submitId: sent.submitId });
+    pending[0].resolve({ data: statusResponse });
+    await first;
+
+    const keptKey = store.getState().getIn(['compose', 'idempotencyKey']);
+    expect(keptKey).toEqual(editedKey);
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Choose');
+    expect(request).toHaveBeenCalledTimes(1);
+
+    store.dispatch({
+      type: COMPOSE_SUBMIT_SUCCESS,
+      submitId: sent.submitId,
+      submission: sent,
+    });
+    expect(store.getState().getIn(['compose', 'idempotencyKey'])).toEqual(keptKey);
+    expect(store.getState().getIn(['compose', 'is_submitting'])).toBe(false);
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Choose');
+    expect(pollOption(store)).toEqual('Later');
+  });
+
+  it('completes a post whose only in-flight change was the usage period', async () => {
+    const { pending, request } = deferRequests();
+    const once = initialComposerState
+      .setIn(['userPostingStyle', 'usageMode'], 'once')
+      .setIn(['userPostingStyle', 'selectionKind'], 'style')
+      .setIn(['userPostingStyle', 'selectedId'], 'style-b');
+    const store = buildComposeStore(once);
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'This post' });
+
+    const first = store.dispatch(submitCompose(router));
+    const sentKey = request.mock.calls[0][0].headers['Idempotency-Key'];
+    store.dispatch(setPostingStyleUsage(PRIMARY_COMPOSER_ID, 'keep'));
+    expect(store.getState().getIn(['compose', 'idempotencyKey'])).toEqual(sentKey);
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('keep');
+
+    pending[0].resolve({ data: statusResponse });
+    await first;
+
+    const kept = store.getState().get('compose');
+    expect(kept.get('text')).toEqual('');
+    expect(kept.get('is_submitting')).toBe(false);
+    expect(kept.get('userPostingStyle').get('usageMode')).toEqual('keep');
+    expect(kept.getIn(['userPostingStyle', 'selectedId'])).toEqual('style-b');
+    expect(kept.get('idempotencyKey')).not.toEqual(sentKey);
+    expect(kept.get('consumedSubmissionToken')).toEqual(sentKey);
+
+    const back = buildComposeStore(initialComposerState.setIn(['userPostingStyle', 'usageMode'], 'keep').setIn(['userPostingStyle', 'selectionKind'], 'style').setIn(['userPostingStyle', 'selectedId'], 'style-b'));
+    const { pending: again, request: againRequest } = deferRequests();
+    back.dispatch({ type: COMPOSE_CHANGE, text: 'Once more' });
+    const second = back.dispatch(submitCompose(router));
+    back.dispatch(setPostingStyleUsage(PRIMARY_COMPOSER_ID, 'once'));
+    again[0].resolve({ data: statusResponse });
+    await second;
+
+    const restored = back.getState().get('compose');
+    expect(restored.get('text')).toEqual('');
+    expect(restored.get('is_submitting')).toBe(false);
+    expect(restored.getIn(['userPostingStyle', 'usageMode'])).toEqual('usual');
+    expect(restored.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+    expect(restored.get('idempotencyKey')).not.toEqual(againRequest.mock.calls[0][0].headers['Idempotency-Key']);
+  });
+
+  it('keeps a same-valued style chosen while sending and posts it with a new key', async () => {
+    const { pending, request } = deferRequests();
+    const store = buildComposeStore(initialComposerState, ImmutableList([
+      namedStyle('a', 'Alpha'),
+      namedStyle('b', 'Beta'),
+    ]));
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'Draft' });
+    const sentGeneration = store.getState().getIn(['compose', 'userPostingStyle', 'selectionGeneration']);
+
+    const first = store.dispatch(submitCompose(router));
+    const sentKey = request.mock.calls[0][0].headers['Idempotency-Key'];
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'b'));
+    const during = store.getState().get('compose');
+    expect(during.getIn(['userPostingStyle', 'selectedId'])).toEqual('b');
+    expect(during.getIn(['userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(during.getIn(['userPostingStyle', 'selectionGeneration'])).toBeGreaterThan(sentGeneration);
+    expect(during.get('idempotencyKey')).toEqual(sentKey);
+    expect(during.get('privacy')).toEqual('public');
+    expect(during.get('text')).toEqual('Draft');
+
+    pending[0].resolve({ data: statusResponse });
+    await first;
+
+    const kept = store.getState().get('compose');
+    expect(kept.get('text')).toEqual('Draft');
+    expect(kept.getIn(['userPostingStyle', 'selectedId'])).toEqual('b');
+    expect(kept.getIn(['userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(kept.getIn(['userPostingStyle', 'snapshot', 'id'])).toEqual('b');
+    expect(kept.get('is_submitting')).toBe(false);
+    const nextKey = kept.get('idempotencyKey');
+    expect(nextKey).not.toEqual(sentKey);
+
+    const second = store.dispatch(submitCompose(router));
+    expect(request.mock.calls[1][0].headers['Idempotency-Key']).toEqual(nextKey);
+    expect(request.mock.calls[1][0].data.status).toEqual('Draft');
+    expect(request.mock.calls[1][0].data.visibility).toEqual('public');
+    pending[1].resolve({ data: { ...statusResponse, id: 's2' } });
+    await second;
+
+    const done = store.getState().get('compose');
+    expect(done.get('text')).toEqual('');
+    expect(done.get('is_submitting')).toBe(false);
+    expect(done.getIn(['userPostingStyle', 'usageMode'])).toEqual('usual');
+  });
+
+  it('keeps a reapplied style, an explicit none, and a return to the same id', async () => {
+    const styles = ImmutableList([namedStyle('a', 'Alpha'), namedStyle('b', 'Beta')]);
+
+    const reapplied = buildComposeStore(initialComposerState, styles);
+    const { pending: reapplyPending, request: reapplyRequest } = deferRequests();
+    await reapplied.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    reapplied.dispatch({ type: COMPOSE_CHANGE, text: 'Same style' });
+    const reapplyGeneration = reapplied.getState().getIn(['compose', 'userPostingStyle', 'selectionGeneration']);
+    const reapplySend = reapplied.dispatch(submitCompose(router));
+    const reapplyKey = reapplyRequest.mock.calls[0][0].headers['Idempotency-Key'];
+    await reapplied.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    expect(reapplied.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toEqual('a');
+    expect(reapplied.getState().getIn(['compose', 'userPostingStyle', 'selectionGeneration'])).toBeGreaterThan(reapplyGeneration);
+    expect(reapplied.getState().getIn(['compose', 'idempotencyKey'])).toEqual(reapplyKey);
+    reapplyPending[0].resolve({ data: statusResponse });
+    await reapplySend;
+    expect(reapplied.getState().getIn(['compose', 'text'])).toEqual('Same style');
+    expect(reapplied.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toEqual('a');
+    expect(reapplied.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(reapplied.getState().getIn(['compose', 'idempotencyKey'])).not.toEqual(reapplyKey);
+
+    const cleared = buildComposeStore(initialComposerState, styles);
+    const { pending: nonePending, request: noneRequest } = deferRequests();
+    await cleared.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    cleared.dispatch({ type: COMPOSE_CHANGE, text: 'No style' });
+    const noneSend = cleared.dispatch(submitCompose(router));
+    const noneKey = noneRequest.mock.calls[0][0].headers['Idempotency-Key'];
+    await cleared.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, null));
+    expect(cleared.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toBeNull();
+    expect(cleared.getState().getIn(['compose', 'userPostingStyle', 'selectionKind'])).toEqual('none');
+    expect(cleared.getState().getIn(['compose', 'privacy'])).toEqual('public');
+    expect(cleared.getState().getIn(['compose', 'idempotencyKey'])).toEqual(noneKey);
+    nonePending[0].resolve({ data: statusResponse });
+    await noneSend;
+    expect(cleared.getState().getIn(['compose', 'text'])).toEqual('No style');
+    expect(cleared.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toBeNull();
+    expect(cleared.getState().getIn(['compose', 'userPostingStyle', 'selectionKind'])).toEqual('none');
+    expect(cleared.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(cleared.getState().getIn(['compose', 'idempotencyKey'])).not.toEqual(noneKey);
+
+    const returned = buildComposeStore(initialComposerState, styles);
+    const { pending: returnPending, request: returnRequest } = deferRequests();
+    await returned.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    returned.dispatch({ type: COMPOSE_CHANGE, text: 'Back to A' });
+    const sentId = returned.getState().getIn(['compose', 'userPostingStyle', 'selectedId']);
+    const sentGeneration = returned.getState().getIn(['compose', 'userPostingStyle', 'selectionGeneration']);
+    const returnSend = returned.dispatch(submitCompose(router));
+    const returnKey = returnRequest.mock.calls[0][0].headers['Idempotency-Key'];
+    await returned.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'b'));
+    await returned.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'a'));
+    expect(returned.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toEqual(sentId);
+    expect(returned.getState().getIn(['compose', 'userPostingStyle', 'selectionGeneration'])).toBeGreaterThan(sentGeneration);
+    expect(returned.getState().getIn(['compose', 'idempotencyKey'])).toEqual(returnKey);
+    returnPending[0].resolve({ data: statusResponse });
+    await returnSend;
+    expect(returned.getState().getIn(['compose', 'text'])).toEqual('Back to A');
+    expect(returned.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toEqual('a');
+    expect(returned.getState().getIn(['compose', 'userPostingStyle', 'usageMode'])).toEqual('once');
+    expect(returned.getState().getIn(['compose', 'idempotencyKey'])).not.toEqual(returnKey);
   });
 });

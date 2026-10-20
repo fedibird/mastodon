@@ -820,7 +820,8 @@ describe('place posting-style defaults', () => {
     expect(next.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
     expect(next.getIn(['userPostingStyle', 'styleInputLock'])).toBe(true);
     expect(next.get('posting_context_account_id')).toEqual('123');
-    expect(settledSurfaceOf(store, composerId)).toEqual('group:123');
+    expect(settledSurfaceOf(store, composerId)).toBeNull();
+    expect(next.getIn(['userPostingStyle', 'selectionKind'])).not.toEqual('style');
   });
 
   it('does not auto-select none or unavailable after group context resolves', async () => {

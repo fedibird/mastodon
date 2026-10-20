@@ -15,7 +15,12 @@ import {
 const initialState = ImmutableMap({
   bySurface: ImmutableMap(),
   mountedSurfaces: ImmutableMap(),
+  global: null,
 });
+
+const isGlobal = action => action.scope === 'global';
+
+const readGlobal = state => state.get('global') || blankEntry();
 
 const blankEntry = () => ImmutableMap({
   status: 'idle',
@@ -42,7 +47,13 @@ const applyLoaded = (entry, action) => rememberSurface(entry, action.assignment.
   failure: null,
 });
 
+const writeGlobal = (state, entry) => state.set('global', entry);
+
 export default function userPostingContextAssignments(state = initialState, action) {
+  if (isGlobal(action)) {
+    return reduceGlobal(state, action);
+  }
+
   switch (action.type) {
   case USER_POSTING_CONTEXT_ASSIGNMENT_CONSUMER_REGISTER:
     return action.surface ? state.setIn(['mountedSurfaces', action.consumerId], ImmutableMap(action.surface)) : state;
@@ -52,8 +63,8 @@ export default function userPostingContextAssignments(state = initialState, acti
     return state.getIn(['bySurface', action.surfaceKey, 'writeGeneration']) === action.generation
       ? state.setIn(['bySurface', action.surfaceKey, 'writePending'], false) : state;
 
-  case USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE:
-    return state.update('refreshEpoch', 0, epoch => epoch + 1).update('bySurface', entries => entries.map(entry => entry.merge({
+  case USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE: {
+    const invalidated = state.update('refreshEpoch', 0, epoch => epoch + 1).update('bySurface', entries => entries.map(entry => entry.merge({
       // Retain surface and advance the generation even for in-flight reads/writes.
       // Until reconciliation succeeds, none of the old defaults is authoritative.
       status: 'idle',
@@ -63,6 +74,17 @@ export default function userPostingContextAssignments(state = initialState, acti
       revision: null,
       failure: null,
     })));
+    const global = readGlobal(invalidated);
+
+    return writeGlobal(invalidated, global.merge({
+      status: 'idle',
+      generation: (global.get('generation') || 0) + 1,
+      assignmentStatus: null,
+      styleId: null,
+      revision: null,
+      failure: null,
+    }));
+  }
 
   case USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST:
   case USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_REQUEST: {
@@ -102,6 +124,59 @@ export default function userPostingContextAssignments(state = initialState, acti
     const saveFailed = action.type === USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_FAIL;
 
     return state.setIn(['bySurface', action.surfaceKey], current.merge({
+      status: saveFailed && current.get('assignmentStatus') ? 'ready' : 'failed',
+      failure: saveFailed ? 'save' : 'fetch',
+    }));
+  }
+  default:
+    return state;
+  }
+}
+
+function reduceGlobal(state, action) {
+  switch (action.type) {
+  case USER_POSTING_CONTEXT_ASSIGNMENT_WRITE_FINISH:
+    return readGlobal(state).get('writeGeneration') === action.generation
+      ? writeGlobal(state, readGlobal(state).set('writePending', false))
+      : state;
+  case USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST:
+  case USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_REQUEST: {
+    const current = readGlobal(state);
+
+    if (action.generation < current.get('generation')) {
+      return state;
+    }
+
+    const locked = action.type === USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_REQUEST
+      ? current.merge({ writePending: true, writeGeneration: action.generation }) : current;
+
+    return writeGlobal(state, rememberSurface(locked, action.surface).merge({
+      status: action.type === USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_REQUEST ? 'saving' : 'loading',
+      generation: action.generation,
+      failure: null,
+    }));
+  }
+  case USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS:
+  case USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_SUCCESS: {
+    const current = readGlobal(state);
+
+    if (current.get('generation') !== action.generation || !action.assignment) {
+      return state;
+    }
+
+    return writeGlobal(state, applyLoaded(current, action));
+  }
+  case USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL:
+  case USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_FAIL: {
+    const current = readGlobal(state);
+
+    if (current.get('generation') !== action.generation) {
+      return state;
+    }
+
+    const saveFailed = action.type === USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_FAIL;
+
+    return writeGlobal(state, current.merge({
       status: saveFailed && current.get('assignmentStatus') ? 'ready' : 'failed',
       failure: saveFailed ? 'save' : 'fetch',
     }));
