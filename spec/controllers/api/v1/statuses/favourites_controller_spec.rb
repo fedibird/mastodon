@@ -131,7 +131,7 @@ describe Api::V1::Statuses::FavouritesController do
           post :destroy, params: { status_id: status.id }
 
           expect(response).to have_http_status(200)
-          expect(UnfavouriteWorker.jobs.map { |job| job['args'] }).to eq [[user.account.id, status.id]]
+          expect(UnfavouriteWorker.jobs.map { |job| job['args'] }).to eq [[user.account.id, status.id, user.id]]
           expect(status.reload.favourites_count).to eq 1
           expect(user.account.favourited?(status)).to be true
 

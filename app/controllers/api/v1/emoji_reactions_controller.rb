@@ -105,7 +105,7 @@ class Api::V1::EmojiReactionsController < Api::BaseController
   end
 
   def kept_representative_reactions(ids)
-    scope = EmojiReaction.where(id: ids).joins(:status).eager_load(:status)
+    scope = EmojiReaction.where(id: ids).joins(:status).eager_load(:status).merge(ExternalBridge::ProjectionPrivacy.visible_status_relation(current_user.id))
     scope = scope.merge(media_only_scope) if media_only?
     scope = scope.merge(without_media_scope) if without_media?
     reactions = scope.index_by { |reaction| reaction.id.to_i }
@@ -113,7 +113,7 @@ class Api::V1::EmojiReactionsController < Api::BaseController
   end
 
   def filtered_emoji_reactions
-    account_emoji_reactions.joins(:status).eager_load(:status).tap do |emoji_reactions|
+    account_emoji_reactions.joins(:status).eager_load(:status).merge(ExternalBridge::ProjectionPrivacy.visible_status_relation(current_user.id)).tap do |emoji_reactions|
       emoji_reactions.merge!(media_only_scope)    if media_only?
       emoji_reactions.merge!(without_media_scope) if without_media?
     end

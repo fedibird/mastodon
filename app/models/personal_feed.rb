@@ -50,5 +50,6 @@ class PersonalFeed
 
   def personal_scope
     Status.include_expired.where(account_id: account.id).without_reblogs.with_personal_visibility
+          .where(ExternalBridge::ProjectionPrivacy::PERSONAL_VISIBILITY_SQL, viewer_user_id: options[:viewer_user_id].to_i)
   end
 end

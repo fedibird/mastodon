@@ -69,13 +69,15 @@ class StatusesController < ApplicationController
   end
 
   def history
+    return not_found if ExternalBridge::ProjectionPrivacy.private_target?(@status)
+
     expires_in 10.seconds, public: true if current_account.nil?
 
     render json: status_edits, each_serializer: REST::StatusEditSerializer
   end
 
   def embed
-    return not_found if @status.hidden? || @status.reblog?
+    return not_found if @status.hidden? || @status.reblog? || ExternalBridge::ProjectionPrivacy.private_target?(@status)
 
     expires_in 180, public: true
     response.headers['X-Frame-Options'] = 'ALLOWALL'
@@ -94,12 +96,15 @@ class StatusesController < ApplicationController
   end
 
   def set_link_headers
-    response.headers['Link'] = LinkHeader.new([[ActivityPub::TagManager.instance.uri_for(@status), [%w(rel alternate), %w(type application/activity+json)]]])
+    uri = ActivityPub::TagManager.instance.uri_for(@status)
+    return if uri.blank?
+
+    response.headers['Link'] = LinkHeader.new([[uri, [%w(rel alternate), %w(type application/activity+json)]]])
   end
 
   def set_status
     @status = @account.statuses.find(params[:id])
-    if @status.ap_page?
+    if @status.ap_page? || ExternalBridge::ProjectionPrivacy.hidden_from?(@status, current_user&.id) || (request.format == :json && ExternalBridge::ProjectionPrivacy.private_target?(@status))
       not_found
       return
     end

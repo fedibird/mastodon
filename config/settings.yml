@@ -198,6 +198,13 @@ defaults: &defaults
   reject_pattern: ''
   reject_blurhash: ''
   max_frequently_used_emojis: 16
+  # Public RSS/Atom private projections. The flag is an instance kill switch.
+  # It does not admit every user. Testers are an explicit allowlist of local
+  # user ids, empty by default:
+  #   Setting.external_bridge_rss = true
+  #   Setting.external_bridge_rss_testers = "17,42"
+  external_bridge_rss: false
+  external_bridge_rss_testers: ''
   action_review_policies:
     follow_import: 'off'
     account_migration: 'off'

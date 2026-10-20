@@ -15,6 +15,7 @@ class FanOutOnWriteService < BaseService
     @update = update
     raise Mastodon::RaceConditionError if status.visibility.nil?
     return if status.ap_page?
+    return if ExternalBridge::ProjectionPrivacy.private_status?(status)
 
     @feedInsertWorker = status.account.high_priority? ? ::PriorityFeedInsertWorker : FeedInsertWorker
 

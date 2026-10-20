@@ -1,0 +1,52 @@
+- content_for :page_title do
+  = t('external_services.providers.rss.name')
+
+.external-services
+  %p
+    = link_to settings_external_services_path, class: 'external-services__back' do
+      = t('external_services.back')
+
+  .external-service-header
+    = render 'settings/external_services/icon', icon: ExternalServices::RSS.icon
+    .external-service-header__text
+      %h3= t('external_services.providers.rss.name')
+      %p= t('external_services.providers.rss.description')
+
+  - unless @page.permitted
+    %p.warning-hint= @page.enabled ? t('external_bridge.tester_only') : t('external_bridge.disabled')
+
+  - if @page.permitted
+    = form_with url: settings_external_services_rss_subscriptions_path, method: :post, local: true do
+      .fields-group
+        = label_tag :url, t('external_bridge.feed_url')
+        = text_field_tag :url, nil, type: 'url', required: true, placeholder: 'https://example.com/feed.xml'
+      .actions
+        = button_tag t('external_bridge.subscribe'), type: 'submit', class: 'button'
+
+  %h4= t('external_bridge.subscriptions')
+  - if @page.subscriptions.empty?
+    %p.hint= t('external_bridge.no_subscriptions')
+  - else
+    %ul.external-bridge-subscriptions
+      - @page.subscriptions.each do |subscription|
+        %li
+          %strong= subscription.external_source.title.presence || subscription.external_source.canonical_key
+          %span= subscription.state
+          - if subscription.last_error_code.present?
+            %span= t("external_bridge.errors.#{subscription.last_error_code}", default: subscription.last_error_code)
+          - if @page.permitted && subscription.state == 'active'
+            = button_to t('external_bridge.pause'), pause_external_services_rss_subscription_path(subscription), method: :post
+          - elsif @page.permitted
+            = button_to t('external_bridge.resume'), resume_external_services_rss_subscription_path(subscription), method: :post
+          = button_to t('external_bridge.unsubscribe'), external_services_rss_subscription_path(subscription), method: :delete
+
+  %h4= t('external_bridge.items')
+  - if @page.items.empty?
+    %p.hint= t('external_bridge.no_items')
+  - else
+    %ul.external-bridge-items
+      - @page.items.each do |item|
+        %li
+          = link_to item.external_resource&.title.presence || t('external_bridge.untitled'), short_account_status_path(current_account.username, item.status_id)
+          - if item.source_deleted
+            %span= t('external_bridge.source_deleted')

@@ -32,7 +32,8 @@ class StatusesSearchService < BaseService
       account_relations = relations_map_for_account(@account&.id, account_ids)
       status_relations  = relations_map_for_status(@account&.id, results)
   
-      results.reject { |status| StatusFilter.new(status, @account, account_relations, status_relations, include_expired: true).filtered? }
+      decision = ExternalBridge::ProjectionAccess::Decision.for(results, ExternalBridge::Viewer.user_id)
+      results.reject { |status| StatusFilter.new(status, @account, account_relations, status_relations, include_expired: true, projection_decision: decision).filtered? }
     rescue Faraday::ConnectionFailed, Parslet::ParseFailed
       []
     end

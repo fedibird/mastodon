@@ -1,0 +1,38 @@
+# frozen_string_literal: true
+
+module ExternalBridge
+  # One transaction: status insert with the privacy bit, then the marker.
+  # A failed marker rolls the status back before after_create_commit.
+  class ProjectionWriter
+    def create!(user:, subscription:, resource:, text:)
+      raise Error, :user_not_functional unless user&.functional?
+      raise Error, :account_mismatch unless user.account_id.present? && subscription.user_id == user.id
+      raise Error, :account_mismatch unless subscription.external_source_id == resource.external_source_id
+
+      ApplicationRecord.transaction(requires_new: true) do
+        status = Status.create!(
+          account_id: user.account_id,
+          text: text.presence || I18n.t('external_bridge.untitled'),
+          visibility: :personal,
+          searchability: :personal,
+          uri: nil,
+          external_projection: true,
+          local: true,
+          reply: false,
+          sensitive: false
+        )
+        marker = ExternalStatusProjection.create!(
+          user_id: user.id,
+          account_id: user.account_id,
+          external_source_id: subscription.external_source_id,
+          external_subscription_id: subscription.id,
+          external_resource_id: resource.id,
+          status_id: status.id,
+          last_seen_revision: resource.revision,
+          source_deleted: resource.source_deleted_at.present?
+        )
+        [status, marker]
+      end
+    end
+  end
+end

@@ -62,7 +62,7 @@ class AccountsController < ApplicationController
   end
 
   def filtered_pinned_statuses
-    @account.pinned_statuses.where(visibility: [:public, :unlisted]).without_unreleased_pages
+    @account.pinned_statuses.where(visibility: [:public, :unlisted]).without_unreleased_pages.where(Arel.sql(ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL))
   end
 
   def filtered_statuses
@@ -74,7 +74,7 @@ class AccountsController < ApplicationController
   end
 
   def default_statuses
-    @account.statuses.where(visibility: [:public, :unlisted]).without_unreleased_pages
+    @account.statuses.where(visibility: [:public, :unlisted]).without_unreleased_pages.where(Arel.sql(ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL))
   end
 
   def only_media_scope

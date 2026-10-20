@@ -52,6 +52,8 @@ class PostStatusService < BaseService
     return idempotency_duplicate if idempotency_given? && idempotency_duplicate?
     return suspended_account     if @account.suspended?
 
+    reject_projection_targets!
+
     validate_media!
     validate_expires!
     validate_prohibited_words!
@@ -144,6 +146,14 @@ class PostStatusService < BaseService
       @account.searchability
     else
       :direct
+    end
+  end
+
+  def reject_projection_targets!
+    ExternalBridge::Guards.reject_target!(@in_reply_to)
+    ExternalBridge::Guards.reject_target!(Status.find_by(id: @quote_id)) if @quote_id.present?
+    Array(@options[:status_reference_ids]).each do |reference_id|
+      ExternalBridge::Guards.reject_target!(Status.find_by(id: reference_id))
     end
   end
 

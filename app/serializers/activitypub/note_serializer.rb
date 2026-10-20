@@ -42,6 +42,7 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
 
   def type
     raise Status::UnreleasedActivityObject if object.respond_to?(:ap_page?) && object.ap_page?
+    raise Status::UnreleasedActivityObject if ExternalBridge::ProjectionPrivacy.private_status?(object)
 
     object.preloadable_poll ? 'Question' : 'Note'
   end

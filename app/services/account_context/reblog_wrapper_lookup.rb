@@ -32,7 +32,9 @@ class AccountContext::ReblogWrapperLookup
     return unknown('account_unknown') unless account
     return absent(account) if account.suspended?
 
-    visible = visible_candidates(account).select { |wrapper| StatusPolicy.new(@viewer, wrapper).show? }
+    candidates = visible_candidates(account)
+    ExternalBridge::ProjectionAccess.prepare!(candidates)
+    visible = candidates.select { |wrapper| StatusPolicy.new(@viewer, wrapper).show? }
 
     return unknown('ambiguous', account) if visible.size > 1
     return absent(account) if visible.empty?

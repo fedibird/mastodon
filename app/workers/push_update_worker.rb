@@ -7,6 +7,8 @@ class PushUpdateWorker
   def perform(account_id, status_id, timeline_id = nil, options = {})
     account     = Account.find(account_id)
     status      = Status.find(status_id)
+    return true if ExternalBridge::ProjectionPrivacy.private_status?(status)
+
     message     = InlineRenderer.render(status, account, :status)
     timeline_id = "timeline:#{account.id}" if timeline_id.nil?
     update      = options.symbolize_keys[:update]

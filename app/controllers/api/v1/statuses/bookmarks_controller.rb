@@ -8,6 +8,8 @@ class Api::V1::Statuses::BookmarksController < Api::BaseController
   before_action :set_status, only: [:create]
 
   def create
+    raise Mastodon::NotPermittedError if ExternalBridge::ProjectionPrivacy.hidden_from?(@status, current_user.id)
+
     current_account.bookmarks.find_or_create_by!(account: current_account, status: @status)
     render json: @status, serializer: REST::StatusSerializer
   end
@@ -17,6 +19,10 @@ class Api::V1::Statuses::BookmarksController < Api::BaseController
 
     if bookmark
       @status = bookmark.status
+      if ExternalBridge::ProjectionPrivacy.hidden_from?(@status, current_user.id)
+        not_found
+        return
+      end
     else
       @status = Status.include_expired.find(params[:status_id])
       authorize @status, :show?

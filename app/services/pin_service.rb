@@ -7,6 +7,8 @@ class PinService < BaseService
 
     return unless @account == @status.account
 
+    ExternalBridge::Guards.reject_target!(@status)
+
     StatusPin.create!(account: @account, status: @status)
     distribute_add_activity! if @account.local?
   end

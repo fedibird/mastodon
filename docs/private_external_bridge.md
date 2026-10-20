@@ -238,6 +238,16 @@ index_scope Status.include_expired.without_reblogs
 
 The spec sequence is create, refresh, favourite, refresh, bookmark, refresh, unfavourite, refresh, unbookmark, refresh. After each refresh a raw get of the status id is absent. A second example plants a document, commits the marker, runs the post-commit import, and asserts the document is gone. A third example runs a full `StatusesIndex` import of the scope and asserts the id is still absent.
 
+The release-gate example is `drops a planted document through favourite, bookmark, stat, and a full rebuild` in `spec/services/external_bridge/projection_integrity_spec.rb`. Its name does not contain `raw document`. `-e 'raw document'` runs zero examples. `ES_ENABLED=true` is required (`config/initializers/chewy.rb`). Without a reachable cluster the example calls `skip`, and a skip is not a pass. The pass is 1 example, 0 failures, 0 pending: the raw document stays absent after create, favourite, bookmark, a `StatusStat` update, unfavourite, and a full `StatusesIndex.import!`. Point the client at a test-only cluster and a unique prefix. Do not use a production index.
+
+```sh
+RAILS_ENV=test ES_ENABLED=true ES_HOST=127.0.0.1 ES_PORT=9200 ES_PREFIX=fedibird-p1-spec \
+  bundle exec rspec spec/services/external_bridge/projection_integrity_spec.rb:376 \
+  --format documentation
+```
+
+If that example moves, use `-e 'drops a planted document'` instead of the line number.
+
 ### Owner-only REST extension
 
 When the viewer is the owning user, the status JSON may include:

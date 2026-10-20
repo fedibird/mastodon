@@ -141,7 +141,10 @@ class DeleteAccountService < BaseService
   end
 
   def purge_content!
-    purge_user!
+    ApplicationRecord.transaction do
+      ExternalBridge::ProjectionPurge.purge_for_account!(@account)
+      purge_user!
+    end
     purge_profile!
     purge_statuses!
     purge_mentions!

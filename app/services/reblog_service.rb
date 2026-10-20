@@ -14,6 +14,7 @@ class ReblogService < BaseService
   def call(account, reblogged_status, options = {})
     reblogged_status = reblogged_status.reblog if reblogged_status.reblog?
     raise Mastodon::ValidationError, I18n.t('statuses.errors.unreleased_activity_object') if reblogged_status.ap_page?
+    ExternalBridge::Guards.reject_target!(reblogged_status)
 
     authorize_with account, reblogged_status, :reblog?
 

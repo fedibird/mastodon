@@ -3,7 +3,12 @@
 class UnfavouriteService < BaseService
   include Payloadable
 
-  def call(account, status)
+  def call(account, status, viewer_user: nil)
+    if ExternalBridge::ProjectionPrivacy.private_status?(status)
+      viewer_id = viewer_user&.id || ExternalBridge::Viewer.user_id
+      raise Mastodon::NotPermittedError unless ExternalBridge::ProjectionAccess.allow?(viewer_id, status)
+    end
+
     favourite = Favourite.find_by!(account: account, status: status)
     favourite.destroy!
     create_notification(favourite) if !status.account.local? && status.account.activitypub?

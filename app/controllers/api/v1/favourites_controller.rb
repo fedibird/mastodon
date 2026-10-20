@@ -35,7 +35,7 @@ class Api::V1::FavouritesController < Api::BaseController
   end
 
   def filtered_account_favourites
-    account_favourites.joins(:status).eager_load(:status).tap do |scope|
+    account_favourites.joins(:status).eager_load(:status).merge(ExternalBridge::ProjectionPrivacy.visible_status_relation(current_user.id)).tap do |scope|
       scope.merge!(media_only_scope)    if media_only?
       scope.merge!(without_media_scope) if without_media?
     end

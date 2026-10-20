@@ -18,6 +18,7 @@ class PublishStatusService < BaseService
 
   def call(status)
     return if status.nil? || published?(status)
+    return if ExternalBridge::ProjectionPrivacy.private_status?(status)
 
     with_redis_lock("publish-status:#{status.id}") do
       return if published?(status)

@@ -16,6 +16,7 @@ class StatusPolicy < ApplicationPolicy
 
   def show?
     return false if record.ap_page?
+    return false if ExternalBridge::ProjectionPrivacy.hidden_from?(record, ExternalBridge::Viewer.user_id)
     return false if author.suspended?
     return false unless expired_show?
 

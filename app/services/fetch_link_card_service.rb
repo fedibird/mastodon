@@ -56,6 +56,8 @@ class FetchLinkCardService < BaseService
   end
 
   def call(status, **options)
+    return if ExternalBridge::ProjectionPrivacy.private_status?(status)
+
     @status      = status
     @parse_urls  = parse_urls
     @url         = @parse_urls.shift

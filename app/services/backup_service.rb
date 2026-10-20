@@ -27,7 +27,7 @@ class BackupService < BaseService
 
     file.write(prepend)
 
-    account.statuses.without_unreleased_pages.with_includes.reorder(nil).find_in_batches do |statuses|
+    account.statuses.without_unreleased_pages.where(Arel.sql(ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL)).with_includes.reorder(nil).find_in_batches do |statuses|
       file.write(',') if add_comma
       add_comma = true
 

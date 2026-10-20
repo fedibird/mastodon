@@ -8,7 +8,6 @@
 #  text                         :text             default(""), not null
 #  created_at                   :datetime         not null
 #  updated_at                   :datetime         not null
-#  edited_at                    :datetime
 #  in_reply_to_id               :bigint(8)
 #  reblog_of_id                 :bigint(8)
 #  url                          :string
@@ -22,18 +21,19 @@
 #  account_id                   :bigint(8)        not null
 #  application_id               :bigint(8)
 #  in_reply_to_account_id       :bigint(8)
-#  audience_account_id          :bigint(8)
-#  quote_id                     :bigint(8)
 #  poll_id                      :bigint(8)
 #  deleted_at                   :datetime
-#  expires_at                   :datetime         default(Infinity), not null
-#  expires_action               :integer          default(0), not null
+#  quote_id                     :bigint(8)
 #  expired_at                   :datetime
-#  ordered_media_attachment_ids :bigint(8)        is an Array
 #  searchability                :integer
 #  generator_id                 :bigint(8)
+#  ordered_media_attachment_ids :bigint(8)        is an Array
+#  edited_at                    :datetime
+#  trendable                    :boolean
+#  audience_account_id          :bigint(8)
 #  post_title                   :text
 #  ap_object_type               :string
+#  external_projection          :boolean
 #
 
 class Status < ApplicationRecord
@@ -118,6 +118,7 @@ class Status < ApplicationRecord
   has_one :unresolve_status_reference_param, inverse_of: :status, dependent: :destroy
 
   has_one :notification, as: :activity, dependent: :destroy
+  has_one :external_status_projection, inverse_of: :status, dependent: :restrict_with_exception
   has_one :status_stat, inverse_of: :status
   has_one :trend, class_name: 'StatusTrend', inverse_of: :status, dependent: :destroy
   has_one :poll, inverse_of: :status, dependent: :destroy
@@ -188,6 +189,7 @@ class Status < ApplicationRecord
                    :preview_cards,
                    :preloadable_poll,
                    :generator,
+                   :external_status_projection,
                    tags: [:tag_account_mute_relationships],
                    references: { account: :account_stat },
                    account: [:account_stat, :user],
@@ -200,6 +202,7 @@ class Status < ApplicationRecord
                      :status_stat,
                      :status_expire,
                      :preloadable_poll,
+                     :external_status_projection,
                      tags: [:tag_account_mute_relationships],
                      references: { account: :account_stat },
                      account: [:account_stat, :user],
@@ -394,7 +397,7 @@ class Status < ApplicationRecord
   end
 
   def search_indexable?
-    !ap_page?
+    !ap_page? && external_projection != true
   end
 
   def self.normalize_post_title(value)
@@ -648,7 +651,10 @@ class Status < ApplicationRecord
     account_relations = Status.relations_map_for_account(account, account_ids)
     status_relations  = Status.relations_map_for_status(account, statuses)
 
-    statuses.reject! { |status| StatusFilter.new(status, account, account_relations, status_relations).filtered? }
+    decision = ExternalBridge::ProjectionAccess::Decision.for(statuses, ExternalBridge::Viewer.user_id)
+    statuses.reject! do |status|
+      StatusFilter.new(status, account, account_relations, status_relations, projection_decision: decision).filtered?
+    end
     statuses.sort!.reverse!
   end
 
@@ -677,6 +683,7 @@ class Status < ApplicationRecord
 
   after_create_commit :trigger_create_webhooks
   after_update_commit :trigger_update_webhooks
+  before_update :reject_external_projection_field_changes
 
   around_create Mastodon::Snowflake::Callbacks
 
@@ -751,14 +758,17 @@ class Status < ApplicationRecord
       }
     end
 
-    def permitted_statuses_from_ids(ids, account_id)
-      statuses          = Status.with_accounts(ids).to_a
+    def permitted_statuses_from_ids(ids, account_id, viewer_user_id: ExternalBridge::Viewer.user_id)
+      statuses          = Status.with_accounts(ids).includes(:external_status_projection).to_a
       account_ids       = statuses.map(&:account_id).uniq
       account_relations = relations_map_for_account(account_id, account_ids)
       status_relations  = relations_map_for_status(account_id, statuses)
       account           = Account.find_by(id: account_id)
+      decision          = ExternalBridge::ProjectionAccess::Decision.for(statuses, viewer_user_id)
 
-      statuses.reject! { |status| StatusFilter.new(status, account, account_relations, status_relations).filtered? }
+      statuses.reject! do |status|
+        StatusFilter.new(status, account, account_relations, status_relations, projection_decision: decision).filtered?
+      end
       statuses
     end
 
@@ -766,11 +776,12 @@ class Status < ApplicationRecord
       visibility = [:public, :unlisted]
 
       if account.nil?
-        where(visibility: visibility)
+        excluding_external_projections(where(visibility: visibility))
       elsif target_account.blocking?(account) || (account.domain.present? && target_account.domain_blocking?(account.domain)) # get rid of blocked peeps
         none
       elsif account.id == target_account.id # author can see own stuff
-        all
+        # No user argument, so projections stay out of this scope.
+        excluding_external_projections(all)
       else
         # followers can see followers-only stuff, but also things they are mentioned in.
         # non-followers can see everything that isn't private/direct, but can see stuff they are mentioned in.
@@ -778,10 +789,16 @@ class Status < ApplicationRecord
 
         scope = left_outer_joins(:reblog)
 
-        scope.where(visibility: visibility)
-             .or(scope.where(id: account.mentions.select(:status_id)))
-             .merge(scope.where(reblog_of_id: nil).or(scope.where.not(reblogs_statuses: { account_id: account.excluded_from_timeline_account_ids })))
+        excluding_external_projections(
+          scope.where(visibility: visibility)
+               .or(scope.where(id: account.mentions.select(:status_id)))
+               .merge(scope.where(reblog_of_id: nil).or(scope.where.not(reblogs_statuses: { account_id: account.excluded_from_timeline_account_ids })))
+        )
       end
+    end
+
+    def excluding_external_projections(relation)
+      relation.where(Arel.sql(ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL))
     end
 
     def from_text(text)
@@ -897,7 +914,29 @@ class Status < ApplicationRecord
   end
 
   def store_uri
-    update_column(:uri, ActivityPub::TagManager.instance.uri_for(self)) if uri.nil?
+    fresh = Status.find_by(id: id)
+    return if fresh.nil? || fresh.uri.present?
+    return if external_projection_side_effect?(fresh)
+
+    uri_value = ActivityPub::TagManager.instance.uri_for(fresh)
+    update_column(:uri, uri_value) if uri_value.present?
+  end
+
+  def reject_external_projection_field_changes
+    return unless external_projection == true
+
+    protected_fields = %w(account_id visibility searchability uri external_projection deleted_at reblog_of_id in_reply_to_id quote_id)
+    return if (changed & protected_fields).empty?
+
+    errors.add(:base, I18n.t('external_bridge.errors.projection_immutable'))
+    throw :abort
+  end
+
+  def external_projection_side_effect?(fresh = nil)
+    fresh ||= Status.find_by(id: id)
+    return true if fresh&.external_projection == true
+
+    ExternalStatusProjection.exists?(status_id: id)
   end
 
   def prepare_contents
@@ -997,10 +1036,12 @@ class Status < ApplicationRecord
   end
 
   def trigger_create_webhooks
+    return if external_projection_side_effect?
     TriggerWebhookWorker.perform_async('status.created', 'Status', id) if local? && !ap_page?
   end
 
   def trigger_update_webhooks
+    return if external_projection_side_effect?
     TriggerWebhookWorker.perform_async('status.updated', 'Status', id) if local? && !ap_page?
   end
 end

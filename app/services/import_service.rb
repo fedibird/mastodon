@@ -276,6 +276,7 @@ class ImportService < BaseService
 
     account_ids         = statuses.map(&:account_id)
     preloaded_relations = relations_map_for_account(@account&.id, account_ids)
+    ExternalBridge::ProjectionAccess.prepare!(statuses)
 
     statuses.keep_if { |status| StatusPolicy.new(@account, status, preloaded_relations).show? }
 

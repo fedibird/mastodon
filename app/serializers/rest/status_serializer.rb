@@ -30,6 +30,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
   attribute :expires_at, if: :expires?
   attribute :expires_action, if: :expires?
   attribute :visibility_ex, if: :visibility_ex?
+  attribute :fedibird_external, if: :include_fedibird_external?
 
   attribute :account
   attribute :reblog
@@ -154,6 +155,25 @@ class REST::StatusSerializer < ActiveModel::Serializer
 
   def visibility_ex
     object.visibility
+  end
+
+  def include_fedibird_external?
+    object.external_projection == true && ExternalBridge::ProjectionAccess.allow?(current_user&.id, object)
+  end
+
+  def fedibird_external
+    projection = object.external_status_projection
+    resource = projection&.external_resource
+    source = resource&.external_source || projection&.external_source
+    {
+      protocol: source&.protocol,
+      canonical_url: resource&.canonical_url,
+      native_uri: nil,
+      revision: resource&.revision,
+      byline_name: resource&.byline,
+      source_title: source&.title,
+      interaction: 'local_only',
+    }
   end
 
   def searchability

@@ -19,6 +19,7 @@ class UpdateStatusService < BaseService
     # Title and activity type are not edit fields. A stored page must not
     # be saved again and distributed as a Note update.
     raise Mastodon::ValidationError, I18n.t('statuses.errors.unreleased_activity_object') if status.ap_page?
+    ExternalBridge::Guards.reject_target!(status)
 
     @status                    = status
     @options                   = options.except(:post_title, :ap_object_type)

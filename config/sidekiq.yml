@@ -112,6 +112,10 @@
     # is absent. Default 60 seconds. This is NOT
     # FOLLOW_IMPORT_EXECUTION_INTERVAL. Cheap no-op unless
     # FOLLOW_IMPORT_DISPATCH_GLOBAL or FOLLOW_IMPORT_DISPATCH_SHADOW.
+    external_bridge_rss_refresh_scheduler:
+      every: '15m'
+      class: Scheduler::ExternalBridgeRSSRefreshScheduler
+      queue: scheduler
     follow_import_dispatch_scheduler:
       every: '<%= (canonical = ENV["FOLLOW_IMPORT_DISPATCH_INTERVAL"].to_i; alias_n = ENV["FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL"].to_i; n = canonical.positive? ? canonical : alias_n; n.positive? ? n : 60) %>s'
       class: Scheduler::FollowImportDispatchScheduler

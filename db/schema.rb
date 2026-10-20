@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_18_020000) do
+ActiveRecord::Schema.define(version: 2026_10_19_220000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -559,6 +559,119 @@ ActiveRecord::Schema.define(version: 2026_10_18_020000) do
     t.datetime "updated_at", null: false
     t.index ["device_id"], name: "index_encrypted_messages_on_device_id"
     t.index ["from_account_id"], name: "index_encrypted_messages_on_from_account_id"
+  end
+
+  create_table "external_actors", force: :cascade do |t|
+    t.string "protocol", null: false
+    t.text "native_id", null: false
+    t.string "handle"
+    t.string "display_name"
+    t.text "profile_url"
+    t.text "avatar_remote_url"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["protocol", "native_id"], name: "index_external_actors_on_protocol_and_native_id", unique: true
+    t.check_constraint "(protocol)::text = ANY ((ARRAY['rss'::character varying, 'atom'::character varying])::text[])", name: "external_actors_protocol_check"
+  end
+
+  create_table "external_projection_failures", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "external_subscription_id", null: false
+    t.bigint "external_resource_id", null: false
+    t.string "error_code", null: false
+    t.integer "attempt_count", default: 0, null: false
+    t.datetime "next_attempt_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_subscription_id"], name: "index_external_projection_failures_on_subscription"
+    t.index ["user_id", "external_resource_id"], name: "index_external_projection_failures_on_user_and_resource", unique: true
+    t.index ["user_id"], name: "index_external_projection_failures_on_user_id"
+  end
+
+  create_table "external_projection_suppressions", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "external_resource_id", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["user_id", "external_resource_id"], name: "index_external_projection_suppressions_on_user_and_resource", unique: true
+    t.index ["user_id"], name: "index_external_projection_suppressions_on_user_id"
+  end
+
+  create_table "external_resources", force: :cascade do |t|
+    t.bigint "external_source_id", null: false
+    t.bigint "external_actor_id"
+    t.string "protocol", null: false
+    t.text "canonical_key", null: false
+    t.text "revision"
+    t.text "canonical_url"
+    t.text "title"
+    t.text "body"
+    t.text "byline"
+    t.string "body_digest"
+    t.datetime "published_at"
+    t.datetime "source_deleted_at"
+    t.boolean "truncated", default: false, null: false
+    t.datetime "fetched_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_actor_id"], name: "index_external_resources_on_external_actor_id"
+    t.index ["external_source_id", "published_at"], name: "index_external_resources_on_source_and_published_at"
+    t.index ["id", "external_source_id"], name: "index_external_resources_on_id_and_source", unique: true
+    t.index ["protocol", "canonical_key"], name: "index_external_resources_on_protocol_and_canonical_key", unique: true
+    t.check_constraint "(protocol)::text = ANY ((ARRAY['rss'::character varying, 'atom'::character varying])::text[])", name: "external_resources_protocol_check"
+  end
+
+  create_table "external_sources", force: :cascade do |t|
+    t.string "protocol", null: false
+    t.text "canonical_key", null: false
+    t.text "etag"
+    t.text "last_modified"
+    t.datetime "fetched_at"
+    t.datetime "checked_at"
+    t.text "title"
+    t.text "site_url"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["canonical_key"], name: "index_external_sources_on_canonical_key"
+    t.index ["protocol", "canonical_key"], name: "index_external_sources_on_protocol_and_canonical_key", unique: true
+    t.check_constraint "(protocol)::text = ANY ((ARRAY['rss'::character varying, 'atom'::character varying])::text[])", name: "external_sources_protocol_check"
+  end
+
+  create_table "external_status_projections", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "account_id", null: false
+    t.bigint "external_source_id", null: false
+    t.bigint "external_subscription_id", null: false
+    t.bigint "external_resource_id", null: false
+    t.bigint "status_id", null: false
+    t.text "last_seen_revision"
+    t.boolean "source_deleted", default: false, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id"], name: "index_external_status_projections_on_account_id"
+    t.index ["external_subscription_id"], name: "index_external_status_projections_on_subscription"
+    t.index ["status_id"], name: "index_external_status_projections_on_status_id", unique: true
+    t.index ["user_id", "external_resource_id"], name: "index_external_status_projections_on_user_and_resource", unique: true
+    t.index ["user_id"], name: "index_external_status_projections_on_user_id"
+  end
+
+  create_table "external_subscriptions", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "external_source_id", null: false
+    t.string "state", default: "active", null: false
+    t.string "last_error_code"
+    t.datetime "last_error_at"
+    t.datetime "checked_at"
+    t.datetime "next_retry_at"
+    t.integer "retry_count", default: 0, null: false
+    t.integer "failed_item_count", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_source_id"], name: "index_external_subscriptions_on_external_source_id"
+    t.index ["id", "user_id", "external_source_id"], name: "index_external_subscriptions_on_id_user_and_source", unique: true
+    t.index ["user_id", "external_source_id"], name: "index_external_subscriptions_on_user_and_source", unique: true
+    t.index ["user_id"], name: "index_external_subscriptions_on_user_id"
+    t.check_constraint "(state)::text = ANY ((ARRAY['active'::character varying, 'paused'::character varying, 'error'::character varying])::text[])", name: "external_subscriptions_state_check"
   end
 
   create_table "favourite_domains", force: :cascade do |t|
@@ -1586,6 +1699,7 @@ ActiveRecord::Schema.define(version: 2026_10_18_020000) do
     t.bigint "audience_account_id"
     t.text "post_title"
     t.string "ap_object_type"
+    t.boolean "external_projection"
     t.index ["account_id", "id", "visibility", "updated_at"], name: "index_statuses_20210710", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL))"
     t.index ["account_id", "id"], name: "index_statuses_private_searchable", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL) AND (reblog_of_id IS NULL) AND (searchability = ANY (ARRAY[0, 1, 2])))"
     t.index ["audience_account_id"], name: "index_statuses_on_audience_account_id"
@@ -1930,6 +2044,18 @@ ActiveRecord::Schema.define(version: 2026_10_18_020000) do
   add_foreign_key "emoji_reactions", "statuses", on_delete: :cascade
   add_foreign_key "encrypted_messages", "accounts", column: "from_account_id", on_delete: :cascade
   add_foreign_key "encrypted_messages", "devices", on_delete: :cascade
+  add_foreign_key "external_projection_failures", "external_resources", on_delete: :restrict
+  add_foreign_key "external_projection_failures", "external_subscriptions", on_delete: :cascade
+  add_foreign_key "external_projection_failures", "users", on_delete: :cascade
+  add_foreign_key "external_projection_suppressions", "external_resources", on_delete: :restrict
+  add_foreign_key "external_projection_suppressions", "users", on_delete: :cascade
+  add_foreign_key "external_resources", "external_actors", on_delete: :nullify
+  add_foreign_key "external_resources", "external_sources", on_delete: :restrict
+  add_foreign_key "external_status_projections", "accounts", on_delete: :restrict
+  add_foreign_key "external_status_projections", "statuses", on_delete: :cascade
+  add_foreign_key "external_status_projections", "users", on_delete: :restrict
+  add_foreign_key "external_subscriptions", "external_sources", on_delete: :restrict
+  add_foreign_key "external_subscriptions", "users", on_delete: :cascade
   add_foreign_key "favourite_domains", "accounts", on_delete: :cascade
   add_foreign_key "favourite_tags", "accounts", on_delete: :cascade
   add_foreign_key "favourite_tags", "tags", on_delete: :cascade
@@ -2148,4 +2274,8 @@ ActiveRecord::Schema.define(version: 2026_10_18_020000) do
             WHERE (login_activities.success = true)) t0
     GROUP BY user_id, ip;
   SQL
+
+  # Composite foreign keys and projection triggers are not represented by the
+  # Rails 6.1 schema dumper. schema:load executes the application definition.
+  execute ExternalBridge::Schema::DEFINITIONS_SQL
 end

@@ -26,7 +26,7 @@ class ActivityPub::DistributionWorker
   private
 
   def skip_distribution?
-    @status.direct_visibility? || @status.ap_page?
+    @status.direct_visibility? || @status.ap_page? || ExternalBridge::ProjectionPrivacy.private_status?(@status)
   end
 
   def delegate_distribution?

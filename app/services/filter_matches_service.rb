@@ -13,6 +13,7 @@ class FilterMatchesService < BaseService
     # filters before authorization and fetches unrelated timeline relationships.
     statuses = Status.where(id: ids).includes(*TEXT_ASSOCIATIONS, reblog: TEXT_ASSOCIATIONS).to_a
     records = (statuses + statuses.filter_map(&:reblog)).uniq(&:id)
+    ExternalBridge::ProjectionAccess.prepare!(records)
     relations = Status.relations_map_for_account(account.id, records.map(&:account_id).uniq)
     filters = CustomFilter.cached_filters_for(account.id)
     matches = statuses.each_with_object({}) do |status, result|
