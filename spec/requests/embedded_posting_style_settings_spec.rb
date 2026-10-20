@@ -18,6 +18,10 @@ RSpec.describe 'Embedded posting style settings' do # rubocop:disable Metrics/Bl
   end
 
   before do
+    # .env.test sets LOCAL_HTTPS, so the session and Devise cookies are Secure.
+    # An HTTP request spec would drop them on the next request and redirect to
+    # sign-in. Match the cookie scheme instead of stubbing the user.
+    https! if ENV['LOCAL_HTTPS'] == 'true'
     resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
     allow(Webpacker.instance.manifest).to receive(:lookup!, &resolver)
     allow(Webpacker.instance.manifest).to receive(:lookup, &resolver)

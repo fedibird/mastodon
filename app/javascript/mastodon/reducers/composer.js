@@ -456,9 +456,8 @@ const submissionStillCurrent = (state, action) => {
     return false;
   }
 
-  if ((state.getIn(['userPostingStyle', 'selectionGeneration']) || 0) !== (submission.selectionGeneration || 0)) {
-    return false;
-  }
+  // Usage mode advances selectionGeneration without changing the post.
+  // That post can still complete. The handler reads the current mode.
 
   if (Object.prototype.hasOwnProperty.call(submission, 'draftGeneration') && (state.get('draftGeneration') || 0) !== submission.draftGeneration) {
     return false;
@@ -515,6 +514,17 @@ const reapplyKeptSelection = state => {
 
 const submittedId = action => (action.submission && action.submission.submitId) || action.submitId || null;
 
+// A kept draft must not send again with the key the server already accepted.
+const advanceSpentIdempotencyKey = (state, action) => {
+  const token = action.submission && action.submission.token;
+
+  if (!token || state.get('idempotencyKey') !== token) {
+    return state;
+  }
+
+  return state.set('idempotencyKey', uuid());
+};
+
 // An older request must not drop is_submitting while a newer send is still open.
 const submitTargetsActiveRequest = (state, action) => {
   const active = state.get('activeSubmitId');
@@ -532,8 +542,21 @@ const finishSuccessfulSubmit = (state, action) => {
     return state;
   }
 
+  const submission = action.submission;
+
+  if (submission && submission.instanceId && state.get('instanceId') !== submission.instanceId) {
+    return state;
+  }
+
+  if (submission && submission.token && state.get('consumedSubmissionToken') === submission.token) {
+    return state.set('is_submitting', false).set('activeSubmitId', null);
+  }
+
   if (!submissionStillCurrent(state, action)) {
-    return rememberConsumedSubmission(state.set('is_submitting', false).set('activeSubmitId', null), action);
+    return advanceSpentIdempotencyKey(
+      rememberConsumedSubmission(state.set('is_submitting', false).set('activeSubmitId', null), action),
+      action,
+    );
   }
 
   const kind = action.submission && action.submission.kind;
@@ -2022,18 +2045,40 @@ function reduceComposer(state = initialState, action) {
   case COMPOSE_POLL_ADD:
     return state.withMutations(map => {
       map.set('poll', initialPoll);
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
       notePortableDraftInput(map);
     });
   case COMPOSE_POLL_REMOVE:
-    return state.set('poll', null);
+    return state.withMutations(map => {
+      map.set('poll', null);
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+    });
   case COMPOSE_POLL_OPTION_ADD:
-    return state.updateIn(['poll', 'options'], options => options.push(action.title));
+    return state.withMutations(map => {
+      map.updateIn(['poll', 'options'], options => options.push(action.title));
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+    });
   case COMPOSE_POLL_OPTION_CHANGE:
-    return state.setIn(['poll', 'options', action.index], action.title);
+    return state.withMutations(map => {
+      map.setIn(['poll', 'options', action.index], action.title);
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+    });
   case COMPOSE_POLL_OPTION_REMOVE:
-    return state.updateIn(['poll', 'options'], options => options.delete(action.index));
+    return state.withMutations(map => {
+      map.updateIn(['poll', 'options'], options => options.delete(action.index));
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+    });
   case COMPOSE_POLL_SETTINGS_CHANGE:
-    return state.update('poll', poll => poll.set('expires_in', action.expiresIn).set('multiple', action.isMultiple));
+    return state.withMutations(map => {
+      map.update('poll', poll => poll.set('expires_in', action.expiresIn).set('multiple', action.isMultiple));
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+    });
   case COMPOSE_LANGUAGE_CHANGE:
     return state.withMutations(map => {
       map.set('language', action.language);
