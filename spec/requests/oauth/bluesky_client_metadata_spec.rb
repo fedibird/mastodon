@@ -24,6 +24,7 @@ describe 'Bluesky OAuth client metadata' do
       expect(document['token_endpoint_auth_method']).to eq('private_key_jwt')
       expect(document['token_endpoint_auth_signing_alg']).to eq('ES256')
       expect(document['dpop_bound_access_tokens']).to be(true)
+      expect(document['scope']).to eq('atproto')
       expect(document['jwks_uri']).to eq("#{ExternalBridge::Atproto::ClientDocument.origin}/oauth/bluesky/jwks")
       expect(response.body).not_to include(key.to_pem)
 

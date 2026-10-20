@@ -2211,8 +2211,7 @@ en:
       disabled: Bluesky connections are turned off on this server. Saved connections stay stored and are not deleted.
       disconnect: Disconnect
       disconnected: The Bluesky connection was removed on this server.
-      generic_consent: I understand this server can write any repository record
-      generic_disclosure: If this server does not offer separate like, repost, and reply permissions, connecting requires this broader permission. It is similar to an app password for repository records. Chat, email, and account administration are not requested. Leave this unchecked to refuse that server.
+      scope_note: This connection requests only the atproto identity permission. Like, repost, and reply are not requested. A later upgrade will ask before requesting a repository permission that this server lists.
       no_handle: No verified handle
       none: No Bluesky account is connected.
       tester_only: Bluesky connections are limited to testers on this server.

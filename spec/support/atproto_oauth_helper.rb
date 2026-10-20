@@ -53,7 +53,7 @@ module AtprotoOauthHelper
     MapDns.new(addresses, txt)
   end
 
-  def atproto_metadata(issuer: atproto_issuer, scopes: ExternalBridge::Atproto::Scopes::GRANULAR)
+  def atproto_metadata(issuer: atproto_issuer, scopes: ExternalBridge::Atproto::Scopes::IDENTITY + ExternalBridge::Atproto::Scopes::REPO)
     {
       'issuer' => issuer,
       'authorization_endpoint' => "#{issuer}/oauth/authorize",
@@ -99,7 +99,7 @@ module AtprotoOauthHelper
     {
       'token_type' => 'DPoP',
       'sub' => did,
-      'scope' => scope || ExternalBridge::Atproto::Scopes::GRANULAR.join(' '),
+      'scope' => scope || 'atproto',
       'expires_in' => expires_in,
       'refresh_token' => refresh,
       'access_token' => access,
@@ -121,6 +121,7 @@ module AtprotoOauthHelper
       token: atproto_tokens(did: did),
       token_handler: nil,
       par_handler: nil,
+      revoke_handler: nil,
       revoke_response: nil,
     }
     stub_request(:get, "https://plc.directory/#{did}").to_return { atproto_json(bodies[:document]) }
@@ -138,7 +139,13 @@ module AtprotoOauthHelper
     stub_request(:post, "#{issuer}/oauth/token").to_return do |request|
       bodies[:token_handler] ? bodies[:token_handler].call(request) : atproto_json(bodies[:token])
     end
-    stub_request(:post, "#{issuer}/oauth/revoke").to_return { bodies[:revoke_response] || atproto_json({}) }
+    stub_request(:post, "#{issuer}/oauth/revoke").to_return do |request|
+      if bodies[:revoke_handler]
+        bodies[:revoke_handler].call(request)
+      else
+        bodies[:revoke_response] || atproto_json({})
+      end
+    end
     World.new(dns: dns, bodies: bodies)
   end
 
@@ -147,7 +154,7 @@ module AtprotoOauthHelper
     world
   end
 
-  def start_atproto!(user:, identifier:, dns:, consent: false, browser: BROWSER)
+  def start_atproto!(user:, identifier:, dns:, browser: BROWSER)
     captured = []
     allow(SecureRandom).to receive(:urlsafe_base64).and_wrap_original do |method, *args, **kwargs|
       value = method.call(*args, **kwargs)
@@ -157,7 +164,6 @@ module AtprotoOauthHelper
     url = ExternalBridge::Atproto::Authorize.call(
       user: user,
       identifier: identifier,
-      accept_transition_generic: consent,
       browser_token: browser,
       dns: dns,
     )

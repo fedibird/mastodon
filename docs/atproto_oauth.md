@@ -105,28 +105,23 @@ A failed check after tokens were issued posts the refresh token to the stored re
 
 ### Scopes
 
-The preferred request is:
+P2 requests only `atproto`. One advertised `repo:` scope is not treated as permission to ask for like, repost, and post together, and `transition:generic` is not requested. The client metadata document advertises `atproto` only. Chat, email, account, and blob scopes are rejected if a server adds them to the grant.
 
-```text
-atproto
-repo:app.bsky.feed.like
-repo:app.bsky.feed.repost
-repo:app.bsky.feed.post
-```
+`Scopes::REPO` lists `repo:app.bsky.feed.like`, `repo:app.bsky.feed.repost`, and `repo:app.bsky.feed.post` for a later upgrade. That upgrade is not part of P2. It has to be a separate user confirmation, and it may request only the intersection of that list with the server's `scopes_supported`. The settings page says the current connection is identity-only.
 
-P2 does not exercise those repo scopes. They are requested so a later write phase does not need a broader grant. If the server lists any `repo:` scope, or does not list `transition:generic`, the granular list is requested.
-
-If the server lists `atproto` and `transition:generic` and no `repo:` scope, the user must check the broader-permission box. The page says that scope can write any repository record. Without that checkbox the server is `unsupported_scopes`. The client never requests chat, email, account, or blob scopes.
-
-A grant that is a subset of the request is stored. The identity status is `warning` and `last_error_code` is `partial_scopes`. A grant that adds a scope is not stored.
+A grant that adds a scope is not stored. `Scopes.accept!` still records a proper subset as `warning` / `partial_scopes` for a future multi-scope request. P2's single-scope request has no smaller successful subset.
 
 ### Refresh and disconnect
 
-Refresh takes an identity id, not a URL. It locks the identity row, resolves the DID again, and refuses to continue when the protected-resource issuer changed. It also refuses when the authorization-server token endpoint no longer equals the stored endpoint. The refresh token is posted only to that stored endpoint, with DPoP and the client key named by the session.
+Refresh takes an identity id, not a URL. It resolves the DID and reads authorization-server metadata before it decides to send a token. A changed issuer or token endpoint is `reauthentication_required`, and the refresh token is not sent. The token request goes only to the endpoint stored from that metadata, with DPoP and the client key named by the session.
 
-Refresh tokens are single use. The row lock plus `refresh_started_at` keeps a second caller from exchanging the same token. A timeout is `refresh_unacknowledged` and requires a new sign-in. A 401, a revoked or expired vault row, or a missing signing key is `reauthentication_required` or `revoked`. The old ciphertext is replaced only after a successful response.
+The row update that sets `refresh_started_at` is committed before that HTTP request. The database transaction is not held open across the network call. A second caller sees the marker and does not send the refresh token. If the process dies after the authorization server consumes the token and before the new ciphertext is committed, the marker remains. The next call does not send the old token again. The user signs in again.
 
-Disconnect always revokes the local vault row and sets `disconnected_at`. Remote revocation is attempted only when the user is still permitted and a revocation endpoint was stored. `revocation_state` is `remote_revoked`, `remote_failed`, `not_supported`, or `not_attempted`. A failed remote revoke is not reported as success. A callback that finishes after `disconnected_at` does not reactivate the row.
+A successful token response is stored only when `sub` is the same verified DID already on the identity, `token_type` is `DPoP`, and the scope is a subset of the scopes this identity was granted. A missing subject, an invalid DID, a different DID, or a returned issuer that is not the bound issuer does not replace the vault row. The local credential is revoked and the in-flight marker stays, so the wrong token is not kept as this user's session. There is no repository write on that path.
+
+Refresh tokens are single use. A timeout is `refresh_unacknowledged`. A 401, a revoked or expired vault row, or a missing signing key is `reauthentication_required` or `revoked`. The old ciphertext is replaced only after the subject check and the rest of the response checks succeed.
+
+Disconnect commits the local vault revoke and `disconnected_at` before it tries the remote revocation endpoint. Remote revocation uses the refresh token already read from the vault and the stored revocation endpoint. It does not choose a URL from the request. `revocation_state` is then `remote_revoked` or `remote_failed`. If the process dies between the local commit and the remote call, the row stays disconnected and the credential stays revoked. `not_supported` means the server published no revocation endpoint. `not_attempted` means this server did not send the token. A failed remote revoke is not reported as success. A callback or refresh that finishes after `disconnected_at` does not reactivate the row.
 
 ## Vault
 

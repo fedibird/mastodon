@@ -27,10 +27,7 @@
         = label_tag :account, t('external_bridge.atproto.account_label')
         = text_field_tag :account, nil, required: true, autocomplete: 'off', spellcheck: 'false'
       %p.hint= t('external_bridge.atproto.account_hint')
-      .fields-group
-        = label_tag :accept_transition_generic, t('external_bridge.atproto.generic_consent')
-        = check_box_tag :accept_transition_generic, '1', false
-      %p.hint= t('external_bridge.atproto.generic_disclosure')
+      %p.hint= t('external_bridge.atproto.scope_note')
       .actions
         = button_tag t('external_bridge.atproto.connect'), type: 'submit', class: 'button'
 

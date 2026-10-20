@@ -5,13 +5,7 @@ module ExternalBridge
     # Public client metadata. The client_id is this document's HTTPS URL.
     # Production refuses a missing key, HTTP, a port, or a local hostname.
     class ClientDocument
-      DECLARED_SCOPE = [
-        'atproto',
-        'repo:app.bsky.feed.like',
-        'repo:app.bsky.feed.repost',
-        'repo:app.bsky.feed.post',
-        'transition:generic',
-      ].join(' ').freeze
+      DECLARED_SCOPE = 'atproto'
 
       def self.configured?
         SigningKey.configured? && origin.present?

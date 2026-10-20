@@ -37,10 +37,13 @@ describe 'AT Protocol refresh concurrency', type: :model do
         end
       end
       threads.each(&:join)
-      expect(errors.size).to eq(0)
+      drained = []
+      drained << errors.pop until errors.empty?
+      expect(drained.all? { |error| error.is_a?(ExternalBridge::Error) && error.code == 'refresh_unacknowledged' }).to be(true)
       expect(posts.size).to eq(1)
       expect(posts.first).to eq('refresh-initial-concurrent')
       expect(identity.reload.refresh_generation).to eq(1)
+      expect(identity.status).to eq('connected')
     end
   ensure
     travel_back

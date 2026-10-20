@@ -10,7 +10,6 @@ class Settings::ExternalServices::BlueskyAuthorizationsController < Settings::Ba
     url = ExternalBridge::Atproto::Authorize.call(
       user: current_user,
       identifier: params[:account].to_s,
-      accept_transition_generic: params[:accept_transition_generic] == '1',
       browser_token: atproto_browser_token
     )
     redirect_to verified_authorization_url(url)

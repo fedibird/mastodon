@@ -2,26 +2,29 @@
 
 module ExternalBridge
   module Atproto
-    # Granular like, repost, and reply collections. transition:generic is
-    # requested only after an explicit checkbox and only when the server
-    # lists no repo scope. Granted scopes must be a subset of the request.
+    # P2 requests only the identity scope. Repository scopes are a later
+    # explicit upgrade, and only when that server lists each one. Granted
+    # scopes must be a subset of the request. transition:generic is not requested.
     class Scopes
-      GRANULAR = [
-        'atproto',
+      IDENTITY = ['atproto'].freeze
+      REPO = [
         'repo:app.bsky.feed.like',
         'repo:app.bsky.feed.repost',
         'repo:app.bsky.feed.post',
       ].freeze
-      GENERIC = %w(atproto transition:generic).freeze
-      FORBIDDEN = /\A(?:transition:chat|transition:email|blob:|account:|rpc:)/
+      FORBIDDEN = /\A(?:transition:chat|transition:email|blob:|account:|rpc:|transition:generic)/
 
-      def self.choose(supported, consent:)
+      def self.choose(supported)
         list = Array(supported).map(&:to_s)
         raise Error, :unsupported_scopes unless list.include?('atproto')
-        return GRANULAR.dup if list.any? { |scope| scope.start_with?('repo:') } || !list.include?('transition:generic')
-        raise Error, :unsupported_scopes unless consent
 
-        GENERIC.dup
+        IDENTITY.dup
+      end
+
+      # P3 may request these only after a separate confirmation, and only the
+      # ones this authorization server lists. P2 does not send them.
+      def self.upgrade_candidates
+        REPO.dup
       end
 
       def self.accept!(requested, granted)

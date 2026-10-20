@@ -36,7 +36,7 @@ describe 'AT Protocol OAuth identity connection' do
       fields = Rack::Utils.parse_nested_query(par.body)
       expect(fields['code_challenge_method']).to eq('S256')
       expect(fields['code_challenge']).to eq(ExternalBridge::Atproto::Jwt.b64(Digest::SHA256.digest(started[:verifier])))
-      expect(fields['scope']).to eq(ExternalBridge::Atproto::Scopes::GRANULAR.join(' '))
+      expect(fields['scope']).to eq('atproto')
       expect(fields['redirect_uri']).to eq(ExternalBridge::Atproto::ClientDocument.redirect_uri)
       assertion = decode_jwt(fields['client_assertion'])
       expect(assertion[:payload]['aud']).to eq(atproto_issuer)
@@ -54,7 +54,7 @@ describe 'AT Protocol OAuth identity connection' do
     expect(identity.issuer).to eq(atproto_issuer)
     expect(identity.resource_origin).to eq(atproto_pds)
     expect(identity.status).to eq('connected')
-    expect(identity.granted_scopes).to eq(ExternalBridge::Atproto::Scopes::GRANULAR)
+    expect(identity.granted_scopes).to eq(['atproto'])
     row = credential_for(identity)
     expect([row.provider, row.purpose, row.credential_type]).to eq(%w(bluesky identity oauth_session))
     expect(row.user_id).to eq(user.id)
@@ -117,7 +117,7 @@ describe 'AT Protocol OAuth identity connection' do
       expect(exchanges_carrying(AtprotoOauthHelper::REFRESH_TOKEN).map { |exchange| exchange.uri.path }).to eq(['/oauth/revoke'])
 
       escalated = install_atproto_world!
-      escalated.bodies[:token] = atproto_tokens(scope: "#{ExternalBridge::Atproto::Scopes::GRANULAR.join(' ')} transition:email")
+      escalated.bodies[:token] = atproto_tokens(scope: 'atproto transition:email')
       started = start_atproto!(user: user, identifier: AtprotoOauthHelper::HANDLE, dns: escalated.dns)
       expect(atproto_error { finish_atproto!(user: user, state: started[:state], dns: escalated.dns) }.code).to eq('unsupported_scopes')
       expect(ExternalIdentity.count).to eq(0)
@@ -131,13 +131,13 @@ describe 'AT Protocol OAuth identity connection' do
     end
   end
 
-  it 'records a partial grant and rejects a callback with the wrong browser, issuer, or code' do
+  it 'stores an atproto grant and rejects a callback with the wrong browser, issuer, or code' do
     with_atproto_client do
       partial = install_atproto_world!
       partial.bodies[:token] = atproto_tokens(scope: 'atproto')
       identity = connect_atproto!(user: user, world: partial).fetch(:identity)
-      expect(identity.status).to eq('warning')
-      expect(identity.last_error_code).to eq('partial_scopes')
+      expect(identity.status).to eq('connected')
+      expect(identity.last_error_code).to be_nil
       expect(identity.granted_scopes).to eq(['atproto'])
 
       world = install_atproto_world!
@@ -175,15 +175,10 @@ describe 'AT Protocol OAuth identity connection' do
     end
   end
 
-  it 'asks before requesting transition:generic and retries PAR with a new DPoP nonce' do
+  it 'requests only atproto when the server advertises a repo subset, and retries PAR with a new DPoP nonce' do
     with_atproto_client do
-      scopes = %w(atproto transition:generic)
-      refused = install_atproto_world!(metadata: atproto_metadata(scopes: scopes))
-      expect(atproto_error { start_atproto!(user: user, identifier: AtprotoOauthHelper::HANDLE, dns: refused.dns) }.code).to eq('unsupported_scopes')
-      expect(atproto_exchanges.map(&:method)).not_to include(:post)
-
       calls = []
-      allowed = install_atproto_world!(metadata: atproto_metadata(scopes: scopes))
+      allowed = install_atproto_world!(metadata: atproto_metadata(scopes: %w(atproto repo:app.bsky.feed.like transition:generic)))
       allowed.bodies[:par_handler] = lambda do |request|
         calls << request.headers['Dpop']
         if calls.size == 1
@@ -192,9 +187,11 @@ describe 'AT Protocol OAuth identity connection' do
           atproto_json({ 'request_uri' => 'urn:ietf:params:oauth:request_uri:two' })
         end
       end
-      started = start_atproto!(user: user, identifier: AtprotoOauthHelper::HANDLE, dns: allowed.dns, consent: true)
+      started = start_atproto!(user: user, identifier: AtprotoOauthHelper::HANDLE, dns: allowed.dns)
       fields = Rack::Utils.parse_nested_query(atproto_exchanges.reverse.find { |exchange| exchange.uri.path == '/oauth/par' }.body)
-      expect(fields['scope']).to eq('atproto transition:generic')
+      expect(fields['scope']).to eq('atproto')
+      expect(fields['scope']).not_to include('transition:generic')
+      expect(fields['scope']).not_to include('repo:')
       expect(calls.size).to eq(2)
       expect(decode_jwt(calls[0])[:payload]).not_to have_key('nonce')
       expect(decode_jwt(calls[1])[:payload]['nonce']).to eq('nonce-from-server')
@@ -213,11 +210,46 @@ describe 'AT Protocol OAuth identity connection' do
       travel 5.minutes do
         refreshed = ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns)
         expect(refreshed.refresh_generation).to eq(1)
+        expect(refreshed.subject).to eq(AtprotoOauthHelper::DID)
+        expect(refreshed.refresh_started_at).to be_nil
         expect(revealed(refreshed)['refresh_token']).to eq('refresh-after-SENTINEL')
       end
       posts = exchanges_carrying('refresh-before-SENTINEL')
       expect(posts.map { |exchange| [exchange.uri.host, exchange.uri.path] }).to eq([[AtprotoOauthHelper::ISSUER_HOST, '/oauth/token']])
       expect(exchanges_carrying('refresh-before-SENTINEL', 'refresh-after-SENTINEL').map { |exchange| exchange.uri.host }.uniq).to eq([AtprotoOauthHelper::ISSUER_HOST])
+    end
+  end
+
+  it 'does not replace the vault when refresh returns another subject, no subject, or an invalid DID' do
+    with_atproto_client do
+      world = install_atproto_world!
+      [
+        atproto_tokens(did: AtprotoOauthHelper::OTHER_DID, refresh: 'refresh-other-subject'),
+        atproto_tokens(refresh: 'refresh-missing-subject').except('sub'),
+        atproto_tokens(did: 'not-a-did', refresh: 'refresh-invalid-subject'),
+        atproto_tokens(refresh: 'refresh-other-issuer').merge('iss' => 'https://evil.example'),
+      ].each do |token_body|
+        world.bodies[:token] = atproto_tokens
+        identity = connect_atproto!(user: user, world: world).fetch(:identity)
+        ciphertext = credential_for(identity).encrypted_payload
+        world.bodies[:token] = token_body
+        reset_atproto_exchanges!
+        travel 5.minutes do
+          expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq(token_body['iss'] ? 'issuer_mismatch' : 'authorization_rejected')
+        end
+        row = credential_for(identity).reload
+        expect(row.encrypted_payload).to eq(ciphertext)
+        expect(row.revoked_at).to be_present
+        expect(identity.reload.subject).to eq(AtprotoOauthHelper::DID)
+        expect(identity.refresh_generation).to eq(0)
+        expect(identity.refresh_started_at).to be_present
+        expect(atproto_exchanges.map { |exchange| exchange.uri.to_s }).not_to include(a_string_including('com.atproto.repo'))
+        expect(atproto_exchanges.map { |exchange| exchange.body.to_s }.join).not_to include('createRecord')
+        expect(atproto_exchanges.map { |exchange| exchange.uri.host }).not_to include('evil.example')
+        reset_atproto_exchanges!
+        expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq('reauthentication_required')
+        expect(atproto_exchanges.map(&:method)).not_to include(:post)
+      end
     end
   end
 

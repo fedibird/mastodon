@@ -7,14 +7,13 @@ module ExternalBridge
     class Authorize
       ATTEMPT_TTL = 10.minutes
 
-      def self.call(user:, identifier:, accept_transition_generic:, browser_token:, dns: Dns.live)
-        new(user, identifier, accept_transition_generic, browser_token, dns).call
+      def self.call(user:, identifier:, browser_token:, dns: Dns.live)
+        new(user, identifier, browser_token, dns).call
       end
 
-      def initialize(user, identifier, accept_transition_generic, browser_token, dns)
+      def initialize(user, identifier, browser_token, dns)
         @user = user
         @identifier = identifier
-        @consent = accept_transition_generic == true
         @browser_token = browser_token.to_s
         @dns = dns
       end
@@ -22,7 +21,7 @@ module ExternalBridge
       def call
         prepare!
         discovered = Discovery.call(@identifier, dns: @dns)
-        scopes = Scopes.choose(discovered.scopes_supported, consent: @consent)
+        scopes = Scopes.choose(discovered.scopes_supported)
         verifier, challenge = Proofs.pkce
         dpop = Proofs.generate_dpop_key
         state = SecureRandom.urlsafe_base64(32)
