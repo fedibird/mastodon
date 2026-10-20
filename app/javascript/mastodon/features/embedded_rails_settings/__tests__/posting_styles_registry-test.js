@@ -9,6 +9,7 @@ it.each([
   ['/settings/user_posting_contexts/12/edit', 'GET'],
   ['/settings/user_posting_contexts/12/confirm_destroy', 'GET'],
   ['/settings/user_posting_contexts', 'POST'],
+  ['/settings/user_posting_contexts/update_usual', 'POST'],
   ['/settings/user_posting_contexts/12', 'PATCH'],
   ['/settings/user_posting_contexts/12', 'PUT'],
   ['/settings/user_posting_contexts/12', 'DELETE'],

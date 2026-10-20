@@ -2434,6 +2434,18 @@ en:
     delete_menu: Delete
     delete_confirm: Delete the posting style "%{name}"? This cannot be undone.
     delete_confirm_with_defaults: This posting style "%{name}" is the default in %{count} places. Deleting it turns those places into “do not use a posting style,” and they will no longer be selected automatically. Delete it?
+    delete_confirm_usual: This posting style "%{name}" is your usual style. Deleting it leaves your usual style unset. Place defaults are unchanged.
+    usual_title: Usual posting style
+    usual_description: Choose the style a new post starts with. Leaving this unset does not turn off a place default or the single dedicated style for that place. Another style does not inherit this one; blank fields still use your account settings.
+    usual_label: Usual style
+    usual_none: No usual style
+    usual_save: Save usual style
+    usual_release: Clear the saved usual style
+    usual_saved: Saved your usual posting style.
+    usual_released: Cleared your usual posting style.
+    usual_invalid: Choose one of your enabled posting styles, or no usual style.
+    usual_unavailable: The saved usual style can’t be used. It was not replaced with another style.
+    usual_in_use: "%{name} is your usual posting style"
     deleted: Posting style deleted.
     description: You can prepare a way of posting that fits your purpose and where you are posting.
     discovery:

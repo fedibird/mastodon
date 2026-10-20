@@ -218,5 +218,19 @@ describe Settings::UserPostingContextAssignmentsController do
       expect(response.body).to include('#page20')
       expect(response.body).not_to include('#page00')
     end
+
+    it 'does not list or release the usual style from the place screen' do
+      usual = UserPostingContextAssignment.assign!(user: owner, surface_kind: 'global', surface_key: 'default', style: common)
+
+      get :index
+      expect(response.body).not_to include('global')
+      expect(assigns(:assignments).map(&:id)).not_to include(usual.id)
+
+      post :release, params: { id: usual.id, lock_version: usual.lock_version }
+      expect(response).to have_http_status(:not_found)
+      post :decline, params: { id: usual.id, lock_version: usual.lock_version }
+      expect(response).to have_http_status(:not_found)
+      expect(UserPostingContextAssignment.usual_for(owner)).to be_present
+    end
   end
 end

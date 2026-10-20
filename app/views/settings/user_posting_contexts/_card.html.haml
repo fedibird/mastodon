@@ -12,6 +12,8 @@
               %span.user-posting-context-card__label= label
               %span{ dir: 'auto' }= value
         %span.invisible= t('user_posting_contexts.edit_action')
+    - if user_posting_context_usual?(context)
+      %p.user-posting-context-card__usual= t('user_posting_contexts.usual_in_use', name: context.name)
     = render 'usage', context: context, usage: user_posting_context_card_usage(context)
   %details.user-posting-context-card__menu{ data: { user_posting_context_menu: true } }
     %summary{ aria: { label: t('user_posting_contexts.more_actions', name: context.name) } }

@@ -132,7 +132,7 @@ RSpec.describe 'Embedded posting style settings' do # rubocop:disable Metrics/Bl
   end
 
   def operations(record, row)
-    [[:get, settings_user_posting_contexts_path], [:get, new_settings_user_posting_context_path], [:get, edit_settings_user_posting_context_path(record)], [:get, confirm_destroy_settings_user_posting_context_path(record)], [:post, settings_user_posting_contexts_path], [:patch, settings_user_posting_context_path(record)], [:post, duplicate_settings_user_posting_context_path(record)], [:delete, settings_user_posting_context_path(record)], [:post, preview_settings_user_posting_contexts_path(format: :json)], [:get, settings_user_posting_context_assignments_path], [:post, release_settings_user_posting_context_assignment_path(row)], [:post, decline_settings_user_posting_context_assignment_path(row)]]
+    [[:get, settings_user_posting_contexts_path], [:get, new_settings_user_posting_context_path], [:get, edit_settings_user_posting_context_path(record)], [:get, confirm_destroy_settings_user_posting_context_path(record)], [:post, settings_user_posting_contexts_path], [:post, update_usual_settings_user_posting_contexts_path], [:patch, settings_user_posting_context_path(record)], [:post, duplicate_settings_user_posting_context_path(record)], [:delete, settings_user_posting_context_path(record)], [:post, preview_settings_user_posting_contexts_path(format: :json)], [:get, settings_user_posting_context_assignments_path], [:post, release_settings_user_posting_context_assignment_path(row)], [:post, decline_settings_user_posting_context_assignment_path(row)]]
   end
 
   it 'rejects non-administrators and anonymous access for every route' do

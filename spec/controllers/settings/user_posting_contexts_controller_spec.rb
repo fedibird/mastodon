@@ -297,6 +297,36 @@ describe Settings::UserPostingContextsController do
       expect(response.body).not_to include('is the default in')
     end
 
+    it 'saves and clears the usual style without counting it as a place' do
+      style = owner.user_posting_contexts.create!(name: 'Field notes')
+      other = owner.user_posting_contexts.create!(name: 'Other', enabled: false)
+
+      post :update_usual, params: { style_id: style.id }
+      expect(response).to redirect_to(settings_user_posting_contexts_path)
+      usual = UserPostingContextAssignment.usual_for(owner)
+      expect(usual.availability_status).to eq('style')
+      expect(usual.user_posting_context_id).to eq(style.id)
+
+      get :index
+      card = Nokogiri::HTML(response.body).css('.user-posting-context-card').find { |node| node.at_css('h3').text == 'Field notes' }
+      expect(card.text).to include(I18n.t('user_posting_contexts.usual_in_use', name: 'Field notes'))
+      expect(card.text).not_to include(I18n.t('user_posting_context_assignments.used_as_default', count: 1))
+
+      get :confirm_destroy, params: { id: style.id }
+      expect(response.body).to include(ERB::Util.html_escape(I18n.t('user_posting_contexts.delete_confirm_usual', name: 'Field notes')))
+      expect(response.body).not_to include('is the default in')
+
+      post :update_usual, params: { style_id: '' }
+      expect(UserPostingContextAssignment.usual_for(owner).availability_status).to eq('none')
+
+      post :update_usual, params: { style_id: other.id }
+      expect(response).to redirect_to(settings_user_posting_contexts_path)
+      expect(flash[:alert]).to eq(I18n.t('user_posting_contexts.usual_invalid'))
+
+      post :update_usual, params: { release: '1', style_id: style.id }
+      expect(UserPostingContextAssignment.usual_for(owner)).to be_nil
+    end
+
     it 'does not query once per assignment while rendering style cards' do
       style = owner.user_posting_contexts.create!(name: 'Field notes')
       2.times do |index|

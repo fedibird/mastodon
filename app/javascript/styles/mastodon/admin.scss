@@ -1272,6 +1272,24 @@ a.name-tag,
   align-items: center;
 }
 
+.user-posting-context-usual__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  max-width: 100%;
+
+  select {
+    max-width: 100%;
+    min-width: 0;
+  }
+}
+
+.user-posting-context-usual,
+.user-posting-context-card__usual {
+  overflow-wrap: anywhere;
+}
+
 .user-posting-context-card {
   display: flex;
   align-items: flex-start;
