@@ -9,11 +9,13 @@ jest.mock('../../uuid', () => ({
   default: () => 'test-idempotency-key',
 }));
 
-import { COMPOSE_QUOTE_CANCEL, COMPOSE_REPLY, COMPOSE_REPLY_CANCEL, COMPOSE_SENSITIVITY_CHANGE, COMPOSE_SPOILER_TEXT_CHANGE, COMPOSE_SPOILERNESS_CHANGE, COMPOSE_SUBMIT_SUCCESS, COMPOSE_UPLOAD_SUCCESS, COMPOSE_UPLOAD_UNDO, COMPOSE_VISIBILITY_CHANGE, changeCompose, setComposeToStatus } from '../../actions/compose';
+import { length } from 'stringz';
+import { COMPOSE_QUOTE, COMPOSE_QUOTE_CANCEL, COMPOSE_REPLY, COMPOSE_REPLY_CANCEL, COMPOSE_SEARCHABILITY_CHANGE, COMPOSE_SENSITIVITY_CHANGE, COMPOSE_SPOILER_TEXT_CHANGE, COMPOSE_SPOILERNESS_CHANGE, COMPOSE_SUBMIT_SUCCESS, COMPOSE_UPLOAD_SUCCESS, COMPOSE_UPLOAD_UNDO, COMPOSE_VISIBILITY_CHANGE, changeCompose, setComposeToStatus } from '../../actions/compose';
 import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../actions/composer';
 import { USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../compliance';
-import { materializeComposerText } from '../materialize';
+import { countableText } from '../../features/compose/util/counter';
+import { materializeComposerText, styleHashtagChips } from '../materialize';
 import { resolveUserPostingStyle } from '../user_style_resolver';
 import compose from '../../reducers/compose';
 import composer from '../../reducers/composer';
@@ -742,5 +744,265 @@ describe('user posting style hashtag toggle', () => {
     expect(inheritedRestored.get('sensitive')).toBe(true);
     expect(inheritedRestored.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
     expect(inheritedRestored.getIn(['userPostingStyle', 'selectedId'])).toEqual('31');
+  });
+});
+
+describe('reply hashtag destinations', () => {
+  const infoStyle = fromJS({
+    id: 'info',
+    name: 'Fedibird info',
+    revision: 2,
+    target: { kind: 'hashtag', accountId: null, hashtag: 'fedibird_info', label: '#fedibird_info' },
+    defaults: {
+      visibility: 'unlisted',
+      language: { mode: 'explicit', code: 'en' },
+      sensitive: true,
+      spoiler: { enabled: true, text: 'note' },
+    },
+    managed: {
+      hashtags: [{ name: 'fedibird', normalizedName: 'fedibird', enforcement: 'advisory' }],
+    },
+  });
+
+  const newsStyle = fromJS({
+    id: 'news',
+    name: 'News',
+    revision: 1,
+    target: { kind: 'hashtag', accountId: null, hashtag: 'news', label: '#news' },
+    defaults: { visibility: 'public', language: { mode: 'explicit', code: 'en' } },
+    managed: {
+      hashtags: [{ name: 'memo', normalizedName: 'memo', enforcement: 'advisory' }],
+    },
+  });
+
+  const replyStatus = (id, acct = 'reply_to') => fromJS({
+    id,
+    language: 'ja',
+    visibility: 'private',
+    spoiler_text: 'secret',
+    mentions: [],
+    account: { id: '2', acct },
+  });
+
+  const reply = (state, id = 's1', acct = 'reply_to') => composer(state, {
+    type: COMPOSE_REPLY,
+    status: replyStatus(id, acct),
+  });
+
+  const sentText = state => materializeComposerText(state);
+
+  const expectHashtagReply = (state, body) => {
+    expect(state.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(state.getIn(['userPostingStyle', 'destinationSource'])).toEqual('style');
+    expect(state.getIn(['userPostingStyle', 'unapplied']).includes('destination')).toBe(false);
+    expect(styleHashtagChips(state).map(chip => `${chip.get('origin')}:${chip.get('normalizedName')}`).toArray()).toEqual([
+      'style:fedibird',
+      'destination:fedibird_info',
+    ]);
+    expect(sentText(state)).toEqual(body);
+    expect(length(countableText(sentText(state)))).toBeGreaterThan(length(countableText(state.get('text'))));
+  };
+
+  it('applies the destination tag when a reply starts from the selected style', () => {
+    const applied = commit(composer(undefined, changeCompose('返信本文')), infoStyle);
+    const next = reply(applied);
+
+    expectHashtagReply(next, '@reply_to 返信本文\n\n#fedibird #fedibird_info');
+    expect(next.get('in_reply_to')).toEqual('s1');
+    expect(next.get('privacy')).toEqual('private');
+    expect(next.get('language')).toEqual('ja');
+    expect(next.get('spoiler')).toBe(true);
+    expect(next.get('spoiler_text')).toEqual('secret');
+    expect(next.get('searchability')).toEqual('private');
+    expect(next.get('searchability_manual')).toBe(false);
+    expect(next.get('sensitive')).toBe(true);
+    expect(applied.get('privacy')).toEqual('unlisted');
+    expect(applied.get('language')).toEqual('en');
+    expect(applied.get('spoiler_text')).toEqual('note');
+  });
+
+  it('applies the same tags when the style is chosen after the reply starts', () => {
+    const started = reply(composer(undefined, changeCompose('返信本文')));
+    const next = commit(started, infoStyle);
+
+    expectHashtagReply(next, '@reply_to 返信本文\n\n#fedibird #fedibird_info');
+    expect(next.get('in_reply_to')).toEqual('s1');
+    expect(next.get('privacy')).toEqual('private');
+    expect(next.get('language')).toEqual('ja');
+    expect(next.get('spoiler')).toBe(true);
+    expect(next.get('spoiler_text')).toEqual('secret');
+    expect(next.get('searchability')).toEqual('private');
+    expect(next.get('sensitive')).toBe(false);
+    expect(next.getIn(['userPostingStyle', 'unapplied']).includes('privacy')).toBe(true);
+    expect(next.getIn(['userPostingStyle', 'unapplied']).includes('language')).toBe(true);
+    expect(next.getIn(['userPostingStyle', 'manualValues', 'privacy'])).toBeUndefined();
+  });
+
+  it('restores a hashtag destination skipped by a quote and keeps it when the reply target changes', () => {
+    const applied = commit(composer(undefined, changeCompose('最初')), infoStyle);
+    const quote = composer(applied, {
+      type: COMPOSE_QUOTE,
+      status: fromJS({
+        id: 'q1',
+        url: 'https://example.test/q1',
+        visibility: 'public',
+        spoiler_text: '',
+      }),
+    });
+
+    expect(quote.get('quote_from')).toEqual('q1');
+    expect(quote.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('skipped');
+    expect(quote.getIn(['userPostingStyle', 'unapplied']).includes('destination')).toBe(true);
+    expect(sentText(quote)).toEqual('#fedibird');
+    expect(sentText(quote)).not.toContain('#fedibird_info');
+
+    const drafted = composer(quote, changeCompose('返信本文'));
+    const next = reply(drafted, 's1');
+    const moved = reply(next, 's2', 'other');
+
+    expect(next.get('quote_from')).toBeNull();
+    expectHashtagReply(next, '@reply_to 返信本文\n\n#fedibird #fedibird_info');
+    expect(moved.get('in_reply_to')).toEqual('s2');
+    expect(moved.get('text')).toContain('@other ');
+    expect(moved.get('reply_status').get('id')).toEqual('s2');
+    expect(moved.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(moved.getIn(['userPostingStyle', 'unapplied']).includes('destination')).toBe(false);
+    expect(sentText(moved)).toEqual(`${moved.get('text')}\n\n#fedibird #fedibird_info`);
+  });
+
+  it('keeps the reply privacy cap when a manual public visibility is remembered', () => {
+    const applied = commit(undefined, infoStyle);
+    const manual = composer(applied, { type: COMPOSE_VISIBILITY_CHANGE, value: 'public' });
+    const searched = composer(manual, { type: COMPOSE_SEARCHABILITY_CHANGE, value: 'public' });
+    const next = reply(composer(searched, changeCompose('返信本文')));
+
+    expect(next.getIn(['userPostingStyle', 'manualFields']).includes('privacy')).toBe(true);
+    expect(next.getIn(['userPostingStyle', 'manualValues', 'privacy'])).toEqual('public');
+    expect(next.get('privacy')).toEqual('private');
+    expect(next.get('searchability')).toEqual('private');
+    expect(next.get('searchability_manual')).toBe(false);
+    expect(next.get('language')).toEqual('ja');
+    expect(next.get('spoiler_text')).toEqual('secret');
+    expectHashtagReply(next, '@reply_to 返信本文\n\n#fedibird #fedibird_info');
+
+    const cancelled = composer(next, { type: COMPOSE_REPLY_CANCEL });
+
+    expect(cancelled.get('in_reply_to')).toBeNull();
+    expect(cancelled.get('privacy')).toEqual('public');
+    expect(cancelled.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(sentText(cancelled)).toEqual('#fedibird #fedibird_info');
+  });
+
+  it('toggles destination and style tags independently and does not duplicate normalized names', () => {
+    const started = reply(composer(undefined, changeCompose('返信本文')));
+    const applied = commit(started, infoStyle);
+    const destinationOff = composer(applied, {
+      type: USER_POSTING_STYLE_HASHTAG_TOGGLE,
+      origin: 'destination',
+      normalizedName: 'fedibird_info',
+    });
+    const bothOff = composer(destinationOff, {
+      type: USER_POSTING_STYLE_HASHTAG_TOGGLE,
+      origin: 'style',
+      normalizedName: 'fedibird',
+    });
+    const destinationOn = composer(bothOff, {
+      type: USER_POSTING_STYLE_HASHTAG_TOGGLE,
+      origin: 'destination',
+      normalizedName: 'fedibird_info',
+    });
+
+    expect(sentText(destinationOff)).toEqual('@reply_to 返信本文\n\n#fedibird');
+    expect(destinationOff.getIn(['userPostingStyle', 'suppressions']).includes('destination:fedibird_info')).toBe(true);
+    expect(destinationOff.getIn(['userPostingStyle', 'suppressions']).includes('style:fedibird')).toBe(false);
+    expect(styleHashtagChips(destinationOff).find(chip => chip.get('origin') === 'destination').get('suppressed')).toBe(true);
+    expect(sentText(bothOff)).toEqual('@reply_to 返信本文');
+    expect(destinationOn.getIn(['context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
+    expect(sentText(destinationOn)).toEqual('@reply_to 返信本文\n\n#fedibird_info');
+
+    const typed = reply(composer(undefined, changeCompose('already #Fedibird_Info')));
+    const deduped = commit(typed, infoStyle);
+    const sameName = infoStyle.setIn(['managed', 'hashtags'], fromJS([
+      { name: 'Fedibird_Info', normalizedName: 'fedibird_info', enforcement: 'advisory' },
+    ]));
+
+    expect(sentText(deduped)).toEqual('@reply_to already #Fedibird_Info\n\n#fedibird');
+    expect(sentText(commit(reply(composer(undefined, changeCompose('返信本文'))), sameName))).toEqual('@reply_to 返信本文\n\n#fedibird_info');
+  });
+
+  it('switches hashtag styles during a reply and drops auto tags when the style is cleared', () => {
+    const applied = reply(commit(composer(undefined, changeCompose('#kept 本文')), infoStyle));
+    const suppressed = composer(applied, {
+      type: USER_POSTING_STYLE_HASHTAG_TOGGLE,
+      origin: 'style',
+      normalizedName: 'fedibird',
+    });
+    const switched = commit(suppressed, newsStyle);
+    const cleared = commit(switched, null);
+
+    expect(switched.get('text')).toEqual('@reply_to #kept 本文');
+    expect(switched.get('in_reply_to')).toEqual('s1');
+    expect(switched.get('privacy')).toEqual('private');
+    expect(switched.get('language')).toEqual('ja');
+    expect(switched.get('spoiler_text')).toEqual('secret');
+    expect(switched.getIn(['userPostingStyle', 'selectedId'])).toEqual('news');
+    expect(switched.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(switched.getIn(['userPostingStyle', 'unapplied']).includes('destination')).toBe(false);
+    expect(switched.getIn(['userPostingStyle', 'suppressions']).isEmpty()).toBe(true);
+    expect(sentText(switched)).toEqual('@reply_to #kept 本文\n\n#memo #news');
+    expect(styleHashtagChips(switched).map(chip => chip.get('normalizedName')).toArray()).toEqual(['memo', 'news']);
+
+    expect(cleared.get('text')).toEqual('@reply_to #kept 本文');
+    expect(cleared.get('in_reply_to')).toEqual('s1');
+    expect(cleared.get('privacy')).toEqual('private');
+    expect(cleared.get('language')).toEqual('ja');
+    expect(cleared.get('spoiler_text')).toEqual('secret');
+    expect(cleared.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+    expect(cleared.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('idle');
+    expect(cleared.getIn(['userPostingStyle', 'destinationSource'])).toBeNull();
+    expect(sentText(cleared)).toEqual('@reply_to #kept 本文');
+    expect(styleHashtagChips(cleared).isEmpty()).toBe(true);
+  });
+
+  it('cancels back to the hashtag style and still parks a group or quote', () => {
+    const applied = reply(commit(composer(undefined, changeCompose('返信本文')), infoStyle.set('defaults', fromJS({ visibility: 'unlisted' }))));
+    const cancelled = composer(applied, { type: COMPOSE_REPLY_CANCEL });
+
+    expect(cancelled.get('in_reply_to')).toBeNull();
+    expect(cancelled.get('privacy')).toEqual('unlisted');
+    expect(cancelled.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(sentText(cancelled)).toEqual('#fedibird #fedibird_info');
+
+    const groupReply = reply(commit(undefined, circleStyle));
+    const quoted = composer(commit(undefined, infoStyle), {
+      type: COMPOSE_QUOTE,
+      status: fromJS({
+        id: 'q1',
+        url: 'https://example.test/q1',
+        visibility: 'public',
+        spoiler_text: '',
+      }),
+    });
+
+    expect(groupReply.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('skipped');
+    expect(groupReply.getIn(['userPostingStyle', 'unapplied']).includes('destination')).toBe(true);
+    expect(groupReply.get('posting_context_account_id')).toBeNull();
+    expect(sentText(groupReply)).not.toContain('@localsquad');
+    expect(quoted.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('skipped');
+    expect(sentText(quoted)).not.toContain('#fedibird_info');
+
+    const editing = applied.set('id', 'status-edit');
+    const scheduled = applied.set('scheduled_status_id', 'sched-1');
+
+    expect(composer(editing, {
+      type: USER_POSTING_STYLE_COMMIT,
+      plan: resolveUserPostingStyle(newsStyle, editing),
+      snapshot: newsStyle,
+    })).toBe(editing);
+    expect(composer(scheduled, {
+      type: USER_POSTING_STYLE_COMMIT,
+      plan: resolveUserPostingStyle(newsStyle, scheduled),
+      snapshot: newsStyle,
+    })).toBe(scheduled);
   });
 });

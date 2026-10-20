@@ -408,6 +408,47 @@ describe('portable posting styles', () => {
     expect(cancelled.getIn(['userPostingStyle', 'selectedId'])).toEqual('1');
   });
 
+  it('keeps a portable hashtag reply on its timeline and ignores another destination', () => {
+    let drafted = composer(undefined, applyComposerSurface(
+      'portable:hashtag-column:a',
+      { kind: 'hashtag', key: 'foo' },
+      buildHashtagTimelinePostingContext('Foo'),
+      null,
+    ));
+    drafted = drafted.set('text', 'Hello');
+    drafted = commitStyle(drafted, hashtagStyle);
+    const reply = composer(drafted, {
+      type: COMPOSE_REPLY,
+      status: ImmutableMap({
+        id: 'status-1',
+        visibility: 'public',
+        spoiler_text: '',
+        language: 'ja',
+        mentions: ImmutableList(),
+        account: ImmutableMap({ id: '2', acct: 'bob' }),
+      }),
+    });
+
+    expect(reply.get('in_reply_to')).toEqual('status-1');
+    expect(reply.get('text')).toEqual('@bob Hello');
+    expect(reply.getIn(['context', 'key'])).toEqual('builtin:hashtag:foo');
+    expect(reply.getIn(['context', 'managed', 'hashtags']).map(tag => tag.get('normalizedName')).toArray()).toEqual(['foo']);
+    expect(reply.getIn(['userPostingStyle', 'destinationSource'])).toBeNull();
+    expect(reply.getIn(['userPostingStyle', 'destinationPolicy'])).toEqual('locked');
+    expect(materializeComposerText(reply)).toEqual('@bob Hello\n\n#Foo');
+
+    const refusedPlan = resolveUserPostingStyle(otherHashtagStyle, reply, { destinationPolicy: 'locked' });
+    const refused = composer(reply, {
+      type: 'USER_POSTING_STYLE_COMMIT',
+      plan: refusedPlan,
+      snapshot: otherHashtagStyle,
+    });
+
+    expect(refusedPlan.destination).toMatchObject({ action: 'keep', policy: 'locked' });
+    expect(refused).toBe(reply);
+    expect(resolveUserPostingStyle(otherHashtagStyle, reply).destination.action).toEqual('skip');
+  });
+
   it('still lets the primary composer change its destination', async () => {
     const drafted = composer(undefined, { type: '@@INIT' });
     const plan = resolveUserPostingStyle(groupStyle('1', '123'), drafted);
