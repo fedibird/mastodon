@@ -53,23 +53,32 @@ module ExternalBridge
         return nil if credential.nil? || credential.revoked_at.present?
 
         payload = sealed(credential)
+        outbound = remote_payload(identity, payload)
+        return outbound if outbound
+
+        @skip_reason = 'remote_failed'
+        nil
+      rescue StandardError
+        @skip_reason = 'remote_failed'
+        nil
+      end
+
+      def remote_payload(identity, payload)
+        return nil unless payload.is_a?(Hash)
+
         material = SigningKey.for_kid(payload['client_key_id'])
-        if material.nil?
-          @skip_reason = 'remote_failed'
-          return nil
-        end
+        refresh = payload['refresh_token']
+        pem = payload['dpop_private_key']
+        return nil if material.nil? || !refresh.is_a?(String) || refresh.blank? || !pem.is_a?(String) || pem.blank?
 
         {
           endpoint: identity.revocation_endpoint,
           issuer: identity.issuer,
-          refresh_token: payload.fetch('refresh_token'),
-          dpop_private_key: payload.fetch('dpop_private_key'),
+          refresh_token: refresh,
+          dpop_private_key: pem,
           nonce: payload['dpop_nonce'],
           material: material,
         }
-      rescue UserCredentialVault::Error, OpenSSL::PKey::PKeyError
-        @skip_reason = 'remote_failed'
-        nil
       end
 
       def sealed(credential)

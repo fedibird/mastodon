@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_20_130000) do
+ActiveRecord::Schema.define(version: 2026_10_20_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -624,6 +624,7 @@ ActiveRecord::Schema.define(version: 2026_10_20_130000) do
     t.string "binding_id", limit: 36, null: false
     t.text "encrypted_secrets", null: false
     t.string "encryption_key_id", limit: 32, null: false
+    t.string "client_key_id", limit: 128, null: false
     t.datetime "expires_at", null: false
     t.datetime "consumed_at"
     t.datetime "created_at", precision: 6, null: false

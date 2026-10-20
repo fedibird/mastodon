@@ -71,19 +71,21 @@ The AT Protocol localhost exception forces `token_endpoint_auth_method=none`. Th
 
 `ATPROTO_OAUTH_SIGNING_KEY` is the current PEM. Newlines may be written as `\n`. `ATPROTO_OAUTH_SIGNING_KID` is optional; the default kid is the RFC 7638 thumbprint.
 
-Previous keys stay available until those sessions are disconnected:
+The PAR request is signed with `SigningKey.current`. That key's `kid` is stored on the attempt as `client_key_id`. The callback, a revocation after a failed callback, and the vault session all use `SigningKey.for_kid` for that same id. Publishing the old public key in JWKS does not permit the token exchange to switch to a newer key. If that private key is no longer configured, the callback raises `signing_key_unavailable`, does not consume the attempt, and does not send the authorization code. Refresh of a session whose kid was removed is `reauthentication_required`, and the refresh token is not sent.
+
+`ATPROTO_OAUTH_PREVIOUS_SIGNING_KEYS` keeps the private key available for attempts and sessions that already used it:
 
 ```text
 ATPROTO_OAUTH_PREVIOUS_SIGNING_KEYS=oldkid:<base64 of the old PEM>
 ```
 
-New sessions use the current key. Refresh loads the kid stored inside the vault payload and signs with that key. A missing kid becomes `reauthentication_required` and the refresh token is not sent. This key is never written to `user_external_credentials`.
+Set the new PEM as `ATPROTO_OAUTH_SIGNING_KEY` only after the previous private key is in that list. This key is never written to `user_external_credentials`.
 
 ### Authorization
 
 1. The settings session creates a browser token stored only in the Rails session.
-2. PKCE S256 and a fresh P-256 DPoP key are created. The verifier and the DPoP private key are encrypted with the vault cipher into `external_oauth_attempts`, bound to `user_id` and a random `binding_id`. The row expires in ten minutes.
-3. PAR is posted to the metadata PAR endpoint. The client assertion's `aud` is the bound issuer. Each request has its own DPoP proof. A `use_dpop_nonce` response is retried once with the returned nonce. Redirects are rejected.
+2. PKCE S256 and a fresh P-256 DPoP key are created. The verifier and the DPoP private key are encrypted with the vault cipher into `external_oauth_attempts`, bound to `user_id` and a random `binding_id`. The row also stores the non-secret `client_key_id` of the signing key used for this attempt. The row expires in ten minutes.
+3. PAR is posted to the metadata PAR endpoint and signed with that same key. The client assertion's `aud` is the bound issuer. Each request has its own DPoP proof. A `use_dpop_nonce` response is retried once with the returned nonce. Redirects are rejected.
 4. The browser is sent to the metadata authorization endpoint with `client_id` and `request_uri` only.
 
 The attempt stores the issuer, PDS origin when one was verified, token endpoint, and requested scopes. It does not store the authorization code.
@@ -97,9 +99,9 @@ The attempt stores the issuer, PDS origin when one was verified, token endpoint,
 - state digest, browser-token digest, expiry, and single use
 - the feature flag and allowlist
 - callback `iss` equal to the attempt issuer
-- the code, then the token POST to the stored token endpoint
+- the code, then the token POST to the stored token endpoint, signed with `client_key_id`
 
-The attempt is consumed before the token POST. A second callback with the same state fails. The token response must be `token_type=DPoP`, `sub` must be `did:plc` or `did:web`, and `scope` must contain `atproto` and no scope that was not requested. `transition:chat`, `transition:email`, `blob:`, `account:`, and `rpc:` are rejected. The DID is resolved again. Its PDS protected-resource issuer must still be the attempt issuer. Only then are the vault row and `external_identities` row committed in one transaction.
+The signing key is loaded before the attempt is consumed. A missing key rolls that back, so the attempt can be retried only if the same key is restored. Otherwise the user starts again. Once the key is present, the attempt is consumed before the token POST. A second callback with the same state fails. The vault row stores that same `client_key_id`. The token response must be `token_type=DPoP`, `sub` must be `did:plc` or `did:web`, and `scope` must contain `atproto` and no scope that was not requested. `transition:chat`, `transition:email`, `blob:`, `account:`, and `rpc:` are rejected. The DID is resolved again. Its PDS protected-resource issuer must still be the attempt issuer. Only then are the vault row and `external_identities` row committed in one transaction.
 
 A failed check after tokens were issued posts the refresh token to the stored revocation endpoint and does not leave an active identity. A disconnect or a newer successful callback for the same DID that landed first makes this callback `stale_callback`.
 
@@ -113,7 +115,9 @@ A grant that adds a scope is not stored. `Scopes.accept!` still records a proper
 
 ### Refresh and disconnect
 
-Refresh takes an identity id, not a URL. It resolves the DID and reads authorization-server metadata before it decides to send a token. A changed issuer or token endpoint is `reauthentication_required`, and the refresh token is not sent. The token request goes only to the endpoint stored from that metadata, with DPoP and the client key named by the session.
+Refresh takes an identity id, not a URL. It resolves the DID and reads authorization-server metadata before it decides to send a token. Nothing is sent to an origin those checks did not verify.
+
+A temporary failure of that read — HTTP 503, a timeout, a connection error, or other `discovery_rejected` — sets `last_error_code` and `last_checked_at` and leaves `status` unchanged. The credential is not revoked. The settings page shows the error, and the next check may run immediately. There is no blocking backoff. A confirmed issuer change (`issuer_mismatch`), a token endpoint that is no longer the stored endpoint, or authorization-server metadata that no longer supports `atproto` (`unsupported_scopes`) sets `reauthentication_required`. The refresh token is not sent, including on a later check after the service recovers. The token request, when the checks pass, goes only to the endpoint stored from that metadata, with DPoP and the client key named by the session.
 
 The row update that sets `refresh_started_at` is committed before that HTTP request. The database transaction is not held open across the network call. A second caller sees the marker and does not send the refresh token. If the process dies after the authorization server consumes the token and before the new ciphertext is committed, the marker remains. The next call does not send the old token again. The user signs in again.
 
@@ -121,7 +125,7 @@ A successful token response is stored only when `sub` is the same verified DID a
 
 Refresh tokens are single use. A timeout is `refresh_unacknowledged`. A 401, a revoked or expired vault row, or a missing signing key is `reauthentication_required` or `revoked`. The old ciphertext is replaced only after the subject check and the rest of the response checks succeed.
 
-Disconnect commits the local vault revoke and `disconnected_at` before it tries the remote revocation endpoint. Remote revocation uses the refresh token already read from the vault and the stored revocation endpoint. It does not choose a URL from the request. `revocation_state` is then `remote_revoked` or `remote_failed`. If the process dies between the local commit and the remote call, the row stays disconnected and the credential stays revoked. `not_supported` means the server published no revocation endpoint. `not_attempted` means this server did not send the token. A failed remote revoke is not reported as success. A callback or refresh that finishes after `disconnected_at` does not reactivate the row.
+Disconnect commits the local vault revoke and `disconnected_at` before it tries the remote revocation endpoint. Preparing that request cannot stop the local commit. A decrypted payload that has no refresh token, no DPoP private key, or no configured signing kid is `remote_failed`, and no request is sent. Remote revocation uses the refresh token already read from the vault and the stored revocation endpoint. It does not choose a URL from the request. `revocation_state` is then `remote_revoked` or `remote_failed`. If the process dies between the local commit and the remote call, the row stays disconnected and the credential stays revoked. `not_supported` means the server published no revocation endpoint. `not_attempted` means this server did not send the token, including when the flag no longer permits the user. A failed remote revoke is not reported as success. A callback or refresh that finishes after `disconnected_at` does not reactivate the row.
 
 ## Vault
 

@@ -3,14 +3,19 @@
 # Single-use OAuth attempt. PKCE and the session DPoP private key live only
 # in encrypted_secrets. The row is bound to the user and browser that started it.
 class ExternalOauthAttempt < ApplicationRecord
+  # Non-secret id of the instance signing key that attested PAR for this attempt.
+  CLIENT_KEY_ID_FORMAT = /\A[A-Za-z0-9_-]{1,128}\z/
+
   self.filter_attributes += [:encrypted_secrets]
 
   belongs_to :user, inverse_of: :external_oauth_attempts
 
   validates :provider, :state_digest, :browser_binding_digest, :input_kind, :issuer,
             :authorization_endpoint, :token_endpoint, :par_endpoint, :redirect_uri,
-            :requested_scopes, :binding_id, :encrypted_secrets, :encryption_key_id, :expires_at,
+            :requested_scopes, :binding_id, :encrypted_secrets, :encryption_key_id,
+            :client_key_id, :expires_at,
             presence: true
+  validates :client_key_id, format: { with: CLIENT_KEY_ID_FORMAT }
   validates :state_digest, uniqueness: true
   validates :binding_id, format: { with: UserExternalCredential::BINDING_ID_FORMAT }
   validates :encryption_key_id, format: { with: UserExternalCredential::KEY_ID_FORMAT }

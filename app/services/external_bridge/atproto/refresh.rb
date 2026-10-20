@@ -5,7 +5,14 @@ module ExternalBridge
     # Serialized refresh at the bound issuer. The in-flight marker is committed
     # before the refresh token is sent, and the token response subject must be
     # this identity's DID before the vault row is replaced.
+    #
+    # A discovery or transport failure before that request is recorded and
+    # retried. It does not change status. A confirmed issuer or token-endpoint
+    # mismatch still requires the user to sign in again.
     class Refresh
+      DEFINITE_PRECHECK = %w(issuer_mismatch reauthentication_required unsupported_scopes).freeze
+      RETRYABLE_PRECHECK = %w(discovery_rejected private_address redirect_rejected).freeze
+
       def self.call(user:, identity_id:, dns: Dns.live)
         new(user, identity_id, dns).call
       end
@@ -28,7 +35,7 @@ module ExternalBridge
         begin
           precheck!(identity)
         rescue Error => e
-          mark_unclaimed!(identity, e)
+          classify_precheck!(identity, e)
           raise
         end
 
@@ -208,6 +215,7 @@ module ExternalBridge
 
         apply_confirmation!(identity)
         identity.last_checked_at = Time.current
+        identity.last_error_code = nil if RETRYABLE_PRECHECK.include?(identity.last_error_code)
         identity.save!
         true
       end
@@ -254,6 +262,25 @@ module ExternalBridge
           next if disconnected?(identity) || identity.refresh_started_at.present? || identity.status == 'reauthentication_required'
 
           identity.update!(status: 'reauthentication_required', last_error_code: safe_code(error), refresh_started_at: nil)
+        end
+      end
+
+      def classify_precheck!(identity, error)
+        if DEFINITE_PRECHECK.include?(error.code.to_s)
+          mark_unclaimed!(identity, error)
+        else
+          note_retryable!(identity, error)
+        end
+      end
+
+      # No blocking backoff. The next check may run immediately once discovery
+      # succeeds, and last_error_code stays visible on the settings page.
+      def note_retryable!(identity, error)
+        identity.with_lock do
+          identity.reload
+          next if disconnected?(identity) || identity.refresh_started_at.present? || identity.status == 'reauthentication_required'
+
+          identity.update!(last_error_code: safe_code(error), last_checked_at: Time.current)
         end
       end
 

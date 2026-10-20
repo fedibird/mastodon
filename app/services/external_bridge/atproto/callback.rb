@@ -41,6 +41,9 @@ module ExternalBridge
         attempt = ExternalOauthAttempt.transaction do
           row = ExternalOauthAttempt.lock.find_by(state_digest: Digest::SHA256.hexdigest(@state), provider: Codes::PROVIDER)
           reject_attempt!(row)
+          @signing = SigningKey.for_kid(row.client_key_id)
+          raise Error, :signing_key_unavailable if @signing.nil?
+
           secrets = read_secrets(row)
           row.update!(consumed_at: Time.current, encrypted_secrets: AttemptBox.tombstone(row))
           row
@@ -65,6 +68,8 @@ module ExternalBridge
       end
 
       def exchange!(attempt, secrets)
+        raise Error, :signing_key_unavailable if @signing.nil?
+
         dpop = OpenSSL::PKey::EC.new(secrets.fetch('dpop_private_key'))
         TokenClient.post!(
           url: attempt.token_endpoint,
@@ -74,7 +79,8 @@ module ExternalBridge
           nonce: attempt.dpop_nonce,
           dns: @dns,
           timeout_code: :authorization_rejected,
-          failure_code: :authorization_rejected
+          failure_code: :authorization_rejected,
+          signing: @signing
         )
       end
 
@@ -126,15 +132,21 @@ module ExternalBridge
           nonce: exchanged.fetch('nonce'),
           endpoint: attempt.token_endpoint,
           issuer: attempt.issuer,
-          kid: SigningKey.current.kid,
+          kid: bound_kid,
           scopes: granted,
           generation: 0,
           expires_at: expires_in.seconds.from_now
         )
       end
 
+      def bound_kid
+        raise Error, :signing_key_unavailable if @signing.nil?
+
+        @signing.kid
+      end
+
       def discard!(attempt, secrets, exchanged)
-        return if exchanged.nil?
+        return if exchanged.nil? || @signing.nil?
 
         refresh = exchanged.fetch('json')['refresh_token'].to_s
         return if refresh.blank? || attempt.revocation_endpoint.blank?
@@ -149,7 +161,7 @@ module ExternalBridge
           dns: @dns,
           timeout_code: :authorization_rejected,
           failure_code: :authorization_rejected,
-          signing: SigningKey.current
+          signing: @signing
         )
       rescue Error, OpenSSL::PKey::PKeyError
         nil

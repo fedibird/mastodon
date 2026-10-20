@@ -118,6 +118,8 @@ module AtprotoOauthHelper
       protected: protected_body || { 'authorization_servers' => [issuer] },
       protected_status: protected_status,
       metadata: metadata || atproto_metadata(issuer: issuer),
+      metadata_status: 200,
+      metadata_handler: nil,
       token: atproto_tokens(did: did),
       token_handler: nil,
       par_handler: nil,
@@ -131,7 +133,13 @@ module AtprotoOauthHelper
     if metadata_response
       stub_request(:get, "#{issuer}/.well-known/oauth-authorization-server").to_return(metadata_response)
     else
-      stub_request(:get, "#{issuer}/.well-known/oauth-authorization-server").to_return { atproto_json(bodies[:metadata]) }
+      stub_request(:get, "#{issuer}/.well-known/oauth-authorization-server").to_return do
+        if bodies[:metadata_handler]
+          bodies[:metadata_handler].call
+        else
+          atproto_json(bodies[:metadata], status: bodies[:metadata_status] || 200)
+        end
+      end
     end
     stub_request(:post, "#{issuer}/oauth/par").to_return do |request|
       bodies[:par_handler] ? bodies[:par_handler].call(request) : (par_response || atproto_json({ 'request_uri' => 'urn:ietf:params:oauth:request_uri:one', 'expires_in' => 60 }))

@@ -60,6 +60,7 @@ describe ExternalIdentity do
         binding_id: SecureRandom.uuid,
         encrypted_secrets: ciphertext,
         encryption_key_id: key_id,
+        client_key_id: 'par-kid',
         expires_at: 10.minutes.from_now,
       )
       expect(attempt.to_json).not_to include('verifier-SENTINEL')

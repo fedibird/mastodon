@@ -20,6 +20,8 @@ module ExternalBridge
 
       def call
         prepare!
+        @signing = SigningKey.current
+        raise Error, :signing_key_unavailable unless pinned_signing_key?
         discovered = Discovery.call(@identifier, dns: @dns)
         scopes = Scopes.choose(discovered.scopes_supported)
         verifier, challenge = Proofs.pkce
@@ -41,6 +43,10 @@ module ExternalBridge
         raise Error, :vault_unavailable unless UserCredentialVault.available?
       end
 
+      def pinned_signing_key?
+        @signing&.kid&.match?(ExternalOauthAttempt::CLIENT_KEY_ID_FORMAT)
+      end
+
       def push!(discovered, scopes, state, challenge, dpop, nonce) # rubocop:disable Metrics/ParameterLists -- PAR fields stay explicit
         fields = {
           'client_id' => ClientDocument.client_id,
@@ -60,7 +66,8 @@ module ExternalBridge
           nonce: nonce,
           dns: @dns,
           timeout_code: :authorization_rejected,
-          failure_code: :authorization_rejected
+          failure_code: :authorization_rejected,
+          signing: @signing
         )
       end
 
@@ -98,6 +105,7 @@ module ExternalBridge
           binding_id: binding_id,
           encrypted_secrets: ciphertext,
           encryption_key_id: key_id,
+          client_key_id: @signing.kid,
           expires_at: ATTEMPT_TTL.from_now
         )
       end

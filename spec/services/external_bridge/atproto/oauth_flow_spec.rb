@@ -11,6 +11,11 @@ describe 'AT Protocol OAuth identity connection' do
     UserExternalCredential.find(identity.credential_id)
   end
 
+  def assertion_kid(exchange)
+    fields = Rack::Utils.parse_nested_query(exchange.body.to_s)
+    decode_jwt(fields.fetch('client_assertion'))[:header]['kid']
+  end
+
   def revealed(identity, owner: user)
     revealed = nil
     UserCredentialVault.with_credential(owner: owner, credential: credential_for(identity), provider: 'bluesky', purpose: 'identity', credential_type: 'oauth_session') do |payload|
@@ -290,6 +295,179 @@ describe 'AT Protocol OAuth identity connection' do
         expect(atproto_exchanges.map(&:method)).not_to include(:post)
       end
       expect(key.private?).to be(true)
+    end
+  end
+
+  it 'keeps a connected session through a metadata outage and refreshes after discovery recovers' do
+    with_atproto_client do
+      world = install_atproto_world!
+      identity = connect_atproto!(user: user, world: world).fetch(:identity)
+      ciphertext = credential_for(identity).encrypted_payload
+      travel 5.minutes do
+        [503, :timeout].each do |failure|
+          if failure == 503
+            world.bodies[:metadata_status] = 503
+            world.bodies[:metadata_handler] = nil
+          else
+            world.bodies[:metadata_status] = 200
+            world.bodies[:metadata_handler] = -> { raise HTTP::TimeoutError, 'metadata timed out' }
+          end
+          reset_atproto_exchanges!
+          expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq('discovery_rejected')
+          row = identity.reload
+          expect(row.status).to eq('connected')
+          expect(row.last_error_code).to eq('discovery_rejected')
+          expect(row.refresh_started_at).to be_nil
+          expect(row.refresh_generation).to eq(0)
+          expect(credential_for(identity).reload.encrypted_payload).to eq(ciphertext)
+          expect(credential_for(identity).revoked_at).to be_nil
+          expect(atproto_exchanges.select { |exchange| exchange.method == :post }).to be_empty
+        end
+
+        world.bodies[:metadata_handler] = nil
+        world.bodies[:metadata_status] = 200
+        world.bodies[:token] = atproto_tokens(expires_in: 300, refresh: 'refresh-after-outage')
+        reset_atproto_exchanges!
+        refreshed = ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns)
+        expect(refreshed.status).to eq('connected')
+        expect(refreshed.refresh_generation).to eq(1)
+        expect(refreshed.last_error_code).to be_nil
+        expect(revealed(refreshed)['refresh_token']).to eq('refresh-after-outage')
+        expect(atproto_exchanges.select { |exchange| exchange.method == :post && exchange.uri.path == '/oauth/token' }.size).to eq(1)
+      end
+    end
+  end
+
+  it 'requires sign-in again when the bound issuer changes and does not send the refresh token later' do
+    with_atproto_client do
+      world = install_atproto_world!
+      identity = connect_atproto!(user: user, world: world).fetch(:identity)
+      ciphertext = credential_for(identity).encrypted_payload
+      world.bodies[:protected] = { 'authorization_servers' => ['https://moved.example'] }
+      reset_atproto_exchanges!
+      expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq('issuer_mismatch')
+      expect(identity.reload.status).to eq('reauthentication_required')
+      expect(identity.last_error_code).to eq('issuer_mismatch')
+      expect(credential_for(identity).encrypted_payload).to eq(ciphertext)
+      expect(credential_for(identity).revoked_at).to be_nil
+      expect(atproto_exchanges.select { |exchange| exchange.method == :post }).to be_empty
+
+      world.bodies[:protected] = { 'authorization_servers' => [atproto_issuer] }
+      reset_atproto_exchanges!
+      expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq('reauthentication_required')
+      expect(identity.reload.status).to eq('reauthentication_required')
+      expect(atproto_exchanges.select { |exchange| exchange.method == :post }).to be_empty
+    end
+  end
+
+  it 'signs the callback and refresh with the PAR key after the current key changes' do
+    old_key = OpenSSL::PKey::EC.generate('prime256v1')
+    current_key = OpenSSL::PKey::EC.generate('prime256v1')
+    previous = "par-kid:#{Base64.strict_encode64(old_key.to_pem)}"
+    with_atproto_client do
+      world = install_atproto_world!
+      started = nil
+      ClimateControl.modify(ATPROTO_OAUTH_SIGNING_KEY: old_key.to_pem, ATPROTO_OAUTH_SIGNING_KID: 'par-kid') do
+        started = start_atproto!(user: user, identifier: AtprotoOauthHelper::HANDLE, dns: world.dns)
+      end
+      par = atproto_exchanges.reverse.find { |exchange| exchange.uri.path == '/oauth/par' }
+      expect(assertion_kid(par)).to eq('par-kid')
+      expect(ExternalOauthAttempt.order(:id).last.client_key_id).to eq('par-kid')
+
+      ClimateControl.modify(
+        ATPROTO_OAUTH_SIGNING_KEY: current_key.to_pem,
+        ATPROTO_OAUTH_SIGNING_KID: 'current-kid',
+        ATPROTO_OAUTH_PREVIOUS_SIGNING_KEYS: previous,
+      ) do
+        reset_atproto_exchanges!
+        identity = finish_atproto!(user: user, state: started[:state], dns: world.dns)
+        token_post = atproto_exchanges.find { |exchange| exchange.method == :post && exchange.uri.path == '/oauth/token' }
+        expect(assertion_kid(token_post)).to eq('par-kid')
+        expect(revealed(identity)['client_key_id']).to eq('par-kid')
+
+        world.bodies[:token] = atproto_tokens(refresh: 'refresh-with-par-kid')
+        reset_atproto_exchanges!
+        travel 5.minutes do
+          refreshed = ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns)
+          expect(refreshed.refresh_generation).to eq(1)
+          expect(revealed(refreshed)['client_key_id']).to eq('par-kid')
+        end
+        refresh_post = atproto_exchanges.find { |exchange| exchange.method == :post && exchange.uri.path == '/oauth/token' }
+        expect(assertion_kid(refresh_post)).to eq('par-kid')
+
+        identity.reload.update!(status: 'connected', last_error_code: nil, refresh_started_at: nil, access_expires_at: 1.minute.ago)
+      end
+
+      reset_atproto_exchanges!
+      expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: ExternalIdentity.last.id, dns: world.dns) }.code).to eq('reauthentication_required')
+      expect(atproto_exchanges.select { |exchange| exchange.method == :post }).to be_empty
+    end
+  end
+
+  it 'does not exchange an authorization code with a signing key that was not used at PAR' do
+    old_key = OpenSSL::PKey::EC.generate('prime256v1')
+    with_atproto_client do
+      world = install_atproto_world!
+      started = nil
+      ClimateControl.modify(ATPROTO_OAUTH_SIGNING_KEY: old_key.to_pem, ATPROTO_OAUTH_SIGNING_KID: 'par-kid') do
+        started = start_atproto!(user: user, identifier: AtprotoOauthHelper::HANDLE, dns: world.dns)
+      end
+      ClimateControl.modify(ATPROTO_OAUTH_SIGNING_KEY: OpenSSL::PKey::EC.generate('prime256v1').to_pem, ATPROTO_OAUTH_SIGNING_KID: 'current-kid') do
+        reset_atproto_exchanges!
+        expect(atproto_error { finish_atproto!(user: user, state: started[:state], dns: world.dns) }.code).to eq('signing_key_unavailable')
+      end
+      expect(atproto_exchanges.select { |exchange| exchange.method == :post }).to be_empty
+      expect(ExternalIdentity.count).to eq(0)
+      expect(ExternalOauthAttempt.order(:id).last.consumed_at).to be_nil
+      expect(ExternalOauthAttempt.order(:id).last.client_key_id).to eq('par-kid')
+    end
+  end
+
+  it 'disconnects locally when the stored session cannot be revoked remotely' do
+    with_atproto_client do
+      world = install_atproto_world!
+      credential = store_vault_credential(
+        owner: user,
+        provider: 'bluesky',
+        purpose: 'identity',
+        credential_type: 'oauth_session',
+        credentials: { 'access_token' => 'incomplete-session-without-refresh' },
+      )
+      identity = ExternalIdentity.create!(
+        user: user,
+        provider: 'bluesky',
+        subject: AtprotoOauthHelper::DID,
+        issuer: atproto_issuer,
+        resource_origin: atproto_pds,
+        token_endpoint: "#{atproto_issuer}/oauth/token",
+        revocation_endpoint: "#{atproto_issuer}/oauth/revoke",
+        status: 'connected',
+        terms_state: 'approved',
+        granted_scopes: ['atproto'],
+        credential: credential,
+        access_expires_at: 1.minute.ago,
+      )
+      reset_atproto_exchanges!
+      disconnected = ExternalBridge::Atproto::Disconnect.call(user: user, identity_id: identity.id, dns: world.dns)
+      expect(disconnected.status).to eq('disconnected')
+      expect(disconnected.disconnected_at).to be_present
+      expect(disconnected.revocation_state).to eq('remote_failed')
+      expect(credential.reload.revoked_at).to be_present
+      expect(atproto_exchanges.select { |exchange| exchange.method == :post }).to be_empty
+      expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq('revoked')
+    end
+  end
+
+  it 'requires sign-in again when authorization-server metadata drops atproto' do
+    with_atproto_client do
+      world = install_atproto_world!
+      identity = connect_atproto!(user: user, world: world).fetch(:identity)
+      world.bodies[:metadata] = atproto_metadata(scopes: %w(transition:generic))
+      reset_atproto_exchanges!
+      expect(atproto_error { ExternalBridge::Atproto::Refresh.call(user: user, identity_id: identity.id, dns: world.dns) }.code).to eq('unsupported_scopes')
+      expect(identity.reload.status).to eq('reauthentication_required')
+      expect(identity.last_error_code).to eq('unsupported_scopes')
+      expect(atproto_exchanges.select { |exchange| exchange.method == :post }).to be_empty
     end
   end
 
