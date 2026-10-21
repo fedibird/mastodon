@@ -1,5 +1,6 @@
 import { isExclusiveAttachmentType, isExclusiveFile } from '../features/compose/composer_media';
 import { composerSearchability, effectiveSearchability, searchabilityCap } from '../utils/searchability';
+import { COMPOSER_PRIVACIES, composerPrivacy } from '../utils/external_visibility';
 import {
   COMPOSE_MOUNT,
   COMPOSE_UNMOUNT,
@@ -1037,8 +1038,22 @@ const insertEmoji = (state, position, emojiData, needsSpace) => {
 };
 
 const privacyCap = (a, b) => {
-  const order = ['public', 'unlisted', 'private', 'mutual', 'limited', 'direct', 'personal'];
-  return order[Math.max(order.indexOf(a), order.indexOf(b), 0)];
+  const left = COMPOSER_PRIVACIES.indexOf(a);
+  const right = COMPOSER_PRIVACIES.indexOf(b);
+
+  if (left < 0 && right < 0) {
+    return 'public';
+  }
+
+  if (left < 0) {
+    return COMPOSER_PRIVACIES[right];
+  }
+
+  if (right < 0) {
+    return COMPOSER_PRIVACIES[left];
+  }
+
+  return COMPOSER_PRIVACIES[Math.max(left, right)];
 };
 
 const clearSearchabilityOverride = map => {
@@ -1555,7 +1570,7 @@ function reduceComposer(state = initialState, action) {
       rememberManualSetting(map, 'spoiler');
     }));
   case COMPOSE_VISIBILITY_CHANGE:
-    if (state.get('id')) return state;
+    if (state.get('id') || !COMPOSER_PRIVACIES.includes(action.value)) return state;
     return invalidateInteraction(state.withMutations(map => {
       const searchability = composerSearchability(state, action.value);
 
@@ -2000,7 +2015,7 @@ function reduceComposer(state = initialState, action) {
       map.set('quote_from', action.status.getIn(['quote', 'id'], null));
       map.set('quote_from_url', action.status.getIn(['quote', 'url']));
       map.set('reply_status', action.replyStatus);
-      map.set('privacy', action.status.get('visibility', state.get('default_privacy')));
+      map.set('privacy', composerPrivacy(action.status.get('visibility'), state.get('default_privacy')));
       clearSearchabilityOverride(map);
       map.set('searchability_desired', action.status.get('searchability') || state.get('default_searchability'));
       map.set('searchability', composerSearchability(map));
@@ -2099,7 +2114,7 @@ function reduceComposer(state = initialState, action) {
       map.set('id', action.status.get('id'));
       map.set('text', action.text);
       map.set('in_reply_to', action.status.get('in_reply_to_id'));
-      map.set('privacy', action.status.get('visibility') || state.get('privacy'));
+      map.set('privacy', composerPrivacy(action.status.get('visibility') || state.get('privacy'), state.get('default_privacy')));
       clearSearchabilityOverride(map);
       map.set('searchability_desired', action.status.get('searchability') || state.get('default_searchability'));
       map.set('searchability', composerSearchability(map));

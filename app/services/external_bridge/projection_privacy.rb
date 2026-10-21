@@ -1,20 +1,27 @@
 # frozen_string_literal: true
 
 module ExternalBridge
-  # projection_private? is the column OR a marker. Either one is enough.
-  # A true column with no marker is private for every caller.
+  # A row is private when any one signal is present:
+  # visibility external, external_projection true, or a marker.
+  # A true signal with no marker is private for every caller, including the
+  # account holder. Read permission is a separate marker user_id check.
   module ProjectionPrivacy
     NOT_PROJECTION_SQL = <<~SQL.squish.freeze
-      (statuses.external_projection IS NOT TRUE)
+      (statuses.visibility IS DISTINCT FROM #{Schema::EXTERNAL_VISIBILITY})
+      AND (statuses.external_projection IS NOT TRUE)
       AND NOT EXISTS (
         SELECT 1 FROM external_status_projections projection_marker
         WHERE projection_marker.status_id = statuses.id
       )
     SQL
 
+    # Non-projections, plus a projection whose marker belongs to the viewer.
+    # PersonalFeed also requires visibility personal, so an external row is
+    # not added to the personal timeline by this predicate.
     PERSONAL_VISIBILITY_SQL = <<~SQL.squish.freeze
       (
-        (statuses.external_projection IS NOT TRUE)
+        (statuses.visibility IS DISTINCT FROM #{Schema::EXTERNAL_VISIBILITY})
+        AND (statuses.external_projection IS NOT TRUE)
         AND NOT EXISTS (
           SELECT 1 FROM external_status_projections projection_marker
           WHERE projection_marker.status_id = statuses.id
@@ -29,8 +36,26 @@ module ExternalBridge
 
     module_function
 
+    def external_signal?(status)
+      return false if status.nil?
+      return true if status.respond_to?(:external_visibility?) && status.external_visibility?
+      return false unless status.respond_to?(:visibility)
+
+      value = status.visibility
+      raw = status.respond_to?(:visibility_before_type_cast) ? status.visibility_before_type_cast : value
+      [value, raw].any? { |item| external_value?(item) }
+    end
+
+    def external_value?(value)
+      return false if value.nil?
+
+      token = value.to_s.strip
+      token.casecmp(Visibility::NAME).zero? || token == Schema::EXTERNAL_VISIBILITY.to_s || value == Schema::EXTERNAL_VISIBILITY
+    end
+
     def private_status?(status)
       return false if status.nil?
+      return true if external_signal?(status)
       return true if status.respond_to?(:external_projection) && status.external_projection == true
       return false unless status.is_a?(Status)
 

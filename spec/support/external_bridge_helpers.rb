@@ -47,6 +47,56 @@ module ExternalBridgeHelpers
     { status: status, marker: marker, resource: resource, source: source, subscription: subscription }
   end
 
+  def external_project_for(user, body: 'External only article', url: "https://feeds.example/#{SecureRandom.hex(4)}.xml")
+    source = ExternalSource.create!(
+      protocol: 'rss',
+      canonical_key: url,
+      title: 'Public feed',
+      site_url: 'https://example.com',
+      etag: 'W/"public"',
+      fetched_at: Time.current,
+      checked_at: Time.current
+    )
+    resource = ExternalResource.create!(
+      external_source: source,
+      protocol: 'rss',
+      canonical_key: "feed:#{url}\nitem:guid-external",
+      title: 'External title',
+      body: body,
+      canonical_url: 'https://example.com/posts/external',
+      byline: 'Ada',
+      revision: 'rev-external',
+      published_at: Time.utc(2020, 1, 2, 3, 4, 5)
+    )
+    subscription = ExternalSubscription.create!(user: user, external_source: source, state: 'active')
+    status = nil
+    marker = nil
+    ApplicationRecord.transaction do
+      status = Status.create!(
+        account: user.account,
+        text: body,
+        visibility: :external,
+        searchability: :personal,
+        uri: nil,
+        external_projection: true,
+        local: true,
+        reply: false,
+        sensitive: false
+      )
+      marker = ExternalStatusProjection.create!(
+        user_id: user.id,
+        account_id: user.account_id,
+        external_source_id: subscription.external_source_id,
+        external_subscription_id: subscription.id,
+        external_resource_id: resource.id,
+        status_id: status.id,
+        last_seen_revision: resource.revision,
+        source_deleted: resource.source_deleted_at.present?
+      )
+    end
+    { status: status, marker: marker, resource: resource, source: source, subscription: subscription }
+  end
+
   def auth_headers_for(user, scopes = 'read:statuses write:statuses read:favourites write:favourites read:bookmarks write:bookmarks')
     token = Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: scopes)
     { 'Authorization' => "Bearer #{token.token}", 'Accept' => 'application/json' }

@@ -109,6 +109,8 @@ module ApplicationHelper
       fa_icon('envelope', title: I18n.t('statuses.visibilities.direct'))
     elsif status.personal_visibility?
       fa_icon('book', title: I18n.t('statuses.visibilities.personal'))
+    elsif status.external_visibility?
+      fa_icon('external-link', title: I18n.t('statuses.visibilities.external'))
     end
   end
 

@@ -43,6 +43,8 @@ class PostStatusService < BaseService
   def call(account, options = {})
     @account     = account
     @options     = options
+    ExternalBridge::Visibility.reject_composable!(@options[:visibility])
+    ExternalBridge::Visibility.reject_composable!(@options[:visibility_ex])
     reject_unreleased_activity_object!
     @text        = @options[:text] || ''
     @in_reply_to = @options[:thread]

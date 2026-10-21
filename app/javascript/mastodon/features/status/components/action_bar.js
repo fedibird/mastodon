@@ -12,6 +12,7 @@ import { openModal } from '../../../actions/modal';
 import { revealStatusTranslationBar } from '../../../actions/translation_bar';
 import { initAddFilter } from '../../../actions/filters';
 import { canEditStatus, editableStatus } from '../../../utils/status_edit';
+import { isExternalContentStatus } from '../../../utils/external_visibility';
 import { copyStatusSource } from '../../../actions/statuses';
 import { translationPairStatus } from '../../../utils/translation_languages';
 import { selectAcceptedTranslationPreferences } from '../../../selectors/user_preferences';
@@ -189,6 +190,10 @@ class ActionBar extends React.PureComponent {
   }
 
   handleReplyClick = () => {
+    if (isExternalContentStatus(this.props.status)) {
+      return;
+    }
+
     this.props.onReply(this.props.status);
   }
 
@@ -385,6 +390,7 @@ class ActionBar extends React.PureComponent {
   render () {
     const { status, relationship, intl, referenced, contextReferenced, referenceCountLimit, emojiReactioned, reactionLimitReached, editing } = this.props;
 
+    const externalContent    = isExternalContentStatus(status);
     const publicStatus       = ['public', 'unlisted'].includes(status.get('visibility'));
     const pinnableStatus     = ['public', 'unlisted', 'private'].includes(status.get('visibility'));
     const mutingConversation = status.get('muted');
@@ -433,12 +439,15 @@ class ActionBar extends React.PureComponent {
         management.push({ text: intl.formatMessage(messages.copySource), action: this.handleCopySource });
       }
 
-      if (!disablePost) {
+      if (!disablePost && !externalContent) {
         management.push({ text: intl.formatMessage(messages.redraft), action: this.handleRedraftClick });
       }
 
       management.push({ text: intl.formatMessage(messages.delete), action: this.handleDeleteClick });
-      management.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
+
+      if (!externalContent) {
+        management.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
+      }
 
       if (menu.length > 0 && management.length > 0) {
         menu.push(null);
@@ -560,7 +569,7 @@ class ActionBar extends React.PureComponent {
       reblogTitle = intl.formatMessage(messages.cannot_reblog);
     }
 
-    const referenceDisabled = editing || expired || !referenced && referenceCountLimit || ['limited', 'direct', 'personal'].includes(status.get('visibility'));
+    const referenceDisabled = editing || expired || externalContent || !referenced && referenceCountLimit || ['limited', 'direct', 'personal', 'external'].includes(status.get('visibility'));
 
     const emojiReactionMessage = (() => {
       if (disableReactions) {
@@ -576,7 +585,7 @@ class ActionBar extends React.PureComponent {
 
     return (
       <div className='detailed-status__action-bar'>
-        <div className='detailed-status__button'><IconButton disabled={disablePost || expired} title={intl.formatMessage(messages.reply)} icon={status.get('in_reply_to_account_id') === status.getIn(['account', 'id']) ? 'reply' : replyIcon} onClick={this.handleReplyClick} /></div>
+        <div className='detailed-status__button'><IconButton disabled={disablePost || expired || externalContent} title={intl.formatMessage(messages.reply)} icon={status.get('in_reply_to_account_id') === status.getIn(['account', 'id']) ? 'reply' : replyIcon} onClick={this.handleReplyClick} /></div>
         {enableStatusReference && me && <div className='detailed-status__button'><IconButton className={classNames('link-icon', { referenced, 'context-referenced': contextReferenced })} animate disabled={disablePost || referenceDisabled} active={referenced} pressed={referenced} title={intl.formatMessage(messages.reference)} icon='link' onClick={this.handleReferenceClick} /></div>}
         <div className='detailed-status__button'><IconButton className={classNames({ reblogPrivate })} disabled={disableReactions || !publicStatus && !reblogPrivate || expired} active={reblogged} title={reblogTitle} icon='retweet' onClick={this.handleReblogClick} /></div>
         <div className='detailed-status__button'><IconButton className='star-icon' animate active={favourited} disabled={disableReactions || !favourited && expired} title={intl.formatMessage(messages.favourite)} icon='star' onClick={this.handleFavouriteClick} /></div>
@@ -586,7 +595,7 @@ class ActionBar extends React.PureComponent {
 
         {enableReaction && <div className='detailed-status__action-bar-dropdown'>
           <ReactionPickerDropdownContainer
-            disabled={disableReactions || expired || reactionLimitReached}
+            disabled={disableReactions || expired || externalContent || reactionLimitReached}
             active={emojiReactioned}
             className='status__action-bar-button'
             status={status}

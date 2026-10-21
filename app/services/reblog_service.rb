@@ -29,6 +29,7 @@ class ReblogService < BaseService
         options[:visibility] || account.user&.setting_default_privacy
       end
     end
+    ExternalBridge::Visibility.reject_composable!(visibility)
 
     circle = begin
       if visibility == 'mutual'

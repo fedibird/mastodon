@@ -11,6 +11,7 @@ import classNames from 'classnames';
 import { openModal } from '../actions/modal';
 import { revealStatusTranslationBar } from '../actions/translation_bar';
 import { canEditStatus, editableStatus } from '../utils/status_edit';
+import { isExternalContentStatus } from '../utils/external_visibility';
 import { copyStatusSource } from '../actions/statuses';
 import { translationPairStatus } from '../utils/translation_languages';
 import { selectAcceptedTranslationPreferences } from '../selectors/user_preferences';
@@ -198,6 +199,10 @@ class StatusActionBar extends ImmutablePureComponent {
   ]
 
   handleReplyClick = () => {
+    if (isExternalContentStatus(this.props.status)) {
+      return;
+    }
+
     if (me) {
       this.props.onReply(this.props.status, this.context.router.history);
     } else {
@@ -445,6 +450,7 @@ class StatusActionBar extends ImmutablePureComponent {
     const { status, relationship, intl, withDismiss, scrollKey, expired, referenced, contextReferenced, referenceCountLimit, contextType, emojiReactioned, reactionLimitReached, editing } = this.props;
 
     const anonymousAccess    = !me;
+    const externalContent    = isExternalContentStatus(status);
     const publicStatus       = ['public', 'unlisted'].includes(status.get('visibility'));
     const pinnableStatus     = ['public', 'unlisted', 'private'].includes(status.get('visibility'));
     const mutingConversation = status.get('muted');
@@ -486,12 +492,15 @@ class StatusActionBar extends ImmutablePureComponent {
         management.push({ text: intl.formatMessage(messages.copySource), action: this.handleCopySource });
       }
 
-      if (!disablePost) {
+      if (!disablePost && !externalContent) {
         management.push({ text: intl.formatMessage(messages.redraft), action: this.handleRedraftClick });
       }
 
       management.push({ text: intl.formatMessage(messages.delete), action: this.handleDeleteClick });
-      management.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
+
+      if (!externalContent) {
+        management.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
+      }
 
       if (menu.length > 0 && management.length > 0) {
         menu.push(null);
@@ -627,7 +636,7 @@ class StatusActionBar extends ImmutablePureComponent {
       <IconButton className='status__action-bar-button' title={intl.formatMessage(messages.hide)} icon='eye' onClick={this.handleHideClick} />
     );
 
-    const referenceDisabled = editing || expired || !referenced && referenceCountLimit || ['limited', 'direct', 'personal'].includes(status.get('visibility'));
+    const referenceDisabled = editing || expired || externalContent || !referenced && referenceCountLimit || ['limited', 'direct', 'personal', 'external'].includes(status.get('visibility'));
 
     const reactionsCounter = compactReaction && contextType !== 'thread' && status.get('emoji_reactions_count') > 0 ? status.get('emoji_reactions_count') : undefined;
 
@@ -645,7 +654,7 @@ class StatusActionBar extends ImmutablePureComponent {
 
     return (
       <div className='status__action-bar'>
-        <IconButton className='status__action-bar-button' disabled={disablePost || expired} title={replyTitle} icon={status.get('in_reply_to_account_id') === status.getIn(['account', 'id']) ? 'reply' : replyIcon} onClick={this.handleReplyClick} counter={status.get('replies_count')} obfuscateCount />
+        <IconButton className='status__action-bar-button' disabled={disablePost || expired || externalContent} title={replyTitle} icon={status.get('in_reply_to_account_id') === status.getIn(['account', 'id']) ? 'reply' : replyIcon} onClick={this.handleReplyClick} counter={status.get('replies_count')} obfuscateCount />
         {enableStatusReference && me && <IconButton className={classNames('status__action-bar-button link-icon', { referenced, 'context-referenced': contextReferenced })} animate disabled={disablePost || referenceDisabled} active={referenced} pressed={referenced} title={intl.formatMessage(messages.reference)} icon='link' onClick={this.handleReferenceClick} />}
         <IconButton className={classNames('status__action-bar-button', { reblogPrivate })} disabled={disableReactions || !publicStatus && !reblogPrivate || expired}  active={reblogged} pressed={reblogged} title={reblogTitle} icon='retweet' onClick={this.handleReblogClick} />
         <IconButton className='status__action-bar-button star-icon' animate disabled={disableReactions || !favourited && expired} active={favourited} pressed={favourited} title={intl.formatMessage(messages.favourite)} icon='star' onClick={this.handleFavouriteClick} />
@@ -656,7 +665,7 @@ class StatusActionBar extends ImmutablePureComponent {
         {enableReaction && <div className={classNames('status__action-bar-dropdown', { 'icon-button--with-counter': reactionsCounter })}>
           <ReactionPickerDropdownContainer
             scrollKey={scrollKey}
-            disabled={disableReactions || expired || anonymousAccess || reactionLimitReached}
+            disabled={disableReactions || expired || anonymousAccess || externalContent || reactionLimitReached}
             active={emojiReactioned}
             className='status__action-bar-button'
             status={status}

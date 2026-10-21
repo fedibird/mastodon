@@ -146,16 +146,14 @@ RSpec.describe 'Private RSS projection access' do
         feed_plan = connection.select_values(<<~SQL).join("\n")
           EXPLAIN SELECT statuses.id FROM statuses
           WHERE statuses.id IN (1)
-            AND statuses.external_projection IS NOT TRUE
-            AND NOT EXISTS (
-              SELECT 1 FROM external_status_projections projection_marker
-              WHERE projection_marker.status_id = statuses.id
-            )
+            AND #{ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL}
         SQL
         expect(marker_plan).to include('index_external_status_projections_on_status_id')
         expect(failure_plan).to include('Index Scan')
         expect(failure_plan).to include('external_resource_id')
         expect(failure_plan).not_to include('Seq Scan')
+        expect(feed_plan).to include('visibility')
+        expect(feed_plan).to include('201')
         expect(feed_plan).to include('index_external_status_projections_on_status_id')
         index_columns = connection.select_values(<<~SQL)
           SELECT a.attname

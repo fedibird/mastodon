@@ -133,7 +133,7 @@ class StatusesIndex < Chewy::Index
   index_scope ::Status.include_expired.without_reblogs
                       .where(Arel.sql(ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL))
                       .reorder(nil).with_includes,
-              delete_if: -> { external_projection == true || ::ExternalStatusProjection.exists?(status_id: id) }
+              delete_if: -> { external_visibility? || external_projection == true || ::ExternalStatusProjection.exists?(status_id: id) }
 
   crutch :mentions do |collection|
     data = ::Mention.where(status_id: collection.map(&:id)).where(account: Account.local, silent: false).pluck(:status_id, :account_id)

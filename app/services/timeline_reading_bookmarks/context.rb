@@ -118,7 +118,7 @@ module TimelineReadingBookmarks
       raise Reject, 'invalid_context' if value.length > Status.visibilities.size
 
       names = value.map(&:to_s)
-      known = Status.visibilities.keys
+      known = Status.composable_visibility_keys
       raise Reject, 'invalid_context' if names.any? { |name| known.exclude?(name) }
 
       names.uniq.sort

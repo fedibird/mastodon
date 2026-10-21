@@ -62,14 +62,17 @@ class Status < ApplicationRecord
 
   update_index('statuses', :proper, if: :search_indexable?)
 
-  enum visibility: { public: 0, unlisted: 1, private: 2, direct: 3, limited: 4, mutual: 100, personal: 200 }, _suffix: :visibility
+  # external (201) is the internal visibility for a private external-content
+  # projection. It is not a composable or searchable visibility. Integer order
+  # is not an authorization ranking.
+  enum visibility: { public: 0, unlisted: 1, private: 2, direct: 3, limited: 4, mutual: 100, personal: 200, external: 201 }, _suffix: :visibility
   enum searchability: { public: 0, unlisted: 1, private: 2, direct: 3, limited: 4, mutual: 100, personal: 200 }, _suffix: :searchability
 
   STANDARD_VISIBILITY = %w(public unlisted private direct)
   FOLLOWER_VISIBILITY = %w(public unlisted private)
   EXTRA_VISIBILITY    = %w(limited personal)
   PSEUDO_VISIBILITY   = %w(mutual)
-  UNCOUNT_VISIBILITY  = %w(direct personal)
+  UNCOUNT_VISIBILITY  = %w(direct personal external)
 
   # ActivityPub object type stored for a future Page. NULL means note.
   # This is not Status#object_type, which only distinguishes note and comment URIs.
@@ -135,6 +138,7 @@ class Status < ApplicationRecord
   validate :validate_post_title_shape
   validate :validate_ap_object_type_value
   validate :validate_page_activity_shape
+  validate :validate_external_visibility_shape, on: [:create, :update]
 
   accepts_nested_attributes_for :poll
 
@@ -300,6 +304,8 @@ class Status < ApplicationRecord
   end
 
   def compute_searchability
+    return 'personal' if external_visibility?
+
     searchability || Status.searchabilities.invert.fetch([Account.searchabilities[account.searchability], Status.visibilities[compatible_visibility] || 0].max, nil) || 'direct'
   end
 
@@ -397,7 +403,7 @@ class Status < ApplicationRecord
   end
 
   def search_indexable?
-    !ap_page? && external_projection != true
+    !ap_page? && external_projection != true && !external_visibility?
   end
 
   def self.normalize_post_title(value)
@@ -698,8 +704,18 @@ class Status < ApplicationRecord
   after_create :set_circle
 
   class << self
+    # Visibilities a person can store on a post, a posting style, or a filter.
+    # external is internal and is never one of them.
+    def composable_visibility_keys
+      visibilities.keys - %w(external)
+    end
+
+    def composable_visibility?(value)
+      value.is_a?(String) && composable_visibility_keys.include?(value)
+    end
+
     def selectable_visibilities
-      visibilities.keys - %w(direct limited)
+      composable_visibility_keys - %w(direct limited)
     end
 
     def selectable_searchabilities
@@ -854,6 +870,23 @@ class Status < ApplicationRecord
     errors.add(:ap_object_type, I18n.t('statuses.errors.invalid_ap_object_type'))
   end
 
+  def validate_external_visibility_shape
+    return unless external_visibility?
+
+    valid = external_projection == true &&
+            uri.nil? &&
+            personal_searchability? &&
+            self[:local] == true &&
+            reblog_of_id.nil? &&
+            in_reply_to_id.nil? &&
+            quote_id.nil? &&
+            reply != true &&
+            deleted_at.nil?
+    return if valid
+
+    errors.add(:base, I18n.t('external_bridge.errors.external_visibility_shape'))
+  end
+
   def validate_page_activity_shape
     return unless ap_page?
 
@@ -923,9 +956,12 @@ class Status < ApplicationRecord
   end
 
   def reject_external_projection_field_changes
-    return unless external_projection == true
+    return unless external_projection == true || external_visibility?
 
     protected_fields = %w(account_id visibility searchability uri external_projection deleted_at reblog_of_id in_reply_to_id quote_id)
+    # local and reply are part of the external shape. Legacy personal
+    # projections can still change them; ordinary posts never enter here.
+    protected_fields |= %w(local reply) if external_visibility?
     return if (changed & protected_fields).empty?
 
     errors.add(:base, I18n.t('external_bridge.errors.projection_immutable'))
@@ -933,10 +969,14 @@ class Status < ApplicationRecord
   end
 
   def external_projection_side_effect?(fresh = nil)
-    fresh ||= Status.find_by(id: id)
-    return true if fresh&.external_projection == true
+    candidate = fresh || self
+    return true if candidate.respond_to?(:external_visibility?) && candidate.external_visibility?
+    return true if candidate.respond_to?(:external_projection) && candidate.external_projection == true
 
-    ExternalStatusProjection.exists?(status_id: id)
+    status_id = candidate.respond_to?(:id) ? candidate.id : id
+    return false if status_id.nil?
+
+    ExternalStatusProjection.exists?(status_id: status_id)
   end
 
   def prepare_contents
@@ -959,6 +999,8 @@ class Status < ApplicationRecord
 
   def set_searchability
     return if searchability.nil?
+    # external is 201 and is not a searchability. Leave the assigned personal value.
+    return if external_visibility?
 
     self.searchability = [Status.searchabilities[searchability], Status.visibilities[visibility]].max
   end

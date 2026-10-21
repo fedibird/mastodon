@@ -144,9 +144,12 @@ class REST::StatusSerializer < ActiveModel::Serializer
     # This visibility is masked behind "private"
     # to avoid API changes because there are no
     # UX differences
+    # external stays off the standard visibility field. Clients that understand
+    # the extension read visibility_ex. The mask is computed per request and is
+    # not a shared serialized cache entry.
     if object.limited_visibility?
       'private'
-    elsif object.personal_visibility?
+    elsif object.personal_visibility? || object.external_visibility?
       'direct'
     else
       object.visibility

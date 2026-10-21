@@ -82,6 +82,7 @@ RSpec.describe ExternalBridge::ProjectionWriter do
           'external_status_projections_user_account',
           'external_status_projections_guard_delete',
           'statuses_external_projection_field_guard',
+          'statuses_external_visibility_shape_guard',
           'users_external_projection_account_guard'
         )
       SQL
@@ -89,6 +90,7 @@ RSpec.describe ExternalBridge::ProjectionWriter do
         external_status_projections_guard_delete
         external_status_projections_user_account
         statuses_external_projection_field_guard
+        statuses_external_visibility_shape_guard
         users_external_projection_account_guard
       ).sort
 
@@ -103,7 +105,16 @@ RSpec.describe ExternalBridge::ProjectionWriter do
 
       function_body = probe.exec("SELECT prosrc FROM pg_proc WHERE proname = 'external_status_projections_enforce_owner_account'").getvalue(0, 0)
       expect(function_body).to include('external_projection')
-      expect(function_body).to include(ExternalBridge::Schema::PERSONAL_VISIBILITY.to_s)
+      expect(function_body).to include('NOT IN (200, 201)')
+      shape_body = probe.exec("SELECT prosrc FROM pg_proc WHERE proname = 'statuses_external_visibility_shape_guard'").getvalue(0, 0)
+      expect(shape_body).to include('external visibility status shape is invalid')
+      field_body = probe.exec("SELECT prosrc FROM pg_proc WHERE proname = 'statuses_external_projection_field_guard'").getvalue(0, 0)
+      expect(field_body).to include('OLD.visibility = 201')
+      expect(field_body).to include('NEW.local IS DISTINCT FROM OLD.local')
+      shape_trigger = probe.exec("SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = 'statuses_external_visibility_shape_guard' AND NOT tgisinternal").getvalue(0, 0)
+      expect(shape_trigger).to include('BEFORE INSERT OR UPDATE OF local, reply')
+      field_trigger = probe.exec("SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = 'statuses_external_projection_field_guard' AND NOT tgisinternal").getvalue(0, 0)
+      expect(field_trigger).to include('local, reply')
       expect(Digest::SHA256.file(schema_file).hexdigest).to eq retained
     ensure
       probe&.close
@@ -356,60 +367,62 @@ RSpec.describe ExternalBridge::ProjectionWriter do
     end
   end
 
+  # The planted-document examples share one operation list for both projections.
+  # rubocop:disable Metrics/BlockLength
   describe 'search scope' do
     let(:bundle) { project_for(user, body: 'not indexed') }
     let(:status) { bundle[:status] }
 
-    it 'omits the projection from StatusesIndex scope through favourite and bookmark changes' do
-      expect(index_scope.where(id: status.id)).not_to exist
+    it 'omits legacy and external projections from the index scope through favourite, bookmark, and stat changes' do
+      private_statuses = [status, external_project_for(user, body: 'external not indexed')[:status]]
 
-      Favourite.create!(account: user.account, status: status)
-      Bookmark.create!(account: user.account, status: status)
-      status.status_stat.update!(favourites_count: 1)
-      expect(index_scope.where(id: status.id)).not_to exist
+      private_statuses.each do |private_status|
+        expect(index_scope.where(id: private_status.id)).not_to exist
 
-      Favourite.where(status_id: status.id).delete_all
-      Bookmark.where(status_id: status.id).delete_all
-      expect(index_scope.where(id: status.id)).not_to exist
+        StatusStat.find_or_create_by!(status: private_status)
+        Favourite.create!(account: user.account, status: private_status)
+        Bookmark.create!(account: user.account, status: private_status)
+        StatusStat.find_by!(status: private_status).update!(favourites_count: 1)
+        expect(index_scope.where(id: private_status.id)).not_to exist
+
+        Favourite.where(status_id: private_status.id).delete_all
+        Bookmark.where(status_id: private_status.id).delete_all
+        StatusStat.find_by!(status: private_status).update!(favourites_count: 0)
+        expect(index_scope.where(id: private_status.id)).not_to exist
+      end
     end
 
-    it 'drops a planted document through favourite, bookmark, stat, and a full rebuild' do
-      # Release gate. Select this example by file:line or -e 'drops a planted document'.
-      # -e 'raw document' is not in the name, so RSpec runs 0 examples.
-      # ES_ENABLED=true is required. A skip is not a pass. Use a test-only
-      # cluster and ES_PREFIX: this calls StatusesIndex.import!.
-      #
-      #   RAILS_ENV=test ES_ENABLED=true ES_HOST=127.0.0.1 ES_PORT=9200 \
-      #     ES_PREFIX=fedibird-p1-spec bundle exec rspec \
-      #     spec/services/external_bridge/projection_integrity_spec.rb:376 \
-      #     --format documentation
-      skip <<~MSG.squish unless elasticsearch_available?
-        Elasticsearch release gate: cluster is not reachable.
-        ES_ENABLED=true is required. A skip is not a pass.
-        Select this example by file:line or -e "drops a planted document".
-        -e "raw document" matches nothing.
-      MSG
+    # Select with -e 'drops a planted document'. Do not use -e 'raw document'.
+    # A skip means the cluster was unreachable. It is not a pass.
+    #   RAILS_ENV=test ES_ENABLED=true ES_HOST=127.0.0.1 ES_PORT=9200 \
+    #     ES_PREFIX=fedibird-e1-review bundle exec rspec \
+    #     spec/services/external_bridge/projection_integrity_spec.rb \
+    #     -e 'drops a planted document' --format documentation
+    shared_examples 'drops a planted document' do
+      it 'drops a planted document through favourite, bookmark, stat, and a full rebuild' do
+        skip <<~MSG.squish unless elasticsearch_available?
+          Elasticsearch cluster is not reachable. ES_ENABLED=true is required.
+          A skip is not a pass. Select this example with -e "drops a planted document".
+        MSG
 
-      ordinary = Fabricate(:status, account: user.account, text: 'indexed ordinary')
-      Chewy.strategy(:urgent) do
-        StatusesIndex.import!
-        StatusesIndex.import!(status)
-        expect(raw_document(status.id)).to be_nil
-        expect(raw_document(ordinary.id)).to be_present
-
-        Favourite.create!(account: user.account, status: status)
-        Bookmark.create!(account: user.account, status: status)
-        status.status_stat.update!(favourites_count: 1)
-        StatusesIndex.import!(status)
-        expect(raw_document(status.id)).to be_nil
-
-        Favourite.where(status_id: status.id).delete_all
-        Bookmark.where(status_id: status.id).delete_all
-        status.status_stat.update!(favourites_count: 0)
-        StatusesIndex.import!
-        expect(raw_document(status.id)).to be_nil
-        expect(raw_document(ordinary.id)).to be_present
+        ordinary = Fabricate(:status, account: user.account, text: 'indexed ordinary')
+        Chewy.strategy(:urgent) do
+          StatusesIndex.import!(ordinary)
+          exercise_planted_document(private_status, ordinary)
+        end
       end
+    end
+
+    context 'with a legacy personal projection' do
+      let(:private_status) { status }
+
+      include_examples 'drops a planted document'
+    end
+
+    context 'with an external projection' do
+      let(:private_status) { external_project_for(user, body: 'external planted')[:status] }
+
+      include_examples 'drops a planted document'
     end
 
     def index_scope
@@ -425,12 +438,59 @@ RSpec.describe ExternalBridge::ProjectionWriter do
       false
     end
 
-    def raw_document(id)
-      StatusesIndex.query(ids: { values: [id] }).first
-    rescue StandardError
+    # Direct get. Only a missing document is absence. index_not_found and
+    # every other transport error fail the example.
+    def indexed_document(id)
+      Chewy.client.indices.refresh(index: StatusesIndex.index_name)
+      Chewy.client.get(index: StatusesIndex.index_name, id: id.to_s)
+    rescue Elasticsearch::Transport::Transport::Errors::NotFound => e
+      raise if e.message.include?('index_not_found_exception')
+
       nil
     end
+
+    def plant_document(status, source)
+      # refresh=true makes the write visible now. wait_for would sit until the
+      # index refresh_interval (15m) and the client times out.
+      Chewy.client.index(
+        index: StatusesIndex.index_name,
+        id: status.id.to_s,
+        refresh: true,
+        body: source.merge('id' => status.id)
+      )
+    end
+
+    def exercise_planted_document(private_status, ordinary)
+      ordinary_doc = indexed_document(ordinary.id)
+      expect(ordinary_doc).to include('_source')
+
+      plant_document(private_status, ordinary_doc['_source'])
+      planted = indexed_document(private_status.id)
+      expect(planted).to include('_id' => private_status.id.to_s)
+
+      StatusesIndex.import!(private_status)
+      expect(indexed_document(private_status.id)).to be_nil
+      expect(indexed_document(ordinary.id)).to include('_source')
+
+      StatusStat.find_or_create_by!(status: private_status)
+      Favourite.create!(account: private_status.account, status: private_status)
+      Bookmark.create!(account: private_status.account, status: private_status)
+      StatusStat.find_by!(status: private_status).update!(favourites_count: 1)
+      StatusesIndex.import!(private_status)
+      expect(indexed_document(private_status.id)).to be_nil
+
+      Favourite.where(status_id: private_status.id).delete_all
+      Bookmark.where(status_id: private_status.id).delete_all
+      StatusStat.find_by!(status: private_status).update!(favourites_count: 0)
+      StatusesIndex.import!(private_status)
+      expect(indexed_document(private_status.id)).to be_nil
+
+      StatusesIndex.import!
+      expect(indexed_document(private_status.id)).to be_nil
+      expect(indexed_document(ordinary.id)).to include('_source')
+    end
   end
+  # rubocop:enable Metrics/BlockLength
 
   describe 'workers' do
     let(:status) { project_for(user)[:status] }
