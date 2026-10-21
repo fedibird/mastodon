@@ -14,10 +14,14 @@ module ExternalBridge
     # - No status.update distribution. An open WebUI keeps its copy until reload.
     # - Search stays non-indexable. The root Chewy strategy is :custom_sidekiq,
     #   which only remembers ids until the strategy is popped. This follow-up
-    #   does not use that strategy. It deletes these ids and reads the bulk
-    #   response before the checkpoint may advance.
+    #   does not use that strategy. It deletes these ids in slices of SLICE and
+    #   reads each bulk item, then a GET, before the checkpoint may advance.
+    #   Success is a deleted item, or a response that names that document as
+    #   missing. A missing index or alias, a proxy 404, and any other 404 stay
+    #   incomplete.
     class CacheSync
       SLICE = 100
+      DOCUMENT_MISSING_TYPE = 'document_missing_exception'
 
       class SearchFollowUpError < StandardError; end
 
@@ -38,14 +42,14 @@ module ExternalBridge
         end
       end
 
+      # A NotFound raised by the bulk call is the request itself (missing index,
+      # missing alias, or a proxy). It is not proof that these documents are gone.
       def self.delete_slice!(slice)
         response = Chewy.client.bulk(refresh: true, body: bulk_body(slice))
         accept_bulk!(response, slice)
         slice.each { |id| assert_absent!(id) }
-      rescue Elasticsearch::Transport::Transport::Errors::NotFound => e
-        raise SearchFollowUpError, 'search delete failed' unless index_missing?(e)
-
-        nil
+      rescue Elasticsearch::Transport::Transport::Errors::NotFound
+        raise SearchFollowUpError, 'search delete failed'
       end
       private_class_method :delete_slice!
 
@@ -78,29 +82,50 @@ module ExternalBridge
         result = item_value(action, 'result').to_s
         error = item_value(action, 'error')
         return true if status == 200 && result == 'deleted' && error.nil?
-        return true if status == 404 && result == 'not_found' && not_found_error?(error)
+        return true if status == 404 && result == 'not_found' && document_missing_item?(error)
 
         false
       end
       private_class_method :delete_accepted?
 
-      def self.not_found_error?(error)
+      # No error object is the bulk-delete response for a missing document.
+      # document_missing_exception is the only error type with that meaning.
+      def self.document_missing_item?(error)
         return true if error.nil?
 
-        type = error.respond_to?(:[]) ? (item_value(error, 'type') || error).to_s : error.to_s
-        type.include?('not_found')
+        item_value(error, 'type').to_s == DOCUMENT_MISSING_TYPE
       end
-      private_class_method :not_found_error?
+      private_class_method :document_missing_item?
 
       def self.assert_absent!(id)
         found = Chewy.client.get(index: StatusesIndex.index_name, id: id.to_s)
         raise SearchFollowUpError, "search document #{id} is still present" if found.present?
       rescue Elasticsearch::Transport::Transport::Errors::NotFound => e
-        raise SearchFollowUpError, 'search index disappeared after delete' if index_missing?(e)
+        return if confirmed_absent?(e, id)
 
-        nil
+        raise SearchFollowUpError, 'search document absence was not confirmed'
       end
       private_class_method :assert_absent!
+
+      # The transport client formats this as "[404] #{body}". Absence is the
+      # document body with found:false for this id. Index errors and HTML do not parse to that.
+      def self.confirmed_absent?(error, id)
+        payload = json_object(error.message.to_s.sub(/\A\[\d+\]\s*/, ''))
+        return false unless payload
+        return false if item_value(payload, 'error').present?
+        return false unless item_value(payload, 'found') == false
+
+        item_value(payload, '_id').to_s == id.to_s
+      end
+      private_class_method :confirmed_absent?
+
+      def self.json_object(text)
+        parsed = JSON.parse(text)
+        parsed if parsed.is_a?(Hash)
+      rescue JSON::ParserError, TypeError
+        nil
+      end
+      private_class_method :json_object
 
       def self.assert_projection_ids!(ids)
         present = {}
@@ -117,11 +142,6 @@ module ExternalBridge
         end
       end
       private_class_method :assert_projection_ids!
-
-      def self.index_missing?(error)
-        error.message.include?('index_not_found_exception')
-      end
-      private_class_method :index_missing?
 
       def self.item_value(object, key)
         return object[key] if object.respond_to?(:key?) && object.key?(key)

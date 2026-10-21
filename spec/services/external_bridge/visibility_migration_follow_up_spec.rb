@@ -52,7 +52,9 @@ RSpec.describe 'External visibility migration follow-up' do
       expect(Chewy.client).to receive(:bulk).with(hash_including(refresh: true)).and_return(
         'items' => [{ 'delete' => { 'status' => 404, 'result' => 'not_found' } }]
       )
-      expect(Chewy.client).to receive(:get).and_raise(Elasticsearch::Transport::Transport::Errors::NotFound, 'document missing')
+      expect(Chewy.client).to receive(:get) do |*args, **kwargs|
+        raise absent_search_error(search_call_id(*args, **kwargs))
+      end
 
       expect { ExternalBridge::VisibilityMigration::CacheSync.invalidate!([legacy[:status].id]) }.not_to raise_error
     end
@@ -94,7 +96,9 @@ RSpec.describe 'External visibility migration follow-up' do
 
         { 'items' => [{ 'delete' => { 'status' => 404, 'result' => 'not_found' } }] }
       end
-      allow(Chewy.client).to receive(:get).and_raise(Elasticsearch::Transport::Transport::Errors::NotFound, 'document missing')
+      allow(Chewy.client).to receive(:get) do |*args, **kwargs|
+        raise absent_search_error(search_call_id(*args, **kwargs))
+      end
 
       expect do
         run_migration(apply: true, confirm_readers_ready: true, user_id: user.id, checkpoint: path, limit: 10, batch_size: 10)
@@ -128,6 +132,162 @@ RSpec.describe 'External visibility migration follow-up' do
       expect(indexed_document(legacy[:status].id)).to be_nil
       expect(indexed_document(ordinary.id)).to include('_id' => ordinary.id.to_s)
       expect(JSON.parse(File.read(path))['pending_batch']).to be_nil
+    end
+
+    it 'rejects an index-level bulk error and a not_found type that is not this document' do
+      allow(Chewy).to receive(:enabled?).and_return(true)
+      expect(Chewy.client).not_to receive(:get)
+      expect(Chewy.client).to receive(:bulk).and_raise(index_missing_error)
+
+      expect do
+        ExternalBridge::VisibilityMigration::CacheSync.invalidate!([legacy[:status].id])
+      end.to raise_error(ExternalBridge::VisibilityMigration::CacheSync::SearchFollowUpError, /search delete failed/)
+
+      expect(Chewy.client).to receive(:bulk).and_return(
+        'items' => [{
+          'delete' => {
+            'status' => 404,
+            'result' => 'not_found',
+            'error' => { 'type' => 'index_not_found_exception' },
+          },
+        }]
+      )
+      expect do
+        ExternalBridge::VisibilityMigration::CacheSync.invalidate!([legacy[:status].id])
+      end.to raise_error(ExternalBridge::VisibilityMigration::CacheSync::SearchFollowUpError, /did not complete/)
+    end
+
+    it 'accepts document_missing_exception and rejects a proxy 404 or a different id' do
+      allow(Chewy).to receive(:enabled?).and_return(true)
+      expect(Chewy.client).to receive(:bulk).and_return(
+        'items' => [{
+          'delete' => {
+            'status' => 404,
+            'result' => 'not_found',
+            'error' => { 'type' => 'document_missing_exception' },
+          },
+        }]
+      )
+      expect(Chewy.client).to receive(:get).and_raise(proxy_not_found_error)
+      expect do
+        ExternalBridge::VisibilityMigration::CacheSync.invalidate!([legacy[:status].id])
+      end.to raise_error(ExternalBridge::VisibilityMigration::CacheSync::SearchFollowUpError, /absence was not confirmed/)
+
+      expect(Chewy.client).to receive(:bulk).and_return(
+        'items' => [{ 'delete' => { 'status' => 200, 'result' => 'deleted' } }]
+      )
+      expect(Chewy.client).to receive(:get).and_raise(absent_search_error(legacy[:status].id + 1))
+      expect do
+        ExternalBridge::VisibilityMigration::CacheSync.invalidate!([legacy[:status].id])
+      end.to raise_error(ExternalBridge::VisibilityMigration::CacheSync::SearchFollowUpError, /absence was not confirmed/)
+
+      expect(Chewy.client).to receive(:bulk).and_return(
+        'items' => [{
+          'delete' => {
+            'status' => 404,
+            'result' => 'not_found',
+            'error' => { 'type' => 'document_missing_exception' },
+          },
+        }]
+      )
+      expect(Chewy.client).to receive(:get).and_raise(absent_search_error(legacy[:status].id))
+      expect do
+        ExternalBridge::VisibilityMigration::CacheSync.invalidate!([legacy[:status].id])
+      end.not_to raise_error
+    end
+
+    it 'keeps 201 and the pending batch when the index is missing, then finishes on the same checkpoint' do
+      Setting.external_bridge_external_visibility = true
+      path = File.join(Dir.mktmpdir, 'checkpoint.json')
+      attempts = 0
+      gets = 0
+      allow(Chewy).to receive(:enabled?).and_return(true)
+      allow(Chewy.client).to receive(:bulk) do
+        attempts += 1
+        raise index_missing_error if attempts == 1
+
+        { 'items' => [{ 'delete' => { 'status' => 404, 'result' => 'not_found' } }] }
+      end
+      allow(Chewy.client).to receive(:get) do |*args, **kwargs|
+        gets += 1
+        raise absent_search_error(search_call_id(*args, **kwargs))
+      end
+
+      expect do
+        invoke_visibility_cli(apply: true, confirm_readers_ready: true, user_id: user.id.to_s, checkpoint: path, limit: '10', batch_size: '10')
+      end.to raise_error(SystemExit) { |error| expect(error.status).to eq 6 }
+
+      expect(gets).to eq 0
+      expect(legacy[:status].reload.visibility).to eq 'external'
+      expect(JSON.parse(File.read(path))['pending_batch']).to be_present
+      expect(JSON.parse(File.read(path))['last_completed_marker_id']).to eq 0
+
+      output = invoke_visibility_cli(apply: true, confirm_readers_ready: true, user_id: user.id.to_s, checkpoint: path, limit: '10', batch_size: '10')
+      expect(output).to include('Apply finished this checkpoint window')
+      expect(JSON.parse(File.read(path))['pending_batch']).to be_nil
+      expect(gets).to eq 1
+      expect(attempts).to eq 2
+    end
+
+    it 'keeps 201 and the pending batch when the delete check is an HTML 404, then finishes on the same checkpoint' do
+      Setting.external_bridge_external_visibility = true
+      path = File.join(Dir.mktmpdir, 'checkpoint.json')
+      phase = :broken
+      allow(Chewy).to receive(:enabled?).and_return(true)
+      allow(Chewy.client).to receive(:bulk).and_return(
+        'items' => [{ 'delete' => { 'status' => 200, 'result' => 'deleted' } }]
+      )
+      allow(Chewy.client).to receive(:get) do |*args, **kwargs|
+        raise proxy_not_found_error if phase == :broken
+
+        raise absent_search_error(search_call_id(*args, **kwargs))
+      end
+
+      expect do
+        invoke_visibility_cli(apply: true, confirm_readers_ready: true, user_id: user.id.to_s, checkpoint: path, limit: '10', batch_size: '10')
+      end.to raise_error(SystemExit) { |error| expect(error.status).to eq 6 }
+
+      expect(legacy[:status].reload.visibility).to eq 'external'
+      expect(JSON.parse(File.read(path))['pending_batch']['status_ids']).to eq [legacy[:status].id]
+      phase = :ready
+
+      output = invoke_visibility_cli(apply: true, confirm_readers_ready: true, user_id: user.id.to_s, checkpoint: path, limit: '10', batch_size: '10')
+      expect(output).to include('Apply finished this checkpoint window')
+      expect(JSON.parse(File.read(path))['pending_batch']).to be_nil
+    end
+
+    it 'sends 100 ids as one bulk slice' do
+      ids = migration_ids(100)
+      Setting.external_bridge_external_visibility = true
+      counts = count_search_follow_up
+
+      result = run_migration(apply: true, confirm_readers_ready: true, user_id: user.id, checkpoint: File.join(Dir.mktmpdir, 'checkpoint.json'), limit: 200, batch_size: 200)
+      expect(result.outcome).to eq :window_complete
+      expect(counts).to include(bulk: 1, get: 100, status_pluck: 1, marker_pluck: 1, slices: 1)
+      expect(ids.length).to eq 100
+    end
+
+    it 'splits 101 ids into two slices and repeats a finished slice after a later slice fails' do
+      ids = migration_ids(101)
+      path = File.join(Dir.mktmpdir, 'checkpoint.json')
+      counts = count_search_follow_up(fail_slice: 2)
+      Setting.external_bridge_external_visibility = true
+
+      expect do
+        run_migration(apply: true, confirm_readers_ready: true, user_id: user.id, checkpoint: path, limit: 200, batch_size: 200)
+      end.to raise_error(ExternalBridge::VisibilityMigration::Runner::CacheIncomplete)
+
+      expect(Status.where(id: ids).pluck(:visibility).uniq).to eq ['external']
+      expect(JSON.parse(File.read(path))['pending_batch']['status_ids'].length).to eq 101
+      expect(JSON.parse(File.read(path))['last_completed_marker_id']).to eq 0
+      expect(counts).to include(bulk: 2, get: 100, status_pluck: 2, marker_pluck: 2, slices: 2)
+
+      counts[:fail_slice] = nil
+      result = run_migration(apply: true, confirm_readers_ready: true, user_id: user.id, checkpoint: path, limit: 200, batch_size: 200)
+      expect(result.outcome).to eq :window_complete
+      expect(JSON.parse(File.read(path))['pending_batch']).to be_nil
+      expect(counts).to include(bulk: 4, get: 201, status_pluck: 4, marker_pluck: 4)
+      expect(ordinary.reload.visibility).to eq 'personal'
     end
   end
 
@@ -164,9 +324,13 @@ RSpec.describe 'External visibility migration follow-up' do
       path = File.join(dir, 'checkpoint.json')
       scope = { 'user_id' => user.id, 'subscription_id' => nil }
       other_scope = { 'user_id' => user.id + 9, 'subscription_id' => nil }
+      release = File.join(dir, 'release')
       ActiveRecord::Base.connection_pool.disconnect!
-      winner = fork_checkpoint(path, scope, File.join(dir, 'winner.txt'))
-      loser = fork_checkpoint(path, other_scope, File.join(dir, 'loser.txt'))
+      winner, winner_ready = fork_checkpoint(path, scope, File.join(dir, 'winner.txt'), hold_until: release)
+      read_handshake(winner_ready)
+      loser, loser_ready = fork_checkpoint(path, other_scope, File.join(dir, 'loser.txt'))
+      read_handshake(loser_ready)
+      File.write(release, '1')
       Process.wait(winner)
       Process.wait(loser)
       ActiveRecord::Base.establish_connection
@@ -289,22 +453,42 @@ RSpec.describe 'External visibility migration follow-up' do
     end
   end
 
-  def fork_checkpoint(path, scope, result_path)
-    fork do
+  def fork_checkpoint(path, scope, result_path, hold_until: nil)
+    reader, writer = IO.pipe
+    pid = fork do
+      reader.close
+      code = nil
       begin
         ActiveRecord::Base.establish_connection
         ExternalBridge::VisibilityMigration::Checkpoint::LEASES.clear
         checkpoint = ExternalBridge::VisibilityMigration::Checkpoint.new(path)
         checkpoint.lease!
         checkpoint.create!(scope, 4)
-        File.write(result_path, 'created')
+        code = 'created'
       rescue ExternalBridge::VisibilityMigration::Refusal => e
-        File.write(result_path, e.code.to_s)
+        code = e.code.to_s
       rescue StandardError => e
-        File.write(result_path, "#{e.class}: #{e.message}")
+        code = "#{e.class}: #{e.message}"
       end
+      File.write(result_path, code)
+      writer.write('1')
+      writer.close
+      hold_lease(hold_until) if hold_until && code == 'created'
       exit!
     end
+    writer.close
+    [pid, reader]
+  end
+
+  def hold_lease(path)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 30
+    sleep 0.02 until File.file?(path) || Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+  end
+
+  def read_handshake(io)
+    byte = io.read(1)
+    io.close
+    raise 'checkpoint child exited before the handshake' if byte.blank?
   end
 
   def fork_and_hold(path, ready_path)
@@ -350,8 +534,107 @@ RSpec.describe 'External visibility migration follow-up' do
     Chewy.client.indices.refresh(index: StatusesIndex.index_name)
     Chewy.client.get(index: StatusesIndex.index_name, id: id.to_s)
   rescue Elasticsearch::Transport::Transport::Errors::NotFound => e
-    raise if e.message.include?('index_not_found_exception')
+    body = json_search_body(e.message)
+    return nil if body && body['found'] == false && body['_id'].to_s == id.to_s && body['error'].nil?
 
+    raise
+  end
+
+  def migration_ids(count)
+    (count - 1).times { project_for(user, body: 'Batch body') }
+    ExternalStatusProjection.where(user_id: user.id).order(:id).pluck(:status_id)
+  end
+
+  def count_search_follow_up(fail_slice: nil)
+    counts = { bulk: 0, get: 0, status_pluck: 0, marker_pluck: 0, slices: 0, fail_slice: fail_slice }
+    allow(Chewy).to receive(:enabled?).and_return(true)
+    allow(ExternalBridge::VisibilityMigration::CacheSync).to receive(:invalidate!).and_wrap_original do |method, ids|
+      counts[:slices] += 1
+      method.call(ids)
+    end
+    allow(Chewy.client).to receive(:bulk) do |*args, **kwargs|
+      counts[:bulk] += 1
+      payload = search_payload(*args, **kwargs)
+      ids = Array(payload[:body] || payload['body']).map { |entry| entry.dig(:delete, :_id) || entry.dig('delete', '_id') }
+      raise 'slice failed' if counts[:fail_slice] && counts[:bulk] == counts[:fail_slice]
+
+      result = counts[:bulk] > 2 ? 'not_found' : 'deleted'
+      status = result == 'deleted' ? 200 : 404
+      { 'items' => ids.map { { 'delete' => { 'status' => status, 'result' => result } } } }
+    end
+    allow(Chewy.client).to receive(:get) do |*args, **kwargs|
+      counts[:get] += 1
+      raise absent_search_error(search_call_id(*args, **kwargs))
+    end
+    allow(Status).to receive(:unscoped).and_wrap_original do |original, *args, **kwargs, &block|
+      relation = original.call(*args, **kwargs, &block)
+      next relation unless relation.is_a?(ActiveRecord::Relation)
+
+      allow(relation).to receive(:where).and_wrap_original do |where, *where_args, **where_kwargs, &where_block|
+        scoped = where.call(*where_args, **where_kwargs, &where_block)
+        allow(scoped).to receive(:pluck).and_wrap_original do |pluck, *cols|
+          counts[:status_pluck] += 1 if cols == %i(id visibility external_projection)
+          pluck.call(*cols)
+        end
+        scoped
+      end
+      relation
+    end
+    allow(ExternalStatusProjection).to receive(:where).and_wrap_original do |where, *args, **kwargs|
+      scoped = kwargs.empty? ? where.call(*args) : where.call(*args, **kwargs)
+      arguments = args.find { |value| value.is_a?(Hash) } || kwargs
+      if arguments.key?(:status_id)
+        allow(scoped).to receive(:pluck).and_wrap_original do |pluck, *cols|
+          counts[:marker_pluck] += 1 if cols == %i(status_id)
+          pluck.call(*cols)
+        end
+      end
+      scoped
+    end
+    counts
+  end
+
+  def invoke_visibility_cli(options)
+    require Rails.root.join('lib/mastodon/upgrade_cli')
+    stdout = $stdout
+    output = StringIO.new
+    $stdout = output
+    Mastodon::UpgradeCLI.new.invoke(:external_status_visibility, [], options)
+    output.string
+  ensure
+    $stdout = stdout
+  end
+
+  def absent_search_error(id)
+    body = { '_index' => 'statuses', '_id' => id.to_s, 'found' => false }.to_json
+    Elasticsearch::Transport::Transport::Errors::NotFound.new("[404] #{body}")
+  end
+
+  def index_missing_error
+    body = {
+      'error' => { 'type' => 'index_not_found_exception', 'reason' => 'no such index [statuses]' },
+      'status' => 404,
+    }.to_json
+    Elasticsearch::Transport::Transport::Errors::NotFound.new("[404] #{body}")
+  end
+
+  def proxy_not_found_error
+    Elasticsearch::Transport::Transport::Errors::NotFound.new('[404] <html><title>404 Not Found</title></html>')
+  end
+
+  def search_call_id(*args, **kwargs)
+    payload = search_payload(*args, **kwargs)
+    payload[:id] || payload['id']
+  end
+
+  def search_payload(*args, **kwargs)
+    payload = args.find { |value| value.is_a?(Hash) } || {}
+    payload.merge(kwargs)
+  end
+
+  def json_search_body(message)
+    JSON.parse(message.to_s.sub(/\A\[\d+\]\s*/, ''))
+  rescue JSON::ParserError, TypeError
     nil
   end
 end

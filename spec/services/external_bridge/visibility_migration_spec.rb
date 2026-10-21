@@ -310,12 +310,8 @@ RSpec.describe ExternalBridge::VisibilityMigration::Runner do
       Setting.external_bridge_external_visibility = true
       Rails.cache.write("statuses/#{first[:status].id}", 'stale')
       Rails.cache.write("statuses/#{second[:status].id}", 'stale')
-      crashes = 0
       injector = lambda do |name|
-        next unless name == :during_cache
-
-        crashes += 1
-        raise 'partial cache' if crashes > 1
+        raise 'partial cache' if name == :during_cache
       end
 
       expect do

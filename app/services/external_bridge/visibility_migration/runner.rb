@@ -206,9 +206,9 @@ module ExternalBridge
       end
 
       def deliver_cache(status_ids)
-        status_ids.each do |status_id|
+        status_ids.each_slice(CacheSync::SLICE) do |slice|
           hook(:during_cache)
-          CacheSync.invalidate!([status_id])
+          CacheSync.invalidate!(slice)
         end
       end
 
