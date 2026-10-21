@@ -259,7 +259,7 @@ export function editStatus(id, routerHistory) {
   return (dispatch, getState) => {
     let status = getState().getIn(['statuses', id]);
 
-    if (!status) {
+    if (!status || status.get('visibility') === 'external') {
       return;
     }
 

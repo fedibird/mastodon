@@ -61,6 +61,9 @@ class Api::V1::StatusesController < Api::BaseController
   end
 
   def create
+    ExternalBridge::Visibility.reject_composable!(params[:visibility])
+    ExternalBridge::Visibility.reject_composable!(params[:visibility_ex])
+
     sender = @posting_resolution.account
     delegated = @posting_resolution.delegated?
     interaction = @delegated_interaction
@@ -99,6 +102,8 @@ class Api::V1::StatusesController < Api::BaseController
   end
 
   def update
+    ExternalBridge::Visibility.reject_composable!(params[:visibility])
+    ExternalBridge::Visibility.reject_composable!(params[:visibility_ex])
     reject_unreleased_status_attributes!
     raise Mastodon::NotPermittedError if current_user.setting_disable_post
 

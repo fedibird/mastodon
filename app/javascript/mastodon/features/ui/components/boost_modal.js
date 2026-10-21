@@ -26,6 +26,7 @@ const messages = defineMessages({
   mutual_short: { id: 'privacy.mutual.short', defaultMessage: 'Mutual-followers-only' },
   limited_short: { id: 'privacy.limited.short', defaultMessage: 'Circle' },
   direct_short: { id: 'privacy.direct.short', defaultMessage: 'Direct' },
+  external_short: { id: 'privacy.external.short', defaultMessage: 'External content (only you)' },
 });
 
 const mapStateToProps = state => {
@@ -101,6 +102,7 @@ class BoostModal extends ImmutablePureComponent {
       'mutual': { icon: 'exchange', text: intl.formatMessage(messages.mutual_short) },
       'limited': { icon: 'user-circle', text: intl.formatMessage(messages.limited_short) },
       'direct': { icon: 'envelope', text: intl.formatMessage(messages.direct_short) },
+      'external': { icon: 'external-link', text: intl.formatMessage(messages.external_short) },
     };
 
     const visibilityIcon = visibilityIconInfo[status.get('visibility')];

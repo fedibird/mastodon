@@ -152,6 +152,7 @@ const messages = defineMessages({
   private_short: { id: 'privacy.private.short', defaultMessage: 'Followers-only' },
   mutual_short: { id: 'privacy.mutual.short', defaultMessage: 'Mutual-followers-only' },
   personal_short: { id: 'privacy.personal.short', defaultMessage: 'Personal' },
+  external_short: { id: 'privacy.external.short', defaultMessage: 'External content (only you)' },
   limited_short: { id: 'privacy.limited.short', defaultMessage: 'Circle' },
   direct_short: { id: 'privacy.direct.short', defaultMessage: 'Direct' },
   mark_ancestor: { id: 'thread_mark.ancestor', defaultMessage: 'Has reference' },
@@ -492,7 +493,13 @@ class Status extends ImmutablePureComponent {
 
   handleHotkeyReply = e => {
     e.preventDefault();
-    this.props.onReply(this._properStatus(), this.context.router.history);
+    const status = this._properStatus();
+
+    if (status && status.get('visibility') === 'external') {
+      return;
+    }
+
+    this.props.onReply(status, this.context.router.history);
   }
 
   handleHotkeyFavourite = () => {
@@ -598,6 +605,7 @@ class Status extends ImmutablePureComponent {
       'limited': { icon: 'user-circle', text: intl.formatMessage(messages.limited_short) },
       'direct': { icon: 'envelope', text: intl.formatMessage(messages.direct_short) },
       'personal': { icon: 'book', text: intl.formatMessage(messages.personal_short) },
+      'external': { icon: 'external-link', text: intl.formatMessage(messages.external_short) },
     };
 
     if (hidden) {

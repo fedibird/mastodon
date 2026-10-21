@@ -1,4 +1,5 @@
 import { searchabilityCap } from '../utils/searchability';
+import { isExternalContentStatus } from '../utils/external_visibility';
 import { CancelToken, isCancel } from 'axios';
 import { throttle } from 'lodash';
 import { defineMessages } from 'react-intl';
@@ -184,7 +185,7 @@ export function changeCompose(text) {
 
 export function replyInComposer(composerId, status, routerHistory) {
   return (dispatch, getState) => {
-    if (!selectComposer(getState(), composerId)) {
+    if (!selectComposer(getState(), composerId) || isExternalContentStatus(status)) {
       return;
     }
 
@@ -211,7 +212,7 @@ export function cancelReplyCompose() {
 
 export function quoteInComposer(composerId, status, routerHistory) {
   return (dispatch, getState) => {
-    if (!selectComposer(getState(), composerId)) {
+    if (!selectComposer(getState(), composerId) || isExternalContentStatus(status)) {
       return;
     }
 

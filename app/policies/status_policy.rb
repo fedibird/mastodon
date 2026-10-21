@@ -20,7 +20,9 @@ class StatusPolicy < ApplicationPolicy
     return false if author.suspended?
     return false unless expired_show?
 
-    if personal?
+    if ExternalBridge::ProjectionPrivacy.private_status?(record)
+      ExternalBridge::ProjectionAccess.allow?(ExternalBridge::Viewer.user_id, record)
+    elsif personal?
       owned?
     elsif requires_mention?
       owned? || mention_exists?
@@ -36,6 +38,8 @@ class StatusPolicy < ApplicationPolicy
   end
 
   def reblog?
+    return false if ExternalBridge::ProjectionPrivacy.private_status?(record)
+
     !requires_mention? && (!private? || owned?) && show? && !blocking_author?
   end
 
@@ -50,6 +54,8 @@ class StatusPolicy < ApplicationPolicy
   alias unreblog? destroy?
 
   def update?
+    return false if record.external_visibility?
+
     owned?
   end
 

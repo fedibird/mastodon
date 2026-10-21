@@ -82,6 +82,7 @@ RSpec.describe ExternalBridge::ProjectionWriter do
           'external_status_projections_user_account',
           'external_status_projections_guard_delete',
           'statuses_external_projection_field_guard',
+          'statuses_external_visibility_shape_guard',
           'users_external_projection_account_guard'
         )
       SQL
@@ -89,6 +90,7 @@ RSpec.describe ExternalBridge::ProjectionWriter do
         external_status_projections_guard_delete
         external_status_projections_user_account
         statuses_external_projection_field_guard
+        statuses_external_visibility_shape_guard
         users_external_projection_account_guard
       ).sort
 
@@ -103,7 +105,11 @@ RSpec.describe ExternalBridge::ProjectionWriter do
 
       function_body = probe.exec("SELECT prosrc FROM pg_proc WHERE proname = 'external_status_projections_enforce_owner_account'").getvalue(0, 0)
       expect(function_body).to include('external_projection')
-      expect(function_body).to include(ExternalBridge::Schema::PERSONAL_VISIBILITY.to_s)
+      expect(function_body).to include('NOT IN (200, 201)')
+      shape_body = probe.exec("SELECT prosrc FROM pg_proc WHERE proname = 'statuses_external_visibility_shape_guard'").getvalue(0, 0)
+      expect(shape_body).to include('external visibility status shape is invalid')
+      field_body = probe.exec("SELECT prosrc FROM pg_proc WHERE proname = 'statuses_external_projection_field_guard'").getvalue(0, 0)
+      expect(field_body).to include('OLD.visibility = 201')
       expect(Digest::SHA256.file(schema_file).hexdigest).to eq retained
     ensure
       probe&.close
@@ -361,7 +367,9 @@ RSpec.describe ExternalBridge::ProjectionWriter do
     let(:status) { bundle[:status] }
 
     it 'omits the projection from StatusesIndex scope through favourite and bookmark changes' do
+      external = external_project_for(user, body: 'external not indexed')
       expect(index_scope.where(id: status.id)).not_to exist
+      expect(index_scope.where(id: external[:status].id)).not_to exist
 
       Favourite.create!(account: user.account, status: status)
       Bookmark.create!(account: user.account, status: status)
@@ -381,7 +389,7 @@ RSpec.describe ExternalBridge::ProjectionWriter do
       #
       #   RAILS_ENV=test ES_ENABLED=true ES_HOST=127.0.0.1 ES_PORT=9200 \
       #     ES_PREFIX=fedibird-p1-spec bundle exec rspec \
-      #     spec/services/external_bridge/projection_integrity_spec.rb:376 \
+      #     spec/services/external_bridge/projection_integrity_spec.rb:384 \
       #     --format documentation
       skip <<~MSG.squish unless elasticsearch_available?
         Elasticsearch release gate: cluster is not reachable.
@@ -391,10 +399,13 @@ RSpec.describe ExternalBridge::ProjectionWriter do
       MSG
 
       ordinary = Fabricate(:status, account: user.account, text: 'indexed ordinary')
+      external = external_project_for(user, body: 'external planted')
       Chewy.strategy(:urgent) do
         StatusesIndex.import!
         StatusesIndex.import!(status)
+        StatusesIndex.import!(external[:status])
         expect(raw_document(status.id)).to be_nil
+        expect(raw_document(external[:status].id)).to be_nil
         expect(raw_document(ordinary.id)).to be_present
 
         Favourite.create!(account: user.account, status: status)

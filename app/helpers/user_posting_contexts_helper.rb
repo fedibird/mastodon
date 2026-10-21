@@ -92,7 +92,7 @@ module UserPostingContextsHelper
   def user_posting_context_visibility_options(context)
     keys = Status.selectable_visibilities
     current = context.visibility_value
-    keys |= [current] if current.present? && Status.visibilities.key?(current)
+    keys |= [current] if current.present? && Status.composable_visibility?(current)
     keys
   end
 

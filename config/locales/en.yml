@@ -2232,6 +2232,8 @@ en:
       private_address: That address is not a public feed.
       projection_immutable: This imported post cannot be edited or made public.
       projection_not_target: Replies, boosts, quotes, and reactions are not available for an imported post.
+      external_visibility_rejected: External content visibility cannot be chosen for a post.
+      external_visibility_shape: External content must stay a private local projection.
       rate_limited: This feed host has been requested too many times. Try again later.
       unsupported_url: Enter a public http or https feed URL.
       user_not_functional: This account cannot import feeds right now.
@@ -2770,6 +2772,7 @@ en:
       mutual_hint: ""
       mutual_long: Only show to mutual followers
       personal: Personal
+      external: External content (only you)
       personal_hint: ""
       personal_long: Only show to personal
       private: Followers-only

@@ -32,6 +32,7 @@ const messages = defineMessages({
   private_short: { id: 'privacy.private.short', defaultMessage: 'Followers-only' },
   mutual_short: { id: 'privacy.mutual.short', defaultMessage: 'Mutual-followers-only' },
   personal_short: { id: 'privacy.personal.short', defaultMessage: 'Personal' },
+  external_short: { id: 'privacy.external.short', defaultMessage: 'External content (only you)' },
   limited_short: { id: 'privacy.limited.short', defaultMessage: 'Circle' },
   direct_short: { id: 'privacy.direct.short', defaultMessage: 'Direct' },
 });
@@ -441,6 +442,7 @@ class DetailedStatus extends ImmutablePureComponent {
       'limited': { icon: 'user-circle', text: intl.formatMessage(messages.limited_short) },
       'direct': { icon: 'envelope', text: intl.formatMessage(messages.direct_short) },
       'personal': { icon: 'book', text: intl.formatMessage(messages.personal_short) },
+      'external': { icon: 'external-link', text: intl.formatMessage(messages.external_short) },
     };
 
     const visibilityIcon = visibilityIconInfo[status.get('visibility')];

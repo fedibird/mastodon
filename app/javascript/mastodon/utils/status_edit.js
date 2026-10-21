@@ -1,3 +1,5 @@
+import { isExternalContentStatus } from './external_visibility';
+
 export const editableStatus = status => {
   if (!status) {
     return null;
@@ -29,7 +31,7 @@ export const canEditStatus = (status, { me, expired = false, disablePost = false
 
   const target = editableStatus(status);
 
-  if (!target || disablePost) {
+  if (!target || disablePost || isExternalContentStatus(target)) {
     return false;
   }
 

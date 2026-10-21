@@ -134,7 +134,7 @@ class UserPostingContext
       return unless data.key?('visibility')
 
       value = data['visibility']
-      return if value.is_a?(String) && Status.visibilities.key?(value)
+      return if Status.composable_visibility?(value)
 
       record.errors.add(:base, I18n.t('user_posting_contexts.errors.visibility'))
     end

@@ -172,9 +172,10 @@ RSpec.describe TranslateStatusService do
   end
 
   it 'allows public and unlisted statuses and rejects every other visibility' do
-    expect(Status.visibilities.keys).to match_array(%w(public unlisted private direct limited mutual personal))
+    expect(Status.visibilities.keys).to match_array(%w(public unlisted private direct limited mutual personal external))
+    expect(Status.composable_visibility_keys).to match_array(%w(public unlisted private direct limited mutual personal))
 
-    Status.visibilities.each_key do |visibility|
+    Status.composable_visibility_keys.each do |visibility|
       example = Fabricate(:status, account: account, text: "Hello #{visibility}", language: 'en', visibility: visibility)
 
       if example.distributable?
@@ -680,7 +681,7 @@ RSpec.describe TranslateStatusService do
         end
 
         expect { call_status(:private, 'de') }.to raise_error(Mastodon::NotPermittedError)
-        expect(translate_calls.size).to eq Status.visibilities.size
+        expect(translate_calls.size).to eq Status.composable_visibility_keys.size
       end
     end
 

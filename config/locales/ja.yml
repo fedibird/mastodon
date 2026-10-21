@@ -2161,6 +2161,8 @@ ja:
       private_address: そのアドレスは公開フィードではありません。
       projection_immutable: 取り込んだ投稿は編集したり公開したりできません。
       projection_not_target: 取り込んだ投稿への返信、ブースト、引用、リアクションはできません。
+      external_visibility_rejected: 外部コンテンツの公開範囲は投稿時に選べません。
+      external_visibility_shape: 外部コンテンツは自分専用のローカルな投影の形のままにしてください。
       rate_limited: この配信元へのリクエストが多すぎます。しばらくしてからやり直してください。
       unsupported_url: 公開のhttpまたはhttpsのフィードURLを入力してください。
       user_not_functional: このアカウントでは今フィードを取り込めません。
@@ -2692,6 +2694,7 @@ ja:
       mutual_hint: ""
       mutual_long: 相互フォロー相手にのみ表示されます
       personal: 自分限定
+      external: 外部コンテンツ（自分専用）
       personal_hint: ""
       personal_long: 自分にのみ表示されます
       private: フォロワー限定

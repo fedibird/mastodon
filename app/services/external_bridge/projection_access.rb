@@ -78,7 +78,7 @@ module ExternalBridge
       end
 
       def private?(status)
-        @flagged[status.id] || @markers.key?(status.id)
+        ProjectionPrivacy.external_signal?(status) || @flagged[status.id] || @markers.key?(status.id)
       end
 
       def visible?(status)

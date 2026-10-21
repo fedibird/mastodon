@@ -445,7 +445,7 @@ class TimelineSeek::Resolver
     return [] if raw.blank?
 
     values = Array(raw).map(&:to_s)
-    known = Status.visibilities.keys
+    known = Status.composable_visibility_keys
     return TimelineSeek::Result.unsupported('invalid_visibility') if values.any? { |value| known.exclude?(value) }
 
     values

@@ -60,7 +60,7 @@ class SearchQueryTransformer < Parslet::Transform
     ref
     bot
     expired
-  ) + Status::visibilities.keys - %w(mutual)).freeze
+  ) + Status.visibilities.keys - %w(mutual external)).freeze
 
   SUPPORTED_ORDER = %w(
     asc

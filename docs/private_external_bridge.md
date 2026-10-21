@@ -10,6 +10,7 @@ Related designs, which this document does not replace:
 - `docs/user_external_credential_vault.md` — ciphertext, owner binding, and job-argument rules.
 - `docs/status_activity_object.md` — `post_title` and `ap_object_type` (`note` / future `page` only).
 - `docs/personal_deepl_translation.md` — the existing per-user cache partition pattern.
+- `docs/external_status_visibility.md` — E1 read and protection for an internal `visibility` of `external` (201). This P0 document stays the earlier contract. It does not mean E1 through E4 are implemented. The production writer still stores `visibility = personal`.
 
 This bridge links a Fedibird user to external resources and, when they choose, to an external account they already have. Fedibird does not host an AT Protocol PDS, does not mint hybrid ActivityPub+AT identities, and does not migrate accounts between those networks.
 
@@ -155,7 +156,7 @@ P1 may insert a `statuses` row so `/api/v1/statuses/:id` and existing favourite/
 
 - `external_status_projections.status_id` points at it, unique, and `user_id` is the owner.
 - `statuses.external_projection` is true. The column is nullable and has no default, so existing rows stay null and ordinary inserts stay null. True is set in the same `INSERT` as the status. Null and false are not projections. The column is the privacy bit that remains if the marker row is gone. P1 adds it. A boolean with no default is a catalog change, not a rewrite of `statuses`, and it is not a second copy of `visibility`.
-- `visibility` is `personal` and `searchability` is `personal`.
+- `visibility` is `personal` and `searchability` is `personal`. E1 adds a second legal internal value, `external` (201), for a future projection shape. The production writer does not emit it yet. See `docs/external_status_visibility.md`. Searchability stays `personal` in both shapes.
 - `uri` is null. `Status#local?` is true when `uri` is null, which is acceptable only because `projection_private?` is stronger than `local?`.
 - `text` may contain the owner's private copy of public source text. That text is not an ActivityPub `content` value.
 - No `MediaAttachment`, no `PreviewCard` join, no poll, no mention rows, no hashtag rows.

@@ -4,6 +4,8 @@ Baseline: `f583dd2a795f7e66dc3971c6b9203bda2f2fd69a` on `fedibird`. Read from th
 
 The contract these findings support is `docs/private_external_bridge.md`.
 
+E1 later added internal visibility `external` (201) and extended the read gate. That work is `docs/external_status_visibility.md`. The CONFIRMED, RISK, and GAP rows below are this baseline. They are not rewritten to describe the E1 tree, and they do not mean the P0 design is now fully implemented.
+
 Labels:
 
 | Label | Meaning |

@@ -854,6 +854,8 @@
   "privacy.change": "公開範囲を変更",
   "privacy.direct.long": "送信した相手のみ閲覧可",
   "privacy.direct.short": "非公開の返信",
+  "privacy.external.long": "外部コンテンツ（自分専用）。ほかの人には表示されません。",
+  "privacy.external.short": "外部コンテンツ（自分専用）",
   "privacy.limited.long": "サークルで指定したユーザーのみ閲覧可",
   "privacy.limited.short": "サークル",
   "privacy.mutual.long": "相互フォローのみ閲覧可（対応サーバのみ）",

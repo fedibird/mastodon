@@ -854,6 +854,8 @@
   "privacy.change": "Change post privacy",
   "privacy.direct.long": "Visible for mentioned users only",
   "privacy.direct.short": "Direct",
+  "privacy.external.long": "External content visible only to you",
+  "privacy.external.short": "External content (only you)",
   "privacy.limited.long": "Visible for circle users only",
   "privacy.limited.short": "Circle",
   "privacy.mutual.long": "Visible for mutual followers only (Supported servers only)",
