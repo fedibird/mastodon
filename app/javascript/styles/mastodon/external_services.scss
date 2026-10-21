@@ -280,6 +280,11 @@
     min-height: 44px;
     margin: 0;
   }
+
+  button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
 }
 
 .external-service-disclosure {
