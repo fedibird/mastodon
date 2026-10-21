@@ -94,9 +94,15 @@ Invalid shape stops the batch, rolls it back, and does not skip the row. There i
 
 Exit status: 0 finished the requested dry-run window, apply window, or a clean verify; 2 limit; 3 signal; 4 invalid row or lock conflict; 5 verify still sees legacy, invalid, or a moved watermark; 6 database committed and cache follow-up did not finish. Resume the same checkpoint after 3, 4, or 6. Exit 0 on an apply window is not instance completion.
 
-The checkpoint stores the database name, the local domain, the scope, the direction `personal_to_external`, the high-water mark, the last completed marker id, and any pending batch ids. It does not store text, URLs, or secrets. Reusing it for another database, instance, scope, or direction is refused.
+The checkpoint stores the database name, the local domain, the scope, the direction `personal_to_external`, the high-water mark, the last completed marker id, and any pending batch ids. It does not store text, URLs, or secrets. Reusing it for another database, instance, scope, or direction is refused. A pending id list longer than 1000, or an id outside a PostgreSQL bigint, is refused as a bad checkpoint.
 
-Cache follow-up runs only after the batch commits. It deletes `statuses/<id>` in Rails cache and asks search to drop those ids if Chewy is enabled. It does not clear the whole cache or rebuild feeds. If the process dies after commit and before the checkpoint advances, the next run treats that pending batch as unfinished and repeats the cache deletes, including rows that are already external.
+Apply holds `checkpoint-path.lock` from the existence check through the last save. A second apply or a dry-run that reads the same path while that lease is held is refused and does not replace the file. The lock is not a database transaction. If the process dies, the operating system releases it and the same checkpoint can be resumed. Two objects in one process cannot lease the same path together.
+
+A saved pending batch is replayed before new rows, and only when it fits in this run's `--limit` and `--batch-size`. A larger pending batch is refused before any status write. Raise both limits to at least the pending count and run the same checkpoint again. The pending ids stay in the file. A stop signal is checked before that replay and before each new batch.
+
+Cache follow-up runs only after the batch commits. It deletes `statuses/<id>` in Rails cache. When Chewy is enabled it bulk-deletes those status ids directly, with `refresh=true`, and reads each bulk item. A deleted item and a per-document not-found are success. Any other bulk item, a document that is still present afterward, or a transport error leaves the pending batch in place and exits 6. Resume repeats the deletes. Ordinary statuses are not sent to that delete. This does not use the `:custom_sidekiq` root strategy, does not treat an enqueued job as finished, and does not clear the whole cache, rebuild feeds, or reindex the cluster.
+
+`--verify` reads a clean window twice. Both reads count toward `--limit`. `scanned` is the number of marker reads, so a clean scope reports about twice as many reads as markers. `already_external` stays the first-pass count. If the second read does not fit in the remaining limit, the result is `limit_reached`, not completion.
 
 ## Stop
 

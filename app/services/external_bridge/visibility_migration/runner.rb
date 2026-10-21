@@ -35,12 +35,18 @@ module ExternalBridge
       end
 
       def apply
-        @checkpoint = open_checkpoint!
-        replay_pending! if @checkpoint.pending_batch
-        return failed_result if @failure
+        @checkpoint = Checkpoint.new(@options.checkpoint_path)
+        @checkpoint.lease!
+        begin
+          open_leased_checkpoint!
+          replay_pending! if @checkpoint.pending_batch
+          return failed_result if @failure
 
-        cursor = walk(@checkpoint.last_completed, @checkpoint.watermark, dry: false)
-        finish(:apply, cursor, @checkpoint.watermark)
+          cursor = walk(@checkpoint.last_completed, @checkpoint.watermark, dry: false)
+          finish(:apply, cursor, @checkpoint.watermark)
+        ensure
+          @checkpoint.release!
+        end
       end
 
       def verify
@@ -58,10 +64,7 @@ module ExternalBridge
           return finish(:verify, 0, watermark)
         end
 
-        @counts = Hash.new(0)
-        @invalid_rows = []
-        @failure = nil
-        cursor = walk(0, watermark, dry: true)
+        cursor = confirm_window(watermark)
         if current_watermark > watermark
           @counts[:watermark_moved] = 1
           @failure = :verify_remaining
@@ -99,7 +102,39 @@ module ExternalBridge
         cursor
       end
 
+      def confirm_window(watermark)
+        cursor = 0
+        while room.positive? && @failure.nil?
+          if stop_requested?
+            @failure = :stopped
+            break
+          end
+
+          page = Scanner.page(after: cursor, watermark: watermark, user_id: @options.user_id, subscription_id: @options.subscription_id, limit: [room, @options.batch_size].min)
+          break if page.empty?
+
+          Classifier.new(page).classify_all.each do |row|
+            break if room.zero?
+
+            @counts[:scanned] += 1
+            cursor = row[:marker_id]
+            next unless row[:kind] == :eligible || row[:kind] == :invalid
+
+            @failure = :verify_remaining
+            @counts[row[:kind]] += 1
+            @invalid_rows << { marker_id: row[:marker_id], status_id: row[:status_id], reason: row[:reason] } if row[:kind] == :invalid
+            break
+          end
+        end
+        cursor
+      end
+
       def write_page(page, cursor)
+        if stop_requested?
+          @failure = :stopped
+          return cursor
+        end
+
         remember_pending(page)
         hook(:before_database)
         tally = Batch.apply!(marker_ids: page.map(&:id), lock_timeout: @options.lock_timeout, statement_timeout: @options.statement_timeout)
@@ -108,6 +143,8 @@ module ExternalBridge
       rescue InvalidRow => e
         note_invalid(e, page.length)
         cursor
+      rescue CacheIncomplete
+        raise
       rescue StandardError => e
         raise e unless lock_error?(e)
 
@@ -117,6 +154,12 @@ module ExternalBridge
 
       def replay_pending!
         pending = @checkpoint.pending_batch
+        require_pending_budget!(pending)
+        if stop_requested?
+          @failure = :stopped
+          return
+        end
+
         hook(:before_database)
         tally = Batch.apply!(marker_ids: pending['marker_ids'], lock_timeout: @options.lock_timeout, statement_timeout: @options.statement_timeout)
         finish_committed(pending['status_ids'], tally, pending['last_marker_id'], pending['marker_ids'].length)
@@ -128,6 +171,17 @@ module ExternalBridge
         raise e unless lock_error?(e)
 
         @failure = :lock_conflict
+      end
+
+      def require_pending_budget!(pending)
+        count = pending['marker_ids'].length
+        return if count <= @options.batch_size && count <= @options.limit
+
+        raise Refusal.new(
+          :pending_budget,
+          "pending batch has #{count} markers. This run allows batch-size #{@options.batch_size} and limit #{@options.limit}. " \
+          "Raise both to at least #{count} before resuming. Nothing was written."
+        )
       end
 
       def follow_through(page, tally)
@@ -245,11 +299,12 @@ module ExternalBridge
         [checkpoint.last_completed, checkpoint.watermark]
       end
 
-      def open_checkpoint!
-        checkpoint = Checkpoint.new(@options.checkpoint_path)
-        return checkpoint.load!(@options.scope_document) if checkpoint.exist?
-
-        checkpoint.create!(@options.scope_document, Scanner.watermark(user_id: @options.user_id, subscription_id: @options.subscription_id))
+      def open_leased_checkpoint!
+        if File.file?(@checkpoint.path)
+          @checkpoint.load!(@options.scope_document)
+        else
+          @checkpoint.create!(@options.scope_document, Scanner.watermark(user_id: @options.user_id, subscription_id: @options.subscription_id))
+        end
       end
 
       def remaining(cursor, watermark)
@@ -307,7 +362,7 @@ module ExternalBridge
         [:verify, :scope_complete] => 'Verify found no legacy or invalid projection in this scope. This is not instance completion.',
         [:verify, :instance_complete] => 'Verify found no legacy or invalid projection in this instance window.',
         [:verify, :verify_remaining] => 'Verify is not complete. Legacy rows, invalid rows, or a moved marker watermark remain.',
-        [:verify, :limit_reached] => 'Verify stopped because the scan limit was reached. This is not completion.',
+        [:verify, :limit_reached] => 'Verify stopped because the scan limit was reached. A clean verify reads the window twice, and both reads count toward --limit. This is not completion.',
         [:verify, :invalid] => 'Verify found an invalid projection. This is not completion.',
         :window_complete => 'The window is complete. This is not instance completion.',
         :limit_reached => 'Stopped because the scan limit was reached.',

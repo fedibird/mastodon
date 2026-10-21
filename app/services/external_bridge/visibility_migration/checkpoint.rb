@@ -11,6 +11,9 @@ module ExternalBridge
       ).freeze
       SCOPE_KEYS = %w(user_id subscription_id).freeze
       PENDING_KEYS = %w(marker_ids status_ids first_marker_id last_marker_id).freeze
+      MAX_ID = 9_223_372_036_854_775_807
+      LOCKS = Mutex.new
+      LEASES = {}
 
       attr_reader :path, :data
 
@@ -24,25 +27,61 @@ module ExternalBridge
       def initialize(path)
         @path = path
         @data = nil
+        @lock_io = nil
       end
 
       def exist?
         File.exist?(path)
       end
 
+      # Holds the lock file until release!. Another process, and another
+      # object in this process, is refused instead of waiting. The operating
+      # system drops the lock if this process dies.
+      def lease!
+        refuse!(:checkpoint_symlink, 'checkpoint path is a symlink') if File.symlink?(path)
+        FileUtils.mkdir_p(File.dirname(path))
+        self.class::LOCKS.synchronize do
+          owner = self.class::LEASES[path]
+          return self if owner == object_id
+          refuse!(:checkpoint_busy, busy_message) if owner
+
+          @lock_io = File.open(lock_path, File::RDWR | File::CREAT, 0o600)
+          File.chmod(0o600, lock_path)
+          unless @lock_io.flock(File::LOCK_EX | File::LOCK_NB)
+            @lock_io.close
+            @lock_io = nil
+            refuse!(:checkpoint_busy, busy_message)
+          end
+          self.class::LEASES[path] = object_id
+        end
+        self
+      end
+
+      def release!
+        self.class::LOCKS.synchronize do
+          self.class::LEASES.delete(path) if self.class::LEASES[path] == object_id
+          next unless @lock_io
+
+          @lock_io.flock(File::LOCK_UN)
+          @lock_io.close
+          @lock_io = nil
+        end
+      end
+
       def load!(expected_scope)
         refuse!(:checkpoint_symlink, 'checkpoint path is a symlink') if File.symlink?(path)
-        parsed = with_lock { parse_file }
-        identity = self.class.identity
-        refuse!(:checkpoint_database, 'checkpoint database does not match this database') if parsed['database'] != identity['database']
-        refuse!(:checkpoint_instance, 'checkpoint instance does not match this instance') if parsed['instance'] != identity['instance']
-        refuse!(:checkpoint_direction, 'checkpoint direction is not personal_to_external') if parsed['direction'] != DIRECTION
-        refuse!(:checkpoint_scope, 'checkpoint scope does not match these filters') if parsed['scope'] != expected_scope
-        @data = parsed
+        if leased?
+          install!(expected_scope)
+        else
+          with_lock { install!(expected_scope) }
+        end
         self
       end
 
       def create!(expected_scope, watermark)
+        refuse!(:checkpoint_lease, 'checkpoint create requires the apply lease') unless leased?
+        return load!(expected_scope) if File.file?(path)
+
         identity = self.class.identity
         @data = {
           'version' => CHECKPOINT_VERSION,
@@ -54,7 +93,7 @@ module ExternalBridge
           'last_completed_marker_id' => 0,
           'pending_batch' => nil,
         }
-        save!
+        replace_file!
         self
       end
 
@@ -119,11 +158,14 @@ module ExternalBridge
       end
 
       def id_list?(values, allow_empty:)
-        values.is_a?(Array) && (allow_empty || values.any?) && values.all? { |value| positive_id?(value) }
+        values.is_a?(Array) &&
+          values.length <= Options::MAX_BATCH &&
+          (allow_empty || values.any?) &&
+          values.all? { |value| positive_id?(value) }
       end
 
       def positive_id?(value)
-        value.is_a?(Integer) && value.positive?
+        value.is_a?(Integer) && value.positive? && value <= MAX_ID
       end
 
       def positive_or_zero?(value)
@@ -131,15 +173,41 @@ module ExternalBridge
       end
 
       def save!
-        with_lock { replace_file! }
+        refuse!(:checkpoint_lease, 'checkpoint save requires the apply lease') unless leased?
+        replace_file!
+      end
+
+      def leased?
+        @lock_io && self.class::LEASES[path] == object_id
+      end
+
+      def lock_path
+        "#{path}.lock"
+      end
+
+      def busy_message
+        'another migration already holds this checkpoint. Nothing was written.'
+      end
+
+      def install!(expected_scope)
+        parsed = parse_file
+        identity = self.class.identity
+        refuse!(:checkpoint_database, 'checkpoint database does not match this database') if parsed['database'] != identity['database']
+        refuse!(:checkpoint_instance, 'checkpoint instance does not match this instance') if parsed['instance'] != identity['instance']
+        refuse!(:checkpoint_direction, 'checkpoint direction is not personal_to_external') if parsed['direction'] != DIRECTION
+        refuse!(:checkpoint_scope, 'checkpoint scope does not match these filters') if parsed['scope'] != expected_scope
+        @data = parsed
       end
 
       def with_lock
+        self.class::LOCKS.synchronize do
+          refuse!(:checkpoint_busy, busy_message) if self.class::LEASES[path]
+        end
         directory = File.dirname(path)
         FileUtils.mkdir_p(directory)
-        lock_path = "#{path}.lock"
         File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
-          lock.flock(File::LOCK_EX)
+          File.chmod(0o600, lock_path)
+          refuse!(:checkpoint_busy, busy_message) unless lock.flock(File::LOCK_SH | File::LOCK_NB)
           yield
         end
       end
