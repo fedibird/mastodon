@@ -13,7 +13,7 @@ module ExternalBridge
         status = Status.create!(
           account_id: user.account_id,
           text: text.presence || I18n.t('external_bridge.untitled'),
-          visibility: :personal,
+          visibility: storage_visibility,
           searchability: :personal,
           uri: nil,
           external_projection: true,
@@ -33,6 +33,18 @@ module ExternalBridge
         )
         [status, marker]
       end
+    end
+
+    private
+
+    # The caller cannot choose visibility. The instance switch selects the
+    # stored value. When it is on and this database cannot store external,
+    # fail before inserting a personal or public row.
+    def storage_visibility
+      return :personal unless VisibilitySwitch.enabled?
+
+      VisibilitySwitch.assert_database_ready!
+      :external
     end
   end
 end
