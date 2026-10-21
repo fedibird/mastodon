@@ -6,10 +6,10 @@ class Settings::ExternalServices::RSSSubscriptionsController < Settings::BaseCon
   before_action :require_recent_challenge!
 
   def create
-    ExternalBridge::RSS::Subscribe.new.call(user: current_user, url: params[:url])
+    ExternalBridge::RSS::Subscribe.new.call(user: current_user, url: params[:feed_url])
     redirect_to settings_external_services_rss_path, notice: I18n.t('external_bridge.subscribed'), status: :see_other
   rescue ExternalBridge::Error => e
-    redirect_to settings_external_services_rss_path, alert: I18n.t("external_bridge.errors.#{e.code}", default: e.code), status: :see_other
+    redirect_to settings_external_services_rss_path, alert: failure_alert(e), status: :see_other
   end
 
   def pause
@@ -23,7 +23,7 @@ class Settings::ExternalServices::RSSSubscriptionsController < Settings::BaseCon
     ExternalBridge::RSS::Subscribe.new.resume!(user: current_user, subscription_id: params[:id])
     redirect_to settings_external_services_rss_path, status: :see_other
   rescue ExternalBridge::Error => e
-    redirect_to settings_external_services_rss_path, alert: I18n.t("external_bridge.errors.#{e.code}", default: e.code), status: :see_other
+    redirect_to settings_external_services_rss_path, alert: failure_alert(e), status: :see_other
   end
 
   def destroy
@@ -34,6 +34,10 @@ class Settings::ExternalServices::RSSSubscriptionsController < Settings::BaseCon
   end
 
   private
+
+  def failure_alert(error)
+    I18n.t("external_bridge.errors.#{error.code}", default: I18n.t('external_bridge.errors.fetch_failed'))
+  end
 
   def require_recent_challenge!
     return if skip_challenge?

@@ -17,7 +17,7 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
 
   it 'does not subscribe an ordinary user from the HTML form' do
     expect do
-      post :create, params: { url: feed_url }, session: challenge
+      post :create, params: { feed_url: feed_url }, session: challenge
     end.not_to change(ExternalSource, :count)
 
     expect(response).to redirect_to(settings_external_services_rss_path)
@@ -29,10 +29,93 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     sign_in tester, scope: :user
 
     expect do
-      post :create, params: { url: feed_url }, session: challenge
+      post :create, params: { feed_url: feed_url }, session: challenge
     end.to change(ExternalSubscription, :count).by(1)
 
     expect(response).to redirect_to(settings_external_services_rss_path)
     expect(ExternalSubscription.find_by(user_id: ordinary.id)).to be_nil
+  end
+
+  it 'translates an HTTP failure and does not repeat the address' do
+    sign_in tester, scope: :user
+    missing = 'https://feeds.example/missing.xml'
+    stub_request(:get, missing).to_return(status: 404, body: 'missing')
+
+    expect do
+      post :create, params: { feed_url: missing }, session: challenge
+    end.not_to change(ExternalSubscription, :count)
+
+    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.fetch_failed'))
+    expect(flash[:alert]).not_to include('http_404')
+    expect(flash[:alert]).not_to include('missing.xml')
+    expect(response.location).not_to include('missing.xml')
+  end
+
+  it 'does not subscribe without a recent challenge or echo a rejected URL' do
+    sign_in tester, scope: :user
+    secret_url = 'https://user:secret-token@feeds.example/private.xml'
+
+    expect do
+      post :create, params: { feed_url: secret_url }
+    end.not_to change(ExternalSubscription, :count)
+
+    expect(response).to redirect_to(settings_external_services_rss_path)
+    expect(response.location).not_to include('secret-token')
+    expect(flash[:alert].to_s).not_to include('secret-token')
+    expect(session.to_s).not_to include('secret-token')
+
+    post :create, params: { feed_url: secret_url }, session: challenge
+
+    expect(response).to redirect_to(settings_external_services_rss_path)
+    expect(response.location).not_to include('secret-token')
+    expect(flash[:alert].to_s).not_to include('secret-token')
+    expect(session.to_s).not_to include('secret-token')
+    filtered = controller.request.filtered_parameters
+    expect(filtered['feed_url']).to eq('[FILTERED]')
+    expect(filtered.to_s).not_to include('secret-token')
+  end
+
+  it 'filters only the HTML feed parameter and leaves other url keys visible' do
+    secret = 'https://user:secret-token@feeds.example/private.xml'
+    filter = ActiveSupport::ParameterFilter.new(Rails.application.config.filter_parameters)
+    filtered = filter.filter(
+      feed_url: secret,
+      url: 'https://feeds.example/api.xml',
+      canonical_url: 'https://feeds.example/public.xml',
+      site_url: 'https://example.com/'
+    )
+
+    expect(filtered[:feed_url]).to eq('[FILTERED]')
+    expect(filtered[:url]).to eq('https://feeds.example/api.xml')
+    expect(filtered[:canonical_url]).to eq('https://feeds.example/public.xml')
+    expect(filtered[:site_url]).to eq('https://example.com/')
+    expect(filtered.to_s).not_to include('secret-token')
+  end
+
+  it 'pauses, resumes, and removes only the signed-in user subscription' do
+    sign_in tester, scope: :user
+    owned = project_for(tester)
+    other = share_account_user(tester.account)
+    foreign = project_for(other)
+
+    post :pause, params: { id: foreign[:subscription].id }, session: challenge
+    expect(foreign[:subscription].reload.state).to eq('active')
+    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.not_found'))
+
+    post :pause, params: { id: owned[:subscription].id }, session: challenge
+    expect(owned[:subscription].reload.state).to eq('paused')
+
+    stub_request(:get, owned[:source].canonical_key).to_return(status: 200, body: rss_document(rss_item(guid: 'resumed')))
+    post :resume, params: { id: owned[:subscription].id }, session: challenge
+    expect(owned[:subscription].reload.state).to eq('active')
+
+    source_id = owned[:source].id
+    delete :destroy, params: { id: owned[:subscription].id }, session: challenge
+    delete :destroy, params: { id: owned[:subscription].id }, session: challenge
+
+    expect(ExternalSubscription.where(id: owned[:subscription].id)).to be_empty
+    expect(ExternalSource.where(id: source_id)).to exist
+    expect(foreign[:subscription].reload).to be_present
+    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.not_found'))
   end
 end

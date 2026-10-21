@@ -107,6 +107,7 @@ module ExternalServices
           status: status,
           status_label: status && status_label(status),
           action: connection ? :manage : :add,
+          action_label: connection ? I18n.t('external_services.actions.deepl.manage') : I18n.t('external_services.actions.deepl.add'),
           path: manage_path
         )
       end

@@ -5,15 +5,130 @@ module ExternalServices
   module RSS
     KEY = 'rss'
     ICON = 'external_services/rss.svg'
+    LIST_LIMIT = 50
+
+    class Summary
+      attr_reader :total, :active, :paused, :errored, :attention, :checked_at
+
+      def initialize(attributes)
+        @total = attributes.fetch(:total)
+        @active = attributes.fetch(:active)
+        @paused = attributes.fetch(:paused)
+        @errored = attributes.fetch(:errored)
+        @attention = attributes.fetch(:attention)
+        @checked_at = attributes[:checked_at]
+      end
+
+      def self.empty
+        new({ total: 0, active: 0, paused: 0, errored: 0, attention: 0, checked_at: nil })
+      end
+    end
 
     class Page
-      attr_reader :subscriptions, :items, :enabled, :permitted
+      attr_reader :subscriptions, :items, :enabled, :permitted, :page, :total_count, :total_pages
 
-      def initialize(subscriptions:, items:, enabled:, permitted:)
-        @subscriptions = subscriptions
-        @items = items
-        @enabled = enabled
-        @permitted = permitted
+      def initialize(attributes)
+        @subscriptions = attributes.fetch(:subscriptions)
+        @items = attributes.fetch(:items)
+        @enabled = attributes.fetch(:enabled)
+        @permitted = attributes.fetch(:permitted)
+        @page = attributes.fetch(:page)
+        @total_count = attributes.fetch(:total_count)
+        @total_pages = attributes.fetch(:total_pages)
+      end
+
+      def show_form?
+        permitted
+      end
+
+      def blocked_reason
+        return I18n.t('external_bridge.disabled') unless enabled
+        return I18n.t('external_bridge.tester_only') unless permitted
+
+        nil
+      end
+    end
+
+    # Safe fields for one owned subscription. Titles and URLs stay untrusted.
+    class SubscriptionRow
+      def initialize(subscription)
+        @subscription = subscription
+        @source = subscription.external_source
+      end
+
+      def id
+        @subscription.id
+      end
+
+      def title
+        @source.title.presence || I18n.t('external_bridge.untitled')
+      end
+
+      def url
+        @source.canonical_key.to_s
+      end
+
+      def linkable_url
+        url if url.match?(%r{\Ahttps?://}i)
+      end
+
+      def state
+        @subscription.state
+      end
+
+      def state_label
+        case state
+        when 'active' then I18n.t('external_bridge.state.active')
+        when 'paused' then I18n.t('external_bridge.state.paused')
+        else I18n.t('external_bridge.state.error')
+        end
+      end
+
+      def badge
+        case state
+        when 'active' then 'connected'
+        when 'paused' then 'warning'
+        else 'unavailable'
+        end
+      end
+
+      def checked_at
+        @subscription.checked_at
+      end
+
+      def fetch_error_message
+        code = @subscription.last_error_code
+        return if code.blank?
+
+        I18n.t("external_bridge.errors.#{code}", default: I18n.t('external_bridge.errors.fetch_failed'))
+      end
+
+      def partial_failure_message
+        count = @subscription.failed_item_count.to_i
+        return if count <= 0
+
+        I18n.t('external_bridge.partial_item_failure', count: count)
+      end
+
+      def retry_message
+        return unless state == 'error'
+
+        count = @subscription.retry_count.to_i
+        return if @subscription.next_retry_at.blank? && count <= 0
+
+        if @subscription.next_retry_at.present?
+          I18n.t('external_bridge.retry_status', time: I18n.l(@subscription.next_retry_at), count: count)
+        else
+          I18n.t('external_bridge.retry_status_unscheduled', count: count)
+        end
+      end
+
+      def pausable?
+        state == 'active'
+      end
+
+      def resumable?
+        state != 'active'
       end
     end
 
@@ -47,47 +162,117 @@ module ExternalServices
       end
 
       def connections_for(user)
-        rows = subscriptions_for(user)
-        return [] if rows.empty?
+        summary = summary_for(user)
+        return [] if summary.total.zero?
 
-        status = card_status(user, rows)
-        [card_for(rows, status)]
+        status = hub_status(summary, user)
+        [card_for(summary, status)]
       end
 
       def catalog_entry_for(user)
-        connection = connections_for(user).first
+        summary = summary_for(user)
+        configured = summary.total.positive?
+        status = hub_status(summary, user) if configured
         CatalogEntry.new(
           provider_key: key,
           title: display_name,
           description: description,
+          detail: (count_label(summary) if configured),
           icon: icon,
-          configured: !connection.nil?,
-          status: connection&.status,
-          status_label: connection&.status_label,
-          action: connection ? :manage : :add,
+          configured: configured,
+          status: status,
+          status_label: (hub_status_label(status, summary) if status),
+          action: configured ? :manage : :add,
+          action_label: configured ? I18n.t('external_services.actions.rss.manage') : I18n.t('external_services.actions.rss.add'),
           path: manage_path
         )
       end
 
-      def page_for(user)
-        rows = subscriptions_for(user)
-        Page.new(
-          subscriptions: rows,
+      def page_for(user, page: 1)
+        summary = summary_for(user)
+        number = clamp_page(page, summary.total)
+        rows = subscription_scope(user).includes(:external_source).order(id: :desc).offset((number - 1) * LIST_LIMIT).limit(LIST_LIMIT).to_a
+        attributes = {
+          subscriptions: rows.map { |row| SubscriptionRow.new(row) },
           items: items_for(user),
           enabled: available?,
-          permitted: ExternalBridge::Feature.permitted?(user)
-        )
+          permitted: ExternalBridge::Feature.permitted?(user),
+          page: number,
+          total_count: summary.total,
+          total_pages: page_count(summary.total),
+        }
+        Page.new(attributes)
       end
 
       private
 
-      def subscriptions_for(user)
-        return [] if user.nil?
+      def card_for(summary, status)
+        Connection.new(
+          provider_key: key,
+          title: display_name,
+          lead: description,
+          subtitle: count_label(summary),
+          status: status,
+          status_label: hub_status_label(status, summary),
+          last_used_at: summary.checked_at,
+          shows_check_time: true,
+          manage_label: I18n.t('external_services.actions.rss.manage'),
+          manage_path: manage_path,
+          icon: icon
+        )
+      end
 
-        ExternalSubscription.where(user_id: user.id).includes(:external_source).order(id: :desc).to_a
+      def summary_for(user)
+        return Summary.empty if user.nil?
+
+        total, active, paused, errored, attention, checked_at = subscription_scope(user).pick(
+          Arel.sql('COUNT(*)'),
+          Arel.sql("COUNT(*) FILTER (WHERE state = 'active')"),
+          Arel.sql("COUNT(*) FILTER (WHERE state = 'paused')"),
+          Arel.sql("COUNT(*) FILTER (WHERE state = 'error')"),
+          Arel.sql("COUNT(*) FILTER (WHERE state = 'error' OR failed_item_count > 0 OR (last_error_code IS NOT NULL AND last_error_code <> ''))"),
+          Arel.sql('MAX(checked_at)')
+        )
+        summary = {
+          total: total.to_i,
+          active: active.to_i,
+          paused: paused.to_i,
+          errored: errored.to_i,
+          attention: attention.to_i,
+          checked_at: coerce_time(checked_at),
+        }
+        Summary.new(summary)
+      end
+
+      def hub_status(summary, user)
+        return :warning if summary.attention.positive?
+        return :unavailable unless ExternalBridge::Feature.permitted?(user)
+        return :warning if summary.active.zero? && summary.paused.positive?
+
+        :connected
+      end
+
+      def hub_status_label(status, summary)
+        if status == :warning && summary.attention.zero? && summary.active.zero? && summary.paused.positive?
+          I18n.t('external_bridge.state.paused')
+        else
+          I18n.t("external_services.status.#{status}")
+        end
+      end
+
+      def count_label(summary)
+        I18n.t(
+          'external_services.providers.rss.subtitle',
+          count: summary.total,
+          active: summary.active,
+          paused: summary.paused,
+          error: summary.errored
+        )
       end
 
       def items_for(user)
+        return [] if user.nil?
+
         ExternalStatusProjection.where(user_id: user.id)
                                 .includes(:status, external_resource: :external_source)
                                 .order(id: :desc)
@@ -95,24 +280,35 @@ module ExternalServices
                                 .to_a
       end
 
-      def card_for(rows, status)
-        Connection.new(
-          provider_key: key,
-          title: display_name,
-          subtitle: I18n.t('external_services.providers.rss.subtitle', count: rows.size),
-          status: status,
-          status_label: I18n.t("external_services.status.#{status}"),
-          last_used_at: rows.map(&:checked_at).compact.max,
-          manage_path: manage_path,
-          icon: icon
-        )
+      def subscription_scope(user)
+        return ExternalSubscription.none if user.nil?
+
+        ExternalSubscription.where(user_id: user.id)
       end
 
-      def card_status(user, rows)
-        return :unavailable unless ExternalBridge::Feature.permitted?(user)
-        return :warning if rows.any? { |row| row.state == 'error' || row.failed_item_count.to_i.positive? || row.last_error_code.present? }
+      def clamp_page(page, total)
+        number = page.to_i
+        number = 1 if number < 1
+        number = 10_000 if number > 10_000
+        pages = page_count(total)
+        return 1 if pages.zero?
+        return pages if number > pages
 
-        :connected
+        number
+      end
+
+      def page_count(total)
+        return 0 if total.zero?
+
+        (total.to_f / LIST_LIMIT).ceil
+      end
+
+      def coerce_time(value)
+        case value
+        when nil then nil
+        when Time, ActiveSupport::TimeWithZone then value
+        else Time.zone.parse(value.to_s)
+        end
       end
 
       def routes

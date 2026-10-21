@@ -2067,7 +2067,19 @@ ja:
     add: 追加
     add_service: サービスを追加
     add_service_named: "%{service}を追加"
+    actions:
+      deepl:
+        add: APIキーを設定
+        manage: 管理
+      rss:
+        add: フィードを追加
+        manage: フィードを管理
+      bluesky:
+        add: Blueskyアカウントを接続
+        manage: 接続を管理
+        unavailable: 接続の状態を見る
     back: 外部サービスに戻る
+    catalog_action: "%{action}（%{service}）"
     catalog_title: サービスを追加
     content: 翻訳対象
     contract: 契約
@@ -2075,6 +2087,7 @@ ja:
     manage: 管理
     manage_service: "%{service}を管理"
     never: なし
+    not_checked: まだありません
     save_delete: 保存と削除
     status_label: 状態
     status:
@@ -2090,28 +2103,50 @@ ja:
         name: DeepL
         subtitle: 個人の翻訳
       rss:
-        description: 公開RSSまたはAtomを、自分のアカウントの非公開投稿として取り込みます。
+        description: 公開のRSSまたはAtomを購読します。項目はあなたのアカウントの非公開投稿になります。
         name: RSS
-        subtitle: "公開フィード %{count}件"
+        subtitle: "公開フィード %{count}件（有効 %{active}、一時停止 %{paused}、取得エラー %{error}）"
       bluesky:
-        description: 自分のAT Protocolアカウントを接続します。この版では、それを使った投稿・いいね・リポストは行いません。
+        description: 自分のAT Protocolアカウントを接続します。この版で行うのは本人確認だけです。投稿の取り込み、いいね、リポスト、返信は行いません。
         name: Bluesky
-        subtitle: "%{issuer}"
+        subtitle: "%{count}件（接続 %{connected}、再ログイン %{reauth}、解除 %{disconnected}）"
   external_bridge:
     disabled: このサーバーではRSSの取り込みがオフです。すでに取り込んだ非公開投稿は非公開のままです。
     tester_only: このサーバーではRSSの取り込みはテスターだけが使えます。すでに取り込んだ非公開投稿は非公開のままです。
+    cadence_note: 下の時刻は、このサーバーが最後に確認した時刻です。いま接続中という意味ではありません。
     feed_url: フィードURL
-    items: 取り込んだ項目
-    no_items: 取り込んだ項目はまだありません。
-    no_subscriptions: フィードはまだありません。
+    feed_url_hint: 公開のRSSまたはAtomのURLだけに対応しています。普通のウェブサイトのURLからフィードを探すことはせず、ログインやトークンが必要なアドレスは取得しません。
+    items: 取り込んだ記事
+    items_note: 取り込んだ記事の最新40件です。新しいタイムラインは作りません。
+    last_checked: "最終確認:"
+    next: 次へ
+    no_items: 取り込んだ記事はまだありません。
+    no_subscriptions: まだ購読はありません。上の欄に公開フィードのURLを入力してください。
+    no_subscriptions_blocked: 表示できる購読はありません。この画面から新しく購読することはできません。
+    page_nav: ページ
+    partial_item_failure: このフィードの項目のうち %{count} 件は取り込めませんでした。フィード自体の取得失敗とは別です。
     pause: 一時停止
+    pause_for: "%{title}を一時停止"
+    previous: 前へ
+    privacy_note: 取り込んだ投稿はあなた専用です。ActivityPubでは配信されず、ほかの人には見えません。
     resume: 再開
+    resume_for: "%{title}を再開"
+    retry_status: "次の確認: %{time}。再試行回数: %{count}。"
+    retry_status_unscheduled: "次の確認はまだ予定されていません。再試行回数: %{count}。"
     source_deleted: 配信元から削除されました
-    subscribe: 購読
+    state:
+      active: 有効
+      error: 取得エラー
+      paused: 一時停止
+    subscribe: フィードを追加
     subscribed: フィードを購読しました。
-    subscriptions: フィード
+    subscriptions: 購読しているフィード
     unsubscribe: 購読解除
-    unsubscribed: フィードを外しました。共有の公開キャッシュはそのままです。
+    unsubscribe_confirm: この購読を解除しますか？この購読から取り込んだ自分専用の投稿と、それに紐づくお気に入り・ブックマークなどは削除されます。共有されている公開ソースのキャッシュは残ります。一時停止ではありません。
+    unsubscribe_for: "%{title}の購読を解除"
+    unsubscribe_note: 購読を解除すると、この購読から取り込んだ自分専用の投稿と、それに紐づくお気に入り・ブックマークなどは削除されます。共有されている公開ソースのキャッシュは残ります。一時停止ではありません。
+    unsubscribed: 購読を解除しました。取り込んだ自分専用の投稿は削除しました。共有されている公開ソースのキャッシュはそのままです。
+    working: 処理しています…
     untitled: （無題）
     errors:
       account_mismatch: このアカウントにはフィードを保存できませんでした。
@@ -2130,18 +2165,37 @@ ja:
       unsupported_url: 公開のhttpまたはhttpsのフィードURLを入力してください。
       user_not_functional: このアカウントでは今フィードを取り込めません。
     atproto:
-      account_hint: ハンドル、DID、またはPDSかエントリウェイのホスト名です。トークンの送信先ではありません。
-      account_label: アカウントまたはサーバー
+      account_hint: "例: alice.bsky.social。公開ハンドルを入力します。アプリパスワードやトークンは入力しません。"
+      account_label: Blueskyのハンドル
+      advanced: 高度な接続方法
+      advanced_hint: 同じ欄に did:plc、did:web、またはPDSかエントリウェイのホスト名も入力できます。トークンの送信先を指定する欄ではありません。
       check: 接続を確認
+      check_for: "%{name}の接続を確認"
       checked: 接続を確認しました。
-      connect: Blueskyを接続
+      connect: Blueskyアカウントを接続
       connected: Blueskyアカウントを接続しました。
       connections: 接続したアカウント
+      details: 接続の詳細
+      did: DID
       disabled: このサーバーではBluesky接続はオフです。保存済みの接続は削除されず残ります。
       disconnect: 接続を解除
+      disconnect_confirm: このアカウントを切断しますか？Fedibird上の認証情報は無効になります。リモート側の失効は確認できない場合があります。
+      disconnect_for: "%{name}の接続を解除"
+      disconnect_note: 切断すると、Fedibird上の認証情報は無効になります。リモート側の失効は確認できない場合があります。
       disconnected: このサーバー上のBluesky接続を解除しました。
-      scope_note: この接続が要求するのは atproto の本人確認だけです。いいね、リポスト、返信は要求しません。このサーバーが公開しているリポジトリ権限を後から足すときは、その前に確認します。
+      issuer: 認可サーバー
+      live_gate_note: この画面は、実在のPDSやエントリウェイへの接続試験が済んでいることを示すものではありません。その確認は別の有効化手順です。
+      pds: PDS
+      reconnect: 再接続
+      reconnect_for: "%{name}を再接続"
+      return_note: Blueskyの認可画面へ移動します。成功しても失敗しても、このページに戻ります。
+      revocation_label: 失効
+      scope_note: この接続が要求するのは atproto の本人確認だけです。Blueskyの投稿の取り込み、いいね、リポスト、返信、クロスポストは行いません。
+      scopes: 許可された権限
+      sign_in_again: もう一度サインイン
+      sign_in_again_for: "%{name}でもう一度サインイン"
       no_handle: 確認済みハンドルはありません
+      no_scopes: 記録なし
       none: 接続したBlueskyアカウントはありません。
       tester_only: このサーバーではBluesky接続はテスターだけが使えます。
       revocation:

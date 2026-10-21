@@ -145,9 +145,11 @@ DeepL currently returns at most one logical connection, even when several creden
 
 The hub links to **Add service** / **サービスを追加**.
 
-The catalog lists only providers implemented in this version. Disabled placeholders for Mastodon, Misskey, or PeerTube are not shown. Bluesky appears only when `external_bridge_atproto` is on, the user is on the tester allowlist, and the instance signing key is configured.
+The catalog lists only providers implemented in this version. Disabled placeholders for Mastodon, Misskey, or PeerTube are not shown. RSS and Bluesky stay out of the catalog unless the flag is on and the user is on that feature's tester allowlist. A permitted Bluesky tester still sees the catalog row when the instance signing key is missing, with the connect action replaced by a status link. The page then explains why a new sign-in cannot start. Unpermitted users are not offered either feature. An owner who already has rows still gets a hub card for management.
 
-DeepL is always a catalog entry. RSS and Bluesky are catalog entries only for a permitted tester while their flags and, for Bluesky, the OAuth client are actually configured. If a DeepL connection already exists, including a duplicate or repair state, the entry links to Manage. It does not post a second generic create. If nothing is configured, Add opens the DeepL page, which owns the key form.
+DeepL is always a catalog entry. Its add action says to set an API key and still opens the existing DeepL page. If a DeepL connection already exists, including a duplicate or repair state, the entry links to Manage. It does not post a second generic create. RSS is one catalog row for the feed list. Bluesky is one catalog row for the account list. Neither row is a generic credential form.
+
+The HTML RSS form posts `feed_url`. That exact name is filtered from Rails logs. The JSON subscription API still accepts `url`. Sign-in again and reconnect for a saved Bluesky identity submit that row's DID. The handle is display text. A new connection is the only form that takes a handle.
 
 A catalog entry keeps connection existence separate from presentation status.
 
@@ -210,7 +212,7 @@ PeerTube
   alice@video.example
 ```
 
-The hub renders one card per connection returned by the provider. DeepL remains one logical connection in the current UI. This design does not add a database uniqueness constraint.
+The hub renders one card per connection returned by the provider. DeepL remains one logical connection. RSS returns one summary card for that user's feeds. The count is on the card, and each feed's state is on the RSS page. Bluesky returns one summary card for that user's saved identities. The count and the most urgent state are on the card, and each identity keeps its own state on the Bluesky page. This design does not add a database uniqueness constraint.
 
 ## Provider-specific metadata
 
@@ -238,7 +240,7 @@ disconnected
 reauthentication_required
 ```
 
-`disconnected` and `reauthentication_required` are produced by the Bluesky identity page. DeepL does not use them.
+`disconnected` and `reauthentication_required` are produced by Bluesky identities. The hub summary uses the most urgent of those states, and the Bluesky page keeps one card per identity. DeepL does not use them. A Bluesky `connected` label means a saved sign-in, not a completed live PDS check.
 
 Documented for later providers, not all produced today:
 

@@ -6,7 +6,7 @@ class Settings::ExternalServices::BlueskyController < Settings::BaseController
   before_action :require_page_challenge!
 
   def show
-    @page = ExternalServices::Bluesky.page_for(current_user)
+    @page = ExternalServices::Bluesky.page_for(current_user, page: params[:page])
   end
 
   private
