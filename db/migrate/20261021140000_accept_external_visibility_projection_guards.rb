@@ -4,10 +4,12 @@
 # external status at insert. It does not drop composite foreign keys, does not
 # add a statuses index, and does not rewrite existing rows.
 #
-# The new BEFORE INSERT trigger needs ACCESS EXCLUSIVE on statuses. It does not
-# rewrite the table. lock_timeout is 5s so a busy table fails this migration
-# instead of waiting. Existing trigger objects stay; CREATE OR REPLACE FUNCTION
-# updates their bodies.
+# Replacing the field-guard trigger and attaching the shape trigger needs
+# ACCESS EXCLUSIVE on statuses. Neither statement rewrites the table.
+# lock_timeout is 5s so a busy table fails this migration instead of waiting.
+# CREATE OR REPLACE FUNCTION cannot add local or reply to an existing
+# UPDATE OF list, so those two triggers are dropped and created again.
+# The other triggers and the composite foreign keys stay in place.
 #
 # down restores the pre-E1 function bodies only when no visibility 201 row
 # exists. Those bodies are fixed in this file. A database that already stores
@@ -91,6 +93,13 @@ class AcceptExternalVisibilityProjectionGuards < ActiveRecord::Migration[6.1]
     END;
     $$;
 
+    DROP TRIGGER IF EXISTS statuses_external_projection_field_guard ON statuses;
+    CREATE TRIGGER statuses_external_projection_field_guard
+    BEFORE UPDATE OF account_id, visibility, searchability, uri, external_projection, deleted_at, reblog_of_id, in_reply_to_id, quote_id
+    ON statuses
+    FOR EACH ROW
+    EXECUTE FUNCTION statuses_external_projection_field_guard();
+
     DROP TRIGGER IF EXISTS statuses_external_visibility_shape_guard ON statuses;
     DROP FUNCTION IF EXISTS statuses_external_visibility_shape_guard();
   SQL
@@ -99,6 +108,7 @@ class AcceptExternalVisibilityProjectionGuards < ActiveRecord::Migration[6.1]
     safety_assured do
       execute "SET LOCAL lock_timeout = '5s'"
       execute ExternalBridge::Schema::GUARD_REFRESH_SQL
+      execute ExternalBridge::Schema::FIELD_GUARD_TRIGGER_SQL
       execute ExternalBridge::Schema::SHAPE_TRIGGER_ATTACH_SQL
     end
   end

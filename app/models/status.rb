@@ -138,7 +138,7 @@ class Status < ApplicationRecord
   validate :validate_post_title_shape
   validate :validate_ap_object_type_value
   validate :validate_page_activity_shape
-  validate :validate_external_visibility_shape, on: :create
+  validate :validate_external_visibility_shape, on: [:create, :update]
 
   accepts_nested_attributes_for :poll
 
@@ -959,6 +959,9 @@ class Status < ApplicationRecord
     return unless external_projection == true || external_visibility?
 
     protected_fields = %w(account_id visibility searchability uri external_projection deleted_at reblog_of_id in_reply_to_id quote_id)
+    # local and reply are part of the external shape. Legacy personal
+    # projections can still change them; ordinary posts never enter here.
+    protected_fields |= %w(local reply) if external_visibility?
     return if (changed & protected_fields).empty?
 
     errors.add(:base, I18n.t('external_bridge.errors.projection_immutable'))

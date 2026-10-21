@@ -118,17 +118,17 @@ Ordinary public and ordinary personal posts keep their previous policy, timeline
 
 New migration: `db/migrate/20261021140000_accept_external_visibility_projection_guards.rb`.
 
-It does not run `Schema::DEFINITIONS_SQL`. That statement drops and revalidates the composite foreign keys and is only for `schema:load`. Migration `up` runs `CREATE OR REPLACE FUNCTION` for the marker check, the field guard, and the new insert shape function, then attaches `statuses_external_visibility_shape_guard` if it is missing.
+It does not run `Schema::DEFINITIONS_SQL`. That statement drops and revalidates the composite foreign keys and is only for `schema:load`. Migration `up` replaces the marker, field-guard, and shape functions, then drops and recreates two triggers: the field guard, and `statuses_external_visibility_shape_guard`.
 
-The new trigger is `BEFORE INSERT` on `statuses`. Attaching it takes `ACCESS EXCLUSIVE`. It does not rewrite the table. `lock_timeout` is 5 seconds so a busy table fails the migration instead of waiting. Existing trigger objects stay in place.
+`CREATE OR REPLACE FUNCTION` does not change an existing trigger's `UPDATE OF` list. The field-guard trigger is recreated so `local` and `reply` are in that list. The shape trigger is `BEFORE INSERT OR UPDATE OF local, reply`. Replacing those two triggers takes `ACCESS EXCLUSIVE` and does not rewrite `statuses`. `lock_timeout` is 5 seconds so a busy table fails the migration instead of waiting. The other triggers and the composite foreign keys stay in place.
 
 Marker insert requires `external_projection = true` and `visibility IN (200, 201)`, plus the existing user, account, source, and subscription checks.
 
-Field guard fires when the old or new flag is true, the old or new visibility is 201, or a marker exists. It still rejects account, visibility, searchability, URI, flag, deletion, reply, reblog, and quote changes. A personal-to-external update is a visibility change, so it is rejected. E1 does not add a bypass.
+Field guard fires when the old or new flag is true, the old or new visibility is 201, or a marker exists. It still rejects account, visibility, searchability, URI, flag, deletion, reblog, `in_reply_to_id`, and quote changes. When the old or new visibility is 201 it also rejects `local` and `reply` changes. A personal-to-external update is a visibility change, so it is rejected. A text revision does not mention those columns, so it is not blocked. E1 does not add a bypass.
 
-Insert shape for visibility 201: flag true, URI null, searchability 200, local true, reply not true, no reblog, reply, or quote id, `deleted_at` null. The model create validation checks the same shape. The trigger is what rejects a raw insert.
+Shape for visibility 201: flag true, URI null, searchability 200, local true, reply not true, no reblog, reply, or quote id, `deleted_at` null. The model checks that shape on create and on update. The insert trigger rejects a raw insert. An update of `local` or `reply` on a visibility 201 row is rejected by the shape trigger and by the field guard. Ordinary public and personal rows, and a legacy projection's text revision, are not rejected by those checks.
 
-`down` is fixed SQL in the migration file, not a call back into the current schema constant. It raises `check_violation` when any `statuses.visibility = 201` row exists, then restores the pre-E1 marker and field functions and drops the shape trigger. It does not touch composite foreign keys. A database that already stores external rows cannot silently return to the personal-only check.
+`down` is fixed SQL in the migration file, not a call back into the current schema constant. It raises `check_violation` when any `statuses.visibility = 201` row exists, then restores the pre-E1 marker and field functions, recreates the field-guard trigger without `local` and `reply`, and drops the shape trigger. It does not touch composite foreign keys. A database that already stores external rows cannot silently return to the personal-only check.
 
 `db/schema.rb` records the migration version and still executes `Schema::DEFINITIONS_SQL` at the end. Do not replace that file with an unconstrained `schema:dump`: Rails 6.1 rewrites emoji reaction `INCLUDE` indexes into ordinary three-column indexes. The dump probe writes to a separate `SCHEMA` path.
 

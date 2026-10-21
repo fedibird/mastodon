@@ -117,7 +117,14 @@ module ExternalBridge
              OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at
              OR NEW.reblog_of_id IS DISTINCT FROM OLD.reblog_of_id
              OR NEW.in_reply_to_id IS DISTINCT FROM OLD.in_reply_to_id
-             OR NEW.quote_id IS DISTINCT FROM OLD.quote_id THEN
+             OR NEW.quote_id IS DISTINCT FROM OLD.quote_id
+             OR (
+               (OLD.visibility = #{EXTERNAL_VISIBILITY} OR NEW.visibility = #{EXTERNAL_VISIBILITY})
+               AND (
+                 NEW.local IS DISTINCT FROM OLD.local
+                 OR NEW.reply IS DISTINCT FROM OLD.reply
+               )
+             ) THEN
             RAISE EXCEPTION 'external projection status fields are immutable'
               USING ERRCODE = 'check_violation';
           END IF;
@@ -128,7 +135,7 @@ module ExternalBridge
       $$;
       DROP TRIGGER IF EXISTS statuses_external_projection_field_guard ON statuses;
       CREATE TRIGGER statuses_external_projection_field_guard
-      BEFORE UPDATE OF account_id, visibility, searchability, uri, external_projection, deleted_at, reblog_of_id, in_reply_to_id, quote_id
+      BEFORE UPDATE OF account_id, visibility, searchability, uri, external_projection, deleted_at, reblog_of_id, in_reply_to_id, quote_id, local, reply
       ON statuses
       FOR EACH ROW
       EXECUTE FUNCTION statuses_external_projection_field_guard();
@@ -178,7 +185,7 @@ module ExternalBridge
       $$;
       DROP TRIGGER IF EXISTS statuses_external_visibility_shape_guard ON statuses;
       CREATE TRIGGER statuses_external_visibility_shape_guard
-      BEFORE INSERT ON statuses
+      BEFORE INSERT OR UPDATE OF local, reply ON statuses
       FOR EACH ROW
       EXECUTE FUNCTION statuses_external_visibility_shape_guard();
     SQL
@@ -246,7 +253,14 @@ module ExternalBridge
              OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at
              OR NEW.reblog_of_id IS DISTINCT FROM OLD.reblog_of_id
              OR NEW.in_reply_to_id IS DISTINCT FROM OLD.in_reply_to_id
-             OR NEW.quote_id IS DISTINCT FROM OLD.quote_id THEN
+             OR NEW.quote_id IS DISTINCT FROM OLD.quote_id
+             OR (
+               (OLD.visibility = #{EXTERNAL_VISIBILITY} OR NEW.visibility = #{EXTERNAL_VISIBILITY})
+               AND (
+                 NEW.local IS DISTINCT FROM OLD.local
+                 OR NEW.reply IS DISTINCT FROM OLD.reply
+               )
+             ) THEN
             RAISE EXCEPTION 'external projection status fields are immutable'
               USING ERRCODE = 'check_violation';
           END IF;
@@ -281,24 +295,25 @@ module ExternalBridge
       $$;
     SQL
 
-    # Attaching a new BEFORE INSERT trigger takes ACCESS EXCLUSIVE on statuses.
-    # It does not rewrite the table. The migration sets lock_timeout so a busy
-    # table fails the migration instead of waiting. Existing triggers stay in
-    # place; CREATE OR REPLACE FUNCTION updates their bodies.
+    # CREATE OR REPLACE FUNCTION does not change an existing trigger's
+    # UPDATE OF list. Replacing these two triggers takes ACCESS EXCLUSIVE on
+    # statuses and does not rewrite the table. The migration sets lock_timeout.
+    # Other triggers and the composite foreign keys stay in place.
+    FIELD_GUARD_TRIGGER_SQL = <<~SQL
+      DROP TRIGGER IF EXISTS statuses_external_projection_field_guard ON statuses;
+      CREATE TRIGGER statuses_external_projection_field_guard
+      BEFORE UPDATE OF account_id, visibility, searchability, uri, external_projection, deleted_at, reblog_of_id, in_reply_to_id, quote_id, local, reply
+      ON statuses
+      FOR EACH ROW
+      EXECUTE FUNCTION statuses_external_projection_field_guard();
+    SQL
+
     SHAPE_TRIGGER_ATTACH_SQL = <<~SQL
-      DO $$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_trigger
-          WHERE tgname = 'statuses_external_visibility_shape_guard'
-            AND NOT tgisinternal
-        ) THEN
-          CREATE TRIGGER statuses_external_visibility_shape_guard
-          BEFORE INSERT ON statuses
-          FOR EACH ROW
-          EXECUTE FUNCTION statuses_external_visibility_shape_guard();
-        END IF;
-      END $$;
+      DROP TRIGGER IF EXISTS statuses_external_visibility_shape_guard ON statuses;
+      CREATE TRIGGER statuses_external_visibility_shape_guard
+      BEFORE INSERT OR UPDATE OF local, reply ON statuses
+      FOR EACH ROW
+      EXECUTE FUNCTION statuses_external_visibility_shape_guard();
     SQL
   end
 end

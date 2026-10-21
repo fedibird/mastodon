@@ -214,8 +214,14 @@ RSpec.describe 'External visibility read and protection' do
       expect(refresh).to include('OLD.visibility = 201')
       expect(definitions).to include('statuses_external_visibility_shape_guard')
       expect(refresh).to include('statuses_external_visibility_shape_guard')
+      expect(definitions).to include('BEFORE INSERT OR UPDATE OF local, reply')
+      expect(definitions).to include('quote_id, local, reply')
+      expect(refresh).to include('NEW.local IS DISTINCT FROM OLD.local')
+      expect(ExternalBridge::Schema::FIELD_GUARD_TRIGGER_SQL).to include('quote_id, local, reply')
+      expect(ExternalBridge::Schema::SHAPE_TRIGGER_ATTACH_SQL).to include('BEFORE INSERT OR UPDATE OF local, reply')
       expect(AcceptExternalVisibilityProjectionGuards::DOWN_GUARD_SQL).to include('IS DISTINCT FROM 200')
       expect(AcceptExternalVisibilityProjectionGuards::DOWN_GUARD_SQL).not_to include('NOT IN (200, 201)')
+      expect(AcceptExternalVisibilityProjectionGuards::DOWN_GUARD_SQL).not_to include('local, reply')
       expect(File.read(Rails.root.join('db/migrate/20261021140000_accept_external_visibility_projection_guards.rb'))).not_to include('DEFINITIONS_SQL')
     end
 
@@ -260,6 +266,45 @@ RSpec.describe 'External visibility read and protection' do
       end
     end
 
+    it 'rejects local and reply changes on an external status without disabling triggers' do
+      bundle = external_project_for(user, body: 'External shape body')
+      status = bundle[:status]
+      expect(status.local).to be true
+      expect(status.reply).to be false
+
+      expect_database_rejection("UPDATE statuses SET local = FALSE WHERE id = #{status.id}")
+      expect(status.reload.local).to be true
+      expect_database_rejection("UPDATE statuses SET reply = TRUE WHERE id = #{status.id}")
+      expect(status.reload.reply).to be false
+
+      expect { status.update!(local: false) }.to raise_error(ActiveRecord::RecordInvalid)
+      expect(status.reload.local).to be true
+      expect { status.update!(reply: true) }.to raise_error(ActiveRecord::RecordInvalid)
+      expect(status.reload.reply).to be false
+      expect(status.update!(text: 'Revised external body')).to eq true
+      expect(status.reload.text).to eq 'Revised external body'
+
+      ordinary = Fabricate(:status, account: user.account, visibility: :personal, text: 'ordinary personal')
+      public_status = Fabricate(:status, account: user.account, visibility: :public, text: 'ordinary public')
+      expect(ordinary.update!(local: false, reply: true)).to eq true
+      expect(ordinary.reload.local).to be false
+      expect(ordinary.reply).to be true
+      expect(public_status.update!(text: 'revised public', local: false)).to eq true
+
+      legacy = project_for(user, body: 'legacy body')
+      expect(legacy[:status].update!(text: 'revised legacy')).to eq true
+      expect(legacy[:status].reload.text).to eq 'revised legacy'
+      expect(legacy[:status].local).to be true
+      ActiveRecord::Base.connection.execute("UPDATE statuses SET local = FALSE, reply = TRUE WHERE id = #{legacy[:status].id}")
+      expect(legacy[:status].reload.local).to be false
+      expect(legacy[:status].reply).to be true
+
+      ActiveRecord::Base.connection.execute("UPDATE statuses SET text = 'sql revised external' WHERE id = #{status.id}")
+      expect(status.reload.text).to eq 'sql revised external'
+      expect(status.local).to be true
+      expect(status.reply).to be false
+    end
+
     it 'refuses to roll the guards back while a visibility 201 row exists' do
       external_project_for(user)
       expect(AcceptExternalVisibilityProjectionGuards::DOWN_PRECONDITION_SQL).to include('visibility = 201')
@@ -284,17 +329,28 @@ RSpec.describe 'External visibility read and protection' do
         field = connection.select_value("SELECT prosrc FROM pg_proc WHERE proname = 'statuses_external_projection_field_guard'")
         expect(field).not_to include('OLD.visibility = 201')
         expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'statuses_external_visibility_shape_guard' AND NOT tgisinternal")).to be_nil
+        expect(trigger_definition(connection, 'statuses_external_projection_field_guard')).not_to include('local, reply')
 
         migration.up
         restored = connection.select_value("SELECT prosrc FROM pg_proc WHERE proname = 'external_status_projections_enforce_owner_account'")
         expect(restored).to include('NOT IN (200, 201)')
-        expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'statuses_external_visibility_shape_guard' AND NOT tgisinternal")).to eq 1
+        expect(trigger_definition(connection, 'statuses_external_visibility_shape_guard')).to include('BEFORE INSERT OR UPDATE OF local, reply')
+        expect(trigger_definition(connection, 'statuses_external_projection_field_guard')).to include('local, reply')
         raise ActiveRecord::Rollback
       end
 
       body = connection.select_value("SELECT prosrc FROM pg_proc WHERE proname = 'external_status_projections_enforce_owner_account'")
       expect(body).to include('NOT IN (200, 201)')
       expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'statuses_external_visibility_shape_guard' AND NOT tgisinternal")).to eq 1
+      expect(trigger_definition(connection, 'statuses_external_visibility_shape_guard')).to include('BEFORE INSERT OR UPDATE OF local, reply')
+      expect(trigger_definition(connection, 'statuses_external_projection_field_guard')).to include('local, reply')
+    end
+
+    def trigger_definition(connection, name)
+      connection.select_value(<<~SQL.squish)
+        SELECT pg_get_triggerdef(oid) FROM pg_trigger
+        WHERE tgname = #{connection.quote(name)} AND NOT tgisinternal
+      SQL
     end
   end
 
