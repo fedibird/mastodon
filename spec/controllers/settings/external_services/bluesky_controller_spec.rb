@@ -68,14 +68,16 @@ describe Settings::ExternalServices::BlueskyController do
     with_atproto_client do
       enable_atproto!(user)
       identity = connect_atproto!(user: user).fetch(:identity)
-      identity.update!(status: 'reauthentication_required', last_error_code: 'reauthentication_required')
+      identity.update!(status: 'reauthentication_required', last_error_code: 'reauthentication_required', handle: 'renamed.example')
 
       get :show, session: challenge
     end
 
     document = Nokogiri::HTML(response.body)
     hidden = document.at_css("#bluesky-account-#{identity.id}")
-    expect(hidden['value']).to eq(AtprotoOauthHelper::HANDLE)
+    expect(hidden['value']).to eq(identity.subject)
+    expect(hidden['value']).not_to eq('renamed.example')
+    expect(hidden['value']).not_to eq(AtprotoOauthHelper::HANDLE)
     expect(document.css("form[action='#{settings_external_services_bluesky_authorize_path}'] button").map(&:text).join).to include(I18n.t('external_bridge.atproto.sign_in_again'))
     disconnect = document.at_css("form[action='#{settings_external_services_bluesky_identity_path(identity)}'] input[type='submit']")
     expect(disconnect['data-confirm']).to eq(I18n.t('external_bridge.atproto.disconnect_confirm'))
@@ -91,13 +93,14 @@ describe Settings::ExternalServices::BlueskyController do
     with_atproto_client do
       enable_atproto!(user)
       identity = connect_atproto!(user: user).fetch(:identity)
-      identity.update!(status: 'disconnected', disconnected_at: Time.zone.parse('2026-10-20 12:00:00 UTC'), revocation_state: 'remote_failed')
+      identity.update!(status: 'disconnected', disconnected_at: Time.zone.parse('2026-10-20 12:00:00 UTC'), revocation_state: 'remote_failed', handle: 'renamed.example')
 
       get :show, session: challenge
     end
 
     document = Nokogiri::HTML(response.body)
-    expect(document.at_css("#bluesky-account-#{identity.id}")['value']).to eq(AtprotoOauthHelper::HANDLE)
+    expect(document.at_css("#bluesky-account-#{identity.id}")['value']).to eq(identity.subject)
+    expect(document.at_css("#bluesky-account-#{identity.id}")['value']).not_to eq('renamed.example')
     expect(document.css("form[action='#{settings_external_services_bluesky_identity_path(identity)}']")).to be_empty
     expect(response.body).to include(I18n.t('external_bridge.atproto.reconnect'))
     expect(response.body).to include(I18n.t('external_bridge.atproto.revocation.remote_failed'))

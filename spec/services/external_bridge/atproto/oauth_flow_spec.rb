@@ -131,6 +131,25 @@ describe 'AT Protocol OAuth identity connection' do
     end
   end
 
+  it 'does not retarget a saved identity when reconnect returns another DID' do
+    with_atproto_client do
+      world = install_atproto_world!
+      identity = connect_atproto!(user: user, world: world).fetch(:identity)
+      identity.update!(handle: 'renamed.example', status: 'reauthentication_required', last_error_code: 'reauthentication_required')
+      world.bodies[:token] = atproto_tokens(did: AtprotoOauthHelper::OTHER_DID)
+      started = start_atproto!(user: user, identifier: identity.subject, dns: world.dns)
+      attempt = ExternalOauthAttempt.order(:id).last
+
+      expect(attempt.intended_subject).to eq(AtprotoOauthHelper::DID)
+      expect(attempt.login_hint).to eq(AtprotoOauthHelper::DID)
+      expect(atproto_error { finish_atproto!(user: user, state: started[:state], dns: world.dns) }.code).to eq('authorization_rejected')
+      expect(identity.reload.subject).to eq(AtprotoOauthHelper::DID)
+      expect(identity.handle).to eq('renamed.example')
+      expect(identity.status).to eq('reauthentication_required')
+      expect(ExternalIdentity.where(user_id: user.id).pluck(:subject)).to eq([AtprotoOauthHelper::DID])
+    end
+  end
+
   it 'discards tokens when sub, scopes, or the confirmed issuer do not match' do
     with_atproto_client do
       mismatched = install_atproto_world!

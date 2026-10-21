@@ -89,8 +89,9 @@ module ExternalServices
         handle.presence || subject.presence || I18n.t('external_bridge.atproto.no_handle')
       end
 
+      # A saved row is reopened by its DID. A handle can move to another DID.
       def reconnect_identifier
-        handle.presence || subject
+        subject
       end
 
       def status
