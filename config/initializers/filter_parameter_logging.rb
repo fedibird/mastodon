@@ -28,4 +28,7 @@ Rails.application.config.filter_parameters += [
   # but they are still not useful in the log.
   /\A(?:q|query|text|raw|body|ids|spoiler_text|spoiler|content|statuses|window|items|pages)\z/,
   /\A(?:code|state|code_verifier|client_assertion|dpop|pkce_verifier|dpop_private_key)\z/,
+  # The settings RSS form only. Exact, so oembed and webhook :url stay visible
+  # and the JSON subscription API keeps its url parameter.
+  /\Afeed_url\z/,
 ]

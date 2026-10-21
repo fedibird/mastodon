@@ -17,7 +17,7 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
 
   it 'does not subscribe an ordinary user from the HTML form' do
     expect do
-      post :create, params: { url: feed_url }, session: challenge
+      post :create, params: { feed_url: feed_url }, session: challenge
     end.not_to change(ExternalSource, :count)
 
     expect(response).to redirect_to(settings_external_services_rss_path)
@@ -29,7 +29,7 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     sign_in tester, scope: :user
 
     expect do
-      post :create, params: { url: feed_url }, session: challenge
+      post :create, params: { feed_url: feed_url }, session: challenge
     end.to change(ExternalSubscription, :count).by(1)
 
     expect(response).to redirect_to(settings_external_services_rss_path)
@@ -42,7 +42,7 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     stub_request(:get, missing).to_return(status: 404, body: 'missing')
 
     expect do
-      post :create, params: { url: missing }, session: challenge
+      post :create, params: { feed_url: missing }, session: challenge
     end.not_to change(ExternalSubscription, :count)
 
     expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.fetch_failed'))
@@ -56,7 +56,7 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     secret_url = 'https://user:secret-token@feeds.example/private.xml'
 
     expect do
-      post :create, params: { url: secret_url }
+      post :create, params: { feed_url: secret_url }
     end.not_to change(ExternalSubscription, :count)
 
     expect(response).to redirect_to(settings_external_services_rss_path)
@@ -64,12 +64,32 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     expect(flash[:alert].to_s).not_to include('secret-token')
     expect(session.to_s).not_to include('secret-token')
 
-    post :create, params: { url: secret_url }, session: challenge
+    post :create, params: { feed_url: secret_url }, session: challenge
 
     expect(response).to redirect_to(settings_external_services_rss_path)
     expect(response.location).not_to include('secret-token')
     expect(flash[:alert].to_s).not_to include('secret-token')
     expect(session.to_s).not_to include('secret-token')
+    filtered = controller.request.filtered_parameters
+    expect(filtered['feed_url']).to eq('[FILTERED]')
+    expect(filtered.to_s).not_to include('secret-token')
+  end
+
+  it 'filters only the HTML feed parameter and leaves other url keys visible' do
+    secret = 'https://user:secret-token@feeds.example/private.xml'
+    filter = ActiveSupport::ParameterFilter.new(Rails.application.config.filter_parameters)
+    filtered = filter.filter(
+      feed_url: secret,
+      url: 'https://feeds.example/api.xml',
+      canonical_url: 'https://feeds.example/public.xml',
+      site_url: 'https://example.com/'
+    )
+
+    expect(filtered[:feed_url]).to eq('[FILTERED]')
+    expect(filtered[:url]).to eq('https://feeds.example/api.xml')
+    expect(filtered[:canonical_url]).to eq('https://feeds.example/public.xml')
+    expect(filtered[:site_url]).to eq('https://example.com/')
+    expect(filtered.to_s).not_to include('secret-token')
   end
 
   it 'pauses, resumes, and removes only the signed-in user subscription' do

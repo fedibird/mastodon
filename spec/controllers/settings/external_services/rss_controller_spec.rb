@@ -29,6 +29,7 @@ describe Settings::ExternalServices::RSSController do
     document = Nokogiri::HTML(response.body)
     field = document.at_css('#rss-feed-url')
     expect(field['type']).to eq('url')
+    expect(field['name']).to eq('feed_url')
     expect(field['value']).to be_blank
     expect(response.body).to include(I18n.t('external_bridge.feed_url_hint'))
     expect(response.body).to include(I18n.t('external_bridge.privacy_note'))

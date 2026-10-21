@@ -6,7 +6,7 @@ class Settings::ExternalServices::RSSSubscriptionsController < Settings::BaseCon
   before_action :require_recent_challenge!
 
   def create
-    ExternalBridge::RSS::Subscribe.new.call(user: current_user, url: params[:url])
+    ExternalBridge::RSS::Subscribe.new.call(user: current_user, url: params[:feed_url])
     redirect_to settings_external_services_rss_path, notice: I18n.t('external_bridge.subscribed'), status: :see_other
   rescue ExternalBridge::Error => e
     redirect_to settings_external_services_rss_path, alert: failure_alert(e), status: :see_other

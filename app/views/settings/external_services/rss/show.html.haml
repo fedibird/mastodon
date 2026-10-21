@@ -21,7 +21,7 @@
     = form_with url: settings_external_services_rss_subscriptions_path, method: :post, local: true, html: { class: 'external-service-form' } do
       .fields-group
         = label_tag 'rss-feed-url', t('external_bridge.feed_url')
-        = url_field_tag :url, nil, id: 'rss-feed-url', required: true, placeholder: 'https://example.com/feed.xml', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'none', aria: { describedby: 'rss-feed-url-hint' }
+        = url_field_tag :feed_url, nil, id: 'rss-feed-url', required: true, placeholder: 'https://example.com/feed.xml', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'none', aria: { describedby: 'rss-feed-url-hint' }
       %p.hint#rss-feed-url-hint= t('external_bridge.feed_url_hint')
       .actions
         = button_tag t('external_bridge.subscribe'), type: 'submit', class: 'button', data: { disable_with: t('external_bridge.working') }, aria: { describedby: 'rss-feed-url-hint rss-privacy-note' }

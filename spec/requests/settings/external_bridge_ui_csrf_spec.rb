@@ -20,7 +20,7 @@ RSpec.describe 'External bridge settings CSRF' do
     sign_in user, scope: :user
 
     expect do
-      post settings_external_services_rss_subscriptions_path, params: { url: 'https://feeds.example/csrf.xml' }
+      post settings_external_services_rss_subscriptions_path, params: { feed_url: 'https://feeds.example/csrf.xml' }
     end.not_to change(ExternalSubscription, :count)
 
     expect(response).to have_http_status(:unprocessable_entity)

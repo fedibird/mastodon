@@ -149,6 +149,8 @@ The catalog lists only providers implemented in this version. Disabled placehold
 
 DeepL is always a catalog entry. Its add action says to set an API key and still opens the existing DeepL page. If a DeepL connection already exists, including a duplicate or repair state, the entry links to Manage. It does not post a second generic create. RSS is one catalog row for the feed list. Bluesky is one catalog row for the account list. Neither row is a generic credential form.
 
+The HTML RSS form posts `feed_url`. That exact name is filtered from Rails logs. The JSON subscription API still accepts `url`. Sign-in again and reconnect for a saved Bluesky identity submit that row's DID. The handle is display text. A new connection is the only form that takes a handle.
+
 A catalog entry keeps connection existence separate from presentation status.
 
 ```text
