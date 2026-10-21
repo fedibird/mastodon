@@ -111,6 +111,10 @@ RSpec.describe ExternalBridge::ProjectionWriter do
       field_body = probe.exec("SELECT prosrc FROM pg_proc WHERE proname = 'statuses_external_projection_field_guard'").getvalue(0, 0)
       expect(field_body).to include('OLD.visibility = 201')
       expect(field_body).to include('NEW.local IS DISTINCT FROM OLD.local')
+      expect(field_body).to include('fedibird.external_visibility_migration')
+      expect(field_body).to include('to_jsonb(OLD)')
+      migrate_body = probe.exec("SELECT prosrc FROM pg_proc WHERE proname = 'external_visibility_migrate_status'").getvalue(0, 0)
+      expect(migrate_body).to include('fedibird.external_visibility_migration')
       shape_trigger = probe.exec("SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = 'statuses_external_visibility_shape_guard' AND NOT tgisinternal").getvalue(0, 0)
       expect(shape_trigger).to include('BEFORE INSERT OR UPDATE OF local, reply')
       field_trigger = probe.exec("SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = 'statuses_external_projection_field_guard' AND NOT tgisinternal").getvalue(0, 0)
@@ -423,6 +427,36 @@ RSpec.describe ExternalBridge::ProjectionWriter do
       let(:private_status) { external_project_for(user, body: 'external planted')[:status] }
 
       include_examples 'drops a planted document'
+    end
+
+    context 'with a migrated projection' do
+      let(:private_status) { migrated_projection_status }
+
+      include_examples 'drops a planted document'
+    end
+
+    it 'omits a migrated projection from the index scope' do
+      migrated = migrated_projection_status
+      expect(migrated.visibility).to eq 'external'
+      expect(index_scope.where(id: migrated.id)).not_to exist
+    end
+
+    def migrated_projection_status
+      Setting.external_bridge_external_visibility = false
+      bundle = project_for(user, body: 'migrated planted body')
+      Setting.external_bridge_external_visibility = true
+      Dir.mktmpdir do |dir|
+        result = ExternalBridge::VisibilityMigration::Runner.call(
+          apply: true,
+          confirm_readers_ready: true,
+          user_id: user.id,
+          checkpoint: File.join(dir, 'checkpoint.json'),
+          limit: 20,
+          batch_size: 20
+        )
+        expect(result.counts[:converted]).to eq 1
+      end
+      bundle[:status].reload
     end
 
     def index_scope
