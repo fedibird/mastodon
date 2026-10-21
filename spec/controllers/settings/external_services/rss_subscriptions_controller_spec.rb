@@ -36,6 +36,21 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     expect(ExternalSubscription.find_by(user_id: ordinary.id)).to be_nil
   end
 
+  it 'translates an HTTP failure and does not repeat the address' do
+    sign_in tester, scope: :user
+    missing = 'https://feeds.example/missing.xml'
+    stub_request(:get, missing).to_return(status: 404, body: 'missing')
+
+    expect do
+      post :create, params: { url: missing }, session: challenge
+    end.not_to change(ExternalSubscription, :count)
+
+    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.fetch_failed'))
+    expect(flash[:alert]).not_to include('http_404')
+    expect(flash[:alert]).not_to include('missing.xml')
+    expect(response.location).not_to include('missing.xml')
+  end
+
   it 'does not subscribe without a recent challenge or echo a rejected URL' do
     sign_in tester, scope: :user
     secret_url = 'https://user:secret-token@feeds.example/private.xml'
