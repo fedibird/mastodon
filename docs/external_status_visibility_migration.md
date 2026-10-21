@@ -1,0 +1,123 @@
+# External projection visibility migration
+
+E2 operator runbook for issue #544. Read `docs/external_status_visibility.md` first. This procedure stores new external projections as visibility 201 and moves existing projection rows from 200 to 201 without creating a new status id.
+
+It does not enable home, list, or streaming delivery. It does not publish a link note. It does not turn the switch on by itself. Merging the pull request is not a deploy and it is not permission to migrate production.
+
+## What changes for a person
+
+| State | Standard visibility | visibility_ex | Personal timeline | Same id still opens from |
+| --- | --- | --- | --- | --- |
+| Ordinary personal post | direct | personal | unchanged | the personal timeline and the post |
+| Legacy projection, before migration | direct | personal | still listed for the owner | the subscription list, the post, favourites, bookmarks |
+| External, after migration or a new insert while the switch is on | direct | external | not listed | the subscription list, the post, favourites, bookmarks |
+
+Another User on the same Account still cannot read the row. An open browser can keep the old label until reload. This command does not push `status.update`.
+
+## Switch
+
+`external_bridge_external_visibility` defaults to false.
+
+```ruby
+Setting.external_bridge_external_visibility = true
+Setting.external_bridge_external_visibility = false
+```
+
+False means new projection inserts stay `visibility: personal`. True means `ProjectionWriter#create!` inserts `visibility: external`. Neither value rewrites existing rows. RSS refresh of an existing row updates text and the marker only. The RSS and AT Protocol flags and tester allowlists are separate. The key is not on the user preference screen and not on the admin settings form.
+
+If the switch is on and this database cannot store an external projection, the insert raises `external_visibility_database_not_ready`. It does not save a personal or public status instead.
+
+## Deploy order
+
+1. Confirm every web, Sidekiq, and related reader is already running E1 or newer, so visibility 201 is known. This repository cannot check that for you.
+2. Deploy this revision with the switch still false and run the new migration:
+
+   ```sh
+   bin/rails db:migrate
+   ```
+
+   The migration is `20261021180000_permit_external_visibility_projection_transition`. It replaces two functions. It does not rewrite `statuses`, add an index, or drop foreign keys. `lock_timeout` is 5 seconds.
+3. Dry-run one owner. `user-id` is `users.id`, not `accounts.id`.
+
+   ```sh
+   bin/tootctl upgrade external-status-visibility --user-id USER_ID --limit 20
+   ```
+
+   Dry-run is the default. It does not change statuses, markers, Redis, Elasticsearch, or the checkpoint.
+4. Turn the switch on. Confirm a new RSS item for an allowed tester is `visibility_ex=external`, and that an ordinary personal post is unchanged.
+5. Apply a small batch. `--confirm-readers-ready` means you checked the readers. The process does not discover other processes.
+
+   ```sh
+   bin/tootctl upgrade external-status-visibility \
+     --apply \
+     --confirm-readers-ready \
+     --user-id USER_ID \
+     --limit 20 \
+     --batch-size 20 \
+     --checkpoint /var/lib/mastodon/external-visibility-user-USER_ID.json
+   ```
+
+   Then read that owner's status, subscription list, favourite, and bookmark. A second User of the same Account receives 404. The personal timeline no longer lists the migrated id.
+6. Resume by repeating the same command and the same checkpoint. Raise `--limit` only after the small batch looks right. `--pause 0.2` waits between batches.
+7. Verify. A finished checkpoint window is not instance completion.
+
+   ```sh
+   bin/tootctl upgrade external-status-visibility --verify --user-id USER_ID
+   ```
+
+   `verify scope_complete` means that scope had no legacy or invalid projection in the marker window, and the marker high-water mark did not move during the pass. It does not mean other users are done. Drop the user filter only when you intend to look at the whole instance:
+
+   ```sh
+   bin/tootctl upgrade external-status-visibility --verify
+   ```
+
+   `verify instance_complete` is the only completion claim. If the output says rows remain, or the watermark moved, run the migration again with a new checkpoint after writers are quiet, then verify again. A row that commits after the original high-water mark is left for that later pass.
+
+## Command contract
+
+| Flag | Meaning |
+| --- | --- |
+| (none) | Dry-run. |
+| `--apply` | Write. Requires `--checkpoint`, `--confirm-readers-ready`, and the switch on. Refuses if the 200-to-201 function is missing. |
+| `--verify` | Read-only second look. Cannot be combined with `--apply`. |
+| `--user-id` | `users.id`. Empty, zero, or non-numeric is an error, not "all users". |
+| `--subscription-id` | Optional. Must belong to `--user-id` when both are set. |
+| `--batch-size` | Default 100. Maximum 1000. |
+| `--limit` | Default 1000. Maximum 100000. Counts markers examined, including ones that are already external. |
+| `--pause` | Seconds between batches. Default 0. Maximum 300. |
+| `--checkpoint` | JSON file, mode 0600, replaced atomically. Required for apply. |
+| `--lock-timeout` / `--statement-timeout` | Defaults `2s` and `30s`, inside each batch transaction only. |
+
+The scan reads `external_status_projections.id` in keyset order up to the high-water mark taken at the start. It does not collect `statuses.visibility = 200` from the whole statuses table. Subscription state and the tester allowlist do not decide ownership. A paused subscription's existing projection is still a candidate. The command does not fetch, resume, or deliver.
+
+Invalid shape stops the batch, rolls it back, and does not skip the row. There is no skip-invalid mode. A lock timeout or deadlock stops without moving the cursor past the row. `SKIP LOCKED` is not used.
+
+Exit status: 0 finished the requested dry-run window, apply window, or a clean verify; 2 limit; 3 signal; 4 invalid row or lock conflict; 5 verify still sees legacy, invalid, or a moved watermark; 6 database committed and cache follow-up did not finish. Resume the same checkpoint after 3, 4, or 6. Exit 0 on an apply window is not instance completion.
+
+The checkpoint stores the database name, the local domain, the scope, the direction `personal_to_external`, the high-water mark, the last completed marker id, and any pending batch ids. It does not store text, URLs, or secrets. Reusing it for another database, instance, scope, or direction is refused.
+
+Cache follow-up runs only after the batch commits. It deletes `statuses/<id>` in Rails cache and asks search to drop those ids if Chewy is enabled. It does not clear the whole cache or rebuild feeds. If the process dies after commit and before the checkpoint advances, the next run treats that pending batch as unfinished and repeats the cache deletes, including rows that are already external.
+
+## Stop
+
+Stop the command with SIGINT or SIGTERM. The signal is checked between batches. A batch already inside its transaction is allowed to commit and finish its cache follow-up, or to roll back if that transaction fails. The command then exits without starting another batch. Resume the same checkpoint. Turn the switch off so new inserts return to personal:
+
+```ruby
+Setting.external_bridge_external_visibility = false
+```
+
+Rows already stored as external stay external. To stop new imports as well, turn off `external_bridge_rss` or remove testers. That is a separate operation. Do not delete the migrated statuses to undo the visibility change.
+
+## Rollback
+
+This migration is forward-only. There is no command that writes 201 back to 200 or to public.
+
+`db:migrate:down VERSION=20261021180000` removes the permit and restores the E1 field guard. External rows may remain, and E1 code can still read them. It does not put the data back. E1's own down still refuses while any visibility 201 row exists, so you cannot migrate the database to a pre-E1 guard until those rows are gone by a later audited procedure.
+
+Application rollback stops at a revision that understands E1. Older code does not know visibility 201.
+
+## Database permit
+
+`external_visibility_migrate_status(status_id)` is the only supported update path. It sets a transaction-local token for that id and updates `visibility` and `updated_at` only. The trigger rejects the statement unless the token matches that row's id and the current transaction id, the old and new shapes are a normal projection, a consistent marker exists, and no other column changed. Lock order inside a batch is marker id, then status id, which matches RSS refresh. Purge locks the status first, so a deadlock is possible; the batch stops and the checkpoint does not skip the row.
+
+Direct `UPDATE` without the function still fails. Setting the token and also changing the text fails. A token for a different id fails. `fedibird.projection_status_delete` is not reused. Triggers are not disabled.

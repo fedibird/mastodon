@@ -2174,7 +2174,7 @@ en:
         name: DeepL
         subtitle: Personal translation
       rss:
-        description: Subscribe to a public RSS or Atom feed. Items become private posts on your account.
+        description: Subscribe to a public RSS or Atom feed. Items become private posts on your account. You open them from the feed list, the post, your favourites, or your bookmarks.
         name: RSS
         subtitle: "%{count} public feeds · %{active} active, %{paused} paused, %{error} fetch errors"
       bluesky:
@@ -2199,7 +2199,7 @@ en:
     pause: Pause
     pause_for: Pause %{title}
     previous: Previous
-    privacy_note: Imported posts stay private to you. They are not delivered over ActivityPub, and other people cannot see them.
+    privacy_note: Imported posts stay private to you. They are not delivered over ActivityPub, and other people cannot see them. Open them from this list, the post, your favourites, or your bookmarks. A post stored as external content is left off your personal timeline.
     resume: Resume
     resume_for: Resume %{title}
     retry_status: "Next check: %{time}. Retry count: %{count}."
