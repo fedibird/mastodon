@@ -16,6 +16,164 @@ module ExternalBridge
     PERSONAL_SEARCHABILITY = 200
     EXTERNAL_VISIBILITY = 201
 
+    # E2 field guard. A matching GUC is not permission by itself: the row must
+    # be the named status, 200 to 201 only, and unchanged apart from visibility
+    # and updated_at. schema:load installs this body. The E1 migration constant
+    # below stays the pre-transition guard.
+    FIELD_GUARD_FUNCTION_SQL = <<~SQL
+      CREATE OR REPLACE FUNCTION statuses_external_projection_field_guard()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      DECLARE
+        migration_token text;
+        marker_user_id bigint;
+        marker_account_id bigint;
+        marker_source_id bigint;
+        marker_subscription_id bigint;
+        marker_resource_id bigint;
+        user_account_id bigint;
+        subscription_user_id bigint;
+        subscription_source_id bigint;
+        resource_source_id bigint;
+        permitted_transition boolean := false;
+      BEGIN
+        IF OLD.external_projection IS TRUE
+           OR NEW.external_projection IS TRUE
+           OR OLD.visibility = #{EXTERNAL_VISIBILITY}
+           OR NEW.visibility = #{EXTERNAL_VISIBILITY}
+           OR EXISTS (SELECT 1 FROM external_status_projections WHERE status_id = OLD.id) THEN
+
+          migration_token := current_setting('fedibird.external_visibility_migration', true);
+
+          IF migration_token IS NOT NULL
+             AND migration_token = (OLD.id::text || ':' || txid_current()::text)
+             AND OLD.visibility = #{PERSONAL_VISIBILITY}
+             AND NEW.visibility = #{EXTERNAL_VISIBILITY} THEN
+            IF OLD.external_projection IS TRUE
+               AND NEW.external_projection IS TRUE
+               AND OLD.local IS TRUE
+               AND NEW.local IS TRUE
+               AND OLD.uri IS NULL
+               AND NEW.uri IS NULL
+               AND OLD.searchability = #{PERSONAL_SEARCHABILITY}
+               AND NEW.searchability = #{PERSONAL_SEARCHABILITY}
+               AND OLD.reply IS NOT TRUE
+               AND NEW.reply IS NOT TRUE
+               AND OLD.in_reply_to_id IS NULL
+               AND NEW.in_reply_to_id IS NULL
+               AND OLD.reblog_of_id IS NULL
+               AND NEW.reblog_of_id IS NULL
+               AND OLD.quote_id IS NULL
+               AND NEW.quote_id IS NULL
+               AND OLD.deleted_at IS NULL
+               AND NEW.deleted_at IS NULL
+               AND (to_jsonb(OLD) - 'visibility' - 'updated_at')
+                   IS NOT DISTINCT FROM
+                   (to_jsonb(NEW) - 'visibility' - 'updated_at') THEN
+              SELECT user_id, account_id, external_source_id, external_subscription_id, external_resource_id
+                INTO marker_user_id, marker_account_id, marker_source_id, marker_subscription_id, marker_resource_id
+              FROM external_status_projections
+              WHERE status_id = OLD.id
+              FOR SHARE;
+
+              IF FOUND THEN
+                SELECT account_id INTO user_account_id
+                FROM users
+                WHERE id = marker_user_id
+                FOR SHARE;
+
+                SELECT user_id, external_source_id
+                  INTO subscription_user_id, subscription_source_id
+                FROM external_subscriptions
+                WHERE id = marker_subscription_id
+                FOR SHARE;
+
+                SELECT external_source_id INTO resource_source_id
+                FROM external_resources
+                WHERE id = marker_resource_id
+                FOR SHARE;
+
+                IF user_account_id IS NOT NULL
+                   AND user_account_id = OLD.account_id
+                   AND marker_account_id = OLD.account_id
+                   AND subscription_user_id = marker_user_id
+                   AND subscription_source_id = marker_source_id
+                   AND resource_source_id = marker_source_id THEN
+                  permitted_transition := true;
+                END IF;
+              END IF;
+            END IF;
+          END IF;
+
+          IF NOT permitted_transition THEN
+            IF NEW.account_id IS DISTINCT FROM OLD.account_id
+               OR NEW.visibility IS DISTINCT FROM OLD.visibility
+               OR NEW.searchability IS DISTINCT FROM OLD.searchability
+               OR NEW.uri IS DISTINCT FROM OLD.uri
+               OR NEW.external_projection IS DISTINCT FROM TRUE
+               OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at
+               OR NEW.reblog_of_id IS DISTINCT FROM OLD.reblog_of_id
+               OR NEW.in_reply_to_id IS DISTINCT FROM OLD.in_reply_to_id
+               OR NEW.quote_id IS DISTINCT FROM OLD.quote_id
+               OR (
+                 (OLD.visibility = #{EXTERNAL_VISIBILITY} OR NEW.visibility = #{EXTERNAL_VISIBILITY})
+                 AND (
+                   NEW.local IS DISTINCT FROM OLD.local
+                   OR NEW.reply IS DISTINCT FROM OLD.reply
+                 )
+               ) THEN
+              RAISE EXCEPTION 'external projection status fields are immutable'
+                USING ERRCODE = 'check_violation';
+            END IF;
+          END IF;
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$;
+    SQL
+
+    # Runs the visibility UPDATE. The permit is transaction-local and is put
+    # back to the caller's previous value before the function returns. An
+    # exception, including query cancel, restores that same value and raises
+    # again. There is no CREATE FUNCTION SET clause: storing a custom GUC there
+    # requires a superuser or SET privilege, which a normal database owner does
+    # not have. set_config inside the body does not. Unset restores through
+    # NULL; PostgreSQL then reports a custom placeholder as an empty string,
+    # which is not an id:txid permit. The trigger still rechecks the row.
+    MIGRATE_FUNCTION_SQL = <<~SQL
+      CREATE OR REPLACE FUNCTION external_visibility_migrate_status(p_status_id bigint)
+      RETURNS integer
+      LANGUAGE plpgsql
+      AS $$
+      DECLARE
+        updated_count integer;
+        token text;
+        previous text;
+      BEGIN
+        previous := current_setting('fedibird.external_visibility_migration', true);
+        token := p_status_id::text || ':' || txid_current()::text;
+        PERFORM set_config('fedibird.external_visibility_migration', token, true);
+        UPDATE statuses
+           SET visibility = #{EXTERNAL_VISIBILITY},
+               updated_at = clock_timestamp()
+         WHERE id = p_status_id
+           AND visibility = #{PERSONAL_VISIBILITY};
+        GET DIAGNOSTICS updated_count = ROW_COUNT;
+        PERFORM set_config('fedibird.external_visibility_migration', previous, true);
+        RETURN updated_count;
+      EXCEPTION
+        WHEN query_canceled THEN
+          PERFORM set_config('fedibird.external_visibility_migration', previous, true);
+          RAISE;
+        WHEN OTHERS THEN
+          PERFORM set_config('fedibird.external_visibility_migration', previous, true);
+          RAISE;
+      END;
+      $$;
+    SQL
+
     DEFINITIONS_SQL = <<~SQL
       ALTER TABLE external_status_projections
         DROP CONSTRAINT IF EXISTS fk_external_projections_subscription_owner;
@@ -99,40 +257,7 @@ module ExternalBridge
       FOR EACH ROW
       EXECUTE FUNCTION external_status_projections_guard_delete();
 
-      CREATE OR REPLACE FUNCTION statuses_external_projection_field_guard()
-      RETURNS trigger
-      LANGUAGE plpgsql
-      AS $$
-      BEGIN
-        IF OLD.external_projection IS TRUE
-           OR NEW.external_projection IS TRUE
-           OR OLD.visibility = #{EXTERNAL_VISIBILITY}
-           OR NEW.visibility = #{EXTERNAL_VISIBILITY}
-           OR EXISTS (SELECT 1 FROM external_status_projections WHERE status_id = OLD.id) THEN
-          IF NEW.account_id IS DISTINCT FROM OLD.account_id
-             OR NEW.visibility IS DISTINCT FROM OLD.visibility
-             OR NEW.searchability IS DISTINCT FROM OLD.searchability
-             OR NEW.uri IS DISTINCT FROM OLD.uri
-             OR NEW.external_projection IS DISTINCT FROM TRUE
-             OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at
-             OR NEW.reblog_of_id IS DISTINCT FROM OLD.reblog_of_id
-             OR NEW.in_reply_to_id IS DISTINCT FROM OLD.in_reply_to_id
-             OR NEW.quote_id IS DISTINCT FROM OLD.quote_id
-             OR (
-               (OLD.visibility = #{EXTERNAL_VISIBILITY} OR NEW.visibility = #{EXTERNAL_VISIBILITY})
-               AND (
-                 NEW.local IS DISTINCT FROM OLD.local
-                 OR NEW.reply IS DISTINCT FROM OLD.reply
-               )
-             ) THEN
-            RAISE EXCEPTION 'external projection status fields are immutable'
-              USING ERRCODE = 'check_violation';
-          END IF;
-        END IF;
-
-        RETURN NEW;
-      END;
-      $$;
+      #{FIELD_GUARD_FUNCTION_SQL}
       DROP TRIGGER IF EXISTS statuses_external_projection_field_guard ON statuses;
       CREATE TRIGGER statuses_external_projection_field_guard
       BEFORE UPDATE OF account_id, visibility, searchability, uri, external_projection, deleted_at, reblog_of_id, in_reply_to_id, quote_id, local, reply
@@ -188,6 +313,8 @@ module ExternalBridge
       BEFORE INSERT OR UPDATE OF local, reply ON statuses
       FOR EACH ROW
       EXECUTE FUNCTION statuses_external_visibility_shape_guard();
+
+      #{MIGRATE_FUNCTION_SQL}
     SQL
 
     # Migration up runs these statements only. schema:load uses DEFINITIONS_SQL,

@@ -82,7 +82,70 @@ module Mastodon
       say("Upgraded storage schema of #{records} records#{dry_run}", :green, true)
     end
 
+    option :apply, type: :boolean, default: false
+    option :verify, type: :boolean, default: false
+    option :confirm_readers_ready, type: :boolean, default: false
+    option :user_id, type: :string
+    option :subscription_id, type: :string
+    option :batch_size, type: :string, default: '100'
+    option :limit, type: :string, default: '1000'
+    option :pause, type: :string, default: '0'
+    option :checkpoint, type: :string
+    option :lock_timeout, type: :string, default: '2s'
+    option :statement_timeout, type: :string, default: '30s'
+    desc 'external-status-visibility', 'Migrate external projection statuses from personal visibility to external'
+    long_desc <<~LONG_DESC
+      Forward-only operator migration for external projections. Rows stay at the
+      same status id. Ordinary personal posts are not candidates.
+
+      The default is a dry-run and writes nothing. --apply requires --checkpoint,
+      --confirm-readers-ready, and Setting.external_bridge_external_visibility
+      to be on. --confirm-readers-ready is the operator's statement that readers
+      understand visibility 201. This command cannot see other processes.
+
+      Resume with the same checkpoint file. A file from another database, instance,
+      scope, or direction is refused. --verify is read-only and is the only way
+      to claim a scope or the instance is complete.
+
+      This does not turn the switch on, does not reverse external rows, and does
+      not deliver them to home, lists, or streaming.
+    LONG_DESC
+    def external_status_visibility
+      requested = { requested: false }
+      previous_int = trap('INT') { requested[:requested] = true }
+      previous_term = trap('TERM') { requested[:requested] = true }
+      result = ExternalBridge::VisibilityMigration::Runner.call(visibility_migration_options(requested))
+      say(result.to_s)
+      exit(result.exit_code) unless result.exit_code.zero?
+    rescue ExternalBridge::VisibilityMigration::Refusal => e
+      say(e.message, :red)
+      exit(1)
+    rescue ExternalBridge::VisibilityMigration::Runner::CacheIncomplete => e
+      say("#{e.message} Resume the same checkpoint.", :red)
+      exit(6)
+    ensure
+      trap('INT', previous_int || 'DEFAULT')
+      trap('TERM', previous_term || 'DEFAULT')
+    end
+
     private
+
+    def visibility_migration_options(requested)
+      {
+        apply: options[:apply],
+        verify: options[:verify],
+        confirm_readers_ready: options[:confirm_readers_ready],
+        user_id: options[:user_id],
+        subscription_id: options[:subscription_id],
+        batch_size: options[:batch_size],
+        limit: options[:limit],
+        pause: options[:pause],
+        checkpoint: options[:checkpoint],
+        lock_timeout: options[:lock_timeout],
+        statement_timeout: options[:statement_timeout],
+        stop_check: -> { requested[:requested] },
+      }
+    end
 
     def upgrade_storage_s3(progress, attachment, style)
       previous_storage_schema_version = attachment.storage_schema_version

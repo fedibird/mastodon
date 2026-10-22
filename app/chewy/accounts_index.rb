@@ -50,6 +50,17 @@ class AccountsIndex < Chewy::Index
       },
     },
 
+    # actor_type refers to this name. Elasticsearch has no built-in normalizer
+    # called keyword. The definition from 46d05ea6e8 lowercases Person/Group/Service
+    # so AccountSearchService can query the term "group". A later settings edit
+    # removed the block and left the field reference in place.
+    normalizer: {
+      keyword: {
+        type: 'custom',
+        filter: %w(lowercase asciifolding cjk_width),
+      },
+    },
+
     analyzer: {
       title: {
         tokenizer: 'whitespace',

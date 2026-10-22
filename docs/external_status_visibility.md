@@ -1,6 +1,6 @@
 # External status visibility
 
-Parent plan: issue #541. This document is the E1 slice, issue #542.
+Parent plan: issue #541. The sections through "Deploy and verification" are the E1 slice, issue #542. E2, issue #544, is the storage switch and the forward migration. It is specified in the E2 section of this document and in `docs/external_status_visibility_migration.md`.
 
 Related contracts, which this document does not replace:
 
@@ -21,7 +21,7 @@ E1 is a read and protection foundation. It does not switch the writer, migrate e
 | direct | 3 | unchanged |
 | limited | 4 | unchanged |
 | mutual | 100 | unchanged |
-| personal | 200 | unchanged. Production projections stay here. |
+| personal | 200 | unchanged for ordinary posts. Legacy projections stay here until an operator migrates them. New projections stay here while the E2 switch is off. |
 | external | 201 | internal. External content that only the owning User may read. |
 
 Numeric order is not authorization. `external` is not a searchability. Both the legacy projection and a canonical external row keep `searchability = personal`. `set_searchability` does not copy 201 into that column.
@@ -40,12 +40,12 @@ Numeric order is not authorization. `external` is not a searchability. Both the 
 - WebUI label 「外部コンテンツ（自分専用）」 / “External content (only you)” on the status, the detailed status, and the boost-modal icon map. Reply, boost, quote, edit, redraft, pin, and visibility change stay unavailable.
 - Normal POST, PATCH, scheduled create, reblog visibility, posting-style validation, search operators, and timeline filters reject the token `external` and the integer 201.
 
-## What E1 does not implement
+## What E1 left open
 
-E2 and later, still open under #541:
+E1 did not switch the writer or migrate rows. E2 now does those two things, and only those, under an operator switch that ships off. The rest of this list stays open under #541:
 
-- `ProjectionWriter#create!` still inserts `visibility: personal`. There is no feature flag that turns that into external.
-- No backfill and no `UPDATE` from personal to external. The field guard rejects that change. There is no GUC that disables the guard.
+- E1's `ProjectionWriter#create!` inserted `visibility: personal` only. E2 reads `external_bridge_external_visibility`. Off still inserts personal. On inserts external. The switch does not rewrite existing rows.
+- E1 rejected every personal-to-external update. E2 adds one transaction-local permit for a single projection status. There is still no GUC that disables the guard, and no path back from 201 to 200.
 - No home, list, or ordinary streaming delivery for an external row. The personal timeline still requires `visibility = personal`, so an external row does not join it.
 - No change of the public compatibility mask from `direct` to `unlisted`.
 - No public link Note, no boost or reply or quote of the external body, no native AT Protocol write.
@@ -166,3 +166,36 @@ Gates before E2:
 - If Elasticsearch is not reachable, the document-drop example is pending. Pending is not a pass.
 
 E1 does not enable a flag and does not change how a new RSS item is stored.
+
+## E2 storage switch and forward migration
+
+E2 is issue #544. The runbook with the commands and the rollback floor is `docs/external_status_visibility_migration.md`.
+
+`external_bridge_external_visibility` defaults to false in `config/settings.yml`. It is not an RSS or AT Protocol feature flag, not a tester allowlist, not a user preference, and not a key on the admin settings form. An operator sets it from a console. Turning it off does not rewrite rows that are already external. Turning it on does not migrate existing rows. RSS refresh of an existing projection updates the marker and the text and leaves visibility alone.
+
+`ProjectionWriter#create!` is the only writer that reads the switch. It does not take a visibility argument. When the switch is on and this database has no external shape guard, the insert fails and does not fall back to personal or public. Normal posts, the post API, and the composer still reject `external`.
+
+The new migration `db/migrate/20261021180000_permit_external_visibility_projection_transition.rb` replaces the field-guard function and adds `external_visibility_migrate_status(bigint)`. It does not run `Schema::DEFINITIONS_SQL`, does not drop foreign keys, and does not add a statuses column or index. `schema:load` installs the same functions because `DEFINITIONS_SQL` now includes them. The E1 migration constant `GUARD_REFRESH_SQL` stays the pre-transition guard, so re-running that historical migration does not install the permit. E2's `up` installs it afterwards.
+
+The permit is the string `status_id || ':' || txid_current()` in the transaction-local setting `fedibird.external_visibility_migration`. The migrate function reads the caller's current value, sets the token for the update, and writes the previous value back before it returns. On an error or a query cancel it restores that same value and raises again. The function does not use a `CREATE FUNCTION SET` clause. PostgreSQL checks superuser or parameter SET privilege for that clause, and a normal database owner does not have it. An empty string left by resetting an unset custom placeholder is not a permit. The trigger still checks every condition. A matching token is not enough:
+
+- old visibility 200, new visibility 201, and no other direction
+- both images have the projection flag, `local`, null URI, searchability 200, reply not true, no reply, reblog, or quote id, and null `deleted_at`
+- `to_jsonb(old) - visibility - updated_at` equals the same expression for the new row, so text, owner, `created_at`, `edited_at`, and every other column stay put. `updated_at` may move so `status.cache_key` changes
+- one marker, and the user, status, and marker account ids match, as do the subscription user and source and the resource source
+
+`down` restores the E1 field guard and drops the migrate function. It does not convert 201 rows back to 200 and it does not refuse because those rows exist. E1's own `down` still refuses while any 201 row exists. The rollback floor for application code is E1.
+
+### Cache
+
+`CacheConcern#cache_collection` only preloads. REST status JSON is built per request, and `visibility_ex` is the enum on that row. ActivityPub `render_with_cache` keys include `status.cache_key`, which includes `updated_at`. A private row is not distributable, so that cache is not a projection body. The migration still updates `updated_at` and, after commit, deletes the Rails cache key `statuses/#{id}` for each id in the batch. That key is deleted by purge and account deletion. No current writer was found. Processing, circle, and published Redis keys are left alone. The command does not publish `status.update`, clear the Rails cache, rebuild feeds, or reindex the cluster. If Chewy is enabled, the same batch bulk-deletes only those ids in slices of 100 and checks each bulk item and a following GET before the checkpoint advances. Success is a deleted item, or a response that names that document as missing. A missing index, a proxy 404, or any other 404 leaves the batch pending. The `:custom_sidekiq` strategy is not used for this follow-up, because it would remember the ids without deleting them. An open WebUI can keep the old personal label until the person reloads. Home and lists still do not receive the row.
+
+### What a person sees
+
+| State | Standard visibility | visibility_ex | Personal timeline |
+| --- | --- | --- | --- |
+| Ordinary personal post | direct | personal | unchanged |
+| Legacy external projection | direct | personal | still on the owner's personal timeline |
+| Migrated or newly stored external | direct | external | not on the personal timeline |
+
+The subscription item list, the status itself, and the owner's favourites and bookmarks still open the same id. Another User of the same Account does not. E3 is not in this revision, so home, lists, and streaming do not gain the row, and there is no public link note.

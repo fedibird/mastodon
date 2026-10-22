@@ -212,6 +212,13 @@ defaults: &defaults
   #   Setting.external_bridge_atproto_testers = "17,42"
   external_bridge_atproto: false
   external_bridge_atproto_testers: ''
+  # Storage format for new external projections. Separate from the RSS and
+  # AT Protocol feature flags and from their tester allowlists. Off keeps
+  # ProjectionWriter on visibility personal. On writes visibility external.
+  # It does not convert existing rows. Operators set it from a console.
+  # It is not a user preference and it is not on the admin settings form.
+  #   Setting.external_bridge_external_visibility = true
+  external_bridge_external_visibility: false
   action_review_policies:
     follow_import: 'off'
     account_migration: 'off'
