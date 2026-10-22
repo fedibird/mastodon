@@ -17,6 +17,10 @@ class VisibilityMigrationPrivilegeProbe
   class AdminUnavailable < StandardError; end
 
   IDENT = /\Aeb_e2_[0-9a-f]{16}(_test)?\z/
+  PROBE_STEM = /\Aeb_e2_[0-9a-f]{16}\z/
+  SENTINEL_IDENT = /\Aeb_e2_sentinel_[0-9a-f]{16}\z/
+  REFUSAL = 'refusing schema load before DDL: resolved connection does not match the probe'
+  SESSION_REFUSAL = 'refusing schema load before DDL: connected session does not match the probe'
   CAPABILITY_SQL = <<~SQL.squish
     SELECT current_user AS role, r.rolsuper, r.rolcreatedb, r.rolcreaterole,
            current_setting('server_version') AS version
@@ -93,8 +97,16 @@ class VisibilityMigrationPrivilegeProbe
 
   # Spawn merges this hash onto the parent environment. A nil value unsets an
   # inherited host or port so a blank database.yml setting stays a socket.
+  # DATABASE_URL and every *_DATABASE_URL are set to the probe, not deleted.
+  # Dotenv.load uses ENV[key] ||= value, so a deleted URL would come back from
+  # a file, while a URL that is already set stays pointed at the probe.
   def self.child_env(base_env:, cluster:, db_name:, user:, password:)
-    base_env.to_h.merge(
+    raise ArgumentError, 'refusing a probe name this harness did not generate' unless db_name.match?(PROBE_STEM)
+    raise ArgumentError, 'refusing an empty probe password' if password.blank?
+
+    database = "#{db_name}_test"
+    url = probe_database_url(cluster: cluster, database: database, user: user, password: password)
+    env = base_env.to_h.merge(
       'RAILS_ENV' => 'test',
       'DB_NAME' => db_name,
       'DB_USER' => user,
@@ -102,8 +114,114 @@ class VisibilityMigrationPrivilegeProbe
       'TEST_ENV_NUMBER' => '',
       'DB_HOST' => cluster[:host].present? ? cluster[:host].to_s : nil,
       'DB_PORT' => cluster[:port].present? ? cluster[:port].to_s : nil,
-      'DB_SSLMODE' => cluster[:sslmode].present? ? cluster[:sslmode].to_s : nil
+      'DB_SSLMODE' => cluster[:sslmode].present? ? cluster[:sslmode].to_s : nil,
+      'E2_PRIVILEGE_EXPECT_DATABASE' => database,
+      'E2_PRIVILEGE_EXPECT_USER' => user,
+      'E2_PRIVILEGE_EXPECT_HOST' => cluster[:host].present? ? cluster[:host].to_s : nil,
+      'E2_PRIVILEGE_EXPECT_PORT' => cluster[:port].present? ? cluster[:port].to_s : nil
     )
+    env.each_key { |key| env[key] = url if key == 'DATABASE_URL' || key.end_with?('_DATABASE_URL') }
+    env['DATABASE_URL'] = url
+    env['PRIMARY_DATABASE_URL'] = url
+    env
+  end
+
+  def self.probe_database_url(cluster:, database:, user:, password:)
+    authority = if cluster[:host].present?
+                  cluster[:port].present? ? "#{cluster[:host]}:#{cluster[:port]}" : cluster[:host].to_s
+                else
+                  ''
+                end
+    query = cluster[:sslmode].present? ? "?sslmode=#{encode_url_component(cluster[:sslmode])}" : ''
+    "postgresql://#{encode_url_component(user)}:#{encode_url_component(password)}@#{authority}/#{encode_url_component(database)}#{query}"
+  end
+
+  def self.encode_url_component(value)
+    URI.encode_www_form_component(value.to_s).tr('+', '%20')
+  end
+
+  def self.target_matches?(config, database:, user:, host:, port:)
+    return false if config.blank?
+
+    values = config.symbolize_keys
+    values[:database].to_s == database.to_s &&
+      values[:username].to_s == user.to_s &&
+      values[:host].to_s == host.to_s &&
+      values[:port].to_s == port.to_s
+  end
+
+  # Reads config/database.yml and applies Rails 6.1 URL precedence while env
+  # is installed. Does not connect and does not keep the swapped variables.
+  def self.resolved_test_config(env)
+    with_env(env) do
+      raw = Rails.application.config.database_configuration
+      ActiveRecord::DatabaseConfigurations.new(raw).configs_for(env_name: 'test', name: 'primary')&.configuration_hash
+    end
+  end
+
+  def self.with_env(env)
+    keys = env.keys
+    previous = {}
+    keys.each { |key| previous[key] = ENV[key] if ENV.key?(key) }
+    keys.each do |key|
+      value = env[key]
+      value.nil? ? ENV.delete(key) : ENV[key] = value.to_s
+    end
+    yield
+  ensure
+    keys.each { |key| ENV.delete(key) }
+    previous.each { |key, value| ENV[key] = value }
+  end
+
+  def self.schema_load_source
+    <<~RUBY
+      require './config/application'
+
+      expected_database = ENV.fetch('E2_PRIVILEGE_EXPECT_DATABASE')
+      expected_user = ENV.fetch('E2_PRIVILEGE_EXPECT_USER')
+      expected_host = ENV['E2_PRIVILEGE_EXPECT_HOST'].to_s
+      expected_port = ENV['E2_PRIVILEGE_EXPECT_PORT'].to_s
+
+      Rails.application.config.before_initialize do
+        raw = Rails.application.config.database_configuration
+        resolved = ActiveRecord::DatabaseConfigurations.new(raw).configs_for(env_name: 'test', name: 'primary')
+        hash = resolved&.configuration_hash&.symbolize_keys || {}
+        matched = hash[:database].to_s == expected_database &&
+                  hash[:username].to_s == expected_user &&
+                  hash[:host].to_s == expected_host &&
+                  hash[:port].to_s == expected_port
+        unless matched
+          warn #{REFUSAL.inspect}
+          exit! 1
+        end
+      end
+
+      Rails.application.initialize!
+
+      actual = ActiveRecord::Base.connection.select_one('SELECT current_database() AS database, current_user AS role')
+      unless actual['database'] == expected_database && actual['role'] == expected_user
+        warn #{SESSION_REFUSAL.inspect}
+        exit! 1
+      end
+
+      ActiveRecord::Tasks::DatabaseTasks.load_schema_current(:ruby, Rails.root.join('db/schema.rb').to_s)
+    RUBY
+  end
+
+  def self.quote_sentinel(name)
+    raise ArgumentError, 'refusing an unexpected sentinel name' unless name.match?(SENTINEL_IDENT)
+
+    %("#{name}")
+  end
+
+  def self.redact_env(text, env)
+    secrets = env.filter_map do |key, value|
+      next if value.nil? || value.empty?
+      next unless key.match?(/URL|PASS|PASSWORD|SECRET/)
+
+      value
+    end
+    redact(text, *secrets)
   end
 
   def self.open_admin_session(cluster)
@@ -331,6 +449,7 @@ RSpec.describe VisibilityMigrationPrivilegeProbe do
     expect(joined).not_to include(second.database_name)
     expect(joined).not_to include(second.role_name)
     expect(joined).not_to include('eb_e2_nonsuper')
+    expect(joined).not_to include('eb_e2_sentinel_0123456789abcdef')
     expect(second.created_database).to eq second.database_name
     expect(second.created_role).to eq second.role_name
     expect { first.ident('eb_e2_nonsuper') }.to raise_error(ArgumentError)
@@ -393,6 +512,84 @@ RSpec.describe VisibilityMigrationPrivilegeProbe do
     end
   end
 
+  it 'resolves the child to the probe for every inherited database URL' do
+    probe_user = 'eb_e2_0123456789abcdef'
+    probe_database = "#{probe_user}_test"
+    cluster = { host: 'db.example', port: 5432, sslmode: 'prefer' }
+    foreign = {
+      none: {},
+      database_url: { 'DATABASE_URL' => 'postgresql://app:secret@db.example:5432/existing_test' },
+      primary_database_url: { 'PRIMARY_DATABASE_URL' => 'postgresql://app:secret@db.example:5432/primary_existing' },
+      both: {
+        'DATABASE_URL' => 'postgresql://app:secret@db.example:5432/existing_test',
+        'PRIMARY_DATABASE_URL' => 'postgresql://app:secret@db.example:5432/primary_existing',
+        'REPLICA_DATABASE_URL' => 'postgresql://app:secret@db.example:5432/replica_existing',
+      },
+    }
+
+    foreign.each do |label, inherited|
+      parent = inherited.merge('PATH' => '/usr/bin')
+      snapshot = parent.dup
+      env = described_class.child_env(
+        base_env: parent,
+        cluster: cluster,
+        db_name: probe_user,
+        user: probe_user,
+        password: 'generated-secret'
+      )
+
+      expect(parent).to eq(snapshot), label.to_s
+      resolved = described_class.resolved_test_config(env)
+      expect(described_class.target_matches?(resolved, database: probe_database, user: probe_user, host: 'db.example', port: 5432)).to be(true), label.to_s
+      expect(resolved[:database]).not_to eq('existing_test'), label.to_s
+      expect(resolved[:database]).not_to eq('primary_existing'), label.to_s
+      expect(resolved[:database]).not_to eq('replica_existing'), label.to_s
+      %w[DATABASE_URL PRIMARY_DATABASE_URL REPLICA_DATABASE_URL].each do |key|
+        next unless env.key?(key)
+
+        database = ActiveRecord::DatabaseConfigurations::ConnectionUrlResolver.new(env.fetch(key)).to_hash[:database]
+        expect(database).to eq(probe_database), "#{label} #{key}"
+      end
+    end
+
+    blank = described_class.child_env(
+      base_env: {
+        'DATABASE_URL' => 'postgresql://app:secret@db.example:5432/existing_test',
+        'DB_HOST' => 'db.internal',
+        'DB_PORT' => '5433',
+      },
+      cluster: { host: nil, port: nil, sslmode: 'prefer' },
+      db_name: probe_user,
+      user: probe_user,
+      password: 'generated-secret'
+    )
+    blank_resolved = described_class.resolved_test_config(blank)
+    expect(described_class.target_matches?(blank_resolved, database: probe_database, user: probe_user, host: nil, port: nil)).to be true
+    expect(blank_resolved[:database]).not_to eq 'existing_test'
+
+    kept = described_class.child_env(
+      base_env: { 'DATABASE_URL' => 'postgresql://app:secret@db.example:5432/existing_test' },
+      cluster: cluster,
+      db_name: probe_user,
+      user: probe_user,
+      password: 'generated-secret'
+    )
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, '.env'), "DATABASE_URL=postgresql://app:secret@db.example:5432/from_file\nPRIMARY_DATABASE_URL=postgresql://app:secret@db.example:5432/from_file_primary\n")
+      described_class.with_env(kept) do
+        Dotenv.load(File.join(dir, '.env'))
+        reloaded = described_class.resolved_test_config(ENV.to_h.slice(
+          'RAILS_ENV', 'DB_NAME', 'DB_USER', 'DB_PASS', 'DB_HOST', 'DB_PORT', 'DB_SSLMODE', 'TEST_ENV_NUMBER',
+          'DATABASE_URL', 'PRIMARY_DATABASE_URL'
+        ))
+        expect(reloaded[:database]).to eq probe_database
+        expect(reloaded[:username]).to eq probe_user
+        expect(reloaded[:database]).not_to eq 'from_file'
+        expect(reloaded[:database]).not_to eq 'from_file_primary'
+      end
+    end
+  end
+
   it 'writes the privilege report without requiring a cursor artifacts directory' do
     Dir.mktmpdir do |dir|
       path = described_class.write_report(directory: dir, body: "schema_load=success\n")
@@ -451,6 +648,77 @@ RSpec.describe 'external visibility migrate function without superuser' do
     raise VisibilityMigrationPrivilegeProbe.redact_error(e)
   end
 
+  def app_login
+    config = ActiveRecord::Base.connection_db_config.configuration_hash.symbolize_keys
+    { user: config[:username].to_s, password: config[:password].to_s }
+  end
+
+  def install_sentinel_marker!(name)
+    login = app_login
+    connection = PG.connect(
+      VisibilityMigrationPrivilegeProbe.connect_options(
+        cluster: cluster, dbname: name, user: login[:user], password: login[:password]
+      )
+    )
+    connection.exec('CREATE TABLE e2_sentinel (id integer primary key)')
+    connection.exec('INSERT INTO e2_sentinel (id) VALUES (1)')
+  ensure
+    connection&.close unless connection&.finished?
+  end
+
+  def sentinel_count(name)
+    login = app_login
+    connection = PG.connect(
+      VisibilityMigrationPrivilegeProbe.connect_options(
+        cluster: cluster, dbname: name, user: login[:user], password: login[:password]
+      )
+    )
+    connection.exec('SELECT count(*) FROM e2_sentinel').getvalue(0, 0).to_i
+  ensure
+    connection&.close unless connection&.finished?
+  end
+
+  def probe_schema_loaded?(probe, password)
+    connection = PG.connect(
+      VisibilityMigrationPrivilegeProbe.connect_options(
+        cluster: cluster, dbname: probe.database_name, user: probe.role_name, password: password
+      )
+    )
+    !connection.exec("SELECT to_regclass('public.schema_migrations')").getvalue(0, 0).nil?
+  ensure
+    connection&.close unless connection&.finished?
+  end
+
+  def drop_sentinel!(name)
+    return if name.nil?
+
+    original = $!
+    ActiveRecord::Base.establish_connection(:test)
+    cleanup = VisibilityMigrationPrivilegeProbe.open_admin_session(cluster)
+    begin
+      cleanup.execute(<<~SQL.squish)
+        SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+        WHERE datname = #{cleanup.quote(name)} AND pid <> pg_backend_pid()
+      SQL
+      cleanup.execute("DROP DATABASE IF EXISTS #{VisibilityMigrationPrivilegeProbe.quote_sentinel(name)}")
+    rescue StandardError => e
+      raise original if original
+
+      raise VisibilityMigrationPrivilegeProbe.redact_error(e)
+    ensure
+      cleanup.close
+    end
+  end
+
+  def run_schema_child(env)
+    output, status = Open3.capture2e(
+      env,
+      'bundle', 'exec', 'ruby', '-e', VisibilityMigrationPrivilegeProbe.schema_load_source,
+      chdir: Rails.root.to_s
+    )
+    [VisibilityMigrationPrivilegeProbe.redact_env(output, env), status]
+  end
+
   it 'drops only the probe resources this run created' do
     skip VisibilityMigrationPrivilegeProbe.skip_reason if VisibilityMigrationPrivilegeProbe.skip_reason
 
@@ -493,21 +761,40 @@ RSpec.describe 'external visibility migrate function without superuser' do
     admin_password = ENV.fetch('E2_PRIVILEGE_ADMIN_PASSWORD', nil)
     admin = nil
     clients = []
+    sentinel_name = nil
+    child = nil
     begin
       admin = VisibilityMigrationPrivilegeProbe.open_admin_session(cluster)
       admin_row = probe.prepare!(session: admin, password: password)
-      load_out, load_status = Open3.capture2e(
-        VisibilityMigrationPrivilegeProbe.child_env(
-          base_env: ENV.to_h,
-          cluster: cluster,
-          db_name: probe.schema_db_name,
-          user: probe.role_name,
-          password: password
-        ),
-        'bundle', 'exec', 'rake', 'db:schema:load',
-        chdir: Rails.root.to_s
+      candidate = "eb_e2_sentinel_#{SecureRandom.hex(8)}"
+      admin.execute("CREATE DATABASE #{VisibilityMigrationPrivilegeProbe.quote_sentinel(candidate)}")
+      sentinel_name = candidate
+      install_sentinel_marker!(sentinel_name)
+      login = app_login
+      sentinel_url = VisibilityMigrationPrivilegeProbe.probe_database_url(
+        cluster: cluster, database: sentinel_name, user: login[:user], password: login[:password]
       )
-      expect(load_status).to be_success, VisibilityMigrationPrivilegeProbe.redact(load_out, password, admin_password)
+      child = VisibilityMigrationPrivilegeProbe.child_env(
+        base_env: ENV.to_h.merge('DATABASE_URL' => sentinel_url, 'PRIMARY_DATABASE_URL' => sentinel_url),
+        cluster: cluster,
+        db_name: probe.schema_db_name,
+        user: probe.role_name,
+        password: password
+      )
+      %w[DATABASE_URL PRIMARY_DATABASE_URL].each do |key|
+        database = ActiveRecord::DatabaseConfigurations::ConnectionUrlResolver.new(child.fetch(key)).to_hash[:database]
+        expect(database).to eq probe.database_name
+      end
+
+      refused_out, refused_status = run_schema_child(child.merge('E2_PRIVILEGE_EXPECT_DATABASE' => sentinel_name))
+      expect(refused_status).not_to be_success, refused_out
+      expect(refused_out).to include(VisibilityMigrationPrivilegeProbe::REFUSAL)
+      expect(sentinel_count(sentinel_name)).to eq 1
+      expect(probe_schema_loaded?(probe, password)).to be false
+
+      load_out, load_status = run_schema_child(child)
+      expect(load_status).to be_success, load_out
+      expect(sentinel_count(sentinel_name)).to eq 1
 
       owner = PG.connect(
         VisibilityMigrationPrivilegeProbe.connect_options(
@@ -649,12 +936,18 @@ RSpec.describe 'external visibility migrate function without superuser' do
       expect(written).not_to include(password)
       expect(written).not_to include(admin_password) if admin_password.present?
     rescue StandardError => e
-      raise VisibilityMigrationPrivilegeProbe.redact_error(e, password, admin_password)
+      secrets = [password, admin_password]
+      secrets.concat(child.values.grep(%r{://})) if child
+      raise VisibilityMigrationPrivilegeProbe.redact_error(e, *secrets.compact)
     ensure
       close_clients(clients)
       admin&.close
       ActiveRecord::Base.establish_connection(:test)
-      drop_probe(probe)
+      begin
+        drop_probe(probe)
+      ensure
+        drop_sentinel!(sentinel_name)
+      end
     end
   end
 
