@@ -8,6 +8,9 @@
 # up replaces two functions. It does not recreate triggers: visibility is
 # already in the field-guard UPDATE OF list. Replacing a function does not
 # rewrite statuses. lock_timeout is 5s so a busy catalog fails instead of waiting.
+# The migrate function has no CREATE FUNCTION SET clause. A database that
+# already applied an earlier draft of this version still has that clause until
+# 20261022120000 runs.
 #
 # down removes that permit and restores the E1 field guard. External rows may
 # remain. Down does not convert them back to personal and does not return the

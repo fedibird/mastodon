@@ -115,6 +115,9 @@ RSpec.describe ExternalBridge::ProjectionWriter do
       expect(field_body).to include('to_jsonb(OLD)')
       migrate_body = probe.exec("SELECT prosrc FROM pg_proc WHERE proname = 'external_visibility_migrate_status'").getvalue(0, 0)
       expect(migrate_body).to include('fedibird.external_visibility_migration')
+      expect(migrate_body).to include('query_canceled')
+      migrate_config = probe.exec("SELECT proconfig IS NULL FROM pg_proc WHERE proname = 'external_visibility_migrate_status'").getvalue(0, 0)
+      expect(migrate_config).to eq 't'
       shape_trigger = probe.exec("SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = 'statuses_external_visibility_shape_guard' AND NOT tgisinternal").getvalue(0, 0)
       expect(shape_trigger).to include('BEFORE INSERT OR UPDATE OF local, reply')
       field_trigger = probe.exec("SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = 'statuses_external_projection_field_guard' AND NOT tgisinternal").getvalue(0, 0)

@@ -25,13 +25,16 @@ module ExternalBridge
       shape.present? && marker.to_s.include?('NOT IN (200, 201)')
     end
 
+    # The migrate function must save and restore the caller's GUC itself.
+    # proconfig must not store that custom parameter: CREATE FUNCTION SET
+    # on a custom GUC is rejected for a normal database owner.
     def transition_ready?
       connection = ActiveRecord::Base.connection
       field = connection.select_value(<<~SQL)
         SELECT prosrc FROM pg_proc WHERE proname = 'statuses_external_projection_field_guard'
       SQL
       migrate = connection.select_value(<<~SQL)
-        SELECT proname FROM pg_proc WHERE proname = 'external_visibility_migrate_status'
+        SELECT prosrc FROM pg_proc WHERE proname = 'external_visibility_migrate_status'
       SQL
       config = connection.select_value(<<~SQL)
         SELECT proconfig::text FROM pg_proc WHERE proname = 'external_visibility_migrate_status'
@@ -40,10 +43,15 @@ module ExternalBridge
         SELECT 1 FROM pg_trigger
         WHERE tgname = 'statuses_external_projection_field_guard' AND NOT tgisinternal
       SQL
+      body = migrate.to_s
       field.to_s.include?('fedibird.external_visibility_migration') &&
         field.to_s.include?('to_jsonb(OLD)') &&
-        migrate.present? &&
-        config.to_s.include?('fedibird.external_visibility_migration') &&
+        body.include?("previous := current_setting('fedibird.external_visibility_migration', true)") &&
+        body.include?("set_config('fedibird.external_visibility_migration', token, true)") &&
+        body.include?("set_config('fedibird.external_visibility_migration', previous, true)") &&
+        body.include?('query_canceled') &&
+        body.include?('WHEN OTHERS') &&
+        !config.to_s.include?('fedibird.external_visibility_migration') &&
         trigger.present? &&
         database_ready?
     end

@@ -124,6 +124,16 @@ Application rollback stops at a revision that understands E1. Older code does no
 
 ## Database permit
 
-`external_visibility_migrate_status(status_id)` is the only supported update path. It sets a transaction-local token for that id and updates `visibility` and `updated_at` only. The trigger rejects the statement unless the token matches that row's id and the current transaction id, the old and new shapes are a normal projection, a consistent marker exists, and no other column changed. Lock order inside a batch is marker id, then status id, which matches RSS refresh. Purge locks the status first, so a deadlock is possible; the batch stops and the checkpoint does not skip the row.
+`external_visibility_migrate_status(status_id)` is the only supported update path. It sets a transaction-local token for that id and updates `visibility` and `updated_at` only, then restores the caller's previous value of `fedibird.external_visibility_migration` before returning. A raised error or a cancelled query restores that value too. The function definition does not use `SET` on that parameter. Installing the function does not require superuser, `SECURITY DEFINER`, or `GRANT` on the parameter.
+
+A database that already applied `20261021180000` from an earlier draft still has the old function until the follow-up migration runs. Apply it with the application role, not by granting that role superuser:
+
+```sh
+RAILS_ENV=test bundle exec rails db:migrate
+```
+
+That runs `20261022120000`, which replaces only `external_visibility_migrate_status`. It does not rewrite statuses and it does not put the `SET` clause back. `schema:load` of this revision installs the same function body and does not run the old clause.
+
+The trigger rejects the statement unless the token matches that row's id and the current transaction id, the old and new shapes are a normal projection, a consistent marker exists, and no other column changed. Lock order inside a batch is marker id, then status id, which matches RSS refresh. Purge locks the status first, so a deadlock is possible; the batch stops and the checkpoint does not skip the row.
 
 Direct `UPDATE` without the function still fails. Setting the token and also changing the text fails. A token for a different id fails. `fedibird.projection_status_delete` is not reused. Triggers are not disabled.

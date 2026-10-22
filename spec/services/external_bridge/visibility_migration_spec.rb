@@ -122,7 +122,8 @@ RSpec.describe ExternalBridge::VisibilityMigration::Runner do
       expect(ordinary.reload.visibility).to eq 'personal'
 
       leaked = ActiveRecord::Base.connection.select_value("SELECT current_setting('fedibird.external_visibility_migration', true)")
-      expect(leaked.to_s).not_to include(status.id.to_s)
+      expect(leaked.to_s).not_to include("#{status.id}:")
+      expect(leaked.presence).to be_nil
       expect_database_rejection("UPDATE statuses SET visibility = 200 WHERE id = #{status.id}")
       expect_database_rejection("SELECT external_visibility_migrate_status(#{ordinary.id})")
       expect(ordinary.reload.visibility).to eq 'personal'
@@ -198,6 +199,48 @@ RSpec.describe ExternalBridge::VisibilityMigration::Runner do
       expect_database_rejection("UPDATE statuses SET visibility = 201, updated_at = clock_timestamp() WHERE id = #{second[:status].id}")
     end
 
+    it 'restores an unset value, a caller value, and the value around a caught rejection' do
+      legacy = project_for(user, body: 'Restore body')
+      other = project_for(user, body: 'Other restore body')
+      ordinary = PostStatusService.new.call(user.account, text: 'Ordinary restore', visibility: 'personal')
+      connection = ActiveRecord::Base.connection
+      permit = -> { connection.select_value("SELECT current_setting('fedibird.external_visibility_migration', true)") }
+
+      ApplicationRecord.transaction(requires_new: true) do
+        connection.select_value("SELECT set_config('fedibird.external_visibility_migration', NULL, true)")
+        expect(permit.call.presence).to be_nil
+        connection.select_value("SELECT external_visibility_migrate_status(#{legacy[:status].id})")
+        expect(permit.call.to_s).not_to include("#{legacy[:status].id}:")
+        expect(permit.call.presence).to be_nil
+        expect_database_rejection("UPDATE statuses SET visibility = 201, updated_at = clock_timestamp() WHERE id = #{other[:status].id}")
+        raise ActiveRecord::Rollback
+      end
+
+      ApplicationRecord.transaction(requires_new: true) do
+        connection.select_value("SELECT set_config('fedibird.external_visibility_migration', 'off', true)")
+        connection.select_value("SELECT external_visibility_migrate_status(#{legacy[:status].id})")
+        expect(permit.call).to eq 'off'
+        connection.select_value("SELECT set_config('fedibird.external_visibility_migration', 'caller-held', true)")
+        connection.select_value("SELECT external_visibility_migrate_status(#{other[:status].id})")
+        expect(permit.call).to eq 'caller-held'
+        expect_database_rejection("UPDATE statuses SET visibility = 201, updated_at = clock_timestamp() WHERE id = #{ordinary.id}")
+        raise ActiveRecord::Rollback
+      end
+
+      ApplicationRecord.transaction(requires_new: true) do
+        connection.select_value("SELECT set_config('fedibird.external_visibility_migration', 'before-call', true)")
+        expect do
+          ApplicationRecord.transaction(requires_new: true) do
+            connection.select_value("SELECT external_visibility_migrate_status(#{ordinary.id})")
+          end
+        end.to raise_error(ActiveRecord::StatementInvalid)
+        expect(permit.call).to eq 'before-call'
+        expect(ordinary.reload.visibility).to eq 'personal'
+        expect(legacy[:status].reload.visibility).to eq 'personal'
+        raise ActiveRecord::Rollback
+      end
+    end
+
     it 'restores the E1 guard on the way down without rewriting a 201 row' do
       external = external_project_for(user, body: 'Stays external')
       legacy = project_for(user, body: 'Stays legacy during down')
@@ -217,6 +260,10 @@ RSpec.describe ExternalBridge::VisibilityMigration::Runner do
         migration.up
         restored = connection.select_value("SELECT prosrc FROM pg_proc WHERE proname = 'statuses_external_projection_field_guard'")
         expect(restored).to include('fedibird.external_visibility_migration')
+        migrate_body = connection.select_value("SELECT prosrc FROM pg_proc WHERE proname = 'external_visibility_migrate_status'")
+        expect(migrate_body).to include('query_canceled')
+        expect(connection.select_value("SELECT proconfig::text FROM pg_proc WHERE proname = 'external_visibility_migrate_status'")).to be_nil
+        expect(ExternalBridge::VisibilitySwitch.transition_ready?).to be true
         expect(connection.select_value("SELECT external_visibility_migrate_status(#{legacy[:status].id})").to_i).to eq 1
         raise ActiveRecord::Rollback
       end

@@ -134,20 +134,25 @@ module ExternalBridge
       $$;
     SQL
 
-    # Runs the visibility UPDATE and clears the permit when the function
-    # returns, including when the caller is inside an outer transaction.
-    # PostgreSQL restores the function's SET clause on exit, so SET LOCAL
-    # made here does not survive the call. The trigger still rechecks the row.
+    # Runs the visibility UPDATE. The permit is transaction-local and is put
+    # back to the caller's previous value before the function returns. An
+    # exception, including query cancel, restores that same value and raises
+    # again. There is no CREATE FUNCTION SET clause: storing a custom GUC there
+    # requires a superuser or SET privilege, which a normal database owner does
+    # not have. set_config inside the body does not. Unset restores through
+    # NULL; PostgreSQL then reports a custom placeholder as an empty string,
+    # which is not an id:txid permit. The trigger still rechecks the row.
     MIGRATE_FUNCTION_SQL = <<~SQL
       CREATE OR REPLACE FUNCTION external_visibility_migrate_status(p_status_id bigint)
       RETURNS integer
       LANGUAGE plpgsql
-      SET fedibird.external_visibility_migration TO 'off'
       AS $$
       DECLARE
         updated_count integer;
         token text;
+        previous text;
       BEGIN
+        previous := current_setting('fedibird.external_visibility_migration', true);
         token := p_status_id::text || ':' || txid_current()::text;
         PERFORM set_config('fedibird.external_visibility_migration', token, true);
         UPDATE statuses
@@ -156,8 +161,15 @@ module ExternalBridge
          WHERE id = p_status_id
            AND visibility = #{PERSONAL_VISIBILITY};
         GET DIAGNOSTICS updated_count = ROW_COUNT;
-        PERFORM set_config('fedibird.external_visibility_migration', 'off', true);
+        PERFORM set_config('fedibird.external_visibility_migration', previous, true);
         RETURN updated_count;
+      EXCEPTION
+        WHEN query_canceled THEN
+          PERFORM set_config('fedibird.external_visibility_migration', previous, true);
+          RAISE;
+        WHEN OTHERS THEN
+          PERFORM set_config('fedibird.external_visibility_migration', previous, true);
+          RAISE;
       END;
       $$;
     SQL
