@@ -31,18 +31,31 @@ RSpec.describe 'External visibility migration follow-up' do
   end
 
   describe 'search follow-up' do
-    # The suite pushes :bypass. These examples put :custom_sidekiq on top so a
-    # regression back to strategy.current.update cannot hide behind bypass or urgent.
+    # The suite root is :custom_sidekiq, and the example pushes that strategy
+    # only around the example body. Fixture rows are built under :bypass so
+    # their Account update_index calls are not imported when this strategy
+    # leaves. The migration itself must still see :custom_sidekiq as current,
+    # and it must not call strategy.current.update.
     around do |example|
-      Chewy.strategy(:custom_sidekiq) { example.run }
+      Chewy.strategy(:custom_sidekiq) do
+        example.run
+        expect(search_strategy_stash.keys).not_to include(AccountsIndex)
+      end
     end
 
     let(:legacy) { project_for(user, body: 'Search follow body') }
     let(:ordinary) { PostStatusService.new.call(user.account, text: 'Ordinary personal note', visibility: 'personal') }
 
     before do
-      legacy
-      ordinary
+      Chewy.strategy(:bypass) do
+        legacy
+        ordinary
+      end
+    end
+
+    before do
+      expect(Chewy.strategy.current).to be_a(Chewy::Strategy::CustomSidekiq)
+      expect(search_strategy_stash.keys).not_to include(AccountsIndex)
     end
 
     it 'does not ask the sidekiq strategy to update, and treats document not-found as success' do
@@ -59,8 +72,34 @@ RSpec.describe 'External visibility migration follow-up' do
       expect { ExternalBridge::VisibilityMigration::CacheSync.invalidate!([legacy[:status].id]) }.not_to raise_error
     end
 
+    it 'does not carry fixture account updates into the custom sidekiq stash' do
+      # Boot skips callback registration unless Chewy is already enabled.
+      # HONEYBEE loads with it enabled, which is what puts AccountsIndex in the stash.
+      added = Account.chewy_callbacks.empty?
+      register_account_index_callback!
+      allow(Chewy).to receive(:enabled?).and_return(true)
+      pushed = []
+      allow(Sidekiq::Client).to receive(:push) { |job| pushed << job }
+
+      Chewy.strategy(:custom_sidekiq) do
+        Chewy.strategy(:bypass) do
+          project_for(user, body: 'Bypass only')
+        end
+        expect(search_strategy_stash.keys).not_to include(AccountsIndex)
+
+        user.account.update!(display_name: 'Visible to this strategy')
+        expect(search_strategy_stash.keys).to include(AccountsIndex)
+      end
+
+      expect(pushed).not_to be_empty
+      expect(pushed.map { |job| job.fetch('args').first }).to all(eq('AccountsIndex'))
+      expect(search_strategy_stash.keys).not_to include(AccountsIndex)
+    ensure
+      Account.chewy_callbacks = [] if added
+    end
+
     it 'refuses a bulk item that is neither deleted nor not-found' do
-      second = project_for(user, body: 'Second search body')
+      second = Chewy.strategy(:bypass) { project_for(user, body: 'Second search body') }
       allow(Chewy).to receive(:enabled?).and_return(true)
       expect(Chewy.client).to receive(:bulk).and_return(
         'items' => [
@@ -119,6 +158,8 @@ RSpec.describe 'External visibility migration follow-up' do
     it 'deletes a planted document under the custom sidekiq strategy before the checkpoint completes' do
       skip 'Elasticsearch is not reachable. This skip is not a pass.' unless elasticsearch_available?
       expect(Chewy.root_strategy).to eq :custom_sidekiq
+      expect(Chewy.strategy.current).to be_a(Chewy::Strategy::CustomSidekiq)
+      prepare_statuses_index!
       plant_document(legacy[:status])
       plant_document(ordinary)
       expect(indexed_document(legacy[:status].id)).to include('_id' => legacy[:status].id.to_s)
@@ -288,6 +329,48 @@ RSpec.describe 'External visibility migration follow-up' do
       expect(JSON.parse(File.read(path))['pending_batch']).to be_nil
       expect(counts).to include(bulk: 4, get: 201, status_pluck: 4, marker_pluck: 4)
       expect(ordinary.reload.visibility).to eq 'personal'
+    end
+
+    it 'resumes a search delete on the same index after a later slice fails' do
+      skip 'Elasticsearch is not reachable. This skip is not a pass.' unless elasticsearch_available?
+
+      prepare_statuses_index!
+      ids = migration_ids(101)
+      expect(ids.length).to eq 101
+      ids.each { |id| plant_document(Status.find(id)) }
+      plant_document(ordinary)
+      expect(Chewy.strategy.current).not_to receive(:update)
+
+      path = File.join(Dir.mktmpdir, 'checkpoint.json')
+      seen = 0
+      phase = :fail
+      injector = lambda do |name|
+        next unless name == :during_cache
+
+        seen += 1
+        raise 'injected later slice failure' if phase == :fail && seen == 2
+      end
+      Setting.external_bridge_external_visibility = true
+      options = { apply: true, confirm_readers_ready: true, user_id: user.id, checkpoint: path, limit: 200, batch_size: 200, injector: injector }
+
+      expect { run_migration(**options) }.to raise_error(ExternalBridge::VisibilityMigration::Runner::CacheIncomplete, /injected later slice failure/)
+
+      pending_ids = JSON.parse(File.read(path)).dig('pending_batch', 'status_ids')
+      expect(pending_ids.length).to eq 101
+      expect(JSON.parse(File.read(path))['last_completed_marker_id']).to eq 0
+      expect(Status.where(id: ids).pluck(:visibility).uniq).to eq ['external']
+      expect(pending_ids.first(100).map { |id| indexed_document(id) }).to all(be_nil)
+      expect(indexed_document(pending_ids.last)).to include('_id' => pending_ids.last.to_s)
+      expect(indexed_document(ordinary.id)).to include('_id' => ordinary.id.to_s)
+
+      phase = :resume
+      seen = 0
+      result = run_migration(**options)
+      expect(result.outcome).to eq :window_complete
+      expect(seen).to eq 2
+      expect(JSON.parse(File.read(path))['pending_batch']).to be_nil
+      expect(ids.map { |id| indexed_document(id) }).to all(be_nil)
+      expect(indexed_document(ordinary.id)).to include('_id' => ordinary.id.to_s)
     end
   end
 
@@ -521,6 +604,29 @@ RSpec.describe 'External visibility migration follow-up' do
     false
   end
 
+  def search_strategy_stash
+    Chewy.strategy.current.instance_variable_get(:@stash) || {}
+  end
+
+  def register_account_index_callback!
+    return if Account.chewy_callbacks.any?
+
+    Chewy::Index::Observe::ActiveRecordMethods::ClassMethods
+      .instance_method(:update_index)
+      .bind_call(Account, 'accounts', :self)
+  end
+
+  # Deletes and recreates only the prefixed StatusesIndex. A blank prefix would
+  # target the unprefixed name, so this refuses instead of resetting it.
+  def prepare_statuses_index!
+    prefix = Chewy.configuration[:prefix].to_s
+    name = StatusesIndex.index_name
+    raise 'ES_PREFIX is required before resetting StatusesIndex' if prefix.blank?
+    raise "refusing to reset #{name}" unless name.start_with?("#{prefix}_")
+
+    StatusesIndex.purge!
+  end
+
   def plant_document(status)
     Chewy.client.index(
       index: StatusesIndex.index_name,
@@ -541,8 +647,10 @@ RSpec.describe 'External visibility migration follow-up' do
   end
 
   def migration_ids(count)
-    (count - 1).times { project_for(user, body: 'Batch body') }
-    ExternalStatusProjection.where(user_id: user.id).order(:id).pluck(:status_id)
+    Chewy.strategy(:bypass) do
+      (count - 1).times { project_for(user, body: 'Batch body') }
+      ExternalStatusProjection.where(user_id: user.id).order(:id).pluck(:status_id)
+    end
   end
 
   def count_search_follow_up(fail_slice: nil)
