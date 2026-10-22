@@ -143,6 +143,7 @@ RSpec.describe ExternalBridge::FeedRoutes::Update do
   describe 'ownership' do
     it 'refuses another user, including one who shares the account, and ignores a forged user id' do
       roommate = share_account_user(user.account)
+      permit_external_bridge_feeds_testers!(roommate)
       stranger = Fabricate(:user)
       list = Fabricate(:list, account: user.account)
 

@@ -34,7 +34,7 @@
   - else
     .external-service-feeds
       - @page.subscriptions.each do |subscription|
-        = render 'subscription', subscription: subscription, permitted: @page.permitted
+        = render 'settings/external_services/rss/subscription', subscription: subscription, permitted: @page.permitted
     - if @page.total_pages > 1
       %nav.external-service-pager{ aria: { label: t('external_bridge.page_nav') } }
         - if @page.page > 1

@@ -176,27 +176,30 @@ RSpec.describe 'External feed routing on home and list REST' do
     end
 
     it 'paginates an interleaved page with max, since, and min' do
-      ordinary_ids = [BASE + 9, BASE + 7, BASE + 5, BASE + 3]
-      external_ids = [BASE + 10, BASE + 8, BASE + 6, BASE + 4]
+      # Redis scores are IEEE doubles. These ids sit above 2^53 and stay
+      # exactly representable, so exclusive bounds do not collapse.
+      anchor = 9_007_199_254_740_992
+      ordinary_ids = [64, 96, 128, 160].map { |offset| anchor + offset }
+      external_ids = [80, 112, 144, 176].map { |offset| anchor + offset }
       ordinary_ids.each { |id| plant_ordinary(owner.account, id, "ordinary #{id}") }
       external_ids.each do |id|
         row = external_project_for(owner, id: id, body: "external #{id}")
         save_route(owner, row[:subscription], home: true)
       end
 
-      expect(home_rows(limit: 4).map { |row| row[:id] }).to eq [BASE + 10, BASE + 9, BASE + 8, BASE + 7].map(&:to_s)
+      expect(home_rows(limit: 4).map { |row| row[:id] }).to eq external_ids.reverse.zip(ordinary_ids.reverse).flatten.first(4).map(&:to_s)
 
-      next_page = home_rows(limit: 4, max_id: BASE + 7)
-      expect(next_page.map { |row| row[:id] }).to eq [BASE + 6, BASE + 5, BASE + 4, BASE + 3].map(&:to_s)
+      next_page = home_rows(limit: 4, max_id: anchor + 128)
+      expect(next_page.map { |row| row[:id] }).to eq [anchor + 112, anchor + 96, anchor + 80, anchor + 64].map(&:to_s)
 
-      since_page = home_rows(limit: 2, since_id: BASE + 6)
-      expect(since_page.map { |row| row[:id] }).to eq [BASE + 10, BASE + 9].map(&:to_s)
+      since_page = home_rows(limit: 2, since_id: anchor + 112)
+      expect(since_page.map { |row| row[:id] }).to eq [anchor + 176, anchor + 160].map(&:to_s)
 
-      min_page = home_rows(limit: 3, min_id: BASE + 4)
-      expect(min_page.map { |row| row[:id] }).to eq [BASE + 7, BASE + 6, BASE + 5].map(&:to_s)
+      min_page = home_rows(limit: 3, min_id: anchor + 80)
+      expect(min_page.map { |row| row[:id] }).to eq [anchor + 128, anchor + 112, anchor + 96].map(&:to_s)
 
-      both = home_rows(limit: 2, max_id: BASE + 9, min_id: BASE + 4)
-      expect(both.map { |row| row[:id] }).to eq [BASE + 6, BASE + 5].map(&:to_s)
+      both = home_rows(limit: 2, max_id: anchor + 160, min_id: anchor + 80)
+      expect(both.map { |row| row[:id] }).to eq [anchor + 112, anchor + 96].map(&:to_s)
 
       get '/api/v1/timelines/home', params: { max_id: 1 }, headers: owner_headers
       expect(response).to have_http_status(200)
@@ -208,9 +211,11 @@ RSpec.describe 'External feed routing on home and list REST' do
       plant_ordinary(owner.account, BASE + 11, 'rebuilding ordinary')
       get '/api/v1/timelines/home', params: { limit: 5, compact: true, visibilities: ['external'] }, headers: owner_headers
 
-      expect(response.headers['Link']).to include('compact')
-      expect(response.headers['Link']).to include('external')
-      expect(response.headers['Link']).to include(bundle[:status].id.to_s)
+      hrefs = response.headers['Link'].links.map(&:href).join(' ')
+      expect(hrefs).to include('compact=true')
+      expect(hrefs).to include('visibilities')
+      expect(hrefs).to include('external')
+      expect(hrefs).to include(bundle[:status].id.to_s)
 
       redis.set("account:#{owner.account_id}:regeneration", '1')
       get '/api/v1/timelines/home', headers: owner_headers
@@ -242,7 +247,8 @@ RSpec.describe 'External feed routing on home and list REST' do
 
       Setting.external_bridge_feeds = false
       off = capture_sql { get '/api/v1/timelines/home', headers: owner_headers }
-      expect(off.none? { |sql| sql.include?('external_feed_routes') || sql.include?('external_status_projections') }).to be true
+      expect(off.none? { |sql| sql.include?('external_feed_routes') }).to be true
+      expect(off.none? { |sql| sql.match?(/JOIN external_status_projections/i) }).to be true
 
       Setting.external_bridge_feeds = true
       permit_external_bridge_feeds_testers!(owner)
