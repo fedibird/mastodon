@@ -263,6 +263,64 @@
   font-weight: 700;
 }
 
+.external-service-routes {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba($primary-text-color, 0.35);
+  max-width: 40rem;
+  min-width: 0;
+
+  fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+
+  legend {
+    margin: 0 0 8px;
+    padding: 0;
+    color: $primary-text-color;
+    font-weight: 700;
+  }
+
+  label {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    min-height: 44px;
+    color: $primary-text-color;
+  }
+
+  input[type='checkbox'] {
+    flex: 0 0 auto;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-top: 0.15rem;
+  }
+}
+
+.external-service-routes__choice,
+.external-service-routes__note {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.external-service-routes__lists {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.external-service-routes__actions {
+  margin-top: 8px;
+
+  .button {
+    min-height: 44px;
+  }
+}
+
 .external-service-actions {
   display: flex;
   flex-wrap: wrap;
@@ -339,6 +397,10 @@
 }
 
 @media (max-width: 390px) {
+  .external-service-routes__actions .button {
+    width: 100%;
+  }
+
   .external-service-actions {
     flex-direction: column;
     align-items: stretch;
@@ -356,6 +418,7 @@
   .external-service-card,
   .external-service-feed,
   .external-service-identity,
+  .external-service-routes,
   .external-service-card__badge {
     border-color: $primary-text-color;
   }

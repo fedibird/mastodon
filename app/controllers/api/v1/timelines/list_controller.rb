@@ -33,12 +33,18 @@ class Api::V1::Timelines::ListController < Api::BaseController
   end
 
   def list_statuses
-    list_feed.get(
-      limit_param(DEFAULT_STATUSES_LIMIT),
-      params[:max_id],
-      params[:since_id],
-      params[:min_id]
-    )
+    feed = list_feed
+    limit = limit_param(DEFAULT_STATUSES_LIMIT)
+    if ExternalBridge::Feeds::Feature.permitted?(current_user)
+      ExternalBridge::Feeds::Compose.new(user: current_user, feed: feed, destination: 'list', list: @list).call(
+        limit,
+        params[:max_id],
+        params[:since_id],
+        params[:min_id]
+      )
+    else
+      feed.get(limit, params[:max_id], params[:since_id], params[:min_id])
+    end
   end
 
   def list_feed
@@ -54,7 +60,9 @@ class Api::V1::Timelines::ListController < Api::BaseController
   end
 
   def pagination_params(core_params)
-    params.slice(:limit).permit(:limit).merge(core_params)
+    permitted = params.slice(:limit).permit(:limit)
+    permitted[:compact] = params[:compact] if truthy_param?(:compact)
+    permitted.merge(core_params)
   end
 
   def next_path

@@ -8,34 +8,47 @@ class Feed
     @id   = id
   end
 
+  CandidateScan = Struct.new(:ids, :exhausted, :ascending, :frontier_id, :scanned, keyword_init: true)
+
   def get(limit, max_id = nil, since_id = nil, min_id = nil, visibilities = [])
+    visibilities = [] if visibilities.nil?
+    scan = candidate_scan(limit, max_id, since_id, min_id, visibilities)
+    ids = scan.ids.dup
+    ids.reverse! if scan.ascending
+    records_in_order(ids, visibilities)
+  end
+
+  # Selectable ids in redis walk order. exhausted is true only when this
+  # cursor range was read to the end. frontier_id is the last raw id examined.
+  # A caller merging another id source must not step past that frontier unless
+  # the redis range is exhausted. min_id walks ascending; every other cursor
+  # walks descending. The response order of get is still newest first.
+  def candidate_scan(limit, max_id = nil, since_id = nil, min_id = nil, visibilities = [])
     limit    = limit.to_i
     max_id   = max_id.to_i if max_id.present?
     since_id = since_id.to_i if since_id.present?
     min_id   = min_id.to_i if min_id.present?
+    visibilities = [] if visibilities.nil?
 
-    from_redis(limit, max_id, since_id, min_id, visibilities)
-  end
-
-  protected
-
-  # Walk Redis in cursor order and keep only rows that still exist. A raw
-  # limit of 20 can be entirely deleted, unreleased, suspended, or outside
-  # visibilities; stopping there would freeze the next max_id/min_id.
-  def from_redis(limit, max_id, since_id, min_id, visibilities)
     ascending = min_id.present?
     upper = max_id.presence || '+inf'
     lower = ascending ? min_id : (since_id.presence || '-inf')
     nearest = []
     scanned = 0
     width = limit
+    frontier = nil
+    exhausted = false
 
     while nearest.size < limit && scanned < FeedManager::MAX_ITEMS
       batch = [width, FeedManager::MAX_ITEMS - scanned].min
       ids = raw_ids(batch, upper, lower, ascending)
-      break if ids.empty?
+      if ids.empty?
+        exhausted = true
+        break
+      end
 
       scanned += ids.size
+      frontier = ids.last
       nearest.concat(selectable_ids(ids, visibilities))
       width = [width * 2, 160].min
 
@@ -45,13 +58,20 @@ class Feed
         upper = ids.last
       end
 
-      break if ids.size < batch
+      if ids.size < batch
+        exhausted = true
+        break
+      end
     end
 
-    page_ids = nearest.first(limit)
-    page_ids.reverse! if ascending
-    records_in_order(page_ids, visibilities)
+    CandidateScan.new(ids: nearest.first(limit), exhausted: exhausted, ascending: ascending, frontier_id: frontier, scanned: scanned)
   end
+
+  def records_for(ids, visibilities = [])
+    records_in_order(Array(ids), visibilities || [])
+  end
+
+  protected
 
   def raw_ids(batch, upper, lower, ascending)
     range = if ascending

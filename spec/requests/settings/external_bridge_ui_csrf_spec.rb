@@ -47,4 +47,19 @@ RSpec.describe 'External bridge settings CSRF' do
     expect(identity.reload.disconnected_at).to be_nil
     expect(identity.status).to eq('connected')
   end
+
+  it 'does not save a feed route without the CSRF token' do
+    enable_external_bridge_feeds!(user)
+    subscription = external_project_for(user, body: 'CSRF article')[:subscription]
+    sign_in user, scope: :user
+
+    expect do
+      patch settings_external_services_rss_subscription_feed_routes_path(subscription), params: {
+        feed_route: { home: '1', list_ids: [''], expected_revision: '0' },
+      }
+    end.not_to change(ExternalFeedRoute, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(subscription.reload.feed_routes_revision).to eq 0
+  end
 end

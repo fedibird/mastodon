@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_22_120000) do
+ActiveRecord::Schema.define(version: 2026_10_23_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -574,6 +574,19 @@ ActiveRecord::Schema.define(version: 2026_10_22_120000) do
     t.check_constraint "(protocol)::text = ANY ((ARRAY['rss'::character varying, 'atom'::character varying])::text[])", name: "external_actors_protocol_check"
   end
 
+  create_table "external_feed_routes", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "external_subscription_id", null: false
+    t.string "destination", null: false
+    t.bigint "list_id"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["list_id"], name: "index_external_feed_routes_on_list_id"
+    t.index ["user_id", "external_subscription_id"], name: "index_external_feed_routes_on_home", unique: true, where: "(((destination)::text = 'home'::text) AND (list_id IS NULL))"
+    t.index ["user_id", "external_subscription_id", "list_id"], name: "index_external_feed_routes_on_list", unique: true, where: "(((destination)::text = 'list'::text) AND (list_id IS NOT NULL))"
+    t.check_constraint "(((destination)::text = 'home'::text) AND (list_id IS NULL)) OR (((destination)::text = 'list'::text) AND (list_id IS NOT NULL))", name: "external_feed_routes_destination_shape"
+  end
+
   create_table "external_identities", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.string "provider", limit: 64, null: false
@@ -728,7 +741,9 @@ ActiveRecord::Schema.define(version: 2026_10_22_120000) do
     t.integer "failed_item_count", default: 0, null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+    t.bigint "feed_routes_revision", default: 0, null: false
     t.index ["external_source_id"], name: "index_external_subscriptions_on_external_source_id"
+    t.index ["id", "user_id"], name: "index_external_subscriptions_on_id_and_user", unique: true
     t.index ["id", "user_id", "external_source_id"], name: "index_external_subscriptions_on_id_user_and_source", unique: true
     t.index ["user_id", "external_source_id"], name: "index_external_subscriptions_on_user_and_source", unique: true
     t.index ["user_id"], name: "index_external_subscriptions_on_user_id"
@@ -2105,6 +2120,8 @@ ActiveRecord::Schema.define(version: 2026_10_22_120000) do
   add_foreign_key "emoji_reactions", "statuses", on_delete: :cascade
   add_foreign_key "encrypted_messages", "accounts", column: "from_account_id", on_delete: :cascade
   add_foreign_key "encrypted_messages", "devices", on_delete: :cascade
+  add_foreign_key "external_feed_routes", "lists", name: "fk_external_feed_routes_list", on_delete: :cascade
+  add_foreign_key "external_feed_routes", "users", name: "fk_external_feed_routes_user", on_delete: :cascade
   add_foreign_key "external_identities", "user_external_credentials", column: "credential_id", on_delete: :nullify
   add_foreign_key "external_identities", "users", on_delete: :cascade
   add_foreign_key "external_oauth_attempts", "users", on_delete: :cascade

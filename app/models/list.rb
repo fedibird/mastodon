@@ -32,6 +32,7 @@ class List < ApplicationRecord
 
   has_many :domain_subscribes, inverse_of: :list, dependent: :destroy
   has_many :keyword_subscribes, inverse_of: :list, dependent: :destroy
+  has_many :external_feed_routes, dependent: :delete_all, inverse_of: :list
 
   validates :title, presence: true
 
