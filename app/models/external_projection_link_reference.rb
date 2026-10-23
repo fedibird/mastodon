@@ -16,6 +16,7 @@
 #  policy_revision                :integer          not null
 #  state                          :string           default("active"), not null
 #  superseded_at                  :datetime
+#  published_at                   :datetime
 #  created_at                     :datetime         not null
 #  updated_at                     :datetime         not null
 #

@@ -4,6 +4,8 @@
 # rubocop:disable Metrics/BlockLength
 
 require 'rails_helper'
+require Rails.root.join('db/migrate/20261026120000_create_external_link_sharing.rb')
+require Rails.root.join('db/migrate/20261027120000_add_external_link_reference_published_at.rb')
 
 describe 'ExternalBridge link sharing', type: :model do
   def error_code(code)
@@ -366,6 +368,7 @@ describe 'ExternalBridge link sharing', type: :model do
     expect(note.reload.uri).to be_present
     mapping = ExternalProjectionLinkReference.find_by(reference_status_id: note.id)
     expect(mapping.external_status_projection_id).to be_nil
+    expect(mapping.projection_status_id).to eq(world[:status].id)
     expect(mapping.state).to eq('active')
     expect(Status.find_by(id: world[:status].id)).to be_nil
   end
@@ -450,12 +453,23 @@ describe 'ExternalBridge link sharing', type: :model do
     expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_references_enforce_owner' AND NOT tgisinternal")).to eq(1)
     expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_references_mark_broken' AND NOT tgisinternal")).to eq(1)
     expect(connection.select_value("SELECT pg_get_functiondef('users_external_projection_account_guard()'::regprocedure)")).to include('external_projection_link_references')
+    expect(connection.select_value("SELECT prosrc FROM pg_proc WHERE proname = 'external_projection_link_references_enforce_owner'")).to include('projection_marker_status_id')
     expect(Status.column_names).not_to include('external_projection_link_reference_id')
 
     owner = Fabricate(:user)
     other = Fabricate(:user)
     world = external_project_for(owner)
     note = Status.create!(account: owner.account, text: 'https://example.com/posts/db-check', visibility: :public, searchability: :public, local: true)
+    snapshot = Status.create!(account: owner.account, text: 'https://example.com/posts/other-snapshot', visibility: :public, searchability: :public, local: true)
+    expect_database_rejection(<<~SQL)
+      INSERT INTO external_projection_link_references (
+        user_id, account_id, external_status_projection_id, projection_status_id,
+        reference_status_id, visibility, canonical_url, policy_revision, state, created_at, updated_at
+      ) VALUES (
+        #{owner.id}, #{owner.account_id}, #{world[:marker].id}, #{snapshot.id},
+        #{note.id}, 'public', 'https://example.com/posts/db-check', 1, 'active', NOW(), NOW()
+      )
+    SQL
     expect_database_rejection(<<~SQL)
       INSERT INTO external_projection_link_references (
         user_id, account_id, external_status_projection_id, projection_status_id,
@@ -478,6 +492,136 @@ describe 'ExternalBridge link sharing', type: :model do
       state: 'active'
     )
     expect_database_rejection("UPDATE users SET account_id = #{moved.id} WHERE id = #{owner.id}")
+  end
+
+  it 'publishes a reference once and does not republish after the redis mark expires' do
+    user = Fabricate(:user)
+    world = external_project_for(user)
+    world[:resource].update!(canonical_url: "https://example.com/posts/#{SecureRandom.hex(4)}")
+    world[:source].update!(title: 'Safe Feed Title')
+    enable_external_bridge_link_sharing!(user)
+    grant!(user, 'public')
+    distributions = []
+    allow(DistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(PriorityDistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(LinkCrawlWorker).to receive(:perform_async)
+
+    result = share!(user, world[:marker])
+    note = result.status
+    expect(result.mapping.reload.published_at).to be_present
+    expect(distributions).to eq([note.id, note.id])
+
+    distributions.clear
+    publish = PublishStatusService.new
+    publish.redis.del("statuses/#{note.id}/published")
+    expect(publish.published?(note)).to be false
+    again = share!(user, world[:marker])
+    expect(again.status.id).to eq(note.id)
+    expect(again.mapping.published_at).to eq(result.mapping.published_at)
+    expect(distributions).to be_empty
+    expect_database_rejection("UPDATE external_projection_link_references SET published_at = NULL WHERE id = #{result.mapping.id}")
+    expect(result.mapping.reload.published_at).to be_present
+
+    ordinary = Status.create!(account: user.account, text: 'ordinary note https://example.com/ordinary', visibility: :public, searchability: :public, local: true)
+    PublishStatusService.new.call(ordinary)
+    expect(distributions).to eq([ordinary.id, ordinary.id])
+    distributions.clear
+    publish.redis.del("statuses/#{ordinary.id}/published")
+    PublishStatusService.new.call(ordinary)
+    expect(distributions).to eq([ordinary.id, ordinary.id])
+  end
+
+  it 'retries distribution when publish fails before the durable mark' do
+    user = Fabricate(:user)
+    world = external_project_for(user)
+    world[:resource].update!(canonical_url: "https://example.com/posts/#{SecureRandom.hex(4)}")
+    world[:source].update!(title: 'Safe Feed Title')
+    enable_external_bridge_link_sharing!(user)
+    grant!(user, 'public')
+    distributions = []
+    allow(DistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(PriorityDistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(LinkCrawlWorker).to receive(:perform_async)
+    subscriber = ActiveSupport::Notifications.subscribe(ExternalBridge::LinkSharing::Checkpoints::EVENT) do |*args|
+      payload = args.last
+      raise 'publish interrupted' if payload[:name] == :before_reference_publish
+    end
+
+    expect { share!(user, world[:marker]) }.to raise_error(RuntimeError, 'publish interrupted')
+    mapping = ExternalProjectionLinkReference.find_by!(user_id: user.id, state: 'active')
+    expect(mapping.published_at).to be_nil
+    expect(mapping.reference_status_id).to be_present
+    expect(distributions).to be_empty
+  ensure
+    ActiveSupport::Notifications.unsubscribe(subscriber) if subscriber
+    if mapping
+      ExternalBridge::LinkReferencePublishWorker.new.perform(mapping.id)
+      published = mapping.reload
+      expect(published.published_at).to be_present
+      expect(distributions).to eq([published.reference_status_id, published.reference_status_id])
+      distributions.clear
+      PublishStatusService.new.redis.del("statuses/#{published.reference_status_id}/published")
+      ExternalBridge::LinkReferencePublishWorker.new.perform(mapping.id)
+      expect(distributions).to be_empty
+    end
+  end
+
+  it 'rolls link sharing down and back up on an empty database' do
+    expect(ExternalProjectionLinkReference.count).to eq(0)
+    expect(ExternalLinkSharePolicy.count).to eq(0)
+    connection = ActiveRecord::Base.connection
+    ActiveRecord::Base.transaction(requires_new: true) do
+      AddExternalLinkReferencePublishedAt.new.down
+      CreateExternalLinkSharing.new.down
+      expect(connection.table_exists?(:external_projection_link_references)).to be false
+      CreateExternalLinkSharing.new.up
+      AddExternalLinkReferencePublishedAt.new.up
+      expect(connection.column_exists?(:external_projection_link_references, :published_at)).to be true
+      expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_references_enforce_owner' AND NOT tgisinternal")).to eq(1)
+      expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_references_publish_mark' AND NOT tgisinternal")).to eq(1)
+      expect(connection.select_value("SELECT prosrc FROM pg_proc WHERE proname = 'external_projection_link_references_enforce_owner'")).to include('projection_marker_status_id')
+      raise ActiveRecord::Rollback
+    end
+    expect(connection.table_exists?(:external_projection_link_references)).to be true
+    expect(connection.column_exists?(:external_projection_link_references, :published_at)).to be true
+    expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_references_mark_broken' AND NOT tgisinternal")).to eq(1)
+  end
+
+  it 'refuses to roll back while a mapping and a reference note exist' do
+    user = Fabricate(:user)
+    world = external_project_for(user)
+    world[:resource].update!(canonical_url: "https://example.com/posts/#{SecureRandom.hex(4)}")
+    world[:source].update!(title: 'Safe Feed Title')
+    enable_external_bridge_link_sharing!(user)
+    grant!(user, 'public')
+    result = share!(user, world[:marker])
+    note = result.status
+    mapping = result.mapping
+    connection = ActiveRecord::Base.connection
+
+    expect do
+      ActiveRecord::Base.transaction(requires_new: true) do
+        AddExternalLinkReferencePublishedAt.new.down
+      end
+    end.to raise_error(ActiveRecord::StatementInvalid, /reference mapping exists/)
+
+    expect(mapping.reload.published_at).to be_present
+    expect(mapping.reference_status_id).to eq(note.id)
+    expect(Status.find(note.id).text).to include('https://')
+    expect(user.reload.external_link_share_policy).to be_present
+    expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_references_enforce_owner' AND NOT tgisinternal")).to eq(1)
+    expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_references_publish_mark' AND NOT tgisinternal")).to eq(1)
+    expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_references_mark_broken' AND NOT tgisinternal")).to eq(1)
+
+    expect do
+      ActiveRecord::Base.transaction(requires_new: true) do
+        CreateExternalLinkSharing.new.down
+      end
+    end.to raise_error(ActiveRecord::StatementInvalid, /reference mapping exists/)
+    expect(ExternalProjectionLinkReference.find(mapping.id).reference_status_id).to eq(note.id)
+    expect(Status.find(note.id)).to be_present
   end
 end
 

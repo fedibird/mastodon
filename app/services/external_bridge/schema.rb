@@ -280,6 +280,7 @@ module ExternalBridge
         status_deleted timestamp;
         projection_user_id bigint;
         projection_account_id bigint;
+        projection_marker_status_id bigint;
         expected_visibility integer;
       BEGIN
         IF NEW.visibility = 'public' THEN
@@ -346,8 +347,8 @@ module ExternalBridge
         END IF;
 
         IF NEW.external_status_projection_id IS NOT NULL THEN
-          SELECT user_id, account_id
-            INTO projection_user_id, projection_account_id
+          SELECT user_id, account_id, status_id
+            INTO projection_user_id, projection_account_id, projection_marker_status_id
           FROM external_status_projections
           WHERE id = NEW.external_status_projection_id
           FOR SHARE;
@@ -356,6 +357,11 @@ module ExternalBridge
              OR projection_user_id IS DISTINCT FROM NEW.user_id
              OR projection_account_id IS DISTINCT FROM NEW.account_id THEN
             RAISE EXCEPTION 'external link reference projection owner mismatch'
+              USING ERRCODE = 'check_violation';
+          END IF;
+
+          IF projection_marker_status_id IS DISTINCT FROM NEW.projection_status_id THEN
+            RAISE EXCEPTION 'external link reference projection status mismatch'
               USING ERRCODE = 'check_violation';
           END IF;
         END IF;
@@ -388,6 +394,50 @@ module ExternalBridge
       BEFORE DELETE ON statuses
       FOR EACH ROW
       EXECUTE FUNCTION external_projection_link_references_mark_broken();
+    SQL
+
+    # Durable publish mark. Separate from the owner trigger so a database that
+    # has not added published_at yet can still install the owner guard.
+    # schema:load runs this after the column exists.
+    LINK_REFERENCE_PUBLISH_SQL = <<~SQL
+      CREATE OR REPLACE FUNCTION external_projection_link_references_publish_mark()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF OLD.published_at IS NOT NULL AND NEW.published_at IS DISTINCT FROM OLD.published_at THEN
+          RAISE EXCEPTION 'external link reference publish mark is immutable'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS external_projection_link_references_publish_mark ON external_projection_link_references;
+      CREATE TRIGGER external_projection_link_references_publish_mark
+      BEFORE UPDATE OF published_at ON external_projection_link_references
+      FOR EACH ROW
+      EXECUTE FUNCTION external_projection_link_references_publish_mark();
+    SQL
+
+    # Rollback floor for the E4-A tables. A mapping or a policy row means a
+    # public note or a consent record already exists. Down stops before it
+    # drops either table. An empty database passes.
+    LINK_SHARING_ROLLBACK_FLOOR_SQL = <<~SQL
+      DO $$
+      BEGIN
+        IF to_regclass('public.external_projection_link_references') IS NOT NULL
+           AND EXISTS (SELECT 1 FROM external_projection_link_references) THEN
+          RAISE EXCEPTION 'refusing to roll back external link sharing while a reference mapping exists'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        IF to_regclass('public.external_link_share_policies') IS NOT NULL
+           AND EXISTS (SELECT 1 FROM external_link_share_policies) THEN
+          RAISE EXCEPTION 'refusing to roll back external link sharing while a share policy exists'
+            USING ERRCODE = 'check_violation';
+        END IF;
+      END $$;
     SQL
 
     DEFINITIONS_SQL = <<~SQL
@@ -520,6 +570,8 @@ module ExternalBridge
       #{FEED_ROUTE_SQL}
 
       #{LINK_REFERENCE_SQL}
+
+      #{LINK_REFERENCE_PUBLISH_SQL}
 
       #{MIGRATE_FUNCTION_SQL}
     SQL

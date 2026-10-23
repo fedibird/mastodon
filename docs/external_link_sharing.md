@@ -13,7 +13,7 @@ E4-A is not a rollout. `external_bridge_link_sharing` and `external_bridge_link_
 
 A projection stays a private status: `external_projection=true`, `uri=nil`, visibility `external` or legacy `personal`, searchability `personal`. `ExternalBridge::Guards.reject_target!` still refuses it as a reply, boost, quote, reaction, edit, or pin target. REST stays `visibility=direct` and `visibility_ex=external` for a canonical external row.
 
-A reference note is a different status on the same real Account. It is a normal local public or unlisted post. It has a URI, goes through the normal Status create callbacks, and is distributed by `PublishStatusService` after the mapping commits. It is not an external projection and it does not carry `fedibird_external`.
+A reference note is a different status on the same real Account. It is a normal local public or unlisted post. It has a URI, goes through the normal Status create callbacks, and is distributed once `published_at` is written. It is not an external projection and it does not carry `fedibird_external`.
 
 The note text is an allowlist, one field per line, with blank lines omitted:
 
@@ -51,13 +51,14 @@ Generation requires the feature flag, a tester id, a functional User, `enabled`,
 | --- | --- |
 | `user_id`, `account_id` | Must match the User's account and the reference status account. |
 | `external_status_projection_id` | Nullable. Purge sets it null and leaves the note. |
-| `projection_status_id` | Snapshot of the projection status id. Not a foreign key. |
+| `projection_status_id` | Snapshot of the projection status id. Not a foreign key. While `external_status_projection_id` is present, the owner trigger requires it to equal that marker's `status_id`. After purge the FK is null and this snapshot stays. |
 | `reference_status_id` | The note. Null after the note row is deleted. |
 | `visibility` | `public` or `unlisted`. Not widened later. |
 | `canonical_url` | Normalized URL identity. |
 | `resource_revision` | Audit copy of the resource revision. Not part of reuse. |
 | `policy_revision` | Policy revision observed when the row was inserted. |
 | `state` | `active`, `superseded`, or `broken`. |
+| `published_at` | Set after `PublishStatusService` returns. Null means distribution has not finished and may be retried. |
 
 Active identity is unique on `(user_id, external_status_projection_id, visibility, canonical_url)` where `state = 'active'` and the projection id is present. `reference_status_id` is unique while present. Another User, including another User of the same Account, has a separate projection and a separate note. A public note is never returned for an unlisted request, or the reverse.
 
@@ -76,7 +77,9 @@ A broken row stays broken. A superseded row cannot become active. Deleting the r
 5. Return a healthy active row for the same URL, or mark a damaged one `broken` and raise.
 6. Re-read the locked policy immediately before inserting the Status, and again immediately before inserting the mapping. A same-transaction consent or revision change rolls the Status back.
 7. Insert the mapping. A unique violation rolls the Status back. The caller loads the committed winner and returns that row instead of inserting another.
-8. After commit, `PublishStatusService` distributes the reference note once. The projection is not passed to distribution, ActivityPub, webhooks, or the public search index by this service.
+8. After that transaction commits, `PublishReference` enqueues `LinkReferencePublishWorker`. The worker locks the mapping row, calls `PublishStatusService`, then sets `published_at`. The projection is not passed to distribution, ActivityPub, webhooks, or the public search index.
+9. A later ensure sees `published_at` and does not enqueue again. `PublishStatusService`'s Redis key still expires after 7 days for ordinary statuses. That key is not the reuse decision for a reference. Deleting it, or waiting it out, does not distribute the same note again.
+10. If the worker raises before `published_at` is written, the mapping stays unpublished. The next ensure enqueues the worker again, and Sidekiq retries the failed job. Two callers take the same row lock, so only one of them calls `PublishStatusService`.
 
 Policy updates lock only the policy row, so they take the same first lock and do not deadlock with generation. A revocation that blocks on the lock applies after the note for the held revision commits. That note is not deleted. The next generation sees the new revision.
 
@@ -91,6 +94,10 @@ Policy updates lock only the policy row, so they take the same first lock and do
 | Reference status hard-delete | Row is gone. | `state=broken`, `reference_status_id` null. Later ensure fails closed. |
 | User delete | The account post remains. `DeleteUser` does not delete it. | Mapping and policy rows cascade away. |
 | Account delete | The account's statuses go with the account. | Mapping cascades from the account. |
+
+## Rollback floor
+
+`20261026120000` and `20261027120000` both run `ExternalBridge::Schema::LINK_SHARING_ROLLBACK_FLOOR_SQL` before any `DROP`. If `external_projection_link_references` or `external_link_share_policies` contains a row, down raises `check_violation` and leaves the tables, triggers, policy, mapping, and reference Status in place. An empty database can go down and back up. Do not delete published notes in order to make down succeed. Dropping the mapping would keep the public Status and throw away the only record of which User, projection, and scope it came from.
 
 ## What E4-A does not implement
 

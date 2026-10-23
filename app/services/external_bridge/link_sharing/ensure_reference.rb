@@ -242,9 +242,12 @@ module ExternalBridge
       end
 
       def finish(mapping, created:)
-        status = mapping.reference_status
-        PublishStatusService.new.call(status) unless PublishStatusService.new.published?(status)
-        Result.new(status: status.reload, mapping: mapping.reload, created: created)
+        # published_at on the mapping is the durable "distributed once" mark.
+        # PublishStatusService's Redis key expires after 7 days, so it cannot
+        # decide reuse. A crash before published_at is written stays retryable
+        # through the worker and through the next ensure.
+        PublishReference.call(mapping)
+        Result.new(status: mapping.reference_status.reload, mapping: mapping.reload, created: created)
       end
     end
   end

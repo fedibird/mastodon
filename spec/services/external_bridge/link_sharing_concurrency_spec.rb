@@ -92,6 +92,10 @@ describe 'ExternalBridge link sharing concurrency', type: :model do
     marker_id = bundle[:world][:marker].id
     results = Queue.new
     errors = Queue.new
+    distributions = Queue.new
+    allow(DistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(PriorityDistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
     barrier = ExternalBridgeLinkSharingBarrier.new(2)
     threads = Array.new(2) do
       Thread.new do
@@ -118,6 +122,10 @@ describe 'ExternalBridge link sharing concurrency', type: :model do
     expect(ids.uniq.size).to eq(1)
     expect(ExternalProjectionLinkReference.where(user_id: user.id, state: 'active').count).to eq(1)
     expect(Status.where(id: ids.first).count).to eq(1)
+    published = []
+    published << distributions.pop until distributions.empty?
+    expect(published).to contain_exactly(ids.first, ids.first)
+    expect(ExternalProjectionLinkReference.find_by!(user_id: user.id, state: 'active').published_at).to be_present
   ensure
     cleanup!(bundle)
   end
