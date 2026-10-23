@@ -74,7 +74,7 @@ module TimelineSeek
     end
 
     def selectable?(status_id)
-      scope = Status.where(id: status_id).without_unreleased_pages.joins(:account).merge(Account.without_suspended)
+      scope = ordinary_scope(Status.where(id: status_id))
       scope = scope.where(visibility: visibilities) if visibilities.present?
       scope.limit(1).exists?
     end
@@ -102,13 +102,19 @@ module TimelineSeek
     end
 
     # Same predicate as selectable?, for the whole id set.
+    # Private projections are not ordinary Redis members. Placement is the
+    # only positive signal for an external row, including one left in the ZSET.
     def selectable_among(status_ids, limit:)
       ids = status_ids.first(limit)
       return [] if ids.empty?
 
-      scope = Status.where(id: ids).without_unreleased_pages.joins(:account).merge(Account.without_suspended)
+      scope = ordinary_scope(Status.where(id: ids))
       scope = scope.where(visibility: visibilities) if visibilities.present?
       scope.limit(limit).pluck(:id)
+    end
+
+    def ordinary_scope(scope)
+      scope.without_unreleased_pages.where(Arel.sql(ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL)).joins(:account).merge(Account.without_suspended)
     end
   end
 end

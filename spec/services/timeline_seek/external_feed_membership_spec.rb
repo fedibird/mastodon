@@ -206,4 +206,87 @@ describe 'External feed membership for home and list' do
     expect(payload[:availability][:reason]).to eq('external_not_delivered')
     expect(payload.to_json).not_to include(external[:status].text)
   end
+
+  it 'does not let a redis copy of an external id outrank placement' do
+    enable_external_bridge_feeds!(user)
+    external = external_project_for(user)
+    deleted = external_project_for(user, source_deleted: true)
+    ordinary = Fabricate(:status, account: author, visibility: :public)
+    key = FeedManager.instance.key(:home, user.account_id)
+    redis.zadd(key, external[:status].id, external[:status].id)
+    redis.zadd(key, deleted[:status].id, deleted[:status].id)
+    save_route(user, deleted[:subscription], home: true)
+    feed = HomeFeed.new(user.account)
+    visibilities = %w(public external)
+
+    compose = lambda do
+      ExternalBridge::Feeds::Compose.new(user: user, feed: feed, destination: 'home').call(20, nil, nil, nil, visibilities).map(&:id)
+    end
+    seek = lambda do |status|
+      TimelineSeek::Resolver.new(user.account, user: user).call(
+        version: 1,
+        source: 'home',
+        kind: 'status',
+        preference: 'nearest',
+        context: { visibilities: visibilities },
+        seek_target: { id: status.id.to_s }
+      )
+    end
+    account_seek = lambda do
+      TimelineSeek::Resolver.new(user.account, user: user).call(
+        version: 1,
+        source: 'home',
+        kind: 'account',
+        preference: 'nearest',
+        context: { visibilities: visibilities },
+        seek_target: { account_id: user.account_id.to_s }
+      )
+    end
+    rows_for = lambda do
+      outcomes(classify(user, source: 'home', ids: [external[:status].id.to_s, deleted[:status].id.to_s, ordinary.id.to_s], context: { visibilities: visibilities }))
+    end
+
+    expect(compose.call).not_to include(external[:status].id)
+    expect(seek.call(external[:status]).outcome).to eq('not_in_source')
+    expect(seek.call(external[:status]).reason).to eq('external_not_delivered')
+    expect(rows_for.call[external[:status].id.to_s]).to include(outcome: 'not_in_source', reason: 'external_not_delivered')
+    expect(rows_for.call[deleted[:status].id.to_s]).to include(outcome: 'not_in_source', reason: 'external_not_delivered')
+    expect(rows_for.call[ordinary.id.to_s]).to include(outcome: 'unknown', reason: 'outside_retained_range')
+    expect(account_seek.call.anchor_id).not_to eq(external[:status].id.to_s)
+
+    save_route(user, external[:subscription], home: true)
+    expect(compose.call).to include(external[:status].id)
+    expect(seek.call(external[:status]).outcome).to eq('resolved')
+    expect(rows_for.call[external[:status].id.to_s][:outcome]).to eq('member')
+    expect(account_seek.call.anchor_id).to eq(external[:status].id.to_s)
+
+    save_route(user, external[:subscription], home: false)
+    expect(compose.call).not_to include(external[:status].id)
+    expect(seek.call(external[:status]).outcome).to eq('not_in_source')
+    expect(rows_for.call[external[:status].id.to_s][:outcome]).to eq('not_in_source')
+
+    redis.set("account:#{user.account_id}:regeneration", '1')
+    save_route(user, external[:subscription], home: true)
+    expect(compose.call).not_to include(external[:status].id)
+    expect(seek.call(external[:status]).outcome).to eq('unavailable')
+    expect(seek.call(external[:status]).reason).to eq('feed_regenerating')
+    expect(rows_for.call[external[:status].id.to_s]).to include(outcome: 'unknown', reason: 'feed_regenerating')
+    redis.del("account:#{user.account_id}:regeneration")
+
+    Setting.external_bridge_feeds = false
+    expect(compose.call).not_to include(external[:status].id)
+    expect(seek.call(external[:status]).outcome).to eq('not_in_source')
+    expect(rows_for.call[external[:status].id.to_s]).to include(outcome: 'not_in_source', reason: 'external_not_delivered')
+
+    other = share_account_user(user.account)
+    stranger = Fabricate(:user)
+    [other, stranger].each do |visitor|
+      row = outcomes(classify(visitor, source: 'home', ids: [external[:status].id.to_s], context: { visibilities: visibilities }))[external[:status].id.to_s]
+
+      expect(row[:outcome]).to eq('not_found')
+      expect(row[:reason]).not_to eq('external_not_delivered')
+    end
+  ensure
+    redis.del(key) if key
+  end
 end

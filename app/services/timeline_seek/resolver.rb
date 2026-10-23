@@ -277,6 +277,8 @@ class TimelineSeek::Resolver
     in_set = reader.in_retained_set?(status_id)
     # The ZSET is a retained window, not the current permission. A block,
     # delete, expiry, or visibility change can leave the id in the set.
+    # selectable? excludes private projections, so an external id in the
+    # ZSET still falls through to Placement.
     if in_set && reader.selectable?(status_id)
       denied = concealed(status_id)
       return denied if denied
@@ -374,6 +376,7 @@ class TimelineSeek::Resolver
 
   def account_status_in_source?(reader, status_id, external_members = Set.new)
     if reader.redis?
+      # selectable? is the ordinary-row predicate. External membership is only external_members.
       (reader.in_retained_set?(status_id) && reader.selectable?(status_id)) || external_members.include?(status_id)
     else
       reader.contains?(status_id)
