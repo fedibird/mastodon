@@ -33,6 +33,8 @@ class ExternalSubscription < ApplicationRecord
 
   validates :state, inclusion: { in: STATES }
 
+  before_destroy :schedule_external_feed_removed
+
   scope :active, -> { where(state: 'active') }
 
   scope :due_for_refresh, lambda {
@@ -48,4 +50,26 @@ class ExternalSubscription < ApplicationRecord
       cutoff: ExternalBridge::RSS::Limits::FRESH_FOR.ago
     )
   }
+
+  private
+
+  def schedule_external_feed_removed
+    targets = external_feed_routes.filter_map { |route| external_feed_target(route) }
+    return if targets.empty?
+
+    ExternalBridge::Streaming::Scheduler.schedule_control!(
+      user_id: user_id,
+      subscription_id: id,
+      reason: 'subscription_removed',
+      revision: feed_routes_revision,
+      targets: targets
+    )
+  end
+
+  def external_feed_target(route)
+    return { 'type' => 'home' } if route.destination == 'home'
+    return nil if route.list_id.blank?
+
+    { 'type' => 'list', 'id' => route.list_id.to_s }
+  end
 end

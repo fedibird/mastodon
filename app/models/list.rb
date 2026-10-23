@@ -40,9 +40,10 @@ class List < ApplicationRecord
     record.errors.add(:base, I18n.t('lists.errors.limit')) if List.where(account_id: value).count >= PER_ACCOUNT_LIMIT
   end
 
+  before_destroy :record_external_feed_list_removal
   before_destroy :clean_feed_manager
 
-  scope :favourites,  -> { where(favourite: true) }
+  scope :favourites, -> { where(favourite: true) }
 
   def favourite?
     favourite
@@ -60,5 +61,27 @@ class List < ApplicationRecord
 
   def clean_feed_manager
     FeedManager.instance.clean_feeds!(:list, [id])
+  end
+
+  # delete_all drops routes without the settings service. Bump the revision
+  # here so an older route job cannot treat the removed list as current.
+  def record_external_feed_list_removal
+    external_feed_routes.group_by(&:external_subscription_id).each_value do |routes|
+      subscription = routes.first.external_subscription
+      next if subscription.nil?
+
+      updated = ExternalSubscription.where(id: subscription.id).update_all(
+        ['feed_routes_revision = feed_routes_revision + 1, updated_at = ?', Time.current]
+      )
+      next unless updated == 1
+
+      ExternalBridge::Streaming::Scheduler.schedule_control!(
+        user_id: subscription.user_id,
+        subscription_id: subscription.id,
+        reason: 'list_removed',
+        revision: subscription.reload.feed_routes_revision,
+        targets: [{ 'type' => 'list', 'id' => id.to_s }]
+      )
+    end
   end
 end

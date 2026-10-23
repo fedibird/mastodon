@@ -16,9 +16,11 @@ module ExternalBridge
       return if ids.empty?
 
       ActiveRecord::Base.transaction(requires_new: true) do
+        captures = capture_stream_deletes(ids)
         remember_suppressions!(ids) if suppress
         ActiveRecord::Base.connection.execute(SETTING_SQL)
         Status.unscoped.where(id: ids).delete_all
+        Streaming::Scheduler.schedule_deletes!(captures)
       end
 
       ids.each { |id| Rails.cache.delete("statuses/#{id}") }
@@ -43,6 +45,37 @@ module ExternalBridge
       ids = ExternalStatusProjection.where(external_subscription_id: subscription.id).pluck(:status_id)
       purge_status_ids!(ids)
     end
+
+    def self.capture_stream_deletes(status_ids)
+      markers = ExternalStatusProjection.joins(:status).where(status_id: status_ids).where(
+        statuses: { visibility: Status.visibilities[:external], external_projection: true }
+      ).to_a
+      return [] if markers.empty?
+
+      routes = ExternalFeedRoute.where(
+        user_id: markers.map(&:user_id).uniq,
+        external_subscription_id: markers.map(&:external_subscription_id).uniq
+      ).to_a
+      grouped = routes.group_by { |route| [route.user_id, route.external_subscription_id] }
+      markers.map { |marker| delete_capture(marker, grouped[[marker.user_id, marker.external_subscription_id]] || []) }
+    end
+    private_class_method :capture_stream_deletes
+
+    def self.delete_capture(marker, routes)
+      destinations = [{ 'type' => 'home' }]
+      routes.each do |route|
+        next unless route.destination == 'list' && route.list_id.present?
+
+        destinations << { 'type' => 'list', 'id' => route.list_id.to_s }
+      end
+      {
+        'user_id' => marker.user_id.to_s,
+        'status_id' => marker.status_id.to_s,
+        'subscription_id' => marker.external_subscription_id.to_s,
+        'destinations' => destinations,
+      }
+    end
+    private_class_method :delete_capture
 
     def self.remember_suppressions!(status_ids)
       ExternalStatusProjection.where(status_id: status_ids).find_each do |marker|

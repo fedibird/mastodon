@@ -11,10 +11,12 @@
 #  external_subscription_id :bigint(8)        not null
 #  external_resource_id     :bigint(8)        not null
 #  status_id                :bigint(8)        not null
-#  last_seen_revision       :text
-#  source_deleted           :boolean          default(FALSE), not null
-#  created_at               :datetime         not null
-#  updated_at               :datetime         not null
+#  last_seen_revision            :text
+#  source_deleted                :boolean          default(FALSE), not null
+#  content_generation            :bigint(8)        default(0), not null
+#  streamed_content_generation   :bigint(8)
+#  created_at                    :datetime         not null
+#  updated_at                    :datetime         not null
 #
 class ExternalStatusProjection < ApplicationRecord
   belongs_to :user
