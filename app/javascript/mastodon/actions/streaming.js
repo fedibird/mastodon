@@ -32,6 +32,7 @@ import {
   reconcileExternalFeedView,
   reconcileOpenExternalViews,
   refreshExternalFeedCapability,
+  resumeExternalFeedViews,
 } from './external_feeds';
 
 const { messages } = getLocale();
@@ -71,27 +72,44 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
     return {
       onConnect() {
         dispatch(connectTimeline(timelineId));
+        const reconnecting = sawDisconnect;
+
+        if (sawDisconnect) {
+          sawDisconnect = false;
+        }
+
         if (channelName === 'user') {
           dispatch(scheduleFiltersRefresh());
           dispatch(retryFilterReconciliation());
           dispatch(refreshExternalFeedCapability());
-          dispatch(reconcileOpenExternalViews());
+
+          if (reconnecting) {
+            dispatch(resumeExternalFeedViews());
+          } else {
+            dispatch(reconcileOpenExternalViews());
+          }
+
           dispatch(bindExternalFeedVisibility());
         }
 
         if (channelName === 'list' && params.list) {
-          dispatch(reconcileExternalFeedView(`list:${params.list}`));
+          if (reconnecting) {
+            dispatch(resumeExternalFeedViews({
+              keys: [`list:${params.list}`],
+              targets: [{ type: 'list', id: String(params.list) }],
+            }));
+          } else {
+            dispatch(reconcileExternalFeedView(`list:${params.list}`));
+          }
         }
 
-        if (sawDisconnect) {
-          sawDisconnect = false;
-
+        if (reconnecting) {
           if (channelName === 'user') {
-            dispatch(expandHomeTimeline({ visibilities: getHomeVisibilities(getState()) }));
+            dispatch(expandHomeTimeline({ visibilities: getHomeVisibilities(getState()), externalReconnect: true }));
           }
 
           if (channelName === 'list' && params.list) {
-            dispatch(expandListTimeline(params.list));
+            dispatch(expandListTimeline(params.list, { externalReconnect: true }));
           }
         }
 

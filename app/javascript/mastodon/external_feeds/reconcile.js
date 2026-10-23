@@ -369,3 +369,38 @@ export const placeReconcileIds = (items, insertIds, options = {}) => {
 
   return { items: next, inserted: interior.inserted.concat(older) };
 };
+
+const detachMovedBody = (status, movedSince) => {
+  if (!status || typeof status !== 'object' || !status.id) {
+    return status;
+  }
+
+  const copy = { ...status };
+
+  ['reblog', 'quote'].forEach(field => {
+    const nested = copy[field];
+
+    if (!nested || typeof nested !== 'object' || !nested.id) {
+      return;
+    }
+
+    if (movedSince(nested.id)) {
+      copy[field] = String(nested.id);
+    } else {
+      copy[field] = detachMovedBody(nested, movedSince);
+    }
+  });
+
+  return copy;
+};
+
+// Drop a body whose stream clock moved after the request, including a nested
+// boost or quote. The parent keeps the id so the newer stored body stays.
+export const protectStatusBodies = (statuses, movedSince) => (statuses || []).reduce((kept, status) => {
+  if (!status || !status.id || movedSince(status.id)) {
+    return kept;
+  }
+
+  kept.push(detachMovedBody(status, movedSince));
+  return kept;
+}, []);

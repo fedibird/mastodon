@@ -30,6 +30,7 @@ export const createExternalFeedSession = () => {
         token: tokenSeq,
         epoch: 0,
         membershipEpoch: 0,
+        passEpoch: 0,
         closed: false,
         targets: meta.targets || [],
         running: false,
@@ -63,6 +64,19 @@ export const createExternalFeedSession = () => {
 
       view.epoch += 1;
       view.membershipEpoch += 1;
+    },
+
+    // A reconnect or a tab return starts a new pass. Budget retries of the
+    // pass that is already running keep the checked ids.
+    beginPass (key) {
+      const view = current(key);
+
+      if (!view) {
+        return false;
+      }
+
+      view.passEpoch += 1;
+      return true;
     },
 
     noteControl (parsed) {
@@ -121,6 +135,7 @@ export const createExternalFeedSession = () => {
         token: view.token,
         epoch: view.epoch,
         membershipEpoch: view.membershipEpoch,
+        passEpoch: view.passEpoch,
         capabilityEpoch,
         permitted: extra.permitted === true,
         visibilitiesKey: extra.visibilitiesKey || '',
@@ -140,7 +155,7 @@ export const createExternalFeedSession = () => {
         return null;
       }
 
-      const stamp = `${view.token}:${view.membershipEpoch}:${capabilityEpoch}`;
+      const stamp = `${view.token}:${view.membershipEpoch}:${capabilityEpoch}:${view.passEpoch}`;
 
       if (!view.progress || view.progress.stamp !== stamp) {
         view.progress = {
@@ -171,6 +186,10 @@ export const createExternalFeedSession = () => {
 
       if (view.membershipEpoch !== snapshot.membershipEpoch) {
         return { ok: false, reason: 'membership' };
+      }
+
+      if (view.passEpoch !== snapshot.passEpoch) {
+        return { ok: false, reason: 'pass' };
       }
 
       const staleIds = Object.keys(snapshot.statusEpochs || {}).filter(id => (statusEpochs.get(id) || 0) !== snapshot.statusEpochs[id]);

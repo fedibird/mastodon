@@ -406,8 +406,8 @@ describe('external feed review regressions', () => {
     get.mockImplementation(() => Promise.resolve({
       status: 200,
       data: [
-        { id: '85', visibility: 'direct', account: { id: '2' } },
         { id: '90', visibility: 'direct', visibility_ex: 'external', account: { id: '1' } },
+        { id: '85', visibility: 'direct', account: { id: '2' } },
       ],
     }));
     const actions = [];

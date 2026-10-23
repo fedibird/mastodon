@@ -698,6 +698,37 @@ const patchIdList = (list, blocked, insertIds, seed) => {
   return next;
 };
 
+const removalPathsFor = (sourceKey) => [
+  ['sources', sourceKey, 'ids'],
+  ['live', sourceKey, 'statusIds'],
+  ['live', sourceKey, 'ids'],
+  ['split', 'history', 'sources', sourceKey, 'ids'],
+  ['split', 'history', 'frozenLive', sourceKey, 'ids'],
+  ['split', 'history', 'frozenLive', sourceKey, 'statusIds'],
+];
+
+// Inserts stay on the pane that was fetched. Removals still leave every copy
+// of this source, including the live window and a frozen history copy.
+const insertPathFor = (column, action) => {
+  if (!action.insertIds || !action.insertIds.length || !action.range) {
+    return null;
+  }
+
+  if (action.range.side === 'history') {
+    if (!action.range.splitId || column.getIn(['split', 'id']) !== action.range.splitId) {
+      return null;
+    }
+
+    return ['split', 'history', 'sources', action.sourceKey, 'ids'];
+  }
+
+  if (action.range.side === 'live') {
+    return ['sources', action.sourceKey, 'ids'];
+  }
+
+  return null;
+};
+
 // One source loses or gains rows. Another source that still has the id keeps
 // it, and the status record is not deleted.
 const applyMixExternalReconcile = (state, action) => {
@@ -713,13 +744,7 @@ const applyMixExternalReconcile = (state, action) => {
 
   const blocked = new Set(action.clear ? [] : (action.removeIds || []));
   let next = state;
-
-  const paths = [
-    ['sources', action.sourceKey, 'ids'],
-    ['live', action.sourceKey, 'statusIds'],
-    ['split', 'history', 'sources', action.sourceKey, 'ids'],
-    ['split', 'history', 'frozenLive', action.sourceKey, 'ids'],
-  ];
+  const paths = removalPathsFor(action.sourceKey);
 
   if (action.clear) {
     paths.forEach(path => {
@@ -729,16 +754,19 @@ const applyMixExternalReconcile = (state, action) => {
     });
   } else {
     paths.forEach(path => {
-      const parent = path.slice(0, -1);
-
-      if (!next.getIn([action.columnKey].concat(parent))) {
+      if (!next.getIn([action.columnKey].concat(path))) {
         return;
       }
 
-      const seed = action.seed === true && (path[0] === 'sources' || (path[0] === 'split' && path[2] === 'sources'));
-
-      next = next.updateIn([action.columnKey].concat(path), ImmutableList(), list => patchIdList(list, blocked, action.insertIds, seed));
+      next = next.updateIn([action.columnKey].concat(path), ImmutableList(), list => patchIdList(list, blocked, [], false));
     });
+
+    const insertPath = insertPathFor(next.get(action.columnKey), action);
+    const insertParent = insertPath && insertPath.slice(0, -1);
+
+    if (insertPath && next.getIn([action.columnKey].concat(insertParent))) {
+      next = next.updateIn([action.columnKey].concat(insertPath), ImmutableList(), list => patchIdList(list, blocked, action.insertIds, action.seed === true));
+    }
   }
 
   const removed = action.clear

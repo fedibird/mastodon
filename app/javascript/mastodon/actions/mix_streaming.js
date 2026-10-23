@@ -12,7 +12,7 @@ import { hiddenStatusIds, relationshipGeneration, relationshipsAfterGeneration, 
 import { fetchRelationshipsSuccess } from './accounts';
 import { normalizeFilterResult } from './importer/normalizer';
 import { me } from '../initial_state';
-import { noteExternalStatusStream, receiveExternalFeedChanged, reconcileExternalFeedView } from './external_feeds';
+import { noteExternalStatusStream, receiveExternalFeedChanged, reconcileExternalFeedView, resumeExternalFeedViews } from './external_feeds';
 import {
   MIX_STREAM_READY,
   MIX_STREAM_CONNECT,
@@ -634,9 +634,10 @@ export function openMixStream(columnKey, mix) {
 
             if (wasDown && after && after.getIn(['live', stream.key, 'syncState']) === 'connected') {
               dispatch(reconcileMixSource(columnKey, stream.key));
+              dispatch(resumeExternalFeedViews({ keys: [`mix:${columnKey}`] }));
+            } else {
+              dispatch(reconcileExternalFeedView(`mix:${columnKey}`));
             }
-
-            dispatch(reconcileExternalFeedView(`mix:${columnKey}`));
           },
 
           onDisconnect () {

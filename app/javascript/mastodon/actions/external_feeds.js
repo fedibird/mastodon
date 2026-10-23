@@ -1,5 +1,6 @@
 import api from '../api';
-import { importFetchedStatuses } from './importer';
+import { fetchRelationshipsSuccess } from './accounts';
+import { importFetchedAccounts, importFetchedStatuses, importFilters } from './importer';
 import { getHomeVisibilities } from '../selectors';
 import {
   TIMELINE_EXTERNAL_CLEAR_VIEW,
@@ -8,7 +9,7 @@ import {
 import { MIX_EXTERNAL_RECONCILE } from './mix_timelines';
 import { plainMix } from '../mix/definition';
 import { sourceKey } from '../mix/source';
-import { resolveRequest, visibilityConstraints } from '../mix/adapter';
+import { normalizePage, previousStatusesForImport, resolveRequest, statusesForSharedImport, visibilityConstraints } from '../mix/adapter';
 import { classifyStreamStatus } from '../mix/stream_adapters';
 import { externalFeedSession } from '../external_feeds/session';
 import {
@@ -23,6 +24,7 @@ import {
   parseControl,
   placeReconcileIds,
   planMembership,
+  protectStatusBodies,
   responsePreservesDisplayed,
 } from '../external_feeds/reconcile';
 
@@ -30,6 +32,7 @@ export const EXTERNAL_FEEDS_PERMITTED = 'EXTERNAL_FEEDS_PERMITTED';
 
 const retries = new Map();
 let capabilityTimer = null;
+let visibilityHandler = null;
 
 const httpClient = (getState) => {
   try {
@@ -154,6 +157,13 @@ export function resetExternalFeedSession () {
 export function discardExternalFeedSessionForTests () {
   clearExternalFeedTimers();
   externalFeedSession.resetForTests();
+
+  if (visibilityHandler && typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', visibilityHandler);
+  }
+
+  visibilityHandler = null;
+  bindExternalFeedVisibility.bound = false;
 }
 
 export function receiveExternalFeedChanged (payload) {
@@ -233,6 +243,35 @@ export function refreshExternalFeedCapability () {
 export function reconcileOpenExternalViews () {
   return (dispatch) => {
     externalFeedSession.openViews().forEach(view => {
+      dispatch(runExternalReconcile(view.key, view.token));
+    });
+  };
+}
+
+// A new pass re-reads held ids. Continuation inside one pass does not call this.
+export function resumeExternalFeedViews (spec = {}) {
+  return (dispatch) => {
+    const open = externalFeedSession.openViews();
+    const chosen = new Map();
+
+    if (!spec.keys && !spec.targets) {
+      open.forEach(view => chosen.set(view.key, view));
+    } else {
+      if (spec.targets) {
+        externalFeedSession.matchingViews(spec.targets).forEach(view => chosen.set(view.key, view));
+      }
+
+      (spec.keys || []).forEach(key => {
+        const view = open.find(item => item.key === key);
+
+        if (view) {
+          chosen.set(view.key, view);
+        }
+      });
+    }
+
+    chosen.forEach(view => {
+      externalFeedSession.beginPass(view.key);
       dispatch(runExternalReconcile(view.key, view.token));
     });
   };
@@ -866,6 +905,9 @@ async function fillMixSource (dispatch, getState, client, columnKey, source, key
         return { stop: false, retry: false };
       }
 
+      const splitId = range.side === 'history'
+        ? getState().getIn(['mix_timelines', columnKey, 'split', 'id'])
+        : null;
       const response = await client.get(request.path, { params: { ...request.params, limit: HISTORY_PAGE_SIZE } });
 
       if (!response || response.status === 206 || responsePreservesDisplayed(response.status)) {
@@ -882,24 +924,53 @@ async function fillMixSource (dispatch, getState, client, columnKey, source, key
         return { stop: true, retry: false };
       }
 
-      const statuses = Array.isArray(response.data) ? response.data : (response.data && response.data.statuses) || [];
+      const page = normalizePage({
+        status: response.status,
+        data: response.data,
+        path: request.path,
+      });
+
+      if (!page.ok) {
+        continue;
+      }
+
       const flags = visibilityConstraints(mixConstraints(getState));
       const me = getState().getIn(['meta', 'me']);
-      const visible = statuses.filter(status => classifyStreamStatus(source, status, {
+      const movedSince = (id) => externalFeedSession.statusMovedSince(id, snapshot.streamClock);
+      const visible = page.statuses.filter(status => classifyStreamStatus(source, status, {
         me,
         constraints: flags,
         delivered: source.type === 'list',
       }) === 'accept');
-      const gated = freshStatuses(visible, snapshot.streamClock);
+      const gated = protectStatusBodies(visible, movedSince);
+      const references = protectStatusBodies(page.referencedStatuses, movedSince);
       const currentItems = listOf(getState().getIn(['mix_timelines', columnKey, 'sources', keyForSource, 'ids']));
       const historyItems = listOf(getState().getIn(['mix_timelines', columnKey, 'split', 'history', 'sources', keyForSource, 'ids']));
       const items = range.side === 'history' ? historyItems : currentItems;
       const placed = placeReconcileIds(items, gated.map(status => status.id), { seed: segment.empty });
       const inserted = new Set(placed.inserted);
       const fresh = gated.filter(status => inserted.has(String(status.id)));
+      const bodies = references.concat(fresh);
+
+      if (page.accounts.length) {
+        dispatch(importFetchedAccounts(page.accounts));
+      }
+
+      if (page.relationships.length) {
+        dispatch(fetchRelationshipsSuccess(page.relationships));
+      }
+
+      if (page.filters.length) {
+        dispatch(importFilters(page.filters));
+      }
+
+      if (bodies.length) {
+        const previous = previousStatusesForImport(getState().get('statuses'), bodies);
+
+        dispatch(importFetchedStatuses(statusesForSharedImport(bodies, previous)));
+      }
 
       if (fresh.length) {
-        dispatch(importFetchedStatuses(fresh));
         dispatch({
           type: MIX_EXTERNAL_RECONCILE,
           columnKey,
@@ -909,10 +980,11 @@ async function fillMixSource (dispatch, getState, client, columnKey, source, key
           removeIds: [],
           insertIds: placed.inserted,
           seed: segment.empty,
+          range: { side: range.side, splitId },
         });
       }
 
-      const cursor = nextHistoryCursor(segment, statuses, HISTORY_PAGE_SIZE);
+      const cursor = nextHistoryCursor(segment, page.statuses, HISTORY_PAGE_SIZE);
 
       live.history[rangeKey] = !cursor.done && cursor.cursor === saved.cursor ? { done: true, cursor: null } : cursor;
 
@@ -932,11 +1004,12 @@ export function bindExternalFeedVisibility () {
     }
 
     bindExternalFeedVisibility.bound = true;
-    document.addEventListener('visibilitychange', () => {
+    visibilityHandler = () => {
       if (document.visibilityState === 'visible') {
         dispatch(refreshExternalFeedCapability());
-        dispatch(reconcileOpenExternalViews());
+        dispatch(resumeExternalFeedViews());
       }
-    });
+    };
+    document.addEventListener('visibilitychange', visibilityHandler);
   };
 }
