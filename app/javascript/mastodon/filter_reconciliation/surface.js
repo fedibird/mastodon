@@ -17,13 +17,14 @@ export const normalizeStatusIds = (lists, limit = Infinity) => {
 // One instance per mounted list/pane, independent of timeline ID/scrollKey.
 export class FilterSurface {
 
-  constructor(dispatch, node, { bindToDocument, scrollKey, preventScroll, ids, idForRow, followingLatest }) {
+  constructor(dispatch, node, { bindToDocument, scrollKey, preventScroll, ids, idForRow, followingLatest, onAcceptedScroll }) {
     this.dispatch = dispatch;
     this.node = node;
     this.bindToDocument = bindToDocument;
     this.scrollKey = scrollKey;
     this.preventScroll = preventScroll;
     this.followingLatest = followingLatest;
+    this.onAcceptedScroll = onAcceptedScroll;
     this.idForRow = idForRow || (id => id.startsWith('f-') ? id.slice(2) : id);
     this.visible = new Set();
     this.near = new Set();
@@ -128,7 +129,10 @@ export class FilterSurface {
   restoreSnapshot(snapshot) {
     const following = typeof this.followingLatest === 'function' && this.followingLatest();
 
-    restoreFilterAnchor(snapshot, this.node, this.scroller(), this.top(), { allowScroll: !following });
+    restoreFilterAnchor(snapshot, this.node, this.scroller(), this.top(), {
+      allowScroll: !following,
+      onAcceptedScroll: this.onAcceptedScroll,
+    });
   }
 
   destroy() {

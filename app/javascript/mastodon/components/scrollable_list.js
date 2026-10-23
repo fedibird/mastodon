@@ -70,6 +70,7 @@ class ScrollableList extends PureComponent {
     filterStatusIds: PropTypes.oneOfType([PropTypes.array, PropTypes.object]),
     filterIdForRow: PropTypes.func,
     windowedHistory: PropTypes.bool,
+    readingSurface: PropTypes.bool,
     anchorSourceKey: PropTypes.string,
   };
 
@@ -279,6 +280,19 @@ class ScrollableList extends PureComponent {
     this._mouseIdleScrollTop = nextTop;
   };
 
+  // FilterSurface writes scrollTop itself. Adopt that pin only when it still
+  // starts at the armed offset, and mark the scroll synthetic before the
+  // event is delivered. A reader move that already left the armed offset is
+  // left alone, including its inertia.
+  _acceptFilterScroll = (nextTop) => {
+    if (!this._mouseIdleMatches()) {
+      return;
+    }
+
+    this._mouseIdleScrollTop = nextTop;
+    this.lastScrollWasSynthetic = true;
+  };
+
   clearMouseIdleTimer = () => {
     if (this.mouseIdleTimer === null) {
       return;
@@ -400,10 +414,11 @@ class ScrollableList extends PureComponent {
       if (!nextLocation.state?.mastodonModalKey) this.updateFilterSurface();
     });
     if (!this.filterSurface) {
-      this.filterSurface = new FilterSurface(this.props.dispatch, this.node, { ...this.props, scrollKey: surfaceKey, ids: this.props.filterStatusIds, idForRow: this.props.filterIdForRow, followingLatest: () => this.isFollowingLatest() });
+      this.filterSurface = new FilterSurface(this.props.dispatch, this.node, { ...this.props, scrollKey: surfaceKey, ids: this.props.filterStatusIds, idForRow: this.props.filterIdForRow, followingLatest: () => this.isFollowingLatest(), onAcceptedScroll: this._acceptFilterScroll });
     } else {
       this.filterSurface.preventScroll = this.props.preventScroll;
       this.filterSurface.followingLatest = () => this.isFollowingLatest();
+      this.filterSurface.onAcceptedScroll = this._acceptFilterScroll;
       this.filterSurface.idForRow = this.props.filterIdForRow || this.filterSurface.idForRow;
       this.filterSurface.update(this.props.filterStatusIds);
     }
@@ -467,7 +482,7 @@ class ScrollableList extends PureComponent {
       this.setScrollTop(this.getScrollHeight() - snapshot);
     }
 
-    if (prevProps.scrollKey !== this.props.scrollKey || prevProps.bindToDocument !== this.props.bindToDocument || prevProps.anchorSourceKey !== this.props.anchorSourceKey || !!prevProps.windowedHistory !== !!this.props.windowedHistory) {
+    if (prevProps.scrollKey !== this.props.scrollKey || prevProps.bindToDocument !== this.props.bindToDocument || prevProps.anchorSourceKey !== this.props.anchorSourceKey || !!prevProps.windowedHistory !== !!this.props.windowedHistory || !!prevProps.readingSurface !== !!this.props.readingSurface) {
       this._cancelAnchorCorrection();
       this._cancelFilterAnchor();
       this._retireMouseIdle();
@@ -483,9 +498,10 @@ class ScrollableList extends PureComponent {
   }
 
   // The unread icon uses a 100px threshold. Follow is the actual top of a
-  // streaming list. A windowed history pane is a reading position even at 0.
+  // streaming list. A windowed history pane, and any other reading surface
+  // such as mix history, is a reading position even at local 0.
   isFollowingLatest = () => {
-    if (this.props.windowedHistory || this._anchorUnmounted) {
+    if (this.props.windowedHistory || this.props.readingSurface || this._anchorUnmounted) {
       return false;
     }
 

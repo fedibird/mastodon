@@ -552,6 +552,96 @@ describe('timeline filter anchor follow', () => {
     return { view, tree, list: () => view.container.querySelector('.scrollable') };
   };
 
+  const trackScroll = (scroller) => {
+    let top = scroller.scrollTop || 0;
+
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => top,
+      set (value) {
+        top = Number(value) || 0;
+        scroller.dispatchEvent(new Event('scroll'));
+      },
+    });
+  };
+
+  const openScrollRange = (scroller) => {
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => 8000 });
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => 600 });
+  };
+
+  // Hover at the latest row, let the insertion correction move the scroller,
+  // then let FilterSurface pin a row that grows above that anchor. The list
+  // is not following latest once scrollTop leaves 0, so the pin must apply.
+  const growAboveArmedAnchor = (host) => {
+    const mounted = mount({ bindToDocument: host === 'document', ids: ['100'] });
+    const { view, ref, scroller, tree } = mounted;
+    const heights = { 100: 200, 200: 200 };
+
+    openScrollRange(scroller);
+    jest.spyOn(ref.current, 'getScrollHeight').mockImplementation(() => (
+      view.container.querySelectorAll('article[data-id]').length * 200
+    ));
+    trackScroll(scroller);
+    layout(view.container.querySelector('.scrollable'), heights, { scroller });
+    scroller.scrollTop = 0;
+    ref.current.handleMouseMove();
+    ref.current.handleMouseMove.flush();
+    view.rerender(tree(['200', '100']));
+
+    const list = view.container.querySelector('.scrollable');
+
+    layout(list, heights, { scroller });
+    ref.current.handleScroll.flush();
+    expect(scroller.scrollTop).toBe(200);
+    intersect(article(list, '100'));
+    heights[200] = 250;
+    layout(list, heights, { scroller });
+    flushFrames();
+    expect(scroller.scrollTop).toBe(250);
+
+    return { ref, scroller };
+  };
+
+  it.each(['element', 'document'])('returns to the latest row when a filter correction scroll event arrives before mouse idle on %s', (host) => {
+    const { ref, scroller } = growAboveArmedAnchor(host);
+
+    ref.current.handleScroll.flush();
+    ref.current.handleMouseIdle();
+    expect(scroller.scrollTop).toBe(0);
+  });
+
+  it.each(['element', 'document'])('returns to the latest row when a filter correction scroll event arrives after mouse idle on %s', (host) => {
+    const { ref, scroller } = growAboveArmedAnchor(host);
+
+    ref.current.handleMouseIdle();
+    expect(scroller.scrollTop).toBe(0);
+    ref.current.handleScroll.flush();
+    expect(scroller.scrollTop).toBe(0);
+  });
+
+  it('does not treat a filter correction as permission to undo a scroll the reader already made', () => {
+    const mounted = mount({ ids: ['90', '100'] });
+    const { ref, list, scroller } = mounted;
+    const heights = { 90: 0, 100: 200 };
+
+    openScrollRange(scroller);
+    layout(list, heights);
+    scroller.scrollTop = 0;
+    ref.current.handleMouseMove();
+    ref.current.handleMouseMove.flush();
+    scroller.scrollTop = 80;
+    intersect(article(list, '100'));
+    heights[90] = 50;
+    layout(list, heights);
+    flushFrames();
+    expect(scroller.scrollTop).toBe(130);
+    scroller.dispatchEvent(new Event('scroll'));
+    ref.current.handleScroll.flush();
+    ref.current.handleMouseIdle();
+    expect(scroller.scrollTop).toBe(130);
+  });
+
   it('does not pin a streaming StatusList and does protect split history at local 0', () => {
     const live = mountStatus({ scrollKey: 'public_timeline-1-live', timelineId: 'public', dataTimelineId: 'public', windowedHistory: false }, ['100']);
     const history = mountStatus({ scrollKey: 'public_timeline-1', timelineId: 'public', dataTimelineId: 'public:split:1', windowedHistory: true }, ['100']);

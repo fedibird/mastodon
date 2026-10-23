@@ -57,6 +57,12 @@ export const restoreFilterAnchor = (snapshot, node, scroller, top, options = {})
   if (anchor && options.allowScroll !== false) {
     const delta = anchor.node.getBoundingClientRect().top - top - anchor.offset;
     if (Math.abs(delta) > POSITION_EPSILON) {
+      // Tell the list before the write so a synchronous scroll event is
+      // still marked as this correction. The list adopts it only when the
+      // pre-write offset is the one it already expected.
+      if (typeof options.onAcceptedScroll === 'function') {
+        options.onAcceptedScroll(scroller.scrollTop + delta);
+      }
       scroller.scrollTop += delta;
       snapshot.offset = scroller.scrollTop;
     }
