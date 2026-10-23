@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_24_120000) do
+ActiveRecord::Schema.define(version: 2026_10_25_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -720,6 +720,8 @@ ActiveRecord::Schema.define(version: 2026_10_24_120000) do
     t.bigint "status_id", null: false
     t.text "last_seen_revision"
     t.boolean "source_deleted", default: false, null: false
+    t.bigint "content_generation", default: 0, null: false
+    t.bigint "streamed_content_generation"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["account_id"], name: "index_external_status_projections_on_account_id"

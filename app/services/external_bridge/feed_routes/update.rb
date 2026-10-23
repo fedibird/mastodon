@@ -26,11 +26,12 @@ module ExternalBridge
           return subscription if same?(home_flag, desired_lists, current)
 
           assert_additions_allowed!(user, home_flag, desired_lists, current)
-          apply!(user, subscription, home_flag, desired_lists, current)
-          subscription.update_columns(
-            feed_routes_revision: subscription.feed_routes_revision.to_i + 1,
-            updated_at: Time.current
-          )
+          before_targets = route_targets(current)
+          epochs = apply!(user, subscription, home_flag, desired_lists, current)
+          next_revision = subscription.feed_routes_revision.to_i + 1
+          subscription.update_columns(feed_routes_revision: next_revision, updated_at: Time.current)
+          targets = (before_targets + route_target_values(home_flag, desired_lists)).uniq
+          schedule_route_change!(user, subscription, next_revision, targets, epochs)
         end
         subscription.reload
       rescue ActiveRecord::RecordNotFound
@@ -116,19 +117,64 @@ module ExternalBridge
         raise Error, :feed_routes_disabled if adding_home || adding_lists.any?
       end
 
+      # A destroyed row and the row created in its place are different ids.
+      # The control names that id so a delayed or reordered notice can expire
+      # insert intent from the old row without touching a later row.
       def apply!(user, subscription, home, list_ids, current)
+        epochs = []
         home_route = current.find { |route| route.destination == 'home' }
         if home && home_route.nil?
-          create_route!(user, subscription, 'home', nil)
+          created = create_route!(user, subscription, 'home', nil)
+          epochs << { 'type' => 'home', 'route_id' => created.id.to_s }
         elsif !home && home_route
+          removed_id = home_route.id.to_s
           home_route.destroy!
+          epochs << { 'type' => 'home', 'removed_route_id' => removed_id }
         end
 
         listed = current.select { |route| route.destination == 'list' }
-        listed.each { |route| route.destroy! unless list_ids.include?(route.list_id) }
-        (list_ids - listed.map(&:list_id)).each do |list_id|
-          create_route!(user, subscription, 'list', list_id)
+        listed.each do |route|
+          next if list_ids.include?(route.list_id)
+
+          removed_id = route.id.to_s
+          list_id = route.list_id.to_s
+          route.destroy!
+          epochs << { 'type' => 'list', 'id' => list_id, 'removed_route_id' => removed_id }
         end
+        (list_ids - listed.map(&:list_id)).each do |list_id|
+          created = create_route!(user, subscription, 'list', list_id)
+          epochs << { 'type' => 'list', 'id' => list_id.to_s, 'route_id' => created.id.to_s }
+        end
+        epochs
+      end
+
+      def schedule_route_change!(user, subscription, revision, targets, epochs)
+        Streaming::Scheduler.schedule_control!(
+          user_id: user.id,
+          subscription_id: subscription.id,
+          reason: 'routes_updated',
+          revision: revision,
+          targets: targets,
+          epochs: epochs
+        )
+      end
+
+      def route_targets(routes)
+        routes.filter_map { |route| route_target(route.destination, route.list_id) }
+      end
+
+      def route_target_values(home, list_ids)
+        targets = []
+        targets << { 'type' => 'home' } if home
+        list_ids.each { |list_id| targets << { 'type' => 'list', 'id' => list_id.to_s } }
+        targets
+      end
+
+      def route_target(destination, list_id)
+        return { 'type' => 'home' } if destination == 'home'
+        return nil if list_id.blank?
+
+        { 'type' => 'list', 'id' => list_id.to_s }
       end
 
       def create_route!(user, subscription, destination, list_id)

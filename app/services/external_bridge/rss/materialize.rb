@@ -103,15 +103,58 @@ module ExternalBridge
       end
 
       def refresh_existing(marker, resource)
-        marker.update!(
-          last_seen_revision: resource.revision,
-          source_deleted: resource.source_deleted_at.present?
-        )
         status = marker.status
         return if status.nil?
 
         text = status_text(resource)
-        status.update!(text: text) if status.text != text
+        deleted = resource.source_deleted_at.present?
+        text_changed = status.text != text
+        deleted_changed = marker.source_deleted != deleted
+        revision_changed = marker.last_seen_revision.to_s != resource.revision.to_s
+        return unless text_changed || deleted_changed || revision_changed
+
+        change = {
+          text: text,
+          deleted: deleted,
+          text_changed: text_changed,
+          deleted_changed: deleted_changed,
+          revision_changed: revision_changed,
+        }
+        ApplicationRecord.transaction do
+          write_refresh!(marker, status, resource, change)
+        end
+      end
+
+      def write_refresh!(marker, status, resource, change)
+        if change[:revision_changed] || change[:deleted_changed]
+          marker.update!(last_seen_revision: resource.revision, source_deleted: change[:deleted])
+        end
+        status.update!(text: change[:text]) if change[:text_changed]
+        if change[:deleted_changed]
+          schedule_membership_change!(marker, change[:deleted])
+        elsif change[:text_changed]
+          Streaming::Scheduler.bump_and_schedule_content!(marker)
+        end
+      end
+
+      def schedule_membership_change!(marker, deleted)
+        subscription = marker.external_subscription
+        targets = subscription.external_feed_routes.filter_map { |route| route_target(route) }
+        Streaming::Scheduler.schedule_control!(
+          user_id: marker.user_id,
+          subscription_id: marker.external_subscription_id,
+          reason: deleted ? 'source_deleted' : 'source_restored',
+          revision: subscription.feed_routes_revision,
+          status_id: marker.status_id,
+          targets: targets
+        )
+      end
+
+      def route_target(route)
+        return { 'type' => 'home' } if route.destination == 'home'
+        return nil if route.list_id.blank?
+
+        { 'type' => 'list', 'id' => route.list_id.to_s }
       end
 
       def status_text(resource)

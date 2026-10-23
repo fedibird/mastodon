@@ -10,6 +10,8 @@ module ExternalBridge
       ApplicationRecord.transaction(requires_new: true) do
         ids = ExternalStatusProjection.where(user_id: user.id).pluck(:status_id)
         if ids.any?
+          # The user row is removed in this transaction. Streaming would lose
+          # its authorization, so this path does not emit delete events.
           ActiveRecord::Base.connection.execute(ProjectionPurge::SETTING_SQL)
           Status.unscoped.where(id: ids).delete_all
           ActiveRecord::Base.connection.execute("SET LOCAL fedibird.projection_status_delete = 'off'")

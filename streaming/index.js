@@ -13,6 +13,7 @@ const uuid = require('uuid');
 const fs = require('fs');
 const WebSocket = require('ws');
 const { filteredResultsForStatus, buildCachedFilters, stripStreamingSearchableText } = require('./filtering');
+const { attachExternalFeed, detachExternalFeed, createCancellableQuery, PRIVATE_CONFIRM_MS } = require('./external_feed');
 
 const env = process.env.NODE_ENV || 'development';
 const alwaysRequireAuth = process.env.LIMITED_FEDERATION_MODE === 'true' || process.env.WHITELIST_MODE === 'true' || process.env.AUTHORIZED_FETCH === 'true';
@@ -161,6 +162,19 @@ const startWorker = (workerId) => {
   }
 
   const pgPool = new pg.Pool(poolConfig);
+  // Private confirms never wait on the ordinary pool. The connection timeout
+  // belongs to this pool only, so account-timeline queries keep their own
+  // settings. max stays the same size as the ordinary pool.
+  const externalPool = new pg.Pool(Object.assign({}, poolConfig, {
+    connectionTimeoutMillis: PRIVATE_CONFIRM_MS,
+  }));
+  const externalQuery = createCancellableQuery((done) => {
+    externalPool.connect(done);
+  });
+
+  const detachExternalListener = listener => {
+    detachExternalFeed(listener, { unsubscribe: unsubscribe });
+  };
   const server = http.createServer(app);
   const redisNamespace = process.env.REDIS_NAMESPACE || null;
 
@@ -341,6 +355,7 @@ const startWorker = (workerId) => {
         req.accessTokenId = result.rows[0].id;
         req.scopes = result.rows[0].scopes.split(' ');
         req.accountId = result.rows[0].account_id;
+        req.userId = result.rows[0].resource_owner_id === null || result.rows[0].resource_owner_id === undefined ? null : String(result.rows[0].resource_owner_id);
         req.chosenLanguages = result.rows[0].chosen_languages;
         req.bot = result.rows[0].bot;
         req.enableFederatedTimeline = !result.rows[0].disable_federated_timeline;
@@ -747,9 +762,10 @@ const startWorker = (workerId) => {
    * @param {boolean=} needsFiltering
    * @param {boolean=} notificationOnly
    * @param {boolean=} preferencesOnly
+   * @param {{ kind: string, listId?: string }|null=} externalFeed
    * @return {function(string): void}
    */
-  const streamFrom = (ids, req, output, attachCloseHandler, needsFiltering = false, notificationOnly = false, preferencesOnly = false) => {
+  const streamFrom = (ids, req, output, attachCloseHandler, needsFiltering = false, notificationOnly = false, preferencesOnly = false, externalFeed = null) => {
     const accountId  = req.accountId || req.remoteAddress;
     const streamType = notificationOnly ? ' (notification)' : '';
     const preferencesTicket = preferencesOnly ? { active: true } : null;
@@ -898,6 +914,19 @@ const startWorker = (workerId) => {
       subscribe(`${redisPrefix}${id}`, listener);
     });
 
+    if (externalFeed) {
+      attachExternalFeed({
+        listener: listener,
+        req: req,
+        externalFeed: externalFeed,
+        query: externalQuery,
+        redisPrefix: redisPrefix,
+        subscribe: subscribe,
+        unsubscribe: unsubscribe,
+        output: output,
+      });
+    }
+
     if (attachCloseHandler) {
       attachCloseHandler(ids.map(id => `${redisPrefix}${id}`), listener);
     }
@@ -939,6 +968,7 @@ const startWorker = (workerId) => {
    */
   const streamHttpEnd = (req, closeHandler = undefined) => (ids, listener) => {
     req.on('close', () => {
+      detachExternalListener(listener);
       ids.forEach(id => {
         unsubscribe(id, listener);
       });
@@ -1002,7 +1032,7 @@ const startWorker = (workerId) => {
       const onSend = streamToHttp(req, res);
       const onEnd  = streamHttpEnd(req, subscriptionHeartbeat(channelIds));
 
-      streamFrom(channelIds, req, onSend, onEnd, options.needsFiltering, options.notificationOnly, options.preferencesOnly);
+      streamFrom(channelIds, req, onSend, onEnd, options.needsFiltering, options.notificationOnly, options.preferencesOnly, options.externalFeed);
     }).catch(err => {
       log.verbose(req.requestId, 'Subscription error:', err.toString());
       httpNotFound(res);
@@ -1057,7 +1087,7 @@ const startWorker = (workerId) => {
     case 'user':
       resolve({
         channelIds: req.deviceId ? [`timeline:${req.accountId}`, `timeline:${req.accountId}:${req.deviceId}`] : [`timeline:${req.accountId}`],
-        options: { needsFiltering: false, notificationOnly: false },
+        options: { needsFiltering: false, notificationOnly: false, externalFeed: { kind: 'user' } },
       });
 
       break;
@@ -1430,7 +1460,7 @@ const startWorker = (workerId) => {
       authorizeListAccess(params.list, req).then(() => {
         resolve({
           channelIds: [`timeline:list:${params.list}`],
-          options: { needsFiltering: false, notificationOnly: false },
+          options: { needsFiltering: false, notificationOnly: false, externalFeed: { kind: 'list', listId: String(params.list) } },
         });
       }).catch(() => {
         reject('Not authorized to stream this list');
@@ -1489,7 +1519,7 @@ const startWorker = (workerId) => {
 
       const onSend        = streamToWs(request, socket, streamNameFromChannelName(channelName, params));
       const stopHeartbeat = subscriptionHeartbeat(channelIds);
-      const listener      = streamFrom(channelIds, request, onSend, undefined, options.needsFiltering, options.notificationOnly, options.preferencesOnly);
+      const listener      = streamFrom(channelIds, request, onSend, undefined, options.needsFiltering, options.notificationOnly, options.preferencesOnly, options.externalFeed);
 
       subscriptions[channelIds.join(';')] = {
         listener,
@@ -1518,6 +1548,7 @@ const startWorker = (workerId) => {
       const { listener, stopHeartbeat } = subscription;
 
       deactivatePreferencesTicket(listener);
+      detachExternalListener(listener);
 
       channelIds.forEach(channelId => {
         unsubscribe(`${redisPrefix}${channelId}`, listener);
@@ -1601,6 +1632,7 @@ const startWorker = (workerId) => {
         const { listener, stopHeartbeat } = session.subscriptions[channelIds];
 
         deactivatePreferencesTicket(listener);
+        detachExternalListener(listener);
 
         channelIds.split(';').forEach(channelId => {
           unsubscribe(`${redisPrefix}${channelId}`, listener);

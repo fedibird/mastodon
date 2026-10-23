@@ -9,11 +9,12 @@ module ExternalBridge
       raise Error, :account_mismatch unless user.account_id.present? && subscription.user_id == user.id
       raise Error, :account_mismatch unless subscription.external_source_id == resource.external_source_id
 
+      visibility = storage_visibility
       ApplicationRecord.transaction(requires_new: true) do
         status = Status.create!(
           account_id: user.account_id,
           text: text.presence || I18n.t('external_bridge.untitled'),
-          visibility: storage_visibility,
+          visibility: visibility,
           searchability: :personal,
           uri: nil,
           external_projection: true,
@@ -31,6 +32,7 @@ module ExternalBridge
           last_seen_revision: resource.revision,
           source_deleted: resource.source_deleted_at.present?
         )
+        Streaming::Scheduler.bump_and_schedule_content!(marker) if visibility == :external
         [status, marker]
       end
     end
