@@ -7,6 +7,7 @@ Related contracts, which this document does not replace:
 - `docs/private_external_bridge.md` — P0 architecture. Its projection contract still describes `visibility = personal` as the production shape.
 - `docs/private_external_bridge_audit.md` — baseline code-path audit. Its CONFIRMED, RISK, and GAP rows are that baseline. They are not a description of the E1 tree.
 - `docs/external_feed_routing.md` — E3-A home/list routes and REST merge. Streaming is not part of it. The delivery flag ships off.
+- `docs/external_link_sharing.md` — E4-A share policy and reference notes. The link-sharing flag ships off. Boost conversion is not in that document.
 
 E1 is a read and protection foundation. It does not switch the writer, migrate existing rows, deliver external rows to home or lists, accept `unlisted` as the public compatibility value, publish a link Note, or perform a native AT Protocol action.
 
@@ -49,7 +50,7 @@ E1 did not switch the writer or migrate rows. E2 now does those two things, and 
 - E1 rejected every personal-to-external update. E2 adds one transaction-local permit for a single projection status. There is still no GUC that disables the guard, and no path back from 201 to 200.
 - Home and list REST delivery for a canonical external row is a separate contract in `docs/external_feed_routing.md` (E3-A). It ships off and does not change streaming. The personal timeline still requires `visibility = personal`, so an external row does not join it.
 - No change of the public compatibility mask from `direct` to `unlisted`.
-- No public link Note, no boost or reply or quote of the external body, no native AT Protocol write.
+- E4-A (`docs/external_link_sharing.md`) can store consent and create a separate reference note. It does not boost, reply, or quote the projection, and it does not change this mask. The link-sharing flag ships off. Native AT Protocol writes stay out of this series.
 - No new statuses column, default, backfill, or statuses index.
 - RSS and AT Protocol feature flags and tester allowlists are unchanged.
 
@@ -72,7 +73,7 @@ ExternalSource ── ExternalResource ── ExternalStatusProjection ── St
 | ExternalStatusProjection | `user_id` is the only reader. `status_id` is unique. |
 | Status | Legacy production shape: `external_projection=true`, `local=true`, `uri=nil`, `visibility=personal`, `searchability=personal`, no reply, reblog, or quote. Canonical external fixture: the same, with `visibility=external`. |
 | ActivityPub Note | Not created. `uri` stays nil. Serializing a private row raises `Status::UnreleasedActivityObject`. |
-| Public link Note | Not this status. Not implemented. |
+| Public link Note | Not this status. E4-A stores a separate reference Status. See `docs/external_link_sharing.md`. Boost is not wired. |
 
 The status insert and the marker insert share a transaction. Visibility or the flag alone is enough to skip URI minting, webhooks, and fan-out, including the moment before the marker exists. After commit, a row with any one of the three signals stays private.
 
@@ -199,4 +200,4 @@ The permit is the string `status_id || ':' || txid_current()` in the transaction
 | Legacy external projection | direct | personal | still on the owner's personal timeline |
 | Migrated or newly stored external | direct | external | not on the personal timeline |
 
-The subscription item list, the status itself, and the owner's favourites and bookmarks still open the same id. Another User of the same Account does not. E3 is not in this revision, so home, lists, and streaming do not gain the row, and there is no public link note.
+The subscription item list, the status itself, and the owner's favourites and bookmarks still open the same id. Another User of the same Account does not. Home and list delivery is the E3 contract. A public link note, when E4-A creates one, is a different status and is specified in `docs/external_link_sharing.md`. The projection itself stays `direct` / `visibility_ex=external`.

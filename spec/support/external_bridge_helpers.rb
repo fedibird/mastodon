@@ -17,6 +17,17 @@ module ExternalBridgeHelpers
     Setting.external_bridge_feeds_testers = ids.join(',')
   end
 
+  def enable_external_bridge_link_sharing!(*users)
+    Setting.external_bridge_link_sharing = true
+    permit_external_bridge_link_sharing_testers!(*users)
+  end
+
+  def permit_external_bridge_link_sharing_testers!(*users)
+    ids = ExternalBridge::LinkSharing::Feature.tester_ids
+    ids |= users.flatten.compact.map { |user| user.id.to_i }
+    Setting.external_bridge_link_sharing_testers = ids.join(',')
+  end
+
   def permit_external_bridge_rss_testers!(*users)
     ids = ExternalBridge::Feature.tester_ids
     ids |= users.flatten.compact.map { |user| user.id.to_i }

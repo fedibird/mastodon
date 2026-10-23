@@ -25,6 +25,8 @@ class ExternalStatusProjection < ApplicationRecord
   belongs_to :external_subscription
   belongs_to :external_resource
   belongs_to :status
+  # Purge nulls the FK. It does not delete the reference Status.
+  has_many :external_projection_link_references, inverse_of: :external_status_projection, dependent: :nullify
 
   after_commit :remove_from_search_index, on: [:create, :update]
 

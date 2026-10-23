@@ -228,6 +228,14 @@ defaults: &defaults
   #   Setting.external_bridge_feeds_testers = "17,42"
   external_bridge_feeds: false
   external_bridge_feeds_testers: ''
+  # E4-A link-note sharing. Independent of RSS fetch, AT Protocol, the E2
+  # storage switch, and E3 delivery. Off rejects reference-note generation.
+  # Testers are local User ids. An empty list admits nobody. This does not
+  # change projection visibility, boost, or an existing reference note.
+  #   Setting.external_bridge_link_sharing = true
+  #   Setting.external_bridge_link_sharing_testers = "17,42"
+  external_bridge_link_sharing: false
+  external_bridge_link_sharing_testers: ''
   action_review_policies:
     follow_import: 'off'
     account_migration: 'off'

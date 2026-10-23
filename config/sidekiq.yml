@@ -120,6 +120,13 @@
       every: '10m'
       class: Scheduler::ExternalBridgeAtprotoAttemptCleanupScheduler
       queue: scheduler
+    # Recovers reference notes committed with published_at still null.
+    # Does not consult the link-sharing flag. One pass is at most 20 rows
+    # and does not re-push a job Sidekiq already accepted.
+    external_bridge_link_reference_publish_scheduler:
+      every: '5m'
+      class: Scheduler::ExternalBridgeLinkReferencePublishScheduler
+      queue: scheduler
     follow_import_dispatch_scheduler:
       every: '<%= (canonical = ENV["FOLLOW_IMPORT_DISPATCH_INTERVAL"].to_i; alias_n = ENV["FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL"].to_i; n = canonical.positive? ? canonical : alias_n; n.positive? ? n : 60) %>s'
       class: Scheduler::FollowImportDispatchScheduler
