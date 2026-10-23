@@ -256,7 +256,17 @@ Errors: `404` for a non-owner, nil user, admin, forged marker, and other-User; `
 
 ### Unsupported or deferred
 
-Standard clients cannot reach this unless they can send the projection id: it is `visibility: direct`, `visibility_ex: external`, so stock clients do not show a boost button for it. E4-C (not here) decides the REST `unlisted` presentation, the WebUI boost button, the consent UI, and client compatibility. Also not here: Bluesky native repost, reply, quote, and reference conversion; a stream event that tells another tab that `reblogged` changed; the WebUI reducer protection against an older stream frame overwriting a newer REST `reblogged`.
+Standard clients cannot reach this unless they can send the projection id: it is `visibility: direct`, `visibility_ex: external`, so stock clients do not show a boost button for it. E4-C decides the REST `unlisted` presentation, the WebUI boost button, the consent UI, and client compatibility. Also not done: Bluesky native repost, reply, quote, and reference conversion. The Streaming and WebUI-reducer part of issue #558 is **not done in E4-B** and is a gate below.
+
+### Gates before `external_bridge_link_sharing` or its tester list is turned on
+
+E4-B is the server-side foundation, delivered with the flag off. The flag and the tester list must stay off until each item below is done and verified. These are not optional follow-ups.
+
+1. **Streaming and reducer consistency of `reblogged` (the open part of issue #558).** Nothing publishes an event when the share state of a projection changes, and the WebUI reducer has no protection against an older stream frame overwriting a newer REST `reblogged` (`E3` renders a projection for its owner with the state at render time). Required: a stream notification of the change to the owner's other sessions; a reducer rule that a status payload older than the state already applied never rolls `reblogged` back (a monotonic marker from the server, ordered with the E3 stream clock and reconnect boundary); the ids involved are the projection id, never the wrapper id or the reference note id. Minimum verification contract: User A and User B, including two Users of one Account; boost, Undo, boost again; REST response delayed behind a stream frame and stream frame ahead of the REST response; the original projection's `reblogged` while it is held in home, list, and Mix; ordinary Statuses unchanged. A hands-on test with the real UI may wait for the phase that ships the UI, but this must be passed before the flag is turned on.
+2. **Remote receivers.** The Announce is at-least-once (see "Delivery boundary"), the activity id is stable, and nothing more is guaranteed. Create then Announce arrival order and the receivers' handling of a repeated Announce have not been tested against real remote servers. Record the result for the target software before turning the flag on.
+3. **E4-C.** REST `unlisted` presentation, the boost button, the consent UI, and client compatibility. Until then the only way to reach this code is a direct API call.
+4. **Environment checks not run so far.** Elasticsearch examples, the privilege-admin schema job, an `EXPLAIN` of the profile listing (`AccountStatusesFeed`) and of the `statuses` `BEFORE DELETE` trigger at production size.
+5. **Timeline rebuild paths.** `populate_home` and `merge_into_home` leave the wrapper out; other readers of an Account's boosts that fill a timeline were only searched for, not tested.
 
 ### Operational stop points
 
