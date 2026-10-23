@@ -43,9 +43,10 @@ module ExternalBridge
         raise Error, :not_owner if projection.nil?
 
         Feature.require!(@user)
-        Ownership.assert!(@user, projection)
+        Ownership.assert_canonical!(@user, projection)
         scope = current_scope!
         reject_widening!(scope)
+        reject_outdated_share!(projection, scope)
 
         ensured = EnsureReference.call(user: @user, projection: projection, scope: scope)
         Checkpoints.fire(:before_boost_lock)
@@ -65,6 +66,29 @@ module ExternalBridge
       # the row for a job that finds nothing to do.
       def create_distributed?(boost)
         ExternalProjectionLinkReference.where(id: boost.link_reference_id).where.not(published_at: nil).exists?
+      end
+
+      # A live share is returned again only when it is still the share this
+      # request would make: the same consented scope and the same current
+      # canonical URL on the same active reference. Otherwise the caller is
+      # told to undo it first. This runs before EnsureReference so that no new
+      # note is created, or distributed, for a request that is refused. The
+      # share is not moved to the new scope or URL on the caller's behalf.
+      def reject_outdated_share!(projection, scope)
+        canonical = NoteText.canonical_url!(projection.external_resource)
+        live_rows(projection).each do |row|
+          mapping = ExternalProjectionLinkReference.find_by(id: row.link_reference_id)
+          current = mapping.present? && mapping.active? && mapping.canonical_url == canonical &&
+                    mapping.reference_status_id.present? && row.reference_status_id == mapping.reference_status_id
+          raise Error, :share_outdated unless current && row.visibility == scope && mapping.visibility == scope
+        end
+      end
+
+      def live_rows(projection)
+        ExternalProjectionLinkBoost.where(user_id: @user.id, projection_status_id: projection.status_id, state: 'active').order(:id).select do |row|
+          wrapper = Status.find_by(id: row.wrapper_status_id)
+          wrapper.present? && wrapper.account_id == @user.account_id
+        end
       end
 
       def current_scope!
@@ -96,10 +120,19 @@ module ExternalBridge
         ReferenceIntegrity.verify!(mapping, reference)
 
         live = lock_live_share(projection, removals)
+        if live && !current_share?(live, mapping, reference, scope)
+          raise Error, :share_outdated
+        end
         return Result.new(boost: live, wrapper: live.wrapper_status, reference: reference, created: false) if live
 
         Checkpoints.fire(:before_boost_create)
         create_share!(projection, mapping, reference, scope, policy)
+      end
+
+      def current_share?(row, mapping, reference, scope)
+        row.link_reference_id == mapping.id &&
+          row.reference_status_id == reference.id &&
+          row.visibility == scope
       end
 
       def usable_mapping?(mapping, projection, scope)

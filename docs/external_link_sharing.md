@@ -135,7 +135,7 @@ E4-B is split. B1 is the state of record and the boost/unboost contract. B2 is t
 `POST /api/v1/statuses/:projection_id/reblog` by the owner becomes a share of the User's own reference note:
 
 1. `Api::V1::Statuses::ReblogsController` sees that the target is a projection and hands it to `ExternalBridge::LinkSharing::Boost`. It does not call `ReblogService`. `ReblogService` still calls `ExternalBridge::Guards.reject_target!`, and `StatusPolicy#reblog?` still refuses a private status. Both are unchanged. A normal status takes the old path with the old code.
-2. `Boost` checks, in order: the authenticated `current_user`, a projection marker with that user's id, the flag and tester list, `User#functional?`, the policy row (`enabled`, `consented_at`, `public` or `unlisted`), and the request parameters.
+2. `Boost` checks, in order: the authenticated `current_user`, a projection marker with that user's id, the flag and tester list, `User#functional?`, that the projection is canonical (below), the policy row (`enabled`, `consented_at`, `public` or `unlisted`), the request parameters, and that no live share of the User for this projection disagrees with this request (below).
 3. `EnsureReference` (E4-A) gets or creates the reference note for the policy's scope.
 4. One transaction locks the policy row, then the mapping row, then the User's boost rows, repeats the checks against the locked rows, verifies the reference note (below), and inserts the wrapper Status and the boost row together.
 5. After commit the Announce is requested (below).
@@ -143,6 +143,14 @@ E4-B is split. B1 is the state of record and the boost/unboost contract. B2 is t
 The wrapper is an ordinary boost Status on the User's Account whose `reblog` is the reference note. It has the policy scope as its visibility. The projection is never nested. No field of the projection (text, spoiler, title, byline, attachment, source authentication string, Status id, or URI) is copied into the wrapper, the reference note, an ActivityPub activity, a notification, or a webhook.
 
 Request parameters never widen the scope. `visibility` is accepted only when it equals the policy scope. Any other value, including `mutual`, `limited`, `private`, `direct`, `personal`, and the other of `public`/`unlisted`, is `422 visibility_mismatch`. `circle_id` is `422 circle_rejected`. There is no fallback to a default privacy.
+
+### Canonical projection only
+
+`Ownership.assert_canonical!` is the entry condition of `Boost` and is checked again by `BoostAnnounce`. The Status must have visibility `external` (201) and `external_projection = true`, and the marker's User, Account, Subscription (same User, same source) and Resource (same source) must agree. A marker on a legacy personal (200) row, or a row that has only the flag or only the visibility, is refused with `422 projection_not_canonical`; no note, mapping, or wrapper is written. Reading, bookmarking, favouriting, E2 migration, and **unboost** of such a row are not affected: unboost needs only the marker. E4-A `EnsureReference` keeps its own contract (it accepts a marker the owner holds); it has no caller other than `Boost`, so legacy 200 is closed at the entry. A legacy row becomes shareable after the E2 migration makes it canonical.
+
+### One live share, one meaning
+
+A repeated POST returns the live share only when it is still the share this request would make: same User, same projection, the current active mapping whose canonical URL equals the resource's current URL, the same reference note, the same consented scope, and a kept wrapper of that Account. Otherwise `409 share_outdated`, before `EnsureReference` runs, so no new note is created or distributed and the old share is neither widened nor moved. The caller undoes the current share (`unreblog`, which sends the Undo for an announced wrapper or removes an unannounced one) and posts again; that creates the new note's Create, then its Announce. The same check runs again under the locks (a URL change that lands between the two returns `409`, and the note that `EnsureReference` made in that window stays unboosted). A source title change alone does not change the share.
 
 ### User and Account
 
@@ -175,7 +183,7 @@ One row per share generation. A row is created `active` and ends `undone`. It ne
 
 Database guarantees: one `active` row per `(user_id, projection_status_id)` (partial unique index); `(link_reference_id, generation)` unique; `wrapper_status_id` unique; foreign keys to users, accounts, the mapping (cascade), the marker (set null), and both statuses (set null); checks for state, visibility, generation, `active` requires a wrapper, `undone` requires `undone_at`; an insert trigger that verifies the User/Account pair, the mapping, the marker owner, and the wrapper shape; an update trigger that makes identifiers immutable, makes `announced_at` immutable once set, and refuses to reactivate an ended row; a `BEFORE DELETE` trigger on `statuses` that ends the row (and clears its status ids in the same statement) when the wrapper or the reference note is hard-deleted.
 
-`ended_reason` values: `user_undo`, `projection_purged`, `projection_gone`, `status_deleted`, `wrapper_removed`, `reference_unavailable`, `reference_modified`, `consent_withdrawn`.
+`ended_reason` values: `user_undo`, `projection_purged`, `projection_gone`, `status_deleted`, `wrapper_removed`, `reference_unavailable`, `reference_modified`, `consent_withdrawn`, `feature_changed`. `projection_gone` is also used when the projection is no longer canonical at announce time.
 
 ### Create, Announce, Undo
 
@@ -199,7 +207,7 @@ Followers on other servers receive Create then Announce. This server cannot dedu
 
 Undo. `POST /api/v1/statuses/:projection_id/unreblog` ends this User's active rows for the projection. The wrapper is discarded and, if it was announced, handed to `RemovalWorker` after commit, which sends the Undo and removes the row. A wrapper that was never announced is removed at once: nothing left the server, and a left-over discarded row would fail the one-boost-per-Account-and-note validation of the next share. The reference note, the projection, the mapping, favourites, and bookmarks are untouched. Repeating the call, or calling it with no share, returns `200` and ends nothing.
 
-Stale jobs. `BoostAnnounce` locks the row, and re-reads the flag, the tester list, the User, the policy (enabled, consented, same scope), the marker, the mapping, and the reference note. If any no longer holds the row is closed (`undone`, with a reason) and the wrapper is removed without an Announce. A job queued before an undo, a consent revocation, a scope change, a purge, or an edit cannot bring the share back, and a job for generation 1 cannot touch generation 2.
+Stale jobs. `BoostAnnounce` locks the row, and re-reads the flag, the tester list, the User, the policy, the canonical marker, the mapping (active, same note, same canonical URL as the resource has now), and the reference note. The policy must be the same grant the boost was made under: enabled, consented, same scope, **and `policy.revision` equal to the `policy_revision` stored on the row**. Every grant, revoke, and scope change bumps the revision, so revoke followed by a grant of the same scope, or public → unlisted → public, closes an old request (`consent_withdrawn`) and does not carry it into the new consent. A change of `external_bridge_link_sharing` or `external_bridge_link_sharing_testers` (their `settings.updated_at`) after the row was created closes it too (`feature_changed`), so stopping and restarting the feature never revives a request made before the stop. This also means that editing the tester list closes unannounced requests of other testers that are still waiting; they re-POST. If anything no longer holds, the row is closed (`undone`, with a reason) and the wrapper is removed without an Announce. A job queued before an undo, a consent change, a purge, or an edit cannot bring the share back, and a job for generation 1 cannot touch generation 2. A share that was already announced is not recalled by any of this and the public note is not deleted: only Undo ends it.
 
 ### Reference note identity
 
@@ -209,7 +217,7 @@ The reference note is the User's own post and can be edited. At insert, `externa
 
 | Event | Share |
 | --- | --- |
-| Flag off, tester removed, consent revoked, scope changed | New boost refused. A live share stays and can be undone. An unannounced share is closed at announce time (`consent_withdrawn`). An announced share is not recalled. |
+| Flag off or on again, tester list edited, consent revoked or granted again, scope changed | New boost refused (or `409 share_outdated` for a live share of another scope). A live share stays and can be undone. An unannounced share is closed at announce time (`consent_withdrawn` / `feature_changed`), including after a revoke and a grant of the same scope. An announced share is not recalled. |
 | `source_deleted` | Share stays. Boost and undo keep working. |
 | Projection purge / subscription delete / user delete | Ended in the purge transaction (`projection_purged`); the Undo is enqueued after commit. The reference note stays. `RecoverUnannounced` also closes any active row whose marker is gone (`projection_gone`). |
 | Reference note edited | New boost refused. A live announced share stays. An unannounced one is closed (`reference_modified`). |
@@ -229,7 +237,7 @@ POST /api/v1/statuses/:projection_id/unreblog        -> 200 Status (the projecti
 
 Create returns the wrapper: `id` is the wrapper id, `visibility` the policy scope, `reblog` the reference note (its `content` is the E4-A allowlist text), and no `fedibird_external` anywhere. Unreblog returns the projection as the owner sees it (`visibility: "direct"`, `visibility_ex: "external"`, `reblogged: false`).
 
-Errors: `404` for a non-owner, nil user, admin, forged marker, and other-User; `401` without a token; `403` for a read-only token and for `feature_disabled`, `tester_only`, `consent_required`, `user_not_functional`; `422` for `visibility_mismatch`, `circle_rejected`, `scope_rejected`, `reference_modified`, `reference_broken`, `reference_already_boosted`, `canonical_url_invalid`; `409` for `reference_conflict`, `policy_changed`. Body: `{"error": "<code>"}`.
+Errors: `404` for a non-owner, nil user, admin, forged marker, and other-User; `401` without a token; `403` for a read-only token and for `feature_disabled`, `tester_only`, `consent_required`, `user_not_functional`; `422` for `visibility_mismatch`, `circle_rejected`, `scope_rejected`, `reference_modified`, `reference_broken`, `reference_already_boosted`, `canonical_url_invalid`; `409` for `reference_conflict`, `policy_changed`, `share_outdated`; `422` also for `projection_not_canonical`. Body: `{"error": "<code>"}`.
 
 ### Unsupported or deferred
 

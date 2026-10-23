@@ -588,6 +588,293 @@ describe 'ExternalBridge link boost', type: :model do
     end
   end
 
+  describe 'a live share that no longer matches the request' do
+    it 'refuses a new scope without creating a note and without widening the old share' do
+      [%w(unlisted public), %w(public unlisted)].each do |from, to|
+        user = Fabricate(:user)
+        world = prepare(user, visibility: from)
+        first = boost!(user, world)
+        mapping_ids = ExternalProjectionLinkReference.where(user_id: user.id).pluck(:id)
+        note_count = Status.where(account_id: user.account_id, external_projection: [false, nil]).count
+        ExternalBridge::LinkSharing::Policy.change_visibility!(user: user, visibility: to)
+
+        expect { boost!(user, world) }.to error_code('share_outdated'), "#{from} to #{to}"
+
+        expect(ExternalProjectionLinkReference.where(user_id: user.id).pluck(:id)).to eq(mapping_ids)
+        expect(Status.where(account_id: user.account_id, external_projection: [false, nil]).count).to eq(note_count)
+        expect(rows_for(world).pluck(:state, :visibility, :wrapper_status_id)).to eq([['active', from, first.wrapper.id]])
+        expect(Status.find(first.wrapper.id).visibility).to eq(from)
+      end
+    end
+
+    it 'moves to the new scope only through an explicit undo, with Undo for an announced share' do
+      user = Fabricate(:user)
+      world = prepare(user, visibility: 'unlisted')
+      first = boost!(user, world)
+      removals = []
+      allow(RemovalWorker).to receive(:perform_async).and_wrap_original do |method, *args|
+        removals << args.first
+        method.call(*args)
+      end
+      ExternalBridge::LinkSharing::Policy.change_visibility!(user: user, visibility: 'public')
+      expect { boost!(user, world) }.to error_code('share_outdated')
+
+      unboost!(user, world)
+      second = boost!(user, world)
+
+      expect(removals).to eq([first.wrapper.id])
+      expect(second.created).to be(true)
+      expect(second.reference.id).not_to eq(first.reference.id)
+      expect(second.reference.visibility).to eq('public')
+      expect(second.wrapper.visibility).to eq('public')
+      expect(second.wrapper.reblog_of_id).to eq(second.reference.id)
+      expect(rows_for(world).pluck(:state, :visibility)).to eq([%w(undone unlisted), %w(active public)])
+      expect(ExternalProjectionLinkReference.where(user_id: user.id, state: 'active').count).to eq(2)
+    end
+
+    it 'does the same for a share that was never announced, and sends no Undo' do
+      user = Fabricate(:user)
+      world = prepare(user, visibility: 'public')
+      removals = []
+      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+      wrapper = nil
+      Sidekiq::Testing.fake! do
+        wrapper = boost!(user, world).wrapper
+        expect(sole_row(world).announced_at).to be_nil
+        ExternalBridge::LinkSharing::Policy.change_visibility!(user: user, visibility: 'unlisted')
+        expect { boost!(user, world) }.to error_code('share_outdated')
+        unboost!(user, world)
+        expect(gone?(wrapper.id)).to be(true)
+        again = boost!(user, world)
+        expect(again.wrapper.visibility).to eq('unlisted')
+        expect(again.reference.visibility).to eq('unlisted')
+      end
+      Sidekiq::Testing.inline!
+
+      expect(removals).to be_empty
+    end
+
+    it 'refuses a changed canonical URL, and ignores a changed source title' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      first = boost!(user, world)
+
+      world[:source].update!(title: 'Renamed Feed Title')
+      same = boost!(user, world)
+      expect(same.created).to be(false)
+      expect(same.wrapper.id).to eq(first.wrapper.id)
+
+      world[:resource].update!(canonical_url: "#{world[:url]}-moved")
+      mapping_ids = ExternalProjectionLinkReference.where(user_id: user.id).pluck(:id)
+      expect { boost!(user, world) }.to error_code('share_outdated')
+      expect(ExternalProjectionLinkReference.where(user_id: user.id).pluck(:id)).to eq(mapping_ids)
+      expect(Status.where(account_id: user.account_id, external_projection: [false, nil]).count).to eq(2)
+      expect(sole_row(world).state).to eq('active')
+
+      unboost!(user, world)
+      moved = boost!(user, world)
+      expect(moved.reference.text).to include('-moved')
+      expect(moved.reference.id).not_to eq(first.reference.id)
+      expect(ExternalProjectionLinkReference.find(first.boost.link_reference_id).state).to eq('superseded')
+    end
+
+    it 'closes an unannounced share at announce time when the URL moved' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      calls = []
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |id| calls << id }
+      wrapper = nil
+      Sidekiq::Testing.fake! do
+        wrapper = boost!(user, world).wrapper
+        world[:resource].update!(canonical_url: "#{world[:url]}-moved")
+        ExternalBridge::LinkReferencePublishWorker.drain
+        ExternalBridge::LinkBoostAnnounceWorker.drain
+      end
+      Sidekiq::Testing.inline!
+
+      expect(sole_row(world).ended_reason).to eq('reference_unavailable')
+      expect(calls).not_to include(wrapper.id)
+    end
+
+    it 'refuses a live share whose old note was edited, and ends it when the note is deleted' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      first = boost!(user, world)
+      first.reference.update_columns(text: "#{first.reference.text}\nedited")
+
+      expect { boost!(user, world) }.to error_code('reference_modified')
+      expect(sole_row(world).state).to eq('active')
+
+      first.reference.update_columns(text: first.reference.text.sub("\nedited", ''))
+      first.reference.discard
+      expect { boost!(user, world) }.to error_code('reference_broken')
+    end
+  end
+
+  describe 'consent generation' do
+    def publish_pending!(&block)
+      Sidekiq::Testing.fake! do
+        block.call
+        ExternalBridge::LinkReferencePublishWorker.drain
+        ExternalBridge::LinkBoostAnnounceWorker.drain
+      end
+    ensure
+      Sidekiq::Testing.inline!
+    end
+
+    it 'does not announce a request made before a revoke and a new grant of the same scope' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      calls = []
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |id| calls << id }
+      old = nil
+
+      publish_pending! do
+        old = boost!(user, world).wrapper
+        ExternalBridge::LinkSharing::Policy.revoke!(user: user)
+        grant!(user, 'public')
+      end
+
+      row = sole_row(world)
+      expect(row.state).to eq('undone')
+      expect(row.ended_reason).to eq('consent_withdrawn')
+      expect(calls).not_to include(old.id)
+      expect(gone?(old.id)).to be(true)
+
+      fresh = boost!(user, world)
+      expect(fresh.created).to be(true)
+      expect(fresh.boost.policy_revision).to eq(ExternalLinkSharePolicy.find_by(user_id: user.id).revision)
+      expect(calls).to include(fresh.wrapper.id)
+    end
+
+    it 'does not announce after public to unlisted to public' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      calls = []
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |id| calls << id }
+      old = nil
+
+      publish_pending! do
+        old = boost!(user, world).wrapper
+        ExternalBridge::LinkSharing::Policy.change_visibility!(user: user, visibility: 'unlisted')
+        ExternalBridge::LinkSharing::Policy.change_visibility!(user: user, visibility: 'public')
+      end
+
+      expect(sole_row(world).state).to eq('undone')
+      expect(calls).not_to include(old.id)
+    end
+
+    it 'does not announce a request that spans a feature stop and restart' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      calls = []
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |id| calls << id }
+      old = nil
+
+      publish_pending! do
+        old = boost!(user, world).wrapper
+        Setting.external_bridge_link_sharing = false
+        Setting.external_bridge_link_sharing = true
+      end
+
+      expect(sole_row(world).ended_reason).to eq('feature_changed')
+      expect(calls).not_to include(old.id)
+    end
+
+    it 'keeps a share that was already announced when consent is revoked and granted again' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      result = boost!(user, world)
+      ExternalBridge::LinkSharing::Policy.revoke!(user: user)
+      grant!(user, 'public')
+
+      expect(sole_row(world).state).to eq('active')
+      expect(ExternalBridge::LinkSharing::BoostState.active?(user, world[:status])).to be(true)
+      expect(Status.find(result.reference.id).deleted_at).to be_nil
+      expect(boost!(user, world).wrapper.id).to eq(result.wrapper.id)
+    end
+
+    it 'still announces an unchanged policy after a delayed Create' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      calls = []
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |id| calls << id }
+      wrapper = nil
+
+      publish_pending! { wrapper = boost!(user, world).wrapper }
+
+      expect(calls).to include(wrapper.id)
+      expect(sole_row(world).announced_at).to be_present
+    end
+  end
+
+  describe 'canonical projections only' do
+    def legacy_world(user)
+      allow(ExternalBridge::VisibilitySwitch).to receive(:enabled?).and_return(false)
+      built = project_for(user, body: 'Legacy body')
+      built[:resource].update!(canonical_url: "https://example.com/posts/#{SecureRandom.hex(5)}")
+      built
+    end
+
+    it 'refuses a marked legacy personal projection and leaves no note, mapping, or wrapper' do
+      user = Fabricate(:user)
+      canonical = prepare(user)
+      legacy = legacy_world(user)
+      expect(legacy[:status].reload.visibility).to eq('personal')
+      expect(legacy[:marker].user_id).to eq(user.id)
+
+      expect { boost!(user, legacy) }.to error_code('projection_not_canonical')
+
+      expect(ExternalProjectionLinkReference.where(user_id: user.id)).to be_empty
+      expect(ExternalProjectionLinkBoost.where(user_id: user.id)).to be_empty
+      expect(Status.where(account_id: user.account_id, external_projection: [false, nil]).count).to eq(0)
+      expect(boost!(user, canonical).created).to be(true)
+    end
+
+    it 'still lets the owner undo and read a share after the row stopped being canonical' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      boost!(user, world)
+      allow(ExternalBridge::LinkSharing::Ownership).to receive(:assert_canonical!).and_raise(ExternalBridge::Error.new(:projection_not_canonical))
+
+      expect(ExternalBridge::LinkSharing::BoostState.active?(user, world[:status])).to be(true)
+      expect(unboost!(user, world).ended).to eq(1)
+    end
+
+    it 'closes a pending share instead of announcing when the projection stops being canonical' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      calls = []
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |id| calls << id }
+      wrapper = nil
+      Sidekiq::Testing.fake! do
+        wrapper = boost!(user, world).wrapper
+        allow(ExternalBridge::LinkSharing::Ownership).to receive(:assert_canonical!).and_raise(ExternalBridge::Error.new(:projection_not_canonical))
+        ExternalBridge::LinkReferencePublishWorker.drain
+        ExternalBridge::LinkBoostAnnounceWorker.drain
+      end
+      Sidekiq::Testing.inline!
+
+      expect(sole_row(world).ended_reason).to eq('projection_gone')
+      expect(calls).not_to include(wrapper.id)
+    end
+
+    it 'keeps the other User of the same account and a missing marker out' do
+      owner = Fabricate(:user)
+      roommate = share_account_user(owner.account)
+      world = prepare(owner)
+      enable_external_bridge_link_sharing!(owner, roommate)
+      grant!(roommate, 'public')
+
+      expect { boost!(roommate, world) }.to error_code('not_owner')
+      marker = ExternalStatusProjection.find(world[:marker].id)
+      expect { ExternalBridge::LinkSharing::Ownership.assert_canonical!(roommate, marker) }.to error_code('not_owner')
+      expect { ExternalBridge::LinkSharing::Ownership.assert_canonical!(owner, nil) }.to error_code('not_owner')
+      expect { ExternalBridge::LinkSharing::Ownership.assert_canonical!(owner, marker) }.not_to raise_error
+      expect(ExternalProjectionLinkBoost.count).to eq(0)
+    end
+  end
+
   describe 'projection life cycle' do
     it 'closes the share and sends the Undo when the projection is purged' do
       user = Fabricate(:user)

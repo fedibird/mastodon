@@ -10,7 +10,13 @@ module ExternalBridge
     #   nothing and keeps the row active. The publish worker pushes the pending
     #   boosts of the mapping right after it writes published_at.
     # - Fail closed. The flag, the current policy, the projection, the mapping,
-    #   and the reference note are read again here. If any no longer holds, the
+    #   and the reference note are read again here. The policy must be the
+    #   same grant the boost was made under: its revision must equal the
+    #   revision stored on the row, so a revoke followed by a grant of the same
+    #   scope does not carry an old request into the new consent. A change of
+    #   the feature flag or the tester list after the row was created closes it
+    #   as well, so stopping and resuming the feature never revives a request
+    #   that was made before the stop. A fresh share needs a new POST. If any no longer holds, the
     #   row is closed and the wrapper is discarded without an Announce. A job
     #   that was queued before an Undo, a scope change, a revoke, a purge, or
     #   an edit therefore cannot bring the share back.
@@ -68,6 +74,7 @@ module ExternalBridge
         return 'projection_gone' unless marker_holds?(boost)
         return 'reference_unavailable' unless mapping_holds?(boost, mapping)
         return 'consent_withdrawn' unless consent_holds?(boost)
+        return 'feature_changed' if feature_changed_since?(boost)
 
         begin
           ReferenceIntegrity.verify!(mapping, mapping.reference_status)
@@ -81,7 +88,19 @@ module ExternalBridge
       def marker_holds?(boost)
         return false if boost.external_status_projection_id.nil?
 
-        ExternalStatusProjection.exists?(id: boost.external_status_projection_id, user_id: boost.user_id, status_id: boost.projection_status_id)
+        marker = ExternalStatusProjection.find_by(id: boost.external_status_projection_id, user_id: boost.user_id, status_id: boost.projection_status_id)
+        return false if marker.nil?
+
+        Ownership.assert_canonical!(User.find(boost.user_id), marker)
+        true
+      rescue Error, ActiveRecord::RecordNotFound
+        false
+      end
+
+      def feature_changed_since?(boost)
+        Setting.where(var: %w(external_bridge_link_sharing external_bridge_link_sharing_testers))
+               .where('updated_at > ?', boost.created_at)
+               .exists?
       end
 
       def mapping_holds?(boost, mapping)
@@ -89,7 +108,18 @@ module ExternalBridge
           mapping.active? &&
           mapping.user_id == boost.user_id &&
           mapping.reference_status_id.present? &&
-          mapping.reference_status_id == boost.reference_status_id
+          mapping.reference_status_id == boost.reference_status_id &&
+          current_canonical?(boost, mapping)
+      end
+
+      # The note still names the URL the projection has now. A changed URL
+      # makes the mapping superseded at the next ensure; an Announce must not
+      # wait for that.
+      def current_canonical?(boost, mapping)
+        marker = ExternalStatusProjection.find_by(id: boost.external_status_projection_id)
+        marker.present? && NoteText.canonical_url!(marker.external_resource) == mapping.canonical_url
+      rescue Error
+        false
       end
 
       def consent_holds?(boost)
@@ -97,7 +127,8 @@ module ExternalBridge
         return false if user.nil? || !Feature.permitted?(user) || !user.functional?
 
         policy = ExternalLinkSharePolicy.find_by(user_id: boost.user_id)
-        policy.present? && policy.enabled? && policy.consented_at.present? && policy.visibility == boost.visibility
+        policy.present? && policy.enabled? && policy.consented_at.present? &&
+          policy.visibility == boost.visibility && policy.revision == boost.policy_revision
       end
     end
   end

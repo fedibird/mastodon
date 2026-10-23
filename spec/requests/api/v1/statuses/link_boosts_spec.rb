@@ -271,6 +271,49 @@ RSpec.describe 'External projection boost', type: :request do
     expect(Status.unscoped.find_by(id: first_wrapper)&.deleted_at.present? || Status.unscoped.find_by(id: first_wrapper).nil?).to be(true)
   end
 
+  it 'asks for an undo when the consented scope or the URL no longer matches the live share' do
+    consent!(owner, 'unlisted')
+    projection
+    boost
+    first = json['id']
+    ExternalBridge::LinkSharing::Policy.change_visibility!(user: owner, visibility: 'public')
+    notes = Status.where(account_id: owner.account_id, external_projection: [false, nil]).count
+
+    boost
+
+    expect(response).to have_http_status(409)
+    expect(json['error']).to eq('share_outdated')
+    expect(Status.where(account_id: owner.account_id, external_projection: [false, nil]).count).to eq(notes)
+    fetch
+    expect(json['reblogged']).to be(true)
+
+    unboost
+    boost
+    expect(response).to have_http_status(200)
+    expect(json['id']).not_to eq(first)
+    expect(json['visibility']).to eq('public')
+    expect(json['reblog']['visibility']).to eq('public')
+  end
+
+  it 'refuses a marked legacy personal projection with no note, mapping, or wrapper' do
+    consent!
+    allow(ExternalBridge::VisibilitySwitch).to receive(:enabled?).and_return(false)
+    legacy = project_for(owner)
+    legacy[:resource].update!(canonical_url: url)
+
+    boost(legacy[:status])
+
+    expect(response).to have_http_status(422)
+    expect(json['error']).to eq('projection_not_canonical')
+    expect(ExternalProjectionLinkReference.count).to eq(0)
+    expect(ExternalProjectionLinkBoost.count).to eq(0)
+    expect(Status.where(account_id: owner.account_id, external_projection: [false, nil]).count).to eq(0)
+
+    fetch(legacy[:status])
+    expect(response).to have_http_status(200)
+    expect(json['reblogged']).to be(false)
+  end
+
   it 'refuses a note that was edited and does not leak why' do
     consent!
     projection
