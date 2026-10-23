@@ -9,7 +9,7 @@ class CreateExternalLinkBoosts < ActiveRecord::Migration[6.1]
   UNANNOUNCED_INDEX_SQL = <<~SQL
     CREATE INDEX IF NOT EXISTS index_link_boosts_on_unannounced
     ON external_projection_link_boosts (next_announce_at ASC NULLS FIRST, id)
-    WHERE announced_at IS NULL
+    WHERE announce_enqueued_at IS NULL
       AND state = 'active'
       AND wrapper_status_id IS NOT NULL
   SQL
@@ -44,6 +44,7 @@ class CreateExternalLinkBoosts < ActiveRecord::Migration[6.1]
       t.string :state, null: false, default: 'active'
       t.string :ended_reason
       t.datetime :announced_at
+      t.datetime :announce_enqueued_at
       t.datetime :next_announce_at
       t.datetime :undone_at
       t.timestamps
@@ -108,6 +109,9 @@ class CreateExternalLinkBoosts < ActiveRecord::Migration[6.1]
     add_check_constraint :external_projection_link_boosts,
                          "state = 'undone' OR ended_reason IS NULL",
                          name: 'link_boosts_reason_requires_end'
+    add_check_constraint :external_projection_link_boosts,
+                         'announce_enqueued_at IS NULL OR announced_at IS NOT NULL',
+                         name: 'link_boosts_enqueued_requires_announce'
   end
 
   def down

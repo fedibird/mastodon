@@ -251,6 +251,179 @@ describe 'ExternalBridge link boost concurrency', type: :model do
     cleanup!(bundle)
   end
 
+  def pending_boost(bundle)
+    result = nil
+    Sidekiq::Testing.fake! do
+      result = boost(bundle)
+      ExternalBridge::LinkReferencePublishWorker.drain
+      ExternalBridge::LinkBoostAnnounceWorker.clear
+    end
+    Sidekiq::Testing.inline!
+    [result, ExternalProjectionLinkBoost.find_by!(user_id: bundle[:user].id)]
+  end
+
+  def record_distribution
+    sent = Queue.new
+    allow(ActivityPub::DistributionWorker).to receive(:perform_async) do |id, *|
+      sent << id
+      'jid'
+    end
+    sent
+  end
+
+  def drain(queue)
+    items = []
+    items << queue.pop until queue.empty?
+    items
+  end
+
+  # Holds the policy row the way Policy.revoke! and friends do, applies the
+  # change, and commits it only after the announce thread is waiting.
+  def announce_behind_policy_change(bundle, row)
+    holder = ActiveRecord::Base.connection_pool.checkout
+    outcome = nil
+    error = nil
+    thread = nil
+    begin
+      holder.begin_db_transaction
+      holder.select_value("SELECT id FROM external_link_share_policies WHERE user_id = #{bundle[:user].id.to_i} FOR UPDATE")
+      yield holder
+      thread = Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          outcome = ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)
+        end
+      rescue StandardError => e
+        error = e
+      ensure
+        release_thread_redis!
+      end
+      sleep 0.4
+      expect(thread).to be_alive
+      holder.commit_db_transaction
+      thread.join
+    ensure
+      holder.rollback_db_transaction if holder.transaction_open?
+      ActiveRecord::Base.connection_pool.checkin(holder)
+      thread&.join
+    end
+    raise error if error
+
+    outcome
+  end
+
+  it 'sends nothing when a revocation committed before the delivery read the policy' do
+    bundle = prepare_world
+    result, row = pending_boost(bundle)
+    sent = record_distribution
+
+    outcome = announce_behind_policy_change(bundle, row) do |holder|
+      holder.execute("UPDATE external_link_share_policies SET enabled = FALSE, revision = revision + 1, updated_at = NOW() WHERE user_id = #{bundle[:user].id.to_i}")
+    end
+
+    expect(outcome).to eq(:closed)
+    expect(drain(sent)).not_to include(result.wrapper.id)
+    expect(row.reload.state).to eq('undone')
+    expect(row.ended_reason).to eq('consent_withdrawn')
+    expect(row.announced_at).to be_nil
+  ensure
+    cleanup!(bundle)
+  end
+
+  it 'sends nothing after a scope change, or a revoke and a new grant, that committed first' do
+    changes = {
+      'scope change' => ->(holder, id) { holder.execute("UPDATE external_link_share_policies SET visibility = 'unlisted', revision = revision + 1 WHERE user_id = #{id}") },
+      'revoke and grant' => ->(holder, id) { holder.execute("UPDATE external_link_share_policies SET enabled = TRUE, revision = revision + 2 WHERE user_id = #{id}") },
+    }
+    changes.each do |label, change|
+      bundle = prepare_world
+      begin
+        result, row = pending_boost(bundle)
+        sent = record_distribution
+
+        outcome = announce_behind_policy_change(bundle, row) { |holder| change.call(holder, bundle[:user].id.to_i) }
+
+        expect(outcome).to eq(:closed), label
+        expect(drain(sent)).not_to include(result.wrapper.id), label
+        expect(row.reload.announce_enqueued_at).to be_nil, label
+      ensure
+        cleanup!(bundle)
+      end
+    end
+  end
+
+  it 'lets an Announce that was accepted first stand, and ends it only by Undo' do
+    bundle = prepare_world
+    user = bundle[:user]
+    result, row = pending_boost(bundle)
+    sent = record_distribution
+    removals = Queue.new
+    allow(RemovalWorker).to receive(:perform_async) { |id, *| removals << id }
+    revoker = nil
+    handler = lambda do |*args|
+      next unless args.last[:name] == :announce_after_enqueue
+
+      revoker = Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          ExternalBridge::LinkSharing::Policy.revoke!(user: User.find(user.id))
+        end
+      ensure
+        release_thread_redis!
+      end
+      sleep 0.4
+      expect(revoker).to be_alive
+    end
+
+    outcome = ActiveSupport::Notifications.subscribed(handler, ExternalBridge::LinkSharing::Checkpoints::EVENT) do
+      ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)
+    end
+    revoker.join
+
+    expect(outcome).to eq(:announced)
+    expect(drain(sent)).to eq([result.wrapper.id])
+    row.reload
+    expect(row.state).to eq('active')
+    expect(row.announced_at).to be_present
+    expect(row.announce_enqueued_at).to be_present
+    expect(ExternalLinkSharePolicy.find_by(user_id: user.id).enabled).to be(false)
+    expect(ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)).to eq(:announced)
+    expect(drain(sent)).to be_empty
+
+    unboost(bundle)
+    expect(drain(removals)).to eq([result.wrapper.id])
+  ensure
+    revoker&.join
+    cleanup!(bundle)
+  end
+
+  it 'never announces after the user undid it, and always sends the Undo for an accepted job' do
+    3.times do
+      bundle = prepare_world
+      begin
+        result, row = pending_boost(bundle)
+        sent = record_distribution
+        removals = Queue.new
+        allow(RemovalWorker).to receive(:perform_async) { |id, *| removals << id }
+
+        outcome = run_together(2) { |index| index.zero? ? ExternalBridge::LinkSharing::BoostAnnounce.call(row.id) : unboost(bundle).ended }
+
+        expect(outcome[:errors]).to be_empty
+        accepted = drain(sent).include?(result.wrapper.id)
+        undone = drain(removals).include?(result.wrapper.id)
+        row.reload
+        expect(row.state).to eq('undone')
+        expect(row.ended_reason).to eq('user_undo')
+        # The intent is committed before the enqueue, so an Undo that wins in
+        # between is sent for a job that was never accepted. That is harmless.
+        expect(undone).to be(true) if accepted
+        expect(row.announce_enqueued_at.present?).to eq(accepted)
+        expect(ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)).to eq(:ended)
+        expect(drain(sent)).to be_empty
+      ensure
+        cleanup!(bundle)
+      end
+    end
+  end
+
   it 'announces once for two simultaneous announce jobs' do
     bundle = prepare_world
     announces = Queue.new

@@ -18,6 +18,7 @@
 #  state                         :string           default("active"), not null
 #  ended_reason                  :string
 #  announced_at                  :datetime
+#  announce_enqueued_at          :datetime
 #  next_announce_at              :datetime
 #  undone_at                     :datetime
 #  created_at                    :datetime         not null
@@ -54,7 +55,13 @@ class ExternalProjectionLinkBoost < ApplicationRecord
     state == 'undone'
   end
 
+  # The intent is committed. An Undo must be sent when this row ends.
   def announced?
     announced_at.present?
+  end
+
+  # The ActivityPub job was accepted by Sidekiq.
+  def announce_enqueued?
+    announce_enqueued_at.present?
   end
 end

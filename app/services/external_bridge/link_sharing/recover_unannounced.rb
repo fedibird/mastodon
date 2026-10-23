@@ -3,7 +3,8 @@
 module ExternalBridge
   module LinkSharing
     # Outbox scan for boost rows whose Announce was never handed to
-    # distribution. Only rows whose reference Create is already distributed
+    # distribution: not yet decided, or decided (announced_at) with the
+    # ActivityPub job not accepted (announce_enqueued_at null). Only rows whose reference Create is already distributed
     # (published_at set) are selected, so a row waiting for the Create is not
     # pushed on every pass; the publish worker pushes it when the Create is
     # done. The flag and the policy are not read here: the worker decides
@@ -26,7 +27,7 @@ module ExternalBridge
 
       def ids
         ExternalProjectionLinkBoost
-          .where(announced_at: nil, state: 'active')
+          .where(announce_enqueued_at: nil, state: 'active')
           .where.not(wrapper_status_id: nil)
           .where('external_projection_link_boosts.next_announce_at IS NULL OR external_projection_link_boosts.next_announce_at <= NOW()')
           .joins('INNER JOIN external_projection_link_references link_refs ON link_refs.id = external_projection_link_boosts.link_reference_id')

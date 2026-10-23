@@ -711,6 +711,165 @@ describe 'ExternalBridge link boost', type: :model do
     end
   end
 
+  describe 'delivery boundary' do
+    def pending_boost!(user, world)
+      result = nil
+      Sidekiq::Testing.fake! do
+        result = boost!(user, world)
+        ExternalBridge::LinkReferencePublishWorker.drain
+        ExternalBridge::LinkBoostAnnounceWorker.clear
+      end
+      result
+    ensure
+      Sidekiq::Testing.inline!
+    end
+
+    def record_distribution(calls)
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async) do |id|
+        calls << id
+        "jid-#{calls.size}"
+      end
+    end
+
+    it 'keeps the intent and recovers when Sidekiq returns no jid' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      calls = []
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async) do |id|
+        calls << id
+        nil
+      end
+      result = boost!(user, world)
+
+      row = sole_row(world)
+      expect(row.announced_at).to be_present
+      expect(row.announce_enqueued_at).to be_nil
+      expect(row.state).to eq('active')
+      expect(calls).to include(result.wrapper.id)
+
+      calls.clear
+      record_distribution(calls)
+      expect(ExternalBridge::LinkSharing::RecoverUnannounced.call).to eq(1)
+
+      expect(sole_row(world).announce_enqueued_at).to be_present
+      expect(calls).to eq([result.wrapper.id])
+      expect(ExternalBridge::LinkSharing::RecoverUnannounced.call).to eq(0)
+    end
+
+    it 'keeps the intent and recovers when Redis refuses the enqueue' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      result = pending_boost!(user, world)
+      row = sole_row(world)
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError)
+
+      expect(ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)).to eq(:enqueue_failed)
+
+      expect(row.reload.announced_at).to be_present
+      expect(row.announce_enqueued_at).to be_nil
+      calls = []
+      record_distribution(calls)
+      expect(ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)).to eq(:announced)
+      expect(calls).to eq([result.wrapper.id])
+    end
+
+    it 'enqueues nothing when the intent transaction rolls back' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      pending_boost!(user, world)
+      row = sole_row(world)
+      calls = []
+      record_distribution(calls)
+      handler = lambda do |*args|
+        raise ActiveRecord::StatementInvalid, 'commit failed' if args.last[:name] == :announce_intent_before_commit
+      end
+
+      expect do
+        ActiveSupport::Notifications.subscribed(handler, ExternalBridge::LinkSharing::Checkpoints::EVENT) do
+          ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)
+        end
+      end.to raise_error(ActiveRecord::StatementInvalid)
+
+      expect(calls).to be_empty
+      expect(row.reload.announced_at).to be_nil
+      expect(row.announce_enqueued_at).to be_nil
+      expect(row.state).to eq('active')
+    end
+
+    it 'repeats the same wrapper after a failure that follows the enqueue, and Undo still works' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      result = pending_boost!(user, world)
+      row = sole_row(world)
+      calls = []
+      record_distribution(calls)
+      handler = lambda do |*args|
+        raise ActiveRecord::StatementInvalid, 'commit failed' if args.last[:name] == :announce_after_enqueue
+      end
+
+      expect do
+        ActiveSupport::Notifications.subscribed(handler, ExternalBridge::LinkSharing::Checkpoints::EVENT) do
+          ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)
+        end
+      end.to raise_error(ActiveRecord::StatementInvalid)
+
+      expect(calls).to eq([result.wrapper.id])
+      expect(row.reload.announced_at).to be_present
+      expect(row.announce_enqueued_at).to be_nil
+
+      expect(ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)).to eq(:announced)
+      expect(calls).to eq([result.wrapper.id, result.wrapper.id])
+      expect(ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)).to eq(:announced)
+      expect(calls.size).to eq(2)
+
+      removals = []
+      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+      unboost!(user, world)
+      expect(removals).to eq([result.wrapper.id])
+    end
+
+    it 'sends the Undo for a row that has the intent but no accepted job' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      result = pending_boost!(user, world)
+      row = sole_row(world)
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async).and_return(nil)
+      ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)
+      removals = []
+      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+
+      unboost!(user, world)
+
+      expect(removals).to eq([result.wrapper.id])
+      expect(sole_row(world).state).to eq('undone')
+      expect(ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)).to eq(:ended)
+    end
+
+    it 'closes at delivery time, with an Undo, when consent is withdrawn after the intent was committed' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      result = pending_boost!(user, world)
+      row = sole_row(world)
+      calls = []
+      record_distribution(calls)
+      removals = []
+      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+      handler = lambda do |*args|
+        ExternalBridge::LinkSharing::Policy.revoke!(user: user) if args.last[:name] == :announce_between_phases
+      end
+
+      outcome = ActiveSupport::Notifications.subscribed(handler, ExternalBridge::LinkSharing::Checkpoints::EVENT) do
+        ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)
+      end
+
+      expect(outcome).to eq(:closed)
+      expect(calls).not_to include(result.wrapper.id)
+      expect(removals).to eq([result.wrapper.id])
+      expect(row.reload.ended_reason).to eq('consent_withdrawn')
+      expect(row.announce_enqueued_at).to be_nil
+    end
+  end
+
   describe 'consent generation' do
     def publish_pending!(&block)
       Sidekiq::Testing.fake! do
@@ -1031,8 +1190,25 @@ describe 'ExternalBridge link boost', type: :model do
       expect { ActiveRecord::Base.transaction(requires_new: true) { row.update_columns(user_id: Fabricate(:user).id) } }.to raise_error(ActiveRecord::StatementInvalid)
       expect { ActiveRecord::Base.transaction(requires_new: true) { row.update_columns(wrapper_status_id: result.reference.id) } }.to raise_error(ActiveRecord::StatementInvalid)
       expect { ActiveRecord::Base.transaction(requires_new: true) { row.update_columns(announced_at: nil) } }.to raise_error(ActiveRecord::StatementInvalid)
+      expect { ActiveRecord::Base.transaction(requires_new: true) { row.update_columns(announce_enqueued_at: nil) } }.to raise_error(ActiveRecord::StatementInvalid)
       unboost!(user, world)
       expect { ActiveRecord::Base.transaction(requires_new: true) { row.update_columns(state: 'active', undone_at: nil, ended_reason: nil) } }.to raise_error(ActiveRecord::StatementInvalid)
+    end
+
+    it 'does not allow an accepted job without a committed intent' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      pending = nil
+      Sidekiq::Testing.fake! do
+        pending = boost!(user, world)
+      end
+      Sidekiq::Testing.inline!
+      row = pending.boost.reload
+
+      expect(row.announced_at).to be_nil
+      expect do
+        ActiveRecord::Base.transaction(requires_new: true) { row.update_columns(announce_enqueued_at: Time.current) }
+      end.to raise_error(ActiveRecord::StatementInvalid)
     end
 
     it 'keeps the reference digest immutable once written' do

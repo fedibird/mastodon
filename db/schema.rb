@@ -690,6 +690,7 @@ ActiveRecord::Schema.define(version: 2026_10_29_120000) do
     t.string "state", default: "active", null: false
     t.string "ended_reason"
     t.datetime "announced_at"
+    t.datetime "announce_enqueued_at"
     t.datetime "next_announce_at"
     t.datetime "undone_at"
     t.datetime "created_at", precision: 6, null: false
@@ -703,6 +704,7 @@ ActiveRecord::Schema.define(version: 2026_10_29_120000) do
     t.check_constraint "((state)::text <> 'active'::text) OR (wrapper_status_id IS NOT NULL)", name: "link_boosts_active_requires_wrapper"
     t.check_constraint "((state)::text <> 'undone'::text) OR (undone_at IS NOT NULL)", name: "link_boosts_undone_requires_time"
     t.check_constraint "((state)::text = 'undone'::text) OR (ended_reason IS NULL)", name: "link_boosts_reason_requires_end"
+    t.check_constraint "(announce_enqueued_at IS NULL) OR (announced_at IS NOT NULL)", name: "link_boosts_enqueued_requires_announce"
     t.check_constraint "(state)::text = ANY ((ARRAY['active'::character varying, 'undone'::character varying])::text[])", name: "link_boosts_state_check"
     t.check_constraint "(visibility)::text = ANY ((ARRAY['public'::character varying, 'unlisted'::character varying])::text[])", name: "link_boosts_visibility_check"
     t.check_constraint "generation >= 1", name: "link_boosts_generation_check"
@@ -714,7 +716,7 @@ ActiveRecord::Schema.define(version: 2026_10_29_120000) do
   execute <<~SQL
     CREATE INDEX IF NOT EXISTS index_link_boosts_on_unannounced
     ON external_projection_link_boosts (next_announce_at ASC NULLS FIRST, id)
-    WHERE announced_at IS NULL
+    WHERE announce_enqueued_at IS NULL
       AND state = 'active'
       AND wrapper_status_id IS NOT NULL
   SQL

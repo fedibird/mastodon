@@ -496,6 +496,7 @@ module ExternalBridge
              OR NEW.policy_revision IS DISTINCT FROM OLD.policy_revision
              OR NEW.projection_status_id IS DISTINCT FROM OLD.projection_status_id
              OR (OLD.announced_at IS NOT NULL AND NEW.announced_at IS DISTINCT FROM OLD.announced_at)
+             OR (OLD.announce_enqueued_at IS NOT NULL AND NEW.announce_enqueued_at IS DISTINCT FROM OLD.announce_enqueued_at)
              OR (NEW.wrapper_status_id IS DISTINCT FROM OLD.wrapper_status_id AND NEW.wrapper_status_id IS NOT NULL)
              OR (NEW.reference_status_id IS DISTINCT FROM OLD.reference_status_id AND NEW.reference_status_id IS NOT NULL)
              OR (
