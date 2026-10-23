@@ -302,11 +302,15 @@ class ScrollableList extends PureComponent {
     this.mouseIdleTimer = null;
   };
 
+  // A history or other reading surface keeps local 0 as a place in the
+  // backlog. Hovering there must not reserve a jump back to the latest row.
+  _reservesReturnToTop = () => !(this.props.windowedHistory || this.props.readingSurface);
+
   handleMouseMove = throttle(() => {
     // As long as the mouse keeps moving, clear and restart the idle timer.
     this.clearMouseIdleTimer();
 
-    if (!this.mouseMovedRecently && this.getScrollTop() === 0) {
+    if (!this.mouseMovedRecently && this.getScrollTop() === 0 && this._reservesReturnToTop()) {
       // Only set if we just started moving and are scrolled to the top.
       this._armMouseIdle();
     }
@@ -377,7 +381,7 @@ class ScrollableList extends PureComponent {
     // the list itself applied. Do not treat every non-zero offset as a
     // reader gesture, and do not trust lastScrollWasSynthetic: handleScroll
     // clears it before this timer runs.
-    if (this._mouseIdleMatches() && !this.props.preventScroll) {
+    if (this._mouseIdleMatches() && !this.props.preventScroll && this._reservesReturnToTop()) {
       this._cancelFilterAnchor();
       this.setScrollTop(0);
     }

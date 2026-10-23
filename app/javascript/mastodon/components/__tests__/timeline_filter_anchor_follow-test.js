@@ -158,6 +158,7 @@ describe('timeline filter anchor follow', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     document.body.style.overflow = '';
+    delete document.scrollingElement;
     jest.restoreAllMocks();
     jest.useRealTimers();
   });
@@ -552,17 +553,32 @@ describe('timeline filter anchor follow', () => {
     return { view, tree, list: () => view.container.querySelector('.scrollable') };
   };
 
-  const trackScroll = (scroller) => {
+  const trackScroll = (scroller, bindToDocument = false) => {
     let top = scroller.scrollTop || 0;
+    // Viewport scrolling is observed on document. An event fired on
+    // documentElement without bubbling never reaches that listener.
+    const notify = bindToDocument ? document : scroller;
+    let deliveries = 0;
+    const countDelivery = () => {
+      deliveries += 1;
+    };
 
+    notify.addEventListener('scroll', countDelivery);
     Object.defineProperty(scroller, 'scrollTop', {
       configurable: true,
       get: () => top,
       set (value) {
         top = Number(value) || 0;
-        scroller.dispatchEvent(new Event('scroll'));
+        notify.dispatchEvent(new Event('scroll'));
       },
     });
+
+    return {
+      deliveries: () => deliveries,
+      stop () {
+        notify.removeEventListener('scroll', countDelivery);
+      },
+    };
   };
 
   const openScrollRange = (scroller) => {
@@ -582,25 +598,32 @@ describe('timeline filter anchor follow', () => {
     jest.spyOn(ref.current, 'getScrollHeight').mockImplementation(() => (
       view.container.querySelectorAll('article[data-id]').length * 200
     ));
-    trackScroll(scroller);
+    const tracker = trackScroll(scroller, host === 'document');
     layout(view.container.querySelector('.scrollable'), heights, { scroller });
     scroller.scrollTop = 0;
     ref.current.handleMouseMove();
     ref.current.handleMouseMove.flush();
+    const beforeInsert = tracker.deliveries();
     view.rerender(tree(['200', '100']));
 
     const list = view.container.querySelector('.scrollable');
 
     layout(list, heights, { scroller });
+    expect(tracker.deliveries()).toBeGreaterThan(beforeInsert);
+    expect(ref.current.lastScrollWasSynthetic).toBe(true);
     ref.current.handleScroll.flush();
+    expect(ref.current.lastScrollWasSynthetic).toBe(false);
     expect(scroller.scrollTop).toBe(200);
     intersect(article(list, '100'));
     heights[200] = 250;
     layout(list, heights, { scroller });
+    const beforeCorrection = tracker.deliveries();
     flushFrames();
+    expect(tracker.deliveries()).toBeGreaterThan(beforeCorrection);
+    expect(ref.current.lastScrollWasSynthetic).toBe(true);
     expect(scroller.scrollTop).toBe(250);
 
-    return { ref, scroller };
+    return { ref, scroller, tracker };
   };
 
   it.each(['element', 'document'])('returns to the latest row when a filter correction scroll event arrives before mouse idle on %s', (host) => {
@@ -640,6 +663,77 @@ describe('timeline filter anchor follow', () => {
     ref.current.handleScroll.flush();
     ref.current.handleMouseIdle();
     expect(scroller.scrollTop).toBe(130);
+  });
+
+  const settleMouseIdle = async () => {
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 350);
+      });
+    });
+  };
+
+  it.each(['element', 'document'])('keeps a windowed history row in place when the mouse idles after a hidden row above regains height on %s', async (host) => {
+    const bindToDocument = host === 'document';
+    const ref = React.createRef();
+    const store = reduxStore();
+
+    if (bindToDocument) {
+      const scroller = document.documentElement;
+
+      Object.defineProperty(document, 'scrollingElement', { configurable: true, get: () => scroller });
+      openScrollRange(scroller);
+    }
+
+    const view = render(
+      <Provider store={store}>
+        <StatusList
+          ref={ref}
+          scrollKey='public:history'
+          timelineId='public'
+          dataTimelineId='public:split:1'
+          statusIds={ImmutableList(['200', '100'])}
+          windowedHistory
+          trackScroll={false}
+          trackIntersection={false}
+          bindToDocument={bindToDocument}
+          filterStatusIds={ImmutableList(['200', '100'])}
+        />
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    const scroller = bindToDocument ? document.documentElement : list;
+    const heights = { 200: 0, 100: 200 };
+    const listApi = ref.current.node;
+
+    if (!bindToDocument) {
+      openScrollRange(scroller);
+    }
+
+    const tracker = trackScroll(scroller, bindToDocument);
+
+    layout(list, heights, { scroller });
+    scroller.scrollTop = 0;
+    listApi.handleScroll.flush();
+    listApi.handleMouseMove();
+    listApi.handleMouseMove.flush();
+    expect(listApi.scrollToTopOnMouseIdle).toBe(false);
+    intersect(article(list, '100'));
+    heights[200] = 200;
+    layout(list, heights, { scroller });
+    const beforeCorrection = tracker.deliveries();
+    const disarm = jest.spyOn(listApi, '_disarmMouseIdle');
+
+    flushFrames();
+    expect(scroller.scrollTop).toBe(200);
+    expect(tracker.deliveries()).toBeGreaterThan(beforeCorrection);
+    listApi.handleScroll.flush();
+    expect(disarm).toHaveBeenCalled();
+    expect(scroller.scrollTop).toBe(200);
+    await settleMouseIdle();
+    expect(scroller.scrollTop).toBe(200);
+    expect(article(list, '100').getBoundingClientRect().top).toBe(0);
+    tracker.stop();
   });
 
   it('does not pin a streaming StatusList and does protect split history at local 0', () => {

@@ -270,6 +270,50 @@ describe('mix history reading anchor', () => {
     intersect(list.querySelector('article[data-id="100"]'));
   };
 
+  const listInstance = (node) => {
+    const key = Object.keys(node).find(name => name.startsWith('__reactInternalInstance$') || name.startsWith('__reactFiber$'));
+    let fiber = key ? node[key] : null;
+
+    while (fiber) {
+      if (fiber.stateNode && typeof fiber.stateNode.handleMouseIdle === 'function') {
+        return fiber.stateNode;
+      }
+
+      fiber = fiber.return;
+    }
+
+    return null;
+  };
+
+  const trackElementScroll = (node) => {
+    let top = node.scrollTop || 0;
+    let deliveries = 0;
+
+    node.addEventListener('scroll', () => {
+      deliveries += 1;
+    });
+    Object.defineProperty(node, 'scrollTop', {
+      configurable: true,
+      get: () => top,
+      set (value) {
+        top = Number(value) || 0;
+        node.dispatchEvent(new Event('scroll'));
+      },
+    });
+
+    return {
+      deliveries: () => deliveries,
+    };
+  };
+
+  const settleMouseIdle = async () => {
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 350);
+      });
+    });
+  };
+
   it('keeps the mix history row in place when a newer filtered post reappears at local 0', () => {
     const store = reduxStore();
     const heights = { 100: 200, 200: 200 };
@@ -308,6 +352,71 @@ describe('mix history reading anchor', () => {
     expect(historyProps.readingSurface).toBe(true);
     expect(liveProps.readingSurface).not.toBe(true);
     expect(liveProps.windowedHistory).toBe(false);
+  });
+
+  it('keeps the mix history row in place when the mouse idles after a filtered post is inserted above it', async () => {
+    const store = reduxStore();
+    const heights = { 100: 200, 200: 200 };
+    const mounted = renderMix(store, {
+      splitId: 'desk:split:alpha:1',
+      view: pane(['100']),
+      liveView: pane(['100']),
+      historyView: pane(['100']),
+    });
+    const history = mounted.view.container.querySelector('.timeline-split__pane--history .scrollable');
+    const live = mounted.view.container.querySelector('.timeline-split__pane--live .scrollable');
+    const historyApi = listInstance(history);
+    const liveApi = listInstance(live);
+
+    openScrollRange(history);
+    openScrollRange(live);
+    layout(history, heights);
+    layout(live, heights);
+    jest.spyOn(historyApi, 'getScrollHeight').mockImplementation(() => history.querySelectorAll('article[data-id]').length * 200);
+    jest.spyOn(liveApi, 'getScrollHeight').mockImplementation(() => live.querySelectorAll('article[data-id]').length * 200);
+    const historyScroll = trackElementScroll(history);
+    const liveScroll = trackElementScroll(live);
+
+    history.scrollTop = 0;
+    live.scrollTop = 0;
+    historyApi.handleScroll.flush();
+    liveApi.handleScroll.flush();
+    historyApi.handleMouseMove();
+    historyApi.handleMouseMove.flush();
+    liveApi.handleMouseMove();
+    liveApi.handleMouseMove.flush();
+    expect(historyApi.scrollToTopOnMouseIdle).toBe(false);
+    expect(liveApi.scrollToTopOnMouseIdle).toBe(true);
+
+    const historyBefore = historyScroll.deliveries();
+    const liveBefore = liveScroll.deliveries();
+
+    mounted.view.rerender(mounted.tree({
+      splitId: 'desk:split:alpha:1',
+      view: pane(['200', '100']),
+      liveView: pane(['200', '100']),
+      historyView: pane(['200', '100']),
+    }));
+
+    const historyList = mounted.view.container.querySelector('.timeline-split__pane--history .scrollable');
+    const liveList = mounted.view.container.querySelector('.timeline-split__pane--live .scrollable');
+
+    layout(historyList, heights);
+    layout(liveList, heights);
+    expect(historyScroll.deliveries()).toBeGreaterThan(historyBefore);
+    expect(liveScroll.deliveries()).toBeGreaterThan(liveBefore);
+    expect(historyApi.lastScrollWasSynthetic).toBe(true);
+    historyApi.handleScroll.flush();
+    liveApi.handleScroll.flush();
+    expect(historyApi.lastScrollWasSynthetic).toBe(false);
+    expect(historyList.scrollTop).toBe(200);
+    expect(liveList.scrollTop).toBe(200);
+    await settleMouseIdle();
+    expect(historyList.scrollTop).toBe(200);
+    expect(historyList.querySelector('article[data-id="100"]').getBoundingClientRect().top).toBe(0);
+    expect(liveList.scrollTop).toBe(0);
+    expect(listProps(historyList).windowedHistory).toBe(false);
+    expect(listProps(historyList).readingSurface).toBe(true);
   });
 
   it('keeps following the latest row on a single mix column at the top', () => {
