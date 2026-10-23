@@ -16,7 +16,7 @@ const SHOW_FIELDS = {
   personal: ['hideReply'],
 };
 
-const initialFields = (type = 'home') => ({
+const initialFields = (type = 'home', permitted = false) => ({
   type,
   id: '',
   domain: '',
@@ -37,6 +37,7 @@ const initialFields = (type = 'home') => ({
   hideLimited: false,
   hideDirect: false,
   hidePersonal: false,
+  includeExternal: type === 'home' && permitted === true,
   results: [],
   searching: false,
 });
@@ -80,13 +81,17 @@ export default class SourceForm extends React.PureComponent {
     })),
     onAddSource: PropTypes.func.isRequired,
     onSearch: PropTypes.func.isRequired,
+    externalFeedsPermitted: PropTypes.bool,
   };
 
   static defaultProps = {
     lists: [],
   };
 
-  state = initialFields();
+  constructor (props) {
+    super(props);
+    this.state = initialFields('home', props.externalFeedsPermitted === true);
+  }
 
   generation = 0;
 
@@ -96,7 +101,7 @@ export default class SourceForm extends React.PureComponent {
 
   handleType = (e) => {
     this.generation += 1;
-    this.setState(initialFields(e.target.value));
+    this.setState(initialFields(e.target.value, this.props.externalFeedsPermitted === true));
   };
 
   handleField = (e) => {
@@ -186,6 +191,10 @@ export default class SourceForm extends React.PureComponent {
       shows.personal = false;
     }
 
+    if (state.type === 'home' && this.props.externalFeedsPermitted === true) {
+      shows.external = state.includeExternal === true;
+    }
+
     if (['home', 'limited', 'personal'].indexOf(state.type) !== -1 && Object.keys(shows).length) {
       params.shows = shows;
     }
@@ -265,9 +274,17 @@ export default class SourceForm extends React.PureComponent {
   renderFlags (names) {
     const { intl } = this.props;
 
-    return names.map(name => (
+    const flags = names.map(name => (
       <FlagToggle key={name} name={name} checked={this.state[name]} label={intl.formatMessage(messages[name])} onToggle={this.handleToggle} />
     ));
+
+    if (this.state.type === 'home' && this.props.externalFeedsPermitted === true) {
+      flags.push(
+        <FlagToggle key='includeExternal' name='includeExternal' checked={this.state.includeExternal} label={intl.formatMessage(messages.includeExternal)} onToggle={this.handleToggle} />,
+      );
+    }
+
+    return flags;
   }
 
   render () {

@@ -12,6 +12,7 @@ import StatusList from '../../components/status_list';
 import { addColumn, changeColumnParams, moveColumn, removeColumn } from '../../actions/columns';
 import { changeSetting } from '../../actions/settings';
 import { clearMixSplitAnchor, closeMixTimeline, createMixSplit, destroyMixSplit, loadMixTimeline, mixColumnKey, retryMixSource, saveMixSplitAnchor } from '../../actions/mix_timelines';
+import { closeExternalFeedView, openExternalFeedView } from '../../actions/external_feeds';
 import { closeMixStream, openMixStream, pinMixStream, reconcileMixSource, revealMixStream } from '../../actions/mix_streaming';
 import TimelineSplitControllerCore from '../ui/components/timeline_split_controller_core';
 import { defaultColumnWidth, me } from 'mastodon/initial_state';
@@ -29,6 +30,27 @@ const findMix = (state, id) => {
   }
 
   return state.getIn(['settings', 'mixes'], ImmutableList()).find(item => item && item.get('id') === String(id)) || null;
+};
+
+const externalTargetsForMix = (mix) => {
+  const plain = plainMix(mix);
+  const targets = [];
+
+  if (!plain) {
+    return targets;
+  }
+
+  plain.sources.forEach(source => {
+    if (source.type === 'home') {
+      targets.push({ type: 'home' });
+    }
+
+    if (source.type === 'list' && source.id) {
+      targets.push({ type: 'list', id: String(source.id) });
+    }
+  });
+
+  return targets;
 };
 
 const mixSignature = (mix) => {
@@ -232,6 +254,12 @@ export class MixTimelinePage extends React.PureComponent {
     if (!this.props.mix && prevProps.mix && prevProps.columnKey) {
       this.props.dispatch(closeMixStream(prevProps.columnKey));
       this.props.dispatch(closeMixTimeline(prevProps.columnKey));
+
+      if (this.externalFeedToken && this.externalFeedKey) {
+        this.props.dispatch(closeExternalFeedView(this.externalFeedKey, this.externalFeedToken));
+        this.externalFeedToken = null;
+      }
+
       return;
     }
 
@@ -241,16 +269,38 @@ export class MixTimelinePage extends React.PureComponent {
   }
 
   componentWillUnmount () {
+    if (this.externalFeedToken && this.externalFeedKey) {
+      this.props.dispatch(closeExternalFeedView(this.externalFeedKey, this.externalFeedToken));
+      this.externalFeedToken = null;
+    }
+
     if (this.props.columnKey) {
       this.props.dispatch(closeMixStream(this.props.columnKey));
       this.props.dispatch(closeMixTimeline(this.props.columnKey));
     }
   }
 
+  bindExternalFeed () {
+    if (this.externalFeedToken && this.externalFeedKey) {
+      this.props.dispatch(closeExternalFeedView(this.externalFeedKey, this.externalFeedToken));
+      this.externalFeedToken = null;
+    }
+
+    if (!this.props.mix || !this.props.columnKey) {
+      return;
+    }
+
+    this.externalFeedKey = `mix:${this.props.columnKey}`;
+    this.externalFeedToken = this.props.dispatch(openExternalFeedView(this.externalFeedKey, {
+      targets: externalTargetsForMix(this.props.mix),
+    }));
+  }
+
   loadTimeline () {
     if (this.props.mix && this.props.columnKey) {
       this.props.dispatch(loadMixTimeline(this.props.columnKey, this.props.mix));
       this.props.dispatch(openMixStream(this.props.columnKey, this.props.mix));
+      this.bindExternalFeed();
     }
   }
 

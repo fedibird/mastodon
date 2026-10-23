@@ -1,6 +1,7 @@
 import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { expandHomeTimeline } from '../../actions/timelines';
+import { closeExternalFeedView, invalidateExternalFeedView, openExternalFeedView, reconcileExternalFeedView } from '../../actions/external_feeds';
 import { expandWindowedHistory } from '../../actions/windowed_history';
 import { homeHistoryContract } from '../../windowed_history/sources';
 import { getHomeVisibilities } from 'mastodon/selectors';
@@ -117,6 +118,7 @@ class HomeTimeline extends React.PureComponent {
   }
 
   componentDidMount () {
+    this.externalFeedToken = this.props.dispatch(openExternalFeedView('home', { targets: [{ type: 'home' }] }));
     this.announcementsTimer = setTimeout(() => this.props.dispatch(fetchAnnouncements()), 700);
     this._checkIfReloadNeeded(false, this.props.isPartial);
   }
@@ -125,13 +127,20 @@ class HomeTimeline extends React.PureComponent {
     const { dispatch, visibilities } = this.props;
 
     if (prevProps.visibilities.toString() !== visibilities.toString()) {
+      dispatch(invalidateExternalFeedView('home'));
       dispatch(expandHomeTimeline({ visibilities }));
+      dispatch(reconcileExternalFeedView('home'));
     }
 
     this._checkIfReloadNeeded(prevProps.isPartial, this.props.isPartial);
   }
 
   componentWillUnmount () {
+    if (this.externalFeedToken) {
+      this.props.dispatch(closeExternalFeedView('home', this.externalFeedToken));
+      this.externalFeedToken = null;
+    }
+
     this._stopPolling();
 
     if (this.announcementsTimer) {

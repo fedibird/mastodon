@@ -30,6 +30,7 @@ const mapStateToProps = (state, { params }) => ({
   mix: params && params.id ? state.getIn(['settings', 'mixes'], ImmutableList()).find(item => item && item.get('id') === String(params.id)) : null,
   lists: plainLists(state.get('lists')),
   columnWidth: defaultColumnWidth,
+  externalFeedsPermitted: state.getIn(['externalFeeds', 'permitted']) === true,
 });
 
 export class MixEditorPage extends React.PureComponent {
@@ -45,6 +46,7 @@ export class MixEditorPage extends React.PureComponent {
     lists: PropTypes.array,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    externalFeedsPermitted: PropTypes.bool,
   };
 
   state = {
@@ -102,6 +104,28 @@ export class MixEditorPage extends React.PureComponent {
       errors: [],
       confirmingDelete: false,
     }));
+  };
+
+  handleToggleExternal = (index, checked) => {
+    this.setState(state => {
+      const sources = state.draft.sources.slice();
+      const current = sources[index];
+
+      if (!current || current.type !== 'home') {
+        return null;
+      }
+
+      const params = { ...(current.params || {}) };
+      const shows = { ...(params.shows || {}), external: checked === true };
+
+      sources[index] = { ...current, params: { ...params, shows } };
+
+      return {
+        draft: { ...state.draft, sources },
+        errors: [],
+        confirmingDelete: false,
+      };
+    });
   };
 
   handleReorderSource = (fromIndex, toIndex) => {
@@ -182,6 +206,8 @@ export class MixEditorPage extends React.PureComponent {
             onCancel={this.handleCancel}
             onDelete={this.handleDelete}
             onSearch={this.handleSearch}
+            externalFeedsPermitted={this.props.externalFeedsPermitted}
+            onToggleExternal={this.handleToggleExternal}
           />
         </div>
       );

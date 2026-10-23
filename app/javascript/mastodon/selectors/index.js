@@ -239,21 +239,30 @@ export const getAccountGallery = createSelector([
 // this selector, or changing the home column would change that mix.
 export const getHomeVisibilities = createSelector(
   state => state.getIn(['settings', 'home', 'shows']),
-  shows => (!enableLimitedTimeline ? [
-    'public',
-    'unlisted',
-    'private',
-    'limited',
-    !hideDirectFromTimeline ? 'direct'  : null,
-    !hidePersonalFromTimeline ? 'personal' : null,
-  ] : [
-    'public',
-    'unlisted',
-    shows.get('private') ? 'private' : null,
-    shows.get('limited') ? 'limited' : null,
-    shows.get('direct') && !hideDirectFromTimeline ? 'direct'  : null,
-    shows.get('personal') && !hidePersonalFromTimeline ? 'personal' : null,
-  ]).filter(x => !!x),
+  state => state.getIn(['externalFeeds', 'permitted']) === true,
+  (shows, externalFeeds) => {
+    const list = (!enableLimitedTimeline ? [
+      'public',
+      'unlisted',
+      'private',
+      'limited',
+      !hideDirectFromTimeline ? 'direct'  : null,
+      !hidePersonalFromTimeline ? 'personal' : null,
+    ] : [
+      'public',
+      'unlisted',
+      shows.get('private') ? 'private' : null,
+      shows.get('limited') ? 'limited' : null,
+      shows.get('direct') && !hideDirectFromTimeline ? 'direct'  : null,
+      shows.get('personal') && !hidePersonalFromTimeline ? 'personal' : null,
+    ]).filter(x => !!x);
+
+    if (externalFeeds) {
+      list.push('external');
+    }
+
+    return list;
+  },
 );
 
 export const getLimitedVisibilities = createSelector(

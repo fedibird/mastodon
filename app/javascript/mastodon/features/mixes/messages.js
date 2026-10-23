@@ -62,6 +62,8 @@ export default defineMessages({
   hideLimited: { id: 'mixes.field.hide_limited', defaultMessage: 'Hide limited posts' },
   hideDirect: { id: 'mixes.field.hide_direct', defaultMessage: 'Hide direct messages' },
   hidePersonal: { id: 'mixes.field.hide_personal', defaultMessage: 'Hide personal posts' },
+  includeExternal: { id: 'mixes.field.include_external', defaultMessage: 'External content' },
+  excludeExternal: { id: 'mixes.field.exclude_external', defaultMessage: 'Exclude external content' },
   home: { id: 'mixes.source.home', defaultMessage: 'Home' },
   limited: { id: 'mixes.source.limited', defaultMessage: 'Limited' },
   personal: { id: 'mixes.source.personal', defaultMessage: 'Personal' },

@@ -10,6 +10,7 @@ export const visibilityConstraints = (overrides = {}) => ({
   enableLimitedTimeline: Object.prototype.hasOwnProperty.call(overrides, 'enableLimitedTimeline') ? overrides.enableLimitedTimeline === true : enableLimitedTimeline === true,
   hideDirectFromTimeline: Object.prototype.hasOwnProperty.call(overrides, 'hideDirectFromTimeline') ? overrides.hideDirectFromTimeline === true : hideDirectFromTimeline === true,
   hidePersonalFromTimeline: Object.prototype.hasOwnProperty.call(overrides, 'hidePersonalFromTimeline') ? overrides.hidePersonalFromTimeline === true : hidePersonalFromTimeline === true,
+  externalFeedsPermitted: overrides.externalFeedsPermitted === true,
 });
 
 const allowedByInstance = (key, constraints) => {
@@ -26,8 +27,7 @@ const allowedByInstance = (key, constraints) => {
 
 const visibilityList = (shows, home, constraints) => {
   const keys = home ? ['public', 'unlisted', 'private', 'limited', 'direct', 'personal'] : ['private', 'limited', 'direct', 'personal'];
-
-  return keys.filter(key => {
+  const list = keys.filter(key => {
     if ((key === 'public' || key === 'unlisted') && home) {
       return true;
     }
@@ -38,6 +38,12 @@ const visibilityList = (shows, home, constraints) => {
 
     return allowedByInstance(key, constraints);
   });
+
+  if (home && constraints.externalFeedsPermitted === true && shows && shows.external === true) {
+    list.push('external');
+  }
+
+  return list;
 };
 
 // Known endpoints only. The descriptor cannot supply a URL.

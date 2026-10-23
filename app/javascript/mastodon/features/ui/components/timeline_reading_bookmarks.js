@@ -38,6 +38,7 @@ const messages = defineMessages({
   historyClosed: { id: 'timeline.reading_bookmarks_history_closed', defaultMessage: 'Open history first. A bookmark saves the history pane, not the live column.' },
   noAnchor: { id: 'timeline.reading_bookmarks_no_anchor', defaultMessage: 'History is not showing a post to save.' },
   unavailable: { id: 'timeline.reading_bookmarks_unavailable', defaultMessage: 'Could not return to that post. History was put back.' },
+  externalLeft: { id: 'timeline.reading_bookmarks_external_left', defaultMessage: 'This position is no longer in this timeline. The bookmark was not moved.' },
   exact: { id: 'timeline.reading_bookmarks_exact', defaultMessage: 'Returned to the saved post.' },
   nearby: { id: 'timeline.reading_bookmarks_nearby', defaultMessage: 'Returned near the saved post. The exact row was not the one opened.' },
   uncertain: { id: 'timeline.reading_bookmarks_uncertain', defaultMessage: 'That post is outside the retained range, or its place in this timeline is unknown. History was not moved.' },
@@ -97,6 +98,7 @@ const NOTICE = {
   not_visible: 'unavailable',
   filtered: 'unavailable',
   not_loaded: 'unavailable',
+  external_not_delivered: 'externalLeft',
 };
 
 const savedAt = (value) => {
@@ -443,7 +445,9 @@ class TimelineReadingBookmarksPanel extends React.PureComponent {
       const reason = result && result.reason;
       let place = result && result.place ? result.place : (reason || 'unavailable');
 
-      if (reason === 'network' && result && result.rollback) {
+      if (reason === 'external_not_delivered') {
+        place = 'external_not_delivered';
+      } else if (reason === 'network' && result && result.rollback) {
         place = 'unavailable';
       } else if (reason === 'missing' || reason === 'not_accessible' || reason === 'network' || reason === 'uncertain' || reason === 'resume_protected') {
         place = reason;
@@ -507,6 +511,7 @@ class TimelineReadingBookmarksPanel extends React.PureComponent {
             <span className='timeline-bookmarks__meta'>{sourceTitle(intl, view)}{when ? ` · ${when}` : ''}</span>
             <span className='timeline-bookmarks__meta'>
               {view.sourceState === 'available' ? anchor : intl.formatMessage(messages.missing)}
+              {view.reason === 'external_not_delivered' ? ` ${intl.formatMessage(messages.externalLeft)}` : ''}
               {retained ? ` ${intl.formatMessage(messages.retention)}` : ''}
             </span>
           </div>
