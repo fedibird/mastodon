@@ -6,6 +6,7 @@ import {
   deleteFromTimelines,
   expireFromTimelines,
   expandHomeTimeline,
+  expandListTimeline,
   connectTimeline,
   disconnectTimeline,
 } from './timelines';
@@ -24,6 +25,15 @@ import { deleteScheduledStatusSuccess } from './scheduled_statuses';
 import { updateStatus } from './statuses';
 import { scheduleFiltersRefresh } from './filters';
 import { retryFilterReconciliation } from '../filter_reconciliation/scheduler';
+import {
+  bindExternalFeedVisibility,
+  noteExternalStatusStream,
+  receiveExternalFeedChanged,
+  reconcileExternalFeedView,
+  reconcileOpenExternalViews,
+  refreshExternalFeedCapability,
+  resumeExternalFeedViews,
+} from './external_feeds';
 
 const { messages } = getLocale();
 
@@ -48,6 +58,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
     const locale = getState().getIn(['meta', 'locale']);
 
     let pollingId;
+    let sawDisconnect = false;
 
     /**
      * @param {function(Function, Function, Function): void} fallback
@@ -61,9 +72,45 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
     return {
       onConnect() {
         dispatch(connectTimeline(timelineId));
+        const reconnecting = sawDisconnect;
+
+        if (sawDisconnect) {
+          sawDisconnect = false;
+        }
+
         if (channelName === 'user') {
           dispatch(scheduleFiltersRefresh());
           dispatch(retryFilterReconciliation());
+          dispatch(refreshExternalFeedCapability());
+
+          if (reconnecting) {
+            dispatch(resumeExternalFeedViews());
+          } else {
+            dispatch(reconcileOpenExternalViews());
+          }
+
+          dispatch(bindExternalFeedVisibility());
+        }
+
+        if (channelName === 'list' && params.list) {
+          if (reconnecting) {
+            dispatch(resumeExternalFeedViews({
+              keys: [`list:${params.list}`],
+              targets: [{ type: 'list', id: String(params.list) }],
+            }));
+          } else {
+            dispatch(reconcileExternalFeedView(`list:${params.list}`));
+          }
+        }
+
+        if (reconnecting) {
+          if (channelName === 'user') {
+            dispatch(expandHomeTimeline({ visibilities: getHomeVisibilities(getState()), externalReconnect: true }));
+          }
+
+          if (channelName === 'list' && params.list) {
+            dispatch(expandListTimeline(params.list, { externalReconnect: true }));
+          }
         }
 
         if (pollingId) {
@@ -73,6 +120,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
       },
 
       onDisconnect() {
+        sawDisconnect = true;
         dispatch(disconnectTimeline(timelineId));
 
         if (options.fallback) {
@@ -85,14 +133,26 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
         case 'filters_changed':
           if (channelName === 'user') dispatch(scheduleFiltersRefresh());
           break;
-        case 'update':
-          dispatch(updateTimeline(timelineId, JSON.parse(data.payload), options.accept));
+        case 'update': {
+          const status = JSON.parse(data.payload);
+
+          noteExternalStatusStream(status && status.id);
+          dispatch(updateTimeline(timelineId, status, options.accept));
           break;
-        case 'status.update':
-          dispatch(updateStatus(JSON.parse(data.payload)));
+        }
+        case 'status.update': {
+          const status = JSON.parse(data.payload);
+
+          noteExternalStatusStream(status && status.id);
+          dispatch(updateStatus(status));
           break;
+        }
         case 'delete':
+          noteExternalStatusStream(data.payload);
           dispatch(deleteFromTimelines(data.payload));
+          break;
+        case 'external_feed_changed':
+          dispatch(receiveExternalFeedChanged(data.payload));
           break;
         case 'expire':
           dispatch(expireFromTimelines(data.payload));

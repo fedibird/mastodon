@@ -565,6 +565,7 @@ Rails.application.routes.draw do
         resource :personal, only: :show, controller: :personal
         resource :seek, only: :create, controller: :seek
         resource :membership, only: :create, controller: :memberships
+        resource :external_feed_capability, only: :show, controller: :external_feed_capabilities
       end
 
       get '/streaming', to: 'streaming#index'

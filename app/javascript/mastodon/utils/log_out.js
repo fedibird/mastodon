@@ -1,6 +1,8 @@
 import Rails from '@rails/ujs';
+import { resetExternalFeedSession } from '../actions/external_feeds';
 
 export const logOut = () => {
+  resetExternalFeedSession();
   const form = document.createElement('form');
 
   const methodInput = document.createElement('input');

@@ -7,8 +7,10 @@ module TimelineSeek
   class FeedReader
     attr_reader :visibilities, :redis_key, :unfiltered
 
-    def initialize(feed, **options)
+    def initialize(feed, external: nil, compose: nil, **options)
       @feed = feed
+      @external = external
+      @compose = compose
       @visibilities = options[:visibilities]
       @redis_key = options[:redis_key]
       @redis = options[:redis]
@@ -32,11 +34,24 @@ module TimelineSeek
     def page(limit, max_id: nil, min_id: nil)
       return [] if empty_source?
 
-      if visibilities
+      if @compose
+        @compose.call(limit, max_id, nil, min_id, visibilities || [])
+      elsif visibilities
         @feed.get(limit, max_id, nil, min_id, visibilities)
       else
         @feed.get(limit, max_id, nil, min_id)
       end
+    end
+
+    def external?
+      !@external.nil?
+    end
+
+    # DB membership for this user's projections. Ordinary ids are absent.
+    def external_partition(status_ids)
+      return ExternalBridge::Feeds::Placement.empty if @external.nil?
+
+      @external.partition(status_ids)
     end
 
     # Integer ids have no value between n and n + 1, so the newest row with
@@ -59,7 +74,7 @@ module TimelineSeek
     end
 
     def selectable?(status_id)
-      scope = Status.where(id: status_id).without_unreleased_pages.joins(:account).merge(Account.without_suspended)
+      scope = ordinary_scope(Status.where(id: status_id))
       scope = scope.where(visibility: visibilities) if visibilities.present?
       scope.limit(1).exists?
     end
@@ -87,13 +102,19 @@ module TimelineSeek
     end
 
     # Same predicate as selectable?, for the whole id set.
+    # Private projections are not ordinary Redis members. Placement is the
+    # only positive signal for an external row, including one left in the ZSET.
     def selectable_among(status_ids, limit:)
       ids = status_ids.first(limit)
       return [] if ids.empty?
 
-      scope = Status.where(id: ids).without_unreleased_pages.joins(:account).merge(Account.without_suspended)
+      scope = ordinary_scope(Status.where(id: ids))
       scope = scope.where(visibility: visibilities) if visibilities.present?
       scope.limit(limit).pluck(:id)
+    end
+
+    def ordinary_scope(scope)
+      scope.without_unreleased_pages.where(Arel.sql(ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL)).joins(:account).merge(Account.without_suspended)
     end
   end
 end

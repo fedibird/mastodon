@@ -7,6 +7,7 @@ module TimelineReadingBookmarks
     def initialize(user)
       @user = user
       @account = user.account
+      @external_reasons = {}
     end
 
     def one(bookmark)
@@ -16,6 +17,7 @@ module TimelineReadingBookmarks
     def many(bookmarks)
       rows = bookmarks.to_a
       preload(rows)
+      annotate_external!(rows)
       rows.map { |bookmark| serialize(bookmark) }
     end
 
@@ -77,16 +79,49 @@ module TimelineReadingBookmarks
       entry = TimelineSeek::Capability.lookup(bookmark.source, 'status')
       limitations = []
       limitations << "retention_#{FeedManager::MAX_ITEMS}" if REDIS_SOURCES.include?(bookmark.source)
+      external_reason = @external_reasons[bookmark.id]
       {
         source: state,
         anchor: anchor_state(bookmark, state),
-        membership: 'unchecked',
+        membership: external_reason ? 'not_in_source' : 'unchecked',
         capability: entry.level,
-        reason: entry.reason,
+        reason: external_reason || entry.reason,
         limitations: limitations,
         privacy: CapabilityMap::PRIVACY[bookmark.source],
         resume: 'manual',
       }
+    end
+
+    # A positional bookmark stays on the timeline it was saved for. When that
+    # view no longer delivers the anchor, say so. Do not retarget the row.
+    def annotate_external!(rows)
+      @external_reasons = {}
+      return if @user.nil?
+
+      ExternalBridge::Viewer.with_user(@user.id) do
+        mark_withheld(rows.select { |row| row.source == 'home' && source_state(row) == 'available' }, 'home', nil)
+        rows.select { |row| row.source == 'list' && source_state(row) == 'available' }.group_by { |row| row.context['id'].to_s }.each do |list_id, group|
+          list = List.find_by(id: list_id, account_id: @account.id)
+          next if list.nil?
+
+          mark_withheld(group, 'list', list)
+        end
+      end
+    end
+
+    def mark_withheld(rows, destination, list)
+      return if rows.empty?
+
+      withheld = ExternalBridge::Feeds::Placement.new(
+        user: @user,
+        destination: destination,
+        list: list,
+        visibilities: nil,
+        regenerating: false
+      ).partition(rows.map(&:anchor_status_id)).withheld
+      rows.each do |row|
+        @external_reasons[row.id] = 'external_not_delivered' if withheld.include?(row.anchor_status_id.to_i)
+      end
     end
 
     def source_state(bookmark)

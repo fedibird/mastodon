@@ -67,6 +67,7 @@ import favourite_tags from './favourite_tags';
 import tags from './tags';
 import server from './server';
 import accountContextViews from './account_context_views';
+import externalFeeds from './external_feeds';
 
 const reducers = {
   announcements,
@@ -135,6 +136,7 @@ const reducers = {
   tags,
   server,
   accountContextViews,
+  externalFeeds,
 };
 
 const combined = combineReducers(reducers);

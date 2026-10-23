@@ -218,6 +218,7 @@ export const bookmarkPresentation = (bookmark) => {
     sourceState,
     anchorState: typeof availability.anchor === 'string' ? availability.anchor : 'unchecked',
     membership: 'unchecked',
+    reason: typeof availability.reason === 'string' ? availability.reason : null,
     capability: typeof availability.capability === 'string' ? availability.capability : null,
     limitations: Array.isArray(availability.limitations) ? availability.limitations.filter(item => typeof item === 'string') : [],
     updatedAt: bookmark && bookmark.updatedAt ? bookmark.updatedAt : null,

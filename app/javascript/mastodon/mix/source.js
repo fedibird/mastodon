@@ -27,10 +27,14 @@ const BOT_TYPES = ['public', 'remote', 'domain'];
 // private, limited, direct, and personal are visibility filters. Fetching
 // must use this snapshot, not getHomeVisibilities().
 const SHOW_KEYS = {
-  home: ['reblog', 'reply', 'private', 'limited', 'direct', 'personal'],
+  home: ['reblog', 'reply', 'private', 'limited', 'direct', 'personal', 'external'],
   limited: ['reblog', 'reply', 'private', 'limited', 'direct', 'personal'],
   personal: ['reply'],
 };
+
+// external is optional. A missing key is not a stored true, so an existing
+// home snapshot keeps its source key. Explicit false is stored and is not
+// the same as omitting the key. limited and personal never carry it.
 
 const toPlain = (value) => (value && typeof value.toJS === 'function' ? value.toJS() : value);
 
@@ -121,6 +125,10 @@ const normalizeShows = (input, allowed) => {
     const key = allowed[i];
 
     if (!Object.prototype.hasOwnProperty.call(showsInput, key)) {
+      if (key === 'external') {
+        continue;
+      }
+
       shows[key] = true;
       continue;
     }

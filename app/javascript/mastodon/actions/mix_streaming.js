@@ -12,6 +12,7 @@ import { hiddenStatusIds, relationshipGeneration, relationshipsAfterGeneration, 
 import { fetchRelationshipsSuccess } from './accounts';
 import { normalizeFilterResult } from './importer/normalizer';
 import { me } from '../initial_state';
+import { noteExternalStatusStream, receiveExternalFeedChanged, reconcileExternalFeedView, resumeExternalFeedViews } from './external_feeds';
 import {
   MIX_STREAM_READY,
   MIX_STREAM_CONNECT,
@@ -185,7 +186,9 @@ const boundaryId = (column, sourceKey) => {
 };
 
 const fetchReconcilePage = (resolved, { sinceId, maxId }, getState) => {
-  const request = resolveRequest(resolved.source, maxId || null);
+  const request = resolveRequest(resolved.source, maxId || null, {
+    externalFeedsPermitted: getState().getIn(['externalFeeds', 'permitted']) === true,
+  });
 
   if (!request.ok) {
     return Promise.reject({ response: { status: 404 } });
@@ -222,7 +225,9 @@ export function reconcileMixSource(columnKey, sourceKey) {
     const fingerprint = column.get('definitionFingerprint');
     const descriptor = column.getIn(['sources', sourceKey, 'descriptor']);
     const source = descriptor && descriptor.toJS ? descriptor.toJS() : null;
-    const resolved = source && resolveRequest(source);
+    const resolved = source && resolveRequest(source, null, {
+      externalFeedsPermitted: getState().getIn(['externalFeeds', 'permitted']) === true,
+    });
     const retryAt = column.getIn(['live', sourceKey, 'retryAt']);
 
     if (!resolved || !resolved.ok || (retryAt && retryAt > Date.now())) {
@@ -629,6 +634,9 @@ export function openMixStream(columnKey, mix) {
 
             if (wasDown && after && after.getIn(['live', stream.key, 'syncState']) === 'connected') {
               dispatch(reconcileMixSource(columnKey, stream.key));
+              dispatch(resumeExternalFeedViews({ keys: [`mix:${columnKey}`] }));
+            } else {
+              dispatch(reconcileExternalFeedView(`mix:${columnKey}`));
             }
           },
 
@@ -653,13 +661,23 @@ export function openMixStream(columnKey, mix) {
               return;
             }
 
-            if (data.event === 'update') {
-              handleStatus(dispatch, getState, columnKey, sessionId, fingerprint, stream.key, stream.source, JSON.parse(data.payload));
+            if (data.event === 'external_feed_changed') {
+              dispatch(receiveExternalFeedChanged(data.payload));
+            } else if (data.event === 'update') {
+              const status = JSON.parse(data.payload);
+
+              noteExternalStatusStream(status && status.id);
+              handleStatus(dispatch, getState, columnKey, sessionId, fingerprint, stream.key, stream.source, status);
             } else if (data.event === 'status.update') {
-              handleEdit(dispatch, getState, columnKey, sessionId, fingerprint, streams.filter(item => item.mode !== 'rest_only'), stream.key, JSON.parse(data.payload));
+              const status = JSON.parse(data.payload);
+
+              noteExternalStatusStream(status && status.id);
+              handleEdit(dispatch, getState, columnKey, sessionId, fingerprint, streams.filter(item => item.mode !== 'rest_only'), stream.key, status);
             } else if (data.event === 'delete') {
+              noteExternalStatusStream(data.payload);
               handleRemove(dispatch, getState, columnKey, sessionId, fingerprint, data.payload, 'delete');
             } else if (data.event === 'expire') {
+              noteExternalStatusStream(data.payload);
               handleRemove(dispatch, getState, columnKey, sessionId, fingerprint, data.payload, 'expire');
             }
           },

@@ -15,8 +15,14 @@
 #     not_visible, not_found, or invalid. members is the confirmed subset,
 #     newest id first. This is not a statement about the rest of the index.
 #   outcome partial: at least one unknown. Home, limited, and list can only
-#     confirm the Redis ZSET (FeedManager::MAX_ITEMS). Outside that window is
-#     unknown, not not_in_source. Do not call the range an end or "no hits".
+#     confirm the Redis ZSET (FeedManager::MAX_ITEMS) for ordinary ids.
+#     Outside that window is unknown, not not_in_source. Do not call the
+#     range an end or "no hits". The viewer's own external projections are
+#     classified from the database: a current home or list member is member,
+#     and an owned projection that is not delivered to this view is
+#     not_in_source (external_not_delivered). That does not delete the status.
+#     A home rebuild defers eligible external ids as unknown instead of
+#     treating them as the rebuilt range.
 #   outcome unavailable: the source cannot be evaluated (unknown domain).
 #     results is omitted.
 #   outcome unsupported: closed source, version, search text, remote group,
@@ -69,6 +75,14 @@ class TimelineSeek::Membership
   end
 
   def call(payload)
+    with_aligned_viewer do
+      classify_call(payload)
+    end
+  end
+
+  private
+
+  def classify_call(payload)
     payload ||= {}
     @source = payload[:source].to_s
     return halt('unsupported', 'search_text_not_accepted') if payload[:reject_search_text] || search_text?(payload)
@@ -86,10 +100,16 @@ class TimelineSeek::Membership
     classify(entry, reader, parsed)
   end
 
-  private
-
   def resolver
     TimelineSeek::Resolver.new(@account, user: @user, application: @application)
+  end
+
+  def with_aligned_viewer
+    viewer = ExternalBridge::Viewer.user_id
+    aligned = @user.present? && (viewer.nil? || viewer == @user.id)
+    ExternalBridge::Viewer.with_user(aligned ? @user.id : nil) do
+      yield
+    end
   end
 
   def supported_level?(entry)
@@ -155,6 +175,8 @@ class TimelineSeek::Membership
     ids = parsed.ordered.filter_map { |row| row[:id] }
     retained = reader.redis? ? reader.retained_ids(ids).to_set : Set.new
     filtered = filtered_ids(reader, ids, retained)
+    partition = reader.external_partition(ids)
+    filtered.merge(partition.members)
     records = load_records(ids)
     maps = relation_maps(records.values)
     visible = visible_ids(records, maps, status_maps(records.values))
@@ -163,7 +185,17 @@ class TimelineSeek::Membership
     unfiltered = unfiltered_ids(reader, (visible - filtered).to_a)
     unloaded = unloaded_remote_ids(reader, ids, records)
 
-    { reader: reader, filtered: filtered, hidden: hidden, visible: visible, unfiltered: unfiltered, retained: retained, unloaded: unloaded }
+    {
+      reader: reader,
+      filtered: filtered,
+      hidden: hidden,
+      visible: visible,
+      unfiltered: unfiltered,
+      retained: retained,
+      unloaded: unloaded,
+      withheld: partition.withheld,
+      deferred: partition.deferred,
+    }
   end
 
   # Remote account posts that are not in this database are unknown. A discarded
@@ -256,6 +288,14 @@ class TimelineSeek::Membership
       return row_for(text, 'member')
     end
 
+    if batch[:deferred]&.include?(id)
+      return row_for(text, 'unknown', 'feed_regenerating')
+    end
+
+    if batch[:withheld]&.include?(id)
+      return row_for(text, 'not_in_source', 'external_not_delivered')
+    end
+
     if batch[:reader].redis?
       return row_for(text, 'not_in_source', 'source_filter') if batch[:retained].include?(id)
 
@@ -277,6 +317,7 @@ class TimelineSeek::Membership
   def limitations_for(reader, parsed)
     list = []
     list << "retention_#{FeedManager::MAX_ITEMS}" if reader.redis?
+    list << 'external_db_membership' if reader.external?
     list << 'feed_regenerating' if reader.regenerating?
     list << 'duplicate_ids' if parsed.duplicates
     list

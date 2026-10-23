@@ -195,6 +195,10 @@ const classifyDisplay = (value, status, me, flags) => {
     return 'reject';
   }
 
+  if (visibility === 'external' && value.type !== 'list' && !(value.type === 'home' && params.shows && params.shows.external === true)) {
+    return 'reject';
+  }
+
   if (value.type === 'home' || value.type === 'limited') {
     if (value.type === 'limited' && (visibility === 'public' || visibility === 'unlisted')) {
       return 'reject';

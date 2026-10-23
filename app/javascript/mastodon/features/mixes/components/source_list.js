@@ -55,6 +55,7 @@ const conditionText = (intl, params) => {
           limited: messages.hideLimited,
           direct: messages.hideDirect,
           personal: messages.hidePersonal,
+          external: messages.excludeExternal,
         }[key];
 
         if (message) {
@@ -82,6 +83,8 @@ class SourceRow extends React.PureComponent {
     onDragOver: PropTypes.func,
     onDrop: PropTypes.func,
     onDragEnd: PropTypes.func,
+    externalFeedsPermitted: PropTypes.bool,
+    onToggleExternal: PropTypes.func,
   };
 
   handleRemove = () => {
@@ -112,8 +115,12 @@ class SourceRow extends React.PureComponent {
     this.props.onDrop(event, this.props.index);
   };
 
+  handleExternal = (event) => {
+    this.props.onToggleExternal(this.props.index, event.target.checked);
+  };
+
   render () {
-    const { source, intl, editable, dragging, over, index } = this.props;
+    const { source, intl, editable, dragging, over, index, externalFeedsPermitted } = this.props;
     const normalized = normalizeSource(source);
     const value = normalized.ok ? normalized.source : source;
     const row = describeMixSource(value, {
@@ -121,6 +128,9 @@ class SourceRow extends React.PureComponent {
     });
     const label = row ? row.label : (value.type || '');
     const detail = normalized.ok ? conditionText(intl, value.params || {}) : '';
+    const shows = value.params && value.params.shows;
+    const externalChecked = !!(shows && shows.external === true);
+    const showExternal = editable && externalFeedsPermitted === true && value.type === 'home';
 
     return (
       <li
@@ -151,6 +161,13 @@ class SourceRow extends React.PureComponent {
             {row && row.showChip && <span className='mix-editor__source-chip'>{row.typeLabel}</span>}
           </span>
           {detail ? <span className='mix-editor__source-detail'>{detail}</span> : null}
+          {showExternal && (
+            <label className='mix-editor__flag'>
+              <input type='checkbox' checked={externalChecked} onChange={this.handleExternal} />
+              <span className={classNames('checkbox', { active: externalChecked })} aria-hidden='true' />
+              <span className='mix-editor__flag-label'>{intl.formatMessage(messages.includeExternal)}</span>
+            </label>
+          )}
         </div>
         {editable && (
           <button type='button' className='icon-button mix-editor__remove' aria-label={intl.formatMessage(messages.removeSource)} onClick={this.handleRemove}>
@@ -171,6 +188,8 @@ export default class SourceList extends React.PureComponent {
     editable: PropTypes.bool,
     onRemove: PropTypes.func,
     onReorder: PropTypes.func,
+    externalFeedsPermitted: PropTypes.bool,
+    onToggleExternal: PropTypes.func,
   };
 
   state = {
@@ -277,6 +296,8 @@ export default class SourceList extends React.PureComponent {
             onDragOver={this.handleDragOver}
             onDrop={this.handleDrop}
             onDragEnd={this.handleDragEnd}
+            externalFeedsPermitted={this.props.externalFeedsPermitted}
+            onToggleExternal={this.props.onToggleExternal}
           />
         ))}
       </ol>

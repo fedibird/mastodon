@@ -33,6 +33,7 @@ jest.mock('../../api', () => ({
   __esModule: true,
   default: () => ({
     get: (...args) => mockGet(...args),
+    post: (...args) => mockPost(...args),
   }),
   getLinks: (response) => (response && response.links) || { refs: [] },
 }));
@@ -45,12 +46,15 @@ jest.mock('../importer', () => ({
 
 const mockConnect = jest.fn();
 const mockGet = jest.fn();
+const mockPost = jest.fn();
 
 import { fromJS } from 'immutable';
 import mixTimelines, { } from '../../reducers/mix_timelines';
 import relationshipsReducer from '../../reducers/relationships';
 import { MIX_SOURCE_SUCCESS, MIX_TIMELINE_OPEN } from '../mix_timelines';
 import { closeMixStream, openMixStream, pinMixStream, reconcileMixSource, resetMixStreams, revealMixStream } from '../mix_streaming';
+import { discardExternalFeedSessionForTests } from '../external_feeds';
+import { externalFeedSession } from '../../external_feeds/session';
 import { mixTimelineView } from '../../mix/view';
 import { resolveStream } from '../../mix/stream_adapters';
 
@@ -130,6 +134,9 @@ describe('mix streaming', () => {
     resetMixStreams();
     mockGet.mockReset();
     mockGet.mockResolvedValue({ status: 200, data: [], headers: {} });
+    mockPost.mockReset();
+    mockPost.mockResolvedValue({ status: 200, data: { outcome: 'complete', results: [] } });
+    discardExternalFeedSessionForTests();
     mockConnect.mockImplementation((channel, params, factory) => (dispatch, getState) => {
       const handlers = factory(dispatch, getState);
       const row = { channel, params, handlers, stopped: false };
@@ -1447,5 +1454,55 @@ describe('mix streaming', () => {
     expect(imported).not.toEqual(expect.arrayContaining(['201', '200']));
     expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[0].key, 'frontier'])).toBe('10');
     expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[0].key, 'gap'])).toBe(false);
+  });
+
+  it('connects a list-only mix socket to external feed control, epochs, and reconnect', async () => {
+    const { dispatch, getState } = harness();
+    const sources = [
+      { type: 'public', params: {} },
+      { type: 'list', id: '4', params: {} },
+    ];
+    const resolved = openColumn(dispatch, 'column:a', 1, sources);
+    const listSource = resolved.find(source => source.source.type === 'list');
+
+    dispatch(openMixStream('column:a', mix));
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:a',
+      sourceKey: listSource.key,
+      sessionId: 1,
+      definitionFingerprint: getState().getIn(['mix_timelines', 'column:a', 'definitionFingerprint']),
+      ids: ['100'],
+      partial: false,
+    });
+
+    const listStream = connections.find(row => row.channel === 'list' && row.params.list === '4');
+    const token = externalFeedSession.open('mix:column:a', { targets: [{ type: 'list', id: '4' }] });
+    const shot = externalFeedSession.snapshot('mix:column:a', token, {});
+
+    listStream.handlers.onReceive({
+      event: 'external_feed_changed',
+      payload: {
+        version: 1,
+        reason: 'routes_updated',
+        targets: [{ type: 'list', id: '4' }],
+        feed_routes_revision: '8',
+        subscription_id: '3',
+      },
+    });
+
+    expect(externalFeedSession.accept(shot).ok).toBe(false);
+    expect(externalFeedSession.statusEpoch('90')).toBe(0);
+    listStream.handlers.onReceive({ event: 'delete', payload: '90' });
+    expect(externalFeedSession.statusEpoch('90')).toBe(1);
+
+    mockPost.mockClear();
+    listStream.handlers.onConnect();
+    await new Promise(resolve => { setTimeout(resolve, 0); });
+    await new Promise(resolve => { setTimeout(resolve, 0); });
+
+    const postedIds = mockPost.mock.calls.filter(call => call[0] === '/api/v1/timelines/membership').flatMap(call => call[1].ids);
+
+    expect(postedIds).toContain('100');
   });
 });

@@ -9,6 +9,7 @@ import ColumnHeader from '../../components/column_header';
 import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
 import { FormattedMessage, defineMessages, injectIntl } from 'react-intl';
 import { connectListStream } from '../../actions/streaming';
+import { closeExternalFeedView, openExternalFeedView } from '../../actions/external_feeds';
 import { expandListTimeline } from '../../actions/timelines';
 import { expandWindowedHistory } from '../../actions/windowed_history';
 import { listHistoryContract } from '../../windowed_history/sources';
@@ -102,10 +103,18 @@ class ListTimeline extends React.PureComponent {
     this.props.dispatch(changeSetting(['list', 'splitRatio'], ratio));
   }
 
+  bindExternalFeed (id) {
+    this.externalFeedKey = `list:${id}`;
+    this.externalFeedToken = this.props.dispatch(openExternalFeedView(this.externalFeedKey, {
+      targets: [{ type: 'list', id: String(id) }],
+    }));
+  }
+
   componentDidMount () {
     const { dispatch } = this.props;
     const { id } = this.props.params;
 
+    this.bindExternalFeed(id);
     dispatch(fetchList(id));
     dispatch(expandListTimeline(id));
 
@@ -122,6 +131,12 @@ class ListTimeline extends React.PureComponent {
         this.disconnect = null;
       }
 
+      if (this.externalFeedToken) {
+        dispatch(closeExternalFeedView(this.externalFeedKey, this.externalFeedToken));
+        this.externalFeedToken = null;
+      }
+
+      this.bindExternalFeed(id);
       dispatch(fetchList(id));
       dispatch(expandListTimeline(id));
 
@@ -134,6 +149,11 @@ class ListTimeline extends React.PureComponent {
   }
 
   componentWillUnmount () {
+    if (this.externalFeedToken) {
+      this.props.dispatch(closeExternalFeedView(this.externalFeedKey, this.externalFeedToken));
+      this.externalFeedToken = null;
+    }
+
     if (this.cancelStatusAnchor) {
       this.cancelStatusAnchor();
       this.cancelStatusAnchor = null;

@@ -9,6 +9,8 @@ import {
   TIMELINE_SCROLL_TOP,
   TIMELINE_CONNECT,
   TIMELINE_DISCONNECT,
+  TIMELINE_EXTERNAL_CLEAR_VIEW,
+  TIMELINE_EXTERNAL_RECONCILE,
   TIMELINE_LOAD_PENDING,
   TIMELINE_MARK_AS_PARTIAL,
   TIMELINE_SPLIT_CREATE,
@@ -26,6 +28,7 @@ import {
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import compareId from '../compare_id';
 import { uniqWithoutNull } from '../utils/uniq';
+import { placeReconcileIds } from '../external_feeds/reconcile';
 import {
   WINDOW_HISTORY_ANCHOR,
   WINDOW_HISTORY_FAIL,
@@ -404,6 +407,68 @@ const destroyTimelineSplit = (state, action) => {
   });
 };
 
+const dropIds = (list, blocked) => (list || ImmutableList()).filter(id => !blocked.has(id));
+
+// Membership changes one timeline. Unread and scroll position stay put.
+// Inserted ids are history inside the loaded range, not a fresh top.
+const applyExternalReconcile = (state, timeline, removeIds, insertIds, seed) => {
+  if (!timeline || !state.has(timeline)) {
+    return state;
+  }
+
+  const blocked = new Set(removeIds || []);
+  const patch = (map, allowSeed) => {
+    let items = dropIds(map.get('items', ImmutableList()), blocked);
+    const pending = dropIds(map.get('pendingItems', ImmutableList()), blocked);
+
+    if (insertIds && insertIds.length) {
+      items = ImmutableList(placeReconcileIds(items.toArray(), insertIds, { seed: allowSeed }).items);
+    }
+
+    let next = map.set('items', items).set('pendingItems', pending);
+
+    if (next.get('window')) {
+      next = syncHistoryEdges(next);
+    }
+
+    return next;
+  };
+
+  let next = state.update(timeline, map => patch(map, seed === true));
+  const splitTimeline = next.getIn([timeline, 'splitTimelineId']);
+
+  if (splitTimeline && next.has(splitTimeline)) {
+    next = next.update(splitTimeline, map => patch(map, false));
+  }
+
+  return next;
+};
+
+const clearExternalView = (state, timeline) => {
+  if (!timeline || !state.has(timeline)) {
+    return state;
+  }
+
+  const blank = (map) => {
+    let next = map.set('items', ImmutableList()).set('pendingItems', ImmutableList()).set('unread', 0);
+
+    if (next.get('window')) {
+      next = syncHistoryEdges(next);
+    }
+
+    return next;
+  };
+
+  let next = state.update(timeline, blank);
+  const splitTimeline = next.getIn([timeline, 'splitTimelineId']);
+
+  if (splitTimeline && next.has(splitTimeline)) {
+    next = next.update(splitTimeline, blank);
+  }
+
+  return next;
+};
+
 export default function timelines(state = initialState, action) {
   switch(action.type) {
   case TIMELINE_LOAD_PENDING:
@@ -460,6 +525,10 @@ export default function timelines(state = initialState, action) {
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => settleHistoryResume(timeline, action));
   case HISTORY_RESUME_CANCEL:
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => cancelHistoryResumeState(timeline, action));
+  case TIMELINE_EXTERNAL_RECONCILE:
+    return applyExternalReconcile(state, action.timeline, action.removeIds, action.insertIds, action.seed === true);
+  case TIMELINE_EXTERNAL_CLEAR_VIEW:
+    return clearExternalView(state, action.timeline);
   case TIMELINE_UPDATE:
     return isStaleSplitTimeline(state, action.timeline) ? state : updateTimeline(state, action.timeline, fromJS(action.status), action.usePendingItems);
   case TIMELINE_DELETE:

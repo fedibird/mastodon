@@ -34,6 +34,7 @@ class InitialStateSerializer < ActiveModel::Serializer
 
     if object.current_account
       store[:me]                                    = object.current_account.id.to_s
+      store[:external_feeds]                       = object.signed_in_user.present? && ExternalBridge::Feeds::Feature.permitted?(object.signed_in_user)
       store[:follow_modal]                          = object.current_account.user.setting_follow_modal
       store[:unfollow_modal]                        = object.current_account.user.setting_unfollow_modal
       store[:subscribe_modal]                       = object.current_account.user.setting_subscribe_modal

@@ -33,6 +33,8 @@ export default class MixEditorForm extends React.PureComponent {
     onDelete: PropTypes.func,
     onSearch: PropTypes.func.isRequired,
     confirmingDelete: PropTypes.bool,
+    externalFeedsPermitted: PropTypes.bool,
+    onToggleExternal: PropTypes.func,
   };
 
   static defaultProps = {
@@ -66,6 +68,8 @@ export default class MixEditorForm extends React.PureComponent {
       onDelete,
       onSearch,
       confirmingDelete,
+      externalFeedsPermitted,
+      onToggleExternal,
     } = this.props;
 
     return (
@@ -79,8 +83,8 @@ export default class MixEditorForm extends React.PureComponent {
         <input id='mix-name' className='setting-text' value={title} onChange={this.handleTitle} maxLength={100} />
 
         <h2 className='mix-editor__label'>{intl.formatMessage(messages.sources)}</h2>
-        <SourceList sources={sources} intl={intl} editable onRemove={onRemoveSource} onReorder={onReorderSource} />
-        <SourceForm intl={intl} lists={lists} onAddSource={onAddSource} onSearch={onSearch} />
+        <SourceList sources={sources} intl={intl} editable onRemove={onRemoveSource} onReorder={onReorderSource} externalFeedsPermitted={externalFeedsPermitted} onToggleExternal={onToggleExternal} />
+        <SourceForm intl={intl} lists={lists} onAddSource={onAddSource} onSearch={onSearch} externalFeedsPermitted={externalFeedsPermitted} />
 
         {errors.length > 0 && (
           <div role='alert'>

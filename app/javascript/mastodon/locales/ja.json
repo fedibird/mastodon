@@ -674,6 +674,8 @@
   "mixes.field.hide_direct": "非公開の返信を隠す",
   "mixes.field.hide_limited": "サークル・相互限定を隠す",
   "mixes.field.hide_personal": "自分限定を隠す",
+  "mixes.field.include_external": "外部コンテンツ",
+  "mixes.field.exclude_external": "外部コンテンツを除く",
   "mixes.field.hide_private": "フォロワー限定を隠す",
   "mixes.field.hide_reblog": "ブーストを隠す",
   "mixes.field.hide_reply": "返信を隠す",
