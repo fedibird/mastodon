@@ -971,6 +971,12 @@ async function fillMixSource (dispatch, getState, client, columnKey, source, key
       }
 
       if (fresh.length) {
+        const filterResults = {};
+
+        fresh.forEach(status => {
+          filterResults[status.id] = page.filterResults[status.id] || [];
+        });
+
         dispatch({
           type: MIX_EXTERNAL_RECONCILE,
           columnKey,
@@ -981,6 +987,7 @@ async function fillMixSource (dispatch, getState, client, columnKey, source, key
           insertIds: placed.inserted,
           seed: segment.empty,
           range: { side: range.side, splitId },
+          filterResults,
         });
       }
 

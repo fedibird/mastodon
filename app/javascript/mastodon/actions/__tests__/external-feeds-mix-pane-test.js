@@ -26,6 +26,7 @@ import mixTimelines from '../../reducers/mix_timelines';
 import statusesReducer from '../../reducers/statuses';
 import accountsReducer from '../../reducers/accounts';
 import relationshipsReducer from '../../reducers/relationships';
+import filtersReducer from '../../reducers/filters';
 import { MIX_EXTERNAL_RECONCILE, MIX_SOURCE_SUCCESS, MIX_TIMELINE_OPEN } from '../mix_timelines';
 
 const drain = async () => {
@@ -78,7 +79,8 @@ describe('mix external pane reconcile', () => {
       .set('mix_timelines', mixTimelines(state.get('mix_timelines'), action))
       .set('statuses', statusesReducer(state.get('statuses'), action))
       .set('accounts', accountsReducer(state.get('accounts'), action))
-      .set('relationships', relationshipsReducer(state.get('relationships'), action));
+      .set('relationships', relationshipsReducer(state.get('relationships'), action))
+      .set('filters', filtersReducer(state.get('filters'), action));
   };
 
   const dispatch = (action) => {
@@ -378,5 +380,208 @@ describe('mix external pane reconcile', () => {
     await drain();
     expect(posts.length).toBeGreaterThan(first);
     expect(posts[posts.length - 1]).toContain('100');
+  });
+
+  const hideFilter = {
+    id: 'hide-1',
+    title: 'Quiet',
+    filter_action: 'hide',
+    context: ['home'],
+  };
+  const warnFilter = {
+    id: 'warn-1',
+    title: 'Careful',
+    filter_action: 'warn',
+    context: ['home'],
+  };
+  const homeSource = normalizeSource({ type: 'home', params: {} }).source;
+  const homeKey = sourceKey(homeSource);
+  const filteredStatus = (id, content, filter, extra = {}) => status(id, content, {
+    filtered: [{ filter }],
+    ...extra,
+  });
+
+  it('stores compact filter matches on the fetched source only', async () => {
+    api.mockImplementation(() => ({
+      post: (path, payload) => Promise.resolve({
+        status: 200,
+        headers: {},
+        data: { outcome: 'complete', results: ((payload && payload.ids) || []).map(id => ({ id, outcome: 'member' })) },
+      }),
+      get: (path) => {
+        if (path === '/api/v1/timelines/list/4') {
+          return Promise.resolve({
+            status: 200,
+            headers: {},
+            data: {
+              statuses: [
+                filteredStatus('90', '<p>hidden</p>', hideFilter, { account: '2' }),
+                filteredStatus('80', '<p>warned</p>', warnFilter, { account: '2' }),
+              ],
+              accounts: [account('2')],
+              referenced_statuses: [],
+              relationships: [],
+            },
+          });
+        }
+
+        return Promise.resolve({ status: 200, headers: {}, data: [] });
+      },
+    }));
+    state = state.setIn(['mix_timelines', 'col'], column().set('sources', ImmutableMap({
+      [listKey]: sourceEntry([]),
+      [homeKey]: sourceEntry(['90']).set('descriptor', fromJS(homeSource)),
+    })));
+    dispatch(openExternalFeedView('mix:col', { targets: [{ type: 'list', id: '4' }] }));
+    await drain();
+
+    const timeline = state.getIn(['mix_timelines', 'col']);
+    const filters = state.get('filters');
+    const statuses = state.get('statuses');
+    const listOnly = timeline.set('sources', timeline.get('sources').delete(homeKey));
+    const listView = mixTimelineView(listOnly, statuses, filters, '1', 'live');
+    const both = mixTimelineView(timeline, statuses, filters, '1', 'live');
+
+    expect(timeline.getIn(['sources', listKey, 'ids']).toArray()).toEqual(['90', '80']);
+    expect(timeline.getIn(['sources', listKey, 'filterResults', '90', 0, 'filter'])).toBe('hide-1');
+    expect(timeline.getIn(['sources', listKey, 'filterResults', '80', 0, 'filter'])).toBe('warn-1');
+    expect(timeline.getIn(['sources', homeKey, 'filterResults', '90'])).toBeUndefined();
+    expect(timeline.getIn(['sources', homeKey, 'ids']).toArray()).toEqual(['90']);
+    expect(statuses.getIn(['90', 'filtered'])).toBeUndefined();
+    expect(statuses.getIn(['80', 'filtered'])).toBeUndefined();
+    expect(filters.getIn(['hide-1', 'filter_action'])).toBe('hide');
+    expect(listView.statusIds.toArray()).not.toContain('90');
+    expect(listView.statusIds.toArray()).toContain('80');
+    expect(listView.warningsById['80']).toEqual(['Careful']);
+    expect(both.statusIds.toArray()).toContain('90');
+    expect(both.sourceKeysById['90']).toContain(homeKey);
+    expect(both.sourceKeysById['90']).not.toContain(listKey);
+  });
+
+  it('stores a plain history page filter on the history source only', async () => {
+    api.mockImplementation(() => ({
+      post: (path, payload) => Promise.resolve({
+        status: 200,
+        headers: {},
+        data: { outcome: 'complete', results: ((payload && payload.ids) || []).map(id => ({ id, outcome: 'member' })) },
+      }),
+      get: (path, config) => {
+        const maxId = config && config.params && config.params.max_id;
+
+        if (path === '/api/v1/timelines/list/4' && maxId === '50') {
+          return Promise.resolve({
+            status: 200,
+            headers: {},
+            data: [filteredStatus('45', '<p>hidden</p>', hideFilter)],
+          });
+        }
+
+        return Promise.resolve({ status: 200, headers: {}, data: [] });
+      },
+    }));
+    state = state.setIn(['mix_timelines', 'col'], column({
+      split: ImmutableMap({
+        id: 'split-1',
+        history: ImmutableMap({
+          sources: ImmutableMap({ [listKey]: sourceEntry(['50', '40']) }),
+        }),
+      }),
+    }));
+    dispatch(openExternalFeedView('mix:col', { targets: [{ type: 'list', id: '4' }] }));
+    await drain();
+
+    const timeline = state.getIn(['mix_timelines', 'col']);
+    const history = mixTimelineView(timeline, state.get('statuses'), state.get('filters'), '1', 'history');
+
+    expect(timeline.getIn(['split', 'history', 'sources', listKey, 'ids']).toArray()).toEqual(['50', '45', '40']);
+    expect(timeline.getIn(['split', 'history', 'sources', listKey, 'filterResults', '45', 0, 'filter'])).toBe('hide-1');
+    expect(timeline.getIn(['sources', listKey, 'filterResults', '45'])).toBeUndefined();
+    expect(timeline.getIn(['sources', listKey, 'ids']).toArray()).toEqual(['100']);
+    expect(state.getIn(['statuses', '45', 'filtered'])).toBeUndefined();
+    expect(history.statusIds.toArray()).not.toContain('45');
+    expect(history.statusIds.toArray()).toEqual(expect.arrayContaining(['50', '40']));
+  });
+
+  it('does not store filter matches for a clock-moved id or a stale page', async () => {
+    let release;
+
+    api.mockImplementation(() => ({
+      post: (path, payload) => Promise.resolve({
+        status: 200,
+        headers: {},
+        data: { outcome: 'complete', results: ((payload && payload.ids) || []).map(id => ({ id, outcome: 'member' })) },
+      }),
+      get: (path) => {
+        if (path === '/api/v1/timelines/list/4') {
+          return new Promise(resolve => {
+            release = resolve;
+          });
+        }
+
+        return Promise.resolve({ status: 200, headers: {}, data: [] });
+      },
+    }));
+    state = state.setIn(['mix_timelines', 'col'], column().setIn(['sources', listKey, 'ids'], ImmutableList()));
+    dispatch(openExternalFeedView('mix:col', { targets: [{ type: 'list', id: '4' }] }));
+    await drain();
+    noteExternalStatusStream('90');
+    release({
+      status: 200,
+      headers: {},
+      data: {
+        statuses: [
+          filteredStatus('90', '<p>OLD</p>', hideFilter, { account: '2' }),
+          filteredStatus('80', '<p>warned</p>', warnFilter, { account: '2' }),
+        ],
+        accounts: [account('2')],
+        referenced_statuses: [],
+        relationships: [],
+      },
+    });
+    await drain();
+
+    const timeline = state.getIn(['mix_timelines', 'col']);
+    const view = mixTimelineView(timeline, state.get('statuses'), state.get('filters'), '1', 'live');
+
+    expect(timeline.getIn(['sources', listKey, 'ids']).toArray()).toEqual(['80']);
+    expect(timeline.getIn(['sources', listKey, 'filterResults', '90'])).toBeUndefined();
+    expect(timeline.getIn(['sources', listKey, 'filterResults', '80', 0, 'filter'])).toBe('warn-1');
+    expect(state.getIn(['statuses', '90'])).toBeUndefined();
+    expect(state.getIn(['statuses', '80', 'filtered'])).toBeUndefined();
+    expect(view.statusIds.toArray()).not.toContain('90');
+    expect(view.warningsById['80']).toEqual(['Careful']);
+
+    let late;
+
+    api.mockImplementation(() => ({
+      post: (path, payload) => Promise.resolve({
+        status: 200,
+        headers: {},
+        data: { outcome: 'complete', results: ((payload && payload.ids) || []).map(id => ({ id, outcome: 'member' })) },
+      }),
+      get: (path) => {
+        if (path === '/api/v1/timelines/list/4') {
+          return new Promise(resolve => {
+            late = resolve;
+          });
+        }
+
+        return Promise.resolve({ status: 200, headers: {}, data: [] });
+      },
+    }));
+    discardExternalFeedSessionForTests();
+    state = state.setIn(['mix_timelines', 'col'], column().setIn(['sources', listKey, 'ids'], ImmutableList()));
+    dispatch(openExternalFeedView('mix:col', { targets: [{ type: 'list', id: '4' }] }));
+    await drain();
+    externalFeedSession.beginPass('mix:col');
+    late({
+      status: 200,
+      headers: {},
+      data: [filteredStatus('70', '<p>late</p>', hideFilter)],
+    });
+    await drain();
+    expect(state.getIn(['mix_timelines', 'col', 'sources', listKey, 'ids']).toArray()).toEqual([]);
+    expect(state.getIn(['mix_timelines', 'col', 'sources', listKey, 'filterResults', '70'])).toBeUndefined();
+    expect(state.getIn(['statuses', '70'])).toBeUndefined();
   });
 });

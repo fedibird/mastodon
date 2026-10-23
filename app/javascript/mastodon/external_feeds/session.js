@@ -11,6 +11,34 @@ export const createExternalFeedSession = () => {
   const views = new Map();
   const statusEpochs = new Map();
   const statusClocks = new Map();
+  // Home and list catch-up can run while that column is unmounted. The feed
+  // generation is not the view token: a route change or a later open still
+  // invalidates a page that started with no snapshot.
+  const feedEpochs = new Map();
+
+  const bumpFeed = (key) => {
+    if (!key) {
+      return;
+    }
+
+    feedEpochs.set(key, (feedEpochs.get(key) || 0) + 1);
+  };
+
+  const feedKeyForTarget = (target) => {
+    if (!target) {
+      return null;
+    }
+
+    if (target.type === 'home') {
+      return 'home';
+    }
+
+    if (target.type === 'list' && target.id) {
+      return `list:${target.id}`;
+    }
+
+    return null;
+  };
 
   const current = (key) => {
     const view = views.get(key);
@@ -24,6 +52,7 @@ export const createExternalFeedSession = () => {
 
   return {
     open (key, meta = {}) {
+      bumpFeed(key);
       tokenSeq += 1;
       const view = {
         key,
@@ -80,13 +109,27 @@ export const createExternalFeedSession = () => {
     },
 
     noteControl (parsed) {
+      const targets = parsed && parsed.targets || [];
+
       views.forEach(view => {
-        if (view.closed || !targetsOverlap(view.targets, parsed.targets)) {
+        if (view.closed || !targetsOverlap(view.targets, targets)) {
           return;
         }
 
         view.membershipEpoch += 1;
       });
+
+      targets.forEach(target => bumpFeed(feedKeyForTarget(target)));
+    },
+
+    // A new reconnect supersedes an in-flight catch-up for this feed, including
+    // one that started while no view was registered.
+    noteReconnect (key) {
+      bumpFeed(key);
+    },
+
+    feedEpoch (key) {
+      return feedEpochs.get(key) || 0;
     },
 
     noteStatus (id) {
@@ -270,6 +313,7 @@ export const createExternalFeedSession = () => {
       views.clear();
       statusEpochs.clear();
       statusClocks.clear();
+      feedEpochs.clear();
       streamClock = 0;
     },
   };

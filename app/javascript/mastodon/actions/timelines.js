@@ -190,13 +190,85 @@ const newestLoadedId = (list) => {
 
 const reconnectMarkerFor = (timelineId) => {
   const feedKey = timelineId === 'home' || timelineId.indexOf('list:') === 0 ? timelineId : null;
-  const view = feedKey && externalFeedSession.openViews().find(item => item.key === feedKey);
+
+  if (!feedKey) {
+    return null;
+  }
+
+  externalFeedSession.noteReconnect(feedKey);
+  const view = externalFeedSession.openViews().find(item => item.key === feedKey);
 
   return {
+    feedKey,
+    feedEpoch: externalFeedSession.feedEpoch(feedKey),
+    capabilityEpoch: externalFeedSession.capabilityMarker(),
     streamClock: externalFeedSession.streamMarker(),
     snapshot: view ? externalFeedSession.snapshot(view.key, view.token, {}) : null,
   };
 };
+
+// A missing snapshot is not acceptance. The hidden cache is filled only when
+// the feed and capability generations still match and no view has appeared.
+const reconnectPageCurrent = (marker) => {
+  if (!marker || !marker.feedKey) {
+    return false;
+  }
+
+  if (marker.capabilityEpoch !== externalFeedSession.capabilityMarker()) {
+    return false;
+  }
+
+  if (externalFeedSession.feedEpoch(marker.feedKey) !== marker.feedEpoch) {
+    return false;
+  }
+
+  const view = externalFeedSession.openViews().find(item => item.key === marker.feedKey);
+
+  if (view) {
+    return !!(marker.snapshot && externalFeedSession.accept(marker.snapshot).ok);
+  }
+
+  return !marker.snapshot;
+};
+
+const heldTimelineIds = (state, timelineId) => {
+  const held = new Set();
+  const collect = (list) => {
+    if (!list || typeof list.forEach !== 'function') {
+      return;
+    }
+
+    list.forEach(id => {
+      if (id !== null && id !== undefined) {
+        held.add(String(id));
+      }
+    });
+  };
+
+  collect(state.getIn(['timelines', timelineId, 'items']));
+  collect(state.getIn(['timelines', timelineId, 'pendingItems']));
+  return held;
+};
+
+// Body rejection and list membership are separate. A clock-moved id that is
+// still on screen stays in the range, without its old body. A deleted id does
+// not come back.
+const timelineMergeRows = (statuses, movedSince, held) => (statuses || []).reduce((rows, status) => {
+  if (!status || status.id === undefined || status.id === null) {
+    return rows;
+  }
+
+  if (!movedSince(status.id)) {
+    rows.push(status);
+    return rows;
+  }
+
+  if (held.has(String(status.id))) {
+    rows.push({ id: status.id });
+  }
+
+  return rows;
+}, []);
 
 const dropReconnectPage = (dispatch, timelineId, isLoadingMore) => {
   dispatch(expandTimelineSuccess(timelineId, [], null, false, true, isLoadingMore, false));
@@ -240,7 +312,7 @@ export function expandTimeline(timelineId, path, params = {}, done = noOp, optio
         return;
       }
 
-      if (reconnectMarker && reconnectMarker.snapshot && !externalFeedSession.accept(reconnectMarker.snapshot).ok) {
+      if (reconnectMarker && !reconnectPageCurrent(reconnectMarker)) {
         dropReconnectPage(dispatch, timelineId, isLoadingMore);
         return;
       }
@@ -248,23 +320,26 @@ export function expandTimeline(timelineId, path, params = {}, done = noOp, optio
       const movedSince = reconnectMarker
         ? (id) => externalFeedSession.statusMovedSince(id, reconnectMarker.streamClock)
         : null;
+      const held = movedSince ? heldTimelineIds(getState(), timelineId) : null;
       const next = getLinks(response).refs.find(link => link.rel === 'next');
       if (response.data) {
         if ('statuses' in response.data && 'accounts' in response.data) {
           const { statuses, referenced_statuses, accounts, relationships } = response.data;
           const kept = movedSince ? protectStatusBodies(statuses, movedSince) : statuses;
+          const merged = movedSince ? timelineMergeRows(statuses, movedSince, held) : statuses;
           const references = movedSince ? protectStatusBodies(referenced_statuses, movedSince) : (referenced_statuses || []);
           dispatch(importFetchedAccounts(accounts));
           dispatch(importFetchedStatuses((kept || []).concat(references || [])));
           dispatch(fetchRelationshipsSuccess(relationships));
-          dispatch(expandTimelineSuccess(timelineId, kept, next ? next.uri : null, response.status === 206, isLoadingRecent, isLoadingMore, isLoadingRecent && preferPendingItems));
+          dispatch(expandTimelineSuccess(timelineId, merged, next ? next.uri : null, response.status === 206, isLoadingRecent, isLoadingMore, isLoadingRecent && preferPendingItems));
           syncImmediateFeedFlights(getState);
         } else {
           const statuses = response.data;
           const kept = movedSince ? protectStatusBodies(statuses, movedSince) : statuses;
+          const merged = movedSince ? timelineMergeRows(statuses, movedSince, held) : statuses;
           dispatch(importFetchedStatuses(kept));
           dispatch(fetchRelationshipsFromStatuses(kept));
-          dispatch(expandTimelineSuccess(timelineId, kept, next ? next.uri : null, response.status === 206, isLoadingRecent, isLoadingMore, isLoadingRecent && preferPendingItems));
+          dispatch(expandTimelineSuccess(timelineId, merged, next ? next.uri : null, response.status === 206, isLoadingRecent, isLoadingMore, isLoadingRecent && preferPendingItems));
           syncImmediateFeedFlights(getState);
         }
       }

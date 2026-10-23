@@ -729,6 +729,34 @@ const insertPathFor = (column, action) => {
   return null;
 };
 
+// Matches belong to the pane that returned them. Another source, and the
+// shared status, keep their own results.
+const filterResultsPathFor = (column, action) => {
+  if (!column || !action.filterResults || !action.insertIds || !action.insertIds.length || !action.range) {
+    return null;
+  }
+
+  if (action.range.side === 'history') {
+    if (!action.range.splitId || column.getIn(['split', 'id']) !== action.range.splitId) {
+      return null;
+    }
+
+    const parent = ['split', 'history', 'sources', action.sourceKey];
+
+    if (!column.getIn(parent)) {
+      return null;
+    }
+
+    return parent.concat('filterResults');
+  }
+
+  if (action.range.side === 'live' && column.getIn(['sources', action.sourceKey])) {
+    return ['sources', action.sourceKey, 'filterResults'];
+  }
+
+  return null;
+};
+
 // One source loses or gains rows. Another source that still has the id keeps
 // it, and the status record is not deleted.
 const applyMixExternalReconcile = (state, action) => {
@@ -766,6 +794,12 @@ const applyMixExternalReconcile = (state, action) => {
 
     if (insertPath && next.getIn([action.columnKey].concat(insertParent))) {
       next = next.updateIn([action.columnKey].concat(insertPath), ImmutableList(), list => patchIdList(list, blocked, action.insertIds, action.seed === true));
+    }
+
+    const resultsPath = filterResultsPathFor(next.get(action.columnKey), action);
+
+    if (resultsPath) {
+      next = next.updateIn([action.columnKey].concat(resultsPath), ImmutableMap(), results => results.merge(fromJS(action.filterResults)));
     }
   }
 

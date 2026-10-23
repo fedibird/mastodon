@@ -419,4 +419,216 @@ describe('external feed reconnect guard', () => {
     await drain();
     expect(bodies().length).toBeGreaterThan(afterList);
   });
+
+  it('keeps a streamed id that sits between the remaining reconnect rows', async () => {
+    const timelines = [
+      ['home', 'user', {}],
+      ['list:4', 'list', { list: '4' }],
+    ];
+    const page = compact([
+      body('110', '<p>newer</p>'),
+      body('100', '<p>OLD</p>'),
+      body('90', '<p>between</p>'),
+    ]);
+
+    for (let index = 0; index < timelines.length; index += 1) {
+      const [timelineId, channel, params] = timelines[index];
+      const ids = () => state.getIn(['timelines', timelineId, 'items']).toArray();
+
+      state = base(ImmutableMap({ [timelineId]: loaded(['80', '70']) }));
+      const releaseUpdate = armHome();
+      const stream = connectTimelineStream(timelineId, channel, params)(dispatch, () => state);
+
+      stream.onDisconnect();
+      stream.onConnect();
+      await drain();
+      stream.onReceive({ event: 'update', payload: JSON.stringify(body('100', '<p>LIVE</p>')) });
+      releaseUpdate()(page);
+      await drain();
+      expect(ids()).toEqual(['110', '100', '90', null, '80', '70']);
+      expect(state.getIn(['statuses', '100', 'content'])).toBe('<p>LIVE</p>');
+      expect(state.getIn(['statuses', '110', 'content'])).toBe('<p>newer</p>');
+      expect(state.getIn(['statuses', '90', 'content'])).toBe('<p>between</p>');
+
+      state = base(ImmutableMap({ [timelineId]: loaded(['80', '70']) }));
+      const releaseEdit = armHome();
+      const edited = connectTimelineStream(timelineId, channel, params)(dispatch, () => state);
+
+      edited.onDisconnect();
+      edited.onConnect();
+      await drain();
+      edited.onReceive({ event: 'update', payload: JSON.stringify(body('100', '<p>LIVE</p>')) });
+      edited.onReceive({ event: 'status.update', payload: JSON.stringify(body('100', '<p>EDIT</p>')) });
+      releaseEdit()(page);
+      await drain();
+      expect(ids()).toEqual(['110', '100', '90', null, '80', '70']);
+      expect(state.getIn(['statuses', '100', 'content'])).toBe('<p>EDIT</p>');
+
+      state = base(ImmutableMap({ [timelineId]: loaded(['80', '70']) }));
+      const releaseDelete = armHome();
+      const removed = connectTimelineStream(timelineId, channel, params)(dispatch, () => state);
+
+      removed.onDisconnect();
+      removed.onConnect();
+      await drain();
+      removed.onReceive({ event: 'update', payload: JSON.stringify(body('100', '<p>LIVE</p>')) });
+      removed.onReceive({ event: 'delete', payload: '100' });
+      releaseDelete()(page);
+      await drain();
+      expect(ids()).toEqual(['110', '90', null, '80', '70']);
+      expect(state.getIn(['statuses', '100'])).toBeUndefined();
+      expect(state.getIn(['statuses', '90', 'content'])).toBe('<p>between</p>');
+    }
+  });
+
+  it('fills a quiet reconnect when no home view is open', async () => {
+    state = base(ImmutableMap({ home: loaded(['80', '70']) }));
+    const home = connectTimelineStream('home', 'user', {})(dispatch, () => state);
+
+    home.onDisconnect();
+    api.mockImplementation(() => ({
+      get: (path, config) => {
+        if (config && config.params && config.params.since_id) {
+          return Promise.resolve(compact([body('100', '<p>quiet</p>')]));
+        }
+
+        return Promise.resolve({ status: 200, headers: {}, data: { permitted: false } });
+      },
+      post: () => Promise.resolve(members([])),
+    }));
+    home.onConnect();
+    await drain();
+    expect(homeItems()).toEqual(['100', null, '80', '70']);
+    expect(state.getIn(['statuses', '100', 'content'])).toBe('<p>quiet</p>');
+  });
+
+  it('does not apply a reconnect page that started with no view after the route changes', async () => {
+    state = base(ImmutableMap({
+      home: loaded(['80', '70']),
+      'list:4': loaded(['15', '14']),
+    }));
+    const releaseHome = armHome();
+    const home = connectTimelineStream('home', 'user', {})(dispatch, () => state);
+    const routeHome = {
+      event: 'external_feed_changed',
+      payload: {
+        version: 1,
+        reason: 'routes_updated',
+        targets: [{ type: 'home' }],
+        feed_routes_revision: '4',
+        subscription_id: '1',
+      },
+    };
+
+    home.onDisconnect();
+    home.onConnect();
+    await drain();
+    home.onReceive(routeHome);
+    releaseHome()(compact([body('95', '<p>removed</p>')]));
+    await drain();
+    expect(homeItems()).toEqual([null, '80', '70']);
+    expect(state.getIn(['statuses', '95'])).toBeUndefined();
+
+    const releaseMounted = armHome();
+    const mounted = connectTimelineStream('home', 'user', {})(dispatch, () => state);
+
+    mounted.onDisconnect();
+    mounted.onConnect();
+    await drain();
+    mounted.onReceive(routeHome);
+    dispatch(openExternalFeedView('home', { targets: [{ type: 'home' }] }));
+    await drain();
+    releaseMounted()(compact([body('94', '<p>after mount</p>')]));
+    await drain();
+    expect(homeItems()).not.toContain('94');
+    expect(state.getIn(['statuses', '94'])).toBeUndefined();
+
+    const releaseList = armHome();
+    const list = connectTimelineStream('list:4', 'list', { list: '4' })(dispatch, () => state);
+
+    list.onDisconnect();
+    list.onConnect();
+    await drain();
+    list.onReceive({
+      event: 'external_feed_changed',
+      payload: {
+        version: 1,
+        reason: 'routes_updated',
+        targets: [{ type: 'list', id: '4' }],
+        feed_routes_revision: '5',
+        subscription_id: '1',
+      },
+    });
+    releaseList()(compact([body('16', '<p>removed</p>')]));
+    await drain();
+    dispatch(openExternalFeedView('list:4', { targets: [{ type: 'list', id: '4' }] }));
+    await drain();
+    expect(state.getIn(['timelines', 'list:4', 'items']).toArray()).toEqual([null, '15', '14']);
+    expect(state.getIn(['statuses', '16'])).toBeUndefined();
+  });
+
+  it('drops a reconnect page when the feed is turned off before home is mounted', async () => {
+    state = base(ImmutableMap({ home: loaded(['80', '70']) })).setIn(['externalFeeds', 'permitted'], true);
+    let releasePage;
+
+    api.mockImplementation(() => ({
+      get: (path, config) => {
+        const params = (config && config.params) || {};
+
+        if (path === '/api/v1/timelines/external_feed_capability') {
+          return Promise.resolve({ status: 200, headers: {}, data: { permitted: false } });
+        }
+
+        if (params.since_id) {
+          return new Promise(resolve => {
+            releasePage = resolve;
+          });
+        }
+
+        return Promise.resolve({ status: 200, headers: {}, data: [] });
+      },
+      post: () => Promise.resolve(members([])),
+    }));
+    const home = connectTimelineStream('home', 'user', {})(dispatch, () => state);
+
+    home.onDisconnect();
+    home.onConnect();
+    await drain();
+    releasePage(compact([body('95', '<p>stale</p>')]));
+    await drain();
+    expect(homeItems()).toEqual([null, '80', '70']);
+    expect(state.getIn(['statuses', '95'])).toBeUndefined();
+
+    let releaseMounted;
+
+    api.mockImplementation(() => ({
+      get: (path, config) => {
+        const params = (config && config.params) || {};
+
+        if (path === '/api/v1/timelines/external_feed_capability') {
+          return Promise.resolve({ status: 200, headers: {}, data: { permitted: false } });
+        }
+
+        if (params.since_id) {
+          return new Promise(resolve => {
+            releaseMounted = resolve;
+          });
+        }
+
+        return Promise.resolve({ status: 200, headers: {}, data: [] });
+      },
+      post: () => Promise.resolve(members([])),
+    }));
+    const mounted = connectTimelineStream('home', 'user', {})(dispatch, () => state);
+
+    mounted.onDisconnect();
+    mounted.onConnect();
+    await drain();
+    dispatch(openExternalFeedView('home', { targets: [{ type: 'home' }] }));
+    await drain();
+    releaseMounted(compact([body('96', '<p>after mount</p>')]));
+    await drain();
+    expect(homeItems()).not.toContain('96');
+    expect(state.getIn(['statuses', '96'])).toBeUndefined();
+  });
 });
