@@ -6,6 +6,7 @@
 require 'rails_helper'
 require Rails.root.join('db/migrate/20261026120000_create_external_link_sharing.rb')
 require Rails.root.join('db/migrate/20261027120000_add_external_link_reference_published_at.rb')
+require Rails.root.join('db/migrate/20261028120000_add_external_link_reference_next_recovery_at.rb')
 
 describe 'ExternalBridge link sharing', type: :model do
   def error_code(code)
@@ -59,6 +60,28 @@ describe 'ExternalBridge link sharing', type: :model do
       SECRET_MEDIA_9f3aa1
       SECRET_POLL_9f3aa1
       SECRET_POLL_ALT_9f3aa1
+    )
+  end
+
+  def plant_unpublished_reference!(user, world, url)
+    note = Status.create!(
+      account: user.account,
+      text: "Safe Feed Title\nRSS\n#{url}",
+      visibility: :public,
+      searchability: :public,
+      local: true,
+      external_projection: false
+    )
+    ExternalProjectionLinkReference.create!(
+      user_id: user.id,
+      account_id: user.account_id,
+      external_status_projection_id: nil,
+      projection_status_id: world[:status].id,
+      reference_status_id: note.id,
+      visibility: 'public',
+      canonical_url: url,
+      policy_revision: 1,
+      state: 'active'
     )
   end
 
@@ -685,17 +708,99 @@ describe 'ExternalBridge link sharing', type: :model do
     expect(ExternalBridge::LinkSharing::RecoverUnpublished.call).to eq(0)
   end
 
+  it 'reaches later unpublished rows while the oldest batch is refused' do
+    user = Fabricate(:user)
+    world = external_project_for(user)
+    suffix = SecureRandom.hex(4)
+    mappings = Array.new(30) do |index|
+      plant_unpublished_reference!(user, world, "https://example.com/posts/#{suffix}-#{index}")
+    end
+    ids = mappings.map(&:id).sort
+    low = ids.first(ExternalBridge::LinkSharing::RecoverUnpublished::BATCH)
+    high = ids.drop(ExternalBridge::LinkSharing::RecoverUnpublished::BATCH)
+    enqueued = []
+    allow(ExternalBridge::LinkReferencePublishWorker).to receive(:perform_async) do |id|
+      enqueued << id
+      low.include?(id) ? nil : "jid-#{id}"
+    end
+
+    expect(ExternalBridge::LinkSharing::RecoverUnpublished.call).to eq(20)
+    expect(enqueued).to eq(low)
+
+    enqueued.clear
+    expect(ExternalBridge::LinkSharing::RecoverUnpublished.call).to eq(20)
+    expect(enqueued.first(high.size)).to eq(high)
+    high.each do |id|
+      expect(ExternalProjectionLinkReference.find(id).next_recovery_at).to be > Time.current
+      expect(ExternalProjectionLinkReference.find(id).published_at).to be_nil
+    end
+
+    enqueued.clear
+    expect(ExternalBridge::LinkSharing::RecoverUnpublished.call).to eq(20)
+    expect(enqueued & high).to be_empty
+  end
+
+  it 'does not push another job for an accepted row on the next scheduler passes' do
+    user = Fabricate(:user)
+    world = external_project_for(user)
+    mapping = plant_unpublished_reference!(user, world, "https://example.com/posts/#{SecureRandom.hex(4)}")
+    Sidekiq::Testing.fake! do
+      ExternalBridge::LinkReferencePublishWorker.clear
+      expect(Scheduler::ExternalBridgeLinkReferencePublishScheduler.new.perform).to eq(1)
+      3.times do
+        expect(Scheduler::ExternalBridgeLinkReferencePublishScheduler.new.perform).to eq(0)
+      end
+      expect(ExternalBridge::LinkReferencePublishWorker.jobs.map { |job| job['args'] }).to eq([[mapping.id]])
+      expect(mapping.reload.published_at).to be_nil
+      expect(mapping.next_recovery_at).to be > 20.minutes.from_now
+
+      mapping.update_columns(next_recovery_at: 1.minute.ago)
+      expect(Scheduler::ExternalBridgeLinkReferencePublishScheduler.new.perform).to eq(1)
+      expect(ExternalBridge::LinkReferencePublishWorker.jobs.size).to eq(2)
+    end
+  ensure
+    Sidekiq::Testing.inline!
+  end
+
+  it 'uses the unpublished recovery index for the bounded scan' do
+    connection = ActiveRecord::Base.connection
+    indexdef = connection.select_value("SELECT indexdef FROM pg_indexes WHERE indexname = 'index_link_refs_on_unpublished_recovery'")
+    expect(indexdef).to include('next_recovery_at')
+    expect(indexdef).to include('NULLS FIRST')
+    expect(indexdef).to include('published_at IS NULL')
+
+    plan = connection.transaction do
+      connection.execute('SET LOCAL enable_seqscan = off')
+      connection.select_values(<<~SQL).join("\n")
+        EXPLAIN
+        SELECT external_projection_link_references.id
+        FROM external_projection_link_references
+        WHERE published_at IS NULL
+          AND state IN ('active', 'superseded')
+          AND reference_status_id IS NOT NULL
+          AND (next_recovery_at IS NULL OR next_recovery_at <= NOW())
+        ORDER BY next_recovery_at ASC NULLS FIRST, external_projection_link_references.id
+        LIMIT 20
+      SQL
+    end
+    expect(plan).to include('index_link_refs_on_unpublished_recovery')
+  end
+
   it 'rolls link sharing down and back up on an empty database' do
     expect(ExternalProjectionLinkReference.count).to eq(0)
     expect(ExternalLinkSharePolicy.count).to eq(0)
     connection = ActiveRecord::Base.connection
     ActiveRecord::Base.transaction(requires_new: true) do
+      AddExternalLinkReferenceNextRecoveryAt.new.down
       AddExternalLinkReferencePublishedAt.new.down
       CreateExternalLinkSharing.new.down
       expect(connection.table_exists?(:external_projection_link_references)).to be false
       CreateExternalLinkSharing.new.up
       AddExternalLinkReferencePublishedAt.new.up
+      AddExternalLinkReferenceNextRecoveryAt.new.up
       expect(connection.column_exists?(:external_projection_link_references, :published_at)).to be true
+      expect(connection.column_exists?(:external_projection_link_references, :next_recovery_at)).to be true
+      expect(connection.select_value("SELECT indexdef FROM pg_indexes WHERE indexname = 'index_link_refs_on_unpublished_recovery'")).to include('NULLS FIRST')
       expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_references_enforce_owner' AND NOT tgisinternal")).to eq(1)
       expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_references_publish_mark' AND NOT tgisinternal")).to eq(1)
       expect(connection.select_value("SELECT prosrc FROM pg_proc WHERE proname = 'external_projection_link_references_enforce_owner'")).to include('projection_marker_status_id')

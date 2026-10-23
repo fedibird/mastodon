@@ -26,9 +26,13 @@ module ExternalBridge
 
         jid = ExternalBridge::LinkReferencePublishWorker.perform_async(@mapping.id)
         if jid.blank?
-          # Redis accepted nothing. published_at stays null. The scheduler
-          # keeps selecting that row until a later enqueue returns a jid.
+          # Redis accepted nothing. published_at stays null and
+          # next_recovery_at stays null, so the scheduler still selects it.
           Rails.logger.warn("[LinkSharing] reference publish was not enqueued mapping_id=#{@mapping.id}")
+        else
+          # Accepted. Hold the row out of the scheduler until the claim
+          # expires so a waiting job is not pushed again every pass.
+          RecoverySchedule.claim!(@mapping.id)
         end
         jid
       end

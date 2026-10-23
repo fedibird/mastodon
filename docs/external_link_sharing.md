@@ -61,6 +61,7 @@ Generation requires the feature flag, a tester id, a functional User, `enabled`,
 | `policy_revision` | Policy revision observed when the row was inserted. |
 | `state` | `active`, `superseded`, or `broken`. |
 | `published_at` | Set after `PublishStatusService` returns. Null means distribution has not finished and may be retried. |
+| `next_recovery_at` | Recovery cursor. Null means unvisited. A future time means Sidekiq accepted a job and the row is held out of the scan until then. A past time means the enqueue was refused or the hold expired. |
 
 Active identity is unique on `(user_id, external_status_projection_id, visibility, canonical_url)` where `state = 'active'` and the projection id is present. `reference_status_id` is unique while present. Another User, including another User of the same Account, has a separate projection and a separate note. A public note is never returned for an unlisted request, or the reverse.
 
@@ -79,9 +80,33 @@ A broken row stays broken. A superseded row cannot become active. Deleting the r
 5. Return a healthy active row for the same URL, or mark a damaged one `broken` and raise.
 6. Re-read the locked policy immediately before inserting the Status, and again immediately before inserting the mapping. A same-transaction consent or revision change rolls the Status back.
 7. Insert the mapping. A unique violation rolls the Status back. The caller loads the committed winner and returns that row instead of inserting another.
-8. After that transaction commits, `PublishReference` enqueues `LinkReferencePublishWorker`. A returned jid means Sidekiq accepted the job. `nil` means it did not: `published_at` stays null and nothing is treated as queued. The worker locks the mapping row, calls `PublishStatusService`, then sets `published_at`. The projection is not passed to distribution, ActivityPub, webhooks, or the public search index.
+8. After that transaction commits, `PublishReference` enqueues `LinkReferencePublishWorker`. A returned jid means Sidekiq accepted the job and `next_recovery_at` is set 30 minutes ahead. `nil` means it did not: `published_at` and `next_recovery_at` stay null, and nothing is treated as queued. The worker locks the mapping row, calls `PublishStatusService`, then sets `published_at`. The projection is not passed to distribution, ActivityPub, webhooks, or the public search index.
 9. A later ensure sees `published_at` and does not enqueue again. `PublishStatusService`'s Redis key still expires after 7 days for ordinary statuses. That key is not the reuse decision for a reference. Deleting it, or waiting it out, does not distribute the same note again.
-10. If the worker raises before `published_at` is written, Sidekiq retries that job. If the process stops after commit and before an accepted enqueue, no job exists. `Scheduler::ExternalBridgeLinkReferencePublishScheduler` runs every 5 minutes and enqueues at most 20 of those rows. It does not call ensure, and it does not read the feature flag or the current policy. Those gates apply when the note is created. A note already inserted is still distributed after the flag is turned off or consent is revoked. Broken mappings, discarded notes, projection statuses, and account mismatches are left unpublished. A second pass, or two workers, take the same row lock and call `PublishStatusService` once.
+10. If the worker raises before `published_at` is written, Sidekiq retries that job. If the process stops after commit and before an accepted enqueue, no job exists. `Scheduler::ExternalBridgeLinkReferencePublishScheduler` runs every 5 minutes and selects at most 20 rows. It does not call ensure, and it does not read the feature flag or the current policy. Those gates apply when the note is created. A note already inserted is still distributed after the flag is turned off or consent is revoked. Broken mappings, discarded notes, projection statuses, and account mismatches are left unpublished. A second pass, or two workers, take the same row lock and call `PublishStatusService` once.
+
+The scan orders by `next_recovery_at ASC NULLS FIRST, id`. Unvisited rows come first. A row with an accepted jid is not selected again until `next_recovery_at`. That hold is 30 minutes, which covers more than four 5-minute passes, so a job that sits in Redis is not pushed again on every pass. A nil jid or a Redis connection error records `next_recovery_at = now` and creates no job. The next pass continues with rows that are still null, then comes back to the refused rows. After the hold expires, a head that never finished can be tried once more. That later try is not a new job every pass.
+
+`index_link_refs_on_unpublished_recovery` is `(next_recovery_at ASC NULLS FIRST, id)` where `published_at` is null, `state` is `active` or `superseded`, and `reference_status_id` is present. Published rows are outside the index. Each pass stops at 20 eligible ids and then joins `statuses` for the discard, projection, and account checks. On a tiny table the planner may still sequential-scan. The partial index is the plan once published rows dominate. It does not touch the emoji `INCLUDE` indexes.
+
+## Consent, flag, and emergency stop
+
+The feature flag, the tester list, and the current policy decide whether a new note may be created. They do not decide whether a note that was already inserted is distributed. Turning the flag off, emptying the tester list, or revoking consent stops the next generation. It does not delete the note and it does not cancel distribution. There is no settings screen in this phase. Consent is `ExternalBridge::LinkSharing::Policy` only.
+
+A person who revokes consent should expect existing link notes to remain and to be distributed. Those notes are ordinary public or unlisted posts of their account.
+
+To stop one note that is not yet distributed (`published_at` is null), set that mapping to `broken`:
+
+```sql
+UPDATE external_projection_link_references
+   SET state = 'broken', updated_at = clock_timestamp()
+ WHERE id = :mapping_id
+   AND published_at IS NULL
+   AND state <> 'broken';
+```
+
+The worker and the scheduler both skip `broken`. The Status row stays. This does not recall a Create that already left the server. If `published_at` is already set, distribution has been handed to the normal status pipeline. Stopping that note is a normal delete of the Status, not the feature flag and not a delete of the mapping. Do not drop the mapping to hide a published note. That throws away the only record of which User, projection, and scope it came from.
+
+To pause the sweeper, stop `Scheduler::ExternalBridgeLinkReferencePublishScheduler`. Jobs already in Redis still run. Quieting the queue that runs `ExternalBridge::LinkReferencePublishWorker`, or deleting those jobs, stops accepted work that has not started. The feature flag does not do either of those. A Redis pause does not create jobs: a refused enqueue writes no jid and leaves the row for a later pass.
 
 Policy updates lock only the policy row, so they take the same first lock and do not deadlock with generation. A revocation that blocks on the lock applies after the note for the held revision commits. That note is not deleted. The next generation sees the new revision.
 

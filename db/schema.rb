@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_27_120000) do
+ActiveRecord::Schema.define(version: 2026_10_28_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -689,6 +689,7 @@ ActiveRecord::Schema.define(version: 2026_10_27_120000) do
     t.string "state", default: "active", null: false
     t.datetime "superseded_at"
     t.datetime "published_at"
+    t.datetime "next_recovery_at"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["reference_status_id"], name: "index_link_refs_on_reference_status", unique: true, where: "(reference_status_id IS NOT NULL)"
@@ -700,6 +701,17 @@ ActiveRecord::Schema.define(version: 2026_10_27_120000) do
     t.check_constraint "state IN ('active', 'superseded', 'broken')", name: "link_refs_state_check"
     t.check_constraint "visibility IN ('public', 'unlisted')", name: "link_refs_visibility_check"
   end
+
+  # Partial recovery index. NULLS FIRST matches the scheduler order.
+  # db:schema:dump does not keep that clause. Do not replace this statement
+  # with a t.index on the same columns.
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_link_refs_on_unpublished_recovery
+    ON external_projection_link_references (next_recovery_at ASC NULLS FIRST, id)
+    WHERE published_at IS NULL
+      AND state IN ('active', 'superseded')
+      AND reference_status_id IS NOT NULL
+  SQL
 
   create_table "external_projection_suppressions", force: :cascade do |t|
     t.bigint "user_id", null: false

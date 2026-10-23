@@ -121,7 +121,8 @@
       class: Scheduler::ExternalBridgeAtprotoAttemptCleanupScheduler
       queue: scheduler
     # Recovers reference notes committed with published_at still null.
-    # Does not consult the link-sharing flag. Empty tables are a cheap scan.
+    # Does not consult the link-sharing flag. One pass is at most 20 rows
+    # and does not re-push a job Sidekiq already accepted.
     external_bridge_link_reference_publish_scheduler:
       every: '5m'
       class: Scheduler::ExternalBridgeLinkReferencePublishScheduler
