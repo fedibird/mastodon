@@ -88,11 +88,16 @@ module ExternalBridge
         Integer(text, 10)
       end
 
+      # User row, then list rows in id order. The route trigger takes the
+      # same locks. An open lists.account_id or users.account_id update
+      # therefore finishes before this check reads the owner.
       def assert_lists_owned!(user, list_ids)
+        User.where(id: user.id).lock('FOR SHARE').pick(:id)
         return if list_ids.empty?
 
-        owned = List.where(id: list_ids, account_id: user.account_id).pluck(:id).sort
-        raise Error, :invalid_feed_route if owned != list_ids
+        locked = List.where(id: list_ids).order(:id).lock('FOR SHARE').pluck(:id, :account_id)
+        raise Error, :invalid_feed_route if locked.map(&:first).sort != list_ids
+        raise Error, :invalid_feed_route if locked.any? { |_id, account_id| account_id != user.account_id }
       end
 
       def same?(home, list_ids, current)

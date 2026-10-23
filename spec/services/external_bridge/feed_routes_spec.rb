@@ -210,6 +210,32 @@ RSpec.describe ExternalBridge::FeedRoutes::Update do
       expect(routes_for(subscription)).to eq [['list', list.id]]
     end
 
+    it 'rejects a user account change while a route exists and no projection does' do
+      bare = Fabricate(:user)
+      enable_external_bridge_feeds!(bare)
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: "https://feeds.example/guard-#{SecureRandom.hex(4)}.xml", title: 'Guard')
+      bare_subscription = ExternalSubscription.create!(user: bare, external_source: source, state: 'active')
+      list = Fabricate(:list, account: bare.account)
+      save_routes(bare, bare_subscription, home: false, list_ids: [list.id])
+      roommate = share_account_user(bare.account)
+      other_account = Fabricate(:account)
+      route_owner = ActiveRecord::Base.connection.select_value("SELECT pg_get_functiondef('external_feed_routes_enforce_list_owner()'::regprocedure)")
+      user_guard = ActiveRecord::Base.connection.select_value("SELECT pg_get_functiondef('users_external_projection_account_guard()'::regprocedure)")
+
+      expect(ExternalStatusProjection.where(user_id: bare.id)).to be_empty
+      expect(route_owner).to include('FROM users WHERE id = NEW.user_id FOR SHARE')
+      expect(route_owner).to include('FROM lists WHERE id = NEW.list_id FOR SHARE')
+      expect(route_owner.index('FROM users')).to be < route_owner.index('FROM lists')
+      expect(user_guard).to include('external_feed_routes')
+
+      expect_database_rejection("UPDATE users SET account_id = #{other_account.id} WHERE id = #{bare.id}")
+      expect(bare.reload.account_id).to eq list.account_id
+
+      ActiveRecord::Base.connection.execute("UPDATE users SET account_id = #{other_account.id} WHERE id = #{roommate.id}")
+      expect(roommate.reload.account_id).to eq other_account.id
+      expect(routes_for(bare_subscription)).to eq [['list', list.id]]
+    end
+
     it 'deletes only the route when the list is deleted' do
       list = Fabricate(:list, account: user.account)
       other = Fabricate(:list, account: user.account)
@@ -324,6 +350,75 @@ RSpec.describe ExternalBridge::FeedRoutes::Update do
       expect(failure.code).to eq 'stale_feed_routes'
       expect(ExternalFeedRoute.where(external_subscription_id: raced[:subscription].id).pluck(:destination)).to eq ['home']
       expect(raced[:subscription].reload.feed_routes_revision).to eq 1
+    end
+  end
+
+  describe 'an uncommitted list owner' do
+    self.use_transactional_tests = false
+
+    after do
+      Setting.external_bridge_feeds = false
+      Setting.external_bridge_feeds_testers = ''
+      if defined?(@held_user) && @held_user&.persisted?
+        ExternalFeedRoute.where(user_id: @held_user.id).delete_all
+        ExternalSubscription.where(user_id: @held_user.id).delete_all
+        ExternalSource.where(id: @held_source_id).delete_all if @held_source_id
+        List.where(id: @held_list_id).delete_all if @held_list_id
+        @held_user.destroy!
+      end
+    end
+
+    it 'rejects a route added while the list account change is uncommitted' do
+      @held_user = Fabricate(:user)
+      enable_external_bridge_feeds!(@held_user)
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: "https://feeds.example/held-#{SecureRandom.hex(4)}.xml", title: 'Held')
+      @held_source_id = source.id
+      subscription = ExternalSubscription.create!(user: @held_user, external_source: source, state: 'active')
+      list = Fabricate(:list, account: @held_user.account)
+      @held_list_id = list.id
+      other_account = Fabricate(:account)
+      ready = Queue.new
+      release = Queue.new
+      result = Queue.new
+
+      holder = Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          List.transaction do
+            ActiveRecord::Base.connection.execute("UPDATE lists SET account_id = #{other_account.id.to_i} WHERE id = #{list.id.to_i}")
+            ready << true
+            release.pop
+          end
+        end
+      end
+
+      expect(ready.pop(timeout: 5)).to eq true
+      racer = Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          described_class.new.call(
+            user: @held_user,
+            subscription_id: subscription.id,
+            home: false,
+            list_ids: [list.id],
+            expected_revision: 0
+          )
+          result << nil
+        rescue StandardError => e
+          result << e
+        end
+      end
+
+      sleep 0.5
+      expect(result).to be_empty
+      release << true
+      holder.join
+      racer.join
+
+      failure = result.pop(timeout: 5)
+      expect(failure).to be_a(ExternalBridge::Error)
+      expect(failure.code).to eq 'invalid_feed_route'
+      expect(ExternalFeedRoute.where(external_subscription_id: subscription.id)).to be_empty
+      expect(subscription.reload.feed_routes_revision).to eq 0
+      expect(list.reload.account_id).to eq other_account.id
     end
   end
 end

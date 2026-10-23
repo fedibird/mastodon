@@ -197,8 +197,11 @@ module ExternalBridge
         list_account_id bigint;
       BEGIN
         IF NEW.destination = 'list' THEN
-          SELECT account_id INTO owner_account_id FROM users WHERE id = NEW.user_id;
-          SELECT account_id INTO list_account_id FROM lists WHERE id = NEW.list_id;
+          -- User, then list. Share locks conflict with an uncommitted
+          -- account_id update and do not conflict with each other.
+          -- https://www.postgresql.org/docs/16/explicit-locking.html
+          SELECT account_id INTO owner_account_id FROM users WHERE id = NEW.user_id FOR SHARE;
+          SELECT account_id INTO list_account_id FROM lists WHERE id = NEW.list_id FOR SHARE;
           IF owner_account_id IS NULL
              OR list_account_id IS NULL
              OR owner_account_id IS DISTINCT FROM list_account_id THEN
@@ -335,8 +338,11 @@ module ExternalBridge
       AS $$
       BEGIN
         IF NEW.account_id IS DISTINCT FROM OLD.account_id
-           AND EXISTS (SELECT 1 FROM external_status_projections WHERE user_id = OLD.id) THEN
-          RAISE EXCEPTION 'users.account_id cannot change while projections exist'
+           AND (
+             EXISTS (SELECT 1 FROM external_status_projections WHERE user_id = OLD.id)
+             OR EXISTS (SELECT 1 FROM external_feed_routes WHERE user_id = OLD.id)
+           ) THEN
+          RAISE EXCEPTION 'users.account_id cannot change while an external projection or feed route exists'
             USING ERRCODE = 'check_violation';
         END IF;
 

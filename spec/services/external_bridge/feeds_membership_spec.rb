@@ -169,6 +169,63 @@ RSpec.describe ExternalBridge::Feeds::Compose do
     expect(page.map(&:id)).to eq [71, 70]
   end
 
+  it 'reads an older external id when a full scan budget ends on the last redis member' do
+    stub_const('FeedManager::MAX_ITEMS', 4)
+    external = external_project_for(user, id: 1, body: 'behind an exact budget')
+    ExternalBridge::FeedRoutes::Update.new.call(user: user, subscription_id: external[:subscription].id, home: true, list_ids: [], expected_revision: 0)
+    redis.zadd(FeedManager.instance.key(:home, account.id), [5, 4, 3, 2].map { |id| [id, id] })
+
+    page = described_class.new(user: user, feed: HomeFeed.new(account), destination: 'home').call(20)
+
+    expect(page.map(&:id)).to eq [1]
+  end
+
+  it 'reads an older external id when the redis range is shorter than the budget' do
+    stub_const('FeedManager::MAX_ITEMS', 4)
+    external = external_project_for(user, id: 1, body: 'behind a short range')
+    ExternalBridge::FeedRoutes::Update.new.call(user: user, subscription_id: external[:subscription].id, home: true, list_ids: [], expected_revision: 0)
+    redis.zadd(FeedManager.instance.key(:home, account.id), [4, 3].map { |id| [id, id] })
+
+    page = described_class.new(user: user, feed: HomeFeed.new(account), destination: 'home').call(20)
+
+    expect(page.map(&:id)).to eq [1]
+  end
+
+  it 'does not pull an older external id ahead of an ordinary status past the budget' do
+    stub_const('FeedManager::MAX_ITEMS', 4)
+    plant(6, 'inside the budget')
+    plant(2, 'past the budget')
+    external = external_project_for(user, id: 1, body: 'older than both')
+    ExternalBridge::FeedRoutes::Update.new.call(user: user, subscription_id: external[:subscription].id, home: true, list_ids: [], expected_revision: 0)
+    redis.zadd(FeedManager.instance.key(:home, account.id), [6, 5, 4, 3, 2].map { |id| [id, id] })
+    feed = described_class.new(user: user, feed: HomeFeed.new(account), destination: 'home')
+
+    expect(feed.call(20).map(&:id)).to eq [6]
+
+    expect(feed.call(20, 6).map(&:id)).to eq [2, 1]
+  end
+
+  it 'does not treat unread redis members past the budget as the end of the range' do
+    stub_const('FeedManager::MAX_ITEMS', 4)
+    external = external_project_for(user, id: 1, body: 'still behind unread ids')
+    ExternalBridge::FeedRoutes::Update.new.call(user: user, subscription_id: external[:subscription].id, home: true, list_ids: [], expected_revision: 0)
+    redis.zadd(FeedManager.instance.key(:home, account.id), [6, 5, 4, 3, 2].map { |id| [id, id] })
+
+    expect(described_class.new(user: user, feed: HomeFeed.new(account), destination: 'home').call(20)).to eq []
+  end
+
+  it 'reads external ids for an external-only filter without walking a full ordinary budget' do
+    stub_const('FeedManager::MAX_ITEMS', 4)
+    [5, 4, 3, 2].each { |id| plant(id, "ordinary #{id}") }
+    external = external_project_for(user, id: 1, body: 'external only filter')
+    ExternalBridge::FeedRoutes::Update.new.call(user: user, subscription_id: external[:subscription].id, home: true, list_ids: [], expected_revision: 0)
+    redis.zadd(FeedManager.instance.key(:home, account.id), [5, 4, 3, 2].map { |id| [id, id] })
+
+    page = described_class.new(user: user, feed: HomeFeed.new(account), destination: 'home').call(20, nil, nil, nil, ['external'])
+
+    expect(page.map(&:id)).to eq [1]
+  end
+
   it 'does not merge when the caller has no user' do
     external = external_project_for(user, id: 61, body: 'hidden from account feed')
     ExternalBridge::FeedRoutes::Update.new.call(user: user, subscription_id: external[:subscription].id, home: true, list_ids: [], expected_revision: 0)

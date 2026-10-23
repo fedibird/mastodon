@@ -33,6 +33,21 @@ RSpec.describe 'External feed routing on home and list REST' do
     status
   end
 
+  def link_param(name)
+    href = response.headers['Link'].links.map(&:href).find { |value| value.include?("#{name}=") }
+    Rack::Utils.parse_query(URI(href).query)[name]
+  end
+
+  def marker_picks(queries)
+    queries.count do |sql|
+      normalized = sql.downcase
+      normalized.include?('external_status_projections') &&
+        normalized.match?(/\blimit\b/) &&
+        normalized.match?(/status_id/) &&
+        !normalized.match?(/\bin\b/)
+    end
+  end
+
   def home_rows(params = {})
     get '/api/v1/timelines/home', params: params, headers: owner_headers
     rows = if params[:compact].present?
@@ -207,6 +222,57 @@ RSpec.describe 'External feed routing on home and list REST' do
       expect(response.headers['Link']).to be_blank
     end
 
+    it 'follows an external max_id onto the ordinary status that shares its Redis score' do
+      base = 9_007_199_254_740_992
+      expect(bundle[:status].id).to eq(base + 1)
+      expect((base + 1).to_f).to eq(base.to_f)
+      plant_ordinary(owner.account, base, 'score neighbour')
+
+      expect(home_rows(limit: 1).map { |row| row[:id] }).to eq [(base + 1).to_s]
+      max_id = link_param('max_id')
+      expect(max_id).to eq((base + 1).to_s)
+
+      expect(home_rows(limit: 1, max_id: max_id).map { |row| row[:id] }).to eq [base.to_s]
+    end
+
+    it 'follows min_id, since_id, and the combined window across a collapsed score' do
+      base = 9_007_199_254_740_992
+      boundary = base + 3
+      neighbour = base + 4
+      expect(boundary.to_f).to eq(neighbour.to_f)
+      row = external_project_for(owner, id: boundary, body: 'min boundary')
+      save_route(owner, row[:subscription], home: true)
+      plant_ordinary(owner.account, neighbour, 'min neighbour')
+
+      expect(home_rows(limit: 1, max_id: neighbour).map { |item| item[:id] }).to eq [boundary.to_s]
+      min_id = link_param('min_id')
+      expect(min_id).to eq(boundary.to_s)
+      expect(home_rows(limit: 1, min_id: min_id).map { |item| item[:id] }).to eq [neighbour.to_s]
+      expect(home_rows(limit: 1, since_id: boundary).map { |item| item[:id] }).to eq [neighbour.to_s]
+      expect(home_rows(limit: 1, max_id: neighbour + 1, min_id: boundary).map { |item| item[:id] }).to eq [neighbour.to_s]
+    end
+
+    it 'pages ordinary members that share one score' do
+      base = 9_007_199_254_740_992
+      bucket = [base + 5, base + 6, base + 7]
+      expect(bucket.map(&:to_f).uniq.size).to eq 1
+      bucket.each { |id| plant_ordinary(owner.account, id, "bucket #{id}") }
+
+      cursor = nil
+      seen = []
+      bucket.size.times do
+        params = { limit: 1 }
+        params[:max_id] = cursor if cursor
+        rows = home_rows(params)
+        expect(rows.size).to eq 1
+        seen << rows.first[:id]
+        cursor = link_param('max_id')
+        expect(cursor).to eq rows.first[:id]
+      end
+
+      expect(seen).to eq bucket.sort.reverse.map(&:to_s)
+    end
+
     it 'keeps visibilities and compact on the link header and stays 206 while home regenerates' do
       plant_ordinary(owner.account, BASE + 11, 'rebuilding ordinary')
       get '/api/v1/timelines/home', params: { limit: 5, compact: true, visibilities: ['external'] }, headers: owner_headers
@@ -268,11 +334,57 @@ RSpec.describe 'External feed routing on home and list REST' do
       route_reads = ->(queries) { queries.count { |sql| sql.match?(/select/i) && sql.include?('external_feed_routes') } }
       marker_reads = ->(queries) { queries.count { |sql| sql.match?(/select/i) && sql.include?('external_status_projections') } }
 
-      expect(route_reads.call(twenty)).to be_between(1, 2)
+      expect(route_reads.call(twenty)).to be_between(1, 3)
       expect(route_reads.call(forty)).to eq route_reads.call(twenty)
       expect(marker_reads.call(twenty)).to be <= 6
       expect(marker_reads.call(forty)).to be <= marker_reads.call(twenty) + 1
       expect(body_as_json.size).to eq 40
+    end
+
+    it 'does not pick a marker per ordinary status on a mixed page' do
+      external = external_project_for(owner, id: BASE + 400, body: 'mixed external')
+      save_route(owner, external[:subscription], home: true)
+      39.times { |offset| plant_ordinary(owner.account, BASE + 100 + (offset * 2), "mixed ordinary #{offset}") }
+
+      ordinary = capture_sql { get '/api/v1/timelines/home', params: { limit: 20, max_id: external[:status].id }, headers: owner_headers }
+      expect(body_as_json.size).to eq 20
+      expect(body_as_json.map { |row| row[:id] }).not_to include(external[:status].id.to_s)
+      expect(marker_picks(ordinary)).to eq 0
+
+      external_only = capture_sql { get '/api/v1/timelines/home', params: { limit: 20, visibilities: ['external'] }, headers: owner_headers }
+      expect(body_as_json.map { |row| row[:id] }).to include(external[:status].id.to_s)
+      expect(marker_picks(external_only)).to eq 0
+
+      mixed_19 = capture_sql { get '/api/v1/timelines/home', params: { limit: 20 }, headers: owner_headers }
+      expect(body_as_json.size).to eq 20
+      expect(body_as_json.count { |row| row[:visibility_ex] == 'external' }).to eq 1
+      mixed_39 = capture_sql { get '/api/v1/timelines/home', params: { limit: 40 }, headers: owner_headers }
+      expect(body_as_json.size).to eq 40
+      expect(body_as_json.count { |row| row[:visibility_ex] == 'external' }).to eq 1
+      compact_19 = capture_sql { get '/api/v1/timelines/home', params: { limit: 20, compact: true }, headers: owner_headers }
+      expect(body_as_json[:statuses].size).to eq 20
+      compact_39 = capture_sql { get '/api/v1/timelines/home', params: { limit: 40, compact: true }, headers: owner_headers }
+      expect(body_as_json[:statuses].size).to eq 40
+      marker_reads = ->(queries) { queries.count { |sql| sql.match?(/select/i) && sql.include?('external_status_projections') } }
+
+      [mixed_19, mixed_39, compact_19, compact_39].each { |queries| expect(marker_picks(queries)).to eq 0 }
+      expect(marker_reads.call(mixed_19)).to be < 19
+      expect(marker_reads.call(mixed_39)).to be <= marker_reads.call(mixed_19) + 2
+      expect(marker_reads.call(compact_39)).to be <= marker_reads.call(compact_19) + 2
+    end
+
+    it 'does not read membership per status when a permitted user has no route' do
+      ExternalFeedRoute.where(user_id: owner.id).delete_all
+      5.times { |offset| plant_ordinary(owner.account, BASE + 500 + offset, "unrouted #{offset}") }
+
+      queries = capture_sql { get '/api/v1/timelines/home', params: { limit: 20 }, headers: owner_headers }
+      route_reads = queries.count { |sql| sql.match?(/select/i) && sql.include?('external_feed_routes') }
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json.size).to eq 5
+      expect(marker_picks(queries)).to eq 0
+      expect(route_reads).to eq 1
+      expect(queries.none? { |sql| sql.match?(/JOIN external_status_projections/i) }).to be true
     end
   end
 

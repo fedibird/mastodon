@@ -13,7 +13,7 @@ E3-A is not a rollout. `external_bridge_feeds` and `external_bridge_feeds_tester
 
 - `external_feed_routes` stores a delivery choice for one user and one subscription. It does not copy the status. `destination` is `home` or `list`. Home has `list_id` NULL. List requires it.
 - Home is unique per user and subscription. List is unique per user, subscription, and list. A composite foreign key `(external_subscription_id, user_id)` references `external_subscriptions (id, user_id)`, so a route cannot name another user's subscription. That unique pair is new on the small subscriptions table because the existing `(id, user_id, external_source_id)` key cannot be the target of a two-column foreign key.
-- List ownership is checked in the update service and again by a trigger: `lists.account_id` must equal `users.account_id` for that route's user. Changing `lists.account_id` while a route points at the list is rejected. Deleting the list deletes the route only. Deleting the subscription deletes the route through `ON DELETE CASCADE` and `dependent: :delete_all`. Projections still go through `ProjectionPurge` before the subscription row is destroyed. A list or route delete does not purge projections.
+- List ownership is checked in the update service and again by a trigger: `lists.account_id` must equal `users.account_id` for that route's user. The service and the insert trigger lock the user row, then the list row, with `SELECT ... FOR SHARE`, so an uncommitted `lists.account_id` change finishes before the route is added. Changing `lists.account_id` while a route points at the list is rejected. Changing `users.account_id` is rejected while that user has a projection or a feed route, including a route whose subscription has no projection. Deleting the list deletes the route only. Deleting the subscription deletes the route through `ON DELETE CASCADE` and `dependent: :delete_all`. Projections still go through `ProjectionPurge` before the subscription row is destroyed. A list or route delete does not purge projections.
 - `external_subscriptions.feed_routes_revision` starts at 0. The update service locks the subscription, checks the revision the page sent, validates the whole list set, and writes the difference. A no-op does not change the revision or `updated_at`. A stale revision writes nothing. An invalid list rolls the transaction back. Missing `home`, `list_ids`, or `expected_revision` is rejected rather than treated as "clear everything".
 - The RSS settings page can edit destinations for a subscription the signed-in user owns. The form is separate from pause, resume, and unsubscribe. New and resumed subscriptions do not receive a home route. The page does not offer the editor to someone who cannot add routes and has none saved. Someone who already has routes can clear them while the delivery flag is off. Additions require the delivery flag and a tester id.
 - `ExternalBridge::Feeds::Query` is the shared read. It returns status ids for one user and one destination. Eligible rows are visibility 201, `external_projection`, local, `uri` NULL, searchability personal, not a reply, boost, or quote, not deleted, not expired, marker `source_deleted` false, and a matching route. The marker's user, account, subscription, and resource must still line up. Pause and error are not membership filters. Legacy visibility 200 projections are not eligible and are not rewritten.
@@ -38,8 +38,9 @@ E3-A is not a rollout. `external_bridge_feeds` and `external_bridge_feeds_tester
 | Route user is the subscription user | Composite foreign key on `external_feed_routes` |
 | Home/list shape | Check constraint, model validation, update service |
 | Home and list uniqueness | Partial unique indexes |
-| List account is the user's account | Update service, insert/update trigger, and the read query |
-| List account cannot move under a route | Trigger on `lists.account_id` |
+| List account is the user's account | Update service, insert/update trigger (`FOR SHARE` on the user, then the list), and the read query |
+| List account cannot move under a route | Trigger on `lists.account_id`. A route insert waits on that row |
+| User account cannot move under a route or a projection | Trigger on `users.account_id` |
 | Reader is the marker's user | Query `user_id`, then `ProjectionAccess` on the hydrated page |
 | Delivery flag | `ExternalBridge::Feeds::Feature`. Off skips the merge. The query also returns nothing. |
 
@@ -49,9 +50,13 @@ The id query and the post-hydrate `eligible_ids` check are one request's snapsho
 
 ## Cursor
 
-Ordinary ids come from `Feed#candidate_scan`. That walk matches the previous Redis refill: exclusive `max_id`, `since_id`, and `min_id`, with `min_id` walking toward newer ids and the response still newest-first. `since_id` keeps the newest page above the floor. The scan stops at `FeedManager::MAX_ITEMS` raw ids.
+Ordinary ids come from `Feed#candidate_scan`. `max_id`, `since_id`, and `min_id` are exclusive integer member ids. `min_id` walks toward newer ids and the response is still newest-first. `since_id` keeps the newest page above the floor. The scan stops at `FeedManager::MAX_ITEMS` raw ids.
 
-`exhausted` means the Redis range for this cursor was read to the end. `frontier_id` is the last raw id examined. External ids may extend past that frontier only when the Redis range is exhausted. Otherwise the external read is limited to the examined side of the frontier, so a partial ordinary scan cannot be closed by an older external id. The merged page is at most `limit` ids. Link headers use the first and last id of that page. Home links also keep `visibilities` and `compact` when the request sent them. An empty page does not emit a Link header.
+Redis stores the score as an IEEE double, so integer scores are exact only through ±2^53. The read uses the inclusive score of the integer bound, then keeps and orders members by the original integer id. A score that the limit would split is read in full (capped at 4096 members, above the widest signed-bigint gap) before the page cuts it. The next walk starts at the last integer id returned, so unread members of that score stay available. The scan does not rewrite the Redis feed.
+
+`exhausted` means the Redis range for this cursor was read to the end. A budget that stops on a full batch probes one more integer id. An empty probe is the end of the range. A probe that finds a member leaves `exhausted` false and does not move `frontier_id`. `frontier_id` is the last raw integer id examined. External ids may extend past that frontier only when the Redis range is exhausted. Otherwise the external read is limited to the examined side of the frontier, so a partial ordinary scan cannot be closed by an older external id. A visibility filter of only `external` does not walk Redis: an ordinary member cannot match it, and the external read uses the request bounds. The merged page is at most `limit` ids. Link headers use the first and last id of that page. Home links also keep `visibilities` and `compact` when the request sent them. An empty page does not emit a Link header.
+
+Hydration prepares projection owner and marker for every status on the merged page in one read, then applies the same per-row check. A permitted user with no route for that destination does not run the merge.
 
 This bounded merge was checked with query counts and `EXPLAIN` on the test database. That is not a production measurement.
 
@@ -79,4 +84,4 @@ E3-B needs a user-scoped delivery channel, generation checks when a route change
 
 ## Rollback
 
-`db:migrate:down VERSION=20261023140000` drops the route triggers and table, then the subscriptions revision column and the `(id, user_id)` unique index. It does not rewrite `statuses` or delete projections. Routes disappear with the table. Taking the code back while rows of visibility 201 exist is still the E1/E2 rule: do not roll the application back past the code that understands visibility 201.
+`db:migrate:down VERSION=20261024120000` restores the previous route-owner function and the previous user-account guard. It does not drop routes or projections. `db:migrate:down VERSION=20261023140000` drops the route triggers and table, then the subscriptions revision column and the `(id, user_id)` unique index. It does not rewrite `statuses` or delete projections. Routes disappear with the table. Taking the code back while rows of visibility 201 exist is still the E1/E2 rule: do not roll the application back past the code that understands visibility 201.

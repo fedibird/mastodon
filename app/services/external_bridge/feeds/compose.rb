@@ -37,8 +37,18 @@ module ExternalBridge
         return false if @feed.is_a?(HomeFeed) && @feed.regenerating?
         return false unless external_requested?(visibilities)
         return false if @destination == Query::LIST && (@list.nil? || @list.account_id != @user.account_id)
+        return false unless route_exists?
 
         true
+      end
+
+      # A permitted user with no saved route stays on the ordinary read.
+      # One indexed existence check, then Feed#get. A route created after
+      # this check is visible on the next request.
+      def route_exists?
+        scope = ExternalFeedRoute.where(user_id: @user.id, destination: @destination)
+        scope = scope.where(list_id: @list.id) if @destination == Query::LIST
+        scope.exists?
       end
 
       def external_requested?(visibilities)
@@ -129,14 +139,17 @@ module ExternalBridge
         end
 
         ordered = ordered_ids.filter_map { |id| records[id] }
+        # Owner and marker for every row on the page, ordinary and external,
+        # before the per-row check. A missing marker still denies. The ordinary
+        # SQL filter is not a substitute for this check.
+        ProjectionAccess.prepare!(ordered)
         external_records = ordered.select { |status| status.external_projection == true || status.external_visibility? }
-        return ordered if external_records.empty?
-
-        ActiveRecord::Associations::Preloader.new.preload(
-          external_records,
-          external_status_projection: { external_resource: :external_source }
-        )
-        ProjectionAccess.prepare!(external_records)
+        if external_records.any?
+          ActiveRecord::Associations::Preloader.new.preload(
+            external_records,
+            external_status_projection: { external_resource: :external_source }
+          )
+        end
         ordered.select { |status| visible_record?(status) }
       end
 

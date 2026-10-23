@@ -46,6 +46,48 @@ RSpec.describe Feed, type: :model do
       expect(subject.get(20).map(&:id)).to eq(420.downto(401).to_a)
     end
 
+    it 'pages ordinary ids that share one Redis score without dropping members' do
+      # 2^53 + 5, +6 and +7 collapse to one double. Exclusive score bounds skip
+      # the rest of that bucket; the integer member id must not.
+      base = 9_007_199_254_740_992
+      bucket = [base + 5, base + 6, base + 7]
+      expect(bucket.map(&:to_f).uniq.size).to eq 1
+      bucket.each { |id| Fabricate(:status, account: account, id: id, visibility: :public) }
+      redis.zadd(FeedManager.instance.key(:home, account.id), bucket.map { |id| [id, id] })
+
+      seen = []
+      cursor = nil
+      3.times do
+        page = subject.get(1, cursor)
+        expect(page.size).to eq 1
+        seen << page.first.id
+        cursor = page.first.id
+      end
+
+      expect(seen).to eq bucket.sort.reverse
+      expect(subject.get(1, seen.last)).to eq []
+    end
+
+    it 'returns the ordinary neighbour when max_id is the next unrepresentable id' do
+      base = 9_007_199_254_740_992
+      Fabricate(:status, account: account, id: base, visibility: :public)
+      redis.zadd(FeedManager.instance.key(:home, account.id), [[base, base]])
+
+      expect((base + 1).to_f).to eq base.to_f
+      expect(subject.get(1, base + 1).map(&:id)).to eq [base]
+    end
+
+    it 'keeps an older same-score status when the ids in between are missing' do
+      base = 9_007_199_254_740_992
+      present = [base + 5, base + 7]
+      missing = base + 6
+      expect([missing, *present].map(&:to_f).uniq.size).to eq 1
+      present.each { |id| Fabricate(:status, account: account, id: id, visibility: :public) }
+      redis.zadd(FeedManager.instance.key(:home, account.id), (present + [missing]).map { |id| [id, id] })
+
+      expect(subject.get(2).map(&:id)).to eq present.sort.reverse
+    end
+
     it 'returns the next newer page when ids above min_id are gone' do
       (341..360).each do |id|
         Fabricate(:status, account: account, id: id)
