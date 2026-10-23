@@ -11,6 +11,7 @@ Related designs, which this document does not replace:
 - `docs/status_activity_object.md` — `post_title` and `ap_object_type` (`note` / future `page` only).
 - `docs/personal_deepl_translation.md` — the existing per-user cache partition pattern.
 - `docs/external_status_visibility.md` — E1 read and protection for an internal `visibility` of `external` (201), and the E2 storage switch. This P0 document stays the earlier contract. It does not mean E3 or E4 are implemented. The production writer stores `visibility = personal` unless an operator turns on `external_bridge_external_visibility`. That switch is off by default and does not rewrite existing rows.
+- `docs/external_feed_routing.md` — E3-A user-owned home/list routes and REST merge for canonical external rows. Streaming, rebuild, and E4 sharing are not implemented. The delivery flag ships off.
 
 This bridge links a Fedibird user to external resources and, when they choose, to an external account they already have. Fedibird does not host an AT Protocol PDS, does not mint hybrid ActivityPub+AT identities, and does not migrate accounts between those networks.
 

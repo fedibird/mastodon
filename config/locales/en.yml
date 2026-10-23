@@ -2215,6 +2215,24 @@ en:
     unsubscribe: Remove feed
     unsubscribe_confirm: Remove this feed? This deletes the private posts imported from it, and the favourites and bookmarks on those posts. The shared public feed cache stays. This is not a pause.
     unsubscribe_for: Remove %{title}
+    feed_routes:
+      disabled: Home and list delivery is turned off on this server. You can still clear a destination you already saved.
+      heading: Where to show
+      home: Home
+      keep_note: Clearing a destination does not delete imported posts, favourites, or bookmarks.
+      no_lists: You have no lists yet.
+      position_note: Posts already imported stay at their original place in the timeline.
+      save: Save destinations
+      save_for: Save destinations for %{title}
+      saved: Destinations saved.
+      separate_note: This does not pause or remove the feed.
+      stale: Those destinations were changed somewhere else. Reload this page and try again.
+      invalid: Those destinations could not be saved. Nothing was changed.
+      errors:
+        feed_routes_disabled: Home and list delivery is turned off on this server. You can still clear a destination you already saved.
+        invalid_feed_route: Those destinations could not be saved. Nothing was changed.
+        not_found: That feed was not found.
+        stale_feed_routes: Those destinations were changed somewhere else. Reload this page and try again.
     unsubscribe_note: Removing a feed deletes the private posts imported from it, and the favourites and bookmarks on those posts. The shared public feed cache stays. This is not a pause.
     unsubscribed: Feed removed. The private posts imported from it were deleted. The shared public feed cache is unchanged.
     working: "Working…"

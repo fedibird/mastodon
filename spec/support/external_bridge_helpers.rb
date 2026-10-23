@@ -6,6 +6,17 @@ module ExternalBridgeHelpers
     permit_external_bridge_rss_testers!(*users)
   end
 
+  def enable_external_bridge_feeds!(*users)
+    Setting.external_bridge_feeds = true
+    permit_external_bridge_feeds_testers!(*users)
+  end
+
+  def permit_external_bridge_feeds_testers!(*users)
+    ids = ExternalBridge::Feeds::Feature.tester_ids
+    ids |= users.flatten.compact.map { |user| user.id.to_i }
+    Setting.external_bridge_feeds_testers = ids.join(',')
+  end
+
   def permit_external_bridge_rss_testers!(*users)
     ids = ExternalBridge::Feature.tester_ids
     ids |= users.flatten.compact.map { |user| user.id.to_i }
@@ -47,7 +58,7 @@ module ExternalBridgeHelpers
     { status: status, marker: marker, resource: resource, source: source, subscription: subscription }
   end
 
-  def external_project_for(user, body: 'External only article', url: "https://feeds.example/#{SecureRandom.hex(4)}.xml")
+  def external_project_for(user, body: 'External only article', url: "https://feeds.example/#{SecureRandom.hex(4)}.xml", id: nil, source_deleted: false, visibility: :external, state: 'active')
     source = ExternalSource.create!(
       protocol: 'rss',
       canonical_key: url,
@@ -68,21 +79,23 @@ module ExternalBridgeHelpers
       revision: 'rev-external',
       published_at: Time.utc(2020, 1, 2, 3, 4, 5)
     )
-    subscription = ExternalSubscription.create!(user: user, external_source: source, state: 'active')
+    subscription = ExternalSubscription.create!(user: user, external_source: source, state: state)
     status = nil
     marker = nil
     ApplicationRecord.transaction do
-      status = Status.create!(
+      attributes = {
         account: user.account,
         text: body,
-        visibility: :external,
+        visibility: visibility,
         searchability: :personal,
         uri: nil,
         external_projection: true,
         local: true,
         reply: false,
-        sensitive: false
-      )
+        sensitive: false,
+      }
+      attributes[:id] = id if id
+      status = Status.create!(attributes)
       marker = ExternalStatusProjection.create!(
         user_id: user.id,
         account_id: user.account_id,
@@ -91,7 +104,7 @@ module ExternalBridgeHelpers
         external_resource_id: resource.id,
         status_id: status.id,
         last_seen_revision: resource.revision,
-        source_deleted: resource.source_deleted_at.present?
+        source_deleted: source_deleted
       )
     end
     { status: status, marker: marker, resource: resource, source: source, subscription: subscription }

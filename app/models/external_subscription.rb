@@ -4,22 +4,24 @@
 #
 # Table name: external_subscriptions
 #
-#  id                 :bigint(8)        not null, primary key
-#  user_id            :bigint(8)        not null
-#  external_source_id :bigint(8)        not null
-#  state              :string           default("active"), not null
-#  last_error_code    :string
-#  last_error_at      :datetime
-#  checked_at         :datetime
-#  next_retry_at      :datetime
-#  retry_count        :integer          default(0), not null
-#  failed_item_count  :integer          default(0), not null
-#  created_at         :datetime         not null
-#  updated_at         :datetime         not null
+#  id                   :bigint(8)        not null, primary key
+#  user_id              :bigint(8)        not null
+#  external_source_id   :bigint(8)        not null
+#  state                :string           default("active"), not null
+#  last_error_code      :string
+#  last_error_at        :datetime
+#  checked_at           :datetime
+#  created_at           :datetime         not null
+#  updated_at           :datetime         not null
+#  next_retry_at        :datetime
+#  retry_count          :integer          default(0), not null
+#  failed_item_count    :integer          default(0), not null
+#  feed_routes_revision :bigint(8)        default(0), not null
 #
 # A row is due when its own next_retry_at has arrived, or, when that column is
 # empty, when checked_at is empty or older than the public-cache freshness
 # window. Another subscriber of the same source does not make this row due.
+# feed_routes_revision moves only when the route set changes.
 class ExternalSubscription < ApplicationRecord
   STATES = %w(active paused error).freeze
 
@@ -27,6 +29,7 @@ class ExternalSubscription < ApplicationRecord
   belongs_to :external_source
   has_many :external_status_projections, dependent: :restrict_with_exception
   has_many :external_projection_failures, dependent: :destroy
+  has_many :external_feed_routes, dependent: :delete_all
 
   validates :state, inclusion: { in: STATES }
 

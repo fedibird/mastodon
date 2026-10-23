@@ -28,13 +28,19 @@ class Api::V1::Timelines::HomeController < Api::BaseController
   end
 
   def home_statuses
-    account_home_feed.get(
-      limit_param(DEFAULT_STATUSES_LIMIT),
-      params[:max_id],
-      params[:since_id],
-      params[:min_id],
-      visibilities
-    )
+    feed = account_home_feed
+    limit = limit_param(DEFAULT_STATUSES_LIMIT)
+    if ExternalBridge::Feeds::Feature.permitted?(current_user)
+      ExternalBridge::Feeds::Compose.new(user: current_user, feed: feed, destination: 'home').call(
+        limit,
+        params[:max_id],
+        params[:since_id],
+        params[:min_id],
+        visibilities
+      )
+    else
+      feed.get(limit, params[:max_id], params[:since_id], params[:min_id], visibilities)
+    end
   end
 
   def account_home_feed
@@ -50,7 +56,9 @@ class Api::V1::Timelines::HomeController < Api::BaseController
   end
 
   def pagination_params(core_params)
-    params.slice(:local, :limit).permit(:local, :limit).merge(core_params)
+    permitted = params.slice(:local, :limit, :visibilities).permit(:local, :limit, visibilities: [])
+    permitted[:compact] = params[:compact] if truthy_param?(:compact)
+    permitted.merge(core_params)
   end
 
   def next_path

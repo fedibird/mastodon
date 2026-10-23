@@ -11,10 +11,12 @@ module ExternalBridge
 
     def http_status
       case code
-      when 'feature_disabled', 'tester_only', 'user_not_functional'
+      when 'feature_disabled', 'tester_only', 'user_not_functional', 'feed_routes_disabled'
         403
       when 'not_found'
         404
+      when 'stale_feed_routes'
+        409
       else
         422
       end

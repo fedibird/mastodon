@@ -165,6 +165,7 @@ Rails.application.routes.draw do
     post 'external_services/rss/subscriptions/:id/pause', to: 'external_services/rss_subscriptions#pause', as: :pause_external_services_rss_subscription
     post 'external_services/rss/subscriptions/:id/resume', to: 'external_services/rss_subscriptions#resume', as: :resume_external_services_rss_subscription
     delete 'external_services/rss/subscriptions/:id', to: 'external_services/rss_subscriptions#destroy', as: :external_services_rss_subscription
+    patch 'external_services/rss/subscriptions/:id/feed_routes', to: 'external_services/rss_feed_routes#update', as: :external_services_rss_subscription_feed_routes
     get 'external_services/bluesky', to: 'external_services/bluesky#show', as: :external_services_bluesky
     post 'external_services/bluesky/authorize', to: 'external_services/bluesky_authorizations#create', as: :external_services_bluesky_authorize
     get 'external_services/bluesky/callback', to: 'external_services/bluesky_callbacks#show', as: :external_services_bluesky_callback

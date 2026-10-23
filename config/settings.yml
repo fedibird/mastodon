@@ -219,6 +219,15 @@ defaults: &defaults
   # It is not a user preference and it is not on the admin settings form.
   #   Setting.external_bridge_external_visibility = true
   external_bridge_external_visibility: false
+  # Home and list delivery for canonical external projections. Separate from
+  # the RSS fetch flag, the AT Protocol flag, and the E2 storage switch.
+  # Off leaves home and list on the ordinary read and does not delete saved
+  # routes or projections. Testers are local User ids. An empty list admits
+  # nobody. Leave both values off until streaming delivery is reviewed.
+  #   Setting.external_bridge_feeds = true
+  #   Setting.external_bridge_feeds_testers = "17,42"
+  external_bridge_feeds: false
+  external_bridge_feeds_testers: ''
   action_review_policies:
     follow_import: 'off'
     account_migration: 'off'

@@ -130,6 +130,53 @@ module ExternalServices
       def resumable?
         state != 'active'
       end
+
+      def route_form
+        @route_form
+      end
+
+      def route_form=(value)
+        @route_form = value
+      end
+    end
+
+    # Choices for one subscription. Built from rows already loaded for the
+    # page so the settings list does not query once per feed.
+    class RouteForm
+      def initialize(subscription, routes:, lists:, feeds_permitted:)
+        @revision = subscription.feed_routes_revision.to_i
+        @home = routes.fetch(:home, false)
+        @selected = routes.fetch(:list_ids, [])
+        @lists = lists
+        @feeds_permitted = feeds_permitted
+      end
+
+      def show?
+        @feeds_permitted || @home || @selected.any?
+      end
+
+      def can_add?
+        @feeds_permitted
+      end
+
+      def home?
+        @home
+      end
+
+      def offer_home?
+        can_add? || home?
+      end
+
+      def revision
+        @revision
+      end
+
+      def choices
+        rows = @lists.map { |id, title| { id: id, title: title, checked: @selected.include?(id) } }
+        return rows if can_add?
+
+        rows.select { |row| row[:checked] }
+      end
     end
 
     class << self
@@ -192,8 +239,9 @@ module ExternalServices
         summary = summary_for(user)
         number = clamp_page(page, summary.total)
         rows = subscription_scope(user).includes(:external_source).order(id: :desc).offset((number - 1) * LIST_LIMIT).limit(LIST_LIMIT).to_a
+        forms = route_forms_for(user, rows)
         attributes = {
-          subscriptions: rows.map { |row| SubscriptionRow.new(row) },
+          subscriptions: rows.map { |row| SubscriptionRow.new(row).tap { |item| item.route_form = forms[row.id] } },
           items: items_for(user),
           enabled: available?,
           permitted: ExternalBridge::Feature.permitted?(user),
@@ -278,6 +326,30 @@ module ExternalServices
                                 .order(id: :desc)
                                 .limit(40)
                                 .to_a
+      end
+
+      def route_forms_for(user, rows)
+        return {} if user.nil? || rows.empty?
+
+        grouped = Hash.new { |hash, key| hash[key] = { home: false, list_ids: [] } }
+        route_rows = ExternalFeedRoute.where(user_id: user.id, external_subscription_id: rows.map(&:id)).to_a
+        route_rows.each do |route|
+          bucket = grouped[route.external_subscription_id]
+          if route.destination == 'home'
+            bucket[:home] = true
+          else
+            bucket[:list_ids] << route.list_id
+          end
+        end
+        permitted = ExternalBridge::Feeds::Feature.permitted?(user)
+        lists = if permitted || route_rows.any?
+                  List.where(account_id: user.account_id).order(:id).limit(List::PER_ACCOUNT_LIMIT).pluck(:id, :title)
+                else
+                  []
+                end
+        rows.each_with_object({}) do |row, memo|
+          memo[row.id] = RouteForm.new(row, routes: grouped[row.id], lists: lists, feeds_permitted: permitted)
+        end
       end
 
       def subscription_scope(user)

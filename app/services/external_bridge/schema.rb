@@ -174,6 +174,73 @@ module ExternalBridge
       $$;
     SQL
 
+    # Route shape and the subscription/user pair live in the migration and in
+    # schema.rb. This SQL is the part schema dump cannot emit: the composite
+    # foreign key and the list-ownership triggers. It is idempotent so
+    # schema:load can run it after the tables exist. It does not rewrite
+    # statuses or projections.
+    FEED_ROUTE_SQL = <<~SQL
+      ALTER TABLE external_feed_routes
+        DROP CONSTRAINT IF EXISTS fk_external_feed_routes_subscription_owner;
+      ALTER TABLE external_feed_routes
+        ADD CONSTRAINT fk_external_feed_routes_subscription_owner
+        FOREIGN KEY (external_subscription_id, user_id)
+        REFERENCES external_subscriptions (id, user_id)
+        ON DELETE CASCADE;
+
+      CREATE OR REPLACE FUNCTION external_feed_routes_enforce_list_owner()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      DECLARE
+        owner_account_id bigint;
+        list_account_id bigint;
+      BEGIN
+        IF NEW.destination = 'list' THEN
+          -- User, then list. Share locks conflict with an uncommitted
+          -- account_id update and do not conflict with each other.
+          -- https://www.postgresql.org/docs/16/explicit-locking.html
+          SELECT account_id INTO owner_account_id FROM users WHERE id = NEW.user_id FOR SHARE;
+          SELECT account_id INTO list_account_id FROM lists WHERE id = NEW.list_id FOR SHARE;
+          IF owner_account_id IS NULL
+             OR list_account_id IS NULL
+             OR owner_account_id IS DISTINCT FROM list_account_id THEN
+            RAISE EXCEPTION 'external feed route list is not owned by the user account'
+              USING ERRCODE = 'check_violation';
+          END IF;
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS external_feed_routes_enforce_list_owner ON external_feed_routes;
+      CREATE TRIGGER external_feed_routes_enforce_list_owner
+      BEFORE INSERT OR UPDATE OF user_id, list_id, destination
+      ON external_feed_routes
+      FOR EACH ROW
+      EXECUTE FUNCTION external_feed_routes_enforce_list_owner();
+
+      CREATE OR REPLACE FUNCTION lists_external_feed_routes_account_guard()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.account_id IS DISTINCT FROM OLD.account_id
+           AND EXISTS (SELECT 1 FROM external_feed_routes WHERE list_id = OLD.id) THEN
+          RAISE EXCEPTION 'lists.account_id cannot change while an external feed route points at it'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS lists_external_feed_routes_account_guard ON lists;
+      CREATE TRIGGER lists_external_feed_routes_account_guard
+      BEFORE UPDATE OF account_id ON lists
+      FOR EACH ROW
+      EXECUTE FUNCTION lists_external_feed_routes_account_guard();
+    SQL
+
     DEFINITIONS_SQL = <<~SQL
       ALTER TABLE external_status_projections
         DROP CONSTRAINT IF EXISTS fk_external_projections_subscription_owner;
@@ -271,8 +338,11 @@ module ExternalBridge
       AS $$
       BEGIN
         IF NEW.account_id IS DISTINCT FROM OLD.account_id
-           AND EXISTS (SELECT 1 FROM external_status_projections WHERE user_id = OLD.id) THEN
-          RAISE EXCEPTION 'users.account_id cannot change while projections exist'
+           AND (
+             EXISTS (SELECT 1 FROM external_status_projections WHERE user_id = OLD.id)
+             OR EXISTS (SELECT 1 FROM external_feed_routes WHERE user_id = OLD.id)
+           ) THEN
+          RAISE EXCEPTION 'users.account_id cannot change while an external projection or feed route exists'
             USING ERRCODE = 'check_violation';
         END IF;
 
@@ -313,6 +383,8 @@ module ExternalBridge
       BEFORE INSERT OR UPDATE OF local, reply ON statuses
       FOR EACH ROW
       EXECUTE FUNCTION statuses_external_visibility_shape_guard();
+
+      #{FEED_ROUTE_SQL}
 
       #{MIGRATE_FUNCTION_SQL}
     SQL

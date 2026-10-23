@@ -6,6 +6,7 @@ Related contracts, which this document does not replace:
 
 - `docs/private_external_bridge.md` — P0 architecture. Its projection contract still describes `visibility = personal` as the production shape.
 - `docs/private_external_bridge_audit.md` — baseline code-path audit. Its CONFIRMED, RISK, and GAP rows are that baseline. They are not a description of the E1 tree.
+- `docs/external_feed_routing.md` — E3-A home/list routes and REST merge. Streaming is not part of it. The delivery flag ships off.
 
 E1 is a read and protection foundation. It does not switch the writer, migrate existing rows, deliver external rows to home or lists, accept `unlisted` as the public compatibility value, publish a link Note, or perform a native AT Protocol action.
 
@@ -46,7 +47,7 @@ E1 did not switch the writer or migrate rows. E2 now does those two things, and 
 
 - E1's `ProjectionWriter#create!` inserted `visibility: personal` only. E2 reads `external_bridge_external_visibility`. Off still inserts personal. On inserts external. The switch does not rewrite existing rows.
 - E1 rejected every personal-to-external update. E2 adds one transaction-local permit for a single projection status. There is still no GUC that disables the guard, and no path back from 201 to 200.
-- No home, list, or ordinary streaming delivery for an external row. The personal timeline still requires `visibility = personal`, so an external row does not join it.
+- Home and list REST delivery for a canonical external row is a separate contract in `docs/external_feed_routing.md` (E3-A). It ships off and does not change streaming. The personal timeline still requires `visibility = personal`, so an external row does not join it.
 - No change of the public compatibility mask from `direct` to `unlisted`.
 - No public link Note, no boost or reply or quote of the external body, no native AT Protocol write.
 - No new statuses column, default, backfill, or statuses index.
