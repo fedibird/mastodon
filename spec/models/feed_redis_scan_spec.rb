@@ -50,7 +50,7 @@ RSpec.describe Feed, type: :model do
       # 2^53 + 5, +6 and +7 collapse to one double. Exclusive score bounds skip
       # the rest of that bucket; the integer member id must not.
       base = 9_007_199_254_740_992
-      bucket = [base + 5, base + 6, base + 7]
+      bucket = [base + 3, base + 4, base + 5]
       expect(bucket.map(&:to_f).uniq.size).to eq 1
       bucket.each { |id| Fabricate(:status, account: account, id: id, visibility: :public) }
       redis.zadd(FeedManager.instance.key(:home, account.id), bucket.map { |id| [id, id] })
@@ -79,8 +79,8 @@ RSpec.describe Feed, type: :model do
 
     it 'keeps an older same-score status when the ids in between are missing' do
       base = 9_007_199_254_740_992
-      present = [base + 5, base + 7]
-      missing = base + 6
+      present = [base + 3, base + 5]
+      missing = base + 4
       expect([missing, *present].map(&:to_f).uniq.size).to eq 1
       present.each { |id| Fabricate(:status, account: account, id: id, visibility: :public) }
       redis.zadd(FeedManager.instance.key(:home, account.id), (present + [missing]).map { |id| [id, id] })

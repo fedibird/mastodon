@@ -38,13 +38,17 @@ RSpec.describe 'External feed routing on home and list REST' do
     Rack::Utils.parse_query(URI(href).query)[name]
   end
 
+  # pick(:user_id) and exists? for one status. The membership read also
+  # mentions the marker table and has a page LIMIT, so it does not count.
   def marker_picks(queries)
     queries.count do |sql|
-      normalized = sql.downcase
-      normalized.include?('external_status_projections') &&
-        normalized.match?(/\blimit\b/) &&
-        normalized.match?(/status_id/) &&
-        !normalized.match?(/\bin\b/)
+      normalized = sql.downcase.gsub(/\s+/, ' ')
+      next false if normalized.include?(' join ')
+      next false unless normalized.include?('from "external_status_projections"') || normalized.include?('from external_status_projections')
+      next false unless normalized.match?(/status_id" = |status_id = /)
+      next false unless normalized.match?(/\blimit\b/)
+
+      true
     end
   end
 
@@ -254,7 +258,7 @@ RSpec.describe 'External feed routing on home and list REST' do
 
     it 'pages ordinary members that share one score' do
       base = 9_007_199_254_740_992
-      bucket = [base + 5, base + 6, base + 7]
+      bucket = [base + 3, base + 4, base + 5]
       expect(bucket.map(&:to_f).uniq.size).to eq 1
       bucket.each { |id| plant_ordinary(owner.account, id, "bucket #{id}") }
 
