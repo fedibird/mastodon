@@ -29,7 +29,7 @@ E3-A and E3-B1 are not a rollout. `external_bridge_feeds` and `external_bridge_f
 - Account-shared Redis home and list keys. External ids are not inserted there.
 - Mix, TimelineSeek, live/history, and reading bookmarks. They still read the ordinary feed. See the audit below.
 - A JSON route API for third-party apps. Route edits are the HTML form. Third-party apps read through the existing home and list REST endpoints.
-- E2 migration of legacy personal projections. E4 link notes, boosts, quotes, and `unlisted`. Bluesky import or native actions.
+- E2 migration of legacy personal projections. E4 boost conversion, quotes, and the projection `unlisted` mask. The E4-A policy and reference-note foundation is `docs/external_link_sharing.md`. Bluesky import or native actions.
 - Enabling the flag or filling the tester list in any environment file.
 
 ## Data and authorization

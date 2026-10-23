@@ -241,6 +241,155 @@ module ExternalBridge
       EXECUTE FUNCTION lists_external_feed_routes_account_guard();
     SQL
 
+    # Account id on the user cannot move while a projection, feed route, or
+    # link-reference mapping still names that user. Reference statuses are
+    # ordinary account posts and are not deleted here.
+    USER_ACCOUNT_GUARD_FUNCTION_SQL = <<~SQL
+      CREATE OR REPLACE FUNCTION users_external_projection_account_guard()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.account_id IS DISTINCT FROM OLD.account_id
+           AND (
+             EXISTS (SELECT 1 FROM external_status_projections WHERE user_id = OLD.id)
+             OR EXISTS (SELECT 1 FROM external_feed_routes WHERE user_id = OLD.id)
+             OR EXISTS (SELECT 1 FROM external_projection_link_references WHERE user_id = OLD.id)
+           ) THEN
+          RAISE EXCEPTION 'users.account_id cannot change while an external projection, feed route, or link reference exists'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$;
+    SQL
+
+    # Owner, scope, and broken-mapping guards for E4-A. Idempotent. schema:load
+    # runs this after the tables exist. It does not rewrite statuses.
+    LINK_REFERENCE_SQL = <<~SQL
+      CREATE OR REPLACE FUNCTION external_projection_link_references_enforce_owner()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      DECLARE
+        user_account_id bigint;
+        status_account_id bigint;
+        status_projection boolean;
+        status_visibility integer;
+        status_deleted timestamp;
+        projection_user_id bigint;
+        projection_account_id bigint;
+        expected_visibility integer;
+      BEGIN
+        IF NEW.visibility = 'public' THEN
+          expected_visibility := 0;
+        ELSIF NEW.visibility = 'unlisted' THEN
+          expected_visibility := 1;
+        ELSE
+          RAISE EXCEPTION 'external link reference visibility is invalid'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        IF TG_OP = 'UPDATE' THEN
+          IF OLD.state = 'broken' AND NEW.state IS DISTINCT FROM 'broken' THEN
+            RAISE EXCEPTION 'broken external link reference cannot be reused'
+              USING ERRCODE = 'check_violation';
+          END IF;
+
+          IF OLD.state = 'superseded' AND NEW.state = 'active' THEN
+            RAISE EXCEPTION 'superseded external link reference cannot be reused'
+              USING ERRCODE = 'check_violation';
+          END IF;
+
+          IF NEW.user_id IS DISTINCT FROM OLD.user_id
+             OR NEW.account_id IS DISTINCT FROM OLD.account_id
+             OR NEW.visibility IS DISTINCT FROM OLD.visibility
+             OR NEW.canonical_url IS DISTINCT FROM OLD.canonical_url
+             OR NEW.policy_revision IS DISTINCT FROM OLD.policy_revision
+             OR NEW.projection_status_id IS DISTINCT FROM OLD.projection_status_id
+             OR NEW.resource_revision IS DISTINCT FROM OLD.resource_revision
+             OR (
+               NEW.reference_status_id IS DISTINCT FROM OLD.reference_status_id
+               AND NEW.reference_status_id IS NOT NULL
+             )
+             OR (
+               NEW.external_status_projection_id IS DISTINCT FROM OLD.external_status_projection_id
+               AND NEW.external_status_projection_id IS NOT NULL
+             ) THEN
+            RAISE EXCEPTION 'external link reference identifiers are immutable'
+              USING ERRCODE = 'check_violation';
+          END IF;
+        END IF;
+
+        SELECT account_id INTO user_account_id FROM users WHERE id = NEW.user_id FOR SHARE;
+        IF user_account_id IS NULL OR user_account_id IS DISTINCT FROM NEW.account_id THEN
+          RAISE EXCEPTION 'external link reference account mismatch'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        IF NEW.reference_status_id IS NOT NULL THEN
+          SELECT account_id, external_projection, visibility, deleted_at
+            INTO status_account_id, status_projection, status_visibility, status_deleted
+          FROM statuses
+          WHERE id = NEW.reference_status_id
+          FOR SHARE;
+
+          IF status_account_id IS NULL
+             OR status_account_id IS DISTINCT FROM NEW.account_id
+             OR status_projection IS TRUE
+             OR status_visibility IS DISTINCT FROM expected_visibility
+             OR (status_deleted IS NOT NULL AND NEW.state IS DISTINCT FROM 'broken') THEN
+            RAISE EXCEPTION 'external link reference status shape is invalid'
+              USING ERRCODE = 'check_violation';
+          END IF;
+        END IF;
+
+        IF NEW.external_status_projection_id IS NOT NULL THEN
+          SELECT user_id, account_id
+            INTO projection_user_id, projection_account_id
+          FROM external_status_projections
+          WHERE id = NEW.external_status_projection_id
+          FOR SHARE;
+
+          IF projection_user_id IS NULL
+             OR projection_user_id IS DISTINCT FROM NEW.user_id
+             OR projection_account_id IS DISTINCT FROM NEW.account_id THEN
+            RAISE EXCEPTION 'external link reference projection owner mismatch'
+              USING ERRCODE = 'check_violation';
+          END IF;
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS external_projection_link_references_enforce_owner ON external_projection_link_references;
+      CREATE TRIGGER external_projection_link_references_enforce_owner
+      BEFORE INSERT OR UPDATE ON external_projection_link_references
+      FOR EACH ROW
+      EXECUTE FUNCTION external_projection_link_references_enforce_owner();
+
+      CREATE OR REPLACE FUNCTION external_projection_link_references_mark_broken()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        UPDATE external_projection_link_references
+           SET state = 'broken',
+               reference_status_id = NULL,
+               updated_at = clock_timestamp()
+         WHERE reference_status_id = OLD.id
+           AND state IS DISTINCT FROM 'broken';
+        RETURN OLD;
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS external_projection_link_references_mark_broken ON statuses;
+      CREATE TRIGGER external_projection_link_references_mark_broken
+      BEFORE DELETE ON statuses
+      FOR EACH ROW
+      EXECUTE FUNCTION external_projection_link_references_mark_broken();
+    SQL
+
     DEFINITIONS_SQL = <<~SQL
       ALTER TABLE external_status_projections
         DROP CONSTRAINT IF EXISTS fk_external_projections_subscription_owner;
@@ -332,23 +481,7 @@ module ExternalBridge
       FOR EACH ROW
       EXECUTE FUNCTION statuses_external_projection_field_guard();
 
-      CREATE OR REPLACE FUNCTION users_external_projection_account_guard()
-      RETURNS trigger
-      LANGUAGE plpgsql
-      AS $$
-      BEGIN
-        IF NEW.account_id IS DISTINCT FROM OLD.account_id
-           AND (
-             EXISTS (SELECT 1 FROM external_status_projections WHERE user_id = OLD.id)
-             OR EXISTS (SELECT 1 FROM external_feed_routes WHERE user_id = OLD.id)
-           ) THEN
-          RAISE EXCEPTION 'users.account_id cannot change while an external projection or feed route exists'
-            USING ERRCODE = 'check_violation';
-        END IF;
-
-        RETURN NEW;
-      END;
-      $$;
+      #{USER_ACCOUNT_GUARD_FUNCTION_SQL}
       DROP TRIGGER IF EXISTS users_external_projection_account_guard ON users;
       CREATE TRIGGER users_external_projection_account_guard
       BEFORE UPDATE OF account_id ON users
@@ -385,6 +518,8 @@ module ExternalBridge
       EXECUTE FUNCTION statuses_external_visibility_shape_guard();
 
       #{FEED_ROUTE_SQL}
+
+      #{LINK_REFERENCE_SQL}
 
       #{MIGRATE_FUNCTION_SQL}
     SQL

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_25_120000) do
+ActiveRecord::Schema.define(version: 2026_10_26_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -617,6 +617,20 @@ ActiveRecord::Schema.define(version: 2026_10_25_120000) do
     t.index ["user_id"], name: "index_external_identities_on_user_id"
   end
 
+  create_table "external_link_share_policies", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.boolean "enabled", default: false, null: false
+    t.string "visibility", default: "unlisted", null: false
+    t.integer "revision", default: 0, null: false
+    t.datetime "consented_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["user_id"], name: "index_link_share_policies_on_user_id", unique: true
+    t.check_constraint "enabled = false OR consented_at IS NOT NULL", name: "link_share_policies_consent_check"
+    t.check_constraint "revision >= 0", name: "link_share_policies_revision_check"
+    t.check_constraint "visibility IN ('public', 'unlisted')", name: "link_share_policies_visibility_check"
+  end
+
   create_table "external_oauth_attempts", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.string "provider", limit: 64, default: "bluesky", null: false
@@ -660,6 +674,30 @@ ActiveRecord::Schema.define(version: 2026_10_25_120000) do
     t.index ["external_subscription_id"], name: "index_external_projection_failures_on_subscription"
     t.index ["user_id", "external_resource_id"], name: "index_external_projection_failures_on_user_and_resource", unique: true
     t.index ["user_id"], name: "index_external_projection_failures_on_user_id"
+  end
+
+  create_table "external_projection_link_references", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "account_id", null: false
+    t.bigint "external_status_projection_id"
+    t.bigint "projection_status_id", null: false
+    t.bigint "reference_status_id"
+    t.string "visibility", null: false
+    t.text "canonical_url", null: false
+    t.text "resource_revision"
+    t.integer "policy_revision", null: false
+    t.string "state", default: "active", null: false
+    t.datetime "superseded_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["reference_status_id"], name: "index_link_refs_on_reference_status", unique: true, where: "(reference_status_id IS NOT NULL)"
+    t.index ["user_id"], name: "index_link_refs_on_user_id"
+    t.index ["user_id", "external_status_projection_id", "visibility", "canonical_url"], name: "index_link_refs_on_active_identity", unique: true, where: "((state)::text = 'active'::text) AND (external_status_projection_id IS NOT NULL)"
+    t.check_constraint "canonical_url ~ '^https?://'", name: "link_refs_canonical_url_check"
+    t.check_constraint "state <> 'active' OR reference_status_id IS NOT NULL", name: "link_refs_active_requires_status"
+    t.check_constraint "state <> 'superseded' OR superseded_at IS NOT NULL", name: "link_refs_superseded_requires_time"
+    t.check_constraint "state IN ('active', 'superseded', 'broken')", name: "link_refs_state_check"
+    t.check_constraint "visibility IN ('public', 'unlisted')", name: "link_refs_visibility_check"
   end
 
   create_table "external_projection_suppressions", force: :cascade do |t|
@@ -2127,9 +2165,14 @@ ActiveRecord::Schema.define(version: 2026_10_25_120000) do
   add_foreign_key "external_identities", "user_external_credentials", column: "credential_id", on_delete: :nullify
   add_foreign_key "external_identities", "users", on_delete: :cascade
   add_foreign_key "external_oauth_attempts", "users", on_delete: :cascade
+  add_foreign_key "external_link_share_policies", "users", name: "fk_link_share_policies_user", on_delete: :cascade
   add_foreign_key "external_projection_failures", "external_resources", on_delete: :restrict
   add_foreign_key "external_projection_failures", "external_subscriptions", on_delete: :cascade
   add_foreign_key "external_projection_failures", "users", on_delete: :cascade
+  add_foreign_key "external_projection_link_references", "accounts", name: "fk_link_refs_account", on_delete: :cascade
+  add_foreign_key "external_projection_link_references", "external_status_projections", name: "fk_link_refs_projection", on_delete: :nullify
+  add_foreign_key "external_projection_link_references", "statuses", column: "reference_status_id", name: "fk_link_refs_status", on_delete: :nullify
+  add_foreign_key "external_projection_link_references", "users", name: "fk_link_refs_user", on_delete: :cascade
   add_foreign_key "external_projection_suppressions", "external_resources", on_delete: :restrict
   add_foreign_key "external_projection_suppressions", "users", on_delete: :cascade
   add_foreign_key "external_resources", "external_actors", on_delete: :nullify
