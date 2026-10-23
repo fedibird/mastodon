@@ -39,7 +39,7 @@ export const captureFilterAnchor = (node, scroller, top) => {
 // written back and the native momentum stopped.
 const POSITION_EPSILON = 0.5;
 
-export const restoreFilterAnchor = (snapshot, node, scroller, top) => {
+export const restoreFilterAnchor = (snapshot, node, scroller, top, options = {}) => {
   if (!snapshot || !node || !scroller || snapshot.abandoned) return;
   // Travel is user momentum or a scrollbar move. A layout change leaves
   // scrollTop where the snapshot recorded it and only moves row rects.
@@ -52,7 +52,9 @@ export const restoreFilterAnchor = (snapshot, node, scroller, top) => {
     return;
   }
   const anchor = snapshot.rows.find(row => node.contains(row.node) && row.node.getBoundingClientRect().height > 0);
-  if (anchor) {
+  // Following the latest edge skips the scroll write. Focus still moves
+  // when a filtered row held it. History at local 0 is not following.
+  if (anchor && options.allowScroll !== false) {
     const delta = anchor.node.getBoundingClientRect().top - top - anchor.offset;
     if (Math.abs(delta) > POSITION_EPSILON) {
       scroller.scrollTop += delta;

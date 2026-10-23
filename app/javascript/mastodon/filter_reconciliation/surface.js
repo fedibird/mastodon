@@ -17,12 +17,13 @@ export const normalizeStatusIds = (lists, limit = Infinity) => {
 // One instance per mounted list/pane, independent of timeline ID/scrollKey.
 export class FilterSurface {
 
-  constructor(dispatch, node, { bindToDocument, scrollKey, preventScroll, ids, idForRow }) {
+  constructor(dispatch, node, { bindToDocument, scrollKey, preventScroll, ids, idForRow, followingLatest }) {
     this.dispatch = dispatch;
     this.node = node;
     this.bindToDocument = bindToDocument;
     this.scrollKey = scrollKey;
     this.preventScroll = preventScroll;
+    this.followingLatest = followingLatest;
     this.idForRow = idForRow || (id => id.startsWith('f-') ? id.slice(2) : id);
     this.visible = new Set();
     this.near = new Set();
@@ -111,15 +112,23 @@ export class FilterSurface {
     if (!this.snapshot) return;
     const snapshot = this.snapshot;
     // Two finite frames cover connected React children and cached row layout.
+    // Follow state is read on each frame so a prepend or a mode change cannot
+    // reuse a stale decision from capture time.
     this.frame = requestAnimationFrame(() => {
       if (this.snapshot !== snapshot) return;
-      restoreFilterAnchor(snapshot, this.node, this.scroller(), this.top());
+      this.restoreSnapshot(snapshot);
       this.frame = requestAnimationFrame(() => {
-        if (this.snapshot === snapshot) restoreFilterAnchor(snapshot, this.node, this.scroller(), this.top());
+        if (this.snapshot === snapshot) this.restoreSnapshot(snapshot);
         this.frame = null;
         this.snapshot = null;
       });
     });
+  }
+
+  restoreSnapshot(snapshot) {
+    const following = typeof this.followingLatest === 'function' && this.followingLatest();
+
+    restoreFilterAnchor(snapshot, this.node, this.scroller(), this.top(), { allowScroll: !following });
   }
 
   destroy() {

@@ -69,6 +69,8 @@ class ScrollableList extends PureComponent {
     dispatch: PropTypes.func,
     filterStatusIds: PropTypes.oneOfType([PropTypes.array, PropTypes.object]),
     filterIdForRow: PropTypes.func,
+    windowedHistory: PropTypes.bool,
+    anchorSourceKey: PropTypes.string,
   };
 
   static defaultProps = {
@@ -119,14 +121,14 @@ class ScrollableList extends PureComponent {
       }
 
       if (!anchorJump && this._anchorScrollSuppressedLoad) {
-        this.scrollToTopOnMouseIdle = false;
+        this._disarmMouseIdle();
         this._cancelAnchorCorrection();
         this._anchorScrollSuppressedLoad = false;
         this._syntheticScrollTop = null;
       } else if (!anchorJump && !this.lastScrollWasSynthetic) {
         // If the last scroll wasn't caused by setScrollTop(), assume it was
         // intentional and cancel any pending scroll reset on mouse idle
-        this.scrollToTopOnMouseIdle = false;
+        this._disarmMouseIdle();
         this._cancelAnchorCorrection();
       }
       if (this._syntheticScrollDepth === 0) {
@@ -141,6 +143,8 @@ class ScrollableList extends PureComponent {
   mouseMovedRecently = false;
   lastScrollWasSynthetic = false;
   scrollToTopOnMouseIdle = false;
+  _mouseIdleSession = 0;
+  _mouseIdleScrollTop = null;
   _syntheticScrollDepth = 0;
   _anchorScrollSuppressedLoad = false;
   _syntheticScrollTop = null;
@@ -206,6 +210,7 @@ class ScrollableList extends PureComponent {
   }
 
   _markUserScrollIntent = () => {
+    this._disarmMouseIdle();
     this._programmaticTopScrollSeen = false;
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     this._clearRestoreToken();
@@ -232,10 +237,46 @@ class ScrollableList extends PureComponent {
     }
 
     if (this.getScrollTop() !== newScrollTop) {
+      // Ratify only a correction that still starts at the armed position.
+      // A scrollbar move that never delivered a scroll event must not be
+      // adopted as the next expected offset.
+      this._noteMouseIdleCorrection(newScrollTop);
       this.lastScrollWasSynthetic = true;
 
       this._getScrollingElement().scrollTop = newScrollTop;
     }
+  };
+
+  _armMouseIdle = () => {
+    this._mouseIdleSession += 1;
+    this.scrollToTopOnMouseIdle = true;
+    this._mouseIdleScrollTop = this.getScrollTop();
+  };
+
+  _disarmMouseIdle = () => {
+    this.scrollToTopOnMouseIdle = false;
+    this._mouseIdleScrollTop = null;
+  };
+
+  _retireMouseIdle = () => {
+    this._mouseIdleSession += 1;
+    this._disarmMouseIdle();
+    this.mouseMovedRecently = false;
+    this.clearMouseIdleTimer();
+  };
+
+  _mouseIdleMatches = () => (
+    this.scrollToTopOnMouseIdle &&
+    this._mouseIdleScrollTop !== null &&
+    Math.abs(this.getScrollTop() - this._mouseIdleScrollTop) <= 1
+  );
+
+  _noteMouseIdleCorrection = (nextTop) => {
+    if (!this._mouseIdleMatches()) {
+      return;
+    }
+
+    this._mouseIdleScrollTop = nextTop;
   };
 
   clearMouseIdleTimer = () => {
@@ -250,20 +291,21 @@ class ScrollableList extends PureComponent {
   handleMouseMove = throttle(() => {
     // As long as the mouse keeps moving, clear and restart the idle timer.
     this.clearMouseIdleTimer();
-    this.mouseIdleTimer = setTimeout(this.handleMouseIdle, MOUSE_IDLE_DELAY);
 
     if (!this.mouseMovedRecently && this.getScrollTop() === 0) {
       // Only set if we just started moving and are scrolled to the top.
-      this.scrollToTopOnMouseIdle = true;
-      this._mouseIdleScrollTop = this.getScrollTop();
+      this._armMouseIdle();
     }
+
+    const session = this._mouseIdleSession;
+
+    this.mouseIdleTimer = setTimeout(() => this.handleMouseIdle(session), MOUSE_IDLE_DELAY);
 
     // Save setting this flag for last, so we can do the comparison above.
     this.mouseMovedRecently = true;
   }, MOUSE_IDLE_DELAY / 2);
 
   handleWheel = throttle(() => {
-    this.scrollToTopOnMouseIdle = false;
     this._markUserScrollIntent();
   }, 150, {
     leading: true,
@@ -307,15 +349,27 @@ class ScrollableList extends PureComponent {
     }
   }
 
-  handleMouseIdle = () => {
-    // Scrollbar movement may never reach the pointer listeners. If the
-    // scroller left the position that armed this snap, the snap is stale.
-    if (this.scrollToTopOnMouseIdle && !this.props.preventScroll && Math.abs(this.getScrollTop() - (this._mouseIdleScrollTop || 0)) <= 1) {
+  handleMouseIdle = (session) => {
+    if (this._anchorUnmounted) {
+      return;
+    }
+
+    // A route change, seek, or newer hover session owns the scroller now.
+    if (session !== undefined && session !== this._mouseIdleSession) {
+      return;
+    }
+
+    // Compare with the position this session expects, including insertions
+    // the list itself applied. Do not treat every non-zero offset as a
+    // reader gesture, and do not trust lastScrollWasSynthetic: handleScroll
+    // clears it before this timer runs.
+    if (this._mouseIdleMatches() && !this.props.preventScroll) {
+      this._cancelFilterAnchor();
       this.setScrollTop(0);
     }
 
     this.mouseMovedRecently = false;
-    this.scrollToTopOnMouseIdle = false;
+    this._disarmMouseIdle();
   }
 
   componentDidMount () {
@@ -346,9 +400,10 @@ class ScrollableList extends PureComponent {
       if (!nextLocation.state?.mastodonModalKey) this.updateFilterSurface();
     });
     if (!this.filterSurface) {
-      this.filterSurface = new FilterSurface(this.props.dispatch, this.node, { ...this.props, scrollKey: surfaceKey, ids: this.props.filterStatusIds, idForRow: this.props.filterIdForRow });
+      this.filterSurface = new FilterSurface(this.props.dispatch, this.node, { ...this.props, scrollKey: surfaceKey, ids: this.props.filterStatusIds, idForRow: this.props.filterIdForRow, followingLatest: () => this.isFollowingLatest() });
     } else {
       this.filterSurface.preventScroll = this.props.preventScroll;
+      this.filterSurface.followingLatest = () => this.isFollowingLatest();
       this.filterSurface.idForRow = this.props.filterIdForRow || this.filterSurface.idForRow;
       this.filterSurface.update(this.props.filterStatusIds);
     }
@@ -412,8 +467,10 @@ class ScrollableList extends PureComponent {
       this.setScrollTop(this.getScrollHeight() - snapshot);
     }
 
-    if (prevProps.scrollKey !== this.props.scrollKey || prevProps.bindToDocument !== this.props.bindToDocument) {
+    if (prevProps.scrollKey !== this.props.scrollKey || prevProps.bindToDocument !== this.props.bindToDocument || prevProps.anchorSourceKey !== this.props.anchorSourceKey || !!prevProps.windowedHistory !== !!this.props.windowedHistory) {
       this._cancelAnchorCorrection();
+      this._cancelFilterAnchor();
+      this._retireMouseIdle();
     }
 
     this.updateFilterSurface();
@@ -424,6 +481,22 @@ class ScrollableList extends PureComponent {
 
     return location ? location.key : null;
   }
+
+  // The unread icon uses a 100px threshold. Follow is the actual top of a
+  // streaming list. A windowed history pane is a reading position even at 0.
+  isFollowingLatest = () => {
+    if (this.props.windowedHistory || this._anchorUnmounted) {
+      return false;
+    }
+
+    return Math.abs(this.getScrollTop()) <= 0.5;
+  };
+
+  _cancelFilterAnchor = () => {
+    if (this.filterSurface && typeof this.filterSurface.cancel === 'function') {
+      this.filterSurface.cancel();
+    }
+  };
 
   _cancelAnchorCorrection = () => {
     if (this._anchorCancel) {
@@ -497,7 +570,7 @@ class ScrollableList extends PureComponent {
   }
 
   _beginSyntheticAnchorScroll = () => {
-    this.scrollToTopOnMouseIdle = false;
+    this._disarmMouseIdle();
     this._syntheticScrollDepth += 1;
     this.lastScrollWasSynthetic = true;
     this._anchorScrollSuppressedLoad = true;
@@ -593,6 +666,7 @@ class ScrollableList extends PureComponent {
     }
 
     releaseProgrammaticTopScroll(this._getScrollingElement());
+    this._cancelFilterAnchor();
 
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     const generation = this._anchorGeneration;
@@ -622,6 +696,7 @@ class ScrollableList extends PureComponent {
     }
 
     releaseProgrammaticTopScroll(this._getScrollingElement());
+    this._cancelFilterAnchor();
 
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     const generation = this._anchorGeneration;
@@ -654,6 +729,7 @@ class ScrollableList extends PureComponent {
 
   componentWillUnmount () {
     this._anchorUnmounted = true;
+    this._retireMouseIdle();
     this._cancelAnchorCorrection();
     this.filterHistoryUnlisten?.();
     this.filterSurface?.destroy();
@@ -748,7 +824,7 @@ class ScrollableList extends PureComponent {
     this.props.onLoadPending();
     // Prevent the weird scroll-jumping behavior, as we explicitly don't want to
     // scroll to top, and we know the scroll height is going to change
-    this.scrollToTopOnMouseIdle = false;
+    this._disarmMouseIdle();
     this.lastScrollWasSynthetic = false;
     this.clearMouseIdleTimer();
     this.mouseIdleTimer = setTimeout(this.handleMouseIdle, MOUSE_IDLE_DELAY);
