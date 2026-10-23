@@ -353,7 +353,7 @@ describe('external feed subscription tickets', () => {
 
 describe('external feed send order', () => {
   const flush = () => new Promise(resolve => setImmediate(resolve));
-  const contentMessage = (content, generation, event = 'status.update', statusId = '8') => JSON.stringify({
+  const contentMessage = (content, generation, event = 'status.update', statusId = '8', routeId = '100') => JSON.stringify({
     event: event,
     payload: { id: statusId, content: content },
     delivery: {
@@ -363,6 +363,7 @@ describe('external feed send order', () => {
       projection_id: '3',
       subscription_id: '7',
       generation: generation,
+      route_id: routeId,
     },
   });
   const deleteMessage = () => JSON.stringify({
@@ -370,19 +371,33 @@ describe('external feed send order', () => {
     payload: '8',
     delivery: { kind: 'delete', user_id: '17', status_id: '8' },
   });
-  const controlMessage = (reason, targets, extra = {}) => JSON.stringify({
-    event: 'external_feed_changed',
-    payload: Object.assign({
-      version: 1,
-      reason: reason,
-      targets: targets,
-      subscription_id: '7',
-      feed_routes_revision: '2',
-    }, extra),
-  });
+  const controlMessage = (reason, targets, extra = {}, delivery = null) => {
+    const message = {
+      event: 'external_feed_changed',
+      payload: Object.assign({
+        version: 1,
+        reason: reason,
+        targets: targets,
+        subscription_id: '7',
+        feed_routes_revision: '2',
+      }, extra),
+    };
+
+    if (delivery) {
+      message.delivery = delivery;
+    }
+
+    return JSON.stringify(message);
+  };
+  const routeNotice = (revision, epochs, targets) => controlMessage(
+    'routes_updated',
+    targets,
+    { feed_routes_revision: revision },
+    { kind: 'routes', subscription_id: '7', epochs: epochs },
+  );
   const accountBody = (overrides = undefined) => ({ rows: [allowedRow(overrides || {})] });
-  const contentBody = (generation, routed = true) => ({
-    rows: [{ content_generation: generation, routed: routed }],
+  const contentBody = (generation, routed = true, routeId = '100') => ({
+    rows: [{ content_generation: generation, routed: routed, route_id: routed ? routeId : null }],
   });
 
   const answer = (gate, body) => {
@@ -1051,6 +1066,107 @@ describe('external feed send order', () => {
     assert.equal(events(listAgain.output).includes('status.update'), true);
     assert.equal(texts(listAgain.output).some(body => body.includes('gone-edit')), true);
     assert.equal(events(listAgain.output).includes('update'), false);
+  });
+
+  it('does not keep an insert across a removal that is only noticed after the route exists again', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('old-body', '1', 'update', '8', '100'));
+    await confirmUserContent(session, '2');
+    assert.deepEqual(session.output, []);
+    session.listener(routeNotice('2', [{ type: 'home', removed_route_id: '100' }], [{ type: 'home' }]));
+    await settle(session, accountBody());
+    session.listener(routeNotice('3', [{ type: 'home', route_id: '200' }], [{ type: 'home' }]));
+    const readd = await settle(session, accountBody());
+
+    assert.equal(readd.sql.includes('oauth_access_tokens'), true);
+    assert.equal(session.gates.some(gate => gate.sql.includes('ANY($3::bigint[])')), false);
+    session.listener(contentMessage('later-history-edit', '3', 'status.update', '8', '200'));
+    await confirmUserContent(session, '3', true, contentBody('3', true, '200'));
+    assert.deepEqual(events(session.output), ['external_feed_changed', 'external_feed_changed', 'status.update']);
+    assert.equal(texts(session.output)[2].includes('later-history-edit'), true);
+    assert.equal(texts(session.output).some(body => body.includes('route_id')), false);
+    assert.equal(texts(session.output).some(body => body.includes('removed_route_id')), false);
+
+    const list = await openFeed('list', '55');
+
+    list.listener(contentMessage('list-old', '1', 'update', '8', '300'));
+    await confirmListContent(list, '2', true, contentBody('2', true, '300'));
+    list.listener(routeNotice('4', [{ type: 'list', id: '55', removed_route_id: '300' }], [{ type: 'list', id: '55' }]));
+    await settle(list, accountBody());
+    await settle(list, { rows: [{ present: 1 }] });
+    list.listener(routeNotice('5', [{ type: 'list', id: '55', route_id: '400' }], [{ type: 'list', id: '55' }]));
+    await settle(list, accountBody());
+    await settle(list, { rows: [{ present: 1 }] });
+    list.listener(contentMessage('list-later', '3', 'status.update', '8', '400'));
+    await confirmListContent(list, '3', true, contentBody('3', true, '400'));
+    assert.deepEqual(events(list.output), ['external_feed_changed', 'external_feed_changed', 'status.update']);
+    assert.equal(texts(list.output)[2].includes('list-later'), true);
+  });
+
+  it('drops the old insert when the re-add notice arrives before the removal notice', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('old-body', '1', 'update', '8', '100'));
+    await confirmUserContent(session, '2');
+    session.listener(routeNotice('3', [{ type: 'home', route_id: '200' }], [{ type: 'home' }]));
+    await settle(session, accountBody());
+    const before = session.gates.length;
+
+    session.listener(routeNotice('2', [{ type: 'home', removed_route_id: '100' }], [{ type: 'home' }]));
+    await flush();
+    assert.equal(session.gates.length, before);
+    session.listener(contentMessage('later-history-edit', '3', 'status.update', '8', '200'));
+    await confirmUserContent(session, '3', true, contentBody('3', true, '200'));
+    assert.deepEqual(events(session.output), ['external_feed_changed', 'status.update']);
+    assert.equal(texts(session.output)[1].includes('later-history-edit'), true);
+  });
+
+  it('keeps a continuous route insert and a new article after a different destination changes', async () => {
+    const home = await openFeed('user');
+    const list = await openFeed('list', '55');
+
+    home.listener(contentMessage('home-body', '1', 'update', '8', '100'));
+    await confirmUserContent(home, '2');
+    list.listener(contentMessage('list-body', '1', 'update', '8', '300'));
+    await confirmListContent(list, '2', true, contentBody('2', true, '300'));
+    home.listener(routeNotice('4', [{ type: 'list', id: '56', route_id: '500' }], [{ type: 'home' }, { type: 'list', id: '55' }]));
+    await settle(home, accountBody());
+    list.listener(routeNotice('4', [{ type: 'list', id: '56', route_id: '500' }], [{ type: 'home' }, { type: 'list', id: '55' }]));
+    await settle(list, accountBody());
+    await settle(list, { rows: [{ present: 1 }] });
+    home.listener(contentMessage('home-next', '2', 'status.update', '8', '100'));
+    await confirmUserContent(home, '2');
+    list.listener(contentMessage('list-next', '2', 'status.update', '8', '300'));
+    await confirmListContent(list, '2', true, contentBody('2', true, '300'));
+    assert.deepEqual(events(home.output), ['external_feed_changed', 'update']);
+    assert.equal(texts(home.output)[1].includes('home-next'), true);
+    assert.deepEqual(events(list.output), ['external_feed_changed', 'update']);
+    assert.equal(texts(list.output)[1].includes('list-next'), true);
+
+    home.listener(routeNotice('6', [{ type: 'home', route_id: '200' }], [{ type: 'home' }]));
+    await settle(home, accountBody());
+    home.listener(contentMessage('fresh-body', '1', 'update', '9', '200'));
+    await confirmUserContent(home, '1', true, contentBody('1', true, '200'));
+    assert.equal(events(home.output).includes('update'), true);
+    assert.equal(texts(home.output).some(body => body.includes('fresh-body')), true);
+    assert.equal(texts(list.output).some(body => body.includes('fresh-body')), false);
+  });
+
+  it('does not let an older removal notice clear an insert for the route created after it', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('old-body', '1', 'update', '8', '100'));
+    await confirmUserContent(session, '2');
+    session.listener(routeNotice('2', [{ type: 'home', removed_route_id: '100' }], [{ type: 'home' }]));
+    session.listener(contentMessage('fresh-body', '1', 'update', '9', '200'));
+    await settle(session, accountBody());
+    await confirmUserContent(session, '1', true, contentBody('1', true, '200'));
+    session.listener(contentMessage('later-history-edit', '3', 'status.update', '8', '200'));
+    await confirmUserContent(session, '3', true, contentBody('3', true, '200'));
+    assert.deepEqual(events(session.output), ['external_feed_changed', 'update', 'status.update']);
+    assert.equal(texts(session.output)[1].includes('fresh-body'), true);
+    assert.equal(texts(session.output)[2].includes('later-history-edit'), true);
   });
 
   it('does not promote an edit after source_deleted and source_restored', async () => {

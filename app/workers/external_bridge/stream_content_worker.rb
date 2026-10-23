@@ -66,29 +66,38 @@ module ExternalBridge
       marker = context.fetch(:marker)
       status = context.fetch(:status)
       channels = []
-      append_home(channels, user, status)
+      append_home(channels, user, marker, status)
       append_lists(channels, user, marker, status)
-      channels.uniq
+      channels.uniq { |entry| entry[:channel] }
     end
 
-    def append_home(channels, user, status)
+    def append_home(channels, user, marker, status)
+      route = ExternalFeedRoute.find_by(
+        user_id: user.id,
+        external_subscription_id: marker.external_subscription_id,
+        destination: 'home',
+        list_id: nil
+      )
+      return if route.nil?
       return unless member?(user, status, 'home', nil)
 
       channel = ExternalBridge::Streaming::Channels.home(user.id)
-      channels << channel if channel
+      channels << { channel: channel, route_id: route.id.to_s } if channel
     end
 
     def append_lists(channels, user, marker, status)
-      list_ids = ExternalFeedRoute.where(
+      routes = ExternalFeedRoute.where(
         user_id: user.id,
         external_subscription_id: marker.external_subscription_id,
         destination: 'list'
-      ).pluck(:list_id)
-      List.where(id: list_ids, account_id: user.account_id).find_each do |list|
+      )
+      routes.each do |route|
+        list = List.find_by(id: route.list_id, account_id: user.account_id)
+        next if list.nil?
         next unless member?(user, status, 'list', list)
 
         channel = ExternalBridge::Streaming::Channels.list(user.id, list.id)
-        channels << channel if channel
+        channels << { channel: channel, route_id: route.id.to_s } if channel
       end
     end
 
@@ -99,16 +108,19 @@ module ExternalBridge
 
     def publish(channels, event, payload, context)
       marker = context.fetch(:marker)
-      delivery = {
-        'kind' => 'content',
-        'user_id' => context.fetch(:user).id.to_s,
-        'status_id' => marker.status_id.to_s,
-        'projection_id' => marker.id.to_s,
-        'subscription_id' => marker.external_subscription_id.to_s,
-        'generation' => marker.content_generation.to_s,
-      }
       publisher = ExternalBridge::Streaming::Publisher.new
-      channels.each { |channel| publisher.publish(channel, event, payload, delivery: delivery) }
+      channels.each do |entry|
+        delivery = {
+          'kind' => 'content',
+          'user_id' => context.fetch(:user).id.to_s,
+          'status_id' => marker.status_id.to_s,
+          'projection_id' => marker.id.to_s,
+          'subscription_id' => marker.external_subscription_id.to_s,
+          'generation' => marker.content_generation.to_s,
+          'route_id' => entry[:route_id],
+        }
+        publisher.publish(entry[:channel], event, payload, delivery: delivery)
+      end
     end
 
     def mark_streamed!(marker)

@@ -4,7 +4,7 @@ module ExternalBridge
   class StreamControlWorker
     include Sidekiq::Worker
 
-    def perform(user_id, payload)
+    def perform(user_id, payload, delivery = nil)
       return unless payload.is_a?(Hash)
 
       user = User.find_by(id: user_id)
@@ -15,7 +15,14 @@ module ExternalBridge
       channel = ExternalBridge::Streaming::Channels.control(user.id)
       return if channel.nil?
 
-      ExternalBridge::Streaming::Publisher.new.publish(channel, 'external_feed_changed', payload)
+      # Route row ids stay on the Redis envelope. The client payload does not
+      # carry them.
+      ExternalBridge::Streaming::Publisher.new.publish(
+        channel,
+        'external_feed_changed',
+        payload,
+        delivery: delivery.is_a?(Hash) ? delivery : nil
+      )
     rescue Redis::BaseError, ActiveRecord::ActiveRecordError => e
       Rails.logger.warn("[ExternalBridge::Streaming] control user_id=#{user_id} error=#{e.class}")
       raise

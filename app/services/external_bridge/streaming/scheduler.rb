@@ -46,7 +46,14 @@ module ExternalBridge
         return if payload.nil?
 
         user_id = user.id.to_s
-        AfterOuterCommit.run { StreamControlWorker.perform_async(user_id, payload) }
+        internal = route_epoch_delivery(delivery[:epochs], payload['subscription_id'])
+        AfterOuterCommit.run do
+          if internal
+            StreamControlWorker.perform_async(user_id, payload, internal)
+          else
+            StreamControlWorker.perform_async(user_id, payload)
+          end
+        end
       end
 
       def self.schedule_deletes!(captures)
@@ -125,6 +132,37 @@ module ExternalBridge
         target['id'] || target[:id] || target['list_id'] || target[:list_id]
       end
 
+      def self.route_epoch_delivery(epochs, subscription_id)
+        cleaned = Array(epochs).filter_map { |epoch| clean_epoch(epoch) }
+        return nil if cleaned.empty? || subscription_id.nil?
+
+        { 'kind' => 'routes', 'subscription_id' => subscription_id, 'epochs' => cleaned }
+      end
+
+      def self.clean_epoch(epoch)
+        return nil unless epoch.is_a?(Hash)
+
+        type = epoch['type'] || epoch[:type]
+        route_id = Channels.decimal_id(epoch['route_id'] || epoch[:route_id])
+        removed_id = Channels.decimal_id(epoch['removed_route_id'] || epoch[:removed_route_id])
+        return nil if route_id.nil? && removed_id.nil?
+
+        if type == 'home'
+          entry = { 'type' => 'home' }
+        elsif type == 'list'
+          list_id = Channels.decimal_id(epoch['id'] || epoch[:id] || epoch['list_id'] || epoch[:list_id])
+          return nil if list_id.nil?
+
+          entry = { 'type' => 'list', 'id' => list_id }
+        else
+          return nil
+        end
+
+        entry['route_id'] = route_id if route_id
+        entry['removed_route_id'] = removed_id if removed_id
+        entry
+      end
+
       def self.clean_delete(row)
         return nil unless row.is_a?(Hash)
 
@@ -143,7 +181,7 @@ module ExternalBridge
       end
 
       private_class_method :control_payload, :assign_status_id!, :normalize_targets, :normalize_target,
-                           :target_type, :target_list_id, :clean_delete
+                           :target_type, :target_list_id, :route_epoch_delivery, :clean_epoch, :clean_delete
     end
   end
 end

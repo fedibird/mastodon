@@ -222,6 +222,12 @@ describe 'ExternalBridge streaming delivery' do
     )
     expect(channels).not_to include(ExternalBridge::Streaming::Channels.list(user.id, other_list.id))
     expect(published.map { |entry| payload_id(entry) }.uniq).to eq [bundle[:status].id.to_s]
+    route_ids = published.map { |entry| entry[:delivery]['route_id'] }
+    expect(route_ids).to contain_exactly(
+      ExternalFeedRoute.find_by!(user_id: user.id, external_subscription_id: bundle[:subscription].id, destination: 'home').id.to_s,
+      ExternalFeedRoute.find_by!(user_id: user.id, external_subscription_id: bundle[:subscription].id, destination: 'list', list_id: list.id).id.to_s
+    )
+    expect(published).to all(satisfy { |entry| !entry[:payload].key?('route_id') })
   end
 
   it 'publishes a list-only status on that list channel' do
@@ -630,8 +636,10 @@ describe 'ExternalBridge streaming delivery' do
     expect(parsed['payload']['id']).to be_a(String)
     expect(parsed['delivery']['kind']).to eq 'content'
     expect(parsed['delivery']['generation']).to eq bundle[:marker].reload.content_generation.to_s
+    expect(parsed['delivery']['route_id']).to eq ExternalFeedRoute.find_by!(user_id: user.id, external_subscription_id: bundle[:subscription].id, destination: 'home').id.to_s
     expect(parsed['payload']).not_to have_key('delivery')
     expect(parsed['payload']).not_to have_key('generation')
+    expect(parsed['payload']).not_to have_key('route_id')
   ensure
     thread&.kill
     thread&.join(1)
@@ -732,10 +740,22 @@ describe 'ExternalBridge streaming delivery' do
     expect(bundle[:subscription].reload.feed_routes_revision).to eq revision
     expect(ExternalBridge::StreamControlWorker.jobs).to be_empty
 
+    home_route_id = ExternalFeedRoute.find_by!(user_id: user.id, external_subscription_id: bundle[:subscription].id, destination: 'home').id.to_s
+    list_route_id = ExternalFeedRoute.find_by!(user_id: user.id, external_subscription_id: bundle[:subscription].id, destination: 'list', list_id: list.id).id.to_s
     save_routes(user, bundle[:subscription], home: false, list_ids: [])
-    payload = ExternalBridge::StreamControlWorker.jobs.last['args'].last
+    removal = ExternalBridge::StreamControlWorker.jobs.last['args']
+    payload = removal[1]
     expect(payload['reason']).to eq 'routes_updated'
     expect(payload['targets']).to include({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
+    expect(payload.keys).not_to include('route_id', 'removed_route_id', 'epochs')
+    expect(removal[2]).to eq(
+      'kind' => 'routes',
+      'subscription_id' => bundle[:subscription].id.to_s,
+      'epochs' => [
+        { 'type' => 'home', 'removed_route_id' => home_route_id },
+        { 'type' => 'list', 'id' => list.id.to_s, 'removed_route_id' => list_route_id },
+      ]
+    )
     expect(ExternalBridge::StreamContentWorker.jobs).to be_empty
     expect(ExternalBridge::StreamDeleteWorker.jobs).to be_empty
 
@@ -743,6 +763,11 @@ describe 'ExternalBridge streaming delivery' do
     save_routes(user, bundle[:subscription], home: true, list_ids: [])
     expect(ExternalBridge::StreamContentWorker.jobs).to be_empty
     expect(ExternalBridge::StreamControlWorker.jobs.size).to eq 1
+    added = ExternalBridge::StreamControlWorker.jobs.last['args']
+    expect(added[1].keys).not_to include('route_id', 'removed_route_id', 'epochs')
+    added_id = ExternalFeedRoute.find_by!(user_id: user.id, external_subscription_id: bundle[:subscription].id, destination: 'home').id.to_s
+    expect(added_id).not_to eq home_route_id
+    expect(added[2]['epochs']).to eq [{ 'type' => 'home', 'route_id' => added_id }]
   end
 
   it 'bumps the revision when a list is deleted and emits list_removed' do

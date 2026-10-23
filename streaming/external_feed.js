@@ -29,7 +29,7 @@ const tickets = new WeakMap();
  * @property {ReturnType<typeof setTimeout>|null} confirmTimer
  * @property {Map<string, string>} seenGenerations
  * @property {Set<string>} removedStatuses
- * @property {Map<string, string>} pendingInserts
+ * @property {Map<string, { subscriptionId: string, routeId: string|null }>} pendingInserts
  * @property {Set<string>} insertedStatuses
  * @property {boolean} boundaryReleased
  * @property {function(string, any[], { signal?: ConfirmSignal, timeoutMs?: number }|undefined=): Promise<any>} query
@@ -56,6 +56,7 @@ const tickets = new WeakMap();
  * @property {boolean} ok
  * @property {boolean} superseded
  * @property {boolean} dropIntent
+ * @property {string|null} [routeId]
  */
 
 const PRIVATE_PENDING_LIMIT = 64;
@@ -292,7 +293,19 @@ const authorizeExternalDelivery = (query, req, target, options = {}) => {
 };
 
 const ROUTE_INTENT_SQL = `
-  SELECT markers.status_id::text AS status_id
+  SELECT markers.status_id::text AS status_id,
+         (
+           SELECT routes.id::text
+             FROM external_feed_routes routes
+            WHERE routes.user_id = markers.user_id
+              AND routes.external_subscription_id = markers.external_subscription_id
+              AND (
+                ($4::text = 'home' AND routes.destination = 'home' AND routes.list_id IS NULL)
+                OR ($4::text = 'list' AND routes.destination = 'list' AND routes.list_id = $5::bigint)
+              )
+            ORDER BY routes.id DESC
+            LIMIT 1
+         ) AS route_id
     FROM external_status_projections markers
    WHERE markers.user_id = $1::bigint
      AND markers.external_subscription_id = $2::bigint
@@ -311,6 +324,18 @@ const ROUTE_INTENT_SQL = `
 
 const CONTENT_SQL = `
   SELECT markers.content_generation::text AS content_generation,
+         (
+           SELECT routes.id::text
+             FROM external_feed_routes routes
+            WHERE routes.user_id = markers.user_id
+              AND routes.external_subscription_id = markers.external_subscription_id
+              AND (
+                ($4::text = 'home' AND routes.destination = 'home' AND routes.list_id IS NULL)
+                OR ($4::text = 'list' AND routes.destination = 'list' AND routes.list_id = $5::bigint)
+              )
+            ORDER BY routes.id DESC
+            LIMIT 1
+         ) AS route_id,
          EXISTS (
            SELECT 1 FROM external_feed_routes routes
            WHERE routes.user_id = markers.user_id
@@ -386,7 +411,13 @@ const cleanDelivery = (value, event, statusId) => {
     return null;
   }
 
-  return {
+  if (value.route_id !== undefined && value.route_id !== null) {
+    if (typeof value.route_id !== 'string' || !DECIMAL_ID.test(value.route_id)) {
+      return null;
+    }
+  }
+
+  const delivery = {
     kind: 'content',
     user_id: value.user_id,
     status_id: value.status_id,
@@ -394,7 +425,19 @@ const cleanDelivery = (value, event, statusId) => {
     subscription_id: value.subscription_id,
     generation: value.generation,
   };
+
+  if (typeof value.route_id === 'string') {
+    delivery.route_id = value.route_id;
+  }
+
+  return delivery;
 };
+
+/**
+ * @param {any} value
+ * @return {string|null}
+ */
+const routeIdOf = value => (typeof value === 'string' && DECIMAL_ID.test(value) ? value : null);
 
 /**
  * @param {function(string, any[], any=): Promise<any>} query
@@ -439,15 +482,20 @@ const contentStillCurrent = (query, req, target, delivery, signal) => {
     }
 
     const compared = compareDecimal(row.content_generation, delivery.generation);
+    const currentRoute = routeIdOf(row.route_id);
+    const deliveredRoute = routeIdOf(delivery.route_id);
+    const routed = row.routed === true || currentRoute !== null;
+    // A recreated route row has a new id. The old insert does not continue.
+    const lifetimeEnded = !!(currentRoute && deliveredRoute && currentRoute !== deliveredRoute);
 
-    if (row.routed === true && compared === 0) {
-      return { ok: true, superseded: false, dropIntent: false };
+    if (routed && compared === 0) {
+      return { ok: true, superseded: false, dropIntent: lifetimeEnded, routeId: currentRoute };
     }
 
-    // The insert was overtaken by a newer generation that is still routed.
-    // Keep the unforwarded insert for that next accepted generation.
-    if (row.routed === true && compared > 0) {
-      return { ok: false, superseded: true, dropIntent: false };
+    // The insert was overtaken by a newer generation that is still on the
+    // same route row. Keep the unforwarded insert for that next generation.
+    if (routed && compared > 0) {
+      return { ok: false, superseded: true, dropIntent: lifetimeEnded, routeId: currentRoute };
     }
 
     return rejectedConfirm(true);
@@ -652,7 +700,10 @@ const noteInsertIntent = (ticket, prepared) => {
     return;
   }
 
-  ticket.pendingInserts.set(statusId, prepared.delivery.subscription_id);
+  ticket.pendingInserts.set(statusId, {
+    subscriptionId: prepared.delivery.subscription_id,
+    routeId: routeIdOf(prepared.delivery.route_id),
+  });
 };
 
 /**
@@ -673,14 +724,34 @@ const noteRejectedIntent = (ticket, prepared, result) => {
  * @param {{ event: string, delivery?: any }} prepared
  * @return {string}
  */
-const eventToWrite = (ticket, prepared) => {
+const eventToWrite = (ticket, prepared, routeId) => {
   if ((prepared.event !== 'update' && prepared.event !== 'status.update') || !prepared.delivery) {
     return prepared.event;
   }
 
   const statusId = prepared.delivery.status_id;
+  const pending = ticket.pendingInserts.get(statusId);
+  const delivered = routeIdOf(prepared.delivery.route_id);
+  const current = routeIdOf(routeId);
 
-  if (ticket.pendingInserts.has(statusId) && !ticket.insertedStatuses.has(statusId)) {
+  if (delivered && current && delivered !== current) {
+    if (pending && pending.routeId && compareDecimal(pending.routeId, current) < 0) {
+      ticket.pendingInserts.delete(statusId);
+    }
+
+    return prepared.event === 'update' ? 'status.update' : prepared.event;
+  }
+
+  if (!pending || ticket.insertedStatuses.has(statusId)) {
+    return prepared.event;
+  }
+
+  if (pending.subscriptionId === prepared.delivery.subscription_id && pending.routeId && delivered && current && pending.routeId === delivered && delivered === current) {
+    return 'update';
+  }
+
+  // Frames that do not name a route row keep the earlier promotion rule.
+  if (!pending.routeId && !delivered) {
     return 'update';
   }
 
@@ -792,10 +863,105 @@ const disarmConfirm = (ticket, signal, timer) => {
  */
 const dropSubscriptionIntent = (ticket, subscriptionId) => {
   Array.from(ticket.pendingInserts.entries()).forEach(([statusId, stored]) => {
-    if (stored === subscriptionId) {
+    if (stored && stored.subscriptionId === subscriptionId) {
       ticket.pendingInserts.delete(statusId);
     }
   });
+};
+
+/**
+ * A route notice names the row it created or destroyed. An older row's
+ * insert intent ends. A newer row, including one noted before this notice
+ * reached the head, stays.
+ *
+ * @param {ExternalTicket} ticket
+ * @param {string} subscriptionId
+ * @param {{ routeId: string|null, removedRouteId: string|null }} epoch
+ */
+const applyRouteEpoch = (ticket, subscriptionId, epoch) => {
+  Array.from(ticket.pendingInserts.entries()).forEach(([statusId, pending]) => {
+    if (!pending || pending.subscriptionId !== subscriptionId) {
+      return;
+    }
+
+    if (typeof pending.routeId !== 'string') {
+      ticket.pendingInserts.delete(statusId);
+
+      return;
+    }
+
+    if (epoch.routeId) {
+      if (compareDecimal(pending.routeId, epoch.routeId) < 0) {
+        ticket.pendingInserts.delete(statusId);
+      }
+
+      return;
+    }
+
+    if (epoch.removedRouteId && compareDecimal(pending.routeId, epoch.removedRouteId) <= 0) {
+      ticket.pendingInserts.delete(statusId);
+    }
+  });
+};
+
+/**
+ * Route row ids travel on the Redis envelope, not in the client payload.
+ *
+ * @param {any} delivery
+ * @return {any[]|null}
+ */
+const cleanRouteEpochs = delivery => {
+  if (!delivery || delivery.kind !== 'routes' || !Array.isArray(delivery.epochs)) {
+    return null;
+  }
+
+  const epochs = [];
+
+  delivery.epochs.forEach(epoch => {
+    if (!epoch || typeof epoch !== 'object') {
+      return;
+    }
+
+    const routeId = routeIdOf(epoch.route_id);
+    const removedRouteId = routeIdOf(epoch.removed_route_id);
+
+    if (!routeId && !removedRouteId) {
+      return;
+    }
+
+    if (epoch.type === 'home') {
+      epochs.push({ type: 'home', routeId: routeId, removedRouteId: removedRouteId });
+
+      return;
+    }
+
+    if (epoch.type === 'list' && typeof epoch.id === 'string' && DECIMAL_ID.test(epoch.id)) {
+      epochs.push({ type: 'list', id: epoch.id, routeId: routeId, removedRouteId: removedRouteId });
+    }
+  });
+
+  return epochs;
+};
+
+/**
+ * @param {any[]|null} epochs
+ * @param {ExternalTicket} ticket
+ * @return {{ routeId: string|null, removedRouteId: string|null }|null}
+ */
+const epochForTicket = (epochs, ticket) => {
+  if (!Array.isArray(epochs)) {
+    return null;
+  }
+
+  const found = epochs.find(epoch => {
+    if (ticket.kind === 'user') {
+      return epoch.type === 'home';
+    }
+
+    return epoch.type === 'list' && epoch.id === String(ticket.listId);
+  });
+
+  return found || null;
 };
 
 /**
@@ -842,10 +1008,20 @@ const expireInsertIntent = (ticket, prepared, query) => {
     return Promise.resolve();
   }
 
+  if (Array.isArray(control.routeEpochs)) {
+    const epoch = epochForTicket(control.routeEpochs, ticket);
+
+    if (epoch) {
+      applyRouteEpoch(ticket, control.subscription_id, epoch);
+    }
+
+    return Promise.resolve();
+  }
+
   const ids = [];
 
-  ticket.pendingInserts.forEach((subscriptionId, statusId) => {
-    if (subscriptionId === control.subscription_id) {
+  ticket.pendingInserts.forEach((pending, statusId) => {
+    if (pending && pending.subscriptionId === control.subscription_id) {
       ids.push(statusId);
     }
   });
@@ -864,18 +1040,27 @@ const expireInsertIntent = (ticket, prepared, query) => {
     destination,
     listId,
   ]).then(result => {
-    const live = new Set();
+    const live = new Map();
 
     if (result && Array.isArray(result.rows)) {
       result.rows.forEach(row => {
         if (row && typeof row.status_id === 'string') {
-          live.add(row.status_id);
+          live.set(row.status_id, routeIdOf(row.route_id));
         }
       });
     }
 
     ids.forEach(statusId => {
       if (!live.has(statusId)) {
+        ticket.pendingInserts.delete(statusId);
+
+        return;
+      }
+
+      const pending = ticket.pendingInserts.get(statusId);
+      const current = live.get(statusId);
+
+      if (pending && pending.routeId && current && compareDecimal(pending.routeId, current) < 0) {
         ticket.pendingInserts.delete(statusId);
       }
     });
@@ -916,7 +1101,7 @@ const pumpPrivateQueue = ticket => {
 
   const settle = () => waitStartedQueries(started).then(release);
 
-  const writeSlot = () => {
+  const writeSlot = result => {
     if (!ticket.active || signal.aborted || !generationAllowed(ticket, slot.prepared)) {
       if (slot.prepared.delivery && ticket.removedStatuses.has(slot.prepared.delivery.status_id)) {
         ticket.pendingInserts.delete(slot.prepared.delivery.status_id);
@@ -929,16 +1114,20 @@ const pumpPrivateQueue = ticket => {
       return settle();
     }
 
-    const event = eventToWrite(ticket, slot.prepared);
+    const finish = () => {
+      const event = eventToWrite(ticket, slot.prepared, result && result.routeId);
 
-    try {
-      ticket.output(event, slot.prepared.encoded);
-      rememberWrite(ticket, slot.prepared, event);
-    } catch (error) {
-      // A bad client write must not freeze later private events.
-    }
+      try {
+        ticket.output(event, slot.prepared.encoded);
+        rememberWrite(ticket, slot.prepared, event);
+      } catch (error) {
+        // A bad client write must not freeze later private events.
+      }
 
-    return settle();
+      return settle();
+    };
+
+    return expireInsertIntent(ticket, slot.prepared, wrapped).then(finish);
   };
 
   confirmPrivateEvent(wrapped, ticket.req, ticket.target, slot.prepared, signal).then(result => {
@@ -955,7 +1144,7 @@ const pumpPrivateQueue = ticket => {
       return settle();
     }
 
-    return expireInsertIntent(ticket, slot.prepared, wrapped).then(() => writeSlot());
+    return writeSlot(verdict);
   }).catch(() => {
     clearTimeout(timer);
 
@@ -1163,7 +1352,14 @@ const prepareEvent = (ticket, json) => {
       return null;
     }
 
-    return { event: json.event, encoded: JSON.stringify(control), control: control };
+    const encoded = JSON.stringify(control);
+    const routeEpochs = cleanRouteEpochs(json.delivery);
+
+    if (routeEpochs) {
+      control.routeEpochs = routeEpochs;
+    }
+
+    return { event: json.event, encoded: encoded, control: control };
   }
 
   return null;
