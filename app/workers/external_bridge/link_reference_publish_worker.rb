@@ -20,7 +20,7 @@ module ExternalBridge
     private
 
     def publish_locked!(row)
-      return if row.nil? || row.published_at.present? || row.reference_status_id.nil?
+      return if row.nil? || row.published_at.present? || row.broken? || row.reference_status_id.nil?
 
       status = Status.find_by(id: row.reference_status_id)
       return if status.nil? || status.deleted_at.present?

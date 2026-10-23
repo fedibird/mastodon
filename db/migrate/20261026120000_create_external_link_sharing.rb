@@ -84,41 +84,43 @@ class CreateExternalLinkSharing < ActiveRecord::Migration[6.1]
 
   def down
     safety_assured do
-      execute "SET LOCAL lock_timeout = '5s'"
-      # Stop before any DROP. A mapping or a policy means a public note or a
-      # consent row would be separated from the only record of why it exists.
-      execute ExternalBridge::Schema::LINK_SHARING_ROLLBACK_FLOOR_SQL
-      execute <<~SQL
-        DROP TRIGGER IF EXISTS external_projection_link_references_publish_mark ON external_projection_link_references;
-        DROP TRIGGER IF EXISTS external_projection_link_references_mark_broken ON statuses;
-        DROP TRIGGER IF EXISTS external_projection_link_references_enforce_owner ON external_projection_link_references;
-      SQL
-      execute <<~SQL
-        CREATE OR REPLACE FUNCTION users_external_projection_account_guard()
-        RETURNS trigger
-        LANGUAGE plpgsql
-        AS $$
-        BEGIN
-          IF NEW.account_id IS DISTINCT FROM OLD.account_id
-             AND (
-               EXISTS (SELECT 1 FROM external_status_projections WHERE user_id = OLD.id)
-               OR EXISTS (SELECT 1 FROM external_feed_routes WHERE user_id = OLD.id)
-             ) THEN
-            RAISE EXCEPTION 'users.account_id cannot change while an external projection or feed route exists'
-              USING ERRCODE = 'check_violation';
-          END IF;
+      # One transaction so the table locks in the floor are still held when
+      # DROP runs. A caller that already opened a transaction joins it.
+      ActiveRecord::Base.transaction do
+        execute "SET LOCAL lock_timeout = '5s'"
+        execute ExternalBridge::Schema::LINK_SHARING_ROLLBACK_FLOOR_SQL
+        execute <<~SQL
+          DROP TRIGGER IF EXISTS external_projection_link_references_publish_mark ON external_projection_link_references;
+          DROP TRIGGER IF EXISTS external_projection_link_references_mark_broken ON statuses;
+          DROP TRIGGER IF EXISTS external_projection_link_references_enforce_owner ON external_projection_link_references;
+        SQL
+        execute <<~SQL
+          CREATE OR REPLACE FUNCTION users_external_projection_account_guard()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS $$
+          BEGIN
+            IF NEW.account_id IS DISTINCT FROM OLD.account_id
+               AND (
+                 EXISTS (SELECT 1 FROM external_status_projections WHERE user_id = OLD.id)
+                 OR EXISTS (SELECT 1 FROM external_feed_routes WHERE user_id = OLD.id)
+               ) THEN
+              RAISE EXCEPTION 'users.account_id cannot change while an external projection or feed route exists'
+                USING ERRCODE = 'check_violation';
+            END IF;
 
-          RETURN NEW;
-        END;
-        $$;
-      SQL
-      drop_table :external_projection_link_references, if_exists: true
-      execute <<~SQL
-        DROP FUNCTION IF EXISTS external_projection_link_references_publish_mark();
-        DROP FUNCTION IF EXISTS external_projection_link_references_mark_broken();
-        DROP FUNCTION IF EXISTS external_projection_link_references_enforce_owner();
-      SQL
-      drop_table :external_link_share_policies, if_exists: true
+            RETURN NEW;
+          END;
+          $$;
+        SQL
+        drop_table :external_projection_link_references, if_exists: true
+        execute <<~SQL
+          DROP FUNCTION IF EXISTS external_projection_link_references_publish_mark();
+          DROP FUNCTION IF EXISTS external_projection_link_references_mark_broken();
+          DROP FUNCTION IF EXISTS external_projection_link_references_enforce_owner();
+        SQL
+        drop_table :external_link_share_policies, if_exists: true
+      end
     end
   end
 end

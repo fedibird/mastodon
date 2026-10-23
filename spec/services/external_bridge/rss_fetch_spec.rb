@@ -295,6 +295,7 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
         'https://feeds.example/rss?a=1&token=SECRET&a=2',
         'https://feeds.example/rss?token[]=SECRET',
         'https://feeds.example/rss?format=rss&auth_token=SECRET',
+        'https://feeds.example/rss?p=123',
         'https://feeds.example/rss?q=%',
         'https://feeds.example/rss?q=%ZZ',
         "https://feeds.example/rss?#{encoded_auth}=SECRET",

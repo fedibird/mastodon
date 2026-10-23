@@ -19,14 +19,16 @@ class AddExternalLinkReferencePublishedAt < ActiveRecord::Migration[6.1]
 
   def down
     safety_assured do
-      execute "SET LOCAL lock_timeout = '5s'"
-      execute ExternalBridge::Schema::LINK_SHARING_ROLLBACK_FLOOR_SQL
-      execute <<~SQL
-        DROP TRIGGER IF EXISTS external_projection_link_references_publish_mark ON external_projection_link_references;
-        DROP FUNCTION IF EXISTS external_projection_link_references_publish_mark();
-      SQL
-      if column_exists?(:external_projection_link_references, :published_at)
-        remove_column :external_projection_link_references, :published_at
+      ActiveRecord::Base.transaction do
+        execute "SET LOCAL lock_timeout = '5s'"
+        execute ExternalBridge::Schema::LINK_SHARING_ROLLBACK_FLOOR_SQL
+        execute <<~SQL
+          DROP TRIGGER IF EXISTS external_projection_link_references_publish_mark ON external_projection_link_references;
+          DROP FUNCTION IF EXISTS external_projection_link_references_publish_mark();
+        SQL
+        if column_exists?(:external_projection_link_references, :published_at)
+          remove_column :external_projection_link_references, :published_at
+        end
       end
     end
   end

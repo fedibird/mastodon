@@ -13,7 +13,7 @@ module ExternalBridge
       TITLE_LIMIT = 120
 
       def self.canonical_url!(resource)
-        RSS::CanonicalURL.normalize!(resource&.canonical_url)
+        ArticleURL.normalize!(resource&.canonical_url)
       rescue Error
         raise Error, :canonical_url_invalid
       end

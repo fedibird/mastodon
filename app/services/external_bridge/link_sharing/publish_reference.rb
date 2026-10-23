@@ -24,7 +24,13 @@ module ExternalBridge
         return if @mapping.nil? || @mapping.id.nil?
         return if @mapping.published_at.present?
 
-        ExternalBridge::LinkReferencePublishWorker.perform_async(@mapping.id)
+        jid = ExternalBridge::LinkReferencePublishWorker.perform_async(@mapping.id)
+        if jid.blank?
+          # Redis accepted nothing. published_at stays null. The scheduler
+          # keeps selecting that row until a later enqueue returns a jid.
+          Rails.logger.warn("[LinkSharing] reference publish was not enqueued mapping_id=#{@mapping.id}")
+        end
+        jid
       end
     end
   end

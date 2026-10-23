@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'rails_helper'
+require Rails.root.join('db/migrate/20261026120000_create_external_link_sharing.rb')
+require Rails.root.join('db/migrate/20261027120000_add_external_link_reference_published_at.rb')
 
 # Two connections have to commit. The examples stay in one file so the lock order is visible together.
 # rubocop:disable Metrics/BlockLength
@@ -258,6 +260,69 @@ describe 'ExternalBridge link sharing concurrency', type: :model do
   ensure
     ActiveSupport::Notifications.unsubscribe(subscriber) if subscriber
     cleanup!(bundle)
+  end
+
+  it 'refuses rollback when an insert commits while the table lock is waiting' do
+    user = Fabricate(:user)
+    world = external_project_for(user)
+    note = Status.create!(
+      account: user.account,
+      text: 'https://example.com/posts/rollback-race',
+      visibility: :public,
+      searchability: :public,
+      local: true,
+      external_projection: false
+    )
+    holder = ActiveRecord::Base.connection_pool.checkout
+    error = nil
+    thread = nil
+    begin
+      holder.begin_db_transaction
+      mapping_id = holder.select_value(<<~SQL)
+        INSERT INTO external_projection_link_references (
+          user_id, account_id, external_status_projection_id, projection_status_id,
+          reference_status_id, visibility, canonical_url, policy_revision, state, created_at, updated_at
+        ) VALUES (
+          #{user.id}, #{user.account_id}, #{world[:marker].id}, #{world[:status].id},
+          #{note.id}, 'public', 'https://example.com/posts/rollback-race', 1, 'active', NOW(), NOW()
+        ) RETURNING id
+      SQL
+      thread = Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          AddExternalLinkReferencePublishedAt.new.down
+        end
+      rescue StandardError => e
+        error = e
+      end
+      sleep 0.4
+      holder.commit_db_transaction
+      thread.join
+      expect(error).to be_a(ActiveRecord::StatementInvalid)
+      expect(error.message).to include('reference mapping exists')
+      expect(ExternalProjectionLinkReference.find(mapping_id).reference_status_id).to eq(note.id)
+      expect(Status.find(note.id).text).to include('rollback-race')
+      expect(ActiveRecord::Base.connection.column_exists?(:external_projection_link_references, :published_at)).to be true
+      expect(ActiveRecord::Base.connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_references_publish_mark' AND NOT tgisinternal")).to eq(1)
+    ensure
+      holder.rollback_db_transaction if holder.transaction_open?
+      ActiveRecord::Base.connection_pool.checkin(holder)
+      thread&.join
+      restore_link_sharing_schema!
+      ExternalProjectionLinkReference.where(user_id: user.id).delete_all
+      Status.unscoped.where(id: note.id).delete_all
+      ExternalBridge::ProjectionPurge.purge_user!(user)
+    end
+  end
+
+  def restore_link_sharing_schema!
+    connection = ActiveRecord::Base.connection
+    return unless connection.table_exists?(:external_projection_link_references)
+
+    if connection.column_exists?(:external_projection_link_references, :published_at)
+      connection.execute(ExternalBridge::Schema::LINK_REFERENCE_PUBLISH_SQL)
+    else
+      AddExternalLinkReferencePublishedAt.new.up
+    end
   end
 end
 

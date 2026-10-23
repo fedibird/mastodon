@@ -420,12 +420,26 @@ module ExternalBridge
       EXECUTE FUNCTION external_projection_link_references_publish_mark();
     SQL
 
-    # Rollback floor for the E4-A tables. A mapping or a policy row means a
-    # public note or a consent record already exists. Down stops before it
-    # drops either table. An empty database passes.
+    # Rollback floor for the E4-A tables. Locks are taken before the existence
+    # check and held until the migration transaction ends, so an INSERT cannot
+    # land between the check and DROP. Policies are locked before references,
+    # matching EnsureReference. statuses is not locked here.
+    #
+    # SHARE ROW EXCLUSIVE blocks INSERT/UPDATE/DELETE and SELECT FOR UPDATE,
+    # and still allows plain reads. An empty down that then drops the table
+    # upgrades the lock; a concurrent writer can deadlock that upgrade, the
+    # down aborts, and the rows stay.
     LINK_SHARING_ROLLBACK_FLOOR_SQL = <<~SQL
       DO $$
       BEGIN
+        IF to_regclass('public.external_link_share_policies') IS NOT NULL THEN
+          LOCK TABLE external_link_share_policies IN SHARE ROW EXCLUSIVE MODE;
+        END IF;
+
+        IF to_regclass('public.external_projection_link_references') IS NOT NULL THEN
+          LOCK TABLE external_projection_link_references IN SHARE ROW EXCLUSIVE MODE;
+        END IF;
+
         IF to_regclass('public.external_projection_link_references') IS NOT NULL
            AND EXISTS (SELECT 1 FROM external_projection_link_references) THEN
           RAISE EXCEPTION 'refusing to roll back external link sharing while a reference mapping exists'

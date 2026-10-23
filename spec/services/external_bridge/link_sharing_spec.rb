@@ -568,6 +568,123 @@ describe 'ExternalBridge link sharing', type: :model do
     end
   end
 
+  it 'shares a public permalink query that the feed normalizer rejects' do
+    user = Fabricate(:user)
+    suffix = SecureRandom.hex(4)
+    world = external_project_for(user)
+    world[:resource].update!(canonical_url: "https://example.com/posts/#{suffix}?p=123")
+    world[:source].update!(title: 'Safe Feed Title')
+    enable_external_bridge_link_sharing!(user)
+    grant!(user, 'public')
+
+    note = share!(user, world[:marker]).status
+    expect(note.text).to eq("Safe Feed Title\nRSS\nhttps://example.com/posts/#{suffix}?p=123")
+    expect { ExternalBridge::RSS::CanonicalURL.normalize!(world[:resource].reload.canonical_url) }
+      .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq('authenticated_source_rejected') }
+  end
+
+  it 'recovers a committed unpublished note without another ensure' do
+    user = Fabricate(:user)
+    world = external_project_for(user)
+    url = "https://example.com/posts/#{SecureRandom.hex(4)}"
+    note = Status.create!(
+      account: user.account,
+      text: "Safe Feed Title\nRSS\n#{url}",
+      visibility: :public,
+      searchability: :public,
+      local: true,
+      external_projection: false
+    )
+    mapping = ExternalProjectionLinkReference.create!(
+      user_id: user.id,
+      account_id: user.account_id,
+      external_status_projection_id: world[:marker].id,
+      projection_status_id: world[:status].id,
+      reference_status_id: note.id,
+      visibility: 'public',
+      canonical_url: url,
+      policy_revision: 1,
+      state: 'active'
+    )
+    Setting.external_bridge_link_sharing = false
+    Setting.external_bridge_link_sharing_testers = ''
+    distributions = []
+    allow(DistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(PriorityDistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(LinkCrawlWorker).to receive(:perform_async)
+
+    expect(Scheduler::ExternalBridgeLinkReferencePublishScheduler.new.perform).to eq(1)
+    expect(mapping.reload.published_at).to be_present
+    expect(distributions).to eq([note.id, note.id])
+    distributions.clear
+    PublishStatusService.new.redis.del("statuses/#{note.id}/published")
+    expect(ExternalBridge::LinkSharing::RecoverUnpublished.call).to eq(0)
+    expect(distributions).to be_empty
+  end
+
+  it 'does not recover a broken mapping and retries when enqueue is refused' do
+    user = Fabricate(:user)
+    world = external_project_for(user)
+    url = "https://example.com/posts/#{SecureRandom.hex(4)}"
+    note = Status.create!(
+      account: user.account,
+      text: "Safe Feed Title\nRSS\n#{url}",
+      visibility: :public,
+      searchability: :public,
+      local: true,
+      external_projection: false
+    )
+    mapping = ExternalProjectionLinkReference.create!(
+      user_id: user.id,
+      account_id: user.account_id,
+      external_status_projection_id: world[:marker].id,
+      projection_status_id: world[:status].id,
+      reference_status_id: note.id,
+      visibility: 'public',
+      canonical_url: url,
+      policy_revision: 1,
+      state: 'active'
+    )
+    mapping.update!(state: 'broken')
+    allow(LinkCrawlWorker).to receive(:perform_async)
+    expect(ExternalBridge::LinkSharing::RecoverUnpublished.call).to eq(0)
+    expect(mapping.reload.published_at).to be_nil
+
+    second = Status.create!(
+      account: user.account,
+      text: 'https://example.com/posts/second-note',
+      visibility: :public,
+      searchability: :public,
+      local: true,
+      external_projection: false
+    )
+    pending = ExternalProjectionLinkReference.create!(
+      user_id: user.id,
+      account_id: user.account_id,
+      external_status_projection_id: nil,
+      projection_status_id: world[:status].id,
+      reference_status_id: second.id,
+      visibility: 'public',
+      canonical_url: 'https://example.com/posts/second-note',
+      policy_revision: 1,
+      state: 'active'
+    )
+    allow(ExternalBridge::LinkReferencePublishWorker).to receive(:perform_async).and_return(nil)
+    expect(ExternalBridge::LinkSharing::RecoverUnpublished.call).to eq(1)
+    expect(pending.reload.published_at).to be_nil
+
+    distributions = []
+    allow(ExternalBridge::LinkReferencePublishWorker).to receive(:perform_async).and_call_original
+    allow(DistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    allow(PriorityDistributionWorker).to receive(:perform_async) { |status_id, *| distributions << status_id }
+    expect(ExternalBridge::LinkSharing::RecoverUnpublished.call).to eq(1)
+    expect(pending.reload.published_at).to be_present
+    expect(distributions).to eq([second.id, second.id])
+    expect(ExternalBridge::LinkSharing::RecoverUnpublished.call).to eq(0)
+  end
+
   it 'rolls link sharing down and back up on an empty database' do
     expect(ExternalProjectionLinkReference.count).to eq(0)
     expect(ExternalLinkSharePolicy.count).to eq(0)
