@@ -29,8 +29,9 @@ const tickets = new WeakMap();
  * @property {ReturnType<typeof setTimeout>|null} confirmTimer
  * @property {Map<string, string>} seenGenerations
  * @property {Set<string>} removedStatuses
- * @property {Set<string>} pendingInserts
+ * @property {Map<string, string>} pendingInserts
  * @property {Set<string>} insertedStatuses
+ * @property {boolean} boundaryReleased
  * @property {function(string, any[], { signal?: ConfirmSignal, timeoutMs?: number }|undefined=): Promise<any>} query
  * @property {any} req
  * @property {{ kind: string, listId: string|null }} target
@@ -59,6 +60,16 @@ const tickets = new WeakMap();
 
 const PRIVATE_PENDING_LIMIT = 64;
 const PRIVATE_CONFIRM_MS = 5000;
+
+/**
+ * Generation and delete watermarks for one authenticated user on one
+ * request. Tickets on that connection share the maps. A different request
+ * or a different user does not. The maps live while at least one private
+ * ticket for that user is attached; the last detach drops them.
+ *
+ * @type {WeakMap<object, Map<string, { seenGenerations: Map<string, string>, removedStatuses: Set<string>, refs: number }>>}
+ */
+const outputBoundaries = new WeakMap();
 
 /**
  * One private confirmation per ticket. The next statement, and the next
@@ -279,6 +290,24 @@ const authorizeExternalDelivery = (query, req, target, options = {}) => {
     });
   }).catch(() => false);
 };
+
+const ROUTE_INTENT_SQL = `
+  SELECT markers.status_id::text AS status_id
+    FROM external_status_projections markers
+   WHERE markers.user_id = $1::bigint
+     AND markers.external_subscription_id = $2::bigint
+     AND markers.status_id = ANY($3::bigint[])
+     AND markers.source_deleted = FALSE
+     AND EXISTS (
+       SELECT 1 FROM external_feed_routes routes
+        WHERE routes.user_id = markers.user_id
+          AND routes.external_subscription_id = markers.external_subscription_id
+          AND (
+            ($4::text = 'home' AND routes.destination = 'home' AND routes.list_id IS NULL)
+            OR ($4::text = 'list' AND routes.destination = 'list' AND routes.list_id = $5::bigint)
+          )
+     )
+`;
 
 const CONTENT_SQL = `
   SELECT markers.content_generation::text AS content_generation,
@@ -554,11 +583,66 @@ const rememberDelivery = (ticket, prepared) => {
 };
 
 /**
- * @param {ExternalTicket} ticket
- * @param {{ event: string, delivery?: any }} prepared
+ * Generations and deletes already written for this user on this request.
+ * The entry lives until the last private ticket for that user detaches.
+ *
+ * @param {any} req
+ * @return {{ seenGenerations: Map<string, string>, removedStatuses: Set<string>, refs: number }}
  */
+const retainBoundary = (req) => {
+  let users = outputBoundaries.get(req);
+
+  if (!users) {
+    users = new Map();
+    outputBoundaries.set(req, users);
+  }
+
+  const key = String(req.userId);
+  let boundary = users.get(key);
+
+  if (!boundary) {
+    boundary = { seenGenerations: new Map(), removedStatuses: new Set(), refs: 0 };
+    users.set(key, boundary);
+  }
+
+  boundary.refs += 1;
+
+  return boundary;
+};
+
+const releaseBoundary = (req) => {
+  const users = req ? outputBoundaries.get(req) : null;
+
+  if (!users) {
+    return;
+  }
+
+  const key = String(req.userId);
+  const boundary = users.get(key);
+
+  if (!boundary) {
+    return;
+  }
+
+  boundary.refs -= 1;
+
+  if (boundary.refs > 0) {
+    return;
+  }
+
+  users.delete(key);
+
+  if (users.size === 0) {
+    outputBoundaries.delete(req);
+  }
+};
+
 const noteInsertIntent = (ticket, prepared) => {
   if (prepared.event !== 'update' || !prepared.delivery || !prepared.delivery.status_id) {
+    return;
+  }
+
+  if (typeof prepared.delivery.subscription_id !== 'string') {
     return;
   }
 
@@ -568,13 +652,7 @@ const noteInsertIntent = (ticket, prepared) => {
     return;
   }
 
-  const seen = ticket.seenGenerations.get(statusId);
-
-  if (seen !== undefined && compareDecimal(seen, prepared.delivery.generation) > 0) {
-    return;
-  }
-
-  ticket.pendingInserts.add(statusId);
+  ticket.pendingInserts.set(statusId, prepared.delivery.subscription_id);
 };
 
 /**
@@ -644,6 +722,170 @@ const waitStartedQueries = started => {
 
 /**
  * @param {ExternalTicket} ticket
+ * @param {ConfirmSignal} signal
+ * @param {Promise<any>[]|null} started
+ * @return {function(string, any[]): Promise<any>}
+ */
+const trackedQuery = (ticket, signal, started) => (sql, params) => {
+  if (signal.aborted || !ticket.active) {
+    return Promise.reject(abortError());
+  }
+
+  let pending;
+
+  try {
+    pending = ticket.query(sql, params, { signal: signal, timeoutMs: PRIVATE_CONFIRM_MS });
+  } catch (error) {
+    return Promise.reject(error);
+  }
+
+  if (started) {
+    started.push(pending);
+  }
+
+  return Promise.resolve(pending).then(result => {
+    if (signal.aborted || !ticket.active) {
+      return Promise.reject(abortError());
+    }
+
+    return result;
+  });
+};
+
+/**
+ * @param {ExternalTicket} ticket
+ * @return {{ signal: ConfirmSignal, timer: ReturnType<typeof setTimeout> }}
+ */
+const armConfirm = ticket => {
+  const signal = createSignal();
+  const timer = setTimeout(() => {
+    if (ticket.confirmSignal === signal) {
+      signal.abort();
+    }
+  }, PRIVATE_CONFIRM_MS);
+
+  ticket.confirmSignal = signal;
+  ticket.confirmTimer = timer;
+
+  return { signal: signal, timer: timer };
+};
+
+/**
+ * @param {ExternalTicket} ticket
+ * @param {ConfirmSignal} signal
+ * @param {ReturnType<typeof setTimeout>} timer
+ */
+const disarmConfirm = (ticket, signal, timer) => {
+  if (ticket.confirmTimer === timer) {
+    clearTimeout(timer);
+    ticket.confirmTimer = null;
+  }
+
+  if (ticket.confirmSignal === signal) {
+    ticket.confirmSignal = null;
+  }
+};
+
+/**
+ * @param {ExternalTicket} ticket
+ * @param {string} subscriptionId
+ */
+const dropSubscriptionIntent = (ticket, subscriptionId) => {
+  Array.from(ticket.pendingInserts.entries()).forEach(([statusId, stored]) => {
+    if (stored === subscriptionId) {
+      ticket.pendingInserts.delete(statusId);
+    }
+  });
+};
+
+/**
+ * A route removal, source deletion, list removal, or unsubscribe expires
+ * only the unforwarded insert for that destination and subscription.
+ * A routes_updated whose row is still routed keeps the intent, so a
+ * remaining home route is not cleared by an unrelated list change.
+ *
+ * @param {ExternalTicket} ticket
+ * @param {{ control?: any }} prepared
+ * @param {function(string, any[]): Promise<any>} query
+ * @return {Promise<void>}
+ */
+const expireInsertIntent = (ticket, prepared, query) => {
+  const control = prepared.control;
+
+  if (!control) {
+    return Promise.resolve();
+  }
+
+  if (control.reason === 'source_deleted') {
+    if (typeof control.status_id === 'string') {
+      ticket.pendingInserts.delete(control.status_id);
+    } else {
+      dropSubscriptionIntent(ticket, control.subscription_id);
+    }
+
+    return Promise.resolve();
+  }
+
+  if (control.reason === 'list_removed' && ticket.kind === 'list') {
+    ticket.pendingInserts.clear();
+
+    return Promise.resolve();
+  }
+
+  if (control.reason === 'subscription_removed') {
+    dropSubscriptionIntent(ticket, control.subscription_id);
+
+    return Promise.resolve();
+  }
+
+  if (control.reason !== 'routes_updated') {
+    return Promise.resolve();
+  }
+
+  const ids = [];
+
+  ticket.pendingInserts.forEach((subscriptionId, statusId) => {
+    if (subscriptionId === control.subscription_id) {
+      ids.push(statusId);
+    }
+  });
+
+  if (ids.length === 0) {
+    return Promise.resolve();
+  }
+
+  const destination = ticket.kind === 'list' ? 'list' : 'home';
+  const listId = destination === 'list' ? String(ticket.listId) : null;
+
+  return query(ROUTE_INTENT_SQL, [
+    String(ticket.req.userId),
+    control.subscription_id,
+    ids,
+    destination,
+    listId,
+  ]).then(result => {
+    const live = new Set();
+
+    if (result && Array.isArray(result.rows)) {
+      result.rows.forEach(row => {
+        if (row && typeof row.status_id === 'string') {
+          live.add(row.status_id);
+        }
+      });
+    }
+
+    ids.forEach(statusId => {
+      if (!live.has(statusId)) {
+        ticket.pendingInserts.delete(statusId);
+      }
+    });
+  }).catch(() => {
+    // A failed membership read does not invent a route removal.
+  });
+};
+
+/**
+ * @param {ExternalTicket} ticket
  */
 const pumpPrivateQueue = ticket => {
   if (ticket.confirming || !ticket.active || ticket.queue.length === 0) {
@@ -651,52 +893,16 @@ const pumpPrivateQueue = ticket => {
   }
 
   const slot = ticket.queue[0];
-  const signal = createSignal();
   const started = [];
+  const armed = armConfirm(ticket);
+  const { signal, timer } = armed;
 
   ticket.confirming = true;
-  ticket.confirmSignal = signal;
 
-  const wrapped = (sql, params) => {
-    if (signal.aborted || !ticket.active) {
-      return Promise.reject(abortError());
-    }
-
-    let pending;
-
-    try {
-      pending = ticket.query(sql, params, { signal: signal, timeoutMs: PRIVATE_CONFIRM_MS });
-    } catch (error) {
-      return Promise.reject(error);
-    }
-
-    started.push(pending);
-
-    return Promise.resolve(pending).then(result => {
-      if (signal.aborted || !ticket.active) {
-        return Promise.reject(abortError());
-      }
-
-      return result;
-    });
-  };
-
-  const timer = setTimeout(() => {
-    signal.abort();
-  }, PRIVATE_CONFIRM_MS);
-
-  ticket.confirmTimer = timer;
+  const wrapped = trackedQuery(ticket, signal, started);
 
   const release = () => {
-    if (ticket.confirmTimer === timer) {
-      clearTimeout(timer);
-      ticket.confirmTimer = null;
-    }
-
-    if (ticket.confirmSignal === signal) {
-      ticket.confirmSignal = null;
-    }
-
+    disarmConfirm(ticket, signal, timer);
     ticket.confirming = false;
 
     if (ticket.queue[0] === slot) {
@@ -710,16 +916,11 @@ const pumpPrivateQueue = ticket => {
 
   const settle = () => waitStartedQueries(started).then(release);
 
-  confirmPrivateEvent(wrapped, ticket.req, ticket.target, slot.prepared, signal).then(result => {
-    clearTimeout(timer);
-    const verdict = result && result.ok === true ? result : rejectedConfirm(result && result.dropIntent === true);
-
-    if (!ticket.active || signal.aborted || !verdict.ok || !generationAllowed(ticket, slot.prepared)) {
+  const writeSlot = () => {
+    if (!ticket.active || signal.aborted || !generationAllowed(ticket, slot.prepared)) {
       if (slot.prepared.delivery && ticket.removedStatuses.has(slot.prepared.delivery.status_id)) {
         ticket.pendingInserts.delete(slot.prepared.delivery.status_id);
       }
-
-      noteRejectedIntent(ticket, slot.prepared, verdict);
 
       return settle();
     }
@@ -738,6 +939,23 @@ const pumpPrivateQueue = ticket => {
     }
 
     return settle();
+  };
+
+  confirmPrivateEvent(wrapped, ticket.req, ticket.target, slot.prepared, signal).then(result => {
+    clearTimeout(timer);
+    const verdict = result && result.ok === true ? result : rejectedConfirm(result && result.dropIntent === true);
+
+    if (!ticket.active || signal.aborted || !verdict.ok || !generationAllowed(ticket, slot.prepared)) {
+      if (slot.prepared.delivery && ticket.removedStatuses.has(slot.prepared.delivery.status_id)) {
+        ticket.pendingInserts.delete(slot.prepared.delivery.status_id);
+      }
+
+      noteRejectedIntent(ticket, slot.prepared, verdict);
+
+      return settle();
+    }
+
+    return expireInsertIntent(ticket, slot.prepared, wrapped).then(() => writeSlot());
   }).catch(() => {
     clearTimeout(timer);
 
@@ -973,6 +1191,11 @@ const detachExternalFeed = (listener, deps) => {
     ticket.confirmSignal.abort();
   }
 
+  if (!ticket.boundaryReleased) {
+    ticket.boundaryReleased = true;
+    releaseBoundary(ticket.req);
+  }
+
   const channels = ticket.channels.splice(0);
 
   if (!ticket.listener) {
@@ -1010,6 +1233,8 @@ const attachExternalFeed = options => {
     detachExternalFeed(listener, { unsubscribe: unsubscribe });
   }
 
+  const boundary = retainBoundary(req);
+
   /** @type {ExternalTicket} */
   const ticket = {
     active: true,
@@ -1022,10 +1247,11 @@ const attachExternalFeed = options => {
     confirming: false,
     confirmSignal: null,
     confirmTimer: null,
-    seenGenerations: new Map(),
-    removedStatuses: new Set(),
-    pendingInserts: new Set(),
+    seenGenerations: boundary.seenGenerations,
+    removedStatuses: boundary.removedStatuses,
+    pendingInserts: new Map(),
     insertedStatuses: new Set(),
+    boundaryReleased: false,
     query: query,
     req: req,
     target: { kind: externalFeed.kind, listId: externalFeed.listId === undefined || externalFeed.listId === null ? null : String(externalFeed.listId) },
@@ -1041,15 +1267,25 @@ const attachExternalFeed = options => {
   }
 
   const target = ticket.target;
+  const armed = armConfirm(ticket);
+  const wrapped = trackedQuery(ticket, armed.signal, null);
 
-  authorizeExternalDelivery(query, req, target).then(allowed => {
-    if (!ticket.active || !allowed) {
+  authorizeExternalDelivery(wrapped, req, target).then(allowed => {
+    disarmConfirm(ticket, armed.signal, armed.timer);
+
+    if (!ticket.active || armed.signal.aborted || !allowed) {
+      if (ticket.active) {
+        detachExternalFeed(listener, deps);
+      }
+
       return;
     }
 
     const names = channelNames(req.userId, ticket.kind, ticket.listId);
 
     if (names.length === 0) {
+      detachExternalFeed(listener, deps);
+
       return;
     }
 
@@ -1085,7 +1321,9 @@ const attachExternalFeed = options => {
     if (!ticket.active) {
       detachExternalFeed(listener, deps);
     }
-  }).catch(() => {});
+  }).catch(() => {
+    disarmConfirm(ticket, armed.signal, armed.timer);
+  });
 };
 
 /**

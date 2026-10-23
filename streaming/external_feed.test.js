@@ -370,15 +370,15 @@ describe('external feed send order', () => {
     payload: '8',
     delivery: { kind: 'delete', user_id: '17', status_id: '8' },
   });
-  const controlMessage = (reason, targets) => JSON.stringify({
+  const controlMessage = (reason, targets, extra = {}) => JSON.stringify({
     event: 'external_feed_changed',
-    payload: {
+    payload: Object.assign({
       version: 1,
       reason: reason,
       targets: targets,
       subscription_id: '7',
       feed_routes_revision: '2',
-    },
+    }, extra),
   });
   const accountBody = (overrides = undefined) => ({ rows: [allowedRow(overrides || {})] });
   const contentBody = (generation, routed = true) => ({
@@ -392,13 +392,14 @@ describe('external feed send order', () => {
 
   const openFeed = async (kind, listId, options = {}) => {
     const gates = [];
-    const output = [];
-    const socket = () => {};
+    const output = options.output || [];
+    const socket = options.socket || (() => {});
+    const req = options.req || request();
     let privateListener = null;
 
     externalFeed.attachExternalFeed({
       listener: socket,
-      req: request(),
+      req: req,
       externalFeed: { kind: kind, listId: listId },
       query: (sql, params, queryOptions) => new Promise((resolve, reject) => {
         const gate = { sql: sql, params: params, resolve: resolve, reject: reject, settled: false, cancelled: false };
@@ -434,7 +435,7 @@ describe('external feed send order', () => {
 
     await flush();
 
-    return { gates: gates, output: output, listener: privateListener, socket: socket };
+    return { gates: gates, output: output, listener: privateListener, socket: socket, req: req };
   };
 
   const texts = output => output.map(entry => entry[1]);
@@ -903,6 +904,178 @@ describe('external feed send order', () => {
       mock.timers.reset();
     }
   });
+
+  const holdContent = async (session) => {
+    const account = await settle(session, accountBody());
+
+    assert.equal(account.sql.includes('oauth_access_tokens'), true);
+    await flush();
+    let content = session.gates.find(gate => !gate.settled);
+
+    if (content && content.sql.includes('FROM lists')) {
+      answer(content, { rows: [{ present: 1 }] });
+      await flush();
+      content = session.gates.find(gate => !gate.settled);
+    }
+
+    assert.ok(content);
+    assert.equal(content.sql.includes('content_generation'), true);
+
+    return content;
+  };
+
+  it('does not write an older snapshot after another ticket on the same connection wrote the newer body or a delete', async () => {
+    const req = request();
+    const output = [];
+    const home = await openFeed('user', null, { req: req, output: output });
+    const list = await openFeed('list', '55', { req: req, output: output });
+
+    home.listener(contentMessage('old-body', '1', 'update'));
+    const stale = await holdContent(home);
+    list.listener(contentMessage('new-body', '2', 'status.update'));
+    await confirmListContent(list, '2');
+    answer(stale, contentBody('1', true));
+    await flush();
+
+    assert.deepEqual(events(output), ['status.update']);
+    assert.equal(texts(output).some(body => body.includes('old-body')), false);
+    assert.equal(texts(output).some(body => body.includes('new-body')), true);
+
+    home.listener(contentMessage('new-body', '2', 'status.update'));
+    await confirmUserContent(home, '2');
+    assert.deepEqual(events(output), ['status.update', 'update']);
+    assert.equal(texts(output)[1].includes('new-body'), true);
+
+    const lists = request();
+    const listed = [];
+    const firstList = await openFeed('list', '55', { req: lists, output: listed });
+    const secondList = await openFeed('list', '56', { req: lists, output: listed });
+
+    firstList.listener(contentMessage('old-body', '1', 'update'));
+    const staleList = await holdContent(firstList);
+    secondList.listener(deleteMessage());
+    await settle(secondList, accountBody());
+    await settle(secondList, { rows: [{ present: 1 }] });
+    await settle(secondList, { rows: [{ status_present: false, marker_present: false }] });
+    answer(staleList, contentBody('1', true));
+    await flush();
+
+    assert.deepEqual(events(listed), ['delete']);
+    assert.equal(texts(listed).some(body => body.includes('old-body')), false);
+
+    const other = await openFeed('user');
+
+    other.listener(contentMessage('old-body', '1', 'update'));
+    const otherStale = await holdContent(other);
+
+    answer(otherStale, contentBody('1', true));
+    await flush();
+    assert.deepEqual(events(other.output), ['update']);
+    assert.equal(texts(other.output)[0].includes('old-body'), true);
+  });
+
+  it('drops an unforwarded insert when the route is removed and does not revive it on re-add', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('old-body', '1', 'update'));
+    await confirmUserContent(session, '2');
+    assert.deepEqual(session.output, []);
+    session.listener(controlMessage('routes_updated', [{ type: 'home' }], { feed_routes_revision: '2' }));
+    await settle(session, accountBody());
+    const removed = await settle(session, { rows: [] });
+
+    assert.equal(removed.sql.includes('ANY($3::bigint[])'), true);
+    session.listener(controlMessage('routes_updated', [{ type: 'home' }], { feed_routes_revision: '3' }));
+    const readd = await settle(session, accountBody());
+
+    assert.equal(readd.sql.includes('oauth_access_tokens'), true);
+    assert.equal(session.gates.some(gate => !gate.settled), false);
+    session.listener(contentMessage('later-history-edit', '3', 'status.update'));
+    await confirmUserContent(session, '3');
+    assert.deepEqual(events(session.output), ['external_feed_changed', 'external_feed_changed', 'status.update']);
+    assert.equal(texts(session.output)[2].includes('later-history-edit'), true);
+  });
+
+  it('keeps the insert when routes_updated leaves this destination routed', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('old-body', '1', 'update'));
+    await confirmUserContent(session, '2');
+    session.listener(controlMessage('routes_updated', [{ type: 'home' }], { feed_routes_revision: '4' }));
+    await settle(session, accountBody());
+    await settle(session, { rows: [{ status_id: '8' }] });
+    session.listener(contentMessage('new-body', '2', 'status.update'));
+    await confirmUserContent(session, '2');
+    assert.deepEqual(events(session.output), ['external_feed_changed', 'update']);
+    assert.equal(texts(session.output)[1].includes('new-body'), true);
+  });
+
+  it('does not let a home route change expire a list insert, or a list removal expire a home insert', async () => {
+    const req = request();
+    const home = await openFeed('user', null, { req: req });
+    const list = await openFeed('list', '55', { req: req });
+
+    home.listener(contentMessage('home-body', '1', 'update'));
+    await confirmUserContent(home, '2');
+    list.listener(contentMessage('list-body', '1', 'update'));
+    await confirmListContent(list, '2');
+    home.listener(controlMessage('routes_updated', [{ type: 'home' }], { feed_routes_revision: '5' }));
+    await settle(home, accountBody());
+    await settle(home, { rows: [] });
+    list.listener(contentMessage('list-edit', '3', 'status.update'));
+    await confirmListContent(list, '3');
+    home.listener(contentMessage('home-edit', '3', 'status.update'));
+    await confirmUserContent(home, '3');
+    assert.deepEqual(events(list.output), ['update']);
+    assert.equal(texts(list.output)[0].includes('list-edit'), true);
+    assert.deepEqual(events(home.output), ['external_feed_changed', 'status.update']);
+
+    const again = request();
+    const homeAgain = await openFeed('user', null, { req: again });
+    const listAgain = await openFeed('list', '55', { req: again });
+
+    homeAgain.listener(contentMessage('kept-body', '1', 'update'));
+    await confirmUserContent(homeAgain, '2');
+    listAgain.listener(contentMessage('gone-body', '1', 'update'));
+    await confirmListContent(listAgain, '2');
+    homeAgain.listener(controlMessage('list_removed', [{ type: 'list', id: '55' }], { feed_routes_revision: '6' }));
+    listAgain.listener(controlMessage('list_removed', [{ type: 'list', id: '55' }], { feed_routes_revision: '6' }));
+    await settle(homeAgain, accountBody());
+    await settle(listAgain, accountBody());
+    homeAgain.listener(contentMessage('kept-edit', '3', 'status.update'));
+    await confirmUserContent(homeAgain, '3');
+    listAgain.listener(contentMessage('gone-edit', '3', 'status.update'));
+    await confirmListContent(listAgain, '3');
+    assert.equal(events(homeAgain.output).includes('update'), true);
+    assert.equal(texts(homeAgain.output).some(body => body.includes('kept-edit')), true);
+    assert.equal(events(listAgain.output).includes('status.update'), true);
+    assert.equal(texts(listAgain.output).some(body => body.includes('gone-edit')), true);
+    assert.equal(events(listAgain.output).includes('update'), false);
+  });
+
+  it('does not promote an edit after source_deleted and source_restored', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('old-body', '1', 'update'));
+    await confirmUserContent(session, '2');
+    session.listener(controlMessage('source_deleted', [{ type: 'home' }], {
+      feed_routes_revision: '7',
+      status_id: '8',
+    }));
+    const deleted = await settle(session, accountBody());
+
+    assert.equal(deleted.sql.includes('oauth_access_tokens'), true);
+    assert.equal(session.gates.some(gate => !gate.settled && gate.sql.includes('ANY($3::bigint[])')), false);
+    session.listener(controlMessage('source_restored', [{ type: 'home' }], {
+      feed_routes_revision: '8',
+      status_id: '8',
+    }));
+    await settle(session, accountBody());
+    session.listener(contentMessage('restored-edit', '4', 'status.update'));
+    await confirmUserContent(session, '4');
+    assert.deepEqual(events(session.output), ['external_feed_changed', 'external_feed_changed', 'status.update']);
+    assert.equal(texts(session.output)[2].includes('restored-edit'), true);
+  });
 });
 
 describe('cancellable private queries', () => {
@@ -1006,6 +1179,216 @@ describe('cancellable private queries', () => {
       harness.connect();
       await assert.rejects(pending, /cancelled/);
       assert.deepEqual(harness.calls, ['release-clean']);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  const attachOptions = (listener, query, kind, listId, subscribed, closes) => ({
+    listener: listener,
+    req: request({
+      on(event, fn) {
+        if (event === 'close' && closes) {
+          closes.push(fn);
+        }
+      },
+    }),
+    externalFeed: { kind: kind, listId: listId },
+    query: query,
+    redisPrefix: 'ns:',
+    subscribe: channel => subscribed.push(channel),
+    unsubscribe: () => {},
+    output: () => {},
+  });
+
+  it('aborts a checked-out subscribe account query at five seconds', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+
+    try {
+      const harness = checkout();
+      const subscribed = [];
+
+      externalFeed.attachExternalFeed(attachOptions(() => {}, harness.run, 'user', null, subscribed));
+      harness.connect();
+      assert.equal(harness.calls[0].query_timeout, externalFeed.PRIVATE_CONFIRM_MS);
+      assert.equal(harness.calls[0].text.includes('oauth_access_tokens'), true);
+      mock.timers.tick(externalFeed.PRIVATE_CONFIRM_MS);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(harness.calls.includes('destroy'), true);
+      assert.equal(harness.calls.includes('release-error'), true);
+      assert.deepEqual(subscribed, []);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it('releases a subscribe checkout that has not started when five seconds pass', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+
+    try {
+      const harness = checkout();
+      const subscribed = [];
+
+      externalFeed.attachExternalFeed(attachOptions(() => {}, harness.run, 'user', null, subscribed));
+      mock.timers.tick(externalFeed.PRIVATE_CONFIRM_MS);
+      harness.connect();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(harness.calls, ['release-clean']);
+      assert.deepEqual(subscribed, []);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it('does not start the list query after subscribe authorization is cancelled', async () => {
+    const flush = () => new Promise(resolve => setImmediate(resolve));
+    const startList = () => {
+      const gates = [];
+      const closes = [];
+      const subscribed = [];
+      const listener = () => {};
+      const query = (sql, params, queryOptions) => new Promise((resolve, reject) => {
+        const gate = { sql: sql, params: params, queryOptions: queryOptions, settled: false };
+
+        gates.push(gate);
+
+        if (queryOptions && queryOptions.signal) {
+          queryOptions.signal.addEventListener('abort', () => {
+            if (gate.settled) {
+              return;
+            }
+
+            gate.settled = true;
+            reject(new Error('cancelled'));
+          });
+        }
+
+        gate.resolve = body => {
+          if (gate.settled) {
+            return;
+          }
+
+          gate.settled = true;
+          resolve(body);
+        };
+      });
+
+      externalFeed.attachExternalFeed(attachOptions(listener, query, 'list', '55', subscribed, closes));
+
+      return { gates: gates, closes: closes, subscribed: subscribed, listener: listener };
+    };
+
+    const lateAccount = async session => {
+      await flush();
+      assert.equal(session.gates[0].sql.includes('oauth_access_tokens'), true);
+      assert.equal(session.gates[0].queryOptions.timeoutMs, externalFeed.PRIVATE_CONFIRM_MS);
+      assert.equal(typeof session.gates[0].queryOptions.signal.abort, 'function');
+      session.gates[0].resolve({ rows: [allowedRow()] });
+      await flush();
+      assert.equal(session.gates.some(gate => gate.sql.includes('FROM lists')), false);
+      assert.deepEqual(session.subscribed, []);
+    };
+
+    const detached = startList();
+
+    externalFeed.detachExternalFeed(detached.listener, { unsubscribe: () => {} });
+    await lateAccount(detached);
+
+    const closed = startList();
+
+    closed.closes[0]();
+    await lateAccount(closed);
+
+    const replaced = startList();
+    const nextSubscribed = [];
+
+    externalFeed.attachExternalFeed(attachOptions(replaced.listener, (sql, _params, queryOptions) => new Promise((resolve, reject) => {
+      if (queryOptions && queryOptions.signal) {
+        queryOptions.signal.addEventListener('abort', () => reject(new Error('cancelled')));
+      }
+
+      if (sql.includes('oauth_access_tokens')) {
+        resolve({ rows: [allowedRow()] });
+      }
+    }), 'list', '55', nextSubscribed));
+    await lateAccount(replaced);
+    await flush();
+    externalFeed.detachExternalFeed(replaced.listener, { unsubscribe: () => {} });
+    assert.equal(nextSubscribed.some(channel => channel.includes(':list:55')), false);
+  });
+
+  it('lets a later subscribe check out after the hung subscribe authorization releases its client', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+
+    try {
+      const clients = [];
+      const events = [];
+      let busy = false;
+      const waiters = [];
+      const connect = callback => {
+        const give = (done) => {
+          busy = true;
+          const client = {
+            connection: {
+              stream: {
+                destroy() {
+                  events.push('destroy');
+                },
+              },
+            },
+            query(config, queryCallback) {
+              events.push(config);
+              client.callback = queryCallback;
+            },
+          };
+
+          clients.push(client);
+          events.push('checkout');
+          done(null, client, (error) => {
+            events.push(error ? 'release-error' : 'release-clean');
+            busy = false;
+            const next = waiters.shift();
+
+            if (next) {
+              give(next);
+            }
+          });
+        };
+
+        if (busy) {
+          events.push('queued');
+          waiters.push(callback);
+
+          return;
+        }
+
+        give(callback);
+      };
+      const query = externalFeed.createCancellableQuery(connect);
+      const subscribed = [];
+      const first = () => {};
+      const second = () => {};
+
+      externalFeed.attachExternalFeed(attachOptions(first, query, 'user', null, subscribed));
+      externalFeed.attachExternalFeed(attachOptions(second, query, 'user', null, subscribed));
+      assert.equal(events.includes('queued'), true);
+      assert.equal(clients.length, 1);
+      externalFeed.detachExternalFeed(first, { unsubscribe: () => {} });
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(events.includes('destroy'), true);
+      assert.equal(events.includes('release-error'), true);
+      const configs = events.filter(item => item && item.text);
+
+      assert.equal(clients.length, 2);
+      assert.equal(configs.length, 2);
+      assert.equal(configs[0].query_timeout, externalFeed.PRIVATE_CONFIRM_MS);
+      assert.equal(configs[1].query_timeout, externalFeed.PRIVATE_CONFIRM_MS);
+      clients[1].callback(null, { rows: [allowedRow()] });
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(subscribed, [
+        'ns:timeline:external:user:17:home',
+        'ns:timeline:external:user:17:control',
+      ]);
     } finally {
       mock.timers.reset();
     }
