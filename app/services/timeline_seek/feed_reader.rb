@@ -7,8 +7,10 @@ module TimelineSeek
   class FeedReader
     attr_reader :visibilities, :redis_key, :unfiltered
 
-    def initialize(feed, **options)
+    def initialize(feed, external: nil, compose: nil, **options)
       @feed = feed
+      @external = external
+      @compose = compose
       @visibilities = options[:visibilities]
       @redis_key = options[:redis_key]
       @redis = options[:redis]
@@ -32,11 +34,24 @@ module TimelineSeek
     def page(limit, max_id: nil, min_id: nil)
       return [] if empty_source?
 
-      if visibilities
+      if @compose
+        @compose.call(limit, max_id, nil, min_id, visibilities || [])
+      elsif visibilities
         @feed.get(limit, max_id, nil, min_id, visibilities)
       else
         @feed.get(limit, max_id, nil, min_id)
       end
+    end
+
+    def external?
+      !@external.nil?
+    end
+
+    # DB membership for this user's projections. Ordinary ids are absent.
+    def external_partition(status_ids)
+      return ExternalBridge::Feeds::Placement.empty if @external.nil?
+
+      @external.partition(status_ids)
     end
 
     # Integer ids have no value between n and n + 1, so the newest row with

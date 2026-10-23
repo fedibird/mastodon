@@ -24,6 +24,25 @@ class TimelineSeek::Resolver
   end
 
   def call(payload)
+    ExternalBridge::Viewer.with_user(aligned_viewer_id) do
+      @external_reads = external_reads_now?
+      seek_call(payload)
+    end
+  end
+
+  # Shared with batch membership. Does not accept a seek target or search text.
+  # The caller keeps Viewer in place for the policy check that follows.
+  def open_reader(source, context)
+    @external_reads = external_reads_now?
+    @source = source.to_s
+    @context = (context || {}).to_h.symbolize_keys
+    @entry = TimelineSeek::Capability.lookup(@source, 'membership')
+    build_reader
+  end
+
+  private
+
+  def seek_call(payload)
     payload ||= {}
     return TimelineSeek::Result.unsupported('search_text_not_accepted') if payload[:reject_search_text]
 
@@ -57,16 +76,6 @@ class TimelineSeek::Resolver
     end
   end
 
-  # Shared with batch membership. Does not accept a seek target or search text.
-  def open_reader(source, context)
-    @source = source.to_s
-    @context = (context || {}).to_h.symbolize_keys
-    @entry = TimelineSeek::Capability.lookup(@source, 'membership')
-    build_reader
-  end
-
-  private
-
   def search_text_key?(hash)
     hash.keys.map(&:to_s).intersect?(SEARCH_TEXT_KEYS)
   end
@@ -80,7 +89,17 @@ class TimelineSeek::Resolver
       return vis if vis.is_a?(TimelineSeek::Result)
 
       feed = HomeFeed.new(@account)
-      TimelineSeek::FeedReader.new(feed, visibilities: vis, redis_key: FeedManager.instance.key(:home, @account.id), redis: redis, regenerating: feed.regenerating?)
+      # Limited stays on the ordinary home key. External rows are not added there.
+      external = @source == 'home'
+      TimelineSeek::FeedReader.new(
+        feed,
+        visibilities: vis,
+        redis_key: FeedManager.instance.key(:home, @account.id),
+        redis: redis,
+        regenerating: feed.regenerating?,
+        external: external ? external_placement('home', vis, feed.regenerating?) : nil,
+        compose: external ? external_compose(feed, 'home', nil, vis) : nil
+      )
     when 'list'
       return TimelineSeek::Result.unsupported('missing_account') if @account.nil?
 
@@ -88,7 +107,14 @@ class TimelineSeek::Resolver
       return TimelineSeek::Result.unsupported('missing_source') if list_id.nil?
 
       list = List.where(account: @account).find(list_id)
-      TimelineSeek::FeedReader.new(ListFeed.new(list), redis_key: FeedManager.instance.key(:list, list.id), redis: redis)
+      feed = ListFeed.new(list)
+      TimelineSeek::FeedReader.new(
+        feed,
+        redis_key: FeedManager.instance.key(:list, list.id),
+        redis: redis,
+        external: external_placement('list', nil, false, list),
+        compose: external_compose(feed, 'list', list, nil)
+      )
     when 'hashtag'
       tag_reader
     when 'public'
@@ -258,6 +284,24 @@ class TimelineSeek::Resolver
       return TimelineSeek::Result.resolved(status_id, capability: 'approximate', limitations: limitations)
     end
 
+    partition = reader.external_partition([status_id])
+    if partition.members.include?(status_id)
+      denied = concealed(status_id)
+      return denied if denied
+
+      return TimelineSeek::Result.resolved(status_id, capability: 'approximate', limitations: external_limitations(limitations))
+    end
+
+    if partition.deferred.include?(status_id)
+      return TimelineSeek::Result.unavailable('feed_regenerating', capability: 'approximate', limitations: external_limitations(limitations))
+    end
+
+    if partition.withheld.include?(status_id)
+      return conceal_or(status_id) do
+        TimelineSeek::Result.not_in_source(capability: 'approximate', limitations: external_limitations(limitations), reason: 'external_not_delivered')
+      end
+    end
+
     conceal_or(status_id) do
       if in_set
         TimelineSeek::Result.not_in_source(capability: 'approximate', limitations: limitations, reason: 'source_filter')
@@ -316,9 +360,11 @@ class TimelineSeek::Resolver
     # (account_id, id DESC) instead of walking every row for the account.
     probed = Status.where(account_id: target.id, expired_at: nil).reorder(id: :desc).limit(ACCOUNT_PROBE_LIMIT).to_a
     ExternalBridge::ProjectionAccess.prepare!(probed)
+    external_members = reader.external_partition(probed.map(&:id)).members
+    limitations = external_limitations(limitations) if external_members.any?
     probed.each do |status|
       next unless StatusPolicy.new(@account, status).show?
-      next unless account_status_in_source?(reader, status.id)
+      next unless account_status_in_source?(reader, status.id, external_members)
 
       return TimelineSeek::Result.resolved(status.id, capability: 'approximate', precision: 'newest-in-probe', limitations: limitations)
     end
@@ -326,9 +372,9 @@ class TimelineSeek::Resolver
     TimelineSeek::Result.unavailable('account_probe_exhausted', capability: 'approximate', limitations: limitations)
   end
 
-  def account_status_in_source?(reader, status_id)
+  def account_status_in_source?(reader, status_id, external_members = Set.new)
     if reader.redis?
-      reader.in_retained_set?(status_id) && reader.selectable?(status_id)
+      (reader.in_retained_set?(status_id) && reader.selectable?(status_id)) || external_members.include?(status_id)
     else
       reader.contains?(status_id)
     end
@@ -446,9 +492,55 @@ class TimelineSeek::Resolver
 
     values = Array(raw).map(&:to_s)
     known = Status.composable_visibility_keys
+    # external is a read filter for home and list, not a composable visibility.
+    known += ['external'] if @source == 'home' || @source == 'list'
     return TimelineSeek::Result.unsupported('invalid_visibility') if values.any? { |value| known.exclude?(value) }
 
     values
+  end
+
+  # The passed user is the only owner. A request viewer that names someone
+  # else is not replaced from Account#user, and external rows are not read.
+  def aligned_viewer_id
+    return nil unless external_reads_now? || (@user && ExternalBridge::Viewer.user_id.nil?)
+
+    return nil if @user.nil?
+    return nil if ExternalBridge::Viewer.user_id.present? && ExternalBridge::Viewer.user_id != @user.id
+
+    @user.id
+  end
+
+  def external_reads_now?
+    @user.present? && ExternalBridge::Viewer.user_id == @user.id
+  end
+
+  def external_placement(destination, visibilities, regenerating, list = nil)
+    return nil unless @external_reads
+
+    ExternalBridge::Feeds::Placement.new(
+      user: @user,
+      destination: destination,
+      list: list,
+      visibilities: visibilities,
+      regenerating: regenerating
+    )
+  end
+
+  def external_compose(feed, destination, list, visibilities)
+    return nil unless @external_reads
+    return nil unless ExternalBridge::Feeds::Feature.permitted?(@user)
+    return nil unless external_filter_open?(visibilities)
+
+    ExternalBridge::Feeds::Compose.new(user: @user, feed: feed, destination: destination, list: list)
+  end
+
+  def external_filter_open?(visibilities)
+    values = Array(visibilities).map { |value| value.to_s.strip }.reject(&:empty?)
+    values.empty? || values.include?('external')
+  end
+
+  def external_limitations(limitations)
+    limitations.include?('external_db_membership') ? limitations : limitations + ['external_db_membership']
   end
 
   def public_options
