@@ -7,12 +7,14 @@
 require 'rails_helper'
 
 describe 'ExternalBridge link boost', type: :model do
-  SECRET = %w(
-    SECRET_BODY_b1c0de
-    SECRET_PROJECTION_TEXT_b1c0de
-    SECRET_CW_b1c0de
-    SECRET_ARTICLE_TITLE_b1c0de
-  ).freeze
+  def secret_tokens
+    %w(
+      SECRET_BODY_b1c0de
+      SECRET_PROJECTION_TEXT_b1c0de
+      SECRET_CW_b1c0de
+      SECRET_ARTICLE_TITLE_b1c0de
+    )
+  end
 
   def error_code(code)
     raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq(code) }
@@ -111,13 +113,13 @@ describe 'ExternalBridge link boost', type: :model do
     expect(row.reference_status_id).to eq(reference.id)
 
     json = serialized(wrapper, user).to_json
-    SECRET.each { |token| expect(json).not_to include(token) }
+    secret_tokens.each { |token| expect(json).not_to include(token) }
     expect(json).not_to include(projection.id.to_s) if projection.id.to_s.length > 8
     expect(serialized(wrapper, user)[:reblog][:id]).to eq(reference.id.to_s)
 
     activity = ActivityPub::ActivityPresenter.from_status(wrapper)
     payload = ActiveModelSerializers::SerializableResource.new(activity, serializer: ActivityPub::ActivitySerializer, adapter: ActivityPub::Adapter).to_json
-    SECRET.each { |token| expect(payload).not_to include(token) }
+    secret_tokens.each { |token| expect(payload).not_to include(token) }
     expect(payload).to include(ActivityPub::TagManager.instance.uri_for(reference))
     expect(hooks.map { |args| args[2] }).not_to include(projection.id)
   end
@@ -685,10 +687,6 @@ describe 'ExternalBridge link boost', type: :model do
   end
 
   describe 'database integrity' do
-    def attrs_for(user, world, result)
-      result.boost.attributes.except('id').merge('generation' => 9, 'state' => 'active')
-    end
-
     it 'allows one active share per user and projection' do
       user = Fabricate(:user)
       world = prepare(user)
@@ -777,3 +775,5 @@ describe 'ExternalBridge link boost', type: :model do
     end
   end
 end
+
+# rubocop:enable Metrics/BlockLength

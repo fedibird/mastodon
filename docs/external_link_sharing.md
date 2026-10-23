@@ -1,13 +1,13 @@
 # External link sharing
 
-Parent plan: issue #541. E4 plan: issue #555. This document is the E4-A contract, issue #556.
+Parent plan: issue #541. E4 plan: issue #555. This document is the E4-A contract (issue #556) and the E4-B contract (issue #558, section "E4-B: boost and unboost of a projection").
 
 Related contracts:
 
 - `docs/external_status_visibility.md` — projection visibility, the read predicate, and the `direct` / `visibility_ex=external` mask.
 - `docs/external_feed_routing.md` — E3 home and list delivery. It does not publish a projection.
 
-E4-A is not a rollout. `external_bridge_link_sharing` and `external_bridge_link_sharing_testers` ship false and empty. Generation fails closed while they are off. This slice does not convert boost, unboost, reply, or quote, does not change a projection's REST visibility, and does not add a boost button.
+E4-A is not a rollout. `external_bridge_link_sharing` and `external_bridge_link_sharing_testers` ship false and empty. Generation fails closed while they are off. E4-A does not convert boost, unboost, reply, or quote, does not change a projection's REST visibility, and does not add a boost button. E4-B converts boost and unboost only, behind the same two switches.
 
 ## Projection and reference Status
 
@@ -126,13 +126,127 @@ Policy updates lock only the policy row, so they take the same first lock and do
 
 `20261026120000` and `20261027120000` both run inside one transaction. The first statement after `lock_timeout` is `ExternalBridge::Schema::LINK_SHARING_ROLLBACK_FLOOR_SQL`. It locks `external_link_share_policies` and then `external_projection_link_references` in `SHARE ROW EXCLUSIVE` mode, then checks for rows. Those locks block INSERT, UPDATE, DELETE, and `SELECT FOR UPDATE` until the transaction ends, including the `DROP`. They do not lock `statuses`. If either table contains a row, down raises `check_violation` and leaves the tables, triggers, policy, mapping, and reference Status in place. An empty database can go down and back up. Do not delete published notes in order to make down succeed. Dropping the mapping would keep the public Status and throw away the only record of which User, projection, and scope it came from.
 
-## What E4-A does not implement
+## E4-B: boost and unboost of a projection
 
-- `POST /api/v1/statuses/:id/reblog` and unboost. `ReblogService` still calls `Guards.reject_target!`.
-- `reblogged` on the projection, or a boost button.
-- Changing the projection's standard visibility from `direct` to `unlisted`.
+E4-B is split. B1 is the state of record and the boost/unboost contract. B2 is the REST read side. Both ship in the same change and both stay behind `external_bridge_link_sharing` (false) and `external_bridge_link_sharing_testers` (empty). Nothing here turns a flag on, and no WebUI control exists.
+
+### What a boost of a projection does
+
+`POST /api/v1/statuses/:projection_id/reblog` by the owner becomes a share of the User's own reference note:
+
+1. `Api::V1::Statuses::ReblogsController` sees that the target is a projection and hands it to `ExternalBridge::LinkSharing::Boost`. It does not call `ReblogService`. `ReblogService` still calls `ExternalBridge::Guards.reject_target!`, and `StatusPolicy#reblog?` still refuses a private status. Both are unchanged. A normal status takes the old path with the old code.
+2. `Boost` checks, in order: the authenticated `current_user`, a projection marker with that user's id, the flag and tester list, `User#functional?`, the policy row (`enabled`, `consented_at`, `public` or `unlisted`), and the request parameters.
+3. `EnsureReference` (E4-A) gets or creates the reference note for the policy's scope.
+4. One transaction locks the policy row, then the mapping row, then the User's boost rows, repeats the checks against the locked rows, verifies the reference note (below), and inserts the wrapper Status and the boost row together.
+5. After commit the Announce is requested (below).
+
+The wrapper is an ordinary boost Status on the User's Account whose `reblog` is the reference note. It has the policy scope as its visibility. The projection is never nested. No field of the projection (text, spoiler, title, byline, attachment, source authentication string, Status id, or URI) is copied into the wrapper, the reference note, an ActivityPub activity, a notification, or a webhook.
+
+Request parameters never widen the scope. `visibility` is accepted only when it equals the policy scope. Any other value, including `mutual`, `limited`, `private`, `direct`, `personal`, and the other of `public`/`unlisted`, is `422 visibility_mismatch`. `circle_id` is `422 circle_rejected`. There is no fallback to a default privacy.
+
+### User and Account
+
+| Caller | Boost | Unboost | `reblogged` on the projection |
+| --- | --- | --- | --- |
+| Owner User | Allowed when flag, tester, and consent hold | Always allowed | `true` while a live share exists |
+| Another User of the same Account | `404` (no marker for that User) | `404` | `false`; reads its own rows only |
+| Another Account, admin, nil user | `404` | `404` | `false` |
+| Forged marker, legacy 200, flag-only Status | `404` | `404` | `false` |
+
+The share row carries `user_id` and `account_id` and a trigger checks that they agree with the mapping, the marker, and the wrapper. A wrapper is never matched by Account and reference Status alone. A boost of the reference note that the Account made by other means is not adopted and not undone: boosting while one exists is `422 reference_already_boosted`.
+
+### State: `external_projection_link_boosts`
+
+One row per share generation. A row is created `active` and ends `undone`. It never becomes active again.
+
+| Column | Meaning |
+| --- | --- |
+| `user_id`, `account_id` | The sharing User and that User's Account. |
+| `link_reference_id` | The E4-A mapping row (the projection, scope, and canonical URL identity). |
+| `external_status_projection_id` | Marker. Set null when the projection is purged. |
+| `projection_status_id` | Snapshot of the projection Status id. The key `reblogged` reads. |
+| `reference_status_id`, `wrapper_status_id` | The note and the boost Status. Set null by the foreign key when a Status row is deleted. |
+| `visibility` | `public` or `unlisted`. Equal to the mapping and the wrapper. |
+| `generation` | 1, 2, ... per mapping. A new boost after an undo is a new row and a new wrapper. |
+| `policy_revision` | Policy revision when the row was inserted. Audit only. |
+| `state`, `ended_reason`, `undone_at` | `active` or `undone`, and why it ended. |
+| `announced_at` | Durable mark that the Announce was handed to distribution. |
+| `next_announce_at` | Recovery cursor for the Announce, like `next_recovery_at`. |
+
+Database guarantees: one `active` row per `(user_id, projection_status_id)` (partial unique index); `(link_reference_id, generation)` unique; `wrapper_status_id` unique; foreign keys to users, accounts, the mapping (cascade), the marker (set null), and both statuses (set null); checks for state, visibility, generation, `active` requires a wrapper, `undone` requires `undone_at`; an insert trigger that verifies the User/Account pair, the mapping, the marker owner, and the wrapper shape; an update trigger that makes identifiers immutable, makes `announced_at` immutable once set, and refuses to reactivate an ended row; a `BEFORE DELETE` trigger on `statuses` that ends the row (and clears its status ids in the same statement) when the wrapper or the reference note is hard-deleted.
+
+`ended_reason` values: `user_undo`, `projection_purged`, `projection_gone`, `status_deleted`, `wrapper_removed`, `reference_unavailable`, `reference_modified`, `consent_withdrawn`.
+
+### Create, Announce, Undo
+
+Who emits what:
+
+| Activity | Emitted by | When |
+| --- | --- | --- |
+| Create (reference note) | E4-A `LinkReferencePublishWorker` through `PublishStatusService` | Once per mapping, at `published_at`. Unchanged. |
+| Announce (wrapper) | `LinkSharing::BoostAnnounce`, which enqueues only `ActivityPub::DistributionWorker` for the wrapper | Once per boost row, only after the mapping's `published_at` is set. |
+| Undo of the Announce | `RemovalWorker` on the wrapper (`RemoveStatusService`) | On unboost, only when `announced_at` is set. |
+
+Ordering. If the reference note is new, `published_at` is still null when the boost commits, so no Announce is queued. The publish worker writes `published_at`, then pushes the boost rows that were waiting (`BoostSchedule.enqueue_for_mapping!`). The Announce job therefore enters the push queue after the Create distribution jobs. The Announce is never sent for an object that has not been handed to distribution. The scheduler (`Scheduler::ExternalBridgeLinkReferencePublishScheduler`) also scans `RecoverUnannounced` for rows whose job was lost, and only for mappings whose Create is out. Delivery to separate remote inboxes is separate Sidekiq jobs, so arrival order at a remote server is best effort. A remote server that receives the Announce first fetches the note by URI; the note is public or unlisted and dereferenceable.
+
+Duplicate display. The reference note's own Create fan-out is the only appearance of the share on this server. The wrapper:
+
+- is not given to `DistributionWorker`, so it never enters a home, list, public, hashtag, or subscriber timeline, and no streaming event is made for it;
+- is excluded from `FeedManager#populate_home` and `#merge_into_home` rebuilds and from the profile listing used by `GET /api/v1/accounts/:id/statuses` (`Status.without_link_boost_wrappers`);
+- creates no notification, trend, or tag use (`ReblogService` is not used).
+
+Followers on other servers receive Create then Announce. This server cannot dedupe their timelines; Mastodon-compatible servers fold a boost of a note that is already in the top of the feed. The ActivityPub outbox of the account still lists the wrapper, as a federation fact. Feed rebuild paths other than the three above are not changed and have no test; a code search found no other reader of an Account's boosts that fills a timeline, but that is a reading, not a proof.
+
+Undo. `POST /api/v1/statuses/:projection_id/unreblog` ends this User's active rows for the projection. The wrapper is discarded and, if it was announced, handed to `RemovalWorker` after commit, which sends the Undo and removes the row. A wrapper that was never announced is removed at once: nothing left the server, and a left-over discarded row would fail the one-boost-per-Account-and-note validation of the next share. The reference note, the projection, the mapping, favourites, and bookmarks are untouched. Repeating the call, or calling it with no share, returns `200` and ends nothing.
+
+Stale jobs. `BoostAnnounce` locks the row, and re-reads the flag, the tester list, the User, the policy (enabled, consented, same scope), the marker, the mapping, and the reference note. If any no longer holds the row is closed (`undone`, with a reason) and the wrapper is removed without an Announce. A job queued before an undo, a consent revocation, a scope change, a purge, or an edit cannot bring the share back, and a job for generation 1 cannot touch generation 2.
+
+### Reference note identity
+
+The reference note is the User's own post and can be edited. At insert, `external_projection_link_references.reference_digest` stores the SHA-256 of the note text. A boost requires the digest to match the current text and the note to be unchanged in shape: same visibility as the mapping, no spoiler, not sensitive, no media, no poll, no quote, no status reference, not a reply, not a reblog, same Account, not discarded. Otherwise `422 reference_modified` (or `reference_broken` for a missing or discarded note) and nothing is written. A change of the source title after the note was created does not matter, because the digest is of the stored text and not of the current title. Reverting an edit makes the note usable again. A row inserted before the digest column existed (`NULL`) is compared with the allowlist text derived from the current source, so it fails closed if the title has changed. The digest is immutable once written.
+
+### Lifecycle
+
+| Event | Share |
+| --- | --- |
+| Flag off, tester removed, consent revoked, scope changed | New boost refused. A live share stays and can be undone. An unannounced share is closed at announce time (`consent_withdrawn`). An announced share is not recalled. |
+| `source_deleted` | Share stays. Boost and undo keep working. |
+| Projection purge / subscription delete / user delete | Ended in the purge transaction (`projection_purged`); the Undo is enqueued after commit. The reference note stays. `RecoverUnannounced` also closes any active row whose marker is gone (`projection_gone`). |
+| Reference note edited | New boost refused. A live announced share stays. An unannounced one is closed (`reference_modified`). |
+| Reference note deleted | Share ended by the trigger (`status_deleted`). The mapping is `broken` (E4-A). |
+| Wrapper removed by another path | The share no longer counts for `reblogged`. The next boost or unboost closes the row (`wrapper_removed`). |
+
+### REST read side (B2)
+
+`reblogged` on a projection is read from the viewing User's active rows with a kept wrapper: `StatusRelationshipsPresenter` adds one more sub-select to its existing statement (no extra round trip, no per-status query), keyed by `ExternalBridge::Viewer.user_id` and the Account id of the request. `REST::StatusSerializer` does the same lookup when no relationships object is given (single status, streaming payload rendered for the owner). So `GET /api/v1/statuses/:id`, home and list timelines, bookmarks, favourites, the compact serializers, and every other call site of the presenter agree, and a second User of the same Account reads `false`. The flag and the policy are not read: the state is what exists. Account-scoped `reblogged` and `reblogs_count` of a normal status are unchanged. The projection's `reblogs_count` stays its own stored value (0); it is not the count of the reference note.
+
+### API
+
+```
+POST /api/v1/statuses/:projection_id/reblog          -> 200 Status (the wrapper)
+POST /api/v1/statuses/:projection_id/unreblog        -> 200 Status (the projection, reblogged=false)
+```
+
+Create returns the wrapper: `id` is the wrapper id, `visibility` the policy scope, `reblog` the reference note (its `content` is the E4-A allowlist text), and no `fedibird_external` anywhere. Unreblog returns the projection as the owner sees it (`visibility: "direct"`, `visibility_ex: "external"`, `reblogged: false`).
+
+Errors: `404` for a non-owner, nil user, admin, forged marker, and other-User; `401` without a token; `403` for a read-only token and for `feature_disabled`, `tester_only`, `consent_required`, `user_not_functional`; `422` for `visibility_mismatch`, `circle_rejected`, `scope_rejected`, `reference_modified`, `reference_broken`, `reference_already_boosted`, `canonical_url_invalid`; `409` for `reference_conflict`, `policy_changed`. Body: `{"error": "<code>"}`.
+
+### Unsupported or deferred
+
+Standard clients cannot reach this unless they can send the projection id: it is `visibility: direct`, `visibility_ex: external`, so stock clients do not show a boost button for it. E4-C (not here) decides the REST `unlisted` presentation, the WebUI boost button, the consent UI, and client compatibility. Also not here: Bluesky native repost, reply, quote, and reference conversion; a stream event that tells another tab that `reblogged` changed; the WebUI reducer protection against an older stream frame overwriting a newer REST `reblogged`.
+
+### Operational stop points
+
+- Stop new shares: `external_bridge_link_sharing` false, or empty the tester list, or revoke the policy. Existing shares stay and can be undone.
+- Stop a pending Announce: any of the three above closes the row at announce time. To stop distribution at the queue, pause `ExternalBridge::LinkBoostAnnounceWorker`; nothing is lost, the row stays `announced_at IS NULL`.
+- Stop one announced share: unboost it. That is the Undo.
+- Do not delete rows from `external_projection_link_boosts`. Roll back (`20261029120000` down) is refused while any row exists, for the same reason as E4-A.
+
+## Still not implemented
+
+- Changing the projection's standard visibility from `direct` to `unlisted` (E4-C).
+- A boost button, settings UI, or consent UI (E4-C).
 - Reply, quote, or reference conversion.
 - Bluesky native repost, like, or reply.
-- A settings UI. Consent is the policy service only.
 - Turning the flag or the tester list on.
 - A new `statuses` column or a backfill of existing projections.

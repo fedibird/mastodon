@@ -29,7 +29,7 @@ module ExternalBridge
         wrapper = Status.unscoped.find_by(id: boost.wrapper_status_id)
         return nil if wrapper.nil?
 
-        unless boost.announced_at.present?
+        if boost.announced_at.blank?
           wrapper.destroy!
           return nil
         end

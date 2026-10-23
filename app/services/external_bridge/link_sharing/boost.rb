@@ -48,6 +48,7 @@ module ExternalBridge
         reject_widening!(scope)
 
         ensured = EnsureReference.call(user: @user, projection: projection, scope: scope)
+        Checkpoints.fire(:before_boost_lock)
         removals = []
         result = ApplicationRecord.transaction { share!(projection, ensured.mapping, scope, removals) }
         Retire.enqueue_removals(removals)
