@@ -15,9 +15,17 @@ module ExternalBridge
         row = ExternalProjectionLinkReference.lock('FOR UPDATE').find_by(id: mapping_id)
         publish_locked!(row)
       end
+
+      LinkSharing::BoostSchedule.enqueue_for_mapping!(mapping_id) if published?(mapping_id)
     end
 
     private
+
+    # Create is done. Boosts of this mapping that were waiting for it may now
+    # announce. Pushed after the transaction so the mark is visible to them.
+    def published?(mapping_id)
+      ExternalProjectionLinkReference.where(id: mapping_id).where.not(published_at: nil).exists?
+    end
 
     def publish_locked!(row)
       return if row.nil? || row.published_at.present? || row.broken? || row.reference_status_id.nil?

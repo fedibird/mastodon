@@ -210,6 +210,7 @@ module ExternalBridge
           canonical_url: canonical,
           resource_revision: @projection.external_resource.revision,
           policy_revision: policy_revision,
+          reference_digest: ReferenceIntegrity.digest(status.text),
           state: 'active'
         )
       end

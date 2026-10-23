@@ -102,6 +102,8 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   has_many :external_subscriptions, inverse_of: :user, dependent: :destroy
   # E4-A share consent. ON DELETE CASCADE. Not default privacy or a feed route.
   has_one :external_link_share_policy, inverse_of: :user, dependent: :destroy
+  # E4-B share state. Deleting the user does not delete a wrapper Status.
+  has_many :external_projection_link_boosts, inverse_of: :user, dependent: :delete_all
   # Mapping rows only. Deleting the user does not delete the reference Status.
   has_many :external_projection_link_references, inverse_of: :user, dependent: :delete_all
   # ON DELETE CASCADE. A linked DID belongs to this user, not to the account.

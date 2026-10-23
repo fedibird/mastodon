@@ -454,6 +454,209 @@ module ExternalBridge
       END $$;
     SQL
 
+    # E4-B boost state. The table is the only record of which User holds an
+    # active link share for a projection, so the owner guard is a trigger and
+    # not only a model validation. INSERT checks the whole shape. UPDATE only
+    # allows an active row to end and identifiers to become NULL through a
+    # foreign key SET NULL.
+    LINK_BOOST_SQL = <<~SQL
+      CREATE OR REPLACE FUNCTION external_projection_link_boosts_enforce_owner()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      DECLARE
+        user_account_id bigint;
+        mapping_user_id bigint;
+        mapping_account_id bigint;
+        mapping_visibility text;
+        mapping_projection_status_id bigint;
+        mapping_reference_status_id bigint;
+        mapping_projection_id bigint;
+        mapping_state text;
+        marker_user_id bigint;
+        marker_status_id bigint;
+        wrapper_account_id bigint;
+        wrapper_reblog_of_id bigint;
+        wrapper_projection boolean;
+        wrapper_visibility integer;
+        wrapper_deleted timestamp;
+        expected_visibility integer;
+      BEGIN
+        IF TG_OP = 'UPDATE' THEN
+          IF OLD.state = 'undone' AND NEW.state IS DISTINCT FROM 'undone' THEN
+            RAISE EXCEPTION 'ended external link boost cannot be reused'
+              USING ERRCODE = 'check_violation';
+          END IF;
+
+          IF NEW.user_id IS DISTINCT FROM OLD.user_id
+             OR NEW.account_id IS DISTINCT FROM OLD.account_id
+             OR NEW.link_reference_id IS DISTINCT FROM OLD.link_reference_id
+             OR NEW.visibility IS DISTINCT FROM OLD.visibility
+             OR NEW.generation IS DISTINCT FROM OLD.generation
+             OR NEW.policy_revision IS DISTINCT FROM OLD.policy_revision
+             OR NEW.projection_status_id IS DISTINCT FROM OLD.projection_status_id
+             OR (OLD.announced_at IS NOT NULL AND NEW.announced_at IS DISTINCT FROM OLD.announced_at)
+             OR (NEW.wrapper_status_id IS DISTINCT FROM OLD.wrapper_status_id AND NEW.wrapper_status_id IS NOT NULL)
+             OR (NEW.reference_status_id IS DISTINCT FROM OLD.reference_status_id AND NEW.reference_status_id IS NOT NULL)
+             OR (
+               NEW.external_status_projection_id IS DISTINCT FROM OLD.external_status_projection_id
+               AND NEW.external_status_projection_id IS NOT NULL
+             ) THEN
+            RAISE EXCEPTION 'external link boost identifiers are immutable'
+              USING ERRCODE = 'check_violation';
+          END IF;
+
+          RETURN NEW;
+        END IF;
+
+        IF NEW.visibility = 'public' THEN
+          expected_visibility := 0;
+        ELSIF NEW.visibility = 'unlisted' THEN
+          expected_visibility := 1;
+        ELSE
+          RAISE EXCEPTION 'external link boost visibility is invalid'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        IF NEW.wrapper_status_id IS NULL
+           OR NEW.reference_status_id IS NULL
+           OR NEW.external_status_projection_id IS NULL THEN
+          RAISE EXCEPTION 'external link boost requires wrapper, reference, and projection'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        SELECT account_id INTO user_account_id FROM users WHERE id = NEW.user_id FOR SHARE;
+        IF user_account_id IS NULL OR user_account_id IS DISTINCT FROM NEW.account_id THEN
+          RAISE EXCEPTION 'external link boost account mismatch'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        SELECT user_id, account_id, visibility, projection_status_id, reference_status_id, external_status_projection_id, state
+          INTO mapping_user_id, mapping_account_id, mapping_visibility, mapping_projection_status_id,
+               mapping_reference_status_id, mapping_projection_id, mapping_state
+        FROM external_projection_link_references
+        WHERE id = NEW.link_reference_id
+        FOR SHARE;
+
+        IF mapping_user_id IS NULL
+           OR mapping_user_id IS DISTINCT FROM NEW.user_id
+           OR mapping_account_id IS DISTINCT FROM NEW.account_id
+           OR mapping_visibility IS DISTINCT FROM NEW.visibility
+           OR mapping_projection_status_id IS DISTINCT FROM NEW.projection_status_id
+           OR mapping_reference_status_id IS DISTINCT FROM NEW.reference_status_id
+           OR mapping_projection_id IS DISTINCT FROM NEW.external_status_projection_id
+           OR mapping_state IS DISTINCT FROM 'active' THEN
+          RAISE EXCEPTION 'external link boost mapping mismatch'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        SELECT user_id, status_id INTO marker_user_id, marker_status_id
+        FROM external_status_projections
+        WHERE id = NEW.external_status_projection_id
+        FOR SHARE;
+
+        IF marker_user_id IS NULL
+           OR marker_user_id IS DISTINCT FROM NEW.user_id
+           OR marker_status_id IS DISTINCT FROM NEW.projection_status_id THEN
+          RAISE EXCEPTION 'external link boost projection owner mismatch'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        SELECT account_id, reblog_of_id, external_projection, visibility, deleted_at
+          INTO wrapper_account_id, wrapper_reblog_of_id, wrapper_projection, wrapper_visibility, wrapper_deleted
+        FROM statuses
+        WHERE id = NEW.wrapper_status_id
+        FOR SHARE;
+
+        IF wrapper_account_id IS NULL
+           OR wrapper_account_id IS DISTINCT FROM NEW.account_id
+           OR wrapper_reblog_of_id IS DISTINCT FROM NEW.reference_status_id
+           OR wrapper_projection IS TRUE
+           OR wrapper_visibility IS DISTINCT FROM expected_visibility
+           OR wrapper_deleted IS NOT NULL THEN
+          RAISE EXCEPTION 'external link boost wrapper shape is invalid'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS external_projection_link_boosts_enforce_owner ON external_projection_link_boosts;
+      CREATE TRIGGER external_projection_link_boosts_enforce_owner
+      BEFORE INSERT OR UPDATE ON external_projection_link_boosts
+      FOR EACH ROW
+      EXECUTE FUNCTION external_projection_link_boosts_enforce_owner();
+
+      CREATE OR REPLACE FUNCTION external_projection_link_boosts_end_on_status_delete()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        -- The references are cleared here, in the same statement that ends the
+        -- row, so the SET NULL that follows the delete has nothing left to
+        -- check. A wrapper always goes with its reference (reblog_of_id is ON
+        -- DELETE CASCADE), so deleting the reference clears the wrapper too.
+        UPDATE external_projection_link_boosts
+           SET state = 'undone',
+               ended_reason = 'status_deleted',
+               undone_at = clock_timestamp(),
+               wrapper_status_id = CASE
+                 WHEN wrapper_status_id = OLD.id OR reference_status_id = OLD.id THEN NULL
+                 ELSE wrapper_status_id
+               END,
+               reference_status_id = CASE
+                 WHEN reference_status_id = OLD.id THEN NULL
+                 ELSE reference_status_id
+               END,
+               updated_at = clock_timestamp()
+         WHERE state = 'active'
+           AND (wrapper_status_id = OLD.id OR reference_status_id = OLD.id);
+        RETURN OLD;
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS external_projection_link_boosts_end_on_status_delete ON statuses;
+      CREATE TRIGGER external_projection_link_boosts_end_on_status_delete
+      BEFORE DELETE ON statuses
+      FOR EACH ROW
+      EXECUTE FUNCTION external_projection_link_boosts_end_on_status_delete();
+
+      CREATE OR REPLACE FUNCTION external_projection_link_references_digest_mark()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF OLD.reference_digest IS NOT NULL AND NEW.reference_digest IS DISTINCT FROM OLD.reference_digest THEN
+          RAISE EXCEPTION 'external link reference digest is immutable'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS external_projection_link_references_digest_mark ON external_projection_link_references;
+      CREATE TRIGGER external_projection_link_references_digest_mark
+      BEFORE UPDATE OF reference_digest ON external_projection_link_references
+      FOR EACH ROW
+      EXECUTE FUNCTION external_projection_link_references_digest_mark();
+    SQL
+
+    # Rollback floor for the E4-B table. The wrapper statuses stay public
+    # Announce activities, so dropping the table while a row exists would lose
+    # the only record of whose share each one is.
+    LINK_BOOST_ROLLBACK_FLOOR_SQL = <<~SQL
+      DO $$
+      BEGIN
+        IF to_regclass('public.external_projection_link_boosts') IS NOT NULL THEN
+          LOCK TABLE external_projection_link_boosts IN SHARE ROW EXCLUSIVE MODE;
+
+          IF EXISTS (SELECT 1 FROM external_projection_link_boosts) THEN
+            RAISE EXCEPTION 'refusing to roll back external link boosts while a boost row exists'
+              USING ERRCODE = 'check_violation';
+          END IF;
+        END IF;
+      END $$;
+    SQL
+
     DEFINITIONS_SQL = <<~SQL
       ALTER TABLE external_status_projections
         DROP CONSTRAINT IF EXISTS fk_external_projections_subscription_owner;
@@ -586,6 +789,8 @@ module ExternalBridge
       #{LINK_REFERENCE_SQL}
 
       #{LINK_REFERENCE_PUBLISH_SQL}
+
+      #{LINK_BOOST_SQL}
 
       #{MIGRATE_FUNCTION_SQL}
     SQL

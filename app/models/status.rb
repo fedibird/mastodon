@@ -156,6 +156,10 @@ class Status < ApplicationRecord
   scope :with_accounts, ->(ids) { where(id: ids).includes(:account) }
   scope :without_replies, -> { where('statuses.reply = FALSE OR statuses.in_reply_to_account_id = statuses.account_id') }
   scope :without_reblogs, -> { where('statuses.reblog_of_id IS NULL') }
+  # Wrapper boosts that stand for an E4-B link share are federation-only.
+  # The reference note already holds the local timeline and profile slot, so
+  # a feed or profile query that rebuilds from statuses leaves them out.
+  scope :without_link_boost_wrappers, -> { where('statuses.reblog_of_id IS NULL OR NOT EXISTS (SELECT 1 FROM external_projection_link_boosts link_boost_wrappers WHERE link_boost_wrappers.wrapper_status_id = statuses.id)') }
   scope :with_public_visibility, -> { where(visibility: :public) }
   scope :with_personal_visibility, -> { where(visibility: :personal) }
   scope :without_personal_visibility, -> { where.not(visibility: :personal) }

@@ -7,6 +7,10 @@
 # the publish worker covers a job that was accepted and then failed. This
 # scheduler covers a job that was never accepted, and it moves past a head
 # that stays unprocessed.
+#
+# The same pass also covers E4-B boost rows whose Announce was never handed to
+# distribution (RecoverUnannounced) and closes boost rows whose projection is
+# gone. Those rows are selected only after the reference Create is distributed.
 class Scheduler::ExternalBridgeLinkReferencePublishScheduler
   include Sidekiq::Worker
 
@@ -14,7 +18,8 @@ class Scheduler::ExternalBridgeLinkReferencePublishScheduler
 
   def perform
     enqueued = ExternalBridge::LinkSharing::RecoverUnpublished.call
-    Rails.logger.info("[Scheduler::ExternalBridgeLinkReferencePublishScheduler] candidates=#{enqueued}")
+    announces = ExternalBridge::LinkSharing::RecoverUnannounced.call
+    Rails.logger.info("[Scheduler::ExternalBridgeLinkReferencePublishScheduler] candidates=#{enqueued} announce_candidates=#{announces}")
     enqueued
   end
 end

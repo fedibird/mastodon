@@ -139,7 +139,7 @@ class FeedManager
     timeline_key = key(type, id)
     aggregate    = into_account.user&.aggregates_reblogs?
 
-    query        = from_account.statuses
+    query        = from_account.statuses.without_link_boost_wrappers
     query        = query.where(visibility: options[:public_only] ? :public : [:public, :unlisted, :private])
 
     if options[:show_reblogs] && options[:media_only]
@@ -268,12 +268,12 @@ class FeedManager
     timeline_key = key(:home, account.id)
     over_limit = false
 
-    account.statuses.limit(limit).each do |status|
+    account.statuses.without_link_boost_wrappers.limit(limit).each do |status|
       add_to_feed(:home, account.id, status, aggregate)
     end
 
     account.delivery_following.includes(:account_stat).find_each do |target_account|
-      query = target_account.statuses.list_eligible_visibility.includes(reblog: :account).limit(limit)
+      query = target_account.statuses.without_link_boost_wrappers.list_eligible_visibility.includes(reblog: :account).limit(limit)
 
       over_limit ||= redis.zcard(timeline_key) >= limit
       if over_limit

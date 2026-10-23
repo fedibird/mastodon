@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_28_120000) do
+ActiveRecord::Schema.define(version: 2026_10_29_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -676,6 +676,49 @@ ActiveRecord::Schema.define(version: 2026_10_28_120000) do
     t.index ["user_id"], name: "index_external_projection_failures_on_user_id"
   end
 
+  create_table "external_projection_link_boosts", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "account_id", null: false
+    t.bigint "link_reference_id", null: false
+    t.bigint "external_status_projection_id"
+    t.bigint "projection_status_id", null: false
+    t.bigint "reference_status_id"
+    t.bigint "wrapper_status_id"
+    t.string "visibility", null: false
+    t.integer "generation", null: false
+    t.integer "policy_revision", null: false
+    t.string "state", default: "active", null: false
+    t.string "ended_reason"
+    t.datetime "announced_at"
+    t.datetime "next_announce_at"
+    t.datetime "undone_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["id"], name: "index_link_boosts_on_orphaned", where: "(((state)::text = 'active'::text) AND (external_status_projection_id IS NULL))"
+    t.index ["link_reference_id", "generation"], name: "index_link_boosts_on_generation", unique: true
+    t.index ["reference_status_id"], name: "index_link_boosts_on_reference", where: "(reference_status_id IS NOT NULL)"
+    t.index ["user_id", "projection_status_id"], name: "index_link_boosts_on_active_share", unique: true, where: "((state)::text = 'active'::text)"
+    t.index ["user_id"], name: "index_link_boosts_on_user_id"
+    t.index ["wrapper_status_id"], name: "index_link_boosts_on_wrapper", unique: true, where: "(wrapper_status_id IS NOT NULL)"
+    t.check_constraint "((state)::text <> 'active'::text) OR (wrapper_status_id IS NOT NULL)", name: "link_boosts_active_requires_wrapper"
+    t.check_constraint "((state)::text <> 'undone'::text) OR (undone_at IS NOT NULL)", name: "link_boosts_undone_requires_time"
+    t.check_constraint "((state)::text = 'undone'::text) OR (ended_reason IS NULL)", name: "link_boosts_reason_requires_end"
+    t.check_constraint "(state)::text = ANY ((ARRAY['active'::character varying, 'undone'::character varying])::text[])", name: "link_boosts_state_check"
+    t.check_constraint "(visibility)::text = ANY ((ARRAY['public'::character varying, 'unlisted'::character varying])::text[])", name: "link_boosts_visibility_check"
+    t.check_constraint "generation >= 1", name: "link_boosts_generation_check"
+  end
+
+  # Partial unannounced scan. NULLS FIRST matches the scheduler order.
+  # db:schema:dump may not keep that clause. Do not replace this statement
+  # with a t.index on the same columns.
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_link_boosts_on_unannounced
+    ON external_projection_link_boosts (next_announce_at ASC NULLS FIRST, id)
+    WHERE announced_at IS NULL
+      AND state = 'active'
+      AND wrapper_status_id IS NOT NULL
+  SQL
+
   create_table "external_projection_link_references", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.bigint "account_id", null: false
@@ -690,6 +733,7 @@ ActiveRecord::Schema.define(version: 2026_10_28_120000) do
     t.datetime "superseded_at"
     t.datetime "published_at"
     t.datetime "next_recovery_at"
+    t.string "reference_digest", limit: 64
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["reference_status_id"], name: "index_link_refs_on_reference_status", unique: true, where: "(reference_status_id IS NOT NULL)"
@@ -2182,6 +2226,12 @@ ActiveRecord::Schema.define(version: 2026_10_28_120000) do
   add_foreign_key "external_projection_failures", "external_resources", on_delete: :restrict
   add_foreign_key "external_projection_failures", "external_subscriptions", on_delete: :cascade
   add_foreign_key "external_projection_failures", "users", on_delete: :cascade
+  add_foreign_key "external_projection_link_boosts", "accounts", name: "fk_link_boosts_account", on_delete: :cascade
+  add_foreign_key "external_projection_link_boosts", "external_projection_link_references", column: "link_reference_id", name: "fk_link_boosts_reference_row", on_delete: :cascade
+  add_foreign_key "external_projection_link_boosts", "external_status_projections", name: "fk_link_boosts_projection", on_delete: :nullify
+  add_foreign_key "external_projection_link_boosts", "statuses", column: "reference_status_id", name: "fk_link_boosts_reference_status", on_delete: :nullify
+  add_foreign_key "external_projection_link_boosts", "statuses", column: "wrapper_status_id", name: "fk_link_boosts_wrapper", on_delete: :nullify
+  add_foreign_key "external_projection_link_boosts", "users", name: "fk_link_boosts_user", on_delete: :cascade
   add_foreign_key "external_projection_link_references", "accounts", name: "fk_link_refs_account", on_delete: :cascade
   add_foreign_key "external_projection_link_references", "external_status_projections", name: "fk_link_refs_projection", on_delete: :nullify
   add_foreign_key "external_projection_link_references", "statuses", column: "reference_status_id", name: "fk_link_refs_status", on_delete: :nullify

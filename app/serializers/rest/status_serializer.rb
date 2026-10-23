@@ -250,6 +250,8 @@ class REST::StatusSerializer < ActiveModel::Serializer
   def reblogged
     if instance_options && instance_options[:relationships]
       instance_options[:relationships].reblogs_map[object.id] || false
+    elsif object.external_projection == true
+      ExternalBridge::LinkSharing::BoostState.active?(current_user, object)
     else
       current_user.account.reblogged?(object)
     end
