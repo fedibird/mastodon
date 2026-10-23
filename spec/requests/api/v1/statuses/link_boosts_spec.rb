@@ -116,7 +116,7 @@ RSpec.describe 'External projection boost', type: :request do
     expect(response).to have_http_status(200)
     expect(json['id']).not_to eq(first)
 
-    expect(ExternalProjectionLinkBoost.where(projection_status_id: projection.id).pluck(:generation, :state)).to eq([[1, 'undone'], [2, 'active']])
+    expect(ExternalProjectionLinkBoost.where(projection_status_id: projection.id).order(:generation).pluck(:generation, :state)).to eq([[1, 'undone'], [2, 'active']])
     expect(ExternalProjectionLinkReference.where(user_id: owner.id).count).to eq(1)
   end
 
