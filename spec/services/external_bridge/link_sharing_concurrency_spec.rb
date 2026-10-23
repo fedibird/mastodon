@@ -262,6 +262,78 @@ describe 'ExternalBridge link sharing concurrency', type: :model do
     cleanup!(bundle)
   end
 
+  it 'queues one publish when ensures and recovery claim the same mapping' do
+    bundle = prepare_world
+    user = bundle[:user]
+    marker = bundle[:world][:marker]
+    url = ExternalBridge::LinkSharing::ArticleURL.normalize!(bundle[:url])
+    note = Status.create!(
+      account: user.account,
+      text: "Safe Feed Title\nRSS\n#{url}",
+      visibility: :public,
+      searchability: :public,
+      local: true,
+      external_projection: false
+    )
+    mapping = ExternalProjectionLinkReference.create!(
+      user_id: user.id,
+      account_id: user.account_id,
+      external_status_projection_id: marker.id,
+      projection_status_id: marker.status_id,
+      reference_status_id: note.id,
+      visibility: 'public',
+      canonical_url: url,
+      policy_revision: bundle[:policy].revision,
+      state: 'active'
+    )
+    # fake! with a block is thread-local. These workers run on other threads.
+    Sidekiq::Testing.fake!
+    begin
+      ExternalBridge::LinkReferencePublishWorker.clear
+      errors = Queue.new
+      barrier = ExternalBridgeLinkSharingBarrier.new(4)
+      threads = Array.new(3) do
+        Thread.new do
+          barrier.wait
+          ActiveRecord::Base.connection_pool.with_connection do
+            ExternalBridge::LinkSharing::EnsureReference.call(
+              user: User.find(user.id),
+              projection: ExternalStatusProjection.find(marker.id),
+              scope: 'public'
+            )
+          end
+        rescue StandardError => e
+          errors << e
+        ensure
+          release_thread_redis!
+        end
+      end
+      threads << Thread.new do
+        barrier.wait
+        ActiveRecord::Base.connection_pool.with_connection do
+          ExternalBridge::LinkSharing::RecoverUnpublished.call
+        end
+      rescue StandardError => e
+        errors << e
+      ensure
+        release_thread_redis!
+      end
+      threads.each(&:join)
+      drained = []
+      drained << errors.pop until errors.empty?
+      expect(drained).to be_empty
+      expect(ExternalProjectionLinkReference.where(user_id: user.id, state: 'active').pluck(:id)).to eq([mapping.id])
+      expect(ExternalBridge::LinkReferencePublishWorker.jobs.map { |job| job['args'] }).to eq([[mapping.id]])
+      expect(mapping.reload.published_at).to be_nil
+      expect(mapping.next_recovery_at).to be > 20.minutes.from_now
+    ensure
+      Sidekiq::Testing.inline!
+    end
+  ensure
+    Sidekiq::Testing.inline!
+    cleanup!(bundle)
+  end
+
   it 'refuses rollback when an insert commits while the table lock is waiting' do
     user = Fabricate(:user)
     world = external_project_for(user)

@@ -55,20 +55,7 @@ module ExternalBridge
       end
 
       def enqueue(id)
-        return unless RecoverySchedule.claim!(id)
-
-        jid = ExternalBridge::LinkReferencePublishWorker.perform_async(id)
-        if jid.present?
-          jid
-        else
-          RecoverySchedule.visit_without_claim!(id)
-          Rails.logger.warn("[LinkSharing] unpublished reference was not enqueued mapping_id=#{id}")
-          nil
-        end
-      rescue Redis::BaseError => e
-        RecoverySchedule.visit_without_claim!(id)
-        Rails.logger.warn("[LinkSharing] unpublished reference enqueue failed mapping_id=#{id} error=#{e.class}")
-        nil
+        RecoverySchedule.enqueue!(id)
       end
     end
   end

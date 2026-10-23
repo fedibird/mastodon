@@ -740,6 +740,97 @@ describe 'ExternalBridge link sharing', type: :model do
     expect(enqueued & high).to be_empty
   end
 
+  it 'enqueues one job when ensure reuses an unpublished reference' do
+    user = Fabricate(:user)
+    world = external_project_for(user)
+    world[:resource].update!(canonical_url: "https://example.com/posts/#{SecureRandom.hex(4)}")
+    world[:source].update!(title: 'Safe Feed Title')
+    enable_external_bridge_link_sharing!(user)
+    grant!(user, 'public')
+    Sidekiq::Testing.fake! do
+      ExternalBridge::LinkReferencePublishWorker.clear
+      first = share!(user, world[:marker])
+      4.times do
+        again = share!(user, world[:marker])
+        expect(again.status.id).to eq(first.status.id)
+        expect(again.created).to be false
+      end
+      expect(ExternalProjectionLinkReference.where(user_id: user.id, state: 'active').count).to eq(1)
+      expect(ExternalBridge::LinkReferencePublishWorker.jobs.map { |job| job['args'] }).to eq([[first.mapping.id]])
+      expect(Scheduler::ExternalBridgeLinkReferencePublishScheduler.new.perform).to eq(0)
+      expect(ExternalBridge::LinkReferencePublishWorker.jobs.size).to eq(1)
+
+      first.mapping.update_columns(next_recovery_at: 1.minute.ago)
+      share!(user, world[:marker])
+      expect(ExternalBridge::LinkReferencePublishWorker.jobs.size).to eq(2)
+    end
+  ensure
+    Sidekiq::Testing.inline!
+  end
+
+  it 'does not enqueue when recovery already claimed the mapping' do
+    user = Fabricate(:user)
+    world = external_project_for(user)
+    url = "https://example.com/posts/#{SecureRandom.hex(4)}"
+    world[:resource].update!(canonical_url: url)
+    world[:source].update!(title: 'Safe Feed Title')
+    enable_external_bridge_link_sharing!(user)
+    grant!(user, 'public')
+    note = Status.create!(
+      account: user.account,
+      text: "Safe Feed Title\nRSS\n#{url}",
+      visibility: :public,
+      searchability: :public,
+      local: true,
+      external_projection: false
+    )
+    mapping = ExternalProjectionLinkReference.create!(
+      user_id: user.id,
+      account_id: user.account_id,
+      external_status_projection_id: world[:marker].id,
+      projection_status_id: world[:status].id,
+      reference_status_id: note.id,
+      visibility: 'public',
+      canonical_url: ExternalBridge::LinkSharing::ArticleURL.normalize!(url),
+      policy_revision: user.external_link_share_policy.revision,
+      state: 'active'
+    )
+    Sidekiq::Testing.fake! do
+      ExternalBridge::LinkReferencePublishWorker.clear
+      expect(Scheduler::ExternalBridgeLinkReferencePublishScheduler.new.perform).to eq(1)
+      3.times { share!(user, world[:marker]) }
+      expect(ExternalProjectionLinkReference.where(user_id: user.id, state: 'active').count).to eq(1)
+      expect(ExternalBridge::LinkReferencePublishWorker.jobs.map { |job| job['args'] }).to eq([[mapping.id]])
+    end
+  ensure
+    Sidekiq::Testing.inline!
+  end
+
+  it 'releases only the claim this enqueue stored' do
+    user = Fabricate(:user)
+    world = external_project_for(user)
+    mapping = plant_unpublished_reference!(user, world, "https://example.com/posts/#{SecureRandom.hex(4)}")
+    allow(ExternalBridge::LinkReferencePublishWorker).to receive(:perform_async) do
+      mapping.update_columns(next_recovery_at: 2.hours.from_now)
+      nil
+    end
+
+    expect(ExternalBridge::LinkSharing::PublishReference.call(mapping)).to be_nil
+    expect(mapping.reload.next_recovery_at).to be > 90.minutes.from_now
+    expect(mapping.published_at).to be_nil
+
+    refused = plant_unpublished_reference!(user, world, "https://example.com/posts/#{SecureRandom.hex(4)}-refused")
+    allow(ExternalBridge::LinkReferencePublishWorker).to receive(:perform_async).and_return(nil)
+    expect(ExternalBridge::LinkSharing::PublishReference.call(refused)).to be_nil
+    expect(refused.reload.next_recovery_at).to be <= Time.current
+    expect(ExternalBridge::LinkSharing::PublishReference.call(refused)).to be_nil
+
+    allow(ExternalBridge::LinkReferencePublishWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError, 'down')
+    expect(ExternalBridge::LinkSharing::RecoverUnpublished.call).to eq(1)
+    expect(refused.reload.published_at).to be_nil
+    expect(refused.next_recovery_at).to be <= Time.current
+  end
+
   it 'does not push another job for an accepted row on the next scheduler passes' do
     user = Fabricate(:user)
     world = external_project_for(user)
