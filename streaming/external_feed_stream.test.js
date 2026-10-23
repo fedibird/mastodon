@@ -662,7 +662,7 @@ describe('user and list external feed streaming', { concurrency: 1, timeout: 180
       assert.equal(await numsub(homeChannel(world.owner.userId)), 0);
       assert.equal(await numsub(controlChannel(world.owner.userId)), 0);
       assert.equal(denied.status, 401);
-      assert.equal(JSON.parse(denied.body).error, 'Access token does not cover required scopes');
+      assert.equal(JSON.parse(denied.body).error, 'Error: Access token does not cover required scopes');
     } finally {
       notes.close();
       direct.close();

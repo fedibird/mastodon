@@ -40,7 +40,8 @@ class List < ApplicationRecord
     record.errors.add(:base, I18n.t('lists.errors.limit')) if List.where(account_id: value).count >= PER_ACCOUNT_LIMIT
   end
 
-  before_destroy :record_external_feed_list_removal
+  # Runs before dependent: :delete_all, which is also a before_destroy.
+  before_destroy :record_external_feed_list_removal, prepend: true
   before_destroy :clean_feed_manager
 
   scope :favourites, -> { where(favourite: true) }

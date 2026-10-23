@@ -325,12 +325,12 @@ describe 'ExternalBridge streaming delivery' do
     ApplicationRecord.transaction do
       ExternalBridge::Streaming::Scheduler.bump_and_schedule_content!(bundle[:marker].reload)
     end
+    stub_publish!
+    perform_content(0)
     bundle[:status].update_columns(text: 'second body')
     ApplicationRecord.transaction do
       ExternalBridge::Streaming::Scheduler.bump_and_schedule_content!(bundle[:marker].reload)
     end
-    stub_publish!
-    perform_content(0)
     perform_content(1)
 
     expect(published.map { |entry| entry[:event] }).to eq ['update', 'status.update']

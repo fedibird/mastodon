@@ -33,7 +33,8 @@ class ExternalSubscription < ApplicationRecord
 
   validates :state, inclusion: { in: STATES }
 
-  before_destroy :schedule_external_feed_removed
+  # Runs before dependent: :delete_all, which is also a before_destroy.
+  before_destroy :schedule_external_feed_removed, prepend: true
 
   scope :active, -> { where(state: 'active') }
 
