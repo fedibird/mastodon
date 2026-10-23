@@ -64,7 +64,8 @@ describe('streaming custom-filter query', () => {
     expect(statuses).toContain('export const updateStatus = status => dispatch => dispatch(importFetchedStatus(status));');
     expect(webUiStreaming).toContain('import { updateStatus } from \'./statuses\'');
     expect(webUiStreaming).toContain('case \'status.update\':');
-    expect(webUiStreaming).toContain('dispatch(updateStatus(JSON.parse(data.payload)));');
+    expect(webUiStreaming).toContain('const status = JSON.parse(data.payload);');
+    expect(webUiStreaming).toContain('dispatch(updateStatus(status));');
   });
 
   it('strips the internal searchable text at the transmit boundary', () => {

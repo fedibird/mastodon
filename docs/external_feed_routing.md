@@ -67,7 +67,7 @@ Off, or a user who is not listed, uses the ordinary `Feed#get` path for home and
 
 ## Call-site audit
 
-E3-B still has to make these agree with the membership query. None of them gained an external merge in this slice.
+The cells below are the B1 audit. E3-B2 connects TimelineSeek, batch membership, the home column, and Mix to the same owner query. It does not change the B1 send guards.
 
 | Call | User available | E3-A |
 | --- | --- | --- |
@@ -162,15 +162,29 @@ A future control revision is ignored by the worker. An older revision may still 
 
 ### E3-B2
 
-B1 does not change `app/javascript/mastodon/actions/streaming.js`, `getHomeVisibilities`, Mix, TimelineSeek, or positional bookmarks. B2 still has to:
+B2 keeps the B1 event contract. Clients still subscribe to `user` and `list`. The public payload is still `version`, `reason`, `targets`, `subscription_id`, and `feed_routes_revision`, plus `status_id` only for `source_deleted` and `source_restored`. It does not carry a delivery envelope, a route row id, or a content generation. `feed_routes_revision` is per subscription. The same revision for another status is still applied. An older revision is not proof that a row can be removed.
 
-- handle `external_feed_changed` in the WebUI
-- include stored `external` in the home column's visibility request
-- reconcile an open timeline after reconnect, using the displayed status ids and `Feeds::Query`
-- use the same membership for live/history, Mix, and TimelineSeek
-- treat a route removal or `source_deleted` as a reload of that view, not as `delete`
+REST and the stream still use `visibility=direct` and `visibility_ex=external`. External rows are not DMs, and `external` is not a composable visibility. The home column adds `external` to its visibility request only while `GET /api/v1/timelines/external_feed_capability` says the signed-in user is permitted. That value is display control. It is taken from `signed_in_user`, never from `Account#user`, and a boot value is not kept after a reconnect or a return to the tab. A network failure does not flip it off. Limited, personal, and the composer do not gain `external`. The navigation UI stays administrator-only.
 
-A third-party client that ignores `external_feed_changed` sees the change on its next REST fetch. `delete` remains the signal that the status row is gone, including a copy cached on the owner's user stream.
+Home and list REST already merged through `Feeds::Compose`. TimelineSeek status, date, and account reads, batch membership, and positional bookmarks now use the same owner `Placement` in front of `Feeds::Query`. One marker read covers the requested ids. Eligibility is a second read, and only when delivery is on. Ordinary ids outside the Redis window stay `unknown` (`outside_retained_range`, or `feed_regenerating` while the home feed is rebuilding). An owned canonical row that is not delivered is `not_in_source` / `external_not_delivered`. That is not deletion. While the home feed is regenerating, an eligible external id is `unknown` / `feed_regenerating`, so an external-only answer cannot close the range. A viewer that does not match the passed user fails closed and does not fall back to `Account#user`. `not_found` still includes authorization denial. Another user of the same account, a stranger, and an administrator do not learn that the row exists.
+
+The client reuses `POST /api/v1/timelines/membership` (50 ids, no body). It continues past the first 50, four batches per cycle, and retries what remains. Body refresh reuses `GET /api/v1/statuses?id[]=` (20 ids, the existing owner read). Omitted ids are not deletions. A non-200 response, including 206 and 429, does not remove a displayed row and does not advance a reconciled cursor. 429 is retried. `unknown` stays. `not_in_source`, `not_visible`, and `not_found` leave that view only. Bookmarks and a Mix row that another source still holds stay. `deleteFromTimelines` is not used for a route change.
+
+Each open home, list, and mix column has a token. Closing it, or opening the same key again, drops a late response. Logout disposes the session before the sign-out form is submitted. A stream `update`, `status.update`, or `delete` moves that status id's epoch before import, so an older membership or body response cannot write it back. History inserts go strictly inside a loaded contiguous run. They do not close a gap, do not count as unread, and do not move the live follow. Saved articles newer than the loaded top stay on the existing since_id path.
+
+Mix home `shows.external` is optional. Omitting it leaves the saved source key and the saved visibility set unchanged. Explicit `false` is stored and is not the same as omitting the key. A new home source saves explicit `true` only when the signed-in user is currently permitted, which is the home column's current selection. Existing snapshots are not rewritten on load. List sources have no visibility snapshot and follow that list's REST membership. One route removal clears that source's ids only.
+
+A positional reading bookmark whose anchor is no longer delivered keeps its source. The availability reason is `external_not_delivered`. Restore does not move it to another column.
+
+A third-party client that ignores `external_feed_changed` sees the change on its next REST fetch. `delete` remains the signal that the status row is gone. This document does not record a browser pass or a third-party client pass. Those are unverified until a run says otherwise. E3 stays off: `external_bridge_feeds` is false and `external_bridge_feeds_testers` is empty. This slice does not enable them, does not add a migration, and does not run the E2 import.
+
+## Runbook
+
+Ship the web, streaming, and Sidekiq processes together. B2 adds no migration. Apply the already-shipped E3-A and E3-B1 migrations with the normal application role before starting the new code. Do not grant that role superuser or CREATEROLE for this feature. Do not change `.env`, `.env.test`, or production settings from the deploy itself.
+
+Leave `external_bridge_feeds` false and the tester list empty. Confirm `GET /api/v1/timelines/external_feed_capability` is `permitted: false` for a normal token. A small tester check, when the owner decides to try it, is a separate change: turn the flag on, add that user's id, create an RSS route, and confirm a new visibility-201 row appears on that user's home or list. Then turn the flag off or remove the id. The next private event stops, and the client's capability refresh removes the row from the open home, list, or mix source. The status row, a status bookmark, and a positional bookmark remain. Another user of the same account still cannot read the row.
+
+Do not run the E2 import command as part of this deploy. Do not point Bluesky, link Notes, or native actions at this path. Stopping the feature is the flag or the tester list, not a data delete.
 
 ## Rollback
 
