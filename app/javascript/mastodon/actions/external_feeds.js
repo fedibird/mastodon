@@ -5,6 +5,7 @@ import { getHomeVisibilities } from '../selectors';
 import {
   TIMELINE_EXTERNAL_CLEAR_VIEW,
   TIMELINE_EXTERNAL_RECONCILE,
+  clearDeferredExternalReconnectsForTests,
 } from './timelines';
 import { MIX_EXTERNAL_RECONCILE } from './mix_timelines';
 import { plainMix } from '../mix/definition';
@@ -156,6 +157,7 @@ export function resetExternalFeedSession () {
 
 export function discardExternalFeedSessionForTests () {
   clearExternalFeedTimers();
+  clearDeferredExternalReconnectsForTests();
   externalFeedSession.resetForTests();
 
   if (visibilityHandler && typeof document !== 'undefined') {

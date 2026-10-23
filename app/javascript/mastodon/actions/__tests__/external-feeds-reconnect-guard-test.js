@@ -631,4 +631,61 @@ describe('external feed reconnect guard', () => {
     expect(homeItems()).not.toContain('96');
     expect(state.getIn(['statuses', '96'])).toBeUndefined();
   });
+
+  it('drops a loading reconnect page when streaming reconnects again and then catches up', async () => {
+    state = base(ImmutableMap({
+      home: loaded(['80', '70']),
+      'list:4': loaded(['15', '14']),
+    }));
+    const releaseHome = armHome();
+    const home = connectTimelineStream('home', 'user', {})(dispatch, () => state);
+    const homeSince = () => calls.filter(call => call.path === '/api/v1/timelines/home' && call.params.since_id);
+
+    home.onDisconnect();
+    home.onConnect();
+    await drain();
+    expect(state.getIn(['timelines', 'home', 'isLoading'])).toBe(true);
+    expect(homeSince()).toHaveLength(1);
+    home.onDisconnect();
+    home.onConnect();
+    await drain();
+    expect(state.getIn(['timelines', 'home', 'isLoading'])).toBe(true);
+    expect(homeSince()).toHaveLength(1);
+    expect(state.getIn(['externalFeeds', 'permitted'])).toBe(false);
+    releaseHome()(compact([body('95', '<p>stale</p>')]));
+    await drain();
+    expect(homeItems()).toEqual([null, '80', '70']);
+    expect(state.getIn(['statuses', '95'])).toBeUndefined();
+    expect(homeSince()).toHaveLength(2);
+    expect(state.getIn(['timelines', 'home', 'isLoading'])).toBe(true);
+    releaseHome()(compact([body('96', '<p>current</p>')]));
+    await drain();
+    expect(homeItems()).toEqual(['96', null, '80', '70']);
+    expect(state.getIn(['statuses', '96', 'content'])).toBe('<p>current</p>');
+    expect(state.getIn(['statuses', '95'])).toBeUndefined();
+
+    calls.length = 0;
+    const releaseList = armHome();
+    const list = connectTimelineStream('list:4', 'list', { list: '4' })(dispatch, () => state);
+    const listSince = () => calls.filter(call => call.path === '/api/v1/timelines/list/4' && call.params.since_id);
+
+    list.onDisconnect();
+    list.onConnect();
+    await drain();
+    expect(state.getIn(['timelines', 'list:4', 'isLoading'])).toBe(true);
+    list.onDisconnect();
+    list.onConnect();
+    await drain();
+    expect(listSince()).toHaveLength(1);
+    releaseList()(compact([body('16', '<p>stale</p>')]));
+    await drain();
+    expect(state.getIn(['timelines', 'list:4', 'items']).toArray()).toEqual([null, '15', '14']);
+    expect(state.getIn(['statuses', '16'])).toBeUndefined();
+    expect(listSince()).toHaveLength(2);
+    releaseList()(compact([body('17', '<p>current</p>')]));
+    await drain();
+    expect(state.getIn(['timelines', 'list:4', 'items']).toArray()).toEqual(['17', null, '15', '14']);
+    expect(state.getIn(['statuses', '17', 'content'])).toBe('<p>current</p>');
+    expect(state.getIn(['statuses', '16'])).toBeUndefined();
+  });
 });

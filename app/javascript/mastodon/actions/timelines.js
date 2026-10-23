@@ -188,8 +188,25 @@ const newestLoadedId = (list) => {
   return list.find(id => id !== null && id !== undefined) || null;
 };
 
+const externalReconnectKey = (timelineId) => {
+  if (timelineId === 'home' || (typeof timelineId === 'string' && timelineId.indexOf('list:') === 0)) {
+    return timelineId;
+  }
+
+  return null;
+};
+
+// One deferred catch-up per timeline. A newer reconnect replaces it. The slot
+// is not a queue: the request that is already loading stays the only HTTP
+// call until it settles, then one replacement starts.
+const deferredExternalReconnects = new Set();
+
+export function clearDeferredExternalReconnectsForTests () {
+  deferredExternalReconnects.clear();
+}
+
 const reconnectMarkerFor = (timelineId) => {
-  const feedKey = timelineId === 'home' || timelineId.indexOf('list:') === 0 ? timelineId : null;
+  const feedKey = externalReconnectKey(timelineId);
 
   if (!feedKey) {
     return null;
@@ -274,12 +291,49 @@ const dropReconnectPage = (dispatch, timelineId, isLoadingMore) => {
   dispatch(expandTimelineSuccess(timelineId, [], null, false, true, isLoadingMore, false));
 };
 
+const restartExternalReconnect = (dispatch, getState, timelineId) => {
+  if (timelineId === 'home') {
+    dispatch(expandHomeTimeline({
+      visibilities: getHomeVisibilities(getState()),
+      externalReconnect: true,
+    }));
+    return;
+  }
+
+  if (externalReconnectKey(timelineId)) {
+    dispatch(expandListTimeline(timelineId.slice('list:'.length), {
+      timelineId,
+      externalReconnect: true,
+    }));
+  }
+};
+
+const finishExternalReconnect = (dispatch, getState, timelineId) => {
+  if (!deferredExternalReconnects.has(timelineId)) {
+    return;
+  }
+
+  if (getState().getIn(['timelines', timelineId, 'isLoading'])) {
+    return;
+  }
+
+  deferredExternalReconnects.delete(timelineId);
+  restartExternalReconnect(dispatch, getState, timelineId);
+};
+
 export function expandTimeline(timelineId, path, params = {}, done = noOp, options = {}) {
   return (dispatch, getState) => {
     const timeline = getState().getIn(['timelines', timelineId], ImmutableMap());
     const isLoadingMore = !!params.max_id;
 
     if (timeline.get('isLoading')) {
+      // The loading request may belong to an older connection. Invalidate it
+      // even though this reconnect cannot start its own HTTP call yet.
+      if (options.externalReconnect === true && externalReconnectKey(timelineId)) {
+        externalFeedSession.noteReconnect(externalReconnectKey(timelineId));
+        deferredExternalReconnects.add(timelineId);
+      }
+
       done();
       return;
     }
@@ -355,6 +409,7 @@ export function expandTimeline(timelineId, path, params = {}, done = noOp, optio
       dispatch(expandTimelineFail(timelineId, error, isLoadingMore));
     }).finally(() => {
       done();
+      finishExternalReconnect(dispatch, getState, timelineId);
     });
   };
 };
