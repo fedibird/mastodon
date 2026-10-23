@@ -967,8 +967,8 @@ const epochForTicket = (epochs, ticket) => {
 /**
  * A route removal, source deletion, list removal, or unsubscribe expires
  * only the unforwarded insert for that destination and subscription.
- * A routes_updated whose row is still routed keeps the intent, so a
- * remaining home route is not cleared by an unrelated list change.
+ * routes_updated expires intent tied to an older route row. A notice that
+ * does not replace this destination leaves that intent in place.
  *
  * @param {ExternalTicket} ticket
  * @param {{ control?: any }} prepared
