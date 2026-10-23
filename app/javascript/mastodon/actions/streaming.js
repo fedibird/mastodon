@@ -6,6 +6,7 @@ import {
   deleteFromTimelines,
   expireFromTimelines,
   expandHomeTimeline,
+  expandListTimeline,
   connectTimeline,
   disconnectTimeline,
 } from './timelines';
@@ -56,6 +57,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
     const locale = getState().getIn(['meta', 'locale']);
 
     let pollingId;
+    let sawDisconnect = false;
 
     /**
      * @param {function(Function, Function, Function): void} fallback
@@ -81,6 +83,18 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
           dispatch(reconcileExternalFeedView(`list:${params.list}`));
         }
 
+        if (sawDisconnect) {
+          sawDisconnect = false;
+
+          if (channelName === 'user') {
+            dispatch(expandHomeTimeline({ visibilities: getHomeVisibilities(getState()) }));
+          }
+
+          if (channelName === 'list' && params.list) {
+            dispatch(expandListTimeline(params.list));
+          }
+        }
+
         if (pollingId) {
           clearTimeout(pollingId);
           pollingId = null;
@@ -88,6 +102,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
       },
 
       onDisconnect() {
+        sawDisconnect = true;
         dispatch(disconnectTimeline(timelineId));
 
         if (options.fallback) {

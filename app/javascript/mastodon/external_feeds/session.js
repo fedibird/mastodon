@@ -6,9 +6,11 @@ import { targetsOverlap } from './reconcile';
 export const createExternalFeedSession = () => {
   let tokenSeq = 0;
   let capabilityEpoch = 0;
+  let streamClock = 0;
   let disposed = false;
   const views = new Map();
   const statusEpochs = new Map();
+  const statusClocks = new Map();
 
   const current = (key) => {
     const view = views.get(key);
@@ -32,6 +34,7 @@ export const createExternalFeedSession = () => {
         targets: meta.targets || [],
         running: false,
         rerun: false,
+        progress: null,
       };
 
       views.set(key, view);
@@ -77,7 +80,19 @@ export const createExternalFeedSession = () => {
       const next = (statusEpochs.get(key) || 0) + 1;
 
       statusEpochs.set(key, next);
+      streamClock += 1;
+      statusClocks.set(key, streamClock);
       return next;
+    },
+
+    // Clock at the moment a request is built. An epoch that already existed
+    // is not a conflict; only a clock that moves after this marker is.
+    streamMarker () {
+      return streamClock;
+    },
+
+    statusMovedSince (id, marker) {
+      return (statusClocks.get(String(id)) || 0) > (marker || 0);
     },
 
     statusEpoch (id) {
@@ -112,7 +127,31 @@ export const createExternalFeedSession = () => {
         sessionId: extra.sessionId,
         definitionFingerprint: extra.definitionFingerprint,
         statusEpochs: extra.statusEpochs || {},
+        streamClock,
       };
+    },
+
+    // Checked ids and history cursors belong to one view token and one
+    // membership/capability generation. A control event starts a new plan.
+    progress (key, token) {
+      const view = views.get(key);
+
+      if (disposed || !view || view.closed || view.token !== token) {
+        return null;
+      }
+
+      const stamp = `${view.token}:${view.membershipEpoch}:${capabilityEpoch}`;
+
+      if (!view.progress || view.progress.stamp !== stamp) {
+        view.progress = {
+          stamp,
+          membershipChecked: new Set(),
+          bodyChecked: new Set(),
+          history: {},
+        };
+      }
+
+      return view.progress;
     },
 
     accept (snapshot) {
@@ -211,6 +250,8 @@ export const createExternalFeedSession = () => {
       capabilityEpoch += 1;
       views.clear();
       statusEpochs.clear();
+      statusClocks.clear();
+      streamClock = 0;
     },
   };
 };

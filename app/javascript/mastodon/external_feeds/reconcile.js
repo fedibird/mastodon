@@ -97,13 +97,29 @@ export const chunkIds = (ids, size) => {
   return chunks;
 };
 
-const epochOf = (map, id) => (map && Object.prototype.hasOwnProperty.call(map, id) ? map[id] : 0);
+export const HISTORY_PAGE_SIZE = 40;
 
-// A row whose stream generation moved is left untouched. unknown stays.
+// The next slice of ids that this generation has not confirmed. Callers keep
+// the per-request cap and the per-cycle batch budget; the checked set is how
+// the following cycle reaches the tail.
+export const budgetChunks = (ids, size, batches) => {
+  const chunks = chunkIds(ids, size);
+  const take = batches > 0 ? batches : 0;
+
+  return {
+    chunks: chunks.slice(0, take),
+    remaining: chunks.length > take,
+  };
+};
+
+// A row whose stream clock moved after the request is left untouched.
+// feed_regenerating stays unconfirmed. Other unknown rows stay on screen.
 // not_in_source, not_visible, and not_found leave this view only.
-export const planMembership = ({ rows, requestedEpochs, currentEpochs }) => {
+export const planMembership = ({ rows, movedSince }) => {
   const removeIds = [];
   const staleIds = [];
+  const checkedIds = [];
+  const moved = typeof movedSince === 'function' ? movedSince : () => false;
 
   (rows || []).forEach(row => {
     const id = decimalId(row && row.id);
@@ -112,7 +128,12 @@ export const planMembership = ({ rows, requestedEpochs, currentEpochs }) => {
       return;
     }
 
-    if (epochOf(currentEpochs, id) !== epochOf(requestedEpochs, id)) {
+    if (moved(id)) {
+      staleIds.push(id);
+      return;
+    }
+
+    if (row.outcome === 'unknown' && row.reason === 'feed_regenerating') {
       staleIds.push(id);
       return;
     }
@@ -120,9 +141,61 @@ export const planMembership = ({ rows, requestedEpochs, currentEpochs }) => {
     if (row.outcome === 'not_in_source' || row.outcome === 'not_visible' || row.outcome === 'not_found') {
       removeIds.push(id);
     }
+
+    if (row.outcome === 'member' || row.outcome === 'not_in_source' || row.outcome === 'not_visible' || row.outcome === 'not_found' || row.outcome === 'unknown' || row.outcome === 'invalid') {
+      checkedIds.push(id);
+    }
   });
 
-  return { removeIds, staleIds };
+  return { removeIds, staleIds, checkedIds };
+};
+
+export const loadedRanges = (items) => {
+  const segments = segmentsOf(items);
+
+  if (segments.length) {
+    return segments.map(segment => ({
+      key: segment[0],
+      newest: segment[0],
+      oldest: segment[segment.length - 1],
+      ids: segment,
+      empty: false,
+      skip: false,
+    }));
+  }
+
+  const hasGap = (items || []).some(id => id === null || id === undefined);
+
+  return [{
+    key: 'empty',
+    newest: null,
+    oldest: null,
+    ids: [],
+    empty: !hasGap,
+    skip: hasGap,
+  }];
+};
+
+// A full page that is still newer than the loaded edge continues. A short
+// page, a 0/1 id range, and an empty range stop after the page that was asked.
+export const nextHistoryCursor = (segment, statuses, pageSize) => {
+  if (!segment || segment.empty || !segment.ids || segment.ids.length < 2) {
+    return { done: true, cursor: null };
+  }
+
+  const page = statuses || [];
+
+  if (page.length < pageSize) {
+    return { done: true, cursor: null };
+  }
+
+  const oldestReturned = decimalId(page[page.length - 1] && page[page.length - 1].id);
+
+  if (!oldestReturned || (segment.oldest && compareId(oldestReturned, segment.oldest) <= 0)) {
+    return { done: true, cursor: null };
+  }
+
+  return { done: false, cursor: oldestReturned };
 };
 
 const segmentsOf = (items) => {
@@ -226,4 +299,73 @@ export const statusesInsideLoadedRange = (items, statuses) => {
     inserted: plan.inserted,
     statuses: (statuses || []).filter(status => status && chosen.has(String(status.id))),
   };
+};
+
+// Interior ids stay inside a loaded run. An empty list can be seeded. A single
+// loaded id can gain older neighbours below it. A null gap stays open.
+export const placeReconcileIds = (items, insertIds, options = {}) => {
+  const list = (items || []).slice();
+  const hasId = list.some(id => id !== null && id !== undefined);
+  const hasGap = list.some(id => id === null || id === undefined);
+
+  if (!hasId && !hasGap && options.seed) {
+    const ids = [];
+
+    (insertIds || []).forEach(value => {
+      const id = decimalId(value);
+
+      if (id && ids.indexOf(id) === -1) {
+        ids.push(id);
+      }
+    });
+    ids.sort((left, right) => compareId(right, left));
+
+    return { items: ids, inserted: ids.slice() };
+  }
+
+  const interior = spliceHistory(list, insertIds);
+  const segments = segmentsOf(interior.items);
+  const last = segments[segments.length - 1];
+
+  if (!last || last.length !== 1) {
+    return interior;
+  }
+
+  const anchor = last[0];
+  const present = new Set(interior.items.filter(id => id !== null && id !== undefined).map(id => String(id)));
+  const older = [];
+
+  (insertIds || []).forEach(value => {
+    const id = decimalId(value);
+
+    if (!id || present.has(id) || older.indexOf(id) !== -1) {
+      return;
+    }
+
+    if (compareId(id, anchor) < 0) {
+      older.push(id);
+      present.add(id);
+    }
+  });
+
+  if (!older.length) {
+    return interior;
+  }
+
+  older.sort((left, right) => compareId(right, left));
+  let lastNonNull = -1;
+
+  interior.items.forEach((id, index) => {
+    if (id !== null && id !== undefined) {
+      lastNonNull = index;
+    }
+  });
+
+  if (lastNonNull < 0 || String(interior.items[lastNonNull]) !== anchor) {
+    return interior;
+  }
+
+  const next = interior.items.slice(0, lastNonNull + 1).concat(older, interior.items.slice(lastNonNull + 1));
+
+  return { items: next, inserted: interior.inserted.concat(older) };
 };

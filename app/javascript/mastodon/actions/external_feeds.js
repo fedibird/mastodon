@@ -7,18 +7,23 @@ import {
 } from './timelines';
 import { MIX_EXTERNAL_RECONCILE } from './mix_timelines';
 import { plainMix } from '../mix/definition';
-import { normalizeSource, sourceKey } from '../mix/source';
+import { sourceKey } from '../mix/source';
+import { resolveRequest, visibilityConstraints } from '../mix/adapter';
+import { classifyStreamStatus } from '../mix/stream_adapters';
 import { externalFeedSession } from '../external_feeds/session';
 import {
   BATCHES_PER_CYCLE,
   BODY_BATCH,
+  HISTORY_PAGE_SIZE,
   HISTORY_PAGES_PER_CYCLE,
   MEMBERSHIP_BATCH,
-  chunkIds,
+  budgetChunks,
+  loadedRanges,
+  nextHistoryCursor,
   parseControl,
+  placeReconcileIds,
   planMembership,
   responsePreservesDisplayed,
-  statusesInsideLoadedRange,
 } from '../external_feeds/reconcile';
 
 export const EXTERNAL_FEEDS_PERMITTED = 'EXTERNAL_FEEDS_PERMITTED';
@@ -349,6 +354,40 @@ function liveSnapshot (getState, key, ids) {
   };
 }
 
+const uncheckedIds = (ids, checked) => (ids || []).filter(id => id && !checked.has(String(id)));
+
+const listOf = (value) => {
+  if (!value) {
+    return [];
+  }
+
+  if (typeof value.toArray === 'function') {
+    return value.toArray();
+  }
+
+  return Array.isArray(value) ? value : [];
+};
+
+const freshStatuses = (statuses, marker) => (statuses || []).filter(status => {
+  const id = status && status.id;
+
+  return id && !externalFeedSession.statusMovedSince(id, marker);
+});
+
+const markIds = (checked, ids) => {
+  (ids || []).forEach(id => checked.add(String(id)));
+};
+
+const mixConstraints = (getState) => ({
+  externalFeedsPermitted: permittedNow(getState()),
+});
+
+const responseRequestsRetry = (response) => {
+  const status = response && response.status;
+
+  return status === 429 || status === 206;
+};
+
 function stillCurrent (getState, snapshot, key) {
   const gate = externalFeedSession.accept(snapshot);
 
@@ -370,26 +409,27 @@ async function reconcileTimeline (dispatch, getState, spec) {
   const context = spec.context();
   const base = liveSnapshot(getState, spec.key, ids);
   const snapshot = externalFeedSession.snapshot(spec.key, spec.token, base);
+  const progress = externalFeedSession.progress(spec.key, spec.token);
 
-  if (!snapshot) {
+  if (!snapshot || !progress) {
     return false;
   }
 
   const client = httpClient(getState);
 
-  if (!client || !ids.length) {
-    if (client && snapshot.permitted && spec.timeline === 'home') {
-      await fillTimeline(dispatch, getState, client, spec, snapshot);
-    }
-
+  if (!client) {
     return false;
   }
 
-  const chunks = chunkIds(ids, MEMBERSHIP_BATCH).slice(0, BATCHES_PER_CYCLE);
-  let retry = chunks.length < chunkIds(ids, MEMBERSHIP_BATCH).length;
+  let retry = false;
+  const membership = budgetChunks(uncheckedIds(ids, progress.membershipChecked), MEMBERSHIP_BATCH, BATCHES_PER_CYCLE);
 
-  for (let index = 0; index < chunks.length; index += 1) {
-    const chunk = chunks[index];
+  if (membership.remaining) {
+    retry = true;
+  }
+
+  for (let index = 0; index < membership.chunks.length; index += 1) {
+    const chunk = membership.chunks[index];
     const response = await client.post('/api/v1/timelines/membership', {
       version: 1,
       source: spec.source,
@@ -397,21 +437,30 @@ async function reconcileTimeline (dispatch, getState, spec) {
       ids: chunk,
     });
 
+    if (responseRequestsRetry(response)) {
+      return true;
+    }
+
     if (responsePreservesDisplayed(response && response.status)) {
-      return !!(response && response.status === 429);
+      return false;
     }
 
     const gate = stillCurrent(getState, snapshot, spec.key);
+    const current = gate && externalFeedSession.progress(spec.key, spec.token);
 
-    if (!gate) {
+    if (!gate || !current) {
       return false;
     }
 
     const body = response.data || {};
+
+    if (body.outcome !== 'complete' && body.outcome !== 'partial') {
+      return false;
+    }
+
     const planned = planMembership({
       rows: body.results,
-      requestedEpochs: snapshot.statusEpochs,
-      currentEpochs: externalFeedSession.statusEpochsFor(chunk),
+      movedSince: (id) => externalFeedSession.statusMovedSince(id, snapshot.streamClock),
     });
 
     if (planned.removeIds.length) {
@@ -423,105 +472,219 @@ async function reconcileTimeline (dispatch, getState, spec) {
       });
     }
 
+    markIds(current.membershipChecked, planned.checkedIds);
+
     if (planned.staleIds.length) {
       retry = true;
     }
-
-    if (body.outcome !== 'complete' && body.outcome !== 'partial') {
-      return false;
-    }
   }
 
-  await refreshBodies(dispatch, getState, client, timelineHeldIds(getState(), spec.timeline), snapshot, spec.key);
-  if (snapshot.permitted) {
-    await fillTimeline(dispatch, getState, client, spec, snapshot);
+  const bodies = await refreshBodies(dispatch, getState, client, timelineHeldIds(getState(), spec.timeline), snapshot, spec.key, progress);
+
+  if (bodies.stop) {
+    return false;
+  }
+
+  if (bodies.halt) {
+    return true;
+  }
+
+  if (bodies.retry) {
+    retry = true;
+  }
+
+  const history = (spec.source === 'list' || snapshot.permitted)
+    ? await fillTimeline(dispatch, getState, client, spec, snapshot, progress)
+    : { stop: false, retry: false };
+
+  if (history.stop) {
+    return false;
+  }
+
+  if (history.retry) {
+    retry = true;
   }
 
   return retry;
 }
 
-async function refreshBodies (dispatch, getState, client, ids, snapshot, key) {
-  const externalIds = ids.filter(id => getState().getIn(['statuses', id, 'visibility']) === 'external');
-  const chunks = chunkIds(externalIds, BODY_BATCH).slice(0, BATCHES_PER_CYCLE);
+async function refreshBodies (dispatch, getState, client, ids, snapshot, key, progress) {
+  const current = externalFeedSession.progress(key, snapshot.token) || progress;
 
-  for (let index = 0; index < chunks.length; index += 1) {
-    const chunk = chunks[index];
+  if (!current) {
+    return { stop: true, retry: false };
+  }
+
+  const externalIds = (ids || []).filter(id => getState().getIn(['statuses', id, 'visibility']) === 'external');
+  const plan = budgetChunks(uncheckedIds(externalIds, current.bodyChecked), BODY_BATCH, BATCHES_PER_CYCLE);
+  let retry = plan.remaining;
+
+  for (let index = 0; index < plan.chunks.length; index += 1) {
+    const chunk = plan.chunks[index];
     const response = await client.get('/api/v1/statuses', { params: { id: chunk } });
 
+    if (responseRequestsRetry(response)) {
+      return { stop: false, retry: true, halt: true };
+    }
+
     if (responsePreservesDisplayed(response && response.status)) {
-      return;
+      return { stop: false, retry: false };
     }
 
     const gate = stillCurrent(getState, snapshot, key);
+    const live = gate && externalFeedSession.progress(key, snapshot.token);
 
-    if (!gate) {
-      return;
+    if (!gate || !live) {
+      return { stop: true, retry: false };
     }
 
     const statuses = Array.isArray(response.data) ? response.data : [];
-    const fresh = statuses.filter(status => {
-      const id = status && String(status.id);
-      const requested = snapshot.statusEpochs[id] || 0;
-
-      return externalFeedSession.statusEpoch(id) === requested;
-    });
+    const fresh = freshStatuses(statuses, snapshot.streamClock);
+    const stable = chunk.filter(id => !externalFeedSession.statusMovedSince(id, snapshot.streamClock));
 
     if (fresh.length) {
       dispatch(importFetchedStatuses(fresh));
     }
+
+    markIds(live.bodyChecked, stable);
+
+    if (stable.length !== chunk.length) {
+      retry = true;
+    }
   }
+
+  return { stop: false, retry };
 }
 
-async function fillTimeline (dispatch, getState, client, spec, snapshot) {
-  const items = (getState().getIn(['timelines', spec.timeline, 'items']) || []).toArray ? getState().getIn(['timelines', spec.timeline, 'items']).toArray() : [];
+function timelineRanges (state, timeline) {
+  const ranges = [{
+    side: 'live',
+    timeline,
+    items: listOf(state.getIn(['timelines', timeline, 'items'])),
+  }];
+  const split = state.getIn(['timelines', timeline, 'splitTimelineId']);
 
-  if (items.filter(Boolean).length < 2) {
-    return;
+  if (split) {
+    ranges.push({
+      side: 'history',
+      timeline: split,
+      items: listOf(state.getIn(['timelines', split, 'items'])),
+    });
   }
 
+  return ranges;
+}
+
+async function fillTimeline (dispatch, getState, client, spec, snapshot, progress) {
   const path = spec.path || '/api/v1/timelines/home';
   const params = spec.params ? spec.params() : { visibilities: getHomeVisibilities(getState()) };
-  let maxId = items.find(id => id);
+  const ranges = timelineRanges(getState(), spec.timeline);
+  let pages = 0;
+  let retry = false;
 
-  for (let page = 0; page < HISTORY_PAGES_PER_CYCLE && maxId; page += 1) {
-    const response = await client.get(path, { params: { ...params, max_id: maxId, limit: 40 } });
+  for (let rangeIndex = 0; rangeIndex < ranges.length; rangeIndex += 1) {
+    const range = ranges[rangeIndex];
+    const segments = loadedRanges(range.items);
 
-    if (!response || response.status === 206 || responsePreservesDisplayed(response.status)) {
-      return;
-    }
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+      const segment = segments[segmentIndex];
 
-    const gate = stillCurrent(getState, snapshot, spec.key);
+      if (segment.skip) {
+        continue;
+      }
 
-    if (!gate) {
-      return;
-    }
+      const rangeKey = `${range.side}:${segment.key}`;
+      const saved = progress.history[rangeKey] || { done: false, cursor: segment.newest };
 
-    const statuses = Array.isArray(response.data) ? response.data : (response.data && response.data.statuses) || [];
-    const currentItems = getState().getIn(['timelines', spec.timeline, 'items']).toArray();
-    const chosen = statusesInsideLoadedRange(currentItems, statuses);
+      if (saved.done) {
+        continue;
+      }
 
-    if (chosen.statuses.length) {
-      const fresh = chosen.statuses.filter(status => externalFeedSession.statusEpoch(status.id) === (snapshot.statusEpochs[String(status.id)] || 0));
+      if (pages >= HISTORY_PAGES_PER_CYCLE) {
+        retry = true;
+        continue;
+      }
+
+      const query = { ...params, limit: HISTORY_PAGE_SIZE };
+
+      if (saved.cursor) {
+        query.max_id = saved.cursor;
+      }
+
+      const response = await client.get(path, { params: query });
+
+      pages += 1;
+
+      if (!response || response.status === 206 || responsePreservesDisplayed(response.status)) {
+        return { stop: false, retry: !response || response.status === 429 || response.status === 206 };
+      }
+
+      const gate = stillCurrent(getState, snapshot, spec.key);
+      const live = gate && externalFeedSession.progress(spec.key, spec.token);
+
+      if (!gate || !live) {
+        return { stop: true, retry: false };
+      }
+
+      const statuses = Array.isArray(response.data) ? response.data : (response.data && response.data.statuses) || [];
+      const currentItems = listOf(getState().getIn(['timelines', range.timeline, 'items']));
+      const gated = freshStatuses(statuses, snapshot.streamClock);
+      const placed = placeReconcileIds(currentItems, gated.map(status => status.id), { seed: segment.empty });
+      const inserted = new Set(placed.inserted);
+      const fresh = gated.filter(status => inserted.has(String(status.id)));
 
       if (fresh.length) {
         dispatch(importFetchedStatuses(fresh));
         dispatch({
           type: TIMELINE_EXTERNAL_RECONCILE,
-          timeline: spec.timeline,
+          timeline: range.timeline,
           removeIds: [],
-          insertIds: fresh.map(status => String(status.id)),
+          insertIds: placed.inserted,
+          seed: segment.empty,
         });
       }
+
+      const cursor = nextHistoryCursor(segment, statuses, HISTORY_PAGE_SIZE);
+
+      if (!cursor.done && cursor.cursor === saved.cursor) {
+        live.history[rangeKey] = { done: true, cursor: null };
+      } else {
+        live.history[rangeKey] = cursor;
+      }
+
+      if (!live.history[rangeKey].done) {
+        retry = true;
+      }
     }
-
-    if (statuses.length < 40) {
-      return;
-    }
-
-    const oldest = statuses[statuses.length - 1];
-
-    maxId = oldest && oldest.id;
   }
+
+  return { stop: false, retry };
+}
+
+const mixSourceTag = (sourceKeyValue, id) => `${sourceKeyValue}\n${id}`;
+
+function mixRanges (state, columnKey, keyForSource) {
+  const ranges = [{
+    side: 'live',
+    items: listOf(state.getIn(['mix_timelines', columnKey, 'sources', keyForSource, 'ids'])),
+  }];
+  const history = state.getIn(['mix_timelines', columnKey, 'split', 'history', 'sources', keyForSource, 'ids']);
+
+  if (history) {
+    ranges.push({ side: 'history', items: listOf(history) });
+  }
+
+  return ranges;
+}
+
+function mixColumnCurrent (getState, columnKey, snapshot) {
+  const columnNow = getState().getIn(['mix_timelines', columnKey]);
+
+  if (!columnNow || columnNow.get('sessionId') !== snapshot.sessionId || columnNow.get('definitionFingerprint') !== snapshot.definitionFingerprint) {
+    return false;
+  }
+
+  return externalFeedSession.accept(snapshot).ok;
 }
 
 async function reconcileMix (dispatch, getState, key, token) {
@@ -534,17 +697,15 @@ async function reconcileMix (dispatch, getState, key, token) {
 
   const mix = findMix(getState(), column.get('mixId'));
   const plain = plainMix(mix);
-
-  if (!plain) {
-    return false;
-  }
-
   const client = httpClient(getState);
-  let retry = false;
+  const progress = externalFeedSession.progress(key, token);
 
-  if (!client) {
+  if (!plain || !client || !progress) {
     return false;
   }
+
+  let retry = false;
+  let pages = 0;
 
   for (let index = 0; index < plain.sources.length; index += 1) {
     const source = plain.sources[index];
@@ -553,14 +714,21 @@ async function reconcileMix (dispatch, getState, key, token) {
       continue;
     }
 
+    const request = resolveRequest(source, null, mixConstraints(getState));
+
+    if (!request.ok) {
+      continue;
+    }
+
     const keyForSource = sourceKey(source);
     const ids = mixHeldIds(getState(), columnKey, keyForSource);
-    const includeExternal = source.type === 'list' || (source.params && source.params.shows && source.params.shows.external === true);
+    const asksExternal = source.type === 'list' || (request.params.visibilities || []).indexOf('external') !== -1;
     const context = source.type === 'home'
-      ? { visibilities: homeVisibilitiesForMix(source, permittedNow(getState())) }
+      ? { visibilities: request.params.visibilities }
       : { id: String(source.id) };
+    const pendingMembership = uncheckedIds(ids, progress.membershipChecked).filter(id => !progress.membershipChecked.has(mixSourceTag(keyForSource, id)));
     const snapshot = externalFeedSession.snapshot(key, token, {
-      permitted: permittedNow(getState()) && includeExternal,
+      permitted: permittedNow(getState()) && asksExternal,
       sessionId: column.get('sessionId'),
       definitionFingerprint: column.get('definitionFingerprint'),
       statusEpochs: externalFeedSession.statusEpochsFor(ids),
@@ -570,14 +738,14 @@ async function reconcileMix (dispatch, getState, key, token) {
       return false;
     }
 
-    const chunks = chunkIds(ids, MEMBERSHIP_BATCH).slice(0, BATCHES_PER_CYCLE);
+    const membership = budgetChunks(pendingMembership, MEMBERSHIP_BATCH, BATCHES_PER_CYCLE);
 
-    if (chunks.length < chunkIds(ids, MEMBERSHIP_BATCH).length) {
+    if (membership.remaining) {
       retry = true;
     }
 
-    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
-      const chunk = chunks[chunkIndex];
+    for (let chunkIndex = 0; chunkIndex < membership.chunks.length; chunkIndex += 1) {
+      const chunk = membership.chunks[chunkIndex];
       const response = await client.post('/api/v1/timelines/membership', {
         version: 1,
         source: source.type,
@@ -585,29 +753,40 @@ async function reconcileMix (dispatch, getState, key, token) {
         ids: chunk,
       });
 
-      if (responsePreservesDisplayed(response && response.status)) {
-        return !!(response && response.status === 429);
+      if (responseRequestsRetry(response)) {
+        return true;
       }
 
-      const columnNow = getState().getIn(['mix_timelines', columnKey]);
-
-      if (!columnNow || columnNow.get('sessionId') !== snapshot.sessionId || columnNow.get('definitionFingerprint') !== snapshot.definitionFingerprint) {
+      if (responsePreservesDisplayed(response && response.status)) {
         return false;
       }
 
-      if (!externalFeedSession.accept(snapshot).ok) {
+      if (!mixColumnCurrent(getState, columnKey, snapshot)) {
+        return false;
+      }
+
+      const live = externalFeedSession.progress(key, token);
+
+      if (!live) {
+        return false;
+      }
+
+      const body = response.data || {};
+
+      if (body.outcome !== 'complete' && body.outcome !== 'partial') {
         return false;
       }
 
       const planned = planMembership({
-        rows: (response.data || {}).results,
-        requestedEpochs: snapshot.statusEpochs,
-        currentEpochs: externalFeedSession.statusEpochsFor(chunk),
+        rows: body.results,
+        movedSince: (id) => externalFeedSession.statusMovedSince(id, snapshot.streamClock),
       });
 
       if (planned.staleIds.length) {
         retry = true;
       }
+
+      markIds(live.membershipChecked, planned.checkedIds.map(id => mixSourceTag(keyForSource, id)));
 
       if (planned.removeIds.length) {
         dispatch({
@@ -621,68 +800,129 @@ async function reconcileMix (dispatch, getState, key, token) {
       }
     }
 
-    if (includeExternal && permittedNow(getState())) {
-      await fillMixSource(dispatch, getState, client, columnKey, source, keyForSource, snapshot);
+    const bodies = await refreshBodies(dispatch, getState, client, mixHeldIds(getState(), columnKey, keyForSource), snapshot, key, progress);
+
+    if (bodies.stop) {
+      return false;
+    }
+
+    if (bodies.halt) {
+      return true;
+    }
+
+    if (bodies.retry) {
+      retry = true;
+    }
+
+    if (asksExternal) {
+      const filled = await fillMixSource(dispatch, getState, client, columnKey, source, keyForSource, snapshot, progress, () => {
+        pages += 1;
+        return pages <= HISTORY_PAGES_PER_CYCLE;
+      });
+
+      if (filled.stop) {
+        return false;
+      }
+
+      if (filled.retry) {
+        retry = true;
+      }
     }
   }
 
   return retry;
 }
 
-function homeVisibilitiesForMix (source, permitted) {
-  const normalized = normalizeSource(source);
-  const shows = (normalized.ok && normalized.source.params && normalized.source.params.shows) || {};
-  const keys = ['public', 'unlisted', 'private', 'limited', 'direct', 'personal'];
-  const list = keys.filter(name => shows[name] !== false);
+async function fillMixSource (dispatch, getState, client, columnKey, source, keyForSource, snapshot, progress, takePage) {
+  const ranges = mixRanges(getState(), columnKey, keyForSource);
+  let retry = false;
 
-  if (permitted && shows.external === true) {
-    list.push('external');
+  for (let rangeIndex = 0; rangeIndex < ranges.length; rangeIndex += 1) {
+    const range = ranges[rangeIndex];
+    const segments = loadedRanges(range.items);
+
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+      const segment = segments[segmentIndex];
+
+      if (segment.skip) {
+        continue;
+      }
+
+      const rangeKey = `${keyForSource}:${range.side}:${segment.key}`;
+      const saved = progress.history[rangeKey] || { done: false, cursor: segment.newest };
+
+      if (saved.done) {
+        continue;
+      }
+
+      if (!takePage()) {
+        retry = true;
+        continue;
+      }
+
+      const request = resolveRequest(source, saved.cursor, mixConstraints(getState));
+
+      if (!request.ok) {
+        return { stop: false, retry: false };
+      }
+
+      const response = await client.get(request.path, { params: { ...request.params, limit: HISTORY_PAGE_SIZE } });
+
+      if (!response || response.status === 206 || responsePreservesDisplayed(response.status)) {
+        return { stop: false, retry: !response || response.status === 429 || response.status === 206 };
+      }
+
+      if (!mixColumnCurrent(getState, columnKey, snapshot)) {
+        return { stop: true, retry: false };
+      }
+
+      const live = externalFeedSession.progress(snapshot.key, snapshot.token);
+
+      if (!live) {
+        return { stop: true, retry: false };
+      }
+
+      const statuses = Array.isArray(response.data) ? response.data : (response.data && response.data.statuses) || [];
+      const flags = visibilityConstraints(mixConstraints(getState));
+      const me = getState().getIn(['meta', 'me']);
+      const visible = statuses.filter(status => classifyStreamStatus(source, status, {
+        me,
+        constraints: flags,
+        delivered: source.type === 'list',
+      }) === 'accept');
+      const gated = freshStatuses(visible, snapshot.streamClock);
+      const currentItems = listOf(getState().getIn(['mix_timelines', columnKey, 'sources', keyForSource, 'ids']));
+      const historyItems = listOf(getState().getIn(['mix_timelines', columnKey, 'split', 'history', 'sources', keyForSource, 'ids']));
+      const items = range.side === 'history' ? historyItems : currentItems;
+      const placed = placeReconcileIds(items, gated.map(status => status.id), { seed: segment.empty });
+      const inserted = new Set(placed.inserted);
+      const fresh = gated.filter(status => inserted.has(String(status.id)));
+
+      if (fresh.length) {
+        dispatch(importFetchedStatuses(fresh));
+        dispatch({
+          type: MIX_EXTERNAL_RECONCILE,
+          columnKey,
+          sourceKey: keyForSource,
+          sessionId: snapshot.sessionId,
+          definitionFingerprint: snapshot.definitionFingerprint,
+          removeIds: [],
+          insertIds: placed.inserted,
+          seed: segment.empty,
+        });
+      }
+
+      const cursor = nextHistoryCursor(segment, statuses, HISTORY_PAGE_SIZE);
+
+      live.history[rangeKey] = !cursor.done && cursor.cursor === saved.cursor ? { done: true, cursor: null } : cursor;
+
+      if (!live.history[rangeKey].done) {
+        retry = true;
+      }
+    }
   }
 
-  return list;
-}
-
-async function fillMixSource (dispatch, getState, client, columnKey, source, keyForSource, snapshot) {
-  const items = mixHeldIds(getState(), columnKey, keyForSource);
-
-  if (items.length < 2) {
-    return;
-  }
-
-  const path = source.type === 'list' ? `/api/v1/timelines/list/${source.id}` : '/api/v1/timelines/home';
-  const params = source.type === 'home'
-    ? { visibilities: homeVisibilitiesForMix(source, true) }
-    : {};
-  let maxId = items[0];
-  const response = await client.get(path, { params: { ...params, max_id: maxId, limit: 40 } });
-
-  if (!response || response.status === 206 || responsePreservesDisplayed(response.status)) {
-    return;
-  }
-
-  const columnNow = getState().getIn(['mix_timelines', columnKey]);
-
-  if (!columnNow || columnNow.get('sessionId') !== snapshot.sessionId || !externalFeedSession.accept(snapshot).ok) {
-    return;
-  }
-
-  const statuses = Array.isArray(response.data) ? response.data : (response.data && response.data.statuses) || [];
-  const chosen = statusesInsideLoadedRange(items, statuses);
-
-  if (!chosen.statuses.length) {
-    return;
-  }
-
-  dispatch(importFetchedStatuses(chosen.statuses));
-  dispatch({
-    type: MIX_EXTERNAL_RECONCILE,
-    columnKey,
-    sourceKey: keyForSource,
-    sessionId: snapshot.sessionId,
-    definitionFingerprint: snapshot.definitionFingerprint,
-    removeIds: [],
-    insertIds: chosen.inserted,
-  });
+  return { stop: false, retry };
 }
 
 export function bindExternalFeedVisibility () {

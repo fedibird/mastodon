@@ -26,7 +26,7 @@ import {
   MIX_DISPLAY_HISTORY,
   MIX_EXTERNAL_RECONCILE,
 } from '../actions/mix_timelines';
-import { spliceHistory } from '../external_feeds/reconcile';
+import { placeReconcileIds } from '../external_feeds/reconcile';
 
 const initialSource = ImmutableMap({
   ids: ImmutableList(),
@@ -688,11 +688,11 @@ const otherSourceHas = (column, sourceKey, id) => {
   return lists.some(sources => sources && sources.some((source, key) => key !== sourceKey && (source.get('ids') || ImmutableList()).includes(id)));
 };
 
-const patchIdList = (list, blocked, insertIds) => {
+const patchIdList = (list, blocked, insertIds, seed) => {
   let next = withoutIds(list || ImmutableList(), blocked);
 
   if (insertIds && insertIds.length) {
-    next = ImmutableList(spliceHistory(next.toArray(), insertIds).items);
+    next = ImmutableList(placeReconcileIds(next.toArray(), insertIds, { seed: seed === true }).items);
   }
 
   return next;
@@ -735,7 +735,9 @@ const applyMixExternalReconcile = (state, action) => {
         return;
       }
 
-      next = next.updateIn([action.columnKey].concat(path), ImmutableList(), list => patchIdList(list, blocked, action.insertIds));
+      const seed = action.seed === true && (path[0] === 'sources' || (path[0] === 'split' && path[2] === 'sources'));
+
+      next = next.updateIn([action.columnKey].concat(path), ImmutableList(), list => patchIdList(list, blocked, action.insertIds, seed));
     });
   }
 

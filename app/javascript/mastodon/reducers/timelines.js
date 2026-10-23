@@ -28,7 +28,7 @@ import {
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import compareId from '../compare_id';
 import { uniqWithoutNull } from '../utils/uniq';
-import { spliceHistory } from '../external_feeds/reconcile';
+import { placeReconcileIds } from '../external_feeds/reconcile';
 import {
   WINDOW_HISTORY_ANCHOR,
   WINDOW_HISTORY_FAIL,
@@ -411,18 +411,18 @@ const dropIds = (list, blocked) => (list || ImmutableList()).filter(id => !block
 
 // Membership changes one timeline. Unread and scroll position stay put.
 // Inserted ids are history inside the loaded range, not a fresh top.
-const applyExternalReconcile = (state, timeline, removeIds, insertIds) => {
+const applyExternalReconcile = (state, timeline, removeIds, insertIds, seed) => {
   if (!timeline || !state.has(timeline)) {
     return state;
   }
 
   const blocked = new Set(removeIds || []);
-  const patch = (map) => {
+  const patch = (map, allowSeed) => {
     let items = dropIds(map.get('items', ImmutableList()), blocked);
     const pending = dropIds(map.get('pendingItems', ImmutableList()), blocked);
 
     if (insertIds && insertIds.length) {
-      items = ImmutableList(spliceHistory(items.toArray(), insertIds).items);
+      items = ImmutableList(placeReconcileIds(items.toArray(), insertIds, { seed: allowSeed }).items);
     }
 
     let next = map.set('items', items).set('pendingItems', pending);
@@ -434,11 +434,11 @@ const applyExternalReconcile = (state, timeline, removeIds, insertIds) => {
     return next;
   };
 
-  let next = state.update(timeline, patch);
+  let next = state.update(timeline, map => patch(map, seed === true));
   const splitTimeline = next.getIn([timeline, 'splitTimelineId']);
 
   if (splitTimeline && next.has(splitTimeline)) {
-    next = next.update(splitTimeline, patch);
+    next = next.update(splitTimeline, map => patch(map, false));
   }
 
   return next;
@@ -526,7 +526,7 @@ export default function timelines(state = initialState, action) {
   case HISTORY_RESUME_CANCEL:
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => cancelHistoryResumeState(timeline, action));
   case TIMELINE_EXTERNAL_RECONCILE:
-    return applyExternalReconcile(state, action.timeline, action.removeIds, action.insertIds);
+    return applyExternalReconcile(state, action.timeline, action.removeIds, action.insertIds, action.seed === true);
   case TIMELINE_EXTERNAL_CLEAR_VIEW:
     return clearExternalView(state, action.timeline);
   case TIMELINE_UPDATE:

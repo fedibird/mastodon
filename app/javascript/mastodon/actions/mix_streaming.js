@@ -12,6 +12,7 @@ import { hiddenStatusIds, relationshipGeneration, relationshipsAfterGeneration, 
 import { fetchRelationshipsSuccess } from './accounts';
 import { normalizeFilterResult } from './importer/normalizer';
 import { me } from '../initial_state';
+import { noteExternalStatusStream, receiveExternalFeedChanged, reconcileExternalFeedView } from './external_feeds';
 import {
   MIX_STREAM_READY,
   MIX_STREAM_CONNECT,
@@ -634,6 +635,8 @@ export function openMixStream(columnKey, mix) {
             if (wasDown && after && after.getIn(['live', stream.key, 'syncState']) === 'connected') {
               dispatch(reconcileMixSource(columnKey, stream.key));
             }
+
+            dispatch(reconcileExternalFeedView(`mix:${columnKey}`));
           },
 
           onDisconnect () {
@@ -657,13 +660,23 @@ export function openMixStream(columnKey, mix) {
               return;
             }
 
-            if (data.event === 'update') {
-              handleStatus(dispatch, getState, columnKey, sessionId, fingerprint, stream.key, stream.source, JSON.parse(data.payload));
+            if (data.event === 'external_feed_changed') {
+              dispatch(receiveExternalFeedChanged(data.payload));
+            } else if (data.event === 'update') {
+              const status = JSON.parse(data.payload);
+
+              noteExternalStatusStream(status && status.id);
+              handleStatus(dispatch, getState, columnKey, sessionId, fingerprint, stream.key, stream.source, status);
             } else if (data.event === 'status.update') {
-              handleEdit(dispatch, getState, columnKey, sessionId, fingerprint, streams.filter(item => item.mode !== 'rest_only'), stream.key, JSON.parse(data.payload));
+              const status = JSON.parse(data.payload);
+
+              noteExternalStatusStream(status && status.id);
+              handleEdit(dispatch, getState, columnKey, sessionId, fingerprint, streams.filter(item => item.mode !== 'rest_only'), stream.key, status);
             } else if (data.event === 'delete') {
+              noteExternalStatusStream(data.payload);
               handleRemove(dispatch, getState, columnKey, sessionId, fingerprint, data.payload, 'delete');
             } else if (data.event === 'expire') {
+              noteExternalStatusStream(data.payload);
               handleRemove(dispatch, getState, columnKey, sessionId, fingerprint, data.payload, 'expire');
             }
           },

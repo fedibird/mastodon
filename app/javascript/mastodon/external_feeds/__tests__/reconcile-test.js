@@ -5,7 +5,10 @@ jest.mock('react-intl', () => ({
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 
 import {
+  budgetChunks,
+  nextHistoryCursor,
   parseControl,
+  placeReconcileIds,
   planMembership,
   responsePreservesDisplayed,
   spliceHistory,
@@ -50,23 +53,37 @@ describe('external feed reconcile', () => {
     expect(session.accept(again).ok).toBe(false);
   });
 
-  it('does not remove an id whose stream epoch moved, or an unknown row', () => {
+  it('does not remove an id whose stream clock moved after the request, or an unknown row', () => {
     const planned = planMembership({
       rows: [
         { id: '10', outcome: 'not_in_source' },
         { id: '11', outcome: 'not_found' },
-        { id: '12', outcome: 'unknown' },
+        { id: '12', outcome: 'unknown', reason: 'outside_retained_range' },
         { id: '13', outcome: 'member' },
+        { id: '14', outcome: 'unknown', reason: 'feed_regenerating' },
       ],
-      requestedEpochs: { 10: 1, 11: 0, 12: 0, 13: 0 },
-      currentEpochs: { 10: 2, 11: 0, 12: 0, 13: 0 },
+      movedSince: (id) => id === '10',
     });
 
     expect(planned.removeIds).toEqual(['11']);
-    expect(planned.staleIds).toEqual(['10']);
+    expect(planned.staleIds).toEqual(['10', '14']);
+    expect(planned.checkedIds).toEqual(['11', '12', '13']);
     expect(responsePreservesDisplayed(206)).toBe(true);
     expect(responsePreservesDisplayed(429)).toBe(true);
     expect(responsePreservesDisplayed(200)).toBe(false);
+  });
+
+  it('keeps a pre-request epoch and rejects only a clock that moves during the request', () => {
+    const session = createExternalFeedSession();
+
+    session.noteStatus('90');
+    const marker = session.streamMarker();
+
+    expect(session.statusMovedSince('90', marker)).toBe(false);
+    expect(session.statusMovedSince('91', marker)).toBe(false);
+    session.noteStatus('90');
+    expect(session.statusMovedSince('90', marker)).toBe(true);
+    expect(session.statusEpoch('90')).toBe(2);
   });
 
   it('inserts only inside a loaded run and keeps ids above 2^53 as strings', () => {
@@ -77,6 +94,33 @@ describe('external feed reconcile', () => {
     expect(inside.items).toEqual(['9007199254740995', '9007199254740993', '9007199254740990']);
     expect(gapped.inserted).toEqual([]);
     expect(gapped.items).toEqual(['100', null, '80']);
+
+    expect(placeReconcileIds([], ['90', '100'], { seed: true }).items).toEqual(['100', '90']);
+    expect(placeReconcileIds(['50'], ['40', '60']).items).toEqual(['50', '40']);
+    expect(placeReconcileIds(['100', null, '80'], ['90']).inserted).toEqual([]);
+    expect(placeReconcileIds([null], ['90'], { seed: true }).inserted).toEqual([]);
+  });
+
+  it('walks past the first budget instead of repeating the head', () => {
+    const ids = Array.from({ length: 401 }, (_value, index) => String(index + 1));
+    const checked = new Set();
+    const first = budgetChunks(ids.filter(id => !checked.has(id)), 50, 4);
+
+    first.chunks.forEach(chunk => chunk.forEach(id => checked.add(id)));
+    const second = budgetChunks(ids.filter(id => !checked.has(id)), 50, 4);
+
+    expect(first.chunks).toHaveLength(4);
+    expect(first.remaining).toBe(true);
+    expect(second.chunks[0][0]).toBe('201');
+    expect(second.remaining).toBe(true);
+    second.chunks.forEach(chunk => chunk.forEach(id => checked.add(id)));
+    const third = budgetChunks(ids.filter(id => !checked.has(id)), 50, 4);
+
+    expect(third.chunks).toHaveLength(1);
+    expect(third.chunks[0]).toEqual(['401']);
+    expect(third.remaining).toBe(false);
+    expect(nextHistoryCursor({ empty: false, ids: ['100', '80'], oldest: '80' }, [{ id: '70' }], 40).done).toBe(true);
+    expect(nextHistoryCursor({ empty: true, ids: [] }, [{ id: '70' }, { id: '60' }], 40).done).toBe(true);
   });
 
   it('removes and inserts on one timeline without changing unread', () => {
