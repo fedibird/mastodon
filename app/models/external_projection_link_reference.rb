@@ -18,6 +18,7 @@
 #  superseded_at                  :datetime
 #  published_at                   :datetime
 #  next_recovery_at               :datetime
+#  reference_digest               :string(64)
 #  created_at                     :datetime         not null
 #  updated_at                     :datetime         not null
 #
@@ -30,6 +31,7 @@ class ExternalProjectionLinkReference < ApplicationRecord
   belongs_to :account
   belongs_to :external_status_projection, optional: true, inverse_of: :external_projection_link_references
   belongs_to :reference_status, class_name: 'Status', optional: true
+  has_many :boosts, class_name: 'ExternalProjectionLinkBoost', foreign_key: :link_reference_id, inverse_of: :link_reference, dependent: :delete_all
 
   validates :visibility, inclusion: { in: VISIBILITIES }
   validates :state, inclusion: { in: STATES }

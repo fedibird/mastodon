@@ -201,3 +201,5 @@ The permit is the string `status_id || ':' || txid_current()` in the transaction
 | Migrated or newly stored external | direct | external | not on the personal timeline |
 
 The subscription item list, the status itself, and the owner's favourites and bookmarks still open the same id. Another User of the same Account does not. Home and list delivery is the E3 contract. A public link note, when E4-A creates one, is a different status and is specified in `docs/external_link_sharing.md`. The projection itself stays `direct` / `visibility_ex=external`.
+
+A boost or unboost request on a projection id is not a boost of the projection. It is converted, for the owning User only, into a share of that User's own link note (`docs/external_link_sharing.md`, section "E4-B"). `ReblogService` and `StatusPolicy#reblog?` still refuse the projection, and the projection is never the target of a boost Status.

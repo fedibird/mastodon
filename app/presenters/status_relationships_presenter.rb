@@ -20,9 +20,12 @@ class StatusRelationshipsPresenter
       conversation_ids    = statuses.filter_map(&:conversation_id).uniq
       pinnable_status_ids = statuses.map(&:proper).filter_map { |s| s.id if s.account_id == current_account_id && %w(public unlisted private).include?(s.visibility) }
 
-      result = ActiveRecord::Base.connection.select_all(ActiveRecord::Base.sanitize_sql_array([<<-SQL.squish, account_id: current_account_id, status_ids: status_ids, conversation_ids: conversation_ids, pinnable_status_ids: pinnable_status_ids])).to_a.first
+      viewer_user_id = options.fetch(:viewer_user_id) { ExternalBridge::Viewer.user_id }
+
+      result = ActiveRecord::Base.connection.select_all(ActiveRecord::Base.sanitize_sql_array([<<-SQL.squish, account_id: current_account_id, user_id: viewer_user_id.to_i, status_ids: status_ids, conversation_ids: conversation_ids, pinnable_status_ids: pinnable_status_ids])).to_a.first
         select
           (select string_agg(reblog_of_id::text, ',') from statuses where account_id = :account_id and reblog_of_id in (:status_ids)) as reblogs,
+          (#{ExternalBridge::LinkSharing::BoostState.presenter_sql}) as link_boosts,
           (select string_agg(status_id::text, ',') from favourites where account_id = :account_id and status_id IN (:status_ids)) as favourites,
           (select string_agg(status_id::text, ',') from bookmarks where account_id = :account_id and status_id in (:status_ids)) as bookmarks,
           (select string_agg(status_id::text, ',') from emoji_reactions where account_id = :account_id and status_id in (:status_ids)) as emoji_reactions,
@@ -31,7 +34,7 @@ class StatusRelationshipsPresenter
         SQL
 
       @filters_map         = build_filters_map(statuses, current_account_id).merge(options[:filters_map] || {})
-      @reblogs_map         = mapping(result['reblogs'],         options[:reblogs_map])
+      @reblogs_map         = mapping(result['reblogs'],         options[:reblogs_map]).merge(link_boost_mapping(result['link_boosts'], options[:reblogs_map]))
       @favourites_map      = mapping(result['favourites'],      options[:favourites_map])
       @bookmarks_map       = mapping(result['bookmarks'],       options[:bookmarks_map])
       @emoji_reactions_map = mapping(result['emoji_reactions'], options[:emoji_reactions_map])
@@ -43,6 +46,15 @@ class StatusRelationshipsPresenter
   end
 
   private
+
+  # A projection has no wrapper that points at it, so the Account-scoped
+  # reblogs lookup above never answers for it. The answer comes from the
+  # boost rows of the viewing User, read in the same statement. An explicit
+  # reblogs_map entry from the caller still wins.
+  def link_boost_mapping(result, additional)
+    ids = result&.split(',')&.map(&:to_i) || []
+    ids.index_with(true).merge(additional || {})
+  end
 
   def mapping(result, additional)
     (result&.split(',')&.map(&:to_i)&.index_with(true) || {}).merge(additional || {})

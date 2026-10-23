@@ -15,13 +15,16 @@ module ExternalBridge
       ids = Array(status_ids).map(&:to_i).uniq.reject(&:zero?)
       return if ids.empty?
 
+      removals = []
       ActiveRecord::Base.transaction(requires_new: true) do
         captures = capture_stream_deletes(ids)
         remember_suppressions!(ids) if suppress
+        removals = LinkSharing::Retire.end_for_projections!(ids, reason: 'projection_purged')
         ActiveRecord::Base.connection.execute(SETTING_SQL)
         Status.unscoped.where(id: ids).delete_all
         Streaming::Scheduler.schedule_deletes!(captures)
       end
+      LinkSharing::Retire.enqueue_removals(removals)
 
       ids.each { |id| Rails.cache.delete("statuses/#{id}") }
       remove_search_documents(ids)

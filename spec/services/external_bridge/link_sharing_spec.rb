@@ -7,6 +7,7 @@ require 'rails_helper'
 require Rails.root.join('db/migrate/20261026120000_create_external_link_sharing.rb')
 require Rails.root.join('db/migrate/20261027120000_add_external_link_reference_published_at.rb')
 require Rails.root.join('db/migrate/20261028120000_add_external_link_reference_next_recovery_at.rb')
+require Rails.root.join('db/migrate/20261029120000_create_external_link_boosts.rb')
 
 describe 'ExternalBridge link sharing', type: :model do
   def error_code(code)
@@ -882,6 +883,9 @@ describe 'ExternalBridge link sharing', type: :model do
     expect(ExternalLinkSharePolicy.count).to eq(0)
     connection = ActiveRecord::Base.connection
     ActiveRecord::Base.transaction(requires_new: true) do
+      CreateExternalLinkBoosts.new.down
+      expect(connection.table_exists?(:external_projection_link_boosts)).to be false
+      expect(connection.column_exists?(:external_projection_link_references, :reference_digest)).to be false
       AddExternalLinkReferenceNextRecoveryAt.new.down
       AddExternalLinkReferencePublishedAt.new.down
       CreateExternalLinkSharing.new.down
@@ -889,6 +893,12 @@ describe 'ExternalBridge link sharing', type: :model do
       CreateExternalLinkSharing.new.up
       AddExternalLinkReferencePublishedAt.new.up
       AddExternalLinkReferenceNextRecoveryAt.new.up
+      CreateExternalLinkBoosts.new.up
+      expect(connection.table_exists?(:external_projection_link_boosts)).to be true
+      expect(connection.column_exists?(:external_projection_link_references, :reference_digest)).to be true
+      expect(connection.select_value("SELECT indexdef FROM pg_indexes WHERE indexname = 'index_link_boosts_on_unannounced'")).to include('NULLS FIRST')
+      expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_boosts_enforce_owner' AND NOT tgisinternal")).to eq(1)
+      expect(connection.select_value("SELECT 1 FROM pg_trigger WHERE tgname = 'external_projection_link_boosts_end_on_status_delete' AND NOT tgisinternal")).to eq(1)
       expect(connection.column_exists?(:external_projection_link_references, :published_at)).to be true
       expect(connection.column_exists?(:external_projection_link_references, :next_recovery_at)).to be true
       expect(connection.select_value("SELECT indexdef FROM pg_indexes WHERE indexname = 'index_link_refs_on_unpublished_recovery'")).to include('NULLS FIRST')

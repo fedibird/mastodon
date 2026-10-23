@@ -14,7 +14,7 @@ class AccountStatusesFeed
   end
 
   def permission_scope
-    scope = account.permitted_statuses(viewer)
+    scope = account.permitted_statuses(viewer).merge(Status.include_expired.without_link_boost_wrappers)
     scope = scope.merge(Status.include_expired.without_personal_visibility) if hide_personal?
     scope
   end
