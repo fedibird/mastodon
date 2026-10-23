@@ -24,21 +24,83 @@ const tickets = new WeakMap();
  * @property {string|null} listId
  * @property {function(string): void|null} listener
  * @property {PrivateSlot[]} queue
- * @property {boolean} draining
- * @property {boolean} drainAgain
+ * @property {boolean} confirming
+ * @property {ConfirmSignal|null} confirmSignal
+ * @property {ReturnType<typeof setTimeout>|null} confirmTimer
  * @property {Map<string, string>} seenGenerations
  * @property {Set<string>} removedStatuses
+ * @property {Set<string>} pendingInserts
+ * @property {Set<string>} insertedStatuses
+ * @property {function(string, any[], { signal?: ConfirmSignal, timeoutMs?: number }|undefined=): Promise<any>} query
+ * @property {any} req
+ * @property {{ kind: string, listId: string|null }} target
+ * @property {function(string, string): void} output
  */
 
 /**
  * @typedef PrivateSlot
  * @property {{ event: string, encoded: string, control?: any, delivery?: any }} prepared
- * @property {boolean} settled
+ */
+
+/**
+ * @typedef ConfirmSignal
+ * @property {boolean} aborted
+ * @property {function(string, function(): void): void} addEventListener
+ * @property {function(string, function(): void): void} removeEventListener
+ * @property {function(): void} abort
+ */
+
+/**
+ * @typedef ConfirmResult
  * @property {boolean} ok
+ * @property {boolean} superseded
+ * @property {boolean} dropIntent
  */
 
 const PRIVATE_PENDING_LIMIT = 64;
 const PRIVATE_CONFIRM_MS = 5000;
+
+/**
+ * One private confirmation per ticket. The next statement, and the next
+ * message, wait until the query that already started has settled or the
+ * driver has cancelled it.
+ */
+
+/**
+ * @return {ConfirmSignal}
+ */
+const createSignal = () => {
+  const listeners = new Set();
+
+  return {
+    aborted: false,
+    addEventListener: (_type, listener) => {
+      listeners.add(listener);
+    },
+    removeEventListener: (_type, listener) => {
+      listeners.delete(listener);
+    },
+    abort() {
+      if (this.aborted) {
+        return;
+      }
+
+      this.aborted = true;
+      Array.from(listeners).forEach(listener => listener());
+    },
+  };
+};
+
+/**
+ * @return {Error}
+ */
+const abortError = () => Object.assign(new Error('external feed confirmation cancelled'), { code: 'EXTERNAL_FEED_CANCELLED' });
+
+/**
+ * @param {boolean} [dropIntent]
+ * @return {ConfirmResult}
+ */
+const rejectedConfirm = (dropIntent = false) => ({ ok: false, superseded: false, dropIntent: dropIntent === true });
 
 /**
  * @param {string|number} left
@@ -306,15 +368,20 @@ const cleanDelivery = (value, event, statusId) => {
 };
 
 /**
- * @param {function(string, any[]): Promise<any>} query
+ * @param {function(string, any[], any=): Promise<any>} query
  * @param {any} req
  * @param {{ kind: string, listId: string|null }} target
  * @param {any} delivery
- * @return {Promise<boolean>}
+ * @param {ConfirmSignal|null} signal
+ * @return {Promise<ConfirmResult>}
  */
-const contentStillCurrent = (query, req, target, delivery) => {
+const contentStillCurrent = (query, req, target, delivery, signal) => {
+  if (signal && signal.aborted) {
+    return Promise.resolve(rejectedConfirm());
+  }
+
   if (!delivery || delivery.user_id !== String(req.userId)) {
-    return Promise.resolve(false);
+    return Promise.resolve(rejectedConfirm(true));
   }
 
   const destination = target.kind === 'list' ? 'list' : 'home';
@@ -328,67 +395,105 @@ const contentStillCurrent = (query, req, target, delivery) => {
     listId,
     delivery.subscription_id,
   ]).then(result => {
+    if (signal && signal.aborted) {
+      return rejectedConfirm();
+    }
+
     if (!result || !Array.isArray(result.rows) || result.rows.length !== 1) {
-      return false;
+      return rejectedConfirm(true);
     }
 
     const row = result.rows[0];
 
-    if (row.routed !== true || typeof row.content_generation !== 'string') {
-      return false;
+    if (typeof row.content_generation !== 'string') {
+      return rejectedConfirm(true);
     }
 
-    return compareDecimal(row.content_generation, delivery.generation) === 0;
-  }).catch(() => false);
+    const compared = compareDecimal(row.content_generation, delivery.generation);
+
+    if (row.routed === true && compared === 0) {
+      return { ok: true, superseded: false, dropIntent: false };
+    }
+
+    // The insert was overtaken by a newer generation that is still routed.
+    // Keep the unforwarded insert for that next accepted generation.
+    if (row.routed === true && compared > 0) {
+      return { ok: false, superseded: true, dropIntent: false };
+    }
+
+    return rejectedConfirm(true);
+  }).catch(() => rejectedConfirm());
 };
 
 /**
- * @param {function(string, any[]): Promise<any>} query
+ * @param {function(string, any[], any=): Promise<any>} query
  * @param {any} req
  * @param {any} delivery
- * @return {Promise<boolean>}
+ * @param {ConfirmSignal|null} signal
+ * @return {Promise<ConfirmResult>}
  */
-const deleteStillCurrent = (query, req, delivery) => {
+const deleteStillCurrent = (query, req, delivery, signal) => {
+  if (signal && signal.aborted) {
+    return Promise.resolve(rejectedConfirm());
+  }
+
   if (!delivery || delivery.user_id !== String(req.userId)) {
-    return Promise.resolve(false);
+    return Promise.resolve(rejectedConfirm());
   }
 
   return query(DELETE_SQL, [delivery.status_id, String(req.userId)]).then(result => {
+    if (signal && signal.aborted) {
+      return rejectedConfirm();
+    }
+
     const row = result && Array.isArray(result.rows) ? result.rows[0] : null;
 
     if (!row) {
-      return false;
+      return rejectedConfirm();
     }
 
-    return row.status_present !== true && row.marker_present !== true;
-  }).catch(() => false);
+    if (row.status_present !== true && row.marker_present !== true) {
+      return { ok: true, superseded: false, dropIntent: true };
+    }
+
+    return rejectedConfirm();
+  }).catch(() => rejectedConfirm());
 };
 
 /**
- * @param {function(string, any[]): Promise<any>} query
+ * @param {function(string, any[], any=): Promise<any>} query
  * @param {any} req
  * @param {{ kind: string, listId: string|null }} target
  * @param {{ event: string, control?: any, delivery?: any }} prepared
- * @return {Promise<boolean>}
+ * @param {ConfirmSignal|null} [signal]
+ * @return {Promise<ConfirmResult>}
  */
-const confirmPrivateEvent = (query, req, target, prepared) => {
+const confirmPrivateEvent = (query, req, target, prepared, signal = null) => {
+  if (signal && signal.aborted) {
+    return Promise.resolve(rejectedConfirm());
+  }
+
   const allowMissingList = !!(prepared.control && prepared.control.reason === 'list_removed' && target.kind === 'list');
 
   return authorizeExternalDelivery(query, req, target, { allowMissingList: allowMissingList }).then(allowed => {
+    if (signal && signal.aborted) {
+      return rejectedConfirm();
+    }
+
     if (!allowed) {
-      return false;
+      return rejectedConfirm();
     }
 
     if (prepared.event === 'update' || prepared.event === 'status.update') {
-      return contentStillCurrent(query, req, target, prepared.delivery);
+      return contentStillCurrent(query, req, target, prepared.delivery, signal);
     }
 
     if (prepared.event === 'delete') {
-      return deleteStillCurrent(query, req, prepared.delivery);
+      return deleteStillCurrent(query, req, prepared.delivery, signal);
     }
 
-    return true;
-  }).catch(() => false);
+    return { ok: true, superseded: false, dropIntent: false };
+  }).catch(() => rejectedConfirm());
 };
 
 /**
@@ -449,95 +554,210 @@ const rememberDelivery = (ticket, prepared) => {
 };
 
 /**
- * @param {Promise<boolean>} confirmation
- * @return {Promise<boolean>}
- */
-const withConfirmTimeout = confirmation => new Promise(resolve => {
-  const timer = setTimeout(() => resolve(false), PRIVATE_CONFIRM_MS);
-
-  Promise.resolve(confirmation).then(ok => {
-    clearTimeout(timer);
-    resolve(ok === true);
-  }).catch(() => {
-    clearTimeout(timer);
-    resolve(false);
-  });
-});
-
-/**
  * @param {ExternalTicket} ticket
- * @param {function(string, string): void} output
+ * @param {{ event: string, delivery?: any }} prepared
  */
-const drainPrivateQueue = (ticket, output) => {
-  if (ticket.draining) {
-    ticket.drainAgain = true;
-
+const noteInsertIntent = (ticket, prepared) => {
+  if (prepared.event !== 'update' || !prepared.delivery || !prepared.delivery.status_id) {
     return;
   }
 
-  ticket.draining = true;
+  const statusId = prepared.delivery.status_id;
 
-  try {
-    do {
-      ticket.drainAgain = false;
-
-      while (ticket.queue.length > 0 && ticket.queue[0].settled) {
-        const slot = ticket.queue.shift();
-
-        if (!slot || !ticket.active || !slot.ok || !generationAllowed(ticket, slot.prepared)) {
-          continue;
-        }
-
-        if (slot.prepared.control && !claimRevision(ticket, slot.prepared.control)) {
-          continue;
-        }
-
-        try {
-          output(slot.prepared.event, slot.prepared.encoded);
-          rememberDelivery(ticket, slot.prepared);
-        } catch (error) {
-          // A bad client write must not freeze later private events.
-        }
-      }
-    } while (ticket.drainAgain);
-  } finally {
-    ticket.draining = false;
+  if (ticket.insertedStatuses.has(statusId) || ticket.removedStatuses.has(statusId)) {
+    return;
   }
+
+  const seen = ticket.seenGenerations.get(statusId);
+
+  if (seen !== undefined && compareDecimal(seen, prepared.delivery.generation) > 0) {
+    return;
+  }
+
+  ticket.pendingInserts.add(statusId);
+};
+
+/**
+ * @param {ExternalTicket} ticket
+ * @param {{ event: string, delivery?: any }} prepared
+ * @param {ConfirmResult} result
+ */
+const noteRejectedIntent = (ticket, prepared, result) => {
+  if (!prepared.delivery || !prepared.delivery.status_id || result.dropIntent !== true) {
+    return;
+  }
+
+  ticket.pendingInserts.delete(prepared.delivery.status_id);
+};
+
+/**
+ * @param {ExternalTicket} ticket
+ * @param {{ event: string, delivery?: any }} prepared
+ * @return {string}
+ */
+const eventToWrite = (ticket, prepared) => {
+  if ((prepared.event !== 'update' && prepared.event !== 'status.update') || !prepared.delivery) {
+    return prepared.event;
+  }
+
+  const statusId = prepared.delivery.status_id;
+
+  if (ticket.pendingInserts.has(statusId) && !ticket.insertedStatuses.has(statusId)) {
+    return 'update';
+  }
+
+  return prepared.event;
+};
+
+/**
+ * @param {ExternalTicket} ticket
+ * @param {{ event: string, delivery?: any }} prepared
+ * @param {string} event
+ */
+const rememberWrite = (ticket, prepared, event) => {
+  rememberDelivery(ticket, prepared);
+
+  if (!prepared.delivery || !prepared.delivery.status_id) {
+    return;
+  }
+
+  if (event === 'update' || event === 'delete') {
+    ticket.pendingInserts.delete(prepared.delivery.status_id);
+  }
+
+  if (event === 'update') {
+    ticket.insertedStatuses.add(prepared.delivery.status_id);
+  }
+};
+
+/**
+ * @param {Promise<any>[]} started
+ * @return {Promise<void>}
+ */
+const waitStartedQueries = started => {
+  if (started.length === 0) {
+    return Promise.resolve();
+  }
+
+  return Promise.all(started.map(item => Promise.resolve(item).then(() => null, () => null))).then(() => {});
+};
+
+/**
+ * @param {ExternalTicket} ticket
+ */
+const pumpPrivateQueue = ticket => {
+  if (ticket.confirming || !ticket.active || ticket.queue.length === 0) {
+    return;
+  }
+
+  const slot = ticket.queue[0];
+  const signal = createSignal();
+  const started = [];
+
+  ticket.confirming = true;
+  ticket.confirmSignal = signal;
+
+  const wrapped = (sql, params) => {
+    if (signal.aborted || !ticket.active) {
+      return Promise.reject(abortError());
+    }
+
+    let pending;
+
+    try {
+      pending = ticket.query(sql, params, { signal: signal, timeoutMs: PRIVATE_CONFIRM_MS });
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    started.push(pending);
+
+    return Promise.resolve(pending).then(result => {
+      if (signal.aborted || !ticket.active) {
+        return Promise.reject(abortError());
+      }
+
+      return result;
+    });
+  };
+
+  const timer = setTimeout(() => {
+    signal.abort();
+  }, PRIVATE_CONFIRM_MS);
+
+  ticket.confirmTimer = timer;
+
+  const release = () => {
+    if (ticket.confirmTimer === timer) {
+      clearTimeout(timer);
+      ticket.confirmTimer = null;
+    }
+
+    if (ticket.confirmSignal === signal) {
+      ticket.confirmSignal = null;
+    }
+
+    ticket.confirming = false;
+
+    if (ticket.queue[0] === slot) {
+      ticket.queue.shift();
+    }
+
+    if (ticket.active) {
+      pumpPrivateQueue(ticket);
+    }
+  };
+
+  const settle = () => waitStartedQueries(started).then(release);
+
+  confirmPrivateEvent(wrapped, ticket.req, ticket.target, slot.prepared, signal).then(result => {
+    clearTimeout(timer);
+    const verdict = result && result.ok === true ? result : rejectedConfirm(result && result.dropIntent === true);
+
+    if (!ticket.active || signal.aborted || !verdict.ok || !generationAllowed(ticket, slot.prepared)) {
+      if (slot.prepared.delivery && ticket.removedStatuses.has(slot.prepared.delivery.status_id)) {
+        ticket.pendingInserts.delete(slot.prepared.delivery.status_id);
+      }
+
+      noteRejectedIntent(ticket, slot.prepared, verdict);
+
+      return settle();
+    }
+
+    if (slot.prepared.control && !claimRevision(ticket, slot.prepared.control)) {
+      return settle();
+    }
+
+    const event = eventToWrite(ticket, slot.prepared);
+
+    try {
+      ticket.output(event, slot.prepared.encoded);
+      rememberWrite(ticket, slot.prepared, event);
+    } catch (error) {
+      // A bad client write must not freeze later private events.
+    }
+
+    return settle();
+  }).catch(() => {
+    clearTimeout(timer);
+
+    return settle();
+  });
 };
 
 /**
  * @param {ExternalTicket} ticket
  * @param {{ event: string, encoded: string, control?: any, delivery?: any }} prepared
- * @param {Promise<boolean>} confirmation
- * @param {function(string, string): void} output
  * @return {boolean}
  */
-const enqueuePrivateDelivery = (ticket, prepared, confirmation, output) => {
-  if (ticket.queue.length >= PRIVATE_PENDING_LIMIT) {
+const enqueuePrivateDelivery = (ticket, prepared) => {
+  if (!ticket.active || ticket.queue.length >= PRIVATE_PENDING_LIMIT) {
     return false;
   }
 
-  /** @type {PrivateSlot} */
-  const slot = { prepared: prepared, settled: false, ok: false };
-
-  ticket.queue.push(slot);
-  withConfirmTimeout(confirmation).then(ok => {
-    if (slot.settled) {
-      return;
-    }
-
-    slot.ok = ok === true;
-    slot.settled = true;
-    drainPrivateQueue(ticket, output);
-  }).catch(() => {
-    if (slot.settled) {
-      return;
-    }
-
-    slot.ok = false;
-    slot.settled = true;
-    drainPrivateQueue(ticket, output);
-  });
+  noteInsertIntent(ticket, prepared);
+  ticket.queue.push({ prepared: prepared });
+  pumpPrivateQueue(ticket);
 
   return true;
 };
@@ -743,6 +963,16 @@ const detachExternalFeed = (listener, deps) => {
   }
 
   ticket.active = false;
+
+  if (ticket.confirmTimer) {
+    clearTimeout(ticket.confirmTimer);
+    ticket.confirmTimer = null;
+  }
+
+  if (ticket.confirmSignal) {
+    ticket.confirmSignal.abort();
+  }
+
   const channels = ticket.channels.splice(0);
 
   if (!ticket.listener) {
@@ -789,10 +1019,17 @@ const attachExternalFeed = options => {
     listId: externalFeed.listId === undefined || externalFeed.listId === null ? null : String(externalFeed.listId),
     listener: null,
     queue: [],
-    draining: false,
-    drainAgain: false,
+    confirming: false,
+    confirmSignal: null,
+    confirmTimer: null,
     seenGenerations: new Map(),
     removedStatuses: new Set(),
+    pendingInserts: new Set(),
+    insertedStatuses: new Set(),
+    query: query,
+    req: req,
+    target: { kind: externalFeed.kind, listId: externalFeed.listId === undefined || externalFeed.listId === null ? null : String(externalFeed.listId) },
+    output: output,
   };
 
   tickets.set(listener, ticket);
@@ -803,7 +1040,7 @@ const attachExternalFeed = options => {
     req.on('close', () => detachExternalFeed(listener, deps));
   }
 
-  const target = { kind: ticket.kind, listId: ticket.listId };
+  const target = ticket.target;
 
   authorizeExternalDelivery(query, req, target).then(allowed => {
     if (!ticket.active || !allowed) {
@@ -835,7 +1072,7 @@ const attachExternalFeed = options => {
         return;
       }
 
-      enqueuePrivateDelivery(ticket, prepared, confirmPrivateEvent(query, req, target, prepared), output);
+      enqueuePrivateDelivery(ticket, prepared);
     };
 
     names.forEach(name => {
@@ -851,6 +1088,151 @@ const attachExternalFeed = options => {
   }).catch(() => {});
 };
 
+/**
+ * Private queries only. `connect` is a node-postgres pool connect.
+ * A timeout or abort releases the client, and drops it when a statement
+ * already started, so the ordinary pool is not given that connection.
+ * Callers that omit `timeoutMs` do not set a per-query read timeout.
+ *
+ * @param {function(function(Error|null, any, function(Error|undefined=): void): void): void} connect
+ * @return {function(string, any[], { signal?: ConfirmSignal, timeoutMs?: number }|undefined=): Promise<any>}
+ */
+const createCancellableQuery = connect => (sql, params, options = {}) => new Promise((resolve, reject) => {
+  const signal = options && options.signal;
+  const timeoutMs = options && options.timeoutMs;
+  let settled = false;
+  let client = null;
+  let release = null;
+  let timer = null;
+  let queried = false;
+
+  const finish = (err, result) => {
+    if (settled) {
+      return;
+    }
+
+    settled = true;
+
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+
+    if (signal && signal.removeEventListener) {
+      signal.removeEventListener('abort', onAbort);
+    }
+
+    if (release) {
+      const done = release;
+
+      release = null;
+
+      try {
+        done(client && client._externalFeedDropped ? abortError() : undefined);
+      } catch (releaseFailure) {
+        // The pool throws if a client is released twice.
+      }
+    }
+
+    if (err) {
+      reject(err);
+
+      return;
+    }
+
+    resolve(result);
+  };
+
+  const dropClient = () => {
+    if (!client || client._externalFeedDropped) {
+      return;
+    }
+
+    client._externalFeedDropped = true;
+    const stream = client.connection && client.connection.stream;
+
+    if (stream && typeof stream.destroy === 'function') {
+      stream.destroy();
+    }
+  };
+
+  const onAbort = () => {
+    if (queried) {
+      dropClient();
+    }
+
+    finish(abortError());
+  };
+
+  if (signal && signal.aborted) {
+    finish(abortError());
+
+    return;
+  }
+
+  if (signal && signal.addEventListener) {
+    signal.addEventListener('abort', onAbort);
+  }
+
+  if (typeof timeoutMs === 'number' && timeoutMs > 0) {
+    timer = setTimeout(onAbort, timeoutMs);
+  }
+
+  try {
+    connect((err, connected, done) => {
+      if (settled) {
+        if (typeof done === 'function') {
+          try {
+            done();
+          } catch (releaseFailure) {
+            // Already cancelled before checkout completed.
+          }
+        }
+
+        return;
+      }
+
+      if (err) {
+        finish(err);
+
+        return;
+      }
+
+      client = connected;
+      release = done;
+
+      if (signal && signal.aborted) {
+        onAbort();
+
+        return;
+      }
+
+      const config = { text: sql, values: params };
+
+      if (typeof timeoutMs === 'number' && timeoutMs > 0) {
+        config.query_timeout = timeoutMs;
+      }
+
+      queried = true;
+      client.query(config, (queryError, result) => {
+        if (queryError) {
+          if (client) {
+            client._externalFeedDropped = true;
+          }
+
+          finish(queryError);
+
+          return;
+        }
+
+        finish(null, result);
+      });
+    });
+  } catch (error) {
+    finish(error);
+  }
+});
+
 module.exports = {
   compareDecimal,
   yamlScalar,
@@ -862,7 +1244,9 @@ module.exports = {
   prepareEvent,
   authorizeExternalDelivery,
   confirmPrivateEvent,
+  createCancellableQuery,
   PRIVATE_PENDING_LIMIT,
+  PRIVATE_CONFIRM_MS,
   attachExternalFeed,
   detachExternalFeed,
   revisionAllowed,

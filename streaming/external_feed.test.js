@@ -1,4 +1,4 @@
-const { describe, it } = require('node:test');
+const { describe, it, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const externalFeed = require('./external_feed');
 
@@ -353,13 +353,13 @@ describe('external feed subscription tickets', () => {
 
 describe('external feed send order', () => {
   const flush = () => new Promise(resolve => setImmediate(resolve));
-  const contentMessage = (content, generation) => JSON.stringify({
-    event: 'status.update',
-    payload: { id: '8', content: content },
+  const contentMessage = (content, generation, event = 'status.update', statusId = '8') => JSON.stringify({
+    event: event,
+    payload: { id: statusId, content: content },
     delivery: {
       kind: 'content',
       user_id: '17',
-      status_id: '8',
+      status_id: statusId,
       projection_id: '3',
       subscription_id: '7',
       generation: generation,
@@ -380,7 +380,7 @@ describe('external feed send order', () => {
       feed_routes_revision: '2',
     },
   });
-  const accountBody = () => ({ rows: [allowedRow()] });
+  const accountBody = (overrides = undefined) => ({ rows: [allowedRow(overrides || {})] });
   const contentBody = (generation, routed = true) => ({
     rows: [{ content_generation: generation, routed: routed }],
   });
@@ -390,7 +390,7 @@ describe('external feed send order', () => {
     gate.resolve(body);
   };
 
-  const openFeed = async (kind, listId) => {
+  const openFeed = async (kind, listId, options = {}) => {
     const gates = [];
     const output = [];
     const socket = () => {};
@@ -400,8 +400,22 @@ describe('external feed send order', () => {
       listener: socket,
       req: request(),
       externalFeed: { kind: kind, listId: listId },
-      query: (sql, params) => new Promise((resolve, reject) => {
-        gates.push({ sql: sql, params: params, resolve: resolve, reject: reject, settled: false });
+      query: (sql, params, queryOptions) => new Promise((resolve, reject) => {
+        const gate = { sql: sql, params: params, resolve: resolve, reject: reject, settled: false, cancelled: false };
+
+        gates.push(gate);
+
+        if (options.honorAbort && queryOptions && queryOptions.signal) {
+          queryOptions.signal.addEventListener('abort', () => {
+            if (gate.settled) {
+              return;
+            }
+
+            gate.settled = true;
+            gate.cancelled = true;
+            reject(new Error('cancelled'));
+          });
+        }
       }),
       redisPrefix: '',
       subscribe: (_channel, callback) => {
@@ -424,55 +438,79 @@ describe('external feed send order', () => {
   };
 
   const texts = output => output.map(entry => entry[1]);
+  const events = output => output.map(entry => entry[0]);
 
-  it('keeps content order when the later authorization finishes first', async () => {
+  const settle = async (session, body) => {
+    await flush();
+    const gate = session.gates.find(item => !item.settled);
+
+    assert.ok(gate);
+    answer(gate, body);
+    await flush();
+
+    return gate;
+  };
+
+  const confirmUserContent = async (session, generation, routed = true, rows) => {
+    const account = await settle(session, accountBody());
+
+    assert.equal(account.sql.includes('oauth_access_tokens'), true);
+    const content = await settle(session, rows || contentBody(generation, routed));
+
+    assert.equal(content.sql.includes('content_generation'), true);
+
+    return content;
+  };
+
+  const confirmListContent = async (session, generation, routed = true, rows) => {
+    const account = await settle(session, accountBody());
+
+    assert.equal(account.sql.includes('oauth_access_tokens'), true);
+    const list = await settle(session, { rows: [{ present: 1 }] });
+
+    assert.equal(list.sql.includes('FROM lists'), true);
+    const content = await settle(session, rows || contentBody(generation, routed));
+
+    assert.equal(content.sql.includes('content_generation'), true);
+
+    return content;
+  };
+
+  it('writes the earlier message before the later message queries', async () => {
     const session = await openFeed('user');
+    const before = session.gates.length;
 
     session.listener(contentMessage('old-body', '1'));
     session.listener(contentMessage('new-body', '2'));
     await flush();
-    const firstAccount = session.gates[session.gates.length - 2];
-    const secondAccount = session.gates[session.gates.length - 1];
+    assert.equal(session.gates.length, before + 1);
 
-    answer(secondAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('2'));
-    await flush();
-    assert.deepEqual(session.output, []);
-    answer(firstAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('1'));
-    await flush();
+    await settle(session, accountBody());
+    assert.equal(session.gates.length, before + 2);
+    await settle(session, contentBody('1'));
+    assert.deepEqual(events(session.output), ['status.update']);
+    assert.equal(session.gates.length, before + 3);
+    await settle(session, accountBody());
+    await settle(session, contentBody('2'));
 
-    assert.deepEqual(session.output.map(entry => entry[0]), ['status.update', 'status.update']);
+    assert.deepEqual(events(session.output), ['status.update', 'status.update']);
     assert.equal(texts(session.output)[0].includes('old-body'), true);
     assert.equal(texts(session.output)[1].includes('new-body'), true);
     assert.equal(texts(session.output)[0].includes('projection_id'), false);
     assert.equal(texts(session.output)[0].includes('delivery'), false);
   });
 
-  it('drops an older generation that finishes authorizing after a newer one was received first', async () => {
+  it('drops an older generation after a newer one was already written', async () => {
     const session = await openFeed('user');
 
     session.listener(contentMessage('new-body', '2'));
     session.listener(contentMessage('old-body', '1'));
-    await flush();
-    const newerAccount = session.gates[session.gates.length - 2];
-    const olderAccount = session.gates[session.gates.length - 1];
-
-    answer(olderAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('1'));
-    await flush();
-    assert.deepEqual(session.output, []);
-    answer(newerAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('2'));
-    await flush();
+    await confirmUserContent(session, '2');
+    await confirmUserContent(session, '1');
 
     assert.equal(texts(session.output).some(body => body.includes('old-body')), false);
     assert.equal(texts(session.output).some(body => body.includes('new-body')), true);
-    assert.deepEqual(session.output.map(entry => entry[0]), ['status.update']);
+    assert.deepEqual(events(session.output), ['status.update']);
   });
 
   it('drops a rendered generation that no longer matches the marker', async () => {
@@ -480,43 +518,27 @@ describe('external feed send order', () => {
 
     session.listener(contentMessage('old-body', '1'));
     session.listener(contentMessage('new-body', '2'));
-    await flush();
-    const olderAccount = session.gates[session.gates.length - 2];
-    const newerAccount = session.gates[session.gates.length - 1];
-
-    answer(newerAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('2'));
-    await flush();
-    answer(olderAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('2'));
-    await flush();
+    await confirmUserContent(session, '2');
+    await confirmUserContent(session, '2');
 
     assert.equal(texts(session.output).some(body => body.includes('old-body')), false);
     assert.equal(texts(session.output).some(body => body.includes('new-body')), true);
+    assert.deepEqual(events(session.output), ['status.update']);
   });
 
-  it('keeps update before delete when delete authorization finishes first', async () => {
+  it('keeps content before delete on the same ticket', async () => {
     const session = await openFeed('user');
+    const before = session.gates.length;
 
     session.listener(contentMessage('old-body', '1'));
     session.listener(deleteMessage());
     await flush();
-    const contentAccount = session.gates[session.gates.length - 2];
-    const deleteAccount = session.gates[session.gates.length - 1];
+    assert.equal(session.gates.length, before + 1);
+    await confirmUserContent(session, '1');
+    await settle(session, accountBody());
+    await settle(session, { rows: [{ status_present: false, marker_present: false }] });
 
-    answer(deleteAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], { rows: [{ status_present: false, marker_present: false }] });
-    await flush();
-    assert.deepEqual(session.output, []);
-    answer(contentAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('1'));
-    await flush();
-
-    assert.deepEqual(session.output.map(entry => entry[0]), ['status.update', 'delete']);
+    assert.deepEqual(events(session.output), ['status.update', 'delete']);
     assert.equal(session.output[1][1], '8');
   });
 
@@ -525,42 +547,26 @@ describe('external feed send order', () => {
 
     session.listener(deleteMessage());
     session.listener(contentMessage('old-body', '1'));
-    await flush();
-    const deleteAccount = session.gates[session.gates.length - 2];
-    const contentAccount = session.gates[session.gates.length - 1];
+    await settle(session, accountBody());
+    await settle(session, { rows: [{ status_present: false, marker_present: false }] });
+    await confirmUserContent(session, '1');
 
-    answer(contentAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('1'));
-    await flush();
-    assert.deepEqual(session.output, []);
-    answer(deleteAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], { rows: [{ status_present: false, marker_present: false }] });
-    await flush();
-
-    assert.deepEqual(session.output.map(entry => entry[0]), ['delete']);
+    assert.deepEqual(events(session.output), ['delete']);
     assert.equal(texts(session.output).some(body => body.includes('old-body')), false);
   });
 
   it('keeps a membership change behind the content event that arrived first', async () => {
     const session = await openFeed('user');
+    const before = session.gates.length;
 
     session.listener(contentMessage('still-routed', '1'));
     session.listener(controlMessage('routes_updated', [{ type: 'home' }]));
     await flush();
-    const contentAccount = session.gates[session.gates.length - 2];
-    const controlAccount = session.gates[session.gates.length - 1];
+    assert.equal(session.gates.length, before + 1);
+    await confirmUserContent(session, '1', true);
+    await settle(session, accountBody());
 
-    answer(controlAccount, accountBody());
-    await flush();
-    assert.deepEqual(session.output, []);
-    answer(contentAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('1', true));
-    await flush();
-
-    assert.deepEqual(session.output.map(entry => entry[0]), ['status.update', 'external_feed_changed']);
+    assert.deepEqual(events(session.output), ['status.update', 'external_feed_changed']);
   });
 
   it('drops content received after the route is gone', async () => {
@@ -568,19 +574,10 @@ describe('external feed send order', () => {
 
     session.listener(controlMessage('source_deleted', [{ type: 'home' }]));
     session.listener(contentMessage('removed-body', '1'));
-    await flush();
-    const controlAccount = session.gates[session.gates.length - 2];
-    const contentAccount = session.gates[session.gates.length - 1];
+    await settle(session, accountBody());
+    await confirmUserContent(session, '1', false);
 
-    answer(contentAccount, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('1', false));
-    await flush();
-    assert.deepEqual(session.output, []);
-    answer(controlAccount, accountBody());
-    await flush();
-
-    assert.deepEqual(session.output.map(entry => entry[0]), ['external_feed_changed']);
+    assert.deepEqual(events(session.output), ['external_feed_changed']);
     assert.equal(texts(session.output).some(body => body.includes('removed-body')), false);
   });
 
@@ -613,42 +610,41 @@ describe('external feed send order', () => {
 
   it('continues the queue when one authorization fails', async () => {
     const session = await openFeed('user');
+    const before = session.gates.length;
 
     session.listener(contentMessage('failed-body', '1'));
     session.listener(contentMessage('later-body', '2'));
     await flush();
-    const failed = session.gates[session.gates.length - 2];
-    const later = session.gates[session.gates.length - 1];
+    assert.equal(session.gates.length, before + 1);
+    const failed = session.gates[before];
 
     failed.settled = true;
     failed.reject(new Error('db down'));
     await flush();
-    answer(later, accountBody());
-    await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('2'));
-    await flush();
+    await confirmUserContent(session, '2');
 
     assert.equal(texts(session.output).some(body => body.includes('failed-body')), false);
     assert.equal(texts(session.output).some(body => body.includes('later-body')), true);
   });
 
-  it('does not deliver after the ticket is replaced', async () => {
+  it('does not deliver after the ticket is replaced and does not start the content query', async () => {
     const session = await openFeed('user');
 
     session.listener(contentMessage('late-body', '1'));
     await flush();
-    externalFeed.detachExternalFeed(session.socket, { unsubscribe: () => {} });
-    const account = session.gates[session.gates.length - 1];
+    const started = session.gates.length;
 
-    answer(account, accountBody());
+    externalFeed.detachExternalFeed(session.socket, { unsubscribe: () => {} });
+    answer(session.gates[started - 1], accountBody());
     await flush();
-    answer(session.gates[session.gates.length - 1], contentBody('1'));
-    await flush();
+    assert.equal(session.gates.length, started);
+    assert.equal(session.gates.some(gate => gate.sql.includes('content_generation') && !gate.sql.includes('oauth_access_tokens')), false);
     assert.deepEqual(session.output, []);
   });
 
-  it('stops accepting private events past the pending limit', async () => {
+  it('stops accepting private events past the pending limit without a query for each one', async () => {
     const session = await openFeed('user');
+    const before = session.gates.length;
 
     for (let index = 0; index < externalFeed.PRIVATE_PENDING_LIMIT + 1; index += 1) {
       const id = String(index + 1);
@@ -668,11 +664,12 @@ describe('external feed send order', () => {
     }
 
     await flush();
-    assert.equal(session.gates.filter(gate => !gate.settled).length, externalFeed.PRIVATE_PENDING_LIMIT);
+    assert.equal(session.gates.length, before + 1);
+    assert.equal(session.gates.filter(gate => !gate.settled).length, 1);
 
     let guard = 0;
 
-    while (guard < 200) {
+    while (guard < 400) {
       const gate = session.gates.find(item => !item.settled);
 
       if (!gate) {
@@ -691,5 +688,326 @@ describe('external feed send order', () => {
 
     assert.equal(session.output.length, externalFeed.PRIVATE_PENDING_LIMIT);
     assert.equal(texts(session.output).some(body => body.includes('n64')), false);
+    assert.equal(session.gates.filter(gate => !gate.settled).length, 0);
+  });
+
+  it('writes the superseded insert as update with the newer body', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('old-body', '1', 'update'));
+    await confirmUserContent(session, '2');
+    assert.deepEqual(session.output, []);
+    session.listener(contentMessage('new-body', '2', 'status.update'));
+    await confirmUserContent(session, '2');
+
+    assert.deepEqual(events(session.output), ['update']);
+    assert.equal(texts(session.output)[0].includes('new-body'), true);
+    assert.equal(texts(session.output)[0].includes('old-body'), false);
+    assert.equal(texts(session.output)[0].includes('projection_id'), false);
+    assert.equal(texts(session.output)[0].includes('delivery'), false);
+  });
+
+  it('keeps an edit as status.update after this ticket inserted the status', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('shown', '1', 'update'));
+    await confirmUserContent(session, '1');
+    session.listener(contentMessage('edited', '2', 'status.update'));
+    await confirmUserContent(session, '2');
+
+    assert.deepEqual(events(session.output), ['update', 'status.update']);
+    assert.equal(texts(session.output)[0].includes('shown'), true);
+    assert.equal(texts(session.output)[1].includes('edited'), true);
+  });
+
+  it('does not promote an edit when the unforwarded update was not routed', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('old-body', '1', 'update'));
+    await confirmUserContent(session, '1', false);
+    session.listener(contentMessage('later-edit', '2', 'status.update'));
+    await confirmUserContent(session, '2');
+
+    assert.deepEqual(events(session.output), ['status.update']);
+    assert.equal(texts(session.output)[0].includes('later-edit'), true);
+    assert.equal(texts(session.output).some(body => body.includes('old-body')), false);
+  });
+
+  it('does not promote a status.update that this ticket never received as an insert', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('edited-only', '4', 'status.update'));
+    await confirmUserContent(session, '4');
+
+    assert.deepEqual(events(session.output), ['status.update']);
+  });
+
+  it('drops a message that waited at the head after the permit would have gone stale', async () => {
+    const cases = [
+      {
+        name: 'flag off',
+        finish: async session => {
+          const gate = await settle(session, accountBody({ feeds_enabled: '--- false\n' }));
+
+          assert.equal(gate.sql.includes('oauth_access_tokens'), true);
+        },
+      },
+      {
+        name: 'allowlist exclusion',
+        finish: async session => {
+          await settle(session, accountBody({ feeds_testers: '--- \'42\'\n' }));
+        },
+      },
+      {
+        name: 'route removed',
+        finish: async session => {
+          await settle(session, accountBody());
+          const content = await settle(session, contentBody('1', false));
+
+          assert.equal(content.sql.includes('content_generation'), true);
+        },
+      },
+      {
+        name: 'source_deleted',
+        finish: async session => {
+          await settle(session, accountBody());
+          await settle(session, { rows: [] });
+        },
+      },
+      {
+        name: 'purge',
+        finish: async session => {
+          await settle(session, accountBody());
+          await settle(session, { rows: [] });
+        },
+      },
+    ];
+
+    for (let index = 0; index < cases.length; index += 1) {
+      const session = await openFeed('user');
+      const before = session.gates.length;
+
+      session.listener(contentMessage('blocker', '1', 'status.update', '1'));
+      session.listener(contentMessage('secret-body', '1', 'update', '8'));
+      await flush();
+      assert.equal(session.gates.length, before + 1, cases[index].name);
+      await confirmUserContent(session, '1');
+      assert.equal(texts(session.output).some(body => body.includes('blocker')), true, cases[index].name);
+      const queriesBeforeWaitingMessage = session.gates.length;
+
+      assert.ok(queriesBeforeWaitingMessage > before + 1, cases[index].name);
+      await cases[index].finish(session);
+      assert.equal(texts(session.output).some(body => body.includes('secret-body')), false, cases[index].name);
+    }
+  });
+
+  it('does not roll a home or list ticket back after the other ticket saw a newer body or a delete', async () => {
+    const home = await openFeed('user');
+    const list = await openFeed('list', '55');
+
+    home.listener(contentMessage('old-body', '1', 'update'));
+    await flush();
+    list.listener(contentMessage('old-body', '1', 'update'));
+    await confirmListContent(list, '1');
+    list.listener(contentMessage('new-body', '2', 'status.update'));
+    await confirmListContent(list, '2');
+    assert.deepEqual(events(list.output), ['update', 'status.update']);
+
+    await confirmUserContent(home, '2');
+    assert.deepEqual(home.output, []);
+    home.listener(contentMessage('new-body', '2', 'status.update'));
+    await confirmUserContent(home, '2');
+    assert.deepEqual(events(home.output), ['update']);
+    assert.equal(texts(home.output)[0].includes('new-body'), true);
+    assert.equal(texts(home.output)[0].includes('old-body'), false);
+    assert.equal(list.output.length, 2);
+
+    const slow = await openFeed('user');
+    const fast = await openFeed('list', '55');
+
+    slow.listener(contentMessage('doomed', '1', 'update'));
+    slow.listener(deleteMessage());
+    await flush();
+    fast.listener(deleteMessage());
+    await settle(fast, accountBody());
+    await settle(fast, { rows: [{ present: 1 }] });
+    await settle(fast, { rows: [{ status_present: false, marker_present: false }] });
+    fast.listener(contentMessage('doomed', '1', 'update'));
+    await settle(fast, accountBody());
+    await settle(fast, { rows: [{ present: 1 }] });
+    await settle(fast, { rows: [] });
+    assert.deepEqual(events(fast.output), ['delete']);
+
+    await confirmUserContent(slow, '1', true, { rows: [] });
+    await settle(slow, accountBody());
+    await settle(slow, { rows: [{ status_present: false, marker_present: false }] });
+    assert.deepEqual(events(slow.output), ['delete']);
+    assert.equal(texts(slow.output).some(body => body.includes('doomed')), false);
+    assert.equal(texts(fast.output).some(body => body.includes('doomed')), false);
+  });
+
+  it('keeps unresolved private queries inside one in-flight confirmation across timeouts', async () => {
+    const session = await openFeed('user');
+    const before = session.gates.length;
+
+    mock.timers.enable({ apis: ['setTimeout'] });
+
+    try {
+      for (let round = 0; round < 3; round += 1) {
+        for (let index = 0; index < externalFeed.PRIVATE_PENDING_LIMIT; index += 1) {
+          const id = String((round * 100) + index + 1);
+
+          session.listener(contentMessage(`body-${id}`, '1', 'update', id));
+        }
+
+        await flush();
+        assert.equal(session.gates.length, before + 1);
+        assert.equal(session.gates.filter(gate => !gate.settled).length, 1);
+        mock.timers.tick(externalFeed.PRIVATE_CONFIRM_MS);
+        await flush();
+        assert.equal(session.gates.filter(gate => !gate.settled).length, 1);
+        assert.equal(session.gates.some(gate => gate.sql.includes('content_generation')), false);
+      }
+
+      externalFeed.detachExternalFeed(session.socket, { unsubscribe: () => {} });
+      answer(session.gates[before], accountBody());
+      await flush();
+      assert.equal(session.gates.length, before + 1);
+      assert.equal(session.gates.filter(gate => !gate.settled).length, 0);
+      assert.deepEqual(session.output, []);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it('does not start the content query after a timeout and still inserts the next accepted generation', async () => {
+    const session = await openFeed('user', null, { honorAbort: true });
+
+    mock.timers.enable({ apis: ['setTimeout'] });
+
+    try {
+      session.listener(contentMessage('old-body', '1', 'update'));
+      await flush();
+      mock.timers.tick(externalFeed.PRIVATE_CONFIRM_MS);
+      await flush();
+      assert.equal(session.gates.some(gate => gate.sql.includes('content_generation')), false);
+      assert.equal(session.gates.filter(gate => !gate.settled).length, 0);
+      assert.deepEqual(session.output, []);
+
+      session.listener(contentMessage('new-body', '2', 'status.update'));
+      await confirmUserContent(session, '2');
+      assert.deepEqual(events(session.output), ['update']);
+      assert.equal(texts(session.output)[0].includes('new-body'), true);
+      assert.equal(texts(session.output)[0].includes('old-body'), false);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+});
+
+describe('cancellable private queries', () => {
+  const checkout = () => {
+    const calls = [];
+    let releaseError;
+    const client = {
+      connection: {
+        stream: {
+          destroy() {
+            calls.push('destroy');
+          },
+        },
+      },
+      query(config, callback) {
+        calls.push(config);
+        client.callback = callback;
+      },
+    };
+    let connectCallback = null;
+    const connect = callback => {
+      connectCallback = callback;
+    };
+    const run = externalFeed.createCancellableQuery(connect);
+
+    return {
+      calls: calls,
+      client: client,
+      connect: () => {
+        connectCallback(null, client, (error) => {
+          releaseError = error;
+          calls.push(error ? 'release-error' : 'release-clean');
+        });
+      },
+      releaseError: () => releaseError,
+      run: run,
+    };
+  };
+
+  const manualSignal = () => {
+    const listeners = [];
+
+    return {
+      aborted: false,
+      listeners: listeners,
+      addEventListener(_type, fn) {
+        listeners.push(fn);
+      },
+      removeEventListener() {},
+      abort() {
+        this.aborted = true;
+        listeners.forEach(fn => fn());
+      },
+    };
+  };
+
+  it('releases a client without querying when the signal aborts before checkout', async () => {
+    const harness = checkout();
+    const signal = manualSignal();
+    const pending = harness.run('SELECT 1', [], { signal: signal, timeoutMs: 5000 });
+
+    signal.abort();
+    harness.connect();
+    await assert.rejects(pending, /cancelled/);
+    assert.deepEqual(harness.calls, ['release-clean']);
+  });
+
+  it('drops a client whose statement already started when the signal aborts', async () => {
+    const harness = checkout();
+    const signal = manualSignal();
+    const pending = harness.run('SELECT marker', ['8'], { signal: signal, timeoutMs: 5000 });
+
+    harness.connect();
+    assert.equal(harness.calls[0].query_timeout, 5000);
+    assert.equal(harness.calls[0].text, 'SELECT marker');
+    signal.abort();
+    await assert.rejects(pending, /cancelled/);
+    assert.equal(harness.calls.includes('destroy'), true);
+    assert.equal(harness.calls.includes('release-error'), true);
+  });
+
+  it('does not set a read timeout when the caller does not ask for one', async () => {
+    const harness = checkout();
+    const pending = harness.run('SELECT token', ['4']);
+
+    harness.connect();
+    harness.client.callback(null, { rows: [{ user_id: '17' }] });
+    assert.deepEqual(await pending, { rows: [{ user_id: '17' }] });
+    assert.equal(harness.calls[0].query_timeout, undefined);
+    assert.equal(harness.calls.includes('release-clean'), true);
+  });
+
+  it('cancels a hung checkout when its own timer fires', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+
+    try {
+      const harness = checkout();
+      const pending = harness.run('SELECT waiting', [], { timeoutMs: externalFeed.PRIVATE_CONFIRM_MS });
+
+      mock.timers.tick(externalFeed.PRIVATE_CONFIRM_MS);
+      harness.connect();
+      await assert.rejects(pending, /cancelled/);
+      assert.deepEqual(harness.calls, ['release-clean']);
+    } finally {
+      mock.timers.reset();
+    }
   });
 });

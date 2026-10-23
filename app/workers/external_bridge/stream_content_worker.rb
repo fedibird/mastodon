@@ -22,6 +22,10 @@ module ExternalBridge
       channels = destination_channels(current)
       return if channels.empty?
 
+      # streamed_content_generation means Redis accepted a publish. It does not
+      # mean this socket already inserted the status. An edit after that mark
+      # is status.update; Node rewrites it to update only when this ticket
+      # still has an unforwarded insert for the same status.
       event = current.fetch(:marker).streamed_content_generation.nil? ? 'update' : 'status.update'
       publish(channels, event, payload, current)
       mark_streamed!(current.fetch(:marker))

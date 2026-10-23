@@ -13,7 +13,7 @@ const uuid = require('uuid');
 const fs = require('fs');
 const WebSocket = require('ws');
 const { filteredResultsForStatus, buildCachedFilters, stripStreamingSearchableText } = require('./filtering');
-const { attachExternalFeed, detachExternalFeed } = require('./external_feed');
+const { attachExternalFeed, detachExternalFeed, createCancellableQuery, PRIVATE_CONFIRM_MS } = require('./external_feed');
 
 const env = process.env.NODE_ENV || 'development';
 const alwaysRequireAuth = process.env.LIMITED_FEDERATION_MODE === 'true' || process.env.WHITELIST_MODE === 'true' || process.env.AUTHORIZED_FETCH === 'true';
@@ -162,25 +162,14 @@ const startWorker = (workerId) => {
   }
 
   const pgPool = new pg.Pool(poolConfig);
-
-  const externalQuery = (sql, params) => new Promise((resolve, reject) => {
-    pgPool.connect((err, client, done) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      client.query(sql, params, (queryError, result) => {
-        done();
-
-        if (queryError) {
-          reject(queryError);
-          return;
-        }
-
-        resolve(result);
-      });
-    });
+  // Private confirms never wait on the ordinary pool. The connection timeout
+  // belongs to this pool only, so account-timeline queries keep their own
+  // settings. max stays the same size as the ordinary pool.
+  const externalPool = new pg.Pool(Object.assign({}, poolConfig, {
+    connectionTimeoutMillis: PRIVATE_CONFIRM_MS,
+  }));
+  const externalQuery = createCancellableQuery((done) => {
+    externalPool.connect(done);
   });
 
   const detachExternalListener = listener => {
