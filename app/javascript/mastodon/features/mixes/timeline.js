@@ -541,6 +541,7 @@ export class MixTimelinePage extends React.PureComponent {
         bindToDocument={false}
         trackScroll={false}
         trackIntersection={extra.trackIntersection}
+        readingSurface={!!extra.readingSurface}
         contextTypeForId={this.contextTypeFor(extra.view)}
         warningTitlesForId={this.warningTitlesFor(extra.view)}
         sourceBadgesForId={extra.badgesFor}
@@ -632,6 +633,7 @@ export class MixTimelinePage extends React.PureComponent {
                   <div className='timeline-split__pane timeline-split__pane--history'>
                     {list(historyView ? historyView.statusIds : ImmutableList(), {
                       key: 'history',
+                      readingSurface: true,
                       view: historyView,
                       badgesFor: this.badgesForHistory,
                       hasMore: !!(historyView && historyView.hasMore),

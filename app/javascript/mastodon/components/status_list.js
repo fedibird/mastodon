@@ -40,6 +40,7 @@ class StatusList extends ImmutablePureComponent {
     newerStatus: PropTypes.string,
     olderStatus: PropTypes.string,
     windowedHistory: PropTypes.bool,
+    readingSurface: PropTypes.bool,
     anchorResolution: PropTypes.string,
     historyUnbounded: PropTypes.bool,
     windowRevision: PropTypes.number,
@@ -451,7 +452,7 @@ class StatusList extends ImmutablePureComponent {
   )
 
   render () {
-    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, onLoadNewer, timelineId, dataTimelineId, contextHostId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, windowedHistory, anchorResolution, historyUnbounded, onCommitWindowAnchor, hasNewer, newerLoading, newerStatus, olderStatus, prepend, seekScrollPending, seekSessionId, seekAnchorId, seekScrollRevision, onSeekScroll, historySurfaceId, onUserScroll, ...other } = this.props;
+    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, onLoadNewer, timelineId, dataTimelineId, contextHostId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, windowedHistory, readingSurface, anchorResolution, historyUnbounded, onCommitWindowAnchor, hasNewer, newerLoading, newerStatus, olderStatus, prepend, seekScrollPending, seekSessionId, seekAnchorId, seekScrollRevision, onSeekScroll, historySurfaceId, onUserScroll, ...other } = this.props;
 
     void badgeRevision;
     void onCommitWindowAnchor;
@@ -526,6 +527,7 @@ class StatusList extends ImmutablePureComponent {
       scrollableContent = scrollableContent.unshift(<ReloadZone key='reload' onClick={this.handleReload} />);
     }
 
+    const anchorSourceKey = `${surfaceTimelineId || ''}:${windowedHistory ? 'history' : 'stream'}`;
     const showAnchorNotice = windowedHistory && (anchorResolution === 'missing' || (historyUnbounded && anchorResolution === 'unspecified'));
     const historyPrepend = showAnchorNotice ? <HistoryAnchorNotice key='history-anchor' /> : null;
     let listPrepend = prepend;
@@ -537,7 +539,7 @@ class StatusList extends ImmutablePureComponent {
     }
 
     return (
-      <ScrollableList {...other} prepend={listPrepend} hasNewer={hasNewer} onLoadNewer={onLoadNewer && this.handleLoadNewer} newerLoading={newerLoading} newerStatus={newerStatus} olderStatus={windowedHistory ? olderStatus : undefined} filterStatusIds={statusIds.concat(filterStatusIds || ImmutableList(), featuredStatusIds || ImmutableList(), immediateStatusIds || ImmutableList())} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onUserScroll={historySurfaceId ? this.handleUserScroll : onUserScroll} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
+      <ScrollableList {...other} prepend={listPrepend} hasNewer={hasNewer} onLoadNewer={onLoadNewer && this.handleLoadNewer} newerLoading={newerLoading} newerStatus={newerStatus} olderStatus={windowedHistory ? olderStatus : undefined} windowedHistory={!!windowedHistory} readingSurface={!!readingSurface} anchorSourceKey={anchorSourceKey} filterStatusIds={statusIds.concat(filterStatusIds || ImmutableList(), featuredStatusIds || ImmutableList(), immediateStatusIds || ImmutableList())} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onUserScroll={historySurfaceId ? this.handleUserScroll : onUserScroll} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
         {scrollableContent}
       </ScrollableList>
     );
