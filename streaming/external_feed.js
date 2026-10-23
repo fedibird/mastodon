@@ -1064,8 +1064,12 @@ const expireInsertIntent = (ticket, prepared, query) => {
         ticket.pendingInserts.delete(statusId);
       }
     });
-  }).catch(() => {
-    // A failed membership read does not invent a route removal.
+  }).catch(error => {
+    // A cancelled read must not fall through to output. Any other failure
+    // leaves the insert intent in place and still allows the notice.
+    if (error && error.code === 'EXTERNAL_FEED_CANCELLED') {
+      throw error;
+    }
   });
 };
 
@@ -1102,19 +1106,21 @@ const pumpPrivateQueue = ticket => {
   const settle = () => waitStartedQueries(started).then(release);
 
   const writeSlot = result => {
-    if (!ticket.active || signal.aborted || !generationAllowed(ticket, slot.prepared)) {
-      if (slot.prepared.delivery && ticket.removedStatuses.has(slot.prepared.delivery.status_id)) {
-        ticket.pendingInserts.delete(slot.prepared.delivery.status_id);
+    // expireInsertIntent is the last promise. finish is one turn, with no
+    // further await between these checks, output, and rememberWrite.
+    const finish = () => {
+      if (!ticket.active || signal.aborted || !generationAllowed(ticket, slot.prepared)) {
+        if (slot.prepared.delivery && ticket.removedStatuses.has(slot.prepared.delivery.status_id)) {
+          ticket.pendingInserts.delete(slot.prepared.delivery.status_id);
+        }
+
+        return settle();
       }
 
-      return settle();
-    }
+      if (slot.prepared.control && !claimRevision(ticket, slot.prepared.control)) {
+        return settle();
+      }
 
-    if (slot.prepared.control && !claimRevision(ticket, slot.prepared.control)) {
-      return settle();
-    }
-
-    const finish = () => {
       const event = eventToWrite(ticket, slot.prepared, result && result.routeId);
 
       try {
@@ -1126,6 +1132,10 @@ const pumpPrivateQueue = ticket => {
 
       return settle();
     };
+
+    if (!ticket.active || signal.aborted) {
+      return settle();
+    }
 
     return expireInsertIntent(ticket, slot.prepared, wrapped).then(finish);
   };

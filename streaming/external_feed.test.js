@@ -417,7 +417,15 @@ describe('external feed send order', () => {
       req: req,
       externalFeed: { kind: kind, listId: listId },
       query: (sql, params, queryOptions) => new Promise((resolve, reject) => {
-        const gate = { sql: sql, params: params, resolve: resolve, reject: reject, settled: false, cancelled: false };
+        const gate = {
+          sql: sql,
+          params: params,
+          resolve: resolve,
+          reject: reject,
+          settled: false,
+          cancelled: false,
+          signal: queryOptions && queryOptions.signal,
+        };
 
         gates.push(gate);
 
@@ -987,6 +995,232 @@ describe('external feed send order', () => {
     await flush();
     assert.deepEqual(events(other.output), ['update']);
     assert.equal(texts(other.output)[0].includes('old-body'), true);
+  });
+
+  it('does not rewind when the newer confirm and the older confirm settle in the same turn', async () => {
+    const req = request();
+    const output = [];
+    const home = await openFeed('user', null, { req: req, output: output });
+    const list = await openFeed('list', '55', { req: req, output: output });
+
+    home.listener(contentMessage('old-body', '1', 'status.update'));
+    const stale = await holdContent(home);
+    list.listener(contentMessage('new-body', '2', 'status.update'));
+    const fresh = await holdContent(list);
+
+    answer(fresh, contentBody('2', true));
+    answer(stale, contentBody('1', true));
+    await flush();
+
+    assert.deepEqual(events(output), ['status.update']);
+    assert.equal(texts(output).some(body => body.includes('new-body')), true);
+    assert.equal(texts(output).some(body => body.includes('old-body')), false);
+
+    const deleted = request();
+    const deletedOutput = [];
+    const deletedHome = await openFeed('user', null, { req: deleted, output: deletedOutput });
+    const deletedList = await openFeed('list', '55', { req: deleted, output: deletedOutput });
+
+    deletedHome.listener(contentMessage('old-body', '1', 'update'));
+    const staleDelete = await holdContent(deletedHome);
+    deletedList.listener(deleteMessage());
+    await settle(deletedList, accountBody());
+    await settle(deletedList, { rows: [{ present: 1 }] });
+    const removal = deletedList.gates.find(gate => !gate.settled);
+
+    assert.ok(removal);
+    assert.equal(removal.sql.includes('status_present'), true);
+    answer(removal, { rows: [{ status_present: false, marker_present: false }] });
+    answer(staleDelete, contentBody('1', true));
+    await flush();
+
+    assert.deepEqual(events(deletedOutput), ['delete']);
+    assert.equal(texts(deletedOutput).some(body => body.includes('old-body')), false);
+  });
+
+  const holdFallbackRoute = async (session) => {
+    session.listener(contentMessage('old-body', '1', 'update', '8', '100'));
+    await confirmUserContent(session, '2');
+    assert.deepEqual(session.output, []);
+    session.listener(controlMessage('routes_updated', [{ type: 'home' }], { feed_routes_revision: '2' }));
+    await settle(session, accountBody());
+    const gate = session.gates.find(item => !item.settled);
+
+    assert.ok(gate);
+    assert.equal(gate.sql.includes('ANY($3::bigint[])'), true);
+
+    return gate;
+  };
+
+  it('does not emit a route notice when the fallback membership query is cancelled', async () => {
+    const detached = await openFeed('user', null, { honorAbort: true });
+    const detachGate = await holdFallbackRoute(detached);
+
+    externalFeed.detachExternalFeed(detached.socket, { unsubscribe: () => {} });
+    await flush();
+    assert.equal(detachGate.cancelled, true);
+    assert.deepEqual(detached.output, []);
+
+    const closeHandlers = [];
+    const closed = await openFeed('user', null, {
+      honorAbort: true,
+      req: request({
+        on: (event, callback) => {
+          if (event === 'close') {
+            closeHandlers.push(callback);
+          }
+        },
+      }),
+    });
+    const closeGate = await holdFallbackRoute(closed);
+
+    assert.equal(closeHandlers.length, 1);
+    closeHandlers[0]();
+    await flush();
+    assert.equal(closeGate.cancelled, true);
+    assert.deepEqual(closed.output, []);
+
+    const replaced = await openFeed('user', null, { honorAbort: true });
+    const replaceGate = await holdFallbackRoute(replaced);
+    const replacement = [];
+
+    externalFeed.attachExternalFeed({
+      listener: replaced.socket,
+      req: replaced.req,
+      externalFeed: { kind: 'user' },
+      query: () => Promise.resolve(accountBody()),
+      redisPrefix: '',
+      subscribe: () => {},
+      unsubscribe: () => {},
+      output: (event, payload) => replacement.push([event, payload]),
+    });
+    await flush();
+    assert.equal(replaceGate.cancelled, true);
+    assert.deepEqual(replaced.output, []);
+    assert.deepEqual(replacement, []);
+  });
+
+  it('drops a fallback route notice when its query signal aborts and still delivers the next event', async () => {
+    const session = await openFeed('user', null, { honorAbort: true });
+    const gate = await holdFallbackRoute(session);
+
+    assert.equal(typeof gate.signal.abort, 'function');
+    gate.signal.abort();
+    await flush();
+    assert.equal(gate.cancelled, true);
+    assert.equal(gate.signal.aborted, true);
+    assert.deepEqual(session.output, []);
+
+    session.listener(contentMessage('fresh-body', '4', 'update', '9', '100'));
+    await confirmUserContent(session, '4');
+    assert.deepEqual(events(session.output), ['update']);
+    assert.equal(texts(session.output)[0].includes('fresh-body'), true);
+  });
+
+  it('drops a fallback notice when the driver read timeout rejects the membership statement', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+
+    try {
+      const clients = [];
+      const output = [];
+      let listener = null;
+      const connect = callback => {
+        const client = {
+          destroyed: false,
+          released: false,
+          connection: {
+            stream: {
+              destroy() {
+                client.destroyed = true;
+              },
+            },
+          },
+          query(config, queryCallback) {
+            client.config = config;
+            client.callback = queryCallback;
+          },
+        };
+
+        clients.push(client);
+        callback(null, client, () => {
+          client.released = true;
+        });
+      };
+      const query = externalFeed.createCancellableQuery(connect);
+      const socket = () => {};
+
+      externalFeed.attachExternalFeed({
+        listener: socket,
+        req: request(),
+        externalFeed: { kind: 'user' },
+        query: query,
+        redisPrefix: '',
+        subscribe: (_channel, callback) => {
+          listener = callback;
+        },
+        unsubscribe: () => {},
+        output: (event, payload) => output.push([event, payload]),
+      });
+      clients[0].callback(null, accountBody());
+      await flush();
+      assert.equal(typeof listener, 'function');
+
+      const reply = async () => {
+        const client = clients[clients.length - 1];
+
+        assert.equal(client.released, false);
+        client.callback(null, client.config.text.includes('content_generation') ? contentBody('2', true) : accountBody());
+        await flush();
+      };
+
+      listener(contentMessage('old-body', '1', 'update', '8', '100'));
+      await flush();
+      await reply();
+      await reply();
+      assert.deepEqual(output, []);
+
+      listener(controlMessage('routes_updated', [{ type: 'home' }], { feed_routes_revision: '2' }));
+      await flush();
+      await reply();
+      const routeClient = clients[clients.length - 1];
+
+      assert.equal(routeClient.config.text.includes('ANY($3::bigint[])'), true);
+      assert.equal(routeClient.config.query_timeout, externalFeed.PRIVATE_CONFIRM_MS);
+      mock.timers.tick(externalFeed.PRIVATE_CONFIRM_MS);
+      await flush();
+      assert.equal(routeClient.destroyed, true);
+      assert.equal(routeClient.released, true);
+      assert.deepEqual(output, []);
+
+      listener(contentMessage('fresh-body', '4', 'update', '9', '100'));
+      await flush();
+      const accountClient = clients[clients.length - 1];
+
+      assert.equal(accountClient.config.text.includes('oauth_access_tokens'), true);
+      accountClient.callback(null, accountBody());
+      await flush();
+      const contentClient = clients[clients.length - 1];
+
+      assert.equal(contentClient.config.text.includes('content_generation'), true);
+      contentClient.callback(null, contentBody('4', true));
+      await flush();
+      assert.deepEqual(events(output), ['update']);
+      assert.equal(texts(output)[0].includes('fresh-body'), true);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it('still emits the route notice when the fallback read fails and the ticket stays current', async () => {
+    const session = await openFeed('user');
+    const gate = await holdFallbackRoute(session);
+
+    gate.settled = true;
+    gate.reject(new Error('db down'));
+    await flush();
+    assert.deepEqual(events(session.output), ['external_feed_changed']);
+    assert.equal(JSON.parse(texts(session.output)[0]).reason, 'routes_updated');
+    assert.equal(Object.prototype.hasOwnProperty.call(JSON.parse(texts(session.output)[0]), 'route_id'), false);
   });
 
   it('drops an unforwarded insert when the route is removed and does not revive it on re-add', async () => {
