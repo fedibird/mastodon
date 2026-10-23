@@ -140,6 +140,31 @@ describe('external feed authorization and payloads', () => {
       subscription_id: '7',
       feed_routes_revision: '3',
     }, 'user', null), null);
+    const listRemoved = externalFeed.sanitizeControl({
+      version: 1,
+      reason: 'list_removed',
+      targets: [{ type: 'list', id: '55' }],
+      subscription_id: '7',
+      feed_routes_revision: '3',
+      content: 'secret body',
+    }, 'user', null);
+
+    assert.equal(listRemoved.reason, 'list_removed');
+    assert.equal(JSON.stringify(listRemoved).includes('secret'), false);
+    assert.equal(externalFeed.sanitizeControl({
+      version: 1,
+      reason: 'list_removed',
+      targets: [{ type: 'list', id: '55' }],
+      subscription_id: '7',
+      feed_routes_revision: '3',
+    }, 'list', '56'), null);
+    assert.equal(externalFeed.sanitizeControl({
+      version: 1,
+      reason: 'list_removed',
+      targets: [{ type: 'list', id: '55' }],
+      subscription_id: '7',
+      feed_routes_revision: '3',
+    }, 'list', '55').reason, 'list_removed');
     assert.equal(externalFeed.sanitizeControl({
       version: 2,
       reason: 'routes_updated',
@@ -159,18 +184,35 @@ describe('external feed authorization and payloads', () => {
 
   it('prepares public events without logging or re-encoding a delete id', () => {
     const ticket = ticketFor('user');
+    const delivery = {
+      kind: 'content',
+      user_id: '17',
+      status_id: '9007199254740993',
+      projection_id: '3',
+      subscription_id: '7',
+      generation: '1',
+    };
     const update = externalFeed.prepareEvent(ticket, {
       event: 'update',
       payload: { id: '9007199254740993', content: 'hello', _fedibird_searchable_text: 'hidden' },
+      delivery: delivery,
     });
-    const removed = externalFeed.prepareEvent(ticket, { event: 'delete', payload: '9007199254740993' });
+    const removed = externalFeed.prepareEvent(ticket, {
+      event: 'delete',
+      payload: '9007199254740993',
+      delivery: { kind: 'delete', user_id: '17', status_id: '9007199254740993' },
+    });
 
     assert.equal(update.event, 'update');
     assert.equal(JSON.parse(update.encoded)._fedibird_searchable_text, undefined);
     assert.equal(JSON.parse(update.encoded).id, '9007199254740993');
+    assert.equal(JSON.parse(update.encoded).delivery, undefined);
+    assert.equal(update.encoded.includes('projection_id'), false);
     assert.equal(removed.encoded, '9007199254740993');
+    assert.equal(removed.encoded.includes('kind'), false);
     assert.equal(externalFeed.prepareEvent(ticket, { event: 'delete', payload: 5 }), null);
-    assert.equal(externalFeed.prepareEvent(ticket, { event: 'update', payload: { id: 5 } }), null);
+    assert.equal(externalFeed.prepareEvent(ticket, { event: 'update', payload: { id: '5' }, delivery: delivery }), null);
+    assert.equal(externalFeed.prepareEvent(ticket, { event: 'delete', payload: '9007199254740993' }), null);
     assert.equal(externalFeed.prepareEvent(ticket, { event: 'status.update', payload: '5' }), null);
   });
 
@@ -294,9 +336,360 @@ describe('external feed subscription tickets', () => {
     privateListener(JSON.stringify({
       event: 'update',
       payload: { id: '8', content: 'secret body' },
+      delivery: {
+        kind: 'content',
+        user_id: '17',
+        status_id: '8',
+        projection_id: '3',
+        subscription_id: '7',
+        generation: '1',
+      },
     }));
     await new Promise(resolve => setImmediate(resolve));
 
     assert.deepEqual(output, []);
+  });
+});
+
+describe('external feed send order', () => {
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  const contentMessage = (content, generation) => JSON.stringify({
+    event: 'status.update',
+    payload: { id: '8', content: content },
+    delivery: {
+      kind: 'content',
+      user_id: '17',
+      status_id: '8',
+      projection_id: '3',
+      subscription_id: '7',
+      generation: generation,
+    },
+  });
+  const deleteMessage = () => JSON.stringify({
+    event: 'delete',
+    payload: '8',
+    delivery: { kind: 'delete', user_id: '17', status_id: '8' },
+  });
+  const controlMessage = (reason, targets) => JSON.stringify({
+    event: 'external_feed_changed',
+    payload: {
+      version: 1,
+      reason: reason,
+      targets: targets,
+      subscription_id: '7',
+      feed_routes_revision: '2',
+    },
+  });
+  const accountBody = () => ({ rows: [allowedRow()] });
+  const contentBody = (generation, routed = true) => ({
+    rows: [{ content_generation: generation, routed: routed }],
+  });
+
+  const answer = (gate, body) => {
+    gate.settled = true;
+    gate.resolve(body);
+  };
+
+  const openFeed = async (kind, listId) => {
+    const gates = [];
+    const output = [];
+    const socket = () => {};
+    let privateListener = null;
+
+    externalFeed.attachExternalFeed({
+      listener: socket,
+      req: request(),
+      externalFeed: { kind: kind, listId: listId },
+      query: (sql, params) => new Promise((resolve, reject) => {
+        gates.push({ sql: sql, params: params, resolve: resolve, reject: reject, settled: false });
+      }),
+      redisPrefix: '',
+      subscribe: (_channel, callback) => {
+        privateListener = callback;
+      },
+      unsubscribe: () => {},
+      output: (event, payload) => output.push([event, payload]),
+    });
+    await flush();
+    answer(gates[0], accountBody());
+
+    if (kind === 'list') {
+      await flush();
+      answer(gates[1], { rows: [{ present: 1 }] });
+    }
+
+    await flush();
+
+    return { gates: gates, output: output, listener: privateListener, socket: socket };
+  };
+
+  const texts = output => output.map(entry => entry[1]);
+
+  it('keeps content order when the later authorization finishes first', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('old-body', '1'));
+    session.listener(contentMessage('new-body', '2'));
+    await flush();
+    const firstAccount = session.gates[session.gates.length - 2];
+    const secondAccount = session.gates[session.gates.length - 1];
+
+    answer(secondAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('2'));
+    await flush();
+    assert.deepEqual(session.output, []);
+    answer(firstAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('1'));
+    await flush();
+
+    assert.deepEqual(session.output.map(entry => entry[0]), ['status.update', 'status.update']);
+    assert.equal(texts(session.output)[0].includes('old-body'), true);
+    assert.equal(texts(session.output)[1].includes('new-body'), true);
+    assert.equal(texts(session.output)[0].includes('projection_id'), false);
+    assert.equal(texts(session.output)[0].includes('delivery'), false);
+  });
+
+  it('drops an older generation that finishes authorizing after a newer one was received first', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('new-body', '2'));
+    session.listener(contentMessage('old-body', '1'));
+    await flush();
+    const newerAccount = session.gates[session.gates.length - 2];
+    const olderAccount = session.gates[session.gates.length - 1];
+
+    answer(olderAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('1'));
+    await flush();
+    assert.deepEqual(session.output, []);
+    answer(newerAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('2'));
+    await flush();
+
+    assert.equal(texts(session.output).some(body => body.includes('old-body')), false);
+    assert.equal(texts(session.output).some(body => body.includes('new-body')), true);
+    assert.deepEqual(session.output.map(entry => entry[0]), ['status.update']);
+  });
+
+  it('drops a rendered generation that no longer matches the marker', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('old-body', '1'));
+    session.listener(contentMessage('new-body', '2'));
+    await flush();
+    const olderAccount = session.gates[session.gates.length - 2];
+    const newerAccount = session.gates[session.gates.length - 1];
+
+    answer(newerAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('2'));
+    await flush();
+    answer(olderAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('2'));
+    await flush();
+
+    assert.equal(texts(session.output).some(body => body.includes('old-body')), false);
+    assert.equal(texts(session.output).some(body => body.includes('new-body')), true);
+  });
+
+  it('keeps update before delete when delete authorization finishes first', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('old-body', '1'));
+    session.listener(deleteMessage());
+    await flush();
+    const contentAccount = session.gates[session.gates.length - 2];
+    const deleteAccount = session.gates[session.gates.length - 1];
+
+    answer(deleteAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], { rows: [{ status_present: false, marker_present: false }] });
+    await flush();
+    assert.deepEqual(session.output, []);
+    answer(contentAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('1'));
+    await flush();
+
+    assert.deepEqual(session.output.map(entry => entry[0]), ['status.update', 'delete']);
+    assert.equal(session.output[1][1], '8');
+  });
+
+  it('does not emit content after a delete that was received first', async () => {
+    const session = await openFeed('user');
+
+    session.listener(deleteMessage());
+    session.listener(contentMessage('old-body', '1'));
+    await flush();
+    const deleteAccount = session.gates[session.gates.length - 2];
+    const contentAccount = session.gates[session.gates.length - 1];
+
+    answer(contentAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('1'));
+    await flush();
+    assert.deepEqual(session.output, []);
+    answer(deleteAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], { rows: [{ status_present: false, marker_present: false }] });
+    await flush();
+
+    assert.deepEqual(session.output.map(entry => entry[0]), ['delete']);
+    assert.equal(texts(session.output).some(body => body.includes('old-body')), false);
+  });
+
+  it('keeps a membership change behind the content event that arrived first', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('still-routed', '1'));
+    session.listener(controlMessage('routes_updated', [{ type: 'home' }]));
+    await flush();
+    const contentAccount = session.gates[session.gates.length - 2];
+    const controlAccount = session.gates[session.gates.length - 1];
+
+    answer(controlAccount, accountBody());
+    await flush();
+    assert.deepEqual(session.output, []);
+    answer(contentAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('1', true));
+    await flush();
+
+    assert.deepEqual(session.output.map(entry => entry[0]), ['status.update', 'external_feed_changed']);
+  });
+
+  it('drops content received after the route is gone', async () => {
+    const session = await openFeed('user');
+
+    session.listener(controlMessage('source_deleted', [{ type: 'home' }]));
+    session.listener(contentMessage('removed-body', '1'));
+    await flush();
+    const controlAccount = session.gates[session.gates.length - 2];
+    const contentAccount = session.gates[session.gates.length - 1];
+
+    answer(contentAccount, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('1', false));
+    await flush();
+    assert.deepEqual(session.output, []);
+    answer(controlAccount, accountBody());
+    await flush();
+
+    assert.deepEqual(session.output.map(entry => entry[0]), ['external_feed_changed']);
+    assert.equal(texts(session.output).some(body => body.includes('removed-body')), false);
+  });
+
+  it('delivers list_removed without the deleted list row and still rejects later content', async () => {
+    const session = await openFeed('list', '55');
+    const before = session.gates.length;
+
+    session.listener(controlMessage('list_removed', [{ type: 'list', id: '55' }]));
+    await flush();
+    assert.equal(session.gates.length, before + 1);
+    assert.equal(session.gates[before].sql.includes('FROM lists'), false);
+    answer(session.gates[before], accountBody());
+    await flush();
+    assert.equal(session.output.length, 1);
+    assert.equal(JSON.parse(session.output[0][1]).reason, 'list_removed');
+
+    session.listener(contentMessage('after-delete', '1'));
+    await flush();
+    const contentAccount = session.gates[session.gates.length - 1];
+
+    answer(contentAccount, accountBody());
+    await flush();
+    const listGate = session.gates[session.gates.length - 1];
+
+    assert.equal(listGate.sql.includes('FROM lists'), true);
+    answer(listGate, { rows: [] });
+    await flush();
+    assert.equal(session.output.length, 1);
+  });
+
+  it('continues the queue when one authorization fails', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('failed-body', '1'));
+    session.listener(contentMessage('later-body', '2'));
+    await flush();
+    const failed = session.gates[session.gates.length - 2];
+    const later = session.gates[session.gates.length - 1];
+
+    failed.settled = true;
+    failed.reject(new Error('db down'));
+    await flush();
+    answer(later, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('2'));
+    await flush();
+
+    assert.equal(texts(session.output).some(body => body.includes('failed-body')), false);
+    assert.equal(texts(session.output).some(body => body.includes('later-body')), true);
+  });
+
+  it('does not deliver after the ticket is replaced', async () => {
+    const session = await openFeed('user');
+
+    session.listener(contentMessage('late-body', '1'));
+    await flush();
+    externalFeed.detachExternalFeed(session.socket, { unsubscribe: () => {} });
+    const account = session.gates[session.gates.length - 1];
+
+    answer(account, accountBody());
+    await flush();
+    answer(session.gates[session.gates.length - 1], contentBody('1'));
+    await flush();
+    assert.deepEqual(session.output, []);
+  });
+
+  it('stops accepting private events past the pending limit', async () => {
+    const session = await openFeed('user');
+
+    for (let index = 0; index < externalFeed.PRIVATE_PENDING_LIMIT + 1; index += 1) {
+      const id = String(index + 1);
+
+      session.listener(JSON.stringify({
+        event: 'update',
+        payload: { id: id, content: `n${index}` },
+        delivery: {
+          kind: 'content',
+          user_id: '17',
+          status_id: id,
+          projection_id: '3',
+          subscription_id: '7',
+          generation: '1',
+        },
+      }));
+    }
+
+    await flush();
+    assert.equal(session.gates.filter(gate => !gate.settled).length, externalFeed.PRIVATE_PENDING_LIMIT);
+
+    let guard = 0;
+
+    while (guard < 200) {
+      const gate = session.gates.find(item => !item.settled);
+
+      if (!gate) {
+        break;
+      }
+
+      if (gate.sql.includes('oauth_access_tokens')) {
+        answer(gate, accountBody());
+      } else {
+        answer(gate, contentBody('1'));
+      }
+
+      await flush();
+      guard += 1;
+    }
+
+    assert.equal(session.output.length, externalFeed.PRIVATE_PENDING_LIMIT);
+    assert.equal(texts(session.output).some(body => body.includes('n64')), false);
   });
 });

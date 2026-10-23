@@ -27,8 +27,8 @@ describe 'ExternalBridge streaming delivery' do
 
   def stub_publish!
     @published = []
-    allow_any_instance_of(ExternalBridge::Streaming::Publisher).to receive(:publish) do |_publisher, channel, event, payload|
-      published << { channel: channel, event: event.to_s, payload: payload }
+    allow_any_instance_of(ExternalBridge::Streaming::Publisher).to receive(:publish) do |_publisher, channel, event, payload, delivery: nil|
+      published << { channel: channel, event: event.to_s, payload: payload, delivery: delivery }
       true
     end
   end
@@ -108,6 +108,18 @@ describe 'ExternalBridge streaming delivery' do
     return '' unless body.is_a?(Hash)
 
     (body['content'] || body[:content]).to_s
+  end
+
+  def during_render(status)
+    entered = false
+    allow(ExternalBridge::Streaming::StatusRenderer).to receive(:render).and_wrap_original do |method, rendered_status, rendered_user|
+      body = method.call(rendered_status, rendered_user)
+      if !entered && rendered_status.id == status.id
+        entered = true
+        yield
+      end
+      body
+    end
   end
 
   it 'enqueues a content job only after the outer transaction commits' do
@@ -314,6 +326,126 @@ describe 'ExternalBridge streaming delivery' do
     expect(bundle[:marker].reload.streamed_content_generation).to eq 2
   end
 
+  it 'drops a rendered older body when a newer generation finishes during render' do
+    user = Fabricate(:user)
+    permit!(user)
+    bundle = external_project_for(user, body: 'old text')
+    save_routes(user, bundle[:subscription], home: true, list_ids: [])
+    ExternalBridge::StreamContentWorker.clear
+    ExternalBridge::StreamControlWorker.clear
+    bundle[:status].update_columns(text: 'first body')
+    ApplicationRecord.transaction do
+      ExternalBridge::Streaming::Scheduler.bump_and_schedule_content!(bundle[:marker].reload)
+    end
+    older = ExternalBridge::StreamContentWorker.jobs.first['args']
+    stub_publish!
+    during_render(bundle[:status]) do
+      bundle[:status].update_columns(text: 'second body')
+      bundle[:marker].update_columns(content_generation: 2)
+      ExternalBridge::StreamContentWorker.new.perform(
+        user.id.to_s,
+        bundle[:marker].id.to_s,
+        bundle[:status].id.to_s,
+        bundle[:subscription].id.to_s,
+        '2'
+      )
+    end
+    ExternalBridge::StreamContentWorker.new.perform(*older)
+
+    expect(published.map { |entry| entry[:event] }).to eq ['update']
+    expect(payload_text(published.first)).to include('second body')
+    expect(payload_text(published.first)).not_to include('first body')
+    expect(published.first[:delivery]['generation']).to eq '2'
+    expect(published.first[:payload]).not_to have_key('delivery')
+    expect(bundle[:marker].reload.streamed_content_generation).to eq 2
+  end
+
+  it 'drops a rendered body when purge finishes during render' do
+    user = Fabricate(:user)
+    permit!(user)
+    bundle = external_project_for(user, body: 'do not return')
+    save_routes(user, bundle[:subscription], home: true, list_ids: [])
+    ExternalBridge::StreamContentWorker.clear
+    ExternalBridge::StreamControlWorker.clear
+    ApplicationRecord.transaction do
+      ExternalBridge::Streaming::Scheduler.bump_and_schedule_content!(bundle[:marker].reload)
+    end
+    older = ExternalBridge::StreamContentWorker.jobs.first['args']
+    stub_publish!
+    during_render(bundle[:status]) do
+      ExternalBridge::ProjectionPurge.purge_status!(bundle[:status])
+      perform_delete
+    end
+    ExternalBridge::StreamContentWorker.new.perform(*older)
+
+    expect(published.map { |entry| entry[:event] }).to eq ['delete']
+    expect(published.first[:payload]).to eq bundle[:status].id.to_s
+    expect(published.first[:delivery]).to eq(
+      'kind' => 'delete',
+      'user_id' => user.id.to_s,
+      'status_id' => bundle[:status].id.to_s
+    )
+    expect(Status.exists?(bundle[:status].id)).to be false
+  end
+
+  it 'drops a rendered body when the route is removed during render' do
+    user = Fabricate(:user)
+    permit!(user)
+    bundle = external_project_for(user, body: 'do not return')
+    save_routes(user, bundle[:subscription], home: true, list_ids: [])
+    ExternalBridge::StreamContentWorker.clear
+    ExternalBridge::StreamControlWorker.clear
+    ApplicationRecord.transaction do
+      ExternalBridge::Streaming::Scheduler.bump_and_schedule_content!(bundle[:marker].reload)
+    end
+    older = ExternalBridge::StreamContentWorker.jobs.first['args']
+    stub_publish!
+    during_render(bundle[:status]) do
+      save_routes(user, bundle[:subscription], home: false, list_ids: [])
+      perform_control
+    end
+    ExternalBridge::StreamContentWorker.new.perform(*older)
+
+    expect(published.map { |entry| entry[:event] }).to eq ['external_feed_changed']
+    expect(published.first[:payload]['reason']).to eq 'routes_updated'
+    expect(bundle[:marker].reload.streamed_content_generation).to be_nil
+    expect(Status.exists?(bundle[:status].id)).to be true
+  end
+
+  it 'drops a rendered body when source_deleted is saved during render' do
+    user = Fabricate(:user)
+    permit!(user)
+    bundle = external_project_for(user, body: 'do not return')
+    save_routes(user, bundle[:subscription], home: true, list_ids: [])
+    ExternalBridge::StreamContentWorker.clear
+    ExternalBridge::StreamControlWorker.clear
+    ApplicationRecord.transaction do
+      ExternalBridge::Streaming::Scheduler.bump_and_schedule_content!(bundle[:marker].reload)
+    end
+    older = ExternalBridge::StreamContentWorker.jobs.first['args']
+    subscription = bundle[:subscription].reload
+    stub_publish!
+    during_render(bundle[:status]) do
+      bundle[:marker].update!(source_deleted: true)
+      control = {
+        'version' => 1,
+        'reason' => 'source_deleted',
+        'targets' => [{ 'type' => 'home' }],
+        'subscription_id' => subscription.id.to_s,
+        'feed_routes_revision' => subscription.feed_routes_revision.to_s,
+        'status_id' => bundle[:status].id.to_s,
+      }
+      ExternalBridge::StreamControlWorker.new.perform(user.id.to_s, control)
+    end
+    ExternalBridge::StreamContentWorker.new.perform(*older)
+
+    expect(published.map { |entry| entry[:event] }).to eq ['external_feed_changed']
+    expect(published.first[:payload]['reason']).to eq 'source_deleted'
+    expect(bundle[:marker].reload.streamed_content_generation).to be_nil
+    expect(bundle[:marker].source_deleted).to be true
+    expect(Status.exists?(bundle[:status].id)).to be true
+  end
+
   it 'sends update and then status.update in commit order' do
     user = Fabricate(:user)
     permit!(user)
@@ -396,6 +528,33 @@ describe 'ExternalBridge streaming delivery' do
     expect(bundle[:marker].reload.streamed_content_generation).to be_nil
   end
 
+  it 'retries a content publish that failed and then marks streamed' do
+    user = Fabricate(:user)
+    permit!(user)
+    bundle = external_project_for(user, body: 'retry body')
+    save_routes(user, bundle[:subscription], home: true, list_ids: [])
+    ExternalBridge::StreamContentWorker.clear
+    ExternalBridge::StreamControlWorker.clear
+    ApplicationRecord.transaction do
+      ExternalBridge::Streaming::Scheduler.bump_and_schedule_content!(bundle[:marker].reload)
+    end
+    attempts = 0
+    allow_any_instance_of(ExternalBridge::Streaming::Publisher).to receive(:publish) do |_publisher, _channel, event, payload, delivery: nil|
+      attempts += 1
+      raise Redis::CommandError, 'NOAUTH' if attempts == 1
+
+      published << { event: event.to_s, payload: payload, delivery: delivery }
+      true
+    end
+
+    expect { perform_content }.to raise_error(Redis::CommandError)
+    expect(bundle[:marker].reload.streamed_content_generation).to be_nil
+    perform_content
+    expect(published.map { |entry| entry[:event] }).to eq ['update']
+    expect(payload_text(published.first)).to include('retry body')
+    expect(bundle[:marker].reload.streamed_content_generation).to eq 1
+  end
+
   it 'uses the explicit owner and does not borrow Account#user' do
     user = Fabricate(:user)
     roommate = share_account_user(user.account)
@@ -469,6 +628,10 @@ describe 'ExternalBridge streaming delivery' do
     expect(parsed['event']).to eq 'update'
     expect(parsed['payload']['id']).to eq bundle[:status].id.to_s
     expect(parsed['payload']['id']).to be_a(String)
+    expect(parsed['delivery']['kind']).to eq 'content'
+    expect(parsed['delivery']['generation']).to eq bundle[:marker].reload.content_generation.to_s
+    expect(parsed['payload']).not_to have_key('delivery')
+    expect(parsed['payload']).not_to have_key('generation')
   ensure
     thread&.kill
     thread&.join(1)
@@ -592,15 +755,25 @@ describe 'ExternalBridge streaming delivery' do
     ExternalBridge::StreamContentWorker.clear
     ExternalBridge::StreamControlWorker.clear
 
+    Favourite.create!(account: user.account, status: bundle[:status])
+    Bookmark.create!(account: user.account, status: bundle[:status])
+    roommate = share_account_user(user.account)
+    permit!(roommate)
+
     list.destroy!
 
     payload = ExternalBridge::StreamControlWorker.jobs.last['args'].last
     expect(payload['reason']).to eq 'list_removed'
     expect(payload['targets']).to eq [{ 'type' => 'list', 'id' => list.id.to_s }]
+    expect(payload.keys).not_to include('content', 'text', 'url', 'canonical_url')
+    expect(ExternalBridge::StreamControlWorker.jobs.map { |job| job['args'].first }).to eq [user.id.to_s]
     expect(bundle[:subscription].reload.feed_routes_revision).to be > 1
     expect(Status.exists?(bundle[:status].id)).to be true
+    expect(Favourite.where(account_id: user.account_id, status_id: bundle[:status].id)).to exist
+    expect(Bookmark.where(account_id: user.account_id, status_id: bundle[:status].id)).to exist
     expect(ExternalBridge::StreamContentWorker.jobs).to be_empty
     expect(ExternalBridge::StreamDeleteWorker.jobs).to be_empty
+    expect(ExternalFeedRoute.where(list_id: other.id)).to exist
   end
 
   it 'advances the revision without an event when delivery is off and a list is deleted' do

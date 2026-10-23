@@ -30,7 +30,12 @@ module ExternalBridge
         channel = channel_for(user.id, destination)
         next if channel.nil?
 
-        publisher.publish(channel, 'delete', status_id)
+        delivery = {
+          'kind' => 'delete',
+          'user_id' => user.id.to_s,
+          'status_id' => status_id,
+        }
+        publisher.publish(channel, 'delete', status_id, delivery: delivery)
       end
     end
 

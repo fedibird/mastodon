@@ -7,16 +7,24 @@ module ExternalBridge
     def perform(user_id, projection_id, status_id, subscription_id, generation)
       context = load_context(user_id, projection_id, status_id, subscription_id, generation)
       return if context.nil?
-
-      channels = destination_channels(context)
-      return if channels.empty?
+      return if destination_channels(context).empty?
 
       payload = ExternalBridge::Streaming::StatusRenderer.render(context.fetch(:status), context.fetch(:user))
       return if payload.nil?
 
-      event = context.fetch(:marker).streamed_content_generation.nil? ? 'update' : 'status.update'
-      publish(channels, event, payload)
-      mark_streamed!(context.fetch(:marker))
+      # Render can take long enough for a newer generation, a purge, or a
+      # route change to commit. Publish only the rows that are still current
+      # after that work. Node checks the same generation again, in order,
+      # before it writes a frame.
+      current = load_context(user_id, projection_id, status_id, subscription_id, generation)
+      return if current.nil?
+
+      channels = destination_channels(current)
+      return if channels.empty?
+
+      event = current.fetch(:marker).streamed_content_generation.nil? ? 'update' : 'status.update'
+      publish(channels, event, payload, current)
+      mark_streamed!(current.fetch(:marker))
     rescue Redis::BaseError, ActiveRecord::ActiveRecordError => e
       log_failure(user_id, status_id, projection_id, e)
       raise
@@ -85,9 +93,18 @@ module ExternalBridge
       query.eligible_ids([status.id]).include?(status.id)
     end
 
-    def publish(channels, event, payload)
+    def publish(channels, event, payload, context)
+      marker = context.fetch(:marker)
+      delivery = {
+        'kind' => 'content',
+        'user_id' => context.fetch(:user).id.to_s,
+        'status_id' => marker.status_id.to_s,
+        'projection_id' => marker.id.to_s,
+        'subscription_id' => marker.external_subscription_id.to_s,
+        'generation' => marker.content_generation.to_s,
+      }
       publisher = ExternalBridge::Streaming::Publisher.new
-      channels.each { |channel| publisher.publish(channel, event, payload) }
+      channels.each { |channel| publisher.publish(channel, event, payload, delivery: delivery) }
     end
 
     def mark_streamed!(marker)
