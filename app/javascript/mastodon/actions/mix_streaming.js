@@ -185,7 +185,9 @@ const boundaryId = (column, sourceKey) => {
 };
 
 const fetchReconcilePage = (resolved, { sinceId, maxId }, getState) => {
-  const request = resolveRequest(resolved.source, maxId || null);
+  const request = resolveRequest(resolved.source, maxId || null, {
+    externalFeedsPermitted: getState().getIn(['externalFeeds', 'permitted']) === true,
+  });
 
   if (!request.ok) {
     return Promise.reject({ response: { status: 404 } });
@@ -222,7 +224,9 @@ export function reconcileMixSource(columnKey, sourceKey) {
     const fingerprint = column.get('definitionFingerprint');
     const descriptor = column.getIn(['sources', sourceKey, 'descriptor']);
     const source = descriptor && descriptor.toJS ? descriptor.toJS() : null;
-    const resolved = source && resolveRequest(source);
+    const resolved = source && resolveRequest(source, null, {
+      externalFeedsPermitted: getState().getIn(['externalFeeds', 'permitted']) === true,
+    });
     const retryAt = column.getIn(['live', sourceKey, 'retryAt']);
 
     if (!resolved || !resolved.ok || (retryAt && retryAt > Date.now())) {

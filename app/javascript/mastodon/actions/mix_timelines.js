@@ -29,6 +29,7 @@ export const MIX_SPLIT_DESTROY = 'MIX_SPLIT_DESTROY';
 export const MIX_SPLIT_ANCHOR = 'MIX_SPLIT_ANCHOR';
 export const MIX_SPLIT_CLEAR_ANCHOR = 'MIX_SPLIT_CLEAR_ANCHOR';
 export const MIX_DISPLAY_HISTORY = 'MIX_DISPLAY_HISTORY';
+export const MIX_EXTERNAL_RECONCILE = 'MIX_EXTERNAL_RECONCILE';
 
 let mixSessionSerial = 0;
 
@@ -115,8 +116,12 @@ const withoutHiddenStatuses = (getState, page) => {
   };
 };
 
+const externalFeedConstraints = (getState) => ({
+  externalFeedsPermitted: getState().getIn(['externalFeeds', 'permitted']) === true,
+});
+
 const fetchPage = (resolved, cursor, getState) => {
-  const request = resolveRequest(resolved.source, cursor);
+  const request = resolveRequest(resolved.source, cursor, externalFeedConstraints(getState));
 
   if (!request.ok) {
     return Promise.reject({ response: { status: 404 } });
@@ -335,7 +340,7 @@ export function loadMixTimeline(columnKey, mix, { extend = false, scope = null, 
       return Promise.resolve();
     }
 
-    const attempts = plain.sources.map(source => resolveRequest(source));
+    const attempts = plain.sources.map(source => resolveRequest(source, null, externalFeedConstraints(getState)));
     const resolved = attempts.filter(source => source.ok && source.key);
     const fingerprint = resolved.map(source => source.key).join('\n');
     const current = readColumn(getState, columnKey);
@@ -432,7 +437,7 @@ export function retryMixSource(columnKey, mix, sourceKey, { scope = null, splitI
     }
 
     const plain = plainMix(mix);
-    const resolved = plain && plain.sources.map(item => resolveRequest(item)).find(item => item.ok && item.key === sourceKey);
+    const resolved = plain && plain.sources.map(item => resolveRequest(item, null, externalFeedConstraints(getState))).find(item => item.ok && item.key === sourceKey);
 
     if (!resolved) {
       return;

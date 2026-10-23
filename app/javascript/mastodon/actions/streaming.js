@@ -24,6 +24,14 @@ import { deleteScheduledStatusSuccess } from './scheduled_statuses';
 import { updateStatus } from './statuses';
 import { scheduleFiltersRefresh } from './filters';
 import { retryFilterReconciliation } from '../filter_reconciliation/scheduler';
+import {
+  bindExternalFeedVisibility,
+  noteExternalStatusStream,
+  receiveExternalFeedChanged,
+  reconcileExternalFeedView,
+  reconcileOpenExternalViews,
+  refreshExternalFeedCapability,
+} from './external_feeds';
 
 const { messages } = getLocale();
 
@@ -64,6 +72,13 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
         if (channelName === 'user') {
           dispatch(scheduleFiltersRefresh());
           dispatch(retryFilterReconciliation());
+          dispatch(refreshExternalFeedCapability());
+          dispatch(reconcileOpenExternalViews());
+          dispatch(bindExternalFeedVisibility());
+        }
+
+        if (channelName === 'list' && params.list) {
+          dispatch(reconcileExternalFeedView(`list:${params.list}`));
         }
 
         if (pollingId) {
@@ -85,14 +100,26 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
         case 'filters_changed':
           if (channelName === 'user') dispatch(scheduleFiltersRefresh());
           break;
-        case 'update':
-          dispatch(updateTimeline(timelineId, JSON.parse(data.payload), options.accept));
+        case 'update': {
+          const status = JSON.parse(data.payload);
+
+          noteExternalStatusStream(status && status.id);
+          dispatch(updateTimeline(timelineId, status, options.accept));
           break;
-        case 'status.update':
-          dispatch(updateStatus(JSON.parse(data.payload)));
+        }
+        case 'status.update': {
+          const status = JSON.parse(data.payload);
+
+          noteExternalStatusStream(status && status.id);
+          dispatch(updateStatus(status));
           break;
+        }
         case 'delete':
+          noteExternalStatusStream(data.payload);
           dispatch(deleteFromTimelines(data.payload));
+          break;
+        case 'external_feed_changed':
+          dispatch(receiveExternalFeedChanged(data.payload));
           break;
         case 'expire':
           dispatch(expireFromTimelines(data.payload));

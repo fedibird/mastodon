@@ -24,7 +24,9 @@ import {
   MIX_SPLIT_ANCHOR,
   MIX_SPLIT_CLEAR_ANCHOR,
   MIX_DISPLAY_HISTORY,
+  MIX_EXTERNAL_RECONCILE,
 } from '../actions/mix_timelines';
+import { spliceHistory } from '../external_feeds/reconcile';
 
 const initialSource = ImmutableMap({
   ids: ImmutableList(),
@@ -663,6 +665,8 @@ export default function mixTimelines(state = initialState, action) {
     }
 
     return state.setIn([action.columnKey, 'displayMode'], null);
+  case MIX_EXTERNAL_RECONCILE:
+    return applyMixExternalReconcile(state, action);
   case ACCOUNT_BLOCK_SUCCESS:
   case ACCOUNT_MUTE_SUCCESS:
     return removeIds(state, idsForRelationship(action.statuses, action.relationship));
@@ -673,6 +677,84 @@ export default function mixTimelines(state = initialState, action) {
 
 const sameSession = (state, action) => {
   return currentSession(state, action.columnKey) === action.sessionId && state.getIn([action.columnKey, 'definitionFingerprint']) === action.definitionFingerprint;
+};
+
+const otherSourceHas = (column, sourceKey, id) => {
+  const lists = [
+    column.getIn(['sources']),
+    column.getIn(['split', 'history', 'sources']),
+  ];
+
+  return lists.some(sources => sources && sources.some((source, key) => key !== sourceKey && (source.get('ids') || ImmutableList()).includes(id)));
+};
+
+const patchIdList = (list, blocked, insertIds) => {
+  let next = withoutIds(list || ImmutableList(), blocked);
+
+  if (insertIds && insertIds.length) {
+    next = ImmutableList(spliceHistory(next.toArray(), insertIds).items);
+  }
+
+  return next;
+};
+
+// One source loses or gains rows. Another source that still has the id keeps
+// it, and the status record is not deleted.
+const applyMixExternalReconcile = (state, action) => {
+  if (!sameSession(state, action) || !action.sourceKey) {
+    return state;
+  }
+
+  const column = state.get(action.columnKey);
+
+  if (!column) {
+    return state;
+  }
+
+  const blocked = new Set(action.clear ? [] : (action.removeIds || []));
+  let next = state;
+
+  const paths = [
+    ['sources', action.sourceKey, 'ids'],
+    ['live', action.sourceKey, 'statusIds'],
+    ['split', 'history', 'sources', action.sourceKey, 'ids'],
+    ['split', 'history', 'frozenLive', action.sourceKey, 'ids'],
+  ];
+
+  if (action.clear) {
+    paths.forEach(path => {
+      if (next.getIn([action.columnKey].concat(path.slice(0, -1)))) {
+        next = next.setIn([action.columnKey].concat(path), ImmutableList());
+      }
+    });
+  } else {
+    paths.forEach(path => {
+      const parent = path.slice(0, -1);
+
+      if (!next.getIn([action.columnKey].concat(parent))) {
+        return;
+      }
+
+      next = next.updateIn([action.columnKey].concat(path), ImmutableList(), list => patchIdList(list, blocked, action.insertIds));
+    });
+  }
+
+  const removed = action.clear
+    ? (column.getIn(['sources', action.sourceKey, 'ids']) || ImmutableList()).toArray()
+    : (action.removeIds || []);
+
+  if (removed.length) {
+    next = next.updateIn([action.columnKey, 'sources', action.sourceKey, 'revokedIds'], ImmutableList(), ids => rememberTombstones(ids, removed));
+    next = next.updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), pending => pending.filter(id => {
+      if (removed.indexOf(id) === -1) {
+        return true;
+      }
+
+      return otherSourceHas(next.get(action.columnKey), action.sourceKey, id);
+    }));
+  }
+
+  return next;
 };
 
 const historyOpen = (state, action) => {
