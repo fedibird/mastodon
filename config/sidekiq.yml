@@ -127,6 +127,13 @@
       every: '5m'
       class: Scheduler::ExternalBridgeLinkReferencePublishScheduler
       queue: scheduler
+    # Owner share-state events for flips that Ruby never saw (a wrapper deleted
+    # with plain SQL) or that Sidekiq refused. One pass handles at most 100
+    # rows. Not gated by the E4 flag.
+    external_bridge_link_boost_notify_scheduler:
+      every: '1m'
+      class: Scheduler::ExternalBridgeLinkBoostNotifyScheduler
+      queue: scheduler
     follow_import_dispatch_scheduler:
       every: '<%= (canonical = ENV["FOLLOW_IMPORT_DISPATCH_INTERVAL"].to_i; alias_n = ENV["FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL"].to_i; n = canonical.positive? ? canonical : alias_n; n.positive? ? n : 60) %>s'
       class: Scheduler::FollowImportDispatchScheduler

@@ -2,9 +2,12 @@
 
 class StatusRelationshipsPresenter
   attr_reader :reblogs_map, :favourites_map, :mutes_map, :pins_map,
-              :bookmarks_map, :filters_map, :emoji_reactions_map, :attributes_map
+              :bookmarks_map, :filters_map, :emoji_reactions_map, :attributes_map,
+              :link_boost_states
 
   def initialize(statuses, current_account_id = nil, **options)
+    @link_boost_states = {}
+
     if current_account_id.nil?
       @reblogs_map         = {}
       @favourites_map      = {}
@@ -34,7 +37,8 @@ class StatusRelationshipsPresenter
         SQL
 
       @filters_map         = build_filters_map(statuses, current_account_id).merge(options[:filters_map] || {})
-      @reblogs_map         = mapping(result['reblogs'],         options[:reblogs_map]).merge(link_boost_mapping(result['link_boosts'], options[:reblogs_map]))
+      @link_boost_states   = ExternalBridge::LinkSharing::BoostState.parse(result['link_boosts'])
+      @reblogs_map         = mapping(result['reblogs'],         options[:reblogs_map]).merge(link_boost_mapping(@link_boost_states, options[:reblogs_map]))
       @favourites_map      = mapping(result['favourites'],      options[:favourites_map])
       @bookmarks_map       = mapping(result['bookmarks'],       options[:bookmarks_map])
       @emoji_reactions_map = mapping(result['emoji_reactions'], options[:emoji_reactions_map])
@@ -48,12 +52,13 @@ class StatusRelationshipsPresenter
   private
 
   # A projection has no wrapper that points at it, so the Account-scoped
-  # reblogs lookup above never answers for it. The answer comes from the
-  # boost rows of the viewing User, read in the same statement. An explicit
-  # reblogs_map entry from the caller still wins.
-  def link_boost_mapping(result, additional)
-    ids = result&.split(',')&.map(&:to_i) || []
-    ids.index_with(true).merge(additional || {})
+  # reblogs lookup above never answers for it. The answer is the viewing
+  # User's (revision, reblogged) row, read in the same statement as the rest
+  # of the page. The serializer takes both values of a projection from
+  # link_boost_states, so an explicit reblogs_map entry cannot pair another
+  # moment's reblogged with that row's revision.
+  def link_boost_mapping(states, additional)
+    states.select { |_id, state| state.reblogged }.transform_values { true }.merge(additional || {})
   end
 
   def mapping(result, additional)

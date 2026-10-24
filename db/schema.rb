@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_29_120000) do
+ActiveRecord::Schema.define(version: 2026_10_30_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -675,6 +675,28 @@ ActiveRecord::Schema.define(version: 2026_10_29_120000) do
     t.index ["user_id", "external_resource_id"], name: "index_external_projection_failures_on_user_and_resource", unique: true
     t.index ["user_id"], name: "index_external_projection_failures_on_user_id"
   end
+
+  create_table "external_projection_link_boost_states", primary_key: ["user_id", "projection_status_id"], force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "projection_status_id", null: false
+    t.bigint "revision", null: false
+    t.bigint "notified_revision", default: 0, null: false
+    t.datetime "next_notify_at"
+    t.boolean "reblogged", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["projection_status_id"], name: "index_link_boost_states_on_projection_status"
+    t.check_constraint "((notified_revision >= 0) AND (notified_revision <= revision))", name: "link_boost_states_notified_check"
+    t.check_constraint "revision >= 1", name: "link_boost_states_revision_check"
+  end
+
+  # Outbox scan. NULLS FIRST matches the scheduler order. db:schema:dump may
+  # not keep that clause. Do not replace this statement with a t.index.
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_link_boost_states_on_unnotified
+    ON external_projection_link_boost_states (next_notify_at ASC NULLS FIRST, updated_at ASC)
+    WHERE revision > notified_revision
+  SQL
 
   create_table "external_projection_link_boosts", force: :cascade do |t|
     t.bigint "user_id", null: false
@@ -2228,6 +2250,7 @@ ActiveRecord::Schema.define(version: 2026_10_29_120000) do
   add_foreign_key "external_projection_failures", "external_resources", on_delete: :restrict
   add_foreign_key "external_projection_failures", "external_subscriptions", on_delete: :cascade
   add_foreign_key "external_projection_failures", "users", on_delete: :cascade
+  add_foreign_key "external_projection_link_boost_states", "users", name: "fk_link_boost_states_user", on_delete: :cascade
   add_foreign_key "external_projection_link_boosts", "accounts", name: "fk_link_boosts_account", on_delete: :cascade
   add_foreign_key "external_projection_link_boosts", "external_projection_link_references", column: "link_reference_id", name: "fk_link_boosts_reference_row", on_delete: :cascade
   add_foreign_key "external_projection_link_boosts", "external_status_projections", name: "fk_link_boosts_projection", on_delete: :nullify

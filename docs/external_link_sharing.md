@@ -1,6 +1,6 @@
 # External link sharing
 
-Parent plan: issue #541. E4 plan: issue #555. This document is the E4-A contract (issue #556) and the E4-B contract (issue #558, section "E4-B: boost and unboost of a projection").
+Parent plan: issue #541. E4 plan: issue #555. This document is the E4-A contract (issue #556), the E4-B contract (issue #558, section "E4-B: boost and unboost of a projection"), and the E4-C first gate (issue #560, section "E4-C gate: owner Streaming and a monotonic reblogged revision").
 
 Related contracts:
 
@@ -237,7 +237,7 @@ The reference note is the User's own post and can be edited. At insert, `externa
 | Projection purge / subscription delete / user delete | Ended in the purge transaction (`projection_purged`); the Undo is enqueued after commit. The reference note stays. `RecoverUnannounced` also closes any active row whose marker is gone (`projection_gone`). |
 | Reference note edited | New boost refused. A live announced share stays. An unannounced one is closed (`reference_modified`). |
 | Reference note deleted | Share ended by the trigger (`status_deleted`). The mapping is `broken` (E4-A). |
-| Wrapper removed by another path | The share no longer counts for `reblogged`. The next boost or unboost closes the row (`wrapper_removed`). |
+| Wrapper removed by another path | A trigger on `statuses` closes the row in the same statement that sets `deleted_at` on the wrapper (`wrapper_removed`), so `reblogged` turns false and the revision moves with it. |
 
 ### REST read side (B2)
 
@@ -258,11 +258,86 @@ Errors: `404` for a non-owner, nil user, admin, forged marker, and other-User; `
 
 Standard clients cannot reach this unless they can send the projection id: it is `visibility: direct`, `visibility_ex: external`, so stock clients do not show a boost button for it. E4-C decides the REST `unlisted` presentation, the WebUI boost button, the consent UI, and client compatibility. Also not done: Bluesky native repost, reply, quote, and reference conversion. The Streaming and WebUI-reducer part of issue #558 is **not done in E4-B** and is a gate below.
 
+## E4-C gate: owner Streaming and a monotonic reblogged revision
+
+Issue #560. Parent #541, E4 plan #555, E4-B #558. It adds no boost button and turns nothing on: `external_bridge_link_sharing` stays false and its testers stay empty. REST `visibility` of a projection stays `direct` with `visibility_ex=external`.
+
+### State of record: `external_projection_link_boost_states`
+
+One row per `(user_id, projection_status_id)` that has ever had a visible share. Not per link reference: `external_projection_link_boosts.generation` restarts at 1 for every mapping, so a scope or URL change cannot order the pair. This table can.
+
+| Column | Meaning |
+| --- | --- |
+| `user_id`, `projection_status_id` | Primary key. The projection id is a snapshot, not a foreign key (the projection can be purged first). The user foreign key cascades. |
+| `revision` | `bigint >= 1`. Moves by one each time `reblogged` flips. |
+| `next_notify_at` | The outbox claim, like `next_recovery_at` of E4-A. Null: not visited since the last flip (the state trigger resets it on every flip). A future time: Sidekiq accepted a job, the row is held out of the scan. A past time: the enqueue was refused, or the hold ran out. |
+| `notified_revision` | The highest revision for which an owner event was published, or that had nobody to publish to. `revision > notified_revision` is the outbox: a flip no event has covered yet. A partial index holds only those rows. |
+| `reblogged` | The visible state: this User has an `active` boost row whose wrapper Status is kept (`deleted_at IS NULL`). |
+
+No row means revision `0` and `reblogged` false. Nothing is written to, or backfilled in, `statuses`. The migration copies the existing active shares once as revision 1 (the table is empty while the flag has never been on).
+
+The only writer is the trigger `external_projection_link_boosts_track_state` (AFTER INSERT, and AFTER UPDATE OF `state`, `wrapper_status_id`). It runs in the statement that changes the boost row, takes `pg_advisory_xact_lock` on the pair, recomputes the visible state, and moves the revision only if it differs from the stored one. So the pair moves in the same transaction as the boost row, whichever path changed it: `Boost`, `Unboost`, `Retire.end!` (announce-time closing: `consent_withdrawn`, `feature_changed`, `reference_modified`, `projection_gone`, `wrapper_removed`, purge), the `statuses` BEFORE DELETE trigger of E4-B (`status_deleted`), and the new `statuses_end_link_boost_on_discard` trigger (AFTER UPDATE OF `deleted_at` on a boost wrapper, any path). A repeated boost, a duplicate Undo, `announced_at`, `announce_enqueued_at`, and `next_announce_at` do not move it, and two simultaneous flips are ordered by the lock (checked with eight threads).
+
+What `reblogged` means:
+
+| Situation | `reblogged` |
+| --- | --- |
+| Active share, Announce not yet decided, queued, or accepted by Sidekiq, or lost and waiting for recovery | true. It follows the share row, not the ActivityPub delivery. |
+| After Undo, or a duplicate Undo | false (revision moves once) |
+| Unannounced share closed at announce time (consent revoked, flag or tester list changed, reference edited, projection no longer canonical) | false |
+| Projection purged, subscription deleted, user deleted | The row is removed with the projection. No event. |
+| Wrapper discarded or deleted by another path, reference note deleted | false |
+| `source_deleted`, flag off, consent revoked after the Announce, tester list emptied | unchanged: the share stays, and can be undone |
+| Never boosted, legacy 200 row, a status that is not a projection | no row: revision `0` for a canonical or legacy projection the owner reads; no field at all for any other status |
+
+### Payloads
+
+For the owner of a projection, `reblogged` stays at the top level and the revision is `fedibird_external.link_boost_revision`, a decimal string. `fedibird_external` is already owner-only (`ProjectionAccess.allow?`), so no other User, including another User of the same Account, an administrator, another Account, or an anonymous reader, receives the field or the state. A normal Status has neither the field nor a changed `reblogged`.
+
+`StatusRelationshipsPresenter` reads the pair for a page in the sub-select it already had (one statement, no per-status query), joined to `users` on the request's Account id. `REST::StatusSerializer` takes both values of a projection from one memoized read, from the relationships object or, without one, from a single query. A caller's `reblogs_map` override is ignored for a projection, so a `reblogged` of one moment cannot sit beside the revision of another. This covers `GET /api/v1/statuses/:id`, the compact and ordinary lists, bookmarks, the `unreblog` response, and the streaming renderer (`update` and `status.update` for E3 owners).
+
+### Event
+
+After the outermost commit only (`AfterOuterCommit`), `BoostEvents.changed!` enqueues `ExternalBridge::LinkBoostStreamWorker` with two decimal ids. The worker reads the current pair (not a copy made at enqueue time), requires a functional User and a marker owned by that User, and publishes on `timeline:external:user:<user_id>:boost`:
+
+```
+event:    external_link_boost_changed
+payload:  {"version":1,"status_id":"<projection id>","reblogged":true|false,"revision":"<decimal>"}
+envelope: delivery {"kind":"boost","user_id":..,"status_id":..,"revision":..}   (Redis only, stripped by Node)
+```
+
+The projection id is the only id. No wrapper id, reference note id, ActivityPub URI, URL, text, or media. The worker reads neither the E3 nor the E4 flag: a change that has already happened belongs to the owner, and Undo works while sharing is off. A failed `perform_async` is logged and swallowed. A Redis error in the worker is retried. After a publish the worker sets `notified_revision` to the revision it read (a flip that lands later stays above the mark). A User who is not functional, or a pair with no marker, is acknowledged without publishing.
+
+A flip that never passes through Ruby, such as a wrapper or reference deleted with a plain `DELETE` (the E4-B `statuses` BEFORE DELETE trigger ends the share and the state trigger flips the pair), is found by `Scheduler::ExternalBridgeLinkBoostNotifyScheduler` (every minute, not gated by the flag). `RecoverUnnotified` selects at most 100 rows with `revision > notified_revision` that changed at least 10 seconds ago and whose claim is null or past, ordered `next_notify_at ASC NULLS FIRST, updated_at`, claims each (`next_notify_at = NOW() + 10 minutes`) and only then enqueues the same job. A jid keeps the claim, so a row whose job waits in Redis is not pushed again every minute. A nil jid or a Redis error releases only that pass's claim (to now), which puts the row behind every row that was never tried, so a head that cannot be processed does not starve the rows behind it (a pass over 230 pending rows reaches all of them in three passes). A hold that runs out, a lost job, or a failed worker makes the row due again. A new flip resets the claim to null. The acknowledgement never moves `notified_revision` backwards. The row is only visible to that scan after its transaction committed, so a rolled-back delete is never announced, and nothing is published from inside a trigger. A hard delete costs one more indexed upsert of the state row and no lock on `statuses` beyond E4-B's.
+
+### Node
+
+`streaming/external_boost.js` is a second ticket on the same authenticated `user` and `list` connection (WebSocket and SSE), keyed by the connection's listener so unsubscribe and close detach it with the E3 ticket. It does not use the E3 route, control, or home channels, so a User with no feed route, or with E3 off, still gets it. Notification, preferences, public, direct, and anonymous connections do not attach.
+
+- Subscribe: the token's `resource_owner_id` must match the user and the Account, the token must be live, and the User must be functional (confirmed, approved, not disabled, Account not suspended, memorial, or moved). The channel name comes from `resource_owner_id`, never from a client value. A late authorize result after unsubscribe or close is dropped (same abort signal and 5 s read timeout as E3).
+- Each frame: account check again, then the state row is read (and the marker must belong to the same User). What is written is that row, never the frame. The frame only names the pair, and it must agree with its own envelope.
+- One serial queue per ticket: waiting frames for one status are coalesced; a frame that arrives while that status is being read is read again; at most 64 distinct statuses wait; the write is one turn after the last await; a per-ticket watermark (512 statuses) drops an older or repeated revision. Revisions and ids are compared as decimal strings.
+- It does not change `external_feed_changed`, route or content generations, or any E3 payload, and the control payload carries no delivery metadata.
+
+### WebUI
+
+- `statuses` reducer: an import (REST, `update`, `status.update`, reconcile, bookmark, Mix) whose `link_boost_revision` is older than the held one keeps the held `reblogged` and revision and imports everything else. A payload with no revision, and a held status with none, follow the old full import. `external_link_boost_changed` updates the same Status id in place and only if the revision is newer; a status that is not held is not stored.
+- Optimistic `REBLOG_REQUEST` and `UNREBLOG_REQUEST` on a status that has a revision remember the base revision. An equal-revision import does not undo the click. `*_FAIL` rolls back only while the revision is still the base. A newer revision from another tab clears the mark.
+- `externalBoosts` reducer: the newest pair a stream event reported, at most 256 ids, newest last, for an import that was already in flight when the status was not held yet. It lives with the page: a logout or a different login loads a new page and a new store, and nothing is persisted.
+- Held projections that carry a revision are read again with `GET /api/v1/statuses?id[]=` on a reconnect of the `user` stream and on a return to the tab. A request is at most 20 ids, a run sends at most 3 requests, runs are at least 10 s apart, and the rest continues on a timer, so every held projection is read within a bounded number of runs. Each reconnect or return starts a new generation; the page remembers, per held id, the generation that last covered it, and the next batch is the stalest generation first (never read before the others), then the newest id. A call inside the gap is deferred, not dropped. Statuses that are purged or no longer held leave the map, newly held ones join it, and a read that is older than an applied revision cannot win. A failed request stops the run, and the run is always continued by a timer: 10 s, then 20, 40, 80, 160 s after consecutive failures, and the page gives up after 6 failures in a row until the next reconnect or return to the tab (which also replaces a long backoff timer). A 401 or 403 stops at once and sets no timer. The same ids are retried, and a failed read never counts as verified. Logout and a page switch clear the timer and make a response that returns later a no-op. That is the fallback for a lost event, and it also reaches a tab that stayed connected.
+- Timelines, Mix membership, History windows, TimelineSeek bookmarks, and the stream clock are not changed by the event. Only the flag of the same Status id moves.
+
+### Verified and not verified
+
+Verified by tests in this change: RSpec for the revision sequence, scope, URL, flag-off Undo, announce-time closing, wrapper discard and hard delete, purge, other Users, presenter and serializer pair, one added read for a page, after-commit enqueue and rollback, worker payload and failure, and eight simultaneous boosts and undos; Node unit and real-server tests over WebSocket and SSE; Jest for the reducer, importer floor, stream wiring, and reconcile.
+
+Not verified: the one-minute outbox pass at production volume, a real browser, two real tabs, a real reverse proxy, production-size data, the cost of the two new triggers at production size (`external_projection_link_boosts_track_state` on the boost table and `statuses_end_link_boost_on_discard` on `statuses`, whose `WHEN` clause skips every update that is not a reblog being discarded), Elasticsearch, and the other gates below. Wrappers that are discarded by a bulk `UPDATE` without `Status#discard` are still covered by the trigger. The E4-B `Retire` change that clears the wrapper id in the same UPDATE as the end of an unannounced share is a deadlock fix found by the concurrency test (a second UPDATE of the same row by the foreign key `SET NULL` re-checks the mapping and inverted the boost lock order).
+
 ### Gates before `external_bridge_link_sharing` or its tester list is turned on
 
 E4-B is the server-side foundation, delivered with the flag off. The flag and the tester list must stay off until each item below is done and verified. These are not optional follow-ups.
 
-1. **Streaming and reducer consistency of `reblogged` (the open part of issue #558).** Nothing publishes an event when the share state of a projection changes, and the WebUI reducer has no protection against an older stream frame overwriting a newer REST `reblogged` (`E3` renders a projection for its owner with the state at render time). Required: a stream notification of the change to the owner's other sessions; a reducer rule that a status payload older than the state already applied never rolls `reblogged` back (a monotonic marker from the server, ordered with the E3 stream clock and reconnect boundary); the ids involved are the projection id, never the wrapper id or the reference note id. Minimum verification contract: User A and User B, including two Users of one Account; boost, Undo, boost again; REST response delayed behind a stream frame and stream frame ahead of the REST response; the original projection's `reblogged` while it is held in home, list, and Mix; ordinary Statuses unchanged. A hands-on test with the real UI may wait for the phase that ships the UI, but this must be passed before the flag is turned on.
+1. **Streaming and reducer consistency of `reblogged` (the open part of issue #558).** Implemented by issue #560, see the section below. It stays a gate until the review of that change is done and a run with the real UI has been recorded; this change does not turn anything on.
 2. **Remote receivers.** The Announce is at-least-once (see "Delivery boundary"), the activity id is stable, and nothing more is guaranteed. Create then Announce arrival order and the receivers' handling of a repeated Announce have not been tested against real remote servers. Record the result for the target software before turning the flag on.
 3. **E4-C.** REST `unlisted` presentation, the boost button, the consent UI, and client compatibility. Until then the only way to reach this code is a direct API call.
 4. **Environment checks not run so far.** Elasticsearch examples, the privilege-admin schema job, an `EXPLAIN` of the profile listing (`AccountStatusesFeed`) and of the `statuses` `BEFORE DELETE` trigger at production size.

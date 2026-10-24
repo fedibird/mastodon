@@ -68,6 +68,7 @@ import tags from './tags';
 import server from './server';
 import accountContextViews from './account_context_views';
 import externalFeeds from './external_feeds';
+import externalBoosts from './external_boosts';
 
 const reducers = {
   announcements,
@@ -137,6 +138,7 @@ const reducers = {
   server,
   accountContextViews,
   externalFeeds,
+  externalBoosts,
 };
 
 const combined = combineReducers(reducers);

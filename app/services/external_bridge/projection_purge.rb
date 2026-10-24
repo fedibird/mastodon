@@ -20,6 +20,7 @@ module ExternalBridge
         captures = capture_stream_deletes(ids)
         remember_suppressions!(ids) if suppress
         removals = LinkSharing::Retire.end_for_projections!(ids, reason: 'projection_purged')
+        ExternalProjectionLinkBoostState.where(projection_status_id: ids).delete_all
         ActiveRecord::Base.connection.execute(SETTING_SQL)
         Status.unscoped.where(id: ids).delete_all
         Streaming::Scheduler.schedule_deletes!(captures)

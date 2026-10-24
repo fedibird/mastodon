@@ -12,6 +12,7 @@ import { hiddenStatusIds, relationshipGeneration, relationshipsAfterGeneration, 
 import { fetchRelationshipsSuccess } from './accounts';
 import { normalizeFilterResult } from './importer/normalizer';
 import { me } from '../initial_state';
+import { receiveExternalLinkBoostChanged } from './external_boosts';
 import { noteExternalStatusStream, receiveExternalFeedChanged, reconcileExternalFeedView, resumeExternalFeedViews } from './external_feeds';
 import {
   MIX_STREAM_READY,
@@ -663,6 +664,8 @@ export function openMixStream(columnKey, mix) {
 
             if (data.event === 'external_feed_changed') {
               dispatch(receiveExternalFeedChanged(data.payload));
+            } else if (data.event === 'external_link_boost_changed') {
+              dispatch(receiveExternalLinkBoostChanged(data.payload));
             } else if (data.event === 'update') {
               const status = JSON.parse(data.payload);
 

@@ -176,7 +176,20 @@ class REST::StatusSerializer < ActiveModel::Serializer
       byline_name: resource&.byline,
       source_title: source&.title,
       interaction: 'local_only',
+      link_boost_revision: link_boost_state.revision_text,
     }
+  end
+
+  # The owner's (revision, reblogged) pair for this projection. One read, kept
+  # for the life of this serializer, so `reblogged` and the revision beside it
+  # in `fedibird_external` are never taken from two moments.
+  def link_boost_state
+    @link_boost_state ||=
+      if relationships
+        relationships.link_boost_states[object.id] || ExternalBridge::LinkSharing::BoostState::NONE
+      else
+        ExternalBridge::LinkSharing::BoostState.snapshot(current_user, object)
+      end
   end
 
   def searchability
@@ -248,10 +261,10 @@ class REST::StatusSerializer < ActiveModel::Serializer
   end
 
   def reblogged
-    if instance_options && instance_options[:relationships]
+    if object.external_projection == true
+      link_boost_state.reblogged
+    elsif instance_options && instance_options[:relationships]
       instance_options[:relationships].reblogs_map[object.id] || false
-    elsif object.external_projection == true
-      ExternalBridge::LinkSharing::BoostState.active?(current_user, object)
     else
       current_user.account.reblogged?(object)
     end
