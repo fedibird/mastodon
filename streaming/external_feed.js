@@ -1679,6 +1679,8 @@ const createCancellableQuery = connect => (sql, params, options = {}) => new Pro
 
 module.exports = {
   compareDecimal,
+  createSignal,
+  abortError,
   yamlScalar,
   flagEnabled,
   testerListed,

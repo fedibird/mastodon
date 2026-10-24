@@ -14,6 +14,7 @@ const fs = require('fs');
 const WebSocket = require('ws');
 const { filteredResultsForStatus, buildCachedFilters, stripStreamingSearchableText } = require('./filtering');
 const { attachExternalFeed, detachExternalFeed, createCancellableQuery, PRIVATE_CONFIRM_MS } = require('./external_feed');
+const { attachExternalBoost, detachExternalBoost } = require('./external_boost');
 
 const env = process.env.NODE_ENV || 'development';
 const alwaysRequireAuth = process.env.LIMITED_FEDERATION_MODE === 'true' || process.env.WHITELIST_MODE === 'true' || process.env.AUTHORIZED_FETCH === 'true';
@@ -174,6 +175,7 @@ const startWorker = (workerId) => {
 
   const detachExternalListener = listener => {
     detachExternalFeed(listener, { unsubscribe: unsubscribe });
+    detachExternalBoost(listener, { unsubscribe: unsubscribe });
   };
   const server = http.createServer(app);
   const redisNamespace = process.env.REDIS_NAMESPACE || null;
@@ -916,6 +918,17 @@ const startWorker = (workerId) => {
 
     if (externalFeed) {
       attachExternalFeed({
+        listener: listener,
+        req: req,
+        externalFeed: externalFeed,
+        query: externalQuery,
+        redisPrefix: redisPrefix,
+        subscribe: subscribe,
+        unsubscribe: unsubscribe,
+        output: output,
+      });
+
+      attachExternalBoost({
         listener: listener,
         req: req,
         externalFeed: externalFeed,
