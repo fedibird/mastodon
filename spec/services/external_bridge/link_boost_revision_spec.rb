@@ -474,6 +474,32 @@ describe 'ExternalBridge link boost revision', type: :model do
     end
   end
 
+  describe 'rollback floor' do
+    it 'refuses to drop the state table while a row exists, and allows it when empty' do
+      user = Fabricate(:user)
+      world = prepare(user)
+
+      expect { ActiveRecord::Base.connection.execute(ExternalBridge::Schema::LINK_BOOST_STATE_ROLLBACK_FLOOR_SQL) }.not_to raise_error
+
+      boost!(user, world)
+
+      expect do
+        ActiveRecord::Base.transaction(requires_new: true) do
+          ActiveRecord::Base.connection.execute(ExternalBridge::Schema::LINK_BOOST_STATE_ROLLBACK_FLOOR_SQL)
+        end
+      end.to raise_error(ActiveRecord::StatementInvalid, /refusing to roll back external link boost states/)
+      expect(state_for(user, world)).to be_present
+    end
+
+    it 'keeps the trigger definitions in the schema loader and in the migration' do
+      sql = ExternalBridge::Schema::DEFINITIONS_SQL
+
+      expect(sql).to include('external_projection_link_boosts_track_state')
+      expect(sql).to include('statuses_end_link_boost_on_discard')
+      expect(File.read(Rails.root.join('db/schema.rb'))).to include('external_projection_link_boost_states')
+    end
+  end
+
   describe 'normal statuses' do
     it 'does not enqueue a boost event when an ordinary boost is discarded' do
       account = Fabricate(:account)
