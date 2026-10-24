@@ -2,6 +2,8 @@ import React from 'react';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import Avatar from './avatar';
+import { ExternalSourceIcon } from './external_source_identity';
+import { externalIdentityOf, externalIdentityName } from '../external_presentation';
 import { injectIntl, defineMessages } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { ThumbnailGallery } from '../features/ui/util/async-components';
@@ -82,15 +84,25 @@ class StatusItem extends ImmutablePureComponent {
       return null;
     }
 
+    const externalIdentity = externalIdentityOf(status);
+
     return (
       <div className={classNames('mini-status__wrapper', `mini-status__wrapper-${status.get('visibility')}`, { 'mini-status__wrapper-reply': !!status.get('in_reply_to_id') })} ref={this.handleRef}>
         <div className={classNames('mini-status', `mini-status-${status.get('visibility')}`, { 'mini-status-reply': !!status.get('in_reply_to_id') })} onClick={this.handleClick} role='button' tabIndex={0} data-id={status.get('id')}>
           <div className='mini-status__account'>
-            <a onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} href={status.getIn(['account', 'url'])} title={status.getIn(['account', 'acct'])} className='status__display-name' target='_blank' rel='noopener noreferrer'>
-              <div className='mini-status__avatar'>
-                <Avatar account={status.get('account')} size={24} />
-              </div>
-            </a>
+            {externalIdentity ? (
+              <span className='status__display-name' title={externalIdentityName(intl, externalIdentity)}>
+                <div className='mini-status__avatar'>
+                  <ExternalSourceIcon iconId={externalIdentity.iconId} iconUrl={externalIdentity.iconUrl} size={24} />
+                </div>
+              </span>
+            ) : (
+              <a onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} href={status.getIn(['account', 'url'])} title={status.getIn(['account', 'acct'])} className='status__display-name' target='_blank' rel='noopener noreferrer'>
+                <div className='mini-status__avatar'>
+                  <Avatar account={status.get('account')} size={24} />
+                </div>
+              </a>
+            )}
           </div>
 
           <div className='mini-status__content'>

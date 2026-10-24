@@ -9,6 +9,8 @@ import Avatar from '../../../components/avatar';
 import AbsoluteTimestamp from '../../../components/absolute_timestamp';
 import RelativeTimestamp from '../../../components/relative_timestamp';
 import DisplayName from '../../../components/display_name';
+import ExternalSourceIdentity from '../../../components/external_source_identity';
+import { externalIdentityOf } from 'mastodon/external_presentation';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import Icon from 'mastodon/components/icon';
 import AttachmentList from 'mastodon/components/attachment_list';
@@ -106,6 +108,7 @@ class BoostModal extends ImmutablePureComponent {
     };
 
     const visibilityIcon = visibilityIconInfo[status.get('visibility')];
+    const externalIdentity = externalIdentityOf(status);
 
     return (
       <div className='modal-root__modal boost-modal'>
@@ -119,13 +122,17 @@ class BoostModal extends ImmutablePureComponent {
               </div>
               <span className='status__visibility-icon'><Icon id={visibilityIcon.icon} title={visibilityIcon.text} /></span>
 
-              <a onClick={this.handleAccountClick} href={status.getIn(['account', 'url'])} className='status__display-name'>
-                <div className='status__avatar'>
-                  <Avatar account={status.get('account')} size={48} />
-                </div>
+              {externalIdentity ? (
+                <ExternalSourceIdentity identity={externalIdentity} size={48} className='status__display-name' avatarClassName='status__avatar' />
+              ) : (
+                <a onClick={this.handleAccountClick} href={status.getIn(['account', 'url'])} className='status__display-name'>
+                  <div className='status__avatar'>
+                    <Avatar account={status.get('account')} size={48} />
+                  </div>
 
-                <DisplayName account={status.get('account')} />
-              </a>
+                  <DisplayName account={status.get('account')} />
+                </a>
+              )}
             </div>
 
             <StatusContent status={status} />
