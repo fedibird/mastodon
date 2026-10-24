@@ -56,6 +56,8 @@ class Status < ApplicationRecord
 
   self.discard_column = :deleted_at
 
+  after_discard :notify_link_boost_wrapper_removed, if: :reblog_of_id?
+
   # If `override_timestamps` is set at creation time, Snowflake ID creation
   # will be based on current time instead of `created_at`
   attr_accessor :override_timestamps, :circle, :expires_at, :expires_action, :fetch
@@ -1060,6 +1062,10 @@ class Status < ApplicationRecord
     account&.increment_count!(:statuses_count) unless fetch
     reblog&.increment_count!(:reblogs_count) if reblog?
     thread&.increment_count!(:replies_count) if in_reply_to_id.present? && distributable?
+  end
+
+  def notify_link_boost_wrapper_removed
+    ExternalBridge::LinkSharing::BoostEvents.wrapper_discarded!(id)
   end
 
   def decrement_counter_caches

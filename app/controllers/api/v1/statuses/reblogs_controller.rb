@@ -77,7 +77,6 @@ class Api::V1::Statuses::ReblogsController < Api::BaseController
     relationships = StatusRelationshipsPresenter.new(
       [@reblog],
       current_account.id,
-      reblogs_map: { @reblog.id => false },
       attributes_map: { @reblog.id => { reblogs_count: @reblog.reblogs_count } }
     )
 

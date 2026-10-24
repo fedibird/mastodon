@@ -29,6 +29,16 @@ module ExternalBridge
         "timeline:external:user:#{id}:control"
       end
 
+      # E4 share state of the owner's projections. Not an E3 route channel, so
+      # it needs no feed route and no E3 flag. Only the token user's own pair is
+      # ever published here.
+      def boost(user_id)
+        id = decimal_id(user_id)
+        return nil if id.nil?
+
+        "timeline:external:user:#{id}:boost"
+      end
+
       def decimal_id(value)
         text = value.to_s
         return nil unless text.match?(/\A[1-9]\d*\z/)

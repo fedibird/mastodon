@@ -162,7 +162,7 @@ RSpec.describe 'External projection boost', type: :request do
     expect(compact.values.count(true)).to eq(2)
 
     queries = []
-    counter = ->(*, payload) { queries << payload[:sql] if payload[:name] != 'SCHEMA' && payload[:sql].include?('external_projection_link_boosts') }
+    counter = ->(*, payload) { queries << payload[:sql] if payload[:name] != 'SCHEMA' && payload[:sql].include?('external_projection_link_boost_states') }
     ActiveSupport::Notifications.subscribed(counter, 'sql.active_record') do
       get '/api/v1/bookmarks', params: { limit: 40 }, headers: headers
     end
@@ -364,6 +364,64 @@ RSpec.describe 'External projection boost', type: :request do
 
     expect { ReblogService.new.call(owner.account, projection) }.to raise_error(Mastodon::ValidationError)
     expect(Status.where(reblog_of_id: projection.id)).to be_empty
+  end
+
+  it 'carries one monotonic revision with reblogged on every owner read and no other reader' do
+    consent!
+    roommate = share_account_user(owner.account)
+    projection
+    pairs = []
+    read = lambda do
+      fetch
+      pairs << [json['reblogged'], json.dig('fedibird_external', 'link_boost_revision')]
+    end
+
+    read.call
+    boost
+    expect(json['id']).not_to eq(projection.id.to_s)
+    expect(response.body).not_to include('link_boost_revision')
+    read.call
+    unboost
+    expect(response).to have_http_status(200)
+    expect(json['id']).to eq(projection.id.to_s)
+    expect([json['reblogged'], json.dig('fedibird_external', 'link_boost_revision')]).to eq([false, '2'])
+    read.call
+    boost
+    read.call
+
+    expect(pairs).to eq([[false, '0'], [true, '1'], [false, '2'], [true, '3']])
+
+    fetch(as: auth_headers_for(roommate, 'read write'))
+    expect(response).to have_http_status(404)
+    get '/api/v1/bookmarks', headers: auth_headers_for(roommate, 'read write')
+    expect(response.body).not_to include('link_boost_revision')
+  end
+
+  it 'reads the revision in compact bookmark pages from the same pair as reblogged' do
+    consent!
+    Bookmark.create!(account: owner.account, status: projection)
+    boost
+    unboost
+    boost
+
+    get '/api/v1/bookmarks', params: { compact: true }, headers: headers
+    entry = json['statuses'].find { |item| item['id'] == projection.id.to_s }
+    expect([entry['reblogged'], entry.dig('fedibird_external', 'link_boost_revision')]).to eq([true, '3'])
+
+    unboost
+    get '/api/v1/bookmarks', params: { compact: true }, headers: headers
+    entry = json['statuses'].find { |item| item['id'] == projection.id.to_s }
+    expect([entry['reblogged'], entry.dig('fedibird_external', 'link_boost_revision')]).to eq([false, '4'])
+  end
+
+  it 'leaves an ordinary status without the field and its reblogged unchanged' do
+    status = Fabricate(:status, visibility: :public)
+    boost(status)
+    expect(response).to have_http_status(200)
+    fetch(status)
+    expect(json['reblogged']).to be(true)
+    expect(json).not_to have_key('fedibird_external')
+    expect(response.body).not_to include('link_boost_revision')
   end
 end
 

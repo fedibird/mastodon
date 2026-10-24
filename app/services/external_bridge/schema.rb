@@ -658,6 +658,110 @@ module ExternalBridge
       END $$;
     SQL
 
+    # E4-C gate. One row per User and projection Status id that has ever had a
+    # visible share state. `revision` is the monotonic order of `reblogged`
+    # for that pair, across every link reference, scope, and generation, so a
+    # scope or URL change cannot start it again from 1. It moves only when the
+    # visible state (an active share whose wrapper is a kept Status) flips.
+    # The trigger below is the only writer. It runs in the statement that
+    # changes the boost row, under an advisory lock on the pair, so the
+    # (revision, reblogged) pair is never read from two points in time.
+    # A pair with no row reads as revision 0, reblogged false.
+    LINK_BOOST_STATE_SQL = <<~SQL
+      CREATE OR REPLACE FUNCTION external_projection_link_boosts_track_state()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      DECLARE
+        visible boolean;
+      BEGIN
+        IF TG_OP = 'UPDATE'
+           AND NEW.state IS NOT DISTINCT FROM OLD.state
+           AND NEW.wrapper_status_id IS NOT DISTINCT FROM OLD.wrapper_status_id THEN
+          RETURN NULL;
+        END IF;
+
+        PERFORM pg_advisory_xact_lock(
+          ('x' || substr(md5('external_link_boost_state:' || NEW.user_id::text || ':' || NEW.projection_status_id::text), 1, 16))::bit(64)::bigint
+        );
+
+        visible := EXISTS (
+          SELECT 1
+            FROM external_projection_link_boosts boosts
+            INNER JOIN statuses wrappers ON wrappers.id = boosts.wrapper_status_id
+           WHERE boosts.user_id = NEW.user_id
+             AND boosts.projection_status_id = NEW.projection_status_id
+             AND boosts.state = 'active'
+             AND wrappers.deleted_at IS NULL
+        );
+
+        UPDATE external_projection_link_boost_states
+           SET revision = revision + 1,
+               reblogged = visible,
+               updated_at = clock_timestamp()
+         WHERE user_id = NEW.user_id
+           AND projection_status_id = NEW.projection_status_id
+           AND reblogged IS DISTINCT FROM visible;
+
+        IF NOT FOUND AND visible THEN
+          INSERT INTO external_projection_link_boost_states
+            (user_id, projection_status_id, revision, reblogged, created_at, updated_at)
+          VALUES
+            (NEW.user_id, NEW.projection_status_id, 1, TRUE, clock_timestamp(), clock_timestamp())
+          ON CONFLICT (user_id, projection_status_id) DO NOTHING;
+        END IF;
+
+        RETURN NULL;
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS external_projection_link_boosts_track_state ON external_projection_link_boosts;
+      CREATE TRIGGER external_projection_link_boosts_track_state
+      AFTER INSERT OR UPDATE OF state, wrapper_status_id ON external_projection_link_boosts
+      FOR EACH ROW
+      EXECUTE FUNCTION external_projection_link_boosts_track_state();
+
+      CREATE OR REPLACE FUNCTION statuses_end_link_boost_on_discard()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        -- A wrapper discarded by any path (not only Retire) ends its share in
+        -- the same statement, so the state trigger sees the flip.
+        UPDATE external_projection_link_boosts
+           SET state = 'undone',
+               ended_reason = 'wrapper_removed',
+               undone_at = clock_timestamp(),
+               updated_at = clock_timestamp()
+         WHERE wrapper_status_id = NEW.id
+           AND state = 'active';
+        RETURN NULL;
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS statuses_end_link_boost_on_discard ON statuses;
+      CREATE TRIGGER statuses_end_link_boost_on_discard
+      AFTER UPDATE OF deleted_at ON statuses
+      FOR EACH ROW
+      WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL AND NEW.reblog_of_id IS NOT NULL)
+      EXECUTE FUNCTION statuses_end_link_boost_on_discard();
+    SQL
+
+    # The state row carries the revision clients have already seen. Dropping the
+    # table would let a later boost start at 1 again behind a client that holds
+    # a higher value, so rollback is refused while any row exists.
+    LINK_BOOST_STATE_ROLLBACK_FLOOR_SQL = <<~SQL
+      DO $$
+      BEGIN
+        IF to_regclass('public.external_projection_link_boost_states') IS NOT NULL THEN
+          LOCK TABLE external_projection_link_boost_states IN SHARE ROW EXCLUSIVE MODE;
+
+          IF EXISTS (SELECT 1 FROM external_projection_link_boost_states) THEN
+            RAISE EXCEPTION 'refusing to roll back external link boost states while a state row exists'
+              USING ERRCODE = 'check_violation';
+          END IF;
+        END IF;
+      END $$;
+    SQL
+
     DEFINITIONS_SQL = <<~SQL
       ALTER TABLE external_status_projections
         DROP CONSTRAINT IF EXISTS fk_external_projections_subscription_owner;
@@ -792,6 +896,8 @@ module ExternalBridge
       #{LINK_REFERENCE_PUBLISH_SQL}
 
       #{LINK_BOOST_SQL}
+
+      #{LINK_BOOST_STATE_SQL}
 
       #{MIGRATE_FUNCTION_SQL}
     SQL

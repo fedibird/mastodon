@@ -181,6 +181,7 @@ module ExternalBridge
           policy_revision: policy.revision,
           state: 'active'
         )
+        BoostEvents.changed!(boost.user_id, boost.projection_status_id)
         Result.new(boost: boost, wrapper: wrapper, reference: reference, created: true)
       end
 

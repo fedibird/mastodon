@@ -187,6 +187,31 @@ describe 'ExternalBridge link boost concurrency', type: :model do
     cleanup!(bundle)
   end
 
+  it 'orders every visible flip once under simultaneous boosts and undos' do
+    bundle = prepare_world
+    allow(RemovalWorker).to receive(:perform_async)
+    user = bundle[:user]
+
+    outcome = run_together(8) { |index| index.odd? ? unboost(bundle) : boost(bundle) }
+    outcome2 = run_together(6) { |index| index.even? ? unboost(bundle) : boost(bundle) }
+
+    # status_stats is built on first use, so two threads that count the same
+    # note can race on its unique index. That is the ordinary counter race.
+    tolerated = lambda do |error|
+      (error.is_a?(ExternalBridge::Error) && error.code == 'reference_conflict') ||
+        (error.is_a?(ActiveRecord::RecordNotUnique) && error.message.include?('index_status_stats_on_status_id'))
+    end
+    unexpected = (outcome[:errors] + outcome2[:errors]).reject(&tolerated)
+    expect(unexpected).to be_empty
+    rows = ExternalProjectionLinkBoost.where(user_id: user.id)
+    state = ExternalProjectionLinkBoostState.find_by!(user_id: user.id, projection_status_id: bundle[:world][:status].id)
+    expect(rows.where(state: 'active').count).to be <= 1
+    expect(state.revision).to eq(rows.count + rows.where(state: 'undone').count)
+    expect(state.reblogged).to eq(rows.where(state: 'active').exists?)
+  ensure
+    cleanup!(bundle)
+  end
+
   it 'closes the share at announce time when a revocation arrives while the boost holds the policy lock' do
     bundle = prepare_world
     user = bundle[:user]

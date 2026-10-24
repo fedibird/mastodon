@@ -25,11 +25,22 @@ module ExternalBridge
       def end!(boost, reason:)
         return nil unless boost.active?
 
-        boost.update!(state: 'undone', undone_at: Time.current, ended_reason: reason.to_s)
         wrapper = Status.unscoped.find_by(id: boost.wrapper_status_id)
+        remove_now = wrapper.present? && boost.announced_at.blank?
+
+        # A wrapper that never left the server is deleted below. Its id is
+        # cleared in this same UPDATE: the foreign key SET NULL that follows the
+        # delete would otherwise update this row a second time in the same
+        # transaction, and PostgreSQL then re-checks the row's key against the
+        # mapping (FOR KEY SHARE). Boost holds the mapping before the boost
+        # rows, so that second lock order is a deadlock with a concurrent boost.
+        attributes = { state: 'undone', undone_at: Time.current, ended_reason: reason.to_s }
+        attributes[:wrapper_status_id] = nil if remove_now
+        boost.update!(attributes)
+        BoostEvents.changed!(boost.user_id, boost.projection_status_id)
         return nil if wrapper.nil?
 
-        if boost.announced_at.blank?
+        if remove_now
           wrapper.destroy!
           return nil
         end
