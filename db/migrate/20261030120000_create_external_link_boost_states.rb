@@ -10,8 +10,12 @@
 #
 # `notified_revision` is the durable outbox of the owner event. A row whose
 # revision is above it has a flip that no stream event has covered yet, for
-# example a wrapper that was deleted with plain SQL. The partial index holds
-# only those rows.
+# example a wrapper that was deleted with plain SQL. `next_notify_at` is the
+# recovery claim of that outbox, like `next_recovery_at` of E4-A: null means
+# not visited since the last flip, a future time means a job was accepted and
+# the row is held out of the scan, a past time means the enqueue was refused or
+# the hold ran out. A flip resets it to null. The partial index holds only the
+# rows that still have something to notify.
 class CreateExternalLinkBoostStates < ActiveRecord::Migration[6.1]
   BACKFILL_SQL = <<~SQL
     INSERT INTO external_projection_link_boost_states
@@ -23,6 +27,12 @@ class CreateExternalLinkBoostStates < ActiveRecord::Migration[6.1]
      WHERE boosts.state = 'active'
        AND wrappers.deleted_at IS NULL
     ON CONFLICT (user_id, projection_status_id) DO NOTHING
+  SQL
+
+  UNNOTIFIED_INDEX_SQL = <<~SQL
+    CREATE INDEX IF NOT EXISTS index_link_boost_states_on_unnotified
+    ON external_projection_link_boost_states (next_notify_at ASC NULLS FIRST, updated_at ASC)
+    WHERE revision > notified_revision
   SQL
 
   def up
@@ -40,16 +50,14 @@ class CreateExternalLinkBoostStates < ActiveRecord::Migration[6.1]
       t.bigint :projection_status_id, null: false
       t.bigint :revision, null: false
       t.bigint :notified_revision, null: false, default: 0
+      t.datetime :next_notify_at
       t.boolean :reblogged, null: false
       t.timestamps
     end
     add_index :external_projection_link_boost_states,
               :projection_status_id,
               name: 'index_link_boost_states_on_projection_status'
-    add_index :external_projection_link_boost_states,
-              :updated_at,
-              where: 'revision > notified_revision',
-              name: 'index_link_boost_states_on_unnotified'
+    execute UNNOTIFIED_INDEX_SQL
     add_foreign_key :external_projection_link_boost_states, :users, column: :user_id, on_delete: :cascade, name: 'fk_link_boost_states_user'
     add_check_constraint :external_projection_link_boost_states,
                          'revision >= 1',

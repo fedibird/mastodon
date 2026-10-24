@@ -8,6 +8,7 @@
 #  projection_status_id :bigint(8)        not null, primary key
 #  revision             :bigint(8)        not null
 #  notified_revision    :bigint(8)        default(0), not null
+#  next_notify_at       :datetime
 #  reblogged            :boolean          not null
 #  created_at           :datetime         not null
 #  updated_at           :datetime         not null

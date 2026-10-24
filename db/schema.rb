@@ -681,14 +681,22 @@ ActiveRecord::Schema.define(version: 2026_10_30_120000) do
     t.bigint "projection_status_id", null: false
     t.bigint "revision", null: false
     t.bigint "notified_revision", default: 0, null: false
+    t.datetime "next_notify_at"
     t.boolean "reblogged", null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["projection_status_id"], name: "index_link_boost_states_on_projection_status"
-    t.index ["updated_at"], name: "index_link_boost_states_on_unnotified", where: "(revision > notified_revision)"
     t.check_constraint "((notified_revision >= 0) AND (notified_revision <= revision))", name: "link_boost_states_notified_check"
     t.check_constraint "revision >= 1", name: "link_boost_states_revision_check"
   end
+
+  # Outbox scan. NULLS FIRST matches the scheduler order. db:schema:dump may
+  # not keep that clause. Do not replace this statement with a t.index.
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_link_boost_states_on_unnotified
+    ON external_projection_link_boost_states (next_notify_at ASC NULLS FIRST, updated_at ASC)
+    WHERE revision > notified_revision
+  SQL
 
   create_table "external_projection_link_boosts", force: :cascade do |t|
     t.bigint "user_id", null: false

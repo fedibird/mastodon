@@ -596,6 +596,149 @@ describe 'ExternalBridge link boost revision', type: :model do
       expect(published).to be_empty
     end
 
+    describe 'claims' do
+      let(:owner) { Fabricate(:user) }
+      let(:base_id) { 900_000_000_000_000_000 }
+
+      def seed_pending(count, user: owner)
+        connection = ActiveRecord::Base.connection
+        connection.execute(<<~SQL.squish)
+          INSERT INTO external_projection_link_boost_states
+            (user_id, projection_status_id, revision, notified_revision, reblogged, created_at, updated_at)
+          SELECT #{connection.quote(user.id)}, #{base_id} + series, 2, 1, FALSE,
+                 NOW() - interval '1 hour' + (series % 1000) * interval '1 second',
+                 NOW() - interval '1 hour' + (series % 1000) * interval '1 second'
+          FROM generate_series(#{user_offset(user)}, #{user_offset(user) + count - 1}) AS series
+        SQL
+        Array.new(count) { |index| base_id + user_offset(user) + index }
+      end
+
+      def user_offset(user)
+        user.id == owner.id ? 0 : 1_000_000
+      end
+
+      def claim_of(status_id)
+        ExternalProjectionLinkBoostState.find_by!(user_id: owner.id, projection_status_id: status_id).next_notify_at
+      end
+
+      def record_pushes(accept:)
+        pushed = []
+        allow(ExternalBridge::LinkBoostStreamWorker).to receive(:perform_async) do |_user, status|
+          pushed << status.to_i
+          accept.call(status.to_i) ? 'jid' : nil
+        end
+        pushed
+      end
+
+      it 'reaches rows behind a head that Sidekiq keeps refusing, in a finite number of passes' do
+        ids = seed_pending(230)
+        head = ids.first(100)
+        pushed = record_pushes(accept: ->(id) { !head.include?(id) })
+
+        first = recover
+        expect(first).to eq(100)
+        expect(pushed.size).to eq(100)
+        expect(pushed.sort).to eq(head)
+        expect(claim_of(head.first)).to be <= Time.current
+
+        expect(recover).to eq(100)
+        second = pushed.drop(100)
+        expect(second & head).to be_empty
+        expect(second.size).to eq(100)
+
+        # The 30 rows that were never tried come first, then the refused head.
+        expect(recover).to eq(100)
+        third = pushed.drop(200)
+        expect(third.first(30).sort).to eq(ids.last(30))
+        expect(third.drop(30) - head).to be_empty
+        expect(pushed.first(230).uniq.size).to eq(230)
+
+        pushed.clear
+        # Accepted rows are held. Only the refused head is tried again.
+        expect(recover).to eq(100)
+        expect(pushed.sort).to eq(head)
+      end
+
+      it 'does not stack jobs for rows whose job was accepted, and tries them again when the hold runs out' do
+        ids = seed_pending(150)
+        pushed = record_pushes(accept: ->(_id) { true })
+
+        4.times { recover }
+
+        expect(pushed.sort).to eq(ids)
+        expect(pushed.tally.values.uniq).to eq([1])
+
+        ExternalProjectionLinkBoostState.where(user_id: owner.id).update_all("next_notify_at = NOW() - interval '1 minute'")
+        expect(recover).to eq(100)
+        expect(recover).to eq(50)
+        expect(recover).to eq(0)
+        expect(pushed.tally.values.uniq).to eq([2])
+      end
+
+      it 'treats a Redis error like a refusal and releases only its own claim' do
+        ids = seed_pending(3)
+        allow(ExternalBridge::LinkBoostStreamWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError)
+
+        expect(recover).to eq(3)
+        ids.each { |id| expect(claim_of(id)).to be <= Time.current }
+
+        pushed = record_pushes(accept: ->(_id) { true })
+        expect(recover).to eq(3)
+        expect(pushed.sort).to eq(ids)
+      end
+
+      it 'notifies again a row whose revision moved after it was claimed or acknowledged' do
+        user = owner
+        world = prepare(user)
+        allow(ExternalBridge::LinkBoostStreamWorker).to receive(:perform_async).and_return('jid')
+        boost!(user, world)
+        Status.unscoped.where(id: ExternalProjectionLinkBoost.find_by!(user_id: user.id).wrapper_status_id).delete_all
+        expect(recover).to eq(1)
+        expect(recover).to eq(0)
+
+        state = ExternalProjectionLinkBoostState.find_by!(user_id: user.id)
+        expect(state.next_notify_at).to be > Time.current
+        expect(state.revision).to eq(2)
+
+        # Another flip resets the claim, so the new revision is not held back.
+        ExternalProjectionLinkBoostState.where(user_id: user.id).update_all(notified_revision: 2)
+        boost!(user, world)
+        state = ExternalProjectionLinkBoostState.find_by!(user_id: user.id)
+        expect([state.revision, state.reblogged, state.next_notify_at]).to eq([3, true, nil])
+        expect(recover).to eq(1)
+        ExternalBridge::LinkBoostStreamWorker.new.perform(user.id.to_s, world[:status].id.to_s)
+        expect(pending_pairs).to be_empty
+      end
+
+      it 'never moves notified_revision backwards' do
+        user = owner
+        world = prepare(user)
+        Sidekiq::Testing.fake! { boost!(user, world) }
+        ExternalBridge::LinkBoostStreamWorker.new.perform(user.id.to_s, world[:status].id.to_s)
+        ExternalProjectionLinkBoostState.where(user_id: user.id).update_all(revision: 5, notified_revision: 4)
+
+        ExternalBridge::LinkBoostStreamWorker.new.send(:acknowledge, user.id, world[:status].id, 2)
+
+        expect(ExternalProjectionLinkBoostState.find_by!(user_id: user.id).notified_revision).to eq(4)
+      end
+
+      it 'drops a claim with an invalid user or a missing marker once the worker has run, and never selects an acknowledged row' do
+        ids = seed_pending(2)
+        disabled = Fabricate(:user)
+        disabled.update_columns(disabled: true)
+        seed_pending(1, user: disabled)
+        Sidekiq::Testing.fake! do
+          expect(recover).to eq(3)
+          ExternalBridge::LinkBoostStreamWorker.jobs.each { |job| ExternalBridge::LinkBoostStreamWorker.new.perform(*job['args']) }
+        end
+
+        expect(pending_pairs).to be_empty
+        expect(published).to be_empty
+        expect(recover).to eq(0)
+        expect(ids.size).to eq(2)
+      end
+    end
+
     it 'is bounded and runs from the scheduler without reading the feature flag' do
       user = Fabricate(:user)
       world = prepare(user)

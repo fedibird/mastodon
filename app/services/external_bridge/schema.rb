@@ -698,6 +698,7 @@ module ExternalBridge
         UPDATE external_projection_link_boost_states
            SET revision = revision + 1,
                reblogged = visible,
+               next_notify_at = NULL,
                updated_at = clock_timestamp()
          WHERE user_id = NEW.user_id
            AND projection_status_id = NEW.projection_status_id

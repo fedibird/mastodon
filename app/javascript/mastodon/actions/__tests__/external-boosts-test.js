@@ -22,6 +22,7 @@ import {
   EXTERNAL_LINK_BOOST_CHANGED,
   HELD_BOOST_BATCH,
   HELD_BOOST_BATCHES_PER_RUN,
+  HELD_BOOST_MAX_FAILURES,
   HELD_BOOST_MIN_GAP_MS,
   receiveExternalLinkBoostChanged,
   reconcileHeldExternalBoosts,
@@ -29,6 +30,7 @@ import {
 } from '../external_boosts';
 import { importFetchedStatus, importFetchedStatuses } from '../importer';
 import { updateStatus } from '../statuses';
+import { resetExternalFeedSession } from '../external_feeds';
 import { connectTimelineStream } from '../streaming';
 
 const projection = (id, revision, reblogged, extra = {}) => ({
@@ -63,6 +65,10 @@ const pair = (store, id = '100') => [store.getState().getIn(['statuses', id, 're
 beforeEach(() => {
   resetExternalBoostReconcileForTests();
   api.mockReset();
+});
+
+afterEach(() => {
+  resetExternalBoostReconcileForTests();
 });
 
 describe('receiveExternalLinkBoostChanged', () => {
@@ -396,6 +402,157 @@ describe('reconcileHeldExternalBoosts', () => {
       expect(ids).not.toContain('9999');
       expect(ids).not.toContain('600');
       expect(ids).toContain('500');
+    });
+
+    describe('when a request fails', () => {
+      const httpError = (status) => Object.assign(new Error(`HTTP ${status}`), { response: { status } });
+
+      // A server that fails the first `failFor` calls, then answers.
+      const flaky = (failFor, changed = {}, error = () => new Error('offline')) => {
+        let calls = 0;
+        const get = jest.fn((_path, config) => {
+          calls += 1;
+
+          if (calls <= failFor) {
+            return Promise.reject(error());
+          }
+
+          return Promise.resolve({
+            data: config.params.id.map(id => (changed[id] ? projection(id, changed[id].revision, changed[id].reblogged) : projection(id, '1', true))),
+          });
+        });
+
+        api.mockImplementation(() => ({ get }));
+
+        return get;
+      };
+
+      it('continues by itself after one temporary failure and repairs the oldest of 80 without another dispatch', async () => {
+        const store = buildStore(held());
+        const get = flaky(1, { 1: { revision: '3', reblogged: false } });
+
+        store.dispatch(reconcileHeldExternalBoosts({ begin: true, force: true }));
+        await flush();
+        expect(get).toHaveBeenCalledTimes(1);
+        expect(pair(store, '1')).toEqual([true, '1']);
+
+        await advance(HELD_BOOST_MIN_GAP_MS - 1);
+        expect(get).toHaveBeenCalledTimes(1);
+        await advance(1);
+        expect(get).toHaveBeenCalledTimes(1 + HELD_BOOST_BATCHES_PER_RUN);
+        await advance(HELD_BOOST_MIN_GAP_MS);
+
+        expect(pair(store, '1')).toEqual([false, '3']);
+        get.mock.calls.slice(1).forEach(call => expect(call[1].params.id.length).toBeLessThanOrEqual(HELD_BOOST_BATCH));
+        expect(new Set(requested(get).slice(HELD_BOOST_BATCH)).size).toBe(HELD);
+        await advance(HELD_BOOST_MIN_GAP_MS * 20);
+        expect(get).toHaveBeenCalledTimes(1 + Math.ceil(HELD / HELD_BOOST_BATCH));
+      });
+
+      it('backs off between failures, gives up after the limit, and starts again on the next reconnect', async () => {
+        const store = buildStore(held(5));
+        const get = flaky(1000);
+
+        store.dispatch(reconcileHeldExternalBoosts({ begin: true, force: true }));
+        await flush();
+        const times = [];
+        let seen = get.mock.calls.length;
+
+        for (let step = 0; step < 400 && get.mock.calls.length < HELD_BOOST_MAX_FAILURES; step += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await advance(1000);
+
+          if (get.mock.calls.length > seen) {
+            times.push(step + 1);
+            seen = get.mock.calls.length;
+          }
+        }
+
+        expect(get).toHaveBeenCalledTimes(HELD_BOOST_MAX_FAILURES);
+        expect(times).toEqual([10, 30, 70, 150, 310]);
+        await advance(HELD_BOOST_MIN_GAP_MS * 100);
+        expect(get).toHaveBeenCalledTimes(HELD_BOOST_MAX_FAILURES);
+
+        store.dispatch(reconcileHeldExternalBoosts({ begin: true, force: true }));
+        await flush();
+        expect(get).toHaveBeenCalledTimes(HELD_BOOST_MAX_FAILURES + 1);
+      });
+
+      it('stops on 401 and 403 without a timer, and a failure is not a verified read', async () => {
+        for (const status of [401, 403]) {
+          const store = buildStore(held(5));
+          const get = flaky(1000, {}, () => httpError(status));
+
+          store.dispatch(reconcileHeldExternalBoosts({ begin: true, force: true }));
+          // eslint-disable-next-line no-await-in-loop
+          await flush();
+          // eslint-disable-next-line no-await-in-loop
+          await advance(HELD_BOOST_MIN_GAP_MS * 50);
+          expect(get).toHaveBeenCalledTimes(1);
+          resetExternalBoostReconcileForTests();
+        }
+      });
+
+      it('treats 429 as temporary and retries with a backoff', async () => {
+        const store = buildStore(held(5));
+        const get = flaky(2, {}, () => httpError(429));
+
+        store.dispatch(reconcileHeldExternalBoosts({ begin: true, force: true }));
+        await flush();
+        await advance(HELD_BOOST_MIN_GAP_MS);
+        await advance(HELD_BOOST_MIN_GAP_MS * 2);
+        expect(get).toHaveBeenCalledTimes(3);
+        expect(get.mock.calls[2][1].params.id).toHaveLength(5);
+        await advance(HELD_BOOST_MIN_GAP_MS * 20);
+        expect(get).toHaveBeenCalledTimes(3);
+      });
+
+      it('stops the pending timer on logout, and ignores a response that returns after the reset', async () => {
+        const store = buildStore(held(5));
+        const get = flaky(1000);
+
+        store.dispatch(reconcileHeldExternalBoosts({ begin: true, force: true }));
+        await flush();
+        expect(get).toHaveBeenCalledTimes(1);
+        resetExternalFeedSession();
+        await advance(HELD_BOOST_MIN_GAP_MS * 50);
+        expect(get).toHaveBeenCalledTimes(1);
+
+        const other = buildStore(held(5));
+        let release;
+        const slow = jest.fn(() => new Promise(done => {
+          release = done;
+        }));
+
+        api.mockImplementation(() => ({ get: slow }));
+        other.dispatch(reconcileHeldExternalBoosts({ begin: true, force: true }));
+        await flush();
+        resetExternalFeedSession();
+        release({ data: [projection('5', '9', false)] });
+        await flush();
+        await advance(HELD_BOOST_MIN_GAP_MS * 5);
+
+        expect(slow).toHaveBeenCalledTimes(1);
+        expect(pair(other, '5')).toEqual([true, '1']);
+      });
+
+      it('does not wait for a long backoff when the connection comes back', async () => {
+        const store = buildStore(held(5));
+        const get = flaky(3);
+
+        store.dispatch(reconcileHeldExternalBoosts({ begin: true, force: true }));
+        await flush();
+        await advance(HELD_BOOST_MIN_GAP_MS);
+        await advance(HELD_BOOST_MIN_GAP_MS * 2);
+        expect(get).toHaveBeenCalledTimes(3);
+
+        // The third failure scheduled a 40 s retry. A reconnect replaces it.
+        store.dispatch(reconcileHeldExternalBoosts({ begin: true, force: true }));
+        await flush();
+        expect(get).toHaveBeenCalledTimes(4);
+        await advance(HELD_BOOST_MIN_GAP_MS * 20);
+        expect(get).toHaveBeenCalledTimes(4);
+      });
     });
 
     it('starts again from every id after a reconnect, and stops when everything is read', async () => {
