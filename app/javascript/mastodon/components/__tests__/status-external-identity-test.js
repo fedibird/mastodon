@@ -256,12 +256,29 @@ describe.each([
     expect(document.querySelectorAll('a:not([href])').length).toBe(0);
   });
 
+  it('renders valid DOM nesting (no span > div) when there is no verified source url', () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      renderStatus(externalStatus({ source_url: null }));
+
+      const warnings = consoleError.mock.calls.map(call => call.join(' ')).filter(text => text.includes('validateDOMNesting'));
+
+      expect(warnings).toEqual([]);
+      expect(document.querySelector('span[data-external-source]')).toBeNull();
+      expect(document.querySelector('span div')).toBeNull();
+      expect(document.querySelector('div[data-external-source] .external-source-identity__name').textContent).toBe('Blog name');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it('renders no link at all when there is no verified source url', () => {
     renderStatus(externalStatus({ source_url: null }));
 
     expect(screen.getByText('Blog name')).toBeTruthy();
     expect(document.querySelector('a[data-external-source]')).toBeNull();
-    expect(document.querySelector('span[data-external-source]')).toBeTruthy();
+    expect(document.querySelector('div[data-external-source]')).toBeTruthy();
     expect(history.push).not.toHaveBeenCalled();
   });
 
@@ -439,6 +456,7 @@ describe('quote and mini status', () => {
     expect(document.querySelector('.mini-status__source-name').textContent).toBe('Blog name');
     expect(document.querySelector('.mini-status__source-label').textContent).toBe('RSS · External content (only you)');
     expect(document.querySelector('.mini-status__account [title]')).toBeNull();
+    expect(document.querySelector('.mini-status__account span > div')).toBeNull();
     // The role=button row takes its accessible name from this text.
     expect(screen.getByRole('button', { name: /Blog name RSS · External content \(only you\)/ })).toBeTruthy();
     expect(document.querySelector('.mini-status').textContent).not.toContain('Owner Face');

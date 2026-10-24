@@ -8,7 +8,7 @@ import Avatar from '../../../components/avatar';
 import AbsoluteTimestamp from '../../../components/absolute_timestamp';
 import RelativeTimestamp from '../../../components/relative_timestamp';
 import DisplayName from '../../../components/display_name';
-import ExternalSourceIdentity from '../../../components/external_source_identity';
+import ExternalSourceIdentity, { TimeLink } from '../../../components/external_source_identity';
 import { externalIdentityOf } from 'mastodon/external_presentation';
 import emojiCompressed from 'mastodon/features/emoji/emoji_compressed';
 import classNames from 'classnames';
@@ -358,9 +358,9 @@ class ReactionModal extends ImmutablePureComponent {
       <div className='status light'>
         <div className='boost-modal__status-header'>
           <div className='boost-modal__status-time'>
-            <a href={this.props.status.get('url')} className='status__relative-time' target='_blank' rel='noopener noreferrer'>
+            <TimeLink url={externalIdentity ? externalIdentity.articleUrl : this.props.status.get('url')} external={!!externalIdentity} className='status__relative-time'>
               {disableRelativeTime ? <AbsoluteTimestamp timestamp={this.props.status.get('created_at')} /> : <RelativeTimestamp timestamp={this.props.status.get('created_at')} /> }
-            </a>
+            </TimeLink>
           </div>
 
           {externalIdentity ? (

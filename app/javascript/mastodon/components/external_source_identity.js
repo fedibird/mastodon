@@ -135,9 +135,9 @@ class ExternalSourceIdentity extends React.PureComponent {
     }
 
     return (
-      <span className={classes} data-external-source>
+      <div className={classes} data-external-source>
         {content}
-      </span>
+      </div>
     );
   }
 

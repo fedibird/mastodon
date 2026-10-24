@@ -92,11 +92,11 @@ class StatusItem extends ImmutablePureComponent {
         <div className={classNames('mini-status', `mini-status-${status.get('visibility')}`, { 'mini-status-reply': !!status.get('in_reply_to_id') })} onClick={this.handleClick} role='button' tabIndex={0} data-id={status.get('id')}>
           <div className='mini-status__account'>
             {externalIdentity ? (
-              <span className='status__display-name'>
+              <div className='status__display-name'>
                 <div className='mini-status__avatar'>
                   <ExternalSourceIcon iconId={externalIdentity.iconId} iconUrl={externalIdentity.iconUrl} size={24} />
                 </div>
-              </span>
+              </div>
             ) : (
               <a onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} href={status.getIn(['account', 'url'])} title={status.getIn(['account', 'acct'])} className='status__display-name' target='_blank' rel='noopener noreferrer'>
                 <div className='mini-status__avatar'>

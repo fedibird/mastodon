@@ -6,7 +6,7 @@ import StatusContent from '../../../components/status_content';
 import Avatar from '../../../components/avatar';
 import RelativeTimestamp from '../../../components/relative_timestamp';
 import DisplayName from '../../../components/display_name';
-import ExternalSourceIdentity from '../../../components/external_source_identity';
+import ExternalSourceIdentity, { TimeLink } from '../../../components/external_source_identity';
 import { externalIdentityOf } from 'mastodon/external_presentation';
 import IconButton from '../../../components/icon_button';
 import classNames from 'classnames';
@@ -45,9 +45,9 @@ export default class ActionsModal extends ImmutablePureComponent {
       <div className='status light'>
         <div className='boost-modal__status-header'>
           <div className='boost-modal__status-time'>
-            <a href={this.props.status.get('url')} className='status__relative-time' target='_blank' rel='noopener noreferrer'>
+            <TimeLink url={externalIdentity ? externalIdentity.articleUrl : this.props.status.get('url')} external={!!externalIdentity} className='status__relative-time'>
               <RelativeTimestamp timestamp={this.props.status.get('created_at')} />
-            </a>
+            </TimeLink>
           </div>
 
           {externalIdentity ? (
