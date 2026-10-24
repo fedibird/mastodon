@@ -243,6 +243,19 @@ describe.each([
     expect(history.push).not.toHaveBeenCalled();
   });
 
+  it('renders the time as plain text, not an href-less anchor, when there is no verified article url', () => {
+    renderStatus(fromJS(base({
+      visibility: 'external',
+      fedibird_external: { protocol: 'rss', source_title: 'Blog name', presentation: presentation() },
+    })));
+    const time = document.querySelector('.status__relative-time, .detailed-status__datetime');
+
+    expect(time).toBeTruthy();
+    expect(time.tagName).toBe('SPAN');
+    expect(time.getAttribute('href')).toBeNull();
+    expect(document.querySelectorAll('a:not([href])').length).toBe(0);
+  });
+
   it('renders no link at all when there is no verified source url', () => {
     renderStatus(externalStatus({ source_url: null }));
 
@@ -269,10 +282,10 @@ describe.each([
   });
 
   it('uses a managed icon when given and falls back to the protocol icon when it breaks', () => {
-    renderStatus(externalStatus({ icon_url: 'https://fedibird.test/system/external/icon.png' }));
+    renderStatus(externalStatus({ icon_url: `${window.location.origin}/system/external/icon.png` }));
     const image = document.querySelector('.external-source-icon__image');
 
-    expect(image.getAttribute('src')).toBe('https://fedibird.test/system/external/icon.png');
+    expect(image.getAttribute('src')).toBe(`${window.location.origin}/system/external/icon.png`);
     expect(image.getAttribute('alt')).toBe('');
     expect(image.getAttribute('referrerpolicy')).toBe('no-referrer');
     expect(document.querySelector('.external-source-icon').getAttribute('aria-hidden')).toBe('true');
@@ -283,8 +296,12 @@ describe.each([
     expect(document.querySelector('.external-source-icon [data-icon="rss"]')).toBeTruthy();
   });
 
-  it('does not load a raw third-party image', () => {
-    renderStatus(externalStatus({ icon_url: 'http://tracker.example/pixel.gif' }));
+  it.each([
+    'http://tracker.example/pixel.gif',
+    'https://tracker.example/pixel.gif',
+    'https://media.example/icon.png',
+  ])('does not load an image from another origin (%s)', (iconUrl) => {
+    renderStatus(externalStatus({ icon_url: iconUrl }));
 
     expect(document.querySelector('.external-source-icon__image')).toBeNull();
     expect(document.querySelector('.external-source-icon [data-icon="rss"]')).toBeTruthy();
@@ -410,5 +427,30 @@ describe('quote and mini status', () => {
     expect(document.querySelector('.mini-status__avatar [data-icon="rss"]')).toBeTruthy();
     expect(screen.queryByTestId('account-avatar')).toBeNull();
     expect(document.querySelector('.mini-status__account a')).toBeNull();
+  });
+
+  it('shows the source name and the private label as text, not only as a title', () => {
+    render(
+      <RouterProvider history={history}>
+        <StatusItem status={externalStatus()} onUnselectReference={jest.fn()} />
+      </RouterProvider>,
+    );
+
+    expect(document.querySelector('.mini-status__source-name').textContent).toBe('Blog name');
+    expect(document.querySelector('.mini-status__source-label').textContent).toBe('RSS · External content (only you)');
+    expect(document.querySelector('.mini-status__account [title]')).toBeNull();
+    // The role=button row takes its accessible name from this text.
+    expect(screen.getByRole('button', { name: /Blog name RSS · External content \(only you\)/ })).toBeTruthy();
+    expect(document.querySelector('.mini-status').textContent).not.toContain('Owner Face');
+  });
+
+  it('names the generic external identity in the mini status when the presentation is missing', () => {
+    render(
+      <RouterProvider history={history}>
+        <StatusItem status={fromJS(base({ visibility: 'external' }))} onUnselectReference={jest.fn()} />
+      </RouterProvider>,
+    );
+
+    expect(document.querySelector('.mini-status__source-name').textContent).toBe('External content');
   });
 });

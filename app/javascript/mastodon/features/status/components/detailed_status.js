@@ -4,7 +4,7 @@ import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import Avatar from '../../../components/avatar';
 import DisplayName from '../../../components/display_name';
-import ExternalSourceIdentity from '../../../components/external_source_identity';
+import ExternalSourceIdentity, { TimeLink } from '../../../components/external_source_identity';
 import { externalIdentityOf } from 'mastodon/external_presentation';
 import StatusContent from '../../../components/status_content';
 import { isHideCard } from '../../../components/status';
@@ -577,9 +577,9 @@ class DetailedStatus extends ImmutablePureComponent {
           />}
 
           <div className='detailed-status__meta'>
-            <a className='detailed-status__datetime' href={externalIdentity ? externalIdentity.articleUrl : status.get('url')} target='_blank' rel='noopener noreferrer'>
+            <TimeLink url={externalIdentity ? externalIdentity.articleUrl : status.get('url')} external={!!externalIdentity} className='detailed-status__datetime'>
               <FormattedDate value={new Date(status.get('created_at'))} hour12={false} year='numeric' month='short' day='2-digit' hour='2-digit' minute='2-digit' />
-            </a>
+            </TimeLink>
             <EditedTimestamp statusId={status.get('id')} timestamp={status.get('edited_at')} />
             {status.get('expires_at') &&
               <span className='detailed-status__expiration-time'>

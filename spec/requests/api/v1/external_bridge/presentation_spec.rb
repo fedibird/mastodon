@@ -138,20 +138,25 @@ RSpec.describe 'External source presentation on the owner REST extension' do
       expect(presentation[:byline_name].length).to eq ExternalBridge::Presentation::BYLINE_LIMIT
     end
 
-    it 'never exposes a raw third-party avatar as the icon' do
-      attach_actor!(bundle, avatar_remote_url: 'https://tracker.example/pixel.png?u=1')
+    it 'never exposes any stored avatar url as the icon in P1' do
+      web = Rails.configuration.x.web_domain
+      [
+        'https://tracker.example/pixel.png?u=1',
+        "https://#{web}/system/external/icon.png",
+        "https://#{web}/redirect?to=https://tracker.example/pixel.png",
+        "https://#{web}/media_proxy/1/original",
+        "https://#{web}@tracker.example/icon.png",
+        'http://localhost/icon.png',
+        'data:image/png;base64,AAAA',
+        'javascript:alert(1)',
+      ].each do |value|
+        actor = bundle[:resource].external_actor || attach_actor!(bundle)
+        actor.update_columns(avatar_remote_url: value)
+        presentation = presentation_for(owner_headers, status)
 
-      expect(presentation_for(owner_headers, status)[:icon_url]).to be_nil
-    end
-
-    it 'only passes through an https icon served by this instance' do
-      managed = "https://#{Rails.configuration.x.web_domain}/system/external/icon.png"
-      attach_actor!(bundle, avatar_remote_url: managed)
-      expect(presentation_for(owner_headers, status)[:icon_url]).to eq managed
-
-      ['http://localhost/icon.png', "https://#{Rails.configuration.x.web_domain}@tracker.example/icon.png", 'data:image/png;base64,AAAA', 'javascript:alert(1)'].each do |value|
-        bundle[:resource].external_actor.update_columns(avatar_remote_url: value)
-        expect(presentation_for(owner_headers, status)[:icon_url]).to be_nil, "expected #{value.inspect} to be dropped"
+        expect(presentation[:icon_url]).to be_nil, "expected #{value.inspect} not to be exposed"
+        expect(presentation[:thumbnail_url]).to be_nil
+        expect(response.body).not_to include('tracker.example/pixel')
       end
     end
   end

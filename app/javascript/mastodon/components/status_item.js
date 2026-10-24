@@ -4,6 +4,7 @@ import PropTypes from 'prop-types';
 import Avatar from './avatar';
 import { ExternalSourceIcon } from './external_source_identity';
 import { externalIdentityOf, externalIdentityName } from '../external_presentation';
+import { messages as externalMessages } from '../external_presentation/messages';
 import { injectIntl, defineMessages } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { ThumbnailGallery } from '../features/ui/util/async-components';
@@ -91,7 +92,7 @@ class StatusItem extends ImmutablePureComponent {
         <div className={classNames('mini-status', `mini-status-${status.get('visibility')}`, { 'mini-status-reply': !!status.get('in_reply_to_id') })} onClick={this.handleClick} role='button' tabIndex={0} data-id={status.get('id')}>
           <div className='mini-status__account'>
             {externalIdentity ? (
-              <span className='status__display-name' title={externalIdentityName(intl, externalIdentity)}>
+              <span className='status__display-name'>
                 <div className='mini-status__avatar'>
                   <ExternalSourceIcon iconId={externalIdentity.iconId} iconUrl={externalIdentity.iconUrl} size={24} />
                 </div>
@@ -106,6 +107,12 @@ class StatusItem extends ImmutablePureComponent {
           </div>
 
           <div className='mini-status__content'>
+            {externalIdentity && (
+              <div className='mini-status__source'>
+                <strong className='mini-status__source-name'>{externalIdentityName(intl, externalIdentity)}</strong>
+                <span className='mini-status__source-label'>{externalIdentity.subtitle ? `${externalIdentity.subtitle} · ` : ''}{intl.formatMessage(externalMessages.ownerLabel)}</span>
+              </div>
+            )}
             <div className='mini-status__content__text translate' lang={status.get('language')} dangerouslySetInnerHTML={{ __html: status.get('shortHtml') }} />
             <Bundle fetchComponent={ThumbnailGallery} loading={this.renderLoadingMediaGallery}>
               {Component => (

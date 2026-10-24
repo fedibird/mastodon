@@ -7,10 +7,13 @@ module ExternalBridge
   # Status keeps its real local Account and only the WebUI header changes.
   #
   # Every value is already cleaned for display here, and the client still
-  # renders each one as text. `icon_url` is either nil or an https URL that
-  # this instance serves itself (its own web origin, CDN_HOST, or the
-  # S3 alias host). A raw third-party image URL is never passed through; with
-  # no managed copy the client draws its own protocol icon.
+  # renders each one as text. `icon_url` and `thumbnail_url` are reserved,
+  # nullable fields and are always nil in P1. ExternalActor.avatar_remote_url
+  # is an arbitrary third-party URL that this server never fetched or
+  # verified, and a host check alone would still pass any path or redirect on
+  # an allowed host, so it is never passed through. The client draws its own
+  # protocol icon. A later change that stores a fetched, validated image can
+  # fill these fields from that stored copy only.
   module Presentation
     KIND = 'external_source'
     NAME_LIMIT = 120
@@ -45,7 +48,7 @@ module ExternalBridge
         name: clean_text(source&.title, NAME_LIMIT) || clean_text(actor&.display_name, NAME_LIMIT) || label,
         subtitle: label,
         source_url: source_url(source, actor),
-        icon_url: icon_url(actor),
+        icon_url: nil,
         thumbnail_url: nil,
         byline_name: clean_text(resource&.byline, BYLINE_LIMIT),
       }
@@ -77,29 +80,6 @@ module ExternalBridge
       url.length > URL_LIMIT ? nil : url
     rescue ExternalBridge::Error
       nil
-    end
-
-    def icon_url(actor)
-      value = actor&.avatar_remote_url
-      return nil if value.blank? || value.length > URL_LIMIT
-
-      uri = Addressable::URI.parse(value)
-      return nil unless uri&.scheme&.downcase == 'https' && uri.host.present?
-      return nil if uri.user.present? || uri.password.present?
-      return nil unless managed_hosts.include?(uri.host.downcase)
-
-      uri.to_s
-    rescue Addressable::URI::InvalidURIError
-      nil
-    end
-
-    def managed_hosts
-      hosts = [Rails.configuration.x.web_domain, ENV['S3_ALIAS_HOST'], ENV['S3_CLOUDFRONT_HOST'], cdn_host]
-      hosts.filter_map { |host| host.to_s.sub(%r{\Ahttps?://}i, '').split('/').first.presence&.downcase }.uniq
-    end
-
-    def cdn_host
-      Rails.configuration.action_controller.asset_host.then { |host| host.is_a?(String) ? host : nil }
     end
   end
 end

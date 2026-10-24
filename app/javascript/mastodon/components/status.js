@@ -8,7 +8,7 @@ import AvatarComposite from './avatar_composite';
 import AbsoluteTimestamp from './absolute_timestamp';
 import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
-import ExternalSourceIdentity from './external_source_identity';
+import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
 import StatusActionBar from './status_action_bar';
 import AccountContextActions from '../features/account_context/components/actions';
@@ -1015,7 +1015,7 @@ class Status extends ImmutablePureComponent {
             <div className='status__expand' onClick={this.handleExpandClick} role='presentation' />
             <div className='status__info'>
               {status.get('expires_at') && <span className='status__expiration-time'><time dateTime={expires_at} title={intl.formatDate(expires_date, dateFormatOptions)}><i className='fa fa-clock-o' aria-hidden='true' /></time></span>}
-              <a href={externalIdentity ? externalIdentity.articleUrl : status.get('url')} className='status__relative-time' target='_blank' rel='noopener noreferrer'>
+              <TimeLink url={externalIdentity ? externalIdentity.articleUrl : status.get('url')} external={!!externalIdentity} className='status__relative-time'>
                 {threadMark}
                 {disableRelativeTime ? <AbsoluteTimestamp timestamp={status.get('created_at')} /> : <RelativeTimestamp timestamp={status.get('created_at')} /> }
                 {status.get('edited_at') && (
@@ -1027,7 +1027,7 @@ class Status extends ImmutablePureComponent {
                     {' *'}
                   </abbr>
                 )}
-              </a>
+              </TimeLink>
               <span className='status__visibility-icon'>{visibilityLink}</span>
 
               {externalIdentity ? (

@@ -6,6 +6,25 @@ import Icon from './icon';
 import { externalIdentityName } from '../external_presentation';
 import { messages } from '../external_presentation/messages';
 
+// The timestamp of a status. An ordinary status keeps its plain anchor. An
+// external projection has no status page of its own, so the time links to the
+// article when the server verified one and is plain text otherwise; it is never
+// an anchor without an href.
+export const TimeLink = ({ url, external, className, children }) => {
+  if (external && !url) {
+    return <span className={className}>{children}</span>;
+  }
+
+  return <a href={url} className={className} target='_blank' rel='noopener noreferrer'>{children}</a>;
+};
+
+TimeLink.propTypes = {
+  url: PropTypes.string,
+  external: PropTypes.bool,
+  className: PropTypes.string,
+  children: PropTypes.node,
+};
+
 export class ExternalSourceIcon extends React.PureComponent {
 
   static propTypes = {

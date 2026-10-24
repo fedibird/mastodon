@@ -79,10 +79,11 @@ export const safeLinkUrl = value => {
 };
 
 /**
- * An image the browser may load. The server only sends an https URL that this
- * instance serves itself, and the page CSP still limits img-src. This check
- * is the third layer: anything else, including http for another origin, data:
- * and javascript:, falls back to the local protocol icon.
+ * An image the browser may load. In P1 the server always sends null, so this
+ * is a guard for the future: only an image served from this page's own origin
+ * is accepted. Any other origin (including https), data: and javascript:
+ * fall back to the local protocol icon, and the page CSP still limits
+ * img-src.
  *
  * @param {any} value
  * @return {string|null}
@@ -98,13 +99,7 @@ export const safeIconUrl = value => {
     return null;
   }
 
-  const sameOrigin = url.origin === window.location.origin;
-
-  if (url.protocol === 'https:' || (url.protocol === 'http:' && sameOrigin)) {
-    return url.href;
-  }
-
-  return null;
+  return url.origin === window.location.origin ? url.href : null;
 };
 
 const read = (map, key) => (map && typeof map.get === 'function' ? map.get(key) : undefined);

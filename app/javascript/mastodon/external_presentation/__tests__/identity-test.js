@@ -120,11 +120,10 @@ describe('url and text guards', () => {
     });
   });
 
-  it('accepts only https or same-origin images', () => {
-    expect(safeIconUrl('https://media.example/icon.png')).toBe('https://media.example/icon.png');
+  it('accepts only images from the page origin', () => {
     expect(safeIconUrl(`${window.location.origin}/system/icon.png`)).toBe(`${window.location.origin}/system/icon.png`);
     expect(safeIconUrl('/system/icon.png')).toBe(`${window.location.origin}/system/icon.png`);
-    ['http://tracker.example/pixel.png', 'javascript:alert(1)', 'data:image/svg+xml,<svg/>', '//tracker.example/p.png', 'https://u:p@media.example/i.png', null, undefined, ''].forEach(value => {
+    ['https://media.example/icon.png', 'http://tracker.example/pixel.png', 'javascript:alert(1)', 'data:image/svg+xml,<svg/>', '//tracker.example/p.png', 'https://u:p@media.example/i.png', null, undefined, ''].forEach(value => {
       expect(safeIconUrl(value)).toBeNull();
     });
   });
