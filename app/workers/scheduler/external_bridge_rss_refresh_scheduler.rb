@@ -35,7 +35,7 @@ class Scheduler::ExternalBridgeRSSRefreshScheduler
     end
     log(started, stats[:enqueued].positive? ? 'queued' : 'not_enqueued', stats)
   rescue StandardError => e
-    log(started, 'scheduler_error', stats, error_class: e.class.name)
+    log(started, 'scheduler_error', stats, error_class: e.class)
     raise
   end
 

@@ -25,7 +25,7 @@ module ExternalBridge
         outcome = run(source_id, subscription_id)
         record(source_id, subscription_id, outcome, started)
       rescue StandardError => e
-        record(source_id, subscription_id, 'unexpected_error', started || RefreshLog.now, error_class: e.class.name)
+        record(source_id, subscription_id, 'unexpected_error', started || RefreshLog.now, error_class: e.class)
         raise
       end
 
@@ -58,7 +58,7 @@ module ExternalBridge
       def refresh_locked(source, subscription_id)
         permitted = active_permitted(source)
         accounted = accounted_subscriptions(permitted, subscription_id)
-        @fields.merge!(accounted: accounted.size, offered: permitted.size - accounted.size)
+        @fields.merge!(accounted: accounted.size, offered: 0, offer_failed: 0)
         return skip_outcome(permitted, subscription_id) if accounted.empty?
 
         @stage = :fetch
@@ -132,8 +132,10 @@ module ExternalBridge
         permitted.each do |subscription|
           next if accounted_ids.include?(subscription.id)
 
+          @fields[:offered] += 1
           Materialize.new.call(subscription: subscription, resources: resources, retries: false)
         rescue StandardError => e
+          @fields[:offer_failed] += 1
           Rails.logger.info("[ExternalBridge::RSS] shared cache offer skipped subscription=#{subscription.id} code=#{e.class}")
         end
       end

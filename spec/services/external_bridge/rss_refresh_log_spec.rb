@@ -147,7 +147,7 @@ RSpec.describe 'ExternalBridge RSS refresh INFO log' do
 
       described_class.new.perform(source.id)
 
-      expect(fields_of(only_line)).to include('source_id' => source.id.to_s, 'outcome' => 'skipped_not_due', 'accounted' => '0', 'offered' => '1')
+      expect(fields_of(only_line)).to include('source_id' => source.id.to_s, 'outcome' => 'skipped_not_due', 'accounted' => '0', 'offered' => '0', 'offer_failed' => '0')
       expect(a_request(:get, feed_url)).not_to have_been_made
       expect(source.reload.attributes).to eq before_row
     end
@@ -167,7 +167,7 @@ RSpec.describe 'ExternalBridge RSS refresh INFO log' do
 
       described_class.new.perform(source.id, subscription.id)
 
-      expect(fields_of(only_line)).to include('subscription_id' => subscription.id.to_s, 'outcome' => 'skipped_inactive_subscription', 'offered' => '1')
+      expect(fields_of(only_line)).to include('subscription_id' => subscription.id.to_s, 'outcome' => 'skipped_inactive_subscription', 'offered' => '0')
     end
 
     it 'logs skipped_lock_busy while another connection holds the source lock' do
@@ -240,6 +240,73 @@ RSpec.describe 'ExternalBridge RSS refresh INFO log' do
       expect(fields_of(only_line)).to include('outcome' => 'http_error', 'http_status' => '429', 'error_code' => 'http_429', 'failures' => '1')
       expect(subscription.reload.retry_count).to eq 1
       expect(subscription.last_error_code).to eq 'http_429'
+    end
+
+    describe 'shared cache offers' do
+      let!(:due) { subscribe! }
+      let!(:fresh) { subscribe!(other, checked_at: 1.minute.ago) }
+
+      it 'reports offered=0 for an http_error even though another subscriber is permitted' do
+        stub_request(:get, feed_url).to_return(status: 429, body: 'slow')
+
+        described_class.new.perform(source.id)
+
+        expect(fields_of(only_line)).to include('outcome' => 'http_error', 'accounted' => '1', 'offered' => '0', 'offer_failed' => '0')
+      end
+
+      it 'reports offered=0 for parse_failed' do
+        stub_request(:get, feed_url).to_return(status: 200, body: '<html>nope')
+
+        described_class.new.perform(source.id)
+
+        expect(fields_of(only_line)).to include('outcome' => 'parse_failed', 'accounted' => '1', 'offered' => '0')
+      end
+
+      it 'reports offered=0 when fetch itself fails' do
+        allow(ExternalBridge::RSS::HttpClient).to receive(:get).and_raise(ExternalBridge::Error, :rate_limited)
+
+        described_class.new.perform(source.id)
+
+        expect(fields_of(only_line)).to include('outcome' => 'fetch_failed', 'offered' => '0')
+      end
+
+      it 'counts the subscriber that actually received the shared cache on success' do
+        stub_request(:get, feed_url).to_return(status: 200, body: body)
+
+        described_class.new.perform(source.id)
+
+        expect(fields_of(only_line)).to include('outcome' => 'fetched', 'accounted' => '1', 'offered' => '1', 'offer_failed' => '0')
+        expect(ExternalStatusProjection.where(user_id: other.id).count).to eq 1
+      end
+
+      it 'reports offered=0 on a 304 when every subscriber is accounted' do
+        stub_request(:get, feed_url).to_return(status: 200, body: body, headers: { 'ETag' => 'W/"one"' })
+        described_class.new.perform(source.id)
+        ExternalSubscription.update_all(checked_at: 2.hours.ago)
+        stub_request(:get, feed_url).to_return(status: 304)
+        messages.clear
+
+        described_class.new.perform(source.id)
+
+        expect(fields_of(only_line)).to include('outcome' => 'not_modified', 'accounted' => '2', 'offered' => '0')
+      end
+
+      it 'still rescues an offer failure and reports it separately' do
+        stub_request(:get, feed_url).to_return(status: 200, body: body)
+        calls = 0
+        allow_any_instance_of(ExternalBridge::RSS::Materialize).to receive(:call).and_wrap_original do |original, **kwargs|
+          calls += 1
+          raise StandardError, 'offer boom' if kwargs[:retries] == false
+
+          original.call(**kwargs)
+        end
+
+        expect { described_class.new.perform(source.id) }.not_to raise_error
+
+        expect(calls).to eq 2
+        expect(fields_of(rss_lines.find { |line| line.include?('event=refresh') })).to include('outcome' => 'fetched', 'offered' => '1', 'offer_failed' => '1', 'failures' => '0')
+        expect(due.reload.last_error_code).to be_nil
+      end
     end
 
     it 'maps a 401 to the fixed authenticated_source_rejected code' do
@@ -320,15 +387,80 @@ RSpec.describe 'ExternalBridge RSS refresh INFO log' do
   end
 
   describe ExternalBridge::RSS::RefreshLog do
-    it 'replaces a value that is not a short token' do
-      line = described_class.line('refresh', source_id: 1, outcome: 'https://example.com/a?token=x', note: "line\nbreak", ok: 'fetched')
+    let(:log) { described_class }
 
-      expect(line).to eq '[ExternalBridge::RSS] event=refresh source_id=1 outcome=- note=- ok=fetched'
+    it 'keeps the grep-able field names and order of the current output' do
+      line = log.line('scheduler', outcome: 'queued', selected: 3, enqueued: 3, rejected: 0, source_ids: [1, 2, 3], elapsed_ms: 4)
+
+      expect(line).to eq '[ExternalBridge::RSS] event=scheduler outcome=queued selected=3 enqueued=3 rejected=0 source_ids=1,2,3 elapsed_ms=4'
     end
 
-    it 'reports an unfamiliar error code as unknown' do
-      expect(described_class.code('rate_limited')).to eq 'rate_limited'
-      expect(described_class.code('Bad Code https://x')).to eq 'unknown'
+    it 'drops an unknown field name, even one that looks like a secret holder' do
+      line = log.line('refresh', outcome: 'fetched', token: 'Secret123abc', url: 'https://example.com/x', 'authorization' => 'Bearer abc')
+
+      expect(line).to eq '[ExternalBridge::RSS] event=refresh outcome=fetched'
+    end
+
+    it 'does not write an alphanumeric secret into any typed field' do
+      secret = 'Secret123abc'
+      line = log.line(
+        secret, outcome: secret, error_code: secret, error_class: secret, source_id: secret, subscription_id: secret,
+                selected: secret, elapsed_ms: secret, http_status: secret, source_ids: secret
+      )
+
+      expect(line).not_to include(secret)
+      expect(line).to eq '[ExternalBridge::RSS] event=unknown outcome=unknown error_code=unknown error_class=unknown source_id=- subscription_id=- selected=- elapsed_ms=- http_status=- source_ids=-'
+    end
+
+    it 'does not write a URL, newline, negative, float, or oversized value' do
+      line = log.line(
+        'refresh', outcome: "fetched\nforged=1", error_code: 'http_200 https://x.example/?t=1', source_id: "1\n2",
+                   items: -1, failures: 1.5, elapsed_ms: 10**30, source_ids: ['https://x.example', 'abc', 7, nil, -3]
+      )
+
+      expect(line).not_to match(/x\.example|forged|\n/)
+      expect(line).to eq '[ExternalBridge::RSS] event=refresh outcome=unknown error_code=unknown source_id=- items=- failures=- elapsed_ms=- source_ids=7'
+    end
+
+    it 'accepts digit-only string ids and the dash placeholder' do
+      expect(log.line('refresh', source_id: '42', subscription_id: '-')).to eq '[ExternalBridge::RSS] event=refresh source_id=42 subscription_id=-'
+    end
+
+    it 'accepts only a fixed error code or http_NNN' do
+      expect(log.code('rate_limited')).to eq 'rate_limited'
+      expect(log.code('http_429')).to eq 'http_429'
+      expect(log.code('http_99999')).to eq 'unknown'
+      expect(log.code('Bad Code https://x')).to eq 'unknown'
+    end
+
+    it 'writes an exception class by constant name only' do
+      expect(log.line('refresh', error_class: Redis::CannotConnectError)).to include('error_class=Redis::CannotConnectError')
+      expect(log.line('refresh', error_class: 'Redis::CannotConnectError')).to include('error_class=unknown')
+      expect(log.line('refresh', error_class: String)).to include('error_class=unknown')
+      expect(log.line('refresh', error_class: Class.new(StandardError))).to include('error_class=unknown')
+    end
+
+    it 'records every id of a full batch of large bigint source ids' do
+      ids = Array.new(20) { |index| 9_223_372_036_854_000_000 + index }
+      line = log.line('scheduler', outcome: 'queued', source_ids: ids)
+
+      expect(ids.join(',').size).to be > 200
+      expect(line).to include("source_ids=#{ids.join(',')}")
+      expect(line).not_to include('truncated')
+    end
+
+    it 'caps the id list and says how many were left out' do
+      line = log.line('scheduler', outcome: 'queued', source_ids: (1..25).to_a)
+
+      expect(line).to include("source_ids=#{(1..20).to_a.join(',')} ")
+      expect(line).to end_with('source_ids_truncated=5')
+    end
+
+    it 'does not let a caller pass the truncation counter or a huge list through unbounded' do
+      line = log.line('scheduler', source_ids_truncated: 'x', source_ids: Array.new(10_000) { |index| index })
+
+      expect(line.size).to be < 400
+      expect(line.scan('source_ids_truncated').size).to eq 1
     end
   end
 end
