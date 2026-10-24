@@ -15,11 +15,27 @@ module ExternalBridge
     # failure and retry state can change, even when its deadline has not arrived.
     # Other subscribers are offered a successful cache fill on the same terms.
     class RefreshSource
+      # Returns the log fields of this run (outcome, http_status, counters). The
+      # same fields are written as one INFO line; they never carry a URL, header,
+      # feed text, or exception message.
       def call(source_id, subscription_id: nil)
-        return unless Feature.enabled?
+        started = RefreshLog.now
+        @fields = {}
+        @stage = nil
+        outcome = run(source_id, subscription_id)
+        record(source_id, subscription_id, outcome, started)
+      rescue StandardError => e
+        record(source_id, subscription_id, 'unexpected_error', started || RefreshLog.now, error_class: e.class.name)
+        raise
+      end
+
+      private
+
+      def run(source_id, subscription_id)
+        return 'skipped_feature_disabled' unless Feature.enabled?
 
         source = ExternalSource.find_by(id: source_id)
-        return if source.nil?
+        return 'skipped_source_missing' if source.nil?
 
         with_source_lock(source.id) do
           refresh_locked(source, subscription_id)
@@ -28,26 +44,53 @@ module ExternalBridge
         record_failure(source_id, subscription_id, e.code)
       end
 
-      private
+      def record(source_id, subscription_id, outcome, started, extra = {})
+        fields = {
+          source_id: source_id,
+          subscription_id: subscription_id.presence || '-',
+          outcome: outcome,
+        }.merge(@fields || {}).merge(extra)
+        fields[:elapsed_ms] = RefreshLog.elapsed_ms(started)
+        RefreshLog.emit('refresh', fields)
+        fields.merge(outcome: outcome)
+      end
 
       def refresh_locked(source, subscription_id)
         permitted = active_permitted(source)
         accounted = accounted_subscriptions(permitted, subscription_id)
-        return if accounted.empty?
+        @fields.merge!(accounted: accounted.size, offered: permitted.size - accounted.size)
+        return skip_outcome(permitted, subscription_id) if accounted.empty?
 
+        @stage = :fetch
         response = HttpClient.get(source.canonical_key, etag: source.etag, last_modified: source.last_modified)
+        @fields[:http_status] = response.code
         if response.code == 304
           source.update!(checked_at: Time.current)
           resources = source.external_resources.order(published_at: :desc, id: :desc).limit(Limits::MAX_ITEMS).to_a
+          @fields[:cached_items] = resources.size
+          @stage = :ingest
           apply_resources(permitted, accounted, resources)
+          'not_modified'
         elsif response.code.between?(200, 299)
+          @stage = :parse
           feed = Parser.parse!(response.body)
+          @stage = :ingest
           resources = Ingest.new.apply_public!(source, feed, response)
+          @fields[:items] = resources.size
           apply_resources(permitted, accounted, resources)
+          'fetched'
         else
           code = [401, 403].include?(response.code) ? 'authenticated_source_rejected' : "http_#{response.code}"
-          mark_subscriptions(accounted, code)
+          @fields[:error_code] = RefreshLog.code(code)
+          @fields[:failures] = mark_subscriptions(accounted, code).size
+          'http_error'
         end
+      end
+
+      def skip_outcome(permitted, subscription_id)
+        return 'skipped_no_permitted_subscriptions' if permitted.empty?
+
+        subscription_id.present? ? 'skipped_inactive_subscription' : 'skipped_not_due'
       end
 
       def apply_resources(permitted, accounted, resources)
@@ -69,13 +112,19 @@ module ExternalBridge
       end
 
       def materialize_accounted(targets, resources)
+        counts = { projected_ok: 0, projected_failed: 0, projected_skipped: 0, failures: 0 }
         targets.each do |subscription|
           result = Materialize.new.call(subscription: subscription, resources: resources, retries: true)
           SubscriptionOutcome.reconcile!(subscription, result) if result.ran
+          counts[:projected_ok] += result.succeeded.to_i
+          counts[:projected_failed] += result.failed.to_i
+          counts[:projected_skipped] += result.skipped.to_i
         rescue StandardError => e
+          counts[:failures] += 1
           Rails.logger.info("[ExternalBridge::RSS] subscriber refresh failed subscription=#{subscription.id} code=#{e.class}")
           SubscriptionOutcome.retry!(subscription, 'import_failed')
         end
+        @fields.merge!(counts)
       end
 
       def offer_shared_cache(permitted, accounted, resources)
@@ -95,19 +144,22 @@ module ExternalBridge
         end
       end
 
+      # The stage tells the log which step raised; the code is the fixed Error code.
       def record_failure(source_id, subscription_id, code)
+        @fields[:error_code] = RefreshLog.code(code)
+        outcome = { parse: 'parse_failed', ingest: 'import_failed', fetch: 'fetch_failed' }.fetch(@stage, 'refresh_failed')
         source = ExternalSource.find_by(id: source_id)
-        return if source.nil?
+        return 'skipped_source_missing' if source.nil?
 
-        Rails.logger.info("[ExternalBridge::RSS] refresh failed host_key=#{source.id} code=#{code}")
         permitted = active_permitted(source)
-        mark_subscriptions(accounted_subscriptions(permitted, subscription_id), code)
+        @fields[:failures] = mark_subscriptions(accounted_subscriptions(permitted, subscription_id), code).size
+        outcome
       end
 
       def with_source_lock(source_id)
         connection = ActiveRecord::Base.connection
         locked = connection.select_value(ActiveRecord::Base.sanitize_sql_array(['SELECT pg_try_advisory_lock(810531, ?)', source_id.to_i]))
-        return unless locked == true || locked.to_s == 't'
+        return 'skipped_lock_busy' unless locked == true || locked.to_s == 't'
 
         yield
       ensure

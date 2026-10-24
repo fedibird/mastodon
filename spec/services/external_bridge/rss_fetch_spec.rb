@@ -258,8 +258,9 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       ExternalBridge::RSS::RefreshSource.new.call(source.id)
 
       logged = messages.join("\n")
-      expect(logged).to include("host_key=#{source.id}")
-      expect(logged).to include('code=fetch_failed')
+      expect(logged).to include("source_id=#{source.id}")
+      expect(logged).to include('outcome=fetch_failed')
+      expect(logged).to include('error_code=fetch_failed')
       expect(logged).not_to include(source.canonical_key)
       expect(logged).not_to include('encrypted_payload')
     end
