@@ -8,6 +8,7 @@ import AvatarComposite from './avatar_composite';
 import AbsoluteTimestamp from './absolute_timestamp';
 import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
+import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
 import StatusActionBar from './status_action_bar';
 import AccountContextActions from '../features/account_context/components/actions';
@@ -27,6 +28,7 @@ import { List as ImmutableList } from 'immutable';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
+import { externalIdentityOf, externalIdentityName, externalIdentityReaderText } from 'mastodon/external_presentation';
 
 const domParser = new DOMParser();
 
@@ -105,6 +107,22 @@ const screenReaderStatusText = (status) => {
 };
 
 export const textForScreenReader = (intl, status, rebloggedByText = false) => {
+  const externalIdentity = externalIdentityOf(status);
+
+  if (externalIdentity) {
+    const externalValues = [
+      externalIdentityReaderText(intl, externalIdentity),
+      screenReaderStatusText(status),
+      intl.formatDate(status.get('created_at'), { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }),
+    ];
+
+    if (rebloggedByText) {
+      externalValues.push(rebloggedByText);
+    }
+
+    return externalValues.join(', ');
+  }
+
   const displayName = status.getIn(['account', 'display_name']);
 
   const values = [
@@ -512,7 +530,14 @@ class Status extends ImmutablePureComponent {
 
   handleHotkeyMention = e => {
     e.preventDefault();
-    this.props.onMention(this._properStatus().get('account'), this.context.router.history);
+    const status = this._properStatus();
+
+    // The Account of an external projection is the owner. It is not the author.
+    if (externalIdentityOf(status)) {
+      return;
+    }
+
+    this.props.onMention(status.get('account'), this.context.router.history);
   }
 
   handleHotkeyOpen = () => {
@@ -520,7 +545,13 @@ class Status extends ImmutablePureComponent {
   }
 
   handleHotkeyOpenProfile = () => {
-    this.context.router.history.push(`/accounts/${this._properStatus().getIn(['account', 'id'])}`);
+    const status = this._properStatus();
+
+    if (externalIdentityOf(status)) {
+      return;
+    }
+
+    this.context.router.history.push(`/accounts/${status.getIn(['account', 'id'])}`);
   }
 
   handleHotkeyMoveUp = e => {
@@ -609,10 +640,12 @@ class Status extends ImmutablePureComponent {
     };
 
     if (hidden) {
+      const hiddenExternalIdentity = externalIdentityOf(status);
+
       return (
         <HotKeys handlers={handlers}>
           <div ref={this.handleRef} className={classNames('status__wrapper', { focusable: !this.props.muted })} tabIndex='0'>
-            <span>{status.getIn(['account', 'display_name']) || status.getIn(['account', 'username'])}</span>
+            <span>{hiddenExternalIdentity ? externalIdentityName(intl, hiddenExternalIdentity) : (status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']))}</span>
             <span>{status.get('content')}</span>
           </div>
         </HotKeys>
@@ -772,7 +805,11 @@ class Status extends ImmutablePureComponent {
       );
     }
 
-    if (otherAccounts && otherAccounts.size > 0) {
+    const externalIdentity = externalIdentityOf(status);
+
+    if (externalIdentity) {
+      statusAvatar = null;
+    } else if (otherAccounts && otherAccounts.size > 0) {
       statusAvatar = <AvatarComposite accounts={otherAccounts} size={48} />;
     } else if (account === undefined || account === null) {
       statusAvatar = <Avatar account={status.get('account')} size={48} />;
@@ -786,6 +823,7 @@ class Status extends ImmutablePureComponent {
     let quote = null;
     if (status.get('quote', null) !== null && typeof status.get('quote') === 'object') {
       let quote_status = status.get('quote');
+      const quoteExternalIdentity = externalIdentityOf(quote_status);
       const quoteView = statusTranslationView(quote_status);
       const quoteDescribed = attachment => attachmentAccessibility(attachment, quoteView);
 
@@ -901,10 +939,14 @@ class Status extends ImmutablePureComponent {
         quote = (
           <div className={classNames('quote-status', `status-${quote_status.get('visibility')}`, { muted: this.props.muted })} data-id={quote_status.get('id')}>
             <div className='status__info'>
-              <a onClick={this.handleAccountClick} target='_blank' data-id={quote_status.getIn(['account', 'id'])} data-group={quote_status.getIn(['account', 'group'])} href={quote_status.getIn(['account', 'url'])} title={quote_status.getIn(['account', 'acct'])} className='status__display-name'>
-                <div className='status__avatar'><Avatar account={quote_status.get('account')} size={18} /></div>
-                <DisplayName account={quote_status.get('account')} />
-              </a>
+              {quoteExternalIdentity ? (
+                <ExternalSourceIdentity identity={quoteExternalIdentity} size={18} className='status__display-name' avatarClassName='status__avatar' showLabel={false} />
+              ) : (
+                <a onClick={this.handleAccountClick} target='_blank' data-id={quote_status.getIn(['account', 'id'])} data-group={quote_status.getIn(['account', 'group'])} href={quote_status.getIn(['account', 'url'])} title={quote_status.getIn(['account', 'acct'])} className='status__display-name'>
+                  <div className='status__avatar'><Avatar account={quote_status.get('account')} size={18} /></div>
+                  <DisplayName account={quote_status.get('account')} />
+                </a>
+              )}
             </div>
             <StatusContent status={quote_status} onClick={this.handleQuoteClick} expanded={!quote_status.get('hidden')} onExpandedToggle={this.handleExpandedQuoteToggle} onTranslate={quote_status.get('translation') && this.props.onTranslate ? this.handleQuoteTranslate : undefined} quote />
             {!(quote_status.get('hidden') && quote_status.get('spoiler_text').length > 0) && <>
@@ -969,11 +1011,11 @@ class Status extends ImmutablePureComponent {
           <AccountContextActions status={this.props.status} hostTimelineId={this.props.contextHostId || scrollKey || 'timeline'} onOpen={this.props.onOpenAccountContext} />
 
           <div className={classNames('status', `status-${status.get('visibility')}`, { 'status-reply': !!status.get('in_reply_to_id'), muted: this.props.muted, 'status-with-expiration': expires_date, 'status-expired': expired, referenced, 'context-referenced': contextReferenced, 'status-immediate': this.props.immediate && new_features_policy === 'tester' })} data-id={status.get('id')}>
-            <AccountActionBar account={status.get('account')} {...other} />
+            {!externalIdentity && <AccountActionBar account={status.get('account')} {...other} />}
             <div className='status__expand' onClick={this.handleExpandClick} role='presentation' />
             <div className='status__info'>
               {status.get('expires_at') && <span className='status__expiration-time'><time dateTime={expires_at} title={intl.formatDate(expires_date, dateFormatOptions)}><i className='fa fa-clock-o' aria-hidden='true' /></time></span>}
-              <a href={status.get('url')} className='status__relative-time' target='_blank' rel='noopener noreferrer'>
+              <TimeLink url={externalIdentity ? externalIdentity.articleUrl : status.get('url')} external={!!externalIdentity} className='status__relative-time'>
                 {threadMark}
                 {disableRelativeTime ? <AbsoluteTimestamp timestamp={status.get('created_at')} /> : <RelativeTimestamp timestamp={status.get('created_at')} /> }
                 {status.get('edited_at') && (
@@ -985,16 +1027,20 @@ class Status extends ImmutablePureComponent {
                     {' *'}
                   </abbr>
                 )}
-              </a>
+              </TimeLink>
               <span className='status__visibility-icon'>{visibilityLink}</span>
 
-              <a onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} href={status.getIn(['account', 'url'])} title={status.getIn(['account', 'acct'])} className='status__display-name' target='_blank' rel='noopener noreferrer'>
-                <div className='status__avatar'>
-                  {statusAvatar}
-                </div>
+              {externalIdentity ? (
+                <ExternalSourceIdentity identity={externalIdentity} size={48} className='status__display-name' avatarClassName='status__avatar' />
+              ) : (
+                <a onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} href={status.getIn(['account', 'url'])} title={status.getIn(['account', 'acct'])} className='status__display-name' target='_blank' rel='noopener noreferrer'>
+                  <div className='status__avatar'>
+                    {statusAvatar}
+                  </div>
 
-                <DisplayName account={status.get('account')} others={otherAccounts} />
-              </a>
+                  <DisplayName account={status.get('account')} others={otherAccounts} />
+                </a>
+              )}
               {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
             </div>
 

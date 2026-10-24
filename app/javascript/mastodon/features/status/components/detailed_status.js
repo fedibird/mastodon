@@ -4,6 +4,8 @@ import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import Avatar from '../../../components/avatar';
 import DisplayName from '../../../components/display_name';
+import ExternalSourceIdentity, { TimeLink } from '../../../components/external_source_identity';
+import { externalIdentityOf } from 'mastodon/external_presentation';
 import StatusContent from '../../../components/status_content';
 import { isHideCard } from '../../../components/status';
 import MediaGallery from '../../../components/media_gallery';
@@ -273,6 +275,7 @@ class DetailedStatus extends ImmutablePureComponent {
     let quote = null;
     if (status.get('quote', null) !== null) {
       let quote_status = status.get('quote');
+      const quoteExternalIdentity = externalIdentityOf(quote_status);
       const quoteView = statusTranslationView(quote_status);
       const quoteDescribed = attachment => attachmentAccessibility(attachment, quoteView);
 
@@ -346,10 +349,14 @@ class DetailedStatus extends ImmutablePureComponent {
         quote = (
           <div className='quote-status' data-id={quote_status.get('id')} dataurl={quote_status.get('url')}>
             <div className='status__info'>
-              <a href={quote_status.getIn(['account', 'url'])} onClick={this.handleAccountClick} data-id={quote_status.getIn(['account', 'id'])} data-group={quote_status.getIn(['account', 'group'])} className='detailed-status__display-name'>
-                <div className='detailed-status__display-avatar'><Avatar account={quote_status.get('account')} size={18} /></div>
-                <DisplayName account={quote_status.get('account')} localDomain={this.props.domain} />
-              </a>
+              {quoteExternalIdentity ? (
+                <ExternalSourceIdentity identity={quoteExternalIdentity} size={18} className='detailed-status__display-name' avatarClassName='detailed-status__display-avatar' showLabel={false} />
+              ) : (
+                <a href={quote_status.getIn(['account', 'url'])} onClick={this.handleAccountClick} data-id={quote_status.getIn(['account', 'id'])} data-group={quote_status.getIn(['account', 'group'])} className='detailed-status__display-name'>
+                  <div className='detailed-status__display-avatar'><Avatar account={quote_status.get('account')} size={18} /></div>
+                  <DisplayName account={quote_status.get('account')} localDomain={this.props.domain} />
+                </a>
+              )}
             </div>
             <StatusContent status={quote_status} onClick={this.handleQuoteClick} expanded={!quote_status.get('hidden')} onExpandedToggle={this.handleExpandedQuoteToggle} onTranslate={quote_status.get('translation') && this.props.onTranslate ? this.handleQuoteTranslate : undefined} quote />
             {!(quote_status.get('hidden') && quote_status.get('spoiler_text').length > 0) && <>
@@ -539,14 +546,19 @@ class DetailedStatus extends ImmutablePureComponent {
     const expires_at = status.get('expires_at');
     const expires_date = expires_at && new Date(expires_at);
     const expired = expires_date && expires_date.getTime() < intl.now();
+    const externalIdentity = externalIdentityOf(status);
 
     return (
       <div style={outerStyle}>
         <div ref={this.setRef} className={classNames('detailed-status', `detailed-status-${status.get('visibility')}`, { compact, 'detailed-status-with-expiration': expires_date, 'detailed-status-expired': expired, referenced, 'context-referenced': contextReferenced })}>
-          <a href={status.getIn(['account', 'url'])} onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} className='detailed-status__display-name'>
-            <div className='detailed-status__display-avatar'><Avatar account={status.get('account')} size={48} /></div>
-            <DisplayName account={status.get('account')} localDomain={this.props.domain} />
-          </a>
+          {externalIdentity ? (
+            <ExternalSourceIdentity identity={externalIdentity} size={48} className='detailed-status__display-name' avatarClassName='detailed-status__display-avatar' />
+          ) : (
+            <a href={status.getIn(['account', 'url'])} onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} className='detailed-status__display-name'>
+              <div className='detailed-status__display-avatar'><Avatar account={status.get('account')} size={48} /></div>
+              <DisplayName account={status.get('account')} localDomain={this.props.domain} />
+            </a>
+          )}
 
           <AccountContextActions status={this.props.status} hostTimelineId={this.props.contextHostId || 'status:route'} onOpen={this.props.onOpenAccountContext} />
           <StatusContent status={status} translationWrapper={this.props.status} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} onTranslate={this.props.onTranslate && this.handleTranslate} />
@@ -565,9 +577,9 @@ class DetailedStatus extends ImmutablePureComponent {
           />}
 
           <div className='detailed-status__meta'>
-            <a className='detailed-status__datetime' href={status.get('url')} target='_blank' rel='noopener noreferrer'>
+            <TimeLink url={externalIdentity ? externalIdentity.articleUrl : status.get('url')} external={!!externalIdentity} className='detailed-status__datetime'>
               <FormattedDate value={new Date(status.get('created_at'))} hour12={false} year='numeric' month='short' day='2-digit' hour='2-digit' minute='2-digit' />
-            </a>
+            </TimeLink>
             <EditedTimestamp statusId={status.get('id')} timestamp={status.get('edited_at')} />
             {status.get('expires_at') &&
               <span className='detailed-status__expiration-time'>

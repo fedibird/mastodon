@@ -4,6 +4,8 @@ import PropTypes from 'prop-types';
 import Avatar from '../../../components/avatar';
 import IconButton from '../../../components/icon_button';
 import DisplayName from '../../../components/display_name';
+import ExternalSourceIdentity from '../../../components/external_source_identity';
+import { externalIdentityOf } from 'mastodon/external_presentation';
 import { defineMessages, injectIntl } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import AttachmentList from 'mastodon/components/attachment_list';
@@ -51,16 +53,21 @@ class ReplyIndicator extends ImmutablePureComponent {
     }
 
     const content = { __html: status.get('contentHtml') };
+    const externalIdentity = externalIdentityOf(status);
 
     return (
       <div className='reply-indicator'>
         <div className='reply-indicator__header'>
           {!isScheduledStatusEditting && !isEditing && <div className='reply-indicator__cancel'><IconButton title={intl.formatMessage(messages.cancel)} icon='times' onClick={this.handleClick} inverted /></div>}
 
-          <a href={status.getIn(['account', 'url'])} onClick={this.handleAccountClick} className='reply-indicator__display-name'>
-            <div className='reply-indicator__display-avatar'><Avatar account={status.get('account')} size={24} /></div>
-            <DisplayName account={status.get('account')} />
-          </a>
+          {externalIdentity ? (
+            <ExternalSourceIdentity identity={externalIdentity} size={24} className='reply-indicator__display-name' avatarClassName='reply-indicator__display-avatar' showLabel={false} />
+          ) : (
+            <a href={status.getIn(['account', 'url'])} onClick={this.handleAccountClick} className='reply-indicator__display-name'>
+              <div className='reply-indicator__display-avatar'><Avatar account={status.get('account')} size={24} /></div>
+              <DisplayName account={status.get('account')} />
+            </a>
+          )}
         </div>
 
         <div className='reply-indicator__content translate' dangerouslySetInnerHTML={content} />

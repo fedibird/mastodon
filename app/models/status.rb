@@ -199,8 +199,8 @@ class Status < ApplicationRecord
                    :preview_cards,
                    :preloadable_poll,
                    :generator,
-                   :external_status_projection,
                    tags: [:tag_account_mute_relationships],
+                   external_status_projection: ExternalBridge::Presentation::PRELOAD,
                    references: { account: :account_stat },
                    account: [:account_stat, :user],
                    active_mentions: { account: :account_stat },
@@ -212,8 +212,8 @@ class Status < ApplicationRecord
                      :status_stat,
                      :status_expire,
                      :preloadable_poll,
-                     :external_status_projection,
                      tags: [:tag_account_mute_relationships],
+                     external_status_projection: ExternalBridge::Presentation::PRELOAD,
                      references: { account: :account_stat },
                      account: [:account_stat, :user],
                      active_mentions: { account: :account_stat },
@@ -781,7 +781,7 @@ class Status < ApplicationRecord
     end
 
     def permitted_statuses_from_ids(ids, account_id, viewer_user_id: ExternalBridge::Viewer.user_id)
-      statuses          = Status.with_accounts(ids).includes(:external_status_projection).to_a
+      statuses          = Status.with_accounts(ids).includes(external_status_projection: ExternalBridge::Presentation::PRELOAD).to_a
       account_ids       = statuses.map(&:account_id).uniq
       account_relations = relations_map_for_account(account_id, account_ids)
       status_relations  = relations_map_for_status(account_id, statuses)

@@ -8,6 +8,8 @@ import Avatar from '../../../components/avatar';
 import AbsoluteTimestamp from '../../../components/absolute_timestamp';
 import RelativeTimestamp from '../../../components/relative_timestamp';
 import DisplayName from '../../../components/display_name';
+import ExternalSourceIdentity, { TimeLink } from '../../../components/external_source_identity';
+import { externalIdentityOf } from 'mastodon/external_presentation';
 import emojiCompressed from 'mastodon/features/emoji/emoji_compressed';
 import classNames from 'classnames';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
@@ -351,22 +353,27 @@ class ReactionModal extends ImmutablePureComponent {
   render () {
     const { pickersEmoji, onPickEmoji, onSkinTone, onClose, skinTone, frequentlyUsedEmojis } = this.props;
     const loading = this.state.loading;
+    const externalIdentity = externalIdentityOf(this.props.status);
     const status = this.props.status && (
       <div className='status light'>
         <div className='boost-modal__status-header'>
           <div className='boost-modal__status-time'>
-            <a href={this.props.status.get('url')} className='status__relative-time' target='_blank' rel='noopener noreferrer'>
+            <TimeLink url={externalIdentity ? externalIdentity.articleUrl : this.props.status.get('url')} external={!!externalIdentity} className='status__relative-time'>
               {disableRelativeTime ? <AbsoluteTimestamp timestamp={this.props.status.get('created_at')} /> : <RelativeTimestamp timestamp={this.props.status.get('created_at')} /> }
-            </a>
+            </TimeLink>
           </div>
 
-          <a href={this.props.status.getIn(['account', 'url'])} className='status__display-name'>
-            <div className='status__avatar'>
-              <Avatar account={this.props.status.get('account')} size={48} />
-            </div>
+          {externalIdentity ? (
+            <ExternalSourceIdentity identity={externalIdentity} size={48} className='status__display-name' avatarClassName='status__avatar' />
+          ) : (
+            <a href={this.props.status.getIn(['account', 'url'])} className='status__display-name'>
+              <div className='status__avatar'>
+                <Avatar account={this.props.status.get('account')} size={48} />
+              </div>
 
-            <DisplayName account={this.props.status.get('account')} />
-          </a>
+              <DisplayName account={this.props.status.get('account')} />
+            </a>
+          )}
         </div>
 
         <StatusContent status={this.props.status} />

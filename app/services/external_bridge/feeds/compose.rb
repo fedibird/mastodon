@@ -147,7 +147,7 @@ module ExternalBridge
         if external_records.any?
           ActiveRecord::Associations::Preloader.new.preload(
             external_records,
-            external_status_projection: { external_resource: :external_source }
+            external_status_projection: ExternalBridge::Presentation::PRELOAD
           )
         end
         ordered.select { |status| visible_record?(status) }

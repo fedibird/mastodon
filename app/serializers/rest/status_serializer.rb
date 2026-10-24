@@ -177,6 +177,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
       source_title: source&.title,
       interaction: 'local_only',
       link_boost_revision: link_boost_state.revision_text,
+      presentation: ExternalBridge::Presentation.build(projection),
     }
   end
 
