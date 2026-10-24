@@ -8,7 +8,7 @@ import {
   clearDeferredExternalReconnectsForTests,
 } from './timelines';
 import { MIX_EXTERNAL_RECONCILE } from './mix_timelines';
-import { reconcileHeldExternalBoosts } from './external_boosts';
+import { reconcileHeldExternalBoosts, resetExternalBoostReconcile } from './external_boosts';
 import { plainMix } from '../mix/definition';
 import { sourceKey } from '../mix/source';
 import { normalizePage, previousStatusesForImport, resolveRequest, statusesForSharedImport, visibilityConstraints } from '../mix/adapter';
@@ -153,6 +153,7 @@ const clearExternalFeedTimers = () => {
 
 export function resetExternalFeedSession () {
   clearExternalFeedTimers();
+  resetExternalBoostReconcile();
   externalFeedSession.dispose();
 }
 
@@ -1017,7 +1018,7 @@ export function bindExternalFeedVisibility () {
     visibilityHandler = () => {
       if (document.visibilityState === 'visible') {
         dispatch(refreshExternalFeedCapability());
-        dispatch(reconcileHeldExternalBoosts());
+        dispatch(reconcileHeldExternalBoosts({ begin: true }));
         dispatch(resumeExternalFeedViews());
       }
     };

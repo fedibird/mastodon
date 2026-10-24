@@ -85,7 +85,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
           dispatch(refreshExternalFeedCapability());
 
           if (reconnecting) {
-            dispatch(reconcileHeldExternalBoosts({ force: true }));
+            dispatch(reconcileHeldExternalBoosts({ begin: true, force: true }));
             dispatch(resumeExternalFeedViews());
           } else {
             dispatch(reconcileOpenExternalViews());

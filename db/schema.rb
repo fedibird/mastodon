@@ -680,10 +680,13 @@ ActiveRecord::Schema.define(version: 2026_10_30_120000) do
     t.bigint "user_id", null: false
     t.bigint "projection_status_id", null: false
     t.bigint "revision", null: false
+    t.bigint "notified_revision", default: 0, null: false
     t.boolean "reblogged", null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["projection_status_id"], name: "index_link_boost_states_on_projection_status"
+    t.index ["updated_at"], name: "index_link_boost_states_on_unnotified", where: "(revision > notified_revision)"
+    t.check_constraint "((notified_revision >= 0) AND (notified_revision <= revision))", name: "link_boost_states_notified_check"
     t.check_constraint "revision >= 1", name: "link_boost_states_revision_check"
   end
 

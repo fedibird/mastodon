@@ -6,12 +6,27 @@ import { parseBoostEvent, revisionOfImmutable } from '../external_boosts/revisio
 export const EXTERNAL_LINK_BOOST_CHANGED = 'EXTERNAL_LINK_BOOST_CHANGED';
 
 // Held projections that carry a revision are read again on a reconnect and on
-// a return to the tab. One request, a bounded number of ids, and a minimum
-// gap between runs.
+// a return to the tab. Each request is at most HELD_BOOST_BATCH ids, a run
+// sends at most HELD_BOOST_BATCHES_PER_RUN requests, and runs are at least
+// HELD_BOOST_MIN_GAP_MS apart. What is left over continues on a timer, so
+// every held projection is read within a bounded number of runs, whatever
+// its id.
 export const HELD_BOOST_BATCH = 20;
+export const HELD_BOOST_BATCHES_PER_RUN = 3;
 export const HELD_BOOST_MIN_GAP_MS = 10000;
 
-let lastReconcileAt = 0;
+// `generation` moves on every reconnect and return to the tab. `verified`
+// remembers, per held id, the generation whose response already covered it.
+// An id is due while its generation is behind. Order is stalest generation
+// first (never read before the others), then newest id, so a storm of
+// reconnects cannot keep reading the same ids. Entries of statuses that are
+// no longer held are dropped on every run, so the map is bounded by what the
+// page holds. It lives with the page: a different login loads a new page.
+let generation = 0;
+const verified = new Map();
+let lastRunAt = 0;
+let running = false;
+let timer = null;
 
 /**
  * The share state of a projection changed in another session. The payload is
@@ -57,40 +72,124 @@ const heldProjectionIds = (statuses) => {
     }
   });
 
-  return ids.sort((a, b) => compareId(b, a)).slice(0, HELD_BOOST_BATCH);
+  return ids;
+};
+
+const dueBatch = (held) => {
+  const present = new Set(held);
+
+  Array.from(verified.keys()).forEach(id => {
+    if (!present.has(id)) {
+      verified.delete(id);
+    }
+  });
+
+  return held
+    .filter(id => (verified.has(id) ? verified.get(id) : -1) < generation)
+    .sort((a, b) => {
+      const order = (verified.has(a) ? verified.get(a) : -1) - (verified.has(b) ? verified.get(b) : -1);
+
+      return order !== 0 ? order : compareId(b, a);
+    })
+    .slice(0, HELD_BOOST_BATCH);
+};
+
+const heldFrom = (getState) => {
+  const statuses = getState().get('statuses');
+
+  return statuses ? heldProjectionIds(statuses) : [];
+};
+
+const scheduleContinuation = (dispatch, delay) => {
+  if (timer) {
+    return;
+  }
+
+  timer = setTimeout(() => {
+    timer = null;
+    dispatch(reconcileHeldExternalBoosts({ force: true }));
+  }, delay);
+};
+
+const runReconcile = async (dispatch, getState) => {
+  if (running) {
+    return;
+  }
+
+  running = true;
+  lastRunAt = Date.now();
+
+  try {
+    for (let sent = 0; sent < HELD_BOOST_BATCHES_PER_RUN; sent += 1) {
+      const ids = dueBatch(heldFrom(getState));
+
+      if (ids.length === 0) {
+        break;
+      }
+
+      const covered = generation;
+      let response;
+
+      try {
+        response = await api(getState).get('/api/v1/statuses', { params: { id: ids } });
+      } catch (error) {
+        return;
+      }
+
+      ids.forEach(id => verified.set(id, covered));
+
+      if (response && Array.isArray(response.data) && response.data.length > 0) {
+        dispatch(importFetchedStatuses(response.data));
+      }
+    }
+  } finally {
+    running = false;
+  }
+
+  if (dueBatch(heldFrom(getState)).length > 0) {
+    scheduleContinuation(dispatch, HELD_BOOST_MIN_GAP_MS);
+  }
 };
 
 /**
  * Re-reads the held projections of the signed-in user. A stream event that
- * was lost, or a state changed while this tab was away, is repaired here. A
- * response older than what the page already applied cannot roll the state
- * back: the reducer orders by revision.
+ * was lost, or a state changed while this tab was away, is repaired here.
+ * `begin` marks a reconnect or a return to the tab: every held id is due
+ * again. `force` skips the minimum gap (a reconnect, or the continuation
+ * timer). A call inside the gap is not dropped: it is deferred. A response
+ * older than what the page already applied cannot roll the state back: the
+ * reducer orders by revision.
  */
 export function reconcileHeldExternalBoosts(options = {}) {
   return (dispatch, getState) => {
-    const now = Date.now();
-
-    if (!options.force && now - lastReconcileAt < HELD_BOOST_MIN_GAP_MS) {
-      return Promise.resolve();
+    if (options.begin) {
+      generation += 1;
     }
 
-    const statuses = getState().get('statuses');
-    const ids = statuses ? heldProjectionIds(statuses) : [];
+    const wait = options.force ? 0 : lastRunAt + HELD_BOOST_MIN_GAP_MS - Date.now();
 
-    if (ids.length === 0) {
-      return Promise.resolve();
-    }
-
-    lastReconcileAt = now;
-
-    return api(getState).get('/api/v1/statuses', { params: { id: ids } }).then(response => {
-      if (response && Array.isArray(response.data) && response.data.length > 0) {
-        dispatch(importFetchedStatuses(response.data));
+    if (wait > 0) {
+      if (dueBatch(heldFrom(getState)).length > 0) {
+        scheduleContinuation(dispatch, wait);
       }
-    }).catch(() => {});
+
+      return Promise.resolve();
+    }
+
+    return runReconcile(dispatch, getState);
   };
 }
 
-export function resetExternalBoostReconcileForTests() {
-  lastReconcileAt = 0;
+export function resetExternalBoostReconcile() {
+  generation = 0;
+  verified.clear();
+  lastRunAt = 0;
+  running = false;
+
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
 }
+
+export const resetExternalBoostReconcileForTests = resetExternalBoostReconcile;

@@ -474,6 +474,140 @@ describe 'ExternalBridge link boost revision', type: :model do
     end
   end
 
+  describe 'notification outbox' do
+    let(:published) { [] }
+
+    before do
+      allow_any_instance_of(ExternalBridge::Streaming::Publisher).to receive(:publish) do |_publisher, channel, event, payload, delivery: nil|
+        published << { channel: channel, event: event, payload: payload, delivery: delivery }
+        true
+      end
+    end
+
+    def pending_pairs
+      ExternalProjectionLinkBoostState.where('revision > notified_revision').pluck(:user_id, :projection_status_id)
+    end
+
+    def recover(settle: 0.seconds)
+      ExternalBridge::LinkSharing::RecoverUnnotified.call(settle: settle)
+    end
+
+    it 'covers a wrapper deleted with plain SQL, after commit, once, to the owner only' do
+      user = Fabricate(:user)
+      roommate = share_account_user(user.account)
+      world = prepare(user)
+      result = nil
+      Sidekiq::Testing.fake! do
+        result = boost!(user, world)
+        stream_jobs.clear
+        ExternalBridge::LinkBoostStreamWorker.new.perform(user.id.to_s, world[:status].id.to_s)
+      end
+      expect(pending_pairs).to be_empty
+      published.clear
+
+      Sidekiq::Testing.fake! do
+        Status.unscoped.where(id: result.wrapper.id).delete_all
+
+        expect(pair(user, world)).to eq([2, false])
+        expect(stream_jobs).to be_empty
+        expect(pending_pairs).to eq([[user.id, world[:status].id]])
+        expect(recover(settle: 10.seconds)).to eq(0)
+        expect(recover).to eq(1)
+        expect(stream_jobs.map { |job| job['args'] }).to eq([[user.id.to_s, world[:status].id.to_s]])
+        stream_jobs.each { |job| ExternalBridge::LinkBoostStreamWorker.new.perform(*job['args']) }
+      end
+
+      expect(published.map { |entry| entry[:channel] }).to eq(["timeline:external:user:#{user.id}:boost"])
+      expect(published.first[:payload]).to eq('version' => 1, 'status_id' => world[:status].id.to_s, 'reblogged' => false, 'revision' => '2')
+      expect(published.to_json).not_to include("timeline:external:user:#{roommate.id}:") unless roommate.id == user.id
+      expect(pending_pairs).to be_empty
+      expect(Sidekiq::Testing.fake! { recover }).to eq(0)
+    end
+
+    it 'announces nothing for a delete that is rolled back' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      result = nil
+      Sidekiq::Testing.fake! do
+        result = boost!(user, world)
+        ExternalBridge::LinkBoostStreamWorker.new.perform(user.id.to_s, world[:status].id.to_s)
+        stream_jobs.clear
+        ApplicationRecord.transaction(requires_new: true) do
+          Status.unscoped.where(id: result.wrapper.id).delete_all
+          expect(pair(user, world)).to eq([2, false])
+          raise ActiveRecord::Rollback
+        end
+
+        expect(pair(user, world)).to eq([1, true])
+        expect(pending_pairs).to be_empty
+        expect(recover).to eq(0)
+        expect(stream_jobs).to be_empty
+      end
+    end
+
+    it 'recovers a job Sidekiq refused, and the ordinary path acknowledges the revision it published' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      allow(ExternalBridge::LinkBoostStreamWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError)
+
+      boost!(user, world)
+      expect(pending_pairs).to eq([[user.id, world[:status].id]])
+      expect(published).to be_empty
+      allow(ExternalBridge::LinkBoostStreamWorker).to receive(:perform_async).and_call_original
+
+      expect(recover).to eq(1)
+      expect(published.map { |entry| entry[:payload]['revision'] }).to eq(['1'])
+      expect(pending_pairs).to be_empty
+    end
+
+    it 'keeps a flip that lands after the read pending' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      Sidekiq::Testing.fake! { boost!(user, world) }
+      worker = ExternalBridge::LinkBoostStreamWorker.new
+
+      allow_any_instance_of(ExternalBridge::Streaming::Publisher).to receive(:publish) do
+        Sidekiq::Testing.fake! { unboost!(user, world) }
+        true
+      end
+      worker.perform(user.id.to_s, world[:status].id.to_s)
+
+      expect(pair(user, world)).to eq([2, false])
+      expect(ExternalProjectionLinkBoostState.find_by!(user_id: user.id).notified_revision).to eq(1)
+      expect(pending_pairs).to eq([[user.id, world[:status].id]])
+    end
+
+    it 'does not leave a purged projection pending, and acknowledges a user who cannot be notified' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      Sidekiq::Testing.fake! do
+        boost!(user, world)
+        ExternalBridge::ProjectionPurge.purge_status!(world[:status])
+      end
+      expect(pending_pairs).to be_empty
+
+      other = Fabricate(:user)
+      other_world = prepare(other)
+      Sidekiq::Testing.fake! { boost!(other, other_world) }
+      other.update_columns(disabled: true)
+      expect(recover).to eq(1)
+      Sidekiq::Testing.fake! { ExternalBridge::LinkBoostStreamWorker.new.perform(other.id.to_s, other_world[:status].id.to_s) }
+      expect(pending_pairs).to be_empty
+      expect(published).to be_empty
+    end
+
+    it 'is bounded and runs from the scheduler without reading the feature flag' do
+      user = Fabricate(:user)
+      world = prepare(user)
+      Sidekiq::Testing.fake! { boost!(user, world) }
+      Setting.external_bridge_link_sharing = false
+      stub_const('ExternalBridge::LinkSharing::RecoverUnnotified::SETTLE', 0.seconds)
+
+      expect(Sidekiq::Testing.fake! { Scheduler::ExternalBridgeLinkBoostNotifyScheduler.new.perform }).to eq(1)
+      expect(ExternalBridge::LinkSharing::RecoverUnnotified::BATCH).to eq(100)
+    end
+  end
+
   describe 'rollback floor' do
     it 'refuses to drop the state table while a row exists, and allows it when empty' do
       user = Fabricate(:user)

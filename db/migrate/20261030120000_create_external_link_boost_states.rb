@@ -6,13 +6,18 @@
 #
 # Nothing here rewrites or backfills `statuses`. Existing active shares (the
 # table is empty while the flag has never been on) are copied once as
-# revision 1. The feature flag and testers stay off.
+# revision 1, already marked as notified. The feature flag and testers stay off.
+#
+# `notified_revision` is the durable outbox of the owner event. A row whose
+# revision is above it has a flip that no stream event has covered yet, for
+# example a wrapper that was deleted with plain SQL. The partial index holds
+# only those rows.
 class CreateExternalLinkBoostStates < ActiveRecord::Migration[6.1]
   BACKFILL_SQL = <<~SQL
     INSERT INTO external_projection_link_boost_states
-      (user_id, projection_status_id, revision, reblogged, created_at, updated_at)
+      (user_id, projection_status_id, revision, notified_revision, reblogged, created_at, updated_at)
     SELECT DISTINCT ON (boosts.user_id, boosts.projection_status_id)
-           boosts.user_id, boosts.projection_status_id, 1, TRUE, clock_timestamp(), clock_timestamp()
+           boosts.user_id, boosts.projection_status_id, 1, 1, TRUE, clock_timestamp(), clock_timestamp()
       FROM external_projection_link_boosts boosts
       INNER JOIN statuses wrappers ON wrappers.id = boosts.wrapper_status_id
      WHERE boosts.state = 'active'
@@ -34,16 +39,24 @@ class CreateExternalLinkBoostStates < ActiveRecord::Migration[6.1]
       t.bigint :user_id, null: false
       t.bigint :projection_status_id, null: false
       t.bigint :revision, null: false
+      t.bigint :notified_revision, null: false, default: 0
       t.boolean :reblogged, null: false
       t.timestamps
     end
     add_index :external_projection_link_boost_states,
               :projection_status_id,
               name: 'index_link_boost_states_on_projection_status'
+    add_index :external_projection_link_boost_states,
+              :updated_at,
+              where: 'revision > notified_revision',
+              name: 'index_link_boost_states_on_unnotified'
     add_foreign_key :external_projection_link_boost_states, :users, column: :user_id, on_delete: :cascade, name: 'fk_link_boost_states_user'
     add_check_constraint :external_projection_link_boost_states,
                          'revision >= 1',
                          name: 'link_boost_states_revision_check'
+    add_check_constraint :external_projection_link_boost_states,
+                         'notified_revision >= 0 AND notified_revision <= revision',
+                         name: 'link_boost_states_notified_check'
   end
 
   def down
