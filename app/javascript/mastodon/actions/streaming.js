@@ -25,6 +25,7 @@ import { deleteScheduledStatusSuccess } from './scheduled_statuses';
 import { updateStatus } from './statuses';
 import { scheduleFiltersRefresh } from './filters';
 import { retryFilterReconciliation } from '../filter_reconciliation/scheduler';
+import { receiveExternalLinkBoostChanged, reconcileHeldExternalBoosts } from './external_boosts';
 import {
   bindExternalFeedVisibility,
   noteExternalStatusStream,
@@ -84,6 +85,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
           dispatch(refreshExternalFeedCapability());
 
           if (reconnecting) {
+            dispatch(reconcileHeldExternalBoosts({ force: true }));
             dispatch(resumeExternalFeedViews());
           } else {
             dispatch(reconcileOpenExternalViews());
@@ -153,6 +155,9 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
           break;
         case 'external_feed_changed':
           dispatch(receiveExternalFeedChanged(data.payload));
+          break;
+        case 'external_link_boost_changed':
+          dispatch(receiveExternalLinkBoostChanged(data.payload));
           break;
         case 'expire':
           dispatch(expireFromTimelines(data.payload));

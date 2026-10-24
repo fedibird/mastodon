@@ -1,5 +1,6 @@
 import { normalizeAccount, normalizeStatus, normalizePoll, normalizeCustomEmojiDetail, translationSourceSignature } from './normalizer';
 import { revalidateUnknownFilters } from '../filter_definitions';
+import { applyBoostFloor } from '../../external_boosts/revision';
 
 export const ACCOUNT_IMPORT  = 'ACCOUNT_IMPORT';
 export const ACCOUNTS_IMPORT = 'ACCOUNTS_IMPORT';
@@ -39,6 +40,14 @@ const pollForSignature = (payloadPoll, previousPoll) => {
   }
 
   return previousPoll || null;
+};
+
+// The newest share state a stream event reported for this projection id, if
+// the page has seen one. See external_boosts/revision.js.
+const boostFloorFor = (state, id) => {
+  const floor = state.getIn(['externalBoosts', id]);
+
+  return floor ? { revision: floor.get('revision'), reblogged: floor.get('reblogged') } : undefined;
 };
 
 export function importAccount(account) {
@@ -160,9 +169,9 @@ export function importFetchedStatuses(statuses, options = {}) {
       const previousStatus = state.getIn(['statuses', status.id]);
       const previousPoll = status.poll && status.poll.id ? state.getIn(['polls', status.poll.id]) : null;
       const domain = (typeof status.account === 'object' ? status.account.acct : state.getIn(['accounts', status.account, 'acct']))?.split('@')[1] ?? '';
-      const normalizedStatus = normalizeStatus(status, previousStatus, domain, previousPoll, {
+      const normalizedStatus = applyBoostFloor(boostFloorFor(state, status.id), normalizeStatus(status, previousStatus, domain, previousPoll, {
         acceptPresentationChange: options.acceptPresentationChange !== false,
-      });
+      }));
 
       // A status-level source change invalidates the in-flight translation,
       // including poll options whose titles did not change.

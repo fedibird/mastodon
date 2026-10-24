@@ -229,6 +229,27 @@ describe('mix streaming', () => {
     expect(view.orderGuaranteed).toBe(false);
   });
 
+  it('forwards an owner boost state event without touching the mix membership', () => {
+    const { dispatch, getState, sent } = harness();
+
+    openColumn(dispatch, 'column:a', 1, [
+      { type: 'public', params: {} },
+      { type: 'list', id: '4', params: {} },
+    ]);
+    dispatch(openMixStream('column:a', mix));
+    const before = getState().get('mix_timelines');
+
+    sent.length = 0;
+    connections[1].handlers.onReceive({
+      event: 'external_link_boost_changed',
+      payload: JSON.stringify({ version: 1, status_id: '300', reblogged: true, revision: '2' }),
+    });
+    connections[1].handlers.onReceive({ event: 'external_link_boost_changed', payload: JSON.stringify({ version: 1, status_id: 300, reblogged: true, revision: '3' }) });
+
+    expect(sent).toEqual([{ type: 'EXTERNAL_LINK_BOOST_CHANGED', statusId: '300', reblogged: true, revision: '2' }]);
+    expect(getState().get('mix_timelines')).toBe(before);
+  });
+
   it('holds live posts while the reader is scrolled down', () => {
     const { dispatch, getState } = harness();
 

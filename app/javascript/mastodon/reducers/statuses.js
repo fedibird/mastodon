@@ -33,6 +33,9 @@ import {
 } from '../actions/statuses';
 import { TIMELINE_DELETE } from '../actions/timelines';
 import { STATUS_IMPORT, STATUSES_IMPORT } from '../actions/importer';
+import { EXTERNAL_LINK_BOOST_CHANGED } from '../actions/external_boosts';
+import compareId from '../compare_id';
+import { protectBoostState, revisionOfImmutable } from '../external_boosts/revision';
 import { normalizeStatusTranslation } from '../actions/importer/normalizer';
 import { me } from '../initial_state';
 import { Map as ImmutableMap, List, fromJS } from 'immutable';
@@ -41,11 +44,58 @@ const importStatus = (state, status) => {
   if (state.getIn([status.in_reply_to_id, 'replies_count'], null) === 0) {
     state = state.setIn([status.in_reply_to_id, 'replies_count'], 1);
   }
-  return state.set(status.id, fromJS(status));
+  // A projection of the signed-in user carries a revision beside `reblogged`.
+  // An older payload keeps the pair already applied; everything else in it is
+  // imported as before. A status with no revision is not touched.
+  return state.set(status.id, fromJS(protectBoostState(state.get(status.id), status)));
 };
 
 const importStatuses = (state, statuses) =>
   state.withMutations(mutable => statuses.forEach(status => importStatus(mutable, status)));
+
+// The share state of a projection (E4). `reblogged` of such a status is ordered
+// by a server revision, so the optimistic click and its rollback only act while
+// no newer revision has been applied.
+const hasBoostRevision = (state, id) => revisionOfImmutable(state.get(id)) !== null;
+
+const optimisticBoost = (state, id, value) => {
+  const status = state.get(id);
+
+  return state.setIn([id, 'reblogged'], value).setIn([id, 'link_boost_optimistic'], status.getIn(['fedibird_external', 'link_boost_revision']));
+};
+
+const rollbackBoost = (state, id, value) => {
+  const status = state.get(id);
+  const base = status.get('link_boost_optimistic');
+
+  if (base === undefined) {
+    return state;
+  }
+
+  const unchanged = revisionOfImmutable(status) === base;
+
+  return (unchanged ? state.setIn([id, 'reblogged'], value) : state).deleteIn([id, 'link_boost_optimistic']);
+};
+
+const applyBoostEvent = (state, action) => {
+  const status = state.get(action.statusId);
+
+  if (!status) {
+    return state;
+  }
+
+  const current = revisionOfImmutable(status) || '0';
+
+  if (compareId(action.revision, current) <= 0) {
+    return state;
+  }
+
+  return state.withMutations(map => {
+    map.setIn([action.statusId, 'reblogged'], action.reblogged);
+    map.setIn([action.statusId, 'fedibird_external', 'link_boost_revision'], action.revision);
+    map.deleteIn([action.statusId, 'link_boost_optimistic']);
+  });
+};
 
 const deleteStatus = (state, id, references, quotes) => {
   references?.forEach(ref => {
@@ -255,13 +305,27 @@ export default function statuses(state = initialState, action) {
       state = removeEmojiReaction(state, action.status.get('id'), action.name, action.domain, action.url, action.static_url);
     }
     return state;
+  case EXTERNAL_LINK_BOOST_CHANGED:
+    return applyBoostEvent(state, action);
   case REBLOG_REQUEST:
+    if (hasBoostRevision(state, action.status.get('id'))) {
+      return optimisticBoost(state, action.status.get('id'), true);
+    }
     return state.setIn([action.status.get('id'), 'reblogged'], true);
   case REBLOG_FAIL:
+    if (hasBoostRevision(state, action.status.get('id'))) {
+      return rollbackBoost(state, action.status.get('id'), false);
+    }
     return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'reblogged'], false);
   case UNREBLOG_REQUEST:
+    if (hasBoostRevision(state, action.status.get('id'))) {
+      return optimisticBoost(state, action.status.get('id'), false);
+    }
     return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'reblogged'], false);
   case UNREBLOG_FAIL:
+    if (hasBoostRevision(state, action.status.get('id'))) {
+      return rollbackBoost(state, action.status.get('id'), true);
+    }
     return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'reblogged'], true);
   case STATUS_MUTE_SUCCESS:
     return state.setIn([action.id, 'muted'], true);
