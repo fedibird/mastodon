@@ -19,11 +19,6 @@ const messages = defineMessages({
   mute: { id: 'hashtag.mute', defaultMessage: 'Mute #{hashtag}' },
 });
 
-// Matches the basename of the BrowserRouter in containers/mastodon.js.
-const WEB_BASE_PATH = '/web';
-
-const webHref = path => `${WEB_BASE_PATH}${path}`;
-
 const popperConfig = {
   strategy: 'fixed',
 };
@@ -45,6 +40,7 @@ class HashtagMenuController extends React.PureComponent {
   state = {
     element: null,
     hashtag: '',
+    hashtagUrl: '',
     accountId: '',
     statusId: '',
     accountName: '',
@@ -70,6 +66,7 @@ class HashtagMenuController extends React.PureComponent {
     this.setState({
       element: null,
       hashtag: '',
+      hashtagUrl: '',
       accountId: '',
       statusId: '',
       accountName: '',
@@ -111,6 +108,7 @@ class HashtagMenuController extends React.PureComponent {
     this.setState({
       element: link,
       hashtag,
+      hashtagUrl: link.href || '',
       accountId: link.getAttribute('data-account-id') || '',
       statusId: link.getAttribute('data-status-id') || '',
       accountName: link.getAttribute('data-account-name') || '',
@@ -136,6 +134,21 @@ class HashtagMenuController extends React.PureComponent {
     copyText(labels.join(' '));
   }
 
+  // Direct navigation (new tab, copied link) goes to the original public page, not the WebUI.
+  // Remote posts keep the remote server's tag URL; local ones use the signed-out public pages.
+  tagHref () {
+    const { hashtag, hashtagUrl } = this.state;
+
+    return hashtagUrl || `${window.location.origin}/tags/${encodeURIComponent(hashtag)}`;
+  }
+
+  accountTagHref () {
+    const account = this.props.accounts && this.props.accounts.get(this.state.accountId);
+    const url = account && account.get('url');
+
+    return url ? `${url.replace(/\/+$/, '')}/tagged/${encodeURIComponent(this.state.hashtag)}` : undefined;
+  }
+
   menuItems () {
     const { intl } = this.props;
     const hashtag = this.state.hashtag;
@@ -144,12 +157,12 @@ class HashtagMenuController extends React.PureComponent {
     const items = [
       {
         text: intl.formatMessage(messages.browse, { hashtag }),
-        href: webHref(tagPath),
+        href: this.tagHref(),
         to: tagPath,
       },
       {
         text: intl.formatMessage(messages.browseAccount, { hashtag, name: this.accountLabel() }),
-        href: webHref(accountPath),
+        href: this.accountTagHref(),
         to: accountPath,
       },
       null,
@@ -176,7 +189,7 @@ class HashtagMenuController extends React.PureComponent {
     if (this.isSignedIn()) {
       items.push(null, {
         text: intl.formatMessage(messages.mute, { hashtag }),
-        href: webHref('/settings/filters'),
+        href: '/web/settings/filters',
         to: '/settings/filters',
         target: '_self',
         dangerous: true,
