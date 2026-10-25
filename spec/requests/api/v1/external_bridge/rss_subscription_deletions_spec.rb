@@ -87,6 +87,45 @@ RSpec.describe 'RSS subscription deletion API' do
       expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 1
     end
 
+    it 'answers 202 when Sidekiq refuses the streaming job and when recording that job fails' do
+      enable_external_bridge_feeds!(owner)
+      ExternalBridge::FeedRoutes::Update.new.call(
+        user: owner, subscription_id: bundle[:subscription].id, home: true, list_ids: [],
+        expected_revision: bundle[:subscription].feed_routes_revision
+      )
+      allow(ExternalBridge::StreamControlWorker).to receive(:perform_async).and_return(nil)
+
+      delete "/api/v1/external_bridge/rss/subscriptions/#{bundle[:subscription].id}", headers: owner_headers
+
+      expect(response).to have_http_status(202)
+      deletion = ExternalSubscriptionDeletion.find(body_as_json[:id])
+      expect(deletion.control_enqueued_at).to be_nil
+      expect(ExternalSubscription.find(bundle[:subscription].id).state).to eq 'deleting'
+      expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 1
+
+      other = project_for(owner)
+      enable_external_bridge_feeds!(owner)
+      ExternalBridge::FeedRoutes::Update.new.call(
+        user: owner, subscription_id: other[:subscription].id, home: true, list_ids: [],
+        expected_revision: other[:subscription].feed_routes_revision
+      )
+      allow(ExternalBridge::StreamControlWorker).to receive(:perform_async).and_return('accepted-jid')
+      allow_any_instance_of(ExternalSubscriptionDeletion).to receive(:update_columns).and_wrap_original do |method, attrs|
+        raise ActiveRecord::StatementInvalid, 'SECRET_SQL_DETAIL' if attrs.key?(:control_enqueued_at)
+
+        method.call(attrs)
+      end
+
+      delete "/api/v1/external_bridge/rss/subscriptions/#{other[:subscription].id}", headers: owner_headers
+
+      expect(response).to have_http_status(202)
+      recorded = ExternalSubscriptionDeletion.find_by!(external_subscription_id: other[:subscription].id)
+      expect(recorded.control_enqueued_at).to be_nil
+      expect(other[:subscription].reload.state).to eq 'deleting'
+      expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 2
+      expect(response.body).not_to include('SECRET_SQL_DETAIL')
+    end
+
     it 'hides the subscription of another user, including a roommate, with 404' do
       delete "/api/v1/external_bridge/rss/subscriptions/#{bundle[:subscription].id}", headers: auth_headers_for(roommate)
       expect(response).to have_http_status(404)

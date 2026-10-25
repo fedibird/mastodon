@@ -57,12 +57,13 @@ module ExternalBridge
       end
 
       # Pushes a control event now, outside AfterOuterCommit. The caller is
-      # already past the commit that made the event true, and has to rescue a
-      # Redis error itself: an exception from an after_commit callback is raised
-      # into the code that committed, after the database commit, and would turn
-      # an accepted unsubscribe into an HTTP 500.
+      # already past the commit that made the event true.
       #
-      # @return [Symbol] :pushed, :skipped (nobody to tell), or the call raises
+      # @return [Symbol]
+      #   :pushed  Sidekiq returned a job id
+      #   :failed  perform_async returned nil or false (the client did not accept it)
+      #   :skipped nobody to tell: the user cannot receive it, or the payload is empty
+      # Redis errors are raised. A nil id is not success.
       def self.deliver_control!(**delivery)
         user = User.find_by(id: delivery[:user_id])
         return :skipped unless user&.functional? && Feeds::Feature.permitted?(user)
@@ -70,8 +71,8 @@ module ExternalBridge
         payload = control_payload(delivery)
         return :skipped if payload.nil?
 
-        StreamControlWorker.perform_async(user.id.to_s, payload)
-        :pushed
+        jid = StreamControlWorker.perform_async(user.id.to_s, payload)
+        jid.present? ? :pushed : :failed
       end
 
       def self.schedule_deletes!(captures)

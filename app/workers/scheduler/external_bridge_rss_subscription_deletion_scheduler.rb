@@ -17,8 +17,11 @@ class Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler
 
   def perform
     recovered = recover
+    notices = ExternalBridge::RSS::SubscriptionRemovedNotice.recover!
     purged = cleanup
-    Rails.logger.info("[Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler] recovered=#{recovered} purged=#{purged}")
+    Rails.logger.info(
+      "[Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler] recovered=#{recovered} notices=#{notices} purged=#{purged}"
+    )
     recovered
   end
 

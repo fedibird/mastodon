@@ -24,8 +24,11 @@ the database commit, which would answer HTTP 500 for an unsubscribe that had
 already been accepted and would skip the deletion enqueue. After the commit,
 `SubscriptionRemovedNotice` pushes the event and
 `SubscriptionDeletionDispatch` pushes the deletion job. Neither is allowed to
-raise. `control_enqueued_at` stays null until Sidekiq accepts the event; the
-deletion job sends it again from `route_targets`. A second send is safe.
+raise, including a database error while recording the push. `control_enqueued_at`
+is set only when Sidekiq returns a job id, or when there is no destination.
+A nil job id leaves it null. The deletion job tries again, and the recovery
+scheduler keeps trying for one day after the request, including after the
+deletion is `completed`. A second send is safe.
 
 A connected WebUI that misses the event keeps items it has already drawn until
 a reload, a reconnect, or the per-status deletes from the purge. Reload and

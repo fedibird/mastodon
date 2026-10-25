@@ -30,10 +30,13 @@ module ExternalBridge
 
         deletion, created = ApplicationRecord.transaction { accept!(user, subscription_id) }
         if created
-          # Both pushes are after the commit and neither is allowed to raise.
-          # A Redis outage leaves the row queued; the scheduler starts the job,
-          # and the job sends subscription_removed from route_targets.
-          SubscriptionRemovedNotice.push!(deletion)
+          # After the commit. A failure here is logged and leaves the event
+          # unacked. It must not skip the deletion job or fail the request.
+          begin
+            SubscriptionRemovedNotice.push!(deletion)
+          rescue StandardError => e
+            SubscriptionDeletionLog.emit('enqueue_failed', deletion_id: deletion.id, error_class: e.class)
+          end
           SubscriptionDeletionDispatch.enqueue(deletion.id)
         end
         deletion

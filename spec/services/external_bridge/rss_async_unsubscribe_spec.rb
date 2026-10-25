@@ -167,6 +167,70 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(ExternalBridge::StreamControlWorker.jobs.size).to eq 1
     end
 
+    it 'does not record the streaming event when Sidekiq does not accept the job' do
+      world = world_with(1)
+      save_routes(world, home: true, list_ids: [])
+      allow(ExternalBridge::StreamControlWorker).to receive(:perform_async).and_return(nil)
+
+      deletion = unsubscribe!(world)
+
+      expect(deletion.control_enqueued_at).to be_nil
+      expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 1
+
+      allow(ExternalBridge::StreamControlWorker).to receive(:perform_async).and_call_original
+      ExternalBridge::StreamControlWorker.clear
+      expect(ExternalBridge::RSS::SubscriptionRemovedNotice.push!(deletion.reload)).to be true
+      expect(deletion.reload.control_enqueued_at).to be_present
+      expect(ExternalBridge::StreamControlWorker.jobs.size).to eq 1
+    end
+
+    it 'still enqueues the deletion when recording the streaming event raises' do
+      world = world_with(1)
+      save_routes(world, home: true, list_ids: [])
+      secret = 'SECRET_SQL_DETAIL_9f3'
+      lines = []
+      allow(Rails.logger).to receive(:info) { |line| lines << line.to_s }
+      allow_any_instance_of(ExternalSubscriptionDeletion).to receive(:update_columns).and_wrap_original do |method, attrs|
+        raise ActiveRecord::StatementInvalid, secret if attrs.key?(:control_enqueued_at)
+
+        method.call(attrs)
+      end
+
+      deletion = unsubscribe!(world)
+
+      expect(deletion.reload.control_enqueued_at).to be_nil
+      expect(world[:subscription].reload.state).to eq 'deleting'
+      expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 1
+      expect(lines.join("\n")).to include('enqueue_failed')
+      expect(lines.join("\n")).not_to include(secret)
+    end
+
+    it 'keeps trying a missed streaming event after the deletion has completed, for one day' do
+      world = world_with(1)
+      save_routes(world, home: true, list_ids: [])
+      allow(ExternalBridge::StreamControlWorker).to receive(:perform_async).and_return(nil)
+      deletion = unsubscribe!(world)
+      runner.call(deletion.id)
+      expect(deletion.reload).to be_completed
+      expect(deletion.control_enqueued_at).to be_nil
+      allow(ExternalBridge::StreamControlWorker).to receive(:perform_async).and_call_original
+      ExternalBridge::StreamControlWorker.clear
+
+      expect(scheduler.perform).to be_a(Integer)
+
+      expect(deletion.reload.control_enqueued_at).to be_present
+      expect(ExternalBridge::StreamControlWorker.jobs.size).to eq 1
+      payload = ExternalBridge::StreamControlWorker.jobs.last['args'].second
+      expect(payload['reason']).to eq 'subscription_removed'
+
+      older = unsubscribe!(world_with(1))
+      older.update_columns(state: 'completed', control_enqueued_at: nil, finished_at: Time.current, requested_at: 2.days.ago)
+      ExternalBridge::StreamControlWorker.clear
+      scheduler.perform
+      expect(older.reload.control_enqueued_at).to be_nil
+      expect(ExternalBridge::StreamControlWorker.jobs).to be_empty
+    end
+
     it 'keeps the subscription fenced and the record queued when Sidekiq refuses the push' do
       world = world_with(2)
       allow(ExternalBridge::RSS::SubscriptionDeletionWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError)

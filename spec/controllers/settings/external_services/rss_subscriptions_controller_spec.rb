@@ -118,6 +118,33 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     expect(deletion.route_targets).to include({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
   end
 
+  it 'redirects when recording the streaming event fails in the database' do
+    sign_in tester, scope: :user
+    owned = project_for(tester)
+    enable_external_bridge_feeds!(tester)
+    ExternalBridge::FeedRoutes::Update.new.call(
+      user: tester, subscription_id: owned[:subscription].id, home: true, list_ids: [],
+      expected_revision: owned[:subscription].feed_routes_revision
+    )
+    allow(ExternalBridge::StreamControlWorker).to receive(:perform_async).and_return('accepted-jid')
+    allow_any_instance_of(ExternalSubscriptionDeletion).to receive(:update_columns).and_wrap_original do |method, attrs|
+      raise ActiveRecord::StatementInvalid, 'SECRET_SQL_DETAIL' if attrs.key?(:control_enqueued_at)
+
+      method.call(attrs)
+    end
+
+    Sidekiq::Testing.fake! do
+      delete :destroy, params: { id: owned[:subscription].id }, session: challenge
+    end
+
+    expect(response).to have_http_status(:see_other)
+    expect(flash[:notice]).to eq I18n.t('external_bridge.unsubscribed')
+    expect(owned[:subscription].reload.state).to eq 'deleting'
+    deletion = ExternalSubscriptionDeletion.find_by!(external_subscription_id: owned[:subscription].id)
+    expect(deletion.control_enqueued_at).to be_nil
+    expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 1
+  end
+
   it 'pauses, resumes, and removes only the signed-in user subscription' do
     sign_in tester, scope: :user
     owned = project_for(tester)
