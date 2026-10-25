@@ -30,7 +30,21 @@ class Api::V1::Statuses::EmojiReactionsController < Api::BaseController
   def set_status
     @status = Status.include_expired.find(params[:status_id])
     authorize @status, :show?
+    authorize_canonical_target!
   rescue Mastodon::NotPermittedError
     not_found
+  end
+
+  # The URL status stays the subject of show?. When canonical writes are on,
+  # also require show? on the status the row is stored against, so a visible
+  # boost cannot be used to write a status the viewer cannot open. The
+  # rendered status is still the one in the URL.
+  def authorize_canonical_target!
+    return unless EmojiReactionCapability::WriteConfig.canonical_writes?
+
+    canonical = EmojiReactionCapability::WriteTarget.resolve(@status)
+    return if canonical.id == @status.id
+
+    authorize canonical, :show?
   end
 end

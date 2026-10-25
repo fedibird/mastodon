@@ -5,8 +5,10 @@ class UnEmojiReactionService < BaseService
 
   def call(account, status, emoji, **options)
     @account          = account
-    shortcode, domain = emoji&.split("@")
-               domain = nil if domain == Rails.configuration.x.local_domain
+    shortcode, domain = emoji&.split('@')
+    domain = nil if domain == Rails.configuration.x.local_domain
+
+    status = EmojiReactionCapability::WriteTarget.resolve(status)
 
     if shortcode
       if options[:shortcode_only]
