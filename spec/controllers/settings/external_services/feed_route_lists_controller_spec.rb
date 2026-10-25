@@ -87,7 +87,7 @@ describe Settings::ExternalServices::FeedRouteListsController do
     expect(response).to have_http_status(:unprocessable_entity)
     expect(response.parsed_body['error']).to eq error_message(:blank)
 
-    expect { create_list('x' * (described_class::TITLE_LIMIT + 1)) }.not_to change(List, :count)
+    expect { create_list('x' * (ExternalServices::CreateFeedRouteList::TITLE_LIMIT + 1)) }.not_to change(List, :count)
     expect(response.parsed_body['error']).to eq error_message(:too_long)
 
     expect { create_list('taken') }.not_to change(List, :count)

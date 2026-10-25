@@ -81,16 +81,18 @@ const appendListChoice = (container, list, checked) => {
 const enhanceCreate = (form) => {
   const create = form.querySelector('[data-feed-route-create]');
   if (!create) {
-    return { collapse: () => {}, isOpen: () => false, reset: () => {} };
+    return { cancelCreate: () => {}, isOpen: () => false, reset: () => {}, isBusy: () => false };
   }
 
   const toggle = create.querySelector('[data-feed-route-create-toggle]');
   const fields = create.querySelector('.feed-route-picker__create-fields');
   const input = create.querySelector('[data-feed-route-create-input]');
   const submit = create.querySelector('[data-feed-route-create-submit]');
+  const save = form.querySelector('button[type="submit"]');
   const cancel = create.querySelector('[data-feed-route-create-cancel]');
   const status = create.querySelector('[data-feed-route-status]');
   let busy = false;
+  let generation = 0;
 
   const setStatus = (message, state) => {
     status.textContent = message || '';
@@ -119,19 +121,34 @@ const enhanceCreate = (form) => {
     busy = value;
     submit.disabled = value;
     input.readOnly = value;
+    if (save) save.disabled = value;
     create.setAttribute('aria-busy', value ? 'true' : 'false');
   };
 
-  const addToPickers = (list) => {
+  // A response that arrives after the dialog was closed or the creation was
+  // cancelled still names a real list, so it is offered everywhere, but it is
+  // never selected in a form the user already left.
+  const addToPickers = (list, select) => {
     document.querySelectorAll(`${PICKER} [data-feed-route-lists]`).forEach((container) => {
-      const own = form.contains(container);
+      const own = select && form.contains(container);
       const added = appendListChoice(container, list, own);
       if (own) added.focus();
     });
   };
 
+  const invalidate = () => {
+    generation += 1;
+    setBusy(false);
+  };
+
+  const cancelCreate = (restoreFocus) => {
+    invalidate();
+    collapse(restoreFocus);
+  };
+
   const perform = async () => {
     if (busy) return;
+    const token = generation;
     setBusy(true);
     setStatus('', '');
 
@@ -148,26 +165,31 @@ const enhanceCreate = (form) => {
         body: JSON.stringify({ list: { title: input.value } }),
       });
       const body = await response.json().catch(() => ({}));
+      const current = token === generation;
 
       if (response.ok && body.id) {
-        addToPickers(body);
-        collapse(false);
-        setStatus(body.message, 'success');
-      } else {
+        addToPickers(body, current);
+        if (current) {
+          collapse(false);
+          setStatus(body.message, 'success');
+        }
+      } else if (current) {
         setStatus(body.error || create.getAttribute('data-failure'), 'error');
         input.focus();
       }
     } catch (error) {
-      setStatus(create.getAttribute('data-failure'), 'error');
-      input.focus();
+      if (token === generation) {
+        setStatus(create.getAttribute('data-failure'), 'error');
+        input.focus();
+      }
     } finally {
-      setBusy(false);
+      if (token === generation) setBusy(false);
     }
   };
 
   create.hidden = false;
   toggle.addEventListener('click', expand);
-  cancel.addEventListener('click', () => collapse(true));
+  cancel.addEventListener('click', () => cancelCreate(true));
   submit.addEventListener('click', perform);
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
@@ -176,15 +198,19 @@ const enhanceCreate = (form) => {
     } else if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      collapse(true);
+      cancelCreate(true);
     }
+  });
+  form.addEventListener('submit', (event) => {
+    if (busy) event.preventDefault();
   });
 
   return {
-    collapse,
+    cancelCreate,
     isOpen,
+    isBusy: () => busy,
     reset: () => {
-      collapse(false);
+      cancelCreate(false);
       setStatus('', '');
     },
   };
@@ -236,7 +262,7 @@ const enhancePicker = (picker) => {
   dialog.addEventListener('cancel', (event) => {
     if (create.isOpen()) {
       event.preventDefault();
-      create.collapse(true);
+      create.cancelCreate(true);
     }
   });
   dialog.addEventListener('close', () => {

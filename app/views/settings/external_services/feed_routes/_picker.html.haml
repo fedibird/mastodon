@@ -39,7 +39,7 @@
             %button.feed-route-picker__create-toggle{ type: 'button', data: { feed_route_create_toggle: true }, aria: { expanded: 'false', controls: "#{dom}-create-fields" } }= t('external_bridge.feed_routes.create_list')
             .feed-route-picker__create-fields{ id: "#{dom}-create-fields", hidden: true }
               %label{ for: "#{dom}-new-title" }= t('external_bridge.feed_routes.list_title')
-              %input.feed-route-picker__create-input{ type: 'text', id: "#{dom}-new-title", maxlength: Settings::ExternalServices::FeedRouteListsController::TITLE_LIMIT, autocomplete: 'off', data: { feed_route_create_input: true } }
+              %input.feed-route-picker__create-input{ type: 'text', id: "#{dom}-new-title", maxlength: ExternalServices::CreateFeedRouteList::TITLE_LIMIT, autocomplete: 'off', data: { feed_route_create_input: true } }
               .feed-route-picker__create-actions
                 %button.button{ type: 'button', data: { feed_route_create_submit: true } }= t('external_bridge.feed_routes.create')
                 %button.button.button-secondary{ type: 'button', data: { feed_route_create_cancel: true } }= t('external_bridge.feed_routes.cancel')

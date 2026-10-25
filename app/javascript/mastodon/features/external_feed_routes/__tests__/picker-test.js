@@ -237,6 +237,116 @@ describe('initializeFeedRoutePickers', () => {
     expect(submit.disabled).toBe(false);
   });
 
+  describe('while a list is being created', () => {
+    const deferred = () => {
+      const result = {};
+      result.promise = new Promise((resolve) => {
+        result.resolve = resolve;
+      });
+      return result;
+    };
+
+    const startCreate = (title) => {
+      const dialog = document.querySelector('dialog');
+      const opener = document.querySelector('button.feed-route-picker__open');
+      opener.click();
+      dialog.querySelector('[data-feed-route-create-toggle]').click();
+      dialog.querySelector('[data-feed-route-create-input]').value = title;
+      dialog.querySelector('[data-feed-route-create-submit]').click();
+      return { dialog, opener };
+    };
+
+    const created = (id) => respond(201, { id, title: `List ${id}`, message: `Created ${id}` });
+
+    it('blocks saving the destinations until the list exists', async () => {
+      document.body.innerHTML = pickerMarkup(1);
+      initializeFeedRoutePickers(document);
+      const pending = deferred();
+      global.fetch.mockReturnValue(pending.promise);
+
+      const { dialog } = startCreate('Slow');
+      const form = dialog.querySelector('form');
+      const save = form.querySelector('button[type="submit"]');
+      const submitted = new Event('submit', { bubbles: true, cancelable: true });
+
+      expect(save.disabled).toBe(true);
+      expect(form.dispatchEvent(submitted)).toBe(false);
+
+      pending.resolve(created('42'));
+      await flush();
+
+      expect(save.disabled).toBe(false);
+      expect(form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))).toBe(true);
+      expect(document.getElementById('feed-route-1-list-42').checked).toBe(true);
+    });
+
+    it('does not select the list in a dialog closed before the response arrives', async () => {
+      document.body.innerHTML = pickerMarkup(1);
+      initializeFeedRoutePickers(document);
+      const pending = deferred();
+      global.fetch.mockReturnValue(pending.promise);
+
+      const { dialog, opener } = startCreate('Late');
+      dialog.close();
+      pending.resolve(created('42'));
+      await flush();
+
+      const late = document.getElementById('feed-route-1-list-42');
+      expect(late.checked).toBe(false);
+      expect(dialog.querySelector('[data-feed-route-status]').textContent).toBe('');
+      expect(dialog.querySelector('button[type="submit"]').disabled).toBe(false);
+
+      opener.click();
+      expect(late.checked).toBe(false);
+      expect(dialog.querySelector('.feed-route-picker__create-fields').hidden).toBe(true);
+    });
+
+    it('ignores an old response after the dialog is closed and reopened', async () => {
+      document.body.innerHTML = pickerMarkup(1);
+      initializeFeedRoutePickers(document);
+      const first = deferred();
+      const second = deferred();
+      global.fetch.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+      const { dialog, opener } = startCreate('First');
+      dialog.close();
+      opener.click();
+      dialog.querySelector('[data-feed-route-create-toggle]').click();
+      dialog.querySelector('[data-feed-route-create-input]').value = 'Second';
+      dialog.querySelector('[data-feed-route-create-submit]').click();
+
+      first.resolve(created('1'));
+      await flush();
+
+      expect(document.getElementById('feed-route-1-list-1').checked).toBe(false);
+      expect(dialog.querySelector('[data-feed-route-create-submit]').disabled).toBe(true);
+      expect(dialog.querySelector('[data-feed-route-status]').textContent).toBe('');
+
+      second.resolve(created('2'));
+      await flush();
+
+      expect(document.getElementById('feed-route-1-list-2').checked).toBe(true);
+      expect(dialog.querySelector('[data-feed-route-status]').textContent).toBe('Created 2');
+    });
+
+    it('does not select the list after the creation itself was cancelled', async () => {
+      document.body.innerHTML = pickerMarkup(1);
+      initializeFeedRoutePickers(document);
+      const pending = deferred();
+      global.fetch.mockReturnValue(pending.promise);
+
+      const { dialog } = startCreate('Cancelled');
+      dialog.querySelector('button[data-feed-route-create-cancel]').click();
+      expect(dialog.querySelector('button[type="submit"]').disabled).toBe(false);
+
+      pending.resolve(created('9'));
+      await flush();
+
+      expect(document.getElementById('feed-route-1-list-9').checked).toBe(false);
+      expect(dialog.hasAttribute('open')).toBe(true);
+    });
+  });
+
   it('leaves pickers without a create section working', () => {
     document.body.innerHTML = pickerMarkup(1, { create: false });
     expect(() => initializeFeedRoutePickers(document)).not.toThrow();
