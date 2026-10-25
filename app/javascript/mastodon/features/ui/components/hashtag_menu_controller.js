@@ -40,6 +40,7 @@ class HashtagMenuController extends React.PureComponent {
   state = {
     element: null,
     hashtag: '',
+    hashtagUrl: '',
     accountId: '',
     statusId: '',
     accountName: '',
@@ -65,6 +66,7 @@ class HashtagMenuController extends React.PureComponent {
     this.setState({
       element: null,
       hashtag: '',
+      hashtagUrl: '',
       accountId: '',
       statusId: '',
       accountName: '',
@@ -106,6 +108,7 @@ class HashtagMenuController extends React.PureComponent {
     this.setState({
       element: link,
       hashtag,
+      hashtagUrl: link.href || '',
       accountId: link.getAttribute('data-account-id') || '',
       statusId: link.getAttribute('data-status-id') || '',
       accountName: link.getAttribute('data-account-name') || '',
@@ -131,6 +134,55 @@ class HashtagMenuController extends React.PureComponent {
     copyText(labels.join(' '));
   }
 
+  accountAcct () {
+    const account = this.props.accounts && this.props.accounts.get(this.state.accountId);
+
+    return account && account.get('acct') ? String(account.get('acct')) : '';
+  }
+
+  // Only an account that is known to be local is treated as local. Anything else
+  // (remote, or not in the store yet) never gets a guessed public URL.
+  isLocalAccount () {
+    const acct = this.accountAcct();
+
+    return acct !== '' && !acct.includes('@');
+  }
+
+  // href is used only by direct navigation (new tab, copied link), so it points to
+  // the original public page: Fedibird's signed-out pages for local posts, and the
+  // remote server's own tag link for remote posts. Out-of-band badges carry a
+  // Fedibird URL even for remote posts (TagSerializer#url), which is not the original,
+  // so a same-origin link of a remote post is treated as unknown (null, no href).
+  tagHref () {
+    const { hashtag, hashtagUrl } = this.state;
+
+    if (this.isLocalAccount()) {
+      return `${window.location.origin}/tags/${encodeURIComponent(hashtag)}`;
+    }
+
+    try {
+      const url = new URL(hashtagUrl);
+
+      if ((url.protocol === 'https:' || url.protocol === 'http:') && url.origin !== window.location.origin) {
+        return url.href;
+      }
+    } catch (e) {
+      // not a usable URL
+    }
+
+    return null;
+  }
+
+  // The remote equivalent of /@user/tagged/:tag is not known for non-Mastodon servers,
+  // so only local accounts get an href.
+  accountTagHref () {
+    if (!this.isLocalAccount()) {
+      return null;
+    }
+
+    return `${window.location.origin}/@${encodeURIComponent(this.accountAcct())}/tagged/${encodeURIComponent(this.state.hashtag)}`;
+  }
+
   menuItems () {
     const { intl } = this.props;
     const hashtag = this.state.hashtag;
@@ -139,12 +191,12 @@ class HashtagMenuController extends React.PureComponent {
     const items = [
       {
         text: intl.formatMessage(messages.browse, { hashtag }),
-        href: tagPath,
+        href: this.tagHref(),
         to: tagPath,
       },
       {
         text: intl.formatMessage(messages.browseAccount, { hashtag, name: this.accountLabel() }),
-        href: accountPath,
+        href: this.accountTagHref(),
         to: accountPath,
       },
       null,

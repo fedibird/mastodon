@@ -121,7 +121,7 @@ export class DropdownMenu extends React.PureComponent {
 
     return (
       <li className={classNames('dropdown-menu__item', { 'dropdown-menu__item--dangerous': dangerous })} key={`${text}-${i}`}>
-        <a href={href} target={target} data-method={method} rel='noopener noreferrer' role='button' tabIndex='0' ref={setRef} onClick={onClick} onKeyPress={onKeyPress} data-index={i}>
+        <a href={href === null ? undefined : href} target={target} data-method={method} rel='noopener noreferrer' role='button' tabIndex='0' ref={setRef} onClick={onClick} onKeyPress={onKeyPress} data-index={i}>
           {text}
         </a>
       </li>
