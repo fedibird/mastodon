@@ -263,6 +263,55 @@ RSpec.describe Api::V1::Statuses::EmojiReactionsController, type: :controller do
     end
   end
 
+  describe 'success means a row, except the known remote-emoji no-op' do
+    it 'returns 503 when a lost insert cannot see a row' do
+      status = Fabricate(:status, account: author)
+      allow(EmojiReaction).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique)
+
+      with_flags(on_flags) { put_emoji(status) }
+
+      expect(response).to have_http_status(503)
+      expect(response.body).not_to include(status.text)
+      expect(reaction_count(status)).to eq 0
+    end
+
+    it 'returns 200 for a new reaction only together with the row' do
+      status = Fabricate(:status, account: author)
+
+      with_flags(on_flags) { put_emoji(status) }
+
+      expect(response).to have_http_status(200)
+      expect(body['id']).to eq status.id.to_s
+      expect(reaction_count(status)).to eq 1
+    end
+
+    it 'keeps the remote custom emoji no-op as 200 without a row' do
+      status = Fabricate(:status, account: author, text: 'remote-emoji-host')
+      Fabricate(:custom_emoji, shortcode: 'remoteblob', domain: 'emoji.example')
+
+      with_flags(on_flags) { put_emoji(status, 'remoteblob@emoji.example') }
+
+      expect(response).to have_http_status(200)
+      expect(reaction_count(status)).to eq 0
+    end
+
+    it 'returns 422 for a boost chain that is still a boost after the hop cap' do
+      current = Fabricate(:status, account: author, text: 'chain-root-secret')
+      (EmojiReactionCapability::WriteTarget::MAX_REBLOG_HOPS + 1).times do
+        wrapper = Fabricate(:status, text: 'chain-wrapper')
+        wrapper.update_columns(reblog_of_id: current.id)
+        current = wrapper.reload
+      end
+
+      with_flags(on_flags) { put_emoji(current) }
+
+      expect(response).to have_http_status(422)
+      expect(response.body).to include(I18n.t('reactions.errors.unresolved_boost'))
+      expect(response.body).not_to include('chain-root-secret')
+      expect(EmojiReaction.where(account: user.account)).not_to exist
+    end
+  end
+
   describe 'shadow observation' do
     let(:domain) { "shadow-#{SecureRandom.hex(4)}.example" }
     let(:remote_author) do

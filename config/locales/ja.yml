@@ -1969,6 +1969,7 @@ ja:
     errors:
       limit_reached: リアクションの種類が上限に達しました
       unrecognized_emoji: は絵文字として認識されていません
+      unresolved_boost: このブーストは元投稿まで解決できません
   relationships:
     activity: 活動
     dormant: 非アクティブ

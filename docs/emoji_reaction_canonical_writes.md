@@ -9,7 +9,7 @@ This change makes two legacy write bugs optional, each behind its own flag. Both
 | Variable | Default | When `true` |
 |---|---|---|
 | `EMOJI_REACTION_CANONICAL_WRITES` | unset (off) | Lookup, insert, the remote-custom-emoji availability check, the per-account cap, and undo all use `status.proper` (the original of a boost). `show?` on the URL status is unchanged. A boost also requires `show?` on that original, and `ExternalBridge::Guards.reject_target!` runs on it as well as on the URL status. The REST body is still the URL status. |
-| `EMOJI_REACTION_IDEMPOTENT_RETRY` | unset (off) | A `PUT` that finds an existing `(account, write status, name)` row returns success and does not call `NotifyService`, enqueue `DeliveryWorker` or `CustomEmojiDistributionWorker`, bump `PotentialFriendshipTracker` / `ActivityTracker`, or record a moderation reaction. A lost `RecordNotUnique` insert is the same: the loser re-reads the row (including the row `before_validation` stored on the boosted status) and does not repeat those side effects. The insert runs in a savepoint so an outer transaction stays usable. |
+| `EMOJI_REACTION_IDEMPOTENT_RETRY` | unset (off) | A `PUT` that finds an existing `(account, write status, name)` row returns success and does not call `NotifyService`, enqueue `DeliveryWorker` or `CustomEmojiDistributionWorker`, bump `PotentialFriendshipTracker` / `ActivityTracker`, or record a moderation reaction. A lost `RecordNotUnique` insert is the same only when the re-read finds that row (including the row `before_validation` stored on the boosted status): no repeated side effects. The insert runs in a savepoint so an outer transaction stays usable. If the row is still missing after 3 attempts, the service raises `Mastodon::RaceConditionError` (HTTP 503). That is not a 200. |
 
 Only the exact string `true` turns a flag on. `1`, `TRUE`, and `on` are off. The value is read from the process environment on each write. There is no `Setting` row.
 
@@ -26,9 +26,17 @@ P1a shadow hooks are unchanged and still run only from the legacy delivery path.
 
 Idempotent retry alone does not make a boost repeat succeed once the per-account cap is already reached. Canonical writes alone do not stop a repeat from notifying, delivering, or bumping friendship. Staging that wants both properties turns **both** flags on.
 
-Friendship and the moderation event for a **new** reaction still use the status named in the request (the boost, when the client sent the boost). That matches the code before this change. Delivery and the stored row use the original, which a successful create already did.
+Friendship and the moderation event for a **new** reaction still use the status named in the request (the boost, when the client sent the boost). Delivery and the stored row use the original author, which a successful create already did. That split is the pre-P1b-1a behavior. A later interaction-resolver or audit pass may want them to name the same account. This PR does not change it.
 
 An expired or discarded original is hidden from the `reblog` association, so `reblog?` is false and both the legacy callback and the resolver leave the boost as the target. This does not newly reveal that original.
+
+A hand-built chain longer than 5 boosts, or a cycle, raises `Mastodon::ValidationError` (HTTP 422) when the canonical flag is on. The walk does not stop on an intermediate boost and insert there. With the flag off, `before_validation` still rewrites one step and does not raise.
+
+A 200 from these actions means the reaction row exists, except one pre-existing silent no-op: a remote custom emoji that is not already used on the target status returns 200 and writes nothing (design Q8, unchanged here).
+
+## Extra reads when the canonical flag is on
+
+`authorize_canonical_target!` and each service call `WriteTarget.resolve` separately. For a boost, each call loads the original (`reblog`, then `proper`). One request therefore reads it twice. Count those queries before enabling the flag. The idempotent flag adds a savepoint around the insert and does not add that read.
 
 ## What stays on the old path
 

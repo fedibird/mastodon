@@ -18,11 +18,19 @@ module EmojiReactionCapability
       return status if status.nil? || !WriteConfig.canonical_writes?
 
       current = status
+      seen = {}
       hops = 0
-      while current.reblog? && hops < MAX_REBLOG_HOPS
+      while current.reblog? && hops < MAX_REBLOG_HOPS && !seen[current.id]
+        seen[current.id] = true
         current = current.proper
         hops += 1
       end
+
+      # A hop cap that stops on another boost would insert there, and
+      # before_validation would move the row one step further. A cycle has
+      # the same problem. Fail instead of writing that partial target.
+      raise Mastodon::ValidationError, I18n.t('reactions.errors.unresolved_boost') if current.reblog?
+
       current
     end
   end

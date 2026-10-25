@@ -273,14 +273,41 @@ RSpec.describe 'Emoji reaction canonical writes' do
       end
     end
 
-    it 'returns nil when a lost insert has no visible row' do
+    it 'fails a lost insert that cannot see a row and leaves the outer transaction usable' do
       status = Fabricate(:status, account: author)
       allow(EmojiReaction).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique)
 
       with_flags(canonical: true, idempotent: true) do
-        expect(react(status)).to be_nil
+        ActiveRecord::Base.transaction do
+          expect { react(status) }.to raise_error(Mastodon::RaceConditionError)
+          expect(Status.find(status.id).id).to eq status.id
+        end
       end
+
+      expect(EmojiReaction).to have_received(:create!).exactly(EmojiReactionService::MAX_LOST_INSERT_ATTEMPTS).times
       expect(reaction_rows).to be_empty
+      expect(distribution_jobs).to be_empty
+      expect(Notification.where(activity_type: 'EmojiReaction')).to be_empty
+    end
+
+    it 'retries a lost insert until the winning row is visible' do
+      status = Fabricate(:status, account: author)
+      existing = EmojiReaction.create!(account: reactor, status: status, name: '👍')
+      finds = 0
+      allow(EmojiReaction).to receive(:find_by).and_wrap_original do |method, *args|
+        finds += 1
+        finds < 3 ? nil : method.call(*args)
+      end
+      allow(EmojiReaction).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique)
+      allow(PotentialFriendshipTracker).to receive(:record)
+
+      with_flags(canonical: true, idempotent: true) do
+        expect(react(status).id).to eq existing.id
+      end
+
+      expect(distribution_jobs).to be_empty
+      expect(PotentialFriendshipTracker).not_to have_received(:record)
+      expect(reaction_rows.count).to eq 1
     end
 
     it 'propagates an unexpected create error' do
@@ -424,6 +451,56 @@ RSpec.describe 'Emoji reaction canonical writes' do
           expect(delivery_jobs).to be_empty
         end
       end
+    end
+  end
+
+  describe 'boost chain depth' do
+    def chain(depth)
+      current = Fabricate(:status, account: author, text: 'chain-root')
+      depth.times do
+        wrapper = Fabricate(:status, text: 'chain-wrapper')
+        wrapper.update_columns(reblog_of_id: current.id)
+        current = wrapper.reload
+      end
+      current
+    end
+
+    it 'resolves a chain within the hop cap onto the root' do
+      outer = chain(EmojiReactionCapability::WriteTarget::MAX_REBLOG_HOPS)
+
+      with_flags(canonical: true, idempotent: true) do
+        expect(react(outer).status_id).to eq EmojiReactionCapability::WriteTarget.resolve(outer).id
+        expect(EmojiReaction.find_by(account: reactor, name: '👍').status.text).to eq 'chain-root'
+      end
+    end
+
+    it 'refuses a chain that is still a boost after the hop cap' do
+      outer = chain(EmojiReactionCapability::WriteTarget::MAX_REBLOG_HOPS + 1)
+
+      with_flags(canonical: true, idempotent: true) do
+        expect { react(outer) }.to raise_error(Mastodon::ValidationError, I18n.t('reactions.errors.unresolved_boost'))
+      end
+      expect(reaction_rows).to be_empty
+    end
+
+    it 'keeps the one-step legacy rewrite for a deep chain when the flag is off' do
+      outer = chain(EmojiReactionCapability::WriteTarget::MAX_REBLOG_HOPS + 1)
+
+      with_flags(canonical: false, idempotent: false) do
+        expect(react(outer).status_id).to eq outer.reblog_of_id
+      end
+    end
+
+    it 'refuses a reblog cycle instead of walking it forever' do
+      left = Fabricate(:status, text: 'cycle-left')
+      right = Fabricate(:status, text: 'cycle-right')
+      left.update_columns(reblog_of_id: right.id)
+      right.update_columns(reblog_of_id: left.id)
+
+      with_flags(canonical: true, idempotent: true) do
+        expect { react(left.reload) }.to raise_error(Mastodon::ValidationError)
+      end
+      expect(reaction_rows).to be_empty
     end
   end
 

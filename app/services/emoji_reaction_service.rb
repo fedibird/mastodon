@@ -4,6 +4,11 @@ class EmojiReactionService < BaseService
   include Authorization
   include Payloadable
 
+  # A lost insert is retried only while the idempotent flag is on. Each
+  # attempt re-reads the row the unique index points at. Giving up raises
+  # instead of returning success with no row.
+  MAX_LOST_INSERT_ATTEMPTS = 3
+
   def call(account, status, emoji)
     @account          = account
     @requested_status = status
@@ -22,7 +27,6 @@ class EmojiReactionService < BaseService
     return if remote_custom_emoji_unavailable?(write_status, custom_emoji, domain)
 
     emoji_reaction, newly_reacted = find_or_create_reaction(write_status, shortcode, custom_emoji)
-    return if emoji_reaction.nil?
 
     emoji_reaction.tap { |reaction| apply_create_effects(reaction, newly_reacted) }
   end
@@ -39,16 +43,30 @@ class EmojiReactionService < BaseService
   # still runs the legacy side effects. With it on, the insert sits in a
   # savepoint so the outer transaction stays usable, the loser re-reads, and
   # notification, delivery, friendship, and moderation do not run again.
+  # Success is returned only when that re-read finds the row. If it does not,
+  # the insert is retried up to MAX_LOST_INSERT_ATTEMPTS and then raises.
   def find_or_create_reaction(write_status, shortcode, custom_emoji)
     attrs = { account_id: @account.id, status_id: write_status.id, name: shortcode }
-    emoji_reaction = EmojiReaction.find_by(attrs)
-    return [emoji_reaction, false] if emoji_reaction
+    attempts = 0
 
-    begin
-      [insert_reaction(attrs, custom_emoji), true]
-    rescue ActiveRecord::RecordNotUnique
-      [recover_lost_insert(attrs), false]
+    loop do
+      attempts += 1
+      existing = EmojiReaction.find_by(attrs)
+      return [existing, false] if existing
+
+      begin
+        return [insert_reaction(attrs, custom_emoji), true]
+      rescue ActiveRecord::RecordNotUnique
+        recovered = recover_lost_insert(attrs)
+        return [recovered, false] if recovered
+
+        raise Mastodon::RaceConditionError unless retry_lost_insert?(attempts)
+      end
     end
+  end
+
+  def retry_lost_insert?(attempts)
+    EmojiReactionCapability::WriteConfig.idempotent_retry? && attempts < MAX_LOST_INSERT_ATTEMPTS
   end
 
   def insert_reaction(attrs, custom_emoji)

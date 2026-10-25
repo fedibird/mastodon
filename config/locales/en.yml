@@ -2035,6 +2035,7 @@ en:
     errors:
       limit_reached: Limit of different reactions reached
       unrecognized_emoji: is not a recognized emoji
+      unresolved_boost: This boost cannot be resolved to an original post
   relationships:
     activity: Account activity
     dormant: Dormant
