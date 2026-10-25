@@ -300,6 +300,7 @@ Rails.application.routes.draw do
   end
 
   get '/public', to: 'public_timelines#show', as: :public_timeline
+  get '/external_source_icons/:id/:fingerprint', to: 'external_source_icons#show', as: :external_source_icon, format: false, constraints: { id: /\d+/, fingerprint: /[0-9a-f]{64}/ }
   get '/media_proxy/:id/(*any)', to: 'media_proxy#show', as: :media_proxy, format: false
   get '/backups/:id/download', to: 'backups#download', as: :download_backup, format: false
 

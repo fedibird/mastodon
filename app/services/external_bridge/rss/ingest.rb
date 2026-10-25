@@ -21,7 +21,8 @@ module ExternalBridge
             etag: response.etag,
             last_modified: response.last_modified,
             fetched_at: Time.current,
-            checked_at: Time.current
+            checked_at: Time.current,
+            **icon_hint_attributes(source, feed)
           )
           actor = upsert_actor!(source, feed)
           written = feed.items.map { |item| upsert_resource!(source, actor, item) }
@@ -39,6 +40,20 @@ module ExternalBridge
       end
 
       private
+
+      # The feed-declared icon candidates ride along with the public write so
+      # the icon job never has to fetch the feed again. A changed declaration
+      # makes the icon due again, but at most once an hour, so a feed that
+      # rewrites its icon URL on every request cannot cause a download per poll.
+      def icon_hint_attributes(source, feed)
+        hints = feed.icon_hints
+        return {} if source.icon_hints == hints
+
+        attributes = { icon_hints: hints }
+        recently_checked = source.icon_checked_at.present? && source.icon_checked_at > 1.hour.ago
+        attributes[:icon_next_check_at] = nil if !source.icon_hints.nil? && !recently_checked
+        attributes
+      end
 
       def upsert_actor!(source, feed)
         save_once(ExternalActor, protocol: source.protocol, native_id: source.canonical_key) do |actor|

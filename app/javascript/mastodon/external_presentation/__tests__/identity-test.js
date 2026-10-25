@@ -101,6 +101,14 @@ describe('externalIdentityOf', () => {
     expect(identity.thumbnailUrl).toBeNull();
   });
 
+  it('keeps the stored feed icon that the server delivers from the page origin', () => {
+    const url = `${window.location.origin}/external_source_icons/7/${'a'.repeat(64)}`;
+    const identity = externalIdentityOf(external({}, { presentation: presentation({ icon_url: url }) }));
+
+    expect(identity.iconUrl).toBe(url);
+    expect(identity.thumbnailUrl).toBeNull();
+  });
+
   it('keeps text as plain text and bounds its length', () => {
     const identity = externalIdentityOf(external({}, { presentation: presentation({ name: `<img src=x onerror=alert(1)>\u202Eevil\n${'a'.repeat(400)}`, byline_name: 42 }) }));
 

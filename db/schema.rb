@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_30_120000) do
+ActiveRecord::Schema.define(version: 2026_10_31_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -825,6 +825,20 @@ ActiveRecord::Schema.define(version: 2026_10_30_120000) do
     t.text "site_url"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+    t.string "icon_file_name"
+    t.string "icon_content_type"
+    t.bigint "icon_file_size"
+    t.datetime "icon_updated_at"
+    t.string "icon_fingerprint"
+    t.text "icon_remote_url"
+    t.string "icon_origin"
+    t.text "icon_etag"
+    t.text "icon_last_modified"
+    t.jsonb "icon_hints"
+    t.datetime "icon_checked_at"
+    t.datetime "icon_next_check_at"
+    t.integer "icon_failure_count", default: 0, null: false
+    t.string "icon_error_code"
     t.index ["canonical_key"], name: "index_external_sources_on_canonical_key"
     t.index ["protocol", "canonical_key"], name: "index_external_sources_on_protocol_and_canonical_key", unique: true
     t.check_constraint "(protocol)::text = ANY ((ARRAY['rss'::character varying, 'atom'::character varying])::text[])", name: "external_sources_protocol_check"

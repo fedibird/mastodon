@@ -171,5 +171,11 @@ end
 
 RSpec.configure do |config|
   config.include ExternalBridgeHelpers
+  # Sidekiq runs inline in specs. The icon job would fetch a site page and a
+  # favicon after every subscription, so it is replaced by a recorded no-op
+  # unless an example opts in with `and_call_original`.
+  config.before do
+    allow(ExternalBridge::RSS::IconRefreshWorker).to receive(:perform_async).and_return('icon-jid')
+  end
   config.after { ExternalBridge::Viewer.reset }
 end

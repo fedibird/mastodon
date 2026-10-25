@@ -11,8 +11,16 @@ module ExternalBridge
       SAFE_FORMAT_VALUES = %w(rss atom xml feed).freeze
       MAX_DECODE = 8
 
-      def self.normalize!(value)
-        new(value).normalize!
+      # Feed icons and site pages are public assets, and CDNs routinely append a
+      # cache-busting version. Only these names are kept, only as a short
+      # token-free value, and never more than a few pairs. Any other name
+      # (token, key, sig, auth, expires, ...) still fails closed.
+      ASSET_QUERY_NAMES = %w(v ver version rev r t ts w h width height size s format cb).freeze
+      ASSET_QUERY_VALUE = /\A[A-Za-z0-9._-]{1,32}\z/.freeze
+      ASSET_QUERY_PAIRS = 3
+
+      def self.normalize!(value, asset: false)
+        new(value, asset: asset).normalize!
       end
 
       def self.safe_http?(value)
@@ -22,8 +30,9 @@ module ExternalBridge
         false
       end
 
-      def initialize(value)
+      def initialize(value, asset: false)
         @value = value.to_s
+        @asset = asset
       end
 
       def normalize!
@@ -69,6 +78,7 @@ module ExternalBridge
       def reject_query!(uri)
         return if uri.query.nil?
         raise Error, :authenticated_source_rejected if uri.query.blank? || malformed_percent?(uri.query)
+        return reject_asset_query!(uri) if @asset
 
         pairs = uri.query.split(/[&;]/)
         raise Error, :authenticated_source_rejected unless pairs.one?
@@ -83,6 +93,24 @@ module ExternalBridge
         raise Error, :authenticated_source_rejected unless SAFE_FORMAT_VALUES.include?(decoded_value.downcase)
 
         uri.query = "#{decoded_name.downcase}=#{decoded_value.downcase}"
+      end
+
+      def reject_asset_query!(uri)
+        pairs = uri.query.split('&', -1)
+        raise Error, :authenticated_source_rejected if pairs.empty? || pairs.size > ASSET_QUERY_PAIRS
+
+        kept = pairs.map do |pair|
+          name, value = pair.split('=', 2)
+          decoded_name = fully_decode(name)
+          decoded_value = fully_decode(value)
+          raise Error, :authenticated_source_rejected if decoded_name.blank? || decoded_value.blank?
+          raise Error, :authenticated_source_rejected unless ASSET_QUERY_NAMES.include?(decoded_name.downcase)
+          raise Error, :authenticated_source_rejected unless ASSET_QUERY_VALUE.match?(decoded_value)
+
+          "#{decoded_name.downcase}=#{decoded_value}"
+        end
+
+        uri.query = kept.join('&')
       end
 
       def fully_decode(raw)
