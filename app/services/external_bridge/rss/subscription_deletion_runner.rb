@@ -58,6 +58,9 @@ module ExternalBridge
       #
       # @return [Symbol] :completed, :continue, :failed, :gone, :stopped
       def call(deletion_id)
+        # Outside the claim transaction. A Redis error here must not fail the
+        # deletion, and must not run from an after_commit callback.
+        SubscriptionRemovedNotice.push!(ExternalSubscriptionDeletion.find_by(id: deletion_id))
         started = monotonic
         deletion = claim!(deletion_id)
         return :gone if deletion.nil?

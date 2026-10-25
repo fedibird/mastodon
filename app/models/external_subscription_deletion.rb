@@ -19,6 +19,7 @@
 #  started_at               :datetime
 #  last_progress_at         :datetime
 #  finished_at              :datetime
+#  control_enqueued_at      :datetime
 #  created_at               :datetime         not null
 #  updated_at               :datetime         not null
 #

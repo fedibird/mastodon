@@ -58,6 +58,7 @@ module ExternalBridge
                .order(Arel.sql('removal_next_attempt_at ASC NULLS FIRST, updated_at ASC'))
                .limit(BATCH)
                .pluck(:id, :wrapper_status_id)
+        Checkpoints.fire(:removal_scan_after_select)
         rows.count do |id, wrapper_id|
           next false unless claim(id, wrapper_id)
 
@@ -73,6 +74,7 @@ module ExternalBridge
         ExternalProjectionLinkBoost
           .where(id: id, state: 'undone', wrapper_status_id: wrapper_id, removal_acknowledged_at: nil)
           .where('removal_next_attempt_at IS NULL OR removal_next_attempt_at <= NOW()')
+          .where('removal_lease_until IS NULL OR removal_lease_until <= NOW()')
           .update_all(['removal_next_attempt_at = NOW() + make_interval(secs => ?)', HOLD.to_i]).positive?
       end
 

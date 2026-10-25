@@ -56,6 +56,24 @@ module ExternalBridge
         end
       end
 
+      # Pushes a control event now, outside AfterOuterCommit. The caller is
+      # already past the commit that made the event true, and has to rescue a
+      # Redis error itself: an exception from an after_commit callback is raised
+      # into the code that committed, after the database commit, and would turn
+      # an accepted unsubscribe into an HTTP 500.
+      #
+      # @return [Symbol] :pushed, :skipped (nobody to tell), or the call raises
+      def self.deliver_control!(**delivery)
+        user = User.find_by(id: delivery[:user_id])
+        return :skipped unless user&.functional? && Feeds::Feature.permitted?(user)
+
+        payload = control_payload(delivery)
+        return :skipped if payload.nil?
+
+        StreamControlWorker.perform_async(user.id.to_s, payload)
+        :pushed
+      end
+
       def self.schedule_deletes!(captures)
         Array(captures).each_slice(DELETE_BATCH) do |batch|
           cleaned = batch.filter_map { |row| clean_delete(row) }

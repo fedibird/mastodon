@@ -138,6 +138,35 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect { ExternalBridge::RSS::Subscribe.new.unsubscribe!(user: user, subscription_id: 'abc') }.to error_code('not_found')
     end
 
+    it 'accepts the unsubscribe when the streaming push fails during the request, and the deletion job can send the event' do
+      world = world_with(1)
+      list = Fabricate(:list, account: user.account)
+      save_routes(world, home: true, list_ids: [list.id])
+      ExternalBridge::StreamControlWorker.clear
+      allow(ExternalBridge::StreamControlWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError)
+
+      deletion = unsubscribe!(world)
+
+      expect(deletion).to be_queued
+      expect(deletion.control_enqueued_at).to be_nil
+      expect(deletion.route_targets).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
+      expect(world[:subscription].reload.state).to eq 'deleting'
+      expect(ExternalFeedRoute.where(external_subscription_id: world[:subscription].id)).to be_empty
+      expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 1
+
+      allow(ExternalBridge::StreamControlWorker).to receive(:perform_async).and_call_original
+      ExternalBridge::StreamControlWorker.clear
+      expect(ExternalBridge::RSS::SubscriptionRemovedNotice.push!(deletion.reload)).to be true
+
+      expect(deletion.reload.control_enqueued_at).to be_present
+      payload = ExternalBridge::StreamControlWorker.jobs.last['args'].second
+      expect(payload['reason']).to eq 'subscription_removed'
+      expect(payload['subscription_id']).to eq world[:subscription].id.to_s
+      expect(payload['targets']).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
+      expect(ExternalBridge::RSS::SubscriptionRemovedNotice.push!(deletion)).to be false
+      expect(ExternalBridge::StreamControlWorker.jobs.size).to eq 1
+    end
+
     it 'keeps the subscription fenced and the record queued when Sidekiq refuses the push' do
       world = world_with(2)
       allow(ExternalBridge::RSS::SubscriptionDeletionWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError)

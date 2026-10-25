@@ -6,6 +6,7 @@ module ExternalBridge
     # Names: :after_ownership_check, :after_policy_lock, :before_status_create, :before_mapping_insert,
     # :before_boost_lock, :before_boost_create, :announce_intent_before_commit,
     # :announce_between_phases, :removal_before_acknowledge,
+    # :removal_scan_after_select,
     # :announce_after_enqueue.
     module Checkpoints
       EVENT = 'external_bridge.link_sharing'

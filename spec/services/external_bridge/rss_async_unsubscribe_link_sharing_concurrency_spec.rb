@@ -234,6 +234,33 @@ describe 'ExternalBridge unsubscribe and link sharing concurrency', type: :model
     expect(Status.unscoped.exists?(wrapper_id)).to be false
   end
 
+  it 'does not push a removal hold when a worker takes the lease after the scan has read the row' do
+    build_world
+    result = ExternalBridge::LinkSharing::Boost.call(user: @user, status: @world[:status])
+    result.boost.update_columns(announced_at: Time.current, announce_enqueued_at: Time.current)
+    ApplicationRecord.transaction { ExternalBridge::LinkSharing::Retire.end!(result.boost.reload, reason: 'projection_purged') }
+    wrapper_id = result.wrapper.id
+    result.boost.reload.update_columns(updated_at: 2.hours.ago, removal_next_attempt_at: nil, removal_lease_until: nil, removal_lease_token: nil)
+    pause_checkpoint!(:removal_scan_after_select)
+    ExternalBridge::LinkWrapperRemovalWorker.clear
+
+    scanner = in_thread(pause_at: :removal_scan_after_select) { ExternalBridge::LinkSharing::RecoverRemovals.call(settle: 0.seconds) }
+    @entered.pop
+    begin
+      expect(ExternalBridge::LinkSharing::Retire.claim_removal!(wrapper_id, 'worker-token', 5.minutes)).to be true
+    ensure
+      @release << true
+      scanner.join
+    end
+
+    expect(scanner[:error]).to be_nil
+    expect(scanner.value).to eq 0
+    boost = ExternalProjectionLinkBoost.find(result.boost.id)
+    expect(boost.removal_lease_token).to eq 'worker-token'
+    expect(boost.removal_next_attempt_at).to be_nil
+    expect(ExternalBridge::LinkWrapperRemovalWorker.jobs).to be_empty
+  end
+
   def advisory_locks
     ActiveRecord::Base.connection.select_value("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())").to_i
   end

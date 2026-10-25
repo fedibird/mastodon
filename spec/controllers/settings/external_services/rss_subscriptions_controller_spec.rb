@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# rubocop:disable Metrics/BlockLength
+
 require 'rails_helper'
 
 describe Settings::ExternalServices::RSSSubscriptionsController do
@@ -92,6 +94,30 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     expect(filtered.to_s).not_to include('secret-token')
   end
 
+  it 'redirects after accepting an unsubscribe even when the streaming push fails' do
+    sign_in tester, scope: :user
+    owned = project_for(tester)
+    list = Fabricate(:list, account: tester.account)
+    enable_external_bridge_feeds!(tester)
+    ExternalBridge::FeedRoutes::Update.new.call(
+      user: tester, subscription_id: owned[:subscription].id, home: true, list_ids: [list.id],
+      expected_revision: owned[:subscription].feed_routes_revision
+    )
+    allow(ExternalBridge::StreamControlWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError)
+
+    Sidekiq::Testing.fake! do
+      delete :destroy, params: { id: owned[:subscription].id }, session: challenge
+    end
+
+    expect(response).to redirect_to(settings_external_services_rss_path)
+    expect(response).to have_http_status(:see_other)
+    expect(flash[:notice]).to eq I18n.t('external_bridge.unsubscribed')
+    expect(owned[:subscription].reload.state).to eq 'deleting'
+    deletion = ExternalSubscriptionDeletion.find_by!(external_subscription_id: owned[:subscription].id)
+    expect(deletion.control_enqueued_at).to be_nil
+    expect(deletion.route_targets).to include({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
+  end
+
   it 'pauses, resumes, and removes only the signed-in user subscription' do
     sign_in tester, scope: :user
     owned = project_for(tester)
@@ -127,3 +153,5 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     expect(foreign[:subscription].reload).to be_present
   end
 end
+
+# rubocop:enable Metrics/BlockLength

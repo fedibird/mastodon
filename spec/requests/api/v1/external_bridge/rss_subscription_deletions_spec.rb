@@ -67,6 +67,26 @@ RSpec.describe 'RSS subscription deletion API' do
       expect(response).to have_http_status(404)
     end
 
+    it 'answers 202 when the streaming push fails, and keeps the fence and the deletion job' do
+      list = Fabricate(:list, account: owner.account)
+      enable_external_bridge_feeds!(owner)
+      ExternalBridge::FeedRoutes::Update.new.call(
+        user: owner, subscription_id: bundle[:subscription].id, home: true, list_ids: [list.id],
+        expected_revision: bundle[:subscription].feed_routes_revision
+      )
+      allow(ExternalBridge::StreamControlWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError)
+
+      delete "/api/v1/external_bridge/rss/subscriptions/#{bundle[:subscription].id}", headers: owner_headers
+
+      expect(response).to have_http_status(202)
+      expect(body_as_json[:state]).to eq 'queued'
+      expect(ExternalSubscription.find(bundle[:subscription].id).state).to eq 'deleting'
+      deletion = ExternalSubscriptionDeletion.find(body_as_json[:id])
+      expect(deletion.control_enqueued_at).to be_nil
+      expect(deletion.route_targets).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
+      expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 1
+    end
+
     it 'hides the subscription of another user, including a roommate, with 404' do
       delete "/api/v1/external_bridge/rss/subscriptions/#{bundle[:subscription].id}", headers: auth_headers_for(roommate)
       expect(response).to have_http_status(404)

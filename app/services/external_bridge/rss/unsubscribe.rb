@@ -6,17 +6,20 @@ module ExternalBridge
     #
     # One short transaction, holding the subscription row FOR UPDATE:
     #
-    #   1. the `subscription_removed` control event is scheduled (it is sent
-    #      after the commit) with the destinations the routes had;
-    #   2. the feed routes are deleted, which takes the subscription's items out
+    #   1. the feed routes are deleted, which takes the subscription's items out
     #      of every home/list read and every streaming membership query at once;
-    #   3. the row moves to `deleting`, the fence every writer respects;
-    #   4. the owner's ExternalSubscriptionDeletion is written.
+    #   2. the row moves to `deleting`, the fence every writer respects;
+    #   3. the owner's ExternalSubscriptionDeletion is written, keeping the
+    #      destinations in route_targets.
     #
-    # Only after that commit is the Sidekiq job pushed. A refused push or a
-    # crashed web process is repaired by the recovery scheduler through
-    # next_run_at, so `deleting` cannot be left behind. A repeated request, a
-    # double click, or a request after completion returns the same record.
+    # After that commit, and only then, two pushes are attempted. Neither can
+    # fail the request: the database accept is already durable. The deletion
+    # job is recovered by the scheduler through next_run_at. The
+    # subscription_removed streaming event is recovered by the same job from
+    # route_targets (SubscriptionRemovedNotice). A live WebUI that misses the
+    # event still drops the items on reload or reconnect, because membership is
+    # read from the routes, which are already gone, and the purge sends a
+    # delete for each status. A repeated request returns the same record.
     class Unsubscribe
       # How long the recovery scheduler leaves a fresh request alone, so it does
       # not race the push that follows the commit.
@@ -26,7 +29,13 @@ module ExternalBridge
         raise Error, :not_found if user.nil?
 
         deletion, created = ApplicationRecord.transaction { accept!(user, subscription_id) }
-        SubscriptionDeletionDispatch.enqueue(deletion.id) if created
+        if created
+          # Both pushes are after the commit and neither is allowed to raise.
+          # A Redis outage leaves the row queued; the scheduler starts the job,
+          # and the job sends subscription_removed from route_targets.
+          SubscriptionRemovedNotice.push!(deletion)
+          SubscriptionDeletionDispatch.enqueue(deletion.id)
+        end
         deletion
       end
 
@@ -56,7 +65,6 @@ module ExternalBridge
 
       def fence!(subscription)
         targets = route_targets(subscription)
-        schedule_removed_event(subscription, targets)
         ExternalFeedRoute.where(external_subscription_id: subscription.id).delete_all
         now = Time.current
         subscription.update_columns(state: ExternalSubscription::DELETING, next_retry_at: nil, updated_at: now)
@@ -79,18 +87,6 @@ module ExternalBridge
             { 'type' => 'list', 'id' => route.list_id.to_s }
           end
         end.uniq
-      end
-
-      def schedule_removed_event(subscription, targets)
-        return if targets.empty?
-
-        Streaming::Scheduler.schedule_control!(
-          user_id: subscription.user_id,
-          subscription_id: subscription.id,
-          reason: 'subscription_removed',
-          revision: subscription.feed_routes_revision,
-          targets: targets
-        )
       end
     end
   end

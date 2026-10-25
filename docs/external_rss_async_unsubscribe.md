@@ -10,18 +10,29 @@ Sidekiq in small transactions and its progress is shown to the owner.
 
 One short transaction, holding the subscription row `FOR UPDATE`:
 
-1. `subscription_removed` (E3 control event) is scheduled after the commit,
-   with the destinations the routes had.
-2. The subscription's `external_feed_routes` are deleted. Every home/list read
+1. The subscription's `external_feed_routes` are deleted. Every home/list read
    (`Feeds::Query`) and every streaming membership query joins the routes, so
    the items disappear from both at once.
-3. `external_subscriptions.state` becomes `deleting` (the fence).
-4. An `external_subscription_deletions` row is written (`queued`, with the
-   route destinations kept in `route_targets` for the later delete events and
-   `next_run_at` as the durable outbox).
+2. `external_subscriptions.state` becomes `deleting` (the fence).
+3. An `external_subscription_deletions` row is written (`queued`, with the
+   route destinations kept in `route_targets` and `next_run_at` as the durable
+   outbox).
 
-Only after the commit is `SubscriptionDeletionWorker` pushed. A refused push or
-a crashed web process leaves a `queued` row that
+The `subscription_removed` streaming event is not registered inside that
+transaction. Rails 6.1 raises an `after_commit` exception into the caller after
+the database commit, which would answer HTTP 500 for an unsubscribe that had
+already been accepted and would skip the deletion enqueue. After the commit,
+`SubscriptionRemovedNotice` pushes the event and
+`SubscriptionDeletionDispatch` pushes the deletion job. Neither is allowed to
+raise. `control_enqueued_at` stays null until Sidekiq accepts the event; the
+deletion job sends it again from `route_targets`. A second send is safe.
+
+A connected WebUI that misses the event keeps items it has already drawn until
+a reload, a reconnect, or the per-status deletes from the purge. Reload and
+reconnect read membership from the routes, which are already gone, so they do
+not show those items. The event is best effort. The fence is not.
+
+A refused deletion push or a crashed web process leaves a `queued` row that
 `Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler` (every minute)
 pushes again once `next_run_at` has passed.
 
@@ -161,18 +172,22 @@ repeated Undo as a no-op. Acknowledged means the Undo reached the delivery queue
 not that a remote server received it.
 
 `RSS::RefreshSource` still takes a session advisory lock per source. That predates
-this change and is not part of the unsubscribe path. Whether the Sidekiq database
-route has session semantics is reported by `rake external_bridge:db_session_probe`
-(host and port only, no credentials).
+this change and is not part of the unsubscribe path. The authoritative check of
+a pooler is its admin console: `SHOW CONFIG;` and `SHOW DATABASES;`, column
+`pool_mode`. `rake external_bridge:db_session_probe` is a hint only. It takes no
+lock and prints no credential. A passing hint is not proof under load.
 
 `LinkSharing::RecoverRemovals`, run by `Scheduler::ExternalBridgeLinkReferencePublishScheduler`
 (every 5 minutes), scans `undone` boosts with `wrapper_status_id` still set and
 `removal_acknowledged_at` null (a wrapper that never left the server is removed
 by `Retire` itself, which nulls the column) and pushes the E4 worker again. The
-claim is `removal_next_attempt_at` (10 minutes after a push, released at once
-when the push is refused), separate from `next_announce_at`, which can still hold
-the 30 minute Announce claim when a share ends soon after it was made. A lost
-push is therefore pushed again within the scheduler period plus 1 minute. The
+claim UPDATE repeats the scan's lease predicate (`removal_lease_until` null or
+due) and then sets `removal_next_attempt_at` (10 minutes, released at once when
+the push is refused). A worker that takes the lease after the scan read the row
+makes that UPDATE match nothing, so the scan does not push the hold out while
+that worker is still responsible. The claim is separate from `next_announce_at`.
+A lost push with no live lease is pushed again within the scheduler period plus
+1 minute. The
 scan has a partial index (`index_link_boosts_on_pending_removal`, migration
 `20261031130000`, built `CONCURRENTLY`) and is not gated by the feature flags.
 
@@ -236,4 +251,5 @@ columns (`removal_acknowledged_at`, `removal_next_attempt_at`,
 partial index on `external_projection_link_boosts` (`CONCURRENTLY`); `down`
 drops them. The migration is still unreleased, so the columns were added to the
 same file. An environment that already ran the earlier version of it must run it
-down and up.
+down and up. `20261031140000` adds nullable `control_enqueued_at` on
+`external_subscription_deletions` (no default, no rewrite).
