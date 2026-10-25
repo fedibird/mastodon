@@ -11,20 +11,20 @@ module ExternalBridge
     #   - reads the next BATCH_SIZE status ids of the subscription through the
     #     indexed external_subscription_id, ordered by status_id,
     #   - runs the existing ProjectionPurge (E4 retirement, physical DELETE
-    #     under SET LOCAL, link-boost state) and appends that batch's stream
-    #     delete captures to pending_stream_deletes,
+    #     under SET LOCAL, link-boost state) and inserts one effect row per
+    #     deleted status id, with home/list destinations only when a stream
+    #     delete is due,
     #   - adds the number of rows that DELETE really removed to deleted_count.
-    # The counter, the delete, and the captures commit together, so a crash,
-    # a retry, or a second worker can neither double count nor lose a row or
-    # the destinations of a row already removed. Stream enqueue, cache, and
-    # search run after that commit. One of them failing does not fail the
-    # others, and does not fail the record: a capture stays until Sidekiq
-    # returns a job id. RemoveStatusService and discard are never used.
+    # The counter, the delete, and the effect rows commit together. Cache,
+    # search, and the stream enqueue are stamped separately after that commit.
+    # A failure of one leaves the others free to succeed, and the effect row
+    # stays until each required stamp is set. Further deletes pause while
+    # EFFECTS_CAP rows are still open, so a refused enqueue cannot grow without
+    # a bound. RemoveStatusService and discard are never used.
     #
-    # The subscription row is destroyed last, in the finishing transaction,
-    # only when no projection is left and no stream delete is still waiting
-    # for a job id. The record is not a foreign key of that row, so completion
-    # keeps the progress visible.
+    # The subscription row is destroyed last, only when no projection is left
+    # and no effect row is still open. The record is not a foreign key of that
+    # row, so completion keeps the progress visible.
     #
     # A run stops after MAX_BATCHES or TIME_BUDGET and reports :continue so the
     # worker queues itself again; a long delete never holds a Sidekiq thread.
@@ -35,9 +35,14 @@ module ExternalBridge
       MAX_BATCHES = 50
       TIME_BUDGET = 20.seconds
       LEASE = 5.minutes
-      # How long to wait before asking again, when the rows are gone but
-      # Sidekiq has not accepted their delete events yet.
+      # How long to wait before asking again, when deleted statuses still have
+      # cache, search, or a stream delete outstanding.
       EFFECTS_RETRY = 30.seconds
+      # Open effect rows at which more physical deletes wait. One batch can
+      # land past this by a single batch, and no further batch is taken until
+      # the open rows drop below it.
+      EFFECTS_CAP = 1_000
+      FLUSH_SLICE = 100
       SIDE_BATCH = 500
       MAX_AUTO_ATTEMPTS = 5
       BACKOFF = [30.seconds, 2.minutes, 10.minutes, 30.minutes, 2.hours].freeze
@@ -50,6 +55,15 @@ module ExternalBridge
       def self.batch_size
         configured = ENV.fetch('EXTERNAL_RSS_DELETION_BATCH_SIZE', DEFAULT_BATCH_SIZE).to_i
         configured.clamp(MIN_BATCH_SIZE, MAX_BATCH_SIZE)
+      end
+
+      # True when this deletion already has EFFECTS_CAP open effect rows.
+      # offset/exists avoids counting a large set; the cap keeps the set small.
+      def self.effects_backlogged?(deletion_id)
+        ExternalSubscriptionDeletionEffect.outstanding
+                                          .where(external_subscription_deletion_id: deletion_id)
+                                          .offset(EFFECTS_CAP - 1)
+                                          .exists?
       end
 
       # Who may run a record. A job is an invitation, not a right: it can arrive
@@ -90,7 +104,15 @@ module ExternalBridge
           return :completed if step == :completed
           return :stopped if step == :stopped
 
-          if step == :empty
+          if step == :backlog
+            flush_pending_effects!(deletion_id)
+            if effects_pending?(deletion_id)
+              hold_for_effects!(deletion_id)
+              return :effects_pending
+            end
+
+            next
+          elsif step == :empty
             finished = finish!(deletion_id, started)
             return finished unless finished == :more
           else
@@ -136,6 +158,8 @@ module ExternalBridge
             outcome = :completed
           elsif deletion.failed?
             outcome = :stopped
+          elsif self.class.effects_backlogged?(deletion.id)
+            outcome = :backlog
           else
             ids = projection_scope(deletion).order(:status_id).limit(self.class.batch_size).pluck(:status_id)
             if ids.empty?
@@ -146,7 +170,7 @@ module ExternalBridge
                 route_targets: deletion.route_targets,
                 schedule_deletes: false
               )
-              remember_pending_deletes!(deletion, result[:captures])
+              remember_effects!(deletion, ids, result[:captures])
               record_progress!(deletion, result[:deleted])
               outcome = :batch
             end
@@ -156,16 +180,27 @@ module ExternalBridge
         outcome
       end
 
-      # Destinations commit with the DELETE. The markers are gone after that,
-      # so this row is the only place a later run can read them back.
-      def remember_pending_deletes!(deletion, captures)
-        rows = Array(captures).select { |row| row.is_a?(Hash) }
-        return if rows.empty?
+      # Every deleted status id, not only those that need a stream event.
+      # destinations is null for a personal projection. Inserts are new rows;
+      # the deletion row itself is not rewritten.
+      def remember_effects!(deletion, status_ids, captures)
+        destinations = {}
+        Array(captures).each do |row|
+          next unless row.is_a?(Hash) && row['status_id'].present?
 
-        deletion.update_columns(
-          pending_stream_deletes: Array(deletion.pending_stream_deletes) + rows,
-          updated_at: Time.current
-        )
+          destinations[row['status_id'].to_s] = row['destinations']
+        end
+        now = Time.current
+        rows = status_ids.map(&:to_i).uniq.reject(&:zero?).map do |status_id|
+          {
+            external_subscription_deletion_id: deletion.id,
+            status_id: status_id,
+            destinations: destinations[status_id.to_s],
+            created_at: now,
+            updated_at: now,
+          }
+        end
+        ExternalSubscriptionDeletionEffect.insert_all(rows) if rows.any?
       end
 
       # Outside the batch transaction. Nothing here may raise into the runner:
@@ -180,34 +215,91 @@ module ExternalBridge
         flush_pending_effects!(deletion_id)
       end
 
+      # Cache, search, and stream are stamped on their own. A cache error does
+      # not skip search, and a stream job id does not erase a status whose
+      # cache or search clear has not succeeded.
+      # One pass. A row that is still open is not selected again in this pass,
+      # so a cache or search error cannot spin. The next run starts over.
       def flush_pending_effects!(deletion_id)
         deletion = ExternalSubscriptionDeletion.find_by(id: deletion_id)
-        pending = Array(deletion&.pending_stream_deletes)
-        return if pending.empty?
+        return if deletion.nil?
 
-        ids = pending.filter_map { |row| row.is_a?(Hash) ? row['status_id'].to_i : nil }.reject(&:zero?)
-        ProjectionPurge.clear_local_copies!(ids)
-        result = Streaming::Scheduler.push_deletes!(pending)
-        drop_pending!(deletion_id, result[:accepted], result[:discarded])
+        last_id = 0
+        loop do
+          rows = ExternalSubscriptionDeletionEffect.outstanding
+                                                   .where(external_subscription_deletion_id: deletion_id)
+                                                   .where('id > ?', last_id)
+                                                   .order(:id)
+                                                   .limit(FLUSH_SLICE)
+                                                   .to_a
+          break if rows.empty?
+
+          last_id = rows.last.id
+          stamp_cache!(rows)
+          stamp_search!(rows)
+          stamp_stream!(deletion, rows)
+          drop_finished_effects!(rows.map(&:id))
+        end
       rescue StandardError => e
-        Rails.logger.warn("[ExternalBridge] deletion side effect step=stream_delete error=#{e.class}")
+        Rails.logger.warn("[ExternalBridge] deletion side effect step=effects error=#{e.class}")
       end
 
-      def drop_pending!(deletion_id, accepted, discarded)
-        keys = (Array(accepted) + Array(discarded)).filter_map { |row| row.is_a?(Hash) ? row['status_id'].to_s.presence : nil }.to_set
-        junk = Array(discarded).reject { |row| row.is_a?(Hash) && row['status_id'].present? }
-        return if keys.empty? && junk.empty?
+      def stamp_cache!(rows)
+        pending = rows.select { |row| row.cache_cleared_at.nil? }
+        done = pending.select { |row| ProjectionPurge.delete_cached_status(row.status_id) }
+        mark_effects!(done.map(&:id), :cache_cleared_at)
+      end
 
-        ApplicationRecord.transaction do
-          locked = ExternalSubscriptionDeletion.lock.find_by(id: deletion_id)
-          next if locked.nil?
+      def stamp_search!(rows)
+        pending = rows.select { |row| row.search_cleared_at.nil? }
+        return if pending.empty?
+        return unless ProjectionPurge.delete_search_documents(pending.map(&:status_id))
 
-          current = Array(locked.pending_stream_deletes)
-          remaining = current.reject { |row| keys.include?(row['status_id'].to_s) || junk.include?(row) }
-          next if remaining.size == current.size
+        mark_effects!(pending.map(&:id), :search_cleared_at)
+      end
 
-          locked.update_columns(pending_stream_deletes: remaining, updated_at: Time.current)
-        end
+      def stamp_stream!(deletion, rows)
+        pending = rows.select { |row| row.destinations.present? && row.stream_enqueued_at.nil? }
+        return if pending.empty?
+
+        payloads = pending.map { |row| stream_payload(deletion, row) }
+        result = Streaming::Scheduler.push_deletes!(payloads)
+        accepted = result[:accepted].map { |row| row['status_id'].to_s }
+        discarded = Array(result[:discarded]).filter_map { |row| row.is_a?(Hash) ? row['status_id']&.to_s : nil }
+        finished = (accepted + discarded).to_set
+        done = pending.select { |row| finished.include?(row.status_id.to_s) }
+        mark_stream!(done.map(&:id))
+      end
+
+      def stream_payload(deletion, row)
+        {
+          'user_id' => deletion.user_id.to_s,
+          'status_id' => row.status_id.to_s,
+          'subscription_id' => deletion.external_subscription_id.to_s,
+          'destinations' => row.destinations,
+        }
+      end
+
+      def mark_effects!(ids, column)
+        return if ids.empty?
+
+        ExternalSubscriptionDeletionEffect.where(id: ids).update_all(column => Time.current)
+      end
+
+      # Separate from mark_effects! so a kill after Sidekiq has accepted the
+      # job, and before this stamp, can be told apart in tests.
+      def mark_stream!(ids)
+        mark_effects!(ids, :stream_enqueued_at)
+      end
+
+      def drop_finished_effects!(ids)
+        return if ids.empty?
+
+        ExternalSubscriptionDeletionEffect.where(id: ids)
+                                          .where.not(cache_cleared_at: nil)
+                                          .where.not(search_cleared_at: nil)
+                                          .where('destinations IS NULL OR stream_enqueued_at IS NOT NULL')
+                                          .delete_all
       end
 
       def record_progress!(deletion, deleted)
@@ -287,7 +379,7 @@ module ExternalBridge
       end
 
       def effects_pending?(deletion_id)
-        ExternalSubscriptionDeletion.where(id: deletion_id).where('jsonb_array_length(pending_stream_deletes) > 0').exists?
+        ExternalSubscriptionDeletionEffect.outstanding.where(external_subscription_deletion_id: deletion_id).exists?
       end
 
       def hold_for_effects!(deletion_id)
@@ -303,7 +395,7 @@ module ExternalBridge
 
         SubscriptionDeletionLog.emit(
           'effects_pending',
-          log_fields(deletion).merge(pending: Array(deletion.pending_stream_deletes).size)
+          log_fields(deletion).merge(pending: ExternalSubscriptionDeletionEffect.outstanding.where(external_subscription_deletion_id: deletion.id).count)
         )
       end
 

@@ -61,11 +61,36 @@ module ExternalBridge
       clear_local_copies!(ids)
     end
 
-    # Idempotent. Safe to repeat for the same ids.
+    # Idempotent. Safe to repeat for the same ids. Cache and search are tried
+    # independently: one id's cache error does not skip the others or search.
     def self.clear_local_copies!(status_ids)
       ids = normalize_ids(status_ids)
-      isolate('cache') { ids.each { |id| Rails.cache.delete("statuses/#{id}") } }
-      isolate('search') { remove_search_documents(ids) }
+      ids.each { |id| delete_cached_status(id) }
+      delete_search_documents(ids)
+    end
+
+    # @return [Boolean] true when this id's cache entry is gone or was already absent
+    def self.delete_cached_status(status_id)
+      Rails.cache.delete("statuses/#{status_id}")
+      true
+    rescue StandardError => e
+      Rails.logger.warn("[ExternalBridge] purge side effect step=cache error=#{e.class}")
+      false
+    end
+
+    # @return [Boolean] true when the search documents for every id were removed,
+    #   or search is disabled. false when the update raised; none of the ids
+    #   should be treated as cleared.
+    def self.delete_search_documents(status_ids)
+      ids = normalize_ids(status_ids)
+      return true if ids.empty?
+      return true unless Chewy.enabled?
+
+      Chewy.strategy.current.update(StatusesIndex, ids)
+      true
+    rescue StandardError => e
+      Rails.logger.warn("[ExternalBridge] purge side effect step=search error=#{e.class}")
+      false
     end
 
     def self.isolate(step)
@@ -152,14 +177,5 @@ module ExternalBridge
       nil
     end
     private_class_method :clear_delete_setting!
-
-    def self.remove_search_documents(ids)
-      return unless Chewy.enabled?
-
-      Chewy.strategy.current.update(StatusesIndex, ids)
-    rescue StandardError => e
-      Rails.logger.warn("[ExternalBridge] search delete failed: #{e.class}")
-    end
-    private_class_method :remove_search_documents
   end
 end

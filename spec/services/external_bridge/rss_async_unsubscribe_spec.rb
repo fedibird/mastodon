@@ -626,7 +626,7 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       destinations = jobs.first['args'].first.first['destinations']
       expect(destinations).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
       expect(Status.exists?(world[:status].id)).to be false
-      expect(deletion.reload.pending_stream_deletes).to eq []
+      expect(effects_for(deletion)).to be_empty
     ensure
       Setting.external_bridge_external_visibility = false
     end
@@ -654,6 +654,10 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
 
     def delete_entry(jobs)
       jobs.last['args'].first.first
+    end
+
+    def effects_for(deletion)
+      ExternalSubscriptionDeletionEffect.where(external_subscription_deletion_id: deletion.id).order(:id).to_a
     end
 
     it 'keeps the delete event, the cache, and the search delete when the enqueue raises after the commit' do
@@ -685,9 +689,12 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(Rails.cache.read(cache_key)).to be_nil
       expect(updates).to include([StatusesIndex, [world[:status].id]])
       expect(ExternalBridge::StreamDeleteWorker.jobs).to be_empty
-      capture = deletion.pending_stream_deletes.first
-      expect(capture['status_id']).to eq world[:status].id.to_s
-      expect(capture['destinations']).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
+      capture = effects_for(deletion).first
+      expect(capture.status_id).to eq world[:status].id
+      expect(capture.stream_enqueued_at).to be_nil
+      expect(capture.cache_cleared_at).to be_present
+      expect(capture.search_cleared_at).to be_present
+      expect(capture.destinations).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
 
       failing = false
       expect(runner.call(deletion.id)).to eq :completed
@@ -697,7 +704,7 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(entry['status_id']).to eq world[:status].id.to_s
       expect(entry['destinations']).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
       expect(deletion.reload).to be_completed
-      expect(deletion.pending_stream_deletes).to eq []
+      expect(effects_for(deletion)).to be_empty
       expect(ExternalSubscription.exists?(world[:subscription].id)).to be false
     ensure
       Setting.external_bridge_external_visibility = false
@@ -718,8 +725,8 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(deletion).to be_running
       expect(deletion.attempt_count).to eq 0
       expect(deletion.deleted_count).to eq 1
-      expect(deletion.pending_stream_deletes.first['status_id']).to eq world[:status].id.to_s
-      expect(deletion.pending_stream_deletes.first['destinations']).to contain_exactly(
+      expect(effects_for(deletion).first.status_id).to eq world[:status].id
+      expect(effects_for(deletion).first.destinations).to contain_exactly(
         { 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s }
       )
       expect(Rails.cache.read(cache_key)).to be_nil
@@ -732,7 +739,7 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(runner.call(deletion.id)).to eq :completed
       entry = delete_entry(ExternalBridge::StreamDeleteWorker.jobs)
       expect(entry['destinations']).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
-      expect(deletion.reload.pending_stream_deletes).to eq []
+      expect(effects_for(deletion)).to be_empty
     ensure
       Setting.external_bridge_external_visibility = false
     end
@@ -758,9 +765,11 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(Rails.cache.read(cache_key)).to eq 'rendered projection'
       expect(updates).to be_empty
       expect(ExternalBridge::StreamDeleteWorker.jobs).to be_empty
-      expect(deletion.pending_stream_deletes.first['destinations']).to contain_exactly(
+      expect(effects_for(deletion).first.destinations).to contain_exactly(
         { 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s }
       )
+      expect(effects_for(deletion).first.cache_cleared_at).to be_nil
+      expect(effects_for(deletion).first.search_cleared_at).to be_nil
 
       skip_flush = false
       expect(runner.call(deletion.id)).to eq :completed
@@ -769,7 +778,7 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       entry = delete_entry(ExternalBridge::StreamDeleteWorker.jobs)
       expect(entry['status_id']).to eq world[:status].id.to_s
       expect(entry['destinations']).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
-      expect(deletion.reload.pending_stream_deletes).to eq []
+      expect(effects_for(deletion)).to be_empty
     ensure
       Setting.external_bridge_external_visibility = false
     end
@@ -777,9 +786,9 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
     it 'pushes the same delete again when the worker dies after Sidekiq has accepted it' do
       world, list = routed_projection
       deletion = unsubscribe!(world)
-      killed = Class.new(Exception)
+      killed = Class.new(Exception) # rubocop:disable Lint/InheritException -- must escape the runner's StandardError rescue
       first = true
-      allow_any_instance_of(ExternalBridge::RSS::SubscriptionDeletionRunner).to receive(:drop_pending!).and_wrap_original do |method, *args|
+      allow_any_instance_of(ExternalBridge::RSS::SubscriptionDeletionRunner).to receive(:mark_stream!).and_wrap_original do |method, *args|
         raise killed if first
 
         method.call(*args)
@@ -793,7 +802,8 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(deletion.deleted_count).to eq 1
       expect(Status.exists?(world[:status].id)).to be false
       expect(ExternalBridge::StreamDeleteWorker.jobs.size).to eq 1
-      expect(deletion.pending_stream_deletes.first['status_id']).to eq world[:status].id.to_s
+      expect(effects_for(deletion).first.status_id).to eq world[:status].id
+      expect(effects_for(deletion).first.stream_enqueued_at).to be_nil
 
       first = false
       expect(runner.call(deletion.id)).to eq :completed
@@ -803,8 +813,129 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
         expect(entry['status_id']).to eq world[:status].id.to_s
         expect(entry['destinations']).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
       end
-      expect(deletion.reload.pending_stream_deletes).to eq []
+      expect(effects_for(deletion)).to be_empty
     ensure
+      Setting.external_bridge_external_visibility = false
+    end
+
+    it 'keeps the status retryable when cache fails and the stream enqueue succeeds' do
+      world, = routed_projection
+      deletion = unsubscribe!(world)
+      cache_key = "statuses/#{world[:status].id}"
+      Rails.cache.write(cache_key, 'rendered projection')
+      updates = track_search_deletes
+      allow(Rails.cache).to receive(:delete).and_raise(RuntimeError, 'cache down')
+
+      expect(runner.call(deletion.id)).to eq :effects_pending
+
+      row = effects_for(deletion).first
+      expect(row.cache_cleared_at).to be_nil
+      expect(row.search_cleared_at).to be_present
+      expect(row.stream_enqueued_at).to be_present
+      expect(updates).to include([StatusesIndex, [world[:status].id]])
+      expect(Rails.cache.read(cache_key)).to eq 'rendered projection'
+      expect(deletion.reload).to be_running
+      expect(ExternalBridge::StreamDeleteWorker.jobs.size).to eq 1
+
+      allow(Rails.cache).to receive(:delete).and_call_original
+      expect(runner.call(deletion.id)).to eq :completed
+      expect(Rails.cache.read(cache_key)).to be_nil
+      expect(effects_for(deletion)).to be_empty
+      expect(updates.size).to eq 1
+    ensure
+      Setting.external_bridge_external_visibility = false
+    end
+
+    it 'keeps the status retryable when search fails and the stream enqueue succeeds' do
+      world, = routed_projection
+      deletion = unsubscribe!(world)
+      cache_key = "statuses/#{world[:status].id}"
+      Rails.cache.write(cache_key, 'rendered projection')
+      attempts = 0
+      failing = true
+      current = Object.new
+      current.define_singleton_method(:update) do |*|
+        attempts += 1
+        raise 'search down' if failing
+      end
+      allow(Chewy).to receive(:enabled?).and_return(true)
+      allow(Chewy).to receive(:strategy).and_return(double(current: current))
+
+      expect(runner.call(deletion.id)).to eq :effects_pending
+
+      row = effects_for(deletion).first
+      expect(row.cache_cleared_at).to be_present
+      expect(row.search_cleared_at).to be_nil
+      expect(row.stream_enqueued_at).to be_present
+      expect(Rails.cache.read(cache_key)).to be_nil
+      expect(deletion.reload).to be_running
+      expect(attempts).to be >= 1
+
+      failing = false
+      expect(runner.call(deletion.id)).to eq :completed
+      expect(attempts).to be > 1
+      expect(effects_for(deletion)).to be_empty
+    ensure
+      Setting.external_bridge_external_visibility = false
+    end
+
+    it 'recovers cache and search for a personal projection when the worker dies after the commit' do
+      Setting.external_bridge_external_visibility = false
+      world = project_for(user)
+      expect(world[:status]).to be_personal_visibility
+      deletion = unsubscribe!(world)
+      cache_key = "statuses/#{world[:status].id}"
+      Rails.cache.write(cache_key, 'rendered projection')
+      updates = track_search_deletes
+      skip_flush = true
+      allow_any_instance_of(ExternalBridge::RSS::SubscriptionDeletionRunner).to receive(:flush_pending_effects!).and_wrap_original do |method, *args|
+        method.call(*args) unless skip_flush
+      end
+
+      expect(runner.call(deletion.id)).to eq :effects_pending
+
+      expect(deletion.reload).to be_running
+      expect(deletion.deleted_count).to eq 1
+      expect(Status.exists?(world[:status].id)).to be false
+      expect(Rails.cache.read(cache_key)).to eq 'rendered projection'
+      expect(updates).to be_empty
+      expect(ExternalBridge::StreamDeleteWorker.jobs).to be_empty
+      expect(effects_for(deletion).first.destinations).to be_nil
+      expect(effects_for(deletion).first.cache_cleared_at).to be_nil
+      expect(effects_for(deletion).first.search_cleared_at).to be_nil
+
+      skip_flush = false
+      expect(runner.call(deletion.id)).to eq :completed
+      expect(Rails.cache.read(cache_key)).to be_nil
+      expect(updates).to include([StatusesIndex, [world[:status].id]])
+      expect(ExternalBridge::StreamDeleteWorker.jobs).to be_empty
+      expect(effects_for(deletion)).to be_empty
+    end
+
+    it 'stops further deletes while open effect rows are at the cap and a stream enqueue is refused' do
+      previous = ENV['EXTERNAL_RSS_DELETION_BATCH_SIZE']
+      ENV['EXTERNAL_RSS_DELETION_BATCH_SIZE'] = '10'
+      stub_const('ExternalBridge::RSS::SubscriptionDeletionRunner::EFFECTS_CAP', 10)
+      Setting.external_bridge_external_visibility = true
+      world = world_with(25)
+      save_routes(world, home: true)
+      deletion = unsubscribe!(world)
+      allow(ExternalBridge::StreamDeleteWorker).to receive(:perform_async).and_return(nil)
+
+      expect(runner.call(deletion.id)).to eq :effects_pending
+
+      expect(deletion.reload.deleted_count).to eq 10
+      expect(projection_count(world)).to eq 15
+      expect(effects_for(deletion).size).to eq 10
+      expect(deletion).to be_running
+      expect(deletion.attempt_count).to eq 0
+
+      allow(ExternalBridge::StreamDeleteWorker).to receive(:perform_async).and_call_original
+      expect(runner.call(deletion.id)).to eq :completed
+      expect(projection_count(world)).to eq 0
+      expect(effects_for(deletion)).to be_empty
+    ensure
+      ENV['EXTERNAL_RSS_DELETION_BATCH_SIZE'] = previous
       Setting.external_bridge_external_visibility = false
     end
 

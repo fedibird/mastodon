@@ -871,7 +871,6 @@ ActiveRecord::Schema.define(version: 2026_10_31_150000) do
     t.datetime "last_progress_at"
     t.datetime "finished_at"
     t.datetime "control_enqueued_at"
-    t.jsonb "pending_stream_deletes", default: [], null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["external_subscription_id"], name: "index_external_subscription_deletions_on_subscription", unique: true
@@ -879,6 +878,18 @@ ActiveRecord::Schema.define(version: 2026_10_31_150000) do
     t.index ["next_run_at"], name: "index_external_subscription_deletions_on_pending", where: "((state)::text = ANY ((ARRAY['queued'::character varying, 'running'::character varying, 'failed'::character varying])::text[]))"
     t.index ["user_id", "id"], name: "index_external_subscription_deletions_on_user"
     t.check_constraint "(state)::text = ANY ((ARRAY['queued'::character varying, 'running'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])", name: "external_subscription_deletions_state_check"
+  end
+
+  create_table "external_subscription_deletion_effects", force: :cascade do |t|
+    t.bigint "external_subscription_deletion_id", null: false
+    t.bigint "status_id", null: false
+    t.jsonb "destinations"
+    t.datetime "cache_cleared_at"
+    t.datetime "search_cleared_at"
+    t.datetime "stream_enqueued_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_subscription_deletion_id", "status_id"], name: "index_deletion_effects_on_deletion_and_status", unique: true
   end
 
   create_table "external_subscriptions", force: :cascade do |t|
@@ -2299,6 +2310,7 @@ ActiveRecord::Schema.define(version: 2026_10_31_150000) do
   add_foreign_key "external_status_projections", "accounts", on_delete: :restrict
   add_foreign_key "external_status_projections", "statuses", on_delete: :cascade
   add_foreign_key "external_status_projections", "users", on_delete: :restrict
+  add_foreign_key "external_subscription_deletion_effects", "external_subscription_deletions", column: "external_subscription_deletion_id", name: "fk_deletion_effects_deletion", on_delete: :cascade
   add_foreign_key "external_subscription_deletions", "users", name: "fk_external_subscription_deletions_user", on_delete: :cascade
   add_foreign_key "external_subscriptions", "external_sources", on_delete: :restrict
   add_foreign_key "external_subscriptions", "users", on_delete: :cascade

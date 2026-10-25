@@ -20,15 +20,14 @@
 #  last_progress_at         :datetime
 #  finished_at              :datetime
 #  control_enqueued_at      :datetime
-#  pending_stream_deletes   :jsonb            default([]), not null
 #  created_at               :datetime         not null
 #  updated_at               :datetime         not null
 #
 # Owner-visible progress of one asynchronous unsubscribe. The subscription row
 # is destroyed as the last step, so external_subscription_id is not a foreign
 # key and this record outlives it. It never holds a feed URL, feed text, a
-# token, or an exception message. pending_stream_deletes is the outbox of
-# status and list ids whose stream delete Sidekiq has not accepted yet.
+# token, or an exception message. Per-status cache, search, and stream work
+# lives on external_subscription_deletion_effects, not on this row.
 class ExternalSubscriptionDeletion < ApplicationRecord
   STATES = %w(queued running completed failed).freeze
   RETENTION = 30.days
@@ -36,6 +35,7 @@ class ExternalSubscriptionDeletion < ApplicationRecord
   MIN_RATE_WINDOW = 2.0
 
   belongs_to :user
+  has_many :effects, class_name: 'ExternalSubscriptionDeletionEffect', dependent: :delete_all
 
   validates :state, inclusion: { in: STATES }
 
