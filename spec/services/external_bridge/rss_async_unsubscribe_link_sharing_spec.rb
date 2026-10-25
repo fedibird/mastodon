@@ -47,7 +47,9 @@ describe 'ExternalBridge asynchronous RSS unsubscribe and link sharing', type: :
     deletion = unsubscribe!(world)
     allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError)
 
-    expect(runner.call(deletion.id)).to eq :failed
+    # The removal enqueue is after the commit. Redis refusing it does not fail
+    # the deletion or roll back the undone boost. RecoverRemovals pushes again.
+    expect(runner.call(deletion.id)).to eq :completed
 
     boost = ExternalProjectionLinkBoost.find(result.boost.id)
     expect(boost.state).to eq 'undone'
@@ -55,8 +57,8 @@ describe 'ExternalBridge asynchronous RSS unsubscribe and link sharing', type: :
     expect(boost.wrapper_status_id).to eq wrapper_id
     expect(Status.unscoped.find(wrapper_id).deleted_at).to be_present
     expect(ExternalStatusProjection.where(id: world[:marker].id)).to be_empty
-    expect(deletion.reload).to be_failed
-    expect(deletion.last_error_code).to eq 'queue_error'
+    expect(deletion.reload).to be_completed
+    expect(deletion.last_error_code).to be_nil
     expect(ExternalBridge::LinkSharing::Retire.end_orphans!).to eq 0
 
     pushed = []

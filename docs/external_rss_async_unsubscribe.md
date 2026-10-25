@@ -128,6 +128,15 @@ seconds out. The worker queues itself for then. That wait does not increment
 `attempt_count`. If the queue push is lost, the scheduler sees the same
 `next_run_at` and pushes the record again.
 
+While those rows are open, `state` stays `running` and `last_error_code` stays
+null, including when deletes have paused at the cap because cache, search, or
+the stream enqueue is still failing. The progress API and the card do not yet
+say "waiting on post-processing", and `eta_seconds` is still computed from the
+speed of the deletes that already happened, so it can keep moving during a wait
+that is not deleting anything. Splitting that wait out (`effects_pending` on
+the API, no ETA while it is set) is left for a follow-up. It is not required
+to merge this change.
+
 A one-shot purge (`purge_status!`, account deletion) still registers
 `StreamDeleteWorker` with `AfterOuterCommit`. The callback swallows a Redis
 error so it cannot skip cache and search, and so it cannot abort the rest of
@@ -276,7 +285,7 @@ To tune the load, set `EXTERNAL_RSS_DELETION_BATCH_SIZE`. Look at
 
 ## Migration
 
-`20261031120000_create_external_subscription_deletions` replaces the state
+`20261031120100_create_external_subscription_deletions` replaces the state
 `CHECK` of the small `external_subscriptions` table (`NOT VALID`, then
 `VALIDATE`, under a 5 s `lock_timeout`) and creates
 `external_subscription_deletions`. It does not touch `statuses` or
@@ -288,4 +297,24 @@ partial index on `external_projection_link_boosts` (`CONCURRENTLY`); `down`
 drops them. The migration is still unreleased, so the columns were added to the
 same file. An environment that already ran the earlier version of it must run it
 down and up. `20261031140000` adds nullable `control_enqueued_at` on
-`external_subscription_deletions` (no default, no rewrite).
+`external_subscription_deletions` (no default, no rewrite). `20261031150000`
+creates `external_subscription_deletion_effects` (one row per deleted status).
+The file used to add a jsonb column on the deletion row; that version was never
+merged. An environment that applied the jsonb file must roll that file back
+before migrating this one. The version `20261031120000` belongs to the feed
+icon migration on `fedibird`, which is why the deletion table migration is
+`20261031120100`.
+
+## Before rollout
+
+These are not passes. They were not run for this branch:
+
+- Elasticsearch with a reachable cluster (the search examples stay pending
+  without it)
+- The Node streaming server, end to end, including a client that already has
+  the items on screen
+- More than one Sidekiq process, and a Redis outage while deletes are in progress
+- A browser session of the progress card while effect rows are still open
+
+The card during that wait is the follow-up described above: it still says the
+deletion is running.
