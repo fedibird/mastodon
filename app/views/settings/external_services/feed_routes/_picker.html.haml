@@ -1,0 +1,53 @@
+-# Destination picker for one User-owned external subscription.
+-# locals: subscription_id, title, route_form (ExternalServices::FeedRouteForm), form_url, page_number
+- dom = "feed-route-#{subscription_id}"
+- open_label = route_form&.selected? ? t('external_bridge.feed_routes.change') : t('external_bridge.feed_routes.choose')
+- open_aria = route_form&.selected? ? t('external_bridge.feed_routes.change_for', title: title) : t('external_bridge.feed_routes.choose_for', title: title)
+- if route_form&.show?
+  .feed-route-picker{ data: { feed_route_picker: true } }
+    %p.feed-route-picker__summary{ id: "#{dom}-summary" }= route_form.summary
+    %details.feed-route-picker__fallback
+      %summary.button.feed-route-picker__open{ aria: { label: open_aria, describedby: "#{dom}-summary" } }
+        = open_label
+      = form_with url: form_url, method: :patch, local: true, html: { class: 'feed-route-picker__form', id: "#{dom}-form", data: { feed_route_form: true }, aria: { labelledby: "#{dom}-heading", describedby: "#{dom}-description" } } do
+        .feed-route-picker__header
+          %h2.feed-route-picker__heading{ id: "#{dom}-heading" }= t('external_bridge.feed_routes.heading')
+          %button.feed-route-picker__close{ type: 'button', hidden: true, data: { feed_route_close: true }, aria: { label: t('external_bridge.feed_routes.close') } }
+            %span{ aria: { hidden: 'true' } } ×
+        %p.feed-route-picker__subject= title
+        %p.hint.feed-route-picker__description{ id: "#{dom}-description" }= t('external_bridge.feed_routes.description')
+        - unless route_form.can_add?
+          %p.hint.feed-route-picker__state= t('external_bridge.feed_routes.disabled')
+        %fieldset.feed-route-picker__choices
+          %legend.feed-route-picker__legend= t('external_bridge.feed_routes.heading')
+          - if route_form.offer_home?
+            %label{ for: "#{dom}-home" }
+              = hidden_field_tag 'feed_route[home]', '0', id: nil
+              = check_box_tag 'feed_route[home]', '1', route_form.home?, id: "#{dom}-home"
+              %span.feed-route-picker__choice= t('external_bridge.feed_routes.home')
+          - else
+            = hidden_field_tag 'feed_route[home]', '0', id: nil
+          = hidden_field_tag 'feed_route[list_ids][]', '', id: nil
+          %ul.feed-route-picker__lists{ data: { feed_route_lists: true, id_prefix: dom } }
+            - route_form.choices.each do |choice|
+              %li
+                %label{ for: "#{dom}-list-#{choice[:id]}" }
+                  = check_box_tag 'feed_route[list_ids][]', choice[:id], choice[:checked], id: "#{dom}-list-#{choice[:id]}"
+                  %span.feed-route-picker__choice= choice[:title]
+        - if route_form.can_create_list?
+          .feed-route-picker__create{ hidden: true, data: { feed_route_create: true, url: settings_external_services_feed_route_lists_path, failure: t('external_bridge.feed_routes.list_errors.failed') } }
+            %button.feed-route-picker__create-toggle{ type: 'button', data: { feed_route_create_toggle: true }, aria: { expanded: 'false', controls: "#{dom}-create-fields" } }= t('external_bridge.feed_routes.create_list')
+            .feed-route-picker__create-fields{ id: "#{dom}-create-fields", hidden: true }
+              %label{ for: "#{dom}-new-title" }= t('external_bridge.feed_routes.list_title')
+              %input.feed-route-picker__create-input{ type: 'text', id: "#{dom}-new-title", maxlength: ExternalServices::CreateFeedRouteList::TITLE_LIMIT, autocomplete: 'off', data: { feed_route_create_input: true } }
+              .feed-route-picker__create-actions
+                %button.button{ type: 'button', data: { feed_route_create_submit: true } }= t('external_bridge.feed_routes.create')
+                %button.button.button-secondary{ type: 'button', data: { feed_route_create_cancel: true } }= t('external_bridge.feed_routes.cancel')
+            %p.hint.feed-route-picker__status{ role: 'status', data: { feed_route_status: true } }
+        - elsif route_form.can_add?
+          %p.hint.feed-route-picker__state= t('lists.errors.limit')
+        = hidden_field_tag 'feed_route[expected_revision]', route_form.revision, id: nil
+        = hidden_field_tag :page, page_number, id: nil if page_number.to_i > 1
+        .feed-route-picker__actions
+          %button.button.button-secondary.feed-route-picker__cancel{ type: 'button', hidden: true, data: { feed_route_close: true } }= t('external_bridge.feed_routes.cancel')
+          = button_tag t('external_bridge.feed_routes.save'), type: 'submit', class: 'button', data: { disable_with: t('external_bridge.working') }, aria: { label: t('external_bridge.feed_routes.save_for', title: title) }

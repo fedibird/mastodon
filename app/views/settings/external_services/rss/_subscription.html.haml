@@ -21,37 +21,7 @@
     %p.hint= subscription.partial_failure_message
   - if subscription.retry_message
     %p.hint= subscription.retry_message
-  - route_form = subscription.route_form
-  - if route_form&.show?
-    = form_with url: settings_external_services_rss_subscription_feed_routes_path(subscription.id), method: :patch, local: true, html: { class: 'external-service-routes' } do
-      %fieldset
-        %legend= t('external_bridge.feed_routes.heading')
-        %p.hint.external-service-routes__note= t('external_bridge.feed_routes.separate_note')
-        %p.hint.external-service-routes__note= t('external_bridge.feed_routes.keep_note')
-        %p.hint.external-service-routes__note= t('external_bridge.feed_routes.position_note')
-        - unless route_form.can_add?
-          %p.hint= t('external_bridge.feed_routes.disabled')
-        - if route_form.offer_home?
-          %label{ for: "feed-route-#{subscription.id}-home" }
-            = hidden_field_tag 'feed_route[home]', '0'
-            = check_box_tag 'feed_route[home]', '1', route_form.home?, id: "feed-route-#{subscription.id}-home"
-            %span.external-service-routes__choice= t('external_bridge.feed_routes.home')
-        - else
-          = hidden_field_tag 'feed_route[home]', '0'
-        = hidden_field_tag 'feed_route[list_ids][]', ''
-        - if route_form.choices.any?
-          %ul.external-service-routes__lists
-            - route_form.choices.each do |choice|
-              %li
-                %label{ for: "feed-route-#{subscription.id}-list-#{choice[:id]}" }
-                  = check_box_tag 'feed_route[list_ids][]', choice[:id], choice[:checked], id: "feed-route-#{subscription.id}-list-#{choice[:id]}"
-                  %span.external-service-routes__choice= choice[:title]
-        - elsif route_form.can_add?
-          %p.hint= t('external_bridge.feed_routes.no_lists')
-        = hidden_field_tag 'feed_route[expected_revision]', route_form.revision
-        = hidden_field_tag :page, @page.page if @page&.page.to_i > 1
-        .external-service-routes__actions
-          = button_tag t('external_bridge.feed_routes.save'), type: 'submit', class: 'button', data: { disable_with: t('external_bridge.working') }, aria: { label: t('external_bridge.feed_routes.save_for', title: subscription.title) }
+  = render 'settings/external_services/feed_routes/picker', subscription_id: subscription.id, title: subscription.title, route_form: subscription.route_form, form_url: settings_external_services_rss_subscription_feed_routes_path(subscription.id), page_number: @page&.page
   .external-service-actions
     - if subscription.pausable?
       = button_to t('external_bridge.pause'), settings_pause_external_services_rss_subscription_path(subscription.id), method: :post, class: 'button', form_class: 'external-service-inline-form', aria: { label: t('external_bridge.pause_for', title: subscription.title) }, data: { disable_with: t('external_bridge.working') }

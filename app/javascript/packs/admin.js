@@ -1,6 +1,7 @@
 import './public-path';
 import { delegate } from '@rails/ujs';
 import ready from '../mastodon/ready';
+import { initializeFeedRoutePickers } from '../mastodon/features/external_feed_routes/picker';
 import { bindUserPostingContextCardMenus, bindUserPostingContextPreview } from '../mastodon/features/user_posting_contexts/preview';
 
 const batchCheckboxClassName = '.batch-checkbox input[type="checkbox"]';
@@ -174,5 +175,6 @@ ready(() => {
     });
   };
   initializePostingStyleWidgets();
+  initializeFeedRoutePickers(document);
   document.addEventListener('embedded-settings:render', initializePostingStyleWidgets);
 });
