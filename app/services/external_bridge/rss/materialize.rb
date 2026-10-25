@@ -12,7 +12,17 @@ module ExternalBridge
         return empty unless Feature.permitted?(subscription.user)
 
         result = Result.new(ran: true, attempted: 0, succeeded: 0, failed: 0, skipped: 0)
-        selectable_resources(subscription, resources, retries).each do |resource|
+        run_resources(subscription, selectable_resources(subscription, resources, retries), result)
+      rescue SubscriptionFence::Fenced
+        # The subscription is being removed. Nothing more is written, and the
+        # caller must not reconcile counters for a run that was cut short.
+        empty
+      end
+
+      private
+
+      def run_resources(subscription, selected, result)
+        selected.each do |resource|
           if suppressed?(subscription, resource)
             result.skipped += 1
             next
@@ -29,8 +39,6 @@ module ExternalBridge
         end
         result
       end
-
-      private
 
       # A new current item is imported immediately. A known failure, whether it is
       # still in this page or only in the history, runs when its own attempt is
@@ -97,6 +105,8 @@ module ExternalBridge
           )
         end
         true
+      rescue SubscriptionFence::Fenced
+        raise
       rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid, Error => e
         Rails.logger.info("[ExternalBridge::RSS] projection skipped subscription=#{subscription.id} code=#{e.class}")
         false
@@ -120,7 +130,7 @@ module ExternalBridge
           deleted_changed: deleted_changed,
           revision_changed: revision_changed,
         }
-        ApplicationRecord.transaction do
+        SubscriptionFence.guard!(marker.external_subscription_id) do
           write_refresh!(marker, status, resource, change)
         end
       end
@@ -172,7 +182,7 @@ module ExternalBridge
                                   else
                                     Time.current + RetryPolicy.delay(count, resource.id)
                                   end
-        failure.save!
+        SubscriptionFence.guard!(subscription) { failure.save! }
       end
 
       def clear_failure(subscription, resource)

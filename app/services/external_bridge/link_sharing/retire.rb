@@ -3,14 +3,15 @@
 module ExternalBridge
   module LinkSharing
     # Ends active boost rows and takes their wrapper Statuses away. An announced
-    # wrapper is discarded and then removed by RemovalWorker, like
-    # Api::V1::Statuses::ReblogsController does for an ordinary unreblog. The
-    # reference note and the projection are not touched.
+    # wrapper is discarded and then removed by LinkWrapperRemovalWorker (the E4
+    # counterpart of the RemovalWorker that Api::V1::Statuses::ReblogsController
+    # uses for an ordinary unreblog). The reference note and the projection are
+    # not touched.
     #
     # Every method here expects the caller to hold the rows FOR UPDATE inside a
     # transaction and to hand the returned wrapper ids to enqueue_removals
     # after that transaction commits. Only a wrapper whose Announce was already
-    # handed to distribution needs RemovalWorker, which sends the Undo and
+    # handed to distribution needs LinkWrapperRemovalWorker, which sends the Undo and
     # then removes the row. A wrapper that never left the server has no remote
     # copy and no timeline entry to take back, so it is removed here. Removing
     # it matters: Status validates one boost per Account and note, and that
@@ -21,7 +22,7 @@ module ExternalBridge
 
       ORPHAN_BATCH = 20
 
-      # @return [Integer, nil] wrapper id that needs RemovalWorker
+      # @return [Integer, nil] wrapper id that needs LinkWrapperRemovalWorker
       def end!(boost, reason:)
         return nil unless boost.active?
 
@@ -76,8 +77,49 @@ module ExternalBridge
         removals.size
       end
 
+      # The lease of LinkWrapperRemovalWorker for one wrapper. Every method is a
+      # single conditional UPDATE on the boost row: no session state, no advisory
+      # lock, no transaction that spans the work, so the exclusion holds behind
+      # any connection pooler (PgBouncer in transaction pooling mode included).
+      #
+      # @return [Boolean] true when this token now holds the lease: the share is
+      #   ended (`undone`), the removal is not acknowledged, and no live lease of
+      #   another job exists
+      def claim_removal!(wrapper_id, token, lease)
+        ExternalProjectionLinkBoost
+          .where(wrapper_status_id: wrapper_id, state: 'undone', removal_acknowledged_at: nil)
+          .where('removal_lease_until IS NULL OR removal_lease_until <= NOW()')
+          .update_all(['removal_lease_token = ?, removal_lease_until = NOW() + make_interval(secs => ?)', token, lease.to_i])
+          .positive?
+      end
+
+      # The work is done: RemoveStatusService returned, so the Undo of an
+      # announced share has been handed to ActivityPub delivery (delivery itself
+      # retries in its own workers). Only the current lease holder records it. It
+      # is a fact about the work, not about the row: Mastodon keeps a wrapper that
+      # sits in an unresolved report (discarded, not destroyed), so the wrapper's
+      # existence never says whether the work is done.
+      #
+      # Matched by token alone: RemoveStatusService may have destroyed the wrapper,
+      # which nulls wrapper_status_id on the row (ON DELETE SET NULL), and the row
+      # must still be closed out.
+      def acknowledge_removal!(token)
+        ExternalProjectionLinkBoost
+          .where(state: 'undone', removal_lease_token: token)
+          .update_all(removal_acknowledged_at: Time.current, removal_lease_until: nil, removal_lease_token: nil)
+          .positive?
+      end
+
+      # The job failed: give the lease back so the next push does not wait for it
+      # to expire. A job that dies without reaching this leaves the lease to expire.
+      def release_removal!(token)
+        ExternalProjectionLinkBoost
+          .where(state: 'undone', removal_lease_token: token)
+          .update_all(removal_lease_until: nil, removal_lease_token: nil)
+      end
+
       def enqueue_removals(wrapper_ids)
-        Array(wrapper_ids).compact.each { |id| RemovalWorker.perform_async(id) }
+        Array(wrapper_ids).compact.each { |id| LinkWrapperRemovalWorker.perform_async(id) }
       end
     end
   end

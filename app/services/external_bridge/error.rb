@@ -15,7 +15,7 @@ module ExternalBridge
         403
       when 'not_found'
         404
-      when 'stale_feed_routes', 'reference_conflict', 'policy_changed', 'canonical_url_changed', 'share_outdated'
+      when 'stale_feed_routes', 'subscription_deleting', 'reference_conflict', 'policy_changed', 'canonical_url_changed', 'share_outdated'
         409
       else
         422

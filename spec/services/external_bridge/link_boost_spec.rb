@@ -145,7 +145,7 @@ describe 'ExternalBridge link boost', type: :model do
     Favourite.create!(account: user.account, status: world[:status])
     Bookmark.create!(account: user.account, status: world[:status])
     removals = []
-    allow(RemovalWorker).to receive(:perform_async).and_wrap_original do |method, *args|
+    allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async).and_wrap_original do |method, *args|
       removals << args.first
       method.call(*args)
     end
@@ -394,7 +394,7 @@ describe 'ExternalBridge link boost', type: :model do
       calls = []
       allow(ActivityPub::DistributionWorker).to receive(:perform_async) { |id| calls << id }
       removals = []
-      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+      allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id| removals << id }
       wrapper_id = nil
 
       Sidekiq::Testing.fake! do
@@ -612,7 +612,7 @@ describe 'ExternalBridge link boost', type: :model do
       world = prepare(user, visibility: 'unlisted')
       first = boost!(user, world)
       removals = []
-      allow(RemovalWorker).to receive(:perform_async).and_wrap_original do |method, *args|
+      allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async).and_wrap_original do |method, *args|
         removals << args.first
         method.call(*args)
       end
@@ -636,7 +636,7 @@ describe 'ExternalBridge link boost', type: :model do
       user = Fabricate(:user)
       world = prepare(user, visibility: 'public')
       removals = []
-      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+      allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id| removals << id }
       wrapper = nil
       Sidekiq::Testing.fake! do
         wrapper = boost!(user, world).wrapper
@@ -823,7 +823,7 @@ describe 'ExternalBridge link boost', type: :model do
       expect(calls.size).to eq(2)
 
       removals = []
-      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+      allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id| removals << id }
       unboost!(user, world)
       expect(removals).to eq([result.wrapper.id])
     end
@@ -836,7 +836,7 @@ describe 'ExternalBridge link boost', type: :model do
       allow(ActivityPub::DistributionWorker).to receive(:perform_async).and_return(nil)
       ExternalBridge::LinkSharing::BoostAnnounce.call(row.id)
       removals = []
-      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+      allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id| removals << id }
 
       unboost!(user, world)
 
@@ -853,7 +853,7 @@ describe 'ExternalBridge link boost', type: :model do
       calls = []
       record_distribution(calls)
       removals = []
-      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+      allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id| removals << id }
       handler = lambda do |*args|
         ExternalBridge::LinkSharing::Policy.revoke!(user: user) if args.last[:name] == :announce_between_phases
       end
@@ -1040,7 +1040,7 @@ describe 'ExternalBridge link boost', type: :model do
       world = prepare(user)
       result = boost!(user, world)
       removals = []
-      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+      allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id| removals << id }
 
       ExternalBridge::ProjectionPurge.purge_status!(world[:status])
 
@@ -1059,7 +1059,7 @@ describe 'ExternalBridge link boost', type: :model do
       result = boost!(user, world)
       ExternalProjectionLinkBoost.where(id: result.boost.id).update_all(external_status_projection_id: nil)
       removals = []
-      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+      allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id| removals << id }
 
       expect(ExternalBridge::LinkSharing::Retire.end_orphans!).to eq(1)
 

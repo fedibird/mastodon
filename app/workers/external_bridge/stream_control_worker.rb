@@ -33,7 +33,9 @@ module ExternalBridge
     def current_enough?(user, payload)
       reason = payload['reason'].to_s
       subscription = ExternalSubscription.find_by(id: payload['subscription_id'], user_id: user.id)
-      return subscription.nil? if reason == 'subscription_removed'
+      # Sent when the unsubscribe is accepted (the row is `deleting`) and, for
+      # a row that was removed without the fence, once it is gone.
+      return subscription.nil? || subscription.deleting? if reason == 'subscription_removed'
       return false if subscription.nil?
 
       revision = payload['feed_routes_revision'].to_s

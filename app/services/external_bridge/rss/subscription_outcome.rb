@@ -36,7 +36,7 @@ module ExternalBridge
         # immediately, without counting toward the fetch-failure ceiling. A page
         # that is waiting on next_attempt_at uses that time as the subscription
         # deadline so the scheduler does not fetch early.
-        subscription.update!(
+        subscription.update_unless_deleting!(
           state: 'active',
           last_error_code: 'import_failed',
           last_error_at: Time.current,
@@ -48,7 +48,7 @@ module ExternalBridge
       end
 
       def terminal!(subscription, code)
-        subscription.update!(
+        subscription.update_unless_deleting!(
           state: 'error',
           last_error_code: code.to_s,
           last_error_at: Time.current,
@@ -62,7 +62,7 @@ module ExternalBridge
         count = subscription.retry_count.to_i + 1
         failed = failed_item_count.nil? ? subscription.failed_item_count : failed_item_count
         if count >= RetryPolicy::CEILING
-          subscription.update!(
+          subscription.update_unless_deleting!(
             state: 'error',
             last_error_code: code.to_s,
             last_error_at: Time.current,
@@ -72,7 +72,7 @@ module ExternalBridge
             failed_item_count: failed
           )
         else
-          subscription.update!(
+          subscription.update_unless_deleting!(
             state: 'active',
             last_error_code: code.to_s,
             last_error_at: Time.current,
@@ -86,7 +86,7 @@ module ExternalBridge
 
       def synced!(subscription)
         ExternalProjectionFailure.where(external_subscription_id: subscription.id).delete_all
-        subscription.update!(
+        subscription.update_unless_deleting!(
           state: 'active',
           last_error_code: nil,
           last_error_at: nil,
@@ -100,7 +100,7 @@ module ExternalBridge
       # Items that reached the per-item ceiling stay recorded so resume can
       # reset them. They do not keep advancing this subscription's retry_count.
       def parked!(subscription, isolated)
-        subscription.update!(
+        subscription.update_unless_deleting!(
           state: 'active',
           last_error_code: 'import_failed',
           last_error_at: Time.current,

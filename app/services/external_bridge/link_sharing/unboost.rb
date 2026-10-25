@@ -9,7 +9,7 @@ module ExternalBridge
     # Only this User's rows for the projection are closed. A second User of
     # the same Account has no marker for the projection and gets not_owner.
     # The wrapper is discarded and, if its Announce was already handed to
-    # distribution, passed to RemovalWorker so followers get the Undo. The
+    # distribution, passed to LinkWrapperRemovalWorker so followers get the Undo. The
     # reference note, the projection, favourites, and bookmarks stay.
     # Repeating the call, or calling it with no share, succeeds and ends
     # nothing.

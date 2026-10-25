@@ -151,7 +151,7 @@ describe 'ExternalBridge link boost concurrency', type: :model do
     bundle = prepare_world
     boost(bundle)
     removals = Queue.new
-    allow(RemovalWorker).to receive(:perform_async) { |id, *| removals << id }
+    allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id, *| removals << id }
 
     outcome = run_together(2) { unboost(bundle).ended }
 
@@ -168,7 +168,7 @@ describe 'ExternalBridge link boost concurrency', type: :model do
   it 'never leaves two live shares after boost, undo, and boost run together' do
     bundle = prepare_world
     boost(bundle)
-    allow(RemovalWorker).to receive(:perform_async)
+    allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async)
 
     outcome = run_together(4) do |index|
       index == 1 ? unboost(bundle) : boost(bundle)
@@ -189,7 +189,7 @@ describe 'ExternalBridge link boost concurrency', type: :model do
 
   it 'orders every visible flip once under simultaneous boosts and undos' do
     bundle = prepare_world
-    allow(RemovalWorker).to receive(:perform_async)
+    allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async)
     user = bundle[:user]
 
     outcome = run_together(8) { |index| index.odd? ? unboost(bundle) : boost(bundle) }
@@ -382,7 +382,7 @@ describe 'ExternalBridge link boost concurrency', type: :model do
     result, row = pending_boost(bundle)
     sent = record_distribution
     removals = Queue.new
-    allow(RemovalWorker).to receive(:perform_async) { |id, *| removals << id }
+    allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id, *| removals << id }
     revoker = nil
     handler = lambda do |*args|
       next unless args.last[:name] == :announce_after_enqueue
@@ -427,7 +427,7 @@ describe 'ExternalBridge link boost concurrency', type: :model do
         result, row = pending_boost(bundle)
         sent = record_distribution
         removals = Queue.new
-        allow(RemovalWorker).to receive(:perform_async) { |id, *| removals << id }
+        allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id, *| removals << id }
 
         outcome = run_together(2) { |index| index.zero? ? ExternalBridge::LinkSharing::BoostAnnounce.call(row.id) : unboost(bundle).ended }
 

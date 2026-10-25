@@ -56,14 +56,72 @@ module ExternalBridge
         end
       end
 
+      # Pushes a control event now, outside AfterOuterCommit. The caller is
+      # already past the commit that made the event true.
+      #
+      # @return [Symbol]
+      #   :pushed  Sidekiq returned a job id
+      #   :failed  perform_async returned nil or false (the client did not accept it)
+      #   :skipped nobody to tell: the user cannot receive it, or the payload is empty
+      # Redis errors are raised. A nil id is not success.
+      def self.deliver_control!(**delivery)
+        user = User.find_by(id: delivery[:user_id])
+        return :skipped unless user&.functional? && Feeds::Feature.permitted?(user)
+
+        payload = control_payload(delivery)
+        return :skipped if payload.nil?
+
+        jid = StreamControlWorker.perform_async(user.id.to_s, payload)
+        jid.present? ? :pushed : :failed
+      end
+
       def self.schedule_deletes!(captures)
         Array(captures).each_slice(DELETE_BATCH) do |batch|
           cleaned = batch.filter_map { |row| clean_delete(row) }
           next if cleaned.empty?
 
-          AfterOuterCommit.run { StreamDeleteWorker.perform_async(cleaned) }
+          # After the outermost commit. A Redis error here must not escape:
+          # Rails 6.1 delivers it to the caller after the DELETE has committed.
+          # Callers that can retry keep their own outbox and use push_deletes!.
+          AfterOuterCommit.run { push_delete_batch!(cleaned) }
         end
       end
+
+      # Pushes now. Use this only after the DELETE is already durable.
+      #
+      # @return [Hash] :accepted captures Sidekiq took, :discarded rows that
+      #   can never be sent. A nil job id or a raised error accepts nothing
+      #   further; the caller keeps those rows.
+      def self.push_deletes!(captures)
+        accepted = []
+        discarded = []
+        Array(captures).each_slice(DELETE_BATCH) do |batch|
+          cleaned = []
+          batch.each do |row|
+            entry = clean_delete(row)
+            entry ? cleaned << entry : discarded << row
+          end
+          next if cleaned.empty?
+
+          jid = push_delete_batch!(cleaned)
+          if jid.present?
+            accepted.concat(cleaned)
+          else
+            break
+          end
+        end
+        { accepted: accepted, discarded: discarded }
+      end
+
+      def self.push_delete_batch!(cleaned)
+        jid = StreamDeleteWorker.perform_async(cleaned)
+        Rails.logger.warn('[ExternalBridge::Streaming] delete enqueue rejected') if jid.blank?
+        jid
+      rescue StandardError => e
+        Rails.logger.warn("[ExternalBridge::Streaming] delete enqueue error=#{e.class}")
+        nil
+      end
+      private_class_method :push_delete_batch!
 
       def self.canonical?(status)
         status.present? &&

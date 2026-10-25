@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_31_120000) do
+ActiveRecord::Schema.define(version: 2026_10_31_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -717,9 +717,14 @@ ActiveRecord::Schema.define(version: 2026_10_31_120000) do
     t.datetime "undone_at"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+    t.datetime "removal_acknowledged_at"
+    t.datetime "removal_next_attempt_at"
+    t.datetime "removal_lease_until"
+    t.string "removal_lease_token", limit: 32
     t.index ["id"], name: "index_link_boosts_on_orphaned", where: "(((state)::text = 'active'::text) AND (external_status_projection_id IS NULL))"
     t.index ["link_reference_id", "generation"], name: "index_link_boosts_on_generation", unique: true
     t.index ["reference_status_id"], name: "index_link_boosts_on_reference", where: "(reference_status_id IS NOT NULL)"
+    t.index ["updated_at"], name: "index_link_boosts_on_pending_removal", where: "(((state)::text = 'undone'::text) AND (wrapper_status_id IS NOT NULL) AND (removal_acknowledged_at IS NULL))"
     t.index ["user_id", "projection_status_id"], name: "index_link_boosts_on_active_share", unique: true, where: "((state)::text = 'active'::text)"
     t.index ["user_id"], name: "index_link_boosts_on_user_id"
     t.index ["wrapper_status_id"], name: "index_link_boosts_on_wrapper", unique: true, where: "(wrapper_status_id IS NOT NULL)"
@@ -864,6 +869,43 @@ ActiveRecord::Schema.define(version: 2026_10_31_120000) do
     t.index ["user_id"], name: "index_external_status_projections_on_user_id"
   end
 
+  create_table "external_subscription_deletions", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "external_subscription_id", null: false
+    t.bigint "external_source_id", null: false
+    t.string "state", default: "queued", null: false
+    t.bigint "total_count"
+    t.bigint "deleted_count", default: 0, null: false
+    t.jsonb "route_targets", default: [], null: false
+    t.integer "attempt_count", default: 0, null: false
+    t.string "last_error_code"
+    t.datetime "next_run_at"
+    t.datetime "requested_at", null: false
+    t.datetime "started_at"
+    t.datetime "last_progress_at"
+    t.datetime "finished_at"
+    t.datetime "control_enqueued_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_subscription_id"], name: "index_external_subscription_deletions_on_subscription", unique: true
+    t.index ["finished_at"], name: "index_external_subscription_deletions_on_completed", where: "((state)::text = 'completed'::text)"
+    t.index ["next_run_at"], name: "index_external_subscription_deletions_on_pending", where: "((state)::text = ANY ((ARRAY['queued'::character varying, 'running'::character varying, 'failed'::character varying])::text[]))"
+    t.index ["user_id", "id"], name: "index_external_subscription_deletions_on_user"
+    t.check_constraint "(state)::text = ANY ((ARRAY['queued'::character varying, 'running'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])", name: "external_subscription_deletions_state_check"
+  end
+
+  create_table "external_subscription_deletion_effects", force: :cascade do |t|
+    t.bigint "external_subscription_deletion_id", null: false
+    t.bigint "status_id", null: false
+    t.jsonb "destinations"
+    t.datetime "cache_cleared_at"
+    t.datetime "search_cleared_at"
+    t.datetime "stream_enqueued_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_subscription_deletion_id", "status_id"], name: "index_deletion_effects_on_deletion_and_status", unique: true
+  end
+
   create_table "external_subscriptions", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.bigint "external_source_id", null: false
@@ -882,7 +924,7 @@ ActiveRecord::Schema.define(version: 2026_10_31_120000) do
     t.index ["id", "user_id", "external_source_id"], name: "index_external_subscriptions_on_id_user_and_source", unique: true
     t.index ["user_id", "external_source_id"], name: "index_external_subscriptions_on_user_and_source", unique: true
     t.index ["user_id"], name: "index_external_subscriptions_on_user_id"
-    t.check_constraint "(state)::text = ANY ((ARRAY['active'::character varying, 'paused'::character varying, 'error'::character varying])::text[])", name: "external_subscriptions_state_check"
+    t.check_constraint "(state)::text = ANY ((ARRAY['active'::character varying, 'paused'::character varying, 'error'::character varying, 'deleting'::character varying])::text[])", name: "external_subscriptions_state_check"
   end
 
   create_table "favourite_domains", force: :cascade do |t|
@@ -2282,6 +2324,8 @@ ActiveRecord::Schema.define(version: 2026_10_31_120000) do
   add_foreign_key "external_status_projections", "accounts", on_delete: :restrict
   add_foreign_key "external_status_projections", "statuses", on_delete: :cascade
   add_foreign_key "external_status_projections", "users", on_delete: :restrict
+  add_foreign_key "external_subscription_deletion_effects", "external_subscription_deletions", column: "external_subscription_deletion_id", name: "fk_deletion_effects_deletion", on_delete: :cascade
+  add_foreign_key "external_subscription_deletions", "users", name: "fk_external_subscription_deletions_user", on_delete: :cascade
   add_foreign_key "external_subscriptions", "external_sources", on_delete: :restrict
   add_foreign_key "external_subscriptions", "users", on_delete: :cascade
   add_foreign_key "favourite_domains", "accounts", on_delete: :cascade

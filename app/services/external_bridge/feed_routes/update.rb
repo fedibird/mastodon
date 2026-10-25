@@ -19,6 +19,7 @@ module ExternalBridge
 
         ExternalSubscription.transaction do
           subscription.lock!
+          raise Error, :subscription_deleting if subscription.deleting?
           raise Error, :stale_feed_routes if subscription.feed_routes_revision.to_i != revision
 
           assert_lists_owned!(user, desired_lists)

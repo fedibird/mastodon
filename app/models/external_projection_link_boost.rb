@@ -23,6 +23,10 @@
 #  undone_at                     :datetime
 #  created_at                    :datetime         not null
 #  updated_at                    :datetime         not null
+#  removal_acknowledged_at       :datetime
+#  removal_next_attempt_at       :datetime
+#  removal_lease_until           :datetime
+#  removal_lease_token           :string(32)
 #
 
 # One share generation of a projection by one User. The wrapper Status is an

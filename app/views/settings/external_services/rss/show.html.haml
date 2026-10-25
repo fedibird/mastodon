@@ -26,6 +26,13 @@
       .actions
         = button_tag t('external_bridge.subscribe'), type: 'submit', class: 'button', data: { disable_with: t('external_bridge.working') }, aria: { describedby: 'rss-feed-url-hint rss-privacy-note' }
 
+  - if @page.deletions.any?
+    %section.external-service-deletions{ aria: { labelledby: 'rss-deletions-title' } }
+      %h4#rss-deletions-title= t('external_bridge.deletion.heading')
+      %p.hint= t('external_bridge.deletion.note')
+      - @page.deletions.each do |deletion|
+        = render 'settings/external_services/rss/deletion', deletion: deletion, permitted: @page.permitted
+
   %h4= t('external_bridge.subscriptions')
   %p.hint= t('external_bridge.cadence_note')
   %p.hint#rss-unsubscribe-note= t('external_bridge.unsubscribe_note')

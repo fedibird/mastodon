@@ -165,6 +165,8 @@ Rails.application.routes.draw do
     post 'external_services/rss/subscriptions/:id/pause', to: 'external_services/rss_subscriptions#pause', as: :pause_external_services_rss_subscription
     post 'external_services/rss/subscriptions/:id/resume', to: 'external_services/rss_subscriptions#resume', as: :resume_external_services_rss_subscription
     delete 'external_services/rss/subscriptions/:id', to: 'external_services/rss_subscriptions#destroy', as: :external_services_rss_subscription
+    get 'external_services/rss/subscription_deletions/:id', to: 'external_services/rss_subscription_deletions#show', as: :external_services_rss_subscription_deletion
+    post 'external_services/rss/subscription_deletions/:id/retry', to: 'external_services/rss_subscription_deletions#retry', as: :retry_external_services_rss_subscription_deletion
     patch 'external_services/rss/subscriptions/:id/feed_routes', to: 'external_services/rss_feed_routes#update', as: :external_services_rss_subscription_feed_routes
     post 'external_services/feed_route_lists', to: 'external_services/feed_route_lists#create', as: :external_services_feed_route_lists
     get 'external_services/bluesky', to: 'external_services/bluesky#show', as: :external_services_bluesky
@@ -710,6 +712,12 @@ Rails.application.routes.draw do
               post :restore
             end
             resources :statuses, only: :index, module: :subscriptions
+          end
+
+          resources :subscription_deletions, only: [:index, :show] do
+            member do
+              post :retry
+            end
           end
         end
       end

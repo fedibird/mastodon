@@ -341,7 +341,8 @@ RSpec.describe 'Private RSS projection access' do
       expect(response).to have_http_status(404)
 
       delete "/api/v1/external_bridge/rss/subscriptions/#{subscription_id}", headers: owner_headers
-      expect(response).to have_http_status(200)
+      expect(response).to have_http_status(202)
+      expect(body_as_json[:subscription_id]).to eq subscription_id
       expect(ExternalSubscription.exists?(subscription_id)).to be false
       expect(ExternalStatusProjection.where(external_subscription_id: subscription_id)).to be_empty
       expect(ExternalSubscription.exists?(bundle[:subscription].id)).to be true
