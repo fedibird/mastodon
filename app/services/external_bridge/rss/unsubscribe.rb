@@ -25,23 +25,26 @@ module ExternalBridge
       def call(user:, subscription_id:)
         raise Error, :not_found if user.nil?
 
-        deletion = ApplicationRecord.transaction { accept!(user, subscription_id) }
-        SubscriptionDeletionDispatch.enqueue(deletion.id) if deletion.queued?
+        deletion, created = ApplicationRecord.transaction { accept!(user, subscription_id) }
+        SubscriptionDeletionDispatch.enqueue(deletion.id) if created
         deletion
       end
 
       private
 
+      # @return [Array(ExternalSubscriptionDeletion, Boolean)] the record and
+      #   whether this call created it. A repeated request pushes nothing: the
+      #   first push, or the recovery scheduler, owns the job.
       def accept!(user, subscription_id)
         subscription = ExternalSubscription.lock.find_by(id: subscription_id, user_id: user.id)
         if subscription.nil?
-          return recorded(user, subscription_id) || raise(Error, :not_found)
+          return [recorded(user, subscription_id) || raise(Error, :not_found), false]
         end
 
         existing = ExternalSubscriptionDeletion.find_by(external_subscription_id: subscription.id)
-        return existing if existing
+        return [existing, false] if existing
 
-        fence!(subscription)
+        [fence!(subscription), true]
       end
 
       def recorded(user, subscription_id)
