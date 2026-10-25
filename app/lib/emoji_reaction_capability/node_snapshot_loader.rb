@@ -29,6 +29,18 @@ module EmojiReactionCapability
       load_many([domain], now: now).fetch(domain, NodeSnapshot.absent)
     end
 
+    # One bounded read for a write: the row (or nil) and its snapshot.
+    # The select list matches load_many, so nodeinfo and instance_data stay
+    # out of the query. No NodeInfo fetch.
+    def load_record(domain, now: Time.now.utc)
+      return [nil, NodeSnapshot.absent] if domain.blank?
+
+      row = Node.where(domain: domain)
+                .select(:id, :domain, :info, :info_override, :status, :last_fetched_at, Arel.sql("#{NODEINFO_MISSING_SQL} AS nodeinfo_missing"))
+                .first
+      [row, row ? snapshot(row, now: now) : NodeSnapshot.absent]
+    end
+
     # row exposes info, info_override, status, last_fetched_at, nodeinfo_missing.
     def snapshot(row, now: Time.now.utc)
       NodeSnapshot.from_attributes(

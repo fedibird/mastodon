@@ -1956,6 +1956,18 @@ ja:
     beta_features: ベータ機能
     disable_actions: 操作の無効化
     disable_actions_hint: 誤操作による事故を防いだり、用途を限定したアカウント向けに、特定の操作を無効化するための設定です。クライアントアプリに対しても有効です。
+    emoji_reaction_fallback_policy: リアクションをいいねとして送るとき
+    emoji_reaction_fallback_policy_scope: リアクションが相手の投稿の所属サーバー宛に、絵文字リアクションではなくいいね（Like）として送られるときの動作です。ローカルの投稿へのリアクションが、フォロワーのサーバーへいいねとして届く場合は対象外です。あらゆるLikeを止める設定ではありません。
+    emoji_reaction_fallback_policy_enforced: このサーバーは、送信時にこの選択を適用します。
+    emoji_reaction_fallback_policy_not_enforced: 選択は保存されますが、このサーバーはまだ適用していません。適用を始めるまでは、いままでどおり送信されます。
+    emoji_reaction_fallback_policy_ask_unavailable: 「その都度確認」は選べません。確認ダイアログがまだないため、選ぶと確認する手段のないまま拒否されます。
+    emoji_reaction_fallback_policy_ask_stored: 保存されている値は「その都度確認」です。このアプリでは確認を完了できません。送るか、相手のサーバーへ送らないかを選んで保存してください。適用中のサーバーでは、それまで新しいフォールバック送信は拒否されます。
+    emoji_reaction_fallback_policy_choose: 送るか、送らないかを選んでください
+    emoji_reaction_fallback_policy_disable_reactions: 「リアクションを無効にする」は、これまでどおり操作自体を止めます。この設定では緩和されません。
+    emoji_reaction_fallback_policies:
+      allow: 相手のサーバーへいいねとして送る
+      deny: 相手のサーバーへは送らない
+      ask: その都度確認する
     fedibird_features: Fedibirdの機能
     other: その他
     post_disclosure: 投稿の開示設定

@@ -22,6 +22,7 @@ Rails.application.config.filter_parameters += [
   :secret,
   :encrypted_payload,
   :status_ids,
+  :fallback_confirmation,
   :seek_target,
   # Exact names only. A bare :q or :text would redact every key that contains
   # those letters. Membership rejects search text; ids are not a search query

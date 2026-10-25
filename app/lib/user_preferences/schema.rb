@@ -5,7 +5,7 @@
 # load docs/settings_service/catalog.yml and does not authorize a caller.
 class UserPreferences::Schema
   EXTERNAL_DEPENDENCIES = %w(account.locked user.locale request_locale).freeze
-  CATEGORIES = %i(posting translation appearance).freeze
+  CATEGORIES = %i(posting translation appearance safety).freeze
   POLICIES = %i(general read_only).freeze
   APPLY_HINTS = %i(live reinitialize reload unknown).freeze
   TYPE_NAMES = %i(nil boolean string integer).freeze

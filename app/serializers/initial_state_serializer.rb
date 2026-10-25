@@ -112,6 +112,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:default_column_width]                  = object.current_account.user.setting_default_column_width
       store[:disable_post]                          = object.current_account.user.setting_disable_post
       store[:disable_reactions]                     = object.current_account.user.setting_disable_reactions
+      store[:emoji_reaction_fallback_policy]       = preference_effective('emoji_reaction_fallback_policy')
       store[:disable_follow]                        = object.current_account.user.setting_disable_follow
       store[:disable_unfollow]                      = object.current_account.user.setting_disable_unfollow
       store[:disable_block]                         = object.current_account.user.setting_disable_block

@@ -342,6 +342,7 @@ ja:
         setting_disable_post: 投稿を無効にする
         setting_disable_reaction_streaming: リアクションのストリーミングを無効にする
         setting_disable_reactions: リアクションを無効にする
+        setting_emoji_reaction_fallback_policy: 相手の投稿のサーバーへいいねとして送るとき
         setting_disable_relative_time: 投稿の相対日時を無効にする
         setting_disable_report: 通報を無効にする
         setting_disable_swiping: スワイプでの切り替えを無効にする

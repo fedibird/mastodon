@@ -139,6 +139,7 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_default_expires_action,
       :setting_disable_post,
       :setting_disable_reactions,
+      :setting_emoji_reaction_fallback_policy,
       :setting_disable_follow,
       :setting_disable_unfollow,
       :setting_disable_block,

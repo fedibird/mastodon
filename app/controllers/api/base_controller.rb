@@ -68,6 +68,12 @@ class Api::BaseController < ApplicationController
     render json: { error: 'This action is not allowed' }, status: 403
   end
 
+  rescue_from Mastodon::EmojiReactionPolicyError do |error|
+    body = { error: error.message, error_code: error.error_code }
+    body[:details] = error.details if error.details.present?
+    render json: body, status: error.http_status
+  end
+
   rescue_from Seahorse::Client::NetworkingError do |e|
     Rails.logger.warn "Storage server error: #{e}"
     render json: { error: 'There was a temporary problem serving your request, please try again' }, status: 503

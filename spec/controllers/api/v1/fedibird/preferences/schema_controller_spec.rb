@@ -32,6 +32,7 @@ RSpec.describe Api::V1::Fedibird::Preferences::SchemaController, type: :controll
         user.content_font_size
         user.info_font_size
         user.reduce_motion
+        user.emoji_reaction_fallback_policy
         user.preferred_posting_language
       )
       privacy = body[:schema].find { |item| item[:key] == 'user.default_privacy' }
@@ -43,6 +44,10 @@ RSpec.describe Api::V1::Fedibird::Preferences::SchemaController, type: :controll
       expect(mode[:allowed_values]).not_to include('original')
       preferred = body[:schema].find { |item| item[:key] == 'user.preferred_posting_language' }
       expect(preferred[:write_policy]).to eq 'read_only'
+      fallback = body[:schema].find { |item| item[:key] == 'user.emoji_reaction_fallback_policy' }
+      expect(fallback[:write_policy]).to eq 'read_only'
+      expect(fallback[:category]).to eq 'safety'
+      expect(fallback[:allowed_values]).to eq %w(allow ask deny)
       expect(preferred[:configured_type]).to be_nil
       font = body[:schema].find { |item| item[:key] == 'user.content_font_size' }
       expect(font[:ui_range]).to eq(min: 10, max: 20, step: nil)

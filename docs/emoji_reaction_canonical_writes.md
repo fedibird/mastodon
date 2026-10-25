@@ -51,7 +51,7 @@ Turning the flags on does not change the activity type or the inbox of a **new**
 3. As a staff account: `PUT` an emoji on an original, `PUT` the same emoji on a boost of that original, `PUT` the original again. Expect one row on the original, one notification, one delivery. `DELETE` and `POST .../unreact/:id` and `POST .../emoji_unreaction` through the boost remove that row. A repeat of an existing emoji at the cap returns 200 and does not enqueue another delivery.
 4. Confirm a status the viewer cannot `show?` (block, followers-only, limited, private projection) cannot be written through a boost of it, and that `setting_disable_reactions` still rejects `PUT` with 403 while `DELETE` of an existing row still works.
 
-Do not enable the flags in production until that staging check is recorded. P1b policy and delivery-plan switches are still out of scope and stay off.
+Do not enable the flags in production until that staging check is recorded. Delivery-plan subflags stay off. Fallback-policy enforcement is a separate flag and also ships off; see `docs/emoji_reaction_fallback_policy.md`.
 
 ## Rollback
 

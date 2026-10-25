@@ -13,6 +13,7 @@ class UserPreferences::Reader
     content_font_size
     info_font_size
     reduce_motion
+    emoji_reaction_fallback_policy
   ).freeze
   DERIVED_KEYS = %w(preferred_posting_language).freeze
   KEYS = (STORAGE_KEYS + DERIVED_KEYS).freeze
@@ -92,6 +93,9 @@ class UserPreferences::Reader
       return yaml_default(key) if state == :absent
 
       configured
+    when 'emoji_reaction_fallback_policy'
+      raw = state == :absent ? nil : configured
+      EmojiReactionCapability::FallbackPolicy.normalize(raw)
     end
   end
 

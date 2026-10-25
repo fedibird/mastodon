@@ -12,9 +12,28 @@ RSpec.describe UserPreferences::WriteContract do
     error.errors
   end
 
-  it 'accepts only the nine stored keys' do
-    expect(described_class::KEYS).to eq(UserPreferences::Reader::STORAGE_KEYS)
-    expect(described_class::KEYS).not_to include('preferred_posting_language')
+  it 'accepts only the nine stored keys and leaves the fallback policy unread for writes' do
+    expect(described_class::KEYS).to eq(UserPreferences::Reader::STORAGE_KEYS - ['emoji_reaction_fallback_policy'])
+    expect(described_class::KEYS.size).to eq 9
+    expect(described_class::KEYS).not_to include('preferred_posting_language', 'emoji_reaction_fallback_policy')
+    expect(UserPreferences::Schema.get('emoji_reaction_fallback_policy')).to have_attributes(
+      write_policy: :read_only,
+      derived: false,
+      category: :safety
+    )
+  end
+
+  it 'rejects fallback policy updates because the key is outside the contract, not because write_policy is consulted' do
+    found = errors_for(
+      updates: { 'emoji_reaction_fallback_policy' => 'deny', 'reduce_motion' => true },
+      resets: ['emoji_reaction_fallback_policy']
+    )
+
+    expect(found).to include('key' => 'emoji_reaction_fallback_policy', 'code' => 'unknown_key')
+    expect(File.read(Rails.root.join('app/lib/user_preferences/writer.rb'))).not_to include('write_policy')
+    expect(File.read(Rails.root.join('app/lib/user_preferences/write_contract.rb'))).not_to include('write_policy')
+    expect(UserPreferences::Schema).not_to receive(:get)
+    contract.validate!(updates: { 'reduce_motion' => true }, resets: [])
   end
 
   it 'accepts the allowed posting, translation, and appearance values' do

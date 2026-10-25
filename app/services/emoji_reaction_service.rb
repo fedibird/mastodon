@@ -9,9 +9,12 @@ class EmojiReactionService < BaseService
   # instead of returning success with no row.
   MAX_LOST_INSERT_ATTEMPTS = 3
 
-  def call(account, status, emoji)
-    @account          = account
-    @requested_status = status
+  def call(account, status, emoji, fallback_confirmation: nil)
+    @account                = account
+    @requested_status       = status
+    @fallback_confirmation  = fallback_confirmation
+    @fallback_policy_cleared = false
+    @approved_activity_type = nil
     shortcode, domain = emoji.split('@')
     domain = nil if domain == Rails.configuration.x.local_domain
 
@@ -53,6 +56,10 @@ class EmojiReactionService < BaseService
       attempts += 1
       existing = EmojiReaction.find_by(attrs)
       return [existing, false] if existing
+
+      # After the row check, so a repeat PUT stays the P1b-1a no-op even when
+      # the user has since chosen deny or ask. No extra read when the gate is off.
+      authorize_new_fallback!(write_status, shortcode, custom_emoji)
 
       begin
         return [insert_reaction(attrs, custom_emoji), true]
@@ -130,13 +137,36 @@ class EmojiReactionService < BaseService
     if status.account.local?
       ActivityPub::CustomEmojiDistributionWorker.perform_async(emoji_reaction.id, 'create')
     elsif status.account.activitypub?
-      type = %w(unicode custom).include?(status.account.node&.features(:emoji_reaction_type)) ? 'EmojiReact' : 'Like'
-      type = 'Like' if %w(kmyblue).include?(status.account.node&.software)
+      # The gate's type, when it approved this insert, is the legacy choice
+      # frozen for this request. Re-reading the node here could enqueue a
+      # different activity than the one the policy allowed. Flag off leaves
+      # the instance variable nil and uses the same helper on the association.
+      type = @approved_activity_type || EmojiReactionCapability::ActualDelivery.legacy_remote_type(status.account.node)
       ActivityPub::DeliveryWorker.perform_async(build_json(emoji_reaction, type), emoji_reaction.account_id, status.account.inbox_url)
       EmojiReactionCapability::Shadow.observe_create(emoji_reaction, legacy_type: type)
     else
       EmojiReactionCapability::Shadow.observe_create(emoji_reaction, legacy_type: nil)
     end
+  end
+
+  def authorize_new_fallback!(write_status, shortcode, custom_emoji)
+    return if @fallback_policy_cleared
+    return unless EmojiReactionCapability::FallbackPolicyConfig.effective?
+
+    activity_type = EmojiReactionCapability::FallbackGate.enforce!(
+      reactor: @account,
+      status: write_status,
+      shortcode: shortcode,
+      custom_emoji: custom_emoji,
+      confirmation: confirmation_token
+    )
+    @approved_activity_type = activity_type if activity_type
+    @fallback_policy_cleared = true
+  end
+
+  # A non-string (an array, a hash) is treated as no token, not as a crash.
+  def confirmation_token
+    @fallback_confirmation if @fallback_confirmation.is_a?(String)
   end
 
   def bump_potential_friendship(account, status)

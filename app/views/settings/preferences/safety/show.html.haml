@@ -14,6 +14,20 @@
   .fields-group
     = f.input :setting_disable_reactions, as: :boolean, wrapper: :with_label, fedibird_features: true
 
+  - fallback_raw = current_user.setting_emoji_reaction_fallback_policy.to_s
+  - fallback_choices = EmojiReactionCapability::FallbackPolicy.form_choices
+  - fallback_known = fallback_choices.include?(fallback_raw)
+  - fallback_hint = [t('preferences.emoji_reaction_fallback_policy_scope')]
+  - fallback_hint << (EmojiReactionCapability::FallbackPolicyConfig.effective? ? t('preferences.emoji_reaction_fallback_policy_enforced') : t('preferences.emoji_reaction_fallback_policy_not_enforced'))
+  - fallback_hint << t('preferences.emoji_reaction_fallback_policy_ask_unavailable') unless EmojiReactionCapability::FallbackPolicy.picker_confirmation_available?
+  - fallback_hint << t('preferences.emoji_reaction_fallback_policy_ask_stored') if fallback_raw == 'ask'
+  - fallback_hint << t('preferences.emoji_reaction_fallback_policy_disable_reactions')
+
+  %h4= t('preferences.emoji_reaction_fallback_policy')
+
+  .fields-group
+    = f.input :setting_emoji_reaction_fallback_policy, collection: fallback_choices, label_method: ->(choice) { t("preferences.emoji_reaction_fallback_policies.#{choice}") }, value_method: :itself, selected: (fallback_known ? fallback_raw : nil), include_blank: (fallback_known ? false : t('preferences.emoji_reaction_fallback_policy_choose')), hint: fallback_hint.join(' '), wrapper: :with_label, fedibird_features: true
+
   .fields-group
     = f.input :setting_disable_follow, as: :boolean, wrapper: :with_label, fedibird_features: true
 
