@@ -290,6 +290,10 @@
   }
 }
 
+.feed-route-picker [hidden] {
+  display: none !important;
+}
+
 .feed-route-picker__summary {
   flex: 1 1 12rem;
   min-width: 0;

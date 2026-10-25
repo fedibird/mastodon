@@ -125,6 +125,32 @@ describe('initializeFeedRoutePickers', () => {
     expect(dialog.hasAttribute('open')).toBe(false);
   });
 
+  it('wraps Tab and Shift+Tab focus inside the open dialog', () => {
+    document.body.innerHTML = pickerMarkup(1);
+    initializeFeedRoutePickers(document);
+    const dialog = document.querySelector('dialog');
+    document.querySelector('button.feed-route-picker__open').click();
+
+    const buttons = Array.from(dialog.querySelectorAll('button')).filter((button) => !button.closest('[hidden]') && !button.hidden);
+    const first = buttons[0];
+    const last = dialog.querySelector('button[type="submit"]');
+    const press = (shiftKey) => {
+      const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+      dialog.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+
+    last.focus();
+    expect(press(false)).toBe(true);
+    expect(document.activeElement).toBe(first);
+
+    expect(press(true)).toBe(true);
+    expect(document.activeElement).toBe(last);
+
+    document.getElementById('feed-route-1-home').focus();
+    expect(press(false)).toBe(false);
+  });
+
   it('creates a list, selects it, and keeps the other unsaved choices', async () => {
     document.body.innerHTML = pickerMarkup(1) + pickerMarkup(2);
     initializeFeedRoutePickers(document);

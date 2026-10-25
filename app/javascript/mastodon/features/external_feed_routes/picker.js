@@ -20,6 +20,35 @@ const firstFocusable = (form) => (
   form.querySelector('input[type="checkbox"]') || form.querySelector('button:not([hidden]), input[type="text"]')
 );
 
+const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+const focusableWithin = (root) => (
+  Array.from(root.querySelectorAll(FOCUSABLE)).filter((element) => (
+    !element.disabled && !element.hidden && element.type !== 'hidden' && !element.closest('[hidden]')
+  ))
+);
+
+// A native modal dialog still lets Tab reach the browser chrome, so wrap the
+// focus at both ends.
+const trapFocus = (dialog, event) => {
+  if (event.key !== 'Tab') return;
+
+  const items = focusableWithin(dialog);
+  if (items.length === 0) return;
+
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+
+  if (event.shiftKey && (active === first || !dialog.contains(active))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+    event.preventDefault();
+    first.focus();
+  }
+};
+
 const appendListChoice = (container, list, checked) => {
   if (container.querySelector(`input[value="${list.id}"]`)) {
     const existing = container.querySelector(`input[value="${list.id}"]`);
@@ -200,6 +229,7 @@ const enhancePicker = (picker) => {
     if (target) target.focus();
   });
 
+  dialog.addEventListener('keydown', (event) => trapFocus(dialog, event));
   dialog.addEventListener('click', (event) => {
     if (event.target === dialog) dialog.close();
   });
