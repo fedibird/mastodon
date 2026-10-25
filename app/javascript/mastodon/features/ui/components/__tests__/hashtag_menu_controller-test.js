@@ -245,13 +245,13 @@ describe('HashtagMenuController', () => {
 
     click(inline.querySelector('span'));
 
-    expect(screen.getByRole('button', { name: 'View posts with #test' })).toHaveAttribute('href', 'https://example.com/tags/test');
+    expect(screen.getByRole('button', { name: 'View posts with #test' })).toHaveAttribute('href', `${window.location.origin}/tags/test`);
     expect(Overlay.lastTarget).toBe(inline);
 
     click(badge);
 
-    expect(screen.getByRole('button', { name: 'View posts with #mastodon' })).toHaveAttribute('href', 'https://example.com/tags/mastodon');
-    expect(screen.getByRole('button', { name: 'View alice\'s posts with #mastodon' })).toHaveAttribute('href', 'https://example.com/@alice/tagged/mastodon');
+    expect(screen.getByRole('button', { name: 'View posts with #mastodon' })).toHaveAttribute('href', `${window.location.origin}/tags/mastodon`);
+    expect(screen.getByRole('button', { name: 'View alice\'s posts with #mastodon' })).toHaveAttribute('href', `${window.location.origin}/@alice/tagged/mastodon`);
     expect(Overlay.lastTarget).toBe(badge);
   });
 
@@ -286,7 +286,7 @@ describe('HashtagMenuController', () => {
     expect(history.push.mock.calls.map(call => call[0]).join(' ')).not.toContain('/@');
   });
 
-  it('points hrefs at the original public pages while routing in-app with WebUI paths, including encoded tags', () => {
+  it('points hrefs at the local public pages for local posts while routing in-app with WebUI paths, including encoded tags', () => {
     const tag = 'ハッシュタグ_テスト';
     const encoded = encodeURIComponent(tag);
     const { container } = renderMenu({
@@ -298,8 +298,8 @@ describe('HashtagMenuController', () => {
     const browse = screen.getByRole('button', { name: `View posts with #${tag}` });
     const browseAccount = screen.getByRole('button', { name: `View alice's posts with #${tag}` });
 
-    expect(browse).toHaveAttribute('href', `https://example.com/tags/${encoded}`);
-    expect(browseAccount).toHaveAttribute('href', `https://example.com/@alice/tagged/${encoded}`);
+    expect(browse).toHaveAttribute('href', `${window.location.origin}/tags/${encoded}`);
+    expect(browseAccount).toHaveAttribute('href', `${window.location.origin}/@alice/tagged/${encoded}`);
 
     fireEvent.click(browse);
     expect(history.push).toHaveBeenLastCalledWith(`/timelines/tag/${encoded}`);
@@ -309,37 +309,112 @@ describe('HashtagMenuController', () => {
     expect(history.push).toHaveBeenLastCalledWith(`/accounts/a1/posts/${encoded}`);
   });
 
-  it('uses the remote server URLs for hrefs of remote posts and never the WebUI path', () => {
-    const remoteAnchor = '<a href="https://remote.example/tags/%E3%82%BF%E3%82%B0" class="mention hashtag" rel="tag">#<span>タグ</span></a>';
-    const account = { id: 'a1', display_name: 'Bob', username: 'bob', acct: 'bob@remote.example', url: 'https://remote.example/@bob' };
-    const { container } = renderMenu({
-      account,
-      status: buildStatus({ account, contentHtml: `<p>${remoteAnchor}</p>` }),
-      contentHtml: `<p>${remoteAnchor}</p>`,
+  describe('hrefs of remote posts', () => {
+    const remoteAccount = { id: 'a1', display_name: 'Bob', username: 'bob', acct: 'bob@remote.example', url: 'https://remote.example/@bob' };
+
+    function renderRemote({ html, tags, account = remoteAccount } = {}) {
+      return renderMenu({
+        account,
+        contentHtml: html,
+        tags,
+        status: buildStatus({ account, contentHtml: html, ...(tags ? { tags } : {}) }),
+      });
+    }
+
+    function hrefAttr(name) {
+      return screen.getByRole('button', { name }).getAttribute('href');
+    }
+
+    it('uses the remote tag link of an inline anchor and never the WebUI path', () => {
+      const tag = 'タグ';
+      const encoded = encodeURIComponent(tag);
+      const html = `<p><a href="https://remote.example/tags/${encoded}" class="mention hashtag" rel="tag">#<span>${tag}</span></a></p>`;
+      const { container } = renderRemote({ html });
+
+      click(container.querySelector('.status__content__text a.mention.hashtag'));
+
+      expect(hrefAttr(`View posts with #${tag}`)).toBe(`https://remote.example/tags/${encoded}`);
+      expect(hrefAttr(`View bob's posts with #${tag}`)).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: `View posts with #${tag}` }));
+      expect(history.push).toHaveBeenLastCalledWith(`/timelines/tag/${encoded}`);
     });
 
-    click(container.querySelector('.status__content__text a.mention.hashtag'));
+    it('uses the remote tag link of a trailing badge', () => {
+      const html = '<p>本文<br><br><a href="https://remote.example/tags/fedibird" class="mention hashtag" rel="tag">#<span>fedibird</span></a></p>';
+      const { container } = renderRemote({ html });
+      const badge = container.querySelector('a.status__content__hashtag-badge');
 
-    const browse = screen.getByRole('button', { name: 'View posts with #タグ' });
-    const browseAccount = screen.getByRole('button', { name: 'View bob\'s posts with #タグ' });
+      expect(badge).toHaveAttribute('href', 'https://remote.example/tags/fedibird');
+      click(badge);
 
-    expect(browse).toHaveAttribute('href', 'https://remote.example/tags/%E3%82%BF%E3%82%B0');
-    expect(browseAccount).toHaveAttribute('href', 'https://remote.example/@bob/tagged/%E3%82%BF%E3%82%B0');
-    expect(browse.getAttribute('href')).not.toContain('/web/');
-    expect(browseAccount.getAttribute('href')).not.toContain('/web/');
+      expect(hrefAttr('View posts with #fedibird')).toBe('https://remote.example/tags/fedibird');
+      expect(hrefAttr('View bob\'s posts with #fedibird')).toBeNull();
+    });
 
-    fireEvent.click(browse);
-    expect(history.push).toHaveBeenLastCalledWith('/timelines/tag/%E3%82%BF%E3%82%B0');
+    it('does not invent the origin URL for an out-of-band badge whose url is Fedibird\'s', () => {
+      const html = '<p>本文</p>';
+      const tags = [{ name: 'hidden', url: `${window.location.origin}/tags/hidden` }];
+      const { container } = renderRemote({ html, tags });
+      const badge = screen.getByRole('link', { name: '#hidden' });
+
+      expect(container.querySelector('.status__content__hashtag-badge')).toBe(badge);
+      click(badge);
+
+      const browse = screen.getByRole('button', { name: 'View posts with #hidden' });
+      const browseAccount = screen.getByRole('button', { name: 'View bob\'s posts with #hidden' });
+
+      expect(browse).not.toHaveAttribute('href');
+      expect(browseAccount).not.toHaveAttribute('href');
+      expect(browse.getAttribute('href')).not.toBe('#');
+      expect(browseAccount.getAttribute('href')).not.toBe('#');
+
+      fireEvent.click(browse);
+      expect(history.push).toHaveBeenLastCalledWith('/timelines/tag/hidden');
+
+      click(badge);
+      fireEvent.click(screen.getByRole('button', { name: 'View bob\'s posts with #hidden' }));
+      expect(history.push).toHaveBeenLastCalledWith('/accounts/a1/posts/hidden');
+    });
+
+    it('has no hrefs when the remote account is not in the store', () => {
+      const html = '<p>本文</p>';
+      const tags = [{ name: 'hidden', url: `${window.location.origin}/tags/hidden` }];
+      const store = createStore(reducer, initialState().deleteIn(['accounts', 'a1']), applyMiddleware(thunk));
+
+      render(
+        <Provider store={store}>
+          <RouterProvider>
+            <StatusContent
+              status={buildStatus({ account: { id: 'a1', username: 'bob', acct: 'bob@remote.example' }, contentHtml: html, tags })}
+              onTranslate={jest.fn()}
+              onClick={jest.fn()}
+            />
+            <HashtagMenuController />
+          </RouterProvider>
+        </Provider>,
+      );
+
+      click(screen.getByRole('link', { name: '#hidden' }));
+
+      expect(screen.getByRole('button', { name: 'View posts with #hidden' })).not.toHaveAttribute('href');
+      expect(screen.getByRole('button', { name: 'View bob\'s posts with #hidden' })).not.toHaveAttribute('href');
+    });
   });
 
-  it('falls back to the local public tag page when the link has no href', () => {
-    const { container } = renderMenu();
-    const badge = container.querySelector('a.status__content__hashtag-badge');
+  describe('hrefs of local posts', () => {
+    it('uses Fedibird public pages for out-of-band badges, even when the API url differs', () => {
+      const html = '<p>本文</p>';
+      const tags = [{ name: 'ハッシュ', url: 'https://elsewhere.example/tags/ignored' }];
+      const { container } = renderMenu({ contentHtml: html, tags });
+      const badge = container.querySelector('a.status__content__hashtag-badge');
+      const encoded = encodeURIComponent('ハッシュ');
 
-    badge.removeAttribute('href');
-    click(badge);
+      click(badge);
 
-    expect(screen.getByRole('button', { name: 'View posts with #mastodon' })).toHaveAttribute('href', `${window.location.origin}/tags/mastodon`);
+      expect(screen.getByRole('button', { name: 'View posts with #ハッシュ' })).toHaveAttribute('href', `${window.location.origin}/tags/${encoded}`);
+      expect(screen.getByRole('button', { name: 'View alice\'s posts with #ハッシュ' })).toHaveAttribute('href', `${window.location.origin}/@alice/tagged/${encoded}`);
+    });
   });
 
   it('does not open the status from the hashtag or from a menu action', () => {
@@ -418,7 +493,7 @@ describe('HashtagMenuController', () => {
     expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(expect.stringContaining('#different'));
   });
 
-  it('uses the acct when the account has no username', () => {
+  it('uses the acct as the label when the account has no username', () => {
     const account = { id: 'a1', display_name: 'Alice', username: '', acct: 'alice@example.com', url: 'https://example.com/@alice' };
     const { container } = renderMenu({
       account,
@@ -427,7 +502,7 @@ describe('HashtagMenuController', () => {
 
     click(container.querySelector('a.status__content__hashtag-badge'));
 
-    expect(screen.getByRole('button', { name: 'View alice@example.com\'s posts with #mastodon' })).toHaveAttribute('href', 'https://example.com/@alice/tagged/mastodon');
+    expect(screen.getByRole('button', { name: 'View alice@example.com\'s posts with #mastodon' })).toBeInTheDocument();
     expect(container.querySelector('a.status__content__hashtag-badge')).toHaveAttribute('data-account-name', 'alice@example.com');
   });
 
@@ -505,8 +580,8 @@ describe('HashtagMenuController', () => {
 
     click(badge);
 
-    expect(screen.getByRole('button', { name: 'View posts with #bar' })).toHaveAttribute('href', 'https://example.com/tags/bar');
-    expect(screen.getByRole('button', { name: 'View alice\'s posts with #bar' })).toHaveAttribute('href', 'https://example.com/@alice/tagged/bar');
+    expect(screen.getByRole('button', { name: 'View posts with #bar' })).toHaveAttribute('href', `${window.location.origin}/tags/bar`);
+    expect(screen.getByRole('button', { name: 'View alice\'s posts with #bar' })).toHaveAttribute('href', `${window.location.origin}/@alice/tagged/bar`);
     expect(screen.getByRole('button', { name: 'Add to favorites' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Mute #bar' })).toHaveAttribute('href', '/web/settings/filters');
     expect(Overlay.lastTarget).toBe(badge);
