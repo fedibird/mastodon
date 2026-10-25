@@ -99,9 +99,23 @@ RSpec.describe ExternalBridge::RSS::Icon::IcoValidator do
 
     it 'accepts ancillary chunks and a palette where the color type allows one' do
       palette = png_chunk('PLTE', "\x00\x00\x00\xff\xff\xff".b)
-      expect(validate(png_ico(ihdr(16), png_chunk('tEXt', 'Comment'), palette, png_chunk('IDAT', idat_data(16)), png_chunk('tRNS', "\x00".b), png_chunk('IEND')))).to eq [16, 16]
+      truecolor = png_ico(ihdr(16), png_chunk('tEXt', 'Comment'), palette, png_chunk('IDAT', idat_data(16)), png_chunk('tEXt', 'After'), png_chunk('IEND'))
+      expect(validate(truecolor)).to eq [16, 16]
       indexed = png_ico(ihdr(16, color: 3, depth: 1), palette, png_chunk('IDAT', idat_data(16)), png_chunk('IEND'))
       expect(validate(indexed)).to eq [16, 16]
+    end
+
+    it 'accepts tRNS in its place with a length that fits the color type' do
+      palette = png_chunk('PLTE', "\x00\x00\x00\xff\xff\xff".b)
+      idat = png_chunk('IDAT', idat_data(16))
+      iend = png_chunk('IEND')
+      gray = png_ico(ihdr(16, color: 0), png_chunk('tRNS', "\x00\x01".b), idat, iend)
+      truecolor = png_ico(ihdr(16, color: 2), png_chunk('tRNS', "\x00\x01\x00\x02\x00\x03".b), idat, iend)
+      truecolor_with_palette = png_ico(ihdr(16, color: 2), palette, png_chunk('tRNS', "\x00\x01\x00\x02\x00\x03".b), idat, iend)
+      indexed_short = png_ico(ihdr(16, color: 3, depth: 1), palette, png_chunk('tRNS', "\x80".b), idat, iend)
+      indexed_full = png_ico(ihdr(16, color: 3, depth: 1), palette, png_chunk('tRNS', "\x80\xff".b), idat, iend)
+
+      [gray, truecolor, truecolor_with_palette, indexed_short, indexed_full].each { |bytes| expect(validate(bytes)).to eq [16, 16] }
     end
 
     it 'reads a directory size of zero as 256' do
@@ -261,6 +275,41 @@ RSpec.describe ExternalBridge::RSS::Icon::IcoValidator do
       reject(png_ico(ihdr(16, color: 3, depth: 8), png_chunk('PLTE'), png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
       too_many = png_chunk('PLTE', "\x00\x00\x00".b * 3)
       reject(png_ico(ihdr(16, color: 3, depth: 1), too_many, png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
+    end
+
+    it 'rejects tRNS after the image data' do
+      palette = png_chunk('PLTE', "\x00\x00\x00\xff\xff\xff".b)
+      reject(png_ico(ihdr(16), palette, png_chunk('IDAT', idat_data(16)), png_chunk('tRNS', "\x00".b), png_chunk('IEND')))
+      reject(png_ico(ihdr(16, color: 0), png_chunk('IDAT', idat_data(16)), png_chunk('tRNS', "\x00\x01".b), png_chunk('IEND')))
+    end
+
+    it 'rejects tRNS before PLTE or repeated' do
+      palette = png_chunk('PLTE', "\x00\x00\x00\xff\xff\xff".b)
+      idat = png_chunk('IDAT', idat_data(16))
+      reject(png_ico(ihdr(16, color: 3, depth: 1), png_chunk('tRNS', "\x80".b), palette, idat, png_chunk('IEND')))
+      reject(png_ico(ihdr(16, color: 0), png_chunk('tRNS', "\x00\x01".b), png_chunk('tRNS', "\x00\x01".b), idat, png_chunk('IEND')))
+    end
+
+    it 'rejects tRNS for color types that already carry alpha' do
+      idat = png_chunk('IDAT', idat_data(16))
+      reject(png_ico(ihdr(16, color: 4), png_chunk('tRNS', "\x00\x01".b), idat, png_chunk('IEND')))
+      reject(png_ico(ihdr(16, color: 6), png_chunk('tRNS', "\x00\x01\x00\x02\x00\x03".b), idat, png_chunk('IEND')))
+    end
+
+    it 'rejects tRNS whose length does not fit the color type' do
+      palette = png_chunk('PLTE', "\x00\x00\x00\xff\xff\xff".b)
+      idat = png_chunk('IDAT', idat_data(16))
+      iend = png_chunk('IEND')
+      reject(png_ico(ihdr(16, color: 0), png_chunk('tRNS', "\x00".b), idat, iend))
+      reject(png_ico(ihdr(16, color: 0), png_chunk('tRNS'), idat, iend))
+      reject(png_ico(ihdr(16, color: 2), png_chunk('tRNS', "\x00\x01".b), idat, iend))
+      reject(png_ico(ihdr(16, color: 2), png_chunk('tRNS', "\x00".b * 8), idat, iend))
+      reject(png_ico(ihdr(16, color: 3, depth: 1), palette, png_chunk('tRNS', "\x80\xff\x00".b), idat, iend))
+      reject(png_ico(ihdr(16, color: 3, depth: 1), palette, png_chunk('tRNS'), idat, iend))
+    end
+
+    it 'rejects tRNS for an indexed PNG that has no palette' do
+      reject(png_ico(ihdr(16, color: 3, depth: 8), png_chunk('tRNS', "\x80".b), png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
     end
 
     it 'rejects an unknown critical chunk but not an unknown ancillary one' do

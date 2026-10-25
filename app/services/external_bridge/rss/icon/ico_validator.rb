@@ -16,7 +16,8 @@ module ExternalBridge
       # - PNG: signature, IHDR matching the directory entry, every chunk length
       #   in bounds with a correct CRC, the required chunks in order (IHDR, an
       #   optional single PLTE where the color type allows or requires it, one
-      #   or more consecutive IDAT, IEND last), no unknown critical chunk, and
+      #   or more consecutive IDAT, IEND last), tRNS (when present) single, in
+      #   place, and sized for the color type, no unknown critical chunk, and
       #   no bytes after IEND. Color type and bit depth must be valid for PNG.
       # - BMP/DIB (BITMAPINFOHEADER, 40 bytes, uncompressed or BITFIELDS):
       #   dimensions that agree with the entry, a legal bit count, and enough
@@ -101,6 +102,7 @@ module ExternalBridge
           check_png_sequence!(chunks)
           check_ihdr!(entry, chunks.first.last)
           check_png_palette!(chunks)
+          check_png_transparency!(chunks)
         end
 
         # Splits the payload into [type, data] pairs. Every length must stay
@@ -164,6 +166,37 @@ module ExternalBridge
           data = chunks[palettes.first].last
           invalid! unless (data.bytesize % 3).zero? && data.bytesize.between?(3, 768)
           invalid! if color == 3 && data.bytesize / 3 > (1 << depth)
+        end
+
+        # tRNS is the one ancillary chunk whose content decides how the image
+        # is read, so it is checked when present: at most one, after PLTE (if
+        # any) and before the first IDAT, not for color types that carry an
+        # alpha channel, and sized for the color type (grayscale: one 2-byte
+        # sample, truecolor: three, indexed: one byte per palette entry at
+        # most).
+        def check_png_transparency!(chunks)
+          types = chunks.map(&:first)
+          positions = types.each_index.select { |index| types[index] == 'tRNS' }
+          return if positions.empty?
+
+          invalid! if positions.size > 1
+
+          color = chunks.first.last.unpack('NNCC').last
+          position = positions.first
+          invalid! unless position < types.index('IDAT')
+          invalid! if types.include?('PLTE') && position < types.index('PLTE')
+
+          length = chunks[position].last.bytesize
+          invalid! unless transparency_length_ok?(color, length, chunks, types)
+        end
+
+        def transparency_length_ok?(color, length, chunks, types)
+          case color
+          when 0 then length == 2
+          when 2 then length == 6
+          when 3 then length.positive? && length <= chunks[types.index('PLTE')].last.bytesize / 3
+          else false
+          end
         end
 
         def check_ihdr!(entry, data)
