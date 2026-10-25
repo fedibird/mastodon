@@ -140,45 +140,6 @@ module ExternalServices
       end
     end
 
-    # Choices for one subscription. Built from rows already loaded for the
-    # page so the settings list does not query once per feed.
-    class RouteForm
-      def initialize(subscription, routes:, lists:, feeds_permitted:)
-        @revision = subscription.feed_routes_revision.to_i
-        @home = routes.fetch(:home, false)
-        @selected = routes.fetch(:list_ids, [])
-        @lists = lists
-        @feeds_permitted = feeds_permitted
-      end
-
-      def show?
-        @feeds_permitted || @home || @selected.any?
-      end
-
-      def can_add?
-        @feeds_permitted
-      end
-
-      def home?
-        @home
-      end
-
-      def offer_home?
-        can_add? || home?
-      end
-
-      def revision
-        @revision
-      end
-
-      def choices
-        rows = @lists.map { |id, title| { id: id, title: title, checked: @selected.include?(id) } }
-        return rows if can_add?
-
-        rows.select { |row| row[:checked] }
-      end
-    end
-
     class << self
       def key
         KEY
@@ -348,7 +309,7 @@ module ExternalServices
                   []
                 end
         rows.each_with_object({}) do |row, memo|
-          memo[row.id] = RouteForm.new(row, routes: grouped[row.id], lists: lists, feeds_permitted: permitted)
+          memo[row.id] = FeedRouteForm.new(row, routes: grouped[row.id], lists: lists, feeds_permitted: permitted)
         end
       end
 

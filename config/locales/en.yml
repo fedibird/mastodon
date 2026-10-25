@@ -2216,23 +2216,42 @@ en:
     unsubscribe_confirm: Remove this feed? This deletes the private posts imported from it, and the favourites and bookmarks on those posts. The shared public feed cache stays. This is not a pause.
     unsubscribe_for: Remove %{title}
     feed_routes:
+      cancel: Cancel
+      change: Change destinations
+      change_for: Change destinations for %{title}
+      choose: Set destinations
+      choose_for: Set destinations for %{title}
+      close: Close
+      create: Create
+      create_list: "+ Create a new list"
+      description: Receive new posts in the timelines you choose.
       disabled: Home and list delivery is turned off on this server. You can still clear a destination you already saved.
-      heading: Where to show
+      heading: Destinations
       home: Home
-      keep_note: Clearing a destination does not delete imported posts, favourites, or bookmarks.
-      no_lists: You have no lists yet.
-      position_note: Posts already imported stay at their original place in the timeline.
-      save: Save destinations
+      invalid: Those destinations could not be saved. Nothing was changed.
+      list_created: 'Created the list "%{title}" and selected it. Save to use it.'
+      list_errors:
+        blank: Enter a list name.
+        challenge: Confirm your password again by reloading this page, then try again.
+        disabled: Home and list delivery is turned off on this server.
+        duplicate: A list with that name already exists. Select it from the list above.
+        failed: The list could not be created. Nothing was changed.
+        limit: You have reached the maximum amount of lists
+        too_long: That list name is too long.
+      list_title: List name
+      save: Save
       save_for: Save destinations for %{title}
       saved: Destinations saved.
-      separate_note: This does not pause or remove the feed.
-      stale: Those destinations were changed somewhere else. Reload this page and try again.
-      invalid: Those destinations could not be saved. Nothing was changed.
+      stale: Those destinations were changed somewhere else. The latest destinations are shown. Choose again and save.
+      summary: "Receives in: %{destinations}"
+      summary_more: "%{names} and %{count} more"
+      summary_none: "Receives in: not set"
+      summary_separator: ", "
       errors:
         feed_routes_disabled: Home and list delivery is turned off on this server. You can still clear a destination you already saved.
         invalid_feed_route: Those destinations could not be saved. Nothing was changed.
         not_found: That feed was not found.
-        stale_feed_routes: Those destinations were changed somewhere else. Reload this page and try again.
+        stale_feed_routes: Those destinations were changed somewhere else. The latest destinations are shown. Choose again and save.
     unsubscribe_note: Removing a feed deletes the private posts imported from it, and the favourites and bookmarks on those posts. The shared public feed cache stays. This is not a pause.
     unsubscribed: Feed removed. The private posts imported from it were deleted. The shared public feed cache is unchanged.
     working: "Working…"

@@ -120,12 +120,11 @@ describe Settings::ExternalServices::RSSController do
     get :show, session: challenge
 
     expect(response.body).to include(I18n.t('external_bridge.feed_routes.heading'))
-    expect(response.body).to include(I18n.t('external_bridge.feed_routes.keep_note'))
-    expect(response.body).to include(I18n.t('external_bridge.feed_routes.position_note'))
+    expect(response.body).to include(I18n.t('external_bridge.feed_routes.description'))
     expect(response.body).to include('&lt;img src=x onerror=alert(1)&gt;')
     expect(response.body).not_to include('<img src=x onerror=alert(1)>')
     document = Nokogiri::HTML(response.body)
-    form = document.at_css('form.external-service-routes')
+    form = document.at_css('form.feed-route-picker__form')
     expect(form).to be_present
     expect(form.at_css("input[name='feed_route[expected_revision]']")).to be_present
     expect(document.at_css("form[action='#{settings_pause_external_services_rss_subscription_path(ExternalSubscription.last)}']")).to be_present
@@ -154,10 +153,12 @@ describe Settings::ExternalServices::RSSController do
     get :show, session: challenge
 
     document = Nokogiri::HTML(response.body)
-    form = document.at_css('form.external-service-routes')
+    form = document.at_css('form.feed-route-picker__form')
     expect(form.text).to include(I18n.t('external_bridge.feed_routes.disabled'))
     expect(form.text).to include('Kept list')
     expect(form.text).not_to include('Unselected list')
+    expect(document.at_css('.feed-route-picker__summary').text).to include('Kept list')
+    expect(document.at_css('[data-feed-route-create]')).to be_nil
   end
 
   it 'renders Japanese destination copy' do
@@ -168,9 +169,68 @@ describe Settings::ExternalServices::RSSController do
 
     get :show, session: challenge
 
-    expect(response.body).to include('表示先')
-    expect(response.body).to include('表示先を外しても、取り込んだ記事・お気に入り・ブックマークは削除しません。')
-    expect(response.body).to include('保存済みの記事も、元の位置のまま表示します。')
+    expect(response.body).to include('指定したタイムラインで新着投稿を受け取ります')
+    expect(response.body).to include('受信先: 未指定')
+    expect(response.body).to include('配信先を設定')
+    expect(response.body).to include('+ 新しいリストを作成')
+  end
+
+  it 'summarizes saved destinations on a short line and keeps the long notes out' do
+    enable_external_bridge_feeds!(user)
+    source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/summary.xml', title: 'Summary feed')
+    subscription = ExternalSubscription.create!(user: user, external_source: source, state: 'active')
+    lists = %w(Alpha Beta Gamma Delta).map { |title| Fabricate(:list, account: user.account, title: title) }
+    ExternalBridge::FeedRoutes::Update.new.call(user: user, subscription_id: subscription.id, home: true, list_ids: lists.first(3).map(&:id), expected_revision: 0)
+
+    get :show, session: challenge
+
+    document = Nokogiri::HTML(response.body)
+    expect(document.at_css('.feed-route-picker__summary').text).to eq 'Receives in: Home, Alpha and 2 more'
+    expect(document.at_css('details.feed-route-picker__fallback summary').text.strip).to eq I18n.t('external_bridge.feed_routes.change')
+    expect(document.css('form.feed-route-picker__form input[type=checkbox][checked]').map { |box| box['name'] }).to eq ['feed_route[home]', 'feed_route[list_ids][]', 'feed_route[list_ids][]', 'feed_route[list_ids][]']
+    expect(document.css('form.feed-route-picker__form input[type=checkbox]').size).to eq 5
+    expect(document.css('.feed-route-picker__description').map(&:text)).to eq [I18n.t('external_bridge.feed_routes.description')]
+    expect(response.body).not_to include('keep_note')
+    expect(document.at_css("[data-feed-route-create][hidden][data-url='#{settings_external_services_feed_route_lists_path}']")).to be_present
+  end
+
+  it 'offers the picker with home and list creation when the user has no lists' do
+    enable_external_bridge_feeds!(user)
+    source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/empty-lists.xml', title: 'Empty lists feed')
+    ExternalSubscription.create!(user: user, external_source: source, state: 'active')
+
+    get :show, session: challenge
+
+    document = Nokogiri::HTML(response.body)
+    expect(document.css('form.feed-route-picker__form input[type=checkbox]').map { |box| box['name'] }).to eq ['feed_route[home]']
+    expect(document.at_css('[data-feed-route-create]')).to be_present
+    expect(document.at_css('.feed-route-picker__summary').text).to eq 'Receives in: not set'
+  end
+
+  it 'keeps the unsubscribe confirmation on the card' do
+    enable_external_bridge_feeds!(user)
+    source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/unsub.xml', title: 'Unsub feed')
+    subscription = ExternalSubscription.create!(user: user, external_source: source, state: 'active')
+
+    get :show, session: challenge
+
+    document = Nokogiri::HTML(response.body)
+    button = document.at_css("form[action='#{settings_external_services_rss_subscription_path(subscription)}'] .negative")
+    expect(button['data-confirm']).to eq I18n.t('external_bridge.unsubscribe_confirm')
+  end
+
+  it 'does not offer list creation once the list limit is reached' do
+    enable_external_bridge_feeds!(user)
+    source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/limit.xml', title: 'Limit feed')
+    ExternalSubscription.create!(user: user, external_source: source, state: 'active')
+    rows = Array.new(List::PER_ACCOUNT_LIMIT) { |index| { account_id: user.account_id, title: "List #{index}", created_at: Time.current, updated_at: Time.current } }
+    List.insert_all!(rows)
+
+    get :show, session: challenge
+
+    document = Nokogiri::HTML(response.body)
+    expect(document.at_css('[data-feed-route-create]')).to be_nil
+    expect(document.at_css('form.feed-route-picker__form').text).to include(I18n.t('lists.errors.limit'))
   end
 
   it 'loads routes and lists once for the subscriptions on the page' do
