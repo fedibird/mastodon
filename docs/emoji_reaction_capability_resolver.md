@@ -18,6 +18,15 @@ Revision 2 answers the review of c656aac7. Where each point was handled:
 | 6. Consent token binding | section 6.3 |
 | 7. `remaining_exact` and Settings Service | section 3.1, 4, 6.1 |
 
+Revision 4 answers the review of e4b478853e (revisions 2 and 3 are in the git history):
+
+| Review point | Handled in |
+|---|---|
+| High. A shared `limit` with a native-only `target_max` is wrong for mixed kinds | section 3.1 (shared `limit` holds local facts only; each kind has its own `limit`), 4, 5.2, 7 (M5 to M8), 10 (1b) |
+| Medium. Rollback with an old delivery and a new legacy `Like` | section 6.4.2 (route decision, rule 0), 6.4.3 (rules 1 to 3), 10 (7c), 11 (P1b-2) |
+| Medium. Drain must include unfinished delivery jobs | section 6.4.2 (outcome columns), 6.4.3 (rules 4 to 9), Q22 |
+| Low. Policy scope versus follower fan-out | section 5.1.2 and 6.5, 10 (3b), Q21 |
+
 ## 0. Summary of what the inventory found
 
 The decision "how is this reaction delivered, and may it be?" exists today in six places that do not agree with each other. These are the facts the design has to start from.
@@ -185,7 +194,7 @@ All three are additive. Names are proposals; section 12 lists what must be confi
 
 Emitted only when `current_user?`, and only when the site flag is on (section 11). Never emitted by the anonymous renderer.
 
-The unit of a decision is an emoji kind, and in the end the selected emoji. The status payload carries a per-kind decision; the write path takes the decision for the emoji actually being written (contract below). Hard blocks and the limit are shared by both kinds. Mechanism, consent need, and the reasons that come from the fallback policy are per kind.
+The unit of a decision is an emoji kind, and in the end the selected emoji. The status payload carries a per-kind decision; the write path takes the decision for the emoji actually being written (contract below). Hard blocks and the local cap are shared by both kinds. The mechanism, the consent need, the reasons that come from the fallback policy, and the target limit are per kind, because the target limit counts only the reactions that were delivered natively and applies only to a kind whose mechanism is `native` (section 4).
 
 ```json
 {
@@ -197,16 +206,10 @@ The unit of a decision is an emoji kind, and in the end the selected emoji. The 
       "requires_confirmation": false,
       "can_remove": false,
       "reason": null,
+      "limit": { "local_max": 3, "current": 0, "local_remaining": 3 },
       "kinds": {
-        "unicode": { "mechanism": "native", "availability": "allowed", "can_add": true, "requires_confirmation": false, "reason": null, "effects": [] },
-        "custom":  { "mechanism": "native", "availability": "allowed", "can_add": true, "requires_confirmation": false, "reason": null, "effects": [] }
-      },
-      "limit": {
-        "local_max": 3,
-        "target_max": 3,
-        "current": 0,
-        "remaining": 3,
-        "target_limit_known": true
+        "unicode": { "mechanism": "native", "availability": "allowed", "can_add": true, "requires_confirmation": false, "reason": null, "effects": [], "limit": { "target_max": 3, "target_current": 0, "remaining": 3, "target_limit_known": true } },
+        "custom":  { "mechanism": "native", "availability": "allowed", "can_add": true, "requires_confirmation": false, "reason": null, "effects": [], "limit": { "target_max": 3, "target_current": 0, "remaining": 3, "target_limit_known": true } }
       }
     }
   }
@@ -218,16 +221,17 @@ Field semantics:
 | Field | Type | Meaning |
 |---|---|---|
 | `v` | integer | Schema version of this object. Clients ignore an object whose `v` is greater than they support and fall back to today's behavior. |
-| `kinds.<kind>` | object | The decision for one emoji kind (`unicode`, `custom`). Both keys are always present. This is what an emoji picker uses to enable or disable one emoji. Its fields are `mechanism`, `availability`, `can_add`, `requires_confirmation`, `reason`, `effects`, defined below. |
+| `kinds.<kind>` | object | The decision for one emoji kind (`unicode`, `custom`). Both keys are always present. This is what an emoji picker uses to enable or disable one emoji. Its fields are `mechanism`, `availability`, `can_add`, `requires_confirmation`, `reason`, `effects`, `limit`, defined below. |
 | `mechanism` (per kind) | `native` \| `like_fallback` \| `unknown` \| `none` | How a reaction of this kind would be delivered. `none` means no delivery mechanism exists (see `availability`). |
 | `availability` | `allowed` \| `confirm` \| `limit_reached` \| `disabled` \| `unsupported` \| `unknown` | Display and diagnostics. Clients decide behavior from `can_add` and `requires_confirmation`, not from this string. |
 | `can_add` | boolean | The viewer may add a reaction after any required confirmation. `false` means the write would be refused. Never `null`. |
 | `requires_confirmation` | boolean | An explicit per-action consent (section 6.3) is required before the write. Only `true` when `can_add` is `true`. |
 | `reason` | string or `null` | A code from section 2, plus `limit_reached_local` and `limit_reached_target`. `null` when `availability` is `allowed`. |
+| `limit` (per kind) | object | `target_max`, `target_current`, `remaining`, `target_limit_known` for this kind. Defined in section 4. It is where a kind-specific limit (the target limit) lives. |
 | `effects` | array of string | Side effects the user should be told about. Currently only `remote_favourite`. Empty for `native`. |
 | `can_remove` | boolean | Top level only. The viewer has at least one reaction row on the canonical status (`status.proper`). Independent of `can_add`, `disable_reactions`, and the fallback policy. |
 | top-level `availability`, `can_add`, `requires_confirmation`, `reason` | as above | An aggregate for the status (for example, whether to show the reaction button at all). It is the best of the two kinds in this order: `allowed`, `unknown`, `confirm`, `limit_reached`, `disabled`, `unsupported`. `can_add` is true when any kind can be added. `requires_confirmation` is true only when no kind can be added without confirmation. `reason` is taken from the chosen kind. A client must not use the aggregate to enable an individual emoji. |
-| `limit` | object | Shared by both kinds. See section 4. |
+| top-level `limit` | object | Local facts shared by both kinds: `local_max`, `current` (all of the viewer's rows on the canonical status, of both kinds and any delivery mechanism), `local_remaining`. See section 4. |
 
 Write-time contract for the selected emoji. `Resolver.call(input, emoji:)` receives the emoji (unicode string, or a resolved custom emoji) and returns the decision for it. The invariants are:
 
@@ -270,23 +274,45 @@ Mixed kinds, policy `ask`: the unicode entry is enabled, the custom entry needs 
   } }
 ```
 
-Native `EmojiReact`, the Node states a limit of 1 and the viewer already used it:
+Native `EmojiReact` on a Node that handles both kinds natively, the Node states a limit of 1 and the viewer already used it:
 
 ```json
 { "availability": "limit_reached", "can_add": false, "requires_confirmation": false,
   "can_remove": true, "reason": "limit_reached_target",
+  "limit": { "local_max": 3, "current": 1, "local_remaining": 2 },
   "kinds": {
-    "unicode": { "mechanism": "native", "availability": "limit_reached", "can_add": false, "requires_confirmation": false, "reason": "limit_reached_target", "effects": [] },
-    "custom":  { "mechanism": "native", "availability": "limit_reached", "can_add": false, "requires_confirmation": false, "reason": "limit_reached_target", "effects": [] }
-  },
-  "limit": { "local_max": 3, "target_max": 1, "current": 1, "remaining": 0, "target_limit_known": true } }
+    "unicode": { "mechanism": "native", "availability": "limit_reached", "can_add": false, "requires_confirmation": false, "reason": "limit_reached_target", "effects": [], "limit": { "target_max": 1, "target_current": 1, "remaining": 0, "target_limit_known": true } },
+    "custom":  { "mechanism": "native", "availability": "limit_reached", "can_add": false, "requires_confirmation": false, "reason": "limit_reached_target", "effects": [], "limit": { "target_max": 1, "target_current": 1, "remaining": 0, "target_limit_known": true } }
+  } }
 ```
 
-Like fallback for both kinds, policy `allow` (each kind object has `mechanism: like_fallback`, `availability: allowed`, `effects: ["remote_favourite"]`):
+Mixed limits. The Node takes `unicode` natively with a stated limit of 1, `custom` goes through Like fallback, policy `allow`. The viewer has one custom reaction recorded as `like_fallback` and no native row. The native limit is untouched by the fallback row, and the fallback kind never uses the native limit:
 
 ```json
 { "availability": "allowed", "can_add": true, "requires_confirmation": false, "reason": null,
-  "limit": { "local_max": 3, "target_max": null, "current": 0, "remaining": 3, "target_limit_known": false } }
+  "limit": { "local_max": 3, "current": 1, "local_remaining": 2 },
+  "kinds": {
+    "unicode": { "mechanism": "native", "availability": "allowed", "can_add": true, "requires_confirmation": false, "reason": null, "effects": [], "limit": { "target_max": 1, "target_current": 0, "remaining": 1, "target_limit_known": true } },
+    "custom":  { "mechanism": "like_fallback", "availability": "allowed", "can_add": true, "requires_confirmation": false, "reason": null, "effects": ["remote_favourite"], "limit": { "target_max": null, "target_current": null, "remaining": 2, "target_limit_known": false } }
+  } }
+```
+
+The reverse case. The viewer has one native `unicode` reaction (counted against the native limit of 1) and then looks at a custom emoji. The unicode entry is `limit_reached_target`, and the custom entry is still usable:
+
+```json
+{ "availability": "allowed", "can_add": true, "requires_confirmation": false, "reason": null,
+  "limit": { "local_max": 3, "current": 1, "local_remaining": 2 },
+  "kinds": {
+    "unicode": { "mechanism": "native", "availability": "limit_reached", "can_add": false, "requires_confirmation": false, "reason": "limit_reached_target", "effects": [], "limit": { "target_max": 1, "target_current": 1, "remaining": 0, "target_limit_known": true } },
+    "custom":  { "mechanism": "like_fallback", "availability": "allowed", "can_add": true, "requires_confirmation": false, "reason": null, "effects": ["remote_favourite"], "limit": { "target_max": null, "target_current": null, "remaining": 2, "target_limit_known": false } }
+  } }
+```
+
+Like fallback for both kinds, policy `allow` (each kind object has `mechanism: like_fallback`, `availability: allowed`, `effects: ["remote_favourite"]`, and `limit: { "target_max": null, "target_current": null, "remaining": 3, "target_limit_known": false }`):
+
+```json
+{ "availability": "allowed", "can_add": true, "requires_confirmation": false, "reason": null,
+  "limit": { "local_max": 3, "current": 0, "local_remaining": 3 } }
 ```
 
 Like fallback for both kinds, policy `ask` (kind objects: `confirm`, `can_add: true`, `requires_confirmation: true`):
@@ -308,19 +334,19 @@ Unsupported (normalized `emoji_reaction_type` is `none` and the Node explicitly 
   "reason": "node_unsupported" }
 ```
 
-Unknown (no Node row, or a row with no usable NodeInfo), policy `allow` (kind objects: `mechanism: unknown`, `availability: unknown`, `can_add: true`, `requires_confirmation: false`, `effects: ["remote_favourite"]`):
+Unknown (no Node row, or a row with no usable NodeInfo), policy `allow` (kind objects: `mechanism: unknown`, `availability: unknown`, `can_add: true`, `requires_confirmation: false`, `effects: ["remote_favourite"]`, and the same per-kind `limit` as for Like fallback):
 
 ```json
 { "availability": "unknown", "can_add": true, "requires_confirmation": false, "reason": null,
-  "limit": { "local_max": 3, "target_max": null, "current": 0, "remaining": 3, "target_limit_known": false } }
+  "limit": { "local_max": 3, "current": 0, "local_remaining": 3 } }
 ```
 
-Exhausted local limit on a native server:
+Exhausted local limit on a native server (each kind object is `limit_reached` with `reason: limit_reached_local` and `limit: { "target_max": 5, "target_current": 3, "remaining": 0, "target_limit_known": true }`):
 
 ```json
 { "availability": "limit_reached", "can_add": false, "requires_confirmation": false,
   "can_remove": true, "reason": "limit_reached_local",
-  "limit": { "local_max": 3, "target_max": 5, "current": 3, "remaining": 0, "target_limit_known": true } }
+  "limit": { "local_max": 3, "current": 3, "local_remaining": 0 } }
 ```
 
 ### 3.2 Node capabilities (future, P3)
@@ -361,47 +387,76 @@ A batch form takes up to 100 domains and returns the same objects keyed by domai
 
 ## 4. Limit semantics
 
-Every number in `limit` is the result of a calculation this server performs on the inputs it holds. None of them is a statement that the author's server will accept, store, or display a reaction. `limit` is shared by both emoji kinds, and `current` counts the viewer's rows of both kinds.
+Every number below is the result of a calculation this server performs on the inputs it holds. None of them is a statement that the author's server will accept, store, or display a reaction.
+
+There are two different limits and they count different things:
+
+- The local cap is enforced by this server's validator over all of the viewer's rows on the canonical status, whatever the kind and however the row was delivered. It is shared by both kinds.
+- The target limit is what a Node capability source states about how many reactions the author's server takes from one account through its native path (`EmojiReact`). It applies only to a kind whose mechanism is `native`, and it counts only the viewer's rows that were delivered natively. A reaction recorded as `like_fallback` or `local_only` does not use it, and a `like_fallback` kind is never limited by it.
+
+So the top-level `limit` carries only the shared local facts, and each kind carries its own target facts and its own `remaining`.
+
+Top-level `limit` (shared by both kinds):
 
 | Field | Definition | Source | Precision |
 |---|---|---|---|
-| `local_max` | Per-account cap enforced by this server: `[MAX_PER_ACCOUNT, Setting.reaction_max_per_account].max` | site `Setting`, read at request time (not the `Node::FEATURES` constant, F5) | An exact local fact. |
-| `target_max` | Per-account cap that a Node capability source states for the author's server | Node snapshot (`declared`, `inferred`, `overridden`, or `observed`), `null` when no source states it | A stated value, not a guarantee. An inferred or declared value can be wrong or can change. |
-| `current` | Viewer's `EmojiReaction` rows on `status.proper` | database | An exact local fact. It is not proof that the author's server accepted or displays them. |
+| `local_max` | `[MAX_PER_ACCOUNT, Setting.reaction_max_per_account].max` | site `Setting`, read at request time (not the `Node::FEATURES` constant, F5) | An exact local fact. |
+| `current` | Viewer's `EmojiReaction` rows on `status.proper`, all kinds, all delivery mechanisms (this is also what the validator counts) | database | An exact local fact. It is not proof that the author's server accepted or displays them. |
 | `local_remaining` | `max(0, local_max - current)` | derived | Exact for the local cap. |
-| `target_remaining` | `target_max.nil? ? nil : max(0, target_max - current)` | derived | As good as `target_max`. |
-| `remaining` | `[local_remaining, target_remaining].compact.min` | derived | An upper bound on how many more additions this server will attempt. |
-| `target_limit_known` | `target_max` is non-null | derived | Says only whether `target_max` was an input to `remaining`. It does not say the value is correct. |
-| `per_status_distinct_max` (not in v1) | 20 distinct names visible per status (F9). A display cap, not a write cap. | `EmojiReactionValidator::LIMIT` | Excluded from v1; see open question Q9. |
+
+Per-kind `limit` (`kinds.<kind>.limit`):
+
+| Field | Definition | Precision |
+|---|---|---|
+| `target_max` | For a `native` kind: the Node snapshot's `max_per_account` (section 5.1.1), or `null`. For every other mechanism: `null`, whatever the Node states. | A stated value, not a guarantee. An inferred or declared value can be wrong or can change. |
+| `target_current` | For a `native` kind: the number of the viewer's rows with `delivery_mechanism = 'native'`, if the viewer has no row whose mechanism is unknown (see below); otherwise `null`. For every other mechanism: `null`. | A local count of rows. |
+| `target_remaining` (internal, not on the wire) | `target_max` and `target_current` both non-null: `max(0, target_max - target_current)`; otherwise `nil` | As good as `target_max`. |
+| `remaining` | `[local_remaining, target_remaining].compact.min` | An upper bound on how many more additions this server will attempt for this kind. |
+| `target_limit_known` | `target_remaining` is non-nil | Says only whether a target limit was an input to `remaining`. It does not say the value is correct. |
+
+Rows whose delivery mechanism is not known are counted conservatively as unknown. A row has an unknown mechanism when `delivery_mechanism IS NULL`: every row created before the column exists (and every row in P1a, where the column does not exist yet), and any row whose type cannot be recovered. How such a row was delivered cannot be derived from the current Node (C5). If a viewer has at least one such row on the status, `target_current` is `null` for the native kind, so `target_remaining` is `nil`, `target_limit_known` is `false`, and no target limit is enforced for that status. This can never refuse a reaction wrongly. It can let one through that the author's server drops, which section 8.2 already accepts.
+
+The preload counts `total`, `native`, and `unknown` rows per status (section 5.2), so `current = total`, `target_current = native` (when `unknown = 0`), and the rest of the rows (`like_fallback`, `local_only`) are visible only through `total`.
 
 Rules:
 
-1. Unknown stays `null`. `target_max` is never defaulted to 1 or to `local_max`.
-2. `remaining` is an upper bound on additions this server will attempt. When `target_limit_known` is `false`, clients must not show it as a guarantee ("up to N"). When it is `true`, clients may show it as "N more", but still must not describe it as what the author's server accepts.
-3. For Like fallback `target_max` is `null` unless a Node source states otherwise. The design does not promise that more than one Like counts. A remote server that deduplicates favourites will show a single favourite however many reactions are sent (see counterexample C2).
-4. `limit_reached` is only reported when `remaining == 0` and no higher-priority block applies (section 7 priority).
-5. A local count can accurately serve `local_max`, `current`, `local_remaining`. It cannot serve `target_max`, `target_remaining`, or "how many the author's server shows for me", because there is no delivery receipt, no ack from the author's server, and no tracking of delivery type per reaction (Q5, section 6.4). Delivery failure data (`DeliveryFailureTracker`) is per domain and not per activity.
-6. Scope of `target_max`. The Node's `max_per_account` is the number of different reactions a server accepts from one account through its native reaction path (`EmojiReact`). It says nothing about how many `Like` activities a server accepts, and a server that deduplicates favourites accepts effectively one. For a `like_fallback` mechanism `target_max` is therefore always `null` in v1, whatever the Node states, and `limit_reached_target` is only produced for `native`. A future separate Like-fallback limit (for example `like_fallback.max_per_account`) must be a separate Node capability with its own source and is not part of this schema (Q19). The Node capability document of section 3.2 marks `max_per_account` as applying to `native` only.
+1. Unknown stays `null`. `target_max` is never defaulted to 1 or to `local_max`, and nothing is inferred from the number of rows.
+2. `remaining` is an upper bound on additions this server will attempt for the kind. When `target_limit_known` is `false`, clients must not show it as a guarantee ("up to N"). When it is `true`, clients may show it as "N more", but still must not describe it as what the author's server accepts.
+3. `limit_reached` is evaluated per kind. `reason` is `limit_reached_local` when `local_remaining == 0`, otherwise `limit_reached_target` when `target_remaining == 0`. It is only reported when no higher-priority block applies (section 5.1.2).
+4. A fallback or unknown mechanism is limited only by the local cap. The design does not promise that more than one `Like` counts: a server that deduplicates favourites shows a single favourite whatever the number of reactions (C2). A separate Like-fallback limit would be its own Node capability with its own source (Q19).
+5. A local count can accurately serve `local_max`, `current`, `local_remaining`. It cannot serve `target_max`, or "how many the author's server shows for me", because there is no delivery receipt, no ack from the author's server, and no tracking of delivery type for legacy rows (Q5, section 6.4). Delivery failure data (`DeliveryFailureTracker`) is per domain and not per activity.
+6. The write uses the same inputs and the same per-kind computation for the emoji being written (section 3.1, write-time contract), inside the transaction that inserts the row (section 8.2).
 
-Truth table. `local_max = 3` unless stated, viewer `current` rows on the status:
+Truth table, one row per kind. `local_max = 3` unless stated. `T`, `N`, `U` are the viewer's `total`, `native`, and unknown (`delivery_mechanism IS NULL`) rows on the status. The rest, `T - N - U`, are `like_fallback` or `local_only` rows.
 
-| Mechanism | `target_max` | `current` | `local_remaining` | `target_remaining` | `remaining` | `target_limit_known` | Result |
-|---|---|---|---|---|---|---|---|
-| native | 5 | 0 | 3 | 5 | 3 | true | can add (local cap binds) |
-| native | 5 | 3 | 0 | 2 | 0 | true | `limit_reached_local` |
-| native | 1 | 1 | 2 | 0 | 0 | true | `limit_reached_target` |
-| native | 1 | 0 | 3 | 1 | 1 | true | can add once |
-| native | null | 2 | 1 | null | 1 | false | can add; "up to 1 more" |
-| native | null | 3 | 0 | null | 0 | false | `limit_reached_local` |
-| like_fallback | null | 0 | 3 | null | 3 | false | can add (policy applies) |
-| like_fallback | null | 1 | 2 | null | 2 | false | can add (policy applies); remote shows at most one favourite (C2) |
-| like_fallback | null | 3 | 0 | null | 0 | false | `limit_reached_local` |
-| like_fallback | null (always, v1) | 1 | 2 | null | 2 | false | the Node's `max_per_account` is not applied to Like fallback (rule 6) |
-| unknown | null | 0 | 3 | null | 3 | false | policy decides |
-| unknown | null | 3 | 0 | null | 0 | false | `limit_reached_local` |
-| any, `local_max = 1` | any | 1 | 0 | any | 0 | per `target_max` | `limit_reached_local` |
-| none | n/a | any | n/a | n/a | n/a | n/a | `unsupported`; `limit` object omitted |
-| any, remote reactor | n/a | n/a | n/a | n/a | n/a | n/a | not a viewer decision. Inbound uses the fixed cap of 20 (section 1.5). |
+| Kind mechanism | `target_max` (Node) | `T` / `N` / `U` | `local_remaining` | `target_current` | `target_remaining` | `remaining` | `target_limit_known` | Result |
+|---|---|---|---|---|---|---|---|---|
+| native | 5 | 0 / 0 / 0 | 3 | 0 | 5 | 3 | true | can add (local cap binds) |
+| native | 5 | 3 / 3 / 0 | 0 | 3 | 2 | 0 | true | `limit_reached_local` |
+| native | 1 | 1 / 1 / 0 | 2 | 1 | 0 | 0 | true | `limit_reached_target` |
+| native | 1 | 0 / 0 / 0 | 3 | 0 | 1 | 1 | true | can add once |
+| native | null | 2 / 2 / 0 | 1 | 2 | nil | 1 | false | can add; "up to 1 more" |
+| native | null | 3 / 3 / 0 | 0 | 3 | nil | 0 | false | `limit_reached_local` |
+| native | 1 | 1 / 0 / 0 (the one row is `like_fallback`) | 2 | 0 | 1 | 1 | true | can add once natively; the fallback row does not use the native limit |
+| native | 1 | 1 / 0 / 1 (legacy row) | 2 | `null` | nil | 2 | false | no target limit enforced: the legacy row may or may not have been native |
+| like_fallback | null (always) | 0 / 0 / 0 | 3 | null | nil | 3 | false | can add (policy applies) |
+| like_fallback | null (always) | 1 / 1 / 0 | 2 | null | nil | 2 | false | can add (policy applies); the native row is not counted against it. Remote shows at most one favourite (C2) |
+| like_fallback | null (always) | 3 / any / any | 0 | null | nil | 0 | false | `limit_reached_local` |
+| unknown | null (always) | 0 / 0 / 0 | 3 | null | nil | 3 | false | policy decides |
+| unknown | null (always) | 3 / any / any | 0 | null | nil | 0 | false | `limit_reached_local` |
+| any, `local_max = 1` | any | 1 / any / any | 0 | any | any | 0 | per `target_limit_known` | `limit_reached_local` |
+| none | n/a | any | n/a | n/a | n/a | n/a | n/a | `unsupported`; per-kind `limit` omitted |
+| any, remote reactor | n/a | n/a | n/a | n/a | n/a | n/a | n/a | not a viewer decision. Inbound uses the fixed cap of 20 (section 1.5). |
+
+Mixed-kind rows on one status (the same viewer rows, two kinds on one Node: `unicode` native with `target_max = 1`, `custom` through `like_fallback`):
+
+| Viewer rows | `unicode` kind | `custom` kind |
+|---|---|---|
+| none | `remaining = min(3, 1) = 1`, allowed | `remaining = 3`, per policy |
+| 1 custom row, recorded as `like_fallback` (`T=1`, `N=0`) | `target_current = 0`, `remaining = min(2, 1) = 1`, allowed | `remaining = 2`, per policy |
+| 1 unicode row, recorded as `native` (`T=1`, `N=1`) | `target_current = 1`, `target_remaining = 0`, `limit_reached_target` | `remaining = 2`, per policy |
+| 1 row of unknown mechanism (`T=1`, `U=1`) | `target_current = null`, `remaining = min(2, nil) = 2`, no target limit enforced | `remaining = 2`, per policy |
+| 3 rows of any mechanism | `limit_reached_local` | `limit_reached_local` |
 
 ## 5. Resolver contract and preload plan
 
@@ -417,12 +472,12 @@ Input (value objects, immutable):
 | Status | `proper_status_id`, `visibility`, `expired`, `external_projection`, `author_local`, `author_domain`, `author_silenced`, `author_suspended`, `author_activitypub`, `status_override` (reserved, `nil` today) | `status.proper` and its preloaded `account` |
 | Relationship | `blocked_by_author`, `viewer_blocks_author`, `viewer_blocks_domain`, `domain_rejected` | preloaded account relationships, already used by `quote_muted` |
 | Node snapshot (normalized, section 5.1.1) | `emoji_reaction_type` (`custom`, `unicode`, `none`, `unknown`), `like_delivery` (`accepts`, `rejects`, `unknown`), `max_per_account` (integer or `null`, native only), `reachability`, `software`, `mechanism_override`, `stale` | `nodes` row, selected columns and two derived markers (`nodeinfo_missing`, `info_override`), normalized by `NodeCapability.snapshot` |
-| Counts | `current` | preloaded count per `proper_status_id` |
+| Counts | `total`, `native`, `unknown` | preloaded counts per `proper_status_id` (section 5.2) |
 | Site | `local_max`, `resolver_enabled` flags | `Setting`, read once per request |
 
 Output `Decision` (value object): the aggregate `availability`, `can_add`, `requires_confirmation`, `reason`; `can_remove`; `kinds` (one decision object per emoji kind, section 3.1); `limit`; and `delivery_plan` for the write side. `Resolver.call(input)` returns the status summary. `Resolver.call(input, emoji:)` returns the decision for the selected emoji and is what the write path uses.
 
-`delivery_plan(decision, emoji_kind)` returns `{ activity_type: 'EmojiReact' | 'Like' | nil, audience: :author_inbox | :followers_and_mentions | :none }`. The write services (`EmojiReactionService`, `UnEmojiReactionService`, and `CustomEmojiDistributionWorker` for the per-Node split) take the activity type from this one function, so create and undo cannot disagree (F1) and fan-out and single delivery cannot disagree (F4). The kmyblue rule becomes data in the Node snapshot (`mechanism_override: like_fallback`) and not code in a service.
+`delivery_plan(decision, emoji_kind)` returns `{ activity_type: 'EmojiReact' | 'Like' | nil, audience: :author_inbox | :followers_and_mentions | :none }`. The write services (`EmojiReactionService`, `UnEmojiReactionService`, and `CustomEmojiDistributionWorker` for the per-Node split) take the activity type from this one function, so create and undo cannot disagree (F1) and fan-out and single delivery cannot disagree (F4). The kmyblue rule becomes data in the Node snapshot (`mechanism_override: like_fallback`) and not code in a service. `fallback_policy` is applied to the single delivery to the post's own server only; the follower fan-out of a local-author status is outside its scope (section 6.5, Q21).
 
 Entry points: `Resolver.call(input)` and `Resolver.call_many(inputs)` (same result as mapping `call`, no per-item I/O). The Node rule that turns a Node row into a snapshot (`NodeCapability.snapshot(row)`) also lives here and is the only place that reads `info['emoji_reaction_type']`. It treats a missing key as `unknown`, not as `custom` (answers F3 and F4 with one rule).
 
@@ -462,7 +517,7 @@ Evaluated in this order, first match wins. Steps 1 to 3 are shared by both kinds
 
 1. `disabled`: viewer `disable_reactions`; external content; `blocked_by_author`; `viewer_blocks_author`; `domain_rejected`; `status_override` forbids. (Status not visible is answered earlier by `show?`.)
 2. `unsupported` (per kind): the author is not ActivityPub; or `reachability` is `gone`; or the kind has no native path and Like delivery is rejected, that is `emoji_reaction_type == 'none'` and `like_delivery == 'rejects'`. A kind whose native path is missing for another reason (a `unicode`-only Node and a custom emoji) is not unsupported by itself; it falls to a mechanism in step 4.
-3. `limit_reached`: `remaining == 0`.
+3. `limit_reached` (per kind): that kind's `remaining == 0`, where `remaining` is computed from the shared local facts and the kind's own target facts (section 4). A native-limit exhaustion therefore affects only a kind whose mechanism is `native`, and the local cap affects both. The mechanism of a kind must be known before its limit is evaluated, so the kind's mechanism is computed first (step 4) and step 3 is applied to that result; the order of the written steps is the order of precedence of the outcomes, not a requirement to evaluate step 4 last.
 4. Mechanism, then consent (per kind). The mechanism is `native` when the normalized type covers the kind (`custom` covers both kinds, `unicode` covers `unicode` only) and there is no `mechanism_override`. It is `like_fallback` when native does not apply and `like_delivery == 'accepts'`. It is `unknown` when the type is `unknown`, or when native does not apply and `like_delivery == 'unknown'`. `native` is `allowed`. `like_fallback` and `unknown` consult the policy: `allow` is `allowed` for `like_fallback` and `unknown` for an unknown mechanism (section 3.1), `ask` is `confirm`, `deny` is `disabled` with `fallback_denied` (or `capability_unknown_denied` when the mechanism is unknown). While a delivery-method sub-flag of section 11 is off, the mechanism label for the case it covers follows the flags-off rule given there (the case is `unknown` and is sent as today), so that the label and the activity actually sent never disagree.
 
 A local author and a local reactor is always `native`: the reaction is local, and remote fan-out is per receiving Node, not per status viewer. The resolver reports `native` with an empty `effects`; per-receiver outcomes are federation facts, not viewer decisions (section 8).
@@ -476,7 +531,7 @@ For a page of N statuses by D distinct author domains:
 | Viewer settings | read `User` settings once at the start of the request; keep in a request-local struct | 0 beyond the settings load that the request already does (`ScopedSettings` also writes through `Rails.cache`; the read path is to be confirmed in P1a) |
 | `proper` statuses and their accounts | `Status.with_accounts` or the existing `includes(:account)`; use `status.proper.account`. The wrapper's author is the booster. | 0 (already loaded) |
 | Node snapshots | `Node.where(domain: domains).select(:id, :domain, :info, :info_override, :status, :last_fetched_at, :updated_at, Arel.sql("(nodeinfo IS NULL OR nodeinfo->>'error' = 'missing') AS nodeinfo_missing"))` once. The derived `nodeinfo_missing` column is computed in the database, so the large `nodeinfo` and `instance_data` JSON is never read, and it carries exactly the condition of `Node#missing?`. The snapshot rules of section 5.1.1 (override, then missing, then `info`) use only these columns. If the expression proves slow, a stored generated column is the alternative, and that would be a schema change decided in P1a. | +1 per page |
-| Counts | extend the existing `StatusRelationshipsPresenter` statement with `select status_id, count(*) ... group by status_id` for the viewer, replacing the boolean map with a count map (keep the boolean derived from it so `emoji_reactions_map` readers do not change) | +0 (same statement) |
+| Counts | extend the existing `StatusRelationshipsPresenter` statement with one more scalar subquery that returns, per status, the three counts of section 4 for the viewer: `total`, `native` (`delivery_mechanism = 'native'`), and `unknown` (`delivery_mechanism IS NULL`). For example `(select string_agg(status_id::text \|\| ':' \|\| total \|\| ':' \|\| native \|\| ':' \|\| unknown, ',') from (select status_id, count(*) as total, count(*) filter (where delivery_mechanism = 'native') as native, count(*) filter (where delivery_mechanism is null) as unknown from emoji_reactions where account_id = :account_id and status_id in (:status_ids) group by status_id) c) as emoji_reaction_counts`. It replaces the boolean `emoji_reactions_map` as the source and the boolean is derived from it (`total > 0`), so existing readers do not change. Before the column exists (P1a, and any environment that has not migrated), the same query is written without the `filter` on `delivery_mechanism` and returns `native = 0`, `unknown = total`, which makes every target limit unknown and never refuses wrongly. The counts are keyed by canonical status id (section 8.3), so for a boost the presenter keys on `reblog_of_id` as it already does for status ids. | +0 (same statement) |
 | Relationships | reuse `account_relationships` (blocking, blocked_by, domain_blocking) already passed to `REST::StatusSerializer` | +0 |
 | Reachability | do not call `Node#available?` per status (it reads Redis and domain blocks). Use `Node.status` only. A batched Redis lookup is a P3 option. | 0 |
 
@@ -549,13 +604,14 @@ A "send the first Like only, and send an Undo when the last reaction goes" rule 
 #### 6.4.2 Proposed storage (not decided, blocking prerequisite for Like aggregation)
 
 - `emoji_reactions.delivery_mechanism` (nullable string: `native`, `like_fallback`, `local_only`; `NULL` for rows that predate the column). Written at create. Read by `UnEmojiReactionService` to choose the Undo type, so create and undo cannot diverge when the Node changes in between (C5). `local_only` covers a silenced author and a non-ActivityPub author (F13).
-- `emoji_reaction_deliveries` (new table): `id`, `account_id`, `status_id` (canonical, section 8.3), `mechanism` (`like_fallback`), `activity_uri` (the id of the Like that was sent), `activity_json` (the serialized Like, so an Undo can be built after the originating row is gone), `state` (`active`, `undoing`, `undone`), timestamps. A unique index on `(account_id, status_id)` where `state = 'active'`.
+- `emoji_reaction_deliveries` (new table): `id`, `account_id`, `status_id` (canonical, section 8.3), `mechanism` (`like_fallback`), `activity_uri` (the id of the Like that was sent), `activity_json` (the serialized Like, so an Undo can be built after the originating row is gone), `state` (`active`, `undoing`, `undone`), `like_outcome` and `undo_outcome` (`pending`, `delivered`, `failed`, `skipped`, `not_sent`; the outcome of the delivery job that carried the `Like` and the `Undo`, section 6.4.3), timestamps. A unique index on `(account_id, status_id)` where `state = 'active'`.
 - `emoji_reactions.delivery_id` (nullable foreign key to the table above, `ON DELETE SET NULL`). Several reaction rows of one account on one status can share one delivery.
 
 Rules:
 
-1. First fallback reaction. In one transaction, create the active delivery with `activity_uri` equal to the id the Like would have had today (`#emoji_reactions/<row id>`, so the first Like on the wire is unchanged), create the row with `delivery_id`, and enqueue the `Like` after commit. Only the transaction that created the delivery enqueues.
-2. Later fallback reactions by the same account on the same status. The row links to the existing active delivery and no activity is sent. This is the "remote cannot count more than one" behavior of C2, made explicit.
+0. Route decision. Whether a new fallback reaction takes the aggregated route or the legacy per-row route is decided from what already exists for the (account, status) pair, under a lock on that pair (an advisory lock keyed on both ids, or `SELECT ... FOR UPDATE` on the delivery row when there is one): (a) an `active` delivery exists: aggregated route, whatever the flag says (rule 2); (b) no active delivery but the pair has legacy fallback rows (`delivery_mechanism = 'like_fallback'` and `delivery_id IS NULL`): legacy route, whatever the flag says; (c) neither exists: the flag decides, and rule 1 applies only when it is on. A pair is therefore never mixed: it holds either one delivery with linked rows or legacy rows, never both. A delivery that is `undoing` or `undone` is not `active`, so it falls under (b) or (c).
+1. First fallback reaction (case (c), flag on). In one transaction, create the active delivery with `activity_uri` equal to the id the Like would have had today (`#emoji_reactions/<row id>`, so the first Like on the wire is unchanged), create the row with `delivery_id`, and enqueue the `Like` after commit. Only the transaction that created the delivery enqueues.
+2. Later fallback reactions by the same account on the same status (case (a)). The row links to the existing active delivery and no activity is sent. This is the "remote cannot count more than one" behavior of C2, made explicit.
 3. Removal. In one transaction lock the delivery row, delete the reaction row, and count the rows still linked. If rows remain, send nothing. If none remain, set `state = 'undoing'` and enqueue an `Undo` built from `delivery.activity_json`, after commit, so removing the first row first still undoes the correct Like.
 4. Favourite coexistence. The remote server has one favourite slot per actor and status, and both a local `Favourite` and an active fallback delivery use it. The slot has two possible owners, and an `Undo(Like)` is sent only when the last owner leaves. In rule 3, if the viewer still has a local `Favourite` on the status, no Undo is sent and the delivery is set to `undone` with a note that the favourite kept the slot. The reverse also has to hold: when the viewer removes the favourite while an active delivery exists, `UnfavouriteService` must not send its `Undo(Like)`. That is a change to the favourite services, which are outside the emoji reaction code, and is part of the prerequisite.
 5. Retries and idempotency. Payloads are serialized at enqueue time and stored with the delivery, so a Sidekiq retry sends the same activity id, which a remote server can deduplicate. A repeated `PUT` for a reaction that already exists must not enqueue anything (section 8.3).
@@ -563,17 +619,40 @@ Rules:
 7. Legacy rows (`delivery_mechanism IS NULL`, `delivery_id IS NULL`). They have already sent one `Like` each, with the row id. They are not folded into a delivery and are undone one by one with the shared `delivery_plan`, as today. No backfill is needed.
 8. Fan-out for a local author (`CustomEmojiDistributionWorker`) keeps one `Like` per reaction row for followers on fallback Nodes. Aggregating there is not designed in this note (Q18).
 
-#### 6.4.3 Rollback and drain contract
+#### 6.4.3 Rollback, coexistence, and drain contract
 
-Under aggregation, a reaction row with a `delivery_id` is not a standalone activity. Rows after the first never sent anything, and the row whose id named the sent `Like` may already be deleted. Undoing such a row as if it were a legacy row (one `Undo` per row) would undo a `Like` that was never sent and leave the one that was sent. The rollback contract is therefore:
+Under aggregation, a reaction row with a `delivery_id` is not a standalone activity. Rows after the first never sent anything, and the row whose id named the sent `Like` may already be deleted. Undoing such a row as if it were a legacy row (one `Undo` per row) would undo a `Like` that was never sent and leave the one that was sent. The reverse hazard is just as real: if the flag goes off while a delivery is active and a new fallback reaction then sends its own legacy `Like`, the later last-remove `Undo` of the delivery would clear the favourite that the legacy `Like` still stands for. The rollback contract is therefore:
 
-1. Turning the aggregation flag off stops new aggregation only. A new fallback reaction after that no longer creates or links a delivery; it follows the legacy per-row path.
-2. Rows that already have a `delivery_id` keep being released by their delivery, whatever the flag says: removal follows rules 3 and 4 of section 6.4.2, including the last-remove `Undo` built from `activity_json` and the favourite slot rule. The code that does this (the `Undo` reader and its worker path), the table, and the `delivery_id` column stay deployed after a feature rollback. The flag controls creation, not release.
-3. A full return to the legacy per-row logic, and removal of that code or of the schema, is allowed only after the data is drained: no `active` or `undoing` delivery has linked rows. The number of such deliveries is a metric that must be watched during any rollback. Drain happens by ordinary removals; forcing it by sending `Undo` for users would change remote state and is not part of this contract. A migration of the remaining deliveries to another representation is not designed (Q20).
-4. A down migration that drops the table or the column is forbidden while the drain condition is false.
-5. Deleting a reaction row through account deletion or status deletion (`DeleteAccountService#purge_emoji_reactions!`, `dependent: :destroy`, `ON DELETE CASCADE`) never sends an `Undo` today and does not under aggregation. Their deliveries move to `undone` without a remote activity. The delivery row of a deleted status or account is removed with it.
+1. The flag governs only the creation of the first delivery of a pair that has none (case (c) of the route decision in section 6.4.2). It does not move a pair between routes. While a pair has an `active` delivery, a new fallback reaction by that account on that status links to it and sends nothing, with the flag off as well (case (a)). While a pair has legacy fallback rows and no active delivery, a new reaction follows the legacy path with the flag on as well (case (b)). Pairs never mix, so the last-remove `Undo` of a delivery never competes with a separately sent legacy `Like`, and a legacy `Undo` never competes with a delivery.
+2. Rows that already have a `delivery_id` keep being released by their delivery, whatever the flag says: removal follows rules 3 and 4 of section 6.4.2, including the last-remove `Undo` built from `activity_json` and the favourite slot rule. The code that does this (the `Undo` reader, the outcome handler of rule 4 below, and their worker path), the table, and the `delivery_id` column stay deployed after a feature rollback.
+3. Slot owners. For a pair on the aggregated route the favourite slot at the remote server has these owners: a local `Favourite` and the active delivery. An `Undo(Like)` is sent only when the owner set becomes empty (6.4.2, rule 4). Legacy fallback rows are slot owners of a legacy pair and keep today's behavior there (each row sent its own `Like` and is undone by its own `Undo`). They are never folded into a delivery, which is what rule 1 guarantees. This is a tracked ownership model and not a new "slot state" column; the alternatives set aside are blocking new additions while a delivery is active during a rollback (a visible regression for the user) and storing an explicit slot state (a second source of truth).
+4. Outcome tracking. Each `Like` and `Undo` job of a delivery carries `delivery_tracking` (`{ type: 'emoji_reaction_delivery', id: '<delivery id>:like' | '<delivery id>:undo' }`), with `emoji_reaction_delivery` registered in `ActivityPub::DeliveryTracking::HANDLERS`. The handler's `delivered(id)` and `failed(id)` write `like_outcome` or `undo_outcome`. It is idempotent, and a missing delivery row (the status or the account was deleted) is a no-op. `DeliveryWorker` calls `delivered` on HTTP success and `failed` only when `sidekiq_retries_exhausted` runs, so an intermediate retry is not an outcome. A job that is never enqueued (the favourite kept the slot, section 6.4.2 rule 4) is recorded as `not_sent`.
+5. Known untracked terminal path. `DeliveryWorker#perform` returns without calling either event when the inbox is skipped for `availability_suppression` (`DeliveryFailureTracker.available?` is false). Sidekiq then treats the job as done, so a delivery whose job was skipped would stay `pending` forever. The prerequisite for P1b-2 is to resolve this before the drain check relies on outcomes: either add a `skipped` event to `DeliveryTracking` and call it from that branch (a small change to the shared worker, with its own review), or accept an age bound as the fallback described in rule 6. Which one is Q22. The same verification must confirm that no other path returns without an event; a source account that no longer exists raises and is retried until `failed`.
+6. Drain condition. The data is drained only when all of the following hold: (a) no delivery is `active` (an active delivery always has linked rows, so this also means no reaction row has a `delivery_id` of an active delivery); (b) no delivery is `undoing`; (c) no delivery has `like_outcome` or `undo_outcome` equal to `pending` unless its job is older than the retry horizon. The horizon is the time `retry: 16` takes under Sidekiq's backoff of the installed version (on the order of days; to be computed from the installed Sidekiq and not assumed) plus a margin. "No linked rows" is not enough: a delivery in `undoing` has no linked rows and still has an `Undo` job that can be waiting for a retry, and removing the table or the handler in that window would drop its outcome and hide that a remote favourite may still be there. `failed` and `skipped` outcomes count as drained, but they are reported separately, because they mean the remote server may still hold a `Like` that this server believes it undid.
+7. Metrics to watch during any rollback: deliveries by `state`, `like_outcome` and `undo_outcome`; the age of the oldest `pending` outcome; and the count of `failed` and `skipped` outcomes.
+8. Drain happens by ordinary removals and by the jobs finishing. Forcing it by sending `Undo` for users would change remote state and is not part of this contract. A migration of the remaining deliveries to another representation is not designed (Q20).
+9. A down migration that drops the table or the column, and the removal of the `Undo` reader or the outcome handler, are forbidden while the drain condition of rule 6 is false. A migration guard that checks the condition and aborts is part of the prerequisite.
+10. Deleting a reaction row through account deletion or status deletion (`DeleteAccountService#purge_emoji_reactions!`, `dependent: :destroy`, `ON DELETE CASCADE`) never sends an `Undo` today and does not under aggregation. Their deliveries move to `undone` without a remote activity (and `undo_outcome` `not_sent`). The delivery row of a deleted status or account is removed with it, and a job still in flight for it finds no row and is a no-op (rule 4).
 
 Whether aggregation is wanted at all is Q4. If it is not, this storage is not needed for P1b, and only `delivery_mechanism` is.
+
+### 6.5 Scope of `fallback_policy`: the post's own server, not follower fan-out
+
+`fallback_policy` governs one thing: whether this user's reaction is delivered as a `Like` to the server that owns the post being reacted to. For a remote author that is the single delivery to the author's inbox, and it is the case the resolver decides and the consent handshake guards. It does not govern the follower fan-out that `ActivityPub::CustomEmojiDistributionWorker` performs when the author is local: there, the reaction is local, section 5.1.2 resolves it as `native` with an empty `effects`, and the worker sends `EmojiReact` or `Like` per receiving Node to the followers and mentioned accounts of the post. A user with `deny` therefore still has a `Like` sent to a follower's server, on a fallback Node, when reacting to a local post.
+
+The distinction is intentional for P1b-1, for these reasons:
+
+1. The consent question the setting answers is "may my reaction be sent as a `Like` to the server of the post I react to". For a local post that server is this one, and nothing is sent to it.
+2. The fan-out has no single target, no viewer decision, and is asynchronous, so `ask` cannot be applied to it (there is nobody to prompt when the job runs), and `deny` would have to become an audience filter that silently drops delivery to some followers. That changes what followers see for a local post and has to be measured and reviewed as a delivery-method change, not folded into a settings gate.
+3. The fan-out already existed before this design. P1b-1 keeps its behavior (legacy parity test 3a), and the shared `delivery_plan` only makes its activity type consistent with the one used for single deliveries.
+
+The residual effect is real: a reaction on a fallback follower server shows as a favourite by that user, outside the post's own server. It is recorded as an open question (Q21) and not hidden. Interface wording consequences:
+
+- The setting text and the confirmation dialog name the post's server ("the server of this post, `<domain>`") and must not say that no `Like` is ever sent, or that `deny` stops all `Like` delivery. A suitable setting description: "When a post's server does not support emoji reactions, send my reaction to that server as a favourite." For a local post the dialog is not shown.
+- The `effects` list of a decision describes the delivery to the post's server only. It does not list follower-server effects.
+- Support documentation says that reactions to local posts can still reach followers' servers as favourites on servers that do not support reactions.
+
+Widening the policy to the fan-out (for example, `deny` skips fallback Nodes for the fan-out of that user's reactions) is a separate decision with its own sub-flag and audience measurement; it is not part of P1.
 
 ## 7. Decision table
 
@@ -596,7 +675,7 @@ Like fallback and unknown (policy matters):
 | F1 | `like_fallback` | `allow` | 0 / >0 | `allowed` | true | false | 200 | 200 |
 | F2 | `like_fallback` | `ask` | 0 / >0 | `confirm` | true | true | 409 `fallback_confirmation_required` | 200 |
 | F3 | `like_fallback` | `deny` | 0 / >0 | `disabled` (`fallback_denied`) | false | false | 403 `fallback_denied` | 403 |
-| F4 | `like_fallback` | `allow` or `ask` | any / 0 | `limit_reached` | false | false | 422 `limit_reached` | 422 |
+| F4 | `like_fallback` | `allow` or `ask` | any / 0 (only the local cap can make a fallback kind's `remaining` 0) | `limit_reached` (`limit_reached_local`) | false | false | 422 `limit_reached` | 422 |
 | F5 | `like_fallback` | `deny` | any / 0 | `disabled` (`fallback_denied`), a block outranks the limit | false | false | 403 | 403 |
 | F6 | `like_fallback` | `allow` | >0 / >0 (C2) | `allowed` | true | false | 200, delivery per Q4 | 200 |
 | U1 | `unknown` | `allow` | 0 / >0 | `unknown` | true | false | 200, delivery per Q3 | 200 |
@@ -609,7 +688,7 @@ Native (policy independent):
 | # | Mechanism | Policy | `current` / `remaining` | `availability` | Write |
 |---|---|---|---|---|---|
 | N1 | `native` | any | any / >0 | `allowed` | 200 |
-| N2 | `native` | any | any / 0 | `limit_reached` (`limit_reached_local` or `limit_reached_target`) | 422 |
+| N2 | `native` | any | any / 0, where the kind's `remaining` is 0 by the local cap or by the native target limit (section 4) | `limit_reached` (`limit_reached_local` or `limit_reached_target`) | 422 |
 
 
 Mixed kinds on one Node (normalized type `unicode`, `like_delivery` `accepts`). The aggregate is the best of the two kind rows:
@@ -620,6 +699,15 @@ Mixed kinds on one Node (normalized type `unicode`, `like_delivery` `accepts`). 
 | M2 | custom | `allow` | `like_fallback`, row F1 | 200 |
 | M3 | custom | `ask` | `like_fallback`, row F2 | 409 then 200 |
 | M4 | custom | `deny` | `like_fallback`, row F3 | 403 `fallback_denied`; the unicode entry stays usable |
+
+Limit rows for the same Node (normalized type `unicode`, native `target_max = 1`, policy `allow`, `local_max = 3`). The viewer rows are as in the mixed-kind table of section 4:
+
+| # | Viewer rows | Emoji written | Kind decision | Write |
+|---|---|---|---|---|
+| M5 | one custom row recorded as `like_fallback` | unicode | `native`, `target_current = 0`, `remaining = 1`, allowed | 200 |
+| M6 | one unicode row recorded as `native` | custom | `like_fallback`, not limited by the native limit, `remaining = 2`, allowed | 200 |
+| M7 | one unicode row recorded as `native` | another unicode | `native`, `target_remaining = 0`, `limit_reached_target` | 422 `limit_reached` |
+| M8 | one row with `delivery_mechanism IS NULL` | unicode | `native`, `target_current = null`, no target limit enforced, `remaining = 2` | 200 |
 
 Whether a custom emoji on a `unicode`-only Node really is `like_fallback` and not `unsupported` is unverified (Q7). The rows follow the rule in section 5.1.2 until a fixture says otherwise.
 
@@ -740,9 +828,11 @@ Failure of the resolver: a resolver exception or missing preload must not break 
 Tests (all required before the flag in section 11 is turned on in P2):
 
 1. Resolver unit tests: every row of sections 4 and 7 as a table-driven spec, including the priority order (`disable_reactions` over `unsupported` over `limit_reached` over policy), the `availability` to booleans mapping in section 3.1, the aggregate rule over two kinds, and the mixed-kind rows M1 to M4 (unicode usable while a custom emoji is `deny` or `confirm`).
+1b. Limit tests: every row of the truth tables in section 4 and the limit rows M5 to M8, including the legacy (`delivery_mechanism IS NULL`) conservative case and the case where the preload runs against a database without the `delivery_mechanism` column (all counts unknown, no wrong refusal), and a parity test that the per-kind `remaining` of the status payload equals the check the write makes for the same inputs.
 1a. Per-emoji contract test: for a generated status and each emoji kind, the write-time decision for an emoji equals `kinds[kind]` of the summary except for the emoji-specific reasons listed in section 3.1.
 2. Node snapshot tests: every raw shape in the table of section 5.1.1: missing row, `nodeinfo` missing, key absent, `nil`, `true`, `false`, `'public'`, `'none'`, `0`, a negative or non-Integer max, `unicode`, `custom`, `birdsitelive` as `UpdateNodeService` produces it (`favourite: 'none'`, `emoji_reaction_type: 'none'`, `emoji_reaction_max: 0`), the `misskey` family with `favourite: false` (not `rejects`), `kmyblue`, override winning, `gone`. Assert that an absent key is `unknown`, not `custom`.
 3a. Legacy parity test: with all delivery-method sub-flags of section 11 off, for every Node snapshot shape, emoji kind, author type, and visibility, the activity type and audience chosen by the shared plan equal what `EmojiReactionService`, `UnEmojiReactionService`, and `CustomEmojiDistributionWorker` choose today. The test is built from the current code's outputs, not from the new rules.
+3b. Policy scope test: with `fallback_policy: deny`, a reaction to a local-author status still produces the same fan-out audience and activity types as today (section 6.5), and a reaction to a remote-author status on a fallback Node is refused. The scope is pinned so that a later change to it is deliberate.
 3. Delivery-plan parity tests: for every Node snapshot and emoji kind, `EmojiReactionService`, `UnEmojiReactionService`, and `CustomEmojiDistributionWorker` pick the same activity type for the same reaction (F1, F4). Includes the create then undo case with a Node change between (C5).
 4. Contract test between resolver and write: for every generated input where the resolver says `can_add && !requires_confirmation`, the service creates the row, and where it says `deny` or `unsupported`, no delivery job is enqueued.
 5. Query-count tests: a page of 40 statuses from 40 different domains, and from 1 domain, with and without a reblog, adds at most the budgeted queries (section 5.2) and the count does not grow with N or D. Anonymous requests add none.
@@ -750,7 +840,7 @@ Tests (all required before the flag in section 11 is turned on in P2):
 7. Controller or request specs for every error row in section 8.1, including consent token binding (wrong status, wrong user, wrong emoji of the same kind, a different custom emoji, expired, replay after redemption, token issued under `ask` redeemed after the policy became `deny`, after the Node became native, and after the Node snapshot changed) and that removal works under `deny` and `disable_reactions`.
 7a. Canonical status specs (section 8.3): add, delete, limit, and consent token through a boost wrapper act on the original and agree with the same operations through the original; a repeated `PUT` through a wrapper is a no-op and returns neither 422 nor 404.
 7b. Idempotency specs: a repeated `PUT` for an existing reaction does not call `NotifyService`, does not enqueue `DeliveryWorker` or `CustomEmojiDistributionWorker`, and does not call `PotentialFriendshipTracker`; a lost `RecordNotUnique` race behaves the same.
-7c. Delivery identity and rollback specs, only if section 6.4.2 is adopted: with the aggregation flag off, a row that has a `delivery_id` is still released by its delivery (last remove sends the `Undo` built from `activity_json`, an earlier removal sends nothing), no `Undo` is ever sent for a row of an aggregated delivery that sent no `Like`, and a down migration is blocked while linked rows exist. Also: first reaction sends one `Like` with the same id as today; later reactions send nothing; removing the first row first sends nothing and removing the last sends an `Undo` that names the first `Like`; a local `Favourite` suppresses the Undo and the reverse; a Sidekiq retry sends the same activity id; legacy rows keep the per-row behavior; the Undo and new-Like race (6.4.2 rule 6) is characterized, not hidden.
+7c. Delivery identity and rollback specs, only if section 6.4.2 is adopted: with the aggregation flag off, a row that has a `delivery_id` is still released by its delivery (last remove sends the `Undo` built from `activity_json`, an earlier removal sends nothing), no `Undo` is ever sent for a row of an aggregated delivery that sent no `Like`, and a down migration is blocked while the drain condition of section 6.4.3 is false. Coexistence: with an active delivery and the flag off, a new fallback reaction links to the delivery and sends no `Like`, and the later last-remove sends exactly one `Undo` for the original `Like`; with legacy fallback rows and the flag on, a new reaction takes the legacy path and no delivery is created; concurrent first reactions of one pair create one route (the lock of rule 0). Drain: a delivery in `undoing` whose `Undo` job is still pending (retrying) keeps the condition false even though it has no linked rows; it becomes true after `delivered`, after `failed` (retries exhausted), and for a `skipped` job after the outcome of Q22; a `pending` outcome older than the horizon is reported and does not block forever; the outcome handler is a no-op for a deleted delivery. Also: first reaction sends one `Like` with the same id as today; later reactions send nothing; removing the first row first sends nothing and removing the last sends an `Undo` that names the first `Like`; a local `Favourite` suppresses the Undo and the reverse; a Sidekiq retry sends the same activity id; legacy rows keep the per-row behavior; the Undo and new-Like race (6.4.2 rule 6) is characterized, not hidden.
 8. Concurrency spec for the cap (two parallel writes at `remaining = 1`, one succeeds).
 9. Policy and settings specs: settings catalog regeneration and check scripts, preferences form, `UserSettingsDecorator` allow-list, default and `grandfathered` resolution. For the Settings Service: the key is in `Reader::KEYS`, `STORAGE_KEYS`, `Definition`, and a new `Schema::CATEGORIES` category so `validate_structure!` passes; it is absent from `WriteContract::KEYS`; `PATCH /api/v1/fedibird/preferences` and `preferences/reset` reject it; the schema endpoint reports it as read-only.
 9a. WebUI specs (P2): the status importer keeps a stored `interaction_capabilities` when an incoming status lacks it and replaces it when present; a decision older than five minutes is refetched on picker open and never enables an entry the legacy logic disables.
@@ -776,7 +866,7 @@ Each phase is its own PR with its own flag, and none depends on a data backfill.
 |---|---|---|---|
 | P1a | Resolver, Node snapshot, delivery plan; shadow mode only. The services still decide as today; the resolver runs beside them and logs divergence. No API, setting, schema, or UI change. | site setting `emoji_reaction_resolver_shadow` (off by default, sampled) | turn the flag off; no persisted state |
 | P1b-1 | Fallback policy setting (high-risk, catalog entry, safety form, `allow` effective default), write gate in `EmojiReactionService`, consent handshake, error codes, canonical-status fixes and idempotent retry (section 8.3, F15, F16), shared delivery plan for create, undo, and fan-out (every change to what is sent ships behind its own sub-flag, off until its condition in the delivery-method gates below is met), `emoji_reactions.delivery_mechanism` column (nullable, additive). One `Like` per row stays as today; no aggregation. | `emoji_reaction_resolver_enforce`. Enable for staff accounts, then a percentage of accounts, then all. Default stays `allow`. | turn the flag off to restore the legacy sender and the controller-only checks. The `delivery_mechanism` column is nullable and ignored; leaving it does no harm. The idempotency and canonical-id fixes are behavior fixes and have their own sub-flags. |
-| P1b-2 | Like aggregation: `emoji_reaction_deliveries`, `delivery_id`, last-remove Undo, favourite slot sharing (section 6.4.2). **Blocked.** It must not start until Q4 is decided, the delivery identity design is reviewed, and the dedup and Undo-matching behavior of the target server families is confirmed by fixtures (Q4, Q17). | `emoji_reaction_like_aggregation` (creation only; release continues when off) | Turning the flag off stops new aggregation only. Rows that already have a `delivery_id` keep being released according to their delivery (section 6.4.3). The table, the `delivery_id` column, and the Undo reader stay in the code and in the schema after a rollback. A full return to the legacy per-row logic is allowed only after the data has been drained or migrated (section 6.4.3). |
+| P1b-2 | Like aggregation: `emoji_reaction_deliveries`, `delivery_id`, last-remove Undo, favourite slot sharing (section 6.4.2). **Blocked.** It must not start until Q4 is decided, the delivery identity design is reviewed, and the dedup and Undo-matching behavior of the target server families is confirmed by fixtures (Q4, Q17). | `emoji_reaction_like_aggregation` (creation only; release continues when off) | Turning the flag off stops the creation of the first delivery of a pair that has none. It does not move a pair that already has an active delivery to the legacy route: new reactions on such a pair still link to the delivery and send nothing, so a legacy `Like` and a delivery `Undo` never compete (section 6.4.3, rule 1). Rows that already have a `delivery_id` keep being released by their delivery. The table, the `delivery_id` column, the Undo reader, and the outcome handler stay in the code and in the schema after a rollback. A full return to the legacy per-row logic is allowed only after the drain condition holds: no active or undoing delivery, and no unfinished delivery job (section 6.4.3, rule 6), or after a migration that is not designed (Q20). |
 | P2 | `interaction_capabilities.emoji_reaction` on REST statuses for authenticated viewers, `fallback_policy` in preferences (read-only), WebUI: disable unsupported and exhausted controls from the decision, confirmation dialog for `confirm`, error code handling. Streaming shared payloads unchanged. | `emoji_reaction_interaction_capabilities` (site), then per account. | turn the flag off: the field disappears and the WebUI falls back to `reactionLimitReached`. |
 | P1c | Flip the default policy to `ask` for new accounts, with grandfathering (section 6.2). Only after P2's dialog is live in the WebUI and the compatibility measurement shows no unexpected `409`s. | cutover timestamp setting | set the cutover to the past or the default back to `allow`; stored user values are untouched |
 | P3 | Node capability storage with provenance, `GET`/batch Node capability API, admin visibility of `declared`/`inferred`/`overridden`, and stop reading `FEATURES[:emoji_reaction_max]` as a remote value (F5). Replaces the unused `REST::NodeSerializer` fields. | `node_capabilities_api` | route off; additive storage stays unused |
@@ -824,7 +914,9 @@ These are not decided by this document.
 | Q17 | Does each target family match an `Undo` by actor and object, or by activity id? This decides whether the first `Like`'s id matters, and whether a Node snapshot needs an `undo_match` field (`by_actor`, `by_id`, `unknown`). | Verify with fixtures per family (Mastodon, Pleroma-family, Misskey-family, GoToSocial) before P1b-2. |
 | Q18 | Ordering of an `Undo` followed by a new `Like` for the same account and status (6.4.2 rule 6), and whether fan-out for a local author should aggregate (rule 8). | Not designed. Per-account-and-status job ordering or a short delay on the new `Like` are the candidates. |
 | Q19 | Does a Like-fallback limit exist as a separate Node capability, and what is its source? `max_per_account` applies to native `EmojiReact` only (section 4, rule 6). | Not in v1; `target_max` is `null` for `like_fallback`. |
-| Q20 | How are the remaining deliveries migrated if aggregation is rolled back for good, other than waiting for ordinary removals? | Not designed; the contract in section 6.4.3 only requires that nothing be dropped before the drain condition. |
+| Q20 | How are the remaining deliveries migrated if aggregation is rolled back for good, other than waiting for ordinary removals and for the jobs to finish? | Not designed; the contract in section 6.4.3 only requires that nothing be dropped before the drain condition (including unfinished delivery jobs). |
+| Q21 | Should `fallback_policy` also apply to the follower fan-out of `CustomEmojiDistributionWorker` for a local-author status (section 6.5)? For example, should `deny` skip fallback Nodes there? | Undecided. P1b-1 keeps the fan-out unchanged and documents the scope in the UI wording. If widened, it needs its own sub-flag and an audience measurement per software, and `ask` still cannot apply. |
+| Q22 | How does the drain check learn that a delivery job was skipped for `availability_suppression` (section 6.4.3, rule 5)? Add a `skipped` event to `ActivityPub::DeliveryTracking` and call it from `DeliveryWorker`, or rely only on an age bound after the retry horizon? | Undecided. The event is more exact but changes a shared worker; the age bound needs no change but delays drain by the horizon. A prerequisite for P1b-2. |
 
 ## 13. Non-goals of this document
 
