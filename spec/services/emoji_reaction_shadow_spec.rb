@@ -529,7 +529,7 @@ RSpec.describe 'Emoji reaction resolver shadow mode' do
     end
 
     %w(public unlisted private limited direct personal).each do |visibility|
-      it "samples the same receivers the worker would use for #{visibility} statuses" do
+      it "samples the remote receivers the worker would use for #{visibility} statuses" do
         mentioned = Fabricate(:account, username: "mentioned#{visibility}", domain: 'mentioned.example', protocol: :activitypub, inbox_url: 'https://mentioned.example/inbox', uri: 'https://mentioned.example/u')
         status = Fabricate(:status, account: local_author, visibility: visibility)
         Mention.create!(status: status, account: mentioned)
@@ -540,7 +540,7 @@ RSpec.describe 'Emoji reaction resolver shadow mode' do
         worker.instance_variable_set(:@status, status)
         worker.instance_variable_set(:@account, reactor)
 
-        expect(EmojiReactionCapability::Shadow.fanout_receiver_ids(reaction)).to match_array(worker.send(:receivers).pluck(:id))
+        expect(EmojiReactionCapability::Shadow.fanout_receiver_ids(reaction)).to match_array(worker.send(:receivers).where.not(domain: nil).pluck(:id))
       end
     end
 
@@ -561,6 +561,55 @@ RSpec.describe 'Emoji reaction resolver shadow mode' do
 
       expect(result).to eq baseline
       expect(counters).to include('err|op=fanout_create' => 1)
+    end
+  end
+
+  describe 'fan-out sampling with local followers and mentions' do
+    let(:local_author) { Fabricate(:account, username: 'localauthor') }
+    let(:local_status) { Fabricate(:status, account: local_author, visibility: :public) }
+    let(:reaction) { EmojiReaction.create!(account: reactor, status: local_status, name: '👍') }
+
+    def remote_account(name)
+      Fabricate(:account, username: name, domain: "#{name}.example", protocol: :activitypub, inbox_url: "https://#{name}.example/inbox", uri: "https://#{name}.example/u")
+    end
+
+    # Local followers are created first so they come first in heap order.
+    before do
+      8.times { |i| Follow.create!(account: Fabricate(:account, username: "localfollower#{i}"), target_account: reactor) }
+      @remote_followers = Array.new(3) { |i| remote_account("rfollower#{i}") }
+      @remote_followers.each { |account| Follow.create!(account: account, target_account: reactor) }
+      @mentioned = Array.new(4) { |i| remote_account("mention#{i}") }
+      @mentioned.each { |account| Mention.create!(status: local_status, account: account) }
+    end
+
+    it 'is not exhausted by local followers and splits the budget between followers and mentions' do
+      stub_const('EmojiReactionCapability::ShadowConfig::FANOUT_RECEIVER_SAMPLE', 5)
+
+      ids = EmojiReactionCapability::Shadow.fanout_receiver_ids(reaction)
+
+      expect(ids.size).to eq 5
+      expect(ids & @remote_followers.map(&:id)).to have_attributes(size: 3)
+      expect(ids & @mentioned.map(&:id)).to have_attributes(size: 2)
+      expect(Account.where(id: ids).pluck(:domain)).to all(be_present)
+    end
+
+    it 'gives unused quota of one branch to the other' do
+      stub_const('EmojiReactionCapability::ShadowConfig::FANOUT_RECEIVER_SAMPLE', 6)
+      Mention.where(status: local_status).where.not(account_id: @mentioned.first.id).delete_all
+
+      ids = EmojiReactionCapability::Shadow.fanout_receiver_ids(reaction)
+
+      expect(ids).to match_array(@remote_followers.map(&:id) + [@mentioned.first.id])
+    end
+
+    it 'records remote receivers although more local followers than the sample size exist' do
+      stub_const('EmojiReactionCapability::ShadowConfig::FANOUT_RECEIVER_SAMPLE', 4)
+      Node.create!(domain: 'rfollower0.example', info: { 'emoji_reaction_type' => 'custom' }, nodeinfo: { 'a' => 1 }, last_fetched_at: Time.now.utc)
+
+      shadow_on { ActivityPub::CustomEmojiDistributionWorker.new.perform(reaction.id, 'create') }
+
+      expect(recorded_total).to eq 4
+      expect(counters.keys.grep(/\Asnap\|/).sum { |key| counters[key] }).to eq 4
     end
   end
 end

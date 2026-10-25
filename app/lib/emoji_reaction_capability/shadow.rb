@@ -97,10 +97,12 @@ module EmojiReactionCapability
       !context.author_silenced && !context.author_local && context.author_activitypub
     end
 
-    # Bounded sample of the receivers ActivityPub::CustomEmojiDistributionWorker
-    # would use: a LIMIT on each audience branch (delivery followers of the
-    # reactor, remote mentioned accounts). It never evaluates the worker's
-    # UNION, which would walk every follower. Then one query joins the sampled
+    # Bounded, non-random sample of candidate receiver accounts of
+    # ActivityPub::CustomEmojiDistributionWorker: a LIMIT on each audience
+    # branch (delivery followers of the reactor, remote mentioned accounts). It
+    # never evaluates the worker's UNION, which would walk every follower. It is
+    # not the set of inboxes actually delivered to (no inbox de-duplication or
+    # availability filtering). Then one query joins the sampled
     # accounts to their Node, evaluating the legacy per-receiver outcome in SQL
     # with the same predicates the worker uses. At most three queries, whatever
     # the number of receivers.
@@ -119,18 +121,30 @@ module EmojiReactionCapability
         .map { |values| fanout_row(values) }
     end
 
+    # Remote receivers only, filtered before the LIMIT so local followers
+    # cannot exhaust the sample. The budget is split between the follower and
+    # mention branches (ceil(N/2) and the rest); unused quota of one branch is
+    # given to the other. Still two LIMIT queries, whatever the audience size.
     def fanout_receiver_ids(emoji_reaction)
       status = emoji_reaction.status
       limit = ShadowConfig::FANOUT_RECEIVER_SAMPLE
-      ids = []
 
-      ids.concat(emoji_reaction.account.delivery_followers.reorder(nil).limit(limit).pluck('accounts.id')) if status.follower_visibility?
+      followers = status.follower_visibility? ? emoji_reaction.account.delivery_followers.remote.reorder(nil).limit(limit).pluck('accounts.id') : []
+      mentions = mention_audience?(status) ? Account.remote.joins(:mentions).merge(status.mentions).limit(limit).pluck('accounts.id') : []
 
-      if status.follower_visibility? || status.limited_visibility? || status.direct_visibility?
-        ids.concat(Account.remote.joins(:mentions).merge(status.mentions).limit(limit).pluck('accounts.id'))
-      end
+      balanced(followers, mentions, limit)
+    end
 
-      ids.uniq.first(limit)
+    def mention_audience?(status)
+      status.follower_visibility? || status.limited_visibility? || status.direct_visibility?
+    end
+
+    def balanced(first, second, limit)
+      quota = (limit / 2.0).ceil
+      picked = first.first(quota) + second.first(limit - quota)
+      rest = first.drop(quota) + second.drop(limit - quota)
+
+      (picked + rest).uniq.first(limit)
     end
 
     LEGACY_FANOUT_UNICODE_SQL = <<~SQL.squish

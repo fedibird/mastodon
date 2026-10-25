@@ -86,8 +86,16 @@ module EmojiReactionCapability
       lines << "  by reachability: #{format_counts(summary[:reachability])}"
       lines << "  stale=#{flags[:stale]} admin_override=#{flags[:override]} stale_info_ignored=#{flags[:stale_ignored]}"
       lines << "  errors: #{format_counts(summary[:errors])}" if summary[:errors].any?
+      lines << '' << NOTES
       lines.join("\n")
     end
+
+    NOTES = <<~TEXT.chomp
+      Notes:
+        - fanout_* counts are candidate receiver accounts (bounded, non-random sample per distribution), not actual deliveries, inboxes or nodes. Do not read them as delivery-population ratios.
+        - undo omits one case: a unicode Undo toward a remote ActivityPub author with no nodes row raises NoMethodError in legacy before the hook, so it is never counted. Per-software undo match rates can look better than they are.
+        - diff means "differs from the proposed rule on this server"; remote acceptance or Undo interpretation is not verified.
+    TEXT
 
     def format_counts(counts)
       counts.sort_by { |_k, v| -v }.map { |k, v| "#{k}=#{v}" }.join(' ')
