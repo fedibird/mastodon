@@ -35,6 +35,9 @@ class UnEmojiReactionService < BaseService
     elsif status.account.activitypub?
       type = emoji_reaction.unicode? && status.account.node.features(:emoji_reaction_type) == 'unicode' ? 'EmojiReact' : 'Like'
       ActivityPub::DeliveryWorker.perform_async(build_json(emoji_reaction, type), emoji_reaction.account_id, status.account.inbox_url)
+      EmojiReactionCapability::Shadow.observe_undo(emoji_reaction, legacy_type: type)
+    else
+      EmojiReactionCapability::Shadow.observe_undo(emoji_reaction, legacy_type: nil)
     end
   end
 
