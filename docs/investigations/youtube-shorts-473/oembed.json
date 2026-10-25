@@ -1,0 +1,134 @@
+[
+  {
+    "category": "shorts-candidate",
+    "video_id": "fUrlyCjL8JA",
+    "form": "shorts",
+    "input_url": "https://www.youtube.com/shorts/fUrlyCjL8JA",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fshorts%2FfUrlyCjL8JA",
+    "observed_at": "2026-10-16T23:19:57.324231+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "category": "shorts-candidate",
+    "video_id": "fUrlyCjL8JA",
+    "form": "watch",
+    "input_url": "https://www.youtube.com/watch?v=fUrlyCjL8JA",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DfUrlyCjL8JA",
+    "observed_at": "2026-10-16T23:19:57.324678+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "category": "shorts-candidate",
+    "video_id": "fUrlyCjL8JA",
+    "form": "embed",
+    "input_url": "https://www.youtube.com/embed/fUrlyCjL8JA",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fembed%2FfUrlyCjL8JA",
+    "observed_at": "2026-10-16T23:19:57.325043+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "category": "shorts-candidate",
+    "video_id": "hZIJ2PyFHME",
+    "form": "shorts",
+    "input_url": "https://www.youtube.com/shorts/hZIJ2PyFHME",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fshorts%2FhZIJ2PyFHME",
+    "observed_at": "2026-10-16T23:19:57.325395+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "category": "shorts-candidate",
+    "video_id": "hZIJ2PyFHME",
+    "form": "watch",
+    "input_url": "https://www.youtube.com/watch?v=hZIJ2PyFHME",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DhZIJ2PyFHME",
+    "observed_at": "2026-10-16T23:19:57.338118+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "category": "shorts-candidate",
+    "video_id": "hZIJ2PyFHME",
+    "form": "embed",
+    "input_url": "https://www.youtube.com/embed/hZIJ2PyFHME",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fembed%2FhZIJ2PyFHME",
+    "observed_at": "2026-10-16T23:19:57.339237+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "category": "regular-candidate",
+    "video_id": "M7lc1UVf-VE",
+    "form": "shorts",
+    "input_url": "https://www.youtube.com/shorts/M7lc1UVf-VE",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fshorts%2FM7lc1UVf-VE",
+    "observed_at": "2026-10-16T23:19:57.340599+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "category": "regular-candidate",
+    "video_id": "M7lc1UVf-VE",
+    "form": "watch",
+    "input_url": "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DM7lc1UVf-VE",
+    "observed_at": "2026-10-16T23:19:57.343019+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "category": "regular-candidate",
+    "video_id": "M7lc1UVf-VE",
+    "form": "embed",
+    "input_url": "https://www.youtube.com/embed/M7lc1UVf-VE",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fembed%2FM7lc1UVf-VE",
+    "observed_at": "2026-10-16T23:19:57.344075+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "category": "regular-candidate",
+    "video_id": "aqz-KE-bpKQ",
+    "form": "shorts",
+    "input_url": "https://www.youtube.com/shorts/aqz-KE-bpKQ",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fshorts%2Faqz-KE-bpKQ",
+    "observed_at": "2026-10-16T23:19:57.345362+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "category": "regular-candidate",
+    "video_id": "aqz-KE-bpKQ",
+    "form": "watch",
+    "input_url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3Daqz-KE-bpKQ",
+    "observed_at": "2026-10-16T23:19:57.346684+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "category": "regular-candidate",
+    "video_id": "aqz-KE-bpKQ",
+    "form": "embed",
+    "input_url": "https://www.youtube.com/embed/aqz-KE-bpKQ",
+    "endpoint": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fembed%2Faqz-KE-bpKQ",
+    "observed_at": "2026-10-16T23:19:57.347396+00:00",
+    "http_status": null,
+    "response": null,
+    "transport_error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  }
+]

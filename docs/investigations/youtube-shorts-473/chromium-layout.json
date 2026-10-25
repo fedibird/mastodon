@@ -1,0 +1,308 @@
+{
+  "observedAt": "2026-10-16T23:21:06.510Z",
+  "browser": "154.0.8037.57",
+  "synthetic": true,
+  "outboundRequests": "aborted deliberately; layout only",
+  "layouts": [
+    {
+      "containerWidth": 280,
+      "metadata": [
+        200,
+        113
+      ],
+      "form": "shorts",
+      "iframe": {
+        "width": 278,
+        "height": 157.0625,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 278,
+        "height": 157.0625,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    },
+    {
+      "containerWidth": 280,
+      "metadata": [
+        200,
+        113
+      ],
+      "form": "watch",
+      "iframe": {
+        "width": 278,
+        "height": 157.0625,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 278,
+        "height": 157.0625,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    },
+    {
+      "containerWidth": 280,
+      "metadata": [
+        113,
+        200
+      ],
+      "form": "shorts",
+      "iframe": {
+        "width": 278,
+        "height": 492.03125,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 278,
+        "height": 492.03125,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    },
+    {
+      "containerWidth": 280,
+      "metadata": [
+        113,
+        200
+      ],
+      "form": "watch",
+      "iframe": {
+        "width": 278,
+        "height": 492.03125,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 278,
+        "height": 492.03125,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    },
+    {
+      "containerWidth": 320,
+      "metadata": [
+        200,
+        113
+      ],
+      "form": "shorts",
+      "iframe": {
+        "width": 318,
+        "height": 179.65625,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 318,
+        "height": 179.65625,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    },
+    {
+      "containerWidth": 320,
+      "metadata": [
+        200,
+        113
+      ],
+      "form": "watch",
+      "iframe": {
+        "width": 318,
+        "height": 179.65625,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 318,
+        "height": 179.65625,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    },
+    {
+      "containerWidth": 320,
+      "metadata": [
+        113,
+        200
+      ],
+      "form": "shorts",
+      "iframe": {
+        "width": 318,
+        "height": 562.828125,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 318,
+        "height": 562.828125,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    },
+    {
+      "containerWidth": 320,
+      "metadata": [
+        113,
+        200
+      ],
+      "form": "watch",
+      "iframe": {
+        "width": 318,
+        "height": 562.828125,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 318,
+        "height": 562.828125,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    },
+    {
+      "containerWidth": 480,
+      "metadata": [
+        200,
+        113
+      ],
+      "form": "shorts",
+      "iframe": {
+        "width": 478,
+        "height": 270.0625,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 478,
+        "height": 270.0625,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    },
+    {
+      "containerWidth": 480,
+      "metadata": [
+        200,
+        113
+      ],
+      "form": "watch",
+      "iframe": {
+        "width": 478,
+        "height": 270.0625,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 478,
+        "height": 270.0625,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    },
+    {
+      "containerWidth": 480,
+      "metadata": [
+        113,
+        200
+      ],
+      "form": "shorts",
+      "iframe": {
+        "width": 478,
+        "height": 846.015625,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 478,
+        "height": 846.015625,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    },
+    {
+      "containerWidth": 480,
+      "metadata": [
+        113,
+        200
+      ],
+      "form": "watch",
+      "iframe": {
+        "width": 478,
+        "height": 846.015625,
+        "x": 1,
+        "y": 15
+      },
+      "wrapper": {
+        "width": 478,
+        "height": 846.015625,
+        "x": 1,
+        "y": 15
+      },
+      "src": "https://www.youtube.com/embed/abcdefghijk?feature=oembed&autoplay=1&auto_play=1",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow": null,
+      "referrerpolicy": null,
+      "parentOverflow": "hidden"
+    }
+  ]
+}
