@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# rubocop:disable Metrics/BlockLength
+
 require 'rails_helper'
 
 RSpec.describe ExternalSubscriptionDeletion do
@@ -24,7 +26,8 @@ RSpec.describe ExternalSubscriptionDeletion do
 
   it 'never reaches 100 percent before it is completed' do
     expect(build(state: 'running', total_count: 1000, deleted_count: 999).percent).to eq 99
-    expect(build(state: 'running', total_count: 0, deleted_count: 0).percent).to eq 100
+    expect(build(state: 'running', total_count: 0, deleted_count: 0).percent).to eq 99
+    expect(build(state: 'failed', total_count: 0, deleted_count: 0, next_run_at: 1.minute.from_now).percent).to eq 99
     expect(build(state: 'completed', total_count: 10, deleted_count: 10).percent).to eq 100
   end
 
@@ -43,6 +46,22 @@ RSpec.describe ExternalSubscriptionDeletion do
     expect(build(base.merge(total_count: nil)).eta_seconds).to be_nil
   end
 
+  it 'tells an automatic retry from a failure that waits for the owner' do
+    waiting = build(state: 'failed', next_run_at: 5.minutes.from_now)
+    exhausted = build(state: 'failed', next_run_at: nil)
+
+    expect(waiting).to be_auto_retrying
+    expect(waiting).to be_in_flight
+    expect(waiting.retryable?).to be false
+    expect(waiting).not_to be_terminal_failed
+    expect(exhausted).not_to be_auto_retrying
+    expect(exhausted).not_to be_in_flight
+    expect(exhausted.retryable?).to be true
+    expect(exhausted).to be_terminal_failed
+    expect(build(state: 'queued')).to be_in_flight
+    expect(build(state: 'completed')).not_to be_in_flight
+  end
+
   it 'allows only the four states' do
     queued = build(state: 'queued')
     queued.valid?
@@ -52,3 +71,5 @@ RSpec.describe ExternalSubscriptionDeletion do
     expect(other.errors[:state]).not_to be_empty
   end
 end
+
+# rubocop:enable Metrics/BlockLength

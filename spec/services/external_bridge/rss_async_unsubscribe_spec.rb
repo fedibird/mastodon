@@ -255,7 +255,7 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
 
       world[:subscription].update_columns(state: 'deleting')
 
-      expect { ExternalBridge::LinkSharing::Ownership.assert_canonical!(user, marker) }.to error_code('projection_not_canonical')
+      expect { ExternalBridge::LinkSharing::Ownership.assert_canonical!(user, marker) }.to error_code('subscription_deleting')
     end
 
     it 'stops the subscriber hand-offs that the API and the page offer' do
@@ -609,6 +609,28 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(scheduler.perform).to eq 1
 
       expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.map { |job| job['args'].first }).to eq [retrying.id]
+    end
+
+    it 'goes from a failure to completion by itself through the scheduler, with the card still polling' do
+      world = world_with(3)
+      deletion = unsubscribe!(world)
+      allow(ExternalBridge::ProjectionPurge).to receive(:purge_ids_in_transaction!).and_raise(ActiveRecord::StatementInvalid)
+      runner.call(deletion.id)
+      row = ExternalServices::RSS.deletion_row_for(user, deletion.id)
+      expect(row).to be_polling
+      expect(row).to be_retrying
+      expect(row.retryable?).to be false
+      allow(ExternalBridge::ProjectionPurge).to receive(:purge_ids_in_transaction!).and_call_original
+      deletion.update_columns(next_run_at: 1.minute.ago)
+      ExternalBridge::RSS::SubscriptionDeletionWorker.clear
+
+      expect(scheduler.perform).to eq 1
+      ExternalBridge::RSS::SubscriptionDeletionWorker.drain
+
+      row = ExternalServices::RSS.deletion_row_for(user, deletion.id)
+      expect(row).to be_finished
+      expect(row).not_to be_polling
+      expect(row.as_json).to include(state: 'completed', retrying: false, percent: 100)
     end
 
     it 'lets the owner retry only a failed record' do

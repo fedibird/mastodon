@@ -2269,6 +2269,7 @@ en:
         completed: The removal is complete.
         failed: The removal is paused. Try again. What was already deleted stays deleted, and it resumes where it stopped.
         queued: Removal accepted. It starts shortly. New items from this feed are no longer imported.
+        retrying: The removal stopped on a temporary error. It will try again by itself. What was already deleted stays deleted, and it resumes where it stopped.
         running: Deleting data. New items from this feed are not imported, and its posts disappear gradually. The removal is not finished yet.
       note: New items stop as soon as a removal is accepted, and the data is deleted in the background. Closing this page does not stop it, and you can come back to see the progress.
       preparing: Counting what has to be deleted (preparing).
@@ -2280,6 +2281,7 @@ en:
         completed: Complete
         failed: Paused
         queued: Waiting
+        retrying: Waiting to retry
         running: Deleting
       subscription_note: This feed is being removed. Until it is finished you cannot change its destinations, pause it, resume it, or subscribe to it again.
     working: "Working…"

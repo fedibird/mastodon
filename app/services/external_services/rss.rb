@@ -197,8 +197,12 @@ module ExternalServices
         @deletion.percent
       end
 
+      def retrying?
+        @deletion.auto_retrying?
+      end
+
       def badge
-        case state
+        case display_state
         when 'completed' then 'connected'
         when 'failed' then 'unavailable'
         else 'warning'
@@ -206,11 +210,11 @@ module ExternalServices
       end
 
       def state_label
-        I18n.t("external_bridge.deletion.state.#{state}")
+        I18n.t("external_bridge.deletion.state.#{display_state}")
       end
 
       def message
-        I18n.t("external_bridge.deletion.message.#{state}")
+        I18n.t("external_bridge.deletion.message.#{display_state}")
       end
 
       def detail
@@ -231,6 +235,7 @@ module ExternalServices
         {
           id: id.to_s,
           state: state,
+          retrying: retrying?,
           badge: badge,
           state_label: state_label,
           message: message,
@@ -245,6 +250,12 @@ module ExternalServices
       end
 
       private
+
+      # A failed record that will be retried by itself is shown as such, not as
+      # a stop that waits for the owner.
+      def display_state
+        retrying? ? 'retrying' : state
+      end
 
       def counters
         I18n.t(

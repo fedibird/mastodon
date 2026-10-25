@@ -119,6 +119,21 @@ RSpec.describe 'RSS subscription deletion API' do
       expect(response).to have_http_status(200)
     end
 
+    it 'reports a failed job that will be retried by itself as retrying, not as waiting for the owner' do
+      job = accept!
+      retry_at = 3.minutes.from_now
+      ExternalSubscriptionDeletion.find(job[:id]).update_columns(state: 'failed', last_error_code: 'database_error', attempt_count: 2, next_run_at: retry_at, total_count: 10, deleted_count: 4)
+
+      get "#{base}/#{job[:id]}", headers: owner_headers
+      expect(body_as_json).to include(state: 'failed', retrying: true, retryable: false, last_error_code: 'database_error')
+      expect(Time.zone.parse(body_as_json[:next_retry_at])).to be_within(2.seconds).of(retry_at)
+
+      ExternalBridge::RSS::SubscriptionDeletionWorker.clear
+      post "#{base}/#{job[:id]}/retry", headers: owner_headers
+      expect(response).to have_http_status(202)
+      expect(body_as_json).to include(state: 'queued', retrying: false)
+    end
+
     it 'reports a failed job with a fixed code and lets the owner retry it once' do
       job = accept!
       deletion = ExternalSubscriptionDeletion.find(job[:id])
@@ -126,7 +141,7 @@ RSpec.describe 'RSS subscription deletion API' do
       ExternalBridge::RSS::SubscriptionDeletionWorker.clear
 
       get "#{base}/#{job[:id]}", headers: owner_headers
-      expect(body_as_json).to include(state: 'failed', retryable: true, last_error_code: 'database_error', remaining: 6, percent: 40)
+      expect(body_as_json).to include(state: 'failed', retrying: false, next_retry_at: nil, retryable: true, last_error_code: 'database_error', remaining: 6, percent: 40)
 
       post "#{base}/#{job[:id]}/retry", headers: auth_headers_for(roommate)
       expect(response).to have_http_status(404)

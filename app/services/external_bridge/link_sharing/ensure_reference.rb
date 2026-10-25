@@ -6,8 +6,9 @@ module ExternalBridge
     # canonical URL. The projection row is not updated. public and unlisted
     # are never substituted for each other.
     #
-    # Lock order: external_link_share_policies FOR UPDATE, then the matching
-    # external_projection_link_references rows FOR UPDATE, then the new
+    # Lock order: external_link_share_policies FOR UPDATE, then the
+    # subscription row FOR SHARE (an accepted unsubscribe refuses the note), then
+    # the matching external_projection_link_references rows FOR UPDATE, then the new
     # Status, then the mapping insert. Policy updates lock only the policy
     # row, so they cannot deadlock with this order. A revocation that commits
     # before the policy lock is observed and writes nothing. A revocation that
@@ -66,6 +67,7 @@ module ExternalBridge
       def attempt
         policy = ExternalLinkSharePolicy.lock('FOR UPDATE').find_by(user_id: @user.id)
         assert_policy!(policy)
+        Ownership.lock_live_subscription!(@projection)
         snapshot = policy.revision
         Checkpoints.fire(:after_policy_lock)
         assert_policy_snapshot!(policy, snapshot)

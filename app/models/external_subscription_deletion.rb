@@ -54,10 +54,12 @@ class ExternalSubscriptionDeletion < ApplicationRecord
     [total_count - deleted_count, 0].max
   end
 
+  # Never 100 before the record is completed: the subscription row is still
+  # there until the finishing transaction has run.
   def percent
     return 100 if completed?
     return nil if total_count.nil?
-    return 100 if total_count.zero?
+    return 99 if total_count.zero?
 
     [(deleted_count * 100 / total_count), 99].min
   end
@@ -77,11 +79,23 @@ class ExternalSubscriptionDeletion < ApplicationRecord
     (left / (deleted_count / elapsed)).ceil
   end
 
-  def retryable?
-    failed?
+  # A failed record with a next_run_at is picked up again by the recovery
+  # scheduler on its own. Only a failed record without one (attempts used up)
+  # waits for the owner.
+  def auto_retrying?
+    failed? && next_run_at.present?
   end
 
+  def terminal_failed?
+    failed? && next_run_at.nil?
+  end
+
+  def retryable?
+    terminal_failed?
+  end
+
+  # Something will still change without the owner doing anything.
   def in_flight?
-    queued? || running?
+    queued? || running? || auto_retrying?
   end
 end

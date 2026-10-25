@@ -68,11 +68,38 @@ describe Settings::ExternalServices::RSSSubscriptionDeletionsController do
       expect(body).to include('state' => 'completed', 'finished' => true, 'polling' => false, 'percent' => 100)
       expect(body['message']).to eq I18n.t('external_bridge.deletion.message.completed')
 
-      deletion.update_columns(state: 'failed', last_error_code: 'queue_error', finished_at: nil)
+      deletion.update_columns(state: 'failed', last_error_code: 'queue_error', finished_at: nil, next_run_at: nil)
       get :show, params: { id: deletion.id }, session: challenge
       body = JSON.parse(response.body)
       expect(body).to include('state' => 'failed', 'retryable' => true, 'polling' => false)
       expect(body['error']).to eq I18n.t('external_bridge.deletion.errors.queue_error')
+    end
+
+    it 'keeps polling and does not offer a manual retry while an automatic retry is scheduled' do
+      deletion = accepted_deletion
+      deletion.update_columns(state: 'failed', last_error_code: 'database_error', attempt_count: 1, next_run_at: 2.minutes.from_now, total_count: 100, deleted_count: 40)
+
+      get :show, params: { id: deletion.id }, session: challenge
+
+      body = JSON.parse(response.body)
+      expect(body).to include('state' => 'failed', 'retrying' => true, 'polling' => true, 'retryable' => false, 'finished' => false)
+      expect(body['state_label']).to eq I18n.t('external_bridge.deletion.state.retrying')
+      expect(body['message']).to eq I18n.t('external_bridge.deletion.message.retrying')
+      expect(body['badge']).to eq 'warning'
+      expect(body['detail']).to include('40').and include('60')
+      expect(body['percent']).to eq 40
+    end
+
+    it 'stops polling and offers the manual retry only when the attempts are used up' do
+      deletion = accepted_deletion
+      deletion.update_columns(state: 'failed', last_error_code: 'database_error', attempt_count: 5, next_run_at: nil, total_count: 100, deleted_count: 40)
+
+      get :show, params: { id: deletion.id }, session: challenge
+
+      body = JSON.parse(response.body)
+      expect(body).to include('state' => 'failed', 'retrying' => false, 'polling' => false, 'retryable' => true)
+      expect(body['message']).to eq I18n.t('external_bridge.deletion.message.failed')
+      expect(body['badge']).to eq 'unavailable'
     end
 
     it 'answers 404 for another user, a roommate, and a missing id' do
@@ -110,13 +137,13 @@ describe Settings::ExternalServices::RSSSubscriptionDeletionsController do
 
     it 'does nothing without a fresh challenge and hides another user' do
       deletion = accepted_deletion
-      deletion.update_columns(state: 'failed')
+      deletion.update_columns(state: 'failed', next_run_at: nil)
       post :retry, params: { id: deletion.id }
       expect(deletion.reload).to be_failed
 
       other = share_account_user(user.account)
       theirs = accepted_deletion(owner: other)
-      theirs.update_columns(state: 'failed')
+      theirs.update_columns(state: 'failed', next_run_at: nil)
       post :retry, params: { id: theirs.id }, session: challenge
       expect(theirs.reload).to be_failed
       expect(flash[:alert]).to eq I18n.t('external_bridge.errors.not_found')

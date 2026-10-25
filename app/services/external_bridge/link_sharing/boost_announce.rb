@@ -168,6 +168,11 @@ module ExternalBridge
         marker = ExternalStatusProjection.find_by(id: boost.external_status_projection_id, user_id: boost.user_id, status_id: boost.projection_status_id)
         return false if marker.nil?
 
+        # Held FOR SHARE until this transaction ends (it spans the enqueue), so
+        # an unsubscribe is accepted either after the Announce was handed over
+        # (the purge then owes an Undo) or before it (the row closes here).
+        Ownership.lock_live_subscription!(marker)
+
         Ownership.assert_canonical!(User.find(boost.user_id), marker)
         true
       rescue Error, ActiveRecord::RecordNotFound

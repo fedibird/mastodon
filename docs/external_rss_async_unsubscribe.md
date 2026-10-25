@@ -55,7 +55,19 @@ pushes again once `next_run_at` has passed.
 - `Feeds::Query` also excludes `deleting` in its join, so a surviving route
   cannot reveal anything. `RefreshSource` and the scheduler read `.active`.
 - E4: `Ownership.assert_canonical!` refuses a new share on a projection of a
-  `deleting` subscription.
+  `deleting` subscription, and `Ownership.lock_live_subscription!` is the
+  serialization point. `EnsureReference` (before the reference note is created)
+  and `Boost#share!` (before the wrapper and boost row are created) call it
+  inside their own transaction, after the policy lock, taking the subscription
+  row `FOR SHARE` until that transaction ends; `BoostAnnounce` takes it in both
+  of its phases, across the enqueue. A share therefore either commits before the
+  removal is accepted (the purge retires it) or is refused with
+  `subscription_deleting`; no public note, wrapper, or Announce is created after
+  acceptance. Lock order is policy, subscription (shared), mapping rows, boost
+  rows. `Unsubscribe` and the purge never take the policy row, and nothing that
+  holds the subscription row for update waits for a mapping or a boost, so there
+  is no cycle. A state read before the transaction (the early
+  `assert_canonical!`) is only a fast refusal.
 
 ## Job (`SubscriptionDeletionRunner`)
 
@@ -95,17 +107,33 @@ favourites, or bookmarks, nor ordinary posts.
 
 | Event | Result |
 | --- | --- |
-| Exception in a batch | The batch transaction (delete and counter) rolls back. The record becomes `failed` with a fixed `last_error_code` (`database_error`, `queue_error`, `unexpected_error`; never a message) and `next_run_at` backed off 30 s, 2 min, 10 min, 30 min, 2 h. After 5 attempts it waits for the owner's retry |
+| Exception in a batch | The batch transaction (delete and counter) rolls back. The record becomes `failed` with a fixed `last_error_code` (`database_error`, `queue_error`, `unexpected_error`; never a message) and `next_run_at` backed off 30 s, 2 min, 10 min, 30 min, 2 h. While `next_run_at` is set the scheduler retries by itself: the card shows "waiting to retry", keeps polling, and offers no button (`retrying: true`, `retryable: false` in the API). After 5 attempts `next_run_at` is null; only then does the card stop polling and offer the owner's retry (`retryable: true`) |
 | Worker killed | The record stays `running`; `next_run_at` is a 5 minute lease the scheduler honours, then the job resumes where the database says |
 | Sidekiq push refused | The record stays `queued`; the scheduler pushes it |
 | Owner retry | `POST .../subscription_deletions/:id/retry` (API) or the card's button; only a `failed` record moves |
 | Feature flags off | The job still finishes; imports stay stopped by the fence |
 | User deleted | The progress record cascades; a late job finds nothing and exits |
 
-Completed records are removed after 30 days by the same scheduler. A crash
-between a batch commit and `finish_purge!` loses that batch's wrapper-removal
-enqueue, the same window `ProjectionPurge` always had; E4 `end_orphans!` covers
-boosts whose marker is gone.
+Completed records are removed after 30 days by the same scheduler.
+
+### Undo of an announced wrapper
+
+`Retire.end!` commits the boost as `undone` and the wrapper as discarded in the
+batch transaction, and the wrapper id goes to `RemovalWorker` (which sends the
+Undo for an announced share) only after that commit. A crash or a Redis failure
+between the commit and `finish_purge!` loses that push, not the rows, and
+`end_orphans!` does not help (it looks for `active` rows without a marker).
+`LinkSharing::RecoverRemovals`, run by `Scheduler::ExternalBridgeLinkReferencePublishScheduler`
+(every 5 minutes), is the recovery: an `undone` boost whose `wrapper_status_id`
+is still set has a wrapper that has not been removed (removing it nulls the
+column through `ON DELETE SET NULL`; a wrapper that never left the server is
+removed by `Retire` itself), so it is pushed to `RemovalWorker` again. A claim in
+`next_announce_at` holds the row out for 10 minutes after a push and is released
+at once when the push is refused. `RemovalWorker` on a status that is gone is a
+no-op and `RemoveStatusService` sends the Undo once per wrapper, so a repeated
+push is safe. The scan has its own partial index
+(`index_link_boosts_on_pending_removal`, migration `20261031130000`, built
+`CONCURRENTLY`) and is not gated by the feature flags.
 
 ## Progress API
 
@@ -127,7 +155,9 @@ user, a roommate, and an unknown id are all 404.
 and `total`, `remaining`, `percent` are `null`. `deleted` is the number of rows
 the database removed. `percent` stays below 100 until `completed`.
 `eta_seconds` is `null` until a speed has been observed over at least two
-seconds of processing. The record holds no feed URL, title, text, token, or
+seconds of processing. `retrying` is true for a `failed` record that the
+scheduler will retry by itself (`next_retry_at` says when); `retryable` is true
+only when no automatic retry is left. The record holds no feed URL, title, text, token, or
 exception message.
 
 ## Operations
@@ -148,4 +178,5 @@ To tune the load, set `EXTERNAL_RSS_DELETION_BATCH_SIZE`. Look at
 `VALIDATE`, under a 5 s `lock_timeout`) and creates
 `external_subscription_deletions`. It does not touch `statuses` or
 `external_status_projections`. `down` refuses to run while a `deleting`
-subscription or an unfinished record exists.
+subscription or an unfinished record exists. `20261031130000` adds one partial
+index on `external_projection_link_boosts` (`CONCURRENTLY`, `down` drops it).

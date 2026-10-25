@@ -19,6 +19,8 @@ module ExternalBridge
           remaining: deletion.remaining,
           percent: deletion.percent,
           eta_seconds: deletion.eta_seconds,
+          retrying: deletion.auto_retrying?,
+          next_retry_at: deletion.auto_retrying? ? deletion.next_run_at : nil,
           retryable: deletion.retryable?,
           last_error_code: deletion.failed? ? deletion.last_error_code : nil,
           requested_at: deletion.requested_at,

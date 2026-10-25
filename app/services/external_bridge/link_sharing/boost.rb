@@ -44,6 +44,7 @@ module ExternalBridge
 
         Feature.require!(@user)
         Ownership.assert_canonical!(@user, projection)
+        Checkpoints.fire(:after_ownership_check)
         scope = current_scope!
         reject_widening!(scope)
         reject_outdated_share!(projection, scope)
@@ -113,6 +114,7 @@ module ExternalBridge
         raise Error, :consent_required if policy.nil? || !policy.enabled? || policy.consented_at.nil?
         raise Error, :policy_changed unless policy.visibility == scope
 
+        Ownership.lock_live_subscription!(projection)
         mapping = ExternalProjectionLinkReference.lock('FOR UPDATE').find_by(id: ensured_mapping.id)
         raise Error, :reference_broken unless usable_mapping?(mapping, projection, scope)
 

@@ -58,7 +58,7 @@ describe Settings::ExternalServices::RSSController do
 
   it 'shows the retry on a failed job and stops polling for a finished one' do
     deletion = deletion_for(user)
-    deletion.update_columns(state: 'failed', last_error_code: 'database_error', total_count: 10, deleted_count: 4)
+    deletion.update_columns(state: 'failed', last_error_code: 'database_error', total_count: 10, deleted_count: 4, next_run_at: nil)
 
     get :show, session: challenge
 
@@ -76,6 +76,20 @@ describe Settings::ExternalServices::RSSController do
     card = Nokogiri::HTML(response.body).at_css("#rss-deletion-#{deletion.id}")
     expect(card.text).to include(I18n.t('external_bridge.deletion.message.completed'))
     expect(card['data-poll-url']).to be_nil
+  end
+
+  it 'keeps polling a failed card that will be retried by itself and hides its retry button' do
+    deletion = deletion_for(user)
+    deletion.update_columns(state: 'failed', last_error_code: 'database_error', attempt_count: 1, next_run_at: 2.minutes.from_now, total_count: 10, deleted_count: 4)
+
+    get :show, session: challenge
+
+    card = Nokogiri::HTML(response.body).at_css("#rss-deletion-#{deletion.id}")
+    expect(card['data-poll-url']).to eq settings_external_services_rss_subscription_deletion_path(deletion.id)
+    expect(card.text).to include(I18n.t('external_bridge.deletion.message.retrying'))
+    expect(card.text).to include(I18n.t('external_bridge.deletion.state.retrying'))
+    form = card.at_css("form[action='#{settings_retry_external_services_rss_subscription_deletion_path(deletion.id)}']")
+    expect(form['hidden']).to be_present
   end
 
   it 'renders Japanese copy and keeps another user out' do

@@ -79,6 +79,36 @@ describe('applyProgress', () => {
     expect(document.querySelector('[data-deleting-subscription-id]')).not.toBeNull();
   });
 
+  it('keeps a card that retries by itself polling, and shows no retry button until the attempts are used up', async () => {
+    const card = document.querySelector('#rss-deletion-7');
+    const retrying = payload({ state: 'failed', retrying: true, badge: 'warning', state_label: 'Waiting to retry', polling: true, retryable: false, error: 'Temporary error', message: 'Will retry.' });
+    const terminal = payload({ state: 'failed', retrying: false, badge: 'unavailable', state_label: 'Paused', polling: false, retryable: true, error: 'Temporary error', message: 'Try again.' });
+
+    applyProgress(card, retrying);
+
+    expect(card.getAttribute('data-poll-url')).not.toBeNull();
+    expect(card.querySelector('form').hidden).toBe(true);
+    expect(card.querySelector('[data-deletion-badge]').textContent).toBe('Waiting to retry');
+    expect(card.querySelector('[data-deletion-message]').textContent).toBe('Will retry.');
+
+    const fetch = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(retrying))
+      .mockResolvedValueOnce(jsonResponse(payload({ state: 'completed', polling: false, percent: 100, message: 'Complete.' })));
+    const timers = harness();
+    const poller = pollCard(card, { fetch, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout });
+    await poller.tick();
+    expect(timers.timers).toHaveLength(2);
+    await poller.tick();
+    expect(timers.timers).toHaveLength(2);
+    expect(card.dataset.state).toBe('completed');
+
+    document.body.innerHTML = markup();
+    const other = document.querySelector('#rss-deletion-7');
+    applyProgress(other, terminal);
+    expect(other.hasAttribute('data-poll-url')).toBe(false);
+    expect(other.querySelector('form').hidden).toBe(false);
+  });
+
   it('removes the deleting subscription card when the job completes', () => {
     const card = document.querySelector('#rss-deletion-7');
 
