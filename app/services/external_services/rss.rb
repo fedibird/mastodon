@@ -68,6 +68,10 @@ module ExternalServices
         @source.canonical_key.to_s
       end
 
+      def icon_url
+        ExternalBridge::RSS::Icon::Delivery.url(@source)
+      end
+
       def linkable_url
         url if url.match?(%r{\Ahttps?://}i)
       end

@@ -1,0 +1,250 @@
+# frozen_string_literal: true
+
+module ExternalBridge
+  module RSS
+    module Icon
+      # Structural validation of a Windows icon (.ico) file.
+      #
+      # An ICO is the one format that is stored and served without being
+      # re-encoded (ImageMagick's ICO coder is not available everywhere), so
+      # a header that merely looks like an ICO is not enough. Every directory
+      # entry must point at a payload that is itself well formed, the payloads
+      # follow the directory back to back in offset order, and no byte may be
+      # left over that no entry describes (before, between, or after them). Anything else is rejected and the next candidate is tried.
+      #
+      # Accepted payloads, which is what browsers and icon tools produce:
+      # - PNG: signature, IHDR matching the directory entry, every chunk length
+      #   in bounds with a correct CRC, the required chunks in order (IHDR, an
+      #   optional single PLTE where the color type allows or requires it, one
+      #   or more consecutive IDAT, IEND last), tRNS (when present) single, in
+      #   place, and sized for the color type, no unknown critical chunk, and
+      #   no bytes after IEND. Color type and bit depth must be valid for PNG.
+      # - BMP/DIB (BITMAPINFOHEADER, 40 bytes, uncompressed or BITFIELDS):
+      #   dimensions that agree with the entry, a legal bit count, and enough
+      #   bytes for the palette, the pixel rows and the AND mask.
+      #
+      # Up to MAX_ENTRIES images are accepted. The largest decides the size
+      # that is checked against the icon limits. The pixel data of a PNG is
+      # not inflated here; the browser decodes it in its own sandbox, and the
+      # file is bounded by Limits::ICON_MAX_BYTES.
+      module IcoValidator
+        MAX_ENTRIES = 16
+        HEADER_BYTES = 6
+        ENTRY_BYTES = 16
+        CRITICAL_PNG_CHUNKS = %w(IHDR PLTE IDAT IEND).freeze
+        PNG_SIGNATURE = "\x89PNG\r\n\x1a\n".b.freeze
+        DIB_HEADER_BYTES = 40
+        DIB_BIT_COUNTS = [1, 4, 8, 16, 24, 32].freeze
+        PNG_COLOR_DEPTHS = { 0 => [1, 2, 4, 8, 16], 2 => [8, 16], 3 => [1, 2, 4, 8], 4 => [8, 16], 6 => [8, 16] }.freeze
+
+        Entry = Struct.new(:width, :height, :bit_count, :bytes, :offset)
+
+        module_function
+
+        # Returns [width, height] of the largest image, or raises
+        # ExternalBridge::RSS::Error with :icon_invalid_ico.
+        def validate!(body)
+          data = body.to_s.b
+          entries = read_directory!(data)
+          check_layout!(entries, data.bytesize)
+          entries.each { |entry| check_payload!(entry, data.byteslice(entry.offset, entry.bytes)) }
+
+          largest = entries.max_by { |entry| [entry.width * entry.height, entry.width] }
+          [largest.width, largest.height]
+        end
+
+        def invalid!
+          raise Error, :icon_invalid_ico
+        end
+
+        def read_directory!(data)
+          invalid! if data.bytesize < HEADER_BYTES
+          reserved, type, count = data.unpack('vvv')
+          invalid! unless reserved.zero? && type == 1 && count.between?(1, MAX_ENTRIES)
+          invalid! if data.bytesize < HEADER_BYTES + (count * ENTRY_BYTES)
+
+          Array.new(count) do |index|
+            width, height, _colors, reserved_byte, _planes, bit_count, size, offset =
+              data.byteslice(HEADER_BYTES + (index * ENTRY_BYTES), ENTRY_BYTES).unpack('CCCCvvVV')
+            invalid! unless reserved_byte.zero?
+
+            Entry.new(width.zero? ? 256 : width, height.zero? ? 256 : height, bit_count, size, offset)
+          end
+        end
+
+        # The directory is followed by the payloads back to back, in offset
+        # order: no gap before the first payload, none between two payloads,
+        # none after the last. Every byte belongs to the header, the
+        # directory, or exactly one entry.
+        def check_layout!(entries, total)
+          cursor = HEADER_BYTES + (entries.size * ENTRY_BYTES)
+
+          entries.sort_by(&:offset).each do |entry|
+            invalid! if entry.bytes <= 0 || entry.offset != cursor
+
+            cursor += entry.bytes
+            invalid! if cursor > total
+          end
+
+          invalid! unless cursor == total
+        end
+
+        def check_payload!(entry, payload)
+          if payload.start_with?(PNG_SIGNATURE)
+            check_png!(entry, payload)
+          else
+            check_dib!(entry, payload)
+          end
+        end
+
+        def check_png!(entry, payload)
+          chunks = read_png_chunks!(payload)
+          check_png_sequence!(chunks)
+          check_ihdr!(entry, chunks.first.last)
+          check_png_palette!(chunks)
+          check_png_transparency!(chunks)
+        end
+
+        # Splits the payload into [type, data] pairs. Every length must stay
+        # inside the payload, every CRC must match, and nothing may follow IEND.
+        def read_png_chunks!(payload)
+          position = PNG_SIGNATURE.bytesize
+          chunks = []
+
+          while position < payload.bytesize
+            invalid! if chunks.last&.first == 'IEND' || position + 12 > payload.bytesize
+
+            length = payload.byteslice(position, 4).unpack1('N')
+            type = payload.byteslice(position + 4, 4)
+            invalid! unless type.match?(/\A[A-Za-z]{4}\z/n)
+            invalid! if length > payload.bytesize - position - 12
+
+            data = payload.byteslice(position + 8, length)
+            crc = payload.byteslice(position + 8 + length, 4).unpack1('N')
+            invalid! unless Zlib.crc32(type + data) == crc
+
+            chunks << [type, data]
+            position += 12 + length
+          end
+
+          chunks
+        end
+
+        # IHDR first and only once, one or more IDAT in a single run, IEND
+        # last and empty. Critical chunks other than these four (and PLTE) are
+        # not something a decoder is required to understand, so they are
+        # refused.
+        def check_png_sequence!(chunks)
+          types = chunks.map(&:first)
+          invalid! unless types.first == 'IHDR' && chunks.first.last.bytesize == 13
+          invalid! unless types.last == 'IEND' && chunks.last.last.empty?
+          invalid! unless types.count('IHDR') == 1 && types.count('IEND') == 1
+
+          idat_positions = types.each_index.select { |index| types[index] == 'IDAT' }
+          invalid! if idat_positions.empty?
+          invalid! unless idat_positions.last - idat_positions.first == idat_positions.size - 1
+          invalid! if chunks.select { |type, _| type == 'IDAT' }.sum { |_, data| data.bytesize }.zero?
+
+          invalid! if types.any? { |type| type.match?(/\A[A-Z]/n) && !CRITICAL_PNG_CHUNKS.include?(type) }
+        end
+
+        # PLTE is required for indexed color, forbidden for grayscale, optional
+        # otherwise, and when present it is single, before the first IDAT, a
+        # multiple of three bytes, and no longer than the bit depth can index.
+        def check_png_palette!(chunks)
+          _width, _height, depth, color = chunks.first.last.unpack('NNCC')
+          types = chunks.map(&:first)
+          palettes = types.each_index.select { |index| types[index] == 'PLTE' }
+
+          invalid! if palettes.size > 1
+          invalid! if palettes.empty? && color == 3
+          return if palettes.empty?
+
+          invalid! if [0, 4].include?(color)
+          invalid! unless palettes.first < types.index('IDAT')
+
+          data = chunks[palettes.first].last
+          invalid! unless (data.bytesize % 3).zero? && data.bytesize.between?(3, 768)
+          invalid! if color == 3 && data.bytesize / 3 > (1 << depth)
+        end
+
+        # tRNS is the one ancillary chunk whose content decides how the image
+        # is read, so it is checked when present: at most one, after PLTE (if
+        # any) and before the first IDAT, not for color types that carry an
+        # alpha channel, and sized for the color type (grayscale: one 2-byte
+        # sample, truecolor: three, indexed: one byte per palette entry at
+        # most).
+        def check_png_transparency!(chunks)
+          types = chunks.map(&:first)
+          positions = types.each_index.select { |index| types[index] == 'tRNS' }
+          return if positions.empty?
+
+          invalid! if positions.size > 1
+
+          color = chunks.first.last.unpack('NNCC').last
+          position = positions.first
+          invalid! unless position < types.index('IDAT')
+          invalid! if types.include?('PLTE') && position < types.index('PLTE')
+
+          length = chunks[position].last.bytesize
+          invalid! unless transparency_length_ok?(color, length, chunks, types)
+        end
+
+        def transparency_length_ok?(color, length, chunks, types)
+          case color
+          when 0 then length == 2
+          when 2 then length == 6
+          when 3 then length.positive? && length <= chunks[types.index('PLTE')].last.bytesize / 3
+          else false
+          end
+        end
+
+        def check_ihdr!(entry, data)
+          width, height, depth, color, compression, filter, interlace = data.unpack('NNCCCCC')
+          invalid! unless width == entry.width && height == entry.height
+          invalid! unless PNG_COLOR_DEPTHS.fetch(color, []).include?(depth)
+          invalid! unless compression.zero? && filter.zero? && [0, 1].include?(interlace)
+        end
+
+        def check_dib!(entry, payload)
+          invalid! if payload.bytesize < DIB_HEADER_BYTES
+
+          header_size, width, signed_height, planes, bit_count, compression, _image_size, _xppm, _yppm, colors_used, _important =
+            payload.unpack('VVlvvVVllVV')
+          invalid! unless header_size == DIB_HEADER_BYTES && planes == 1
+          invalid! unless DIB_BIT_COUNTS.include?(bit_count)
+          invalid! unless width == entry.width
+
+          # The height of an icon bitmap covers the pixels and the AND mask.
+          has_mask = signed_height == entry.height * 2
+          invalid! unless has_mask || signed_height == entry.height
+
+          invalid! unless dib_compression_ok?(compression, bit_count)
+
+          needed = DIB_HEADER_BYTES + dib_extra_bytes(compression, bit_count, colors_used)
+          needed += dib_row_bytes(width, bit_count) * entry.height
+          needed += dib_row_bytes(width, 1) * entry.height if has_mask
+          invalid! if payload.bytesize < needed
+        end
+
+        def dib_compression_ok?(compression, bit_count)
+          compression.zero? || (compression == 3 && [16, 32].include?(bit_count))
+        end
+
+        def dib_extra_bytes(compression, bit_count, colors_used)
+          return 12 if compression == 3
+
+          palette_entries = colors_used
+          palette_entries = 1 << bit_count if bit_count <= 8 && colors_used.zero?
+          invalid! if palette_entries > 256
+
+          palette_entries * 4
+        end
+
+        def dib_row_bytes(width, bit_count)
+          (((width * bit_count) + 31) / 32) * 4
+        end
+      end
+    end
+  end
+end

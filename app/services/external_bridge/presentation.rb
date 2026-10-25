@@ -7,13 +7,13 @@ module ExternalBridge
   # Status keeps its real local Account and only the WebUI header changes.
   #
   # Every value is already cleaned for display here, and the client still
-  # renders each one as text. `icon_url` and `thumbnail_url` are reserved,
-  # nullable fields and are always nil in P1. ExternalActor.avatar_remote_url
-  # is an arbitrary third-party URL that this server never fetched or
-  # verified, and a host check alone would still pass any path or redirect on
-  # an allowed host, so it is never passed through. The client draws its own
-  # protocol icon. A later change that stores a fetched, validated image can
-  # fill these fields from that stored copy only.
+  # renders each one as text. `icon_url` is the stored copy of the feed's own
+  # icon, shared by every subscriber of the source and served by Fedibird
+  # (ExternalBridge::RSS::Icon::Delivery). It is nil until a validated image is
+  # stored, and the client then draws its own protocol icon. The original
+  # image URL, and ExternalActor.avatar_remote_url (an arbitrary third-party
+  # URL this server never fetched or verified), are never passed through.
+  # `thumbnail_url` is a reserved, nullable field and is always nil.
   module Presentation
     KIND = 'external_source'
     NAME_LIMIT = 120
@@ -48,7 +48,7 @@ module ExternalBridge
         name: clean_text(source&.title, NAME_LIMIT) || clean_text(actor&.display_name, NAME_LIMIT) || label,
         subtitle: label,
         source_url: source_url(source, actor),
-        icon_url: nil,
+        icon_url: ExternalBridge::RSS::Icon::Delivery.url(source),
         thumbnail_url: nil,
         byline_name: clean_text(resource&.byline, BYLINE_LIMIT),
       }

@@ -1,5 +1,9 @@
 %article.external-service-feed{ aria: { labelledby: "rss-feed-title-#{subscription.id}" } }
   .external-service-feed__heading
+    %span.external-service-feed__icon{ aria: { hidden: 'true' } }
+      = image_pack_tag ExternalServices::RSS.icon, alt: '', class: 'external-service-feed__icon-default'
+      - if subscription.icon_url
+        %img.external-service-feed__icon-image{ src: subscription.icon_url, alt: '', loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer' }
     %h5.external-service-feed__title{ id: "rss-feed-title-#{subscription.id}" }= subscription.title
     %p.external-service-card__status
       %span{ class: "external-service-card__badge external-service-card__badge--#{subscription.badge}" }= subscription.state_label

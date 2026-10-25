@@ -22,7 +22,7 @@ module ExternalBridge
       MAX_IDS = 20
       MAX_DIGITS = 19
 
-      EVENTS = %w(scheduler refresh).freeze
+      EVENTS = %w(scheduler refresh icon).freeze
 
       OUTCOMES = %w(
         feature_disabled
@@ -45,6 +45,13 @@ module ExternalBridge
         skipped_no_permitted_subscriptions
         skipped_inactive_subscription
         unexpected_error
+        icon_stored
+        icon_replaced
+        icon_unchanged
+        icon_not_modified
+        icon_not_found
+        icon_failed
+        skipped_no_subscriptions
       ).freeze
 
       ERROR_CODES = %w(
@@ -56,6 +63,17 @@ module ExternalBridge
         private_address
         rate_limited
         unsupported_url
+        icon_bad_content_type
+        icon_empty
+        icon_unrecognized_image
+        icon_type_mismatch
+        icon_dimensions
+        icon_too_small
+        icon_unsuitable_shape
+        icon_invalid_ico
+        icon_deadline
+        icon_storage_failed
+        icon_no_candidate
       ).freeze
 
       HTTP_CODE = /\Ahttp_[1-5]\d\d\z/
@@ -65,6 +83,7 @@ module ExternalBridge
       COUNTER_FIELDS = %i(
         selected enqueued rejected accounted offered offer_failed items cached_items
         projected_ok projected_failed projected_skipped failures http_status elapsed_ms
+        candidates attempts
       ).freeze
 
       module_function

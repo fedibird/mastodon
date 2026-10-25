@@ -6,8 +6,10 @@ import { start } from '../mastodon/common';
 import loadKeyboardExtensions from '../mastodon/load_keyboard_extensions';
 import 'cocoon-js-vanilla';
 import { initializeFilterForms } from '../mastodon/features/filters/filter_form';
+import { initExternalServiceIconFallback } from '../mastodon/external_service_icon_fallback';
 
 start();
+initExternalServiceIconFallback();
 
 window.addEventListener('message', e => {
   const data = e.data || {};
