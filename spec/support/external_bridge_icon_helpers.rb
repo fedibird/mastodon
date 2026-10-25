@@ -29,6 +29,28 @@ module ExternalBridgeIconHelpers
     header + entry + png
   end
 
+  # Assembles an ICO from [{ width:, height:, payload:, bit_count: }] entries,
+  # laid out back to back after the directory.
+  def ico_from(entries, header_count: nil)
+    offset = 6 + (entries.size * 16)
+    directory = entries.map do |entry|
+      row = [entry[:width] % 256, entry[:height] % 256, 0, 0, 1, entry.fetch(:bit_count, 32), entry[:payload].bytesize, offset].pack('CCCCvvVV')
+      offset += entry[:payload].bytesize
+      row
+    end
+    [0, 1, header_count || entries.size].pack('vvv') + directory.join + entries.map { |entry| entry[:payload] }.join
+  end
+
+  # A 32 bpp BITMAPINFOHEADER icon image with its AND mask, as favicon
+  # generators write them.
+  def dib_payload(width, height, bit_count: 32, with_mask: true)
+    header = [40, width, with_mask ? height * 2 : height, 1, bit_count, 0, 0, 0, 0, 0, 0].pack('VVVvvVVVVVV')
+    palette = bit_count <= 8 ? "\x00".b * ((1 << bit_count) * 4) : ''.b
+    pixels = "\x7f".b * ((((width * bit_count) + 31) / 32) * 4 * height)
+    mask = with_mask ? "\x00".b * ((((width + 31) / 32) * 4) * height) : ''.b
+    header + palette + pixels + mask
+  end
+
   def stub_icon(url, bytes: nil, type: 'image/png', status: 200, headers: {})
     stub_request(:get, url).to_return(
       status: status,

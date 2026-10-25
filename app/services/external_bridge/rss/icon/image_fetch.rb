@@ -7,7 +7,8 @@ module ExternalBridge
       # after all of these agree: a 2xx status, an allowed Content-Type, bytes
       # that FastImage recognizes as an allowed raster format matching that
       # Content-Type, sane dimensions, and an icon-like shape. SVG is never
-      # accepted. Nothing here writes to storage.
+      # accepted. An ICO is stored unconverted, so it is also validated end to
+      # end by IcoValidator. Nothing here writes to storage.
       class ImageFetch
         Result = Struct.new(:not_modified, :body, :type, :width, :height, :fingerprint, :content_type, :etag, :last_modified, :final_url, keyword_init: true)
 
@@ -64,6 +65,11 @@ module ExternalBridge
           io = StringIO.new(body)
           type = FastImage.type(io)
           raise Error, :icon_unrecognized_image unless TYPES.key?(type)
+
+          if type == :ico
+            width, height = IcoValidator.validate!(body)
+            return [type, width, height]
+          end
 
           io.rewind
           width, height = FastImage.size(io)

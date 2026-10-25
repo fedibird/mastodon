@@ -172,6 +172,53 @@ RSpec.describe ExternalBridge::RSS::Icon::RefreshSource do
       expect(source.icon_origin).to eq 'rss_image'
     end
 
+    it 'persists the hints read from the feed together with a failed outcome' do
+      source = icon_source(hints: nil)
+      icon_subscriber(source)
+      stub_request(:get, feed_url).to_return(
+        status: 200, headers: { 'Content-Type' => 'application/rss+xml' },
+        body: feed_xml('<image><url>https://cdn.example/rss.png</url></image>')
+      )
+      stub_request(:get, 'https://cdn.example/rss.png').to_return(status: 404, body: 'no')
+      stub_request(:get, 'https://example.com').to_return(status: 404, body: 'no')
+      stub_request(:get, 'https://example.com/favicon.ico').to_return(status: 404, body: 'no')
+
+      expect(refresh.call(source.id)).to eq 'icon_failed'
+
+      expect(source.reload.icon_hints).to eq [declared('rss_image', 'https://cdn.example/rss.png')]
+    end
+
+    it 'does not write the source row until the downloads are finished' do
+      source = icon_source(hints: nil)
+      icon_subscriber(source)
+      stub_request(:get, feed_url).to_return(
+        status: 200, headers: { 'Content-Type' => 'application/rss+xml' },
+        body: feed_xml('<image><url>https://cdn.example/rss.png</url></image>')
+      )
+      seen = nil
+      stub_request(:get, 'https://cdn.example/rss.png').to_return do
+        seen = ExternalSource.where(id: source.id).pick(:icon_hints)
+        { status: 200, body: icon_image, headers: { 'Content-Type' => 'image/png' } }
+      end
+
+      expect(refresh.call(source.id)).to eq 'icon_stored'
+      expect(seen).to be_nil
+    end
+
+    it 'stops trying candidates once the run deadline has passed' do
+      stub_const('ExternalBridge::RSS::Limits::ICON_RUN_DEADLINE', -1)
+      source = icon_source(hints: [declared('atom_icon', icon_url)])
+      icon_subscriber(source)
+      stub_icon(icon_url)
+
+      expect(refresh.call(source.id)).to eq 'icon_failed'
+
+      expect(a_request(:get, icon_url)).not_to have_been_made
+      source = source.reload
+      expect(source.icon_error_code).to eq 'icon_deadline'
+      expect(source.icon_next_check_at).to be > 30.minutes.from_now
+    end
+
     it 'queries are limited to harmless cache-busting names' do
       source = icon_source(hints: [declared('atom_icon', 'https://cdn.example/icon.png?v=3'), declared('rss_image', 'https://cdn.example/other.png?token=abc')])
       icon_subscriber(source)
@@ -387,6 +434,73 @@ RSpec.describe ExternalBridge::RSS::Icon::RefreshSource do
       expect(source.reload.icon.path(:original)).to eq path
     end
 
+    it 'follows a moved icon: same bytes at a new final address update the stored address and validators' do
+      refresh.call(source.id)
+      stored(source)
+      source.update!(icon_next_check_at: 1.minute.ago)
+      new_url = 'https://static.example/moved/icon.png'
+      stub_request(:get, icon_url).to_return(status: 301, headers: { 'Location' => new_url })
+      stub_icon(new_url, headers: { 'ETag' => '"v2"', 'Last-Modified' => 'Fri, 03 Jan 2020 03:04:05 GMT' })
+
+      expect(refresh.call(source.id)).to eq 'icon_unchanged'
+
+      source.reload
+      expect(source.icon_remote_url).to eq new_url
+      expect(source.icon_etag).to eq '"v2"'
+      expect(source.icon_last_modified).to eq 'Fri, 03 Jan 2020 03:04:05 GMT'
+      expect(source.icon_origin).to eq 'atom_icon'
+
+      source.update!(icon_next_check_at: 1.minute.ago)
+      expect(refresh.call(source.id)).to eq 'icon_unchanged'
+      expect(a_request(:get, icon_url)).to have_been_made.twice
+      expect(a_request(:get, new_url).with(headers: { 'If-None-Match' => '"v2"' })).to have_been_made.once
+    end
+
+    it 'follows a moved icon when the new address answers 304' do
+      refresh.call(source.id)
+      stored(source)
+      source.update!(icon_next_check_at: 1.minute.ago)
+      new_url = 'https://static.example/moved/icon.png'
+      stub_request(:get, icon_url).to_return(status: 301, headers: { 'Location' => new_url })
+      stub_request(:get, new_url).with(headers: { 'If-None-Match' => '"v1"' }).to_return(status: 304)
+
+      expect(refresh.call(source.id)).to eq 'icon_not_modified'
+
+      source.reload
+      expect(source.icon_remote_url).to eq new_url
+      expect(source.icon_etag).to eq '"v1"'
+      expect(source.icon_last_modified).to eq 'Thu, 02 Jan 2020 03:04:05 GMT'
+    end
+
+    it 'keeps the stored address when a redirect leads somewhere that is not allowed' do
+      refresh.call(source.id)
+      stored(source)
+      source.update!(icon_next_check_at: 1.minute.ago)
+      stub_request(:get, icon_url).to_return(status: 302, headers: { 'Location' => 'http://127.0.0.1/icon.png' })
+      stub_request(:get, 'https://example.com').to_return(status: 404, body: 'no')
+      stub_request(:get, 'https://example.com/favicon.ico').to_return(status: 404, body: 'no')
+
+      expect(refresh.call(source.id)).to eq 'icon_failed'
+
+      expect(source.reload.icon_remote_url).to eq icon_url
+      expect(a_request(:get, /127\.0\.0\.1/)).not_to have_been_made
+    end
+
+    it 'stores the new address when a moved icon also changed' do
+      refresh.call(source.id)
+      stored(source)
+      source.update!(icon_next_check_at: 1.minute.ago)
+      new_url = 'https://static.example/moved/icon.png'
+      stub_request(:get, icon_url).to_return(status: 301, headers: { 'Location' => new_url })
+      stub_icon(new_url, bytes: icon_image('png', 80, 80, [0, 0, 255]))
+
+      expect(refresh.call(source.id)).to eq 'icon_replaced'
+
+      source.reload
+      expect(source.icon_remote_url).to eq new_url
+      expect(source.icon_origin).to eq 'atom_icon'
+    end
+
     it 'replaces a changed image and removes the old file' do
       refresh.call(source.id)
       old_path = stored(source).icon.path(:original)
@@ -470,21 +584,175 @@ RSpec.describe ExternalBridge::RSS::Icon::RefreshSource do
       expect(a_request(:get, icon_url)).not_to have_been_made
     end
 
-    it 'skips a run while another session holds the source lock' do
+    it 'skips a run while another transaction holds the source lock' do
       source = icon_source(hints: [declared('atom_icon', icon_url)])
       icon_subscriber(source)
       stub_icon(icon_url)
-      config = ActiveRecord::Base.connection_db_config.configuration_hash
-      other = PG.connect(dbname: config[:database], user: config[:username], password: config[:password], host: config[:host], port: config[:port])
-      other.exec("SELECT pg_advisory_lock(#{described_class::LOCK_CLASS}, #{source.id})")
+      other = pg_connection
+      other.exec('BEGIN')
+      other.exec("SELECT pg_advisory_xact_lock(#{described_class::LOCK_CLASS}, #{source.id})")
 
       expect(refresh.call(source.id)).to eq 'skipped_lock_busy'
       expect(a_request(:get, icon_url)).not_to have_been_made
 
-      other.exec("SELECT pg_advisory_unlock(#{described_class::LOCK_CLASS}, #{source.id})")
+      other.exec('COMMIT')
       expect(refresh.call(source.id)).to eq 'icon_stored'
     ensure
       other&.close
     end
+
+    it 'holds the lock while the image downloads' do
+      source = icon_source(hints: [declared('atom_icon', icon_url)])
+      icon_subscriber(source)
+      held = nil
+      stub_request(:get, icon_url).to_return do
+        held = ApplicationRecord.connection.select_value(<<~SQL.squish)
+          SELECT count(*) FROM pg_locks
+          WHERE locktype = 'advisory' AND classid = #{described_class::LOCK_CLASS} AND objid = #{source.id} AND granted AND pid = pg_backend_pid()
+        SQL
+        { status: 200, body: icon_image, headers: { 'Content-Type' => 'image/png' } }
+      end
+
+      expect(refresh.call(source.id)).to eq 'icon_stored'
+      expect(held.to_i).to eq 1
+    end
+
+    def pg_connection
+      config = ActiveRecord::Base.connection_db_config.configuration_hash
+      PG.connect(dbname: config[:database], user: config[:username], password: config[:password], host: config[:host], port: config[:port])
+    end
+  end
+
+  # Real commits are needed to see the lock leave the database: inside the
+  # rolled-back spec transaction a transaction-scoped lock would live until
+  # the example ends.
+  describe 'advisory lock lifetime across real transactions' do
+    self.use_transactional_tests = false
+
+    let(:feed_site) { 'https://lock-test.example' }
+    let(:image_url) { 'https://cdn.example/lock-test.png' }
+
+    before do
+      Setting.external_bridge_rss = true
+      @source = ExternalSource.create!(
+        protocol: 'rss', canonical_key: "#{feed_site}/feed.xml", title: 'Lock test', site_url: feed_site,
+        fetched_at: Time.current, checked_at: Time.current, icon_hints: [declared('atom_icon', image_url)]
+      )
+      @user = Fabricate(:user)
+      enable_external_bridge_rss!(@user)
+      ExternalSubscription.create!(user: @user, external_source: @source, state: 'active')
+    end
+
+    after do
+      ExternalSubscription.where(external_source_id: @source.id).delete_all
+      @source.icon.destroy
+      ExternalSource.where(id: @source.id).delete_all
+      @user.account.destroy
+      @user.destroy
+      Setting.external_bridge_rss = false
+    end
+
+    def lock_free?(source_id)
+      other = pg_connection
+      other.exec('BEGIN')
+      free = other.exec("SELECT pg_try_advisory_xact_lock(#{described_class::LOCK_CLASS}, #{source_id})").getvalue(0, 0) == 't'
+      other.exec('ROLLBACK')
+      free
+    ensure
+      other&.close
+    end
+
+    def pg_connection
+      config = ActiveRecord::Base.connection_db_config.configuration_hash
+      PG.connect(dbname: config[:database], user: config[:username], password: config[:password], host: config[:host], port: config[:port])
+    end
+
+    it 'releases the lock after a successful run commits' do
+      stub_icon(image_url)
+
+      expect(refresh.call(@source.id)).to eq 'icon_stored'
+
+      expect(lock_free?(@source.id)).to be true
+      expect(ApplicationRecord.connection.select_value("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid = #{described_class::LOCK_CLASS}").to_i).to eq 0
+    end
+
+    it 'never issues a session unlock: the transaction end releases the lock' do
+      stub_icon(image_url)
+      statements = []
+      allow(ApplicationRecord.connection).to receive(:execute).and_wrap_original do |original, sql, *args|
+        statements << sql.to_s
+        original.call(sql, *args)
+      end
+      allow(ApplicationRecord.connection).to receive(:select_value).and_wrap_original do |original, sql, *args|
+        statements << sql.to_s
+        original.call(sql, *args)
+      end
+
+      expect(refresh.call(@source.id)).to eq 'icon_stored'
+
+      expect(statements.grep(/pg_advisory_unlock|pg_try_advisory_lock\b|pg_advisory_lock\b/)).to be_empty
+      expect(statements.grep(/pg_try_advisory_xact_lock/).size).to eq 1
+      expect(lock_free?(@source.id)).to be true
+    end
+
+    it 'releases the lock after a skipped run and after a failed run' do
+      stub_icon(image_url, status: 404, type: 'text/plain')
+      stub_request(:get, feed_site).to_return(status: 404, body: 'no')
+      stub_request(:get, "#{feed_site}/favicon.ico").to_return(status: 404, body: 'no')
+
+      expect(refresh.call(@source.id)).to eq 'icon_failed'
+      expect(lock_free?(@source.id)).to be true
+      expect(refresh.call(@source.id)).to eq 'skipped_not_due'
+      expect(lock_free?(@source.id)).to be true
+    end
+
+    it 'releases the lock and rolls back when the run raises' do
+      allow_any_instance_of(ExternalBridge::RSS::Icon::ImageFetch).to receive(:call).and_raise(RuntimeError, 'boom')
+
+      expect { refresh.call(@source.id) }.to raise_error(RuntimeError, 'boom')
+
+      expect(lock_free?(@source.id)).to be true
+      expect(@source.reload.icon_failure_count).to eq 0
+    end
+
+    it 'still reports a busy lock to a second run and succeeds once the holder commits' do
+      stub_icon(image_url)
+      holder = pg_connection
+      holder.exec('BEGIN')
+      holder.exec("SELECT pg_advisory_xact_lock(#{described_class::LOCK_CLASS}, #{@source.id})")
+
+      expect(refresh.call(@source.id)).to eq 'skipped_lock_busy'
+      holder.exec('COMMIT')
+      expect(refresh.call(@source.id)).to eq 'icon_stored'
+    ensure
+      holder&.close
+    end
+
+    it 'lets only one of two concurrent runs download' do
+      entered = Queue.new
+      release = Queue.new
+      # The per-host budget uses a Redis connection that a second thread must not share.
+      allow_any_instance_of(ExternalBridge::RSS::HttpClient).to receive(:consume_budget!)
+      stub_request(:get, image_url).to_return do
+        entered << true
+        Timeout.timeout(15) { release.pop }
+        { status: 200, body: icon_image, headers: { 'Content-Type' => 'image/png' } }
+      end
+      source_id = @source.id
+
+      first = Thread.new { ActiveRecord::Base.connection_pool.with_connection { described_class.new.call(source_id) } }
+      Timeout.timeout(15) { entered.pop }
+      second = ActiveRecord::Base.connection_pool.with_connection { described_class.new.call(source_id) }
+      release << true
+
+      expect(second).to eq 'skipped_lock_busy'
+      expect(first.value).to eq 'icon_stored'
+      expect(a_request(:get, image_url)).to have_been_made.once
+      expect(lock_free?(source_id)).to be true
+    ensure
+      release << true
+      first&.join(15)
+    end
   end
 end
+# rubocop:enable Metrics/BlockLength

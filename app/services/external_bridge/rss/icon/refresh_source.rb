@@ -10,9 +10,22 @@ module ExternalBridge
       # address, a timeout, or a deleted source ends in a recorded outcome and
       # a backoff; the previous icon, if any, stays in place.
       #
-      # One run per source at a time: a PostgreSQL advisory lock (its own class,
-      # separate from the feed refresh lock) skips a second concurrent run, and
-      # the Sidekiq uniqueness lock keeps duplicates out of the queue.
+      # One run per source at a time: a transaction-scoped PostgreSQL advisory
+      # lock (its own class, separate from the feed refresh lock) skips a
+      # second concurrent run, and the Sidekiq uniqueness lock keeps duplicates
+      # out of the queue.
+      #
+      # The lock is taken with pg_try_advisory_xact_lock inside one explicit
+      # transaction that spans the run. Fedibird supports PgBouncer transaction
+      # pooling, where two autocommit statements may reach different server
+      # backends: a session lock (pg_try_advisory_lock / pg_advisory_unlock)
+      # could then stay held on a backend nobody unlocks, or the unlock could
+      # run elsewhere and leave the lock behind. A transaction pins one backend
+      # and the lock is released by COMMIT, ROLLBACK, or the connection ending,
+      # never by a second statement. Because the transaction is open during the
+      # downloads, the run has a deadline (Limits::ICON_RUN_DEADLINE), writes
+      # to the source row are made only at the end so no row lock is held while
+      # waiting on the network, and a failure rolls everything back.
       class RefreshSource
         LOCK_CLASS = 810_532
 
@@ -27,6 +40,8 @@ module ExternalBridge
         def call(source_id, force: false)
           started = RefreshLog.now
           @fields = {}
+          @deadline = started + Limits::ICON_RUN_DEADLINE
+          @discovered_hints = nil
           outcome = run(source_id, force)
           record(source_id, outcome, started)
         rescue StandardError => e
@@ -83,6 +98,11 @@ module ExternalBridge
           candidates.each do |candidate|
             break if attempts >= Limits::ICON_CANDIDATES
 
+            if RefreshLog.now > @deadline
+              last_code = 'icon_deadline'
+              break
+            end
+
             attempts += 1
             @fields[:candidates] = attempts
             begin
@@ -106,21 +126,27 @@ module ExternalBridge
 
           response = HttpClient.get(source.canonical_key)
           hints = response.code.between?(200, 299) ? Parser.parse!(response.body).icon_hints : []
-          ExternalSource.where(id: source.id).update_all(icon_hints: hints)
+          @discovered_hints = hints
           source.icon_hints = hints
         rescue Error
           source.icon_hints = []
         end
 
+        # The hints are written together with the outcome, so the source row is
+        # not locked while the candidates are downloaded.
+        def hint_attributes
+          @discovered_hints.nil? ? {} : { icon_hints: @discovered_hints }
+        end
+
         def keep_or_store(source, candidate, result)
-          return mark_unchanged(source, result, 'icon_unchanged') if stored_icon?(source) && source.icon_fingerprint == result.fingerprint
+          return mark_unchanged(source, result, 'icon_unchanged', origin: candidate.origin) if stored_icon?(source) && source.icon_fingerprint == result.fingerprint
 
           store(source, candidate, result)
         end
 
         def store(source, candidate, result)
           outcome = nil
-          ApplicationRecord.transaction do
+          ApplicationRecord.transaction(requires_new: true) do
             locked = ExternalSource.lock.find_by(id: source.id)
             if locked.nil?
               outcome = 'skipped_source_missing'
@@ -152,7 +178,8 @@ module ExternalBridge
               icon_checked_at: Time.current,
               icon_next_check_at: Schedule.success_at,
               icon_failure_count: 0,
-              icon_error_code: nil
+              icon_error_code: nil,
+              **hint_attributes
             )
             locked.save!
           end
@@ -167,14 +194,20 @@ module ExternalBridge
             error.is_a?(IOError)
         end
 
-        def mark_unchanged(source, result, outcome)
+        def mark_unchanged(source, result, outcome, origin: nil)
           now = Time.current
           attributes = {
             icon_checked_at: now,
             icon_next_check_at: Schedule.success_at(now),
             icon_failure_count: 0,
             icon_error_code: nil,
-          }
+          }.merge(hint_attributes)
+          # The address that answered (after validated redirects) is what the
+          # next check must ask, otherwise a moved icon is requested through
+          # the old address forever. A 304 carries no new validators, so the
+          # stored ones, which that address just accepted, are kept.
+          attributes[:icon_remote_url] = result.final_url if result.final_url.present?
+          attributes[:icon_origin] = origin.to_s.first(32) if origin.present?
           unless result.not_modified
             attributes[:icon_etag] = result.etag
             attributes[:icon_last_modified] = result.last_modified
@@ -190,21 +223,20 @@ module ExternalBridge
             icon_checked_at: now,
             icon_next_check_at: Schedule.failure_at(failures, now),
             icon_failure_count: failures,
-            icon_error_code: code.to_s.first(64)
+            icon_error_code: code.to_s.first(64),
+            **hint_attributes
           )
           @fields[:error_code] = RefreshLog.code(code)
           code.to_s == 'icon_no_candidate' ? 'icon_not_found' : 'icon_failed'
         end
 
         def with_lock(source_id)
-          connection = ActiveRecord::Base.connection
-          locked = connection.select_value(ActiveRecord::Base.sanitize_sql_array(["SELECT pg_try_advisory_lock(#{LOCK_CLASS}, ?)", source_id.to_i]))
-          return 'skipped_lock_busy' unless locked == true || locked.to_s == 't'
+          ApplicationRecord.transaction do
+            sql = ActiveRecord::Base.sanitize_sql_array(["SELECT pg_try_advisory_xact_lock(#{LOCK_CLASS}, ?)", source_id.to_i])
+            locked = ApplicationRecord.connection.select_value(sql)
+            next 'skipped_lock_busy' unless locked == true || locked.to_s == 't'
 
-          yield
-        ensure
-          if locked == true || locked.to_s == 't'
-            connection.execute(ActiveRecord::Base.sanitize_sql_array(["SELECT pg_advisory_unlock(#{LOCK_CLASS}, ?)", source_id.to_i]))
+            yield
           end
         end
       end

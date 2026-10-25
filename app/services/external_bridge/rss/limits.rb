@@ -29,6 +29,9 @@ module ExternalBridge
       ICON_CANDIDATES = 6
       ICON_HINTS = 3
       ICON_HOST_BUDGET = 20
+      # One icon run holds a database transaction (and its advisory lock), so
+      # it must not keep trying candidates indefinitely.
+      ICON_RUN_DEADLINE = 40
       ICON_TIMEOUTS = { connect_timeout: 5, read_timeout: 5, write_timeout: 5, read_deadline: 10 }.freeze
     end
   end

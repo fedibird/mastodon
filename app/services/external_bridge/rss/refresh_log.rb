@@ -70,6 +70,8 @@ module ExternalBridge
         icon_dimensions
         icon_too_small
         icon_unsuitable_shape
+        icon_invalid_ico
+        icon_deadline
         icon_storage_failed
         icon_no_candidate
       ).freeze
