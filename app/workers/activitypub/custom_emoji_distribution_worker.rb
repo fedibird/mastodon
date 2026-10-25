@@ -31,6 +31,8 @@ class ActivityPub::CustomEmojiDistributionWorker < ActivityPub::RawDistributionW
     # ActivityPub::DeliveryWorker.push_bulk(Relay.enabled.pluck(:inbox_url)) do |inbox_url|
     #   [like_json, @account.id, inbox_url]
     # end
+
+    EmojiReactionCapability::Shadow.observe_fanout(@emoji_reaction, action: action)
   rescue ActiveRecord::RecordNotFound
     true
   end
