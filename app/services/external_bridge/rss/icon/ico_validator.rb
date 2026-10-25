@@ -9,13 +9,15 @@ module ExternalBridge
       # re-encoded (ImageMagick's ICO coder is not available everywhere), so
       # a header that merely looks like an ICO is not enough. Every directory
       # entry must point at a payload that is itself well formed, the payloads
-      # must not overlap, and no bytes may be left over that no entry
-      # describes. Anything else is rejected and the next candidate is tried.
+      # follow the directory back to back in offset order, and no byte may be
+      # left over that no entry describes (before, between, or after them). Anything else is rejected and the next candidate is tried.
       #
       # Accepted payloads, which is what browsers and icon tools produce:
       # - PNG: signature, IHDR matching the directory entry, every chunk length
-      #   in bounds with a correct CRC, IEND as the last chunk, and no bytes
-      #   after it. Color type and bit depth must be valid for PNG.
+      #   in bounds with a correct CRC, the required chunks in order (IHDR, an
+      #   optional single PLTE where the color type allows or requires it, one
+      #   or more consecutive IDAT, IEND last), no unknown critical chunk, and
+      #   no bytes after IEND. Color type and bit depth must be valid for PNG.
       # - BMP/DIB (BITMAPINFOHEADER, 40 bytes, uncompressed or BITFIELDS):
       #   dimensions that agree with the entry, a legal bit count, and enough
       #   bytes for the palette, the pixel rows and the AND mask.
@@ -28,6 +30,7 @@ module ExternalBridge
         MAX_ENTRIES = 16
         HEADER_BYTES = 6
         ENTRY_BYTES = 16
+        CRITICAL_PNG_CHUNKS = %w(IHDR PLTE IDAT IEND).freeze
         PNG_SIGNATURE = "\x89PNG\r\n\x1a\n".b.freeze
         DIB_HEADER_BYTES = 40
         DIB_BIT_COUNTS = [1, 4, 8, 16, 24, 32].freeze
@@ -68,17 +71,21 @@ module ExternalBridge
           end
         end
 
+        # The directory is followed by the payloads back to back, in offset
+        # order: no gap before the first payload, none between two payloads,
+        # none after the last. Every byte belongs to the header, the
+        # directory, or exactly one entry.
         def check_layout!(entries, total)
-          first_payload = HEADER_BYTES + (entries.size * ENTRY_BYTES)
-          ranges = entries.map do |entry|
-            invalid! if entry.bytes <= 0 || entry.offset < first_payload
-            invalid! if entry.offset + entry.bytes > total
+          cursor = HEADER_BYTES + (entries.size * ENTRY_BYTES)
 
-            [entry.offset, entry.offset + entry.bytes]
+          entries.sort_by(&:offset).each do |entry|
+            invalid! if entry.bytes <= 0 || entry.offset != cursor
+
+            cursor += entry.bytes
+            invalid! if cursor > total
           end
 
-          ranges.sort.each_cons(2) { |left, right| invalid! if left[1] > right[0] }
-          invalid! unless ranges.map(&:last).max == total
+          invalid! unless cursor == total
         end
 
         def check_payload!(entry, payload)
@@ -90,12 +97,20 @@ module ExternalBridge
         end
 
         def check_png!(entry, payload)
+          chunks = read_png_chunks!(payload)
+          check_png_sequence!(chunks)
+          check_ihdr!(entry, chunks.first.last)
+          check_png_palette!(chunks)
+        end
+
+        # Splits the payload into [type, data] pairs. Every length must stay
+        # inside the payload, every CRC must match, and nothing may follow IEND.
+        def read_png_chunks!(payload)
           position = PNG_SIGNATURE.bytesize
-          first = true
-          finished = false
+          chunks = []
 
           while position < payload.bytesize
-            invalid! if finished || position + 12 > payload.bytesize
+            invalid! if chunks.last&.first == 'IEND' || position + 12 > payload.bytesize
 
             length = payload.byteslice(position, 4).unpack1('N')
             type = payload.byteslice(position + 4, 4)
@@ -106,19 +121,49 @@ module ExternalBridge
             crc = payload.byteslice(position + 8 + length, 4).unpack1('N')
             invalid! unless Zlib.crc32(type + data) == crc
 
-            if first
-              invalid! unless type == 'IHDR' && length == 13
-
-              check_ihdr!(entry, data)
-              first = false
-            end
-            finished = true if type == 'IEND'
-            invalid! if type == 'IEND' && length != 0
-
+            chunks << [type, data]
             position += 12 + length
           end
 
-          invalid! unless finished && position == payload.bytesize
+          chunks
+        end
+
+        # IHDR first and only once, one or more IDAT in a single run, IEND
+        # last and empty. Critical chunks other than these four (and PLTE) are
+        # not something a decoder is required to understand, so they are
+        # refused.
+        def check_png_sequence!(chunks)
+          types = chunks.map(&:first)
+          invalid! unless types.first == 'IHDR' && chunks.first.last.bytesize == 13
+          invalid! unless types.last == 'IEND' && chunks.last.last.empty?
+          invalid! unless types.count('IHDR') == 1 && types.count('IEND') == 1
+
+          idat_positions = types.each_index.select { |index| types[index] == 'IDAT' }
+          invalid! if idat_positions.empty?
+          invalid! unless idat_positions.last - idat_positions.first == idat_positions.size - 1
+          invalid! if chunks.select { |type, _| type == 'IDAT' }.sum { |_, data| data.bytesize }.zero?
+
+          invalid! if types.any? { |type| type.match?(/\A[A-Z]/n) && !CRITICAL_PNG_CHUNKS.include?(type) }
+        end
+
+        # PLTE is required for indexed color, forbidden for grayscale, optional
+        # otherwise, and when present it is single, before the first IDAT, a
+        # multiple of three bytes, and no longer than the bit depth can index.
+        def check_png_palette!(chunks)
+          _width, _height, depth, color = chunks.first.last.unpack('NNCC')
+          types = chunks.map(&:first)
+          palettes = types.each_index.select { |index| types[index] == 'PLTE' }
+
+          invalid! if palettes.size > 1
+          invalid! if palettes.empty? && color == 3
+          return if palettes.empty?
+
+          invalid! if [0, 4].include?(color)
+          invalid! unless palettes.first < types.index('IDAT')
+
+          data = chunks[palettes.first].last
+          invalid! unless (data.bytesize % 3).zero? && data.bytesize.between?(3, 768)
+          invalid! if color == 3 && data.bytesize / 3 > (1 << depth)
         end
 
         def check_ihdr!(entry, data)

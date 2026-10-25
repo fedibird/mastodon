@@ -17,6 +17,45 @@ RSpec.describe ExternalBridge::RSS::Icon::IcoValidator do
     { width: size, height: size, payload: dib_payload(size, size, **options), bit_count: options.fetch(:bit_count, 32) }
   end
 
+  def png_chunk(type, data = ''.b)
+    [data.bytesize].pack('N') + type.b + data.b + [Zlib.crc32(type.b + data.b)].pack('N')
+  end
+
+  def ihdr(size, color: 2, depth: 8)
+    png_chunk('IHDR', [size, size, depth, color, 0, 0, 0].pack('NNCCCCC'))
+  end
+
+  def idat_data(size)
+    Zlib::Deflate.deflate((("\x00".b + ("\x0a\x14\x1e".b * size)) * size))
+  end
+
+  def png_from(*chunks)
+    "\x89PNG\r\n\x1a\n".b + chunks.join
+  end
+
+  def png_ico(*chunks, size: 16)
+    ico_from([{ width: size, height: size, payload: png_from(*chunks) }])
+  end
+
+  def valid_chunks(size = 16)
+    [ihdr(size), png_chunk('IDAT', idat_data(size)), png_chunk('IEND')]
+  end
+
+  # Lays the payloads out after the directory with the given number of
+  # unreferenced bytes before each of them.
+  def ico_with_gaps(entries, gaps)
+    offset = 6 + (entries.size * 16)
+    directory = []
+    body = ''.b
+    entries.each_with_index do |entry, index|
+      offset += gaps[index]
+      body << ("\x00".b * gaps[index]) << entry[:payload]
+      directory << [entry[:width] % 256, entry[:height] % 256, 0, 0, 1, 32, entry[:payload].bytesize, offset].pack('CCCCvvVV')
+      offset += entry[:payload].bytesize
+    end
+    [0, 1, entries.size].pack('vvv') + directory.join + body
+  end
+
   def validate(bytes)
     described_class.validate!(bytes)
   end
@@ -41,6 +80,28 @@ RSpec.describe ExternalBridge::RSS::Icon::IcoValidator do
 
     it 'accepts several entries and reports the largest' do
       expect(validate(ico_from([dib_entry(16), dib_entry(32), png_entry(48)]))).to eq [48, 48]
+    end
+
+    it 'accepts entries listed out of order when the payloads are contiguous' do
+      bytes = ico_from([png_entry(32), dib_entry(16)]).b
+      swapped = bytes.dup
+      swapped[6, 16] = bytes[22, 16]
+      swapped[22, 16] = bytes[6, 16]
+      expect(validate(swapped)).to eq [32, 32]
+    end
+
+    it 'accepts a PNG whose image data is split over consecutive IDAT chunks' do
+      data = idat_data(16)
+      half = data.bytesize / 2
+      chunks = [ihdr(16), png_chunk('IDAT', data.byteslice(0, half)), png_chunk('IDAT', data.byteslice(half, data.bytesize)), png_chunk('IEND')]
+      expect(validate(png_ico(*chunks))).to eq [16, 16]
+    end
+
+    it 'accepts ancillary chunks and a palette where the color type allows one' do
+      palette = png_chunk('PLTE', "\x00\x00\x00\xff\xff\xff".b)
+      expect(validate(png_ico(ihdr(16), png_chunk('tEXt', 'Comment'), palette, png_chunk('IDAT', idat_data(16)), png_chunk('tRNS', "\x00".b), png_chunk('IEND')))).to eq [16, 16]
+      indexed = png_ico(ihdr(16, color: 3, depth: 1), palette, png_chunk('IDAT', idat_data(16)), png_chunk('IEND'))
+      expect(validate(indexed)).to eq [16, 16]
     end
 
     it 'reads a directory size of zero as 256' do
@@ -127,6 +188,84 @@ RSpec.describe ExternalBridge::RSS::Icon::IcoValidator do
       overlapping = valid.dup
       overlapping[6 + 16 + 12, 4] = overlapping[6 + 12, 4]
       reject(overlapping)
+    end
+
+    it 'rejects unreferenced bytes between the directory and the first payload' do
+      reject(ico_with_gaps([png_entry(32)], [1]))
+      reject(ico_with_gaps([png_entry(32), dib_entry(16)], [8, 0]))
+    end
+
+    it 'rejects unreferenced bytes between two payloads' do
+      reject(ico_with_gaps([png_entry(32), dib_entry(16)], [0, 1]))
+      reject(ico_with_gaps([dib_entry(16), png_entry(32), dib_entry(32)], [0, 0, 4]))
+      expect(validate(ico_with_gaps([png_entry(32), dib_entry(16)], [0, 0]))).to eq [32, 32]
+    end
+
+    it 'rejects two entries that share one payload' do
+      bytes = ico_from([png_entry(32)]).b
+      directory_entry = bytes[6, 16]
+      shared = [0, 1, 2].pack('vvv') + directory_entry + directory_entry + bytes.byteslice(22, bytes.bytesize)
+      shared[6 + 12, 4] = [38].pack('V')
+      shared[22 + 12, 4] = [38].pack('V')
+      reject(shared)
+    end
+
+    it 'rejects a PNG with no IDAT chunk' do
+      reject(png_ico(ihdr(16), png_chunk('IEND')))
+      reject(png_ico(ihdr(16), png_chunk('tEXt', 'only text'), png_chunk('IEND')))
+    end
+
+    it 'rejects a PNG whose only IDAT is empty' do
+      reject(png_ico(ihdr(16), png_chunk('IDAT'), png_chunk('IEND')))
+    end
+
+    it 'rejects IHDR that is missing, repeated, or not first' do
+      reject(png_ico(png_chunk('IDAT', idat_data(16)), ihdr(16), png_chunk('IEND')))
+      reject(png_ico(ihdr(16), ihdr(16), png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
+      reject(png_ico(png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
+    end
+
+    it 'rejects IDAT chunks that are interrupted by another chunk' do
+      data = idat_data(16)
+      half = data.bytesize / 2
+      chunks = [ihdr(16), png_chunk('IDAT', data.byteslice(0, half)), png_chunk('tEXt', 'x'), png_chunk('IDAT', data.byteslice(half, data.bytesize)), png_chunk('IEND')]
+      reject(png_ico(*chunks))
+    end
+
+    it 'rejects IEND that is missing, repeated, not last, or not empty' do
+      reject(png_ico(ihdr(16), png_chunk('IDAT', idat_data(16))))
+      reject(png_ico(ihdr(16), png_chunk('IDAT', idat_data(16)), png_chunk('IEND'), png_chunk('IEND')))
+      reject(png_ico(ihdr(16), png_chunk('IDAT', idat_data(16)), png_chunk('IEND'), png_chunk('tEXt', 'late')))
+      reject(png_ico(ihdr(16), png_chunk('IDAT', idat_data(16)), png_chunk('IEND', 'data')))
+      reject(png_ico(ihdr(16), png_chunk('IEND'), png_chunk('IDAT', idat_data(16))))
+    end
+
+    it 'rejects an indexed PNG without a palette' do
+      reject(png_ico(ihdr(16, color: 3, depth: 8), png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
+    end
+
+    it 'rejects a palette where the color type forbids one' do
+      palette = png_chunk('PLTE', "\x00\x00\x00".b)
+      reject(png_ico(ihdr(16, color: 0), palette, png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
+      reject(png_ico(ihdr(16, color: 4), palette, png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
+    end
+
+    it 'rejects a palette after the image data or repeated' do
+      palette = png_chunk('PLTE', "\x00\x00\x00".b)
+      reject(png_ico(ihdr(16, color: 3, depth: 8), png_chunk('IDAT', idat_data(16)), palette, png_chunk('IEND')))
+      reject(png_ico(ihdr(16, color: 3, depth: 8), palette, palette, png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
+    end
+
+    it 'rejects a palette with a bad length or more entries than the bit depth allows' do
+      reject(png_ico(ihdr(16, color: 3, depth: 8), png_chunk('PLTE', "\x00\x00".b), png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
+      reject(png_ico(ihdr(16, color: 3, depth: 8), png_chunk('PLTE'), png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
+      too_many = png_chunk('PLTE', "\x00\x00\x00".b * 3)
+      reject(png_ico(ihdr(16, color: 3, depth: 1), too_many, png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
+    end
+
+    it 'rejects an unknown critical chunk but not an unknown ancillary one' do
+      reject(png_ico(ihdr(16), png_chunk('ABCD'), png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))
+      expect(validate(png_ico(ihdr(16), png_chunk('abCD'), png_chunk('IDAT', idat_data(16)), png_chunk('IEND')))).to eq [16, 16]
     end
 
     it 'rejects bytes that no entry describes' do
