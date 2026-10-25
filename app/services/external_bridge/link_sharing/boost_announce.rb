@@ -75,7 +75,7 @@ module ExternalBridge
       private
 
       # Policy FOR SHARE, then boost FOR UPDATE. A row closed inside the block
-      # hands back the wrapper ids that need RemovalWorker; they are enqueued
+      # hands back the wrapper ids that need LinkWrapperRemovalWorker; they are enqueued
       # after the transaction.
       def guarded(user_id)
         removals = []

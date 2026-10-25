@@ -2,17 +2,17 @@
 
 module ExternalBridge
   module LinkSharing
-    # Takes a wrapper whose share has ended to RemovalWorker (the Undo for an
+    # Takes a wrapper whose share has ended to LinkWrapperRemovalWorker (the Undo for an
     # announced one) when the push that should have done it was lost, or the job
     # never finished.
     #
     # Retire.end! commits the row as `undone` and the wrapper as discarded in
     # the same transaction as the physical delete of the projection, and hands
-    # the wrapper id to the caller for RemovalWorker after the commit. A crash or
+    # the wrapper id to the caller for LinkWrapperRemovalWorker after the commit. A crash or
     # a Redis failure in between loses only that push, never the rows.
     #
     # The durable acknowledgement is removal_acknowledged_at, written by
-    # RemovalWorker once RemoveStatusService returned for the wrapper (the Undo
+    # LinkWrapperRemovalWorker once RemoveStatusService returned for the wrapper (the Undo
     # has been handed to ActivityPub delivery, whose workers retry on their own).
     # It is not the existence of the wrapper: Mastodon keeps a wrapper inside an
     # unresolved report (discarded, not destroyed), and that must neither be
@@ -22,7 +22,7 @@ module ExternalBridge
     # column, so it never appears.
     #
     # Accepted by Sidekiq is not done: the claim only keeps one pass from
-    # pushing the same wrapper again for HOLD. RemovalWorker skips a wrapper that
+    # pushing the same wrapper again for HOLD. LinkWrapperRemovalWorker skips a wrapper that
     # is already acknowledged, so a push that does arrive twice (a backlog longer
     # than HOLD) removes and Undoes once. The claim lives in
     # removal_next_attempt_at, separate from next_announce_at, which can still
@@ -78,7 +78,7 @@ module ExternalBridge
       end
 
       def push(wrapper_id)
-        RemovalWorker.perform_async(wrapper_id).present?
+        LinkWrapperRemovalWorker.perform_async(wrapper_id).present?
       rescue Redis::BaseError => e
         Rails.logger.warn("[LinkSharing] wrapper removal enqueue failed wrapper_id=#{wrapper_id} error=#{e.class}")
         false

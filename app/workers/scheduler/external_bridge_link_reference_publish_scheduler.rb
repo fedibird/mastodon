@@ -11,7 +11,7 @@
 # The same pass also covers E4-B boost rows whose Announce was never handed to
 # distribution (RecoverUnannounced) and closes boost rows whose projection is
 # gone. Those rows are selected only after the reference Create is distributed.
-# It also re-pushes RemovalWorker (the Undo) for a wrapper whose share has ended
+# It also re-pushes LinkWrapperRemovalWorker (the Undo) for a wrapper whose share has ended
 # but whose removal was never handed over (RecoverRemovals).
 class Scheduler::ExternalBridgeLinkReferencePublishScheduler
   include Sidekiq::Worker

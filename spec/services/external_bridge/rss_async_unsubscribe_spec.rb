@@ -100,7 +100,7 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(world[:subscription].reload.state).to eq 'deleting'
       expect(ExternalFeedRoute.where(external_subscription_id: world[:subscription].id)).to be_empty
       expect(projection_count(world)).to eq 3
-      expect(Status.where(id: ExternalStatusProjection.pluck(:status_id)).count).to eq 3
+      expect(Status.where(id: ExternalStatusProjection.where(external_subscription_id: world[:subscription].id).select(:status_id)).count).to eq 3
       expect(Status.exists?(ordinary.id)).to be true
       expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 1
       expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.first['args']).to eq [deletion.id]
@@ -418,7 +418,7 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
 
       expect(deletion.reload.deleted_count).to eq 0
       expect(projection_count(world)).to eq 12
-      expect(Status.where(id: ExternalStatusProjection.pluck(:status_id)).count).to eq 12
+      expect(Status.where(id: ExternalStatusProjection.where(external_subscription_id: world[:subscription].id).select(:status_id)).count).to eq 12
     end
 
     it 'does not run a second time against a completed record' do
@@ -549,7 +549,7 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(projection_count(world)).to eq 0
     end
 
-    it 'ends the link share, hands the wrapper to RemovalWorker, and leaves the reference note alone' do
+    it 'ends the link share, hands the wrapper to ExternalBridge::LinkWrapperRemovalWorker, and leaves the reference note alone' do
       stub_request(:any, %r{\Ahttps://example\.com/}).to_return(status: 200, body: '<html><head><title>x</title></head></html>', headers: { 'Content-Type' => 'text/html' })
       world = external_project_for(user)
       world[:source].update!(title: 'Safe Feed Title')
@@ -559,7 +559,7 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       result = ExternalBridge::LinkSharing::Boost.call(user: user, status: world[:status])
       result.boost.update_columns(announced_at: Time.current)
       removals = []
-      allow(RemovalWorker).to receive(:perform_async) { |id| removals << id }
+      allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id| removals << id }
 
       runner.call(unsubscribe!(world).id)
 

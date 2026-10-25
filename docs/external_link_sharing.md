@@ -194,7 +194,7 @@ Who emits what:
 | --- | --- | --- |
 | Create (reference note) | E4-A `LinkReferencePublishWorker` through `PublishStatusService` | Once per mapping, at `published_at`. Unchanged. |
 | Announce (wrapper) | `LinkSharing::BoostAnnounce`, which enqueues only `ActivityPub::DistributionWorker` for the wrapper | Once per boost row (at-least-once on failure, see "Delivery boundary"), only after the mapping's `published_at` is set. |
-| Undo of the Announce | `RemovalWorker` on the wrapper (`RemoveStatusService`) | On unboost, only when `announced_at` (the committed intent) is set. |
+| Undo of the Announce | `ExternalBridge::LinkWrapperRemovalWorker` on the wrapper (`RemoveStatusService`) | On unboost, only when `announced_at` (the committed intent) is set. |
 
 Ordering. If the reference note is new, `published_at` is still null when the boost commits, so no Announce is queued. The publish worker writes `published_at`, then pushes the boost rows that were waiting (`BoostSchedule.enqueue_for_mapping!`). The Announce job therefore enters the push queue after the Create distribution jobs. The Announce is never sent for an object that has not been handed to distribution. The scheduler (`Scheduler::ExternalBridgeLinkReferencePublishScheduler`) also scans `RecoverUnannounced` for rows whose job was lost (`announce_enqueued_at` null), and only for mappings whose Create is out. Delivery to separate remote inboxes is separate Sidekiq jobs, so arrival order at a remote server is best effort. A remote server that receives the Announce first fetches the note by URI; the note is public or unlisted and dereferenceable.
 

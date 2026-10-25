@@ -86,7 +86,7 @@ Each batch is one transaction:
 - add the rows the `DELETE` really removed to `deleted_count`, in the same
   transaction.
 
-Wrapper removals (`RemovalWorker`), cache entries, and search documents follow
+Wrapper removals (`LinkWrapperRemovalWorker`), cache entries, and search documents follow
 the commit (`ProjectionPurge.finish_purge!`), as they do for any purge.
 
 A run stops after `MAX_BATCHES` (50) or `TIME_BUDGET` (20 s) and queues the next
@@ -120,32 +120,58 @@ Completed records are removed after 30 days by the same scheduler.
 ### Undo of an announced wrapper
 
 `Retire.end!` commits the boost as `undone` and the wrapper as discarded in the
-batch transaction, and the wrapper id goes to `RemovalWorker` (which sends the
-Undo for an announced share) only after that commit. A crash or a Redis failure
-between the commit and `finish_purge!` loses that push, not the rows, and
-`end_orphans!` does not help (it looks for `active` rows without a marker).
+batch transaction, and the wrapper id goes to the E4 worker
+(`ExternalBridge::LinkWrapperRemovalWorker`) only after that commit. A crash or a
+Redis failure between the commit and `finish_purge!` loses that push, not the
+rows, and `end_orphans!` does not help (it looks for `active` rows without a
+marker).
 
-The durable acknowledgement is `external_projection_link_boosts.removal_acknowledged_at`.
-`RemovalWorker` sets it when `RemoveStatusService` returned for the wrapper: the
-Undo has been handed to ActivityPub delivery, whose own workers retry. It is not
-the existence of the wrapper: Mastodon keeps a wrapper that sits in an
-unresolved report (`reported?`: discarded, not destroyed, unless `immediate`),
-and this feature does not change that (no `immediate`, the report evidence stays).
-Accepted by Sidekiq is not done either; only a returned `RemoveStatusService` is.
+`LinkWrapperRemovalWorker` is E4's own entry. Mastodon's `RemovalWorker` is
+unchanged, so an explicit request for the same status (`immediate: true` from an
+admin or a report decision, a redraft) is never swallowed. The E4 worker is the
+only writer of `external_projection_link_boosts.removal_acknowledged_at`, which it
+sets when `RemoveStatusService` returned for the wrapper: the Undo has been
+handed to ActivityPub delivery, whose own workers retry. It is not the existence
+of the wrapper: Mastodon keeps a wrapper that sits in an unresolved report
+(`reported?`: discarded, not destroyed, unless `immediate`), and this feature does
+not change that (no `immediate`, the report evidence stays). Accepted by Sidekiq
+is not done either; only a returned `RemoveStatusService` is.
+
+Exclusion. The acknowledgement check, `RemoveStatusService`, and the
+acknowledgement run under one PostgreSQL session advisory lock per wrapper
+(`pg_try_advisory_lock`). A second job that arrives while the first works returns
+without doing anything; one that arrives later sees the acknowledgement. The lock
+belongs to the connection, so a dead worker releases it at once. It is not
+`RemoveStatusService`'s Redis lock (`distribute:<id>`), which is released when the
+service returns and expires by itself after 15 minutes, so it cannot make "check,
+work, acknowledge" atomic. Limit: delivery is at least once. A crash between the
+return of `RemoveStatusService` and the commit of the acknowledgement is the one
+window in which the recovery pushes again and the Undo is handed to delivery a
+second time; receivers treat a repeated Undo as a no-op. A job that was refused
+the lock is not retried by Sidekiq; the recovery pushes again if the first job
+never acknowledges.
 
 `LinkSharing::RecoverRemovals`, run by `Scheduler::ExternalBridgeLinkReferencePublishScheduler`
 (every 5 minutes), scans `undone` boosts with `wrapper_status_id` still set and
 `removal_acknowledged_at` null (a wrapper that never left the server is removed
-by `Retire` itself, which nulls the column) and pushes `RemovalWorker` again. The
+by `Retire` itself, which nulls the column) and pushes the E4 worker again. The
 claim is `removal_next_attempt_at` (10 minutes after a push, released at once
 when the push is refused), separate from `next_announce_at`, which can still hold
 the 30 minute Announce claim when a share ends soon after it was made. A lost
-push is therefore pushed again within the scheduler period plus 1 minute.
-`RemovalWorker` returns at once for a wrapper that is already acknowledged, so a
-push that does arrive twice (a queue backlog longer than the claim) removes and
-Undoes once, and a reported wrapper is not Undone every ten minutes. The scan has
-a partial index (`index_link_boosts_on_pending_removal`, migration
+push is therefore pushed again within the scheduler period plus 1 minute. The
+scan has a partial index (`index_link_boosts_on_pending_removal`, migration
 `20261031130000`, built `CONCURRENTLY`) and is not gated by the feature flags.
+
+### Finishing a record
+
+Suppressions are keyed by user and source, not by subscription id, so once the
+subscription row is destroyed the same user can subscribe to the same source again
+and add suppressions that belong to the new subscription. Every cleanup slice
+(suppressions, then item failures) therefore runs in its own short transaction
+that locks the deletion row `FOR UPDATE` and checks that the record is neither
+`completed` nor `failed`; completion takes the same lock. A worker that was slow
+to reach the cleanup either runs a slice before completion (it is still the old
+subscription's data) or sees `completed` and deletes nothing.
 
 ## Progress API
 

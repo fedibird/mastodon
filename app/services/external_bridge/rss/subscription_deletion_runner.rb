@@ -35,6 +35,11 @@ module ExternalBridge
       MAX_AUTO_ATTEMPTS = 5
       BACKOFF = [30.seconds, 2.minutes, 10.minutes, 30.minutes, 2.hours].freeze
 
+      # Test seam for real races. Production code never listens.
+      def self.checkpoint(name)
+        ActiveSupport::Notifications.instrument('external_bridge.rss_deletion', name: name)
+      end
+
       def self.batch_size
         configured = ENV.fetch('EXTERNAL_RSS_DELETION_BATCH_SIZE', DEFAULT_BATCH_SIZE).to_i
         configured.clamp(MIN_BATCH_SIZE, MAX_BATCH_SIZE)
@@ -159,11 +164,12 @@ module ExternalBridge
         deletion = ExternalSubscriptionDeletion.find_by(id: deletion_id)
         return :gone if deletion.nil?
 
+        self.class.checkpoint(:finish_after_read)
         clear_side_rows!(deletion)
         completed = false
         ApplicationRecord.transaction do
           locked = ExternalSubscriptionDeletion.lock.find_by(id: deletion_id)
-          next if locked.nil? || locked.completed?
+          next if locked.nil? || locked.completed? || locked.failed?
 
           subscription = ExternalSubscription.lock.find_by(id: locked.external_subscription_id)
           if subscription && ExternalStatusProjection.where(external_subscription_id: subscription.id).exists?
@@ -201,15 +207,30 @@ module ExternalBridge
         )
       end
 
+      # Every slice is its own short transaction that locks the deletion row,
+      # checks that this record is still the one running, and only then deletes.
+      # The suppressions are keyed by user and source, not by subscription id, so
+      # a worker that was slow to get here (and a record that another worker has
+      # completed in the meantime) must not reach them: after the subscription is
+      # destroyed the same user can subscribe to the same source again and add
+      # suppressions that belong to the new subscription. Completion takes the same
+      # row lock, so a slice either runs before it or sees `completed` and stops.
       def clear_side_rows!(deletion)
-        delete_in_slices(suppression_scope(deletion), ExternalProjectionSuppression)
-        delete_in_slices(ExternalProjectionFailure.where(external_subscription_id: deletion.external_subscription_id), ExternalProjectionFailure)
+        delete_in_slices(deletion.id, ExternalProjectionSuppression) { |locked| suppression_scope(locked) }
+        delete_in_slices(deletion.id, ExternalProjectionFailure) do |locked|
+          ExternalProjectionFailure.where(external_subscription_id: locked.external_subscription_id)
+        end
       end
 
-      def delete_in_slices(scope, model)
+      def delete_in_slices(deletion_id, model)
         loop do
-          removed = model.where(id: scope.limit(SIDE_BATCH).select(:id)).delete_all
-          break if removed < SIDE_BATCH
+          removed = ApplicationRecord.transaction do
+            locked = ExternalSubscriptionDeletion.lock.find_by(id: deletion_id)
+            next nil if locked.nil? || locked.completed? || locked.failed?
+
+            model.where(id: yield(locked).limit(SIDE_BATCH).select(:id)).delete_all
+          end
+          break if removed.nil? || removed < SIDE_BATCH
         end
       end
 

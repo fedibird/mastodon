@@ -224,6 +224,42 @@ describe 'ExternalBridge asynchronous RSS unsubscribe concurrency', type: :model
   ensure
     ENV['EXTERNAL_RSS_DELETION_BATCH_SIZE'] = previous
   end
+
+  it 'does not let a worker that was slow to finish delete the suppressions of a later subscription to the same source' do
+    build_world(1)
+    ExternalBridge::ProjectionPurge.purge_status_ids!(projections.pluck(:status_id))
+    deletion = unsubscribe_as_user
+    entered = Queue.new
+    release = Queue.new
+    subscriber = ActiveSupport::Notifications.subscribe('external_bridge.rss_deletion') do |*args|
+      next unless args.last[:name] == :finish_after_read && Thread.current[:slow_finisher]
+
+      entered << true
+      release.pop
+    end
+
+    slow = in_thread do
+      Thread.current[:slow_finisher] = true
+      ExternalBridge::RSS::SubscriptionDeletionRunner.new.call(deletion.id)
+    end
+    entered.pop
+    begin
+      expect(ExternalBridge::RSS::SubscriptionDeletionRunner.new.call(deletion.id)).to eq :completed
+      expect(ExternalSubscriptionDeletion.find(deletion.id)).to be_completed
+      fresh = ExternalSubscription.create!(user: User.find(@user.id), external_source_id: @world[:source].id, state: 'active')
+      suppression = ExternalProjectionSuppression.create!(user_id: @user.id, external_resource_id: @world[:resource].id)
+    ensure
+      release << true
+      slow.join
+      ActiveSupport::Notifications.unsubscribe(subscriber)
+    end
+
+    expect(slow[:error]).to be_nil
+    expect(slow.value).to eq :completed
+    expect(ExternalProjectionSuppression.exists?(suppression.id)).to be true
+    expect(ExternalSubscription.exists?(fresh.id)).to be true
+    expect(ExternalSubscriptionDeletion.find(deletion.id)).to be_completed
+  end
 end
 
 # rubocop:enable Metrics/BlockLength

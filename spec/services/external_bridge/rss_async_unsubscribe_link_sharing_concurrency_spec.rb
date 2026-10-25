@@ -19,7 +19,7 @@ describe 'ExternalBridge unsubscribe and link sharing concurrency', type: :model
     Thread.current[:redis] = nil
     stub_request(:any, %r{\Ahttps://example\.com/}).to_return(status: 200, body: '<html><head><title>x</title></head></html>', headers: { 'Content-Type' => 'text/html' })
     ExternalBridge::RSS::SubscriptionDeletionWorker.clear
-    RemovalWorker.clear
+    ExternalBridge::LinkWrapperRemovalWorker.clear
     ExternalBridge::LinkBoostAnnounceWorker.clear
     ActivityPub::DistributionWorker.clear
   end
@@ -53,6 +53,7 @@ describe 'ExternalBridge unsubscribe and link sharing concurrency', type: :model
     return if @user.nil?
 
     user_id = @user.id
+    Report.where(target_account_id: @user.account_id).delete_all
     reference_ids = ExternalProjectionLinkReference.where(user_id: user_id).pluck(:reference_status_id).compact
     Status.unscoped.where(reblog_of_id: reference_ids).delete_all
     ExternalProjectionLinkReference.where(user_id: user_id).delete_all
@@ -185,7 +186,52 @@ describe 'ExternalBridge unsubscribe and link sharing concurrency', type: :model
     expect(boost.state).to eq 'undone'
     expect(boost.announce_enqueued_at).to be_nil
     expect(ActivityPub::DistributionWorker.jobs).to be_empty
-    expect(RemovalWorker.jobs.map { |job| job['args'].first }).to eq [result.wrapper.id]
+    expect(ExternalBridge::LinkWrapperRemovalWorker.jobs.map { |job| job['args'].first }).to eq [result.wrapper.id]
+  end
+
+  it 'lets one of two Undo jobs for the same wrapper work and the other stand aside, even when the first is stopped before it acknowledges' do
+    build_world
+    result = ExternalBridge::LinkSharing::Boost.call(user: @user, status: @world[:status])
+    result.boost.update_columns(announced_at: Time.current, announce_enqueued_at: Time.current)
+    wrapper_id = result.wrapper.id
+    Report.create!(account: Fabricate(:account), target_account: @user.account, status_ids: [wrapper_id], comment: '')
+    deletion = accept!
+    ExternalBridge::RSS::SubscriptionDeletionRunner.new.call(deletion.id)
+    boost = ExternalProjectionLinkBoost.find(result.boost.id)
+    expect(boost.wrapper_status_id).to eq wrapper_id
+    expect(boost.removal_acknowledged_at).to be_nil
+
+    calls = Queue.new
+    allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+      calls << true
+      method.call(*args, **kwargs)
+    end
+    pause_checkpoint!(:removal_before_acknowledge)
+    first = in_thread(pause_at: :removal_before_acknowledge) { ExternalBridge::LinkWrapperRemovalWorker.new.perform(wrapper_id) }
+    @entered.pop
+    begin
+      second = in_thread { ExternalBridge::LinkWrapperRemovalWorker.new.perform(wrapper_id) }
+      second.join
+      expect(second[:error]).to be_nil
+      expect(second.value).to be false
+      expect(calls.size).to eq 1
+      expect(ExternalProjectionLinkBoost.find(result.boost.id).removal_acknowledged_at).to be_nil
+    ensure
+      @release << true
+      first.join
+    end
+
+    expect(first[:error]).to be_nil
+    expect(ExternalProjectionLinkBoost.find(result.boost.id).removal_acknowledged_at).to be_present
+    third = in_thread { ExternalBridge::LinkWrapperRemovalWorker.new.perform(wrapper_id) }
+    third.join
+    expect(third[:error]).to be_nil
+    expect(calls.size).to eq 1
+    expect(Status.unscoped.exists?(wrapper_id)).to be true
+
+    removal = in_thread { RemovalWorker.new.perform(wrapper_id, 'immediate' => true) }
+    removal.join
+    expect(Status.unscoped.exists?(wrapper_id)).to be false
   end
 end
 

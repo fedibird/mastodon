@@ -3,14 +3,15 @@
 module ExternalBridge
   module LinkSharing
     # Ends active boost rows and takes their wrapper Statuses away. An announced
-    # wrapper is discarded and then removed by RemovalWorker, like
-    # Api::V1::Statuses::ReblogsController does for an ordinary unreblog. The
-    # reference note and the projection are not touched.
+    # wrapper is discarded and then removed by LinkWrapperRemovalWorker (the E4
+    # counterpart of the RemovalWorker that Api::V1::Statuses::ReblogsController
+    # uses for an ordinary unreblog). The reference note and the projection are
+    # not touched.
     #
     # Every method here expects the caller to hold the rows FOR UPDATE inside a
     # transaction and to hand the returned wrapper ids to enqueue_removals
     # after that transaction commits. Only a wrapper whose Announce was already
-    # handed to distribution needs RemovalWorker, which sends the Undo and
+    # handed to distribution needs LinkWrapperRemovalWorker, which sends the Undo and
     # then removes the row. A wrapper that never left the server has no remote
     # copy and no timeline entry to take back, so it is removed here. Removing
     # it matters: Status validates one boost per Account and note, and that
@@ -21,7 +22,7 @@ module ExternalBridge
 
       ORPHAN_BATCH = 20
 
-      # @return [Integer, nil] wrapper id that needs RemovalWorker
+      # @return [Integer, nil] wrapper id that needs LinkWrapperRemovalWorker
       def end!(boost, reason:)
         return nil unless boost.active?
 
@@ -76,7 +77,7 @@ module ExternalBridge
         removals.size
       end
 
-      # RemovalWorker finished for this wrapper: RemoveStatusService returned,
+      # LinkWrapperRemovalWorker finished for this wrapper: RemoveStatusService returned,
       # so the Undo of an announced share has been handed to ActivityPub
       # delivery (delivery itself retries in its own workers). It is a fact about
       # the work, not about the row: Mastodon keeps a wrapper that sits in an
@@ -93,7 +94,7 @@ module ExternalBridge
       end
 
       def enqueue_removals(wrapper_ids)
-        Array(wrapper_ids).compact.each { |id| RemovalWorker.perform_async(id) }
+        Array(wrapper_ids).compact.each { |id| LinkWrapperRemovalWorker.perform_async(id) }
       end
     end
   end
