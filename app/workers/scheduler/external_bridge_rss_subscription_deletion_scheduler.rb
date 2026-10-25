@@ -24,12 +24,17 @@ class Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler
 
   private
 
+  # A due `failed` record becomes `queued` here, so the job that follows has the
+  # right to run it (the runner never starts a `failed` record) and the card no
+  # longer says "waiting to retry". A due `queued` or `running` record (a lost
+  # push, a dead worker) is only held back for REPUSH_HOLD.
   def recover
     now = Time.current
-    due = ExternalSubscriptionDeletion.pending.where('next_run_at <= ?', now).order(:next_run_at).limit(BATCH).pluck(:id, :next_run_at)
-    due.count do |id, due_at|
-      held = ExternalSubscriptionDeletion.pending.where(id: id, next_run_at: due_at)
-                                         .update_all(next_run_at: now + REPUSH_HOLD, updated_at: now)
+    due = ExternalSubscriptionDeletion.pending.where('next_run_at <= ?', now).order(:next_run_at).limit(BATCH).pluck(:id, :next_run_at, :state)
+    due.count do |id, due_at, state|
+      attributes = { next_run_at: now + REPUSH_HOLD, updated_at: now }
+      attributes[:state] = 'queued' if state == 'failed'
+      held = ExternalSubscriptionDeletion.pending.where(id: id, next_run_at: due_at, state: state).update_all(attributes)
       next false if held.zero?
 
       ExternalBridge::RSS::SubscriptionDeletionLog.emit('recovered', job_id: id)

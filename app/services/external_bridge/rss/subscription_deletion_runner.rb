@@ -40,12 +40,24 @@ module ExternalBridge
         configured.clamp(MIN_BATCH_SIZE, MAX_BATCH_SIZE)
       end
 
-      # @return [Symbol] :completed, :continue, :failed, :gone
+      # Who may run a record. A job is an invitation, not a right: it can arrive
+      # twice, late, or after the record has moved on.
+      #   queued, running  run (two workers take turns on the row lock; `running`
+      #                    is also how a record whose worker died is taken over
+      #                    once the scheduler pushes it again)
+      #   failed           never: the scheduler turns a due `failed` record into
+      #                    `queued` itself, and the owner's retry does the same
+      #                    for a record whose attempts are used up. A stale job
+      #                    must not bypass that
+      #   completed        nothing to do
+      #
+      # @return [Symbol] :completed, :continue, :failed, :gone, :stopped
       def call(deletion_id)
         started = monotonic
         deletion = claim!(deletion_id)
         return :gone if deletion.nil?
         return :completed if deletion.completed?
+        return :stopped if deletion.failed?
 
         SubscriptionDeletionLog.emit('started', log_fields(deletion))
         drain(deletion.id, started)
@@ -61,6 +73,7 @@ module ExternalBridge
           step = purge_batch!(deletion_id)
           return :gone if step == :gone
           return :completed if step == :completed
+          return :stopped if step == :stopped
 
           if step == :empty
             finished = finish!(deletion_id, started)
@@ -76,7 +89,7 @@ module ExternalBridge
         ApplicationRecord.transaction do
           deletion = ExternalSubscriptionDeletion.lock.find_by(id: deletion_id)
           next nil if deletion.nil?
-          next deletion if deletion.completed?
+          next deletion if deletion.completed? || deletion.failed?
 
           now = Time.current
           attributes = { state: 'running', next_run_at: now + LEASE, updated_at: now, last_error_code: nil }
@@ -106,6 +119,8 @@ module ExternalBridge
             outcome = :gone
           elsif deletion.completed?
             outcome = :completed
+          elsif deletion.failed?
+            outcome = :stopped
           else
             ids = projection_scope(deletion).order(:status_id).limit(self.class.batch_size).pluck(:status_id)
             if ids.empty?

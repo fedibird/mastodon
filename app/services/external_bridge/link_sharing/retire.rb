@@ -76,6 +76,22 @@ module ExternalBridge
         removals.size
       end
 
+      # RemovalWorker finished for this wrapper: RemoveStatusService returned,
+      # so the Undo of an announced share has been handed to ActivityPub
+      # delivery (delivery itself retries in its own workers). It is a fact about
+      # the work, not about the row: Mastodon keeps a wrapper that sits in an
+      # unresolved report (discarded, not destroyed), so the wrapper's existence
+      # never says whether the work is done.
+      def acknowledge_removal!(wrapper_id)
+        ExternalProjectionLinkBoost.where(wrapper_status_id: wrapper_id, state: 'undone', removal_acknowledged_at: nil)
+                                   .update_all(removal_acknowledged_at: Time.current)
+      end
+
+      def removal_acknowledged?(wrapper_id)
+        ExternalProjectionLinkBoost.where(wrapper_status_id: wrapper_id, state: 'undone')
+                                   .where.not(removal_acknowledged_at: nil).exists?
+      end
+
       def enqueue_removals(wrapper_ids)
         Array(wrapper_ids).compact.each { |id| RemovalWorker.perform_async(id) }
       end

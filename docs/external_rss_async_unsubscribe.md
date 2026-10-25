@@ -107,7 +107,8 @@ favourites, or bookmarks, nor ordinary posts.
 
 | Event | Result |
 | --- | --- |
-| Exception in a batch | The batch transaction (delete and counter) rolls back. The record becomes `failed` with a fixed `last_error_code` (`database_error`, `queue_error`, `unexpected_error`; never a message) and `next_run_at` backed off 30 s, 2 min, 10 min, 30 min, 2 h. While `next_run_at` is set the scheduler retries by itself: the card shows "waiting to retry", keeps polling, and offers no button (`retrying: true`, `retryable: false` in the API). After 5 attempts `next_run_at` is null; only then does the card stop polling and offer the owner's retry (`retryable: true`) |
+| Exception in a batch | The batch transaction (delete and counter) rolls back. The record becomes `failed` with a fixed `last_error_code` (`database_error`, `queue_error`, `unexpected_error`; never a message) and `next_run_at` backed off 30 s, 2 min, 10 min, 30 min, 2 h. While `next_run_at` is set the scheduler retries by itself: the card shows "waiting to retry", keeps polling, and offers no button (`retrying: true`, `retryable: false` in the API). When it is due the scheduler turns the record into `queued` and pushes it. After 5 attempts `next_run_at` is null; only then does the card stop polling and offer the owner's retry (`retryable: true`); the API accepts a retry only in that state too |
+| Late or duplicate job for a `failed` or `completed` record | Ignored: the runner starts only `queued`/`running` records. A `failed` record is moved to `queued` by the scheduler (when due) or by the owner's retry (terminal only), never by a stale job |
 | Worker killed | The record stays `running`; `next_run_at` is a 5 minute lease the scheduler honours, then the job resumes where the database says |
 | Sidekiq push refused | The record stays `queued`; the scheduler pushes it |
 | Owner retry | `POST .../subscription_deletions/:id/retry` (API) or the card's button; only a `failed` record moves |
@@ -123,17 +124,28 @@ batch transaction, and the wrapper id goes to `RemovalWorker` (which sends the
 Undo for an announced share) only after that commit. A crash or a Redis failure
 between the commit and `finish_purge!` loses that push, not the rows, and
 `end_orphans!` does not help (it looks for `active` rows without a marker).
+
+The durable acknowledgement is `external_projection_link_boosts.removal_acknowledged_at`.
+`RemovalWorker` sets it when `RemoveStatusService` returned for the wrapper: the
+Undo has been handed to ActivityPub delivery, whose own workers retry. It is not
+the existence of the wrapper: Mastodon keeps a wrapper that sits in an
+unresolved report (`reported?`: discarded, not destroyed, unless `immediate`),
+and this feature does not change that (no `immediate`, the report evidence stays).
+Accepted by Sidekiq is not done either; only a returned `RemoveStatusService` is.
+
 `LinkSharing::RecoverRemovals`, run by `Scheduler::ExternalBridgeLinkReferencePublishScheduler`
-(every 5 minutes), is the recovery: an `undone` boost whose `wrapper_status_id`
-is still set has a wrapper that has not been removed (removing it nulls the
-column through `ON DELETE SET NULL`; a wrapper that never left the server is
-removed by `Retire` itself), so it is pushed to `RemovalWorker` again. A claim in
-`next_announce_at` holds the row out for 10 minutes after a push and is released
-at once when the push is refused. `RemovalWorker` on a status that is gone is a
-no-op and `RemoveStatusService` sends the Undo once per wrapper, so a repeated
-push is safe. The scan has its own partial index
-(`index_link_boosts_on_pending_removal`, migration `20261031130000`, built
-`CONCURRENTLY`) and is not gated by the feature flags.
+(every 5 minutes), scans `undone` boosts with `wrapper_status_id` still set and
+`removal_acknowledged_at` null (a wrapper that never left the server is removed
+by `Retire` itself, which nulls the column) and pushes `RemovalWorker` again. The
+claim is `removal_next_attempt_at` (10 minutes after a push, released at once
+when the push is refused), separate from `next_announce_at`, which can still hold
+the 30 minute Announce claim when a share ends soon after it was made. A lost
+push is therefore pushed again within the scheduler period plus 1 minute.
+`RemovalWorker` returns at once for a wrapper that is already acknowledged, so a
+push that does arrive twice (a queue backlog longer than the claim) removes and
+Undoes once, and a reported wrapper is not Undone every ten minutes. The scan has
+a partial index (`index_link_boosts_on_pending_removal`, migration
+`20261031130000`, built `CONCURRENTLY`) and is not gated by the feature flags.
 
 ## Progress API
 
@@ -178,5 +190,7 @@ To tune the load, set `EXTERNAL_RSS_DELETION_BATCH_SIZE`. Look at
 `VALIDATE`, under a 5 s `lock_timeout`) and creates
 `external_subscription_deletions`. It does not touch `statuses` or
 `external_status_projections`. `down` refuses to run while a `deleting`
-subscription or an unfinished record exists. `20261031130000` adds one partial
-index on `external_projection_link_boosts` (`CONCURRENTLY`, `down` drops it).
+subscription or an unfinished record exists. `20261031130000` adds two nullable
+columns (`removal_acknowledged_at`, `removal_next_attempt_at`; no default, no
+rewrite) and one partial index on `external_projection_link_boosts`
+(`CONCURRENTLY`); `down` drops them.

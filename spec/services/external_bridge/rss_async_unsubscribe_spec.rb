@@ -14,6 +14,7 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
 
   let(:user) { Fabricate(:user) }
   let(:runner) { ExternalBridge::RSS::SubscriptionDeletionRunner.new }
+  let(:scheduler) { Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler.new }
 
   before do
     allow(LinkCrawlWorker).to receive(:perform_async)
@@ -393,6 +394,12 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(projection_count(world)).to eq 15
       expect(deletion.attributes.values.join).not_to include('SECRET_SQL_DETAIL')
 
+      expect(runner.call(deletion.id)).to eq :stopped
+      deletion.update_columns(next_run_at: 1.minute.ago)
+      scheduler.perform
+      expect(deletion.reload).to be_queued
+      expect(deletion.attempt_count).to eq 1
+
       expect(runner.call(deletion.id)).to eq :continue
       expect(runner.call(deletion.id)).to eq :completed
       deletion.reload
@@ -566,8 +573,6 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
   end
 
   describe 'recovery' do
-    let(:scheduler) { Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler.new }
-
     it 'pushes a record whose first push was lost, once, and holds it afterwards' do
       world = world_with(2)
       deletion = unsubscribe!(world)
@@ -611,6 +616,44 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.map { |job| job['args'].first }).to eq [retrying.id]
     end
 
+    it 'does not let a late or duplicate job run a failed record, whether it waits for the scheduler or for the owner' do
+      world = world_with(3)
+      deletion = unsubscribe!(world)
+      deletion.update_columns(state: 'failed', attempt_count: 5, next_run_at: nil, last_error_code: 'database_error', total_count: 3, deleted_count: 0)
+      expect(ExternalBridge::ProjectionPurge).not_to receive(:purge_ids_in_transaction!)
+
+      expect(runner.call(deletion.id)).to eq :stopped
+      ExternalBridge::RSS::SubscriptionDeletionWorker.new.perform(deletion.id)
+
+      expect(deletion.reload).to be_failed
+      expect(deletion.attempt_count).to eq 5
+      expect(projection_count(world)).to eq 3
+
+      deletion.update_columns(attempt_count: 2, next_run_at: 5.minutes.from_now)
+      expect(runner.call(deletion.id)).to eq :stopped
+      expect(deletion.reload).to be_failed
+      expect(deletion.next_run_at).to be > 4.minutes.from_now
+    end
+
+    it 'turns a due failed record into queued before pushing it, and holds a due queued one' do
+      world = world_with(2)
+      other = project_for(user)
+      failed = unsubscribe!(world)
+      stuck = unsubscribe!(other)
+      failed.update_columns(state: 'failed', attempt_count: 1, next_run_at: 1.minute.ago)
+      stuck.update_columns(state: 'queued', next_run_at: 1.minute.ago)
+      ExternalBridge::RSS::SubscriptionDeletionWorker.clear
+
+      expect(scheduler.perform).to eq 2
+
+      expect(failed.reload).to be_queued
+      expect(failed.attempt_count).to eq 1
+      expect(stuck.reload).to be_queued
+      expect([failed, stuck].map(&:next_run_at)).to all(be > Time.current)
+      expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 2
+      expect(scheduler.perform).to eq 0
+    end
+
     it 'goes from a failure to completion by itself through the scheduler, with the card still polling' do
       world = world_with(3)
       deletion = unsubscribe!(world)
@@ -640,6 +683,11 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       retry_job = ExternalBridge::RSS::SubscriptionDeletionRetry.new
 
       expect(retry_job.call(user: user, deletion_id: deletion.id)).to be_queued
+      expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 0
+
+      deletion.update_columns(state: 'failed', attempt_count: 2, next_run_at: 5.minutes.from_now)
+      expect(retry_job.call(user: user, deletion_id: deletion.id)).to be_failed
+      expect(deletion.reload.attempt_count).to eq 2
       expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.size).to eq 0
 
       deletion.update_columns(state: 'failed', attempt_count: 5, next_run_at: nil, last_error_code: 'database_error')

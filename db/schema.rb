@@ -717,10 +717,12 @@ ActiveRecord::Schema.define(version: 2026_10_31_130000) do
     t.datetime "undone_at"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+    t.datetime "removal_acknowledged_at"
+    t.datetime "removal_next_attempt_at"
     t.index ["id"], name: "index_link_boosts_on_orphaned", where: "(((state)::text = 'active'::text) AND (external_status_projection_id IS NULL))"
     t.index ["link_reference_id", "generation"], name: "index_link_boosts_on_generation", unique: true
     t.index ["reference_status_id"], name: "index_link_boosts_on_reference", where: "(reference_status_id IS NOT NULL)"
-    t.index ["updated_at"], name: "index_link_boosts_on_pending_removal", where: "(((state)::text = 'undone'::text) AND (wrapper_status_id IS NOT NULL))"
+    t.index ["updated_at"], name: "index_link_boosts_on_pending_removal", where: "(((state)::text = 'undone'::text) AND (wrapper_status_id IS NOT NULL) AND (removal_acknowledged_at IS NULL))"
     t.index ["user_id", "projection_status_id"], name: "index_link_boosts_on_active_share", unique: true, where: "((state)::text = 'active'::text)"
     t.index ["user_id"], name: "index_link_boosts_on_user_id"
     t.index ["wrapper_status_id"], name: "index_link_boosts_on_wrapper", unique: true, where: "(wrapper_status_id IS NOT NULL)"

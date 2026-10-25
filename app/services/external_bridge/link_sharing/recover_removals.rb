@@ -3,26 +3,34 @@
 module ExternalBridge
   module LinkSharing
     # Takes a wrapper whose share has ended to RemovalWorker (the Undo for an
-    # announced one) when the push that should have done it was lost.
+    # announced one) when the push that should have done it was lost, or the job
+    # never finished.
     #
     # Retire.end! commits the row as `undone` and the wrapper as discarded in
     # the same transaction as the physical delete of the projection, and hands
     # the wrapper id to the caller for RemovalWorker after the commit. A crash or
-    # a Redis failure in between loses only that push, never the rows. The row
-    # is the durable record: an `undone` boost whose wrapper_status_id is still
-    # set has a wrapper that RemovalWorker has not removed yet (removing the
-    # wrapper nulls the column through ON DELETE SET NULL, and a wrapper that
-    # never left the server is removed by Retire itself). That is the whole scan,
-    # and it holds no row that is finished.
+    # a Redis failure in between loses only that push, never the rows.
     #
-    # Pushing is idempotent. RemovalWorker removes a status that is gone as a
-    # no-op, RemoveStatusService sends the Undo once per wrapper, and a second
-    # job for a wrapper that is already removed finds nothing. A claim in
-    # next_announce_at (unused once a row is undone) keeps one pass from pushing
-    # the same wrapper again while the first job waits in Redis.
+    # The durable acknowledgement is removal_acknowledged_at, written by
+    # RemovalWorker once RemoveStatusService returned for the wrapper (the Undo
+    # has been handed to ActivityPub delivery, whose workers retry on their own).
+    # It is not the existence of the wrapper: Mastodon keeps a wrapper inside an
+    # unresolved report (discarded, not destroyed), and that must neither be
+    # destroyed here nor make this scan push it every ten minutes. The scan is
+    # therefore `undone`, wrapper still referenced, not acknowledged. A wrapper
+    # that never left the server is removed by Retire itself, which nulls the
+    # column, so it never appears.
     #
-    # Not gated by the feature flags: the share ended already and the Undo is
-    # owed whatever the flags are now.
+    # Accepted by Sidekiq is not done: the claim only keeps one pass from
+    # pushing the same wrapper again for HOLD. RemovalWorker skips a wrapper that
+    # is already acknowledged, so a push that does arrive twice (a backlog longer
+    # than HOLD) removes and Undoes once. The claim lives in
+    # removal_next_attempt_at, separate from next_announce_at, which can still
+    # hold the 30 minute Announce claim when a share ends soon after it was made.
+    #
+    # Worst case from a lost push to the next push: the scheduler period (5
+    # minutes) plus SETTLE. Not gated by the feature flags: the share ended
+    # already and the Undo is owed whatever the flags are now.
     class RecoverRemovals
       BATCH = 100
       SETTLE = 1.minute
@@ -38,11 +46,11 @@ module ExternalBridge
 
       def call
         rows = ExternalProjectionLinkBoost
-               .where(state: 'undone')
+               .where(state: 'undone', removal_acknowledged_at: nil)
                .where.not(wrapper_status_id: nil)
                .where('updated_at <= ?', Time.current - @settle)
-               .where('next_announce_at IS NULL OR next_announce_at <= NOW()')
-               .order(Arel.sql('next_announce_at ASC NULLS FIRST, updated_at ASC'))
+               .where('removal_next_attempt_at IS NULL OR removal_next_attempt_at <= NOW()')
+               .order(Arel.sql('removal_next_attempt_at ASC NULLS FIRST, updated_at ASC'))
                .limit(BATCH)
                .pluck(:id, :wrapper_status_id)
         rows.count do |id, wrapper_id|
@@ -58,15 +66,15 @@ module ExternalBridge
 
       def claim(id, wrapper_id)
         ExternalProjectionLinkBoost
-          .where(id: id, state: 'undone', wrapper_status_id: wrapper_id)
-          .where('next_announce_at IS NULL OR next_announce_at <= NOW()')
-          .update_all(['next_announce_at = NOW() + make_interval(secs => ?)', HOLD.to_i]).positive?
+          .where(id: id, state: 'undone', wrapper_status_id: wrapper_id, removal_acknowledged_at: nil)
+          .where('removal_next_attempt_at IS NULL OR removal_next_attempt_at <= NOW()')
+          .update_all(['removal_next_attempt_at = NOW() + make_interval(secs => ?)', HOLD.to_i]).positive?
       end
 
       # A refused push does not hold the row out for HOLD: the next pass tries
       # again.
       def release(id)
-        ExternalProjectionLinkBoost.where(id: id, state: 'undone').update_all('next_announce_at = NOW()')
+        ExternalProjectionLinkBoost.where(id: id, state: 'undone').update_all('removal_next_attempt_at = NOW()')
       end
 
       def push(wrapper_id)

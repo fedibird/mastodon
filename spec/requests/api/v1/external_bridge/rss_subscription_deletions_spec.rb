@@ -130,8 +130,10 @@ RSpec.describe 'RSS subscription deletion API' do
 
       ExternalBridge::RSS::SubscriptionDeletionWorker.clear
       post "#{base}/#{job[:id]}/retry", headers: owner_headers
-      expect(response).to have_http_status(202)
-      expect(body_as_json).to include(state: 'queued', retrying: false)
+      expect(response).to have_http_status(200)
+      expect(body_as_json).to include(state: 'failed', retrying: true, retryable: false)
+      expect(ExternalSubscriptionDeletion.find(job[:id]).attempt_count).to eq 2
+      expect(ExternalBridge::RSS::SubscriptionDeletionWorker.jobs).to be_empty
     end
 
     it 'reports a failed job with a fixed code and lets the owner retry it once' do
