@@ -75,4 +75,8 @@ end
 
 RSpec.configure do |config|
   config.include ExternalBridgeIconHelpers
+  # Stored files are outside the transaction that rolls the rows back.
+  config.after do
+    ExternalSource.where.not(icon_file_name: nil).find_each { |source| source.icon.destroy }
+  end
 end
