@@ -6,6 +6,7 @@ module ExternalServices
     KEY = 'rss'
     ICON = 'external_services/rss.svg'
     LIST_LIMIT = 50
+    DELETION_LIMIT = 10
 
     class Summary
       attr_reader :total, :active, :paused, :errored, :attention, :checked_at
@@ -25,9 +26,10 @@ module ExternalServices
     end
 
     class Page
-      attr_reader :subscriptions, :items, :enabled, :permitted, :page, :total_count, :total_pages
+      attr_reader :subscriptions, :items, :enabled, :permitted, :page, :total_count, :total_pages, :deletions
 
       def initialize(attributes)
+        @deletions = attributes.fetch(:deletions, [])
         @subscriptions = attributes.fetch(:subscriptions)
         @items = attributes.fetch(:items)
         @enabled = attributes.fetch(:enabled)
@@ -80,6 +82,7 @@ module ExternalServices
         case state
         when 'active' then I18n.t('external_bridge.state.active')
         when 'paused' then I18n.t('external_bridge.state.paused')
+        when 'deleting' then I18n.t('external_bridge.state.deleting')
         else I18n.t('external_bridge.state.error')
         end
       end
@@ -87,9 +90,13 @@ module ExternalServices
       def badge
         case state
         when 'active' then 'connected'
-        when 'paused' then 'warning'
+        when 'paused', 'deleting' then 'warning'
         else 'unavailable'
         end
+      end
+
+      def deleting?
+        state == 'deleting'
       end
 
       def checked_at
@@ -128,7 +135,7 @@ module ExternalServices
       end
 
       def resumable?
-        state != 'active'
+        state != 'active' && !deleting?
       end
 
       def route_form
@@ -137,6 +144,129 @@ module ExternalServices
 
       def route_form=(value)
         @route_form = value
+      end
+    end
+
+    # Owner-visible progress of one unsubscribe. Only counters, a fixed state
+    # word, and the public feed title are shown; never the feed URL.
+    class DeletionRow
+      include ActionView::Helpers::DateHelper
+
+      def initialize(deletion, title: nil)
+        @deletion = deletion
+        @title = title
+      end
+
+      def id
+        @deletion.id
+      end
+
+      def state
+        @deletion.state
+      end
+
+      def title
+        @title.presence || I18n.t('external_bridge.untitled')
+      end
+
+      def subscription_id
+        @deletion.external_subscription_id
+      end
+
+      def finished?
+        @deletion.completed?
+      end
+
+      def polling?
+        @deletion.in_flight?
+      end
+
+      def retryable?
+        @deletion.retryable?
+      end
+
+      def finished_at
+        @deletion.finished_at
+      end
+
+      def requested_at
+        @deletion.requested_at
+      end
+
+      def percent
+        @deletion.percent
+      end
+
+      def badge
+        case state
+        when 'completed' then 'connected'
+        when 'failed' then 'unavailable'
+        else 'warning'
+        end
+      end
+
+      def state_label
+        I18n.t("external_bridge.deletion.state.#{state}")
+      end
+
+      def message
+        I18n.t("external_bridge.deletion.message.#{state}")
+      end
+
+      def detail
+        return counters if @deletion.completed?
+        return I18n.t('external_bridge.deletion.preparing') if @deletion.preparing?
+
+        [counters, eta].compact.join(' ')
+      end
+
+      def error_message
+        return unless @deletion.failed?
+
+        code = @deletion.last_error_code
+        I18n.t("external_bridge.deletion.errors.#{code}", default: I18n.t('external_bridge.deletion.errors.unexpected_error'))
+      end
+
+      def as_json(*)
+        {
+          id: id.to_s,
+          state: state,
+          badge: badge,
+          state_label: state_label,
+          message: message,
+          detail: detail,
+          error: error_message,
+          percent: percent,
+          finished: finished?,
+          polling: polling?,
+          retryable: retryable?,
+          subscription_id: subscription_id.to_s,
+        }
+      end
+
+      private
+
+      def counters
+        I18n.t(
+          'external_bridge.deletion.counters',
+          deleted: format_count(@deletion.deleted_count),
+          total: format_count([@deletion.total_count.to_i, @deletion.deleted_count].max),
+          remaining: format_count(@deletion.remaining.to_i),
+          percent: percent.to_i
+        )
+      end
+
+      def eta
+        return unless @deletion.running?
+
+        seconds = @deletion.eta_seconds
+        return I18n.t('external_bridge.deletion.eta_calculating') if seconds.nil?
+
+        I18n.t('external_bridge.deletion.eta', duration: distance_of_time_in_words(0, [seconds, 1].max))
+      end
+
+      def format_count(value)
+        ActiveSupport::NumberHelper.number_to_delimited(value)
       end
     end
 
@@ -202,6 +332,7 @@ module ExternalServices
         rows = subscription_scope(user).includes(:external_source).order(id: :desc).offset((number - 1) * LIST_LIMIT).limit(LIST_LIMIT).to_a
         forms = route_forms_for(user, rows)
         attributes = {
+          deletions: deletions_for(user),
           subscriptions: rows.map { |row| SubscriptionRow.new(row).tap { |item| item.route_form = forms[row.id] } },
           items: items_for(user),
           enabled: available?,
@@ -211,6 +342,13 @@ module ExternalServices
           total_pages: page_count(summary.total),
         }
         Page.new(attributes)
+      end
+
+      def deletion_row_for(user, deletion_id)
+        record = ExternalSubscriptionDeletion.find_by(id: deletion_id, user_id: user.id)
+        return nil if record.nil?
+
+        DeletionRow.new(record, title: ExternalSource.where(id: record.external_source_id).pick(:title))
       end
 
       private
@@ -279,10 +417,19 @@ module ExternalServices
         )
       end
 
+      def deletions_for(user)
+        return [] if user.nil?
+
+        records = ExternalSubscriptionDeletion.where(user_id: user.id).order(id: :desc).limit(DELETION_LIMIT).to_a
+        titles = ExternalSource.where(id: records.map(&:external_source_id)).pluck(:id, :title).to_h
+        records.map { |record| DeletionRow.new(record, title: titles[record.external_source_id]) }
+      end
+
       def items_for(user)
         return [] if user.nil?
 
         ExternalStatusProjection.where(user_id: user.id)
+                                .joins(:external_subscription).where.not(external_subscriptions: { state: 'deleting' })
                                 .includes(:status, external_resource: :external_source)
                                 .order(id: :desc)
                                 .limit(40)

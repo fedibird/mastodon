@@ -5,7 +5,7 @@ class Api::V1::ExternalBridge::RSS::Subscriptions::StatusesController < Api::Bas
   before_action :require_user!
 
   def index
-    subscription = ExternalSubscription.find_by(id: params[:subscription_id], user_id: current_user.id)
+    subscription = ExternalSubscription.not_deleting.find_by(id: params[:subscription_id], user_id: current_user.id)
     return render(json: { error: 'not_found' }, status: 404) if subscription.nil?
 
     scope = ExternalStatusProjection.where(user_id: current_user.id, external_subscription_id: subscription.id)

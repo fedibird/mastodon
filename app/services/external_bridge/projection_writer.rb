@@ -3,6 +3,8 @@
 module ExternalBridge
   # One transaction: status insert with the privacy bit, then the marker.
   # A failed marker rolls the status back before after_create_commit.
+  # The subscription row is held FOR SHARE for the whole write, so a
+  # subscription that is being removed (`deleting`) cannot gain a projection.
   class ProjectionWriter
     def create!(user:, subscription:, resource:, text:)
       raise Error, :user_not_functional unless user&.functional?
@@ -10,7 +12,7 @@ module ExternalBridge
       raise Error, :account_mismatch unless subscription.external_source_id == resource.external_source_id
 
       visibility = storage_visibility
-      ApplicationRecord.transaction(requires_new: true) do
+      RSS::SubscriptionFence.guard!(subscription) do
         status = Status.create!(
           account_id: user.account_id,
           text: text.presence || I18n.t('external_bridge.untitled'),

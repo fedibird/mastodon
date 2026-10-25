@@ -1,0 +1,17 @@
+%article.external-service-deletion{ id: "rss-deletion-#{deletion.id}", aria: { labelledby: "rss-deletion-title-#{deletion.id}" }, data: { deletion_progress: '', state: deletion.state, poll_url: (settings_external_services_rss_subscription_deletion_path(deletion.id) if deletion.polling?), subscription_id: deletion.subscription_id } }
+  .external-service-feed__heading
+    %h5.external-service-feed__title{ id: "rss-deletion-title-#{deletion.id}" }= deletion.title
+    %p.external-service-card__status
+      %span{ class: "external-service-card__badge external-service-card__badge--#{deletion.badge}", data: { deletion_badge: '' } }= deletion.state_label
+  %p.external-service-deletion__message{ role: 'status', aria: { live: 'polite', atomic: 'true' }, data: { deletion_message: '' } }= deletion.message
+  %progress.external-service-deletion__bar{ max: 100, value: deletion.percent, aria: { label: t('external_bridge.deletion.progress_label', title: deletion.title) }, data: { deletion_bar: '' }, hidden: deletion.percent.nil? }= "#{deletion.percent}%"
+  %p.hint{ data: { deletion_detail: '' } }= deletion.detail
+  %p.warning-hint{ data: { deletion_error: '' }, hidden: deletion.error_message.blank? }= deletion.error_message
+  %p.external-service-feed__meta
+    %span.external-service-kicker= t('external_bridge.deletion.requested_at')
+    %time{ datetime: deletion.requested_at.iso8601 }= l(deletion.requested_at)
+    - if deletion.finished_at
+      %span.external-service-kicker= t('external_bridge.deletion.finished_at')
+      %time{ datetime: deletion.finished_at.iso8601 }= l(deletion.finished_at)
+  .external-service-actions
+    = button_to t('external_bridge.deletion.retry'), settings_retry_external_services_rss_subscription_deletion_path(deletion.id), method: :post, class: 'button', form_class: 'external-service-inline-form', form: { hidden: !deletion.retryable? }, aria: { label: t('external_bridge.deletion.retry_for', title: deletion.title) }, data: { disable_with: t('external_bridge.working'), deletion_retry: '' }

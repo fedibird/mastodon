@@ -18,12 +18,18 @@
 #  failed_item_count    :integer          default(0), not null
 #  feed_routes_revision :bigint(8)        default(0), not null
 #
+# `deleting` is the unsubscribe fence (issue #575). The row is kept until the
+# background job has physically removed every projection. Nothing may move it
+# back to another state: writers go through update_unless_deleting! or hold
+# ExternalBridge::RSS::SubscriptionFence.
+#
 # A row is due when its own next_retry_at has arrived, or, when that column is
 # empty, when checked_at is empty or older than the public-cache freshness
 # window. Another subscriber of the same source does not make this row due.
 # feed_routes_revision moves only when the route set changes.
 class ExternalSubscription < ApplicationRecord
-  STATES = %w(active paused error).freeze
+  STATES = %w(active paused error deleting).freeze
+  DELETING = 'deleting'
 
   belongs_to :user
   belongs_to :external_source
@@ -37,6 +43,25 @@ class ExternalSubscription < ApplicationRecord
   before_destroy :schedule_external_feed_removed, prepend: true
 
   scope :active, -> { where(state: 'active') }
+  scope :not_deleting, -> { where.not(state: DELETING) }
+
+  def deleting?
+    state == DELETING
+  end
+
+  # A conditional UPDATE, so a model that was read before the fence cannot
+  # write `active` over `deleting`. Returns false (and writes nothing) when the
+  # row is gone or deleting.
+  def update_unless_deleting!(attributes)
+    attributes = attributes.to_h.symbolize_keys
+    now = Time.current
+    changed = self.class.where(id: id).where.not(state: DELETING).update_all(attributes.merge(updated_at: now))
+    return false if changed.zero?
+
+    assign_attributes(attributes.merge(updated_at: now))
+    clear_attribute_changes(attributes.keys + [:updated_at])
+    true
+  end
 
   scope :due_for_refresh, lambda {
     where(

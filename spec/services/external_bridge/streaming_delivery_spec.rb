@@ -839,7 +839,7 @@ describe 'ExternalBridge streaming delivery' do
     expect(published.first[:channel]).to eq ExternalBridge::Streaming::Channels.control(user.id)
   end
 
-  it 'sends subscription_removed only after the subscription row is gone' do
+  it 'sends subscription_removed once the unsubscribe is accepted, and the delete events follow from the job' do
     user = Fabricate(:user)
     permit!(user)
     bundle = external_project_for(user)
@@ -856,19 +856,26 @@ describe 'ExternalBridge streaming delivery' do
     ExternalBridge::StreamControlWorker.new.perform(user.id.to_s, payload)
     expect(published).to be_empty
 
+    ExternalBridge::StreamControlWorker.clear
     ExternalBridge::RSS::Subscribe.new.unsubscribe!(user: user, subscription_id: subscription.id)
-    delete_job = ExternalBridge::StreamDeleteWorker.jobs.last
     control_job = ExternalBridge::StreamControlWorker.jobs.last
+    expect(subscription.reload.state).to eq 'deleting'
+    expect(Status.exists?(bundle[:status].id)).to be true
+    stub_publish!
+    ExternalBridge::StreamControlWorker.new.perform(*control_job['args'])
+    expect(published.map { |entry| entry[:event] }).to eq ['external_feed_changed']
+    expect(published.first[:payload]['reason']).to eq 'subscription_removed'
+
+    ExternalBridge::RSS::SubscriptionDeletionWorker.drain
+    delete_job = ExternalBridge::StreamDeleteWorker.jobs.last
     stub_publish!
     ExternalBridge::StreamDeleteWorker.new.perform(*delete_job['args'])
-    ExternalBridge::StreamControlWorker.new.perform(*control_job['args'])
 
-    expect(published.map { |entry| entry[:event] }).to contain_exactly('delete', 'external_feed_changed')
-    delete_entry = published.find { |entry| entry[:event] == 'delete' }
-    expect(delete_entry[:payload]).to eq bundle[:status].id.to_s
-    expect(delete_entry[:payload]).to be_a(String)
-    expect(published.find { |entry| entry[:event] == 'external_feed_changed' }[:payload]['reason']).to eq 'subscription_removed'
+    expect(published.map { |entry| entry[:event] }).to eq ['delete']
+    expect(published.first[:channel]).to eq ExternalBridge::Streaming::Channels.home(user.id)
+    expect(published.first[:payload]).to eq bundle[:status].id.to_s
     expect(Status.exists?(bundle[:status].id)).to be false
+    expect(ExternalSubscription.exists?(subscription.id)).to be false
   end
 
   it 'does not let a content job resurrect a purged status' do

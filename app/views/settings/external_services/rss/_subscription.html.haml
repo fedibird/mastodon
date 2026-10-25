@@ -1,4 +1,4 @@
-%article.external-service-feed{ aria: { labelledby: "rss-feed-title-#{subscription.id}" } }
+%article.external-service-feed{ aria: { labelledby: "rss-feed-title-#{subscription.id}" }, data: { deleting_subscription_id: (subscription.id if subscription.deleting?) } }
   .external-service-feed__heading
     %h5.external-service-feed__title{ id: "rss-feed-title-#{subscription.id}" }= subscription.title
     %p.external-service-card__status
@@ -21,12 +21,16 @@
     %p.hint= subscription.partial_failure_message
   - if subscription.retry_message
     %p.hint= subscription.retry_message
-  = render 'settings/external_services/feed_routes/picker', subscription_id: subscription.id, title: subscription.title, route_form: subscription.route_form, form_url: settings_external_services_rss_subscription_feed_routes_path(subscription.id), page_number: @page&.page
-  .external-service-actions
-    - if subscription.pausable?
-      = button_to t('external_bridge.pause'), settings_pause_external_services_rss_subscription_path(subscription.id), method: :post, class: 'button', form_class: 'external-service-inline-form', aria: { label: t('external_bridge.pause_for', title: subscription.title) }, data: { disable_with: t('external_bridge.working') }
-    - elsif permitted
-      = button_to t('external_bridge.resume'), settings_resume_external_services_rss_subscription_path(subscription.id), method: :post, class: 'button', form_class: 'external-service-inline-form', aria: { label: t('external_bridge.resume_for', title: subscription.title) }, data: { disable_with: t('external_bridge.working') }
-    - else
-      %button.button{ type: 'button', disabled: true, aria: { describedby: 'rss-blocked-reason' } }= t('external_bridge.resume')
-    = button_to t('external_bridge.unsubscribe'), settings_external_services_rss_subscription_path(subscription.id), method: :delete, class: 'button negative', form_class: 'external-service-inline-form', aria: { label: t('external_bridge.unsubscribe_for', title: subscription.title), describedby: 'rss-unsubscribe-note' }, data: { confirm: t('external_bridge.unsubscribe_confirm'), disable_with: t('external_bridge.working') }
+  - if subscription.deleting?
+    %p.hint= t('external_bridge.deletion.subscription_note')
+  - else
+    = render 'settings/external_services/feed_routes/picker', subscription_id: subscription.id, title: subscription.title, route_form: subscription.route_form, form_url: settings_external_services_rss_subscription_feed_routes_path(subscription.id), page_number: @page&.page
+  - unless subscription.deleting?
+    .external-service-actions
+      - if subscription.pausable?
+        = button_to t('external_bridge.pause'), settings_pause_external_services_rss_subscription_path(subscription.id), method: :post, class: 'button', form_class: 'external-service-inline-form', aria: { label: t('external_bridge.pause_for', title: subscription.title) }, data: { disable_with: t('external_bridge.working') }
+      - elsif permitted
+        = button_to t('external_bridge.resume'), settings_resume_external_services_rss_subscription_path(subscription.id), method: :post, class: 'button', form_class: 'external-service-inline-form', aria: { label: t('external_bridge.resume_for', title: subscription.title) }, data: { disable_with: t('external_bridge.working') }
+      - else
+        %button.button{ type: 'button', disabled: true, aria: { describedby: 'rss-blocked-reason' } }= t('external_bridge.resume')
+      = button_to t('external_bridge.unsubscribe'), settings_external_services_rss_subscription_path(subscription.id), method: :delete, class: 'button negative', form_class: 'external-service-inline-form', aria: { label: t('external_bridge.unsubscribe_for', title: subscription.title), describedby: 'rss-unsubscribe-note' }, data: { confirm: t('external_bridge.unsubscribe_confirm'), disable_with: t('external_bridge.working') }

@@ -15,8 +15,8 @@ class Settings::ExternalServices::RSSSubscriptionsController < Settings::BaseCon
   def pause
     ExternalBridge::RSS::Subscribe.new.pause!(user: current_user, subscription_id: params[:id])
     redirect_to settings_external_services_rss_path, status: :see_other
-  rescue ExternalBridge::Error
-    redirect_to settings_external_services_rss_path, alert: I18n.t('external_bridge.errors.not_found'), status: :see_other
+  rescue ExternalBridge::Error => e
+    redirect_to settings_external_services_rss_path, alert: lookup_alert(e), status: :see_other
   end
 
   def resume
@@ -26,14 +26,22 @@ class Settings::ExternalServices::RSSSubscriptionsController < Settings::BaseCon
     redirect_to settings_external_services_rss_path, alert: failure_alert(e), status: :see_other
   end
 
+  # The removal is accepted here and finished by a background job. The page
+  # shows its progress; this response does not claim it is done.
   def destroy
     ExternalBridge::RSS::Subscribe.new.unsubscribe!(user: current_user, subscription_id: params[:id])
     redirect_to settings_external_services_rss_path, notice: I18n.t('external_bridge.unsubscribed'), status: :see_other
-  rescue ExternalBridge::Error
-    redirect_to settings_external_services_rss_path, alert: I18n.t('external_bridge.errors.not_found'), status: :see_other
+  rescue ExternalBridge::Error => e
+    redirect_to settings_external_services_rss_path, alert: lookup_alert(e), status: :see_other
   end
 
   private
+
+  def lookup_alert(error)
+    return I18n.t('external_bridge.errors.subscription_deleting') if error.code == 'subscription_deleting'
+
+    I18n.t('external_bridge.errors.not_found')
+  end
 
   def failure_alert(error)
     I18n.t("external_bridge.errors.#{error.code}", default: I18n.t('external_bridge.errors.fetch_failed'))

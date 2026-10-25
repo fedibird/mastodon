@@ -4,7 +4,9 @@ module ExternalBridge
   module Feeds
     # Read-only status ids for one user and one home or list destination.
     # The relation is the membership snapshot. It is not cached across
-    # requests. Pause, error, and the RSS fetch flag are not filters.
+    # requests. Pause, error, and the RSS fetch flag are not filters. A
+    # subscription that is being removed (`deleting`) contributes nothing,
+    # even before its routes are gone.
     class Query
       HOME = 'home'
       LIST = 'list'
@@ -88,6 +90,7 @@ module ExternalBridge
             ON external_subscriptions.id = external_status_projections.external_subscription_id
            AND external_subscriptions.user_id = external_status_projections.user_id
            AND external_subscriptions.external_source_id = external_status_projections.external_source_id
+           AND external_subscriptions.state <> 'deleting'
           INNER JOIN external_resources
             ON external_resources.id = external_status_projections.external_resource_id
            AND external_resources.external_source_id = external_status_projections.external_source_id

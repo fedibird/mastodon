@@ -2207,6 +2207,7 @@ en:
     source_deleted: Removed at the source
     state:
       active: Active
+      deleting: Deleting
       error: Fetch error
       paused: Paused
     subscribe: Add feed
@@ -2252,8 +2253,35 @@ en:
         invalid_feed_route: Those destinations could not be saved. Nothing was changed.
         not_found: That feed was not found.
         stale_feed_routes: Those destinations were changed somewhere else. The latest destinations are shown. Choose again and save.
-    unsubscribe_note: Removing a feed deletes the private posts imported from it, and the favourites and bookmarks on those posts. The shared public feed cache stays. This is not a pause.
-    unsubscribed: Feed removed. The private posts imported from it were deleted. The shared public feed cache is unchanged.
+    unsubscribe_note: Removing a feed stops new items at once. The private posts imported from it, and the favourites and bookmarks on those posts, are then deleted in the background. A large feed takes a while, and you can follow the progress on this page. The shared public feed cache stays. This is not a pause.
+    unsubscribed: Feed removal accepted. New items have stopped, and the private posts imported from it will now be deleted in the background. Check the progress below to see when it is done. The shared public feed cache is unchanged.
+    deletion:
+      counters: "%{deleted} of %{total} deleted (%{remaining} left, %{percent}%)"
+      errors:
+        database_error: A temporary database error occurred.
+        queue_error: A temporary error occurred while scheduling the work.
+        unexpected_error: An unexpected error occurred.
+      eta: "Estimated time left: about %{duration}"
+      eta_calculating: "Time left: calculating"
+      finished_at: "Finished:"
+      heading: Feed removal progress and history
+      message:
+        completed: The removal is complete.
+        failed: The removal is paused. Try again. What was already deleted stays deleted, and it resumes where it stopped.
+        queued: Removal accepted. It starts shortly. New items from this feed are no longer imported.
+        running: Deleting data. New items from this feed are not imported, and its posts disappear gradually. The removal is not finished yet.
+      note: New items stop as soon as a removal is accepted, and the data is deleted in the background. Closing this page does not stop it, and you can come back to see the progress.
+      preparing: Counting what has to be deleted (preparing).
+      progress_label: "Removal progress for %{title}"
+      requested_at: "Accepted:"
+      retry: Try again
+      retry_for: Try removing %{title} again
+      state:
+        completed: Complete
+        failed: Paused
+        queued: Waiting
+        running: Deleting
+      subscription_note: This feed is being removed. Until it is finished you cannot change its destinations, pause it, resume it, or subscribe to it again.
     working: "Working…"
     untitled: (untitled)
     errors:
@@ -2265,6 +2293,7 @@ en:
       fetch_failed: The feed could not be fetched.
       malformed_feed: The response was not a public RSS or Atom feed.
       not_found: That feed was not found.
+      subscription_deleting: This feed is being removed. Subscribe again once the removal is finished.
       oversized_feed: The feed is larger than the import limit.
       private_address: That address is not a public feed.
       projection_immutable: This imported post cannot be edited or made public.

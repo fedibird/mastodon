@@ -32,9 +32,13 @@ class Api::V1::ExternalBridge::RSS::SubscriptionsController < Api::BaseControlle
     render json: { error: e.code }, status: e.http_status
   end
 
+  # 202 Accepted: the subscription is fenced and the removal is queued, not
+  # finished. The body is the owner's progress record (the same one for a
+  # repeated request); poll its `url` for the state. Earlier versions answered
+  # 200 with {} after a synchronous delete.
   def destroy
-    ExternalBridge::RSS::Subscribe.new.unsubscribe!(user: current_user, subscription_id: params[:id])
-    render json: {}
+    deletion = ExternalBridge::RSS::Subscribe.new.unsubscribe!(user: current_user, subscription_id: params[:id])
+    render json: ExternalBridge::RSS::SubscriptionDeletionPayload.call(deletion), status: 202
   rescue ExternalBridge::Error => e
     render json: { error: e.code }, status: e.http_status
   end

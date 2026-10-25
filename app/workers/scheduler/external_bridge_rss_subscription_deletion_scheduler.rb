@@ -1,0 +1,46 @@
+# frozen_string_literal: true
+
+# Recovery for asynchronous RSS unsubscribes. A record is pushed again when it
+# is queued, running, or failed with attempts left and its next_run_at (the
+# durable outbox / worker lease) has passed: the first push was refused, the web
+# process died before it, or the worker was killed mid-run. Pushing is
+# idempotent. Not gated by the ExternalBridge flags. Also drops old completed
+# progress records.
+class Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler
+  include Sidekiq::Worker
+
+  sidekiq_options retry: 0, lock: :until_executed, lock_ttl: 10.minutes.to_i
+
+  BATCH = 50
+  CLEANUP_BATCH = 500
+  REPUSH_HOLD = 2.minutes
+
+  def perform
+    recovered = recover
+    purged = cleanup
+    Rails.logger.info("[Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler] recovered=#{recovered} purged=#{purged}")
+    recovered
+  end
+
+  private
+
+  def recover
+    now = Time.current
+    due = ExternalSubscriptionDeletion.pending.where('next_run_at <= ?', now).order(:next_run_at).limit(BATCH).pluck(:id, :next_run_at)
+    due.count do |id, due_at|
+      held = ExternalSubscriptionDeletion.pending.where(id: id, next_run_at: due_at)
+                                         .update_all(next_run_at: now + REPUSH_HOLD, updated_at: now)
+      next false if held.zero?
+
+      ExternalBridge::RSS::SubscriptionDeletionLog.emit('recovered', job_id: id)
+      ExternalBridge::RSS::SubscriptionDeletionDispatch.enqueue(id)
+    end
+  end
+
+  def cleanup
+    ids = ExternalSubscriptionDeletion.where(state: 'completed')
+                                      .where('finished_at < ?', ExternalSubscriptionDeletion::RETENTION.ago)
+                                      .limit(CLEANUP_BATCH).pluck(:id)
+    ExternalSubscriptionDeletion.where(id: ids).delete_all
+  end
+end

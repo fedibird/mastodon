@@ -26,7 +26,10 @@ module ExternalBridge
 
         subscription = ExternalSubscription.find_by(id: projection.external_subscription_id)
         resource = ExternalResource.find_by(id: projection.external_resource_id)
+        # A subscription that is being removed takes no new share: its
+        # projections are on their way out and Retire ends the ones that exist.
         return if subscription.present? && resource.present? &&
+                  !subscription.deleting? &&
                   subscription.user_id == user.id &&
                   subscription.external_source_id == projection.external_source_id &&
                   resource.external_source_id == projection.external_source_id

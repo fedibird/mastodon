@@ -116,6 +116,13 @@
       every: '15m'
       class: Scheduler::ExternalBridgeRSSRefreshScheduler
       queue: scheduler
+    # Recovers asynchronous RSS unsubscribes whose push was refused or whose
+    # worker died, and drops completed progress records after 30 days. One pass
+    # handles at most 50 jobs. Not gated by the ExternalBridge flags.
+    external_bridge_rss_subscription_deletion_scheduler:
+      every: '1m'
+      class: Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler
+      queue: scheduler
     external_bridge_atproto_attempt_cleanup_scheduler:
       every: '10m'
       class: Scheduler::ExternalBridgeAtprotoAttemptCleanupScheduler

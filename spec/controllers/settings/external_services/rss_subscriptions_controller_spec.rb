@@ -110,12 +110,20 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     expect(owned[:subscription].reload.state).to eq('active')
 
     source_id = owned[:source].id
+    delete :destroy, params: { id: foreign[:subscription].id }, session: challenge
+    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.not_found'))
+    expect(foreign[:subscription].reload.state).to eq('active')
+
     delete :destroy, params: { id: owned[:subscription].id }, session: challenge
+    expect(response).to redirect_to(settings_external_services_rss_path)
+    expect(response).to have_http_status(:see_other)
+    expect(flash[:notice]).to eq(I18n.t('external_bridge.unsubscribed'))
     delete :destroy, params: { id: owned[:subscription].id }, session: challenge
+    expect(flash[:alert]).to be_nil
 
     expect(ExternalSubscription.where(id: owned[:subscription].id)).to be_empty
+    expect(ExternalSubscriptionDeletion.where(external_subscription_id: owned[:subscription].id).count).to eq 1
     expect(ExternalSource.where(id: source_id)).to exist
     expect(foreign[:subscription].reload).to be_present
-    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.not_found'))
   end
 end

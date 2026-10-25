@@ -10,6 +10,7 @@ module ExternalBridge
 
         canonical = CanonicalURL.normalize!(url)
         source = ExternalSource.find_by(canonical_key: canonical)
+        assert_not_deleting!(user, source)
         if source && fresh?(source)
           subscription = ensure_subscription!(user, source)
           materialize!(subscription, source)
@@ -22,7 +23,7 @@ module ExternalBridge
 
       def pause!(user:, subscription_id:)
         subscription = owned!(user, subscription_id)
-        subscription.update!(state: 'paused')
+        transition!(subscription, state: 'paused')
         subscription
       end
 
@@ -31,7 +32,7 @@ module ExternalBridge
         raise Error, :tester_only unless Feature.tester?(user)
 
         subscription = owned!(user, subscription_id)
-        subscription.update!(state: 'active', last_error_code: nil, last_error_at: nil, next_retry_at: nil, retry_count: 0)
+        transition!(subscription, state: 'active', last_error_code: nil, last_error_at: nil, next_retry_at: nil, retry_count: 0)
         subscription.external_projection_failures.update_all(attempt_count: 0, next_attempt_at: nil)
         RefreshSource.new.call(subscription.external_source_id, subscription_id: subscription.id)
         subscription.reload
@@ -56,14 +57,13 @@ module ExternalBridge
         subscription.reload
       end
 
+      # Accepts the unsubscribe and returns at once. The subscription is fenced
+      # (`deleting`) and a durable job record is written in one short
+      # transaction; the physical removal runs in
+      # SubscriptionDeletionWorker. The return value is the owner's
+      # ExternalSubscriptionDeletion, the same record for a repeated request.
       def unsubscribe!(user:, subscription_id:)
-        subscription = owned!(user, subscription_id)
-        ApplicationRecord.transaction do
-          ExternalProjectionSuppression.where(user_id: user.id, external_resource_id: source_resource_ids(subscription)).delete_all
-          ProjectionPurge.purge_subscription!(subscription)
-          subscription.destroy!
-        end
-        true
+        Unsubscribe.new.call(user: user, subscription_id: subscription_id)
       end
 
       private
@@ -97,15 +97,35 @@ module ExternalBridge
         source.fetched_at.present? && source.fetched_at > Limits::FRESH_FOR.ago && source.external_resources.exists?
       end
 
+      # The row is locked while it is read, so a subscription that is fenced
+      # between the read and the save cannot be written back to `active`.
       def ensure_subscription!(user, source)
-        subscription = ExternalSubscription.find_or_initialize_by(user_id: user.id, external_source_id: source.id)
-        subscription.state = 'active'
-        subscription.last_error_code = nil
-        subscription.last_error_at = nil
-        subscription.checked_at = Time.current
-        subscription.next_retry_at = nil
-        subscription.save!
-        subscription
+        ExternalSubscription.transaction do
+          subscription = ExternalSubscription.lock.find_by(user_id: user.id, external_source_id: source.id)
+          raise Error, :subscription_deleting if subscription&.deleting?
+
+          subscription ||= ExternalSubscription.new(user_id: user.id, external_source_id: source.id)
+          subscription.state = 'active'
+          subscription.last_error_code = nil
+          subscription.last_error_at = nil
+          subscription.checked_at = Time.current
+          subscription.next_retry_at = nil
+          subscription.save!
+          subscription
+        end
+      end
+
+      def assert_not_deleting!(user, source)
+        return if source.nil?
+        return unless ExternalSubscription.where(user_id: user.id, external_source_id: source.id, state: ExternalSubscription::DELETING).exists?
+
+        raise Error, :subscription_deleting
+      end
+
+      def transition!(subscription, attributes)
+        return if subscription.update_unless_deleting!(attributes)
+
+        raise Error, ExternalSubscription.exists?(subscription.id) ? :subscription_deleting : :not_found
       end
 
       def materialize!(subscription, source)
@@ -116,7 +136,10 @@ module ExternalBridge
       end
 
       def owned!(user, subscription_id)
-        ExternalSubscription.find_by(id: subscription_id, user_id: user.id) || raise(Error, :not_found)
+        subscription = ExternalSubscription.find_by(id: subscription_id, user_id: user.id) || raise(Error, :not_found)
+        raise Error, :subscription_deleting if subscription.deleting?
+
+        subscription
       end
 
       def source_resource_ids(subscription)
