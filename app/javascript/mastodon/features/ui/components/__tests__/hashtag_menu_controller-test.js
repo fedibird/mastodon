@@ -245,13 +245,13 @@ describe('HashtagMenuController', () => {
 
     click(inline.querySelector('span'));
 
-    expect(screen.getByRole('button', { name: 'View posts with #test' })).toHaveAttribute('href', '/timelines/tag/test');
+    expect(screen.getByRole('button', { name: 'View posts with #test' })).toHaveAttribute('href', '/web/timelines/tag/test');
     expect(Overlay.lastTarget).toBe(inline);
 
     click(badge);
 
-    expect(screen.getByRole('button', { name: 'View posts with #mastodon' })).toHaveAttribute('href', '/timelines/tag/mastodon');
-    expect(screen.getByRole('button', { name: 'View alice\'s posts with #mastodon' })).toHaveAttribute('href', '/accounts/a1/posts/mastodon');
+    expect(screen.getByRole('button', { name: 'View posts with #mastodon' })).toHaveAttribute('href', '/web/timelines/tag/mastodon');
+    expect(screen.getByRole('button', { name: 'View alice\'s posts with #mastodon' })).toHaveAttribute('href', '/web/accounts/a1/posts/mastodon');
     expect(Overlay.lastTarget).toBe(badge);
   });
 
@@ -284,6 +284,29 @@ describe('HashtagMenuController', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View alice\'s posts with #test' }));
     expect(history.push).toHaveBeenCalledWith('/accounts/a1/posts/test');
     expect(history.push.mock.calls.map(call => call[0]).join(' ')).not.toContain('/@');
+  });
+
+  it('keeps the WebUI prefix on hrefs while routing in-app with prefix-less paths, including encoded tags', () => {
+    const tag = 'ハッシュタグ_テスト';
+    const encoded = encodeURIComponent(tag);
+    const { container } = renderMenu({
+      contentHtml: `<p>${anchor(tag)}</p>`,
+    });
+
+    click(container.querySelector('.status__content__text a.mention.hashtag'));
+
+    const browse = screen.getByRole('button', { name: `View posts with #${tag}` });
+    const browseAccount = screen.getByRole('button', { name: `View alice's posts with #${tag}` });
+
+    expect(browse).toHaveAttribute('href', `/web/timelines/tag/${encoded}`);
+    expect(browseAccount).toHaveAttribute('href', `/web/accounts/a1/posts/${encoded}`);
+
+    fireEvent.click(browse);
+    expect(history.push).toHaveBeenLastCalledWith(`/timelines/tag/${encoded}`);
+
+    click(container.querySelector('.status__content__text a.mention.hashtag'));
+    fireEvent.click(screen.getByRole('button', { name: `View alice's posts with #${tag}` }));
+    expect(history.push).toHaveBeenLastCalledWith(`/accounts/a1/posts/${encoded}`);
   });
 
   it('does not open the status from the hashtag or from a menu action', () => {
@@ -371,7 +394,7 @@ describe('HashtagMenuController', () => {
 
     click(container.querySelector('a.status__content__hashtag-badge'));
 
-    expect(screen.getByRole('button', { name: 'View alice@example.com\'s posts with #mastodon' })).toHaveAttribute('href', '/accounts/a1/posts/mastodon');
+    expect(screen.getByRole('button', { name: 'View alice@example.com\'s posts with #mastodon' })).toHaveAttribute('href', '/web/accounts/a1/posts/mastodon');
     expect(container.querySelector('a.status__content__hashtag-badge')).toHaveAttribute('data-account-name', 'alice@example.com');
   });
 
@@ -449,8 +472,8 @@ describe('HashtagMenuController', () => {
 
     click(badge);
 
-    expect(screen.getByRole('button', { name: 'View posts with #bar' })).toHaveAttribute('href', '/timelines/tag/bar');
-    expect(screen.getByRole('button', { name: 'View alice\'s posts with #bar' })).toHaveAttribute('href', '/accounts/a1/posts/bar');
+    expect(screen.getByRole('button', { name: 'View posts with #bar' })).toHaveAttribute('href', '/web/timelines/tag/bar');
+    expect(screen.getByRole('button', { name: 'View alice\'s posts with #bar' })).toHaveAttribute('href', '/web/accounts/a1/posts/bar');
     expect(screen.getByRole('button', { name: 'Add to favorites' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Mute #bar' })).toHaveAttribute('href', '/web/settings/filters');
     expect(Overlay.lastTarget).toBe(badge);

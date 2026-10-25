@@ -19,6 +19,11 @@ const messages = defineMessages({
   mute: { id: 'hashtag.mute', defaultMessage: 'Mute #{hashtag}' },
 });
 
+// Matches the basename of the BrowserRouter in containers/mastodon.js.
+const WEB_BASE_PATH = '/web';
+
+const webHref = path => `${WEB_BASE_PATH}${path}`;
+
 const popperConfig = {
   strategy: 'fixed',
 };
@@ -139,12 +144,12 @@ class HashtagMenuController extends React.PureComponent {
     const items = [
       {
         text: intl.formatMessage(messages.browse, { hashtag }),
-        href: tagPath,
+        href: webHref(tagPath),
         to: tagPath,
       },
       {
         text: intl.formatMessage(messages.browseAccount, { hashtag, name: this.accountLabel() }),
-        href: accountPath,
+        href: webHref(accountPath),
         to: accountPath,
       },
       null,
@@ -171,7 +176,7 @@ class HashtagMenuController extends React.PureComponent {
     if (this.isSignedIn()) {
       items.push(null, {
         text: intl.formatMessage(messages.mute, { hashtag }),
-        href: '/web/settings/filters',
+        href: webHref('/settings/filters'),
         to: '/settings/filters',
         target: '_self',
         dangerous: true,
