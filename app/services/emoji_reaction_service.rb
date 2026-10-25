@@ -59,7 +59,10 @@ class EmojiReactionService < BaseService
 
     NotifyService.new.call(status.account, :emoji_reaction, emoji_reaction) if status.account.local?
 
-    return if status.account.silenced?
+    if status.account.silenced?
+      EmojiReactionCapability::Shadow.observe_create(emoji_reaction, legacy_type: nil)
+      return
+    end
 
     if status.account.local?
       ActivityPub::CustomEmojiDistributionWorker.perform_async(emoji_reaction.id, 'create')
@@ -67,6 +70,9 @@ class EmojiReactionService < BaseService
       type = %w(unicode custom).include?(status.account.node&.features(:emoji_reaction_type)) ? 'EmojiReact' : 'Like'
       type = 'Like' if %w(kmyblue).include?(status.account.node&.software)
       ActivityPub::DeliveryWorker.perform_async(build_json(emoji_reaction, type), emoji_reaction.account_id, status.account.inbox_url)
+      EmojiReactionCapability::Shadow.observe_create(emoji_reaction, legacy_type: type)
+    else
+      EmojiReactionCapability::Shadow.observe_create(emoji_reaction, legacy_type: nil)
     end
   end
 

@@ -74,6 +74,7 @@ class Api::V1::ExternalBridge::RSS::SubscriptionsController < Api::BaseControlle
         protocol: source.protocol,
         url: source.canonical_key,
         title: source.title,
+        icon_url: ExternalBridge::RSS::Icon::Delivery.url(source),
       },
     }
   end

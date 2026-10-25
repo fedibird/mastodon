@@ -3,10 +3,18 @@
 module ExternalBridge
   module RSS
     Item = Struct.new(:key, :title, :body, :canonical_url, :byline, :published_at, :truncated, keyword_init: true)
-    Feed = Struct.new(:protocol, :title, :site_url, :items, keyword_init: true)
+    Feed = Struct.new(:protocol, :title, :site_url, :items, :icon_hints, keyword_init: true) do
+      # The feed-declared image URLs, best candidate first. They are raw text
+      # here (possibly relative); the icon job resolves and validates them.
+      def icon_hints
+        self[:icon_hints] || []
+      end
+    end
 
     # RSS 2.0 and Atom. External entities are not resolved.
     class Parser
+      ICON_HINT_ORDER = %w(atom_icon rss_image atom_logo).freeze
+
       def self.parse!(body)
         new(body).parse!
       end
@@ -44,7 +52,8 @@ module ExternalBridge
           protocol: 'rss',
           title: Sanitizer.title(text_at(channel, 'title')),
           site_url: safe_url(text_at(channel, 'link')),
-          items: items
+          items: items,
+          icon_hints: icon_hints([['rss_image', channel.at_xpath('image/url')&.text]])
         )
       end
 
@@ -57,7 +66,8 @@ module ExternalBridge
           protocol: 'atom',
           title: Sanitizer.title(text_at(feed, 'title')),
           site_url: atom_link(feed) || safe_url(text_at(feed, 'link')),
-          items: items
+          items: items,
+          icon_hints: icon_hints([['atom_icon', text_at(feed, 'icon')], ['atom_logo', text_at(feed, 'logo')]])
         )
       end
 
@@ -103,6 +113,18 @@ module ExternalBridge
         href = chosen&.[]('href')
         href = text_at(node, 'link') if href.blank?
         safe_url(href)
+      end
+
+      # A square site icon beats a feed image, and a feed image beats an
+      # Atom logo (the Atom logo is specified as a 2:1 banner).
+      def icon_hints(pairs)
+        ranked = pairs.sort_by { |kind, _| ICON_HINT_ORDER.index(kind) || ICON_HINT_ORDER.size }
+        ranked.filter_map do |kind, value|
+          url = value.to_s.strip
+          next if url.empty? || url.bytesize > Limits::MAX_KEY_BYTES
+
+          { 'kind' => kind, 'url' => url }
+        end.first(Limits::ICON_HINTS)
       end
 
       def text_at(node, name)

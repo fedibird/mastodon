@@ -123,6 +123,12 @@
       every: '1m'
       class: Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler
       queue: scheduler
+    # Shared feed icons (issue #569): backfill for existing sources and the
+    # weekly / backoff re-check. One pass queues at most 20 sources.
+    external_bridge_rss_icon_scheduler:
+      every: '15m'
+      class: Scheduler::ExternalBridgeRSSIconScheduler
+      queue: scheduler
     external_bridge_atproto_attempt_cleanup_scheduler:
       every: '10m'
       class: Scheduler::ExternalBridgeAtprotoAttemptCleanupScheduler

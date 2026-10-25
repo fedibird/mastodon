@@ -235,7 +235,34 @@
   gap: 8px;
 }
 
+// The stored feed icon is drawn over the default RSS glyph. A feed without an
+// icon, or an image that fails to load (an empty-alt broken image paints
+// nothing), shows the glyph.
+.external-service-feed__icon {
+  position: relative;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: rgba($primary-text-color, 0.08);
+
+  img {
+    display: block;
+    width: 32px;
+    height: 32px;
+  }
+}
+
+.external-service-feed__icon-image {
+  position: absolute;
+  inset: 0;
+  object-fit: cover;
+  background: $ui-base-color;
+}
+
 .external-service-feed__title {
+  flex: 1 1 120px;
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;

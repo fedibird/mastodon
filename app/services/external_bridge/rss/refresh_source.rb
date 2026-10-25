@@ -70,6 +70,7 @@ module ExternalBridge
           @fields[:cached_items] = resources.size
           @stage = :ingest
           apply_resources(permitted, accounted, resources)
+          Icon::Schedule.enqueue_if_due(source)
           'not_modified'
         elsif response.code.between?(200, 299)
           @stage = :parse
@@ -78,6 +79,7 @@ module ExternalBridge
           resources = Ingest.new.apply_public!(source, feed, response)
           @fields[:items] = resources.size
           apply_resources(permitted, accounted, resources)
+          Icon::Schedule.enqueue_if_due(source)
           'fetched'
         else
           code = [401, 403].include?(response.code) ? 'authenticated_source_rejected' : "http_#{response.code}"
