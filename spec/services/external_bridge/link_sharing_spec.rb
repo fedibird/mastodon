@@ -862,7 +862,16 @@ describe 'ExternalBridge link sharing', type: :model do
     expect(indexdef).to include('published_at IS NULL')
 
     plan = connection.transaction do
+      # Which plan the planner picks by cost depends on the table statistics,
+      # and non-transactional specs change them (a bitmap scan of
+      # index_link_refs_on_reference_status plus a Sort can win at a few dozen
+      # estimated rows). With seq scans, bitmap scans and Sort off, the only plan
+      # that can return rows in this ORDER BY is an ordered index scan, so the
+      # question the example asks (can the bounded scan use the partial index in
+      # its own order) no longer depends on the statistics.
       connection.execute('SET LOCAL enable_seqscan = off')
+      connection.execute('SET LOCAL enable_bitmapscan = off')
+      connection.execute('SET LOCAL enable_sort = off')
       connection.select_values(<<~SQL).join("\n")
         EXPLAIN
         SELECT external_projection_link_references.id

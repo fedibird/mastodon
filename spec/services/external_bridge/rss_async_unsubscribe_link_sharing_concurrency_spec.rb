@@ -233,6 +233,79 @@ describe 'ExternalBridge unsubscribe and link sharing concurrency', type: :model
     removal.join
     expect(Status.unscoped.exists?(wrapper_id)).to be false
   end
+
+  def advisory_locks
+    ActiveRecord::Base.connection.select_value("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())").to_i
+  end
+
+  def ended_reported_share
+    build_world
+    result = ExternalBridge::LinkSharing::Boost.call(user: @user, status: @world[:status])
+    result.boost.update_columns(announced_at: Time.current, announce_enqueued_at: Time.current)
+    Report.create!(account: Fabricate(:account), target_account: @user.account, status_ids: [result.wrapper.id], comment: '')
+    ExternalBridge::RSS::SubscriptionDeletionRunner.new.call(accept!.id)
+    result
+  end
+
+  it 'survives a change of database connection between the claim and the acknowledgement, and holds no session lock' do
+    result = ended_reported_share
+    wrapper_id = result.wrapper.id
+    subscriber = ActiveSupport::Notifications.subscribe(ExternalBridge::LinkSharing::Checkpoints::EVENT) do |*args|
+      ActiveRecord::Base.connection.reconnect! if args.last[:name] == :removal_before_acknowledge
+    end
+
+    thread = in_thread { ExternalBridge::LinkWrapperRemovalWorker.new.perform(wrapper_id) }
+    thread.join
+    ActiveSupport::Notifications.unsubscribe(subscriber)
+
+    expect(thread[:error]).to be_nil
+    boost = ExternalProjectionLinkBoost.find(result.boost.id)
+    expect(boost.removal_acknowledged_at).to be_present
+    expect([boost.removal_lease_token, boost.removal_lease_until]).to eq [nil, nil]
+    expect(advisory_locks).to eq 0
+  end
+
+  it 'covers a first worker that is killed before it acknowledges: its lease expires and the recovery pushes again' do
+    result = ended_reported_share
+    wrapper_id = result.wrapper.id
+    calls = Queue.new
+    allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+      calls << true
+      method.call(*args, **kwargs)
+    end
+    pause_checkpoint!(:removal_before_acknowledge)
+    first = in_thread(pause_at: :removal_before_acknowledge) { ExternalBridge::LinkWrapperRemovalWorker.new.perform(wrapper_id) }
+    @entered.pop
+    first.kill
+    first.join
+    ActiveSupport::Notifications.unsubscribe(@subscriber)
+    @subscriber = nil
+
+    boost = ExternalProjectionLinkBoost.find(result.boost.id)
+    expect(boost.removal_lease_until).to be > 4.minutes.from_now
+    expect(boost.removal_acknowledged_at).to be_nil
+    expect(advisory_locks).to eq 0
+
+    second = in_thread { ExternalBridge::LinkWrapperRemovalWorker.new.perform(wrapper_id) }
+    second.join
+    expect(second.value).to be false
+    expect(calls.size).to eq 1
+
+    pushed = []
+    allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id| pushed << id && 'jid' }
+    boost.update_columns(removal_next_attempt_at: nil, updated_at: 1.hour.ago)
+    expect(ExternalBridge::LinkSharing::RecoverRemovals.call(settle: 0.seconds)).to eq 0
+
+    boost.update_columns(removal_lease_until: 1.second.ago)
+    expect(ExternalBridge::LinkSharing::RecoverRemovals.call(settle: 0.seconds)).to eq 1
+    third = in_thread { ExternalBridge::LinkWrapperRemovalWorker.new.perform(wrapper_id) }
+    third.join
+
+    expect(pushed).to eq [wrapper_id]
+    expect(calls.size).to eq 2
+    expect(ExternalProjectionLinkBoost.find(result.boost.id).removal_acknowledged_at).to be_present
+    expect(Status.unscoped.exists?(wrapper_id)).to be true
+  end
 end
 
 # rubocop:enable Metrics/BlockLength

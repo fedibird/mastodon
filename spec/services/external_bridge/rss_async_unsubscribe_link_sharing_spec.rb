@@ -72,7 +72,7 @@ describe 'ExternalBridge asynchronous RSS unsubscribe and link sharing', type: :
     expect { ExternalBridge::LinkWrapperRemovalWorker.new.perform(wrapper_id) }.not_to raise_error
     boost.update_columns(removal_next_attempt_at: nil)
     expect(ExternalBridge::LinkSharing::RecoverRemovals.call(settle: 0.seconds)).to eq 0
-    expect(boost.reload.removal_acknowledged_at).to be_nil
+    expect(boost.reload.removal_acknowledged_at).to be_present
   end
 
   it 'lets the interrupted job resume to completion without pushing the removal twice' do
@@ -254,6 +254,86 @@ describe 'ExternalBridge asynchronous RSS unsubscribe and link sharing', type: :
     boost.update_columns(updated_at: (ExternalBridge::LinkSharing::RecoverRemovals::SETTLE + 1.second).ago)
     expect(ExternalBridge::LinkSharing::RecoverRemovals.call).to eq 1
     expect(pushed).to eq [result.wrapper.id]
+  end
+
+  describe 'the lease of the wrapper removal (no database session involved)' do
+    def ended_share
+      world, result = announced_share
+      runner.call(unsubscribe!(world).id)
+      [result, ExternalProjectionLinkBoost.find(result.boost.id)]
+    end
+
+    def count_removals
+      calls = 0
+      allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+        calls += 1
+        method.call(*args, **kwargs)
+      end
+      -> { calls }
+    end
+
+    it 'does nothing and is not retried while another job holds a live lease, and the scan leaves the row alone until it expires' do
+      result, boost = ended_share
+      boost.update_columns(removal_lease_token: 'otherjob', removal_lease_until: 3.minutes.from_now, removal_next_attempt_at: nil, updated_at: 1.hour.ago)
+      calls = count_removals
+      pushed = []
+      allow(ExternalBridge::LinkWrapperRemovalWorker).to receive(:perform_async) { |id| pushed << id && 'jid' }
+
+      expect(ExternalBridge::LinkWrapperRemovalWorker.new.perform(result.wrapper.id)).to be false
+      expect(calls.call).to eq 0
+      expect(ExternalBridge::LinkSharing::RecoverRemovals.call(settle: 0.seconds)).to eq 0
+      expect(pushed).to be_empty
+
+      boost.update_columns(removal_lease_until: 1.second.ago)
+      expect(ExternalBridge::LinkSharing::RecoverRemovals.call(settle: 0.seconds)).to eq 1
+      expect(pushed).to eq [result.wrapper.id]
+      ExternalBridge::LinkWrapperRemovalWorker.new.perform(result.wrapper.id)
+
+      boost.reload
+      expect(calls.call).to eq 1
+      expect(boost.removal_acknowledged_at).to be_present
+      expect([boost.removal_lease_token, boost.removal_lease_until]).to eq [nil, nil]
+    end
+
+    it 'lets only the current lease holder acknowledge' do
+      result, boost = ended_share
+      wrapper_id = result.wrapper.id
+      retire = ExternalBridge::LinkSharing::Retire
+      expect(retire.claim_removal!(wrapper_id, 'first', 5.minutes)).to be true
+      expect(retire.claim_removal!(wrapper_id, 'second', 5.minutes)).to be false
+
+      boost.reload.update_columns(removal_lease_until: 1.second.ago)
+      expect(retire.claim_removal!(wrapper_id, 'second', 5.minutes)).to be true
+      expect(retire.acknowledge_removal!('first')).to be false
+      expect(boost.reload.removal_acknowledged_at).to be_nil
+      expect(retire.acknowledge_removal!('second')).to be true
+      expect(boost.reload.removal_acknowledged_at).to be_present
+      expect(retire.claim_removal!(wrapper_id, 'third', 5.minutes)).to be false
+    end
+
+    it 'gives the lease back when the work fails, so the next push does not wait for the expiry' do
+      result, boost = ended_share
+      allow_any_instance_of(RemoveStatusService).to receive(:call).and_raise(Redis::CannotConnectError)
+
+      expect { ExternalBridge::LinkWrapperRemovalWorker.new.perform(result.wrapper.id) }.to raise_error(Redis::CannotConnectError)
+
+      boost.reload
+      expect([boost.removal_lease_token, boost.removal_lease_until, boost.removal_acknowledged_at]).to eq [nil, nil, nil]
+      allow_any_instance_of(RemoveStatusService).to receive(:call).and_call_original
+      ExternalBridge::LinkWrapperRemovalWorker.new.perform(result.wrapper.id)
+      expect(boost.reload.removal_acknowledged_at).to be_present
+    end
+
+    it 'does not use a database session lock' do
+      result, = ended_share
+      statements = []
+      callback = ->(*, payload) { statements << payload[:sql] }
+      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+        ExternalBridge::LinkWrapperRemovalWorker.new.perform(result.wrapper.id)
+      end
+
+      expect(statements.grep(/advisory/i)).to be_empty
+    end
   end
 end
 

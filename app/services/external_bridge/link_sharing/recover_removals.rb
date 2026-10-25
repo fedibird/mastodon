@@ -21,8 +21,12 @@ module ExternalBridge
     # that never left the server is removed by Retire itself, which nulls the
     # column, so it never appears.
     #
+    # A job that holds a live lease (removal_lease_until) is working on it; the
+    # scan leaves such a row alone and picks it up again when the lease has
+    # expired, which is how a worker that died is covered.
+    #
     # Accepted by Sidekiq is not done: the claim only keeps one pass from
-    # pushing the same wrapper again for HOLD. LinkWrapperRemovalWorker skips a wrapper that
+    # pushing the same wrapper again for HOLD. LinkWrapperRemovalWorker does nothing for a wrapper that
     # is already acknowledged, so a push that does arrive twice (a backlog longer
     # than HOLD) removes and Undoes once. The claim lives in
     # removal_next_attempt_at, separate from next_announce_at, which can still
@@ -50,6 +54,7 @@ module ExternalBridge
                .where.not(wrapper_status_id: nil)
                .where('updated_at <= ?', Time.current - @settle)
                .where('removal_next_attempt_at IS NULL OR removal_next_attempt_at <= NOW()')
+               .where('removal_lease_until IS NULL OR removal_lease_until <= NOW()')
                .order(Arel.sql('removal_next_attempt_at ASC NULLS FIRST, updated_at ASC'))
                .limit(BATCH)
                .pluck(:id, :wrapper_status_id)

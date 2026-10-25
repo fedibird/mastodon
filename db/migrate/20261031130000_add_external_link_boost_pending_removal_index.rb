@@ -9,8 +9,12 @@
 # "the wrapper still exists" cannot mean "not done". removal_next_attempt_at
 # is the claim of the recovery push; it is separate from next_announce_at,
 # which still holds the 30 minute Announce claim when a share ends early.
+# removal_lease_until / removal_lease_token are the worker's lease: the
+# exclusion between two jobs for the same wrapper is one conditional UPDATE on
+# this row, so it does not depend on a database session (PgBouncer in
+# transaction pooling mode, or any other pooler, cannot break it).
 #
-# Two nullable columns without defaults (no rewrite) and one partial index that
+# Four nullable columns without defaults (no rewrite) and one partial index that
 # holds only ended shares still waiting for that acknowledgement. Built
 # CONCURRENTLY; nothing else is touched.
 class AddExternalLinkBoostPendingRemovalIndex < ActiveRecord::Migration[6.1]
@@ -22,6 +26,8 @@ class AddExternalLinkBoostPendingRemovalIndex < ActiveRecord::Migration[6.1]
     safety_assured do
       add_column :external_projection_link_boosts, :removal_acknowledged_at, :datetime, if_not_exists: true
       add_column :external_projection_link_boosts, :removal_next_attempt_at, :datetime, if_not_exists: true
+      add_column :external_projection_link_boosts, :removal_lease_until, :datetime, if_not_exists: true
+      add_column :external_projection_link_boosts, :removal_lease_token, :string, limit: 32, if_not_exists: true
     end
     add_index :external_projection_link_boosts, :updated_at,
               where: "state = 'undone' AND wrapper_status_id IS NOT NULL AND removal_acknowledged_at IS NULL",
@@ -33,6 +39,8 @@ class AddExternalLinkBoostPendingRemovalIndex < ActiveRecord::Migration[6.1]
   def down
     remove_index :external_projection_link_boosts, name: INDEX, algorithm: :concurrently, if_exists: true
     safety_assured do
+      remove_column :external_projection_link_boosts, :removal_lease_token, if_exists: true
+      remove_column :external_projection_link_boosts, :removal_lease_until, if_exists: true
       remove_column :external_projection_link_boosts, :removal_next_attempt_at, if_exists: true
       remove_column :external_projection_link_boosts, :removal_acknowledged_at, if_exists: true
     end

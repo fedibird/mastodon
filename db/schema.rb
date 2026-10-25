@@ -719,6 +719,8 @@ ActiveRecord::Schema.define(version: 2026_10_31_130000) do
     t.datetime "updated_at", precision: 6, null: false
     t.datetime "removal_acknowledged_at"
     t.datetime "removal_next_attempt_at"
+    t.datetime "removal_lease_until"
+    t.string "removal_lease_token", limit: 32
     t.index ["id"], name: "index_link_boosts_on_orphaned", where: "(((state)::text = 'active'::text) AND (external_status_projection_id IS NULL))"
     t.index ["link_reference_id", "generation"], name: "index_link_boosts_on_generation", unique: true
     t.index ["reference_status_id"], name: "index_link_boosts_on_reference", where: "(reference_status_id IS NOT NULL)"

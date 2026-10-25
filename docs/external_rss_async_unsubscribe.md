@@ -137,19 +137,33 @@ of the wrapper: Mastodon keeps a wrapper that sits in an unresolved report
 not change that (no `immediate`, the report evidence stays). Accepted by Sidekiq
 is not done either; only a returned `RemoveStatusService` is.
 
-Exclusion. The acknowledgement check, `RemoveStatusService`, and the
-acknowledgement run under one PostgreSQL session advisory lock per wrapper
-(`pg_try_advisory_lock`). A second job that arrives while the first works returns
-without doing anything; one that arrives later sees the acknowledgement. The lock
-belongs to the connection, so a dead worker releases it at once. It is not
+Exclusion is a lease on the boost row (`removal_lease_token`,
+`removal_lease_until`), not a database session. The worker claims the row with
+one conditional UPDATE (ended, not acknowledged, no live lease) and writes its
+own token, runs `RemoveStatusService` with no transaction open, then acknowledges
+with a second UPDATE that matches the token. Each statement stands alone, so the
+exclusion does not need both statements to reach the same PostgreSQL backend.
+PgBouncer in transaction pooling mode (where a session advisory lock is granted
+twice or left behind) and a direct connection behave the same. It is not
 `RemoveStatusService`'s Redis lock (`distribute:<id>`), which is released when the
-service returns and expires by itself after 15 minutes, so it cannot make "check,
-work, acknowledge" atomic. Limit: delivery is at least once. A crash between the
-return of `RemoveStatusService` and the commit of the acknowledgement is the one
-window in which the recovery pushes again and the Undo is handed to delivery a
-second time; receivers treat a repeated Undo as a no-op. A job that was refused
-the lock is not retried by Sidekiq; the recovery pushes again if the first job
-never acknowledges.
+service returns and expires by itself after 15 minutes.
+
+A second job that arrives while the lease is live (5 minutes) does nothing and is
+not retried by Sidekiq. The recovery scan also skips a row with a live lease. If
+the first job dies, the lease expires and the scan pushes again. A job that fails
+gives the lease back before it raises. A job that outlives its lease can be
+overtaken; its later acknowledgement matches no token and changes nothing.
+
+Limit: delivery is at least once. A crash between the return of
+`RemoveStatusService` and the acknowledgement, or a job that outlives the lease,
+lets the next job hand the Undo to delivery a second time. Receivers treat a
+repeated Undo as a no-op. Acknowledged means the Undo reached the delivery queue,
+not that a remote server received it.
+
+`RSS::RefreshSource` still takes a session advisory lock per source. That predates
+this change and is not part of the unsubscribe path. Whether the Sidekiq database
+route has session semantics is reported by `rake external_bridge:db_session_probe`
+(host and port only, no credentials).
 
 `LinkSharing::RecoverRemovals`, run by `Scheduler::ExternalBridgeLinkReferencePublishScheduler`
 (every 5 minutes), scans `undone` boosts with `wrapper_status_id` still set and
@@ -216,7 +230,10 @@ To tune the load, set `EXTERNAL_RSS_DELETION_BATCH_SIZE`. Look at
 `VALIDATE`, under a 5 s `lock_timeout`) and creates
 `external_subscription_deletions`. It does not touch `statuses` or
 `external_status_projections`. `down` refuses to run while a `deleting`
-subscription or an unfinished record exists. `20261031130000` adds two nullable
-columns (`removal_acknowledged_at`, `removal_next_attempt_at`; no default, no
-rewrite) and one partial index on `external_projection_link_boosts`
-(`CONCURRENTLY`); `down` drops them.
+subscription or an unfinished record exists. `20261031130000` adds four nullable
+columns (`removal_acknowledged_at`, `removal_next_attempt_at`,
+`removal_lease_until`, `removal_lease_token`; no default, no rewrite) and one
+partial index on `external_projection_link_boosts` (`CONCURRENTLY`); `down`
+drops them. The migration is still unreleased, so the columns were added to the
+same file. An environment that already ran the earlier version of it must run it
+down and up.
