@@ -21,21 +21,23 @@ module ExternalBridge
       outcome[:deleted]
     end
 
-    # The database half of a purge: stream-delete capture, E4 retirement, the
-    # physical DELETE under SET LOCAL, and the delete events, all inside one
-    # (savepoint) transaction. A caller that keeps its own counters in the same
-    # transaction (the batched unsubscribe) must hand the result to
-    # finish_purge! after that outer transaction commits. Wrapper removals,
-    # cache, and search entries are never touched before the DELETE is durable.
+    # The database half of a purge: stream-delete capture, E4 retirement, and
+    # the physical DELETE under SET LOCAL, inside one (savepoint) transaction.
+    # Captures are returned either way. schedule_deletes registers
+    # StreamDeleteWorker on the outermost commit (a one-shot purge). The
+    # batched unsubscribe passes false and stores the captures itself: an
+    # enqueue error must not be the thing that skips cache and search, and a
+    # killed worker must still be able to read the destinations back.
     #
     # route_targets are extra delete destinations, for a subscription whose
     # feed routes were already removed by the unsubscribe fence.
-    def self.purge_ids_in_transaction!(status_ids, suppress: false, route_targets: [])
+    def self.purge_ids_in_transaction!(status_ids, suppress: false, route_targets: [], schedule_deletes: true)
       ids = normalize_ids(status_ids)
-      return { removals: [], deleted: 0 } if ids.empty?
+      return { removals: [], deleted: 0, captures: [] } if ids.empty?
 
       removals = []
       deleted = 0
+      captures = []
       ActiveRecord::Base.transaction(requires_new: true) do
         captures = capture_stream_deletes(ids, route_targets)
         remember_suppressions!(ids) if suppress
@@ -43,20 +45,35 @@ module ExternalBridge
         ExternalProjectionLinkBoostState.where(projection_status_id: ids).delete_all
         ActiveRecord::Base.connection.execute(SETTING_SQL)
         deleted = Status.unscoped.where(id: ids).delete_all
-        Streaming::Scheduler.schedule_deletes!(captures)
+        Streaming::Scheduler.schedule_deletes!(captures) if schedule_deletes
       end
-      { removals: removals, deleted: deleted }
+      { removals: removals, deleted: deleted, captures: captures }
     ensure
       clear_delete_setting!
     end
 
+    # After the DELETE is durable. Each step stands alone: a Redis or search
+    # error must not skip the others. One-shot purges have no outbox for the
+    # stream event; schedule_deletes! already swallowed that enqueue error.
     def self.finish_purge!(status_ids, removals)
       ids = normalize_ids(status_ids)
-      LinkSharing::Retire.enqueue_removals(removals)
-
-      ids.each { |id| Rails.cache.delete("statuses/#{id}") }
-      remove_search_documents(ids)
+      isolate('wrapper_removal') { LinkSharing::Retire.enqueue_removals(removals) }
+      clear_local_copies!(ids)
     end
+
+    # Idempotent. Safe to repeat for the same ids.
+    def self.clear_local_copies!(status_ids)
+      ids = normalize_ids(status_ids)
+      isolate('cache') { ids.each { |id| Rails.cache.delete("statuses/#{id}") } }
+      isolate('search') { remove_search_documents(ids) }
+    end
+
+    def self.isolate(step)
+      yield
+    rescue StandardError => e
+      Rails.logger.warn("[ExternalBridge] purge side effect step=#{step} error=#{e.class}")
+    end
+    private_class_method :isolate
 
     def self.normalize_ids(status_ids)
       Array(status_ids).map(&:to_i).uniq.reject(&:zero?)

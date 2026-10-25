@@ -91,17 +91,40 @@ Each batch is one transaction:
 - read `BATCH_SIZE` (default 100, `EXTERNAL_RSS_DELETION_BATCH_SIZE`, 10..1000)
   status ids through the indexed `external_subscription_id`, `ORDER BY
   status_id LIMIT n`. No full `pluck`, no full load;
-- `ProjectionPurge.purge_ids_in_transaction!`: the existing contract is
-  unchanged (E4 `LinkSharing::Retire`, physical `DELETE` under `SET LOCAL
-  fedibird.projection_status_delete`, link-boost state, Streaming delete
-  capture and `StreamDeleteWorker`). `RemoveStatusService`, `discard`, and
-  ActivityPub Delete are never used. Route destinations come from
-  `route_targets`, because the routes were removed at accept time;
+- `ProjectionPurge.purge_ids_in_transaction!(schedule_deletes: false)`: E4
+  `LinkSharing::Retire`, physical `DELETE` under `SET LOCAL
+  fedibird.projection_status_delete`, and link-boost state. It does not
+  enqueue `StreamDeleteWorker`. The captured home/list destinations are
+  appended to `pending_stream_deletes` on the deletion row in this same
+  transaction. `RemoveStatusService`, `discard`, and ActivityPub Delete are
+  never used. Route destinations come from `route_targets`, because the
+  routes were removed at accept time;
 - add the rows the `DELETE` really removed to `deleted_count`, in the same
   transaction.
 
-Wrapper removals (`LinkWrapperRemovalWorker`), cache entries, and search documents follow
-the commit (`ProjectionPurge.finish_purge!`), as they do for any purge.
+The transaction then commits. Wrapper removals, cache deletes, search
+deletes, and the stream-delete enqueue run after that, each on its own.
+One of them raising does not skip the others and does not mark the record
+failed. `pending_stream_deletes` keeps every capture until `perform_async`
+returns a job id (a nil id is not acceptance). A worker killed after the
+commit still has the captures, because they were written with the DELETE;
+the markers are already gone and could not be read again. The next run
+pushes them. Pushing twice is safe: `StreamDeleteWorker` publishes a delete
+only when the status and the marker are gone, and a second delete tells the
+client to drop something it has already dropped.
+
+The subscription row is not destroyed while any capture is still waiting.
+The card stays under 100% and the record stays `running`, with `next_run_at`
+30 seconds out. The worker queues itself for then. That wait does not
+increment `attempt_count`. If the queue push is lost, the scheduler sees the
+same `next_run_at` and pushes the record again.
+
+A one-shot purge (`purge_status!`, account deletion) still registers
+`StreamDeleteWorker` with `AfterOuterCommit`. The callback swallows a Redis
+error so it cannot skip cache and search, and so it cannot abort the rest of
+account deletion. That path has no outbox: a refused enqueue is not retried.
+The batched unsubscribe is the path that deletes tens of thousands of rows,
+and it is the path with the outbox.
 
 A run stops after `MAX_BATCHES` (50) or `TIME_BUDGET` (20 s) and queues the next
 run one second later, so a long delete never holds a Sidekiq thread. The
@@ -121,9 +144,10 @@ favourites, or bookmarks, nor ordinary posts.
 
 | Event | Result |
 | --- | --- |
-| Exception in a batch | The batch transaction (delete and counter) rolls back. The record becomes `failed` with a fixed `last_error_code` (`database_error`, `queue_error`, `unexpected_error`; never a message) and `next_run_at` backed off 30 s, 2 min, 10 min, 30 min, 2 h. While `next_run_at` is set the scheduler retries by itself: the card shows "waiting to retry", keeps polling, and offers no button (`retrying: true`, `retryable: false` in the API). When it is due the scheduler turns the record into `queued` and pushes it. After 5 attempts `next_run_at` is null; only then does the card stop polling and offer the owner's retry (`retryable: true`); the API accepts a retry only in that state too |
+| Exception in a batch | The batch transaction (delete, counter, and stream-delete captures) rolls back. The record becomes `failed` with a fixed `last_error_code` (`database_error`, `queue_error`, `unexpected_error`; never a message) and `next_run_at` backed off 30 s, 2 min, 10 min, 30 min, 2 h. While `next_run_at` is set the scheduler retries by itself: the card shows "waiting to retry", keeps polling, and offers no button (`retrying: true`, `retryable: false` in the API). When it is due the scheduler turns the record into `queued` and pushes it. After 5 attempts `next_run_at` is null; only then does the card stop polling and offer the owner's retry (`retryable: true`); the API accepts a retry only in that state too |
+| Stream enqueue, cache, or search fails after the batch committed | The delete and the counter stay. The record stays `running` and `attempt_count` does not move. Captures Sidekiq did not accept stay in `pending_stream_deletes`. Cache and search are tried again with the next flush. The subscription is not destroyed until the captures are accepted |
 | Late or duplicate job for a `failed` or `completed` record | Ignored: the runner starts only `queued`/`running` records. A `failed` record is moved to `queued` by the scheduler (when due) or by the owner's retry (terminal only), never by a stale job |
-| Worker killed | The record stays `running`; `next_run_at` is a 5 minute lease the scheduler honours, then the job resumes where the database says |
+| Worker killed | The record stays `running`. `next_run_at` is a 5 minute lease the scheduler honours, then the job resumes where the database says. Captures already committed in `pending_stream_deletes` are pushed again; a batch that had not committed is deleted again |
 | Sidekiq push refused | The record stays `queued`; the scheduler pushes it |
 | Owner retry | `POST .../subscription_deletions/:id/retry` (API) or the card's button; only a `failed` record moves |
 | Feature flags off | The job still finishes; imports stay stopped by the fence |

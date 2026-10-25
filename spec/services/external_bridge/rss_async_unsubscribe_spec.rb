@@ -626,6 +626,184 @@ describe 'ExternalBridge asynchronous RSS unsubscribe', type: :model do
       destinations = jobs.first['args'].first.first['destinations']
       expect(destinations).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
       expect(Status.exists?(world[:status].id)).to be false
+      expect(deletion.reload.pending_stream_deletes).to eq []
+    ensure
+      Setting.external_bridge_external_visibility = false
+    end
+
+    # Home and list both have the projection. The enqueue runs after the batch
+    # transaction, so open_transactions during perform_async matches the depth
+    # once the runner has returned (the example's own transaction, not the batch).
+    def routed_projection
+      Setting.external_bridge_external_visibility = true
+      world = project_for(user)
+      list = Fabricate(:list, account: user.account)
+      save_routes(world, home: true, list_ids: [list.id])
+      world[:status].reload
+      [world, list]
+    end
+
+    def track_search_deletes
+      updates = []
+      current = Object.new
+      current.define_singleton_method(:update) { |*args| updates << args }
+      allow(Chewy).to receive(:enabled?).and_return(true)
+      allow(Chewy).to receive(:strategy).and_return(double(current: current))
+      updates
+    end
+
+    def delete_entry(jobs)
+      jobs.last['args'].first.first
+    end
+
+    it 'keeps the delete event, the cache, and the search delete when the enqueue raises after the commit' do
+      world, list = routed_projection
+      expect(world[:status]).to be_external_visibility
+      deletion = unsubscribe!(world)
+      cache_key = "statuses/#{world[:status].id}"
+      Rails.cache.write(cache_key, 'rendered projection')
+      updates = track_search_deletes
+      depths = []
+      failing = true
+      allow(ExternalBridge::StreamDeleteWorker).to receive(:perform_async).and_wrap_original do |method, *args|
+        depths << ApplicationRecord.connection.open_transactions
+        raise Redis::CannotConnectError, 'down' if failing
+
+        method.call(*args)
+      end
+
+      expect(runner.call(deletion.id)).to eq :effects_pending
+
+      deletion.reload
+      expect(deletion).to be_running
+      expect(deletion.attempt_count).to eq 0
+      expect(deletion.last_error_code).to be_nil
+      expect(deletion.deleted_count).to eq 1
+      expect(Status.exists?(world[:status].id)).to be false
+      expect(ExternalStatusProjection.exists?(status_id: world[:status].id)).to be false
+      expect(ExternalSubscription.find(world[:subscription].id).state).to eq 'deleting'
+      expect(Rails.cache.read(cache_key)).to be_nil
+      expect(updates).to include([StatusesIndex, [world[:status].id]])
+      expect(ExternalBridge::StreamDeleteWorker.jobs).to be_empty
+      capture = deletion.pending_stream_deletes.first
+      expect(capture['status_id']).to eq world[:status].id.to_s
+      expect(capture['destinations']).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
+
+      failing = false
+      expect(runner.call(deletion.id)).to eq :completed
+      expect(ApplicationRecord.connection.open_transactions).to eq depths.first
+      expect(depths.uniq).to eq [depths.first]
+      entry = delete_entry(ExternalBridge::StreamDeleteWorker.jobs)
+      expect(entry['status_id']).to eq world[:status].id.to_s
+      expect(entry['destinations']).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
+      expect(deletion.reload).to be_completed
+      expect(deletion.pending_stream_deletes).to eq []
+      expect(ExternalSubscription.exists?(world[:subscription].id)).to be false
+    ensure
+      Setting.external_bridge_external_visibility = false
+    end
+
+    it 'keeps the capture when Sidekiq accepts nothing, and the worker tries again without a failure' do
+      world, list = routed_projection
+      deletion = unsubscribe!(world)
+      cache_key = "statuses/#{world[:status].id}"
+      Rails.cache.write(cache_key, 'rendered projection')
+      updates = track_search_deletes
+      allow(ExternalBridge::StreamDeleteWorker).to receive(:perform_async).and_return(nil)
+      ExternalBridge::RSS::SubscriptionDeletionWorker.clear
+
+      ExternalBridge::RSS::SubscriptionDeletionWorker.new.perform(deletion.id)
+
+      deletion.reload
+      expect(deletion).to be_running
+      expect(deletion.attempt_count).to eq 0
+      expect(deletion.deleted_count).to eq 1
+      expect(deletion.pending_stream_deletes.first['status_id']).to eq world[:status].id.to_s
+      expect(deletion.pending_stream_deletes.first['destinations']).to contain_exactly(
+        { 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s }
+      )
+      expect(Rails.cache.read(cache_key)).to be_nil
+      expect(updates).to include([StatusesIndex, [world[:status].id]])
+      expect(ExternalBridge::StreamDeleteWorker.jobs).to be_empty
+      retried = ExternalBridge::RSS::SubscriptionDeletionWorker.jobs.find { |job| job['at'].present? }
+      expect(retried['args']).to eq [deletion.id]
+
+      allow(ExternalBridge::StreamDeleteWorker).to receive(:perform_async).and_call_original
+      expect(runner.call(deletion.id)).to eq :completed
+      entry = delete_entry(ExternalBridge::StreamDeleteWorker.jobs)
+      expect(entry['destinations']).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
+      expect(deletion.reload.pending_stream_deletes).to eq []
+    ensure
+      Setting.external_bridge_external_visibility = false
+    end
+
+    it 'finishes the side effects on the next run when the worker dies after the batch commits' do
+      world, list = routed_projection
+      deletion = unsubscribe!(world)
+      cache_key = "statuses/#{world[:status].id}"
+      Rails.cache.write(cache_key, 'rendered projection')
+      updates = track_search_deletes
+      skip_flush = true
+      allow_any_instance_of(ExternalBridge::RSS::SubscriptionDeletionRunner).to receive(:flush_pending_effects!).and_wrap_original do |method, *args|
+        method.call(*args) unless skip_flush
+      end
+
+      expect(runner.call(deletion.id)).to eq :effects_pending
+
+      deletion.reload
+      expect(deletion).to be_running
+      expect(deletion.deleted_count).to eq 1
+      expect(Status.exists?(world[:status].id)).to be false
+      expect(ExternalStatusProjection.exists?(status_id: world[:status].id)).to be false
+      expect(Rails.cache.read(cache_key)).to eq 'rendered projection'
+      expect(updates).to be_empty
+      expect(ExternalBridge::StreamDeleteWorker.jobs).to be_empty
+      expect(deletion.pending_stream_deletes.first['destinations']).to contain_exactly(
+        { 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s }
+      )
+
+      skip_flush = false
+      expect(runner.call(deletion.id)).to eq :completed
+      expect(Rails.cache.read(cache_key)).to be_nil
+      expect(updates).to include([StatusesIndex, [world[:status].id]])
+      entry = delete_entry(ExternalBridge::StreamDeleteWorker.jobs)
+      expect(entry['status_id']).to eq world[:status].id.to_s
+      expect(entry['destinations']).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
+      expect(deletion.reload.pending_stream_deletes).to eq []
+    ensure
+      Setting.external_bridge_external_visibility = false
+    end
+
+    it 'pushes the same delete again when the worker dies after Sidekiq has accepted it' do
+      world, list = routed_projection
+      deletion = unsubscribe!(world)
+      killed = Class.new(Exception)
+      first = true
+      allow_any_instance_of(ExternalBridge::RSS::SubscriptionDeletionRunner).to receive(:drop_pending!).and_wrap_original do |method, *args|
+        raise killed if first
+
+        method.call(*args)
+      end
+
+      expect { runner.call(deletion.id) }.to raise_error(killed)
+
+      deletion.reload
+      expect(deletion).to be_running
+      expect(deletion.attempt_count).to eq 0
+      expect(deletion.deleted_count).to eq 1
+      expect(Status.exists?(world[:status].id)).to be false
+      expect(ExternalBridge::StreamDeleteWorker.jobs.size).to eq 1
+      expect(deletion.pending_stream_deletes.first['status_id']).to eq world[:status].id.to_s
+
+      first = false
+      expect(runner.call(deletion.id)).to eq :completed
+      expect(ExternalBridge::StreamDeleteWorker.jobs.size).to eq 2
+      ExternalBridge::StreamDeleteWorker.jobs.each do |job|
+        entry = job['args'].first.first
+        expect(entry['status_id']).to eq world[:status].id.to_s
+        expect(entry['destinations']).to contain_exactly({ 'type' => 'home' }, { 'type' => 'list', 'id' => list.id.to_s })
+      end
+      expect(deletion.reload.pending_stream_deletes).to eq []
     ensure
       Setting.external_bridge_external_visibility = false
     end

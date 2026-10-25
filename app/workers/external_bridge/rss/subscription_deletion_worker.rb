@@ -19,7 +19,15 @@ module ExternalBridge
 
       def perform(deletion_id)
         outcome = SubscriptionDeletionRunner.new.call(deletion_id.to_i)
-        SubscriptionDeletionDispatch.enqueue(deletion_id.to_i, delay: CONTINUE_DELAY) if outcome == :continue
+        case outcome
+        when :continue
+          SubscriptionDeletionDispatch.enqueue(deletion_id.to_i, delay: CONTINUE_DELAY)
+        when :effects_pending
+          # The rows are gone. This only retries the stream/cache/search
+          # outbox. next_run_at is the same delay, so a lost push is recovered
+          # by the scheduler. It does not count as a failed attempt.
+          SubscriptionDeletionDispatch.enqueue(deletion_id.to_i, delay: SubscriptionDeletionRunner::EFFECTS_RETRY)
+        end
       end
     end
   end

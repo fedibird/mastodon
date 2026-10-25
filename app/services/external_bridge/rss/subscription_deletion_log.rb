@@ -8,10 +8,10 @@ module ExternalBridge
     module SubscriptionDeletionLog
       PREFIX = '[ExternalBridge::RSS::Deletion]'
       EVENTS = %w(
-        accepted started batch completed failed enqueue_failed recovered skipped
+        accepted started batch completed failed enqueue_failed recovered skipped effects_pending
       ).freeze
       INT_FIELDS = %i(
-        job_id deletion_id subscription_id user_id batch deleted total remaining attempt elapsed_ms
+        job_id deletion_id subscription_id user_id batch deleted total remaining attempt elapsed_ms pending
       ).freeze
       CLASS_FIELDS = %i(error_class).freeze
       CODE_FIELDS = %i(error_code state).freeze
