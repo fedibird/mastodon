@@ -34,6 +34,32 @@ describe('ExternalRemoteMedia', () => {
     expect(video.hasAttribute('autoplay')).toBe(false);
     expect(video.getAttribute('preload')).toBe('none');
     expect(video.getAttribute('referrerpolicy')).toBe('no-referrer');
+
+    fireEvent.error(video);
+
+    expect(container.querySelector('video')).toBeNull();
+    expect(container.innerHTML).not.toContain('src="https://cdn.example/clip.mp4"');
+    const mediaLink = screen.getByRole('link', { name: 'Open media file' });
+    expect(mediaLink.getAttribute('href')).toBe('https://cdn.example/clip.mp4');
+    expect(mediaLink.getAttribute('rel')).toBe('noopener noreferrer');
+  });
+
+  it('offers the article after playback fails and drops an unsafe article URL', () => {
+    const { container } = render(
+      <ExternalRemoteMedia
+        articleUrl='javascript:alert(1)'
+        status={status([
+          { id: 'clip', type: 'audio', url: 'https://cdn.example/talk.mp3' },
+        ])}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button'));
+    fireEvent.error(container.querySelector('audio'));
+
+    expect(container.querySelector('audio')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Open media file' }).getAttribute('href')).toBe('https://cdn.example/talk.mp3');
+    expect(screen.queryByRole('link', { name: 'Open article' })).toBeNull();
   });
 
   it('drops a javascript URL and renders nothing', () => {

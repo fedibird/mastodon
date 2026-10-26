@@ -71,4 +71,28 @@ describe('ExternalStatusMedia', () => {
     fireEvent.click(screen.getByRole('button'));
     expect(container.querySelector('video').getAttribute('src')).toBe('https://cdn.example/clip.mp4');
   });
+
+  it('replaces a remote player that errors with the media and article links', () => {
+    const { container } = render(
+      <ExternalStatusMedia status={fromJS({
+        id: '1',
+        media_attachments: [],
+        fedibird_external: {
+          canonical_url: 'https://example.com/story',
+          sequence: [
+            { id: 'remote-clip', type: 'video', delivery: 'remote', url: 'https://cdn.example/clip.mp4', position: 0 },
+          ],
+        },
+      })}
+      />,
+    );
+
+    expect(container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+    fireEvent.click(screen.getByRole('button'));
+    fireEvent.error(container.querySelector('video'));
+
+    expect(container.querySelector('video')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Open media file' }).getAttribute('href')).toBe('https://cdn.example/clip.mp4');
+    expect(screen.getByRole('link', { name: 'Open article' }).getAttribute('href')).toBe('https://example.com/story');
+  });
 });

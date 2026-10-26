@@ -216,7 +216,8 @@ export default class ExternalStatusMedia extends React.PureComponent {
     }
 
     const remoteStatus = fromJS({ fedibird_external: { media: [block.entry] } });
-    return <ExternalRemoteMedia key={key} status={remoteStatus} />;
+    const articleUrl = this.props.status.getIn(['fedibird_external', 'canonical_url']);
+    return <ExternalRemoteMedia key={key} status={remoteStatus} articleUrl={articleUrl} />;
   }
 
   render () {

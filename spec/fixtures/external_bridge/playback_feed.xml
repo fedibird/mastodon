@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Playback gate</title>
+    <link>https://example.com</link>
+    <description>Private fixture for issue #588 P3-D. Replace the media hosts with https URLs you can actually serve.</description>
+    <item>
+      <guid>playback-story</guid>
+      <title>Playback story</title>
+      <link>https://example.com/playback-story</link>
+      <description><![CDATA[
+        <p>One image, then three remote files. Nothing here should autoplay.</p>
+        <img src="https://cdn.example/playback.png" alt="Still frame">
+        <video><source src="https://cdn.example/playback.mp4" type="video/mp4"></video>
+        <video><source src="https://cdn.example/playback.webm" type="video/webm"></video>
+        <video><source src="https://cdn.example/playback.m3u8" type="application/vnd.apple.mpegurl"></video>
+      ]]></description>
+    </item>
+  </channel>
+</rss>
