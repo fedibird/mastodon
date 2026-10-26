@@ -66,11 +66,11 @@ class AddExternalBridgeRSSMedia < ActiveRecord::Migration[6.1]
               name: 'index_ext_proj_attachments_on_asset'
 
     add_foreign_key :external_projection_attachments, :external_status_projections,
-                    name: 'fk_ext_proj_attach_projection', on_delete: :cascade
+                    name: 'fk_ext_proj_attach_projection', on_delete: :cascade, validate: false
     add_foreign_key :external_projection_attachments, :external_media_assets,
-                    name: 'fk_ext_proj_attach_asset', on_delete: :restrict
+                    name: 'fk_ext_proj_attach_asset', on_delete: :restrict, validate: false
     add_foreign_key :external_projection_attachments, :media_attachments,
-                    name: 'fk_ext_proj_attach_media', on_delete: :restrict
+                    name: 'fk_ext_proj_attach_media', on_delete: :restrict, validate: false
   end
   # rubocop:enable Rails/BulkChangeTable
 end
