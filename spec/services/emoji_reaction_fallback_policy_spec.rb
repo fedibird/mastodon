@@ -235,6 +235,7 @@ RSpec.describe 'Emoji reaction fallback policy gate' do
       expect(required.error_code).to eq 'fallback_confirmation_required'
       expect(required.http_status).to eq 409
       expect(required.details.keys).to contain_exactly('mechanism', 'effects', 'confirmation_token', 'expires_in')
+      expect(required.message).to eq Mastodon::EmojiReactionPolicyError::CONFIRM_REQUIRED
       expect(required.details['mechanism']).to eq 'like_fallback'
       expect(required.details['effects']).to eq ['remote_favourite']
       expect(required.details['expires_in']).to eq 300
@@ -257,6 +258,34 @@ RSpec.describe 'Emoji reaction fallback policy gate' do
       expect(EmojiReaction.count).to eq 0
       expect(call_service(status, confirmation: replay.details['confirmation_token'])).to be_a(EmojiReaction)
       expect(delivery_types).to eq ['Like']
+    end
+
+    it 'describes a favourite only when the queued activity is a Like' do
+      missing = status_for(remote_author('missing-ask.example'))
+      missing_result = call_service(missing)
+      expect(missing_result.error_code).to eq 'fallback_confirmation_required'
+      expect(missing_result.message).to eq Mastodon::EmojiReactionPolicyError::CONFIRM_REQUIRED
+      expect(missing_result.details['mechanism']).to eq 'unknown'
+      expect(missing_result.details['effects']).to eq ['remote_favourite']
+
+      empty_domain = 'empty-ask.example'
+      make_node(empty_domain, {})
+      empty_result = call_service(status_for(remote_author(empty_domain)))
+      expect(empty_result.message).to eq Mastodon::EmojiReactionPolicyError::CONFIRM_REQUIRED_UNKNOWN
+      expect(empty_result.details['mechanism']).to eq 'unknown'
+      expect(empty_result.details['effects']).to eq []
+      expect(empty_result.message).not_to include('favourite')
+
+      unicode_domain = 'unicode-ask.example'
+      make_node(unicode_domain, { 'emoji_reaction_type' => 'unicode', 'favourite' => true })
+      custom = Fabricate(:custom_emoji, shortcode: "bird#{SecureRandom.hex(2)}")
+      custom_result = call_service(status_for(remote_author(unicode_domain)), custom.shortcode)
+      expect(custom_result.message).to eq Mastodon::EmojiReactionPolicyError::CONFIRM_REQUIRED_UNKNOWN
+      expect(custom_result.details['mechanism']).to eq 'unknown'
+      expect(custom_result.details['effects']).to eq []
+      expect(custom_result.message).not_to include('favourite')
+      expect(EmojiReaction.count).to eq 0
+      expect(delivery_types).to eq []
     end
 
     it 'rejects a token for another user, emoji, status, or a changed node, and does not let it override deny' do
@@ -355,6 +384,7 @@ RSpec.describe 'Emoji reaction fallback policy gate' do
       ActivityPub::DeliveryWorker.jobs.clear
 
       policy!('deny')
+      reactor_user.settings['disable_reactions'] = true
       UnEmojiReactionService.new.call(reactor, undo_status, '👍', shortcode_only: true)
       expect(EmojiReaction.where(account: reactor, status: undo_status)).to be_empty
       expect(undo_types).to eq ['EmojiReact']
@@ -368,11 +398,40 @@ RSpec.describe 'Emoji reaction fallback policy gate' do
       expect(EmojiReaction.count).to eq 0
     end
 
-    it 'does not let disable_reactions grow a second error inside the service' do
+    it 'rejects a new reaction in the service when enforcement is on and reactions are disabled' do
       reactor_user.settings['disable_reactions'] = true
       policy!('allow')
-      expect(call_service(status)).to be_a(EmojiReaction)
+      queries = sql_log do
+        expect { call_service(status) }.to raise_error(Mastodon::NotPermittedError)
+      end
+
+      expect(queries.grep(/nodeinfo_missing/)).to be_empty
+      expect(EmojiReaction.count).to eq 0
+      expect(delivery_types).to eq []
+    end
+
+    it 'still creates from the service when enforcement is off, even if reactions are disabled' do
+      reactor_user.settings['disable_reactions'] = true
+      off = {
+        'EMOJI_REACTION_CANONICAL_WRITES' => nil,
+        'EMOJI_REACTION_IDEMPOTENT_RETRY' => nil,
+        'EMOJI_REACTION_FALLBACK_POLICY_ENFORCE' => nil,
+      }
+      ClimateControl.modify(off) do
+        expect(call_service(status)).to be_a(EmojiReaction)
+      end
       expect(delivery_types).to eq ['Like']
+    end
+
+    it 'keeps an existing row when reactions are disabled after it was created' do
+      policy!('allow')
+      expect(call_service(status)).to be_a(EmojiReaction)
+      ActivityPub::DeliveryWorker.jobs.clear
+      reactor_user.settings['disable_reactions'] = true
+
+      expect(call_service(status)).to be_a(EmojiReaction)
+      expect(rows_for(status)).to eq 1
+      expect(delivery_types).to eq []
     end
 
     it 'refuses a Like when the reactor user cannot be read' do

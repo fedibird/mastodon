@@ -23,7 +23,7 @@ InitialState `meta.emoji_reaction_fallback_policy` is the effective value. Logge
 
 ## Safety form
 
-The choice sits on the safety preferences form, next to `disable_reactions`. `disable_reactions` is unchanged: the controller still returns 403 `This action is not allowed` with no `error_code`, and the service does not grow a second check.
+The choice sits on the safety preferences form, next to `disable_reactions`. The controller still returns 403 `This action is not allowed` with no `error_code`. While enforcement is effective, `EmojiReactionService` raises the same `Mastodon::NotPermittedError` before inserting a new row, so a caller that does not go through the controller cannot ignore the setting. The HTTP body does not gain `error_code` (`viewer_reactions_disabled` stays the design name for that situation, not a new field). Flag off does not add this check. An existing row is still a 200 with no new delivery, and removal is unchanged.
 
 Wording names a Like sent **to the server that hosts the post**. It says that a reaction on a local post can still reach followers as a favourite, and it does not say that no Like is ever sent.
 
@@ -89,7 +89,11 @@ If the reactor has no user record, a `like_fallback` or `unknown` write is `403 
 
 `ask` without a usable token does not insert, notify, or enqueue. The response is `409` with `error_code: fallback_confirmation_required` and `details`: `mechanism`, `effects`, `confirmation_token`, `expires_in` (300). `effects` is `["remote_favourite"]` when the activity would be `Like`, and `[]` when an unknown case would still send `EmojiReact`.
 
-The client repeats the same `PUT` with `fallback_confirmation=<token>`. Rails reads that from the JSON body, the form body, or the query string. A header is ignored. Prefer the body: proxies log query strings. The parameter is on `filter_parameters`. The token is not written to the log by this code.
+The `error` sentence matches that activity. A `Like` says it is sent as a favourite to the server of the post. An unknown case that still sends `EmojiReact` (empty `info`, missing NodeInfo, or a custom emoji on a unicode-only node) says support is not known and the reaction is sent as an emoji reaction. That sentence does not call the send a favourite.
+
+The client repeats the same `PUT` with `fallback_confirmation=<token>`. Rails reads that from the JSON body, the form body, or the query string. A header is ignored. The body is the shape to use. The query string is accepted so a client that cannot send a PUT body can still complete the handshake. `filter_parameters` redacts the parameter in the Rails log only. It does not redact the request URI in nginx or another reverse proxy, so a token in the query can be stored in those access logs. Do not put the token in the query if that log is retained.
+
+The token is not written to the application log by this code.
 
 The token is `ActiveSupport::MessageVerifier` (SHA256, JSON), purpose `:emoji_reaction_fallback`, lifetime 5 minutes. It binds `user_id`, canonical `status_id`, emoji identity (unicode string as stored on `EmojiReaction#name`, or resolved `custom_emoji_id`), target domain, mechanism, activity type, effects, policy `ask`, a digest of the normalized snapshot plus that legacy send, and a `jti`. `stale` is not in the digest.
 
@@ -117,7 +121,8 @@ Existing `error` strings stay. New fields are additive.
 | `disable_reactions` | 403 | `This action is not allowed` | none (unchanged) |
 | policy `deny` and the send is `Like` | 403 | `This action is not allowed` | `fallback_denied` |
 | policy `deny` or unreadable user, send is `unknown` | 403 | `This action is not allowed` | `capability_unknown_denied` |
-| `ask`, no token | 409 | confirmation required | `fallback_confirmation_required` |
+| `ask`, no token, activity is `Like` | 409 | sent as a favourite to the server of the post | `fallback_confirmation_required` |
+| `ask`, no token, unknown and activity is `EmojiReact` | 409 | support is not known; sent as an emoji reaction | `fallback_confirmation_required` |
 | `ask`, bad or used token | 409 | confirmation is no longer valid | `fallback_confirmation_invalid` |
 | Redis unavailable while consuming | 503 | temporary problem sentence | `fallback_confirmation_unavailable` |
 | not visible | 404 | `Record not found` | none |

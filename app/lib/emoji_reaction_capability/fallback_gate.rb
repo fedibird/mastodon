@@ -74,7 +74,17 @@ module EmojiReactionCapability
       if confirmation.is_a?(String) && confirmation.present?
         Mastodon::EmojiReactionPolicyError.confirmation_invalid(details)
       else
-        Mastodon::EmojiReactionPolicyError.confirmation_required(details)
+        Mastodon::EmojiReactionPolicyError.confirmation_required(details, message: confirmation_message(expected['activity_type']))
+      end
+    end
+
+    # A Like is described as a favourite. An unknown case that still sends
+    # EmojiReact must not use that sentence.
+    def confirmation_message(activity_type)
+      if activity_type == 'Like'
+        Mastodon::EmojiReactionPolicyError::CONFIRM_REQUIRED
+      else
+        Mastodon::EmojiReactionPolicyError::CONFIRM_REQUIRED_UNKNOWN
       end
     end
 

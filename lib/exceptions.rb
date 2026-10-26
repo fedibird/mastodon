@@ -20,6 +20,9 @@ module Mastodon
   class EmojiReactionPolicyError < Error
     FORBIDDEN = 'This action is not allowed'
     CONFIRM_REQUIRED = 'Confirmation is required before this reaction is sent as a favourite to the server of the post'
+    # Used when the legacy sender still enqueues EmojiReact but the capability
+    # is unknown. It must not say the reaction is sent as a favourite.
+    CONFIRM_REQUIRED_UNKNOWN = 'Confirmation is required before this reaction is sent. Emoji-reaction support on the server of the post is not known, and this reaction is sent as an emoji reaction.'
     CONFIRM_INVALID = 'Confirmation is no longer valid'
     UNAVAILABLE = 'There was a temporary problem serving your request, please try again'
 
@@ -40,8 +43,8 @@ module Mastodon
       new(http_status: 403, error_code: 'capability_unknown_denied', message: FORBIDDEN)
     end
 
-    def self.confirmation_required(details)
-      new(http_status: 409, error_code: 'fallback_confirmation_required', message: CONFIRM_REQUIRED, details: details)
+    def self.confirmation_required(details, message: CONFIRM_REQUIRED)
+      new(http_status: 409, error_code: 'fallback_confirmation_required', message: message, details: details)
     end
 
     def self.confirmation_invalid(details)

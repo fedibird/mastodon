@@ -153,6 +153,12 @@ class EmojiReactionService < BaseService
     return if @fallback_policy_cleared
     return unless EmojiReactionCapability::FallbackPolicyConfig.effective?
 
+    # Same exception the controller raises, so the HTTP body stays
+    # { error: 'This action is not allowed' } with no error_code. Checked
+    # only for a new row, and only while enforcement is effective. An
+    # existing row and a flag-off write do not come through here.
+    raise Mastodon::NotPermittedError if reactions_disabled?(@account)
+
     activity_type = EmojiReactionCapability::FallbackGate.enforce!(
       reactor: @account,
       status: write_status,
@@ -162,6 +168,10 @@ class EmojiReactionService < BaseService
     )
     @approved_activity_type = activity_type if activity_type
     @fallback_policy_cleared = true
+  end
+
+  def reactions_disabled?(account)
+    account.user&.setting_disable_reactions
   end
 
   # A non-string (an array, a hash) is treated as no token, not as a crash.
