@@ -14,8 +14,10 @@
 #  updated_at                    :datetime         not null
 #
 # The owner's MediaAttachment for one shared ExternalMediaAsset. Purging the
-# projection removes this row and, after commit, the attachment file. The
-# shared asset stays while another projection still points at it.
+# projection removes this row in the same transaction that records an
+# external_media_gc_intents plan. The attachment file and, when nothing else
+# references it, the shared asset are released after that transaction
+# commits. Another projection's reference keeps the shared asset.
 class ExternalProjectionAttachment < ApplicationRecord
   KINDS = %w(image video).freeze
 

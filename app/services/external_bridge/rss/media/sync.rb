@@ -208,15 +208,17 @@ module ExternalBridge
           removed = current.reject { |row| kept_ids.include?(row.id) }
           changed = removed.any?
 
+          attachment_ids = removed.map(&:media_attachment_id)
+          asset_ids = removed.map(&:external_media_asset_id) - prepared.map { |item| item[:asset].id }
           ApplicationRecord.transaction do
+            ExternalBridge::MediaGc.plan_replacement!(attachment_ids: attachment_ids, asset_ids: asset_ids)
             removed.each(&:destroy!)
             prepared.each_with_index do |item, index|
               changed = true if write_prepared!(item, index)
             end
+            ExternalBridge::MediaGc.schedule_release!(attachment_ids: attachment_ids, asset_ids: asset_ids)
           end
           committed = true
-          removed.each { |row| destroy_attachment!(row.media_attachment) }
-          release_assets(removed.map(&:external_media_asset_id) - prepared.map { |item| item[:asset].id })
           changed
         rescue StandardError
           destroy_new!(prepared) unless committed
@@ -319,14 +321,6 @@ module ExternalBridge
           attachment.destroy!
         rescue ActiveRecord::ActiveRecordError
           nil
-        end
-
-        def release_assets(ids)
-          ExternalMediaAsset.where(id: ids.uniq).find_each do |asset|
-            next if asset.external_projection_attachments.exists?
-
-            asset.destroy!
-          end
         end
 
         def notify!

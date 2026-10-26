@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_01_120000) do
+ActiveRecord::Schema.define(version: 2026_11_02_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -652,6 +652,42 @@ ActiveRecord::Schema.define(version: 2026_11_01_120000) do
     t.datetime "updated_at", precision: 6, null: false
     t.index ["url_digest"], name: "index_external_media_assets_on_url_digest", unique: true
   end
+
+  create_table "external_media_gc_intents", force: :cascade do |t|
+    t.string "target_type", limit: 32, null: false
+    t.bigint "target_id", null: false
+    t.string "reason", limit: 32, null: false
+    t.string "state", limit: 16, default: "pending", null: false
+    t.bigint "owner_account_id"
+    t.bigint "captured_status_id"
+    t.bigint "source_attachment_id"
+    t.bigint "external_subscription_deletion_id"
+    t.datetime "available_at", null: false
+    t.integer "attempt_count", default: 0, null: false
+    t.string "last_error_code", limit: 64
+    t.string "lease_token", limit: 32
+    t.datetime "leased_until"
+    t.datetime "resolved_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.check_constraint "((state)::text = ANY ((ARRAY['pending'::character varying, 'released'::character varying, 'retained'::character varying, 'failed'::character varying])::text[]))", name: "external_media_gc_intents_state_check"
+    t.check_constraint "((target_type)::text = ANY ((ARRAY['media_attachment'::character varying, 'external_media_asset'::character varying])::text[]))", name: "external_media_gc_intents_target_check"
+    t.check_constraint "(((target_type)::text = 'external_media_asset'::text) AND ((reason)::text = ANY ((ARRAY['projection_purge'::character varying, 'asset_unreferenced'::character varying, 'generation_replaced'::character varying])::text[]))) OR (((target_type)::text = 'media_attachment'::text) AND ((reason)::text = ANY ((ARRAY['projection_purge'::character varying, 'attachment_replaced'::character varying])::text[])) AND (owner_account_id IS NOT NULL) AND (captured_status_id IS NOT NULL) AND (source_attachment_id IS NOT NULL))", name: "external_media_gc_intents_reason_check"
+  end
+
+  # MediaGc::Plan inserts with ON CONFLICT (target_type, target_id) WHERE state = 'pending'.
+  # Keep this predicate. Do not replace these statements with a db:schema:dump.
+  execute <<~SQL
+    CREATE UNIQUE INDEX IF NOT EXISTS index_ext_media_gc_open_target
+    ON external_media_gc_intents (target_type, target_id)
+    WHERE state = 'pending'
+  SQL
+
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_ext_media_gc_intents_on_due
+    ON external_media_gc_intents (available_at, id)
+    WHERE state = 'pending'
+  SQL
 
   create_table "external_oauth_attempts", force: :cascade do |t|
     t.bigint "user_id", null: false

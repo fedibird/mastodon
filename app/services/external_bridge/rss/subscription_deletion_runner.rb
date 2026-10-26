@@ -168,7 +168,8 @@ module ExternalBridge
               result = ProjectionPurge.purge_ids_in_transaction!(
                 ids,
                 route_targets: deletion.route_targets,
-                schedule_deletes: false
+                schedule_deletes: false,
+                deletion_id: deletion.id
               )
               remember_effects!(deletion, ids, result[:captures])
               record_progress!(deletion, result[:deleted])
