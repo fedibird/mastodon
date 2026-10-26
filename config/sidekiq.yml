@@ -130,8 +130,9 @@
       every: '1m'
       class: Scheduler::ExternalBridgeRSSMediaGcScheduler
       queue: scheduler
-    # Conditional GET for ready RSS images older than 24 hours. At most 10
-    # assets per pass. No-op while the RSS flag is off. URLs are not job args.
+    # Conditional GET for ready RSS images older than 24 hours that already
+    # have a resource link. At most 10 assets per pass. No-op while the RSS
+    # flag is off. URLs are not job args.
     external_bridge_rss_media_revalidate_scheduler:
       every: '15m'
       class: Scheduler::ExternalBridgeRSSMediaRevalidateScheduler

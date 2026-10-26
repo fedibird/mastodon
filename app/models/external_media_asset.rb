@@ -36,9 +36,11 @@
 #
 # A ready asset is reused until ExternalBridge::RSS::Media::Revalidate decides
 # it is due. That path conditional-GETs with validator_etag and
-# validator_last_modified. A changed body becomes a new generation and the
-# previous file is released through MediaGc.plan_generation! only after every
-# projection link has moved. The URL is not stored on this row.
+# validator_last_modified. A changed body is stored as the next generation
+# (digest incoming:{id}) and projections move onto it in batches. The
+# previous file is released through MediaGc.plan_generation! only after no
+# projection still references it. Resource links move with the digest when
+# that resource still lists the URL. The URL is not stored on this row.
 #
 # processing_failed means the shared bytes are stored but turning them into
 # a MediaAttachment failed. The row stays out of the ready set until the

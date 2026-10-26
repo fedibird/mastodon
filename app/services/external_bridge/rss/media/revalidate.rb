@@ -5,8 +5,18 @@ module ExternalBridge
     module Media
       # Conditional GET for one ready image. The URL is read from the resource
       # candidate list. A 304 reuses the local file only when that file is
-      # still present. A changed body is swapped in ReplaceGeneration. A
-      # timeout or HTTP error leaves the current file and sets a backoff.
+      # still present. A changed body is swapped by ReplaceGeneration, which
+      # saves the new generation before it repoints projections in batches.
+      # A timeout or HTTP error leaves the current file and sets a backoff.
+      #
+      # A 304 with a missing shared file marks the asset failed. The
+      # revalidate scheduler only selects ready images, so it will not retry
+      # that row.
+      # After the URL lock is released, follow_up enqueues MediaFetchWorker.
+      # That fetch sends no validators. If the job is lost, the next refresh
+      # that materializes the resource reaches the same worker:
+      # Materialize#project always calls Media::Sync.enqueue!, and a failed
+      # asset is queued as a fetch rather than a conditional GET.
       class Revalidate
         NETWORK = [HTTP::Error, IOError, Timeout::Error, Errno::ECONNRESET, SocketError].freeze
 
@@ -31,7 +41,9 @@ module ExternalBridge
           return :disabled unless permitted?
           return :missing if candidate.nil? || asset.nil?
 
-          URLLock.exclusive(@url_digest) { locked }
+          outcome = URLLock.exclusive(@url_digest) { locked }
+          follow_up(outcome)
+          outcome
         end
 
         private
@@ -56,6 +68,8 @@ module ExternalBridge
         end
 
         def apply(current)
+          return ReplaceGeneration.resume!(current, resource, @url_digest) if ReplaceGeneration.pending?(current)
+
           result = ImageFetch.new.call(candidate['url'], etag: current.validator_etag, last_modified: current.validator_last_modified)
           if result.not_modified
             unchanged_or_missing(current)
@@ -64,13 +78,16 @@ module ExternalBridge
             :unchanged
           else
             ReplaceGeneration.call!(current, result, resource, @url_digest)
-            :replaced
           end
         end
 
+        # 304 has no body. The shared file is restored by the unconditional
+        # fetch follow_up enqueues, not by another conditional GET. Existing
+        # projection attachments stay in place.
         def unchanged_or_missing(current)
           unless file_intact?(current)
             current.update_columns(state: 'failed', failure_code: 'local_missing', validated_at: Time.current, updated_at: Time.current)
+            Rails.logger.info("[ExternalBridge::RSS] media revalidate failed asset_id=#{current.id} code=local_missing")
             return :local_missing
           end
 
@@ -100,6 +117,26 @@ module ExternalBridge
             updated_at: Time.current
           )
           Rails.logger.info("[ExternalBridge::RSS] media revalidate failed asset_id=#{current.id} code=#{code}")
+        end
+
+        # Enqueued only after URLLock.exclusive returns. Fetch and a resumed
+        # revalidate take that lock themselves.
+        def follow_up(outcome)
+          case outcome
+          when :partial
+            MediaGenerationContinueWorker.perform_async(@resource_id, @url_digest)
+          when :local_missing
+            enqueue_refetch!
+          end
+        rescue StandardError => e
+          Rails.logger.info("[ExternalBridge::RSS] media revalidate follow-up skipped error=#{e.class}")
+        end
+
+        def enqueue_refetch!
+          revision = resource&.media_revision
+          return if revision.blank?
+
+          MediaFetchWorker.perform_async(@resource_id, revision, @url_digest)
         end
 
         def file_intact?(current)

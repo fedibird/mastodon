@@ -662,7 +662,9 @@ ActiveRecord::Schema.define(version: 2026_11_03_120000) do
   end
 
   # Scheduler::ExternalBridgeRSSMediaRevalidateScheduler orders ready images
-  # by validated_at NULLS FIRST. Keep this predicate. Do not replace it with a dump.
+  # that already have an external_media_asset_resources row by validated_at
+  # NULLS FIRST, then applies LIMIT. Keep this predicate. Do not replace it
+  # with a dump.
   execute <<~SQL
     CREATE INDEX IF NOT EXISTS index_ext_media_assets_on_image_revalidate
     ON external_media_assets (validated_at ASC NULLS FIRST, id)

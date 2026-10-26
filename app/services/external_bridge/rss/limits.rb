@@ -64,6 +64,9 @@ module ExternalBridge
       MEDIA_REVALIDATE_AFTER = 24.hours
       MEDIA_REVALIDATE_PER_REFRESH = 2
       MEDIA_REVALIDATE_BATCH = 10
+      # One generation swap repoints at most this many projections, each in
+      # its own transaction. The next pass continues the same incoming row.
+      MEDIA_REPOINT_BATCH = 8
     end
   end
 end
