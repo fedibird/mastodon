@@ -18,7 +18,9 @@ module ExternalBridge
 
         def self.fail!(url_digest, kind, revision, code)
           asset = ExternalMediaAsset.find_or_initialize_by(url_digest: url_digest)
-          return asset if asset.ready?
+          # New rows default state to ready before they are saved. Only a
+          # persisted ready file should stop a failure from being recorded.
+          return asset if asset.persisted? && asset.ready?
 
           asset.kind = kind
           asset.state = 'failed'
