@@ -81,6 +81,17 @@ export default class ExternalRemoteMedia extends React.PureComponent {
     this.setState({ failedId: event.currentTarget.getAttribute('data-media-id') });
   };
 
+  // Back to the button that has no src. The media URL stays out of the
+  // document until the owner clicks again. The failure view may still show
+  // the file and article links until this runs.
+  handleRetry = (event) => {
+    const id = event.currentTarget.getAttribute('data-media-id');
+    this.setState(prev => ({
+      armedId: prev.armedId === id ? null : prev.armedId,
+      failedId: prev.failedId === id ? null : prev.failedId,
+    }));
+  };
+
   articleUrl () {
     return safeMediaUrl(this.props.articleUrl);
   }
@@ -150,6 +161,14 @@ export default class ExternalRemoteMedia extends React.PureComponent {
         <p>
           <FormattedMessage id='external_media.playback_failed' defaultMessage='This browser could not play the file.' />
         </p>
+        <button
+          type='button'
+          className='external-remote-media__retry'
+          data-media-id={item.id}
+          onClick={this.handleRetry}
+        >
+          <FormattedMessage id='external_media.retry' defaultMessage='Try again' />
+        </button>
         <a href={item.url} target='_blank' rel='noopener noreferrer'>
           <FormattedMessage id='external_media.open_media' defaultMessage='Open media file' />
         </a>

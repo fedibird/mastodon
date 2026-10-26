@@ -62,6 +62,45 @@ describe('ExternalRemoteMedia', () => {
     expect(screen.queryByRole('link', { name: 'Open article' })).toBeNull();
   });
 
+  it('clears the failure on retry and withholds src until the next click', () => {
+    const { container } = render(
+      <ExternalRemoteMedia
+        articleUrl='https://example.com/playback-story'
+        status={status([
+          { id: 'talk', type: 'audio', url: 'https://cdn.example/playback.mp3' },
+        ])}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'External audio' }));
+    const audio = container.querySelector('audio');
+    expect(audio.getAttribute('src')).toBe('https://cdn.example/playback.mp3');
+    expect(audio.hasAttribute('autoplay')).toBe(false);
+
+    fireEvent.error(audio);
+
+    expect(container.querySelector('audio')).toBeNull();
+    expect(container.innerHTML).not.toContain('src="https://cdn.example/playback.mp3"');
+    expect(screen.getByRole('link', { name: 'Open media file' }).getAttribute('href')).toBe('https://cdn.example/playback.mp3');
+    expect(screen.getByRole('link', { name: 'Open article' }).getAttribute('href')).toBe('https://example.com/playback-story');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(container.querySelector('audio')).toBeNull();
+    expect(container.querySelector('video')).toBeNull();
+    expect(container.innerHTML).not.toContain('https://cdn.example/playback.mp3');
+    expect(screen.queryByRole('link', { name: 'Open media file' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Open article' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'External audio' }));
+
+    const again = container.querySelector('audio');
+    expect(again).not.toBeNull();
+    expect(again.getAttribute('src')).toBe('https://cdn.example/playback.mp3');
+    expect(again.hasAttribute('autoplay')).toBe(false);
+    expect(again.getAttribute('preload')).toBe('none');
+  });
+
   it('drops a javascript URL and renders nothing', () => {
     const { container } = render(
       <ExternalRemoteMedia status={status([

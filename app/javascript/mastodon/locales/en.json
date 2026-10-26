@@ -526,6 +526,7 @@
   "external_media.playback_failed": "This browser could not play the file.",
   "external_media.remote_audio": "External audio",
   "external_media.remote_video": "External video",
+  "external_media.retry": "Try again",
   "external_source.byline": "by {name}",
   "external_source.generic_name": "External content",
   "external_source.open_site": "Open {name}",

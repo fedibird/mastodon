@@ -526,6 +526,7 @@
   "external_media.playback_failed": "このブラウザでは再生できませんでした。",
   "external_media.remote_audio": "外部音声",
   "external_media.remote_video": "外部動画",
+  "external_media.retry": "再試行",
   "external_source.byline": "著者: {name}",
   "external_source.generic_name": "外部コンテンツ",
   "external_source.open_site": "{name}を開く",
