@@ -966,4 +966,107 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       expect(ExternalStatusProjection.where(external_subscription_id: subscription.id).count).to eq(total + 1)
     end
   end
+
+  describe 'RSS 1.0' do
+    let(:rdf) do
+      <<~XML
+        <?xml version="1.0" encoding="UTF-8"?>
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+          <channel rdf:about="https://news.example/">
+            <title>Example RDF</title>
+            <link>https://news.example/</link>
+            <description>Public RSS 1.0</description>
+            <items>
+              <rdf:Seq>
+                <rdf:li rdf:resource="https://news.example/second" />
+                <rdf:li rdf:resource="https://news.example/first " />
+              </rdf:Seq>
+            </items>
+            <image rdf:resource="https://news.example/logo.png" />
+          </channel>
+          <image rdf:about="https://news.example/logo.png">
+            <title>Logo</title>
+            <url>https://news.example/logo.png</url>
+            <link>https://news.example/</link>
+          </image>
+          <item rdf:about="https://news.example/first ">
+            <title>First</title>
+            <link>https://news.example/first </link>
+            <dc:creator>Ada</dc:creator>
+            <dc:date>2026-10-26T13:33:00+09:00</dc:date>
+            <content:encoded><![CDATA[<p>Visible</p><script>alert(1)</script>]]></content:encoded>
+          </item>
+          <item rdf:about="https://news.example/second">
+            <title>Second</title>
+            <link>https://news.example/second</link>
+            <description>Summary only</description>
+            <dc:date>not-a-date</dc:date>
+          </item>
+          <item rdf:about="https://news.example/notes#section">
+            <title>Fragment</title>
+            <link>https://news.example/notes#section</link>
+            <description>Kept by about</description>
+            <dc:date>2026-10-22T14:27:00+09:00</dc:date>
+          </item>
+        </rdf:RDF>
+      XML
+    end
+
+    %w(application/xml text/xml text/html).each do |content_type|
+      it "subscribes a public RSS 1.0 document served as #{content_type}" do
+        stub_request(:get, feed_url).to_return(status: 200, body: rdf, headers: { 'Content-Type' => "#{content_type}; charset=UTF-8" })
+
+        described_class.new.call(user: user, url: feed_url)
+
+        source = ExternalSource.find_by!(canonical_key: feed_url)
+        expect(source.protocol).to eq 'rss'
+        expect(source.title).to eq 'Example RDF'
+        expect(source.site_url).to eq 'https://news.example'
+        expect(source.icon_hints).to eq [{ 'kind' => 'rss_image', 'url' => 'https://news.example/logo.png' }]
+        resources = source.external_resources.index_by(&:title)
+        expect(resources.keys).to contain_exactly('First', 'Second', 'Fragment')
+
+        first = resources['First']
+        expect(first.byline).to eq 'Ada'
+        expect(first.body).to eq 'Visible'
+        expect(first.body).not_to include('script')
+        expect(first.canonical_url).to eq 'https://news.example/first'
+        expect(first.canonical_key).to end_with('item:https://news.example/first')
+        expect(first.canonical_key).not_to include(' ')
+        expect(first.published_at).to eq Time.zone.parse('2026-10-26T13:33:00+09:00')
+
+        expect(resources['Second'].body).to eq 'Summary only'
+        expect(resources['Second'].published_at).to be_nil
+
+        fragment = resources['Fragment']
+        expect(fragment.canonical_url).to eq 'https://news.example/notes'
+        expect(fragment.canonical_key).to include('item:https://news.example/notes#section')
+        expect(ExternalStatusProjection.where(user_id: user.id).count).to eq 3
+      end
+    end
+
+    it 'rejects an HTML document and unreadable XML with different errors and no shared row' do
+      stub_request(:get, feed_url).to_return(status: 200, body: '<html><body>Not a feed</body></html>', headers: { 'Content-Type' => 'text/html' })
+      expect { described_class.new.call(user: user, url: feed_url) }
+        .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'malformed_feed' }
+
+      stub_request(:get, feed_url).to_return(status: 200, body: 'this is not xml', headers: { 'Content-Type' => 'application/xml' })
+      expect { described_class.new.call(user: user, url: feed_url) }
+        .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'invalid_xml' }
+      expect(ExternalSource.where(canonical_key: feed_url)).to be_empty
+    end
+
+    it 'stops after three redirects and does not store the feed' do
+      stub_request(:get, feed_url).to_return(status: 302, headers: { 'Location' => 'https://feeds.example/1.xml' })
+      stub_request(:get, 'https://feeds.example/1.xml').to_return(status: 302, headers: { 'Location' => 'https://feeds.example/2.xml' })
+      stub_request(:get, 'https://feeds.example/2.xml').to_return(status: 302, headers: { 'Location' => 'https://feeds.example/3.xml' })
+      stub_request(:get, 'https://feeds.example/3.xml').to_return(status: 302, headers: { 'Location' => 'https://feeds.example/4.xml' })
+      stub_request(:get, 'https://feeds.example/4.xml').to_return(status: 200, body: rdf, headers: { 'Content-Type' => 'application/xml' })
+
+      expect { described_class.new.call(user: user, url: feed_url) }
+        .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'too_many_redirects' }
+      expect(a_request(:get, 'https://feeds.example/4.xml')).not_to have_been_made
+      expect(ExternalSource.where(canonical_key: feed_url)).to be_empty
+    end
+  end
 end

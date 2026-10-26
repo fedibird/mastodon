@@ -107,8 +107,19 @@ describe Settings::ExternalServices::RSSController do
 
     expect(response.body).to include('フィードURL')
     expect(response.body).to include('取得エラー')
-    expect(response.body).to include('公開のRSSまたはAtomではありませんでした。')
+    expect(response.body).to include('RSS 1.0、RSS 2.0、Atomのいずれのフィードとしても読めませんでした。')
     expect(response.body).to include('この購読から取り込んだ自分専用の投稿')
+  end
+
+  it 'shows an HTTP status without the raw error code' do
+    enable_external_bridge_rss!(user)
+    source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/down.xml', title: 'Down')
+    ExternalSubscription.create!(user: user, external_source: source, state: 'error', last_error_code: 'http_503')
+
+    get :show, session: challenge
+
+    expect(response.body).to include(I18n.t('external_bridge.errors.http_status', status: '503'))
+    expect(response.body).not_to include('http_503')
   end
 
   it 'shows destination choices to a delivery tester and escapes the list title' do

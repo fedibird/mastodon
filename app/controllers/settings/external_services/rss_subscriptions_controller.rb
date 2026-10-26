@@ -44,7 +44,7 @@ class Settings::ExternalServices::RSSSubscriptionsController < Settings::BaseCon
   end
 
   def failure_alert(error)
-    I18n.t("external_bridge.errors.#{error.code}", default: I18n.t('external_bridge.errors.fetch_failed'))
+    ExternalBridge::RSS::ErrorMessage.for(error.code)
   end
 
   def require_recent_challenge!

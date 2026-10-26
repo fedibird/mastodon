@@ -11,7 +11,8 @@ module ExternalBridge
       end
     end
 
-    # RSS 2.0 and Atom. External entities are not resolved.
+    # RSS 1.0 (RDF), RSS 2.0, and Atom. External entities are not resolved.
+    # The root element decides the format. Content-Type is not consulted.
     class Parser
       ICON_HINT_ORDER = %w(atom_icon rss_image atom_logo).freeze
 
@@ -25,20 +26,17 @@ module ExternalBridge
 
       def parse!
         document = Nokogiri::XML(@body) { |config| config.nonet.noblanks }
-        raise Error, :malformed_feed if document.errors.any? && document.root.nil?
-        raise Error, :malformed_feed if document.root.nil?
+        raise Error, :invalid_xml if document.root.nil?
 
         document.remove_namespaces!
-        root = document.root.name.to_s.downcase
-        if root == 'rss'
-          parse_rss(document)
-        elsif root == 'feed'
-          parse_atom(document)
-        else
-          raise Error, :malformed_feed
+        case document.root.name.to_s.downcase
+        when 'rss' then parse_rss(document)
+        when 'feed' then parse_atom(document)
+        when 'rdf' then parse_rdf(document)
+        else raise Error, :malformed_feed
         end
       rescue Nokogiri::XML::SyntaxError
-        raise Error, :malformed_feed
+        raise Error, :invalid_xml
       end
 
       private
@@ -57,6 +55,19 @@ module ExternalBridge
         )
       end
 
+      def parse_rdf(document)
+        channel, nodes, image_url = RdfDocument.extract(document)
+        raise Error, :malformed_feed if channel.nil?
+
+        Feed.new(
+          protocol: 'rss',
+          title: Sanitizer.title(text_at(channel, 'title')),
+          site_url: safe_url(text_at(channel, 'link')),
+          items: nodes.first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) },
+          icon_hints: icon_hints([['rss_image', image_url]])
+        )
+      end
+
       def parse_atom(document)
         feed = document.at_xpath('/feed')
         raise Error, :malformed_feed if feed.nil?
@@ -72,9 +83,9 @@ module ExternalBridge
       end
 
       def rss_item(node)
-        key = text_at(node, 'guid').presence
-        link = safe_url(text_at(node, 'link'))
-        key ||= link
+        about = node['about'].to_s.strip.presence
+        link = safe_url(text_at(node, 'link').presence || about)
+        key = text_at(node, 'guid').presence || about || link
         return nil if key.blank?
 
         body, truncated = Sanitizer.capped(text_at(node, 'encoded').presence || text_at(node, 'description'))
@@ -84,7 +95,7 @@ module ExternalBridge
           body: body,
           canonical_url: link,
           byline: Sanitizer.title(text_at(node, 'creator').presence || text_at(node, 'author')),
-          published_at: parse_time(text_at(node, 'pubDate')),
+          published_at: parse_time(text_at(node, 'pubDate')) || parse_time(text_at(node, 'date')),
           truncated: truncated
         )
       end
@@ -132,9 +143,10 @@ module ExternalBridge
       end
 
       def safe_url(value)
-        return nil if value.blank?
+        text = value.to_s.strip
+        return nil if text.blank?
 
-        CanonicalURL.normalize!(value)
+        CanonicalURL.normalize!(text)
       rescue Error
         nil
       end

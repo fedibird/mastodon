@@ -334,7 +334,7 @@ RSpec.describe ExternalBridge::RSS::Icon::RefreshSource do
       stub_request(:get, 'https://cdn.example/3.png').to_return(status: 302, headers: { 'Location' => 'https://cdn.example/4.png' })
       stub_icon('https://cdn.example/4.png')
 
-      expect_fetch_error 'fetch_failed'
+      expect_fetch_error 'too_many_redirects'
       expect(a_request(:get, 'https://cdn.example/4.png')).not_to have_been_made
     end
 

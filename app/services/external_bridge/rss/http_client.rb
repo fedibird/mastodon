@@ -21,6 +21,8 @@ module ExternalBridge
         asset_urls: false,
         budget_namespace: 'external_bridge:rss:host:',
         budget: Limits::HOST_BUDGET,
+        # nil on purpose: application/xml and text/xml are normal for RSS 1.0,
+        # and a Content-Type alone does not decide whether the body is a feed.
         content_types: nil,
         truncate: false,
         timeouts: nil
@@ -63,14 +65,24 @@ module ExternalBridge
           build_response(response, canonical, profile)
         end
       rescue Mastodon::HostValidationError => e
-        raise Error, (e.message.to_s.include?('authenticated_source_rejected') ? :authenticated_source_rejected : :private_address)
+        raise Error, host_validation_code(e)
       rescue Mastodon::LengthValidationError
         raise Error, :oversized_feed
+      rescue HTTP::Redirector::TooManyRedirectsError
+        raise Error, :too_many_redirects
       rescue HTTP::Error, OpenSSL::SSL::SSLError, Addressable::URI::InvalidURIError
         raise Error, :fetch_failed
       end
 
       private
+
+      def host_validation_code(error)
+        text = error.message.to_s
+        return 'authenticated_source_rejected' if text.include?('authenticated_source_rejected')
+        return 'unsupported_url' if text.include?('unsupported_url')
+
+        'private_address'
+      end
 
       def request_options(profile)
         options = { follow: redirect_policy(profile) }

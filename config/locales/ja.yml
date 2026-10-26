@@ -2235,7 +2235,10 @@ ja:
       tester_only: このサーバーではRSSの取り込みはテスターだけが使えます。
       import_failed: 項目の一部を保存できませんでした。
       fetch_failed: フィードを取得できませんでした。
-      malformed_feed: 公開のRSSまたはAtomではありませんでした。
+      http_status: フィードを取得できませんでした（HTTP %{status}）。
+      invalid_xml: フィードのXMLを読み取れませんでした。
+      malformed_feed: RSS 1.0、RSS 2.0、Atomのいずれのフィードとしても読めませんでした。
+      too_many_redirects: リダイレクトが上限を超えたため取得しませんでした。
       not_found: そのフィードは見つかりませんでした。
       subscription_deleting: このフィードは削除中です。削除が完了してから、もう一度購読してください。
       oversized_feed: フィードが取り込み上限を超えています。

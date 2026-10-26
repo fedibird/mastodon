@@ -111,7 +111,7 @@ module ExternalServices
         code = @subscription.last_error_code
         return if code.blank?
 
-        I18n.t("external_bridge.errors.#{code}", default: I18n.t('external_bridge.errors.fetch_failed'))
+        ExternalBridge::RSS::ErrorMessage.for(code)
       end
 
       def partial_failure_message

@@ -2306,7 +2306,10 @@ en:
       tester_only: RSS import is limited to testers on this server.
       import_failed: This feed could not be saved for one of the items.
       fetch_failed: The feed could not be fetched.
-      malformed_feed: The response was not a public RSS or Atom feed.
+      http_status: The feed could not be fetched (HTTP %{status}).
+      invalid_xml: The feed XML could not be parsed.
+      malformed_feed: The response could not be read as an RSS 1.0, RSS 2.0, or Atom feed.
+      too_many_redirects: The feed was not fetched because it redirected too many times.
       not_found: That feed was not found.
       subscription_deleting: This feed is being removed. Subscribe again once the removal is finished.
       oversized_feed: The feed is larger than the import limit.

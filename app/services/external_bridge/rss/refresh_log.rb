@@ -58,10 +58,12 @@ module ExternalBridge
         authenticated_source_rejected
         fetch_failed
         import_failed
+        invalid_xml
         malformed_feed
         oversized_feed
         private_address
         rate_limited
+        too_many_redirects
         unsupported_url
         icon_bad_content_type
         icon_empty

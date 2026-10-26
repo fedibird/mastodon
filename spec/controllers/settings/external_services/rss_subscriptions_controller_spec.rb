@@ -47,7 +47,7 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
       post :create, params: { feed_url: missing }, session: challenge
     end.not_to change(ExternalSubscription, :count)
 
-    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.fetch_failed'))
+    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.http_status', status: '404'))
     expect(flash[:alert]).not_to include('http_404')
     expect(flash[:alert]).not_to include('missing.xml')
     expect(response.location).not_to include('missing.xml')
