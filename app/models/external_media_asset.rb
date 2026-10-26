@@ -32,7 +32,8 @@
 # URL, even if the origin publishes new bytes at that URL. ETag and
 # Last-Modified revalidation, repointing projection attachments at a
 # replacement asset, and deleting the previous file are not implemented.
-# That refresh and its garbage collection are P3.
+# That refresh and its garbage collection are the next P3 increment. P2 does
+# not conditional-GET a stored URL and does not collect the replaced file.
 #
 # processing_failed means the shared bytes are stored but turning them into
 # a MediaAttachment failed. The row stays out of the ready set until the
