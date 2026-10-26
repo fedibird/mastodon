@@ -87,4 +87,58 @@ RSpec.describe ExternalBridge::RSS::Media::Fetch do
     expect(calls).to eq 1
     expect(ExternalMediaAsset.where(url_digest: digest, state: 'ready').count).to eq 1
   end
+
+  it 'does not start a second GET when the first download outlives a 15s lease' do
+    stub_const('ExternalBridge::RSS::Limits::MEDIA_URL_LOCK_LEASE', 15)
+    url = 'https://cdn.example/slow.png'
+    digest = ExternalBridge::RSS::MediaDigest.url_digest(url)
+    other = external_project_for(Fabricate(:user).tap { |person| enable_external_bridge_rss!(person) })
+    [bundle, other].each do |item|
+      item[:resource].update!(media_candidates: [candidate(url)], media_revision: 'rev-slow')
+    end
+    calls = 0
+    call_lock = Mutex.new
+    allow_any_instance_of(ExternalBridge::RSS::Media::ImageFetch).to receive(:call) do
+      call_lock.synchronize { calls += 1 }
+      sleep 16
+      image_result
+    end
+
+    threads = [bundle, other].map do |item|
+      Thread.new do
+        described_class.new.call(item[:resource].id, 'rev-slow', digest)
+        :ok
+      rescue StandardError => e
+        e
+      end
+    end
+    results = threads.map(&:value)
+
+    expect(calls).to eq 1
+    expect(results.count { |result| result == :ok }).to eq 1
+    expect(results.count { |result| result.is_a?(ExternalBridge::Error) && result.code == 'rate_limited' }).to eq 1
+    expect(ExternalMediaAsset.where(url_digest: digest, state: 'ready').count).to eq 1
+  end
+end
+
+RSpec.describe ExternalBridge::RSS::Media::URLLock do
+  it 'drops the lock only when the owner token matches' do
+    lock = described_class.new
+    key = 'external_bridge:rss_media:url:owner-check'
+    lock.send(:with_redis) { |redis| redis.set(key, 'owner-a', ex: 30) }
+
+    lock.send(:unlock, key, 'owner-b')
+    expect(lock.send(:with_redis) { |redis| redis.get(key) }).to eq 'owner-a'
+
+    lock.send(:unlock, key, 'owner-a')
+    expect(lock.send(:with_redis) { |redis| redis.get(key) }).to be_nil
+  end
+
+  it 'leases a download for longer than one image read' do
+    timeouts = ExternalBridge::RSS::Limits::MEDIA_IMAGE_TIMEOUTS
+    lease = ExternalBridge::RSS::Limits::MEDIA_URL_LOCK_LEASE
+
+    expect(lease).to be > timeouts[:read_deadline]
+    expect(lease).to be >= timeouts[:connect_timeout] + timeouts[:write_timeout] + timeouts[:read_deadline]
+  end
 end

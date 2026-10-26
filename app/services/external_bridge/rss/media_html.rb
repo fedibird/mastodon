@@ -43,20 +43,32 @@ module ExternalBridge
         add_url(preferred_picture(node, img), 'image', 'html_picture', img || node)
       end
 
+      # The representative URL is the highest declared width, not the first
+      # srcset entry and not a small WebP ahead of a larger JPEG. Equal widths
+      # prefer WebP. If the chosen bytes later fail to decode, another source
+      # is not tried; that fallback is P3.
       def preferred_picture(node, img)
         sources = node.css('source').filter_map { |source| picture_source(source) }
-        best = sources.select { |row| row[:webp] }.max_by { |row| row[:width] }
-        best ||= sources.max_by { |row| row[:width] }
-        return best[:url] if best
+        add_image_candidates(sources, img)
+        best = sources.select { |row| row[:width].positive? }.presence || sources
+        best.max_by { |row| [row[:width], row[:webp] ? 1 : 0, row[:density]] }&.[](:url)
+      end
 
-        img&.[]('src').presence || first_url(img&.[]('srcset'))
+      def add_image_candidates(sources, img)
+        return if img.nil?
+
+        declared = best_declared(srcset_candidates(img['srcset']))
+        sources << declared.merge(webp: webp?(img, declared[:url])) if declared
+        return if img['src'].blank? || sources.any? { |row| row[:url] == img['src'] }
+
+        sources << { url: img['src'], width: 0, density: 1.0, webp: webp?(img, img['src']) }
       end
 
       def picture_source(source)
-        url = first_url(source['srcset'].presence || source['src'])
-        return if url.blank?
+        declared = best_declared(srcset_candidates(source['srcset'].presence || source['src']))
+        return if declared.nil?
 
-        { url: url, width: source['srcset'].to_s[/\s(\d+)w/, 1].to_i, webp: webp?(source, url) }
+        declared.merge(webp: webp?(source, declared[:url]))
       end
 
       def webp?(source, url)
@@ -66,7 +78,37 @@ module ExternalBridge
       def add_image(node)
         return if tracking_pixel?(node)
 
-        add_url(node['src'].presence || first_url(node['srcset']), 'image', 'html_img', node)
+        add_url(preferred_image(node), 'image', 'html_img', node)
+      end
+
+      def preferred_image(node)
+        declared = best_declared(srcset_candidates(node['srcset']))
+        return declared[:url] if declared && declared[:width].positive?
+
+        node['src'].presence || declared&.[](:url)
+      end
+
+      def srcset_candidates(srcset)
+        srcset.to_s.split(',').filter_map do |part|
+          bits = part.strip.split(/\s+/)
+          url = bits.shift
+          next if url.blank?
+
+          width = 0
+          density = 1.0
+          bits.each do |descriptor|
+            width = descriptor.to_i if descriptor.end_with?('w')
+            density = descriptor.to_f if descriptor.end_with?('x')
+          end
+          { url: url, width: width, density: density }
+        end
+      end
+
+      def best_declared(candidates)
+        return if candidates.blank?
+
+        sized = candidates.select { |row| row[:width].positive? }
+        (sized.presence || candidates).max_by { |row| [row[:width], row[:density]] }
       end
 
       def add_video(node)
@@ -141,10 +183,6 @@ module ExternalBridge
         return nil if text.blank?
 
         text.slice(0, Limits::MAX_MEDIA_DESCRIPTION)
-      end
-
-      def first_url(srcset)
-        srcset.to_s.split(',').first.to_s.strip.split(/\s+/).first
       end
 
       def tracking_pixel?(node)

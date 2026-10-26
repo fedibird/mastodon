@@ -195,6 +195,32 @@ RSpec.describe ExternalBridge::RSS::MediaExtractor do
     expect(media.find { |row| row['kind'] == 'video' }['poster_url']).to eq 'https://cdn.example/poster.jpg'
   end
 
+  it 'picks the largest srcset width even when a small webp is listed first' do
+    feed = parse(<<~XML)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel>
+        <title>Example</title><link>https://example.com</link>
+        <item>
+          <guid>sharp</guid><title>Sharp</title><link>https://example.com/sharp</link>
+          <description><![CDATA[
+            <img src="https://cdn.example/small.png" srcset="https://cdn.example/small.png 320w, https://cdn.example/large.png 1280w" alt="Large">
+            <picture>
+              <source type="image/webp" srcset="https://cdn.example/tiny.webp 320w, https://cdn.example/mid.webp 640w">
+              <source srcset="https://cdn.example/small.jpg 320w, https://cdn.example/print.jpg 1600w">
+              <img src="https://cdn.example/fallback.jpg" alt="Print">
+            </picture>
+          ]]></description>
+        </item>
+      </channel></rss>
+    XML
+
+    expect(feed.items.first.media.map { |row| row['url'] }).to eq [
+      'https://cdn.example/large.png',
+      'https://cdn.example/print.jpg',
+    ]
+    expect(feed.items.first.media.map { |row| row['description'] }).to eq %w(Large Print)
+  end
+
   it 'treats a Media RSS thumbnail next to a video as a poster' do
     feed = parse(<<~XML)
       <?xml version="1.0"?>

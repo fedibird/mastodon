@@ -47,8 +47,19 @@ module ExternalBridge
       # already downloading the same URL. Past this, the job raises and Sidekiq
       # retries. It is not recorded as a content failure.
       MEDIA_INFLIGHT_WAIT = 8
+      # How long a second worker waits to take a URL lock before it retries
+      # through Sidekiq. This is not the lock's lifetime.
       MEDIA_URL_LOCK_WAIT = 15
       MEDIA_IMAGE_TIMEOUTS = { connect_timeout: 5, read_timeout: 10, write_timeout: 5, read_deadline: 20 }.freeze
+      # Redis lease for the worker that is downloading. It is longer than one
+      # image read, and URLLock renews it until that download returns. A fixed
+      # 15s TTL expired while a slow GET was still running.
+      MEDIA_URL_LOCK_LEASE = (
+        MEDIA_IMAGE_TIMEOUTS[:connect_timeout] +
+        MEDIA_IMAGE_TIMEOUTS[:write_timeout] +
+        MEDIA_IMAGE_TIMEOUTS[:read_deadline] +
+        30
+      )
     end
   end
 end
