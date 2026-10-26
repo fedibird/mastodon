@@ -349,9 +349,11 @@ module ExternalBridge
         end
 
         def matching_image?(row)
-          return false unless row.is_a?(Hash)
+          return false unless row.is_a?(Hash) && row['kind'] == 'image'
 
-          row['kind'] == 'image' && row['url'].present? && MediaDigest.url_digest(row['url']) == @url_digest
+          [row['url'], *Array(row['fallbacks'])].any? do |url|
+            url.present? && MediaDigest.url_digest(url) == @url_digest
+          end
         end
 
         def marker_ids(incoming)

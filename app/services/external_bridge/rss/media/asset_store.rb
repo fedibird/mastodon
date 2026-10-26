@@ -101,18 +101,36 @@ module ExternalBridge
           ExternalMediaAsset.find_by(url_digest: url_digest)
         end
 
-        def self.fail!(url_digest, kind, revision, code, terminal: false, fingerprint: nil, attempt_log: nil)
+        def self.fail!(url_digest, kind, revision, code, terminal: false)
           asset = ExternalMediaAsset.find_or_initialize_by(url_digest: url_digest)
           # New rows default state to ready before they are saved. Only a
           # persisted ready file should stop a failure from being recorded.
           return asset if asset.persisted? && asset.ready?
 
-          previous = asset.candidate_fingerprint
           asset.kind = kind
           asset.state = 'failed'
           asset.failure_code = code.to_s.first(64)
           asset.failed_revision = revision.to_s.first(80)
-          asset.attempt_count = next_attempt_count(asset, previous, fingerprint, terminal)
+          asset.attempt_count = terminal ? 3 : asset.attempt_count.to_i + 1
+          asset.fetched_at = Time.current
+          asset.save!
+          asset
+        rescue ActiveRecord::RecordNotUnique
+          ExternalMediaAsset.find_by(url_digest: url_digest)
+        end
+
+        # Image-chain failure. A new candidate fingerprint starts the budget
+        # at one. The log is digests and codes, never URLs.
+        def self.fail_image!(url_digest, revision, code, fingerprint:, attempt_log:)
+          asset = ExternalMediaAsset.find_or_initialize_by(url_digest: url_digest)
+          return asset if asset.persisted? && asset.ready?
+
+          previous = asset.candidate_fingerprint
+          asset.kind = 'image'
+          asset.state = 'failed'
+          asset.failure_code = code.to_s.first(64)
+          asset.failed_revision = revision.to_s.first(80)
+          asset.attempt_count = next_attempt_count(asset, previous, fingerprint)
           asset.candidate_fingerprint = fingerprint if fingerprint.present?
           asset.attempt_log = sanitize_attempt_log(attempt_log) unless attempt_log.nil?
           asset.fetched_at = Time.current
@@ -134,8 +152,7 @@ module ExternalBridge
           end
         end
 
-        def self.next_attempt_count(asset, previous, fingerprint, terminal)
-          return 3 if terminal
+        def self.next_attempt_count(asset, previous, fingerprint)
           return 1 if fingerprint.present? && previous.present? && previous != fingerprint
 
           asset.attempt_count.to_i + 1

@@ -95,5 +95,7 @@ stores a replacement or the fallback leaves the candidate list.
 
 ## Not in this increment
 
-Conditional revalidation of an unchanged URL is P3-A. Browser playback is
-P3-D and is not claimed here.
+Conditional revalidation of an unchanged URL is P3-A. A changed body of the
+URL that was actually stored, including a fallback, uses that generation
+swap. The resource link moves when the article still lists the digest.
+Browser playback is P3-D and is not claimed here.

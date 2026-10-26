@@ -64,14 +64,7 @@ module ExternalBridge
         rescue Error => e
           raise if self.class.transient?(e.code)
 
-          AssetStore.fail!(
-            url_digest,
-            candidate['kind'],
-            media_revision,
-            e.code,
-            fingerprint: @candidate_fingerprint,
-            attempt_log: @attempt_log
-          )
+          record_chain_failure!(candidate, url_digest, media_revision, e.code)
           nil
         end
 
@@ -183,6 +176,14 @@ module ExternalBridge
           return if self.class.transient?(code) || ImageAttempts.stop?(code)
 
           AssetStore.record_miss!(MediaDigest.url_digest(url), code)
+        end
+
+        def record_chain_failure!(candidate, url_digest, media_revision, code)
+          if candidate['kind'] == 'image'
+            AssetStore.fail_image!(url_digest, media_revision, code, fingerprint: @candidate_fingerprint, attempt_log: @attempt_log)
+          else
+            AssetStore.fail!(url_digest, candidate['kind'], media_revision, code)
+          end
         end
 
         def candidate_fingerprint(candidate)

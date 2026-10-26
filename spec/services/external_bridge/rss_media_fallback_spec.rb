@@ -138,8 +138,9 @@ RSpec.describe 'External RSS image candidate fallback' do
     expect(resource.reload.revision).to eq text_revision
     expect(resource.media_revision).to eq media_revision
     expect(marker.last_seen_media_revision).to eq media_revision
-    expect(ExternalMediaGcIntent.find_by!(target_type: 'external_media_asset', target_id: previous.id)).to have_attributes(state: 'pending', reason: 'asset_unreferenced')
-    expect(ExternalMediaGcIntent.find_by!(target_type: 'media_attachment', target_id: previous_attachment_id)).to have_attributes(state: 'pending', reason: 'attachment_replaced')
+    expect(ExternalMediaGcIntent.find_by!(target_type: 'external_media_asset', target_id: previous.id)).to have_attributes(state: 'released', reason: 'asset_unreferenced')
+    expect(ExternalMediaAsset.find_by(id: previous.id)).to be_nil
+    expect(ExternalMediaGcIntent.find_by!(target_type: 'media_attachment', target_id: previous_attachment_id)).to have_attributes(state: 'released', reason: 'attachment_replaced')
     expect(ExternalMediaAssetResource.where(external_media_asset_id: previous.id, external_resource_id: resource.id)).to be_empty
     expect(ExternalMediaAssetResource.where(external_media_asset_id: chosen.id, external_resource_id: resource.id).count).to eq 1
     expect(a_request(:get, webp_url)).not_to have_been_made
@@ -212,7 +213,8 @@ RSpec.describe 'External RSS image candidate fallback' do
     expect(resource.reload.revision).to eq text_revision
     expect(resource.media_revision).to eq media_revision
     expect(marker.last_seen_media_revision).to eq media_revision
-    expect(ExternalMediaGcIntent.find_by!(target_type: 'external_media_asset', target_id: previous.id)).to have_attributes(state: 'pending', reason: 'asset_unreferenced')
+    expect(ExternalMediaGcIntent.find_by!(target_type: 'external_media_asset', target_id: previous.id)).to have_attributes(state: 'released', reason: 'asset_unreferenced')
+    expect(ExternalMediaAsset.find_by(id: previous.id)).to be_nil
     expect(ExternalMediaAssetResource.where(external_media_asset_id: previous.id, external_resource_id: resource.id)).to be_empty
   end
 
@@ -226,7 +228,7 @@ RSpec.describe 'External RSS image candidate fallback' do
     resource = ExternalResource.find_by!(title: 'Story')
     primary = ExternalMediaAsset.find_by!(url_digest: digest(webp_url))
     expect(primary.failure_code).to eq 'http_404'
-    expect(primary.attempt_log.map { |row| row['code'] }).to eq %w(media_unrecognized_image http_404)
+    expect(primary.attempt_log.map { |row| row['code'] }).to eq %w(media_type_mismatch http_404)
     expect(primary.attempt_log.map { |row| row['digest'] }).to eq [digest(webp_url), digest(png_url)]
     expect(ExternalMediaAsset.find_by!(url_digest: digest(png_url)).failure_code).to eq 'http_404'
     expect(Status.find(ExternalStatusProjection.find_by!(user_id: user.id).status_id).media_attachments).to be_empty
@@ -301,6 +303,32 @@ RSpec.describe 'External RSS image candidate fallback' do
 
     expect(result).to eq :not_modified
     expect(a_request(:get, png_url).with(headers: { 'If-None-Match' => '"png-1"' })).to have_been_made.once
+    expect(a_request(:get, webp_url).with(headers: { 'If-None-Match' => '"png-1"' })).not_to have_been_made
+  end
+
+  it 'keeps the resource link when the stored fallback body changes' do
+    stub_feed(webp: { status: 404, body: '' }, png: png_response('"png-1"'))
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed_url)
+    resource = ExternalResource.find_by!(title: 'Story')
+    asset = ExternalMediaAsset.find_by!(url_digest: digest(png_url))
+    old_id = asset.id
+    asset.update_columns(validated_at: 25.hours.ago, revalidate_after: nil)
+    jpeg = Rails.root.join('spec', 'fixtures', 'files', 'attachment.jpg').binread
+    stub_request(:get, png_url).with(headers: { 'If-None-Match' => '"png-1"' }).to_return(
+      status: 200, body: jpeg, headers: { 'Content-Type' => 'image/jpeg', 'ETag' => '"png-2"' }
+    )
+
+    result = ExternalBridge::RSS::Media::Revalidate.call(resource.id, asset.url_digest)
+
+    expect(result).to eq :replaced
+    replacement = ExternalMediaAsset.find_by!(url_digest: digest(png_url))
+    expect(replacement.id).not_to eq old_id
+    expect(replacement.generation).to eq 2
+    expect(ExternalMediaAsset.find_by(id: old_id)).to be_nil
+    expect(ExternalMediaAssetResource.where(external_media_asset_id: replacement.id, external_resource_id: resource.id).count).to eq 1
+    status = Status.find(ExternalStatusProjection.find_by!(user_id: user.id).status_id)
+    expect(status.media_attachments.count).to eq 1
+    expect(status.media_attachments.first.file_content_type).to eq 'image/jpeg'
     expect(a_request(:get, webp_url).with(headers: { 'If-None-Match' => '"png-1"' })).not_to have_been_made
   end
 
