@@ -12,8 +12,8 @@ module ExternalBridge
           new(marker, resource).attach_ready!
         end
 
-        def self.enqueue!(resource)
-          new(nil, resource).enqueue!
+        def self.enqueue!(resource, videos: false)
+          new(nil, resource).enqueue!(videos: videos)
         end
 
         def self.notify!(marker)
@@ -32,15 +32,15 @@ module ExternalBridge
         def attach_ready!(allow_notify: false)
           return false unless eligible?
 
-          changed = reconcile(desired_images)
+          changed = reconcile(desired_files)
           notify! if changed && allow_notify
           changed
         end
 
-        def enqueue!
+        def enqueue!(videos: false)
           return if @resource.nil? || @resource.media_revision.blank? || @resource.source_deleted_at.present?
 
-          image_candidates.each do |candidate|
+          pending_candidates(videos).each do |candidate|
             digest = MediaDigest.url_digest(candidate['url'])
             asset = ExternalMediaAsset.find_by(url_digest: digest)
             next if asset&.ready? || asset&.exhausted_for?(@resource.media_revision)
@@ -59,17 +59,36 @@ module ExternalBridge
           subscription&.state == 'active' && subscription.user&.functional? && Feature.permitted?(subscription.user)
         end
 
-        def desired_images
-          image_candidates.filter_map do |candidate|
+        def desired_files
+          saved_candidates.filter_map do |candidate|
             asset = AssetStore.ready(MediaDigest.url_digest(candidate['url']))
-            next if asset.nil?
+            next if asset.nil? || asset.kind != candidate['kind']
 
             [candidate, asset]
           end.first(attachment_limit)
         end
 
-        def image_candidates
-          Array(@resource.media_candidates).select { |candidate| candidate['kind'] == 'image' && candidate['url'].present? }
+        def saved_candidates
+          Array(@resource.media_candidates).select { |candidate| %w(image video).include?(candidate['kind']) && candidate['url'].present? }
+        end
+
+        def pending_candidates(videos)
+          selected = saved_candidates.select { |candidate| candidate['kind'] == 'image' }
+          selected += video_candidates if videos && Policy.hybrid?
+          selected
+        end
+
+        def video_candidates
+          saved_candidates.select { |candidate| candidate['kind'] == 'video' && video_file?(candidate) }
+        end
+
+        def video_file?(candidate)
+          return true if Policy.storable_mime?(candidate['mime_hint'])
+
+          extension = File.extname(Addressable::URI.parse(candidate['url'].to_s).path.to_s).downcase
+          %w(.mp4 .webm).include?(extension)
+        rescue Addressable::URI::InvalidURIError
+          false
         end
 
         def attachment_limit
@@ -122,7 +141,7 @@ module ExternalBridge
             external_media_asset: asset,
             media_attachment: attachment,
             position: index,
-            kind: 'image'
+            kind: candidate['kind']
           )
         rescue ActiveRecord::RecordInvalid, Paperclip::Error => e
           attachment&.destroy!
@@ -151,6 +170,8 @@ module ExternalBridge
           return 'png' if type == 'image/png'
           return 'gif' if type == 'image/gif'
           return 'webp' if type == 'image/webp'
+          return 'mp4' if type == 'video/mp4'
+          return 'webm' if type == 'video/webm'
 
           'bin'
         end

@@ -76,6 +76,7 @@ SimpleNavigation::Configuration.run do |navigation|
     n.item :admin, safe_join([fa_icon('cogs fw'), t('admin.title')]), nil, if: proc { role_can?(:view_dashboard, :manage_settings, :manage_rules, :manage_announcements, :manage_custom_emojis, :manage_webhooks, :manage_federation, :manage_blocks, :view_devops, :manage_roles) } do |s|
       s.item :dashboard, safe_join([fa_icon('tachometer fw'), t('admin.dashboard.title')]), admin_dashboard_url, if: -> { role_can?(:view_dashboard) }
       s.item :settings, safe_join([fa_icon('cogs fw'), t('admin.settings.title')]), edit_admin_settings_url, if: -> { role_can?(:manage_settings) }, highlights_on: %r{/admin/settings}
+      s.item :external_content_settings, safe_join([fa_icon('rss fw'), t('admin.external_content_settings.title')]), edit_admin_external_content_settings_url, if: -> { role_can?(:manage_settings) }, highlights_on: %r{/admin/external_content_settings}
       s.item :roles, safe_join([fa_icon('users fw'), t('admin.roles.title')]), admin_roles_path, highlights_on: %r{/admin/roles}, if: -> { role_can?(:manage_roles) }
       s.item :action_review_settings, safe_join([fa_icon('sliders fw'), t('admin.action_review_settings.title')]), edit_admin_action_review_settings_url, if: -> { role_can?(:manage_settings) }, highlights_on: %r{/admin/action_review_settings}
       s.item :rules, safe_join([fa_icon('gavel fw'), t('admin.rules.title')]), admin_rules_path, highlights_on: %r{/admin/rules}, if: -> { role_can?(:manage_rules) }

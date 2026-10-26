@@ -16,7 +16,7 @@ module ExternalBridge
           new(url_digest, kind, revision, result).store!
         end
 
-        def self.fail!(url_digest, kind, revision, code)
+        def self.fail!(url_digest, kind, revision, code, terminal: false)
           asset = ExternalMediaAsset.find_or_initialize_by(url_digest: url_digest)
           # New rows default state to ready before they are saved. Only a
           # persisted ready file should stop a failure from being recorded.
@@ -26,7 +26,7 @@ module ExternalBridge
           asset.state = 'failed'
           asset.failure_code = code.to_s.first(64)
           asset.failed_revision = revision.to_s.first(80)
-          asset.attempt_count = asset.attempt_count.to_i + 1
+          asset.attempt_count = terminal ? 3 : asset.attempt_count.to_i + 1
           asset.fetched_at = Time.current
           asset.save!
           asset

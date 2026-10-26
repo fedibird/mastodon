@@ -1,0 +1,27 @@
+- content_for :page_title do
+  = t('admin.external_content_settings.title')
+
+  - content_for :heading_actions do
+    = button_tag t('generic.save_changes'), class: 'button', form: 'edit_external_content_settings'
+
+%p.muted-hint= t('admin.external_content_settings.preface')
+
+= simple_form_for @form, url: admin_external_content_settings_path, html: { method: :patch, id: 'edit_external_content_settings' } do |f|
+  = render 'shared/error_messages', object: @form
+
+  .fields-group
+    = f.input :external_bridge_rss_video_policy,
+      collection: ExternalBridge::RSS::Media::Policy::MODES,
+      include_blank: false,
+      wrapper: :with_label,
+      label: t('admin.external_content_settings.policy'),
+      hint: t('admin.external_content_settings.policy_hint'),
+      label_method: lambda { |mode| t("admin.external_content_settings.modes.#{mode}") }
+
+  .fields-group
+    = f.input :external_bridge_rss_video_max_download_mib,
+      as: :integer,
+      wrapper: :with_label,
+      label: t('admin.external_content_settings.max_download'),
+      hint: t('admin.external_content_settings.max_download_hint', max: ExternalBridge::RSS::Media::Policy.max_mib),
+      input_html: { min: 1, max: ExternalBridge::RSS::Media::Policy.max_mib }

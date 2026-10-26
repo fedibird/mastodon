@@ -32,7 +32,6 @@ module ExternalBridge
           if project(subscription, resource)
             result.succeeded += 1
             clear_failure(subscription, resource)
-            safe_enqueue(resource)
           else
             result.failed += 1
             record_failure(subscription, resource)
@@ -95,16 +94,18 @@ module ExternalBridge
 
       def project(subscription, resource)
         marker = ExternalStatusProjection.find_by(user_id: subscription.user_id, external_resource_id: resource.id)
-        if marker
-          refresh_existing(marker, resource)
-        else
-          ProjectionWriter.new.create!(
-            user: subscription.user,
-            subscription: subscription,
-            resource: resource,
-            text: status_text(resource)
-          )
-        end
+        judge_videos = if marker
+                         refresh_existing(marker, resource) == :media
+                       else
+                         ProjectionWriter.new.create!(
+                           user: subscription.user,
+                           subscription: subscription,
+                           resource: resource,
+                           text: status_text(resource)
+                         )
+                         true
+                       end
+        safe_enqueue(resource, videos: judge_videos)
         true
       rescue SubscriptionFence::Fenced
         raise
@@ -123,7 +124,7 @@ module ExternalBridge
         deleted_changed = marker.source_deleted != deleted
         revision_changed = marker.last_seen_revision.to_s != resource.revision.to_s
         media_changed = media_revision_changed?(marker, resource)
-        return unless text_changed || deleted_changed || revision_changed || media_changed
+        return :skip unless text_changed || deleted_changed || revision_changed || media_changed
 
         change = {
           text: text,
@@ -136,6 +137,7 @@ module ExternalBridge
         SubscriptionFence.guard!(marker.external_subscription_id) do
           write_refresh!(marker, status, resource, change)
         end
+        media_changed ? :media : :text
       end
 
       def write_refresh!(marker, status, resource, change)
@@ -171,8 +173,8 @@ module ExternalBridge
         seen.to_s != current.to_s
       end
 
-      def safe_enqueue(resource)
-        Media::Sync.enqueue!(resource)
+      def safe_enqueue(resource, videos: false)
+        Media::Sync.enqueue!(resource, videos: videos)
       rescue StandardError => e
         Rails.logger.info("[ExternalBridge::RSS] media enqueue error=#{e.class}")
       end

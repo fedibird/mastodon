@@ -3,10 +3,11 @@
 module ExternalBridge
   module RSS
     module Media
-      # Downloads one image candidate for a resource revision. The URL is read
-      # back from the current candidate list, not from the job arguments.
-      # A stale revision, a removed candidate, or a subscription that is gone
-      # does not attach anything. Video files are not downloaded.
+      # Downloads one candidate for a resource revision. The URL is read back
+      # from the current candidate list, not from the job arguments. A stale
+      # revision or a removed candidate does not attach anything. Videos are
+      # stored only when the server policy is hybrid at execution time and the
+      # size is known and inside the cap.
       class Fetch
         include Redisable
 
@@ -43,20 +44,47 @@ module ExternalBridge
 
         def candidate_for(resource, url_digest)
           Array(resource.media_candidates).find do |candidate|
-            candidate['kind'] == 'image' && MediaDigest.url_digest(candidate['url']) == url_digest
+            %w(image video).include?(candidate['kind']) && MediaDigest.url_digest(candidate['url']) == url_digest
           end
         end
 
         def download(resource, candidate, url_digest, media_revision)
-          with_inflight { store(resource, candidate, url_digest, media_revision) }
+          return download_video(resource, candidate, url_digest, media_revision) if candidate['kind'] == 'video'
+
+          with_inflight { store_image(resource, candidate, url_digest, media_revision) }
         rescue Error => e
           raise if self.class.transient?(e.code)
 
-          AssetStore.fail!(url_digest, 'image', media_revision, e.code)
+          AssetStore.fail!(url_digest, candidate['kind'], media_revision, e.code)
           nil
         end
 
-        def store(resource, candidate, url_digest, media_revision)
+        def download_video(resource, candidate, url_digest, media_revision)
+          return nil unless Policy.hybrid?
+
+          outcome = with_inflight { VideoTransfer.new.call(candidate) }
+          return store_video(resource, url_digest, media_revision, outcome.result) if outcome&.result
+          return raise_transient(outcome) unless outcome.nil? || outcome.terminal
+
+          AssetStore.fail!(url_digest, 'video', media_revision, outcome&.code || 'remote_only', terminal: true)
+          nil
+        end
+
+        def raise_transient(outcome)
+          raise Error, outcome.code.presence || 'fetch_failed'
+        end
+
+        def store_video(resource, url_digest, media_revision, result)
+          return nil if resource.reload.media_revision.to_s != media_revision.to_s
+
+          URLLock.call(url_digest) do
+            return nil unless Policy.hybrid?
+
+            AssetStore.store!(url_digest: url_digest, kind: 'video', revision: media_revision, result: result)
+          end
+        end
+
+        def store_image(resource, candidate, url_digest, media_revision)
           URLLock.call(url_digest) do
             result = ImageFetch.new.call(candidate['url'])
             return nil if resource.reload.media_revision.to_s != media_revision.to_s

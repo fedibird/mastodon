@@ -51,15 +51,14 @@ module ExternalBridge
       # through Sidekiq. This is not the lock's lifetime.
       MEDIA_URL_LOCK_WAIT = 15
       MEDIA_IMAGE_TIMEOUTS = { connect_timeout: 5, read_timeout: 10, write_timeout: 5, read_deadline: 20 }.freeze
+      MEDIA_VIDEO_TIMEOUTS = { connect_timeout: 5, read_timeout: 20, write_timeout: 5, read_deadline: 60 }.freeze
       # Redis lease for the worker that is downloading. It is longer than one
-      # image read, and URLLock renews it until that download returns. A fixed
-      # 15s TTL expired while a slow GET was still running.
-      MEDIA_URL_LOCK_LEASE = (
-        MEDIA_IMAGE_TIMEOUTS[:connect_timeout] +
-        MEDIA_IMAGE_TIMEOUTS[:write_timeout] +
-        MEDIA_IMAGE_TIMEOUTS[:read_deadline] +
-        30
-      )
+      # image or video read, and URLLock renews it until that download returns.
+      # A fixed 15s TTL expired while a slow GET was still running.
+      MEDIA_URL_LOCK_LEASE = [
+        MEDIA_IMAGE_TIMEOUTS[:connect_timeout] + MEDIA_IMAGE_TIMEOUTS[:write_timeout] + MEDIA_IMAGE_TIMEOUTS[:read_deadline],
+        MEDIA_VIDEO_TIMEOUTS[:connect_timeout] + MEDIA_VIDEO_TIMEOUTS[:write_timeout] + MEDIA_VIDEO_TIMEOUTS[:read_deadline],
+      ].max + 30
     end
   end
 end

@@ -521,6 +521,16 @@ en:
       filter_by_action: Filter by action
       filter_by_user: Filter by user
       title: Audit log
+    external_content_settings:
+      max_download: Maximum video download
+      max_download_hint: MiB, used only when the policy is hybrid. 1 to %{max}. A video with an unknown size, or one larger than this, stays a remote playback and is not copied. This does not download or delete videos that were already decided.
+      modes:
+        hybrid: Hybrid (store small videos)
+        remote: Remote playback only
+      policy: Article video
+      policy_hint: Remote playback does not copy the file onto this server. Hybrid stores an MP4 or WebM only when the size is known and within the limit below. The viewer connects to the original site for anything that stays remote.
+      preface: Settings for external article media. They apply to the server, not to an individual user. Images are still downloaded as attachments. Videos are remote playback unless you choose hybrid.
+      title: External content
     action_review_settings:
       errors:
         unsupported_mode: is not supported for this operation

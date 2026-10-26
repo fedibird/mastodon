@@ -239,6 +239,15 @@ defaults: &defaults
   #   Setting.external_bridge_link_sharing_testers = "17,42"
   external_bridge_link_sharing: false
   external_bridge_link_sharing_testers: ''
+  # Article video for external RSS projections (issue #585). This is a server
+  # setting, not a user preference. remote never copies the file. hybrid tries
+  # to store a verified MP4 or WebM only when its size is known and at or
+  # under the MiB cap. Anything larger, unknown, or over the byte cap stays
+  # remote. Changing this does not download or delete videos already judged.
+  #   Setting.external_bridge_rss_video_policy = "remote"
+  #   Setting.external_bridge_rss_video_max_download_mib = 20
+  external_bridge_rss_video_policy: 'remote'
+  external_bridge_rss_video_max_download_mib: 20
   action_review_policies:
     follow_import: 'off'
     account_migration: 'off'
