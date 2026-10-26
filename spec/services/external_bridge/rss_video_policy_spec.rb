@@ -119,7 +119,7 @@ RSpec.describe ExternalBridge::RSS::Media::VideoTransfer do
     expect(bundle[:status].reload.media_attachments).to be_empty
   end
 
-  it 'reads the policy again when the transfer runs' do
+  it 'does not GET when the policy flips to remote after HEAD' do
     Setting.external_bridge_rss_video_policy = 'hybrid'
     Rails.cache.clear
     expect(ExternalBridge::RSS::HttpClient).to receive(:head) do
@@ -127,10 +127,33 @@ RSpec.describe ExternalBridge::RSS::Media::VideoTransfer do
       Rails.cache.clear
       head(length: 10.megabytes)
     end
-    expect(ExternalBridge::RSS::HttpClient).to receive(:get).and_return(body_response('later'))
+    expect(ExternalBridge::RSS::HttpClient).not_to receive(:get)
 
-    described_class.new.call(candidate(length: 10.megabytes))
+    outcome = described_class.new.call(candidate(length: 10.megabytes))
+
+    expect(outcome.result).to be_nil
+    expect(outcome.code).to eq :policy_remote
+    expect(outcome.terminal).to be true
+  end
+
+  it 'treats a 503 as retryable and a size miss as terminal' do
+    expect(ExternalBridge::RSS::HttpClient).to receive(:head).and_return(
+      ExternalBridge::RSS::Response.new(code: 503, content_type: 'video/mp4', content_length: nil, final_url: url)
+    )
+    unavailable = described_class.new.call(candidate(length: 10.megabytes))
+    expect(unavailable.terminal).to be false
+    expect(unavailable.code).to eq 'http_503'
+
+    refused = described_class.new.call(candidate(length: 30.megabytes))
+    expect(refused.terminal).to be true
+    expect(refused.code).to eq :video_over_cap
+  end
+
+  it 'keeps the MiB cap strictly under the attachment byte limit' do
+    expect(ExternalBridge::RSS::Media::Policy.max_mib).to eq((MediaAttachment::VIDEO_LIMIT - 1) / 1.megabyte)
+    Setting.external_bridge_rss_video_max_download_mib = ExternalBridge::RSS::Media::Policy.max_mib
     Rails.cache.clear
-    expect(ExternalBridge::RSS::Media::Policy.hybrid?).to be false
+    expect(ExternalBridge::RSS::Media::Policy.max_bytes).to be < MediaAttachment::VIDEO_LIMIT
+    expect(ExternalBridge::RSS::Media::Policy.max_bytes).to eq ExternalBridge::RSS::Media::Policy.max_mib.megabytes
   end
 end

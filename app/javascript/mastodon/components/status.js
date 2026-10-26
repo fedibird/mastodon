@@ -29,7 +29,7 @@ import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { externalIdentityOf, externalIdentityName, externalIdentityReaderText } from 'mastodon/external_presentation';
-import ExternalRemoteMedia from 'mastodon/components/external_remote_media';
+import ExternalStatusMedia from 'mastodon/components/external_status_media';
 
 const domParser = new DOMParser();
 
@@ -710,7 +710,9 @@ class Status extends ImmutablePureComponent {
     const translationView = statusTranslationView(mediaStatus);
     const described = attachment => attachmentAccessibility(attachment, translationView);
 
-    if (mediaStatus.get('media_attachments').size > 0) {
+    if (status.get('fedibird_external') && !this.props.muted && !pictureInPicture.get('inUse')) {
+      media = <ExternalStatusMedia status={mediaStatus} />;
+    } else if (mediaStatus.get('media_attachments').size > 0) {
       if (pictureInPicture.get('inUse')) {
         media = <PictureInPicturePlaceholder width={this.props.cachedMediaWidth} />;
       } else if (this.props.muted) {
@@ -1050,7 +1052,6 @@ class Status extends ImmutablePureComponent {
             {!(status.get('hidden') && status.get('spoiler_text').length > 0) && <>
               {quote}
               {media}
-              <ExternalRemoteMedia status={status} muted={this.props.muted} />
             </>
             }
 

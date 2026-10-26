@@ -57,7 +57,7 @@ RSpec.describe Admin::ExternalContentSettingsController, type: :controller do
       patch :update, params: {
         form_admin_external_content_settings: {
           external_bridge_rss_video_policy: 'hybrid',
-          external_bridge_rss_video_max_download_mib: '100',
+          external_bridge_rss_video_max_download_mib: '99',
         },
       }
 

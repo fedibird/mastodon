@@ -409,7 +409,13 @@ const presentationChanged = (oldStatus, incoming) => {
     return true;
   }
 
-  return remoteMediaPresentation(oldStatus.getIn(['fedibird_external', 'media'])) !== remoteMediaPresentation(incoming.fedibird_external && incoming.fedibird_external.media);
+  const oldExternal = oldStatus.get('fedibird_external');
+  const nextExternal = incoming.fedibird_external;
+  if (remoteMediaPresentation(oldExternal && oldExternal.get && oldExternal.get('media')) !== remoteMediaPresentation(nextExternal && nextExternal.media)) {
+    return true;
+  }
+
+  return remoteMediaPresentation(oldExternal && oldExternal.get && oldExternal.get('sequence')) !== remoteMediaPresentation(nextExternal && nextExternal.sequence);
 };
 
 const remoteMediaPresentation = (media) => {

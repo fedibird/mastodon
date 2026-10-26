@@ -23,14 +23,17 @@ module ExternalBridge
           mode == 'hybrid'
         end
 
+        # MediaAttachment accepts a file only when it is strictly smaller than
+        # VIDEO_LIMIT. 99 MiB is that limit, so the largest whole MiB that can
+        # be stored is 98.
         def max_mib
-          MediaAttachment::VIDEO_LIMIT / 1.megabyte
+          (MediaAttachment::VIDEO_LIMIT - 1) / 1.megabyte
         end
 
         def max_bytes
           mib = Setting.external_bridge_rss_video_max_download_mib.to_i
           mib = DEFAULT_MIB unless (1..max_mib).cover?(mib)
-          mib.megabytes
+          [mib.megabytes, MediaAttachment::VIDEO_LIMIT - 1].min
         end
 
         def storable_mime?(value)

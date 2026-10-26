@@ -6,7 +6,7 @@ import Avatar from '../../../components/avatar';
 import DisplayName from '../../../components/display_name';
 import ExternalSourceIdentity, { TimeLink } from '../../../components/external_source_identity';
 import { externalIdentityOf } from 'mastodon/external_presentation';
-import ExternalRemoteMedia from '../../../components/external_remote_media';
+import ExternalStatusMedia from '../../../components/external_status_media';
 import StatusContent from '../../../components/status_content';
 import { isHideCard } from '../../../components/status';
 import MediaGallery from '../../../components/media_gallery';
@@ -380,7 +380,9 @@ class DetailedStatus extends ImmutablePureComponent {
     const translationView = statusTranslationView(mediaStatus);
     const described = attachment => attachmentAccessibility(attachment, translationView);
 
-    if (pictureInPicture.get('inUse')) {
+    if (status.get('fedibird_external') && !pictureInPicture.get('inUse')) {
+      media = <ExternalStatusMedia status={mediaStatus} />;
+    } else if (pictureInPicture.get('inUse')) {
       media = <PictureInPicturePlaceholder />;
     } else if (mediaStatus.get('media_attachments').size > 0) {
       if (mediaStatus.getIn(['media_attachments', 0, 'type']) === 'audio') {
@@ -567,7 +569,6 @@ class DetailedStatus extends ImmutablePureComponent {
           {!(status.get('hidden') && status.get('spoiler_text').length > 0) && <>
             {quote}
             {media}
-            <ExternalRemoteMedia status={status} />
           </>
           }
 

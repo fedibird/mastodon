@@ -64,14 +64,15 @@ module ExternalBridge
 
           outcome = with_inflight { VideoTransfer.new.call(candidate) }
           return store_video(resource, url_digest, media_revision, outcome.result) if outcome&.result
-          return raise_transient(outcome) unless outcome.nil? || outcome.terminal
 
-          AssetStore.fail!(url_digest, 'video', media_revision, outcome&.code || 'remote_only', terminal: true)
+          AssetStore.fail!(
+            url_digest,
+            'video',
+            media_revision,
+            outcome&.code || 'remote_only',
+            terminal: outcome.nil? || outcome.terminal
+          )
           nil
-        end
-
-        def raise_transient(outcome)
-          raise Error, outcome.code.presence || 'fetch_failed'
         end
 
         def store_video(resource, url_digest, media_revision, result)
@@ -82,6 +83,8 @@ module ExternalBridge
 
             AssetStore.store!(url_digest: url_digest, kind: 'video', revision: media_revision, result: result)
           end
+        rescue ActiveRecord::RecordInvalid, Paperclip::Error
+          nil
         end
 
         def store_image(resource, candidate, url_digest, media_revision)

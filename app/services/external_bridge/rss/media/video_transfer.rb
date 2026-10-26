@@ -19,20 +19,27 @@ module ExternalBridge
           return remote(:video_over_cap) if hinted.is_a?(Integer) && hinted > limit
 
           head = HttpClient.head(candidate['url'], profile: profile(limit))
+          return retryable(head.code) if retryable_status?(head.code)
           return remote(:video_size_unknown) unless head.code.between?(200, 299) && head.content_length.present?
           return remote(:video_over_cap) if head.content_length > limit
           return remote(:video_type_rejected) unless Policy.storable_mime?(head.content_type)
+          return remote(:policy_remote) unless Policy.hybrid?
 
           download(candidate['url'], limit, head.content_type)
         rescue Error => e
-          terminal = !%w(fetch_failed rate_limited media_too_large).include?(e.code)
-          e.code == 'media_too_large' ? remote(:video_over_cap) : Outcome.new(result: nil, terminal: terminal, code: e.code)
+          return retryable_error(e) if retryable_error?(e)
+          return remote(:video_over_cap) if e.code == 'media_too_large'
+
+          remote(e.code)
         end
 
         private
 
         def download(url, limit, expected_type)
+          return remote(:policy_remote) unless Policy.hybrid?
+
           response = HttpClient.get(url, profile: profile(limit))
+          return retryable(response.code) if retryable_status?(response.code)
           return remote("http_#{response.code}") unless response.code.between?(200, 299)
           return remote(:video_type_rejected) unless Policy.storable_mime?(response.content_type)
           return remote(:video_type_rejected) if response.content_type != expected_type
@@ -51,6 +58,22 @@ module ExternalBridge
 
         def remote(code)
           Outcome.new(result: nil, terminal: true, code: code)
+        end
+
+        def retryable(code)
+          Outcome.new(result: nil, terminal: false, code: "http_#{code}")
+        end
+
+        def retryable_error(error)
+          Outcome.new(result: nil, terminal: false, code: error.code)
+        end
+
+        def retryable_status?(code)
+          code == 408 || code == 429 || code.to_i >= 500
+        end
+
+        def retryable_error?(error)
+          %w(fetch_failed rate_limited).include?(error.code.to_s)
         end
 
         def profile(limit)

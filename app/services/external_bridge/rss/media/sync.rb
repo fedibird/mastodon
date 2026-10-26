@@ -73,9 +73,28 @@ module ExternalBridge
         end
 
         def pending_candidates(videos)
-          selected = saved_candidates.select { |candidate| candidate['kind'] == 'image' }
-          selected += video_candidates if videos && Policy.hybrid?
-          selected
+          images = saved_candidates.select { |candidate| candidate['kind'] == 'image' }
+          images + video_candidates.select { |candidate| video_due?(candidate, videos) }
+        end
+
+        # A new revision may queue a video. A video that already failed for a
+        # temporary HTTP error is queued again after a short backoff, without
+        # waiting for another revision. Size and type failures are exhausted
+        # immediately and are not queued again.
+        def video_due?(candidate, videos)
+          return false unless Policy.hybrid?
+
+          asset = ExternalMediaAsset.find_by(url_digest: MediaDigest.url_digest(candidate['url']))
+          return videos if asset.nil?
+          return false if asset.ready? || asset.exhausted_for?(@resource.media_revision)
+          return false if asset.fetched_at.present? && asset.fetched_at > retry_delay(asset).ago
+
+          asset.failed?
+        end
+
+        def retry_delay(asset)
+          step = [[asset.attempt_count.to_i, 1].max, 6].min
+          (15 * (2**(step - 1))).seconds
         end
 
         def video_candidates
