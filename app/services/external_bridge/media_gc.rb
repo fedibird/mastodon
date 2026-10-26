@@ -46,8 +46,19 @@ module ExternalBridge
       Release.ids!(attachment_ids: attachment_ids, asset_ids: asset_ids)
     end
 
+    def self.settle_rechecks!(asset_ids)
+      Recheck.settle!(asset_ids)
+    end
+
+    def self.drain_rechecks!(limit: BATCH, respect_grace: true)
+      Recheck.drain!(limit: limit, respect_grace: respect_grace)
+    end
+
     def self.drain!(limit: BATCH, respect_grace: true)
-      Release.drain!(limit: limit, respect_grace: respect_grace)
+      rechecks = Recheck.drain!(limit: limit, respect_grace: respect_grace)
+      result = Release.drain!(limit: limit, respect_grace: respect_grace)
+      result[:more] = true if rechecks[:more]
+      result
     end
 
     def self.diagnose(sample: 20)

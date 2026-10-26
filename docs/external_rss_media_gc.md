@@ -15,28 +15,43 @@ transaction that drops a projection link during an attachment replacement,
 and only for ids that are still linked from `external_projection_attachments`
 at that moment.
 
-An attachment intent records the owner account, the status id, and the
-projection-attachment id from that link. Release deletes the
-`MediaAttachment` only when all of the following are still true:
+An attachment intent records the owner account, the status id, the
+projection id, and the projection-attachment id (`source_attachment_id` is
+that link id, not a second media id). The same transaction inserts
+`external_media_gc_proofs`. A trigger copies the live link's attachment,
+projection, owner, and status onto that row and rejects later changes to
+those columns. The proof has no foreign key, so it survives the purge.
+
+Release deletes the `MediaAttachment` only when the intent matches that
+proof and all of the following are still true:
 
 | Reason | Required at release |
 | --- | --- |
-| `projection_purge` | Captured status no longer exists, `status_id` and `scheduled_status_id` are null, no projection link remains, `account_id` matches, the Paperclip path belongs to this row |
-| `attachment_replaced` | `status_id` is still the captured external projection, no projection link remains, owner matches, Paperclip path belongs to this row |
+| `projection_purge` | Captured status no longer exists, `status_id` and `scheduled_status_id` are null, no projection link remains, `account_id` matches the proof, the Paperclip path belongs to this row |
+| `attachment_replaced` | No projection link remains, owner matches the proof, Paperclip path belongs to this row, and either `status_id` is still the captured external projection, or that status is gone and `status_id` is null |
 | `external_media_asset` (`projection_purge`, `asset_unreferenced`, `generation_replaced`) | No `external_projection_attachments` row references the asset, the URL download lock is not held, the Paperclip path belongs to this row |
 
-`status_id IS NULL` is not a deletion criterion. `Scheduler::MediaCleanupScheduler`
-still removes ordinary unattached uploads older than a day. This GC does not
-call that scope and does not widen it.
+`status_id IS NULL` is not, by itself, a deletion criterion. A replacement
+intent may release a file in that state only after the captured projection
+status has been deleted and the proof still names that same attachment.
+`Scheduler::MediaCleanupScheduler` still removes ordinary unattached uploads
+older than a day. This GC does not call that scope and does not widen it.
 
-Compose uploads are not planned: they have no projection link. A pending
-intent whose proof columns are missing, whose owner does not match, or whose
-captured status is still a non-projection status is marked `retained` and the
+Compose uploads are not planned: they have no projection link, and the proof
+trigger will not bind a row to an id that link does not have. An intent
+with no matching proof, a mismatched projection or owner, or a captured
+status that is still a non-projection status is marked `retained` and the
 file stays.
 
-Shared assets used by another subscriber are `retained`. A later purge of the
-last subscriber inserts a new pending intent. `plan_generation!` is the hook
-a replacement generation uses; a referenced asset is retained.
+Shared assets used by another subscriber are `retained` for that intent.
+Every transaction that drops a link also inserts
+`external_media_gc_asset_rechecks`. That insert is not covered by the
+pending-intent unique index, so a second purge is kept even when its intent
+insert conflicts. After commit, a recheck whose asset is still linked is
+closed. A recheck whose asset has no links inserts a new pending intent
+(the earlier `retained` row no longer occupies the unique index) and
+releases it. `plan_generation!` writes the same recheck; a referenced asset
+is retained.
 
 ## Crash, retry, and duplicates
 
@@ -62,8 +77,10 @@ Two workers, or a hook plus a worker, claim different rows. A second pass
 over a target that is already gone marks the intent `released` with
 `last_error_code` `missing`.
 
-Resolved (`released` and `retained`) rows older than 7 days are deleted in
-batches of 500 by the scheduler. `failed` and `pending` rows stay.
+Resolved (`released` and `retained`) intent rows and done rechecks older
+than 7 days are deleted in batches of 500 by the scheduler. A proof is
+deleted in that same pass once its attachment is gone and no `pending` or
+`failed` intent names its link id. `failed` and `pending` intent rows stay.
 
 `external_subscription_deletion_id` is a correlation id, not a foreign key.
 Unsubscribe retention cleanup cannot drop a plan or wait on it.
@@ -92,9 +109,44 @@ bundle exec rake external_bridge:media_gc:requeue_failed
 not delete files. There is no rake task that deletes files. Deletion runs
 only in the commit hook and the worker, after the checks above.
 
-The migration `20261102120000` creates an empty table and two partial
-indexes. It does not update existing media rows. Rolling it back drops the
-plans and does not delete files.
+The migration `20261102120000` creates an empty intent table and two partial
+indexes. `20261103120000` adds `captured_projection_id`, the proof table,
+the proof trigger, and the asset-recheck table. Neither updates existing
+media rows. Rolling them back drops plans and proofs and does not delete
+files. `20261103120000` refuses to run when an attachment intent is already
+stored.
+
+## Assumptions and forbidden operations
+
+Planning is allowed only through `MediaGc::Plan`, inside the purge,
+replacement, or generation transaction, and only for ids that
+`external_projection_attachments` still points at. The application does
+not insert intents, proofs, or rechecks from a controller or a rake task.
+
+These statements are forbidden. They can name a file the planner would
+have skipped:
+
+- `INSERT` into `external_media_gc_intents` for a media id that was not
+  returned by the projection-attachment join
+- `INSERT` into `external_media_gc_proofs` for a link id that does not
+  exist. The trigger rejects that statement
+- `UPDATE` of a proof's link, attachment, projection, owner, or status.
+  The trigger rejects that statement
+- `INSERT` into `external_projection_attachments` that points a compose
+  upload at a projection so a later proof will bind to it
+- Deleting a proof in order to insert another one after the link is gone.
+  The trigger still requires the live link, so the new insert fails; do
+  not disable the trigger to make it succeed
+
+A database role that can insert a projection-attachment row for an ordinary
+upload, insert a proof while that row exists, delete the link, and insert
+an intent can still name that upload. That is outside the application
+path. Operators do not run those statements, and this GC does not scan
+`media_attachments` for `status_id IS NULL`.
+
+A corrupted intent whose stored ids do not match `external_media_gc_proofs`,
+or whose proof does not match a link or projection that is still present,
+is `retained` with `unproven`. Non-null proof columns are not enough.
 
 ## Not in this increment
 

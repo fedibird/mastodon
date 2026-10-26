@@ -12,6 +12,7 @@
 #  owner_account_id                   :bigint(8)
 #  captured_status_id                 :bigint(8)
 #  source_attachment_id               :bigint(8)
+#  captured_projection_id             :bigint(8)
 #  external_subscription_deletion_id  :bigint(8)
 #  available_at                       :datetime         not null
 #  attempt_count                      :integer          default(0), not null
@@ -23,10 +24,12 @@
 #  updated_at                         :datetime         not null
 #
 # One file this process promised to release after a projection purge or a
-# shared-asset replacement. The row is the proof that the target was an
-# external projection attachment (or a shared ExternalMediaAsset) at plan
-# time. Recovery must not infer that from media_attachments.status_id being
-# null: compose uploads look the same after a purge nullifies that column.
+# shared-asset replacement. For a MediaAttachment, source_attachment_id is
+# the external_projection_attachments id and captured_projection_id is the
+# projection that owned that link. ExternalMediaGcProof is the copy of that
+# link taken while it still existed. Recovery must not infer eligibility
+# from media_attachments.status_id being null: compose uploads look the same
+# after a purge nullifies that column.
 #
 # external_subscription_deletion_id is a correlation id only. It is not a
 # foreign key, so retention cleanup of a finished unsubscribe cannot delete

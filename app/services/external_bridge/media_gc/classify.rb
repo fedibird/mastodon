@@ -51,8 +51,17 @@ module ExternalBridge
         return retain('live_status') if attachment.status_id.present? && attachment.status_id != @intent.captured_status_id
 
         status = Status.unscoped.find_by(id: @intent.captured_status_id)
-        return retain('not_projection') if status && status.external_projection != true
-        return retain('live_status') if attachment.status_id.blank?
+        if status
+          return retain('not_projection') unless status.external_projection == true
+          return retain('live_status') if attachment.status_id.blank?
+
+          return release
+        end
+
+        # The captured projection was purged before this replacement intent
+        # ran. Purge does not plan the old file again: its link is already
+        # gone. The attachment is eligible once it is off every status.
+        return retain('live_status') if attachment.status_id.present?
 
         release
       end
@@ -71,7 +80,38 @@ module ExternalBridge
       end
 
       def proven_attachment?
-        @intent.owner_account_id.present? && @intent.captured_status_id.present? && @intent.source_attachment_id.present?
+        proof = proof_row
+        return false if proof.nil?
+        return false unless proof.media_attachment_id == @intent.target_id
+        return false unless proof.external_status_projection_id == @intent.captured_projection_id
+        return false unless proof.account_id == @intent.owner_account_id
+        return false unless proof.status_id == @intent.captured_status_id
+
+        live_proof_matches?(proof)
+      end
+
+      def proof_row
+        return nil if @intent.source_attachment_id.blank? || @intent.captured_projection_id.blank? || @intent.owner_account_id.blank?
+
+        ExternalMediaGcProof.find_by(source_attachment_id: @intent.source_attachment_id)
+      end
+
+      # A link or projection that is still present must be the one the proof
+      # names. After purge both rows are gone; the proof row is the record.
+      def live_proof_matches?(proof)
+        link = ExternalProjectionAttachment.find_by(id: proof.source_attachment_id)
+        if link
+          return false unless link.media_attachment_id == proof.media_attachment_id
+          return false unless link.external_status_projection_id == proof.external_status_projection_id
+        end
+
+        projection = ExternalStatusProjection.find_by(id: proof.external_status_projection_id)
+        if projection
+          return false unless projection.account_id == proof.account_id
+          return false unless projection.status_id == proof.status_id
+        end
+
+        true
       end
 
       def storage_owned?(record)

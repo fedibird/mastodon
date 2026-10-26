@@ -127,9 +127,7 @@ RSpec.describe 'External media GC' do
     expect(File.exist?(upload.file.path)).to be true
   end
 
-  it 'retains a forged purge intent while the captured status still exists' do
-    subscribe!(user)
-    status = projection_status(user)
+  it 'retains a forged purge intent that has no bound proof' do
     upload = compose_upload(user)
     intent = ExternalMediaGcIntent.create!(
       target_type: 'media_attachment',
@@ -137,16 +135,122 @@ RSpec.describe 'External media GC' do
       reason: 'projection_purge',
       state: 'pending',
       owner_account_id: user.account_id,
-      captured_status_id: status.id,
-      source_attachment_id: ExternalProjectionAttachment.pick(:id),
+      captured_status_id: 10,
+      source_attachment_id: 10,
+      captured_projection_id: 10,
       available_at: Time.current
     )
 
     ExternalBridge::MediaGc.drain!(respect_grace: false)
 
     expect(upload.reload).to be_persisted
+    expect(File.exist?(upload.file.path)).to be true
     expect(intent.reload.state).to eq 'retained'
-    expect(intent.last_error_code).to eq 'status_still_present'
+    expect(intent.last_error_code).to eq 'unproven'
+  end
+
+  it 'refuses a proof that does not name a live projection attachment' do
+    expect do
+      ExternalMediaGcProof.create!(
+        source_attachment_id: 9_000_000_000,
+        media_attachment_id: 1,
+        external_status_projection_id: 1,
+        account_id: 1,
+        status_id: 1
+      )
+    end.to raise_error(ActiveRecord::StatementInvalid, /live projection attachment/)
+  end
+
+  it 'binds a proof to the live link and will not retarget it at a compose upload' do
+    subscribe!(user)
+    status = projection_status(user)
+    attachment = status.media_attachments.first
+    link = ExternalProjectionAttachment.find_by!(media_attachment_id: attachment.id)
+    upload = compose_upload(user)
+
+    proof = ExternalMediaGcProof.create!(
+      source_attachment_id: link.id,
+      media_attachment_id: upload.id,
+      external_status_projection_id: 1,
+      account_id: other.account_id,
+      status_id: 1
+    )
+
+    expect(proof.reload.media_attachment_id).to eq attachment.id
+    expect(proof.external_status_projection_id).to eq link.external_status_projection_id
+    expect(proof.account_id).to eq user.account_id
+    expect(proof.status_id).to eq status.id
+    expect do
+      proof.update!(media_attachment_id: upload.id)
+    end.to raise_error(ActiveRecord::StatementInvalid, /immutable/)
+    expect(upload.reload).to be_persisted
+  end
+
+  it 'does not release a compose upload when a purged proof is copied onto it' do
+    subscribe!(user)
+    status = projection_status(user)
+    attachment = status.media_attachments.first
+    upload = compose_upload(user)
+    allow_any_instance_of(ExternalBridge::MediaGc::CommitHook).to receive(:committed!)
+    ExternalBridge::ProjectionPurge.purge_status!(status)
+    proof = ExternalMediaGcProof.find_by!(media_attachment_id: attachment.id)
+
+    forged = ExternalMediaGcIntent.create!(
+      target_type: 'media_attachment',
+      target_id: upload.id,
+      reason: 'projection_purge',
+      state: 'pending',
+      owner_account_id: proof.account_id,
+      captured_status_id: proof.status_id,
+      source_attachment_id: proof.source_attachment_id,
+      captured_projection_id: proof.external_status_projection_id,
+      available_at: Time.current
+    )
+
+    ExternalBridge::MediaGc.drain!(respect_grace: false)
+
+    expect(upload.reload).to be_persisted
+    expect(File.exist?(upload.file.path)).to be true
+    expect(forged.reload.state).to eq 'retained'
+    expect(forged.last_error_code).to eq 'unproven'
+    expect(MediaAttachment.where(id: attachment.id)).to be_empty
+  end
+
+  it 'retains a purged attachment when the intent projection id does not match the proof' do
+    subscribe!(user)
+    status = projection_status(user)
+    attachment = status.media_attachments.first
+    path = attachment.file.path
+    allow_any_instance_of(ExternalBridge::MediaGc::CommitHook).to receive(:committed!)
+    ExternalBridge::ProjectionPurge.purge_status!(status)
+    intent = ExternalMediaGcIntent.find_by!(target_type: 'media_attachment', target_id: attachment.id)
+    intent.update_columns(captured_projection_id: intent.captured_projection_id + 1)
+
+    ExternalBridge::MediaGc.drain!(respect_grace: false)
+
+    expect(attachment.reload).to be_persisted
+    expect(File.exist?(path)).to be true
+    expect(intent.reload.state).to eq 'retained'
+    expect(intent.last_error_code).to eq 'unproven'
+  end
+
+  it 'rejects an attachment intent whose projection id was omitted' do
+    upload = compose_upload(user)
+
+    expect do
+      ExternalMediaGcIntent.create!(
+        target_type: 'media_attachment',
+        target_id: upload.id,
+        reason: 'projection_purge',
+        state: 'pending',
+        owner_account_id: user.account_id,
+        captured_status_id: 10,
+        source_attachment_id: 10,
+        available_at: Time.current
+      )
+    end.to raise_error(ActiveRecord::StatementInvalid)
+
+    expect(upload.reload).to be_persisted
   end
 
   it 'keeps the shared asset while another subscriber still uses it' do
@@ -244,6 +348,70 @@ RSpec.describe 'External media GC' do
     ExternalBridge::MediaGc.drain!(respect_grace: false)
     expect(ExternalMediaAsset.where(id: asset.id)).to be_empty
     expect(projection_status(user).media_attachments).not_to be_empty
+  end
+
+  it 'releases a replaced attachment when the projection is purged before that intent runs' do
+    subscribe!(user)
+    status = projection_status(user)
+    attachment = status.media_attachments.first
+    path = attachment.file.path
+    upload = compose_upload(user)
+    resource = ExternalResource.find_by!(title: 'GC Story')
+    marker = ExternalStatusProjection.find_by!(user_id: user.id)
+    resource.update!(media_candidates: [], media_revision: 'cleared')
+    allow_any_instance_of(ExternalBridge::MediaGc::CommitHook).to receive(:committed!)
+
+    ExternalBridge::RSS::Media::Sync.attach_ready!(marker, resource)
+
+    expect(attachment.reload).to be_persisted
+    expect(attachment.status_id).to eq status.id
+    expect(File.exist?(path)).to be true
+    replaced = ExternalMediaGcIntent.find_by!(target_type: 'media_attachment', target_id: attachment.id, reason: 'attachment_replaced')
+    expect(replaced.state).to eq 'pending'
+    expect(replaced.captured_projection_id).to eq marker.id
+    expect(ExternalMediaGcProof.find_by!(source_attachment_id: replaced.source_attachment_id).media_attachment_id).to eq attachment.id
+
+    ExternalBridge::ProjectionPurge.purge_status!(status)
+
+    expect(Status.unscoped.exists?(status.id)).to be false
+    expect(attachment.reload.status_id).to be_nil
+    expect(ExternalProjectionAttachment.where(media_attachment_id: attachment.id)).to be_empty
+    expect(ExternalMediaGcIntent.pending.where(target_type: 'media_attachment', target_id: attachment.id).count).to eq 1
+
+    ExternalBridge::MediaGc.drain!(respect_grace: false)
+
+    expect(MediaAttachment.where(id: attachment.id)).to be_empty
+    expect(File.exist?(path)).to be false
+    expect(replaced.reload.state).to eq 'released'
+    expect(upload.reload).to be_persisted
+    expect(File.exist?(upload.file.path)).to be true
+    expect(ExternalMediaAsset.count).to eq 0
+  end
+
+  it 'releases a shared asset from the recheck written when the second plan lost the pending insert' do
+    subscribe!(user)
+    subscribe!(other)
+    asset_id = ExternalMediaAsset.pick(:id)
+    own_ids = projection_status(user).media_attachments.pluck(:id)
+    other_ids = projection_status(other).media_attachments.pluck(:id)
+    media = { attachment_ids: own_ids + other_ids, asset_ids: [asset_id] }
+
+    ExternalBridge::MediaGc.plan_purge!(media)
+    ExternalBridge::MediaGc.plan_purge!(media)
+
+    expect(ExternalMediaGcIntent.pending.where(target_type: 'external_media_asset', target_id: asset_id).count).to eq 1
+    expect(ExternalMediaGcAssetRecheck.pending.where(external_media_asset_id: asset_id).count).to eq 2
+    first = ExternalMediaGcIntent.find_by!(target_type: 'external_media_asset', target_id: asset_id)
+    first.update!(state: 'retained', last_error_code: 'still_referenced', resolved_at: Time.current)
+    ExternalProjectionAttachment.where(external_media_asset_id: asset_id).delete_all
+
+    ExternalBridge::MediaGc.drain!(respect_grace: false)
+
+    expect(ExternalMediaAsset.where(id: asset_id)).to be_empty
+    successor = ExternalMediaGcIntent.where(target_type: 'external_media_asset', target_id: asset_id).order(:id).last
+    expect(successor.id).to be > first.id
+    expect(successor.state).to eq 'released'
+    expect(MediaAttachment.where(id: own_ids + other_ids)).not_to be_empty
   end
 
   it 'releases a replaced projection attachment through the sync transaction' do

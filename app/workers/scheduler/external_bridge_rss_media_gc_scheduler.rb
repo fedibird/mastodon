@@ -12,16 +12,17 @@ class Scheduler::ExternalBridgeRSSMediaGcScheduler
   def perform
     report = ExternalBridge::MediaGc.diagnose(sample: 0)
     pruned = ExternalBridge::MediaGc.prune_resolved!
+    due = report[:due].to_i + report[:rechecks_due].to_i
     kicked = false
-    if report[:due].positive?
+    if due.positive?
       ExternalBridge::RSS::MediaGcWorker.perform_async
       kicked = true
     end
     Rails.logger.info(
       "[Scheduler::ExternalBridgeRSSMediaGcScheduler] pending=#{report[:pending]} due=#{report[:due]} " \
-      "failed=#{report[:failed]} retained=#{report[:retained]} released=#{report[:released]} " \
-      "pruned=#{pruned} kicked=#{kicked}"
+      "rechecks_due=#{report[:rechecks_due]} failed=#{report[:failed]} retained=#{report[:retained]} " \
+      "released=#{report[:released]} pruned=#{pruned} kicked=#{kicked}"
     )
-    report[:due]
+    due
   end
 end

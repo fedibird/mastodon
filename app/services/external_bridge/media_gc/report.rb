@@ -9,6 +9,7 @@ module ExternalBridge
         {
           pending: counts['pending'].to_i,
           due: ExternalMediaGcIntent.due.count,
+          rechecks_due: ExternalMediaGcAssetRecheck.due.count,
           released: counts['released'].to_i,
           retained: counts['retained'].to_i,
           failed: counts['failed'].to_i,
@@ -25,9 +26,40 @@ module ExternalBridge
       def self.prune_resolved!(limit:)
         cutoff = MediaGc::RETENTION.ago
         ids = ExternalMediaGcIntent.where(state: %w(released retained)).where('resolved_at < ?', cutoff).order(:id).limit(limit).pluck(:id)
-        return 0 if ids.empty?
+        pruned = ids.empty? ? 0 : ExternalMediaGcIntent.where(id: ids).delete_all
+        prune_rechecks!(cutoff, limit)
+        prune_proofs!(limit)
+        pruned
+      end
 
-        ExternalMediaGcIntent.where(id: ids).delete_all
+      # Done rechecks are only a record that a reference drop was settled.
+      def self.prune_rechecks!(cutoff, limit)
+        ids = ExternalMediaGcAssetRecheck.where(state: 'done').where('resolved_at < ?', cutoff).order(:id).limit(limit).pluck(:id)
+        ExternalMediaGcAssetRecheck.where(id: ids).delete_all if ids.any?
+      end
+
+      # A proof stays while its attachment or a pending/failed intent needs
+      # it. After both are gone, a new insert cannot retarget the link id:
+      # the proof trigger requires the projection attachment to still exist.
+      def self.prune_proofs!(limit)
+        ExternalMediaGcProof.connection.execute(<<~SQL.squish)
+          DELETE FROM external_media_gc_proofs
+          WHERE id IN (
+            SELECT proofs.id
+            FROM external_media_gc_proofs AS proofs
+            WHERE NOT EXISTS (
+              SELECT 1 FROM media_attachments
+              WHERE media_attachments.id = proofs.media_attachment_id
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM external_media_gc_intents AS intents
+              WHERE intents.source_attachment_id = proofs.source_attachment_id
+                AND intents.state IN ('pending', 'failed')
+            )
+            ORDER BY proofs.id
+            LIMIT #{limit.to_i}
+          )
+        SQL
       end
 
       def self.requeue_failed!(limit:)

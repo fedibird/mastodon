@@ -21,6 +21,7 @@ module ExternalBridge
       def committed!(should_run_callbacks: true)
         return unless should_run_callbacks
 
+        MediaGc.settle_rechecks!(@asset_ids)
         MediaGc.release_ids!(attachment_ids: @attachment_ids, asset_ids: @asset_ids)
       rescue StandardError => e
         Rails.logger.warn("[ExternalBridge::MediaGc] step=commit_hook error=#{e.class}")
