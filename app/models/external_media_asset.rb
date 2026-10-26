@@ -32,12 +32,18 @@
 # URL, even if the origin publishes new bytes at that URL. ETag and
 # Last-Modified revalidation, repointing projection attachments at a
 # replacement asset, and deleting the previous file are not implemented.
-# That refresh and its garbage collection are P3.
+# That refresh and its garbage collection are the next P3 increment. P2 does
+# not conditional-GET a stored URL and does not collect the replaced file.
+#
+# processing_failed means the shared bytes are stored but turning them into
+# a MediaAttachment failed. The row stays out of the ready set until the
+# backoff passes, so a refresh does not run ffmpeg again and the article
+# keeps the remote player. Three failures for one media revision stop.
 class ExternalMediaAsset < ApplicationRecord
   include Attachmentable
 
   KINDS = %w(image video).freeze
-  STATES = %w(ready failed).freeze
+  STATES = %w(ready failed processing_failed).freeze
   IMAGE_MIME_TYPES = %w(image/jpeg image/png image/gif image/webp).freeze
   VIDEO_MIME_TYPES = %w(video/mp4 video/webm).freeze
 
@@ -64,7 +70,26 @@ class ExternalMediaAsset < ApplicationRecord
     state == 'failed'
   end
 
+  def processing_failed?
+    state == 'processing_failed'
+  end
+
+  # Same revision, inside the backoff or after the third failure. A newer
+  # media revision is not blocked by the previous revision's counter.
+  def processing_blocked?(revision)
+    return false unless processing_failed?
+    return false if failed_revision.present? && failed_revision.to_s != revision.to_s
+    return true if attempt_count.to_i >= 3
+
+    fetched_at.present? && fetched_at > self.class.processing_retry_delay(attempt_count).ago
+  end
+
+  def self.processing_retry_delay(attempt_count)
+    step = [[attempt_count.to_i, 1].max, 6].min
+    (15 * (2**(step - 1))).seconds
+  end
+
   def exhausted_for?(revision)
-    failed? && failed_revision.to_s == revision.to_s && attempt_count.to_i >= 3
+    !ready? && failed_revision.to_s == revision.to_s && attempt_count.to_i >= 3
   end
 end

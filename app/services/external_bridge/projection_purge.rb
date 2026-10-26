@@ -69,6 +69,9 @@ module ExternalBridge
     # Destroy them here, after the purge transaction commits, so a rollback
     # does not delete files the status still points at. Shared assets stay
     # while another projection references them.
+    #
+    # P3: the captured ids are not durable. A process that dies after the
+    # DELETE commits and before these destroys leaves the files with no retry.
     def self.destroy_detached_media!(media)
       plan = media.is_a?(Hash) ? media : empty_media
       isolate('media_attachment') do

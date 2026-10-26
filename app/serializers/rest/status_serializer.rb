@@ -183,8 +183,10 @@ class REST::StatusSerializer < ActiveModel::Serializer
       # downloads any MediaAttachment that only has a remote_url, and a
       # public ActivityPub payload must not gain these URLs. The browser
       # cannot be stopped from following a redirect of a remote media URL.
-      media = ExternalBridge::RSS::Media::RemotePayload.for(projection)
-      payload[:media] = media if media.any?
+      sequence = ExternalBridge::RSS::Media::Sequence.for(projection)
+      payload[:sequence] = sequence if sequence.any?
+      remote = sequence.select { |item| item[:delivery] == 'remote' }
+      payload[:media] = remote if remote.any?
     end
   end
 

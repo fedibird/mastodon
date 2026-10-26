@@ -3,10 +3,11 @@
 module ExternalBridge
   module RSS
     module Media
-      # Downloads one image candidate for a resource revision. The URL is read
-      # back from the current candidate list, not from the job arguments.
-      # A stale revision, a removed candidate, or a subscription that is gone
-      # does not attach anything. Video files are not downloaded.
+      # Downloads one candidate for a resource revision. The URL is read back
+      # from the current candidate list, not from the job arguments. A stale
+      # revision or a removed candidate does not attach anything. Videos are
+      # stored only when the server policy is hybrid at execution time and the
+      # size is known and inside the cap.
       class Fetch
         include Redisable
 
@@ -24,10 +25,14 @@ module ExternalBridge
 
           candidate = candidate_for(resource, url_digest)
           return if candidate.nil?
-          return if ExternalMediaAsset.find_by(url_digest: url_digest)&.exhausted_for?(media_revision)
 
-          asset = AssetStore.ready(url_digest) || download(resource, candidate, url_digest, media_revision)
-          return if asset.nil? || !asset.ready?
+          existing = ExternalMediaAsset.find_by(url_digest: url_digest)
+          return if existing&.exhausted_for?(media_revision) || existing&.processing_blocked?(media_revision)
+
+          asset = existing if existing&.ready?
+          asset ||= download(resource, candidate, url_digest, media_revision)
+          return if asset.nil? || asset.processing_blocked?(media_revision)
+          return unless asset.ready? || retryable_attachment?(asset)
           return if resource.reload.media_revision.to_s != media_revision.to_s
 
           attach_all(resource)
@@ -43,26 +48,100 @@ module ExternalBridge
 
         def candidate_for(resource, url_digest)
           Array(resource.media_candidates).find do |candidate|
-            candidate['kind'] == 'image' && MediaDigest.url_digest(candidate['url']) == url_digest
+            %w(image video).include?(candidate['kind']) && MediaDigest.url_digest(candidate['url']) == url_digest
           end
         end
 
         def download(resource, candidate, url_digest, media_revision)
-          with_inflight { store(resource, candidate, url_digest, media_revision) }
+          return download_video(resource, candidate, url_digest, media_revision) if candidate['kind'] == 'video'
+
+          with_inflight { store_image(resource, candidate, url_digest, media_revision) }
         rescue Error => e
           raise if self.class.transient?(e.code)
 
-          AssetStore.fail!(url_digest, 'image', media_revision, e.code)
+          AssetStore.fail!(url_digest, candidate['kind'], media_revision, e.code)
           nil
         end
 
-        def store(resource, candidate, url_digest, media_revision)
-          URLLock.call(url_digest) do
-            result = ImageFetch.new.call(candidate['url'])
-            return nil if resource.reload.media_revision.to_s != media_revision.to_s
+        # The digest lock is taken before HEAD and GET. A second resource that
+        # waits finds the stored row and does not download the body again.
+        # Policy is read again after the wait so a switch back to remote does
+        # not finish a transfer that was already queued.
+        def download_video(resource, candidate, url_digest, media_revision)
+          return nil unless Policy.hybrid?
 
-            AssetStore.store!(url_digest: url_digest, kind: 'image', revision: media_revision, result: result)
+          with_inflight do
+            URLLock.call(url_digest) do
+              locked_video(resource, candidate, url_digest, media_revision)
+            end
           end
+        end
+
+        def locked_video(resource, candidate, url_digest, media_revision)
+          return nil if stale_revision?(resource, media_revision)
+          return nil unless Policy.hybrid?
+
+          cached = stored_copy(url_digest, media_revision)
+          return cached if cached
+
+          outcome = VideoTransfer.new.call(candidate)
+          return store_video(resource, url_digest, media_revision, outcome.result) if outcome&.result
+
+          AssetStore.fail!(
+            url_digest,
+            'video',
+            media_revision,
+            outcome&.code || 'remote_only',
+            terminal: outcome.nil? || outcome.terminal
+          )
+          nil
+        rescue ActiveRecord::RecordInvalid, Paperclip::Error
+          AssetStore.processing_fail!(url_digest, 'video', media_revision, 'processing_failed')
+          nil
+        end
+
+        def store_video(resource, url_digest, media_revision, result)
+          return nil if stale_revision?(resource, media_revision)
+          return nil unless Policy.hybrid?
+
+          cached = stored_copy(url_digest, media_revision)
+          return cached if cached
+
+          AssetStore.store!(url_digest: url_digest, kind: 'video', revision: media_revision, result: result)
+        end
+
+        def store_image(resource, candidate, url_digest, media_revision)
+          URLLock.call(url_digest) do
+            cached = stored_copy(url_digest, media_revision)
+            if cached
+              cached
+            else
+              result = ImageFetch.new.call(candidate['url'])
+              if stale_revision?(resource, media_revision)
+                nil
+              else
+                AssetStore.store!(url_digest: url_digest, kind: 'image', revision: media_revision, result: result)
+              end
+            end
+          end
+        end
+
+        def stored_copy(url_digest, media_revision)
+          existing = ExternalMediaAsset.find_by(url_digest: url_digest)
+          return existing if existing&.ready?
+          return nil unless existing&.processing_failed?
+          return nil if existing.processing_blocked?(media_revision)
+          return nil if existing.file_file_name.blank?
+
+          existing
+        end
+
+        def retryable_attachment?(asset)
+          asset.processing_failed? && asset.file_file_name.present?
+        end
+
+        def stale_revision?(resource, media_revision)
+          resource.reload.media_revision.to_s != media_revision.to_s
         end
 
         def attach_all(resource)

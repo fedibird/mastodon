@@ -8,6 +8,7 @@ import { FormattedMessage } from 'react-intl';
 // still request a src that is already on the element. There is no extra
 // consent step. referrerPolicy is best-effort; HTML media does not guarantee
 // it, and a redirect target is chosen by the browser, not by Fedibird.
+// P3, not verified here: HLS playback, and real iOS and Chrome clients.
 const safeMediaUrl = (value) => {
   if (!value || typeof value !== 'string') {
     return null;
