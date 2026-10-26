@@ -12,6 +12,8 @@ module ExternalBridge
       def perform(resource_id, media_revision, url_digest)
         Media::Fetch.new.call(resource_id, media_revision, url_digest)
       rescue ExternalBridge::Error => e
+        raise if Media::Fetch.transient?(e.code)
+
         Rails.logger.info("[ExternalBridge::RSS] media fetch skipped code=#{e.code}")
       end
     end

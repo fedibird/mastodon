@@ -43,6 +43,11 @@ module ExternalBridge
       MEDIA_IMAGE_MAX_PIXELS = 40_000_000
       MEDIA_HOST_BUDGET = 20
       MEDIA_INFLIGHT = 4
+      # How long one fetch waits for a free slot or for another worker that is
+      # already downloading the same URL. Past this, the job raises and Sidekiq
+      # retries. It is not recorded as a content failure.
+      MEDIA_INFLIGHT_WAIT = 8
+      MEDIA_URL_LOCK_WAIT = 15
       MEDIA_IMAGE_TIMEOUTS = { connect_timeout: 5, read_timeout: 10, write_timeout: 5, read_deadline: 20 }.freeze
     end
   end

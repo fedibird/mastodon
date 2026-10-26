@@ -174,7 +174,7 @@ RSpec.describe ExternalBridge::RSS::MediaExtractor do
           <description><![CDATA[
             <figure><img src="https://cdn.example/a.png" srcset="https://cdn.example/a-small.png 400w, https://cdn.example/a.png 800w" alt=""><figcaption>Caption A</figcaption></figure>
             <picture><source srcset="https://cdn.example/b.webp 800w"><img src="https://cdn.example/b.png" alt="B"></picture>
-            <video poster="https://cdn.example/poster.jpg"><source src="https://cdn.example/clip.webm" type="video/webm"></video>
+            <video poster="https://cdn.example/poster.jpg"><source src="https://cdn.example/clip.webm" type="video/webm"><source src="https://cdn.example/clip.mp4" type="video/mp4"></video>
             <audio src="https://cdn.example/talk.mp3"></audio>
             <img src="https://cdn.example/poster.jpg" alt="Same poster">
             <iframe src="https://youtube.example/embed/1"></iframe>
@@ -187,10 +187,10 @@ RSpec.describe ExternalBridge::RSS::MediaExtractor do
     expect(media.map { |row| [row['kind'], row['url']] }).to eq [
       ['image', 'https://cdn.example/a.png'],
       ['image', 'https://cdn.example/b.webp'],
-      ['image', 'https://cdn.example/b.png'],
-      ['video', 'https://cdn.example/clip.webm'],
+      ['video', 'https://cdn.example/clip.mp4'],
       ['audio', 'https://cdn.example/talk.mp3'],
     ]
+    expect(media.find { |row| row['url'] == 'https://cdn.example/b.webp' }['description']).to eq 'B'
     expect(media.first['description']).to eq 'Caption A'
     expect(media.find { |row| row['kind'] == 'video' }['poster_url']).to eq 'https://cdn.example/poster.jpg'
   end

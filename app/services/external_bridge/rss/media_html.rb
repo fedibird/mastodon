@@ -22,18 +22,45 @@ module ExternalBridge
 
         fragment = Nokogiri::HTML.fragment(@html)
         fragment.css('script,style,iframe,object,embed,link,meta,noscript').remove
-        fragment.css('img, picture > source, video, audio').each { |node| add_node(node) }
+        fragment.css('picture, img, video, audio').each { |node| add_node(node) }
       end
 
       private
 
       def add_node(node)
+        return if node.name == 'img' && node.ancestors.any? { |ancestor| ancestor.name == 'picture' }
+
         case node.name
+        when 'picture' then add_picture(node)
         when 'img' then add_image(node)
-        when 'source' then add_url(first_url(node['srcset']), 'image', 'html_picture', node)
         when 'video' then add_video(node)
         when 'audio' then add_audio(node)
         end
+      end
+
+      def add_picture(node)
+        img = node.at_css('img')
+        add_url(preferred_picture(node, img), 'image', 'html_picture', img || node)
+      end
+
+      def preferred_picture(node, img)
+        sources = node.css('source').filter_map { |source| picture_source(source) }
+        best = sources.select { |row| row[:webp] }.max_by { |row| row[:width] }
+        best ||= sources.max_by { |row| row[:width] }
+        return best[:url] if best
+
+        img&.[]('src').presence || first_url(img&.[]('srcset'))
+      end
+
+      def picture_source(source)
+        url = first_url(source['srcset'].presence || source['src'])
+        return if url.blank?
+
+        { url: url, width: source['srcset'].to_s[/\s(\d+)w/, 1].to_i, webp: webp?(source, url) }
+      end
+
+      def webp?(source, url)
+        source['type'].to_s.include?('webp') || url.match?(/\.webp(\z|\?)/i)
       end
 
       def add_image(node)
@@ -43,14 +70,25 @@ module ExternalBridge
       end
 
       def add_video(node)
-        urls = [node['src'], *node.css('source').map { |source| source['src'] }]
-        urls.each { |url| add_url(url, 'video', 'html_video', node, poster: node['poster']) }
+        add_url(preferred_typed(node, %w(mp4 webm)), 'video', 'html_video', node, poster: node['poster'])
         remember(node['poster'])
       end
 
       def add_audio(node)
-        urls = [node['src'], *node.css('source').map { |source| source['src'] }]
-        urls.each { |url| add_url(url, 'audio', 'html_audio', node) }
+        add_url(preferred_typed(node, %w(mpeg mp3)), 'audio', 'html_audio', node)
+      end
+
+      # One file for the element. A picture's sources, or a video's mp4 and
+      # webm, are variants of the same media rather than extra attachments.
+      def preferred_typed(node, preferences)
+        choices = []
+        choices << ['', node['src']] if node['src'].present?
+        node.css('source').each { |source| choices << [source['type'].to_s.downcase, source['src']] }
+        preferences.each do |name|
+          found = choices.find { |type, src| src.present? && (type.include?(name) || src.include?(".#{name}")) }
+          return found.last if found
+        end
+        choices.find { |_type, src| src.present? }&.last
       end
 
       def add_url(value, kind, origin, node, poster: nil)

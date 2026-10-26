@@ -27,6 +27,12 @@
 # One downloaded file shared by every subscriber of the same public URL.
 # The URL itself is not stored. Callers pass its digest and keep the URL on
 # the resource candidate list. This file is not a Status attachment.
+#
+# A ready asset is reused for every later candidate with the same normalized
+# URL, even if the origin publishes new bytes at that URL. ETag and
+# Last-Modified revalidation, repointing projection attachments at a
+# replacement asset, and deleting the previous file are not implemented.
+# That refresh and its garbage collection are P3.
 class ExternalMediaAsset < ApplicationRecord
   include Attachmentable
 

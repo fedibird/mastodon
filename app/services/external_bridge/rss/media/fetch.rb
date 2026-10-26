@@ -11,6 +11,11 @@ module ExternalBridge
         include Redisable
 
         INFLIGHT_KEY = 'external_bridge:rss_media:inflight'
+        TRANSIENT = %w(rate_limited fetch_failed).freeze
+
+        def self.transient?(code)
+          TRANSIENT.include?(code.to_s)
+        end
 
         def call(resource_id, media_revision, url_digest)
           resource = ExternalResource.find_by(id: resource_id)
@@ -45,15 +50,19 @@ module ExternalBridge
         def download(resource, candidate, url_digest, media_revision)
           with_inflight { store(resource, candidate, url_digest, media_revision) }
         rescue Error => e
+          raise if self.class.transient?(e.code)
+
           AssetStore.fail!(url_digest, 'image', media_revision, e.code)
           nil
         end
 
         def store(resource, candidate, url_digest, media_revision)
-          result = ImageFetch.new.call(candidate['url'])
-          return nil if resource.reload.media_revision.to_s != media_revision.to_s
+          URLLock.call(url_digest) do
+            result = ImageFetch.new.call(candidate['url'])
+            return nil if resource.reload.media_revision.to_s != media_revision.to_s
 
-          AssetStore.store!(url_digest: url_digest, kind: 'image', revision: media_revision, result: result)
+            AssetStore.store!(url_digest: url_digest, kind: 'image', revision: media_revision, result: result)
+          end
         end
 
         def attach_all(resource)
@@ -67,20 +76,40 @@ module ExternalBridge
           end
         end
 
+        # A full slot is a delay, not a broken image. Wait, then let Sidekiq
+        # retry if the server is still busy. The failure counter is not moved.
         def with_inflight
-          acquired = false
+          deadline = clock + Limits::MEDIA_INFLIGHT_WAIT
+          loop do
+            if acquire_inflight
+              begin
+                return yield
+              ensure
+                release_inflight
+              end
+            end
+            raise Error, :rate_limited if clock >= deadline
+
+            sleep 0.02
+          end
+        end
+
+        def acquire_inflight
+          allowed = false
           with_redis do |redis|
             count = redis.incr(INFLIGHT_KEY)
             redis.expire(INFLIGHT_KEY, 120)
             if count.to_i > Limits::MEDIA_INFLIGHT
               redis.decr(INFLIGHT_KEY)
-              raise Error, :rate_limited
+            else
+              allowed = true
             end
-            acquired = true
           end
-          yield
-        ensure
-          release_inflight if acquired
+          allowed
+        end
+
+        def clock
+          Process.clock_gettime(Process::CLOCK_MONOTONIC)
         end
 
         def release_inflight

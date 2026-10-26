@@ -40,10 +40,12 @@ module ExternalBridge
         end
 
         def store!
-          existing = AssetStore.ready(@url_digest)
-          return existing if existing
+          ApplicationRecord.transaction do
+            existing = ExternalMediaAsset.lock.find_by(url_digest: @url_digest)
+            return existing if existing&.ready?
 
-          write!
+            write!
+          end
         rescue ActiveRecord::RecordNotUnique
           AssetStore.ready(@url_digest)
         end
