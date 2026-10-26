@@ -17,7 +17,7 @@ module ExternalBridge
       return 0 if ids.empty?
 
       outcome = purge_ids_in_transaction!(ids, suppress: suppress, route_targets: route_targets)
-      finish_purge!(ids, outcome[:removals])
+      finish_purge!(ids, outcome[:removals], media: outcome[:media])
       outcome[:deleted]
     end
 
@@ -33,12 +33,14 @@ module ExternalBridge
     # feed routes were already removed by the unsubscribe fence.
     def self.purge_ids_in_transaction!(status_ids, suppress: false, route_targets: [], schedule_deletes: true)
       ids = normalize_ids(status_ids)
-      return { removals: [], deleted: 0, captures: [] } if ids.empty?
+      return { removals: [], deleted: 0, captures: [], media: empty_media } if ids.empty?
 
       removals = []
       deleted = 0
       captures = []
+      media = empty_media
       ActiveRecord::Base.transaction(requires_new: true) do
+        media = capture_media!(ids)
         captures = capture_stream_deletes(ids, route_targets)
         remember_suppressions!(ids) if suppress
         removals = LinkSharing::Retire.end_for_projections!(ids, reason: 'projection_purged')
@@ -47,7 +49,7 @@ module ExternalBridge
         deleted = Status.unscoped.where(id: ids).delete_all
         Streaming::Scheduler.schedule_deletes!(captures) if schedule_deletes
       end
-      { removals: removals, deleted: deleted, captures: captures }
+      { removals: removals, deleted: deleted, captures: captures, media: media }
     ensure
       clear_delete_setting!
     end
@@ -55,10 +57,43 @@ module ExternalBridge
     # After the DELETE is durable. Each step stands alone: a Redis or search
     # error must not skip the others. One-shot purges have no outbox for the
     # stream event; schedule_deletes! already swallowed that enqueue error.
-    def self.finish_purge!(status_ids, removals)
+    def self.finish_purge!(status_ids, removals, media: nil)
       ids = normalize_ids(status_ids)
       isolate('wrapper_removal') { LinkSharing::Retire.enqueue_removals(removals) }
       clear_local_copies!(ids)
+      destroy_detached_media!(media)
+    end
+
+    # Join rows disappear with the projection (ON DELETE CASCADE). The
+    # attachment rows survive because statuses.status_id is only nullified.
+    # Destroy them here, after the purge transaction commits, so a rollback
+    # does not delete files the status still points at. Shared assets stay
+    # while another projection references them.
+    #
+    # P3: the captured ids are not durable. A process that dies after the
+    # DELETE commits and before these destroys leaves the files with no retry.
+    def self.destroy_detached_media!(media)
+      plan = media.is_a?(Hash) ? media : empty_media
+      isolate('media_attachment') do
+        MediaAttachment.where(id: plan[:attachment_ids]).find_each(&:destroy!)
+      end
+      isolate('media_asset') do
+        ExternalMediaAsset.where(id: plan[:asset_ids]).find_each do |asset|
+          next if ExternalProjectionAttachment.exists?(external_media_asset_id: asset.id)
+
+          asset.destroy!
+        end
+      end
+    end
+
+    def self.capture_media!(status_ids)
+      attachment_ids = MediaAttachment.where(status_id: status_ids).pluck(:id)
+      asset_ids = ExternalProjectionAttachment.where(media_attachment_id: attachment_ids).distinct.pluck(:external_media_asset_id)
+      { attachment_ids: attachment_ids, asset_ids: asset_ids }
+    end
+
+    def self.empty_media
+      { attachment_ids: [], asset_ids: [] }
     end
 
     # Idempotent. Safe to repeat for the same ids. Cache and search are tried

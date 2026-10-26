@@ -94,16 +94,18 @@ module ExternalBridge
 
       def project(subscription, resource)
         marker = ExternalStatusProjection.find_by(user_id: subscription.user_id, external_resource_id: resource.id)
-        if marker
-          refresh_existing(marker, resource)
-        else
-          ProjectionWriter.new.create!(
-            user: subscription.user,
-            subscription: subscription,
-            resource: resource,
-            text: status_text(resource)
-          )
-        end
+        judge_videos = if marker
+                         refresh_existing(marker, resource) == :media
+                       else
+                         ProjectionWriter.new.create!(
+                           user: subscription.user,
+                           subscription: subscription,
+                           resource: resource,
+                           text: status_text(resource)
+                         )
+                         true
+                       end
+        safe_enqueue(resource, videos: judge_videos)
         true
       rescue SubscriptionFence::Fenced
         raise
@@ -121,7 +123,8 @@ module ExternalBridge
         text_changed = status.text != text
         deleted_changed = marker.source_deleted != deleted
         revision_changed = marker.last_seen_revision.to_s != resource.revision.to_s
-        return unless text_changed || deleted_changed || revision_changed
+        media_changed = media_revision_changed?(marker, resource)
+        return :skip unless text_changed || deleted_changed || revision_changed || media_changed
 
         change = {
           text: text,
@@ -129,22 +132,51 @@ module ExternalBridge
           text_changed: text_changed,
           deleted_changed: deleted_changed,
           revision_changed: revision_changed,
+          media_changed: media_changed,
         }
         SubscriptionFence.guard!(marker.external_subscription_id) do
           write_refresh!(marker, status, resource, change)
         end
+        media_changed ? :media : :text
       end
 
       def write_refresh!(marker, status, resource, change)
-        if change[:revision_changed] || change[:deleted_changed]
-          marker.update!(last_seen_revision: resource.revision, source_deleted: change[:deleted])
+        if change[:revision_changed] || change[:deleted_changed] || change[:media_changed]
+          marker.update!(
+            last_seen_revision: resource.revision,
+            source_deleted: change[:deleted],
+            last_seen_media_revision: resource.media_revision
+          )
         end
         status.update!(text: change[:text]) if change[:text_changed]
+        Media::Sync.attach_ready!(marker, resource) if change[:media_changed]
+        if change[:media_changed] && !change[:text_changed]
+          status.update_columns(updated_at: Time.current)
+          Rails.cache.delete("statuses/#{status.id}")
+        end
         if change[:deleted_changed]
           schedule_membership_change!(marker, change[:deleted])
-        elsif change[:text_changed]
+        elsif change[:text_changed] || change[:media_changed]
           Streaming::Scheduler.bump_and_schedule_content!(marker)
         end
+      end
+
+      # A nil last-seen and an empty candidate digest are the same "no media"
+      # state. Treating them as a change would stream every existing projection
+      # once on the deploy that starts recording media.
+      def media_revision_changed?(marker, resource)
+        seen = marker.last_seen_media_revision
+        current = resource.media_revision
+        return false if seen.blank? && current.blank?
+        return false if seen.blank? && Array(resource.media_candidates).empty?
+
+        seen.to_s != current.to_s
+      end
+
+      def safe_enqueue(resource, videos: false)
+        Media::Sync.enqueue!(resource, videos: videos)
+      rescue StandardError => e
+        Rails.logger.info("[ExternalBridge::RSS] media enqueue error=#{e.class}")
       end
 
       def schedule_membership_change!(marker, deleted)

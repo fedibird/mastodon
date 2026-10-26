@@ -33,6 +33,32 @@ module ExternalBridge
       # it must not keep trying candidates indefinitely.
       ICON_RUN_DEADLINE = 40
       ICON_TIMEOUTS = { connect_timeout: 5, read_timeout: 5, write_timeout: 5, read_deadline: 10 }.freeze
+      # Article media (issue #585). Images are downloaded. Videos are not,
+      # unless a later server policy says otherwise. The candidate cap is the
+      # hard attachment ceiling; the live post limit can be lower.
+      MAX_MEDIA_CANDIDATES = 12
+      MAX_MEDIA_DESCRIPTION = 500
+      MEDIA_IMAGE_MAX_BYTES = 8.megabytes
+      MEDIA_IMAGE_MAX_DIMENSION = 8_192
+      MEDIA_IMAGE_MAX_PIXELS = 40_000_000
+      MEDIA_HOST_BUDGET = 20
+      MEDIA_INFLIGHT = 4
+      # How long one fetch waits for a free slot or for another worker that is
+      # already downloading the same URL. Past this, the job raises and Sidekiq
+      # retries. It is not recorded as a content failure.
+      MEDIA_INFLIGHT_WAIT = 8
+      # How long a second worker waits to take a URL lock before it retries
+      # through Sidekiq. This is not the lock's lifetime.
+      MEDIA_URL_LOCK_WAIT = 15
+      MEDIA_IMAGE_TIMEOUTS = { connect_timeout: 5, read_timeout: 10, write_timeout: 5, read_deadline: 20 }.freeze
+      MEDIA_VIDEO_TIMEOUTS = { connect_timeout: 5, read_timeout: 20, write_timeout: 5, read_deadline: 60 }.freeze
+      # Redis lease for the worker that is downloading. It is longer than one
+      # image or video read, and URLLock renews it until that download returns.
+      # A fixed 15s TTL expired while a slow GET was still running.
+      MEDIA_URL_LOCK_LEASE = [
+        MEDIA_IMAGE_TIMEOUTS[:connect_timeout] + MEDIA_IMAGE_TIMEOUTS[:write_timeout] + MEDIA_IMAGE_TIMEOUTS[:read_deadline],
+        MEDIA_VIDEO_TIMEOUTS[:connect_timeout] + MEDIA_VIDEO_TIMEOUTS[:write_timeout] + MEDIA_VIDEO_TIMEOUTS[:read_deadline],
+      ].max + 30
     end
   end
 end

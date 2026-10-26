@@ -1,0 +1,317 @@
+# frozen_string_literal: true
+
+module ExternalBridge
+  module RSS
+    # Article media, read before Parser strips XML namespaces.
+    #
+    # `media:content` and Atom `content` share a local name once namespaces
+    # are gone, and `content:encoded` is the HTML body. Candidates are taken
+    # from the body element the importer will actually use, plus enclosures
+    # and Media RSS. Feed icons are not article media. A video poster is not
+    # also stored as an image attachment.
+    class MediaExtractor
+      Preview = Struct.new(:body, :candidates, keyword_init: true)
+      ATOM = 'http://www.w3.org/2005/Atom'
+      CONTENT = 'http://purl.org/rss/1.0/modules/content/'
+      MEDIA = 'http://search.yahoo.com/mrss/'
+      XML = 'http://www.w3.org/XML/1998/namespace'
+      VIDEO_MIME = %w(video/mp4 video/webm video/ogg video/quicktime).freeze
+      HLS_MIME = %w(application/vnd.apple.mpegurl application/x-mpegurl).freeze
+      AUDIO_EXT = %w(.mp3 .m4a .aac .ogg .oga .wav .flac .opus).freeze
+      VIDEO_EXT = %w(.mp4 .webm .ogv .mov .m3u8).freeze
+      IMAGE_EXT = %w(.jpg .jpeg .png .gif .webp).freeze
+
+      def self.index!(document)
+        new(document).index!
+      end
+
+      def initialize(document)
+        @document = document
+      end
+
+      def index!
+        item_nodes.each { |node| tag(node) }
+      end
+
+      private
+
+      def item_nodes
+        @document.xpath('//*[local-name()="item" or local-name()="entry"]')
+      end
+
+      def tag(node)
+        body_node = choose_body(node)
+        raw = []
+        posters = []
+        base = base_for(node)
+        node.element_children.each { |child| collect(child, body_node, raw, posters, base) }
+        preview = Preview.new(body: body_node&.text.to_s, candidates: finalize(raw, posters))
+        node.instance_variable_set(:@external_rss_preview, preview)
+      end
+
+      def choose_body(node)
+        return atom_body(node) if node.name == 'entry'
+
+        encoded = child_ns(node, CONTENT, 'encoded')
+        description = child_named(node, 'description')
+        return encoded if encoded&.text.present?
+        return description if description&.text.present?
+
+        encoded || description
+      end
+
+      def atom_body(node)
+        content = child_ns(node, ATOM, 'content')
+        summary = child_ns(node, ATOM, 'summary')
+        return content if content&.text.present?
+        return summary if summary&.text.present?
+
+        content || summary
+      end
+
+      def collect(child, body_node, raw, posters, base)
+        return collect_enclosure(child, raw, base) if enclosure?(child)
+        return collect_media(child, raw, posters, base) if media?(child)
+        return if child != body_node
+
+        MediaHtml.extract(html_for(body_node), base, raw, posters)
+      end
+
+      def enclosure?(child)
+        return true if child.name == 'enclosure'
+        return false unless child.name == 'link' && child.namespace&.href == ATOM
+
+        child['rel'].to_s.downcase == 'enclosure'
+      end
+
+      def collect_enclosure(child, raw, base)
+        url = child.name == 'enclosure' ? child['url'] : child['href']
+        add(raw, { url: url, mime: child['type'], length: child['length'], origin: 'enclosure', base: base })
+      end
+
+      def media?(child)
+        child.namespace&.href == MEDIA && %w(content thumbnail group).include?(child.name)
+      end
+
+      def collect_media(child, raw, posters, base)
+        return child.element_children.each { |nested| collect_media(nested, raw, posters, base) } if child.name == 'group'
+        return add(raw, { url: child['url'], mime: 'image', origin: 'media_thumbnail', base: base }) if child.name == 'thumbnail'
+
+        poster = child.element_children.find { |nested| nested.name == 'thumbnail' && nested.namespace&.href == MEDIA }&.[]('url')
+        description = child['description'].presence || child.element_children.find { |nested| nested.name == 'description' }&.text
+        add(raw, {
+              url: child['url'].presence || child.text,
+          mime: child['medium'].presence || child['type'],
+          length: child['fileSize'],
+          origin: 'media_rss',
+          base: base,
+          description: description,
+          poster: poster,
+          posters: posters,
+            })
+      end
+
+      def add(raw, source)
+        absolute = normalize(source[:url], source[:base])
+        return if absolute.blank?
+
+        kind = kind_for(source[:mime], absolute)
+        return if kind.blank?
+
+        raw << candidate(source.merge(url: absolute, kind: kind))
+        remember_poster(source[:posters], source[:poster], source[:base]) if kind == 'video'
+      end
+
+      def candidate(source)
+        {
+          'url' => source[:url],
+          'kind' => source[:kind],
+          'role' => 'attachment',
+          'origin' => source[:origin],
+          'mime_hint' => mime_hint(source[:mime]),
+          'length_hint' => length_hint(source[:length]),
+          'description' => clean(source[:description]),
+          'poster_url' => source[:kind] == 'video' ? normalize(source[:poster], source[:base]) : nil,
+        }.compact
+      end
+
+      def remember_poster(posters, poster, base)
+        absolute = normalize(poster, base)
+        posters << absolute if absolute.present? && posters
+      end
+
+      def finalize(raw, posters)
+        claim_thumbnails(raw, posters)
+        seen = {}
+        kept = []
+        raw.each do |candidate|
+          next if candidate['kind'] == 'image' && posters.include?(candidate['url'])
+
+          key = "#{candidate['kind']}\n#{candidate['url']}"
+          next if seen[key]
+
+          seen[key] = true
+          kept << candidate
+          break if kept.size >= Limits::MAX_MEDIA_CANDIDATES
+        end
+        kept.each_with_index.map { |candidate, index| candidate.merge('position' => index) }
+      end
+
+      # A Media RSS thumbnail beside a video is that video's poster, not a
+      # second image attachment.
+      def claim_thumbnails(raw, posters)
+        return unless raw.any? { |candidate| candidate['kind'] == 'video' }
+
+        raw.each do |candidate|
+          next unless candidate['origin'] == 'media_thumbnail'
+
+          posters << candidate['url']
+          video = raw.find { |item| item['kind'] == 'video' && item['poster_url'].blank? }
+          video['poster_url'] = candidate['url'] if video
+        end
+      end
+
+      def html_for(node)
+        return nil if node.nil? || plain_text?(node)
+        return node.element_children.map(&:to_xml).join if node['type'].to_s.downcase == 'xhtml'
+
+        node.text
+      end
+
+      def plain_text?(node)
+        type = node['type'].to_s.downcase
+        return true if type == 'text'
+        return false if %w(html xhtml).include?(type)
+
+        node.namespace&.href == ATOM
+      end
+
+      def kind_for(mime, url)
+        label = mime.to_s.split(';').first.to_s.strip.downcase
+        return 'image' if label.start_with?('image/') && label != 'image/svg+xml'
+        return 'video' if VIDEO_MIME.include?(label) || HLS_MIME.include?(label)
+        return 'audio' if label.start_with?('audio/') && label != 'audio/x-unknown'
+        return label if %w(image video audio).include?(label)
+
+        kind_from_extension(url)
+      end
+
+      def kind_from_extension(url)
+        extension = File.extname(Addressable::URI.parse(url.to_s).path.to_s).downcase
+        return nil if extension == '.svg'
+        return 'image' if IMAGE_EXT.include?(extension)
+        return 'video' if VIDEO_EXT.include?(extension)
+        return 'audio' if AUDIO_EXT.include?(extension)
+
+        nil
+      rescue Addressable::URI::InvalidURIError
+        nil
+      end
+
+      def mime_hint(value)
+        label = value.to_s.split(';').first.to_s.strip.downcase
+        return nil if label.blank? || %w(image video audio).include?(label)
+        return nil unless label.match?(%r{\A[\w.+-]+/[\w.+-]+\z})
+
+        label
+      end
+
+      def length_hint(value)
+        return nil if value.blank?
+
+        number = Integer(value.to_s, 10)
+        return nil if number.negative? || number > 1_099_511_627_776
+
+        number
+      rescue ArgumentError, TypeError
+        nil
+      end
+
+      def clean(value)
+        text = Sanitizer.plain(value).gsub(/\s+/, ' ').strip
+        return nil if text.blank?
+
+        text.slice(0, Limits::MAX_MEDIA_DESCRIPTION)
+      end
+
+      def normalize(value, base)
+        text = value.to_s.strip
+        return nil if text.blank?
+        return nil if dangerous_scheme?(text)
+
+        MediaURL.normalize(absolute(text, base))
+      end
+
+      def dangerous_scheme?(text)
+        text.match?(/\A[a-z][a-z0-9+.-]*:/i) && !text.match?(/\Ahttps?:/i)
+      end
+
+      def absolute(text, base)
+        return text if text.match?(/\Ahttps?:/i)
+        return nil if base.blank?
+
+        Addressable::URI.join(base, text).to_s
+      rescue Addressable::URI::InvalidURIError
+        nil
+      end
+
+      def base_for(node)
+        xml_base(node) || link_base(node) || channel_base(node)
+      end
+
+      def xml_base(node)
+        current = node
+        while current.is_a?(Nokogiri::XML::Element)
+          value = current.attribute_with_ns('base', XML)&.value
+          absolute = MediaURL.normalize(value) if value.present?
+          return absolute if absolute.present?
+
+          current = current.parent
+        end
+        nil
+      end
+
+      def link_base(node)
+        href = node.name == 'entry' ? atom_href(node) : link_value(node)
+        MediaURL.normalize(href) || absolute_against(href, channel_base(node))
+      end
+
+      def link_value(node)
+        child = child_named(node, 'link')
+        child&.text.presence || child&.[]('href')
+      end
+
+      def channel_base(node)
+        current = node.parent
+        while current.is_a?(Nokogiri::XML::Element)
+          if %w(channel feed rdf).include?(current.name.to_s.downcase)
+            href = current.name == 'feed' ? atom_href(current) : child_named(current, 'link')&.text
+            found = MediaURL.normalize(href)
+            return found if found.present?
+          end
+          current = current.parent
+        end
+        nil
+      end
+
+      def absolute_against(value, base)
+        return nil if value.blank? || base.blank?
+
+        MediaURL.normalize(absolute(value, base))
+      end
+
+      def atom_href(node)
+        alternate = node.element_children.find { |child| child.name == 'link' && child['rel'].to_s.downcase.in?(['', 'alternate']) && child.namespace&.href == ATOM }
+        alternate&.[]('href')
+      end
+
+      def child_ns(node, href, name)
+        node.element_children.find { |child| child.name == name && child.namespace&.href == href }
+      end
+
+      def child_named(node, name)
+        node.element_children.find { |child| child.name == name && child.namespace&.href != MEDIA }
+      end
+    end
+  end
+end

@@ -29,6 +29,7 @@ import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { externalIdentityOf, externalIdentityName, externalIdentityReaderText } from 'mastodon/external_presentation';
+import ExternalStatusMedia from 'mastodon/components/external_status_media';
 
 const domParser = new DOMParser();
 
@@ -465,6 +466,12 @@ class Status extends ImmutablePureComponent {
     this.props.onOpenVideo(status.get('id'), mediaStatus.getIn(['media_attachments', 0]), options, lang);
   }
 
+  handleOpenSavedVideo = (attachment, options) => {
+    const status = this._properStatus();
+    const lang = statusTranslationView(this._translationMediaStatus()).mediaLang;
+    this.props.onOpenVideo(status.get('id'), attachment, options, lang);
+  }
+
   handleOpenVideoQuote = (options) => {
     const status = this._properQuoteStatus();
     const lang = statusTranslationView(status).mediaLang;
@@ -709,7 +716,24 @@ class Status extends ImmutablePureComponent {
     const translationView = statusTranslationView(mediaStatus);
     const described = attachment => attachmentAccessibility(attachment, translationView);
 
-    if (mediaStatus.get('media_attachments').size > 0) {
+    if (status.get('fedibird_external') && !this.props.muted && !pictureInPicture.get('inUse')) {
+      media = (
+        <ExternalStatusMedia
+          status={mediaStatus}
+          sensitive={status.get('sensitive')}
+          height={110}
+          videoHeight={110}
+          onOpenMedia={this.handleOpenMedia}
+          onOpenVideo={this.handleOpenSavedVideo}
+          cacheWidth={this.props.cacheMediaWidth}
+          defaultWidth={this.props.cachedMediaWidth}
+          visible={this.state.showMedia}
+          onToggleVisibility={this.handleToggleMediaVisibility}
+          deployPictureInPicture={pictureInPicture.get('available') ? this.handleDeployPictureInPicture : undefined}
+          {...galleryTranslationProps(translationView)}
+        />
+      );
+    } else if (mediaStatus.get('media_attachments').size > 0) {
       if (pictureInPicture.get('inUse')) {
         media = <PictureInPicturePlaceholder width={this.props.cachedMediaWidth} />;
       } else if (this.props.muted) {

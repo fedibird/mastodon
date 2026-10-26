@@ -2,7 +2,7 @@
 
 module ExternalBridge
   module RSS
-    Response = Struct.new(:code, :body, :etag, :last_modified, :final_url, :content_type, keyword_init: true)
+    Response = Struct.new(:code, :body, :etag, :last_modified, :final_url, :content_type, :content_length, keyword_init: true)
 
     # Public GET through Request. Private addresses are rejected on every hop.
     # No Authorization header is ever attached.
@@ -13,7 +13,7 @@ module ExternalBridge
       # shares the same public-only rules: Request rejects private addresses on
       # every DNS answer, every redirect hop is normalized again, no credential
       # is sent, and the response is read through a byte limit.
-      FetchProfile = Struct.new(:accept, :max_bytes, :asset_urls, :budget_namespace, :budget, :content_types, :truncate, :timeouts, keyword_init: true)
+      FetchProfile = Struct.new(:accept, :max_bytes, :asset_urls, :budget_namespace, :budget, :content_types, :truncate, :timeouts, :url_mode, keyword_init: true)
 
       FEED_PROFILE = FetchProfile.new(
         accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.1',
@@ -41,6 +41,18 @@ module ExternalBridge
 
       # Only the head of the page matters, so a long page is cut instead of
       # rejected.
+      MEDIA_IMAGE_PROFILE = FetchProfile.new(
+        accept: 'image/png, image/webp, image/jpeg, image/gif',
+        max_bytes: Limits::MEDIA_IMAGE_MAX_BYTES,
+        asset_urls: false,
+        budget_namespace: 'external_bridge:rss_media:host:',
+        budget: Limits::MEDIA_HOST_BUDGET,
+        content_types: %w(image/png image/jpeg image/gif image/webp),
+        truncate: false,
+        timeouts: Limits::MEDIA_IMAGE_TIMEOUTS,
+        url_mode: :media
+      ).freeze
+
       ICON_PAGE_PROFILE = FetchProfile.new(
         accept: 'text/html, application/xhtml+xml;q=0.9',
         max_bytes: Limits::ICON_MAX_PAGE_BYTES,
@@ -56,8 +68,12 @@ module ExternalBridge
         new.get(url, etag: etag, last_modified: last_modified, profile: profile)
       end
 
+      def self.head(url, profile: FEED_PROFILE)
+        new.head(url, profile: profile)
+      end
+
       def get(url, etag: nil, last_modified: nil, profile: FEED_PROFILE)
-        canonical = CanonicalURL.normalize!(url, asset: profile.asset_urls)
+        canonical = canonical_url!(url, profile)
         consume_budget!(canonical, profile)
         request = Request.new(:get, canonical, **request_options(profile))
         request.add_headers(request_headers(etag, last_modified, profile))
@@ -67,7 +83,34 @@ module ExternalBridge
       rescue Mastodon::HostValidationError => e
         raise Error, host_validation_code(e)
       rescue Mastodon::LengthValidationError
-        raise Error, :oversized_feed
+        raise Error, profile.url_mode.to_s == 'media' ? :media_too_large : :oversized_feed
+      rescue HTTP::Redirector::TooManyRedirectsError
+        raise Error, :too_many_redirects
+      rescue HTTP::Error, OpenSSL::SSL::SSLError, Addressable::URI::InvalidURIError
+        raise Error, :fetch_failed
+      end
+
+      # Headers only. A missing or unusable Content-Length means the size is
+      # unknown. Callers must not fall through to a full GET just to measure.
+      def head(url, profile: FEED_PROFILE)
+        canonical = canonical_url!(url, profile)
+        consume_budget!(canonical, profile)
+        request = Request.new(:head, canonical, **request_options(profile))
+        request.add_headers('Accept' => profile.accept)
+        request.perform do |response|
+          length = response.content_length
+          Response.new(
+            code: response.code.to_i,
+            body: nil,
+            etag: nil,
+            last_modified: nil,
+            final_url: safe_final_url(response, canonical, profile),
+            content_type: response.headers['Content-Type'].to_s.split(';').first.to_s.strip.downcase.presence,
+            content_length: length.present? && length.positive? ? length.to_i : nil
+          )
+        end
+      rescue Mastodon::HostValidationError => e
+        raise Error, host_validation_code(e)
       rescue HTTP::Redirector::TooManyRedirectsError
         raise Error, :too_many_redirects
       rescue HTTP::Error, OpenSSL::SSL::SSLError, Addressable::URI::InvalidURIError
@@ -75,6 +118,12 @@ module ExternalBridge
       end
 
       private
+
+      def canonical_url!(url, profile)
+        return MediaURL.normalize!(url) if profile.url_mode.to_s == 'media'
+
+        CanonicalURL.normalize!(url, asset: profile.asset_urls)
+      end
 
       def host_validation_code(error)
         text = error.message.to_s
@@ -97,7 +146,7 @@ module ExternalBridge
         {
           max_hops: 3,
           on_redirect: lambda do |_response, next_request|
-            CanonicalURL.normalize!(next_request.uri.to_s, asset: profile.asset_urls)
+            canonical_url!(next_request.uri.to_s, profile)
           rescue Error => e
             raise Mastodon::HostValidationError, e.code
           end,
@@ -144,7 +193,7 @@ module ExternalBridge
 
       def safe_final_url(response, requested_url, profile)
         candidate = response.uri.to_s.presence || requested_url
-        CanonicalURL.normalize!(candidate, asset: profile.asset_urls)
+        canonical_url!(candidate, profile)
       rescue Error
         raise Error, :authenticated_source_rejected
       end

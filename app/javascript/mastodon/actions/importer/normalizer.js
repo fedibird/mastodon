@@ -405,7 +405,30 @@ const presentationChanged = (oldStatus, incoming) => {
     return true;
   }
 
-  return mediaPresentation(oldStatus.get('media_attachments')) !== mediaPresentation(incoming.media_attachments);
+  if (mediaPresentation(oldStatus.get('media_attachments')) !== mediaPresentation(incoming.media_attachments)) {
+    return true;
+  }
+
+  const oldExternal = oldStatus.get('fedibird_external');
+  const nextExternal = incoming.fedibird_external;
+  if (remoteMediaPresentation(oldExternal && oldExternal.get && oldExternal.get('media')) !== remoteMediaPresentation(nextExternal && nextExternal.media)) {
+    return true;
+  }
+
+  return remoteMediaPresentation(oldExternal && oldExternal.get && oldExternal.get('sequence')) !== remoteMediaPresentation(nextExternal && nextExternal.sequence);
+};
+
+const remoteMediaPresentation = (media) => {
+  if (!media || typeof media.forEach !== 'function') {
+    return '';
+  }
+
+  const entries = [];
+  media.forEach(item => {
+    const field = (key) => readValue(item, key) || '';
+    entries.push([field('id'), field('type'), field('url'), field('description'), field('delivery')].join('\u0000'));
+  });
+  return entries.join('\n');
 };
 
 const preserveHiddenState = (oldStatus, incoming, spoilerText) => {

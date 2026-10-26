@@ -506,6 +506,16 @@ ja:
       filter_by_action: アクションでフィルター
       filter_by_user: ユーザーでフィルター
       title: 操作履歴
+    external_content_settings:
+      max_download: 動画の保存上限
+      max_download_hint: 単位は MiB です。hybrid のときだけ使います。1 から %{max}。サイズが分からない動画や、これを超える動画はリモート再生のままにし、コピーしません。すでに判定した動画の一括取得や削除はしません。
+      modes:
+        hybrid: hybrid（小さい動画だけ保存）
+        remote: リモート再生のみ
+      policy: 記事の動画
+      policy_hint: リモート再生はファイルをこのサーバーへコピーしません。hybrid は、サイズが分かっていて下の上限以内の MP4 または WebM だけ保存を試みます。リモートのままの動画は、再生時に配信元へ接続します。
+      preface: 外部記事メディアのサーバー設定です。ユーザーごとの設定ではありません。画像はこれまでどおり添付として取得します。動画は hybrid を選ばない限りリモート再生です。
+      title: 外部コンテンツ
     action_review_settings:
       errors:
         unsupported_mode: この操作では使えません

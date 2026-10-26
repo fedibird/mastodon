@@ -2,7 +2,7 @@
 
 module ExternalBridge
   module RSS
-    Item = Struct.new(:key, :title, :body, :canonical_url, :byline, :published_at, :truncated, keyword_init: true)
+    Item = Struct.new(:key, :title, :body, :canonical_url, :byline, :published_at, :truncated, :media, keyword_init: true)
     Feed = Struct.new(:protocol, :title, :site_url, :items, :icon_hints, keyword_init: true) do
       # The feed-declared image URLs, best candidate first. They are raw text
       # here (possibly relative); the icon job resolves and validates them.
@@ -28,6 +28,9 @@ module ExternalBridge
         document = Nokogiri::XML(@body) { |config| config.nonet.noblanks }
         raise Error, :invalid_xml if document.root.nil?
 
+        # Media RSS `content` and Atom `content` collide after namespaces
+        # are removed, so candidates and the real body element are marked first.
+        MediaExtractor.index!(document)
         document.remove_namespaces!
         case document.root.name.to_s.downcase
         when 'rss' then parse_rss(document)
@@ -88,7 +91,7 @@ module ExternalBridge
         key = text_at(node, 'guid').presence || about || link
         return nil if key.blank?
 
-        body, truncated = Sanitizer.capped(text_at(node, 'encoded').presence || text_at(node, 'description'))
+        body, truncated = Sanitizer.capped(raw_body(node, 'encoded', 'description'))
         Item.new(
           key: key.strip,
           title: Sanitizer.title(text_at(node, 'title')),
@@ -96,7 +99,8 @@ module ExternalBridge
           canonical_url: link,
           byline: Sanitizer.title(text_at(node, 'creator').presence || text_at(node, 'author')),
           published_at: parse_time(text_at(node, 'pubDate')) || parse_time(text_at(node, 'date')),
-          truncated: truncated
+          truncated: truncated,
+          media: media_for(node)
         )
       end
 
@@ -106,7 +110,7 @@ module ExternalBridge
         key ||= link
         return nil if key.blank?
 
-        body, truncated = Sanitizer.capped(text_at(node, 'content').presence || text_at(node, 'summary'))
+        body, truncated = Sanitizer.capped(raw_body(node, 'content', 'summary'))
         Item.new(
           key: key.strip,
           title: Sanitizer.title(text_at(node, 'title')),
@@ -114,7 +118,8 @@ module ExternalBridge
           canonical_url: link,
           byline: Sanitizer.title(node.at_xpath('author/name')&.text),
           published_at: parse_time(text_at(node, 'published').presence || text_at(node, 'updated')),
-          truncated: truncated
+          truncated: truncated,
+          media: media_for(node)
         )
       end
 
@@ -136,6 +141,22 @@ module ExternalBridge
 
           { 'kind' => kind, 'url' => url }
         end.first(Limits::ICON_HINTS)
+      end
+
+      def raw_body(node, *fallbacks)
+        preview = node.instance_variable_get(:@external_rss_preview)
+        return preview.body if preview
+
+        fallbacks.each do |name|
+          value = text_at(node, name).presence
+          return value if value
+        end
+        nil
+      end
+
+      def media_for(node)
+        preview = node.instance_variable_get(:@external_rss_preview)
+        Array(preview&.candidates)
       end
 
       def text_at(node, name)
