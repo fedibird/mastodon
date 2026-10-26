@@ -87,6 +87,7 @@ export const enableWideEmoji = getMeta('enable_wide_emoji');
 export const enableWideEmojiReaction = getMeta('enable_wide_emoji_reaction');
 export const disablePost = getMeta('disable_post');
 export const disableReactions = getMeta('disable_reactions');
+export const emojiReactionFallbackPolicy = getMeta('emoji_reaction_fallback_policy');
 export const disableFollow = getMeta('disable_follow');
 export const disableUnfollow = getMeta('disable_unfollow');
 export const disableBlock = getMeta('disable_block');

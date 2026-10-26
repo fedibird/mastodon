@@ -49,7 +49,8 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
         :'user.new_features_policy',
         :'user.content_font_size',
         :'user.info_font_size',
-        :'user.reduce_motion'
+        :'user.reduce_motion',
+        :'user.emoji_reaction_fallback_policy'
       )
       privacy = body[:preferences][:'user.default_privacy']
       expect(privacy[:state]).to eq 'absent'
@@ -58,6 +59,34 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
       expect(privacy[:public_value]).to eq 'private'
       expect(privacy[:public_valid]).to be true
       expect(privacy[:validation_errors]).to eq []
+      policy = body[:preferences][:'user.emoji_reaction_fallback_policy']
+      expect(policy).to include(state: 'absent', configured: nil, effective: 'allow', public_value: 'allow', public_valid: true)
+    end
+
+    it 'publishes a stored fallback policy and normalizes a value that is not allow, ask, or deny' do
+      store_setting(user, 'emoji_reaction_fallback_policy', 'ask')
+      authorize(user, 'read:preferences')
+      get :show
+
+      expect(body_as_json[:preferences][:'user.emoji_reaction_fallback_policy']).to include(
+        state: 'present', configured: 'ask', effective: 'ask', public_value: 'ask', public_valid: true
+      )
+
+      store_setting(user, 'emoji_reaction_fallback_policy', 'yes')
+      get :show
+      normalized = body_as_json[:preferences][:'user.emoji_reaction_fallback_policy']
+      expect(normalized).to include(state: 'present', configured: 'yes', effective: 'allow', public_value: 'allow')
+    end
+
+    it 'does not return another user fallback policy' do
+      other = Fabricate(:user)
+      store_setting(other, 'emoji_reaction_fallback_policy', 'ask')
+      store_setting(user, 'emoji_reaction_fallback_policy', 'deny')
+      authorize(user, 'read:preferences')
+      get :show
+
+      expect(body_as_json[:preferences][:'user.emoji_reaction_fallback_policy'][:effective]).to eq 'deny'
+      expect(response.body).not_to include('"ask"')
     end
 
     it 'accepts the read scope' do
@@ -258,7 +287,8 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
         :'user.new_features_policy',
         :'user.content_font_size',
         :'user.info_font_size',
-        :'user.reduce_motion'
+        :'user.reduce_motion',
+        :'user.emoji_reaction_fallback_policy'
       )
       sensitive = body[:preferences][:'user.default_sensitive']
       expect(sensitive).to include(state: 'present', configured: false, effective: false, public_value: false, public_valid: true)
@@ -296,7 +326,7 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
 
       expect(response).to have_http_status(200)
       expect(stored(user, 'default_sensitive').value).to be false
-      expect(body_as_json[:preferences].keys.size).to eq 10
+      expect(body_as_json[:preferences].keys.size).to eq 11
     end
 
     it 'updates policy and the translation bar together, and policy alone leaves the bar row' do
@@ -447,6 +477,26 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
 
       allow_any_instance_of(UserPreferences::Writer).to receive(:apply).and_raise(RuntimeError, 'boom')
       expect { patch_json(preferences: { 'user.reduce_motion' => true }) }.to raise_error(RuntimeError, 'boom')
+    end
+
+    it 'rejects a fallback policy update or a mixed update and leaves the nine keys unchanged' do
+      store_setting(user, 'emoji_reaction_fallback_policy', 'deny')
+      patch_json(preferences: { 'user.emoji_reaction_fallback_policy' => 'allow', 'user.reduce_motion' => true })
+
+      expect(response).to have_http_status(422)
+      expect(body_as_json[:errors]).to include(key: 'user.emoji_reaction_fallback_policy', code: 'unknown_key')
+      expect(stored(user, 'emoji_reaction_fallback_policy').value).to eq 'deny'
+      expect(stored(user, 'reduce_motion')).to be_nil
+    end
+
+    it 'rejects reset of the fallback policy' do
+      store_setting(user, 'emoji_reaction_fallback_policy', 'ask')
+      authorize(user, 'write:preferences')
+      post :reset, body: { reset: ['user.emoji_reaction_fallback_policy'] }.to_json, as: :json
+
+      expect(response).to have_http_status(422)
+      expect(body_as_json[:errors]).to include(key: 'user.emoji_reaction_fallback_policy', code: 'unknown_key')
+      expect(stored(user, 'emoji_reaction_fallback_policy').value).to eq 'ask'
     end
   end
 end

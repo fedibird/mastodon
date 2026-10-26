@@ -155,6 +155,9 @@ defaults: &defaults
   default_expires_action: 'mark'
   disable_post: false
   disable_reactions: false
+  # allow, ask, or deny. Unset and any other stored value read as allow.
+  # ask is not offered on the safety form until the picker can confirm it.
+  emoji_reaction_fallback_policy: allow
   disable_follow: false
   disable_unfollow: false
   disable_block: false

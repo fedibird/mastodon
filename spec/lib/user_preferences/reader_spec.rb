@@ -378,4 +378,29 @@ RSpec.describe UserPreferences::Reader do
       expect(setting_queries { reader.get(:reduce_motion) }).to be_empty
     end
   end
+
+  describe 'emoji_reaction_fallback_policy' do
+    let(:user) { Fabricate(:user) }
+
+    it 'reads allow when unset and does not write the default' do
+      value = described_class.new(user).get('emoji_reaction_fallback_policy')
+
+      expect(value.state).to eq :absent
+      expect(value.configured).to be_nil
+      expect(value.effective).to eq 'allow'
+      expect(value.public_value).to eq 'allow'
+      expect(Setting.where(thing_id: user.id, var: 'emoji_reaction_fallback_policy')).to be_empty
+    end
+
+    it 'keeps a stored choice and normalizes an old value without rewriting it' do
+      store_setting(user, 'emoji_reaction_fallback_policy', 'deny')
+      stored = described_class.new(user).get('emoji_reaction_fallback_policy')
+      expect(stored).to have_attributes(state: :present, configured: 'deny', effective: 'deny', public_value: 'deny')
+
+      store_setting(user, 'emoji_reaction_fallback_policy', true)
+      legacy = described_class.new(user).get('emoji_reaction_fallback_policy')
+      expect(legacy).to have_attributes(state: :present, configured: true, effective: 'allow', public_value: 'allow')
+      expect(Setting.unscoped.find_by(thing_id: user.id, var: 'emoji_reaction_fallback_policy').value).to be true
+    end
+  end
 end

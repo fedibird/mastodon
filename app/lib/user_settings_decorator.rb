@@ -141,6 +141,7 @@ class UserSettingsDecorator
   STRING_KEYS = %w(
     default_privacy
     default_language
+    emoji_reaction_fallback_policy
     theme
     display_media
     translation_preferred_mode
@@ -176,6 +177,7 @@ class UserSettingsDecorator
 
   def process_update
     refuse_missing_legacy_writer!
+    refuse_invalid_fallback_policy!
     NESTED_KEYS.each do |key|
       user.settings[key] = user.settings[key].merge coerced_settings(key) if change?(key)
     end
@@ -200,6 +202,18 @@ class UserSettingsDecorator
         user.settings[key] = boolean_cast_setting("setting_#{key}")
       end
     end
+  end
+
+  # Reject before any key in this request is written. ask is refused while
+  # the picker dialog does not exist, so the form cannot store a choice the
+  # WebUI cannot answer. An invalid value is not coerced to allow and saved.
+  def refuse_invalid_fallback_policy!
+    return unless change?('setting_emoji_reaction_fallback_policy')
+
+    value = settings['setting_emoji_reaction_fallback_policy']
+    return if EmojiReactionCapability::FallbackPolicy.form_selectable?(value)
+
+    raise UserPreferences::InvalidInput, [{ 'key' => 'emoji_reaction_fallback_policy', 'code' => 'invalid_value' }]
   end
 
   def legacy_key?(key)

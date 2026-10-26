@@ -41,7 +41,8 @@ RSpec.describe UserPreferences::Schema do
         'new_features_policy',
         'content_font_size',
         'info_font_size',
-        'reduce_motion'
+        'reduce_motion',
+        'emoji_reaction_fallback_policy'
       )
     end
 

@@ -2022,6 +2022,18 @@ en:
     beta_features: Beta features
     disable_actions: Disable actions
     disable_actions_hint: This setting is used to prevent accidents due to mishandling or to disable certain actions in accounts with limited use. It also applies to client applications.
+    emoji_reaction_fallback_policy: Reaction sent as a favourite
+    emoji_reaction_fallback_policy_scope: When your reaction would be sent to the server that hosts the post as a favourite (Like), because that server does not take it as an emoji reaction. A reaction on a local post can still reach followers' servers as a favourite. This does not stop every Like.
+    emoji_reaction_fallback_policy_enforced: This server applies the choice when the reaction is sent.
+    emoji_reaction_fallback_policy_not_enforced: This choice is saved, but this server is not applying it yet. Reactions keep today's delivery until enforcement is turned on.
+    emoji_reaction_fallback_policy_ask_unavailable: Ask each time is not offered. This app has no confirmation dialog, so that choice would reject the reaction with no way to confirm.
+    emoji_reaction_fallback_policy_ask_stored: The saved choice is ask each time. This app cannot complete that confirmation. Choose send or do not send, then save. Until you do, a server that enforces this setting refuses a new fallback send.
+    emoji_reaction_fallback_policy_choose: Choose send or do not send
+    emoji_reaction_fallback_policy_disable_reactions: Disable reactions still blocks the action, as it does today.
+    emoji_reaction_fallback_policies:
+      allow: Send it as a favourite to that server
+      deny: Do not send it to that server
+      ask: Ask each time
     fedibird_features: Fedibird features
     other: Other
     post_disclosure: Post disclosure

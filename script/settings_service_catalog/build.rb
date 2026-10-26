@@ -7,7 +7,7 @@ module SettingsServiceCatalog
   class Build
     PROFILE_VARS = %w[noindex hide_network hide_statuses_count hide_following_count hide_followers_count enable_reaction].freeze
     HIGH_RISK_VARS = %w[
-      disable_post disable_reactions disable_follow disable_unfollow disable_block
+      disable_post disable_reactions emoji_reaction_fallback_policy disable_follow disable_unfollow disable_block
       disable_domain_block disable_report disable_clear_all_notifications disable_account_delete
       prohibited_visibilities prohibited_words unlocked_for_official_app
       noindex hide_network hide_statuses_count hide_following_count hide_followers_count enable_reaction
@@ -558,7 +558,7 @@ module SettingsServiceCatalog
       return 'posting' if POSTING.include?(var)
       return 'translation' if TRANSLATION.include?(var) || var == 'new_features_policy'
       return 'privacy' if PRIVACY.include?(var)
-      return 'safety' if %w[disable_post disable_reactions disable_follow disable_unfollow disable_block disable_domain_block disable_report disable_clear_all_notifications disable_account_delete prohibited_visibilities prohibited_words confirm_domain_block confirm_follow_from_bot unlocked_for_official_app].include?(var)
+      return 'safety' if %w[disable_post disable_reactions emoji_reaction_fallback_policy disable_follow disable_unfollow disable_block disable_domain_block disable_report disable_clear_all_notifications disable_account_delete prohibited_visibilities prohibited_words confirm_domain_block confirm_follow_from_bot unlocked_for_official_app].include?(var)
       return 'timelines' if var.include?('timeline') || var == 'aggregate_reblogs' || var == 'hide_bot_on_public_timeline'
       return 'reactions' if var.include?('reaction') || var.include?('emoji')
       return 'notifications' if var.end_with?('_modal')
@@ -691,6 +691,7 @@ module SettingsServiceCatalog
       sources << 'server CSS variables in account_theme_valiables' if css
       sources << 'server HTML body class or theme stylesheet' if html.any? || var == 'theme'
       sources << 'Rails preferences form getter' if form_hits(var).any?
+      sources << 'GET /api/v1/fedibird/preferences (read-only; PATCH and reset reject this key)' if var == 'emoji_reaction_fallback_policy'
       sources << 'no client read found' if sources.empty?
       sources
     end
@@ -737,6 +738,8 @@ module SettingsServiceCatalog
         'Stored as the submitted string. The getter replaces only a blank stored value. Selectable form values are Status.selectable_visibilities: public, unlisted, private, mutual, personal.'
       when 'default_language'
         'Stored as submitted, including nil for the language-detection option. The getter does not cascade. preferred_posting_language does.'
+      when 'emoji_reaction_fallback_policy'
+        'The safety form stores allow or deny only, and stores ask only when the reaction picker can confirm it. Any other submitted value is rejected and not coerced. A missing row, nil, and a stored value other than allow, ask, or deny read as allow and are not rewritten. GET /api/v1/fedibird/preferences publishes the effective value. PATCH and reset reject the key because it is not in UserPreferences::WriteContract::KEYS. write_policy read_only on the definition does not itself block a write.'
       when 'prohibited_words'
         'Stored as a string. InitialState and post services split on comma, strip, and drop blanks. The split array is not what is stored.'
       when 'prohibited_visibilities'
@@ -797,6 +800,7 @@ module SettingsServiceCatalog
       effects << 'ActivityPub::UpdateDistributionWorker when the preferences params include this key; the check is key presence, not value change' if PROFILE_VARS.include?(var)
       effects << 'fan-out skips direct or personal delivery to self' if %w[hide_direct_from_timeline hide_personal_from_timeline].include?(var)
       effects << 'account statuses API filters personal visibility' if var == 'hide_personal_from_account'
+      effects << 'EmojiReactionService reads it only when EMOJI_REACTION_FALLBACK_POLICY_ENFORCE is effectively on (canonical writes and idempotent retry must also be true). The flag ships off. Off does not read this row and does not change delivery.' if var == 'emoji_reaction_fallback_policy'
       effects << 'PostStatusService and status update reject prohibited words' if var == 'prohibited_words'
       effects << 'statuses API and posting identity refuse posting' if var == 'disable_post'
       effects << 'follow API refuses a new follow' if var == 'disable_follow'
@@ -929,6 +933,9 @@ module SettingsServiceCatalog
       end
       if var == 'default_search_searchability'
         parts << 'InitialState search.default_searchability uses this user setting. InitialState compose.default_searchability uses accounts.searchability. The composer reducer default before hydrate is private. These are different values.'
+      end
+      if var == 'emoji_reaction_fallback_policy'
+        parts << 'High-risk because it can change an ActivityPub Like to the post server. It does not change follower fan-out, Undo, or a native EmojiReact. The safety form warns that enforcement is off until the server flag is on, and it does not offer ask while the picker dialog is absent. InitialState meta is the effective value.'
       end
       if var == 'default_privacy'
         parts << 'A share URL can also set InitialStatePresenter visibility for that response only, and compose.default_privacy prefers that visibility over this setting. Saving the other preferences form submits the getter, so a previously unset value becomes stored.'

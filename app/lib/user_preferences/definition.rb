@@ -77,6 +77,7 @@ class UserPreferences::Definition
       content_font,
       info_font,
       motion,
+      fallback_policy,
       preferred_language,
     ]
   end
@@ -137,6 +138,36 @@ class UserPreferences::Definition
       legacy_formats: [],
       source_refs: ['app/models/user.rb', 'app/helpers/languages_helper.rb', 'app/lib/user_preferences/reader.rb'],
       api_key_candidate: 'user.default_language',
+      storage_constraint: nil
+    )
+  end
+
+  def self.fallback_policy
+    new(
+      key: 'emoji_reaction_fallback_policy',
+      category: :safety,
+      owner: :user,
+      storage_key: 'emoji_reaction_fallback_policy',
+      derived: false,
+      configured_type: [:nil, :string, :boolean, :integer],
+      effective_type: [:string],
+      public_type: [:string],
+      allowed_values: EmojiReactionCapability::FallbackPolicy::VALUES,
+      allowed_values_source: 'EmojiReactionCapability::FallbackPolicy::VALUES',
+      ui_range: nil,
+      default_source: 'config/settings.yml emoji_reaction_fallback_policy allow. A missing row, nil, and any value other than allow, ask, or deny read as allow and are not written back. P1c grandfathering is not implemented.',
+      dependencies: [],
+      read_policy: :general,
+      write_policy: :read_only,
+      apply_hint: :reinitialize,
+      legacy_formats: [],
+      source_refs: [
+        'config/settings.yml',
+        'app/lib/emoji_reaction_capability/fallback_policy.rb',
+        'app/lib/user_preferences/reader.rb',
+        'app/views/settings/preferences/safety/show.html.haml',
+      ],
+      api_key_candidate: 'user.emoji_reaction_fallback_policy',
       storage_constraint: nil
     )
   end

@@ -346,6 +346,7 @@ en:
         setting_disable_post: Disable post
         setting_disable_reaction_streaming: Disable reaction streaming
         setting_disable_reactions: Disable reactions
+        setting_emoji_reaction_fallback_policy: Reaction sent as a favourite to the post's server
         setting_disable_relative_time: Disable relative time on posts
         setting_disable_report: Disable report
         setting_disable_swiping: Disable swiping motions

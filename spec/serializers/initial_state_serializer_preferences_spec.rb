@@ -50,6 +50,7 @@ RSpec.describe InitialStateSerializer do
       expect(meta[:translation_bar_visibility]).to eq 'target'
       expect(meta[:translation_bar_visibility]).to eq user.setting_show_translation_bar
       expect(meta[:enable_local_timeline]).to be false
+      expect(meta[:emoji_reaction_fallback_policy]).to eq 'allow'
       expect(compose[:default_privacy]).to eq 'private'
       expect(compose[:default_privacy]).to eq user.setting_default_privacy
       expect(compose[:default_sensitive]).to eq false
@@ -141,6 +142,7 @@ RSpec.describe InitialStateSerializer do
 
       expect(json[:meta][:reduce_motion]).to eq Setting.reduce_motion
       expect(json[:meta]).not_to have_key(:content_font_size)
+      expect(json[:meta]).not_to have_key(:emoji_reaction_fallback_policy)
       expect(json[:meta]).not_to have_key(:translation_bar_visibility)
       expect(json[:compose]).not_to have_key(:default_privacy)
       expect(json[:meta][:enable_local_timeline]).to be_nil
