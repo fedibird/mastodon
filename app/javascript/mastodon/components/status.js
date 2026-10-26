@@ -466,6 +466,12 @@ class Status extends ImmutablePureComponent {
     this.props.onOpenVideo(status.get('id'), mediaStatus.getIn(['media_attachments', 0]), options, lang);
   }
 
+  handleOpenSavedVideo = (attachment, options) => {
+    const status = this._properStatus();
+    const lang = statusTranslationView(this._translationMediaStatus()).mediaLang;
+    this.props.onOpenVideo(status.get('id'), attachment, options, lang);
+  }
+
   handleOpenVideoQuote = (options) => {
     const status = this._properQuoteStatus();
     const lang = statusTranslationView(status).mediaLang;
@@ -711,7 +717,22 @@ class Status extends ImmutablePureComponent {
     const described = attachment => attachmentAccessibility(attachment, translationView);
 
     if (status.get('fedibird_external') && !this.props.muted && !pictureInPicture.get('inUse')) {
-      media = <ExternalStatusMedia status={mediaStatus} />;
+      media = (
+        <ExternalStatusMedia
+          status={mediaStatus}
+          sensitive={status.get('sensitive')}
+          height={110}
+          videoHeight={110}
+          onOpenMedia={this.handleOpenMedia}
+          onOpenVideo={this.handleOpenSavedVideo}
+          cacheWidth={this.props.cacheMediaWidth}
+          defaultWidth={this.props.cachedMediaWidth}
+          visible={this.state.showMedia}
+          onToggleVisibility={this.handleToggleMediaVisibility}
+          deployPictureInPicture={pictureInPicture.get('available') ? this.handleDeployPictureInPicture : undefined}
+          {...galleryTranslationProps(translationView)}
+        />
+      );
     } else if (mediaStatus.get('media_attachments').size > 0) {
       if (pictureInPicture.get('inUse')) {
         media = <PictureInPicturePlaceholder width={this.props.cachedMediaWidth} />;

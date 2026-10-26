@@ -26,39 +26,52 @@ module ExternalBridge
         LUA
 
         def self.call(url_digest, &block)
-          new.call(url_digest, &block)
+          new.acquire(url_digest, ready_check: true, &block)
         end
 
-        def call(url_digest, &block)
+        # Same lease as a download, but the block still runs when a file is
+        # already stored. Attachment conversion uses this. `call` returns the
+        # ready row instead of fetching again.
+        def self.exclusive(url_digest, &block)
+          new.acquire(url_digest, ready_check: false, &block)
+        end
+
+        def acquire(url_digest, ready_check:, &block)
           key = "external_bridge:rss_media:url:#{url_digest}"
           token = SecureRandom.hex(8)
           deadline = clock + Limits::MEDIA_URL_LOCK_WAIT
           until lock(key, token)
-            ready = AssetStore.ready(url_digest)
+            ready = ready_asset(url_digest, ready_check)
             return ready if ready
             raise Error, :rate_limited if clock >= deadline
 
             sleep 0.02
           end
-          hold(key, token, url_digest, &block)
+          guard(key, token, url_digest, ready_check, &block)
         end
 
         private
 
-        def hold(key, token, url_digest)
-          ready = AssetStore.ready(url_digest)
+        def guard(key, token, url_digest, ready_check, &block)
+          ready = ready_asset(url_digest, ready_check)
           return ready if ready
 
           stop = Queue.new
           renewer = Thread.new { renew_until(stop, key, token) }
           begin
-            yield
+            block.call
           ensure
             stop.push(:stop)
             renewer.join(lease_seconds)
           end
         ensure
           unlock(key, token)
+        end
+
+        def ready_asset(url_digest, ready_check)
+          return unless ready_check
+
+          AssetStore.ready(url_digest)
         end
 
         def lock(key, token)

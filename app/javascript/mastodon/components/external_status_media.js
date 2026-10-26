@@ -2,14 +2,23 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { List as ImmutableList, fromJS } from 'immutable';
+import { FormattedMessage } from 'react-intl';
 import MediaGallery from 'mastodon/components/media_gallery';
 import ExternalRemoteMedia from 'mastodon/components/external_remote_media';
+import Video from 'mastodon/features/video';
+import Audio from 'mastodon/features/audio';
+import { displayMedia } from 'mastodon/initial_state';
+import { attachmentAccessibility } from 'mastodon/utils/translation_view';
 
 // External articles can contain images and a saved or remote video in any
 // order. The ordinary status renderer keeps only the first attachment type,
 // so a saved video next to images would disappear. This list follows
 // fedibird_external.sequence instead.
 const read = (item, key) => (item && typeof item.get === 'function' ? item.get(key) : item[key]);
+
+const defaultVisible = (sensitive) => (
+  (displayMedia !== 'hide_all' && !sensitive) || displayMedia === 'show_all'
+);
 
 export const externalMediaBlocks = (status) => {
   const sequence = status && status.getIn && status.getIn(['fedibird_external', 'sequence']);
@@ -67,18 +76,147 @@ export default class ExternalStatusMedia extends React.PureComponent {
   static propTypes = {
     status: ImmutablePropTypes.map,
     muted: PropTypes.bool,
+    sensitive: PropTypes.bool,
+    visible: PropTypes.bool,
+    onToggleVisibility: PropTypes.func,
+    onOpenMedia: PropTypes.func,
+    onOpenVideo: PropTypes.func,
+    height: PropTypes.number,
+    videoHeight: PropTypes.number,
+    defaultWidth: PropTypes.number,
+    cacheWidth: PropTypes.func,
+    standalone: PropTypes.bool,
+    lang: PropTypes.string,
+    translationMode: PropTypes.string,
+    sourceLang: PropTypes.string,
+    targetLang: PropTypes.string,
+    deployPictureInPicture: PropTypes.func,
   };
 
-  renderLocal (block) {
-    const url = block.attachment.get('url');
-    const description = block.attachment.get('description') || '';
-    if (block.kind === 'audio') {
-      return <audio src={url} controls preload='metadata' aria-label={description} />;
+  static defaultProps = {
+    height: 110,
+  };
+
+  concealed () {
+    const visible = this.props.visible !== undefined ? this.props.visible : defaultVisible(this.props.sensitive);
+    return !visible;
+  }
+
+  described (attachment) {
+    return attachmentAccessibility(attachment, {
+      mode: this.props.translationMode,
+      sourceLang: this.props.sourceLang,
+      targetLang: this.props.targetLang,
+    });
+  }
+
+  openSavedVideo = (attachment) => (options) => {
+    if (this.props.onOpenVideo) {
+      this.props.onOpenVideo(attachment, options);
     }
+  };
+
+  renderConcealed (key) {
+    const warning = this.props.sensitive ? (
+      <FormattedMessage id='status.sensitive_warning' defaultMessage='Sensitive content' />
+    ) : (
+      <FormattedMessage id='status.media_hidden' defaultMessage='Media hidden' />
+    );
 
     return (
-      <video src={url} controls preload='metadata' playsInline aria-label={description} />
+      <button type='button' className='spoiler-button__overlay' onClick={this.props.onToggleVisibility} key={key}>
+        <span className='spoiler-button__overlay__label'>{warning}</span>
+      </button>
     );
+  }
+
+  renderGallery (block) {
+    return (
+      <MediaGallery
+        media={block.items}
+        sensitive={this.props.sensitive}
+        height={this.props.height}
+        onOpenMedia={this.props.onOpenMedia}
+        defaultWidth={this.props.defaultWidth}
+        cacheWidth={this.props.cacheWidth}
+        visible={this.props.visible}
+        onToggleVisibility={this.props.onToggleVisibility}
+        standalone={this.props.standalone}
+        lang={this.props.lang}
+        translationMode={this.props.translationMode}
+        sourceLang={this.props.sourceLang}
+        targetLang={this.props.targetLang}
+      />
+    );
+  }
+
+  renderVideo (attachment) {
+    const described = this.described(attachment);
+    const height = this.props.videoHeight || this.props.height;
+
+    return (
+      <Video
+        preview={attachment.get('preview_url')}
+        frameRate={attachment.getIn(['meta', 'original', 'frame_rate'])}
+        thumbhash={attachment.get('thumbhash')}
+        blurhash={attachment.get('blurhash')}
+        src={attachment.get('url')}
+        alt={described.text}
+        lang={described.lang}
+        width={this.props.defaultWidth}
+        height={height}
+        inline
+        sensitive={this.props.sensitive}
+        onOpenVideo={this.openSavedVideo(attachment)}
+        cacheWidth={this.props.cacheWidth}
+        deployPictureInPicture={this.props.deployPictureInPicture}
+        visible={this.props.visible}
+        onToggleVisibility={this.props.onToggleVisibility}
+      />
+    );
+  }
+
+  renderAudio (attachment) {
+    if (this.concealed()) {
+      return this.renderConcealed(attachment.get('id'));
+    }
+
+    const described = this.described(attachment);
+    const height = this.props.videoHeight || this.props.height;
+
+    return (
+      <Audio
+        src={attachment.get('url')}
+        alt={described.text}
+        lang={described.lang}
+        poster={attachment.get('preview_url')}
+        backgroundColor={attachment.getIn(['meta', 'colors', 'background'])}
+        foregroundColor={attachment.getIn(['meta', 'colors', 'foreground'])}
+        accentColor={attachment.getIn(['meta', 'colors', 'accent'])}
+        duration={attachment.getIn(['meta', 'original', 'duration'], 0)}
+        width={this.props.defaultWidth}
+        height={height}
+        cacheWidth={this.props.cacheWidth}
+      />
+    );
+  }
+
+  renderLocal (block) {
+    if (block.kind === 'audio') {
+      return this.renderAudio(block.attachment);
+    }
+
+    return this.renderVideo(block.attachment);
+  }
+
+  renderRemote (block, index) {
+    const key = read(block.entry, 'id') || `remote-${index}`;
+    if (this.concealed()) {
+      return this.renderConcealed(key);
+    }
+
+    const remoteStatus = fromJS({ fedibird_external: { media: [block.entry] } });
+    return <ExternalRemoteMedia key={key} status={remoteStatus} />;
   }
 
   render () {
@@ -98,11 +236,10 @@ export default class ExternalStatusMedia extends React.PureComponent {
       <div className='external-status-media'>
         {blocks.map((block, index) => {
           if (block.kind === 'images') {
-            return <MediaGallery key={`images-${index}`} media={block.items} />;
+            return <React.Fragment key={`images-${index}`}>{this.renderGallery(block)}</React.Fragment>;
           }
           if (block.kind === 'remote') {
-            const remoteStatus = fromJS({ fedibird_external: { media: [block.entry] } });
-            return <ExternalRemoteMedia key={read(block.entry, 'id') || `remote-${index}`} status={remoteStatus} />;
+            return <React.Fragment key={read(block.entry, 'id') || `remote-${index}`}>{this.renderRemote(block, index)}</React.Fragment>;
           }
           return (
             <div className='external-status-media__saved' key={block.attachment.get('id')}>

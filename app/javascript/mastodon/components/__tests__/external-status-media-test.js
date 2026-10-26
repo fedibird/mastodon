@@ -12,6 +12,12 @@ jest.mock('react-intl', () => ({
 jest.mock('mastodon/components/media_gallery', () => ({ media }) => (
   <div data-testid='gallery'>{media.map(item => item.get('id')).join(',')}</div>
 ));
+
+jest.mock('mastodon/features/video', () => ({ src, visible }) => (
+  visible === false ? null : <video src={src} />
+));
+
+jest.mock('mastodon/features/audio', () => ({ src }) => <audio src={src} />);
 /* eslint-enable react/prop-types */
 
 const status = ({ sequence, attachments }) => fromJS({

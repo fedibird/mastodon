@@ -8,6 +8,13 @@ module ExternalBridge
       # Order follows the candidate list. A change of order rebuilds the
       # attachment rows so the default id order matches the article.
       class Sync
+        COPY_FAILURES = [
+          ActiveRecord::RecordInvalid,
+          Paperclip::Error,
+          Mastodon::StreamValidationError,
+          Mastodon::DimensionsValidationError,
+        ].freeze
+
         def self.attach_ready!(marker, resource)
           new(marker, resource).attach_ready!
         end
@@ -44,6 +51,7 @@ module ExternalBridge
             digest = MediaDigest.url_digest(candidate['url'])
             asset = ExternalMediaAsset.find_by(url_digest: digest)
             next if asset&.ready? || asset&.exhausted_for?(@resource.media_revision)
+            next if asset&.processing_blocked?(@resource.media_revision)
 
             MediaFetchWorker.perform_async(@resource.id, @resource.media_revision, digest)
           end
@@ -61,11 +69,23 @@ module ExternalBridge
 
         def desired_files
           saved_candidates.filter_map do |candidate|
-            asset = AssetStore.ready(MediaDigest.url_digest(candidate['url']))
+            asset = attachable_asset(MediaDigest.url_digest(candidate['url']))
             next if asset.nil? || asset.kind != candidate['kind']
 
             [candidate, asset]
           end.first(attachment_limit)
+        end
+
+        # A processing failure stays remote until its backoff ends. The shared
+        # bytes are still on disk, so the retry converts them instead of
+        # downloading them again.
+        def attachable_asset(digest)
+          asset = ExternalMediaAsset.find_by(url_digest: digest)
+          return nil if asset.nil?
+          return asset if asset.ready?
+          return asset if asset.processing_failed? && !asset.processing_blocked?(@resource.media_revision)
+
+          nil
         end
 
         def saved_candidates
@@ -87,14 +107,14 @@ module ExternalBridge
           asset = ExternalMediaAsset.find_by(url_digest: MediaDigest.url_digest(candidate['url']))
           return videos if asset.nil?
           return false if asset.ready? || asset.exhausted_for?(@resource.media_revision)
+          return false if asset.processing_blocked?(@resource.media_revision)
           return false if asset.fetched_at.present? && asset.fetched_at > retry_delay(asset).ago
 
-          asset.failed?
+          asset.failed? || asset.processing_failed?
         end
 
         def retry_delay(asset)
-          step = [[asset.attempt_count.to_i, 1].max, 6].min
-          (15 * (2**(step - 1))).seconds
+          ExternalMediaAsset.processing_retry_delay(asset.attempt_count)
         end
 
         def video_candidates
@@ -116,12 +136,23 @@ module ExternalBridge
           [configured, MediaAttachment::ATTACHMENTS_LIMIT].min
         end
 
-        def reconcile(desired)
-          current = @marker.external_projection_attachments.order(:position, :id).to_a
+        def reconcile(desired, retry_ready: true)
+          current = attachment_rows
           return update_descriptions(current, desired) if same_assets?(current, desired)
 
-          replace(current, desired)
-          true
+          prepared = prepare_replacement(current, desired)
+          if prepared.nil?
+            return false unless retry_ready && @reprocess
+
+            @reprocess = false
+            return reconcile(desired_files, retry_ready: false)
+          end
+
+          commit_replacement(current, prepared)
+        end
+
+        def attachment_rows
+          @marker.external_projection_attachments.includes(:media_attachment).order(:position, :id).to_a
         end
 
         def same_assets?(current, desired)
@@ -141,34 +172,103 @@ module ExternalBridge
           changed
         end
 
-        def replace(current, desired)
-          released = []
-          current.each do |row|
-            released << row.external_media_asset_id
-            attachment = row.media_attachment
-            row.destroy!
-            attachment&.destroy!
+        # New files are built before any existing attachment is removed. A
+        # failed video therefore cannot drop an image that was already showing.
+        # One retry attaches the files that are still eligible after the
+        # failure has been recorded.
+        def prepare_replacement(current, desired)
+          indexed = current.index_by(&:external_media_asset_id)
+          prepared = []
+          desired.each do |candidate, asset|
+            existing = indexed[asset.id]
+            if existing&.media_attachment
+              prepared << { kind: :keep, row: existing, candidate: candidate, asset: asset }
+              next
+            end
+
+            copied = copy_attachment!(asset, alt_text(candidate))
+            if copied == :blocked
+              next
+            elsif copied.nil?
+              destroy_new!(prepared)
+              return nil
+            end
+
+            prepared << { kind: :new, attachment: copied, candidate: candidate, asset: asset }
           end
-          desired.each_with_index { |(candidate, asset), index| create_link!(candidate, asset, index) }
-          release_assets(released - desired.map { |_, asset| asset.id })
+          prepared
+        rescue StandardError
+          destroy_new!(prepared)
+          raise
         end
 
-        def create_link!(candidate, asset, index)
-          attachment = nil
-          attachment = copy_attachment!(asset, alt_text(candidate))
+        def commit_replacement(current, prepared)
+          committed = false
+          kept_ids = prepared.filter_map { |item| item[:row]&.id }
+          removed = current.reject { |row| kept_ids.include?(row.id) }
+          changed = removed.any?
+
+          ApplicationRecord.transaction do
+            removed.each(&:destroy!)
+            prepared.each_with_index do |item, index|
+              changed = true if write_prepared!(item, index)
+            end
+          end
+          committed = true
+          removed.each { |row| destroy_attachment!(row.media_attachment) }
+          release_assets(removed.map(&:external_media_asset_id) - prepared.map { |item| item[:asset].id })
+          changed
+        rescue StandardError
+          destroy_new!(prepared) unless committed
+          raise
+        end
+
+        def write_prepared!(item, index)
+          return create_prepared!(item, index) unless item[:kind] == :keep
+
+          moved = item[:row].position != index
+          item[:row].update!(position: index) if moved
+          described = assign_description!(item[:row].media_attachment, item[:candidate])
+          moved || described
+        end
+
+        def create_prepared!(item, index)
           @marker.external_projection_attachments.create!(
-            external_media_asset: asset,
-            media_attachment: attachment,
+            external_media_asset: item[:asset],
+            media_attachment: item[:attachment],
             position: index,
-            kind: candidate['kind']
+            kind: item[:candidate]['kind']
           )
-        rescue ActiveRecord::RecordInvalid, Paperclip::Error => e
-          attachment&.destroy!
-          Rails.logger.info("[ExternalBridge::RSS] media attach failed error=#{e.class}")
-          nil
+          AssetStore.mark_processed!(item[:asset])
+          true
         end
 
         def copy_attachment!(asset, description)
+          URLLock.exclusive(asset.url_digest) do
+            current = ExternalMediaAsset.find_by(id: asset.id)
+            if current&.processing_blocked?(@resource.media_revision)
+              :blocked
+            else
+              write_attachment!(asset, description)
+            end
+          rescue *COPY_FAILURES => e
+            record_processing_failure!(asset, e)
+          end
+        end
+
+        def record_processing_failure!(asset, error)
+          fresh = ExternalMediaAsset.find_by(id: asset.id)
+          if fresh&.ready? && @marker.external_projection_attachments.exists?(external_media_asset_id: fresh.id)
+            return :blocked
+          end
+
+          AssetStore.processing_fail!(asset.url_digest, asset.kind, @resource.media_revision, 'processing_failed')
+          @reprocess = true
+          Rails.logger.info("[ExternalBridge::RSS] media attach failed error=#{error.class}")
+          nil
+        end
+
+        def write_attachment!(asset, description)
           extension = file_extension(asset)
           Tempfile.create(['rss-attach', ".#{extension}"], binmode: true) do |file|
             asset.file.copy_to_local_file(:original, file.path)
@@ -197,6 +297,28 @@ module ExternalBridge
 
         def alt_text(candidate)
           candidate['description'].to_s.strip.slice(0, MediaAttachment::MAX_DESCRIPTION_LENGTH).presence
+        end
+
+        def assign_description!(attachment, candidate)
+          return false if attachment.nil?
+
+          description = alt_text(candidate)
+          return false if attachment.description.to_s == description.to_s
+
+          attachment.update!(description: description)
+          true
+        end
+
+        def destroy_new!(prepared)
+          Array(prepared).each { |item| destroy_attachment!(item[:attachment]) if item[:kind] == :new }
+        end
+
+        def destroy_attachment!(attachment)
+          return if attachment.nil? || !attachment.persisted? || attachment.destroyed?
+
+          attachment.destroy!
+        rescue ActiveRecord::ActiveRecordError
+          nil
         end
 
         def release_assets(ids)
