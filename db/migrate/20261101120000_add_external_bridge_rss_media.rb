@@ -14,7 +14,7 @@
 # reference to a normal MediaAttachment. The shared file and the owner's
 # attachment are different rows so a purge of one subscriber cannot delete
 # another subscriber's bytes, and MediaAttachment stays owned by one account.
-class AddExternalBridgeRssMedia < ActiveRecord::Migration[6.1]
+class AddExternalBridgeRSSMedia < ActiveRecord::Migration[6.1]
   # strong_migrations cannot inspect change_table bulk: true, so each column is
   # its own catalog-only statement.
   # rubocop:disable Rails/BulkChangeTable
