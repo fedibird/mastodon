@@ -3,17 +3,70 @@
   <channel>
     <title>Playback gate</title>
     <link>https://example.com</link>
-    <description>Private fixture for issue #588 P3-D. Replace the media hosts with https URLs you can actually serve.</description>
+    <description>Private fixture for issue #588 P3-D. Replace the media hosts with https URLs you can actually serve. The HTTP status, Content-Type, and Range behavior are not in this file. They are the server contract in docs/external_rss_media_playback.md. Do not mark a device pass from this XML alone.</description>
+    <!-- playback-story: image, MP4, WebM, HLS, and MP3. One element per file so each stays its own candidate. -->
     <item>
       <guid>playback-story</guid>
       <title>Playback story</title>
       <link>https://example.com/playback-story</link>
       <description><![CDATA[
-        <p>One image, then three remote files. Nothing here should autoplay.</p>
-        <img src="https://cdn.example/playback.png" alt="Still frame">
-        <video><source src="https://cdn.example/playback.mp4" type="video/mp4"></video>
-        <video><source src="https://cdn.example/playback.webm" type="video/webm"></video>
-        <video><source src="https://cdn.example/playback.m3u8" type="application/vnd.apple.mpegurl"></video>
+        <p>One image, then remote video and audio. Nothing here should autoplay.</p>
+        <figure>
+          <img src="https://cdn.example/playback.png" alt="Still frame">
+          <figcaption>Still frame</figcaption>
+        </figure>
+        <figure>
+          <video><source src="https://cdn.example/playback.mp4" type="video/mp4"></video>
+          <figcaption>MP4 byte range</figcaption>
+        </figure>
+        <figure>
+          <video><source src="https://cdn.example/playback.webm" type="video/webm"></video>
+          <figcaption>WebM</figcaption>
+        </figure>
+        <figure>
+          <video><source src="https://cdn.example/playback.m3u8" type="application/vnd.apple.mpegurl"></video>
+          <figcaption>HLS</figcaption>
+        </figure>
+        <figure>
+          <audio><source src="https://cdn.example/playback.mp3" type="audio/mpeg"></audio>
+          <figcaption>MP3</figcaption>
+        </figure>
+      ]]></description>
+    </item>
+    <!-- Server returns 403 for playback-forbidden.mp4. The player should show the error fallback. -->
+    <item>
+      <guid>playback-forbidden</guid>
+      <title>Playback forbidden</title>
+      <link>https://example.com/playback-forbidden</link>
+      <description><![CDATA[
+        <figure>
+          <video><source src="https://cdn.example/playback-forbidden.mp4" type="video/mp4"></video>
+          <figcaption>HTTP 403</figcaption>
+        </figure>
+      ]]></description>
+    </item>
+    <!-- Server returns 200 with a Content-Type the browser cannot play, and bytes that are not a media file. -->
+    <item>
+      <guid>playback-unsupported-mime</guid>
+      <title>Playback unsupported MIME</title>
+      <link>https://example.com/playback-unsupported-mime</link>
+      <description><![CDATA[
+        <figure>
+          <video><source src="https://cdn.example/playback-unsupported.mp4" type="video/mp4"></video>
+          <figcaption>Unsupported MIME</figcaption>
+        </figure>
+      ]]></description>
+    </item>
+    <!-- Server returns 200 video/mp4 and answers Range with the whole file, not 206. -->
+    <item>
+      <guid>playback-no-range</guid>
+      <title>Playback without ranges</title>
+      <link>https://example.com/playback-no-range</link>
+      <description><![CDATA[
+        <figure>
+          <video><source src="https://cdn.example/playback-no-range.mp4" type="video/mp4"></video>
+          <figcaption>Range ignored</figcaption>
+        </figure>
       ]]></description>
     </item>
   </channel>

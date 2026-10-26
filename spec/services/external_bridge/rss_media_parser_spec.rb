@@ -246,6 +246,44 @@ RSpec.describe ExternalBridge::RSS::MediaExtractor do
     expect(media.first['poster_url']).to eq 'https://cdn.example/thumb.jpg'
   end
 
+  it 'maps the playback gate fixture onto the device cases' do
+    xml = Rails.root.join('spec/fixtures/external_bridge/playback_feed.xml').read
+    feed = parse(xml)
+    items = feed.items.index_by(&:key)
+
+    expect(items.keys).to eq %w(
+      playback-story
+      playback-forbidden
+      playback-unsupported-mime
+      playback-no-range
+    )
+
+    story = items['playback-story']
+    expect(story.canonical_url).to eq 'https://example.com/playback-story'
+    expect(story.media.map { |row| [row['kind'], row['url'], row['description']] }).to eq [
+      ['image', 'https://cdn.example/playback.png', 'Still frame'],
+      ['video', 'https://cdn.example/playback.mp4', 'MP4 byte range'],
+      ['video', 'https://cdn.example/playback.webm', 'WebM'],
+      ['video', 'https://cdn.example/playback.m3u8', 'HLS'],
+      ['audio', 'https://cdn.example/playback.mp3', 'MP3'],
+    ]
+
+    expect(items['playback-forbidden'].media.map { |row| [row['kind'], row['url'], row['description']] }).to eq [
+      ['video', 'https://cdn.example/playback-forbidden.mp4', 'HTTP 403'],
+    ]
+    expect(items['playback-forbidden'].canonical_url).to eq 'https://example.com/playback-forbidden'
+
+    expect(items['playback-unsupported-mime'].media.map { |row| [row['kind'], row['url'], row['description']] }).to eq [
+      ['video', 'https://cdn.example/playback-unsupported.mp4', 'Unsupported MIME'],
+    ]
+    expect(items['playback-unsupported-mime'].canonical_url).to eq 'https://example.com/playback-unsupported-mime'
+
+    expect(items['playback-no-range'].media.map { |row| [row['kind'], row['url'], row['description']] }).to eq [
+      ['video', 'https://cdn.example/playback-no-range.mp4', 'Range ignored'],
+    ]
+    expect(items['playback-no-range'].canonical_url).to eq 'https://example.com/playback-no-range'
+  end
+
   it 'caps the candidate list' do
     images = (1..20).map { |number| %(<img src="https://cdn.example/#{number}.png" alt="#{number}">) }.join
     feed = parse(<<~XML)
