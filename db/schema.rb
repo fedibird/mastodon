@@ -644,6 +644,12 @@ ActiveRecord::Schema.define(version: 2026_11_03_120000) do
     t.string "failed_revision"
     t.integer "attempt_count", default: 0, null: false
     t.datetime "fetched_at"
+    t.text "validator_etag"
+    t.text "validator_last_modified"
+    t.datetime "validated_at"
+    t.datetime "revalidate_after"
+    t.integer "revalidate_attempt", default: 0, null: false
+    t.integer "generation", default: 1, null: false
     t.string "file_file_name"
     t.string "file_content_type"
     t.bigint "file_file_size"
@@ -651,6 +657,25 @@ ActiveRecord::Schema.define(version: 2026_11_03_120000) do
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["url_digest"], name: "index_external_media_assets_on_url_digest", unique: true
+    t.check_constraint "generation >= 1", name: "external_media_assets_generation_check"
+    t.check_constraint "revalidate_attempt >= 0", name: "external_media_assets_revalidate_attempt_check"
+  end
+
+  # Scheduler::ExternalBridgeRSSMediaRevalidateScheduler orders ready images
+  # by validated_at NULLS FIRST. Keep this predicate. Do not replace it with a dump.
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_ext_media_assets_on_image_revalidate
+    ON external_media_assets (validated_at ASC NULLS FIRST, id)
+    WHERE state = 'ready' AND kind = 'image'
+  SQL
+
+  create_table "external_media_asset_resources", force: :cascade do |t|
+    t.bigint "external_media_asset_id", null: false
+    t.bigint "external_resource_id", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_media_asset_id", "external_resource_id"], name: "index_ext_media_asset_resources_on_asset_and_resource", unique: true
+    t.index ["external_resource_id"], name: "index_ext_media_asset_resources_on_resource"
   end
 
   create_table "external_media_gc_intents", force: :cascade do |t|
@@ -2407,6 +2432,8 @@ ActiveRecord::Schema.define(version: 2026_11_03_120000) do
   add_foreign_key "external_feed_routes", "users", name: "fk_external_feed_routes_user", on_delete: :cascade
   add_foreign_key "external_identities", "user_external_credentials", column: "credential_id", on_delete: :nullify
   add_foreign_key "external_identities", "users", on_delete: :cascade
+  add_foreign_key "external_media_asset_resources", "external_media_assets", name: "fk_ext_media_asset_resources_asset", on_delete: :cascade
+  add_foreign_key "external_media_asset_resources", "external_resources", name: "fk_ext_media_asset_resources_resource", on_delete: :cascade
   add_foreign_key "external_oauth_attempts", "users", on_delete: :cascade
   add_foreign_key "external_projection_attachments", "external_media_assets", name: "fk_ext_proj_attach_asset", on_delete: :restrict
   add_foreign_key "external_projection_attachments", "external_status_projections", name: "fk_ext_proj_attach_projection", on_delete: :cascade

@@ -59,6 +59,11 @@ module ExternalBridge
         MEDIA_IMAGE_TIMEOUTS[:connect_timeout] + MEDIA_IMAGE_TIMEOUTS[:write_timeout] + MEDIA_IMAGE_TIMEOUTS[:read_deadline],
         MEDIA_VIDEO_TIMEOUTS[:connect_timeout] + MEDIA_VIDEO_TIMEOUTS[:write_timeout] + MEDIA_VIDEO_TIMEOUTS[:read_deadline],
       ].max + 30
+      # Revalidation is not part of a feed fetch. One refresh may enqueue this
+      # many conditional GETs, and the scheduler pass is capped separately.
+      MEDIA_REVALIDATE_AFTER = 24.hours
+      MEDIA_REVALIDATE_PER_REFRESH = 2
+      MEDIA_REVALIDATE_BATCH = 10
     end
   end
 end

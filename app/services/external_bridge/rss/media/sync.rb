@@ -47,17 +47,32 @@ module ExternalBridge
         def enqueue!(videos: false)
           return if @resource.nil? || @resource.media_revision.blank? || @resource.source_deleted_at.present?
 
-          pending_candidates(videos).each do |candidate|
-            digest = MediaDigest.url_digest(candidate['url'])
-            asset = ExternalMediaAsset.find_by(url_digest: digest)
-            next if asset&.ready? || asset&.exhausted_for?(@resource.media_revision)
-            next if asset&.processing_blocked?(@resource.media_revision)
-
-            MediaFetchWorker.perform_async(@resource.id, @resource.media_revision, digest)
-          end
+          @revalidations = 0
+          pending_candidates(videos).each { |candidate| queue_candidate(candidate) }
         end
 
         private
+
+        def queue_candidate(candidate)
+          digest = MediaDigest.url_digest(candidate['url'])
+          asset = ExternalMediaAsset.find_by(url_digest: digest)
+          if asset&.ready?
+            AssetResource.remember!(asset.id, @resource.id)
+            queue_revalidation(asset, digest)
+            return
+          end
+          return if asset&.exhausted_for?(@resource.media_revision) || asset&.processing_blocked?(@resource.media_revision)
+
+          MediaFetchWorker.perform_async(@resource.id, @resource.media_revision, digest)
+        end
+
+        def queue_revalidation(asset, digest)
+          return unless asset.kind == 'image' && Revalidate.due?(asset)
+          return if @revalidations >= Limits::MEDIA_REVALIDATE_PER_REFRESH
+
+          @revalidations += 1
+          MediaRevalidateWorker.perform_async(@resource.id, digest)
+        end
 
         def eligible?
           return false if @marker.nil? || @resource.nil? || @marker.status.nil?
