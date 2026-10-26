@@ -56,6 +56,25 @@ module ExternalBridge
           ExternalMediaAsset.find_by(url_digest: url_digest)
         end
 
+        # The representative URL was skipped because a later candidate stored
+        # the bytes. The row has no file. It exists so the next refresh does
+        # not GET the rejected URL again while the alternate is still ready.
+        def self.mark_alternate!(url_digest, revision)
+          asset = ExternalMediaAsset.find_or_initialize_by(url_digest: url_digest)
+          return asset if asset.persisted? && (asset.ready? || asset.alternate_selected?)
+
+          asset.kind = 'image'
+          asset.state = 'failed'
+          asset.failure_code = 'alternate_selected'
+          asset.failed_revision = revision.to_s.first(80)
+          asset.attempt_count = 0
+          asset.fetched_at = Time.current
+          asset.save!
+          asset
+        rescue ActiveRecord::RecordNotUnique
+          ExternalMediaAsset.find_by(url_digest: url_digest)
+        end
+
         def self.fail!(url_digest, kind, revision, code, terminal: false)
           asset = ExternalMediaAsset.find_or_initialize_by(url_digest: url_digest)
           # New rows default state to ready before they are saved. Only a

@@ -102,6 +102,12 @@ class ExternalMediaAsset < ApplicationRecord
   end
 
   def exhausted_for?(revision)
-    !ready? && failed_revision.to_s == revision.to_s && attempt_count.to_i >= 3
+    !ready? && !alternate_selected? && failed_revision.to_s == revision.to_s && attempt_count.to_i >= 3
+  end
+
+  # The representative URL was not stored. A later URL in `fallbacks` was.
+  # This is not a compose upload and it is not a reason to delete one.
+  def alternate_selected?
+    failure_code == 'alternate_selected'
   end
 end

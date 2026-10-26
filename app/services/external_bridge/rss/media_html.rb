@@ -23,6 +23,9 @@ module ExternalBridge
         fragment = Nokogiri::HTML.fragment(@html)
         fragment.css('script,style,iframe,object,embed,link,meta,noscript').remove
         fragment.css('picture, img, video, audio').each { |node| add_node(node) }
+      rescue StandardError => e
+        Rails.logger.info("[ExternalBridge::RSS] media html skipped error=#{e.class}")
+        nil
       end
 
       private
@@ -40,35 +43,31 @@ module ExternalBridge
 
       def add_picture(node)
         img = node.at_css('img')
-        add_url(preferred_picture(node, img), 'image', 'html_picture', img || node)
+        add_image_choice(ranked_picture(node, img), 'html_picture', img || node)
       end
 
-      # The representative URL is the highest declared width, not the first
-      # srcset entry and not a small WebP ahead of a larger JPEG. Equal widths
-      # prefer WebP. If the chosen bytes later fail to decode, another source
-      # is not tried; that fallback is P3.
-      def preferred_picture(node, img)
-        sources = node.css('source').filter_map { |source| picture_source(source) }
-        add_image_candidates(sources, img)
-        best = sources.select { |row| row[:width].positive? }.presence || sources
-        best.max_by { |row| [row[:width], row[:webp] ? 1 : 0, row[:density]] }&.[](:url)
+      # One logical image. `media` on `<source>` is not evaluated: this server
+      # does not know the reader's viewport, so a min-width source is eligible
+      # whenever its declared width wins. `w` outranks `x`. Equal widths prefer
+      # WebP (`type` or a .webp URL) and then the higher density. The first
+      # ranked URL stays the representative, which keeps media_revision stable.
+      # The rest are `fallbacks`, in that same order, and are not digested.
+      def ranked_picture(node, img)
+        rows = node.css('source').flat_map { |source| declared_rows(source) }
+        rows.concat(declared_rows(img))
+        rank(rows)
       end
 
-      def add_image_candidates(sources, img)
-        return if img.nil?
+      def declared_rows(node)
+        return [] if node.nil?
 
-        declared = best_declared(srcset_candidates(img['srcset']))
-        sources << declared.merge(webp: webp?(img, declared[:url])) if declared
-        return if img['src'].blank? || sources.any? { |row| row[:url] == img['src'] }
+        # `src` is one URL. Only `srcset` is split on commas, so a data URL's
+        # comma is not treated as a second candidate.
+        rows = srcset_candidates(node['srcset']).map { |row| row.merge(webp: webp?(node, row[:url])) }
+        extra = node['src']
+        return rows if extra.blank? || rows.any? { |row| row[:url] == extra }
 
-        sources << { url: img['src'], width: 0, density: 1.0, webp: webp?(img, img['src']) }
-      end
-
-      def picture_source(source)
-        declared = best_declared(srcset_candidates(source['srcset'].presence || source['src']))
-        return if declared.nil?
-
-        declared.merge(webp: webp?(source, declared[:url]))
+        rows << { url: extra, width: 0, density: 1.0, webp: webp?(node, extra) }
       end
 
       def webp?(source, url)
@@ -78,14 +77,42 @@ module ExternalBridge
       def add_image(node)
         return if tracking_pixel?(node)
 
-        add_url(preferred_image(node), 'image', 'html_img', node)
+        add_image_choice(ranked_image(node), 'html_img', node)
       end
 
-      def preferred_image(node)
-        declared = best_declared(srcset_candidates(node['srcset']))
-        return declared[:url] if declared && declared[:width].positive?
+      # An `<img>` with only `x` descriptors keeps `src` as the representative.
+      # A positive `w` still replaces `src`. That matches the previous choice.
+      def ranked_image(node)
+        rows = declared_rows(node)
+        return rank(rows) if rows.any? { |row| row[:width].positive? }
 
-        node['src'].presence || declared&.[](:url)
+        src = rows.find { |row| row[:url] == node['src'] }
+        others = rows.reject { |row| row.equal?(src) }
+        [src, *rank(others)].compact
+      end
+
+      def add_image_choice(ranked, origin, node)
+        resolved = resolve_rows(ranked)
+        return if resolved.blank?
+
+        @pending_fallbacks = resolved.drop(1).map { |row| row[:url] }.uniq.first(Limits::MAX_IMAGE_FALLBACKS)
+        add_url(resolved.first[:url], 'image', origin, node)
+      ensure
+        @pending_fallbacks = nil
+      end
+
+      def resolve_rows(rows)
+        resolved = Array(rows).filter_map do |row|
+          absolute = resolve(row[:url])
+          next if absolute.blank? || svg?(absolute)
+
+          row.merge(url: absolute)
+        end
+        resolved.uniq { |row| row[:url] }
+      end
+
+      def rank(rows)
+        Array(rows).sort_by { |row| [-row[:width].to_i, row[:webp] ? 0 : 1, -row[:density].to_f] }
       end
 
       def srcset_candidates(srcset)
@@ -102,13 +129,6 @@ module ExternalBridge
           end
           { url: url, width: width, density: density }
         end
-      end
-
-      def best_declared(candidates)
-        return if candidates.blank?
-
-        sized = candidates.select { |row| row[:width].positive? }
-        (sized.presence || candidates).max_by { |row| [row[:width], row[:density]] }
       end
 
       def add_video(node)
@@ -137,7 +157,7 @@ module ExternalBridge
         absolute = resolve(value)
         return if absolute.blank? || svg?(absolute)
 
-        @raw << {
+        payload = {
           'url' => absolute,
           'kind' => kind,
           'role' => 'attachment',
@@ -145,6 +165,9 @@ module ExternalBridge
           'description' => description(node),
           'poster_url' => poster.present? && kind == 'video' ? resolve(poster) : nil,
         }.compact
+        fallbacks = Array(@pending_fallbacks).reject { |url| url == absolute }.uniq.first(Limits::MAX_IMAGE_FALLBACKS)
+        payload['fallbacks'] = fallbacks if fallbacks.present?
+        @raw << payload
         remember(poster) if kind == 'video'
       end
 

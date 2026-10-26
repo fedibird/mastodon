@@ -112,19 +112,42 @@ module ExternalBridge
         end
 
         def store_image(resource, candidate, url_digest, media_revision)
-          URLLock.call(url_digest) do
-            cached = stored_copy(url_digest, media_revision)
-            if cached
-              cached
-            else
-              result = ImageFetch.new.call(candidate['url'])
-              if stale_revision?(resource, media_revision)
-                nil
-              else
-                AssetStore.store!(url_digest: url_digest, kind: 'image', revision: media_revision, result: result)
-              end
-            end
+          last_error = nil
+          ImageAttempts.urls(candidate).each do |url|
+            return nil if stale_revision?(resource, media_revision)
+
+            asset = fetch_image(resource, url, media_revision)
+            next if asset.nil?
+
+            remember_alternate!(url, url_digest, media_revision)
+            return asset
+          rescue Error => e
+            last_error = e
+            raise if ImageAttempts.stop?(e.code) || !ImageAttempts.try_next?(e.code)
           end
+          raise last_error if last_error
+
+          nil
+        end
+
+        def fetch_image(resource, url, media_revision)
+          digest = MediaDigest.url_digest(url)
+          URLLock.call(digest) do
+            cached = stored_copy(digest, media_revision)
+            next cached if cached
+
+            result = ImageFetch.new.call(url)
+            raise Error, 'http_304' if result.not_modified || result.body.blank?
+            next nil if stale_revision?(resource, media_revision)
+
+            AssetStore.store!(url_digest: digest, kind: 'image', revision: media_revision, result: result)
+          end
+        end
+
+        def remember_alternate!(url, primary_digest, media_revision)
+          return if MediaDigest.url_digest(url) == primary_digest
+
+          AssetStore.mark_alternate!(primary_digest, media_revision)
         end
 
         def stored_copy(url_digest, media_revision)

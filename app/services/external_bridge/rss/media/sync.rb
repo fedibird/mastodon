@@ -57,13 +57,33 @@ module ExternalBridge
           digest = MediaDigest.url_digest(candidate['url'])
           asset = ExternalMediaAsset.find_by(url_digest: digest)
           if asset&.ready?
-            AssetResource.remember!(asset.id, @resource.id)
-            queue_revalidation(asset, digest)
+            remember_ready!(asset, digest)
+            return
+          end
+
+          alternate = ready_alternate(candidate)
+          if alternate
+            remember_ready!(alternate, alternate.url_digest)
             return
           end
           return if asset&.exhausted_for?(@resource.media_revision) || asset&.processing_blocked?(@resource.media_revision)
 
           MediaFetchWorker.perform_async(@resource.id, @resource.media_revision, digest)
+        end
+
+        def remember_ready!(asset, digest)
+          AssetResource.remember!(asset.id, @resource.id)
+          queue_revalidation(asset, digest)
+        end
+
+        def ready_alternate(candidate)
+          return nil unless candidate['kind'] == 'image'
+
+          Array(candidate['fallbacks']).each do |url|
+            asset = ExternalMediaAsset.ready.find_by(url_digest: MediaDigest.url_digest(url))
+            return asset if asset&.kind == 'image'
+          end
+          nil
         end
 
         def queue_revalidation(asset, digest)
@@ -84,11 +104,23 @@ module ExternalBridge
 
         def desired_files
           saved_candidates.filter_map do |candidate|
-            asset = attachable_asset(MediaDigest.url_digest(candidate['url']))
+            asset = asset_for(candidate)
             next if asset.nil? || asset.kind != candidate['kind']
 
             [candidate, asset]
           end.first(attachment_limit)
+        end
+
+        def asset_for(candidate)
+          found = attachable_asset(MediaDigest.url_digest(candidate['url']))
+          return found if found&.kind == candidate['kind']
+          return nil unless candidate['kind'] == 'image'
+
+          Array(candidate['fallbacks']).each do |url|
+            found = attachable_asset(MediaDigest.url_digest(url))
+            return found if found&.kind == 'image'
+          end
+          nil
         end
 
         # A processing failure stays remote until its backoff ends. The shared
