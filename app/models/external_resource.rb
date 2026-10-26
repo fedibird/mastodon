@@ -21,6 +21,8 @@
 #  fetched_at         :datetime
 #  created_at         :datetime         not null
 #  updated_at         :datetime         not null
+#  media_revision     :text
+#  media_candidates   :jsonb            not null
 #
 class ExternalResource < ApplicationRecord
   PROTOCOLS = %w(rss atom).freeze

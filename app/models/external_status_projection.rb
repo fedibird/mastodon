@@ -17,6 +17,7 @@
 #  streamed_content_generation   :bigint(8)
 #  created_at                    :datetime         not null
 #  updated_at                    :datetime         not null
+#  last_seen_media_revision      :text
 #
 class ExternalStatusProjection < ApplicationRecord
   belongs_to :user
@@ -27,6 +28,7 @@ class ExternalStatusProjection < ApplicationRecord
   belongs_to :status
   # Purge nulls the FK. It does not delete the reference Status.
   has_many :external_projection_link_references, inverse_of: :external_status_projection, dependent: :nullify
+  has_many :external_projection_attachments, dependent: :delete_all
 
   after_commit :remove_from_search_index, on: [:create, :update]
 

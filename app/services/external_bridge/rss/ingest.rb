@@ -65,6 +65,7 @@ module ExternalBridge
       def upsert_resource!(source, actor, item)
         key = resource_key(source, item.key)
         digest = Digest::SHA256.hexdigest([item.title, item.body, item.canonical_url].join("\n"))
+        media = MediaDigest.normalize(item.media)
         save_once(ExternalResource, protocol: source.protocol, canonical_key: key) do |resource|
           resource.external_source = source
           resource.external_actor = actor
@@ -78,6 +79,8 @@ module ExternalBridge
           resource.truncated = item.truncated
           resource.fetched_at = Time.current
           resource.source_deleted_at = nil
+          resource.media_candidates = media
+          resource.media_revision = MediaDigest.hexdigest(media)
         end
       end
 

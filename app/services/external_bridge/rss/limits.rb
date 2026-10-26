@@ -33,6 +33,17 @@ module ExternalBridge
       # it must not keep trying candidates indefinitely.
       ICON_RUN_DEADLINE = 40
       ICON_TIMEOUTS = { connect_timeout: 5, read_timeout: 5, write_timeout: 5, read_deadline: 10 }.freeze
+      # Article media (issue #585). Images are downloaded. Videos are not,
+      # unless a later server policy says otherwise. The candidate cap is the
+      # hard attachment ceiling; the live post limit can be lower.
+      MAX_MEDIA_CANDIDATES = 12
+      MAX_MEDIA_DESCRIPTION = 500
+      MEDIA_IMAGE_MAX_BYTES = 8.megabytes
+      MEDIA_IMAGE_MAX_DIMENSION = 8_192
+      MEDIA_IMAGE_MAX_PIXELS = 40_000_000
+      MEDIA_HOST_BUDGET = 20
+      MEDIA_INFLIGHT = 4
+      MEDIA_IMAGE_TIMEOUTS = { connect_timeout: 5, read_timeout: 10, write_timeout: 5, read_deadline: 20 }.freeze
     end
   end
 end

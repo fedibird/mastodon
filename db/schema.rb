@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_31_150000) do
+ActiveRecord::Schema.define(version: 2026_11_01_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -631,6 +631,28 @@ ActiveRecord::Schema.define(version: 2026_10_31_150000) do
     t.check_constraint "visibility IN ('public', 'unlisted')", name: "link_share_policies_visibility_check"
   end
 
+  create_table "external_media_assets", force: :cascade do |t|
+    t.string "url_digest", null: false
+    t.string "kind", null: false
+    t.string "state", default: "ready", null: false
+    t.string "content_type"
+    t.bigint "byte_size"
+    t.string "fingerprint"
+    t.integer "width"
+    t.integer "height"
+    t.string "failure_code"
+    t.string "failed_revision"
+    t.integer "attempt_count", default: 0, null: false
+    t.datetime "fetched_at"
+    t.string "file_file_name"
+    t.string "file_content_type"
+    t.bigint "file_file_size"
+    t.datetime "file_updated_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["url_digest"], name: "index_external_media_assets_on_url_digest", unique: true
+  end
+
   create_table "external_oauth_attempts", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.string "provider", limit: 64, default: "bluesky", null: false
@@ -660,6 +682,19 @@ ActiveRecord::Schema.define(version: 2026_10_31_150000) do
     t.index ["user_id"], name: "index_external_oauth_attempts_on_user_id"
     t.index ["expires_at"], name: "index_external_oauth_attempts_on_open_expires_at", where: "(consumed_at IS NULL)"
     t.index ["created_at", "consumed_at"], name: "index_external_oauth_attempts_on_consumed_age", where: "(consumed_at IS NOT NULL)"
+  end
+
+  create_table "external_projection_attachments", force: :cascade do |t|
+    t.bigint "external_status_projection_id", null: false
+    t.bigint "external_media_asset_id", null: false
+    t.bigint "media_attachment_id", null: false
+    t.integer "position", default: 0, null: false
+    t.string "kind", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_media_asset_id"], name: "index_ext_proj_attachments_on_asset"
+    t.index ["external_status_projection_id", "external_media_asset_id"], name: "index_ext_proj_attachments_on_proj_and_asset", unique: true
+    t.index ["media_attachment_id"], name: "index_ext_proj_attachments_on_media_attachment", unique: true
   end
 
   create_table "external_projection_failures", force: :cascade do |t|
@@ -812,6 +847,8 @@ ActiveRecord::Schema.define(version: 2026_10_31_150000) do
     t.datetime "fetched_at"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+    t.text "media_revision"
+    t.jsonb "media_candidates", default: [], null: false
     t.index ["external_actor_id"], name: "index_external_resources_on_external_actor_id"
     t.index ["external_source_id", "published_at"], name: "index_external_resources_on_source_and_published_at"
     t.index ["id", "external_source_id"], name: "index_external_resources_on_id_and_source", unique: true
@@ -862,6 +899,7 @@ ActiveRecord::Schema.define(version: 2026_10_31_150000) do
     t.bigint "streamed_content_generation"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+    t.text "last_seen_media_revision"
     t.index ["account_id"], name: "index_external_status_projections_on_account_id"
     t.index ["external_subscription_id"], name: "index_external_status_projections_on_subscription"
     t.index ["status_id"], name: "index_external_status_projections_on_status_id", unique: true
@@ -2302,6 +2340,9 @@ ActiveRecord::Schema.define(version: 2026_10_31_150000) do
   add_foreign_key "external_identities", "user_external_credentials", column: "credential_id", on_delete: :nullify
   add_foreign_key "external_identities", "users", on_delete: :cascade
   add_foreign_key "external_oauth_attempts", "users", on_delete: :cascade
+  add_foreign_key "external_projection_attachments", "external_media_assets", name: "fk_ext_proj_attach_asset", on_delete: :restrict
+  add_foreign_key "external_projection_attachments", "external_status_projections", name: "fk_ext_proj_attach_projection", on_delete: :cascade
+  add_foreign_key "external_projection_attachments", "media_attachments", name: "fk_ext_proj_attach_media", on_delete: :restrict
   add_foreign_key "external_link_share_policies", "users", name: "fk_link_share_policies_user", on_delete: :cascade
   add_foreign_key "external_projection_failures", "external_resources", on_delete: :restrict
   add_foreign_key "external_projection_failures", "external_subscriptions", on_delete: :cascade

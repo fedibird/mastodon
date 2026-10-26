@@ -213,7 +213,8 @@ a.button.logo-button {
 
     .media-gallery,
     &__action-bar,
-    .video-player {
+    .video-player,
+    .external-remote-media {
       margin-top: 10px;
     }
 
@@ -223,5 +224,36 @@ a.button.logo-button {
       height: 23.1429px;
       line-height: 23.15px;
     }
+  }
+}
+
+.external-remote-media {
+  &__item + &__item {
+    margin-top: 8px;
+  }
+
+  &__launch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px;
+    text-align: left;
+    border: 1px solid var(--border, #d9e1e8);
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  &__badge {
+    font-weight: 700;
+  }
+
+  video,
+  audio {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
   }
 }

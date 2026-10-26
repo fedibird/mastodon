@@ -6,6 +6,7 @@ import Avatar from '../../../components/avatar';
 import DisplayName from '../../../components/display_name';
 import ExternalSourceIdentity, { TimeLink } from '../../../components/external_source_identity';
 import { externalIdentityOf } from 'mastodon/external_presentation';
+import ExternalRemoteMedia from '../../../components/external_remote_media';
 import StatusContent from '../../../components/status_content';
 import { isHideCard } from '../../../components/status';
 import MediaGallery from '../../../components/media_gallery';
@@ -566,6 +567,7 @@ class DetailedStatus extends ImmutablePureComponent {
           {!(status.get('hidden') && status.get('spoiler_text').length > 0) && <>
             {quote}
             {media}
+            <ExternalRemoteMedia status={status} />
           </>
           }
 

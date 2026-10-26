@@ -29,6 +29,7 @@ import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { externalIdentityOf, externalIdentityName, externalIdentityReaderText } from 'mastodon/external_presentation';
+import ExternalRemoteMedia from 'mastodon/components/external_remote_media';
 
 const domParser = new DOMParser();
 
@@ -1049,6 +1050,7 @@ class Status extends ImmutablePureComponent {
             {!(status.get('hidden') && status.get('spoiler_text').length > 0) && <>
               {quote}
               {media}
+              <ExternalRemoteMedia status={status} muted={this.props.muted} />
             </>
             }
 

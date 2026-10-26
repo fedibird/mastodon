@@ -32,8 +32,10 @@ module ExternalBridge
           external_resource_id: resource.id,
           status_id: status.id,
           last_seen_revision: resource.revision,
+          last_seen_media_revision: resource.media_revision,
           source_deleted: resource.source_deleted_at.present?
         )
+        RSS::Media::Sync.attach_ready!(marker, resource)
         Streaming::Scheduler.bump_and_schedule_content!(marker) if visibility == :external
         [status, marker]
       end

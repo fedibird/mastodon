@@ -178,7 +178,14 @@ class REST::StatusSerializer < ActiveModel::Serializer
       interaction: 'local_only',
       link_boost_revision: link_boost_state.revision_text,
       presentation: ExternalBridge::Presentation.build(projection),
-    }
+    }.tap do |payload|
+      # Remote video and audio stay out of media_attachments. MediaProxy
+      # downloads any MediaAttachment that only has a remote_url, and a
+      # public ActivityPub payload must not gain these URLs. The browser
+      # cannot be stopped from following a redirect of a remote media URL.
+      media = ExternalBridge::RSS::Media::RemotePayload.for(projection)
+      payload[:media] = media if media.any?
+    end
   end
 
   # The owner's (revision, reblogged) pair for this projection. One read, kept

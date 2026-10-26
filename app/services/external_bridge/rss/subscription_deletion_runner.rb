@@ -176,7 +176,7 @@ module ExternalBridge
             end
           end
         end
-        release_committed_batch!(deletion_id, result[:removals]) if result
+        release_committed_batch!(deletion_id, result[:removals], media: result[:media]) if result
         outcome
       end
 
@@ -206,12 +206,13 @@ module ExternalBridge
       # Outside the batch transaction. Nothing here may raise into the runner:
       # the rows are already gone, and a Redis error must not mark the record
       # failed or skip the next batch.
-      def release_committed_batch!(deletion_id, removals)
+      def release_committed_batch!(deletion_id, removals, media: nil)
         begin
           LinkSharing::Retire.enqueue_removals(removals)
         rescue StandardError => e
           Rails.logger.warn("[ExternalBridge] deletion side effect step=wrapper_removal error=#{e.class}")
         end
+        ProjectionPurge.destroy_detached_media!(media)
         flush_pending_effects!(deletion_id)
       end
 
