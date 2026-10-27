@@ -18,9 +18,9 @@ RSpec.describe 'RSS ActivityPub discovery' do
   end
 
   def public_object(url = self.url, data = object)
-    stub_request(:get, url).with do |request|
-      request.headers['Accept'].include?('application/ld+json')
-    end.to_return(status: 200, body: data.to_json, headers: { 'Content-Type' => 'application/activity+json' })
+    stub_request(:get, url)
+      .with { |request| request.headers['Accept'].to_s.include?('application/ld+json') }
+      .to_return(status: 200, body: data.to_json, headers: { 'Content-Type' => 'application/activity+json' })
   end
 
   def public_nodeinfo(origin = 'https://feeds.example', protocols: ['activitypub'])
