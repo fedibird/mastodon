@@ -27,10 +27,12 @@ module ExternalBridge
           return if candidate.nil?
 
           existing = ExternalMediaAsset.find_by(url_digest: url_digest)
-          return if existing&.exhausted_for?(media_revision) || existing&.processing_blocked?(media_revision)
-
-          asset = existing if existing&.ready?
-          asset ||= download(resource, candidate, url_digest, media_revision)
+          fingerprint = candidate_fingerprint(candidate)
+          asset = if existing&.ready?
+                    existing
+                  elsif ImageAttempts.chain_open?(existing, media_revision, fingerprint)
+                    download(resource, candidate, url_digest, media_revision)
+                  end
           return if asset.nil? || asset.processing_blocked?(media_revision)
           return unless asset.ready? || retryable_attachment?(asset)
           return if resource.reload.media_revision.to_s != media_revision.to_s
@@ -54,13 +56,15 @@ module ExternalBridge
         end
 
         def download(resource, candidate, url_digest, media_revision)
+          @attempt_log = nil
+          @candidate_fingerprint = nil
           return download_video(resource, candidate, url_digest, media_revision) if candidate['kind'] == 'video'
 
           with_inflight { store_image(resource, candidate, url_digest, media_revision) }
         rescue Error => e
           raise if self.class.transient?(e.code)
 
-          AssetStore.fail!(url_digest, candidate['kind'], media_revision, e.code)
+          record_chain_failure!(candidate, url_digest, media_revision, e.code)
           nil
         end
 
@@ -112,19 +116,80 @@ module ExternalBridge
         end
 
         def store_image(resource, candidate, url_digest, media_revision)
-          URLLock.call(url_digest) do
-            cached = stored_copy(url_digest, media_revision)
-            if cached
-              cached
-            else
-              result = ImageFetch.new.call(candidate['url'])
-              if stale_revision?(resource, media_revision)
-                nil
-              else
-                AssetStore.store!(url_digest: url_digest, kind: 'image', revision: media_revision, result: result)
-              end
-            end
+          @attempt_log = []
+          @candidate_fingerprint = ImageAttempts.fingerprint(candidate)
+          last_error = nil
+          ImageAttempts.urls(candidate).each do |url|
+            return nil if stale_revision?(resource, media_revision)
+
+            asset = fetch_image(resource, url, media_revision)
+            next if asset.nil?
+
+            note_attempt!(url, 'stored')
+            remember_alternate!(url, url_digest, media_revision)
+            return asset
+          rescue Error => e
+            note_attempt!(url, e.code)
+            record_fallback_miss!(url, url_digest, e.code)
+            last_error = e
+            raise if ImageAttempts.stop?(e.code) || !ImageAttempts.try_next?(e.code)
           end
+          raise last_error if last_error
+
+          nil
+        end
+
+        def fetch_image(resource, url, media_revision)
+          digest = MediaDigest.url_digest(url)
+          URLLock.call(digest) do
+            cached = stored_copy(digest, media_revision)
+            next cached if cached
+
+            result = ImageFetch.new.call(url)
+            raise Error, 'http_304' if result.not_modified || result.body.blank?
+            next nil if stale_revision?(resource, media_revision)
+
+            AssetStore.store!(url_digest: digest, kind: 'image', revision: media_revision, result: result)
+          end
+        end
+
+        def remember_alternate!(url, primary_digest, media_revision)
+          return if MediaDigest.url_digest(url) == primary_digest
+
+          AssetStore.mark_alternate!(
+            primary_digest,
+            media_revision,
+            fingerprint: @candidate_fingerprint,
+            attempt_log: @attempt_log
+          )
+        end
+
+        def note_attempt!(url, code)
+          @attempt_log << { 'digest' => MediaDigest.url_digest(url), 'code' => code.to_s }
+        end
+
+        # The fallback row keeps its own code (404 versus a broken image).
+        # Timeouts and the host budget stay off this row. The representative
+        # attempt_log still lists them when the chain is saved.
+        def record_fallback_miss!(url, primary_digest, code)
+          return if MediaDigest.url_digest(url) == primary_digest
+          return if self.class.transient?(code) || ImageAttempts.stop?(code)
+
+          AssetStore.record_miss!(MediaDigest.url_digest(url), code)
+        end
+
+        def record_chain_failure!(candidate, url_digest, media_revision, code)
+          if candidate['kind'] == 'image'
+            AssetStore.fail_image!(url_digest, media_revision, code, fingerprint: @candidate_fingerprint, attempt_log: @attempt_log)
+          else
+            AssetStore.fail!(url_digest, candidate['kind'], media_revision, code)
+          end
+        end
+
+        def candidate_fingerprint(candidate)
+          return nil unless candidate['kind'] == 'image'
+
+          ImageAttempts.fingerprint(candidate)
         end
 
         def stored_copy(url_digest, media_revision)

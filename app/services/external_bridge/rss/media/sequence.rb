@@ -26,7 +26,7 @@ module ExternalBridge
         private
 
         def entry(candidate)
-          link = links[MediaDigest.url_digest(candidate['url'])]
+          link = link_for(candidate)
           if link&.media_attachment_id
             local_entry(candidate, link)
           elsif %w(video audio).include?(candidate['kind'])
@@ -55,6 +55,15 @@ module ExternalBridge
             mime_type: candidate['mime_hint'],
             external: true,
           }.compact
+        end
+
+        def link_for(candidate)
+          urls = [candidate['url'], *Array(candidate['fallbacks'])]
+          urls.each do |url|
+            link = links[MediaDigest.url_digest(url)]
+            return link if link
+          end
+          nil
         end
 
         def links

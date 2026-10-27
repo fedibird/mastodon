@@ -650,6 +650,8 @@ ActiveRecord::Schema.define(version: 2026_11_03_170000) do
     t.datetime "revalidate_after"
     t.integer "revalidate_attempt", default: 0, null: false
     t.integer "generation", default: 1, null: false
+    t.string "candidate_fingerprint"
+    t.jsonb "attempt_log", default: [], null: false
     t.string "logical_digest"
     t.string "file_file_name"
     t.string "file_content_type"

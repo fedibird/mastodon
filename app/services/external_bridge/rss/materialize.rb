@@ -124,7 +124,8 @@ module ExternalBridge
         deleted_changed = marker.source_deleted != deleted
         revision_changed = marker.last_seen_revision.to_s != resource.revision.to_s
         media_changed = media_revision_changed?(marker, resource)
-        return :skip unless text_changed || deleted_changed || revision_changed || media_changed
+        links_stale = Media::Sync.links_stale?(marker, resource)
+        return :skip unless text_changed || deleted_changed || revision_changed || media_changed || links_stale
 
         change = {
           text: text,
@@ -133,11 +134,18 @@ module ExternalBridge
           deleted_changed: deleted_changed,
           revision_changed: revision_changed,
           media_changed: media_changed,
+          links_stale: links_stale,
         }
         SubscriptionFence.guard!(marker.external_subscription_id) do
           write_refresh!(marker, status, resource, change)
         end
-        media_changed ? :media : :text
+        if media_changed
+          :media
+        elsif links_stale
+          :links
+        else
+          :text
+        end
       end
 
       def write_refresh!(marker, status, resource, change)
@@ -149,21 +157,23 @@ module ExternalBridge
           )
         end
         status.update!(text: change[:text]) if change[:text_changed]
-        Media::Sync.attach_ready!(marker, resource) if change[:media_changed]
-        if change[:media_changed] && !change[:text_changed]
+        files_changed = change[:media_changed] || change[:links_stale]
+        Media::Sync.attach_ready!(marker, resource) if files_changed
+        if files_changed && !change[:text_changed]
           status.update_columns(updated_at: Time.current)
           Rails.cache.delete("statuses/#{status.id}")
         end
         if change[:deleted_changed]
           schedule_membership_change!(marker, change[:deleted])
-        elsif change[:text_changed] || change[:media_changed]
+        elsif change[:text_changed] || files_changed
           Streaming::Scheduler.bump_and_schedule_content!(marker)
         end
       end
 
       # A nil last-seen and an empty candidate digest are the same "no media"
       # state. Treating them as a change would stream every existing projection
-      # once on the deploy that starts recording media.
+      # once on the deploy that starts recording media. Fallback-only edits
+      # stay off this digest. Sync.links_stale? reconciles those separately.
       def media_revision_changed?(marker, resource)
         seen = marker.last_seen_media_revision
         current = resource.media_revision

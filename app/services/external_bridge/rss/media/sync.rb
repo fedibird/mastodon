@@ -36,10 +36,18 @@ module ExternalBridge
           @resource = resource
         end
 
+        def self.links_stale?(marker, resource)
+          new(marker, resource).links_stale?
+        end
+
         def attach_ready!(allow_notify: false)
           return false unless eligible?
+          # ReplaceGeneration is still moving this projection. Reconciling the
+          # fallback list here would drop the checkpoint that swap is finishing.
+          return false if generation_in_progress?(attachment_rows)
 
           changed = reconcile(desired_files)
+          forget_unlisted_resources!
           notify! if changed && allow_notify
           changed
         end
@@ -57,13 +65,39 @@ module ExternalBridge
           digest = MediaDigest.url_digest(candidate['url'])
           asset = ExternalMediaAsset.find_by(url_digest: digest)
           if asset&.ready?
-            AssetResource.remember!(asset.id, @resource.id)
-            queue_revalidation(asset, digest)
+            remember_ready!(asset, digest)
             return
           end
-          return if asset&.exhausted_for?(@resource.media_revision) || asset&.processing_blocked?(@resource.media_revision)
+
+          alternate = ready_alternate(candidate)
+          if alternate
+            remember_ready!(alternate, alternate.url_digest)
+            return
+          end
+          return unless ImageAttempts.chain_open?(asset, @resource.media_revision, fingerprint_for(candidate))
 
           MediaFetchWorker.perform_async(@resource.id, @resource.media_revision, digest)
+        end
+
+        def fingerprint_for(candidate)
+          return nil unless candidate['kind'] == 'image'
+
+          ImageAttempts.fingerprint(candidate)
+        end
+
+        def remember_ready!(asset, digest)
+          AssetResource.remember!(asset.id, @resource.id)
+          queue_revalidation(asset, digest)
+        end
+
+        def ready_alternate(candidate)
+          return nil unless candidate['kind'] == 'image'
+
+          Array(candidate['fallbacks']).each do |url|
+            asset = ExternalMediaAsset.ready.find_by(url_digest: MediaDigest.url_digest(url))
+            return asset if asset&.kind == 'image'
+          end
+          nil
         end
 
         def queue_revalidation(asset, digest)
@@ -84,11 +118,23 @@ module ExternalBridge
 
         def desired_files
           saved_candidates.filter_map do |candidate|
-            asset = attachable_asset(MediaDigest.url_digest(candidate['url']))
+            asset = asset_for(candidate)
             next if asset.nil? || asset.kind != candidate['kind']
 
             [candidate, asset]
           end.first(attachment_limit)
+        end
+
+        def asset_for(candidate)
+          found = attachable_asset(MediaDigest.url_digest(candidate['url']))
+          return found if found&.kind == candidate['kind']
+          return nil unless candidate['kind'] == 'image'
+
+          Array(candidate['fallbacks']).each do |url|
+            found = attachable_asset(MediaDigest.url_digest(url))
+            return found if found&.kind == 'image'
+          end
+          nil
         end
 
         # A processing failure stays remote until its backoff ends. The shared
@@ -181,6 +227,77 @@ module ExternalBridge
 
         def attachment_rows
           @marker.external_projection_attachments.includes(:media_attachment, :external_media_asset).order(:position, :id).to_a
+        end
+
+        # media_revision ignores fallbacks. Compare the projection's files
+        # with the URLs the article lists now. An attachment whose digest
+        # left that list is stale. A ready file for a current URL that is
+        # not the one on the status is stale. A listed attachment whose
+        # shared bytes are temporarily not ready (the revalidate local-miss
+        # path) stays put until the fetch chain replaces the file.
+        def links_stale?
+          return false if @marker.nil? || @resource.nil? || @marker.status_id.blank?
+          return false if @marker.source_deleted || @resource.source_deleted_at.present?
+
+          rows = attachment_rows
+          # A generation swap parks the new file on incoming:{id} and the old
+          # file on superseded:{id}. A projection that still points at the
+          # previous file while that checkpoint exists is the same swap, not
+          # candidate drift.
+          return false if generation_in_progress?(rows)
+
+          listed = listed_digests
+          return true if rows.any? { |row| !listed_or_logical?(row, listed) }
+
+          desired_keys = desired_files.map { |_, asset| GenerationMap.generation_key(asset) }
+          current_keys = rows.map { |row| GenerationMap.generation_key(row.external_media_asset) }
+          return false if desired_keys.empty? || desired_keys == current_keys
+
+          true
+        end
+        public :links_stale?
+
+        def generation_in_progress?(rows)
+          rows.any? do |row|
+            asset = row.external_media_asset
+            generation_checkpoint?(asset&.url_digest) || ReplaceGeneration.pending?(asset)
+          end
+        end
+
+        def generation_checkpoint?(digest)
+          GenerationMap.checkpoint?(digest)
+        end
+
+        def listed_or_logical?(row, listed)
+          asset = row.external_media_asset
+          GenerationMap.display_digests(asset).any? { |digest| listed.key?(digest) }
+        end
+
+        def listed_digests
+          saved_candidates.each_with_object({}) do |candidate, memo|
+            memo[MediaDigest.url_digest(candidate['url'])] = true
+            next unless candidate['kind'] == 'image'
+
+            Array(candidate['fallbacks']).each do |url|
+              memo[MediaDigest.url_digest(url)] = true if url.present?
+            end
+          end
+        end
+
+        # Revalidation finds a URL through this link. Drop a link when the
+        # article no longer lists that digest so an old fallback is not
+        # conditional-GET after the projection has moved on.
+        def forget_unlisted_resources!
+          listed = listed_digests
+          ExternalMediaAssetResource.where(external_resource_id: @resource.id).includes(:external_media_asset).find_each do |link|
+            digest = link.external_media_asset&.url_digest
+            next if digest.present? && listed.key?(digest)
+            next if generation_checkpoint?(digest)
+
+            link.delete
+          end
+        rescue StandardError => e
+          Rails.logger.info("[ExternalBridge::RSS] media asset unlink skipped error=#{e.class}")
         end
 
         def same_assets?(current, desired)

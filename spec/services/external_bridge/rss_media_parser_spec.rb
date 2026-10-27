@@ -258,4 +258,65 @@ RSpec.describe ExternalBridge::RSS::MediaExtractor do
     expect(feed.items.first.media.size).to eq ExternalBridge::RSS::Limits::MAX_MEDIA_CANDIDATES
     expect(feed.items.first.media.first['url']).to eq 'https://cdn.example/1.png'
   end
+
+  it 'keeps ordered fallbacks without changing the media revision' do
+    feed = parse(<<~XML)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel>
+        <title>Example</title><link>https://example.com</link>
+        <item>
+          <guid>fallbacks</guid><title>Fallbacks</title><link>https://example.com/fallbacks</link>
+          <description><![CDATA[
+            <img src="https://cdn.example/a.png" srcset="https://cdn.example/a.png 1x, https://cdn.example/a-2x.png 2x" alt="Density">
+            <picture>
+              <source media="(min-width: 1000px)" srcset="https://cdn.example/wide.png 1000w">
+              <source type="image/webp" srcset="https://cdn.example/tiny.webp 320w, https://cdn.example/same.webp 800w">
+              <source type="image/jpeg" srcset="https://cdn.example/same.jpg 800w">
+              <img src="https://cdn.example/same.jpg" alt="Print">
+            </picture>
+            <img src="javascript:alert(1)" srcset="http://127.0.0.1/secret.png 2000w, https://cdn.example/public.png 100w" alt="Safe">
+            Broken &lt;&lt;&lt; markup stays in the article
+          ]]></description>
+        </item>
+      </channel></rss>
+    XML
+
+    item = feed.items.first
+    expect(item.body).to include('Broken')
+    media = item.media
+    expect(media.map { |row| row['url'] }).to eq [
+      'https://cdn.example/a.png',
+      'https://cdn.example/wide.png',
+      'https://cdn.example/public.png',
+    ]
+    expect(media.first['fallbacks']).to eq ['https://cdn.example/a-2x.png']
+    expect(media.second['fallbacks']).to eq [
+      'https://cdn.example/same.webp',
+      'https://cdn.example/same.jpg',
+      'https://cdn.example/tiny.webp',
+    ]
+    expect(media.second['description']).to eq 'Print'
+    expect(media.third['fallbacks']).to be_nil
+    expect(media.third['url']).to eq 'https://cdn.example/public.png'
+    stored = ExternalBridge::RSS::MediaDigest.normalize(media)
+    expect(stored.second['fallbacks']).to eq media.second['fallbacks']
+    expect(ExternalBridge::RSS::MediaDigest.hexdigest(stored)).to eq ExternalBridge::RSS::MediaDigest.hexdigest(media.map { |row| row.except('fallbacks') })
+  end
+
+  it 'still imports the article when the HTML extractor fails' do
+    allow_any_instance_of(ExternalBridge::RSS::MediaHtml).to receive(:add_node).and_raise(StandardError)
+    feed = parse(<<~XML)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel>
+        <title>Example</title><link>https://example.com</link>
+        <item>
+          <guid>broken</guid><title>Broken</title>
+          <description><![CDATA[<img src="https://cdn.example/a.png" alt="A">Article text]]></description>
+        </item>
+      </channel></rss>
+    XML
+
+    expect(feed.items.first.body).to include('Article text')
+    expect(feed.items.first.media).to eq []
+  end
 end

@@ -23,6 +23,8 @@
 #  revalidate_after   :datetime
 #  revalidate_attempt :integer          default(0), not null
 #  generation         :integer          default(1), not null
+#  candidate_fingerprint :string
+#  attempt_log        :jsonb            not null
 #  logical_digest     :string
 #  file_file_name     :string
 #  file_content_type  :string
@@ -50,6 +52,10 @@
 # a MediaAttachment failed. The row stays out of the ready set until the
 # backoff passes, so a refresh does not run ffmpeg again and the article
 # keeps the remote player. Three failures for one media revision stop.
+#
+# candidate_fingerprint is the ordered URL set last attempted for an image.
+# It is not part of media_revision. attempt_log is that attempt's digests
+# and codes, never the URLs themselves. A ready file clears both.
 class ExternalMediaAsset < ApplicationRecord
   include Attachmentable
 
@@ -101,7 +107,22 @@ class ExternalMediaAsset < ApplicationRecord
     (15 * (2**(step - 1))).seconds
   end
 
-  def exhausted_for?(revision)
-    !ready? && failed_revision.to_s == revision.to_s && attempt_count.to_i >= 3
+  # Three terminal failures for this media revision stop the chain. A
+  # different candidate fingerprint (the fallback list changed) is a new
+  # budget. Rows written before fingerprints existed stay revision-only.
+  # alternate_selected is not exhaustion: the chain opens again when no
+  # current fallback is ready.
+  def exhausted_for?(revision, candidate_fingerprint = nil)
+    return false if ready? || alternate_selected?
+    return false if failed_revision.to_s != revision.to_s || attempt_count.to_i < 3
+    return false if candidate_fingerprint.present? && self.candidate_fingerprint.present? && self.candidate_fingerprint != candidate_fingerprint
+
+    true
+  end
+
+  # The representative URL was not stored. A later URL in `fallbacks` was.
+  # This is not a compose upload and it is not a reason to delete one.
+  def alternate_selected?
+    failure_code == 'alternate_selected'
   end
 end

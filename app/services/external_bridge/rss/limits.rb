@@ -38,6 +38,11 @@ module ExternalBridge
       # hard attachment ceiling; the live post limit can be lower.
       MAX_MEDIA_CANDIDATES = 12
       MAX_MEDIA_DESCRIPTION = 500
+      # Extra URLs kept for one logical image. They are not part of the media
+      # revision. A fetch tries the representative and every stored fallback,
+      # so the attempt cap is one larger than the number of fallbacks.
+      MAX_IMAGE_FALLBACKS = 4
+      MAX_IMAGE_FETCH_ATTEMPTS = MAX_IMAGE_FALLBACKS + 1
       MEDIA_IMAGE_MAX_BYTES = 8.megabytes
       MEDIA_IMAGE_MAX_DIMENSION = 8_192
       MEDIA_IMAGE_MAX_PIXELS = 40_000_000

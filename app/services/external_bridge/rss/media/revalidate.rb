@@ -70,7 +70,7 @@ module ExternalBridge
         def apply(current)
           return ReplaceGeneration.resume!(current, resource, @url_digest) if ReplaceGeneration.pending?(current)
 
-          result = ImageFetch.new.call(candidate['url'], etag: current.validator_etag, last_modified: current.validator_last_modified)
+          result = ImageFetch.new.call(source_url, etag: current.validator_etag, last_modified: current.validator_last_modified)
           if result.not_modified
             unchanged_or_missing(current)
           elsif file_intact?(current) && result.fingerprint == current.fingerprint
@@ -132,11 +132,15 @@ module ExternalBridge
           Rails.logger.info("[ExternalBridge::RSS] media revalidate follow-up skipped error=#{e.class}")
         end
 
+        # The worker is keyed by the representative digest. A primary image
+        # uses this asset's digest. A stored fallback uses the representative
+        # so ImageAttempts walks the same chain and can restore that file.
         def enqueue_refetch!
           revision = resource&.media_revision
-          return if revision.blank?
+          primary = candidate && candidate['url']
+          return if revision.blank? || primary.blank?
 
-          MediaFetchWorker.perform_async(@resource_id, revision, @url_digest)
+          MediaFetchWorker.perform_async(@resource_id, revision, MediaDigest.url_digest(primary))
         end
 
         def file_intact?(current)
@@ -163,8 +167,16 @@ module ExternalBridge
           return @candidate if defined?(@candidate)
 
           @candidate = Array(resource&.media_candidates).find do |row|
-            row['kind'] == 'image' && row['url'].present? && MediaDigest.url_digest(row['url']) == @url_digest
+            row['kind'] == 'image' && source_urls(row).any? { |url| MediaDigest.url_digest(url) == @url_digest }
           end
+        end
+
+        def source_url
+          source_urls(candidate).find { |url| MediaDigest.url_digest(url) == @url_digest }
+        end
+
+        def source_urls(row)
+          [row['url'], *Array(row && row['fallbacks'])].select(&:present?)
         end
       end
     end

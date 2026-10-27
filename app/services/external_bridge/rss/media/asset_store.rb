@@ -56,6 +56,51 @@ module ExternalBridge
           ExternalMediaAsset.find_by(url_digest: url_digest)
         end
 
+        # The representative URL was skipped because a later candidate stored
+        # the bytes. The row has no file. While a current fallback is ready the
+        # next refresh does not GET this URL. attempt_count stays 0, so this
+        # marker is not exhaustion. When no current fallback is ready the
+        # chain runs again and a later terminal failure starts a fresh budget.
+        def self.mark_alternate!(url_digest, revision, fingerprint: nil, attempt_log: nil)
+          asset = ExternalMediaAsset.find_or_initialize_by(url_digest: url_digest)
+          return asset if asset.persisted? && asset.ready?
+
+          asset.kind = 'image'
+          asset.state = 'failed'
+          asset.failure_code = 'alternate_selected'
+          asset.failed_revision = revision.to_s.first(80)
+          asset.attempt_count = 0
+          asset.fetched_at = Time.current
+          asset.candidate_fingerprint = fingerprint if fingerprint.present?
+          asset.attempt_log = sanitize_attempt_log(attempt_log) unless attempt_log.nil?
+          asset.save!
+          asset
+        rescue ActiveRecord::RecordNotUnique
+          ExternalMediaAsset.find_by(url_digest: url_digest)
+        end
+
+        # A fallback URL's own failure. The representative row owns the
+        # exhaustion budget, so this observation does not set a fingerprint
+        # or a revision and does not overwrite a ready file or a row that
+        # already tracks a candidate set.
+        def self.record_miss!(url_digest, code)
+          asset = ExternalMediaAsset.find_or_initialize_by(url_digest: url_digest)
+          return asset if asset.persisted? && (asset.ready? || asset.alternate_selected? || asset.candidate_fingerprint.present?)
+          return asset if asset.persisted? && asset.kind.present? && asset.kind != 'image'
+          return asset if asset.persisted? && asset.attempt_count.to_i >= 3 && asset.failed_revision.present?
+
+          asset.kind = 'image'
+          asset.state = 'failed'
+          asset.failure_code = code.to_s.first(64)
+          asset.failed_revision = nil
+          asset.attempt_count = 0
+          asset.fetched_at = Time.current
+          asset.save!
+          asset
+        rescue ActiveRecord::RecordNotUnique
+          ExternalMediaAsset.find_by(url_digest: url_digest)
+        end
+
         def self.fail!(url_digest, kind, revision, code, terminal: false)
           asset = ExternalMediaAsset.find_or_initialize_by(url_digest: url_digest)
           # New rows default state to ready before they are saved. Only a
@@ -73,6 +118,46 @@ module ExternalBridge
         rescue ActiveRecord::RecordNotUnique
           ExternalMediaAsset.find_by(url_digest: url_digest)
         end
+
+        # Image-chain failure. A new candidate fingerprint starts the budget
+        # at one. The log is digests and codes, never URLs.
+        def self.fail_image!(url_digest, revision, code, fingerprint:, attempt_log:)
+          asset = ExternalMediaAsset.find_or_initialize_by(url_digest: url_digest)
+          return asset if asset.persisted? && asset.ready?
+
+          previous = asset.candidate_fingerprint
+          asset.kind = 'image'
+          asset.state = 'failed'
+          asset.failure_code = code.to_s.first(64)
+          asset.failed_revision = revision.to_s.first(80)
+          asset.attempt_count = next_attempt_count(asset, previous, fingerprint)
+          asset.candidate_fingerprint = fingerprint if fingerprint.present?
+          asset.attempt_log = sanitize_attempt_log(attempt_log) unless attempt_log.nil?
+          asset.fetched_at = Time.current
+          asset.save!
+          asset
+        rescue ActiveRecord::RecordNotUnique
+          ExternalMediaAsset.find_by(url_digest: url_digest)
+        end
+
+        # Digests and codes only. A URL is never written onto the shared row.
+        def self.sanitize_attempt_log(log)
+          Array(log).first(Limits::MAX_IMAGE_FETCH_ATTEMPTS).filter_map do |row|
+            source = row.respond_to?(:to_h) ? row.to_h.stringify_keys : {}
+            digest = source['digest'].to_s
+            code = source['code'].to_s
+            next unless digest.match?(/\A[0-9a-f]{64}\z/) && code.present?
+
+            { 'digest' => digest, 'code' => code.first(64) }
+          end
+        end
+
+        def self.next_attempt_count(asset, previous, fingerprint)
+          return 1 if fingerprint.present? && previous.present? && previous != fingerprint
+
+          asset.attempt_count.to_i + 1
+        end
+        private_class_method :next_attempt_count
 
         def initialize(url_digest, kind, revision, result)
           @url_digest = url_digest
@@ -127,6 +212,8 @@ module ExternalBridge
             failure_code: nil,
             failed_revision: nil,
             attempt_count: 0,
+            candidate_fingerprint: nil,
+            attempt_log: [],
             fetched_at: Time.current,
             validator_etag: header_value(:etag),
             validator_last_modified: header_value(:last_modified),
