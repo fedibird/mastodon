@@ -28,6 +28,17 @@ module ExternalBridge
         timeouts: nil
       ).freeze
 
+      NODEINFO_PROFILE = FetchProfile.new(
+        accept: 'application/json',
+        max_bytes: 64.kilobytes,
+        asset_urls: false,
+        budget_namespace: 'external_bridge:rss_nodeinfo:host:',
+        budget: 10,
+        content_types: %w(application/json application/ld+json),
+        truncate: false,
+        timeouts: { connect_timeout: 5, read_timeout: 5, write_timeout: 5, read_deadline: 10 }.freeze
+      ).freeze
+
       ACTIVITYPUB_PROFILE = FetchProfile.new(
         accept: 'application/ld+json; profile="https://www.w3.org/ns/activitystreams", application/activity+json;q=0.9',
         max_bytes: 256.kilobytes,
