@@ -97,12 +97,18 @@ module ExternalBridge
       end
 
       # A link or projection that is still present must be the one the proof
-      # names. After purge both rows are gone; the proof row is the record.
+      # names. Generation replacement updates that same link row onto the new
+      # attachment and leaves the proof pointing at the previous file. That
+      # handoff is still this proof, once no link names the previous file.
+      # After purge both rows are gone; the proof row is the record.
       def live_proof_matches?(proof)
         link = ExternalProjectionAttachment.find_by(id: proof.source_attachment_id)
         if link
-          return false unless link.media_attachment_id == proof.media_attachment_id
           return false unless link.external_status_projection_id == proof.external_status_projection_id
+          if link.media_attachment_id != proof.media_attachment_id &&
+             ExternalProjectionAttachment.exists?(media_attachment_id: proof.media_attachment_id)
+            return false
+          end
         end
 
         projection = ExternalStatusProjection.find_by(id: proof.external_status_projection_id)

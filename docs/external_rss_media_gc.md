@@ -37,6 +37,12 @@ status has been deleted and the proof still names that same attachment.
 `Scheduler::MediaCleanupScheduler` still removes ordinary unattached uploads
 older than a day. This GC does not call that scope and does not widen it.
 
+Generation replacement keeps the `external_projection_attachments` row and
+points it at the new media attachment. The proof still stores the previous
+attachment id. Release accepts that intent when the link's projection id is
+unchanged and no projection attachment still names the previous file. A
+live link whose projection id differs stays `unproven`.
+
 Compose uploads are not planned: they have no projection link, and the proof
 trigger will not bind a row to an id that link does not have. An intent
 with no matching proof, a mismatched projection or owner, or a captured
@@ -145,8 +151,10 @@ path. Operators do not run those statements, and this GC does not scan
 `media_attachments` for `status_id IS NULL`.
 
 A corrupted intent whose stored ids do not match `external_media_gc_proofs`,
-or whose proof does not match a link or projection that is still present,
-is `retained` with `unproven`. Non-null proof columns are not enough.
+or whose proof names a different projection than a link that is still
+present, is `retained` with `unproven`. The same is true when that link has
+moved to a newer attachment but some other projection attachment still
+names the previous file. Non-null proof columns are not enough.
 
 ## Not in this increment
 

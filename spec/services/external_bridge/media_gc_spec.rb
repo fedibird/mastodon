@@ -45,6 +45,23 @@ RSpec.describe 'External media GC' do
     attachment
   end
 
+  def replacement_attachment(status, previous)
+    attachment = nil
+    Tempfile.create(['repoint', '.png']) do |file|
+      file.binmode
+      file.write(png)
+      file.rewind
+      attachment = MediaAttachment.create!(
+        account: status.account,
+        status: status,
+        file: file,
+        description: previous.description,
+        remote_url: ''
+      )
+    end
+    attachment
+  end
+
   it 'releases a purged projection file and leaves a compose upload in place' do
     subscribe!(user)
     status = projection_status(user)
@@ -412,6 +429,67 @@ RSpec.describe 'External media GC' do
     expect(successor.id).to be > first.id
     expect(successor.state).to eq 'released'
     expect(MediaAttachment.where(id: own_ids + other_ids)).not_to be_empty
+  end
+
+  it 'releases the previous attachment when generation updates the same projection link' do
+    subscribe!(user)
+    status = projection_status(user)
+    previous = status.media_attachments.first
+    path = previous.file.path
+    upload = compose_upload(user)
+    link = ExternalProjectionAttachment.find_by!(media_attachment_id: previous.id)
+    replacement = replacement_attachment(status, previous)
+
+    ApplicationRecord.transaction do
+      ExternalBridge::MediaGc.plan_replacement!(attachment_ids: [previous.id], asset_ids: [])
+      link.update!(media_attachment: replacement)
+      ExternalBridge::MediaGc.schedule_release!(attachment_ids: [previous.id], asset_ids: [])
+    end
+
+    expect(MediaAttachment.where(id: previous.id)).to be_empty
+    expect(File.exist?(path)).to be false
+    expect(replacement.reload).to be_persisted
+    expect(replacement.status_id).to eq status.id
+    expect(link.reload.media_attachment_id).to eq replacement.id
+    expect(status.reload.media_attachments.map(&:id)).to eq [replacement.id]
+    expect(upload.reload).to be_persisted
+    expect(File.exist?(upload.file.path)).to be true
+    expect(ExternalMediaGcIntent.find_by!(target_id: previous.id).state).to eq 'released'
+  end
+
+  it 'keeps the previous attachment when another projection link still names it after the handoff' do
+    subscribe!(user)
+    status = projection_status(user)
+    previous = status.media_attachments.first
+    path = previous.file.path
+    link = ExternalProjectionAttachment.find_by!(media_attachment_id: previous.id)
+    marker = ExternalStatusProjection.find_by!(user_id: user.id)
+    replacement = replacement_attachment(status, previous)
+    holder = ExternalMediaAsset.create!(
+      url_digest: Digest::SHA256.hexdigest("gc-hold-#{previous.id}"),
+      kind: 'image',
+      state: 'failed'
+    )
+
+    ApplicationRecord.transaction do
+      ExternalBridge::MediaGc.plan_replacement!(attachment_ids: [previous.id], asset_ids: [])
+      link.update!(media_attachment: replacement)
+      ExternalProjectionAttachment.create!(
+        external_status_projection: marker,
+        external_media_asset: holder,
+        media_attachment: previous,
+        position: 1,
+        kind: 'image'
+      )
+      ExternalBridge::MediaGc.schedule_release!(attachment_ids: [previous.id], asset_ids: [])
+    end
+
+    expect(previous.reload).to be_persisted
+    expect(File.exist?(path)).to be true
+    expect(replacement.reload).to be_persisted
+    intent = ExternalMediaGcIntent.find_by!(target_type: 'media_attachment', target_id: previous.id)
+    expect(intent.state).to eq 'retained'
+    expect(intent.last_error_code).to eq 'unproven'
   end
 
   it 'releases a replaced projection attachment through the sync transaction' do
