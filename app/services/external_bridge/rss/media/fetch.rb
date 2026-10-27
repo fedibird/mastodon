@@ -35,6 +35,7 @@ module ExternalBridge
           return unless asset.ready? || retryable_attachment?(asset)
           return if resource.reload.media_revision.to_s != media_revision.to_s
 
+          AssetResource.remember!(asset.id, resource.id)
           attach_all(resource)
         end
 

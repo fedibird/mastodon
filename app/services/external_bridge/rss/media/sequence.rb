@@ -59,8 +59,9 @@ module ExternalBridge
 
         def links
           @links ||= @projection.external_projection_attachments.includes(:external_media_asset).each_with_object({}) do |row, memo|
-            digest = row.external_media_asset&.url_digest
-            memo[digest] = row if digest
+            GenerationMap.display_digests(row.external_media_asset).each do |digest|
+              memo[digest] ||= row
+            end
           end
         end
       end

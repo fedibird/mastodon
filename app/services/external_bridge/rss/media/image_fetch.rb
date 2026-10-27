@@ -7,7 +7,11 @@ module ExternalBridge
       # Content-Type, the sniffed type, and the size all agree. SVG is never
       # accepted. Nothing here writes to storage.
       class ImageFetch
-        Result = Struct.new(:body, :type, :content_type, :width, :height, :fingerprint, keyword_init: true)
+        Result = Struct.new(
+          :body, :type, :content_type, :width, :height, :fingerprint,
+          :etag, :last_modified, :not_modified,
+          keyword_init: true
+        )
         TYPES = {
           png: 'image/png',
           jpeg: 'image/jpeg',
@@ -15,8 +19,9 @@ module ExternalBridge
           webp: 'image/webp',
         }.freeze
 
-        def call(url)
-          response = HttpClient.get(url, profile: HttpClient::MEDIA_IMAGE_PROFILE)
+        def call(url, etag: nil, last_modified: nil)
+          response = HttpClient.get(url, etag: etag, last_modified: last_modified, profile: HttpClient::MEDIA_IMAGE_PROFILE)
+          return Result.new(not_modified: true) if response.code == 304
           raise Error, "http_#{response.code}" unless response.code.between?(200, 299)
 
           inspect_body!(response)
@@ -39,7 +44,10 @@ module ExternalBridge
             content_type: response.content_type,
             width: width,
             height: height,
-            fingerprint: Digest::SHA256.hexdigest(body)
+            fingerprint: Digest::SHA256.hexdigest(body),
+            etag: response.etag,
+            last_modified: response.last_modified,
+            not_modified: false
           )
         end
 

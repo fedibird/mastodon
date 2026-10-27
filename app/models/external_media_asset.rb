@@ -17,6 +17,13 @@
 #  failed_revision    :string
 #  attempt_count      :integer          default(0), not null
 #  fetched_at         :datetime
+#  validator_etag     :text
+#  validator_last_modified :text
+#  validated_at       :datetime
+#  revalidate_after   :datetime
+#  revalidate_attempt :integer          default(0), not null
+#  generation         :integer          default(1), not null
+#  logical_digest     :string
 #  file_file_name     :string
 #  file_content_type  :string
 #  file_file_size     :bigint(8)
@@ -28,11 +35,16 @@
 # The URL itself is not stored. Callers pass its digest and keep the URL on
 # the resource candidate list. This file is not a Status attachment.
 #
-# A ready asset is reused for every later candidate with the same normalized
-# URL, even if the origin publishes new bytes at that URL. ETag and
-# Last-Modified revalidation are not implemented yet. When a later increment
-# replaces the bytes, it calls ExternalBridge::MediaGc.plan_generation! so
-# the previous file is released only after no projection still points at it.
+# A ready asset is reused until ExternalBridge::RSS::Media::Revalidate decides
+# it is due. That path conditional-GETs with validator_etag and
+# validator_last_modified. A changed body is stored as the next generation
+# (digest incoming:{id}, logical_digest set to the article digest) and
+# projections move onto it in batches. Sequence resolves either digest to
+# the attachment, so a subscriber who has already moved still sees the new
+# file and one who has not still sees the old file. The previous file is
+# released through MediaGc.plan_generation! only after no projection still
+# references it. Resource links move with the digest when that resource
+# still lists the URL. The URL is not stored on this row.
 #
 # processing_failed means the shared bytes are stored but turning them into
 # a MediaAttachment failed. The row stays out of the ready set until the
@@ -54,6 +66,7 @@ class ExternalMediaAsset < ApplicationRecord
   validates_attachment_presence :file, if: :ready?
 
   has_many :external_projection_attachments, dependent: :restrict_with_exception
+  has_many :external_media_asset_resources, dependent: :delete_all
 
   validates :url_digest, presence: true, uniqueness: true
   validates :kind, inclusion: { in: KINDS }

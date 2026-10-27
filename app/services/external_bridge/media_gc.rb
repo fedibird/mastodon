@@ -57,7 +57,8 @@ module ExternalBridge
     def self.drain!(limit: BATCH, respect_grace: true)
       rechecks = Recheck.drain!(limit: limit, respect_grace: respect_grace)
       result = Release.drain!(limit: limit, respect_grace: respect_grace)
-      result[:more] = true if rechecks[:more]
+      swept = RSS::Media::PreparedRelease.sweep_expired!(limit: limit)
+      result[:more] = true if rechecks[:more] || swept[:more]
       result
     end
 

@@ -124,11 +124,19 @@
       class: Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler
       queue: scheduler
     # Releases external media files whose purge or replacement already
-    # committed an external_media_gc_intents row. One pass is at most 25
-    # intents. It does not scan unattached uploads and is not flag-gated.
+    # committed an external_media_gc_intents row, and expired repoint stages.
+    # One pass is at most 25 intents. It does not scan unattached uploads
+    # and is not flag-gated.
     external_bridge_rss_media_gc_scheduler:
       every: '1m'
       class: Scheduler::ExternalBridgeRSSMediaGcScheduler
+      queue: scheduler
+    # Conditional GET for ready RSS images older than 24 hours that already
+    # have a resource link. At most 10 assets per pass. No-op while the RSS
+    # flag is off. URLs are not job args.
+    external_bridge_rss_media_revalidate_scheduler:
+      every: '15m'
+      class: Scheduler::ExternalBridgeRSSMediaRevalidateScheduler
       queue: scheduler
     # Shared feed icons (issue #569): backfill for existing sources and the
     # weekly / backoff re-check. One pass queues at most 20 sources.

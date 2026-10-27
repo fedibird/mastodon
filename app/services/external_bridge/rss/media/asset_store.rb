@@ -109,6 +109,12 @@ module ExternalBridge
           asset
         end
 
+        def header_value(name)
+          return nil unless @result.respond_to?(name)
+
+          @result.public_send(name).to_s.first(500).presence
+        end
+
         def attributes
           {
             kind: @kind,
@@ -122,6 +128,11 @@ module ExternalBridge
             failed_revision: nil,
             attempt_count: 0,
             fetched_at: Time.current,
+            validator_etag: header_value(:etag),
+            validator_last_modified: header_value(:last_modified),
+            validated_at: Time.current,
+            revalidate_after: nil,
+            revalidate_attempt: 0,
           }
         end
       end

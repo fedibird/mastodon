@@ -59,6 +59,18 @@ module ExternalBridge
         MEDIA_IMAGE_TIMEOUTS[:connect_timeout] + MEDIA_IMAGE_TIMEOUTS[:write_timeout] + MEDIA_IMAGE_TIMEOUTS[:read_deadline],
         MEDIA_VIDEO_TIMEOUTS[:connect_timeout] + MEDIA_VIDEO_TIMEOUTS[:write_timeout] + MEDIA_VIDEO_TIMEOUTS[:read_deadline],
       ].max + 30
+      # Revalidation is not part of a feed fetch. One refresh may enqueue this
+      # many conditional GETs, and the scheduler pass is capped separately.
+      MEDIA_REVALIDATE_AFTER = 24.hours
+      MEDIA_REVALIDATE_PER_REFRESH = 2
+      MEDIA_REVALIDATE_BATCH = 10
+      # One generation swap repoints at most this many projections, each in
+      # its own transaction. The next pass continues the same incoming row.
+      MEDIA_REPOINT_BATCH = 8
+      # A prepared subscriber file is owned by a stage row for this long.
+      # Reclaim runs only after the lease has lapsed, so a second worker
+      # still inside its copy is left alone.
+      MEDIA_REPOINT_PREPARE_LEASE = 2.minutes
     end
   end
 end

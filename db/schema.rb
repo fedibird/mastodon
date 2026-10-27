@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_03_120000) do
+ActiveRecord::Schema.define(version: 2026_11_03_170000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -644,6 +644,13 @@ ActiveRecord::Schema.define(version: 2026_11_03_120000) do
     t.string "failed_revision"
     t.integer "attempt_count", default: 0, null: false
     t.datetime "fetched_at"
+    t.text "validator_etag"
+    t.text "validator_last_modified"
+    t.datetime "validated_at"
+    t.datetime "revalidate_after"
+    t.integer "revalidate_attempt", default: 0, null: false
+    t.integer "generation", default: 1, null: false
+    t.string "logical_digest"
     t.string "file_file_name"
     t.string "file_content_type"
     t.bigint "file_file_size"
@@ -651,6 +658,29 @@ ActiveRecord::Schema.define(version: 2026_11_03_120000) do
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["url_digest"], name: "index_external_media_assets_on_url_digest", unique: true
+    t.check_constraint "generation >= 1", name: "external_media_assets_generation_check"
+    t.check_constraint "revalidate_attempt >= 0", name: "external_media_assets_revalidate_attempt_check"
+  end
+
+  # logical_digest is nullable and has no default. A generation swap sets it
+  # to the article URL digest while url_digest is still incoming:{id}.
+  # Scheduler::ExternalBridgeRSSMediaRevalidateScheduler orders ready images
+  # that already have an external_media_asset_resources row by validated_at
+  # NULLS FIRST, then applies LIMIT. Keep this predicate. Do not replace it
+  # with a dump.
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_ext_media_assets_on_image_revalidate
+    ON external_media_assets (validated_at ASC NULLS FIRST, id)
+    WHERE state = 'ready' AND kind = 'image'
+  SQL
+
+  create_table "external_media_asset_resources", force: :cascade do |t|
+    t.bigint "external_media_asset_id", null: false
+    t.bigint "external_resource_id", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_media_asset_id", "external_resource_id"], name: "index_ext_media_asset_resources_on_asset_and_resource", unique: true
+    t.index ["external_resource_id"], name: "index_ext_media_asset_resources_on_resource"
   end
 
   create_table "external_media_gc_intents", force: :cascade do |t|
@@ -718,6 +748,35 @@ ActiveRecord::Schema.define(version: 2026_11_03_120000) do
   execute <<~SQL
     CREATE INDEX IF NOT EXISTS index_ext_media_gc_rechecks_on_due
     ON external_media_gc_asset_rechecks (available_at, id)
+    WHERE state = 'pending'
+  SQL
+
+  create_table "external_media_repoint_stages", force: :cascade do |t|
+    t.bigint "media_attachment_id", null: false
+    t.bigint "external_media_asset_id"
+    t.bigint "external_status_projection_id"
+    t.bigint "account_id", null: false
+    t.bigint "status_id", null: false
+    t.datetime "lease_until", precision: 6, null: false
+    t.string "state", limit: 16, default: "pending", null: false
+    t.datetime "available_at", precision: 6, null: false
+    t.integer "attempt_count", default: 0, null: false
+    t.string "failure_code", limit: 64
+    t.string "claim_token", limit: 32
+    t.datetime "claimed_until", precision: 6
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_status_projection_id", "external_media_asset_id"], name: "index_ext_media_repoint_stages_on_projection"
+    t.index ["lease_until", "id"], name: "index_ext_media_repoint_stages_on_lease"
+    t.index ["media_attachment_id"], name: "index_ext_media_repoint_stages_on_attachment", unique: true
+    t.check_constraint "state::text = ANY (ARRAY['pending'::character varying, 'retained'::character varying]::text[])", name: "external_media_repoint_stages_state_check"
+  end
+
+  # Due sweep. A retained or backed-off row is not in this index. Keep the
+  # predicate. db:schema:dump may fold it into t.index and drop the WHERE.
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_ext_media_repoint_stages_on_due
+    ON external_media_repoint_stages (available_at, id)
     WHERE state = 'pending'
   SQL
 
@@ -2407,6 +2466,10 @@ ActiveRecord::Schema.define(version: 2026_11_03_120000) do
   add_foreign_key "external_feed_routes", "users", name: "fk_external_feed_routes_user", on_delete: :cascade
   add_foreign_key "external_identities", "user_external_credentials", column: "credential_id", on_delete: :nullify
   add_foreign_key "external_identities", "users", on_delete: :cascade
+  add_foreign_key "external_media_asset_resources", "external_media_assets", name: "fk_ext_media_asset_resources_asset", on_delete: :cascade
+  add_foreign_key "external_media_asset_resources", "external_resources", name: "fk_ext_media_asset_resources_resource", on_delete: :cascade
+  add_foreign_key "external_media_repoint_stages", "external_media_assets", name: "fk_ext_media_repoint_stages_asset", on_delete: :nullify
+  add_foreign_key "external_media_repoint_stages", "external_status_projections", name: "fk_ext_media_repoint_stages_projection", on_delete: :nullify
   add_foreign_key "external_oauth_attempts", "users", on_delete: :cascade
   add_foreign_key "external_projection_attachments", "external_media_assets", name: "fk_ext_proj_attach_asset", on_delete: :restrict
   add_foreign_key "external_projection_attachments", "external_status_projections", name: "fk_ext_proj_attach_projection", on_delete: :cascade
