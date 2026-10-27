@@ -19,8 +19,9 @@ module ExternalBridge
           webp: 'image/webp',
         }.freeze
 
-        def call(url, etag: nil, last_modified: nil)
-          response = HttpClient.get(url, etag: etag, last_modified: last_modified, profile: HttpClient::MEDIA_IMAGE_PROFILE)
+        def call(url, etag: nil, last_modified: nil, poster: false)
+          profile = poster ? HttpClient::MEDIA_POSTER_PROFILE : HttpClient::MEDIA_IMAGE_PROFILE
+          response = HttpClient.get(url, etag: etag, last_modified: last_modified, profile: profile)
           return Result.new(not_modified: true) if response.code == 304
           raise Error, "http_#{response.code}" unless response.code.between?(200, 299)
 

@@ -2,7 +2,7 @@
 
 module ExternalBridge
   module RSS
-    Item = Struct.new(:key, :title, :body, :canonical_url, :byline, :published_at, :truncated, :media, keyword_init: true)
+    Item = Struct.new(:key, :title, :body, :canonical_url, :byline, :published_at, :truncated, :media, :keywords, keyword_init: true)
     Feed = Struct.new(:protocol, :title, :site_url, :items, :icon_hints, keyword_init: true) do
       # The feed-declared image URLs, best candidate first. They are raw text
       # here (possibly relative); the icon job resolves and validates them.
@@ -87,7 +87,7 @@ module ExternalBridge
 
       def rss_item(node)
         about = node['about'].to_s.strip.presence
-        link = safe_url(text_at(node, 'link').presence || about)
+        link = safe_url(text_at(node, 'link').presence || about, item: true)
         key = text_at(node, 'guid').presence || about || link
         return nil if key.blank?
 
@@ -100,13 +100,14 @@ module ExternalBridge
           byline: Sanitizer.title(text_at(node, 'creator').presence || text_at(node, 'author')),
           published_at: parse_time(text_at(node, 'pubDate')) || parse_time(text_at(node, 'date')),
           truncated: truncated,
-          media: media_for(node)
+          media: media_for(node),
+          keywords: keywords_for(node)
         )
       end
 
       def atom_item(node)
         key = text_at(node, 'id').presence
-        link = atom_link(node)
+        link = atom_link(node, item: true)
         key ||= link
         return nil if key.blank?
 
@@ -119,16 +120,17 @@ module ExternalBridge
           byline: Sanitizer.title(node.at_xpath('author/name')&.text),
           published_at: parse_time(text_at(node, 'published').presence || text_at(node, 'updated')),
           truncated: truncated,
-          media: media_for(node)
+          media: media_for(node),
+          keywords: keywords_for(node)
         )
       end
 
-      def atom_link(node)
+      def atom_link(node, item: false)
         alternate = node.at_xpath("link[@rel='alternate']")
         chosen = alternate || node.at_xpath('link[@href]')
         href = chosen&.[]('href')
         href = text_at(node, 'link') if href.blank?
-        safe_url(href)
+        safe_url(href, item: item)
       end
 
       # A square site icon beats a feed image, and a feed image beats an
@@ -159,15 +161,20 @@ module ExternalBridge
         Array(preview&.candidates)
       end
 
+      def keywords_for(node)
+        preview = node.instance_variable_get(:@external_rss_preview)
+        Array(preview&.keywords)
+      end
+
       def text_at(node, name)
         node.at_xpath(name)&.text.to_s.strip
       end
 
-      def safe_url(value)
+      def safe_url(value, item: false)
         text = value.to_s.strip
         return nil if text.blank?
 
-        CanonicalURL.normalize!(text)
+        CanonicalURL.normalize!(text, item: item)
       rescue Error
         nil
       end

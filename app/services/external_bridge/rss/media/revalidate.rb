@@ -70,7 +70,12 @@ module ExternalBridge
         def apply(current)
           return ReplaceGeneration.resume!(current, resource, @url_digest) if ReplaceGeneration.pending?(current)
 
-          result = ImageFetch.new.call(source_url, etag: current.validator_etag, last_modified: current.validator_last_modified)
+          result = ImageFetch.new.call(
+            source_url,
+            etag: current.validator_etag,
+            last_modified: current.validator_last_modified,
+            poster: candidate['role'] == 'poster'
+          )
           if result.not_modified
             unchanged_or_missing(current)
           elsif file_intact?(current) && result.fingerprint == current.fingerprint
@@ -172,11 +177,12 @@ module ExternalBridge
         end
 
         def source_url
-          source_urls(candidate).find { |url| MediaDigest.url_digest(url) == @url_digest }
+          request = ImageAttempts.requests(candidate).find { |item| MediaDigest.url_digest(item.store) == @url_digest }
+          request&.get
         end
 
         def source_urls(row)
-          [row['url'], *Array(row && row['fallbacks'])].select(&:present?)
+          ImageAttempts.requests(row).map(&:store)
         end
       end
     end
