@@ -73,20 +73,31 @@ computes a storage directory to remove.
 Purge deletes the projection and nulls `media_attachments.status_id`. The
 stage's projection and asset foreign keys are `ON DELETE SET NULL`, so the
 proof row stays. `status_id` on the stage is not a foreign key and still
-names the status that was purged. `MediaGc.drain!` sweeps expired stages,
-and the media GC scheduler starts that pass when any stage is due. A
-subscriber list that never calls repoint again still loses the prepared
-file after the lease. A compose upload has no stage, so the sweep does not
-see it.
+names the status that was purged. `MediaGc.drain!` sweeps stages whose
+prepare lease and `available_at` are both due, and the media GC scheduler
+starts that pass when any such stage exists. A subscriber list that never
+calls repoint again still loses the prepared file after the lease. A
+compose upload has no stage, so the sweep does not see it.
+
+The sweep claims at most one batch. A row that cannot be deleted keeps its
+stage, stores `failure_code`, and moves `available_at` forward by the same
+backoff as media GC. After `MediaGc::MAX_ATTEMPTS` the state is `retained`:
+the proof stays, and the row leaves the sweep. `more` is set only when
+another due row was already behind this batch, so a full batch of failures
+does not requeue the worker every second. A claim that dies mid-release
+hides the row until `claimed_until`, then the next pass can take it.
 
 A kill after that transaction commits leaves the stage for the sweep. A
 kill inside the transaction leaves no attachment row and no stage.
-Paperclip can write the object before the commit, so those bytes can remain
-with no row. This path does not scan storage for them, and that residual is
-not a later delete gate: unmarked files stay unmarked. A process kill and a
-real object store (S3 or similar) were not exercised. The local spec checks
-that Paperclip removed a file whose stage had committed, and that a rolled
-back stage insert does not leave an attachment row.
+Paperclip can write the object before the commit. Those bytes have no row.
+This increment does not scan storage for them. The follow-up gate, not
+built here, is a reservation written before the upload that stores the
+Paperclip key, so a later pass can delete that key through Paperclip.
+Until that gate exists there is no safe automatic or manual reclaim for
+those orphans. A process kill and a real object store (S3 or similar) were
+not exercised. The local spec checks that Paperclip removed a file whose
+stage had committed, and that a rolled back stage insert does not leave an
+attachment row.
 
 `MediaGc.plan_generation!` runs only when no projection still references the
 old row. The old digest becomes `superseded:{id}` in that same transaction,
@@ -147,10 +158,13 @@ defaults (`generation` 1, `revalidate_attempt` 0). Migration
 `20261103150000` adds `external_media_repoint_stages`. Migration
 `20261103160000` makes the projection and asset ids nullable and changes
 those foreign keys from cascade to nullify. It also indexes
-`(lease_until, id)`. PostgreSQL 11+ does not rewrite existing asset rows
-for the nullable digest. The stage table is empty on deploy. `down` of
-`20261103160000` deletes only stage rows that already lost a parent, then
-restores the cascade keys. It does not delete files.
+`(lease_until, id)`. Migration `20261103170000` adds `state`,
+`available_at`, `attempt_count`, `failure_code`, and the claim columns, plus
+a partial index on due pending rows. PostgreSQL 11+ does not rewrite
+existing asset rows for the nullable digest. The stage table is empty on
+deploy. `down` of `20261103160000` deletes only stage rows that already lost
+a parent, then restores the cascade keys. `down` of `20261103170000` drops
+the scheduling columns. Neither deletes files.
 
 The partial index
 `index_ext_media_assets_on_image_revalidate` is `validated_at ASC NULLS FIRST`
@@ -163,3 +177,9 @@ It does not delete files. No feature flag was added.
 Picture/srcset fallback is P3-C. Browser playback on iOS Safari, PWA, and
 Chrome is P3-D and is not claimed here. S3 storage and a live publisher CDN
 were not exercised.
+
+Follow-up gate: Paperclip bytes written before the prepare transaction
+commits have no stage and no attachment row. Do not scan the storage tree.
+The gate is a reservation row that records the storage key before the
+upload, then a Paperclip delete of that key only. Process kill and S3 are
+still unverified, so this gate is not claimed as done.

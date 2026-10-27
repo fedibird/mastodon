@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_03_160000) do
+ActiveRecord::Schema.define(version: 2026_11_03_170000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -758,12 +758,27 @@ ActiveRecord::Schema.define(version: 2026_11_03_160000) do
     t.bigint "account_id", null: false
     t.bigint "status_id", null: false
     t.datetime "lease_until", precision: 6, null: false
+    t.string "state", limit: 16, default: "pending", null: false
+    t.datetime "available_at", precision: 6, null: false
+    t.integer "attempt_count", default: 0, null: false
+    t.string "failure_code", limit: 64
+    t.string "claim_token", limit: 32
+    t.datetime "claimed_until", precision: 6
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["external_status_projection_id", "external_media_asset_id"], name: "index_ext_media_repoint_stages_on_projection"
     t.index ["lease_until", "id"], name: "index_ext_media_repoint_stages_on_lease"
     t.index ["media_attachment_id"], name: "index_ext_media_repoint_stages_on_attachment", unique: true
+    t.check_constraint "state::text = ANY (ARRAY['pending'::character varying, 'retained'::character varying]::text[])", name: "external_media_repoint_stages_state_check"
   end
+
+  # Due sweep. A retained or backed-off row is not in this index. Keep the
+  # predicate. db:schema:dump may fold it into t.index and drop the WHERE.
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_ext_media_repoint_stages_on_due
+    ON external_media_repoint_stages (available_at, id)
+    WHERE state = 'pending'
+  SQL
 
   create_table "external_oauth_attempts", force: :cascade do |t|
     t.bigint "user_id", null: false

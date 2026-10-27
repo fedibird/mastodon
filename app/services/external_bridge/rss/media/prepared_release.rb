@@ -4,36 +4,37 @@ module ExternalBridge
   module RSS
     module Media
       # Deletes one prepared subscriber file, and only the file named by an
-      # external_media_repoint_stages row. The lease must have lapsed, no
-      # projection link may point at the file, and the account must still
-      # match. The status matches when it is unchanged, or when purge has
-      # nullified it and that status row is gone. Paperclip destroy removes
-      # the stored object. This class does not compute a storage path or
-      # remove a directory itself.
+      # external_media_repoint_stages row. The prepare lease must have
+      # lapsed, the row must be due, no projection link may point at the
+      # file, and the account must still match. The status matches when it
+      # is unchanged, or when purge has nullified it and that status row is
+      # gone. A failure keeps the stage, records a code, and moves
+      # available_at forward. After the attempt budget it stays retained.
+      # Paperclip destroy removes the stored object. This class does not
+      # compute a storage path or remove a directory itself.
       class PreparedRelease
-        def self.release!(stage_id)
-          new(stage_id).release!
+        def self.release!(stage_id, token: nil)
+          new(stage_id, token).release!
         end
 
         def self.reclaim_expired!(projection_id:, asset_id:)
-          scope = ExternalMediaRepointStage.where(
-            external_status_projection_id: projection_id,
-            external_media_asset_id: asset_id
-          ).where(expired_lease)
-          scope.pluck(:id).each { |stage_id| release!(stage_id) }
+          claim_due!(MediaGc::BATCH, projection_id: projection_id, asset_id: asset_id).each do |stage_id, token|
+            release!(stage_id, token: token)
+          end
         end
 
-        # Expired stages are not tied to the next repoint. Purge, an empty
-        # subscriber list, and a stopped resource all leave the row in place.
-        # The media GC pass calls this.
+        # Claims a bounded set of due stages, then releases those claims.
+        # more is true only when another due row was already waiting behind
+        # this batch. A row that fails is no longer due, so it cannot keep
+        # the worker on a one-second loop.
         def self.sweep_expired!(limit:)
-          ids = ExternalMediaRepointStage.where(expired_lease).order(:id).limit(limit).pluck(:id)
-          ids.each { |stage_id| release!(stage_id) }
-          ids.size
+          waiting = due_ids(limit + 1)
+          claim_due!(limit).each { |stage_id, token| release!(stage_id, token: token) }
+          { more: waiting.size > limit }
         end
 
         def self.expired?
-          ExternalMediaRepointStage.where(expired_lease).exists?
+          due_ids(1).any?
         end
 
         # Saves the copied attachment and its stage in one transaction. A
@@ -43,13 +44,15 @@ module ExternalBridge
         def self.prepare!(asset_id:, projection_id:, account_id:, status_id:)
           ApplicationRecord.transaction(requires_new: true) do
             copied = yield
+            lease_until = Limits::MEDIA_REPOINT_PREPARE_LEASE.from_now
             stage = ExternalMediaRepointStage.create!(
               media_attachment_id: copied.id,
               external_media_asset_id: asset_id,
               external_status_projection_id: projection_id,
               account_id: account_id,
               status_id: status_id,
-              lease_until: Limits::MEDIA_REPOINT_PREPARE_LEASE.from_now
+              lease_until: lease_until,
+              available_at: lease_until
             )
             [copied, stage]
           end
@@ -61,39 +64,112 @@ module ExternalBridge
           return if stage.nil?
 
           now = Time.current
-          ExternalMediaRepointStage.where(id: stage.id).update_all(lease_until: now, updated_at: now)
+          ExternalMediaRepointStage.where(id: stage.id).update_all(
+            state: 'pending',
+            lease_until: now,
+            available_at: now,
+            claim_token: nil,
+            claimed_until: nil,
+            updated_at: now
+          )
           release!(stage.id)
         end
 
-        def self.expired_lease
-          ExternalMediaRepointStage.arel_table[:lease_until].lteq(Time.current)
+        def self.due_ids(limit, projection_id: nil, asset_id: nil)
+          quoted = connection.quote(Time.current)
+          sql = <<~SQL.squish
+            SELECT id FROM external_media_repoint_stages
+            WHERE #{due_sql(quoted, projection_id: projection_id, asset_id: asset_id)}
+            ORDER BY available_at, id
+            LIMIT #{limit.to_i}
+          SQL
+          connection.select_values(sql).map(&:to_i)
         end
-        private_class_method :expired_lease
+        private_class_method :due_ids
 
-        def initialize(stage_id)
+        def self.claim_due!(limit, projection_id: nil, asset_id: nil)
+          now = Time.current
+          token = SecureRandom.hex(8)
+          quoted = connection.quote(now)
+          sql = <<~SQL.squish
+            WITH picked AS (
+              SELECT id FROM external_media_repoint_stages
+              WHERE #{due_sql(quoted, projection_id: projection_id, asset_id: asset_id)}
+              ORDER BY available_at, id
+              LIMIT #{limit.to_i}
+              FOR UPDATE SKIP LOCKED
+            )
+            UPDATE external_media_repoint_stages AS stages
+            SET claim_token = #{connection.quote(token)},
+                claimed_until = #{connection.quote(now + MediaGc::LEASE)},
+                attempt_count = stages.attempt_count + 1,
+                updated_at = #{quoted}
+            FROM picked
+            WHERE stages.id = picked.id
+            RETURNING stages.id
+          SQL
+          ApplicationRecord.transaction do
+            connection.exec_query(sql).rows.map { |row| [row[0].to_i, token] }
+          end
+        end
+        private_class_method :claim_due!
+
+        def self.due_sql(quoted_now, projection_id: nil, asset_id: nil)
+          filters = [
+            "state = 'pending'",
+            "lease_until <= #{quoted_now}",
+            "available_at <= #{quoted_now}",
+            "(claimed_until IS NULL OR claimed_until <= #{quoted_now})",
+          ]
+          filters << "external_status_projection_id = #{projection_id.to_i}" if projection_id
+          filters << "external_media_asset_id = #{asset_id.to_i}" if asset_id
+          filters.join(' AND ')
+        end
+        private_class_method :due_sql
+
+        def self.connection
+          ExternalMediaRepointStage.connection
+        end
+        private_class_method :connection
+
+        def initialize(stage_id, token = nil)
           @stage_id = stage_id
+          @token = token
         end
 
         def release!
-          ApplicationRecord.transaction do
-            stage = ExternalMediaRepointStage.lock.find_by(id: @stage_id)
-            next if stage.nil? || stage.lease_until > Time.current
-
-            attachment = MediaAttachment.lock.find_by(id: stage.media_attachment_id)
-            if attachment.nil? || linked?(attachment)
-              stage.destroy!
-              next
-            end
-            next unless same_owner?(stage, attachment)
-
-            attachment.destroy!
-            stage.destroy!
-          end
-        rescue ActiveRecord::ActiveRecordError, Paperclip::Error
-          Rails.logger.info("[ExternalBridge::RSS] media prepare release skipped stage_id=#{@stage_id}")
+          ApplicationRecord.transaction { release_locked }
+        rescue ActiveRecord::ActiveRecordError, Paperclip::Error => e
+          postpone_id(failure_code(e))
+          :failed
         end
 
         private
+
+        def release_locked
+          stage = ExternalMediaRepointStage.lock.find_by(id: @stage_id)
+          return :missing if stage.nil?
+          return :skipped if @token && stage.claim_token != @token
+          return :waiting if waiting?(stage)
+
+          attachment = MediaAttachment.lock.find_by(id: stage.media_attachment_id)
+          if attachment.nil? || linked?(attachment)
+            stage.destroy!
+            return :released
+          end
+          unless same_owner?(stage, attachment)
+            postpone!(stage, 'owner_mismatch')
+            return :postponed
+          end
+
+          attachment.destroy!
+          stage.destroy!
+          :released
+        end
+
+        def waiting?(stage)
+          stage.state != 'pending' || stage.lease_until > Time.current || stage.available_at > Time.current
+        end
 
         def same_owner?(stage, attachment)
           return false unless attachment.account_id == stage.account_id
@@ -108,6 +184,33 @@ module ExternalBridge
 
         def linked?(attachment)
           ExternalProjectionAttachment.exists?(media_attachment_id: attachment.id)
+        end
+
+        def postpone_id(code)
+          stage = ExternalMediaRepointStage.find_by(id: @stage_id)
+          return if stage.nil? || stage.state != 'pending'
+          return if @token && stage.claim_token != @token
+
+          postpone!(stage, code)
+        end
+
+        def postpone!(stage, code)
+          now = Time.current
+          attrs = { failure_code: code, claim_token: nil, claimed_until: nil, updated_at: now }
+          if stage.attempt_count.to_i >= MediaGc::MAX_ATTEMPTS
+            attrs[:state] = 'retained'
+          else
+            index = [stage.attempt_count.to_i - 1, 0].max
+            attrs[:available_at] = now + MediaGc::BACKOFF.fetch(index, MediaGc::BACKOFF.last)
+          end
+          scope = ExternalMediaRepointStage.where(id: stage.id, state: 'pending')
+          scope = scope.where(claim_token: @token) if @token
+          scope.update_all(attrs)
+          Rails.logger.info("[ExternalBridge::RSS] media prepare release postponed stage_id=#{stage.id} code=#{code}")
+        end
+
+        def failure_code(error)
+          error.is_a?(Paperclip::Error) ? 'storage_error' : 'database_error'
         end
       end
     end

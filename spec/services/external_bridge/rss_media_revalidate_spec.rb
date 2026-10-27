@@ -489,7 +489,7 @@ RSpec.describe 'External RSS image revalidation' do
     expect(MediaAttachment.find_by(id: prepared.id)).to be_present
     expect(File.exist?(prepared_path)).to be true
 
-    stage.update_columns(lease_until: 1.minute.ago)
+    stage.update_columns(lease_until: 1.minute.ago, available_at: 1.minute.ago)
     Scheduler::ExternalBridgeRSSMediaGcScheduler.new.perform
 
     expect(MediaAttachment.find_by(id: prepared.id)).to be_nil
@@ -497,6 +497,61 @@ RSpec.describe 'External RSS image revalidation' do
     expect(ExternalMediaRepointStage.where(id: stage.id)).to be_empty
     expect(MediaAttachment.find_by(id: compose.id)).to be_present
     expect(File.exist?(compose_path)).to be true
+  end
+
+  it 'does not let undeletable stages block a later release or requeue forever' do
+    account = Fabricate(:account)
+    home = Fabricate(:status, account: account)
+    other = Fabricate(:status, account: account)
+    now = Time.current
+    past = 1.minute.ago
+    blocked_ids = Array.new(ExternalBridge::MediaGc::BATCH) { inserted_attachment_id(account, home, now) }
+    ready = attachment_on(MediaAttachment.new(account_id: account.id, status_id: home.id), jpeg, 'Ready')
+    ready_path = ready.file.path
+    rows = blocked_ids.map { |id| stage_row(id, account, other.id, past, now, ExternalBridge::MediaGc::MAX_ATTEMPTS - 1) }
+    rows << stage_row(ready.id, account, home.id, past, now, 0)
+    ExternalMediaRepointStage.insert_all!(rows)
+
+    Sidekiq::Testing.fake! do
+      ExternalBridge::RSS::MediaGcWorker.clear
+      ExternalBridge::RSS::MediaGcWorker.new.perform
+      expect(ExternalBridge::RSS::MediaGcWorker.jobs.size).to eq 1
+      ExternalBridge::RSS::MediaGcWorker.clear
+      ExternalBridge::RSS::MediaGcWorker.new.perform
+      expect(ExternalBridge::RSS::MediaGcWorker.jobs.size).to eq 0
+    end
+
+    blocked = ExternalMediaRepointStage.where(media_attachment_id: blocked_ids)
+    expect(blocked.count).to eq ExternalBridge::MediaGc::BATCH
+    expect(blocked.pluck(:state).uniq).to eq ['retained']
+    expect(blocked.pluck(:failure_code).uniq).to eq ['owner_mismatch']
+    expect(MediaAttachment.where(id: blocked_ids).count).to eq ExternalBridge::MediaGc::BATCH
+    expect(MediaAttachment.find_by(id: ready.id)).to be_nil
+    expect(File.exist?(ready_path)).to be false
+    expect(ExternalMediaRepointStage.where(media_attachment_id: ready.id)).to be_empty
+  end
+
+  it 'keeps the stage when storage deletion fails and does not ask for another pass' do
+    marker = ExternalStatusProjection.find_by!(user_id: user.id)
+    previous = marker.external_projection_attachments.first.media_attachment
+    prepared = attachment_on(previous, jpeg, 'Story')
+    stage = stage_for(prepared, asset: ExternalMediaAsset.find_by!(kind: 'image'), projection: marker, lease_until: 1.minute.ago)
+    path = prepared.file.path
+    allow_any_instance_of(MediaAttachment).to receive(:destroy!).and_raise(Paperclip::Error)
+
+    Sidekiq::Testing.fake! do
+      ExternalBridge::RSS::MediaGcWorker.clear
+      ExternalBridge::RSS::MediaGcWorker.new.perform
+      expect(ExternalBridge::RSS::MediaGcWorker.jobs.size).to eq 0
+    end
+
+    expect(stage.reload.state).to eq 'pending'
+    expect(stage.failure_code).to eq 'storage_error'
+    expect(stage.available_at).to be > Time.current
+    expect(stage.claim_token).to be_nil
+    expect(stage.attempt_count).to eq 1
+    expect(MediaAttachment.find_by(id: prepared.id)).to be_present
+    expect(File.exist?(path)).to be true
   end
 
   it 'does not let unlinked assets fill the scheduler batch' do
@@ -642,6 +697,37 @@ RSpec.describe 'External RSS image revalidation' do
       status_id: attachment.status_id,
       lease_until: lease_until
     )
+  end
+
+  def inserted_attachment_id(account, status, now)
+    MediaAttachment.insert(
+      {
+        account_id: account.id,
+        status_id: status.id,
+        remote_url: '',
+        file_file_name: 'blocked.jpg',
+        file_content_type: 'image/jpeg',
+        file_file_size: 8,
+        type: 0,
+        created_at: now,
+        updated_at: now,
+      },
+      returning: %w(id)
+    ).rows.first.first.to_i
+  end
+
+  def stage_row(attachment_id, account, status_id, past, now, attempts)
+    {
+      media_attachment_id: attachment_id,
+      account_id: account.id,
+      status_id: status_id,
+      lease_until: past,
+      available_at: past,
+      state: 'pending',
+      attempt_count: attempts,
+      created_at: now,
+      updated_at: now,
+    }
   end
 
   def compose_on(account, body)
