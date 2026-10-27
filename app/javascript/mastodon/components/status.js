@@ -162,6 +162,50 @@ export const defaultMediaVisibility = (status) => {
   return (displayMedia !== 'hide_all' && !shown.get('sensitive') || displayMedia === 'show_all');
 };
 
+const quoteOf = (status) => {
+  if (!status || typeof status.get !== 'function') {
+    return null;
+  }
+
+  const quote = status.get('quote', null);
+  return quote && typeof quote.get === 'function' ? quote : null;
+};
+
+// Shared by the timeline card and the detail column. An update that keeps
+// the status id still resets media when that status, or its quote, becomes
+// sensitive. idKey is statusId on the card and loadedStatusId on the detail.
+export const nextShownMediaState = (prevState, status, idKey = 'statusId') => {
+  const shown = displayedStatus(status);
+  if (!status || typeof status.get !== 'function' || !shown || typeof shown.get !== 'function') {
+    return null;
+  }
+
+  const quote = quoteOf(shown);
+  const sensitive = !!shown.get('sensitive');
+  const quoteSensitive = !!(quote && quote.get('sensitive'));
+  if (status.get('id') !== prevState[idKey]) {
+    return {
+      showMedia: defaultMediaVisibility(status),
+      showQuoteMedia: defaultMediaVisibility(quote),
+      [idKey]: status.get('id'),
+      sensitive,
+      quoteSensitive,
+      forceFilter: undefined,
+    };
+  }
+
+  const next = {};
+  if (sensitive !== !!prevState.sensitive) {
+    next.showMedia = defaultMediaVisibility(status);
+    next.sensitive = sensitive;
+  }
+  if (quoteSensitive !== !!prevState.quoteSensitive) {
+    next.showQuoteMedia = defaultMediaVisibility(quote);
+    next.quoteSensitive = quoteSensitive;
+  }
+  return Object.keys(next).length > 0 ? next : null;
+};
+
 export const isHideCard = (type) => {
   switch(type) {
   case 'link':
@@ -286,37 +330,7 @@ class Status extends ImmutablePureComponent {
   };
 
   static getDerivedStateFromProps(nextProps, prevState) {
-    const status = nextProps.status;
-    if (!status || typeof status.get !== 'function') {
-      return null;
-    }
-
-    const shown = displayedStatus(status);
-    if (status.get('id') !== prevState.statusId) {
-      const quote = shown.get('quote', null);
-      return {
-        showMedia: defaultMediaVisibility(status),
-        showQuoteMedia: defaultMediaVisibility(quote),
-        statusId: status.get('id'),
-        sensitive: !!shown.get('sensitive'),
-        quoteSensitive: !!(quote && typeof quote.get === 'function' && quote.get('sensitive')),
-        forceFilter: undefined,
-      };
-    }
-
-    const sensitive = !!shown.get('sensitive');
-    const quote = shown.get('quote', null);
-    const quoteSensitive = !!(quote && typeof quote.get === 'function' && quote.get('sensitive'));
-    const next = {};
-    if (sensitive !== !!prevState.sensitive) {
-      next.showMedia = defaultMediaVisibility(status);
-      next.sensitive = sensitive;
-    }
-    if (quoteSensitive !== !!prevState.quoteSensitive) {
-      next.showQuoteMedia = defaultMediaVisibility(quote);
-      next.quoteSensitive = quoteSensitive;
-    }
-    return Object.keys(next).length > 0 ? next : null;
+    return nextShownMediaState(prevState, nextProps.status, 'statusId');
   }
 
   componentDidMount () {

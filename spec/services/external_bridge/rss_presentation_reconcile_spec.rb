@@ -257,6 +257,37 @@ RSpec.describe 'RSS presentation reconcile' do
     expect(world[:subscription].reload.presentation_applied_revision).to eq(6)
   end
 
+  it 'does not clear a newer lease when an older job exhausts its retries' do
+    world[:subscription].update_columns(
+      cw_enabled: true,
+      presentation_revision: 9,
+      presentation_applied_revision: 0,
+      presentation_lease_token: 'live-owner',
+      presentation_lease_until: 10.minutes.from_now
+    )
+
+    ExternalBridge::RSS::PresentationReconcileWorker.sidekiq_retries_exhausted_block.call(
+      'args' => [world[:subscription].id, 9, 0, nil]
+    )
+    ExternalBridge::RSS::PresentationReconcileWorker.sidekiq_retries_exhausted_block.call(
+      'args' => [world[:subscription].id, 9, 40, 'stale-owner']
+    )
+
+    subscription = world[:subscription].reload
+    expect(subscription.presentation_lease_token).to eq('live-owner')
+    expect(subscription.presentation_error).to be_nil
+    expect(subscription.presentation_lease_until).to be_present
+
+    ExternalBridge::RSS::PresentationReconcileWorker.sidekiq_retries_exhausted_block.call(
+      'args' => [world[:subscription].id, 9, 40, 'live-owner']
+    )
+
+    subscription.reload
+    expect(subscription.presentation_error).to eq('reconcile_failed')
+    expect(subscription.presentation_lease_token).to be_nil
+    expect(subscription.presentation_lease_until).to be_nil
+  end
+
   it 'locks the subscription row before comparing the saved choices' do
     sqls = []
     callback = lambda do |*, payload|

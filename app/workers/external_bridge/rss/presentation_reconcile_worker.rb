@@ -51,8 +51,12 @@ module ExternalBridge
       end
 
       sidekiq_retries_exhausted do |msg, _exception|
-        subscription_id, revision, = msg['args']
-        ExternalSubscription.where(id: subscription_id, presentation_revision: revision.to_i)
+        subscription_id, revision, _after_id, token = msg['args']
+        next if token.blank?
+
+        # A newer claim of this generation owns the row. This job's retries
+        # ending must not clear that token or mark the live pass failed.
+        ExternalSubscription.where(id: subscription_id, presentation_revision: revision.to_i, presentation_lease_token: token)
                             .where('presentation_applied_revision < presentation_revision')
                             .where.not(state: ExternalSubscription::DELETING)
                             .update_all(

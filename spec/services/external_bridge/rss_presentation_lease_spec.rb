@@ -67,6 +67,48 @@ RSpec.describe 'RSS presentation lease', type: :model do
     expect(ExternalBridge::RSS::PresentationReconcileWorker.claim(world[:subscription].id, 3)).to be_nil
   end
 
+  it 'keeps the live lease when an older retry expires while that lease is held' do
+    @user = Fabricate(:user)
+    enable_external_bridge_rss!(@user)
+    world = project_for(@user)
+    @source_id = world[:source].id
+    world[:subscription].update_columns(
+      presentation_revision: 6,
+      presentation_applied_revision: 0,
+      presentation_lease_token: 'live-owner',
+      presentation_lease_until: 10.minutes.from_now
+    )
+    ready = Queue.new
+    release = Queue.new
+    holder = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        ExternalSubscription.transaction do
+          ExternalSubscription.lock.find(world[:subscription].id)
+          ready << :locked
+          release.pop
+        end
+      end
+    end
+    ready.pop
+
+    exhausted = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        ExternalBridge::RSS::PresentationReconcileWorker.sidekiq_retries_exhausted_block.call(
+          'args' => [world[:subscription].id, 6, 0, 'stale-owner']
+        )
+      end
+    end
+    sleep 0.2
+    release << :go
+    holder.join
+    exhausted.join
+
+    subscription = world[:subscription].reload
+    expect(subscription.presentation_lease_token).to eq('live-owner')
+    expect(subscription.presentation_error).to be_nil
+    expect(subscription.presentation_lease_until).to be > Time.current
+  end
+
   it 'sees a choice saved by the lock holder and does not write another generation' do
     @user = Fabricate(:user)
     enable_external_bridge_rss!(@user)
