@@ -19,8 +19,11 @@ module ExternalBridge
       ASSET_QUERY_VALUE = /\A[A-Za-z0-9._-]{1,32}\z/.freeze
       ASSET_QUERY_PAIRS = 3
 
-      def self.normalize!(value, asset: false)
-        new(value, asset: asset).normalize!
+      ITEM_QUERY = %w(id v video_id clip clip_id viewkey).freeze
+      ITEM_VALUE = /\A[A-Za-z0-9_-]{1,80}\z/.freeze
+
+      def self.normalize!(value, asset: false, item: false)
+        new(value, asset: asset, item: item).normalize!
       end
 
       def self.safe_http?(value)
@@ -30,9 +33,10 @@ module ExternalBridge
         false
       end
 
-      def initialize(value, asset: false)
+      def initialize(value, asset: false, item: false)
         @value = value.to_s
         @asset = asset
+        @item = item
       end
 
       def normalize!
@@ -79,6 +83,7 @@ module ExternalBridge
         return if uri.query.nil?
         raise Error, :authenticated_source_rejected if uri.query.blank? || malformed_percent?(uri.query)
         return reject_asset_query!(uri) if @asset
+        return reject_item_query!(uri) if @item
 
         pairs = uri.query.split(/[&;]/)
         raise Error, :authenticated_source_rejected unless pairs.one?
@@ -93,6 +98,37 @@ module ExternalBridge
         raise Error, :authenticated_source_rejected unless SAFE_FORMAT_VALUES.include?(decoded_value.downcase)
 
         uri.query = "#{decoded_name.downcase}=#{decoded_value.downcase}"
+      end
+
+      # An item link may carry the media id the player URL has to repeat.
+      # Unknown names still reject the whole URL, so two links are not folded
+      # together by dropping the rest of the query.
+      def reject_item_query!(uri)
+        pairs = uri.query.split(/[&;]/, -1)
+        raise Error, :authenticated_source_rejected if pairs.empty? || pairs.size > 4
+
+        kept = pairs.map { |pair| item_pair(pair) }
+        raise Error, :authenticated_source_rejected if kept.any?(&:nil?)
+
+        uri.query = kept.join('&')
+      end
+
+      def item_pair(pair)
+        name, value = pair.split('=', 2)
+        decoded_name = fully_decode(name)
+        decoded_value = fully_decode(value)
+        return nil if decoded_name.blank? || decoded_value.blank?
+
+        decoded_name = decoded_name.downcase
+        if decoded_name == 'format'
+          return nil unless SAFE_FORMAT_VALUES.include?(decoded_value.downcase)
+
+          return "format=#{decoded_value.downcase}"
+        end
+        return nil unless ITEM_QUERY.include?(decoded_name)
+        return nil unless ITEM_VALUE.match?(decoded_value)
+
+        "#{decoded_name}=#{decoded_value}"
       end
 
       def reject_asset_query!(uri)

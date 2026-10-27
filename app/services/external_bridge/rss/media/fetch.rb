@@ -119,18 +119,18 @@ module ExternalBridge
           @attempt_log = []
           @candidate_fingerprint = ImageAttempts.fingerprint(candidate)
           last_error = nil
-          ImageAttempts.urls(candidate).each do |url|
+          ImageAttempts.requests(candidate).each do |request|
             return nil if stale_revision?(resource, media_revision)
 
-            asset = fetch_image(resource, url, media_revision)
+            asset = fetch_image(resource, request, media_revision, poster: candidate['role'] == 'poster')
             next if asset.nil?
 
-            note_attempt!(url, 'stored')
-            remember_alternate!(url, url_digest, media_revision)
+            note_attempt!(request.store, 'stored')
+            remember_alternate!(request.store, url_digest, media_revision)
             return asset
           rescue Error => e
-            note_attempt!(url, e.code)
-            record_fallback_miss!(url, url_digest, e.code)
+            note_attempt!(request.store, e.code)
+            record_fallback_miss!(request.store, url_digest, e.code)
             last_error = e
             raise if ImageAttempts.stop?(e.code) || !ImageAttempts.try_next?(e.code)
           end
@@ -139,13 +139,13 @@ module ExternalBridge
           nil
         end
 
-        def fetch_image(resource, url, media_revision)
-          digest = MediaDigest.url_digest(url)
+        def fetch_image(resource, request, media_revision, poster:)
+          digest = MediaDigest.url_digest(request.store)
           URLLock.call(digest) do
             cached = stored_copy(digest, media_revision)
             next cached if cached
 
-            result = ImageFetch.new.call(url)
+            result = ImageFetch.new.call(request.get, poster: poster)
             raise Error, 'http_304' if result.not_modified || result.body.blank?
             next nil if stale_revision?(resource, media_revision)
 

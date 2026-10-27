@@ -5,6 +5,7 @@ import { List as ImmutableList, fromJS } from 'immutable';
 import { FormattedMessage } from 'react-intl';
 import MediaGallery from 'mastodon/components/media_gallery';
 import ExternalRemoteMedia, { remoteMediaItems } from 'mastodon/components/external_remote_media';
+import ExternalEmbedPlayer from 'mastodon/components/external_embed_player';
 import Video from 'mastodon/features/video';
 import Audio from 'mastodon/features/audio';
 import { displayMedia } from 'mastodon/initial_state';
@@ -55,6 +56,11 @@ export const externalMediaBlocks = (status) => {
     }
 
     flush();
+    if (delivery === 'remote' && type === 'embed') {
+      blocks.push({ kind: 'embed', entry });
+      return;
+    }
+
     if (delivery === 'local' && (type === 'video' || type === 'audio')) {
       const attachment = attachments[String(read(entry, 'attachment_id'))];
       if (attachment) {
@@ -217,6 +223,15 @@ export default class ExternalStatusMedia extends React.PureComponent {
     return this.renderVideo(block.attachment);
   }
 
+  renderEmbed (block, index) {
+    const key = read(block.entry, 'id') || `embed-${index}`;
+    if (this.concealed()) {
+      return this.renderConcealed(key);
+    }
+
+    return <ExternalEmbedPlayer key={key} entry={block.entry} articleUrl={this.articleUrl()} />;
+  }
+
   renderRemote (block, index) {
     const key = read(block.entry, 'id') || `remote-${index}`;
     if (this.concealed()) {
@@ -257,6 +272,9 @@ export default class ExternalStatusMedia extends React.PureComponent {
         {blocks.map((block, index) => {
           if (block.kind === 'images') {
             return <React.Fragment key={`images-${index}`}>{this.renderGallery(block)}</React.Fragment>;
+          }
+          if (block.kind === 'embed') {
+            return <React.Fragment key={read(block.entry, 'id') || `embed-${index}`}>{this.renderEmbed(block, index)}</React.Fragment>;
           }
           if (block.kind === 'remote') {
             return <React.Fragment key={read(block.entry, 'id') || `remote-${index}`}>{this.renderRemote(block, index)}</React.Fragment>;

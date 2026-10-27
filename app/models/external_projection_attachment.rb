@@ -19,7 +19,7 @@
 # references it, the shared asset are released after that transaction
 # commits. Another projection's reference keeps the shared asset.
 class ExternalProjectionAttachment < ApplicationRecord
-  KINDS = %w(image video).freeze
+  KINDS = %w(image video poster).freeze
 
   belongs_to :external_status_projection
   belongs_to :external_media_asset

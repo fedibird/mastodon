@@ -81,6 +81,7 @@ module ExternalBridge
           resource.source_deleted_at = nil
           resource.media_candidates = media
           resource.media_revision = MediaDigest.hexdigest(media)
+          resource.keywords = Keywords.normalize(item.keywords)
         end
       end
 

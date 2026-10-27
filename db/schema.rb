@@ -978,6 +978,7 @@ ActiveRecord::Schema.define(version: 2026_11_04_130000) do
     t.datetime "updated_at", precision: 6, null: false
     t.text "media_revision"
     t.jsonb "media_candidates", default: [], null: false
+    t.jsonb "keywords", default: [], null: false
     t.index ["external_actor_id"], name: "index_external_resources_on_external_actor_id"
     t.index ["external_source_id", "published_at"], name: "index_external_resources_on_source_and_published_at"
     t.index ["id", "external_source_id"], name: "index_external_resources_on_id_and_source", unique: true

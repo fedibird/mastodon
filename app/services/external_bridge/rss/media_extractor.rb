@@ -10,7 +10,7 @@ module ExternalBridge
     # and Media RSS. Feed icons are not article media. A video poster is not
     # also stored as an image attachment.
     class MediaExtractor
-      Preview = Struct.new(:body, :candidates, keyword_init: true)
+      Preview = Struct.new(:body, :candidates, :keywords, keyword_init: true)
       ATOM = 'http://www.w3.org/2005/Atom'
       CONTENT = 'http://purl.org/rss/1.0/modules/content/'
       MEDIA = 'http://search.yahoo.com/mrss/'
@@ -44,8 +44,22 @@ module ExternalBridge
         raw = []
         posters = []
         base = base_for(node)
-        node.element_children.each { |child| collect(child, body_node, raw, posters, base) }
-        preview = Preview.new(body: body_node&.text.to_s, candidates: finalize(raw, posters))
+        scan = EmbedScan.new
+        node.element_children.each do |child|
+          if media_group?(child)
+            child.element_children.each do |nested|
+              scan.observe(nested, raw.size)
+              collect(nested, body_node, raw, posters, base)
+            end
+          else
+            scan.observe(child, raw.size)
+            collect(child, body_node, raw, posters, base)
+          end
+          scan.note_html_at(raw.size) if child.equal?(body_node)
+        end
+        scan.finish_html(html_for(body_node))
+        scan.apply!(raw, posters, article_href(node))
+        preview = Preview.new(body: body_node&.text.to_s, candidates: finalize(raw, posters), keywords: scan.keywords)
         node.instance_variable_set(:@external_rss_preview, preview)
       end
 
@@ -91,6 +105,10 @@ module ExternalBridge
 
       def media?(child)
         child.namespace&.href == MEDIA && %w(content thumbnail group).include?(child.name)
+      end
+
+      def media_group?(child)
+        child.name == 'group' && child.namespace&.href == MEDIA
       end
 
       def collect_media(child, raw, posters, base)
@@ -145,7 +163,7 @@ module ExternalBridge
         seen = {}
         kept = []
         raw.each do |candidate|
-          next if candidate['kind'] == 'image' && posters.include?(candidate['url'])
+          next if candidate['kind'] == 'image' && candidate['role'] != 'poster' && posters.include?(candidate['url'])
 
           key = "#{candidate['kind']}\n#{candidate['url']}"
           next if seen[key]
@@ -269,6 +287,11 @@ module ExternalBridge
           current = current.parent
         end
         nil
+      end
+
+      def article_href(node)
+        href = node.name == 'entry' ? atom_href(node) : link_value(node)
+        href.presence || node['about'].to_s.strip.presence
       end
 
       def link_base(node)

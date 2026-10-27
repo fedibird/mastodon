@@ -185,8 +185,10 @@ class REST::StatusSerializer < ActiveModel::Serializer
       # cannot be stopped from following a redirect of a remote media URL.
       sequence = ExternalBridge::RSS::Media::Sequence.for(projection)
       payload[:sequence] = sequence if sequence.any?
-      remote = sequence.select { |item| item[:delivery] == 'remote' }
+      remote = sequence.select { |item| item[:delivery] == 'remote' && %w(video audio).include?(item[:type].to_s) }
       payload[:media] = remote if remote.any?
+      keywords = Array(resource&.keywords)
+      payload[:keywords] = keywords if keywords.present? && keywords.all? { |item| item.is_a?(String) }
     end
   end
 

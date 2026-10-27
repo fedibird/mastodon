@@ -53,6 +53,10 @@ module ExternalBridge
         url_mode: :media
       ).freeze
 
+      # Signed poster URLs are image fetches. Video and ordinary images stay
+      # on MediaURL and do not accept a rotating signature query.
+      MEDIA_POSTER_PROFILE = MEDIA_IMAGE_PROFILE.dup.tap { |profile| profile.url_mode = :poster }.freeze
+
       ICON_PAGE_PROFILE = FetchProfile.new(
         accept: 'text/html, application/xhtml+xml;q=0.9',
         max_bytes: Limits::ICON_MAX_PAGE_BYTES,
@@ -83,7 +87,7 @@ module ExternalBridge
       rescue Mastodon::HostValidationError => e
         raise Error, host_validation_code(e)
       rescue Mastodon::LengthValidationError
-        raise Error, profile.url_mode.to_s == 'media' ? :media_too_large : :oversized_feed
+        raise Error, media_profile?(profile) ? :media_too_large : :oversized_feed
       rescue HTTP::Redirector::TooManyRedirectsError
         raise Error, :too_many_redirects
       rescue HTTP::Error, OpenSSL::SSL::SSLError, Addressable::URI::InvalidURIError
@@ -120,9 +124,21 @@ module ExternalBridge
       private
 
       def canonical_url!(url, profile)
+        return poster_canonical!(url) if profile.url_mode.to_s == 'poster'
         return MediaURL.normalize!(url) if profile.url_mode.to_s == 'media'
 
         CanonicalURL.normalize!(url, asset: profile.asset_urls)
+      end
+
+      def media_profile?(profile)
+        %w(media poster).include?(profile.url_mode.to_s)
+      end
+
+      # A poster whose query is only a rotating signature is still an image
+      # fetch. PosterURL keeps that signature on the request and does not
+      # treat it as the file identity. Other media profiles never reach this.
+      def poster_canonical!(url)
+        MediaURL.normalize(url) || PosterURL.fetch!(url)
       end
 
       def host_validation_code(error)

@@ -38,6 +38,12 @@ module ExternalBridge
       # hard attachment ceiling; the live post limit can be lower.
       MAX_MEDIA_CANDIDATES = 12
       MAX_MEDIA_DESCRIPTION = 500
+      # One player per item. The HTML fragment is discarded after src is read.
+      MAX_EMBED_HTML_BYTES = 8.kilobytes
+      MAX_EMBED_SCAN = 4
+      MAX_KEYWORDS = 16
+      MAX_KEYWORD_CHARS = 40
+      MAX_MEDIA_DURATION = 48.hours.to_i
       # Extra URLs kept for one logical image. They are not part of the media
       # revision. A fetch tries the representative and every stored fallback,
       # so the attempt cap is one larger than the number of fallbacks.
