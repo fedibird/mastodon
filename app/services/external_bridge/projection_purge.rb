@@ -31,7 +31,10 @@ module ExternalBridge
     #
     # route_targets are extra delete destinations, for a subscription whose
     # feed routes were already removed by the unsubscribe fence.
-    def self.purge_ids_in_transaction!(status_ids, suppress: false, route_targets: [], schedule_deletes: true)
+    #
+    # deletion_id is stored on the media GC plan when this batch belongs to
+    # an unsubscribe. It is not a foreign key.
+    def self.purge_ids_in_transaction!(status_ids, suppress: false, route_targets: [], schedule_deletes: true, deletion_id: nil)
       ids = normalize_ids(status_ids)
       return { removals: [], deleted: 0, captures: [], media: empty_media } if ids.empty?
 
@@ -41,6 +44,7 @@ module ExternalBridge
       media = empty_media
       ActiveRecord::Base.transaction(requires_new: true) do
         media = capture_media!(ids)
+        MediaGc.plan_purge!(media, deletion_id: deletion_id)
         captures = capture_stream_deletes(ids, route_targets)
         remember_suppressions!(ids) if suppress
         removals = LinkSharing::Retire.end_for_projections!(ids, reason: 'projection_purged')
@@ -48,6 +52,7 @@ module ExternalBridge
         ActiveRecord::Base.connection.execute(SETTING_SQL)
         deleted = Status.unscoped.where(id: ids).delete_all
         Streaming::Scheduler.schedule_deletes!(captures) if schedule_deletes
+        MediaGc.schedule_release!(attachment_ids: media[:attachment_ids], asset_ids: media[:asset_ids])
       end
       { removals: removals, deleted: deleted, captures: captures, media: media }
     ensure
@@ -65,24 +70,19 @@ module ExternalBridge
     end
 
     # Join rows disappear with the projection (ON DELETE CASCADE). The
-    # attachment rows survive because statuses.status_id is only nullified.
-    # Destroy them here, after the purge transaction commits, so a rollback
-    # does not delete files the status still points at. Shared assets stay
-    # while another projection references them.
-    #
-    # P3: the captured ids are not durable. A process that dies after the
-    # DELETE commits and before these destroys leaves the files with no retry.
+    # attachment rows survive because media_attachments.status_id is only
+    # nullified. The ids were written to external_media_gc_intents in the
+    # purge transaction, and MediaGc::CommitHook releases them when that
+    # transaction commits. This method is the backup for a caller that is
+    # already outside that transaction. It does nothing while a transaction
+    # is still open, so a rollback cannot delete blobs, and it never scans
+    # unattached uploads.
     def self.destroy_detached_media!(media)
-      plan = media.is_a?(Hash) ? media : empty_media
-      isolate('media_attachment') do
-        MediaAttachment.where(id: plan[:attachment_ids]).find_each(&:destroy!)
-      end
-      isolate('media_asset') do
-        ExternalMediaAsset.where(id: plan[:asset_ids]).find_each do |asset|
-          next if ExternalProjectionAttachment.exists?(external_media_asset_id: asset.id)
+      return if ActiveRecord::Base.connection.transaction_open?
 
-          asset.destroy!
-        end
+      plan = media.is_a?(Hash) ? media : empty_media
+      isolate('media_gc') do
+        MediaGc.release_ids!(attachment_ids: plan[:attachment_ids], asset_ids: plan[:asset_ids])
       end
     end
 

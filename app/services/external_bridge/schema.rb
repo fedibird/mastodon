@@ -763,6 +763,61 @@ module ExternalBridge
       END $$;
     SQL
 
+    # Binds a GC proof to the projection attachment that exists at insert time.
+    # A later UPDATE cannot point that proof at a different attachment. schema:load
+    # installs this with the other projection triggers. The table itself is dumped.
+    MEDIA_GC_PROOF_SQL = <<~SQL
+      CREATE OR REPLACE FUNCTION external_media_gc_proofs_bind()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      DECLARE
+        bound_attachment bigint;
+        bound_projection bigint;
+        bound_account bigint;
+        bound_status bigint;
+      BEGIN
+        IF TG_OP = 'UPDATE' THEN
+          IF NEW.source_attachment_id IS DISTINCT FROM OLD.source_attachment_id
+             OR NEW.media_attachment_id IS DISTINCT FROM OLD.media_attachment_id
+             OR NEW.external_status_projection_id IS DISTINCT FROM OLD.external_status_projection_id
+             OR NEW.account_id IS DISTINCT FROM OLD.account_id
+             OR NEW.status_id IS DISTINCT FROM OLD.status_id THEN
+            RAISE EXCEPTION 'external media gc proof is immutable'
+              USING ERRCODE = 'check_violation';
+          END IF;
+          RETURN NEW;
+        END IF;
+
+        SELECT epa.media_attachment_id,
+               epa.external_status_projection_id,
+               esp.account_id,
+               esp.status_id
+          INTO bound_attachment, bound_projection, bound_account, bound_status
+        FROM external_projection_attachments AS epa
+        JOIN external_status_projections AS esp
+          ON esp.id = epa.external_status_projection_id
+        WHERE epa.id = NEW.source_attachment_id;
+
+        IF NOT FOUND OR bound_account IS NULL OR bound_status IS NULL THEN
+          RAISE EXCEPTION 'external media gc proof requires a live projection attachment'
+            USING ERRCODE = 'check_violation';
+        END IF;
+
+        NEW.media_attachment_id := bound_attachment;
+        NEW.external_status_projection_id := bound_projection;
+        NEW.account_id := bound_account;
+        NEW.status_id := bound_status;
+        RETURN NEW;
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS external_media_gc_proofs_bind ON external_media_gc_proofs;
+      CREATE TRIGGER external_media_gc_proofs_bind
+      BEFORE INSERT OR UPDATE ON external_media_gc_proofs
+      FOR EACH ROW
+      EXECUTE FUNCTION external_media_gc_proofs_bind();
+    SQL
+
     DEFINITIONS_SQL = <<~SQL
       ALTER TABLE external_status_projections
         DROP CONSTRAINT IF EXISTS fk_external_projections_subscription_owner;
@@ -901,6 +956,8 @@ module ExternalBridge
       #{LINK_BOOST_STATE_SQL}
 
       #{MIGRATE_FUNCTION_SQL}
+
+      #{MEDIA_GC_PROOF_SQL}
     SQL
 
     # Migration up runs these statements only. schema:load uses DEFINITIONS_SQL,
