@@ -52,17 +52,25 @@ different image, does not delete the incoming link or copy the old file
 back. The checkpoint still finishes on the next pass.
 
 One pass then repoints at most `MEDIA_REPOINT_BATCH` (8) projections. The
-new `MediaAttachment` is saved before the short link transaction. That
-transaction plans the previous attachment for GC, inserts a new projection
-row for the new generation, and deletes the previous projection row. The
-GC proof names that previous row, so the row has to go away before the
-previous file can be released. The asset row lock is not held across the
-copy. If the link transaction rolls back, the prepared attachment row is
-destroyed and its stored files are removed. The next pass also deletes an
-unlinked attachment on the same status, with the same description and
-content type, created at or after the checkpoint. A process kill and a
-real object store (S3 or similar) were not exercised, so those two
-cleanups are unverified outside the local test disk.
+new `MediaAttachment` is saved with an `external_media_repoint_stages` row
+before the short link transaction. That stage names the file, the incoming
+asset, the projection, and the account and status. It is the only proof
+that this swap may delete the file. The link transaction plans the previous
+attachment for GC, inserts a new projection row, deletes the previous
+projection row, and deletes the stage. The GC proof names that previous
+row, so the row has to go away before the previous file can be released.
+The asset row lock is not held across the copy.
+
+If the link transaction rolls back, this worker expires the stage lease and
+`MediaAttachment#destroy!` removes the file through Paperclip. A later pass
+does that only for a stage of this projection and incoming asset whose
+lease has already lapsed, and only when no projection link points at the
+file and the account and status still match. A live lease, a different
+asset, or an attachment with no stage is left in place. Nothing here
+deletes by description, content type, or creation time, and nothing
+computes a storage directory to remove. A process kill and a real object
+store (S3 or similar) were not exercised. The local spec checks that
+Paperclip removed the file it had just saved.
 
 `MediaGc.plan_generation!` runs only when no projection still references the
 old row. The old digest becomes `superseded:{id}` in that same transaction,
@@ -119,8 +127,10 @@ INFO logs contain the asset id and the failure code, not the URL or a token.
 
 Migration `20261102140000` adds nullable validator columns and constant
 defaults (`generation` 1, `revalidate_attempt` 0). Migration
-`20261103140000` adds nullable `logical_digest` with no default. PostgreSQL
-11+ does not rewrite existing rows for those defaults or the new column.
+`20261103140000` adds nullable `logical_digest` with no default. Migration
+`20261103150000` adds `external_media_repoint_stages`. PostgreSQL 11+ does
+not rewrite existing rows for those defaults or the new column. The new
+table is empty.
 The partial index
 `index_ext_media_assets_on_image_revalidate` is `validated_at ASC NULLS FIRST`
 where `state = 'ready' AND kind = 'image'`. `lock_timeout` is 5 seconds.

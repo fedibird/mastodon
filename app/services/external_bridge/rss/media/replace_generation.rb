@@ -18,10 +18,13 @@ module ExternalBridge
       # file before the public digest moves. Resource links move with the
       # digest, and only when that resource still lists this URL.
       #
-      # The replacement MediaAttachment is saved before the link transaction.
-      # If that transaction rolls back, the prepared row and its files are
-      # destroyed. The next pass deletes an unlinked copy on the same status
-      # with the same description, created at or after this checkpoint.
+      # The replacement MediaAttachment is saved with an
+      # ExternalMediaRepointStage before the link transaction. That stage is
+      # the only proof this swap may delete the file. A failed link expires
+      # the stage lease and Paperclip-destroys that file. A later pass does
+      # the same only after the lease has lapsed, and only for that
+      # projection and incoming asset. Other attachments on the status are
+      # not candidates.
       class ReplaceGeneration
         EXTENSION_FOR_TYPE = {
           'image/jpeg' => 'jpg',
@@ -174,20 +177,14 @@ module ExternalBridge
         end
 
         def repoint_one!(link_id, old_id)
-          previous = linked_attachment(link_id, old_id)
-          return if previous == :absent
-          return forget_link!(link_id) if previous.nil?
-
-          reclaim_orphans!(previous)
-          copied = copy_attachment(previous)
-          commit_move!(link_id, old_id, previous.id, copied)
-        end
-
-        def linked_attachment(link_id, old_id)
           link = ExternalProjectionAttachment.find_by(id: link_id)
-          return :absent if link.nil? || link.external_media_asset_id != old_id
+          return if link.nil? || link.external_media_asset_id != old_id
+          return forget_link!(link_id) if link.media_attachment.nil?
 
-          link.media_attachment
+          PreparedRelease.reclaim_expired!(projection_id: link.external_status_projection_id, asset_id: @incoming.id)
+          copied = copy_attachment(link.media_attachment)
+          stage = record_stage!(copied, link)
+          commit_move!(link_id, old_id, link.media_attachment_id, copied, stage)
         end
 
         def forget_link!(link_id)
@@ -198,20 +195,20 @@ module ExternalBridge
           nil
         end
 
-        # Paperclip writes files before the database commits. Create the
-        # attachment first, then swing the link. A rollback or a raised
-        # error destroys that row. A later pass collects a copy that was
-        # left behind when the process stopped between those two steps.
-        def commit_move!(link_id, old_id, previous_media_id, copied)
+        # The stage row commits with the prepared file, before the link
+        # transaction. A rollback expires that stage and Paperclip-destroys
+        # the file. A kill after the stage commits leaves it for a later
+        # pass, which waits until the lease lapses.
+        def commit_move!(link_id, old_id, previous_media_id, copied, stage)
           result = nil
           ApplicationRecord.transaction(requires_new: true) do
-            result = swing_link!(link_id, old_id, previous_media_id, copied)
+            result = swing_link!(link_id, old_id, previous_media_id, copied, stage)
             raise ActiveRecord::Rollback if result == :stale
           end
-          release_prepared!(copied) if result == :stale
+          PreparedRelease.abandon!(stage) if result == :stale
           result == :stale ? nil : result
         rescue StandardError
-          release_prepared!(copied)
+          PreparedRelease.abandon!(stage)
           raise
         end
 
@@ -220,7 +217,7 @@ module ExternalBridge
         # A later release accepts the proof only when that row is gone or
         # still names the previous file. Updating the row in place would
         # leave the previous file retained.
-        def swing_link!(link_id, old_id, previous_media_id, copied)
+        def swing_link!(link_id, old_id, previous_media_id, copied, stage)
           link = ExternalProjectionAttachment.lock.find_by(id: link_id)
           return :stale if link.nil? || link.external_media_asset_id != old_id || link.media_attachment_id != previous_media_id
 
@@ -234,46 +231,24 @@ module ExternalBridge
             kind: link.kind
           )
           link.destroy!
+          stage.destroy!
           ExternalBridge::MediaGc.schedule_release!(attachment_ids: [previous_media_id], asset_ids: [])
           marker_id
         end
 
-        def reclaim_orphans!(previous)
-          scope = MediaAttachment.where(status_id: previous.status_id, description: previous.description)
-          scope = scope.where(file_content_type: @incoming.content_type) if @incoming.content_type.present?
-          scope.where(MediaAttachment.arel_table[:created_at].gteq(@incoming.created_at)).find_each do |attachment|
-            release_prepared!(attachment)
-          end
-        end
-
-        def release_prepared!(attachment)
-          return if attachment.nil?
-
-          path = nil
-          fresh = MediaAttachment.find_by(id: attachment.id)
-          return if fresh.nil?
-          return if ExternalProjectionAttachment.exists?(media_attachment_id: fresh.id)
-
-          path = fresh.file.path
-          fresh.destroy!
-          delete_stored_files!(path)
-        rescue ActiveRecord::ActiveRecordError
-          delete_stored_files!(path)
-          MediaAttachment.where(id: attachment.id).delete_all
-        end
-
-        def delete_stored_files!(path)
-          return if path.blank?
-
-          style_dir = File.dirname(path.to_s)
-          directory = File.dirname(style_dir)
-          return unless File.basename(style_dir) == 'original'
-
-          marker = "#{File::SEPARATOR}media_attachments#{File::SEPARATOR}files#{File::SEPARATOR}"
-          return unless directory.include?(marker)
-          return unless File.directory?(directory)
-
-          FileUtils.rm_rf(directory)
+        def record_stage!(copied, link)
+          previous = link.media_attachment
+          ExternalMediaRepointStage.create!(
+            media_attachment_id: copied.id,
+            external_media_asset_id: @incoming.id,
+            external_status_projection_id: link.external_status_projection_id,
+            account_id: previous.account_id,
+            status_id: previous.status_id,
+            lease_until: Limits::MEDIA_REPOINT_PREPARE_LEASE.from_now
+          )
+        rescue StandardError
+          copied.destroy!
+          raise
         end
 
         def copy_attachment(previous)

@@ -67,6 +67,10 @@ module ExternalBridge
       # One generation swap repoints at most this many projections, each in
       # its own transaction. The next pass continues the same incoming row.
       MEDIA_REPOINT_BATCH = 8
+      # A prepared subscriber file is owned by a stage row for this long.
+      # Reclaim runs only after the lease has lapsed, so a second worker
+      # still inside its copy is left alone.
+      MEDIA_REPOINT_PREPARE_LEASE = 2.minutes
     end
   end
 end

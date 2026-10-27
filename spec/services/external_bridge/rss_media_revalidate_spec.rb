@@ -356,6 +356,8 @@ RSpec.describe 'External RSS image revalidation' do
     marker = ExternalStatusProjection.find_by!(user_id: user.id)
     allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!)
     stub_request(:get, image_url).with(headers: conditional_headers).to_return(status: 200, body: jpeg, headers: image_headers('v3', 'image/jpeg'))
+    twin = attachment_on(marker.external_projection_attachments.first.media_attachment, jpeg, 'Story')
+    twin_path = twin.file.path
     prepared = []
     allow(MediaAttachment).to receive(:create!).and_wrap_original do |method, *args, **kwargs|
       record = method.call(*args, **kwargs)
@@ -369,6 +371,9 @@ RSpec.describe 'External RSS image revalidation' do
     expect(prepared.size).to eq 1
     expect(MediaAttachment.find_by(id: prepared.first[:id])).to be_nil
     expect(File.exist?(prepared.first[:path])).to be false
+    expect(ExternalMediaRepointStage.where(media_attachment_id: prepared.first[:id])).to be_empty
+    expect(MediaAttachment.find_by(id: twin.id)).to be_present
+    expect(File.exist?(twin_path)).to be true
     expect(marker.external_projection_attachments.pick(:external_media_asset_id)).to eq asset.id
     expect(projection_image_type(marker, 'Story')).to eq :png
     expect(ExternalMediaAsset.find_by!(url_digest: "incoming:#{asset.id}").logical_digest).to eq asset.url_digest
@@ -379,37 +384,55 @@ RSpec.describe 'External RSS image revalidation' do
     expect(a_request(:get, image_url).with(headers: conditional_headers)).to have_been_made.once
   end
 
-  it 'reclaims an unlinked copy from a stopped repoint before finishing the batch' do
-    other = Fabricate(:user)
-    enable_external_bridge_rss!(other)
-    ExternalBridge::RSS::Subscribe.new.call(user: other, url: feed_url)
-    asset = age_asset!
-    old_id = asset.id
-    stub_const('ExternalBridge::RSS::Limits::MEDIA_REPOINT_BATCH', 1)
-    allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!)
-    stub_request(:get, image_url).with(headers: conditional_headers).to_return(status: 200, body: jpeg, headers: image_headers('v3', 'image/jpeg'))
-
-    Sidekiq::Testing.fake! do
-      ExternalBridge::RSS::MediaGenerationContinueWorker.clear
-      expect(ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, asset.url_digest)).to eq :partial
-    end
-
-    waiting = ExternalProjectionAttachment.find_by!(external_media_asset_id: old_id)
+  it 'does not delete another worker\'s prepared file on the same status' do
+    _asset, incoming, waiting = stop_after_one_subscriber
     previous = waiting.media_attachment
-    expect(previous.description).to eq 'Story'
-    orphan = attachment_on(previous, jpeg, 'Story')
-    kept = attachment_on(previous, jpeg, 'Keep me')
-    orphan_path = orphan.file.path
-    kept_path = kept.file.path
+    live = attachment_on(previous, jpeg, 'Story')
+    same_generation = attachment_on(previous, jpeg, 'Story')
+    unmarked = attachment_on(previous, jpeg, 'Story')
+    stage_for(live, asset: waiting.external_media_asset, projection: waiting.external_status_projection, lease_until: 10.minutes.from_now)
+    stage_for(same_generation, asset: incoming, projection: waiting.external_status_projection, lease_until: 10.minutes.from_now)
+    live_path = live.file.path
+    same_path = same_generation.file.path
+    unmarked_path = unmarked.file.path
 
-    expect(ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, asset.url_digest)).to eq :replaced
+    ExternalBridge::RSS::Media::PreparedRelease.reclaim_expired!(
+      projection_id: waiting.external_status_projection_id,
+      asset_id: incoming.id
+    )
+    expect(ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, incoming.logical_digest)).to eq :replaced
+
+    expect(MediaAttachment.find_by(id: live.id)).to be_present
+    expect(File.exist?(live_path)).to be true
+    expect(MediaAttachment.find_by(id: same_generation.id)).to be_present
+    expect(File.exist?(same_path)).to be true
+    expect(ExternalMediaRepointStage.find_by(media_attachment_id: same_generation.id)).to be_present
+    expect(MediaAttachment.find_by(id: unmarked.id)).to be_present
+    expect(File.exist?(unmarked_path)).to be true
+  end
+
+  it 'reclaims only the expired stage left by a killed repoint' do
+    _asset, incoming, waiting = stop_after_one_subscriber
+    previous = waiting.media_attachment
+    orphan = attachment_on(previous, jpeg, 'Story')
+    live = attachment_on(previous, jpeg, 'Story')
+    unmarked = attachment_on(previous, jpeg, 'Story')
+    stage_for(orphan, asset: incoming, projection: waiting.external_status_projection, lease_until: 1.minute.ago)
+    stage_for(live, asset: waiting.external_media_asset, projection: waiting.external_status_projection, lease_until: 10.minutes.from_now)
+    orphan_path = orphan.file.path
+    live_path = live.file.path
+    unmarked_path = unmarked.file.path
+
+    expect(ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, incoming.logical_digest)).to eq :replaced
 
     expect(MediaAttachment.find_by(id: orphan.id)).to be_nil
     expect(File.exist?(orphan_path)).to be false
-    expect(MediaAttachment.find_by(id: kept.id)).to be_present
-    expect(File.exist?(kept_path)).to be true
+    expect(ExternalMediaRepointStage.where(media_attachment_id: orphan.id)).to be_empty
+    expect(MediaAttachment.find_by(id: live.id)).to be_present
+    expect(File.exist?(live_path)).to be true
+    expect(MediaAttachment.find_by(id: unmarked.id)).to be_present
+    expect(File.exist?(unmarked_path)).to be true
     expect(projection_image_type(waiting.external_status_projection, 'Story')).to eq :jpeg
-    expect(ExternalMediaAsset.find_by(id: old_id)).to be_nil
   end
 
   it 'does not let unlinked assets fill the scheduler batch' do
@@ -527,6 +550,34 @@ RSpec.describe 'External RSS image revalidation' do
     entry = ExternalBridge::RSS::Media::Sequence.for(marker).find { |row| row[:delivery] == 'local' && row[:description] == description }
     expect(entry).to be_present
     FastImage.type(MediaAttachment.find(entry[:attachment_id]).file.path)
+  end
+
+  def stop_after_one_subscriber
+    other = Fabricate(:user)
+    enable_external_bridge_rss!(other)
+    ExternalBridge::RSS::Subscribe.new.call(user: other, url: feed_url)
+    asset = age_asset!
+    stub_const('ExternalBridge::RSS::Limits::MEDIA_REPOINT_BATCH', 1)
+    allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!)
+    stub_request(:get, image_url).with(headers: conditional_headers).to_return(status: 200, body: jpeg, headers: image_headers('v3', 'image/jpeg'))
+    Sidekiq::Testing.fake! do
+      ExternalBridge::RSS::MediaGenerationContinueWorker.clear
+      expect(ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, asset.url_digest)).to eq :partial
+    end
+    incoming = ExternalMediaAsset.find_by!(url_digest: "incoming:#{asset.id}")
+    waiting = ExternalProjectionAttachment.find_by!(external_media_asset_id: asset.id)
+    [asset, incoming, waiting]
+  end
+
+  def stage_for(attachment, asset:, projection:, lease_until:)
+    ExternalMediaRepointStage.create!(
+      media_attachment: attachment,
+      external_media_asset: asset,
+      external_status_projection: projection,
+      account_id: attachment.account_id,
+      status_id: attachment.status_id,
+      lease_until: lease_until
+    )
   end
 
   def attachment_on(previous, body, description)
