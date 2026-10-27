@@ -84,8 +84,12 @@ jest.mock('mastodon/components/emoji_reactions_bar', () => () => null);
 jest.mock('mastodon/components/picture_in_picture_placeholder', () => () => null);
 jest.mock('mastodon/components/edited_timestamp', () => () => null);
 jest.mock('mastodon/components/animated_number', () => () => null);
-jest.mock('mastodon/components/blurhash', () => () => null);
-jest.mock('mastodon/components/thumbhash', () => () => null);
+jest.mock('mastodon/components/blurhash', () => ({ hash, dummy }) => (
+  hash ? <canvas data-hash={hash} data-dummy={dummy ? 'yes' : 'no'} /> : null
+));
+jest.mock('mastodon/components/thumbhash', () => ({ hash, dummy }) => (
+  hash ? <canvas data-hash={hash} data-dummy={dummy ? 'yes' : 'no'} /> : null
+));
 jest.mock('mastodon/components/alt_text_badge', () => ({ description, mode, sourceLang, targetLang }) => (
   <span data-testid='alt-badge' data-mode={mode || ''} data-source-lang={sourceLang || ''} data-target-lang={targetLang || ''}>{description}</span>
 ));
@@ -130,6 +134,8 @@ const image = {
   remote_url: '',
   description: 'Still',
   translation: { description: 'ねこ' },
+  thumbhash: '1QcSHQRnh493V4dIh4eXh1h4QAAAAA',
+  blurhash: 'L6PZfSi_.AyE_3t7t7R**0o#DgR4',
   meta: {
     small: { width: 100 },
     original: { width: 200 },
@@ -145,13 +151,23 @@ const video = {
   remote_url: '',
   description: 'Clip',
   translation: { description: '動画' },
+  thumbhash: 'YJqGPQw7sFlsl9l9h3eIeHiPd4h3iIAH',
+  blurhash: 'LEHV6nWB2yk8pyo0adR*.7kCMdnj',
   meta: { original: { duration: 3, frame_rate: '30' } },
 };
 
 const sequence = [
   { type: 'image', delivery: 'local', attachment_id: 'img', position: 0 },
   { type: 'video', delivery: 'local', attachment_id: 'vid', position: 1 },
-  { id: 'remote-clip', type: 'video', delivery: 'remote', url: 'https://cdn.example/clip.mp4', position: 2 },
+  {
+    id: 'remote-clip',
+    type: 'video',
+    delivery: 'remote',
+    url: 'https://cdn.example/clip.mp4',
+    position: 2,
+    poster_thumbhash: '3OcRJYB4d3hwiIeHeEh3eIhw',
+    poster_blurhash: 'LEHV6nWB2yk8pyo0adR*.7kCMdnj',
+  },
 ];
 
 const baseStatus = (extra = {}) => fromJS({
@@ -248,12 +264,21 @@ describe('external status media with the real gallery', () => {
 
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelector('video')).toBeNull();
+    const concealed = container.querySelector('.external-status-media__concealed canvas');
+    expect(concealed).not.toBeNull();
+    expect(concealed.getAttribute('data-hash')).toBe('3OcRJYB4d3hwiIeHeEh3eIhw');
+    expect(concealed.getAttribute('data-dummy')).toBe('yes');
+    expect(container.querySelector('.media-gallery canvas')).not.toBeNull();
+    expect(container.querySelector('.external-status-media__saved canvas')).not.toBeNull();
     expect(container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+    expect(container.innerHTML).not.toContain('https://cb.example/system/still-small.png');
+    expect(container.innerHTML).not.toContain('https://cb.example/system/clip.jpg');
     expect(container.querySelector('.media-gallery').style.height).toBe('110px');
     expect(screen.getAllByText('Sensitive content').length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Sensitive content' })[0]);
 
+    expect(container.querySelector('.external-status-media__concealed')).toBeNull();
     const galleryImage = container.querySelector('.media-gallery__item-thumbnail img');
     expect(galleryImage).not.toBeNull();
     expect(galleryImage.getAttribute('alt')).toBe('ねこ');
@@ -289,8 +314,11 @@ describe('external status media with the real gallery', () => {
 
     expect(container.querySelector('.media-gallery')).toBeNull();
     expect(container.querySelector('video')).toBeNull();
+    expect(container.querySelector('canvas')).toBeNull();
+    expect(container.querySelector('.external-status-media__concealed')).toBeNull();
     expect(container.querySelector('.external-remote-media')).toBeNull();
     expect(container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+    expect(container.innerHTML).not.toContain('3OcRJYB4d3hwiIeHeEh3eIhw');
     expect(container.innerHTML).not.toContain('https://cb.example/system/still-small.png');
   });
 
@@ -353,10 +381,12 @@ describe('external status media with the real gallery', () => {
 
     draw({ hidden: false, sensitive: true, spoiler_text: '旅行記', spoilerHtml: '旅行記' });
     expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+    expect(view.container.querySelector('.external-status-media__concealed canvas')).not.toBeNull();
     expect(screen.getAllByText('Sensitive content').length).toBeGreaterThan(0);
 
     draw({});
     expect(screen.getByRole('button', { name: 'External video' })).toBeTruthy();
+    expect(view.container.querySelector('.external-status-media__concealed')).toBeNull();
     expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
   });
 

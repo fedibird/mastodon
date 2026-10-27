@@ -4,22 +4,59 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { List as ImmutableList, fromJS } from 'immutable';
 import { FormattedMessage } from 'react-intl';
 import MediaGallery from 'mastodon/components/media_gallery';
+import Blurhash from 'mastodon/components/blurhash';
+import Thumbhash from 'mastodon/components/thumbhash';
 import ExternalRemoteMedia, { remoteMediaItems } from 'mastodon/components/external_remote_media';
 import ExternalEmbedPlayer from 'mastodon/components/external_embed_player';
 import Video from 'mastodon/features/video';
 import Audio from 'mastodon/features/audio';
-import { displayMedia } from 'mastodon/initial_state';
+import { displayMedia, useBlurhash } from 'mastodon/initial_state';
 import { attachmentAccessibility } from 'mastodon/utils/translation_view';
 
 // External articles can contain images and a saved or remote video in any
 // order. The ordinary status renderer keeps only the first attachment type,
 // so a saved video next to images would disappear. This list follows
 // fedibird_external.sequence instead.
-const read = (item, key) => (item && typeof item.get === 'function' ? item.get(key) : item[key]);
+const read = (item, key) => {
+  if (!item) {
+    return undefined;
+  }
+
+  return typeof item.get === 'function' ? item.get(key) : item[key];
+};
 
 const defaultVisible = (sensitive) => (
   (displayMedia !== 'hide_all' && !sensitive) || displayMedia === 'show_all'
 );
+
+// Owner sequence hashes only. A URL-shaped value is not a placeholder and
+// must not be written into the document.
+const hashText = (value) => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const text = value.trim();
+  if (!text || text.length > 100 || text.includes('://') || text.startsWith('/')) {
+    return null;
+  }
+
+  return text;
+};
+
+const placeholderHash = (entry) => {
+  const thumbhash = hashText(read(entry, 'poster_thumbhash'));
+  if (thumbhash) {
+    return { kind: 'thumbhash', hash: thumbhash };
+  }
+
+  const blurhash = hashText(read(entry, 'poster_blurhash'));
+  if (blurhash) {
+    return { kind: 'blurhash', hash: blurhash };
+  }
+
+  return null;
+};
 
 export const externalMediaBlocks = (status) => {
   const sequence = status && status.getIn && status.getIn(['fedibird_external', 'sequence']);
@@ -103,6 +140,20 @@ export default class ExternalStatusMedia extends React.PureComponent {
     height: 110,
   };
 
+  legacyConcealedEntry () {
+    const items = remoteMediaItems(this.props.status);
+    if (items.length !== 1 || !this.props.status || typeof this.props.status.getIn !== 'function') {
+      return null;
+    }
+
+    const media = this.props.status.getIn(['fedibird_external', 'media']);
+    if (!media || typeof media.get !== 'function' || media.size !== 1) {
+      return null;
+    }
+
+    return media.get(0);
+  }
+
   articleUrl () {
     if (!this.props.status || typeof this.props.status.getIn !== 'function') {
       return undefined;
@@ -130,17 +181,55 @@ export default class ExternalStatusMedia extends React.PureComponent {
     }
   };
 
-  renderConcealed (key) {
+  renderHashCanvas (entry) {
+    const chosen = placeholderHash(entry);
+    if (!chosen) {
+      return null;
+    }
+
+    if (chosen.kind === 'thumbhash') {
+      return (
+        <Thumbhash
+          hash={chosen.hash}
+          dummy={!useBlurhash}
+          className='media-gallery__preview'
+        />
+      );
+    }
+
+    return (
+      <Blurhash
+        hash={chosen.hash}
+        dummy={!useBlurhash}
+        className='media-gallery__preview'
+      />
+    );
+  }
+
+  renderConcealed (key, entry) {
     const warning = this.props.sensitive ? (
       <FormattedMessage id='status.sensitive_warning' defaultMessage='Sensitive content' />
     ) : (
       <FormattedMessage id='status.media_hidden' defaultMessage='Media hidden' />
     );
-
-    return (
-      <button type='button' className='spoiler-button__overlay' onClick={this.props.onToggleVisibility} key={key}>
+    const canvas = this.renderHashCanvas(entry);
+    const button = (
+      <button type='button' className='spoiler-button__overlay' onClick={this.props.onToggleVisibility} key={canvas ? undefined : key}>
         <span className='spoiler-button__overlay__label'>{warning}</span>
       </button>
+    );
+
+    if (!canvas) {
+      return button;
+    }
+
+    return (
+      <div className='external-status-media__concealed' key={key}>
+        {canvas}
+        <div className='spoiler-button'>
+          {button}
+        </div>
+      </div>
     );
   }
 
@@ -226,7 +315,7 @@ export default class ExternalStatusMedia extends React.PureComponent {
   renderEmbed (block, index) {
     const key = read(block.entry, 'id') || `embed-${index}`;
     if (this.concealed()) {
-      return this.renderConcealed(key);
+      return this.renderConcealed(key, block.entry);
     }
 
     return <ExternalEmbedPlayer key={key} entry={block.entry} articleUrl={this.articleUrl()} />;
@@ -235,7 +324,7 @@ export default class ExternalStatusMedia extends React.PureComponent {
   renderRemote (block, index) {
     const key = read(block.entry, 'id') || `remote-${index}`;
     if (this.concealed()) {
-      return this.renderConcealed(key);
+      return this.renderConcealed(key, block.entry);
     }
 
     const remoteStatus = fromJS({ fedibird_external: { media: [block.entry] } });
@@ -259,7 +348,7 @@ export default class ExternalStatusMedia extends React.PureComponent {
         return null;
       }
       if (this.concealed()) {
-        return this.renderConcealed('legacy-remote');
+        return this.renderConcealed('legacy-remote', this.legacyConcealedEntry());
       }
       return <ExternalRemoteMedia status={this.props.status} articleUrl={this.articleUrl()} />;
     }

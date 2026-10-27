@@ -228,6 +228,34 @@ a.button.logo-button {
   }
 }
 
+.external-status-media__concealed {
+  position: relative;
+  width: 100%;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  aspect-ratio: 16 / 9;
+  background: $base-overlay-background;
+
+  .spoiler-button__overlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .spoiler-button__overlay__label {
+    background: rgba($base-overlay-background, 0.85);
+    color: $primary-text-color;
+  }
+
+  .spoiler-button__overlay:focus,
+  .spoiler-button__overlay:focus-visible {
+    outline: 2px solid $primary-text-color;
+    outline-offset: -4px;
+  }
+}
+
 .external-remote-media {
   &__item + &__item {
     margin-top: 8px;

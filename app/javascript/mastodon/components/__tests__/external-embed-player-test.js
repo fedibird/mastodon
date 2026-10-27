@@ -2,6 +2,9 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 
+jest.mock('mastodon/components/blurhash', () => () => null);
+jest.mock('mastodon/components/thumbhash', () => () => null);
+
 import { formatDuration } from '../external_embed_player';
 import ExternalStatusMedia from '../external_status_media';
 

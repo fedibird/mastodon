@@ -10,6 +10,8 @@ jest.mock('mastodon/initial_state', () => ({
   displayMedia: 'hide_all',
 }));
 
+jest.mock('mastodon/components/blurhash', () => () => null);
+jest.mock('mastodon/components/thumbhash', () => () => null);
 jest.mock('mastodon/components/media_gallery', () => () => null);
 jest.mock('mastodon/features/video', () => () => null);
 jest.mock('mastodon/features/audio', () => () => null);

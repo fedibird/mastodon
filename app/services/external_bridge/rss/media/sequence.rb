@@ -56,21 +56,82 @@ module ExternalBridge
           }
           payload[:duration] = candidate['duration'] if candidate['duration'].is_a?(Integer)
           payload[:description] = candidate['description'] if candidate['description'].present?
-          preview = poster_preview
-          payload[:poster] = preview if preview.present?
+          decorate_poster!(payload, candidate)
           payload
+        end
+
+        # A role=poster file is the embed player's saved image. Remote video
+        # posters stay as poster_url text and are not downloaded. The hash is
+        # copied only when this candidate names that saved image, so one
+        # article's poster is not painted onto a different video.
+        def poster_image_for(candidate)
+          linked = linked_poster(candidate['poster_url'])
+          return linked if linked
+          return nil if candidate['poster_url'].present?
+          return nil unless candidate['kind'] == 'embed'
+          return nil unless poster_candidates.one? && embed_candidates.one?
+
+          poster_candidates.first
+        end
+
+        def linked_poster(poster_url)
+          return nil if poster_url.blank?
+
+          poster_candidates.find { |row| poster_urls(row).include?(poster_url) }
+        end
+
+        def poster_urls(row)
+          [row['url'], *Array(row['fallbacks'])]
+        end
+
+        def poster_candidates
+          @poster_candidates ||= Array(@resource.media_candidates).select { |row| row['kind'] == 'image' && row['role'] == 'poster' }
+        end
+
+        def embed_candidates
+          @embed_candidates ||= Array(@resource.media_candidates).select { |row| row['kind'] == 'embed' }
+        end
+
+        def decorate_poster!(payload, candidate)
+          attachment = poster_attachment_for(candidate)
+          return if attachment.nil?
+
+          assign_local_poster!(payload, attachment) if candidate['kind'] == 'embed'
+          assign_poster_hashes!(payload, attachment)
+        end
+
+        def poster_attachment_for(candidate)
+          image = poster_image_for(candidate)
+          return nil if image.nil?
+
+          attachment = link_for(image)&.media_attachment
+          return nil if attachment.nil? || attachment.file_file_name.blank?
+
+          attachment
         end
 
         # Saved poster file on this instance. The publisher URL is not sent
         # to the browser, so showing the image does not request that host.
-        def poster_preview
-          image = Array(@resource.media_candidates).find { |row| row['kind'] == 'image' && row['role'] == 'poster' }
-          attachment = image && link_for(image)&.media_attachment
-          return nil if attachment.nil? || attachment.file_file_name.blank?
-
-          full_asset_url(attachment.file.url(:original))
+        def assign_local_poster!(payload, attachment)
+          url = full_asset_url(attachment.file.url(:original))
+          payload[:poster] = url if url.present?
         rescue StandardError
           nil
+        end
+
+        def assign_poster_hashes!(payload, attachment)
+          thumbhash = hash_text(attachment.thumbhash)
+          blurhash = hash_text(attachment.blurhash)
+          payload[:poster_thumbhash] = thumbhash if thumbhash
+          payload[:poster_blurhash] = blurhash if blurhash
+        end
+
+        def hash_text(value)
+          text = value.to_s.strip
+          return nil if text.blank? || text.bytesize > 100
+          return nil if text.include?('://') || text.start_with?('/')
+
+          text
         end
 
         def local_entry(candidate, link)
@@ -84,7 +145,7 @@ module ExternalBridge
         end
 
         def remote_entry(candidate)
-          {
+          entry = {
             id: "rss-media:#{MediaDigest.url_digest(candidate['url'])[0, 16]}",
             type: candidate['kind'],
             delivery: 'remote',
@@ -94,6 +155,8 @@ module ExternalBridge
             mime_type: candidate['mime_hint'],
             external: true,
           }.compact
+          decorate_poster!(entry, candidate)
+          entry
         end
 
         def link_for(candidate)
@@ -106,7 +169,7 @@ module ExternalBridge
         end
 
         def links
-          @links ||= @projection.external_projection_attachments.includes(:external_media_asset).each_with_object({}) do |row, memo|
+          @links ||= @projection.external_projection_attachments.includes(:external_media_asset, :media_attachment).each_with_object({}) do |row, memo|
             GenerationMap.display_digests(row.external_media_asset).each do |digest|
               memo[digest] ||= row
             end
