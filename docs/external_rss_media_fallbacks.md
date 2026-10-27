@@ -42,6 +42,14 @@ now (`Media::Sync.links_stale?`). That comparison does not bump
 | The attached digest is still listed, but its shared file is temporarily not ready | Leave the attachment. The fetch chain below replaces the bytes |
 | The attachment is `incoming:{id}` or `superseded:{id}`, or the ready file still has an `incoming:{id}` checkpoint | Leave it. That is a generation swap in progress, not a fallback change |
 
+A changed fallback body is still one generation. The prepared subscriber
+file and its `external_media_repoint_stages` row commit before the
+projection link moves. If the worker stops there and that subscriber is
+then purged, the stage row stays and its projection id becomes null. After
+the lease lapses, the media GC pass deletes that file. A compose upload has
+no stage, so the sweep does not see it. When the swap finishes, the
+resource link and every projection link name the one new file.
+
 The resource link used for revalidation is removed when that digest leaves
 the candidate list, so the old fallback is not conditional-GET afterwards.
 
