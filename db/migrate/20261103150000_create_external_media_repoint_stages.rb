@@ -20,9 +20,11 @@ class CreateExternalMediaRepointStages < ActiveRecord::Migration[6.1]
     add_index :external_media_repoint_stages,
               [:external_status_projection_id, :external_media_asset_id],
               name: 'index_ext_media_repoint_stages_on_projection'
+    # NOT VALID so the new table does not block writes on the parent tables.
+    # 20261103150100 validates these constraints. The table is empty here.
     add_foreign_key :external_media_repoint_stages, :external_media_assets,
-                    name: 'fk_ext_media_repoint_stages_asset', on_delete: :cascade
+                    name: 'fk_ext_media_repoint_stages_asset', on_delete: :cascade, validate: false
     add_foreign_key :external_media_repoint_stages, :external_status_projections,
-                    name: 'fk_ext_media_repoint_stages_projection', on_delete: :cascade
+                    name: 'fk_ext_media_repoint_stages_projection', on_delete: :cascade, validate: false
   end
 end
