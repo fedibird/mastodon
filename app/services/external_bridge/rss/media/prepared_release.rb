@@ -10,31 +10,57 @@ module ExternalBridge
       # is unchanged, or when purge has nullified it and that status row is
       # gone. A failure keeps the stage, records a code, and moves
       # available_at forward. After the attempt budget it stays retained.
-      # Paperclip destroy removes the stored object. This class does not
-      # compute a storage path or remove a directory itself.
+      # A claim that dies is the same budget: once claimed_until has passed
+      # and attempt_count is already at the limit, the row becomes retained
+      # with failure_code claim_expired. Paperclip destroy removes the stored
+      # object. This class does not compute a storage path or remove a directory.
       class PreparedRelease
         def self.release!(stage_id, token: nil)
           new(stage_id, token).release!
         end
 
         def self.reclaim_expired!(projection_id:, asset_id:)
+          retain_exhausted!(MediaGc::BATCH, projection_id: projection_id, asset_id: asset_id)
           claim_due!(MediaGc::BATCH, projection_id: projection_id, asset_id: asset_id).each do |stage_id, token|
             release!(stage_id, token: token)
           end
         end
 
-        # Claims a bounded set of due stages, then releases those claims.
-        # more is true only when another due row was already waiting behind
+        # Retains claims whose lease died at the attempt budget, then claims
+        # a bounded set of due stages and releases those claims. more is true
+        # only when another exhausted or due row was already waiting behind
         # this batch. A row that fails is no longer due, so it cannot keep
         # the worker on a one-second loop.
         def self.sweep_expired!(limit:)
+          exhausted = retain_exhausted!(limit)
           waiting = due_ids(limit + 1)
           claim_due!(limit).each { |stage_id, token| release!(stage_id, token: token) }
-          { more: waiting.size > limit }
+          { more: waiting.size > limit || exhausted[:more] }
         end
 
         def self.expired?
-          due_ids(1).any?
+          counts = recovery_counts
+          counts[:due].positive? || counts[:exhausted].positive?
+        end
+
+        # Counts for the media GC scheduler. diagnose does not delete a file.
+        def self.recovery_counts
+          quoted = connection.quote(Time.current)
+          sql = <<~SQL.squish
+            SELECT
+              COUNT(*) FILTER (WHERE #{due_sql(quoted)}) AS due,
+              COUNT(*) FILTER (WHERE #{exhausted_sql(quoted)}) AS exhausted,
+              COUNT(*) FILTER (WHERE state = 'retained') AS retained,
+              COUNT(*) FILTER (WHERE state = 'retained' AND failure_code = 'claim_expired') AS claim_expired
+            FROM external_media_repoint_stages
+          SQL
+          row = connection.select_one(sql) || {}
+          {
+            due: row['due'].to_i,
+            exhausted: row['exhausted'].to_i,
+            retained: row['retained'].to_i,
+            claim_expired: row['claim_expired'].to_i,
+          }
         end
 
         # Saves the copied attachment and its stage in one transaction. A
@@ -114,18 +140,72 @@ module ExternalBridge
         end
         private_class_method :claim_due!
 
+        def self.retain_exhausted!(limit, projection_id: nil, asset_id: nil)
+          waiting = exhausted_ids(limit + 1, projection_id: projection_id, asset_id: asset_id)
+          retained = retain_ids!(waiting.first(limit))
+          if retained.any?
+            Rails.logger.info(
+              "[ExternalBridge::RSS] media prepare claim expired retained=#{retained.size} stage_ids=#{retained.join(',')}"
+            )
+          end
+          { count: retained.size, more: waiting.size > limit }
+        end
+        private_class_method :retain_exhausted!
+
+        def self.exhausted_ids(limit, projection_id: nil, asset_id: nil)
+          quoted = connection.quote(Time.current)
+          sql = <<~SQL.squish
+            SELECT id FROM external_media_repoint_stages
+            WHERE #{exhausted_sql(quoted, projection_id: projection_id, asset_id: asset_id)}
+            ORDER BY available_at, id
+            LIMIT #{limit.to_i}
+          SQL
+          connection.select_values(sql).map(&:to_i)
+        end
+        private_class_method :exhausted_ids
+
+        def self.retain_ids!(ids)
+          return [] if ids.empty?
+
+          quoted = connection.quote(Time.current)
+          sql = <<~SQL.squish
+            UPDATE external_media_repoint_stages
+            SET state = 'retained',
+                failure_code = 'claim_expired',
+                claim_token = NULL,
+                claimed_until = NULL,
+                updated_at = #{quoted}
+            WHERE id IN (#{ids.map(&:to_i).join(',')})
+              AND #{exhausted_sql(quoted)}
+            RETURNING id
+          SQL
+          ApplicationRecord.transaction do
+            connection.exec_query(sql).rows.map { |row| row[0].to_i }
+          end
+        end
+        private_class_method :retain_ids!
+
         def self.due_sql(quoted_now, projection_id: nil, asset_id: nil)
+          (["state = 'pending'", "attempt_count < #{MediaGc::MAX_ATTEMPTS.to_i}"] + scope_sql(quoted_now, projection_id: projection_id, asset_id: asset_id)).join(' AND ')
+        end
+        private_class_method :due_sql
+
+        def self.exhausted_sql(quoted_now, projection_id: nil, asset_id: nil)
+          (["state = 'pending'", "attempt_count >= #{MediaGc::MAX_ATTEMPTS.to_i}"] + scope_sql(quoted_now, projection_id: projection_id, asset_id: asset_id)).join(' AND ')
+        end
+        private_class_method :exhausted_sql
+
+        def self.scope_sql(quoted_now, projection_id:, asset_id:)
           filters = [
-            "state = 'pending'",
             "lease_until <= #{quoted_now}",
             "available_at <= #{quoted_now}",
             "(claimed_until IS NULL OR claimed_until <= #{quoted_now})",
           ]
           filters << "external_status_projection_id = #{projection_id.to_i}" if projection_id
           filters << "external_media_asset_id = #{asset_id.to_i}" if asset_id
-          filters.join(' AND ')
+          filters
         end
-        private_class_method :due_sql
+        private_class_method :scope_sql
 
         def self.connection
           ExternalMediaRepointStage.connection

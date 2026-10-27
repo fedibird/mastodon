@@ -79,13 +79,20 @@ starts that pass when any such stage exists. A subscriber list that never
 calls repoint again still loses the prepared file after the lease. A
 compose upload has no stage, so the sweep does not see it.
 
-The sweep claims at most one batch. A row that cannot be deleted keeps its
-stage, stores `failure_code`, and moves `available_at` forward by the same
-backoff as media GC. After `MediaGc::MAX_ATTEMPTS` the state is `retained`:
-the proof stays, and the row leaves the sweep. `more` is set only when
-another due row was already behind this batch, so a full batch of failures
-does not requeue the worker every second. A claim that dies mid-release
-hides the row until `claimed_until`, then the next pass can take it.
+The sweep claims at most one batch, and only while `attempt_count` is below
+`MediaGc::MAX_ATTEMPTS`. A row that cannot be deleted keeps its stage,
+stores `failure_code`, and moves `available_at` forward by the same backoff
+as media GC. After the attempt budget the state is `retained`: the proof
+stays, and the row leaves the sweep. `more` is set only when another due or
+exhausted row was already behind this batch, so a full batch of failures
+does not requeue the worker every second. A claim that dies before
+`postpone!` still counts. The row stays hidden until `claimed_until`. The
+next pass may claim it again while the count is under the budget. When the
+lease has expired and the count is already at the budget, the sweep sets
+`failure_code=claim_expired` and `state=retained`. It does not claim that
+row again, and it does not leave the row pending. The file stays. The media
+GC scheduler logs `stages_due`, `stages_exhausted`, `stages_retained`, and
+`stages_claim_expired` on each pass.
 
 A kill after that transaction commits leaves the stage for the sweep. A
 kill inside the transaction leaves no attachment row and no stage.

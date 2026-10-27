@@ -554,6 +554,56 @@ RSpec.describe 'External RSS image revalidation' do
     expect(File.exist?(path)).to be true
   end
 
+  it 'retains a stage after eight claim leases expire without a release' do
+    marker = ExternalStatusProjection.find_by!(user_id: user.id)
+    previous = marker.external_projection_attachments.first.media_attachment
+    prepared = attachment_on(previous, jpeg, 'Story')
+    stage = stage_for(prepared, asset: ExternalMediaAsset.find_by!(kind: 'image'), projection: marker, lease_until: 1.minute.ago)
+    path = prepared.file.path
+    allow(ExternalBridge::RSS::Media::PreparedRelease).to receive(:release!)
+
+    ExternalBridge::MediaGc::MAX_ATTEMPTS.times do |index|
+      ExternalBridge::RSS::Media::PreparedRelease.sweep_expired!(limit: ExternalBridge::MediaGc::BATCH)
+      stage.reload
+      expect(stage.state).to eq 'pending'
+      expect(stage.attempt_count).to eq(index + 1)
+      expect(stage.failure_code).to be_nil
+      expect(stage.claim_token).to be_present
+      if index == ExternalBridge::MediaGc::MAX_ATTEMPTS - 1
+        ExternalBridge::RSS::Media::PreparedRelease.sweep_expired!(limit: ExternalBridge::MediaGc::BATCH)
+        expect(stage.reload.state).to eq 'pending'
+        expect(stage.attempt_count).to eq ExternalBridge::MediaGc::MAX_ATTEMPTS
+      end
+      stage.update_columns(claimed_until: 1.minute.ago)
+    end
+
+    allow(Rails.logger).to receive(:info)
+    Sidekiq::Testing.fake! do
+      ExternalBridge::RSS::MediaGcWorker.clear
+      Scheduler::ExternalBridgeRSSMediaGcScheduler.new.perform
+      expect(ExternalBridge::RSS::MediaGcWorker.jobs.size).to eq 1
+    end
+    expect(Rails.logger).to have_received(:info).with(a_string_matching(/stages_exhausted=1/))
+
+    ExternalBridge::RSS::MediaGcWorker.new.perform
+    expect(Rails.logger).to have_received(:info).with(a_string_matching(/media prepare claim expired retained=1/))
+
+    expect(stage.reload.state).to eq 'retained'
+    expect(stage.failure_code).to eq 'claim_expired'
+    expect(stage.attempt_count).to eq ExternalBridge::MediaGc::MAX_ATTEMPTS
+    expect(stage.claim_token).to be_nil
+    expect(MediaAttachment.find_by(id: prepared.id)).to be_present
+    expect(File.exist?(path)).to be true
+
+    Sidekiq::Testing.fake! do
+      ExternalBridge::RSS::MediaGcWorker.clear
+      ExternalBridge::RSS::MediaGcWorker.new.perform
+      expect(ExternalBridge::RSS::MediaGcWorker.jobs.size).to eq 0
+    end
+    expect(stage.reload.state).to eq 'retained'
+    expect(MediaAttachment.find_by(id: prepared.id)).to be_present
+  end
+
   it 'does not let unlinked assets fill the scheduler batch' do
     asset = age_asset!
     now = Time.current

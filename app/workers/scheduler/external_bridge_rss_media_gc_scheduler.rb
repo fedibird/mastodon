@@ -14,16 +14,19 @@ class Scheduler::ExternalBridgeRSSMediaGcScheduler
     report = ExternalBridge::MediaGc.diagnose(sample: 0)
     pruned = ExternalBridge::MediaGc.prune_resolved!
     due = report[:due].to_i + report[:rechecks_due].to_i
-    stages_due = ExternalBridge::RSS::Media::PreparedRelease.expired?
+    stages = ExternalBridge::RSS::Media::PreparedRelease.recovery_counts
+    stages_waiting = stages[:due] + stages[:exhausted]
     kicked = false
-    if due.positive? || stages_due
+    if due.positive? || stages_waiting.positive?
       ExternalBridge::RSS::MediaGcWorker.perform_async
       kicked = true
     end
     Rails.logger.info(
       "[Scheduler::ExternalBridgeRSSMediaGcScheduler] pending=#{report[:pending]} due=#{report[:due]} " \
-      "rechecks_due=#{report[:rechecks_due]} stages_due=#{stages_due} failed=#{report[:failed]} " \
-      "retained=#{report[:retained]} released=#{report[:released]} pruned=#{pruned} kicked=#{kicked}"
+      "rechecks_due=#{report[:rechecks_due]} stages_due=#{stages[:due]} stages_exhausted=#{stages[:exhausted]} " \
+      "stages_retained=#{stages[:retained]} stages_claim_expired=#{stages[:claim_expired]} " \
+      "failed=#{report[:failed]} retained=#{report[:retained]} released=#{report[:released]} " \
+      "pruned=#{pruned} kicked=#{kicked}"
     )
     due
   end
