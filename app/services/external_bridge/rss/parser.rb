@@ -63,13 +63,14 @@ module ExternalBridge
         channel, nodes, image_url = RdfDocument.extract(document)
         raise Error, :malformed_feed if channel.nil?
 
+        items = nodes.first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
         Feed.new(
           protocol: 'rss',
           title: Sanitizer.title(text_at(channel, 'title')),
           site_url: safe_url(text_at(channel, 'link')),
-          items: nodes.first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) },
+          items: items,
           icon_hints: icon_hints([['rss_image', image_url]]),
-          activitypub_hint: activitypub_hint(channel, nodes.first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) })
+          activitypub_hint: activitypub_hint(channel, items)
         )
       end
 
@@ -135,7 +136,7 @@ module ExternalBridge
       # Typed alternate links are only hints; the probe must verify the JSON.
       def explicit_activitypub_url(node)
         node.xpath('link[@href]').each do |link|
-          next unless link['rel'].to_s.split.include?('alternate')
+          next unless link['rel'].blank? || link['rel'].to_s.split.any? { |rel| %w(alternate self).include?(rel) }
           next unless %w(application/activity+json application/ld+json).include?(link['type'].to_s.split(';').first.to_s.strip.downcase)
 
           url = safe_url(link['href'], item: true)
