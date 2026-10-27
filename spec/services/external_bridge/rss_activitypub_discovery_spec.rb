@@ -23,6 +23,19 @@ RSpec.describe 'RSS ActivityPub discovery' do
     end.to_return(status: 200, body: data.to_json, headers: { 'Content-Type' => 'application/activity+json' })
   end
 
+  def public_nodeinfo(origin = 'https://feeds.example', protocols: ['activitypub'])
+    stub_request(:get, "#{origin}/.well-known/nodeinfo").to_return(
+      status: 200,
+      body: { links: [{ rel: 'http://nodeinfo.diaspora.software/ns/schema/2.1', href: "#{origin}/nodeinfo/2.1" }] }.to_json,
+      headers: { 'Content-Type' => 'application/json' }
+    )
+    stub_request(:get, "#{origin}/nodeinfo/2.1").to_return(
+      status: 200,
+      body: { version: '2.1', software: { name: 'mastodon', version: '4.2.0' }, protocols: protocols }.to_json,
+      headers: { 'Content-Type' => 'application/json' }
+    )
+  end
+
   describe ExternalBridge::RSS::Parser do
     it 'recognizes an Atom generator and prefers an explicit AP alternate to the HTML link' do
       xml = <<~XML
@@ -124,6 +137,7 @@ RSpec.describe 'RSS ActivityPub discovery' do
                                         canonical_key: "feed:#{feed_url}\nitem:123",
                                         canonical_url: url, activitypub_candidate_url: url)
       public_object
+      public_nodeinfo
 
       described_class.new.call(source.id)
 
@@ -132,10 +146,36 @@ RSpec.describe 'RSS ActivityPub discovery' do
       expect(resource.activitypub_checked_at).to be_present
       expect(resource.activitypub_next_check_at).to be > Time.current
       expect(source.reload.activitypub_state).to eq 'verified'
+      expect(source.activitypub_instance_state).to eq 'verified'
+      expect(source.activitypub_software).to eq 'mastodon'
       expect(ExternalStatusProjection.count).to eq 0
 
       described_class.new.call(source.id)
       expect(a_request(:get, url)).to have_been_made.once
+    end
+
+    it 'does not conclude an RSS aggregator is an AP server merely because its items are' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: feed_url)
+      ExternalSubscription.create!(user: user, external_source: source)
+      resource = ExternalResource.create!(external_source: source, protocol: 'rss',
+                                        canonical_key: 'foreign-entry', activitypub_candidate_url: url)
+      stub_request(:get, "https://feeds.example/.well-known/nodeinfo").to_return(status: 404)
+      public_object
+
+      described_class.new.call(source.id)
+
+      expect(resource.reload.activitypub_state).to eq 'verified'
+      expect(source.reload.activitypub_instance_state).to eq 'unavailable'
+      expect(source.activitypub_state).to eq 'items_verified'
+    end
+
+    it 'distinguishes NodeInfo present but not advertising ActivityPub' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: feed_url)
+      ExternalSubscription.create!(user: user, external_source: source)
+      public_nodeinfo('https://feeds.example', protocols: ['diaspora'])
+      described_class.new.call(source.id)
+      expect(source.reload.activitypub_instance_state).to eq 'not_advertised'
+      expect(source.activitypub_state).to eq 'unknown'
     end
 
     it 'leaves sources and resources alone when opt-in probing is disabled' do
