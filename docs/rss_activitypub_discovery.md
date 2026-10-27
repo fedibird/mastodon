@@ -9,11 +9,15 @@ Nothing is imported, dereferenced recursively, signed, or republished.
 
 The two public cache tables expose:
 
-- **external_sources**: activitypub_hint (weak feed marker) and
-  activitypub_state (unknown / hinted / verified). A verified feed has at least
-  one public item currently verified; it is NOT a claim that all entries have
-  ActivityPub objects. Feed hints are based on known generator names or
-  correctly typed alternate links and cannot establish verification.
+- **external_sources**: activitypub_hint (weak generator/typed-link marker),
+  activitypub_instance_state (unknown / verified / not_advertised /
+  unavailable / inaccessible / error), activitypub_software (if advertised),
+  activitypub_instance_checked_at, activitypub_instance_next_check_at, and
+  activitypub_state (unknown / hinted / items_verified / verified).
+  **Verified** is reserved for NodeInfo declaring the ActivityPub protocol on
+  the host serving the feed. **Items_verified** only means that some linked
+  items could be fetched as AP objects; it does not assert anything about the
+  feed host, which may be a third-party RSS aggregator.
 - **external_resources**: activitypub_candidate_url, activitypub_state
   (unknown / verified / unavailable / inaccessible / error), object_id,
   object_type, checked_at and next_check_at. Only verified entries have an
@@ -33,11 +37,18 @@ Additional HTTP requests are **off by default**:
 
 The normal RSS bridge master switch and its tester allowlist must also permit
 the source. The separate Sidekiq pull worker checks again at execution time.
-Up to two public item URLs are probed per source invocation. A claimed item is
+NodeInfo discovery performs at most two public GETs (the well-known endpoint
+and a same-origin 2.1/2.0 schema link) per due source, independent of item
+probing. Up to two public item URLs are probed per source invocation. A claimed item is
 leased for 30 minutes, successful/unavailable entries for seven days, and
 inaccessible/error entries for one day. Normal feed refresh or subscribe
 schedules subsequent work; there is no unbounded traversal of a feed or
 user-visible polling loop.
+
+The source probe only follows same-origin schema declarations; cross-host
+NodeInfo links do not establish a feed host's identity. NodeInfo is
+self-reported and can be absent or incomplete. Its failure never cancels
+individual item checks.
 
 The fetch uses the existing public Request implementation, with redirect/DNS
 private-address checks, a credential/query fail-closed URL validator, a
@@ -57,7 +68,7 @@ use of the detected metadata are later work.
 
 Useful Rails console inspection:
 
-    ExternalSource.find(id).slice('activitypub_hint', 'activitypub_state')
+    ExternalSource.find(id).slice('activitypub_hint', 'activitypub_state', 'activitypub_instance_state', 'activitypub_software')
     ExternalResource.find(id).slice('activitypub_state', 'activitypub_candidate_url', 'activitypub_object_id', 'activitypub_object_type', 'activitypub_checked_at')
 
 No migration backfill/probe is initiated automatically. A source with a normal

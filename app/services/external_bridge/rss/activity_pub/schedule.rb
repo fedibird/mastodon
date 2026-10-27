@@ -19,8 +19,13 @@ module ExternalBridge
                 .where('activitypub_next_check_at IS NULL OR activitypub_next_check_at <= ?', Time.current).exists?
         end
 
+        def instance_due?(source)
+          source.activitypub_instance_next_check_at.nil? || source.activitypub_instance_next_check_at <= Time.current
+        end
+
         def enqueue_if_due(source)
-          return false if source.nil? || !enabled? || !permitted_source?(source) || !due?(source)
+          return false if source.nil? || !enabled? || !permitted_source?(source)
+          return false unless instance_due?(source) || due?(source)
 
           SourceProbeWorker.perform_async(source.id).present?
         rescue StandardError => e
@@ -28,11 +33,19 @@ module ExternalBridge
           false
         end
 
-        # Feed-level evidence is deliberately conservative: one verified item
-        # confirms at least one AP-retrievable object, not universal AP support.
+        # NodeInfo advertises support by the feed HOST. Verified remote item
+        # URLs alone do not establish that the RSS feed itself is AP-capable.
         def recompute_source!(source)
-          verified = source.external_resources.where(activitypub_state: 'verified', source_deleted_at: nil).exists?
-          state = verified ? 'verified' : (source.activitypub_hint? ? 'hinted' : 'unknown')
+          item_verified = source.external_resources.where(activitypub_state: 'verified', source_deleted_at: nil).exists?
+          state = if source.activitypub_instance_state == 'verified'
+                    'verified'
+                  elsif item_verified
+                    'items_verified'
+                  elsif source.activitypub_hint?
+                    'hinted'
+                  else
+                    'unknown'
+                  end
           source.update_columns(activitypub_state: state) if source.activitypub_state != state
         end
       end

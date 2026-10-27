@@ -19,11 +19,32 @@ module ExternalBridge
           source = ExternalSource.find_by(id: source_id)
           return if source.nil? || !Schedule.permitted_source?(source)
 
+          probe_instance(source)
           due_resources(source).each { |id| probe_one(id) }
-          Schedule.recompute_source!(source)
+          Schedule.recompute_source!(source.reload)
         end
 
         private
+
+        def probe_instance(source)
+          now = Time.current
+          claimed = ExternalSource.where(id: source.id)
+                                  .where('activitypub_instance_next_check_at IS NULL OR activitypub_instance_next_check_at <= ?', now)
+                                  .update_all(activitypub_instance_next_check_at: now + LEASE)
+          return if claimed.zero?
+
+          result = NodeInfoProbe.new.call(source.canonical_key)
+          checked = Time.current
+          delay = %w(error inaccessible).include?(result.state) ? RETRY_ERROR : RETRY_VERIFIED
+          ExternalSource.where(id: source.id).update_all(
+            activitypub_instance_state: result.state,
+            activitypub_software: result.software,
+            activitypub_instance_checked_at: checked,
+            activitypub_instance_next_check_at: checked + delay
+          )
+        rescue StandardError => e
+          Rails.logger.info("[ExternalBridge::RSS] NodeInfo probe failed source=#{source.id} code=#{e.class}")
+        end
 
         def due_resources(source)
           source.external_resources
