@@ -178,6 +178,32 @@ RSpec.describe 'RSS ActivityPub discovery' do
       expect(source.activitypub_state).to eq 'unknown'
     end
 
+    it 'forgets a verified object when the same GUID starts pointing to a different URL' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: feed_url)
+      response = ExternalBridge::RSS::Response.new(code: 200)
+      feed = lambda do |link|
+        ExternalBridge::RSS::Parser.parse!(<<~XML)
+          <rss><channel><title>Example</title>
+            <item><guid>stable-guid</guid><title>Post</title><link>#{link}</link></item>
+          </channel></rss>
+        XML
+      end
+      ingest = ExternalBridge::RSS::Ingest.new
+      ingest.apply_public!(source, feed.call(url), response)
+      resource = source.external_resources.sole
+      resource.update!(activitypub_state: 'verified', activitypub_object_id: object['id'],
+                       activitypub_object_type: 'Note', activitypub_checked_at: Time.current,
+                       activitypub_next_check_at: 7.days.from_now)
+
+      ingest.apply_public!(source, feed.call('https://posts.example/@alice/124'), response)
+
+      expect(resource.reload.activitypub_candidate_url).to eq 'https://posts.example/@alice/124'
+      expect(resource.activitypub_state).to eq 'unknown'
+      expect(resource.activitypub_object_id).to be_nil
+      expect(resource.activitypub_next_check_at).to be_nil
+      expect(source.reload.activitypub_state).to eq 'unknown'
+    end
+
     it 'leaves sources and resources alone when opt-in probing is disabled' do
       source = ExternalSource.create!(protocol: 'rss', canonical_key: feed_url)
       ExternalSubscription.create!(user: user, external_source: source)
