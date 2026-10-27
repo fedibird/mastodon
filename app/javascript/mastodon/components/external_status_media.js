@@ -4,7 +4,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { List as ImmutableList, fromJS } from 'immutable';
 import { FormattedMessage } from 'react-intl';
 import MediaGallery from 'mastodon/components/media_gallery';
-import ExternalRemoteMedia from 'mastodon/components/external_remote_media';
+import ExternalRemoteMedia, { remoteMediaItems } from 'mastodon/components/external_remote_media';
 import ExternalEmbedPlayer from 'mastodon/components/external_embed_player';
 import Video from 'mastodon/features/video';
 import Audio from 'mastodon/features/audio';
@@ -250,7 +250,17 @@ export default class ExternalStatusMedia extends React.PureComponent {
     const blocks = externalMediaBlocks(this.props.status);
     // No sequence: an older or partial payload can still carry media and
     // canonical_url. The article link uses the same fallback as the sequence path.
+    // Sensitive or hidden media stays behind the same overlay, so the remote
+    // URL is not written into the document until the owner reveals it.
     if (!blocks) {
+      // No sequence only means the payload is old or partial. An article with
+      // no playable file must not grow a "media hidden" control.
+      if (remoteMediaItems(this.props.status).length === 0) {
+        return null;
+      }
+      if (this.concealed()) {
+        return this.renderConcealed('legacy-remote');
+      }
       return <ExternalRemoteMedia status={this.props.status} articleUrl={this.articleUrl()} />;
     }
     if (blocks.length === 0) {

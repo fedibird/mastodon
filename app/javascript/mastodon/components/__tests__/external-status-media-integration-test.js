@@ -96,7 +96,7 @@ jest.mock('react-router-dom', () => ({
   Link: ({ children }) => <a href='https://example.test/'>{children}</a>,
 }));
 
-import Status from '../status';
+import Status, { nextShownMediaState } from '../status';
 import DetailedStatus from '../../features/status/components/detailed_status';
 
 const store = createStore(() => fromJS({
@@ -329,6 +329,100 @@ describe('external status media with the real gallery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand video' }));
     expect(hidden.handlers.onOpenVideo.mock.calls[0][0].get('id')).toBe('vid');
     expect(hidden.handlers.onOpenVideo.mock.calls[0][3]).toBe('story');
+  });
+
+  it('switches the warning and remote video when the same status is updated', () => {
+    const view = renderTimeline(baseStatus());
+
+    expect(screen.getByRole('button', { name: 'External video' })).toBeTruthy();
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+
+    const handlers = view.handlers;
+    const draw = (extra) => {
+      view.rerender(
+        <Provider store={store}>
+          <Status status={baseStatus(extra)} pictureInPicture={pictureInPicture} {...handlers} />
+        </Provider>,
+      );
+    };
+
+    draw({ hidden: true, spoiler_text: '旅行記', spoilerHtml: '旅行記' });
+    expect(view.container.textContent).toContain('旅行記');
+    expect(view.container.querySelector('.external-remote-media')).toBeNull();
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+
+    draw({ hidden: false, sensitive: true, spoiler_text: '旅行記', spoilerHtml: '旅行記' });
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+    expect(screen.getAllByText('Sensitive content').length).toBeGreaterThan(0);
+
+    draw({});
+    expect(screen.getByRole('button', { name: 'External video' })).toBeTruthy();
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+  });
+
+  it('hides a boosted status when that status becomes sensitive', () => {
+    const boosted = baseStatus({ id: 'inner', sensitive: false });
+    const wrapper = boosted.merge({
+      id: 'boost',
+      reblog: boosted,
+      fedibird_external: null,
+    });
+    const view = renderTimeline(wrapper);
+    expect(screen.getByRole('button', { name: 'External video' })).toBeTruthy();
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+
+    view.rerender(
+      <Provider store={store}>
+        <Status
+          status={wrapper.set('reblog', boosted.set('sensitive', true))}
+          pictureInPicture={pictureInPicture}
+          {...view.handlers}
+        />
+      </Provider>,
+    );
+
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+    expect(screen.getAllByText('Sensitive content').length).toBeGreaterThan(0);
+  });
+
+  it('hides quoted media on the detail column when only the quote becomes sensitive', () => {
+    const quote = baseStatus({
+      id: 'quoted',
+      sensitive: false,
+      hidden: false,
+      spoiler_text: '',
+      fedibird_external: null,
+      media_attachments: [video],
+    });
+    const detail = baseStatus({ quote, fedibird_external: null, media_attachments: [] });
+    const prev = {
+      loadedStatusId: 'story',
+      showMedia: true,
+      showQuoteMedia: true,
+      sensitive: false,
+      quoteSensitive: false,
+    };
+    const opened = renderDetailed(detail, { showQuoteMedia: true });
+    expect(opened.container.querySelector('video')).not.toBeNull();
+
+    const next = nextShownMediaState(prev, detail.set('quote', quote.set('sensitive', true)), 'loadedStatusId');
+    expect(next.showQuoteMedia).toBe(false);
+    expect(next.showMedia).toBeUndefined();
+
+    opened.rerender(
+      <Provider store={store}>
+        <DetailedStatus
+          {...opened.handlers}
+          status={detail.set('quote', quote.set('sensitive', true))}
+          pictureInPicture={pictureInPicture}
+          domain='example.test'
+          showMedia
+          showQuoteMedia={next.showQuoteMedia}
+        />
+      </Provider>,
+    );
+    expect(opened.container.querySelector('video')).toBeNull();
+    expect(opened.container.innerHTML).not.toContain('https://cb.example/system/clip.webm');
   });
 
   it('hides the detailed status media while its content warning is collapsed', () => {

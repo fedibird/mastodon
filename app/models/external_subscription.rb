@@ -4,19 +4,26 @@
 #
 # Table name: external_subscriptions
 #
-#  id                   :bigint(8)        not null, primary key
-#  user_id              :bigint(8)        not null
-#  external_source_id   :bigint(8)        not null
-#  state                :string           default("active"), not null
-#  last_error_code      :string
-#  last_error_at        :datetime
-#  checked_at           :datetime
-#  created_at           :datetime         not null
-#  updated_at           :datetime         not null
-#  next_retry_at        :datetime
-#  retry_count          :integer          default(0), not null
-#  failed_item_count    :integer          default(0), not null
-#  feed_routes_revision :bigint(8)        default(0), not null
+#  id                            :bigint(8)        not null, primary key
+#  user_id                       :bigint(8)        not null
+#  external_source_id            :bigint(8)        not null
+#  state                         :string           default("active"), not null
+#  last_error_code               :string
+#  last_error_at                 :datetime
+#  checked_at                    :datetime
+#  created_at                    :datetime         not null
+#  updated_at                    :datetime         not null
+#  next_retry_at                 :datetime
+#  retry_count                   :integer          default(0), not null
+#  failed_item_count             :integer          default(0), not null
+#  feed_routes_revision          :bigint(8)        default(0), not null
+#  media_sensitive               :boolean          default(FALSE), not null
+#  cw_enabled                    :boolean          default(FALSE), not null
+#  presentation_revision         :bigint(8)        default(0), not null
+#  presentation_applied_revision :bigint(8)        default(0), not null
+#  presentation_error            :string
+#  presentation_lease_until      :datetime
+#  presentation_lease_token      :string
 #
 # `deleting` is the unsubscribe fence (issue #575). The row is kept until the
 # background job has physically removed every projection. Nothing may move it
@@ -27,6 +34,11 @@
 # empty, when checked_at is empty or older than the public-cache freshness
 # window. Another subscriber of the same source does not make this row due.
 # feed_routes_revision moves only when the route set changes.
+#
+# media_sensitive and cw_enabled are this subscriber's display choices.
+# presentation_revision moves when those choices change. The background
+# rewrite records how far it got in presentation_applied_revision. The
+# shared source and resource rows do not store either choice.
 class ExternalSubscription < ApplicationRecord
   STATES = %w(active paused error deleting).freeze
   DELETING = 'deleting'
@@ -47,6 +59,24 @@ class ExternalSubscription < ApplicationRecord
 
   def deleting?
     state == DELETING
+  end
+
+  # `applying` while a background pass still owes this generation.
+  # `failed` when that pass gave up and has not been saved again.
+  # `settled` once every imported status matches the saved choices.
+  def presentation_state
+    return 'failed' if presentation_failed?
+    return 'applying' if presentation_applying?
+
+    'settled'
+  end
+
+  def presentation_applying?
+    presentation_error.blank? && presentation_revision.to_i > presentation_applied_revision.to_i
+  end
+
+  def presentation_failed?
+    presentation_error.present? && presentation_revision.to_i > presentation_applied_revision.to_i
   end
 
   # A conditional UPDATE, so a model that was read before the fence cannot

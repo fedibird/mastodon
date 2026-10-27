@@ -126,6 +126,73 @@ describe('ExternalStatusMedia', () => {
     expect(screen.getByRole('link', { name: 'Open article' }).getAttribute('href')).toBe('https://example.com/legacy-story');
   });
 
+  it('keeps saved audio and a remote file out of the document while sensitive content is hidden', () => {
+    const { container } = render(
+      <ExternalStatusMedia
+        sensitive
+        visible={false}
+        status={status({
+          attachments: [
+            { id: 'talk', type: 'audio', url: 'https://cb.example/system/talk.mp3', preview_url: 'https://cb.example/system/poster.jpg' },
+          ],
+          sequence: [
+            { type: 'audio', delivery: 'local', attachment_id: 'talk', position: 0 },
+            { id: 'remote-clip', type: 'video', delivery: 'remote', url: 'https://cdn.example/clip.mp4', position: 1 },
+          ],
+        })}
+      />,
+    );
+
+    expect(container.querySelector('audio')).toBeNull();
+    expect(container.querySelector('video')).toBeNull();
+    expect(container.innerHTML).not.toContain('cb.example');
+    expect(container.innerHTML).not.toContain('cdn.example');
+    expect(screen.getAllByRole('button').length).toBeGreaterThan(0);
+  });
+
+  it('does not offer a media control for a text-only external status', () => {
+    const plain = fromJS({
+      id: '1',
+      media_attachments: [],
+      sensitive: true,
+      fedibird_external: { canonical_url: 'https://example.com/story' },
+    });
+
+    const sensitive = render(<ExternalStatusMedia sensitive visible={false} status={plain} />);
+    expect(sensitive.container.querySelector('button')).toBeNull();
+    expect(sensitive.container.textContent).not.toContain('Media hidden');
+    expect(sensitive.container.textContent).not.toContain('Sensitive content');
+
+    const hidden = render(<ExternalStatusMedia visible={false} status={plain} />);
+    expect(hidden.container.querySelector('button')).toBeNull();
+  });
+
+  it('does not write a legacy remote URL while sensitive content is hidden', () => {
+    const { container } = render(
+      <ExternalStatusMedia
+        sensitive
+        visible={false}
+        status={fromJS({
+          id: '1',
+          media_attachments: [],
+          fedibird_external: {
+            canonical_url: 'https://example.com/story',
+            media: [
+              { id: 'talk', type: 'audio', url: 'https://cdn.example/talk.mp3' },
+            ],
+          },
+        })}
+      />,
+    );
+
+    expect(container.querySelector('audio')).toBeNull();
+    expect(container.innerHTML).not.toContain('cdn.example');
+    expect(container.innerHTML).not.toContain('example.com/story');
+
+    fireEvent.click(screen.getByRole('button'));
+    expect(container.innerHTML).not.toContain('cdn.example');
+  });
+
   it('drops an unsafe article URL on a payload that has media and no sequence', () => {
     const { container } = render(
       <ExternalStatusMedia status={fromJS({

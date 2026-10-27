@@ -149,6 +149,21 @@ module ExternalServices
       def route_form=(value)
         @route_form = value
       end
+
+      def media_sensitive?
+        @subscription.media_sensitive
+      end
+
+      def cw_enabled?
+        @subscription.cw_enabled
+      end
+
+      def presentation_message
+        return I18n.t('external_bridge.presentation.failed') if @subscription.presentation_failed?
+        return I18n.t('external_bridge.presentation.applying') if @subscription.presentation_applying?
+
+        nil
+      end
     end
 
     # Owner-visible progress of one unsubscribe. Only counters, a fixed state

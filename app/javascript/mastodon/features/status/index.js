@@ -67,7 +67,7 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import { HotKeys } from 'react-hotkeys';
 import { boostModal, deleteModal, confirmDomainBlock, enableStatusReference } from '../../initial_state';
 import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from '../ui/util/fullscreen';
-import { textForScreenReader, defaultMediaVisibility } from '../../components/status';
+import { textForScreenReader, defaultMediaVisibility, nextShownMediaState } from '../../components/status';
 import Icon from 'mastodon/components/icon';
 import DetailedHeaderContaier from './containers/header_container';
 import { defaultColumnWidth, me, maxReactionsPerAccount } from 'mastodon/initial_state';
@@ -237,9 +237,9 @@ class Status extends ImmutablePureComponent {
       this.props.dispatch(fetchStatus(nextProps.params.statusId));
     }
 
-    if (nextProps.status && nextProps.status.get('id') !== this.state.loadedStatusId) {
-      this.setState({ showMedia: defaultMediaVisibility(nextProps.status), loadedStatusId: nextProps.status.get('id'),
-        showQuoteMedia: defaultMediaVisibility(nextProps.status.get('quote', null)) });
+    const nextMedia = nextShownMediaState(this.state, nextProps.status, 'loadedStatusId');
+    if (nextMedia) {
+      this.setState(nextMedia);
     }
   }
 

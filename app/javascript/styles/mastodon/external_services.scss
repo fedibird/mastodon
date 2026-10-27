@@ -524,6 +524,67 @@
   }
 }
 
+.external-service-presentation {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba($primary-text-color, 0.35);
+  min-width: 0;
+  max-width: 40rem;
+
+  fieldset {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  legend {
+    margin: 0 0 8px;
+    padding: 0;
+    color: $primary-text-color;
+    font-weight: 700;
+  }
+
+  .external-service-presentation__choice {
+    min-width: 0;
+  }
+
+  label {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    min-height: 44px;
+    color: $primary-text-color;
+  }
+
+  label span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  input[type='checkbox'] {
+    flex: 0 0 auto;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-top: 0.15rem;
+  }
+
+  .hint {
+    margin: 0 0 8px;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .actions .button {
+    min-height: 44px;
+  }
+}
+
 .external-service-actions {
   display: flex;
   flex-wrap: wrap;
@@ -605,7 +666,8 @@
     flex: 1 1 100%;
   }
 
-  .external-service-actions {
+  .external-service-actions,
+  .external-service-presentation .actions {
     flex-direction: column;
     align-items: stretch;
 
@@ -622,6 +684,7 @@
   .external-service-card,
   .external-service-feed,
   .external-service-identity,
+  .external-service-presentation,
   .feed-route-picker,
   .feed-route-picker__dialog,
   .external-service-card__badge {

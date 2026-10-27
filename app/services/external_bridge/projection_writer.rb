@@ -6,23 +6,29 @@ module ExternalBridge
   # The subscription row is held FOR SHARE for the whole write, so a
   # subscription that is being removed (`deleting`) cannot gain a projection.
   class ProjectionWriter
-    def create!(user:, subscription:, resource:, text:)
+    # text, sensitive, and spoiler_text default to the subscriber's current
+    # display choices, read under the deletion fence. Callers that pass an
+    # explicit text keep the previous fixed shape (no warning, not sensitive).
+    # rubocop:disable Metrics/ParameterLists
+    def create!(user:, subscription:, resource:, text: :generated, sensitive: :generated, spoiler_text: :generated)
       raise Error, :user_not_functional unless user&.functional?
       raise Error, :account_mismatch unless user.account_id.present? && subscription.user_id == user.id
       raise Error, :account_mismatch unless subscription.external_source_id == resource.external_source_id
 
       visibility = storage_visibility
       RSS::SubscriptionFence.guard!(subscription) do
+        fields = fields_for(subscription, resource, text, sensitive, spoiler_text)
         status = Status.create!(
           account_id: user.account_id,
-          text: text.presence || I18n.t('external_bridge.untitled'),
+          text: fields.text,
+          spoiler_text: fields.spoiler_text,
           visibility: visibility,
           searchability: :personal,
           uri: nil,
           external_projection: true,
           local: true,
           reply: false,
-          sensitive: false
+          sensitive: fields.sensitive
         )
         marker = ExternalStatusProjection.create!(
           user_id: user.id,
@@ -40,8 +46,24 @@ module ExternalBridge
         [status, marker]
       end
     end
+    # rubocop:enable Metrics/ParameterLists
 
     private
+
+    def fields_for(subscription, resource, text, sensitive, spoiler_text)
+      if text == :generated && sensitive == :generated && spoiler_text == :generated
+        policy = RSS::Presentation.snapshot(subscription.id)
+        raise RSS::SubscriptionFence::Fenced if policy.nil?
+
+        return RSS::Presentation.for(resource, **policy)
+      end
+
+      RSS::Presentation::Fields.new(
+        text: text.presence || I18n.t('external_bridge.untitled'),
+        spoiler_text: spoiler_text == :generated ? '' : spoiler_text.to_s,
+        sensitive: sensitive == true
+      )
+    end
 
     # The caller cannot choose visibility. The instance switch selects the
     # stored value. When it is on and this database cannot store external,

@@ -100,8 +100,7 @@ module ExternalBridge
                          ProjectionWriter.new.create!(
                            user: subscription.user,
                            subscription: subscription,
-                           resource: resource,
-                           text: status_text(resource)
+                           resource: resource
                          )
                          true
                        end
@@ -118,34 +117,67 @@ module ExternalBridge
         status = marker.status
         return if status.nil?
 
-        text = status_text(resource)
         deleted = resource.source_deleted_at.present?
-        text_changed = status.text != text
         deleted_changed = marker.source_deleted != deleted
         revision_changed = marker.last_seen_revision.to_s != resource.revision.to_s
         media_changed = media_revision_changed?(marker, resource)
         links_stale = Media::Sync.links_stale?(marker, resource)
-        return :skip unless text_changed || deleted_changed || revision_changed || media_changed || links_stale
+        # A quick read avoids the share lock when nothing moved. The write
+        # below reads the choices again under that lock, so a save that
+        # committed in between is the one stored. A save that commits after
+        # the lock is the reconcile job's to apply.
+        policy = Presentation.snapshot(marker.external_subscription_id)
+        raise SubscriptionFence::Fenced if policy.nil?
 
-        change = {
-          text: text,
-          deleted: deleted,
-          text_changed: text_changed,
-          deleted_changed: deleted_changed,
-          revision_changed: revision_changed,
-          media_changed: media_changed,
-          links_stale: links_stale,
-        }
+        desired = Presentation.for(resource, **policy)
+        presentation_changed = Presentation.changed?(status, desired)
+        marker_changed = deleted_changed || revision_changed || media_changed || links_stale
+        return :skip unless presentation_changed || marker_changed
+
+        outcome = :skip
         SubscriptionFence.guard!(marker.external_subscription_id) do
-          write_refresh!(marker, status, resource, change)
+          locked = Presentation.snapshot(marker.external_subscription_id)
+          raise SubscriptionFence::Fenced if locked.nil?
+
+          # The resource argument may be a snapshot from before this lock.
+          # Another import can commit a newer article while this refresh
+          # waits, so the row is read again after the projection lock.
+          ProjectionWrite.latest(marker.id) do |fresh_marker, fresh_status, fresh_resource|
+            fresh_desired = Presentation.for(fresh_resource, **locked)
+            fresh_deleted = fresh_resource.source_deleted_at.present?
+            fresh_deleted_changed = fresh_marker.source_deleted != fresh_deleted
+            fresh_revision_changed = fresh_marker.last_seen_revision.to_s != fresh_resource.revision.to_s
+            fresh_media_changed = media_revision_changed?(fresh_marker, fresh_resource)
+            fresh_links_stale = Media::Sync.links_stale?(fresh_marker, fresh_resource)
+            fresh_presentation_changed = Presentation.changed?(fresh_status, fresh_desired)
+            next unless fresh_presentation_changed || fresh_deleted_changed || fresh_revision_changed || fresh_media_changed || fresh_links_stale
+
+            write_refresh!(
+              fresh_marker,
+              fresh_status,
+              fresh_resource,
+              {
+                text: fresh_desired.text,
+                spoiler_text: fresh_desired.spoiler_text,
+                sensitive: fresh_desired.sensitive,
+                deleted: fresh_deleted,
+                presentation_changed: fresh_presentation_changed,
+                deleted_changed: fresh_deleted_changed,
+                revision_changed: fresh_revision_changed,
+                media_changed: fresh_media_changed,
+                links_stale: fresh_links_stale,
+              }
+            )
+            outcome = if fresh_media_changed
+                        :media
+                      elsif fresh_links_stale
+                        :links
+                      else
+                        :text
+                      end
+          end
         end
-        if media_changed
-          :media
-        elsif links_stale
-          :links
-        else
-          :text
-        end
+        outcome
       end
 
       def write_refresh!(marker, status, resource, change)
@@ -156,16 +188,23 @@ module ExternalBridge
             last_seen_media_revision: resource.media_revision
           )
         end
-        status.update!(text: change[:text]) if change[:text_changed]
+        if change[:presentation_changed]
+          status.update!(
+            text: change[:text],
+            spoiler_text: change[:spoiler_text],
+            sensitive: change[:sensitive]
+          )
+          Rails.cache.delete("statuses/#{status.id}")
+        end
         files_changed = change[:media_changed] || change[:links_stale]
         Media::Sync.attach_ready!(marker, resource) if files_changed
-        if files_changed && !change[:text_changed]
+        if files_changed && !change[:presentation_changed]
           status.update_columns(updated_at: Time.current)
           Rails.cache.delete("statuses/#{status.id}")
         end
         if change[:deleted_changed]
           schedule_membership_change!(marker, change[:deleted])
-        elsif change[:text_changed] || files_changed
+        elsif change[:presentation_changed] || files_changed
           Streaming::Scheduler.bump_and_schedule_content!(marker)
         end
       end
@@ -207,10 +246,6 @@ module ExternalBridge
         return nil if route.list_id.blank?
 
         { 'type' => 'list', 'id' => route.list_id.to_s }
-      end
-
-      def status_text(resource)
-        Excerpt.for(resource)
       end
 
       def record_failure(subscription, resource)

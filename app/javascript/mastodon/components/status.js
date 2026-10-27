@@ -140,16 +140,70 @@ export const textForScreenReader = (intl, status, rebloggedByText = false) => {
   return values.join(', ');
 };
 
+export const displayedStatus = (status) => {
+  if (!status || typeof status.get !== 'function') {
+    return status;
+  }
+
+  const reblog = status.get('reblog', null);
+  if (reblog && typeof reblog.get === 'function') {
+    return reblog;
+  }
+
+  return status;
+};
+
 export const defaultMediaVisibility = (status) => {
-  if (!status) {
+  const shown = displayedStatus(status);
+  if (!shown || typeof shown.get !== 'function') {
     return undefined;
   }
 
-  if (status.get('reblog', null) !== null && typeof status.get('reblog') === 'object') {
-    status = status.get('reblog');
+  return (displayMedia !== 'hide_all' && !shown.get('sensitive') || displayMedia === 'show_all');
+};
+
+const quoteOf = (status) => {
+  if (!status || typeof status.get !== 'function') {
+    return null;
   }
 
-  return (displayMedia !== 'hide_all' && !status.get('sensitive') || displayMedia === 'show_all');
+  const quote = status.get('quote', null);
+  return quote && typeof quote.get === 'function' ? quote : null;
+};
+
+// Shared by the timeline card and the detail column. An update that keeps
+// the status id still resets media when that status, or its quote, becomes
+// sensitive. idKey is statusId on the card and loadedStatusId on the detail.
+export const nextShownMediaState = (prevState, status, idKey = 'statusId') => {
+  const shown = displayedStatus(status);
+  if (!status || typeof status.get !== 'function' || !shown || typeof shown.get !== 'function') {
+    return null;
+  }
+
+  const quote = quoteOf(shown);
+  const sensitive = !!shown.get('sensitive');
+  const quoteSensitive = !!(quote && quote.get('sensitive'));
+  if (status.get('id') !== prevState[idKey]) {
+    return {
+      showMedia: defaultMediaVisibility(status),
+      showQuoteMedia: defaultMediaVisibility(quote),
+      [idKey]: status.get('id'),
+      sensitive,
+      quoteSensitive,
+      forceFilter: undefined,
+    };
+  }
+
+  const next = {};
+  if (sensitive !== !!prevState.sensitive) {
+    next.showMedia = defaultMediaVisibility(status);
+    next.sensitive = sensitive;
+  }
+  if (quoteSensitive !== !!prevState.quoteSensitive) {
+    next.showQuoteMedia = defaultMediaVisibility(quote);
+    next.quoteSensitive = quoteSensitive;
+  }
+  return Object.keys(next).length > 0 ? next : null;
 };
 
 export const isHideCard = (type) => {
@@ -276,16 +330,7 @@ class Status extends ImmutablePureComponent {
   };
 
   static getDerivedStateFromProps(nextProps, prevState) {
-    if (nextProps.status && nextProps.status.get('id') !== prevState.statusId) {
-      return {
-        showMedia: defaultMediaVisibility(nextProps.status),
-        showQuoteMedia: defaultMediaVisibility(nextProps.status.get('quote', null)),
-        statusId: nextProps.status.get('id'),
-        forceFilter: undefined,
-      };
-    } else {
-      return null;
-    }
+    return nextShownMediaState(prevState, nextProps.status, 'statusId');
   }
 
   componentDidMount () {

@@ -168,6 +168,7 @@ Rails.application.routes.draw do
     get 'external_services/rss/subscription_deletions/:id', to: 'external_services/rss_subscription_deletions#show', as: :external_services_rss_subscription_deletion
     post 'external_services/rss/subscription_deletions/:id/retry', to: 'external_services/rss_subscription_deletions#retry', as: :retry_external_services_rss_subscription_deletion
     patch 'external_services/rss/subscriptions/:id/feed_routes', to: 'external_services/rss_feed_routes#update', as: :external_services_rss_subscription_feed_routes
+    patch 'external_services/rss/subscriptions/:id/presentation', to: 'external_services/rss_subscriptions#update', as: :external_services_rss_subscription_presentation
     post 'external_services/feed_route_lists', to: 'external_services/feed_route_lists#create', as: :external_services_feed_route_lists
     get 'external_services/bluesky', to: 'external_services/bluesky#show', as: :external_services_bluesky
     post 'external_services/bluesky/authorize', to: 'external_services/bluesky_authorizations#create', as: :external_services_bluesky_authorize
@@ -706,7 +707,7 @@ Rails.application.routes.draw do
 
       namespace :external_bridge do
         namespace :rss do
-          resources :subscriptions, only: [:index, :create, :destroy] do
+          resources :subscriptions, only: [:index, :create, :update, :destroy] do
             member do
               post :pause
               post :resume
