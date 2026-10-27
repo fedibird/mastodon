@@ -435,6 +435,70 @@ RSpec.describe 'External RSS image revalidation' do
     expect(projection_image_type(waiting.external_status_projection, 'Story')).to eq :jpeg
   end
 
+  it 'does not keep a prepared attachment when the stage insert rolls back' do
+    asset = age_asset!
+    marker = ExternalStatusProjection.find_by!(user_id: user.id)
+    previous = marker.external_projection_attachments.first.media_attachment
+    twin = attachment_on(previous, jpeg, 'Story')
+    twin_path = twin.file.path
+    stub_request(:get, image_url).with(headers: conditional_headers).to_return(status: 200, body: jpeg, headers: image_headers('v3', 'image/jpeg'))
+    prepared = []
+    allow(MediaAttachment).to receive(:create!).and_wrap_original do |method, *args, **kwargs|
+      record = method.call(*args, **kwargs)
+      prepared << record.id
+      record
+    end
+    allow(ExternalMediaRepointStage).to receive(:create!).and_raise(ActiveRecord::ActiveRecordError)
+
+    expect { ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, asset.url_digest) }.to raise_error(ActiveRecord::ActiveRecordError)
+
+    expect(prepared.size).to eq 1
+    expect(MediaAttachment.find_by(id: prepared.first)).to be_nil
+    expect(ExternalMediaRepointStage.where(media_attachment_id: prepared.first)).to be_empty
+    expect(MediaAttachment.find_by(id: twin.id)).to be_present
+    expect(File.exist?(twin_path)).to be true
+    expect(marker.external_projection_attachments.pick(:external_media_asset_id)).to eq asset.id
+
+    ExternalBridge::MediaGc.drain!(respect_grace: false)
+    expect(MediaAttachment.find_by(id: twin.id)).to be_present
+    expect(File.exist?(twin_path)).to be true
+  end
+
+  it 'reclaims a prepared file after purge once the lease expires and leaves a compose upload' do
+    asset = age_asset!
+    marker = ExternalStatusProjection.find_by!(user_id: user.id)
+    previous = marker.external_projection_attachments.first.media_attachment
+    prepared = attachment_on(previous, jpeg, 'Story')
+    compose = compose_on(previous.account, jpeg)
+    stage = stage_for(prepared, asset: asset, projection: marker, lease_until: 10.minutes.from_now)
+    prepared_path = prepared.file.path
+    compose_path = compose.file.path
+
+    ExternalBridge::ProjectionPurge.purge_status!(Status.find(marker.status_id))
+    ExternalMediaAssetResource.where(external_media_asset_id: asset.id).delete_all
+    asset.destroy!
+
+    expect(stage.reload.external_status_projection_id).to be_nil
+    expect(stage.external_media_asset_id).to be_nil
+    expect(prepared.reload.status_id).to be_nil
+    expect(File.exist?(prepared_path)).to be true
+    expect(compose.reload).to be_persisted
+    expect(File.exist?(compose_path)).to be true
+
+    ExternalBridge::MediaGc.drain!(respect_grace: false)
+    expect(MediaAttachment.find_by(id: prepared.id)).to be_present
+    expect(File.exist?(prepared_path)).to be true
+
+    stage.update_columns(lease_until: 1.minute.ago)
+    Scheduler::ExternalBridgeRSSMediaGcScheduler.new.perform
+
+    expect(MediaAttachment.find_by(id: prepared.id)).to be_nil
+    expect(File.exist?(prepared_path)).to be false
+    expect(ExternalMediaRepointStage.where(id: stage.id)).to be_empty
+    expect(MediaAttachment.find_by(id: compose.id)).to be_present
+    expect(File.exist?(compose_path)).to be true
+  end
+
   it 'does not let unlinked assets fill the scheduler batch' do
     asset = age_asset!
     now = Time.current
@@ -578,6 +642,15 @@ RSpec.describe 'External RSS image revalidation' do
       status_id: attachment.status_id,
       lease_until: lease_until
     )
+  end
+
+  def compose_on(account, body)
+    Tempfile.create(['rss-compose', '.jpg']) do |file|
+      file.binmode
+      file.write(body)
+      file.rewind
+      MediaAttachment.create!(account: account, file: file, description: 'Compose', remote_url: '')
+    end
   end
 
   def attachment_on(previous, body, description)

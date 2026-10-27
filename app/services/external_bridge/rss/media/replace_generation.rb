@@ -18,13 +18,12 @@ module ExternalBridge
       # file before the public digest moves. Resource links move with the
       # digest, and only when that resource still lists this URL.
       #
-      # The replacement MediaAttachment is saved with an
-      # ExternalMediaRepointStage before the link transaction. That stage is
-      # the only proof this swap may delete the file. A failed link expires
-      # the stage lease and Paperclip-destroys that file. A later pass does
-      # the same only after the lease has lapsed, and only for that
-      # projection and incoming asset. Other attachments on the status are
-      # not candidates.
+      # The replacement MediaAttachment and its ExternalMediaRepointStage
+      # commit together, before the link transaction. That stage is the only
+      # proof this swap may delete the file. A failed link expires the stage
+      # lease and Paperclip-destroys that file. Purge nulls the projection
+      # id and leaves the stage. The media GC pass releases an expired stage
+      # even when this projection is never repointed again.
       class ReplaceGeneration
         EXTENSION_FOR_TYPE = {
           'image/jpeg' => 'jpg',
@@ -182,9 +181,14 @@ module ExternalBridge
           return forget_link!(link_id) if link.media_attachment.nil?
 
           PreparedRelease.reclaim_expired!(projection_id: link.external_status_projection_id, asset_id: @incoming.id)
-          copied = copy_attachment(link.media_attachment)
-          stage = record_stage!(copied, link)
-          commit_move!(link_id, old_id, link.media_attachment_id, copied, stage)
+          previous = link.media_attachment
+          copied, stage = PreparedRelease.prepare!(
+            asset_id: @incoming.id,
+            projection_id: link.external_status_projection_id,
+            account_id: previous.account_id,
+            status_id: previous.status_id
+          ) { copy_attachment(previous) }
+          commit_move!(link_id, old_id, previous.id, copied, stage)
         end
 
         def forget_link!(link_id)
@@ -234,21 +238,6 @@ module ExternalBridge
           stage.destroy!
           ExternalBridge::MediaGc.schedule_release!(attachment_ids: [previous_media_id], asset_ids: [])
           marker_id
-        end
-
-        def record_stage!(copied, link)
-          previous = link.media_attachment
-          ExternalMediaRepointStage.create!(
-            media_attachment_id: copied.id,
-            external_media_asset_id: @incoming.id,
-            external_status_projection_id: link.external_status_projection_id,
-            account_id: previous.account_id,
-            status_id: previous.status_id,
-            lease_until: Limits::MEDIA_REPOINT_PREPARE_LEASE.from_now
-          )
-        rescue StandardError
-          copied.destroy!
-          raise
         end
 
         def copy_attachment(previous)

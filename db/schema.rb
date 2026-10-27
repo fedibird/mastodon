@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_03_150000) do
+ActiveRecord::Schema.define(version: 2026_11_03_160000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -753,14 +753,15 @@ ActiveRecord::Schema.define(version: 2026_11_03_150000) do
 
   create_table "external_media_repoint_stages", force: :cascade do |t|
     t.bigint "media_attachment_id", null: false
-    t.bigint "external_media_asset_id", null: false
-    t.bigint "external_status_projection_id", null: false
+    t.bigint "external_media_asset_id"
+    t.bigint "external_status_projection_id"
     t.bigint "account_id", null: false
     t.bigint "status_id", null: false
     t.datetime "lease_until", precision: 6, null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["external_status_projection_id", "external_media_asset_id"], name: "index_ext_media_repoint_stages_on_projection"
+    t.index ["lease_until", "id"], name: "index_ext_media_repoint_stages_on_lease"
     t.index ["media_attachment_id"], name: "index_ext_media_repoint_stages_on_attachment", unique: true
   end
 
@@ -2452,8 +2453,8 @@ ActiveRecord::Schema.define(version: 2026_11_03_150000) do
   add_foreign_key "external_identities", "users", on_delete: :cascade
   add_foreign_key "external_media_asset_resources", "external_media_assets", name: "fk_ext_media_asset_resources_asset", on_delete: :cascade
   add_foreign_key "external_media_asset_resources", "external_resources", name: "fk_ext_media_asset_resources_resource", on_delete: :cascade
-  add_foreign_key "external_media_repoint_stages", "external_media_assets", name: "fk_ext_media_repoint_stages_asset", on_delete: :cascade
-  add_foreign_key "external_media_repoint_stages", "external_status_projections", name: "fk_ext_media_repoint_stages_projection", on_delete: :cascade
+  add_foreign_key "external_media_repoint_stages", "external_media_assets", name: "fk_ext_media_repoint_stages_asset", on_delete: :nullify
+  add_foreign_key "external_media_repoint_stages", "external_status_projections", name: "fk_ext_media_repoint_stages_projection", on_delete: :nullify
   add_foreign_key "external_oauth_attempts", "users", on_delete: :cascade
   add_foreign_key "external_projection_attachments", "external_media_assets", name: "fk_ext_proj_attach_asset", on_delete: :restrict
   add_foreign_key "external_projection_attachments", "external_status_projections", name: "fk_ext_proj_attach_projection", on_delete: :cascade

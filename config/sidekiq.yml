@@ -124,8 +124,9 @@
       class: Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler
       queue: scheduler
     # Releases external media files whose purge or replacement already
-    # committed an external_media_gc_intents row. One pass is at most 25
-    # intents. It does not scan unattached uploads and is not flag-gated.
+    # committed an external_media_gc_intents row, and expired repoint stages.
+    # One pass is at most 25 intents. It does not scan unattached uploads
+    # and is not flag-gated.
     external_bridge_rss_media_gc_scheduler:
       every: '1m'
       class: Scheduler::ExternalBridgeRSSMediaGcScheduler
