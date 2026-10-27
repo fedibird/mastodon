@@ -18,6 +18,7 @@ module ExternalBridge
           source.update!(
             title: feed.title.presence || source.title,
             site_url: feed.site_url.presence || source.site_url,
+            activitypub_hint: !!feed.activitypub_hint,
             etag: response.etag,
             last_modified: response.last_modified,
             fetched_at: Time.current,
@@ -26,6 +27,7 @@ module ExternalBridge
           )
           actor = upsert_actor!(source, feed)
           written = feed.items.map { |item| upsert_resource!(source, actor, item) }
+          ActivityPub::Schedule.recompute_source!(source)
         end
         written
       end
@@ -82,6 +84,14 @@ module ExternalBridge
           resource.media_candidates = media
           resource.media_revision = MediaDigest.hexdigest(media)
           resource.keywords = Keywords.normalize(item.keywords)
+          if resource.activitypub_candidate_url != item.activitypub_url
+            resource.activitypub_state = 'unknown'
+            resource.activitypub_object_id = nil
+            resource.activitypub_object_type = nil
+            resource.activitypub_checked_at = nil
+            resource.activitypub_next_check_at = nil
+          end
+          resource.activitypub_candidate_url = item.activitypub_url
         end
       end
 

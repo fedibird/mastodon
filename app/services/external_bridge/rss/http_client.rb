@@ -28,6 +28,18 @@ module ExternalBridge
         timeouts: nil
       ).freeze
 
+      ACTIVITYPUB_PROFILE = FetchProfile.new(
+        accept: 'application/ld+json; profile="https://www.w3.org/ns/activitystreams", application/activity+json;q=0.9',
+        max_bytes: 256.kilobytes,
+        asset_urls: false,
+        budget_namespace: 'external_bridge:rss_ap:host:',
+        budget: 10,
+        content_types: %w(application/activity+json application/ld+json),
+        truncate: false,
+        timeouts: { connect_timeout: 5, read_timeout: 5, write_timeout: 5, read_deadline: 10 }.freeze,
+        url_mode: :item
+      ).freeze
+
       ICON_IMAGE_PROFILE = FetchProfile.new(
         accept: 'image/png, image/webp, image/jpeg, image/gif, image/x-icon, image/vnd.microsoft.icon;q=0.9',
         max_bytes: Limits::ICON_MAX_BYTES,
@@ -126,6 +138,7 @@ module ExternalBridge
       def canonical_url!(url, profile)
         return poster_canonical!(url) if profile.url_mode.to_s == 'poster'
         return MediaURL.normalize!(url) if profile.url_mode.to_s == 'media'
+        return CanonicalURL.normalize!(url, item: true) if profile.url_mode.to_s == 'item'
 
         CanonicalURL.normalize!(url, asset: profile.asset_urls)
       end

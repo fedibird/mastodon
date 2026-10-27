@@ -15,6 +15,7 @@ module ExternalBridge
           subscription = ensure_subscription!(user, source)
           materialize!(subscription, source)
           Icon::Schedule.enqueue_if_due(source)
+          ActivityPub::Schedule.enqueue_if_due(source)
           return subscription
         end
 
@@ -75,6 +76,7 @@ module ExternalBridge
           subscription = ensure_subscription!(user, source)
           materialize!(subscription, source)
           Icon::Schedule.enqueue_if_due(source)
+          ActivityPub::Schedule.enqueue_if_due(source)
           return subscription
         end
 
@@ -90,6 +92,7 @@ module ExternalBridge
         subscription = ensure_subscription!(user, source)
         materialize!(subscription, source)
         Icon::Schedule.enqueue_if_due(source)
+        ActivityPub::Schedule.enqueue_if_due(source)
         subscription
       rescue Error => e
         record_existing_error(source, user, e.code) if source&.persisted?
