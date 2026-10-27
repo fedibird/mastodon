@@ -398,6 +398,72 @@ RSpec.describe 'External RSS image candidate fallback' do
     expect(resource.reload.media_revision).to eq media_revision
   end
 
+  it 'keeps one logical fallback across a generation after the missing file is restored' do
+    other = Fabricate(:user)
+    enable_external_bridge_rss!(other)
+    stub_feed(webp: { status: 404, body: '' }, png: png_response('"png-1"'))
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed_url)
+    ExternalBridge::RSS::Subscribe.new.call(user: other, url: feed_url)
+
+    resource = ExternalResource.find_by!(title: 'Story')
+    stored = ExternalMediaAsset.find_by!(url_digest: digest(png_url))
+    expect(ExternalProjectionAttachment.where(external_media_asset_id: stored.id).count).to eq 2
+    stored.update_columns(validated_at: 25.hours.ago, revalidate_after: nil, revalidate_attempt: 0)
+    FileUtils.rm_f(stored.file.path)
+    WebMock.reset_executed_requests!
+    stub_request(:get, png_url).with(headers: { 'If-None-Match' => '"png-1"' }).to_return(status: 304, body: '')
+
+    fetch_args = nil
+    Sidekiq::Testing.fake! do
+      ExternalBridge::RSS::MediaFetchWorker.clear
+      expect(ExternalBridge::RSS::Media::Revalidate.call(resource.id, stored.url_digest)).to eq :local_missing
+      fetch_args = ExternalBridge::RSS::MediaFetchWorker.jobs.last['args']
+    end
+    expect(fetch_args).to eq [resource.id, resource.media_revision, digest(webp_url)]
+    ExternalBridge::RSS::MediaFetchWorker.new.perform(*fetch_args)
+    expect(stored.reload).to be_ready
+    expect(stored.file.exists?).to be true
+    expect(projection_markers(resource).map { |marker| local_image_type(marker) }).to all(eq(:png))
+
+    jpeg = Rails.root.join('spec', 'fixtures', 'files', 'attachment.jpg').binread
+    stored.update_columns(validated_at: 25.hours.ago, revalidate_after: nil, revalidate_attempt: 0)
+    stub_const('ExternalBridge::RSS::Limits::MEDIA_REPOINT_BATCH', 1)
+    allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!)
+    stub_request(:get, png_url).with(headers: { 'If-None-Match' => '"png-1"' }).to_return(
+      status: 200, body: jpeg, headers: { 'Content-Type' => 'image/jpeg', 'ETag' => '"png-2"' }
+    )
+
+    Sidekiq::Testing.fake! do
+      ExternalBridge::RSS::MediaGenerationContinueWorker.clear
+      expect(ExternalBridge::RSS::Media::Revalidate.call(resource.id, digest(png_url))).to eq :partial
+    end
+
+    incoming = ExternalMediaAsset.find_by!(url_digest: "incoming:#{stored.id}")
+    map = ExternalBridge::RSS::Media::GenerationMap
+    expect(incoming.logical_digest).to eq digest(png_url)
+    expect(map.display_digests(incoming)).to include(digest(png_url))
+    expect(map.generation_key(incoming)).to eq map.generation_key(stored)
+    moved, waiting = projection_markers(resource).partition { |marker| marker.external_projection_attachments.exists?(external_media_asset_id: incoming.id) }
+    expect(moved.size).to eq 1
+    expect(waiting.size).to eq 1
+    expect(local_image_type(moved.first)).to eq :jpeg
+    expect(local_image_type(waiting.first)).to eq :png
+    expect(ExternalBridge::RSS::Media::Sync.links_stale?(moved.first, resource)).to be false
+    expect(ExternalBridge::RSS::Media::Sync.attach_ready!(moved.first, resource)).to be false
+    expect(ExternalBridge::RSS::Media::Sync.links_stale?(waiting.first, resource)).to be false
+    expect(moved.first.external_projection_attachments.pick(:external_media_asset_id)).to eq incoming.id
+    expect(waiting.first.external_projection_attachments.pick(:external_media_asset_id)).to eq stored.id
+
+    expect(ExternalBridge::RSS::Media::Revalidate.call(resource.id, digest(png_url))).to eq :replaced
+
+    survivor = ExternalMediaAsset.find(incoming.id)
+    expect(survivor.url_digest).to eq digest(png_url)
+    expect(ExternalMediaAsset.find_by(id: stored.id)).to be_nil
+    expect(ExternalMediaAssetResource.where(external_media_asset_id: survivor.id, external_resource_id: resource.id).count).to eq 1
+    expect(projection_markers(resource).map { |marker| local_image_type(marker) }).to all(eq(:jpeg))
+    expect(projection_markers(resource).map { |marker| Status.find(marker.status_id).media_attachments.count }).to all(eq(1))
+  end
+
   it 'keeps the resource link when the stored fallback body changes' do
     stub_feed(webp: { status: 404, body: '' }, png: png_response('"png-1"'))
     ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed_url)
@@ -422,6 +488,17 @@ RSpec.describe 'External RSS image candidate fallback' do
     expect(status.media_attachments.count).to eq 1
     expect(status.media_attachments.first.file_content_type).to eq 'image/jpeg'
     expect(a_request(:get, webp_url).with(headers: { 'If-None-Match' => '"png-1"' })).not_to have_been_made
+  end
+
+  def projection_markers(resource)
+    ExternalStatusProjection.where(external_resource_id: resource.id).includes(:external_projection_attachments).order(:id).to_a
+  end
+
+  def local_image_type(marker)
+    marker.association(:external_resource).reset
+    entry = ExternalBridge::RSS::Media::Sequence.for(marker).find { |row| row[:delivery] == 'local' }
+    expect(entry).to be_present
+    FastImage.type(MediaAttachment.find(entry[:attachment_id]).file.path)
   end
 
   def refresh!(resource)
