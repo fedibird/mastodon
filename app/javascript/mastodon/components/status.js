@@ -140,16 +140,26 @@ export const textForScreenReader = (intl, status, rebloggedByText = false) => {
   return values.join(', ');
 };
 
+export const displayedStatus = (status) => {
+  if (!status || typeof status.get !== 'function') {
+    return status;
+  }
+
+  const reblog = status.get('reblog', null);
+  if (reblog && typeof reblog.get === 'function') {
+    return reblog;
+  }
+
+  return status;
+};
+
 export const defaultMediaVisibility = (status) => {
-  if (!status) {
+  const shown = displayedStatus(status);
+  if (!shown || typeof shown.get !== 'function') {
     return undefined;
   }
 
-  if (status.get('reblog', null) !== null && typeof status.get('reblog') === 'object') {
-    status = status.get('reblog');
-  }
-
-  return (displayMedia !== 'hide_all' && !status.get('sensitive') || displayMedia === 'show_all');
+  return (displayMedia !== 'hide_all' && !shown.get('sensitive') || displayMedia === 'show_all');
 };
 
 export const isHideCard = (type) => {
@@ -281,20 +291,21 @@ class Status extends ImmutablePureComponent {
       return null;
     }
 
+    const shown = displayedStatus(status);
     if (status.get('id') !== prevState.statusId) {
-      const quote = status.get('quote', null);
+      const quote = shown.get('quote', null);
       return {
         showMedia: defaultMediaVisibility(status),
         showQuoteMedia: defaultMediaVisibility(quote),
         statusId: status.get('id'),
-        sensitive: !!status.get('sensitive'),
+        sensitive: !!shown.get('sensitive'),
         quoteSensitive: !!(quote && typeof quote.get === 'function' && quote.get('sensitive')),
         forceFilter: undefined,
       };
     }
 
-    const sensitive = !!status.get('sensitive');
-    const quote = status.get('quote', null);
+    const sensitive = !!shown.get('sensitive');
+    const quote = shown.get('quote', null);
     const quoteSensitive = !!(quote && typeof quote.get === 'function' && quote.get('sensitive'));
     const next = {};
     if (sensitive !== !!prevState.sensitive) {

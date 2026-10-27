@@ -279,10 +279,12 @@ describe Settings::ExternalServices::RSSController do
     document = Nokogiri::HTML(response.body)
     media = document.at_css("#rss-media-sensitive-#{paused_row.id}")
     cw = document.at_css("#rss-cw-enabled-#{paused_row.id}")
+    label = document.at_css("label[for='rss-media-sensitive-#{paused_row.id}']")
     expect(media['type']).to eq('checkbox')
+    expect(label.at_css('input[type=checkbox]')).to eq(media)
     expect(media['checked']).to eq('checked')
     expect(cw['checked']).to be_nil
-    expect(document.at_css("label[for='rss-media-sensitive-#{paused_row.id}']").text).to include(I18n.t('external_bridge.presentation.media_sensitive'))
+    expect(label.text).to include(I18n.t('external_bridge.presentation.media_sensitive'))
     expect(response.body).to include(I18n.t('external_bridge.presentation.cw_enabled_hint'))
     expect(document.at_css("#rss-media-sensitive-#{removing_row.id}")).to be_nil
     expect(document.at_css("form[action='#{settings_external_services_rss_subscription_presentation_path(removing_row)}']")).to be_nil

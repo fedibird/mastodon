@@ -9,20 +9,24 @@ module ExternalBridge
       OMIT = :omit
 
       def call(user:, subscription_id:, media_sensitive: OMIT, cw_enabled: OMIT)
-        subscription = owned!(user, subscription_id)
         attrs = flags(media_sensitive, cw_enabled)
-        return subscription if unchanged?(subscription, attrs)
-
-        now = Time.current
-        lease_until = now + PresentationReconcileWorker::LEASE
-        sql = "#{attrs.keys.map { |key| "#{key} = ?" }.join(', ')}, presentation_revision = presentation_revision + 1, presentation_error = NULL, presentation_lease_until = ?, updated_at = ?"
+        subscription = nil
         ExternalSubscription.transaction do
-          updated = ExternalSubscription.where(id: subscription.id).where.not(state: ExternalSubscription::DELETING).update_all(
-            [sql, *attrs.values, lease_until, now]
-          )
-          raise Error, ExternalSubscription.exists?(subscription.id) ? :subscription_deleting : :not_found if updated.zero?
+          subscription = ExternalSubscription.lock.find_by(id: subscription_id, user_id: user.id)
+          raise Error, :not_found if subscription.nil?
+          raise Error, :subscription_deleting if subscription.deleting?
 
-          enqueue(subscription.id)
+          unless unchanged?(subscription, attrs)
+            now = Time.current
+            token = SecureRandom.hex(16)
+            sql = "#{attrs.keys.map { |key| "#{key} = ?" }.join(', ')}, presentation_revision = presentation_revision + 1, presentation_error = NULL, presentation_lease_token = ?, presentation_lease_until = ?, updated_at = ?"
+            updated = ExternalSubscription.where(id: subscription.id).where.not(state: ExternalSubscription::DELETING).update_all(
+              [sql, *attrs.values, token, now + PresentationReconcileWorker::LEASE, now]
+            )
+            raise Error, ExternalSubscription.exists?(subscription.id) ? :subscription_deleting : :not_found if updated.zero?
+
+            enqueue(subscription.id, token)
+          end
         end
         subscription.reload
       end
@@ -49,21 +53,14 @@ module ExternalBridge
         raise Error, :invalid_presentation
       end
 
-      def owned!(user, subscription_id)
-        subscription = ExternalSubscription.find_by(id: subscription_id, user_id: user.id) || raise(Error, :not_found)
-        raise Error, :subscription_deleting if subscription.deleting?
-
-        subscription
-      end
-
-      # The generation is read again at enqueue time so two overlapping saves
-      # both hand the worker whatever generation won, and a refused push is
-      # recovered by the scheduler from the row itself.
-      def enqueue(subscription_id)
+      # The generation is read again at enqueue time. A newer save replaces the
+      # token, and this callback then queues nothing: the newer save queues
+      # the token that still owns the row.
+      def enqueue(subscription_id, token)
         Streaming::AfterOuterCommit.run do
           current = ExternalSubscription.find_by(id: subscription_id)
-          if current && !current.deleting? && current.presentation_revision.to_i > current.presentation_applied_revision.to_i
-            PresentationReconcileWorker.perform_async(current.id, current.presentation_revision.to_i)
+          if current && !current.deleting? && current.presentation_lease_token == token && current.presentation_revision.to_i > current.presentation_applied_revision.to_i
+            PresentationReconcileWorker.perform_async(current.id, current.presentation_revision.to_i, 0, token)
           end
         rescue Redis::BaseError => e
           Rails.logger.info("[ExternalBridge::RSS] presentation enqueue error=#{e.class}")

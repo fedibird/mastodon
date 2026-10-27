@@ -14,6 +14,17 @@ RSpec.describe 'RSS presentation reconcile' do
     world
   end
 
+  def run_worker(subscription, revision = nil)
+    ActiveRecord::Base.connection.clear_query_cache
+    subscription.reload
+    ExternalBridge::RSS::PresentationReconcileWorker.new.perform(
+      subscription.id,
+      revision || subscription.presentation_revision,
+      0,
+      subscription.presentation_lease_token
+    )
+  end
+
   def save!(subscription, media_sensitive:, cw_enabled:)
     ExternalBridge::RSS::PresentationUpdate.new.call(
       user: subscription.user,
@@ -80,11 +91,11 @@ RSpec.describe 'RSS presentation reconcile' do
     expect(world[:subscription].reload.presentation_revision).to eq(2)
     expect(world[:status].reload.spoiler_text).to eq('Imported title')
 
-    ExternalBridge::RSS::PresentationReconcileWorker.new.perform(world[:subscription].id, 1)
+    run_worker(world[:subscription], 1)
     expect(world[:status].reload.spoiler_text).to eq('Imported title')
     expect(world[:status].sensitive).to eq(false)
 
-    ExternalBridge::RSS::PresentationReconcileWorker.new.perform(world[:subscription].id, 2)
+    run_worker(world[:subscription], 2)
     expect(world[:status].reload.spoiler_text).to eq('')
     expect(world[:status].text).to include('Imported title')
     expect(world[:status].sensitive).to eq(true)
@@ -103,13 +114,26 @@ RSpec.describe 'RSS presentation reconcile' do
     expect(world[:status].reload.sensitive).to eq(true)
     expect(world[:status].spoiler_text).to eq('Imported title')
 
-    world[:subscription].update!(state: 'error', presentation_applied_revision: 0, presentation_lease_until: nil)
-    ExternalBridge::RSS::PresentationReconcileWorker.new.perform(world[:subscription].id, world[:subscription].presentation_revision)
+    world[:status].update_columns(sensitive: false, spoiler_text: '')
+    world[:subscription].reload.update_columns(
+      state: 'error',
+      presentation_applied_revision: 0,
+      presentation_lease_until: nil,
+      presentation_lease_token: 'retry-token'
+    )
+    run_worker(world[:subscription])
     expect(world[:status].reload.sensitive).to eq(true)
+    expect(world[:status].spoiler_text).to eq('Imported title')
 
     text = world[:status].text
-    world[:subscription].update_columns(state: 'deleting', presentation_applied_revision: 0, presentation_lease_until: nil, cw_enabled: false)
-    ExternalBridge::RSS::PresentationReconcileWorker.new.perform(world[:subscription].id, world[:subscription].presentation_revision)
+    world[:subscription].update_columns(
+      state: 'deleting',
+      presentation_applied_revision: 0,
+      presentation_lease_until: nil,
+      presentation_lease_token: 'doomed-token',
+      cw_enabled: false
+    )
+    run_worker(world[:subscription])
     expect(world[:status].reload.text).to eq(text)
     expect(world[:status].spoiler_text).to eq('Imported title')
   end
@@ -144,7 +168,7 @@ RSpec.describe 'RSS presentation reconcile' do
 
     allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!)
     world[:subscription].update_columns(presentation_applied_revision: 0, presentation_lease_until: nil)
-    ExternalBridge::RSS::PresentationReconcileWorker.new.perform(world[:subscription].id, world[:subscription].presentation_revision)
+    run_worker(world[:subscription])
     expect(ExternalBridge::Streaming::Scheduler).not_to have_received(:bump_and_schedule_content!)
   end
 
@@ -206,6 +230,46 @@ RSpec.describe 'RSS presentation reconcile' do
     world[:subscription].update_columns(state: 'deleting', presentation_lease_until: 1.hour.ago)
     expect(Scheduler::ExternalBridgeRSSPresentationScheduler.new.perform).to eq(0)
     expect(world[:status].reload.spoiler_text).to eq('')
+  end
+
+  it 'refuses a delayed worker after the scheduler has claimed the expired lease' do
+    world[:subscription].update_columns(
+      cw_enabled: true,
+      presentation_revision: 6,
+      presentation_applied_revision: 0,
+      presentation_lease_token: 'delayed-worker',
+      presentation_lease_until: 1.hour.ago,
+      presentation_error: nil
+    )
+    ExternalBridge::RSS::PresentationReconcileWorker.clear
+
+    Sidekiq::Testing.fake! do
+      expect(Scheduler::ExternalBridgeRSSPresentationScheduler.new.perform).to eq(1)
+    end
+
+    job = ExternalBridge::RSS::PresentationReconcileWorker.jobs.last
+    expect(job['args'][3]).not_to eq('delayed-worker')
+    ExternalBridge::RSS::PresentationReconcileWorker.new.perform(world[:subscription].id, 6, 0, 'delayed-worker')
+    expect(world[:status].reload.spoiler_text).to eq('')
+
+    ExternalBridge::RSS::PresentationReconcileWorker.new.perform(*job['args'])
+    expect(world[:status].reload.spoiler_text).to eq('Imported title')
+    expect(world[:subscription].reload.presentation_applied_revision).to eq(6)
+  end
+
+  it 'locks the subscription row before comparing the saved choices' do
+    sqls = []
+    callback = lambda do |*, payload|
+      sqls << payload[:sql].to_s
+    end
+    ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+      save!(world[:subscription], media_sensitive: true, cw_enabled: false)
+    end
+
+    lock_at = sqls.index { |sql| sql.include?('FOR UPDATE') }
+    write_at = sqls.index { |sql| sql.include?('presentation_revision') && sql.match?(/update/i) }
+    expect(lock_at).not_to be_nil
+    expect(write_at).to be > lock_at
   end
 
   it 'does not bump the generation when the choices are unchanged' do

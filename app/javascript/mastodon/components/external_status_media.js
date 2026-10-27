@@ -4,7 +4,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { List as ImmutableList, fromJS } from 'immutable';
 import { FormattedMessage } from 'react-intl';
 import MediaGallery from 'mastodon/components/media_gallery';
-import ExternalRemoteMedia from 'mastodon/components/external_remote_media';
+import ExternalRemoteMedia, { remoteMediaItems } from 'mastodon/components/external_remote_media';
 import Video from 'mastodon/features/video';
 import Audio from 'mastodon/features/audio';
 import { displayMedia } from 'mastodon/initial_state';
@@ -238,6 +238,11 @@ export default class ExternalStatusMedia extends React.PureComponent {
     // Sensitive or hidden media stays behind the same overlay, so the remote
     // URL is not written into the document until the owner reveals it.
     if (!blocks) {
+      // No sequence only means the payload is old or partial. An article with
+      // no playable file must not grow a "media hidden" control.
+      if (remoteMediaItems(this.props.status).length === 0) {
+        return null;
+      }
       if (this.concealed()) {
         return this.renderConcealed('legacy-remote');
       }

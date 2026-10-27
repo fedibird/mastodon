@@ -199,7 +199,7 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     expect(owned[:subscription].presentation_applied_revision).to eq(0)
     expect(owned[:status].reload.sensitive).to eq(false)
     expect(foreign[:subscription].reload.media_sensitive).to eq(false)
-    expect(ExternalBridge::RSS::PresentationReconcileWorker).to have_received(:perform_async).with(owned[:subscription].id, 1)
+    expect(ExternalBridge::RSS::PresentationReconcileWorker).to have_received(:perform_async).with(owned[:subscription].id, 1, 0, kind_of(String))
   end
 
   it 'does not save display choices for another user or a feed that is being removed' do

@@ -49,7 +49,7 @@ RSpec.describe 'RSS subscription presentation API' do
       expect(subscription.user_id).to eq(owner.id)
       expect(subscription.media_sensitive).to eq(true)
       expect(bundle[:status].reload.sensitive).to eq(false)
-      expect(ExternalBridge::RSS::PresentationReconcileWorker).to have_received(:perform_async).with(subscription.id, 1)
+      expect(ExternalBridge::RSS::PresentationReconcileWorker).to have_received(:perform_async).with(subscription.id, 1, 0, kind_of(String))
     end
 
     it 'updates one flag and leaves the other' do

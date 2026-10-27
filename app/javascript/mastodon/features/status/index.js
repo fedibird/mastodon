@@ -67,7 +67,7 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import { HotKeys } from 'react-hotkeys';
 import { boostModal, deleteModal, confirmDomainBlock, enableStatusReference } from '../../initial_state';
 import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from '../ui/util/fullscreen';
-import { textForScreenReader, defaultMediaVisibility } from '../../components/status';
+import { textForScreenReader, defaultMediaVisibility, displayedStatus } from '../../components/status';
 import Icon from 'mastodon/components/icon';
 import DetailedHeaderContaier from './containers/header_container';
 import { defaultColumnWidth, me, maxReactionsPerAccount } from 'mastodon/initial_state';
@@ -238,17 +238,18 @@ class Status extends ImmutablePureComponent {
     }
 
     const status = nextProps.status;
+    const shown = displayedStatus(status);
     if (status && status.get('id') !== this.state.loadedStatusId) {
       this.setState({
         showMedia: defaultMediaVisibility(status),
         loadedStatusId: status.get('id'),
-        showQuoteMedia: defaultMediaVisibility(status.get('quote', null)),
-        sensitive: !!status.get('sensitive'),
+        showQuoteMedia: defaultMediaVisibility(shown.get('quote', null)),
+        sensitive: !!shown.get('sensitive'),
       });
-    } else if (status && !!status.get('sensitive') !== !!this.state.sensitive) {
+    } else if (shown && !!shown.get('sensitive') !== !!this.state.sensitive) {
       this.setState({
         showMedia: defaultMediaVisibility(status),
-        sensitive: !!status.get('sensitive'),
+        sensitive: !!shown.get('sensitive'),
       });
     }
   }

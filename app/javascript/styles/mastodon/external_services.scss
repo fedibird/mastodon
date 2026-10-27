@@ -545,12 +545,21 @@
     font-weight: 700;
   }
 
+  .external-service-presentation__choice {
+    min-width: 0;
+  }
+
   label {
     display: flex;
     gap: 8px;
     align-items: flex-start;
     min-height: 44px;
     color: $primary-text-color;
+  }
+
+  label span {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   input[type='checkbox'] {

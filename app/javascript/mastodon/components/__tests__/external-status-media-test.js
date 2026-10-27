@@ -150,6 +150,23 @@ describe('ExternalStatusMedia', () => {
     expect(screen.getAllByRole('button').length).toBeGreaterThan(0);
   });
 
+  it('does not offer a media control for a text-only external status', () => {
+    const plain = fromJS({
+      id: '1',
+      media_attachments: [],
+      sensitive: true,
+      fedibird_external: { canonical_url: 'https://example.com/story' },
+    });
+
+    const sensitive = render(<ExternalStatusMedia sensitive visible={false} status={plain} />);
+    expect(sensitive.container.querySelector('button')).toBeNull();
+    expect(sensitive.container.textContent).not.toContain('Media hidden');
+    expect(sensitive.container.textContent).not.toContain('Sensitive content');
+
+    const hidden = render(<ExternalStatusMedia visible={false} status={plain} />);
+    expect(hidden.container.querySelector('button')).toBeNull();
+  });
+
   it('does not write a legacy remote URL while sensitive content is hidden', () => {
     const { container } = render(
       <ExternalStatusMedia

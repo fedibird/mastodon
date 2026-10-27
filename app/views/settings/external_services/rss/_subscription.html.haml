@@ -35,13 +35,15 @@
         %legend= t('external_bridge.presentation.heading')
         .external-service-presentation__choice
           = hidden_field_tag :media_sensitive, '0', id: nil
-          = check_box_tag :media_sensitive, '1', subscription.media_sensitive?, id: "rss-media-sensitive-#{subscription.id}", aria: { describedby: "rss-media-sensitive-hint-#{subscription.id}" }
-          = label_tag "rss-media-sensitive-#{subscription.id}", t('external_bridge.presentation.media_sensitive')
+          %label{ for: "rss-media-sensitive-#{subscription.id}" }
+            = check_box_tag :media_sensitive, '1', subscription.media_sensitive?, id: "rss-media-sensitive-#{subscription.id}", aria: { describedby: "rss-media-sensitive-hint-#{subscription.id}" }
+            %span= t('external_bridge.presentation.media_sensitive')
         %p.hint{ id: "rss-media-sensitive-hint-#{subscription.id}" }= t('external_bridge.presentation.media_sensitive_hint')
         .external-service-presentation__choice
           = hidden_field_tag :cw_enabled, '0', id: nil
-          = check_box_tag :cw_enabled, '1', subscription.cw_enabled?, id: "rss-cw-enabled-#{subscription.id}", aria: { describedby: "rss-cw-hint-#{subscription.id}" }
-          = label_tag "rss-cw-enabled-#{subscription.id}", t('external_bridge.presentation.cw_enabled')
+          %label{ for: "rss-cw-enabled-#{subscription.id}" }
+            = check_box_tag :cw_enabled, '1', subscription.cw_enabled?, id: "rss-cw-enabled-#{subscription.id}", aria: { describedby: "rss-cw-hint-#{subscription.id}" }
+            %span= t('external_bridge.presentation.cw_enabled')
         %p.hint{ id: "rss-cw-hint-#{subscription.id}" }= t('external_bridge.presentation.cw_enabled_hint')
         = hidden_field_tag :page, @page.page, id: nil if @page&.page.to_i > 1
         .actions

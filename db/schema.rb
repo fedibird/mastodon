@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_04_120000) do
+ActiveRecord::Schema.define(version: 2026_11_04_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1092,6 +1092,7 @@ ActiveRecord::Schema.define(version: 2026_11_04_120000) do
     t.bigint "presentation_applied_revision", default: 0, null: false
     t.string "presentation_error"
     t.datetime "presentation_lease_until"
+    t.string "presentation_lease_token"
     t.index ["external_source_id"], name: "index_external_subscriptions_on_external_source_id"
     t.index ["id", "user_id"], name: "index_external_subscriptions_on_id_and_user", unique: true
     t.index ["id", "user_id", "external_source_id"], name: "index_external_subscriptions_on_id_user_and_source", unique: true

@@ -331,6 +331,60 @@ describe('external status media with the real gallery', () => {
     expect(hidden.handlers.onOpenVideo.mock.calls[0][3]).toBe('story');
   });
 
+  it('switches the warning and remote video when the same status is updated', () => {
+    const view = renderTimeline(baseStatus());
+
+    expect(screen.getByRole('button', { name: 'External video' })).toBeTruthy();
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+
+    const handlers = view.handlers;
+    const draw = (extra) => {
+      view.rerender(
+        <Provider store={store}>
+          <Status status={baseStatus(extra)} pictureInPicture={pictureInPicture} {...handlers} />
+        </Provider>,
+      );
+    };
+
+    draw({ hidden: true, spoiler_text: '旅行記', spoilerHtml: '旅行記' });
+    expect(view.container.textContent).toContain('旅行記');
+    expect(view.container.querySelector('.external-remote-media')).toBeNull();
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+
+    draw({ hidden: false, sensitive: true, spoiler_text: '旅行記', spoilerHtml: '旅行記' });
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+    expect(screen.getAllByText('Sensitive content').length).toBeGreaterThan(0);
+
+    draw({});
+    expect(screen.getByRole('button', { name: 'External video' })).toBeTruthy();
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+  });
+
+  it('hides a boosted status when that status becomes sensitive', () => {
+    const boosted = baseStatus({ id: 'inner', sensitive: false });
+    const wrapper = boosted.merge({
+      id: 'boost',
+      reblog: boosted,
+      fedibird_external: null,
+    });
+    const view = renderTimeline(wrapper);
+    expect(screen.getByRole('button', { name: 'External video' })).toBeTruthy();
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+
+    view.rerender(
+      <Provider store={store}>
+        <Status
+          status={wrapper.set('reblog', boosted.set('sensitive', true))}
+          pictureInPicture={pictureInPicture}
+          {...view.handlers}
+        />
+      </Provider>,
+    );
+
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+    expect(screen.getAllByText('Sensitive content').length).toBeGreaterThan(0);
+  });
+
   it('hides the detailed status media while its content warning is collapsed', () => {
     const { container } = renderDetailed(baseStatus({ hidden: true, spoiler_text: 'spoiler', sensitive: true }), { showMedia: true });
 

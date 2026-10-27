@@ -32,13 +32,10 @@ class Scheduler::ExternalBridgeRSSPresentationScheduler
                               .limit(BATCH)
                               .pluck(:id, :presentation_revision)
     due.count do |subscription_id, revision|
-      held = ExternalSubscription.where(id: subscription_id, presentation_revision: revision)
-                                 .where.not(state: ExternalSubscription::DELETING)
-                                 .where('presentation_lease_until IS NULL OR presentation_lease_until <= ?', now)
-                                 .update_all(presentation_lease_until: now + ExternalBridge::RSS::PresentationReconcileWorker::LEASE, updated_at: now)
-      next false if held.zero?
+      token = ExternalBridge::RSS::PresentationReconcileWorker.claim(subscription_id, revision)
+      next false if token.nil?
 
-      ExternalBridge::RSS::PresentationReconcileWorker.perform_async(subscription_id, revision.to_i)
+      ExternalBridge::RSS::PresentationReconcileWorker.perform_async(subscription_id, revision.to_i, 0, token)
       true
     end
   end

@@ -23,6 +23,7 @@
 #  presentation_applied_revision :bigint(8)        default(0), not null
 #  presentation_error            :string
 #  presentation_lease_until      :datetime
+#  presentation_lease_token      :string
 #
 # `deleting` is the unsubscribe fence (issue #575). The row is kept until the
 # background job has physically removed every projection. Nothing may move it
