@@ -266,4 +266,25 @@ describe Settings::ExternalServices::RSSController do
     expect(queries.count { |sql| sql.match?(/select/i) && sql.include?('external_feed_routes') }).to eq 1
     expect(queries.count { |sql| sql.match?(/select/i) && sql.include?('"lists"') }).to be <= 2
   end
+
+  it 'shows independent display choices on a paused feed and hides them while it is being removed' do
+    enable_external_bridge_rss!(user)
+    paused = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/paused.xml', title: 'Paused feed')
+    paused_row = ExternalSubscription.create!(user: user, external_source: paused, state: 'paused', media_sensitive: true, cw_enabled: false)
+    removing = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/removing.xml', title: 'Removing feed')
+    removing_row = ExternalSubscription.create!(user: user, external_source: removing, state: 'deleting')
+
+    get :show, session: challenge
+
+    document = Nokogiri::HTML(response.body)
+    media = document.at_css("#rss-media-sensitive-#{paused_row.id}")
+    cw = document.at_css("#rss-cw-enabled-#{paused_row.id}")
+    expect(media['type']).to eq('checkbox')
+    expect(media['checked']).to eq('checked')
+    expect(cw['checked']).to be_nil
+    expect(document.at_css("label[for='rss-media-sensitive-#{paused_row.id}']").text).to include(I18n.t('external_bridge.presentation.media_sensitive'))
+    expect(response.body).to include(I18n.t('external_bridge.presentation.cw_enabled_hint'))
+    expect(document.at_css("#rss-media-sensitive-#{removing_row.id}")).to be_nil
+    expect(document.at_css("form[action='#{settings_external_services_rss_subscription_presentation_path(removing_row)}']")).to be_nil
+  end
 end

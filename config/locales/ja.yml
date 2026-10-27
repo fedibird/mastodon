@@ -2152,6 +2152,18 @@ ja:
     pause_for: "%{title}を一時停止"
     previous: 前へ
     privacy_note: 取り込んだ投稿はあなた専用です。ActivityPubでは配信されず、ほかの人には見えません。この一覧、投稿そのもの、お気に入り、ブックマークから開けます。外部コンテンツとして保存された投稿は自分限定タイムラインには出ません。
+    presentation:
+      applying: 保存しました。取り込んだ投稿へ反映しています。
+      cw_enabled: 記事タイトルをCWにして本文とメディアを隠す
+      cw_enabled_hint: 各記事のタイトルを内容警告にし、本文とメディアは開くまで折りたたみます。この設定はあなた個人のものです。フィード自体は変わらず、ほかの人とは共有されません。
+      failed: 保存はできましたが、取り込んだ投稿への反映が止まっています。あとで再試行します。
+      heading: 表示設定
+      media_sensitive: この購読のメディアを閲覧注意として表示
+      media_sensitive_hint: このフィードの画像・音声・動画は、表示を選ぶまで隠します。この設定はあなた個人のものです。フィード自体は変わらず、ほかの人とは共有されません。
+      save: 表示設定を保存
+      save_for: "%{title}の表示設定を保存"
+      saved: 表示設定を保存しました。
+      saved_applying: 表示設定を保存しました。取り込んだ投稿への反映は後ろで進みます。
     resume: 再開
     resume_for: "%{title}を再開"
     retry_status: "次の確認: %{time}。再試行回数: %{count}。"
@@ -2238,12 +2250,14 @@ ja:
       subscription_note: この購読は削除中です。削除が完了するまで、設定の変更、一時停止、再開、再購読はできません。
     working: 処理しています…
     untitled: （無題）
+    untitled_article: 無題の記事
     errors:
       account_mismatch: このアカウントにはフィードを保存できませんでした。
       authenticated_source_rejected: ログインやトークンが必要なアドレスなので取得しませんでした。
       feature_disabled: このサーバーではRSSの取り込みがオフです。
       tester_only: このサーバーではRSSの取り込みはテスターだけが使えます。
       import_failed: 項目の一部を保存できませんでした。
+      invalid_presentation: 表示設定を保存できませんでした。変更は行われていません。
       fetch_failed: フィードを取得できませんでした。
       http_status: フィードを取得できませんでした（HTTP %{status}）。
       invalid_xml: フィードのXMLを読み取れませんでした。

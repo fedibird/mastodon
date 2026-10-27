@@ -2223,6 +2223,18 @@ en:
     pause_for: Pause %{title}
     previous: Previous
     privacy_note: Imported posts stay private to you. They are not delivered over ActivityPub, and other people cannot see them. Open them from this list, the post, your favourites, or your bookmarks. A post stored as external content is left off your personal timeline.
+    presentation:
+      applying: Saved. Updating imported posts from this feed.
+      cw_enabled: Use each article title as a content warning
+      cw_enabled_hint: The title of each article is the content warning, and the text and media stay collapsed until you open them. This setting is yours. It does not change the feed, and it is not shared with anyone else.
+      failed: Saved, but updating imported posts stopped. It will try again.
+      heading: Display
+      media_sensitive: Show media from this feed as sensitive
+      media_sensitive_hint: Images, audio, and video from this feed stay hidden until you choose to view them. This setting is yours. It does not change the feed, and it is not shared with anyone else.
+      save: Save display settings
+      save_for: Save display settings for %{title}
+      saved: Display settings saved.
+      saved_applying: Display settings saved. Imported posts update in the background.
     resume: Resume
     resume_for: Resume %{title}
     retry_status: "Next check: %{time}. Retry count: %{count}."
@@ -2306,15 +2318,17 @@ en:
         queued: Waiting
         retrying: Waiting to retry
         running: Deleting
-      subscription_note: This feed is being removed. Until it is finished you cannot change its destinations, pause it, resume it, or subscribe to it again.
+      subscription_note: This feed is being removed. Until it is finished you cannot change its destinations or display settings, pause it, resume it, or subscribe to it again.
     working: "Working…"
     untitled: (untitled)
+    untitled_article: Untitled article
     errors:
       account_mismatch: The feed could not be saved for this account.
       authenticated_source_rejected: That address needs a login or a token, so it was not fetched.
       feature_disabled: RSS import is turned off on this server.
       tester_only: RSS import is limited to testers on this server.
       import_failed: This feed could not be saved for one of the items.
+      invalid_presentation: Those display settings could not be saved. Nothing was changed.
       fetch_failed: The feed could not be fetched.
       http_status: The feed could not be fetched (HTTP %{status}).
       invalid_xml: The feed XML could not be parsed.

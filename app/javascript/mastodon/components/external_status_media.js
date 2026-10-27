@@ -235,7 +235,12 @@ export default class ExternalStatusMedia extends React.PureComponent {
     const blocks = externalMediaBlocks(this.props.status);
     // No sequence: an older or partial payload can still carry media and
     // canonical_url. The article link uses the same fallback as the sequence path.
+    // Sensitive or hidden media stays behind the same overlay, so the remote
+    // URL is not written into the document until the owner reveals it.
     if (!blocks) {
+      if (this.concealed()) {
+        return this.renderConcealed('legacy-remote');
+      }
       return <ExternalRemoteMedia status={this.props.status} articleUrl={this.articleUrl()} />;
     }
     if (blocks.length === 0) {

@@ -54,6 +54,20 @@ class Api::V1::ExternalBridge::RSS::SubscriptionsController < Api::BaseControlle
     render json: { error: e.code }, status: e.http_status
   end
 
+  # Both flags are optional. A missing key is left unchanged. Any other key
+  # is ignored. The row is saved before imported statuses are rewritten.
+  def update
+    subscription = ExternalBridge::RSS::PresentationUpdate.new.call(
+      user: current_user,
+      subscription_id: params[:id],
+      media_sensitive: provided_flag(:media_sensitive),
+      cw_enabled: provided_flag(:cw_enabled)
+    )
+    render json: subscription_json(subscription)
+  rescue ExternalBridge::Error => e
+    render json: { error: e.code }, status: e.http_status
+  end
+
   private
 
   def incomplete_import?(subscription)
@@ -76,6 +90,19 @@ class Api::V1::ExternalBridge::RSS::SubscriptionsController < Api::BaseControlle
         title: source.title,
         icon_url: ExternalBridge::RSS::Icon::Delivery.url(source),
       },
+      presentation: {
+        media_sensitive: subscription.media_sensitive,
+        cw_enabled: subscription.cw_enabled,
+        revision: subscription.presentation_revision.to_s,
+        applied_revision: subscription.presentation_applied_revision.to_s,
+        state: subscription.presentation_state,
+      },
     }
+  end
+
+  def provided_flag(key)
+    return ExternalBridge::RSS::PresentationUpdate::OMIT unless params.key?(key)
+
+    params[key]
   end
 end

@@ -7,16 +7,21 @@ module ExternalBridge
     class Excerpt
       MAX_CHARS = StatusLengthValidator::MAX_CHARS
 
-      def self.for(resource)
-        new(resource).to_s
+      # spoiler_text is counted by StatusLengthValidator together with the
+      # body. omit_title keeps the article title out of the body when that
+      # title is already the content warning.
+      def self.for(resource, spoiler_text: '', omit_title: false)
+        new(resource, spoiler_text: spoiler_text, omit_title: omit_title).to_s
       end
 
-      def initialize(resource)
+      def initialize(resource, spoiler_text: '', omit_title: false)
         @resource = resource
+        @spoiler_text = spoiler_text.to_s
+        @omit_title = omit_title
       end
 
       def to_s
-        title = @resource.title.to_s.strip
+        title = @omit_title ? '' : @resource.title.to_s.strip
         byline = @resource.byline.to_s.strip
         url = @resource.canonical_url.to_s.strip
         body = plain_body(@resource.body)
@@ -103,7 +108,7 @@ module ExternalBridge
       def fits?(text)
         return false if text.blank?
 
-        status = Status.new(text: text, local: true, spoiler_text: '')
+        status = Status.new(text: text, local: true, spoiler_text: @spoiler_text)
         StatusLengthValidator.new({}).validate(status)
         status.errors[:text].blank?
       end
@@ -111,6 +116,10 @@ module ExternalBridge
       def fallback
         untitled = I18n.t('external_bridge.untitled')
         return untitled if fits?(untitled)
+
+        room = StatusLengthValidator::MAX_CHARS - @spoiler_text.mb_chars.grapheme_length
+        clipped = truncate_graphemes(untitled, [room, 0].max)
+        return clipped if clipped.present? && fits?(clipped)
 
         truncate_graphemes(untitled, MAX_CHARS)
       end

@@ -237,9 +237,19 @@ class Status extends ImmutablePureComponent {
       this.props.dispatch(fetchStatus(nextProps.params.statusId));
     }
 
-    if (nextProps.status && nextProps.status.get('id') !== this.state.loadedStatusId) {
-      this.setState({ showMedia: defaultMediaVisibility(nextProps.status), loadedStatusId: nextProps.status.get('id'),
-        showQuoteMedia: defaultMediaVisibility(nextProps.status.get('quote', null)) });
+    const status = nextProps.status;
+    if (status && status.get('id') !== this.state.loadedStatusId) {
+      this.setState({
+        showMedia: defaultMediaVisibility(status),
+        loadedStatusId: status.get('id'),
+        showQuoteMedia: defaultMediaVisibility(status.get('quote', null)),
+        sensitive: !!status.get('sensitive'),
+      });
+    } else if (status && !!status.get('sensitive') !== !!this.state.sensitive) {
+      this.setState({
+        showMedia: defaultMediaVisibility(status),
+        sensitive: !!status.get('sensitive'),
+      });
     }
   }
 

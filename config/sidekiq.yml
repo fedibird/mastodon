@@ -123,6 +123,12 @@
       every: '1m'
       class: Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler
       queue: scheduler
+    # Recovers a refused or killed per-subscription display rewrite. One pass
+    # queues at most 50 subscriptions. Not gated by the ExternalBridge flags.
+    external_bridge_rss_presentation_scheduler:
+      every: '1m'
+      class: Scheduler::ExternalBridgeRSSPresentationScheduler
+      queue: scheduler
     # Releases external media files whose purge or replacement already
     # committed an external_media_gc_intents row, and expired repoint stages.
     # One pass is at most 25 intents. It does not scan unattached uploads

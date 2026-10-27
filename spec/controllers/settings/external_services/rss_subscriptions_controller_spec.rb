@@ -179,6 +179,55 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     expect(ExternalSource.where(id: source_id)).to exist
     expect(foreign[:subscription].reload).to be_present
   end
+
+  it 'saves display choices for a paused feed without rewriting posts in the request' do
+    sign_in tester, scope: :user
+    owned = project_for(tester)
+    owned[:subscription].update!(state: 'paused')
+    other = share_account_user(tester.account)
+    foreign = project_for(other)
+    allow(ExternalBridge::RSS::PresentationReconcileWorker).to receive(:perform_async).and_return('jid')
+
+    patch :update, params: { id: owned[:subscription].id, media_sensitive: '1', cw_enabled: '0' }, session: challenge
+
+    expect(response).to redirect_to(settings_external_services_rss_path)
+    expect(response).to have_http_status(:see_other)
+    expect(flash[:notice]).to eq(I18n.t('external_bridge.presentation.saved_applying'))
+    expect(owned[:subscription].reload.media_sensitive).to eq(true)
+    expect(owned[:subscription].cw_enabled).to eq(false)
+    expect(owned[:subscription].presentation_revision).to eq(1)
+    expect(owned[:subscription].presentation_applied_revision).to eq(0)
+    expect(owned[:status].reload.sensitive).to eq(false)
+    expect(foreign[:subscription].reload.media_sensitive).to eq(false)
+    expect(ExternalBridge::RSS::PresentationReconcileWorker).to have_received(:perform_async).with(owned[:subscription].id, 1)
+  end
+
+  it 'does not save display choices for another user or a feed that is being removed' do
+    sign_in tester, scope: :user
+    owned = project_for(tester)
+    other = share_account_user(tester.account)
+    foreign = project_for(other)
+    owned[:subscription].update!(state: 'deleting')
+
+    patch :update, params: { id: foreign[:subscription].id, media_sensitive: '1', cw_enabled: '1' }, session: challenge
+    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.not_found'))
+    expect(foreign[:subscription].reload.cw_enabled).to eq(false)
+
+    patch :update, params: { id: owned[:subscription].id, media_sensitive: '1', cw_enabled: '1' }, session: challenge
+    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.subscription_deleting'))
+    expect(owned[:subscription].reload.media_sensitive).to eq(false)
+  end
+
+  it 'requires a recent challenge before saving display choices' do
+    sign_in tester, scope: :user
+    owned = project_for(tester)
+
+    patch :update, params: { id: owned[:subscription].id, media_sensitive: '1', cw_enabled: '1' }
+
+    expect(response).to redirect_to(settings_external_services_rss_path)
+    expect(owned[:subscription].reload.media_sensitive).to eq(false)
+    expect(owned[:subscription].presentation_revision).to eq(0)
+  end
 end
 
 # rubocop:enable Metrics/BlockLength

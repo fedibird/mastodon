@@ -30,6 +30,24 @@
   - else
     = render 'settings/external_services/feed_routes/picker', subscription_id: subscription.id, title: subscription.title, route_form: subscription.route_form, form_url: settings_external_services_rss_subscription_feed_routes_path(subscription.id), page_number: @page&.page
   - unless subscription.deleting?
+    = form_with url: settings_external_services_rss_subscription_presentation_path(subscription.id), method: :patch, local: true, html: { class: 'external-service-presentation' } do
+      %fieldset
+        %legend= t('external_bridge.presentation.heading')
+        .external-service-presentation__choice
+          = hidden_field_tag :media_sensitive, '0', id: nil
+          = check_box_tag :media_sensitive, '1', subscription.media_sensitive?, id: "rss-media-sensitive-#{subscription.id}", aria: { describedby: "rss-media-sensitive-hint-#{subscription.id}" }
+          = label_tag "rss-media-sensitive-#{subscription.id}", t('external_bridge.presentation.media_sensitive')
+        %p.hint{ id: "rss-media-sensitive-hint-#{subscription.id}" }= t('external_bridge.presentation.media_sensitive_hint')
+        .external-service-presentation__choice
+          = hidden_field_tag :cw_enabled, '0', id: nil
+          = check_box_tag :cw_enabled, '1', subscription.cw_enabled?, id: "rss-cw-enabled-#{subscription.id}", aria: { describedby: "rss-cw-hint-#{subscription.id}" }
+          = label_tag "rss-cw-enabled-#{subscription.id}", t('external_bridge.presentation.cw_enabled')
+        %p.hint{ id: "rss-cw-hint-#{subscription.id}" }= t('external_bridge.presentation.cw_enabled_hint')
+        = hidden_field_tag :page, @page.page, id: nil if @page&.page.to_i > 1
+        .actions
+          = button_tag t('external_bridge.presentation.save'), type: 'submit', class: 'button', data: { disable_with: t('external_bridge.working') }, aria: { label: t('external_bridge.presentation.save_for', title: subscription.title) }
+      - if subscription.presentation_message
+        %p.hint.external-service-presentation__progress{ role: 'status', aria: { live: 'polite' } }= subscription.presentation_message
     .external-service-actions
       - if subscription.pausable?
         = button_to t('external_bridge.pause'), settings_pause_external_services_rss_subscription_path(subscription.id), method: :post, class: 'button', form_class: 'external-service-inline-form', aria: { label: t('external_bridge.pause_for', title: subscription.title) }, data: { disable_with: t('external_bridge.working') }

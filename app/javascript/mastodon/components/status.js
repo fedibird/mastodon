@@ -276,16 +276,36 @@ class Status extends ImmutablePureComponent {
   };
 
   static getDerivedStateFromProps(nextProps, prevState) {
-    if (nextProps.status && nextProps.status.get('id') !== prevState.statusId) {
-      return {
-        showMedia: defaultMediaVisibility(nextProps.status),
-        showQuoteMedia: defaultMediaVisibility(nextProps.status.get('quote', null)),
-        statusId: nextProps.status.get('id'),
-        forceFilter: undefined,
-      };
-    } else {
+    const status = nextProps.status;
+    if (!status || typeof status.get !== 'function') {
       return null;
     }
+
+    if (status.get('id') !== prevState.statusId) {
+      const quote = status.get('quote', null);
+      return {
+        showMedia: defaultMediaVisibility(status),
+        showQuoteMedia: defaultMediaVisibility(quote),
+        statusId: status.get('id'),
+        sensitive: !!status.get('sensitive'),
+        quoteSensitive: !!(quote && typeof quote.get === 'function' && quote.get('sensitive')),
+        forceFilter: undefined,
+      };
+    }
+
+    const sensitive = !!status.get('sensitive');
+    const quote = status.get('quote', null);
+    const quoteSensitive = !!(quote && typeof quote.get === 'function' && quote.get('sensitive'));
+    const next = {};
+    if (sensitive !== !!prevState.sensitive) {
+      next.showMedia = defaultMediaVisibility(status);
+      next.sensitive = sensitive;
+    }
+    if (quoteSensitive !== !!prevState.quoteSensitive) {
+      next.showQuoteMedia = defaultMediaVisibility(quote);
+      next.quoteSensitive = quoteSensitive;
+    }
+    return Object.keys(next).length > 0 ? next : null;
   }
 
   componentDidMount () {
