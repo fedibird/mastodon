@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'rails_helper'
+require 'timeout'
 
 RSpec.describe 'RSS ActivityPub candidate races' do
   # Two connections have to commit. A wrapped example transaction would hide
@@ -12,6 +13,12 @@ RSpec.describe 'RSS ActivityPub candidate races' do
   let(:new_url) { 'https://posts.example/@alice/124' }
 
   before do
+    # Autoload on the main thread. A worker that first touches Response can
+    # lose the race with Zeitwerk and then leave the other side blocked.
+    ExternalBridge::RSS::HttpClient
+    ExternalBridge::RSS::Ingest
+    ExternalBridge::RSS::Parser
+    ExternalBridge::RSS::ActivityPub::ProbeSource
     ActiveRecord::Base.connection_pool.lock_thread = false
     @source = ExternalSource.create!(protocol: 'rss', canonical_key: feed_url, title: 'Race')
     @resource = ExternalResource.create!(
@@ -38,8 +45,26 @@ RSpec.describe 'RSS ActivityPub candidate races' do
     ActiveRecord::Base.connection_pool.with_connection(&block)
   end
 
+  def in_thread
+    holder = {}
+    thread = Thread.new do
+      with_connection { yield }
+    rescue StandardError => e
+      holder[:error] = e
+    end
+    thread.define_singleton_method(:thread_error) { holder[:error] }
+    thread
+  end
+
   def finish(threads)
-    Array(threads).compact.each { |thread| thread.join(10) }
+    Array(threads).compact.each do |thread|
+      thread.join(10)
+      raise thread.thread_error if thread.respond_to?(:thread_error) && thread.thread_error
+    end
+  end
+
+  def pop_queue!(queue, label)
+    Timeout.timeout(5, RuntimeError, "timed out waiting for #{label}") { queue.pop }
   end
 
   def ingest_replacement!
@@ -52,9 +77,15 @@ RSpec.describe 'RSS ActivityPub candidate races' do
   end
 
   def waiting_for_resource_lock?
+    # A row lock wait is an ungranted transaction/tuple lock. The table-level
+    # RowExclusiveLock is already granted, so it cannot show the wait.
     sql = <<~SQL.squish
-      SELECT COUNT(*) FROM pg_locks
-      WHERE relation = 'external_resources'::regclass AND NOT granted
+      SELECT COUNT(*)
+      FROM pg_locks AS locks
+      JOIN pg_stat_activity AS activity ON activity.pid = locks.pid
+      WHERE locks.granted = false
+        AND activity.datname = current_database()
+        AND activity.query ILIKE '%UPDATE "external_resources"%'
     SQL
     ActiveRecord::Base.connection.select_value(sql).to_i.positive?
   end
@@ -88,10 +119,10 @@ RSpec.describe 'RSS ActivityPub candidate races' do
       method.call(*args)
     end
 
-    threads << Thread.new do
-      with_connection { ExternalBridge::RSS::ActivityPub::ProbeSource.new.send(:probe_one, @resource.id) }
+    threads << in_thread do
+      ExternalBridge::RSS::ActivityPub::ProbeSource.new.send(:probe_one, @resource.id)
     end
-    arrived.pop
+    pop_queue!(arrived, 'probe claim')
     ingest_replacement!
     release << true
     finish(threads)
@@ -127,14 +158,12 @@ RSpec.describe 'RSS ActivityPub candidate races' do
       method.call(*args)
     end
 
-    threads << Thread.new do
-      with_connection { ExternalBridge::RSS::ActivityPub::ProbeSource.new.send(:probe_one, @resource.id) }
+    threads << in_thread do
+      ExternalBridge::RSS::ActivityPub::ProbeSource.new.send(:probe_one, @resource.id)
     end
-    probe_read.pop
-    threads << Thread.new do
-      with_connection { ingest_replacement! }
-    end
-    ingest_locked.pop
+    pop_queue!(probe_read, 'probe snapshot')
+    threads << in_thread { ingest_replacement! }
+    pop_queue!(ingest_locked, 'ingest row lock')
     probe_go << true
     wait_for_resource_lock
     ingest_go << true
