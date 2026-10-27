@@ -7,7 +7,7 @@ RSpec.describe 'External RSS embed poster' do
   let(:other) { Fabricate(:user) }
   let(:stranger) { Fabricate(:user) }
   let(:feed_url) { 'https://feeds.example/embed.xml' }
-  let(:player_url) { 'https://player.example/embed/abc123' }
+  let(:player_url) { 'https://player.example.com/embed/abc123' }
   let(:large_url) { 'https://images.example/assets/original.mp4/plain/ex:1/rs:fit:320:240?hash=aaa&validto=10' }
   let(:small_url) { 'https://images.example/assets/original.mp4/plain/ex:1/rs:fit:180:135?hash=aaa&validto=10' }
   let(:png) { Rails.root.join('spec', 'fixtures', 'files', 'emojo.png').binread }
@@ -29,7 +29,7 @@ RSpec.describe 'External RSS embed poster' do
     <<~XML
       <item>
         <title>Example video</title>
-        <link>https://watch.example/watch?id=abc123</link>
+        <link>https://watch.example.com/watch?id=abc123</link>
         <pubDate>Tue, 27 Oct 2026 12:00:00 +0000</pubDate>
         <duration>1081</duration>
         <thumb>#{small.gsub('&', '&amp;')}</thumb>
@@ -148,5 +148,111 @@ RSpec.describe 'External RSS embed poster' do
     ExternalBridge::MediaGc.drain!(respect_grace: false)
 
     expect(ExternalMediaAsset.find_by(id: asset_id)).to be_nil
+  end
+
+  it 'projects a guid-less viewkey item and same-site player through the owner sequence' do
+    article = 'https://watch.example.com/view_video.php?viewkey=abc123'
+    player = 'https://www.example.com/embed/abc123'
+    image = 'https://images.example/large.png'
+    feed = 'https://feeds.example/viewkey.xml'
+    xml = <<~XML
+      <item>
+        <title>Viewkey video</title>
+        <link>#{article}</link>
+        <duration>1081</duration>
+        <thumb_large>#{image}</thumb_large>
+        <thumbnail>https://images.example/small.png</thumbnail>
+        <embed><![CDATA[<iframe src="#{player}"></iframe>]]></embed>
+      </item>
+    XML
+    stub_request(:get, image).to_return(status: 200, body: png, headers: { 'Content-Type' => 'image/png' })
+    stub_request(:get, feed).to_return(status: 200, body: rss_document(xml))
+
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed)
+
+    resource = ExternalResource.find_by!(title: 'Viewkey video')
+    sequence = owner_json(user)[:fedibird_external][:sequence]
+    expect(resource.canonical_url).to eq article
+    expect(sequence.first[:type]).to eq 'embed'
+    expect(sequence.first[:url]).to eq player
+    expect(sequence.first[:duration]).to eq 1081
+    expect(sequence.first[:poster]).to be_present
+    expect(a_request(:get, player)).not_to have_been_made
+  end
+
+  it 'keeps one attachment when the same image changes between gallery and poster' do
+    image = 'https://cdn.example/still.png'
+    feed = 'https://feeds.example/role.xml'
+    article = 'https://watch.example.com/watch?id=abc123'
+    notices = 0
+    allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!) { notices += 1 }
+    stub_request(:get, image).to_return(status: 200, body: png, headers: { 'Content-Type' => 'image/png' })
+    stub_request(:get, feed).to_return(status: 200, body: rss_document(role_xml(article, image)))
+
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed)
+    status = Status.find(ExternalStatusProjection.find_by!(user_id: user.id).status_id)
+    attachment_id = status.media_attachments.pick(:id)
+    expect(status.ordered_media_attachments.map(&:id)).to eq [attachment_id]
+    expect(ExternalProjectionAttachment.find_by!(media_attachment_id: attachment_id).kind).to eq 'image'
+
+    seen = notices
+    allow(Rails.cache).to receive(:delete).and_call_original
+    refresh_role!(feed, role_xml(article, image, poster: true))
+
+    status.reload
+    expect(status.media_attachments.pluck(:id)).to eq [attachment_id]
+    expect(ExternalProjectionAttachment.where(media_attachment_id: attachment_id).pluck(:kind)).to eq ['poster']
+    expect(status.ordered_media_attachments).to eq []
+    expect(owner_json(user)[:media_attachments]).to eq []
+    expect(owner_json(user)[:fedibird_external][:sequence].map { |row| row[:type] }).to eq ['embed']
+    expect(ExternalMediaAsset.where(kind: 'image', state: 'ready').count).to eq 1
+    expect(a_request(:get, image)).to have_been_made.once
+    expect(notices).to be > seen
+    expect(Rails.cache).to have_received(:delete).with("statuses/#{status.id}").at_least(:once)
+
+    refresh_role!(feed, role_xml(article, image))
+
+    expect(status.reload.ordered_media_attachments.map(&:id)).to eq [attachment_id]
+    expect(ExternalProjectionAttachment.where(media_attachment_id: attachment_id).pluck(:kind)).to eq ['image']
+    expect(owner_json(user)[:media_attachments].map { |row| row[:id] }).to eq [attachment_id.to_s]
+    expect(status.media_attachments.count).to eq 1
+    expect(a_request(:get, image)).to have_been_made.once
+  end
+
+  it 'accepts a signed poster URL only on the poster image fetch' do
+    signed = large_fetch
+    expect { ExternalBridge::RSS::Media::ImageFetch.new.call(signed) }.to raise_error(ExternalBridge::Error)
+    expect(a_request(:get, signed)).not_to have_been_made
+
+    stub_request(:get, signed).to_return(status: 200, body: png, headers: { 'Content-Type' => 'image/png' })
+    result = ExternalBridge::RSS::Media::ImageFetch.new.call(signed, poster: true)
+
+    expect(result.content_type).to eq 'image/png'
+    expect(a_request(:get, signed)).to have_been_made.once
+  end
+
+  def role_xml(article, image, poster: false)
+    media = if poster
+              %(<thumb_large>#{image}</thumb_large><embed><![CDATA[<iframe src="#{player_url}"></iframe>]]></embed>)
+            else
+              %(<enclosure url="#{image}" type="image/png"/>)
+            end
+    <<~XML
+      <item>
+        <title>Example</title>
+        <link>#{article}</link>
+        <description>Same words</description>
+        #{media}
+      </item>
+    XML
+  end
+
+  def refresh_role!(feed, xml)
+    resource = ExternalResource.find_by!(title: 'Example')
+    parsed = ExternalBridge::RSS::Parser.parse!(rss_document(xml))
+    response = ExternalBridge::RSS::Response.new(code: 200, body: nil, etag: nil, last_modified: nil, final_url: feed)
+    ExternalBridge::RSS::Ingest.new.apply_public!(resource.external_source, parsed, response)
+    subscription = ExternalSubscription.find_by!(user_id: user.id)
+    ExternalBridge::RSS::Materialize.new.call(subscription: subscription, resources: [resource.reload])
   end
 end

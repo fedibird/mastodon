@@ -251,11 +251,13 @@ module ExternalBridge
           listed = listed_digests
           return true if rows.any? { |row| !listed_or_logical?(row, listed) }
 
-          desired_keys = desired_files.map { |_, asset| GenerationMap.generation_key(asset) }
+          desired = desired_files
+          desired_keys = desired.map { |_, asset| GenerationMap.generation_key(asset) }
           current_keys = rows.map { |row| GenerationMap.generation_key(row.external_media_asset) }
-          return false if desired_keys.empty? || desired_keys == current_keys
+          return false if desired_keys.empty?
+          return true if desired_keys != current_keys
 
-          true
+          kinds_differ?(rows, desired)
         end
         public :links_stale?
 
@@ -309,14 +311,25 @@ module ExternalBridge
         def update_descriptions(current, desired)
           changed = false
           current.each_with_index do |row, index|
-            description = alt_text(desired[index].first)
-            attachment = row.media_attachment
-            next if attachment.nil? || attachment.description.to_s == description.to_s
-
-            attachment.update!(description: description)
-            changed = true
+            candidate = desired[index].first
+            changed = true if assign_kind!(row, candidate)
+            changed = true if assign_description!(row.media_attachment, candidate)
           end
           changed
+        end
+
+        def kinds_differ?(rows, desired)
+          desired.each_with_index.any? do |(candidate, _), index|
+            rows[index].kind != projection_kind(candidate)
+          end
+        end
+
+        def assign_kind!(row, candidate)
+          kind = projection_kind(candidate)
+          return false if row.kind == kind
+
+          row.update!(kind: kind)
+          true
         end
 
         # New files are built before any existing attachment is removed. A
@@ -394,8 +407,9 @@ module ExternalBridge
 
           moved = item[:row].position != index
           item[:row].update!(position: index) if moved
+          rekind = assign_kind!(item[:row], item[:candidate])
           described = assign_description!(item[:row].media_attachment, item[:candidate])
-          moved || described
+          moved || rekind || described
         end
 
         def create_prepared!(item, index)

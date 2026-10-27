@@ -122,7 +122,7 @@ module ExternalBridge
           ImageAttempts.requests(candidate).each do |request|
             return nil if stale_revision?(resource, media_revision)
 
-            asset = fetch_image(resource, request, media_revision)
+            asset = fetch_image(resource, request, media_revision, poster: candidate['role'] == 'poster')
             next if asset.nil?
 
             note_attempt!(request.store, 'stored')
@@ -139,13 +139,13 @@ module ExternalBridge
           nil
         end
 
-        def fetch_image(resource, request, media_revision)
+        def fetch_image(resource, request, media_revision, poster:)
           digest = MediaDigest.url_digest(request.store)
           URLLock.call(digest) do
             cached = stored_copy(digest, media_revision)
             next cached if cached
 
-            result = ImageFetch.new.call(request.get)
+            result = ImageFetch.new.call(request.get, poster: poster)
             raise Error, 'http_304' if result.not_modified || result.body.blank?
             next nil if stale_revision?(resource, media_revision)
 

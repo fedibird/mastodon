@@ -19,7 +19,7 @@ module ExternalBridge
       ASSET_QUERY_VALUE = /\A[A-Za-z0-9._-]{1,32}\z/.freeze
       ASSET_QUERY_PAIRS = 3
 
-      ITEM_QUERY = %w(id v video_id clip clip_id).freeze
+      ITEM_QUERY = %w(id v video_id clip clip_id viewkey).freeze
       ITEM_VALUE = /\A[A-Za-z0-9_-]{1,80}\z/.freeze
 
       def self.normalize!(value, asset: false, item: false)

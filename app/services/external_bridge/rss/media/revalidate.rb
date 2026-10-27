@@ -70,7 +70,12 @@ module ExternalBridge
         def apply(current)
           return ReplaceGeneration.resume!(current, resource, @url_digest) if ReplaceGeneration.pending?(current)
 
-          result = ImageFetch.new.call(source_url, etag: current.validator_etag, last_modified: current.validator_last_modified)
+          result = ImageFetch.new.call(
+            source_url,
+            etag: current.validator_etag,
+            last_modified: current.validator_last_modified,
+            poster: candidate['role'] == 'poster'
+          )
           if result.not_modified
             unchanged_or_missing(current)
           elsif file_intact?(current) && result.fingerprint == current.fingerprint

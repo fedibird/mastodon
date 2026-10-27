@@ -5,10 +5,11 @@ module ExternalBridge
     # Turns a player candidate into one https URL, or nothing.
     #
     # The feed's iframe HTML is never stored. A later provider can be added
-    # in front of GenericProvider. The generic rule requires a shared site
-    # parent and the same media id as the article, and it rejects the local
-    # instance, private hosts, credential URLs, direct media files, and
-    # lookalike hosts. It does not accept an arbitrary iframe.
+    # in front of GenericProvider. The generic rule requires the same
+    # registrable domain (Public Suffix List) and the same media id as the
+    # article. A shared public suffix such as `com` is not a site. It rejects
+    # the local instance, private hosts, credential URLs, direct media files,
+    # and lookalike hosts. It does not accept an arbitrary iframe.
     class PlayerResolver
       Decision = Struct.new(:url, :origin, :provider, :at, keyword_init: true)
       PROVIDERS = %w(generic).freeze
@@ -38,13 +39,10 @@ module ExternalBridge
       # Default host and path check. Explicit providers can replace this.
       class GenericProvider
         FILE_EXT = %w(.mp4 .webm .ogv .mov .m3u8 .mpd .mp3 .m4a .aac .ogg .oga .wav .flac .opus .jpg .jpeg .png .gif .webp .svg).freeze
-        QUERY_NAMES = %w(id v video_id clip clip_id).freeze
+        QUERY_NAMES = %w(id v video_id clip clip_id viewkey).freeze
         TOKEN = /\A[A-Za-z0-9_-]{4,80}\z/.freeze
         GENERIC = %w(watch embed player video view clip play media item article post posts entry).freeze
         LABEL = /\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/.freeze
-        # Shared-parent comparison is wrong for these multi-label suffixes:
-        # a.co.uk and b.co.uk are different sites. Not a publisher list.
-        MULTI_SUFFIXES = %w(co.uk org.uk ac.uk com.au net.au org.au co.jp ne.jp or.jp com.br co.nz com.mx).freeze
 
         def self.resolve(article_url, player_url, origin)
           new(article_url, player_url, origin).resolve
@@ -128,30 +126,22 @@ module ExternalBridge
           path.none? { |segment| %w(embed player).include?(segment) }
         end
 
+        # Registrable domain from the Public Suffix List. Two hosts that only
+        # share a public suffix are different sites. A list failure rejects
+        # the player instead of falling back to a hand-written suffix list.
         def related?(article, player)
-          return false if article.host.blank? || player.host.blank?
-
-          left = site_parent(article.host)
-          right = site_parent(player.host)
-          return false if left.blank? || right.blank?
-
-          left == right || left == player.host || right == article.host
+          left = registrable_domain(article.host)
+          right = registrable_domain(player.host)
+          left.present? && left == right
         end
 
-        def site_parent(host)
-          suffix = MULTI_SUFFIXES.find { |item| host == item || host.end_with?(".#{item}") }
-          if suffix
-            rest = host.delete_suffix(suffix).sub(/\.\z/, '')
-            label = rest.split('.').last
-            return nil if label.blank?
+        def registrable_domain(host)
+          name = host.to_s.downcase
+          return nil if name.blank?
 
-            return "#{label}.#{suffix}"
-          end
-
-          labels = host.split('.')
-          return nil if labels.size < 2
-
-          labels.drop(1).join('.')
+          PublicSuffix.domain(name)
+        rescue PublicSuffix::Error
+          nil
         end
 
         def tokens(uri)

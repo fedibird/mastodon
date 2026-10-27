@@ -46,15 +46,19 @@ module ExternalBridge
         Keywords.normalize(@keywords)
       end
 
+      # A thumb is the player's poster. Without an accepted player there is
+      # nothing to show it on, so the image is not stored or fetched.
       def apply!(raw, posters, article_url)
         poster = poster_row
+        player = player_row(article_url, poster)
+        return if player.nil?
+
         if poster
           poster[:hide].each { |url| posters << url if url.present? }
         end
         rows = []
         rows << { at: @poster_at || raw.size, candidate: poster[:candidate] } if poster
-        player = player_row(article_url, poster)
-        rows << { at: player[:at], candidate: player[:candidate] } if player
+        rows << { at: player[:at], candidate: player[:candidate] }
         shift = 0
         rows.sort_by { |row| row[:at].to_i }.each do |row|
           raw.insert([row[:at].to_i + shift, raw.size].min, row[:candidate])
