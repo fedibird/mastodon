@@ -71,16 +71,17 @@ RSpec.describe 'External RSS image candidate fallback' do
   end
 
   it 'does not request an unsafe fallback or a URL past the attempt cap' do
-    urls = (1..5).map { |number| "https://cdn.example/n#{number}.png" }
+    urls = (1..6).map { |number| "https://cdn.example/n#{number}.png" }
     candidate = { 'url' => 'http://127.0.0.1/secret.png', 'kind' => 'image', 'fallbacks' => urls + ['javascript:alert(1)'] }
     expect(ExternalBridge::RSS::Media::ImageAttempts.urls(candidate)).to eq urls.first(ExternalBridge::RSS::Limits::MAX_IMAGE_FETCH_ATTEMPTS)
+    expect(ExternalBridge::RSS::Limits::MAX_IMAGE_FETCH_ATTEMPTS).to eq ExternalBridge::RSS::Limits::MAX_IMAGE_FALLBACKS + 1
 
     resource = publish_candidate(candidate.merge('url' => urls.first, 'fallbacks' => urls.drop(1)))
     urls.each { |url| stub_request(:get, url).to_return(status: 404, body: '') }
     ExternalBridge::RSS::Media::Fetch.new.call(resource.id, resource.media_revision, digest(urls.first))
 
-    expect(a_request(:get, urls[3])).to have_been_made.once
-    expect(a_request(:get, urls[4])).not_to have_been_made
+    expect(a_request(:get, urls[4])).to have_been_made.once
+    expect(a_request(:get, urls[5])).not_to have_been_made
     expect(a_request(:get, 'http://127.0.0.1/secret.png')).not_to have_been_made
   end
 
@@ -292,6 +293,52 @@ RSpec.describe 'External RSS image candidate fallback' do
     expect(changed).not_to eq same
   end
 
+  it 'restores a missing fallback file from the representative digest when 304 persists' do
+    stub_feed(webp: { status: 404, body: '' }, png: png_response('"png-1"'))
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed_url)
+
+    resource = ExternalResource.find_by!(title: 'Story')
+    marker = ExternalStatusProjection.find_by!(user_id: user.id)
+    stored = ExternalMediaAsset.find_by!(url_digest: digest(png_url))
+    primary = ExternalMediaAsset.find_by!(url_digest: digest(webp_url))
+    expect(primary.failure_code).to eq 'alternate_selected'
+    expect(stored).to be_ready
+    expect(Status.find(marker.status_id).media_attachments.count).to eq 1
+    stored.update_columns(validated_at: 25.hours.ago, revalidate_after: nil, revalidate_attempt: 0)
+    FileUtils.rm_f(stored.file.path)
+    WebMock.reset_executed_requests!
+    stub_request(:get, png_url).with(headers: { 'If-None-Match' => '"png-1"' }).to_return(status: 304, body: '')
+
+    fetch_args = nil
+    Sidekiq::Testing.fake! do
+      ExternalBridge::RSS::MediaFetchWorker.clear
+      expect(ExternalBridge::RSS::Media::Revalidate.call(resource.id, stored.url_digest)).to eq :local_missing
+      expect(stored.reload).not_to be_ready
+      expect(stored.failure_code).to eq 'local_missing'
+      expect(ExternalBridge::RSS::MediaFetchWorker.jobs.size).to eq 1
+      fetch_args = ExternalBridge::RSS::MediaFetchWorker.jobs.last['args']
+    end
+    expect(fetch_args).to eq [resource.id, resource.media_revision, digest(webp_url)]
+
+    ExternalBridge::RSS::MediaFetchWorker.new.perform(*fetch_args)
+
+    expect(a_request(:get, png_url).with(headers: { 'If-None-Match' => '"png-1"' })).to have_been_made.once
+    expect(a_request(:get, png_url)).to have_been_made.twice
+    expect(a_request(:get, webp_url)).to have_been_made.once
+    expect(stored.reload).to be_ready
+    expect(stored.failure_code).to be_nil
+    expect(stored.file.exists?).to be true
+    expect(stored.fingerprint).to eq Digest::SHA256.hexdigest(png)
+    expect(primary.reload.failure_code).to eq 'alternate_selected'
+    expect(Status.find(marker.status_id).media_attachments.count).to eq 1
+    expect(marker.reload.external_projection_attachments.find_by!(kind: 'image').external_media_asset_id).to eq stored.id
+
+    stored.update_columns(validated_at: 25.hours.ago, revalidate_after: nil)
+    expect(ExternalBridge::RSS::Media::Revalidate.call(resource.id, stored.url_digest)).to eq :not_modified
+    expect(stored.reload).to be_ready
+    expect(a_request(:get, png_url).with(headers: { 'If-None-Match' => '"png-1"' })).to have_been_made.twice
+  end
+
   it 'revalidates the URL that was actually stored' do
     stub_feed(webp: { status: 404, body: '' }, png: png_response('"png-1"'))
     ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed_url)
@@ -304,6 +351,51 @@ RSpec.describe 'External RSS image candidate fallback' do
     expect(result).to eq :not_modified
     expect(a_request(:get, png_url).with(headers: { 'If-None-Match' => '"png-1"' })).to have_been_made.once
     expect(a_request(:get, webp_url).with(headers: { 'If-None-Match' => '"png-1"' })).not_to have_been_made
+  end
+
+  it 'leaves an in-progress generation checkpoint in place when only fallbacks change' do
+    stub_feed(webp: { status: 404, body: '' }, png: png_response('"png-1"'))
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed_url)
+
+    resource = ExternalResource.find_by!(title: 'Story')
+    marker = ExternalStatusProjection.find_by!(user_id: user.id)
+    stored = ExternalMediaAsset.find_by!(url_digest: digest(png_url))
+    media_revision = resource.media_revision
+    text_revision = resource.revision
+    link = marker.external_projection_attachments.find_by!(kind: 'image')
+    expect(link.external_media_asset_id).to eq stored.id
+
+    incoming = store_png_digest(ExternalBridge::RSS::Media::ReplaceGeneration.checkpoint_digest(stored.id))
+    expect(ExternalBridge::RSS::Media::ReplaceGeneration.pending?(stored.reload)).to be true
+    c_url = 'https://cdn.example/a-c.png'
+    store_png(c_url)
+    resource.update!(media_candidates: [resource.media_candidates.first.merge('fallbacks' => [c_url])])
+    expect(ExternalBridge::RSS::Media::Sync.links_stale?(marker, resource)).to be false
+
+    refresh!(resource)
+
+    expect(link.reload.external_media_asset_id).to eq stored.id
+    expect(stored.reload).to be_ready
+    expect(stored.url_digest).to eq digest(png_url)
+    expect(incoming.reload).to be_ready
+    expect(incoming.url_digest).to eq ExternalBridge::RSS::Media::ReplaceGeneration.checkpoint_digest(stored.id)
+    expect(resource.reload.media_revision).to eq media_revision
+    expect(resource.revision).to eq text_revision
+    expect(marker.reload.last_seen_media_revision).to eq media_revision
+    expect(Status.find(marker.status_id).media_attachments.count).to eq 1
+
+    link.update!(external_media_asset: incoming)
+    resource.update!(media_candidates: [resource.media_candidates.first.merge('fallbacks' => [png_url])])
+    expect(ExternalBridge::RSS::Media::Sync.links_stale?(marker.reload, resource)).to be false
+
+    refresh!(resource)
+
+    expect(link.reload.external_media_asset_id).to eq incoming.id
+    expect(incoming.reload.url_digest).to eq ExternalBridge::RSS::Media::ReplaceGeneration.checkpoint_digest(stored.id)
+    expect(stored.reload).to be_ready
+    expect(stored.url_digest).to eq digest(png_url)
+    expect(Status.find(marker.status_id).media_attachments.count).to eq 1
+    expect(resource.reload.media_revision).to eq media_revision
   end
 
   it 'keeps the resource link when the stored fallback body changes' do
@@ -338,8 +430,12 @@ RSpec.describe 'External RSS image candidate fallback' do
   end
 
   def store_png(url)
+    store_png_digest(digest(url))
+  end
+
+  def store_png_digest(url_digest)
     ExternalBridge::RSS::Media::AssetStore.store!(
-      url_digest: digest(url),
+      url_digest: url_digest,
       kind: 'image',
       revision: 'stored',
       result: ExternalBridge::RSS::Media::ImageFetch::Result.new(

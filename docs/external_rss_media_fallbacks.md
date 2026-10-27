@@ -40,6 +40,7 @@ now (`Media::Sync.links_stale?`). That comparison does not bump
 | The attached digest is no longer a candidate, and nothing ready replaced it | Drop the old link and plan it for GC |
 | A new fallback is listed after every previous URL failed three times for this revision | The new fingerprint is not exhausted, so the chain runs again |
 | The attached digest is still listed, but its shared file is temporarily not ready | Leave the attachment. The fetch chain below replaces the bytes |
+| The attachment is `incoming:{id}` or `superseded:{id}`, or the ready file still has an `incoming:{id}` checkpoint | Leave it. That is a generation swap in progress, not a fallback change |
 
 The resource link used for revalidation is removed when that digest leaves
 the candidate list, so the old fallback is not conditional-GET afterwards.
@@ -47,9 +48,13 @@ the candidate list, so the old fallback is not conditional-GET afterwards.
 ## Fetch
 
 The job still carries the representative digest. `ImageAttempts` walks the
-representative and then the fallbacks, at most four HTTP calls
-(`MAX_IMAGE_FETCH_ATTEMPTS`). Each call uses the existing image rules and the
-existing per-host budget.
+representative and then the fallbacks. Four stored fallbacks plus the
+representative are five HTTP calls (`MAX_IMAGE_FETCH_ATTEMPTS`). Each call
+uses the existing image rules and the existing per-host budget. A 304 for
+the URL that was actually stored, including a fallback, with a missing
+local file is `local_missing`. The follow-up job is keyed by the
+representative digest and GETs without validators, so a server that keeps
+answering 304 still restores that fallback on the same job.
 
 | Failure | Next URL |
 | --- | --- |

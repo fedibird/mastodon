@@ -42,6 +42,9 @@ module ExternalBridge
 
         def attach_ready!(allow_notify: false)
           return false unless eligible?
+          # ReplaceGeneration is still moving this projection. Reconciling the
+          # fallback list here would drop the checkpoint that swap is finishing.
+          return false if generation_in_progress?(attachment_rows)
 
           changed = reconcile(desired_files)
           forget_unlisted_resources!
@@ -238,8 +241,10 @@ module ExternalBridge
 
           rows = attachment_rows
           # A generation swap parks the new file on incoming:{id} and the old
-          # file on superseded:{id}. Those rows are not candidate drift.
-          return false if rows.any? { |row| generation_checkpoint?(row.external_media_asset&.url_digest) }
+          # file on superseded:{id}. A projection that still points at the
+          # previous file while that checkpoint exists is the same swap, not
+          # candidate drift.
+          return false if generation_in_progress?(rows)
 
           listed = listed_digests
           return true if rows.any? { |row| !listed_or_logical?(row, listed) }
@@ -251,6 +256,13 @@ module ExternalBridge
           true
         end
         public :links_stale?
+
+        def generation_in_progress?(rows)
+          rows.any? do |row|
+            asset = row.external_media_asset
+            generation_checkpoint?(asset&.url_digest) || ReplaceGeneration.pending?(asset)
+          end
+        end
 
         def generation_checkpoint?(digest)
           GenerationMap.checkpoint?(digest)
