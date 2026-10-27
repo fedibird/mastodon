@@ -149,9 +149,19 @@ module ExternalBridge
       def canonical_url!(url, profile)
         return poster_canonical!(url) if profile.url_mode.to_s == 'poster'
         return MediaURL.normalize!(url) if profile.url_mode.to_s == 'media'
-        return CanonicalURL.normalize!(url, item: true) if profile.url_mode.to_s == 'item'
+        return activitypub_canonical!(url) if profile.url_mode.to_s == 'item'
 
         CanonicalURL.normalize!(url, asset: profile.asset_urls)
+      end
+
+      # Existing RSS item URLs may use a video viewkey. Such URLs are
+      # intentionally not accepted for extra AP metadata requests.
+      def activitypub_canonical!(url)
+        normalized = CanonicalURL.normalize!(url, item: true)
+        query = Addressable::URI.parse(normalized).query.to_s
+        raise Error, :authenticated_source_rejected if query.split('&').any? { |pair| pair.start_with?('viewkey=') }
+
+        normalized
       end
 
       def media_profile?(profile)

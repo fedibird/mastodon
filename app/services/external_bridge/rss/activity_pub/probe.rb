@@ -34,6 +34,9 @@ module ExternalBridge
           return Result.new(state: 'unavailable') if kind.nil?
 
           id = CanonicalURL.normalize!(data['id'], item: true)
+          if Addressable::URI.parse(id).query.to_s.split('&').any? { |pair| pair.start_with?('viewkey=') }
+            return Result.new(state: 'unavailable')
+          end
           Result.new(state: 'verified', object_id: id, object_type: kind)
         rescue Error
           Result.new(state: 'unavailable')

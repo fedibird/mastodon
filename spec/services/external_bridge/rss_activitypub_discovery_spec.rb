@@ -113,6 +113,13 @@ RSpec.describe 'RSS ActivityPub discovery' do
       expect(a_request(:get, 'http://127.0.0.1/private')).not_to have_been_made
     end
 
+    it 'rejects an item URL carrying a video viewkey before making a new AP request' do
+      unsafe = 'https://posts.example/clip?viewkey=secret'
+      stub_request(:get, unsafe).to_return(status: 200, body: object.to_json)
+      expect(described_class.new.call(unsafe).state).to eq 'error'
+      expect(a_request(:get, unsafe)).not_to have_been_made
+    end
+
     it 'refuses an HTTP redirect to a private address' do
       stub_request(:get, url).to_return(status: 302, headers: { 'Location' => 'http://127.0.0.1/private' })
       stub_request(:get, 'http://127.0.0.1/private').to_return(status: 200, body: object.to_json)
