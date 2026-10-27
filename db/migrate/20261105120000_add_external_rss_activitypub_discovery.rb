@@ -2,7 +2,7 @@
 
 # Public, shared ActivityPub discovery metadata. No status, account, or
 # projection row is changed. Unknown is deliberately distinct from unavailable.
-class AddExternalRSSActivitypubDiscovery < ActiveRecord::Migration[6.1]
+class AddExternalRSSActivityPubDiscovery < ActiveRecord::Migration[6.1]
   def change
     add_column :external_sources, :activitypub_state, :string, null: false, default: 'unknown'
     add_column :external_sources, :activitypub_hint, :boolean, null: false, default: false
