@@ -3,13 +3,34 @@
 module ExternalBridge
   module RSS
     module ActivityPub
-      # This verifies that a PUBLIC item URL can return an ActivityStreams 2.0
-      # object. It never imports the object into the local ActivityPub pipeline.
-      # No JSON-LD expansion, remote context requests, or signed GET is used.
+      # Confirms that a public candidate URL can return an ActivityStreams 2.0
+      # content object. It does not import the object, expand JSON-LD, fetch
+      # a remote context, or sign the GET.
+      #
+      # state "verified" means only that: the candidate URL returned an AS2
+      # object. object_id is the document's self-declared id after a safety
+      # check (length, http(s) URI, no credentials, no private literal). It is
+      # stored verbatim, including fragments and ordinary query strings, and
+      # is NOT fetched or compared with the candidate URL. object_id_status
+      # is "self_reported" for that reason. A later feature must not treat
+      # this row as proof that the id is the object's canonical IRI.
       class Probe
-        Result = Struct.new(:state, :object_id, :object_type, keyword_init: true)
+        # A plain object so `object_id` stays the ActivityStreams id. Struct
+        # would override Ruby's own object_id.
+        class Result
+          attr_reader :state, :object_id, :object_type, :object_id_status
+
+          def initialize(state:, object_id: nil, object_type: nil, object_id_status: nil)
+            @state = state
+            @object_id = object_id
+            @object_type = object_type
+            @object_id_status = object_id_status
+          end
+        end
+
         CONTEXT = 'https://www.w3.org/ns/activitystreams'
         OBJECT_TYPES = %w(Note Article Page Document Image Video Audio Event Question).freeze
+        OBJECT_ID_SELF_REPORTED = 'self_reported'
 
         def call(url)
           response = HttpClient.get(url, profile: HttpClient::ACTIVITYPUB_PROFILE)
@@ -19,7 +40,7 @@ module ExternalBridge
           return Result.new(state: 'unavailable') unless HttpClient::ACTIVITYPUB_PROFILE.content_types.include?(response.content_type)
 
           validate_body(response.body)
-        rescue Error, JSON::ParserError, JSON::NestingError, TypeError, ArgumentError
+        rescue Error, JSON::ParserError, TypeError, ArgumentError
           Result.new(state: 'error')
         end
 
@@ -33,11 +54,8 @@ module ExternalBridge
           kind = Array(data['type']).find { |type| OBJECT_TYPES.include?(type) }
           return Result.new(state: 'unavailable') if kind.nil?
 
-          id = CanonicalURL.normalize!(data['id'], item: true)
-          if Addressable::URI.parse(id).query.to_s.split('&').any? { |pair| pair.start_with?('viewkey=') }
-            return Result.new(state: 'unavailable')
-          end
-          Result.new(state: 'verified', object_id: id, object_type: kind)
+          id = ObjectId.preserve!(data['id'])
+          Result.new(state: 'verified', object_id: id, object_type: kind, object_id_status: OBJECT_ID_SELF_REPORTED)
         rescue Error
           Result.new(state: 'unavailable')
         end

@@ -49,11 +49,13 @@ RSpec.describe 'RSS ActivityPub discovery' do
       XML
       feed = described_class.parse!(xml)
       expect(feed.activitypub_hint).to be true
+      expect(feed.activitypub_generator_hint).to be true
       expect(feed.items.first.activitypub_explicit).to be true
       expect(feed.items.first.activitypub_url).to eq 'https://posts.example/users/alice/statuses/123'
+      expect(feed.items.first.activitypub_sample_url).to be_nil
     end
 
-    it 'keeps RSS 2.0, RDF RSS 1.0 and ordinary feeds merely as URL candidates' do
+    it 'keeps ordinary RSS 2.0 and RDF links as sample inputs, not typed AP candidates' do
       rss = '<rss><channel><title>news</title><item><guid>guid-1</guid><link>https://news.example/1</link></item></channel></rss>'
       rdf = <<~XML
         <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
@@ -64,7 +66,10 @@ RSpec.describe 'RSS ActivityPub discovery' do
       [rss, rdf].each do |xml|
         feed = described_class.parse!(xml)
         expect(feed.activitypub_hint).to be false
-        expect(feed.items.first.activitypub_url).to match(%r{\Ahttps://news\.example/})
+        expect(feed.activitypub_generator_hint).to be false
+        expect(feed.items.first.activitypub_explicit).to be false
+        expect(feed.items.first.activitypub_url).to be_nil
+        expect(feed.items.first.activitypub_sample_url).to match(%r{\Ahttps://news\.example/})
       end
     end
 
@@ -88,7 +93,47 @@ RSpec.describe 'RSS ActivityPub discovery' do
       expect { @result = described_class.new.call(url) }.not_to change(Status, :count)
       expect(@result.state).to eq 'verified'
       expect(@result.object_id).to eq 'https://posts.example/users/alice/statuses/123'
+      expect(@result.object_id_status).to eq 'self_reported'
       expect(@result.object_type).to eq 'Note'
+      expect(a_request(:get, @result.object_id)).not_to have_been_made
+    end
+
+    it 'keeps a self-reported id that differs from the fetch URL, including fragment and query' do
+      identifier = 'https://posts.example/users/alice/statuses/123?page=2#main'
+      public_object(url, object.merge('id' => identifier))
+      result = described_class.new.call(url)
+      expect(result.state).to eq 'verified'
+      expect(result.object_id).to eq identifier
+      expect(result.object_id_status).to eq 'self_reported'
+      expect(a_request(:get, identifier)).not_to have_been_made
+    end
+
+    it 'stores a syntactically safe id from another host without dereferencing it' do
+      identifier = 'https://attacker.example/users/alice/statuses/999'
+      stub_request(:get, identifier).to_return(status: 200, body: object.to_json, headers: { 'Content-Type' => 'application/activity+json' })
+      public_object(url, object.merge('id' => identifier))
+      result = described_class.new.call(url)
+      expect(result.state).to eq 'verified'
+      expect(result.object_id).to eq identifier
+      expect(result.object_id_status).to eq 'self_reported'
+      expect(a_request(:get, identifier)).not_to have_been_made
+    end
+
+    it 'does not keep a credentialled, private, or non-URI object id' do
+      bad_ids = [
+        'https://user:pass@posts.example/secret',
+        'http://127.0.0.1/obj',
+        'javascript:alert(1)',
+        'https://posts.example/obj?viewkey=secret',
+        'not a uri',
+        "https://posts.example/#{'a' * 3_000}",
+      ]
+      bad_ids.each do |identifier|
+        public_object(url, object.merge('id' => identifier))
+        result = described_class.new.call(url)
+        expect(result.state).to eq('unavailable'), identifier
+        expect(result.object_id).to be_nil
+      end
     end
 
     it 'does not accept HTML, an actor, or a JSON object lacking the AS2 context' do
@@ -150,10 +195,13 @@ RSpec.describe 'RSS ActivityPub discovery' do
 
       expect(resource.reload.activitypub_state).to eq 'verified'
       expect(resource.activitypub_object_id).to eq object['id']
+      expect(resource.activitypub_object_id_status).to eq 'self_reported'
       expect(resource.activitypub_checked_at).to be_present
       expect(resource.activitypub_next_check_at).to be > Time.current
-      expect(source.reload.activitypub_state).to eq 'verified'
-      expect(source.activitypub_instance_state).to eq 'verified'
+      expect(source.reload.activitypub_state).to eq 'items_verified'
+      expect(source.activitypub_instance_state).to eq 'advertised'
+      expect(source.host_activitypub_supported).to eq 'supported'
+      expect(source.activitypub_feed_attribution).to eq 'unknown'
       expect(source.activitypub_software).to eq 'mastodon'
       expect(ExternalStatusProjection.count).to eq 0
 
@@ -173,6 +221,8 @@ RSpec.describe 'RSS ActivityPub discovery' do
 
       expect(resource.reload.activitypub_state).to eq 'verified'
       expect(source.reload.activitypub_instance_state).to eq 'unavailable'
+      expect(source.host_activitypub_supported).to eq 'unknown'
+      expect(source.activitypub_feed_attribution).to eq 'unknown'
       expect(source.activitypub_state).to eq 'items_verified'
     end
 
@@ -182,6 +232,8 @@ RSpec.describe 'RSS ActivityPub discovery' do
       public_nodeinfo('https://feeds.example', protocols: ['diaspora'])
       described_class.new.call(source.id)
       expect(source.reload.activitypub_instance_state).to eq 'not_advertised'
+      expect(source.host_activitypub_supported).to eq 'not_advertised'
+      expect(source.activitypub_feed_attribution).to eq 'unknown'
       expect(source.activitypub_state).to eq 'unknown'
     end
 
@@ -205,10 +257,14 @@ RSpec.describe 'RSS ActivityPub discovery' do
       ingest.apply_public!(source, feed.call('https://posts.example/@alice/124'), response)
 
       expect(resource.reload.activitypub_candidate_url).to eq 'https://posts.example/@alice/124'
+      expect(resource.activitypub_candidate_digest).to eq Digest::SHA256.hexdigest('https://posts.example/@alice/124')
       expect(resource.activitypub_state).to eq 'unknown'
       expect(resource.activitypub_object_id).to be_nil
-      expect(resource.activitypub_next_check_at).to be_nil
+      expect(resource.activitypub_object_id_status).to be_nil
+      expect(resource.activitypub_evidence_version).to be > 0
+      expect(resource.activitypub_next_check_at).to be <= Time.current
       expect(source.reload.activitypub_state).to eq 'unknown'
+      expect(source.activitypub_feed_attribution).to eq 'unknown'
     end
 
     it 'leaves sources and resources alone when opt-in probing is disabled' do
@@ -221,5 +277,138 @@ RSpec.describe 'RSS ActivityPub discovery' do
       expect(resource.reload.activitypub_state).to eq 'unknown'
       expect(resource.activitypub_checked_at).to be_nil
     end
+
+    it 'probes explicit links before ordinary ones and stops ordinary sampling after a miss' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: feed_url)
+      ExternalSubscription.create!(user: user, external_source: source)
+      explicit = Array.new(3) do |index|
+        create_candidate(source, "explicit-#{index}", "https://posts.example/ap/#{index}", explicit: true)
+      end
+      ordinary = Array.new(6) do |index|
+        create_candidate(source, "ordinary-#{index}", "https://news.example/p/#{index}", explicit: false)
+      end
+      explicit.each { |item| public_object(item.activitypub_candidate_url) }
+      ordinary.each do |item|
+        stub_request(:get, item.activitypub_candidate_url).to_return(status: 404, headers: { 'Content-Type' => 'text/html' })
+      end
+      stub_request(:get, 'https://feeds.example/.well-known/nodeinfo').to_return(status: 404)
+
+      described_class.new.call(source.id)
+      described_class.new.call(source.id)
+
+      expect(explicit.sum { |item| request_count(item.activitypub_candidate_url) }).to eq 3
+      expect(ordinary.sum { |item| request_count(item.activitypub_candidate_url) }).to eq 1
+      expect(source.reload.activitypub_ordinary_blocked_until).to be > Time.current
+      expect(source.activitypub_state).to eq 'items_verified'
+      expect(source.host_activitypub_supported).to eq 'unknown'
+    end
+
+    it 'does not GET every ordinary permalink on a host that advertises ActivityPub' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: feed_url, host_activitypub_supported: 'supported')
+      ExternalSubscription.create!(user: user, external_source: source)
+      rows = Array.new(12) do |index|
+        create_candidate(source, "recent-#{index}", "https://feeds.example/users/alice/statuses/#{index}", explicit: false)
+      end
+      rows.each { |item| public_object(item.activitypub_candidate_url) }
+      public_nodeinfo
+
+      described_class.new.call(source.id)
+
+      expect(rows.sum { |item| request_count(item.activitypub_candidate_url) }).to eq ExternalBridge::RSS::ActivityPub::Limits::MAX_GETS_PER_RUN
+      expect(source.reload.host_activitypub_supported).to eq 'supported'
+      expect(source.activitypub_feed_attribution).to eq 'unknown'
+      expect(source.activitypub_state).to eq 'items_verified'
+    end
+  end
+
+  describe ExternalBridge::RSS::Ingest do
+    it 'attributes a feed only from generator plus same-host entry identity' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://posts.example/users/alice.rss')
+      response = ExternalBridge::RSS::Response.new(code: 200)
+      attributed = ExternalBridge::RSS::Parser.parse!(<<~XML)
+        <rss><channel><title>Alice</title><generator>Mastodon v4.2.0</generator>
+          <item><guid>tag:posts.example,2026:1</guid><link>https://posts.example/@alice/1</link><title>Hi</title></item>
+        </channel></rss>
+      XML
+      described_class.new.apply_public!(source, attributed, response)
+      expect(source.reload.activitypub_generator_hint).to be true
+      expect(source.activitypub_feed_attribution).to eq 'attributed'
+      expect(source.host_activitypub_supported).to eq 'unknown'
+      expect(source.activitypub_state).to eq 'hinted'
+      expect(source.external_resources.where.not(activitypub_candidate_url: nil).count).to eq 1
+
+      off_host = ExternalBridge::RSS::Parser.parse!(<<~XML)
+        <rss><channel><title>Alice</title><generator>Mastodon v4.2.0</generator>
+          <item><guid>foreign</guid><link>https://other.example/post</link><title>Away</title></item>
+        </channel></rss>
+      XML
+      other = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://posts.example/mirror.xml')
+      described_class.new.apply_public!(other, off_host, response)
+      expect(other.reload.activitypub_generator_hint).to be true
+      expect(other.activitypub_feed_attribution).to eq 'unknown'
+    end
+
+    it 'stores only a capped ordinary sample and every explicit link' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://news.example/feed.xml')
+      items = Array.new(20) do |index|
+        %(<item><guid>g#{index}</guid><link>https://news.example/#{index}</link><title>T#{index}</title></item>)
+      end
+      explicit = %(<item><guid>typed</guid><title>Typed</title><link>https://news.example/html</link><link rel="alternate" type="application/activity+json" href="https://news.example/users/alice/statuses/9"/></item>)
+      feed = ExternalBridge::RSS::Parser.parse!("<rss><channel><title>News</title>#{items.join}#{explicit}</channel></rss>")
+      described_class.new.apply_public!(source, feed, ExternalBridge::RSS::Response.new(code: 200))
+
+      resources = source.external_resources
+      expect(resources.where(activitypub_explicit: true).count).to eq 1
+      expect(resources.where(activitypub_explicit: false).where.not(activitypub_candidate_url: nil).count).to eq ExternalBridge::RSS::ActivityPub::Limits::ORDINARY_SAMPLE_CAP
+      expect(resources.where(activitypub_candidate_url: nil).count).to eq 18
+    end
+  end
+
+  describe ExternalBridge::RSS::ActivityPub::NodeInfoProbe do
+    it 'does not follow a cross-origin redirect' do
+      stub_request(:get, 'https://feeds.example/.well-known/nodeinfo').to_return(
+        status: 302, headers: { 'Location' => 'https://collector.example/nodeinfo' }
+      )
+      stub_request(:get, 'https://collector.example/nodeinfo').to_return(
+        status: 200,
+        body: { protocols: ['activitypub'], software: { name: 'mastodon' } }.to_json,
+        headers: { 'Content-Type' => 'application/json' }
+      )
+
+      expect(described_class.new.call('https://feeds.example/news.xml').state).to eq 'error'
+      expect(a_request(:get, 'https://collector.example/nodeinfo')).not_to have_been_made
+    end
+
+    it 'follows a same-origin redirect and still refuses a later cross-origin hop' do
+      stub_request(:get, 'https://feeds.example/.well-known/nodeinfo').to_return(
+        status: 302, headers: { 'Location' => 'https://feeds.example/nodeinfo/discovery' }
+      )
+      stub_request(:get, 'https://feeds.example/nodeinfo/discovery').to_return(
+        status: 200,
+        body: { links: [{ rel: 'http://nodeinfo.diaspora.software/ns/schema/2.0', href: 'https://evil.example/nodeinfo/2.0' }] }.to_json,
+        headers: { 'Content-Type' => 'application/json' }
+      )
+      stub_request(:get, 'https://evil.example/nodeinfo/2.0').to_return(status: 200, body: '{}', headers: { 'Content-Type' => 'application/json' })
+
+      expect(described_class.new.call('https://feeds.example/news.xml').state).to eq 'error'
+      expect(a_request(:get, 'https://feeds.example/nodeinfo/discovery')).to have_been_made.once
+      expect(a_request(:get, 'https://evil.example/nodeinfo/2.0')).not_to have_been_made
+    end
+  end
+
+  def create_candidate(source, key, candidate, explicit:)
+    ExternalResource.create!(
+      external_source: source,
+      protocol: 'rss',
+      canonical_key: key,
+      canonical_url: candidate,
+      activitypub_candidate_url: candidate,
+      activitypub_explicit: explicit,
+      published_at: Time.current
+    )
+  end
+
+  def request_count(candidate)
+    WebMock::RequestRegistry.instance.times_executed(WebMock::RequestPattern.new(:get, candidate))
   end
 end

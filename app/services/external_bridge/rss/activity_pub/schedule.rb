@@ -15,8 +15,7 @@ module ExternalBridge
         end
 
         def due?(source)
-          source.external_resources.where(source_deleted_at: nil).where.not(activitypub_candidate_url: nil)
-                .where('activitypub_next_check_at IS NULL OR activitypub_next_check_at <= ?', Time.current).exists?
+          DueResources.new(source).due?
         end
 
         def instance_due?(source)
@@ -33,17 +32,15 @@ module ExternalBridge
           false
         end
 
-        # NodeInfo advertises support by the feed HOST. Verified remote item
-        # URLs alone do not establish that the RSS feed itself is AP-capable.
+        # Item evidence and the weak feed hint only. Host NodeInfo lives on
+        # host_activitypub_supported. "This RSS is produced by an AP
+        # implementation" lives on activitypub_feed_attribution. Neither is
+        # copied into activitypub_state, and activitypub_state is never
+        # "verified" (that word on a resource means the candidate URL returned
+        # AS2, not that the feed host is an AP server).
         def recompute_source!(source)
-          # The shared fetch and AP probe may update the same source in separate
-          # transactions. Re-read the latest NodeInfo evidence before deriving
-          # the summary state instead of trusting the caller's stale instance.
           source.reload
-          item_verified = source.external_resources.where(activitypub_state: 'verified', source_deleted_at: nil).exists?
-          state = if source.activitypub_instance_state == 'verified'
-                    'verified'
-                  elsif item_verified
+          state = if DueResources.verified_items(source).exists?
                     'items_verified'
                   elsif source.activitypub_hint?
                     'hinted'

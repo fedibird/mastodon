@@ -15,18 +15,22 @@ module ExternalBridge
         written = []
         ApplicationRecord.transaction do
           with_feed_lock(source.canonical_key)
+          source.reload
           source.update!(
             title: feed.title.presence || source.title,
             site_url: feed.site_url.presence || source.site_url,
-            activitypub_hint: !!feed.activitypub_hint,
+            activitypub_hint: feed.activitypub_hint || false,
+            activitypub_generator_hint: feed.activitypub_generator_hint || false,
+            activitypub_feed_attribution: ActivityPub::FeedAttribution.evaluate(feed: feed, feed_url: source.canonical_key),
             etag: response.etag,
             last_modified: response.last_modified,
             fetched_at: Time.current,
             checked_at: Time.current,
             **icon_hint_attributes(source, feed)
           )
+          budget = ActivityPub::SampleBudget.new(source)
           actor = upsert_actor!(source, feed)
-          written = feed.items.map { |item| upsert_resource!(source, actor, item) }
+          written = feed.items.map { |item| upsert_resource!(source, actor, item, budget) }
           ActivityPub::Schedule.recompute_source!(source)
         end
         written
@@ -64,54 +68,70 @@ module ExternalBridge
         end
       end
 
-      def upsert_resource!(source, actor, item)
-        key = resource_key(source, item.key)
+      def upsert_resource!(source, actor, item, budget = nil)
+        budget ||= ActivityPub::SampleBudget.new(source)
+        save_once(ExternalResource, protocol: source.protocol, canonical_key: resource_key(source, item.key)) do |resource|
+          assign_resource!(resource, source, actor, item)
+          ActivityPub::CandidateWriter.new(budget).apply!(resource, item)
+        end
+      end
+
+      def assign_resource!(resource, source, actor, item)
         digest = Digest::SHA256.hexdigest([item.title, item.body, item.canonical_url].join("\n"))
         media = MediaDigest.normalize(item.media)
-        save_once(ExternalResource, protocol: source.protocol, canonical_key: key) do |resource|
-          resource.external_source = source
-          resource.external_actor = actor
-          resource.revision = digest
-          resource.canonical_url = item.canonical_url
-          resource.title = item.title
-          resource.body = item.body
-          resource.byline = item.byline
-          resource.body_digest = digest
-          resource.published_at = item.published_at
-          resource.truncated = item.truncated
-          resource.fetched_at = Time.current
-          resource.source_deleted_at = nil
-          resource.media_candidates = media
-          resource.media_revision = MediaDigest.hexdigest(media)
-          resource.keywords = Keywords.normalize(item.keywords)
-          if resource.activitypub_candidate_url != item.activitypub_url
-            resource.activitypub_state = 'unknown'
-            resource.activitypub_object_id = nil
-            resource.activitypub_object_type = nil
-            resource.activitypub_checked_at = nil
-            resource.activitypub_next_check_at = nil
-          end
-          resource.activitypub_candidate_url = item.activitypub_url
-        end
+        resource.external_source = source
+        resource.external_actor = actor
+        resource.revision = digest
+        resource.canonical_url = item.canonical_url
+        resource.title = item.title
+        resource.body = item.body
+        resource.byline = item.byline
+        resource.body_digest = digest
+        resource.published_at = item.published_at
+        resource.truncated = item.truncated
+        resource.fetched_at = Time.current
+        resource.source_deleted_at = nil
+        resource.media_candidates = media
+        resource.media_revision = MediaDigest.hexdigest(media)
+        resource.keywords = Keywords.normalize(item.keywords)
       end
 
       # A concurrent insert can win the unique key between find and save.
       # The retry loads that row and applies the same public attributes.
+      # Persisted rows are re-read under a row lock before attributes are
+      # copied, so a probe cannot commit object evidence that this save then
+      # fails to clear.
       def save_once(model, **identity)
         attempts = 0
         begin
           attempts += 1
           ApplicationRecord.transaction(requires_new: true) do
             record = model.find_or_initialize_by(identity)
+            record = model.lock.find(record.id) if record.persisted?
             yield record
             record.save!
+            commit_activitypub_assignment!(record)
             record
           end
-        rescue ActiveRecord::RecordNotUnique
+        rescue ActiveRecord::RecordNotUnique, ActiveRecord::StaleObjectError
           raise if attempts >= 2
 
           retry
         end
+      end
+
+      def commit_activitypub_assignment!(record)
+        assignment = record.instance_variable_get(:@activitypub_assignment)
+        return if assignment.nil?
+
+        before_activitypub_commit(record)
+        ActivityPub::CandidateCommit.call!(record, assignment)
+      end
+
+      # Test seam. The row lock is held and the candidate reset has not been
+      # written. Probe claims block until this transaction commits.
+      def before_activitypub_commit(_record)
+        nil
       end
 
       # Literal keys stay readable. Oversized guid/id values are SHA256 of
