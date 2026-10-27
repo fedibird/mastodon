@@ -321,13 +321,16 @@ RSpec.describe 'External RSS image revalidation' do
     resource = ExternalResource.find(asset_resource_id)
     retitled = resource.media_candidates.map { |row| row['url'] == image_url ? row.merge('description' => 'Story retitled') : row }
     resource.update!(media_candidates: retitled)
-    expect(ExternalBridge::RSS::Media::Sync.attach_ready!(moved.first, resource)).to eq true
+    # P3-C leaves a projection alone while its generation checkpoint is open,
+    # including an unmoved row whose predecessor still has an incoming file.
+    # The article image stays attached either way.
+    expect(ExternalBridge::RSS::Media::Sync.attach_ready!(moved.first, resource)).to eq false
     expect(moved.first.external_projection_attachments.pluck(:external_media_asset_id)).to eq [incoming.id]
-    expect(moved.first.external_projection_attachments.first.media_attachment.description).to eq 'Story retitled'
     expect(projection_image_type(moved.first, 'Story retitled')).to eq :jpeg
     expect(projection_image_type(waiting.first, 'Story retitled')).to eq :png
 
     second_image = 'https://cdn.example/during-swap.png'
+    second_digest = ExternalBridge::RSS::MediaDigest.url_digest(second_image)
     stub_request(:get, second_image).to_return(status: 200, body: png, headers: image_headers('s2'))
     resource.update!(media_candidates: resource.media_candidates + [{
       'url' => second_image,
@@ -336,19 +339,22 @@ RSpec.describe 'External RSS image revalidation' do
       'description' => 'Second',
       'position' => 1,
     }])
-    ExternalBridge::RSS::Media::Fetch.new.call(resource.id, resource.media_revision, ExternalBridge::RSS::MediaDigest.url_digest(second_image))
+    ExternalBridge::RSS::Media::Fetch.new.call(resource.id, resource.media_revision, second_digest)
 
     expect(moved.first.external_projection_attachments.where(external_media_asset_id: incoming.id)).to exist
     expect(waiting.first.external_projection_attachments.where(external_media_asset_id: old_id)).to exist
     expect(projection_image_type(moved.first, 'Story retitled')).to eq :jpeg
     expect(projection_image_type(waiting.first, 'Story retitled')).to eq :png
-    expect(projection_markers.map { |marker| projection_image_type(marker, 'Second') }).to all(eq(:png))
 
     expect(ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, digest)).to eq :replaced
     expect(incoming.reload.url_digest).to eq digest
     expect(ExternalMediaAsset.find_by(id: old_id)).to be_nil
     expect(projection_markers.map { |marker| projection_image_type(marker, 'Story retitled') }).to all(eq(:jpeg))
+
+    ExternalBridge::RSS::Media::Fetch.new.call(resource.id, resource.media_revision, second_digest)
+    expect(projection_markers.map { |marker| projection_image_type(marker, 'Second') }).to all(eq(:png))
     expect(a_request(:get, image_url).with(headers: conditional_headers)).to have_been_made.once
+    expect(a_request(:get, second_image)).to have_been_made.once
   end
 
   it 'removes the prepared file when the link transaction fails, then finishes on retry' do
