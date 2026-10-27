@@ -109,6 +109,59 @@ RSpec.describe 'RSS presentation lease', type: :model do
     expect(subscription.presentation_lease_until).to be > Time.current
   end
 
+  it 'keeps a feed edit that lands while reconcile is waiting on the projection' do
+    @user = Fabricate(:user)
+    enable_external_bridge_rss!(@user)
+    world = project_for(@user, body: '古い本文')
+    @source_id = world[:source].id
+    world[:resource].update!(title: '旧題', body: '古い本文', revision: 'rev-old')
+    world[:subscription].update_columns(
+      cw_enabled: true,
+      media_sensitive: false,
+      presentation_revision: 4,
+      presentation_applied_revision: 0,
+      presentation_lease_token: 'race-token',
+      presentation_lease_until: 10.minutes.from_now
+    )
+    ready = Queue.new
+    release = Queue.new
+    holder = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        ExternalStatusProjection.transaction do
+          ExternalStatusProjection.lock('FOR UPDATE').find(world[:marker].id)
+          ready << :held
+          release.pop
+        end
+      end
+    end
+    ready.pop
+
+    worker = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        ExternalBridge::RSS::PresentationReconcileWorker.new.perform(world[:subscription].id, 4, 0, 'race-token')
+      end
+    end
+    world[:resource].update!(title: '改題', body: '新しい本文', revision: 'rev-new')
+    materializer = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        fresh = ExternalSubscription.find(world[:subscription].id)
+        resource = ExternalResource.find(world[:resource].id)
+        ExternalBridge::RSS::Materialize.new.call(subscription: fresh, resources: [resource])
+      end
+    end
+
+    sleep 0.3
+    release << :go
+    [holder, worker, materializer].each(&:join)
+
+    status = world[:status].reload
+    expect(status.spoiler_text).to eq('改題')
+    expect(status.text).to include('新しい本文')
+    expect(status.text).not_to include('古い本文')
+    expect(status.text).not_to include('旧題')
+    expect(world[:resource].reload.title).to eq('改題')
+  end
+
   it 'sees a choice saved by the lock holder and does not write another generation' do
     @user = Fabricate(:user)
     enable_external_bridge_rss!(@user)

@@ -13,8 +13,9 @@ module ExternalBridge
 
       BATCH = 100
       LEASE = 5.minutes
-      # Released with the page transaction. A second pass of the same
-      # subscription skips instead of writing those statuses again.
+      # Session lock for one page. Released in ensure, including when a
+      # projection write raises. A second rewrite of this subscription
+      # skips the page instead of scanning it at the same time.
       LOCK_CLASS = 810_533
 
       # One token owns the generation. The update matches only an expired
@@ -77,48 +78,68 @@ module ExternalBridge
                                 .pluck(:id)
       end
 
-      # The share lock covers the read of the generation and the status
-      # writes. A save or a purge waits until this page commits, so this page
-      # cannot overwrite a generation it did not read.
+      # Each projection is its own short transaction: subscription FOR SHARE,
+      # then that projection FOR UPDATE. The article is read again under that
+      # lock, so a feed edit that landed while this page was waiting is the
+      # text that gets stored. The session lock only keeps two rewrites of
+      # the same subscription from scanning at once.
       def apply_page(subscription_id, revision, ids, token)
-        applied = false
+        return false unless session_lock?(subscription_id)
+
+        current = true
+        begin
+          ids.each do |marker_id|
+            break unless current
+
+            current = apply_locked(subscription_id, revision, token, marker_id)
+          end
+          current
+        ensure
+          session_unlock(subscription_id)
+        end
+      end
+
+      def apply_locked(subscription_id, revision, token, marker_id)
+        wrote = true
         SubscriptionFence.guard!(subscription_id) do
-          if page_lock?(subscription_id)
-            current = ExternalSubscription.where(id: subscription_id).pick(
-              :presentation_revision, :presentation_lease_token, :media_sensitive, :cw_enabled
-            )
-            if current && current[0].to_i == revision.to_i && current[1] == token
-              policy = { media_sensitive: current[2], cw_enabled: current[3] }
-              ExternalStatusProjection.where(id: ids).includes(:status, :external_resource).find_each do |marker|
-                apply_marker(marker, policy)
-              end
-              applied = true
-            end
+          current = ExternalSubscription.where(id: subscription_id).pick(
+            :presentation_revision, :presentation_lease_token, :media_sensitive, :cw_enabled
+          )
+          if current && current[0].to_i == revision.to_i && current[1] == token
+            apply_marker(marker_id, media_sensitive: current[2], cw_enabled: current[3])
+          else
+            wrote = false
           end
         end
-        applied
+        wrote
       rescue SubscriptionFence::Fenced
         false
       end
 
-      def page_lock?(subscription_id)
+      def session_lock?(subscription_id)
         locked = ActiveRecord::Base.connection.select_value(
           ActiveRecord::Base.sanitize_sql_array(
-            ['SELECT pg_try_advisory_xact_lock(?, ?)', LOCK_CLASS, subscription_id.to_i]
+            ['SELECT pg_try_advisory_lock(?, ?)', LOCK_CLASS, subscription_id.to_i]
           )
         )
         locked == true || locked.to_s == 't'
       end
 
-      def apply_marker(marker, policy)
-        status = marker.status
-        resource = marker.external_resource
-        return if status.nil? || resource.nil?
+      def session_unlock(subscription_id)
+        ActiveRecord::Base.connection.select_value(
+          ActiveRecord::Base.sanitize_sql_array(
+            ['SELECT pg_advisory_unlock(?, ?)', LOCK_CLASS, subscription_id.to_i]
+          )
+        )
+      end
 
-        desired = Presentation.for(resource, **policy)
-        return unless Presentation.apply!(status, desired)
+      def apply_marker(marker_id, policy)
+        ProjectionWrite.latest(marker_id) do |marker, status, resource|
+          desired = Presentation.for(resource, **policy)
+          next unless Presentation.apply!(status, desired)
 
-        Streaming::Scheduler.bump_and_schedule_content!(marker)
+          Streaming::Scheduler.bump_and_schedule_content!(marker)
+        end
       end
 
       # Extends the lease only for the token that already owns it. An expired

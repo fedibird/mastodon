@@ -139,29 +139,38 @@ module ExternalBridge
           locked = Presentation.snapshot(marker.external_subscription_id)
           raise SubscriptionFence::Fenced if locked.nil?
 
-          locked_desired = Presentation.for(resource, **locked)
-          current = status.reload
-          locked_changed = Presentation.changed?(current, locked_desired)
-          if locked_changed || marker_changed
+          # The resource argument may be a snapshot from before this lock.
+          # Another import can commit a newer article while this refresh
+          # waits, so the row is read again after the projection lock.
+          ProjectionWrite.latest(marker.id) do |fresh_marker, fresh_status, fresh_resource|
+            fresh_desired = Presentation.for(fresh_resource, **locked)
+            fresh_deleted = fresh_resource.source_deleted_at.present?
+            fresh_deleted_changed = fresh_marker.source_deleted != fresh_deleted
+            fresh_revision_changed = fresh_marker.last_seen_revision.to_s != fresh_resource.revision.to_s
+            fresh_media_changed = media_revision_changed?(fresh_marker, fresh_resource)
+            fresh_links_stale = Media::Sync.links_stale?(fresh_marker, fresh_resource)
+            fresh_presentation_changed = Presentation.changed?(fresh_status, fresh_desired)
+            next unless fresh_presentation_changed || fresh_deleted_changed || fresh_revision_changed || fresh_media_changed || fresh_links_stale
+
             write_refresh!(
-              marker,
-              current,
-              resource,
+              fresh_marker,
+              fresh_status,
+              fresh_resource,
               {
-                text: locked_desired.text,
-                spoiler_text: locked_desired.spoiler_text,
-                sensitive: locked_desired.sensitive,
-                deleted: deleted,
-                presentation_changed: locked_changed,
-                deleted_changed: deleted_changed,
-                revision_changed: revision_changed,
-                media_changed: media_changed,
-                links_stale: links_stale,
+                text: fresh_desired.text,
+                spoiler_text: fresh_desired.spoiler_text,
+                sensitive: fresh_desired.sensitive,
+                deleted: fresh_deleted,
+                presentation_changed: fresh_presentation_changed,
+                deleted_changed: fresh_deleted_changed,
+                revision_changed: fresh_revision_changed,
+                media_changed: fresh_media_changed,
+                links_stale: fresh_links_stale,
               }
             )
-            outcome = if media_changed
+            outcome = if fresh_media_changed
                         :media
-                      elsif links_stale
+                      elsif fresh_links_stale
                         :links
                       else
                         :text
