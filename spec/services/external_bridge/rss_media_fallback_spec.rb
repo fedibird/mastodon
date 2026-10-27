@@ -508,7 +508,7 @@ RSpec.describe 'External RSS image candidate fallback' do
     expect(MediaAttachment.find_by(id: prepared.id)).to be_present
     expect(File.exist?(prepared_path)).to be true
 
-    stage.update_columns(lease_until: 1.minute.ago)
+    stage.update_columns(lease_until: 1.minute.ago, available_at: 1.minute.ago)
     Scheduler::ExternalBridgeRSSMediaGcScheduler.new.perform
 
     expect(MediaAttachment.find_by(id: prepared.id)).to be_nil

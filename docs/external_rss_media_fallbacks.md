@@ -45,8 +45,10 @@ now (`Media::Sync.links_stale?`). That comparison does not bump
 A changed fallback body is still one generation. The prepared subscriber
 file and its `external_media_repoint_stages` row commit before the
 projection link moves. If the worker stops there and that subscriber is
-then purged, the stage row stays and its projection id becomes null. After
-the lease lapses, the media GC pass deletes that file. A compose upload has
+then purged, the stage row stays and its projection id becomes null.
+`available_at` is the same instant as the prepare lease. After both have
+lapsed, the media GC pass deletes that file. A failure moves `available_at`
+forward or marks the stage retained, and the proof row stays. A compose upload has
 no stage, so the sweep does not see it. When the swap finishes, the
 resource link and every projection link name the one new file.
 
