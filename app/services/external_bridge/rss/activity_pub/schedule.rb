@@ -36,6 +36,10 @@ module ExternalBridge
         # NodeInfo advertises support by the feed HOST. Verified remote item
         # URLs alone do not establish that the RSS feed itself is AP-capable.
         def recompute_source!(source)
+          # The shared fetch and AP probe may update the same source in separate
+          # transactions. Re-read the latest NodeInfo evidence before deriving
+          # the summary state instead of trusting the caller's stale instance.
+          source.reload
           item_verified = source.external_resources.where(activitypub_state: 'verified', source_deleted_at: nil).exists?
           state = if source.activitypub_instance_state == 'verified'
                     'verified'
