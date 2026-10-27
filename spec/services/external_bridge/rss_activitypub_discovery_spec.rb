@@ -190,7 +190,7 @@ RSpec.describe 'RSS ActivityPub discovery' do
       end
       ingest = ExternalBridge::RSS::Ingest.new
       ingest.apply_public!(source, feed.call(url), response)
-      resource = source.external_resources.sole
+      resource = source.external_resources.first
       resource.update!(activitypub_state: 'verified', activitypub_object_id: object['id'],
                        activitypub_object_type: 'Note', activitypub_checked_at: Time.current,
                        activitypub_next_check_at: 7.days.from_now)
