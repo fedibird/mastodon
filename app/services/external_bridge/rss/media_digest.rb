@@ -6,7 +6,7 @@ module ExternalBridge
     # title/body/url revision so a media-only edit is visible and a text-only
     # edit does not look like a media edit.
     module MediaDigest
-      FIELDS = %w(url kind role origin mime_hint length_hint description position poster_url).freeze
+      FIELDS = %w(url kind role origin mime_hint length_hint description position poster_url duration).freeze
       EMPTY = Digest::SHA256.hexdigest('[]').freeze
 
       module_function
@@ -26,7 +26,7 @@ module ExternalBridge
       def row(candidate)
         source = source_hash(candidate)
         FIELDS.each_with_object({}) do |key, memo|
-          value = source[key]
+          value = field_value(key, source[key])
           memo[key] = value unless value.nil?
         end
       end
@@ -40,7 +40,37 @@ module ExternalBridge
 
         fallbacks = fallback_urls(source['fallbacks'], memo['url'])
         memo['fallbacks'] = fallbacks if fallbacks.present?
+        assign_poster_fetch!(memo, source)
         memo
+      end
+
+      # The signed URL is how the bytes are fetched. It is not part of `row`,
+      # so a new hash or expiry does not change media_revision.
+      def assign_poster_fetch!(memo, source)
+        return unless memo['kind'] == 'image' && memo['role'] == 'poster'
+
+        merged = source.merge('url' => memo['url'], 'fallbacks' => Array(memo['fallbacks']), 'role' => 'poster')
+        requests = Media::ImageAttempts.requests(merged)
+        primary = requests.find { |item| item.store == memo['url'] }
+        memo['fetch_url'] = primary.get if primary && primary.get != primary.store
+        signed = Array(memo['fallbacks']).filter_map do |logical|
+          found = requests.find { |item| item.store == logical }
+          found.get if found && found.get != found.store
+        end
+        memo['fetch_fallbacks'] = signed if signed.present?
+      end
+
+      def field_value(key, value)
+        return duration_value(value) if key == 'duration'
+
+        value
+      end
+
+      def duration_value(value)
+        return nil unless value.is_a?(Integer)
+        return nil if value.negative? || value > Limits::MAX_MEDIA_DURATION
+
+        value
       end
 
       def source_hash(candidate)
@@ -55,12 +85,13 @@ module ExternalBridge
       def safe_fallback(url, primary)
         text = url.to_s
         return nil if text.blank? || text == primary.to_s
-
-        normalized = MediaURL.normalize(text)
-        return nil unless normalized == text
         return nil if svg_url?(text)
+        return text if MediaURL.normalize(text) == text
 
-        text
+        pair = PosterURL.pair(text)
+        return text if pair&.logical == text
+
+        nil
       end
 
       def svg_url?(url)

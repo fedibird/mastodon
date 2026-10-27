@@ -550,11 +550,33 @@ class Status < ApplicationRecord
   end
 
   def ordered_media_attachments
+    list = listed_media_attachments
+    hidden = poster_media_attachment_ids
+    return list if hidden.empty?
+
+    list.to_a.reject { |item| hidden.include?(item.id) }
+  end
+
+  private def listed_media_attachments
     if ordered_media_attachment_ids.nil?
       media_attachments
     else
       map = media_attachments.index_by(&:id)
       ordered_media_attachment_ids.filter_map { |media_attachment_id| map[media_attachment_id] }
+    end
+  end
+
+  private def poster_media_attachment_ids
+    return [] unless external_projection == true
+
+    projection = external_status_projection
+    return [] if projection.nil?
+
+    scope = projection.external_projection_attachments
+    if projection.association(:external_projection_attachments).loaded?
+      scope.select { |row| row.kind == 'poster' }.map(&:media_attachment_id)
+    else
+      scope.where(kind: 'poster').pluck(:media_attachment_id)
     end
   end
 

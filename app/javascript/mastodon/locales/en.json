@@ -521,6 +521,7 @@
   "errors.unexpected_crash.report_issue": "Report issue",
   "expires_indicator.cancel": "Cancel",
   "expires_indicator.message": "{action} after {duration}",
+  "external_media.embed_video": "External video",
   "external_media.open_article": "Open article",
   "external_media.open_media": "Open media file",
   "external_media.playback_failed": "This browser could not play the file.",

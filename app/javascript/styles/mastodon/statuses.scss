@@ -214,7 +214,8 @@ a.button.logo-button {
     .media-gallery,
     &__action-bar,
     .video-player,
-    .external-remote-media {
+    .external-remote-media,
+    .external-embed-player {
       margin-top: 10px;
     }
 
@@ -275,5 +276,68 @@ a.button.logo-button {
     background: transparent;
     color: inherit;
     cursor: pointer;
+  }
+}
+
+.external-embed-player {
+  max-width: 100%;
+
+  &__launch {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+    overflow: hidden;
+    text-align: left;
+    border: 1px solid var(--border, #d9e1e8);
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  &__poster {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    max-height: 240px;
+    object-fit: cover;
+  }
+
+  &__meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  &__badge {
+    font-weight: 700;
+  }
+
+  &__frame {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    aspect-ratio: 16 / 9;
+  }
+
+  &__iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+
+  &__article {
+    display: inline-block;
+    margin-top: 8px;
   }
 }

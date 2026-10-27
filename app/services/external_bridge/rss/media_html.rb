@@ -3,8 +3,9 @@
 module ExternalBridge
   module RSS
     # HTML embedded in a feed body. The fragment is never serialized back into
-    # a page and script, iframe, and embed nodes are dropped before attributes
-    # are read. YouTube-style players are out of scope.
+    # a page. script, iframe, and embed nodes are dropped before image and
+    # file attributes are read. Iframe src for a player is collected separately
+    # by EmbedScan, which keeps the URL only.
     class MediaHtml
       def self.extract(html, base, raw, posters)
         new(html, base, raw, posters).extract

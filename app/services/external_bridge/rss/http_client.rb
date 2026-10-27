@@ -120,9 +120,19 @@ module ExternalBridge
       private
 
       def canonical_url!(url, profile)
-        return MediaURL.normalize!(url) if profile.url_mode.to_s == 'media'
+        return media_canonical!(url) if profile.url_mode.to_s == 'media'
 
         CanonicalURL.normalize!(url, asset: profile.asset_urls)
+      end
+
+      # Ordinary media URLs stay on MediaURL. A poster whose query is only a
+      # rotating signature is still an image fetch; PosterURL keeps that
+      # signature on the request and does not treat it as the file identity.
+      def media_canonical!(url)
+        normalized = MediaURL.normalize(url)
+        return normalized if normalized
+
+        PosterURL.fetch!(url)
       end
 
       def host_validation_code(error)

@@ -16,9 +16,15 @@ module ExternalBridge
           too_many_redirects http_304
         ).freeze
 
+        Request = Struct.new(:get, :store, keyword_init: true)
+
+        def self.requests(candidate)
+          rows = request_rows(candidate)
+          rows.filter_map { |get, store| build_request(get, store) }.uniq(&:store).first(Limits::MAX_IMAGE_FETCH_ATTEMPTS)
+        end
+
         def self.urls(candidate)
-          raw = [candidate['url'], *Array(candidate['fallbacks'])]
-          raw.filter_map { |url| safe(url) }.uniq.first(Limits::MAX_IMAGE_FETCH_ATTEMPTS)
+          requests(candidate).map(&:get)
         end
 
         # Separate from media_revision. The same representative with a
@@ -47,15 +53,33 @@ module ExternalBridge
           !asset.exhausted_for?(revision, fingerprint)
         end
 
+        def self.request_rows(candidate)
+          if candidate['role'] == 'poster'
+            rows = [[candidate['fetch_url'].presence || candidate['url'], candidate['url']]]
+            Array(candidate['fallbacks']).each_with_index do |store, index|
+              signed = Array(candidate['fetch_fallbacks'])[index]
+              rows << [signed.presence || store, store]
+            end
+            return rows
+          end
+
+          [[candidate['url'], candidate['url']], *Array(candidate['fallbacks']).map { |store| [store, store] }]
+        end
+
+        def self.build_request(get, store)
+          pair = PosterURL.pair(get)
+          return nil if pair.nil? || svg?(pair.logical)
+          return nil unless pair.logical == store.to_s
+
+          Request.new(get: pair.fetch, store: pair.logical)
+        end
+
         def self.safe(url)
-          text = url.to_s
-          return nil if text.blank?
+          pair = PosterURL.pair(url)
+          return nil if pair.nil? || pair.fetch != url.to_s
+          return nil if svg?(pair.logical)
 
-          normalized = MediaURL.normalize(text)
-          return nil unless normalized == text
-          return nil if svg?(text)
-
-          text
+          pair.fetch
         rescue Addressable::URI::InvalidURIError
           nil
         end

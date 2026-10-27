@@ -10,7 +10,7 @@ import { FormattedMessage } from 'react-intl';
 // it, and a redirect target is chosen by the browser, not by Fedibird.
 // Device playback, HLS, and Range/seek are recorded in
 // docs/external_rss_media_playback.md. They are not claimed from this file.
-const safeMediaUrl = (value) => {
+export const safeMediaUrl = (value) => {
   if (!value || typeof value !== 'string') {
     return null;
   }

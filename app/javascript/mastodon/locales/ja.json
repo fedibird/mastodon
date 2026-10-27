@@ -521,6 +521,7 @@
   "errors.unexpected_crash.report_issue": "問題を報告",
   "expires_indicator.cancel": "キャンセル",
   "expires_indicator.message": "{duration}後に{action}する",
+  "external_media.embed_video": "外部動画",
   "external_media.open_article": "記事を開く",
   "external_media.open_media": "メディアファイルを開く",
   "external_media.playback_failed": "このブラウザでは再生できませんでした。",

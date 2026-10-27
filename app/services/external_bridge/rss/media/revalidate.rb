@@ -172,11 +172,12 @@ module ExternalBridge
         end
 
         def source_url
-          source_urls(candidate).find { |url| MediaDigest.url_digest(url) == @url_digest }
+          request = ImageAttempts.requests(candidate).find { |item| MediaDigest.url_digest(item.store) == @url_digest }
+          request&.get
         end
 
         def source_urls(row)
-          [row['url'], *Array(row && row['fallbacks'])].select(&:present?)
+          ImageAttempts.requests(row).map(&:store)
         end
       end
     end

@@ -117,12 +117,14 @@ module ExternalBridge
         end
 
         def desired_files
-          saved_candidates.filter_map do |candidate|
+          ready = saved_candidates.filter_map do |candidate|
             asset = asset_for(candidate)
             next if asset.nil? || asset.kind != candidate['kind']
 
             [candidate, asset]
-          end.first(attachment_limit)
+          end
+          gallery, posters = ready.partition { |candidate, _asset| candidate['role'] != 'poster' }
+          gallery.first(attachment_limit) + posters.first(1)
         end
 
         def asset_for(candidate)
@@ -401,7 +403,7 @@ module ExternalBridge
             external_media_asset: item[:asset],
             media_attachment: item[:attachment],
             position: index,
-            kind: item[:candidate]['kind']
+            kind: projection_kind(item[:candidate])
           )
           AssetStore.mark_processed!(item[:asset])
           true
@@ -459,7 +461,15 @@ module ExternalBridge
           'bin'
         end
 
+        def projection_kind(candidate)
+          return 'poster' if candidate['role'] == 'poster'
+
+          candidate['kind']
+        end
+
         def alt_text(candidate)
+          return nil if candidate['role'] == 'poster'
+
           candidate['description'].to_s.strip.slice(0, MediaAttachment::MAX_DESCRIPTION_LENGTH).presence
         end
 
