@@ -17,9 +17,7 @@ module ExternalBridge
           return discovery unless discovery.is_a?(Hash)
 
           links = Array(discovery['links']).select { |entry| entry.is_a?(Hash) }
-          selected = SCHEMAS.lazy.map do |version|
-            links.find { |entry| entry['rel'] == "#{REL_BASE}#{version}" }
-          end.find(&:present?)
+          selected = SCHEMAS.map { |version| links.find { |entry| entry['rel'] == "#{REL_BASE}#{version}" } }.compact.first
           return Result.new(state: 'unavailable') if selected.nil?
 
           target = CanonicalURL.normalize!(selected['href'])
