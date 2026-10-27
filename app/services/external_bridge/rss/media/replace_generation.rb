@@ -13,8 +13,15 @@ module ExternalBridge
       # row lock across Paperclip. The previous file is handed to
       # MediaGc.plan_generation! only after no projection still references
       # it. A kill before that leaves the old row ready and linked, so the
-      # scheduler can resume the same checkpoint. Resource links move with
-      # the digest, and only when that resource still lists this URL.
+      # scheduler can resume the same checkpoint. The incoming row stores
+      # the article digest in logical_digest, so Sequence can show the new
+      # file before the public digest moves. Resource links move with the
+      # digest, and only when that resource still lists this URL.
+      #
+      # The replacement MediaAttachment is saved before the link transaction.
+      # If that transaction rolls back, the prepared row and its files are
+      # destroyed. The next pass deletes an unlinked copy on the same status
+      # with the same description, created at or after this checkpoint.
       class ReplaceGeneration
         EXTENSION_FOR_TYPE = {
           'image/jpeg' => 'jpg',
@@ -38,7 +45,7 @@ module ExternalBridge
         end
 
         def self.checkpoint_digest(asset_id)
-          "incoming:#{asset_id.to_i}"
+          GenerationMap.incoming_digest(asset_id)
         end
 
         def initialize(asset, result, resource, url_digest)
@@ -93,6 +100,7 @@ module ExternalBridge
 
         def reuse_checkpoint!(found)
           assign_file!(found) if replace_checkpoint?(found)
+          found.update!(logical_digest: @url_digest) if found.logical_digest.blank?
           found
         end
 
@@ -107,6 +115,7 @@ module ExternalBridge
         def write_incoming!(fresh)
           asset = ExternalMediaAsset.new(
             url_digest: self.class.checkpoint_digest(fresh.id),
+            logical_digest: fresh.url_digest,
             kind: 'image',
             state: 'ready',
             generation: fresh.generation.to_i + 1
@@ -165,28 +174,106 @@ module ExternalBridge
         end
 
         def repoint_one!(link_id, old_id)
-          marker_id = nil
+          previous = linked_attachment(link_id, old_id)
+          return if previous == :absent
+          return forget_link!(link_id) if previous.nil?
+
+          reclaim_orphans!(previous)
+          copied = copy_attachment(previous)
+          commit_move!(link_id, old_id, previous.id, copied)
+        end
+
+        def linked_attachment(link_id, old_id)
+          link = ExternalProjectionAttachment.find_by(id: link_id)
+          return :absent if link.nil? || link.external_media_asset_id != old_id
+
+          link.media_attachment
+        end
+
+        def forget_link!(link_id)
           ApplicationRecord.transaction do
-            marker_id = move_link!(link_id, old_id)
+            link = ExternalProjectionAttachment.lock.find_by(id: link_id)
+            link&.destroy!
           end
+          nil
+        end
+
+        # Paperclip writes files before the database commits. Create the
+        # attachment first, then swing the link. A rollback or a raised
+        # error destroys that row. A later pass collects a copy that was
+        # left behind when the process stopped between those two steps.
+        def commit_move!(link_id, old_id, previous_media_id, copied)
+          result = nil
+          ApplicationRecord.transaction(requires_new: true) do
+            result = swing_link!(link_id, old_id, previous_media_id, copied)
+            raise ActiveRecord::Rollback if result == :stale
+          end
+          release_prepared!(copied) if result == :stale
+          result == :stale ? nil : result
+        rescue StandardError
+          release_prepared!(copied)
+          raise
+        end
+
+        # Replace the projection row instead of updating it. The GC proof
+        # records that row id while it still points at the previous file.
+        # A later release accepts the proof only when that row is gone or
+        # still names the previous file. Updating the row in place would
+        # leave the previous file retained.
+        def swing_link!(link_id, old_id, previous_media_id, copied)
+          link = ExternalProjectionAttachment.lock.find_by(id: link_id)
+          return :stale if link.nil? || link.external_media_asset_id != old_id || link.media_attachment_id != previous_media_id
+
+          ExternalBridge::MediaGc.plan_replacement!(attachment_ids: [previous_media_id], asset_ids: [])
+          marker_id = link.external_status_projection_id
+          ExternalProjectionAttachment.create!(
+            external_status_projection_id: marker_id,
+            external_media_asset: @incoming,
+            media_attachment: copied,
+            position: link.position,
+            kind: link.kind
+          )
+          link.destroy!
+          ExternalBridge::MediaGc.schedule_release!(attachment_ids: [previous_media_id], asset_ids: [])
           marker_id
         end
 
-        def move_link!(link_id, old_id)
-          link = ExternalProjectionAttachment.lock.find_by(id: link_id)
-          return if link.nil? || link.external_media_asset_id != old_id
-
-          previous = link.media_attachment
-          if previous.nil?
-            link.destroy!
-            return
+        def reclaim_orphans!(previous)
+          scope = MediaAttachment.where(status_id: previous.status_id, description: previous.description)
+          scope = scope.where(file_content_type: @incoming.content_type) if @incoming.content_type.present?
+          scope.where(MediaAttachment.arel_table[:created_at].gteq(@incoming.created_at)).find_each do |attachment|
+            release_prepared!(attachment)
           end
+        end
 
-          copied = copy_attachment(previous)
-          ExternalBridge::MediaGc.plan_replacement!(attachment_ids: [previous.id], asset_ids: [])
-          link.update!(external_media_asset: @incoming, media_attachment: copied)
-          ExternalBridge::MediaGc.schedule_release!(attachment_ids: [previous.id], asset_ids: [])
-          link.external_status_projection_id
+        def release_prepared!(attachment)
+          return if attachment.nil?
+
+          path = nil
+          fresh = MediaAttachment.find_by(id: attachment.id)
+          return if fresh.nil?
+          return if ExternalProjectionAttachment.exists?(media_attachment_id: fresh.id)
+
+          path = fresh.file.path
+          fresh.destroy!
+          delete_stored_files!(path)
+        rescue ActiveRecord::ActiveRecordError
+          delete_stored_files!(path)
+          MediaAttachment.where(id: attachment.id).delete_all
+        end
+
+        def delete_stored_files!(path)
+          return if path.blank?
+
+          style_dir = File.dirname(path.to_s)
+          directory = File.dirname(style_dir)
+          return unless File.basename(style_dir) == 'original'
+
+          marker = "#{File::SEPARATOR}media_attachments#{File::SEPARATOR}files#{File::SEPARATOR}"
+          return unless directory.include?(marker)
+          return unless File.directory?(directory)
+
+          FileUtils.rm_rf(directory)
         end
 
         def copy_attachment(previous)

@@ -42,10 +42,27 @@ sees the updated `validated_at` and does not GET again.
 
 The new bytes are saved first, on a row whose digest is `incoming:{old id}`
 and whose `generation` is the next generation id. That row is the checkpoint.
-One pass then repoints at most `MEDIA_REPOINT_BATCH` (8) projections. Each
-projection is its own transaction: copy the attachment, point the link at
-the new generation, and plan the previous attachment for GC. The asset row
-lock is not held across those copies.
+`logical_digest` on that row is the article URL digest (nullable, no default,
+no backfill). `Sequence` indexes a projection by `logical_digest` as well as
+by a public `url_digest`, so a subscriber who has already moved still
+resolves the article URL to the new file. A subscriber who has not moved
+still resolves it to the old file. `RSS::Media::Sync` treats the incoming
+row and the public row as the same generation. A refresh, or a fetch of a
+different image, does not delete the incoming link or copy the old file
+back. The checkpoint still finishes on the next pass.
+
+One pass then repoints at most `MEDIA_REPOINT_BATCH` (8) projections. The
+new `MediaAttachment` is saved before the short link transaction. That
+transaction plans the previous attachment for GC, inserts a new projection
+row for the new generation, and deletes the previous projection row. The
+GC proof names that previous row, so the row has to go away before the
+previous file can be released. The asset row lock is not held across the
+copy. If the link transaction rolls back, the prepared attachment row is
+destroyed and its stored files are removed. The next pass also deletes an
+unlinked attachment on the same status, with the same description and
+content type, created at or after the checkpoint. A process kill and a
+real object store (S3 or similar) were not exercised, so those two
+cleanups are unverified outside the local test disk.
 
 `MediaGc.plan_generation!` runs only when no projection still references the
 old row. The old digest becomes `superseded:{id}` in that same transaction,
@@ -101,8 +118,10 @@ INFO logs contain the asset id and the failure code, not the URL or a token.
 ## Data
 
 Migration `20261102140000` adds nullable validator columns and constant
-defaults (`generation` 1, `revalidate_attempt` 0). PostgreSQL 11+ does not
-rewrite existing rows for those defaults. The partial index
+defaults (`generation` 1, `revalidate_attempt` 0). Migration
+`20261103140000` adds nullable `logical_digest` with no default. PostgreSQL
+11+ does not rewrite existing rows for those defaults or the new column.
+The partial index
 `index_ext_media_assets_on_image_revalidate` is `validated_at ASC NULLS FIRST`
 where `state = 'ready' AND kind = 'image'`. `lock_timeout` is 5 seconds.
 `down` drops the columns, the index, and `external_media_asset_resources`.

@@ -291,6 +291,127 @@ RSpec.describe 'External RSS image revalidation' do
     end
   end
 
+  it 'keeps a local image for every subscriber while a generation batch is unfinished' do
+    others = Array.new(11) { Fabricate(:user) }
+    enable_external_bridge_rss!(*others)
+    others.each { |subscriber| ExternalBridge::RSS::Subscribe.new.call(user: subscriber, url: feed_url) }
+    expect(ExternalProjectionAttachment.count).to eq 12
+
+    asset = age_asset!
+    old_id = asset.id
+    digest = asset.url_digest
+    allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!)
+    stub_request(:get, image_url).with(headers: conditional_headers).to_return(status: 200, body: jpeg, headers: image_headers('v3', 'image/jpeg'))
+
+    Sidekiq::Testing.fake! do
+      ExternalBridge::RSS::MediaGenerationContinueWorker.clear
+      expect(ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, digest)).to eq :partial
+    end
+
+    incoming = ExternalMediaAsset.find_by!(url_digest: "incoming:#{old_id}")
+    expect(incoming.logical_digest).to eq digest
+    expect(ExternalProjectionAttachment.where(external_media_asset_id: incoming.id).count).to eq 8
+    expect(ExternalProjectionAttachment.where(external_media_asset_id: old_id).count).to eq 4
+    moved, waiting = projection_markers.partition { |marker| marker.external_projection_attachments.exists?(external_media_asset_id: incoming.id) }
+    expect(moved.size).to eq 8
+    expect(waiting.size).to eq 4
+    expect(moved.map { |marker| projection_image_type(marker, 'Story') }).to all(eq(:jpeg))
+    expect(waiting.map { |marker| projection_image_type(marker, 'Story') }).to all(eq(:png))
+
+    resource = ExternalResource.find(asset_resource_id)
+    retitled = resource.media_candidates.map { |row| row['url'] == image_url ? row.merge('description' => 'Story retitled') : row }
+    resource.update!(media_candidates: retitled)
+    expect(ExternalBridge::RSS::Media::Sync.attach_ready!(moved.first, resource)).to eq true
+    expect(moved.first.external_projection_attachments.pluck(:external_media_asset_id)).to eq [incoming.id]
+    expect(moved.first.external_projection_attachments.first.media_attachment.description).to eq 'Story retitled'
+    expect(projection_image_type(moved.first, 'Story retitled')).to eq :jpeg
+    expect(projection_image_type(waiting.first, 'Story retitled')).to eq :png
+
+    second_image = 'https://cdn.example/during-swap.png'
+    stub_request(:get, second_image).to_return(status: 200, body: png, headers: image_headers('s2'))
+    resource.update!(media_candidates: resource.media_candidates + [{
+      'url' => second_image,
+      'kind' => 'image',
+      'role' => 'attachment',
+      'description' => 'Second',
+      'position' => 1,
+    }])
+    ExternalBridge::RSS::Media::Fetch.new.call(resource.id, resource.media_revision, ExternalBridge::RSS::MediaDigest.url_digest(second_image))
+
+    expect(moved.first.external_projection_attachments.where(external_media_asset_id: incoming.id)).to exist
+    expect(waiting.first.external_projection_attachments.where(external_media_asset_id: old_id)).to exist
+    expect(projection_image_type(moved.first, 'Story retitled')).to eq :jpeg
+    expect(projection_image_type(waiting.first, 'Story retitled')).to eq :png
+    expect(projection_markers.map { |marker| projection_image_type(marker, 'Second') }).to all(eq(:png))
+
+    expect(ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, digest)).to eq :replaced
+    expect(incoming.reload.url_digest).to eq digest
+    expect(ExternalMediaAsset.find_by(id: old_id)).to be_nil
+    expect(projection_markers.map { |marker| projection_image_type(marker, 'Story retitled') }).to all(eq(:jpeg))
+    expect(a_request(:get, image_url).with(headers: conditional_headers)).to have_been_made.once
+  end
+
+  it 'removes the prepared file when the link transaction fails, then finishes on retry' do
+    asset = age_asset!
+    marker = ExternalStatusProjection.find_by!(user_id: user.id)
+    allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!)
+    stub_request(:get, image_url).with(headers: conditional_headers).to_return(status: 200, body: jpeg, headers: image_headers('v3', 'image/jpeg'))
+    prepared = []
+    allow(MediaAttachment).to receive(:create!).and_wrap_original do |method, *args, **kwargs|
+      record = method.call(*args, **kwargs)
+      prepared << { id: record.id, path: record.file.path }
+      record
+    end
+    allow(ExternalBridge::MediaGc).to receive(:plan_replacement!).and_raise(ActiveRecord::ActiveRecordError)
+
+    expect { ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, asset.url_digest) }.to raise_error(ActiveRecord::ActiveRecordError)
+
+    expect(prepared.size).to eq 1
+    expect(MediaAttachment.find_by(id: prepared.first[:id])).to be_nil
+    expect(File.exist?(prepared.first[:path])).to be false
+    expect(marker.external_projection_attachments.pick(:external_media_asset_id)).to eq asset.id
+    expect(projection_image_type(marker, 'Story')).to eq :png
+    expect(ExternalMediaAsset.find_by!(url_digest: "incoming:#{asset.id}").logical_digest).to eq asset.url_digest
+
+    allow(ExternalBridge::MediaGc).to receive(:plan_replacement!).and_call_original
+    expect(ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, asset.url_digest)).to eq :replaced
+    expect(projection_image_type(marker, 'Story')).to eq :jpeg
+    expect(a_request(:get, image_url).with(headers: conditional_headers)).to have_been_made.once
+  end
+
+  it 'reclaims an unlinked copy from a stopped repoint before finishing the batch' do
+    other = Fabricate(:user)
+    enable_external_bridge_rss!(other)
+    ExternalBridge::RSS::Subscribe.new.call(user: other, url: feed_url)
+    asset = age_asset!
+    old_id = asset.id
+    stub_const('ExternalBridge::RSS::Limits::MEDIA_REPOINT_BATCH', 1)
+    allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!)
+    stub_request(:get, image_url).with(headers: conditional_headers).to_return(status: 200, body: jpeg, headers: image_headers('v3', 'image/jpeg'))
+
+    Sidekiq::Testing.fake! do
+      ExternalBridge::RSS::MediaGenerationContinueWorker.clear
+      expect(ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, asset.url_digest)).to eq :partial
+    end
+
+    waiting = ExternalProjectionAttachment.find_by!(external_media_asset_id: old_id)
+    previous = waiting.media_attachment
+    expect(previous.description).to eq 'Story'
+    orphan = attachment_on(previous, jpeg, 'Story')
+    kept = attachment_on(previous, jpeg, 'Keep me')
+    orphan_path = orphan.file.path
+    kept_path = kept.file.path
+
+    expect(ExternalBridge::RSS::Media::Revalidate.call(asset_resource_id, asset.url_digest)).to eq :replaced
+
+    expect(MediaAttachment.find_by(id: orphan.id)).to be_nil
+    expect(File.exist?(orphan_path)).to be false
+    expect(MediaAttachment.find_by(id: kept.id)).to be_present
+    expect(File.exist?(kept_path)).to be true
+    expect(projection_image_type(waiting.external_status_projection, 'Story')).to eq :jpeg
+    expect(ExternalMediaAsset.find_by(id: old_id)).to be_nil
+  end
+
   it 'does not let unlinked assets fill the scheduler batch' do
     asset = age_asset!
     now = Time.current
@@ -395,5 +516,31 @@ RSpec.describe 'External RSS image revalidation' do
 
   def projection_status_id
     ExternalStatusProjection.find_by!(user_id: user.id).status_id
+  end
+
+  def projection_markers
+    ExternalStatusProjection.where(external_resource_id: asset_resource_id).includes(:external_projection_attachments).order(:id).to_a
+  end
+
+  def projection_image_type(marker, description)
+    marker.association(:external_resource).reset
+    entry = ExternalBridge::RSS::Media::Sequence.for(marker).find { |row| row[:delivery] == 'local' && row[:description] == description }
+    expect(entry).to be_present
+    FastImage.type(MediaAttachment.find(entry[:attachment_id]).file.path)
+  end
+
+  def attachment_on(previous, body, description)
+    Tempfile.create(['rss-orphan', '.jpg']) do |file|
+      file.binmode
+      file.write(body)
+      file.rewind
+      MediaAttachment.create!(
+        account_id: previous.account_id,
+        status_id: previous.status_id,
+        file: file,
+        description: description,
+        remote_url: ''
+      )
+    end
   end
 end

@@ -23,6 +23,7 @@
 #  revalidate_after   :datetime
 #  revalidate_attempt :integer          default(0), not null
 #  generation         :integer          default(1), not null
+#  logical_digest     :string
 #  file_file_name     :string
 #  file_content_type  :string
 #  file_file_size     :bigint(8)
@@ -37,10 +38,13 @@
 # A ready asset is reused until ExternalBridge::RSS::Media::Revalidate decides
 # it is due. That path conditional-GETs with validator_etag and
 # validator_last_modified. A changed body is stored as the next generation
-# (digest incoming:{id}) and projections move onto it in batches. The
-# previous file is released through MediaGc.plan_generation! only after no
-# projection still references it. Resource links move with the digest when
-# that resource still lists the URL. The URL is not stored on this row.
+# (digest incoming:{id}, logical_digest set to the article digest) and
+# projections move onto it in batches. Sequence resolves either digest to
+# the attachment, so a subscriber who has already moved still sees the new
+# file and one who has not still sees the old file. The previous file is
+# released through MediaGc.plan_generation! only after no projection still
+# references it. Resource links move with the digest when that resource
+# still lists the URL. The URL is not stored on this row.
 #
 # processing_failed means the shared bytes are stored but turning them into
 # a MediaAttachment failed. The row stays out of the ready set until the

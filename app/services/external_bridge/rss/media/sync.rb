@@ -95,12 +95,25 @@ module ExternalBridge
         # bytes are still on disk, so the retry converts them instead of
         # downloading them again.
         def attachable_asset(digest)
-          asset = ExternalMediaAsset.find_by(url_digest: digest)
+          asset = visible_generation(ExternalMediaAsset.find_by(url_digest: digest))
           return nil if asset.nil?
           return asset if asset.ready?
           return asset if asset.processing_failed? && !asset.processing_blocked?(@resource.media_revision)
 
           nil
+        end
+
+        # A projection that already points at the incoming generation must
+        # keep that file. Reconcile would otherwise see the still-ready
+        # public row and copy it back over the new attachment.
+        def visible_generation(asset)
+          return asset if asset.nil? || @marker.nil?
+
+          successor = GenerationMap.successor_for(asset)
+          return asset unless successor&.ready?
+          return successor if @marker.external_projection_attachments.exists?(external_media_asset_id: successor.id)
+
+          asset
         end
 
         def saved_candidates
@@ -167,11 +180,11 @@ module ExternalBridge
         end
 
         def attachment_rows
-          @marker.external_projection_attachments.includes(:media_attachment).order(:position, :id).to_a
+          @marker.external_projection_attachments.includes(:media_attachment, :external_media_asset).order(:position, :id).to_a
         end
 
         def same_assets?(current, desired)
-          current.map(&:external_media_asset_id) == desired.map { |_, asset| asset.id }
+          current.map { |row| GenerationMap.generation_key(row.external_media_asset) } == desired.map { |_, asset| GenerationMap.generation_key(asset) }
         end
 
         def update_descriptions(current, desired)
@@ -192,12 +205,12 @@ module ExternalBridge
         # One retry attaches the files that are still eligible after the
         # failure has been recorded.
         def prepare_replacement(current, desired)
-          indexed = current.index_by(&:external_media_asset_id)
+          index = replacement_index(current)
           prepared = []
           desired.each do |candidate, asset|
-            existing = indexed[asset.id]
+            existing = indexed_row(index, asset)
             if existing&.media_attachment
-              prepared << { kind: :keep, row: existing, candidate: candidate, asset: asset }
+              prepared << kept_item(existing, candidate)
               next
             end
 
@@ -215,6 +228,23 @@ module ExternalBridge
         rescue StandardError
           destroy_new!(prepared)
           raise
+        end
+
+        def replacement_index(current)
+          by_generation = {}
+          current.each do |row|
+            key = GenerationMap.generation_key(row.external_media_asset)
+            by_generation[key] = row if key
+          end
+          { id: current.index_by(&:external_media_asset_id), generation: by_generation }
+        end
+
+        def indexed_row(index, asset)
+          index[:id][asset.id] || index[:generation][GenerationMap.generation_key(asset)]
+        end
+
+        def kept_item(existing, candidate)
+          { kind: :keep, row: existing, candidate: candidate, asset: existing.external_media_asset }
         end
 
         def commit_replacement(current, prepared)

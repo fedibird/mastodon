@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_03_120000) do
+ActiveRecord::Schema.define(version: 2026_11_03_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -650,6 +650,7 @@ ActiveRecord::Schema.define(version: 2026_11_03_120000) do
     t.datetime "revalidate_after"
     t.integer "revalidate_attempt", default: 0, null: false
     t.integer "generation", default: 1, null: false
+    t.string "logical_digest"
     t.string "file_file_name"
     t.string "file_content_type"
     t.bigint "file_file_size"
@@ -661,6 +662,8 @@ ActiveRecord::Schema.define(version: 2026_11_03_120000) do
     t.check_constraint "revalidate_attempt >= 0", name: "external_media_assets_revalidate_attempt_check"
   end
 
+  # logical_digest is nullable and has no default. A generation swap sets it
+  # to the article URL digest while url_digest is still incoming:{id}.
   # Scheduler::ExternalBridgeRSSMediaRevalidateScheduler orders ready images
   # that already have an external_media_asset_resources row by validated_at
   # NULLS FIRST, then applies LIMIT. Keep this predicate. Do not replace it
