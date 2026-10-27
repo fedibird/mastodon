@@ -97,6 +97,14 @@ export default class ExternalStatusMedia extends React.PureComponent {
     height: 110,
   };
 
+  articleUrl () {
+    if (!this.props.status || typeof this.props.status.getIn !== 'function') {
+      return undefined;
+    }
+
+    return this.props.status.getIn(['fedibird_external', 'canonical_url']);
+  }
+
   concealed () {
     const visible = this.props.visible !== undefined ? this.props.visible : defaultVisible(this.props.sensitive);
     return !visible;
@@ -216,7 +224,7 @@ export default class ExternalStatusMedia extends React.PureComponent {
     }
 
     const remoteStatus = fromJS({ fedibird_external: { media: [block.entry] } });
-    return <ExternalRemoteMedia key={key} status={remoteStatus} />;
+    return <ExternalRemoteMedia key={key} status={remoteStatus} articleUrl={this.articleUrl()} />;
   }
 
   render () {
@@ -225,8 +233,10 @@ export default class ExternalStatusMedia extends React.PureComponent {
     }
 
     const blocks = externalMediaBlocks(this.props.status);
+    // No sequence: an older or partial payload can still carry media and
+    // canonical_url. The article link uses the same fallback as the sequence path.
     if (!blocks) {
-      return <ExternalRemoteMedia status={this.props.status} />;
+      return <ExternalRemoteMedia status={this.props.status} articleUrl={this.articleUrl()} />;
     }
     if (blocks.length === 0) {
       return null;

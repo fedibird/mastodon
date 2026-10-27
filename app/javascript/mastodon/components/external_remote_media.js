@@ -8,7 +8,8 @@ import { FormattedMessage } from 'react-intl';
 // still request a src that is already on the element. There is no extra
 // consent step. referrerPolicy is best-effort; HTML media does not guarantee
 // it, and a redirect target is chosen by the browser, not by Fedibird.
-// P3, not verified here: HLS playback, and real iOS and Chrome clients.
+// Device playback, HLS, and Range/seek are recorded in
+// docs/external_rss_media_playback.md. They are not claimed from this file.
 const safeMediaUrl = (value) => {
   if (!value || typeof value !== 'string') {
     return null;
@@ -64,15 +65,36 @@ export default class ExternalRemoteMedia extends React.PureComponent {
   static propTypes = {
     status: ImmutablePropTypes.map,
     muted: PropTypes.bool,
+    articleUrl: PropTypes.string,
   };
 
   state = {
     armedId: null,
+    failedId: null,
   };
 
   handleArm = (event) => {
     this.setState({ armedId: event.currentTarget.getAttribute('data-media-id') });
   };
+
+  handleError = (event) => {
+    this.setState({ failedId: event.currentTarget.getAttribute('data-media-id') });
+  };
+
+  // Back to the button that has no src. The media URL stays out of the
+  // document until the owner clicks again. The failure view may still show
+  // the file and article links until this runs.
+  handleRetry = (event) => {
+    const id = event.currentTarget.getAttribute('data-media-id');
+    this.setState(prev => ({
+      armedId: prev.armedId === id ? null : prev.armedId,
+      failedId: prev.failedId === id ? null : prev.failedId,
+    }));
+  };
+
+  articleUrl () {
+    return safeMediaUrl(this.props.articleUrl);
+  }
 
   renderItem (item) {
     const armed = this.state.armedId === item.id;
@@ -96,6 +118,10 @@ export default class ExternalRemoteMedia extends React.PureComponent {
       );
     }
 
+    if (this.state.failedId === item.id) {
+      return this.renderFallback(item);
+    }
+
     if (item.type === 'audio') {
       return (
         <audio
@@ -104,6 +130,8 @@ export default class ExternalRemoteMedia extends React.PureComponent {
           autoPlay={false}
           preload='none'
           referrerPolicy='no-referrer'
+          data-media-id={item.id}
+          onError={this.handleError}
         />
       );
     }
@@ -118,8 +146,38 @@ export default class ExternalRemoteMedia extends React.PureComponent {
           preload='none'
           playsInline
           referrerPolicy='no-referrer'
+          data-media-id={item.id}
+          onError={this.handleError}
         />
       </React.Fragment>
+    );
+  }
+
+  renderFallback (item) {
+    const articleUrl = this.articleUrl();
+
+    return (
+      <div className='external-remote-media__fallback'>
+        <p>
+          <FormattedMessage id='external_media.playback_failed' defaultMessage='This browser could not play the file.' />
+        </p>
+        <button
+          type='button'
+          className='external-remote-media__retry'
+          data-media-id={item.id}
+          onClick={this.handleRetry}
+        >
+          <FormattedMessage id='external_media.retry' defaultMessage='Try again' />
+        </button>
+        <a href={item.url} target='_blank' rel='noopener noreferrer'>
+          <FormattedMessage id='external_media.open_media' defaultMessage='Open media file' />
+        </a>
+        {articleUrl ? (
+          <a href={articleUrl} target='_blank' rel='noopener noreferrer'>
+            <FormattedMessage id='external_media.open_article' defaultMessage='Open article' />
+          </a>
+        ) : null}
+      </div>
     );
   }
 

@@ -256,4 +256,24 @@ a.button.logo-button {
     width: 100%;
     margin-top: 8px;
   }
+
+  &__fallback {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+
+    p {
+      margin: 0;
+    }
+  }
+
+  &__retry {
+    padding: 8px 12px;
+    border: 1px solid var(--border, #d9e1e8);
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
 }
