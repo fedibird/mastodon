@@ -3,6 +3,7 @@ import { fromJS } from 'immutable';
 import api from '../api';
 import { locale as interfaceLocale } from '../initial_state';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
+import { isExternalProjectionStatus } from '../utils/external_visibility';
 import { copyText } from '../utils/clipboard';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { legacyTranslationPair, sameLanguagePair, viewerTranslationPair } from '../utils/translation_view';
@@ -370,63 +371,115 @@ export function redraft(getState, status, replyStatus, raw_text, options = {}) {
   };
 };
 
+const readableStatus = value => (
+  value && typeof value.get === 'function' && typeof value.update === 'function' ? value : null
+);
+
+const statusForDelete = (getState, id) => {
+  const stored = readableStatus(getState().getIn(['statuses', id]));
+
+  if (!stored) {
+    return null;
+  }
+
+  return stored.update('poll', poll => (poll ? getState().getIn(['polls', poll]) : null));
+};
+
+const replyStatusForDelete = (getState, status) => {
+  if (!status || !status.get('in_reply_to_id')) {
+    return null;
+  }
+
+  const reply = readableStatus(getState().getIn(['statuses', status.get('in_reply_to_id')]));
+
+  if (!reply) {
+    return null;
+  }
+
+  return reply.update('account', account => getState().getIn(['accounts', account]));
+};
+
+// { id } is a successful private-projection delete. Import only a real account.
+const returnedAccount = data => {
+  const account = data && data.account;
+
+  if (!account || typeof account !== 'object') {
+    return null;
+  }
+
+  return account;
+};
+
 export function deleteStatus(id, routerHistory, withRedraft = false) {
   return (dispatch, getState) => {
-    const status = getState().getIn(['statuses', id]).update('poll', poll => poll ? getState().getIn(['polls', poll]) : null);
-    const replyStatus = status.get('in_reply_to_id') ? getState().getIn(['statuses', status.get('in_reply_to_id')]).update('account', account => getState().getIn(['accounts', account])) : null;
+    // Capture before the request. A stream delete can remove the row while
+    // the HTTP call is in flight, and a second column can deliver the same
+    // delete. The captured snapshot is what a normal redraft reuses.
+    const status = statusForDelete(getState, id);
+    const replyStatus = replyStatusForDelete(getState, status);
+    const redraftRequested = withRedraft === true && !!status && !isExternalProjectionStatus(status);
 
     dispatch(deleteStatusRequest(id));
 
-    const request = withRedraft
+    const request = redraftRequested
       ? api(getState).delete(`/api/v1/statuses/${id}`, { params: { redraft: true } })
       : api(getState).delete(`/api/v1/statuses/${id}`);
 
     return request.then(response => {
+      const data = response && response.data;
+
       dispatch(deleteStatusSuccess(id));
       dispatch(deleteFromTimelines(id));
-      dispatch(importFetchedAccount(response.data.account));
 
-      if (withRedraft) {
-        dispatch(fetchStatuses(status.get('status_reference_ids', [])));
+      const account = returnedAccount(data);
 
-        const responseMedia = deleteResponseMedia(response.data);
-        const cachedIds = [];
-        const cachedAttachments = status.get('media_attachments');
-
-        if (cachedAttachments && cachedAttachments.forEach) {
-          cachedAttachments.forEach(item => {
-            const cachedId = item && item.get('id');
-
-            if (cachedId !== undefined && cachedId !== null && cachedId !== '') {
-              cachedIds.push(String(cachedId));
-            }
-          });
-        }
-
-        // Missing, malformed, or partial lists are not a safe source of attachments.
-        // Keep the cached copies only as an unconfirmed hold; do not invent the rest.
-        const responseCoversCache = !!responseMedia && cachedIds.every(cachedId => (
-          responseMedia.some(item => String(item.get('id')) === cachedId)
-        ));
-        const mediaUnconfirmed = !responseCoversCache;
-        const redraftStatus = responseMedia && !mediaUnconfirmed
-          ? status.set('media_attachments', responseMedia)
-          : status;
-
-        dispatch(redraft(getState, redraftStatus, replyStatus, response.data.text, {
-          reuseMedia: true,
-          ownerIdentityId: sessionPostingIdentityId(),
-          mediaUnconfirmed,
-        }));
-
-        if (!mediaUnconfirmed) {
-          dispatch(prepareRedraftMedia(PRIMARY_COMPOSER_ID));
-        }
-
-        ensureComposeIsVisible(getState, routerHistory);
+      if (account) {
+        dispatch(importFetchedAccount(account));
       }
+
+      if (!redraftRequested || !status) {
+        return;
+      }
+
+      dispatch(fetchStatuses(status.get('status_reference_ids', [])));
+
+      const responseMedia = deleteResponseMedia(data);
+      const cachedIds = [];
+      const cachedAttachments = status.get('media_attachments');
+
+      if (cachedAttachments && cachedAttachments.forEach) {
+        cachedAttachments.forEach(item => {
+          const cachedId = item && item.get('id');
+
+          if (cachedId !== undefined && cachedId !== null && cachedId !== '') {
+            cachedIds.push(String(cachedId));
+          }
+        });
+      }
+
+      // Missing, malformed, or partial lists are not a safe source of attachments.
+      // Keep the cached copies only as an unconfirmed hold; do not invent the rest.
+      const responseCoversCache = !!responseMedia && cachedIds.every(cachedId => (
+        responseMedia.some(item => String(item.get('id')) === cachedId)
+      ));
+      const mediaUnconfirmed = !responseCoversCache;
+      const redraftStatus = responseMedia && !mediaUnconfirmed
+        ? status.set('media_attachments', responseMedia)
+        : status;
+
+      dispatch(redraft(getState, redraftStatus, replyStatus, data && data.text, {
+        reuseMedia: true,
+        ownerIdentityId: sessionPostingIdentityId(),
+        mediaUnconfirmed,
+      }));
+
+      if (!mediaUnconfirmed) {
+        dispatch(prepareRedraftMedia(PRIMARY_COMPOSER_ID));
+      }
+
+      ensureComposeIsVisible(getState, routerHistory);
     }).catch(error => {
-      const reportedRedraft = withRedraft && error.response && error.response.status === 409;
+      const reportedRedraft = redraftRequested && error.response && error.response.status === 409;
 
       dispatch(deleteStatusFail(id, error, reportedRedraft));
 
