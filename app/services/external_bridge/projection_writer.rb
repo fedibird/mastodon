@@ -30,7 +30,8 @@ module ExternalBridge
           local: true,
           reply: false,
           sensitive: fields.sensitive,
-          # Subscriber language only. created_at stays unset for a separate public-date change.
+          # Subscriber language only. #624 sets created_at on this same
+          # create!. Keep both language: and created_at: when the branches merge.
           language: fields.language
         )
         marker = ExternalStatusProjection.create!(

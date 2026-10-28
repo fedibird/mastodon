@@ -146,14 +146,25 @@ RSpec.describe 'RSS subscription presentation API' do
       expect(bundle[:subscription].presentation_revision).to eq(0)
     end
 
-    it 'accepts a regional code Fedibird already supports' do
+    it 'accepts regional and three-letter codes Fedibird already supports' do
       allow(ExternalBridge::RSS::PresentationReconcileWorker).to receive(:perform_async).and_return('jid')
 
-      patch path, params: { language_mode: 'fixed', language: 'zh-CN' }, headers: owner_headers, as: :json
+      %w(zh-CN zh-TW ast).each do |code|
+        patch path, params: { language_mode: 'fixed', language: code }, headers: owner_headers, as: :json
 
+        expect(response).to have_http_status(200)
+        expect(bundle[:subscription].reload.language).to eq(code)
+        expect(bundle[:subscription].language_mode).to eq('fixed')
+      end
+
+      patch path, params: { language_mode: 'auto' }, headers: owner_headers, as: :json
       expect(response).to have_http_status(200)
-      expect(bundle[:subscription].reload.language).to eq('zh-CN')
-      expect(bundle[:subscription].language_mode).to eq('fixed')
+      expect(bundle[:subscription].reload.language_mode).to eq('auto')
+      expect(bundle[:subscription].language).to be_nil
+
+      patch path, params: { language_mode: 'unspecified' }, headers: owner_headers, as: :json
+      expect(response).to have_http_status(200)
+      expect(bundle[:subscription].reload.language_mode).to eq('unspecified')
     end
 
     it 'still saves when RSS import is turned off' do

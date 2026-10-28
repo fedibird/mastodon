@@ -292,6 +292,9 @@ describe Settings::ExternalServices::RSSController do
     expect(language.at_css('option[value="auto"]').text).to eq(I18n.t('external_bridge.presentation.language_auto'))
     expect(language.at_css('option[value="ja"]').text).to eq('日本語')
     expect(language.at_css('option[value="en"]').text).to eq('English')
+    expect(language.at_css('option[value="zh-CN"]').text).to eq('简体中文')
+    expect(language.at_css('option[value="zh-TW"]').text).to eq('繁體中文（臺灣）')
+    expect(language.at_css('option[value="ast"]').text).to eq('Asturianu')
     expect(document.at_css("#rss-language-hint-#{paused_row.id}").text).to eq(I18n.t('external_bridge.presentation.language_hint'))
     expect(document.at_css("#rss-media-sensitive-#{removing_row.id}")).to be_nil
     expect(document.at_css("form[action='#{settings_external_services_rss_subscription_presentation_path(removing_row)}']")).to be_nil
@@ -312,6 +315,42 @@ describe Settings::ExternalServices::RSSController do
     expect(language.at_css('option[value="auto"]').text).to eq('記事から自動判別')
     expect(language.at_css('option[value="ja"]').text).to eq('日本語')
     expect(language.at_css('option[value="en"]').text).to eq('English')
+    expect(language.at_css('option[value="zh-CN"]')).to be_present
+    expect(language.at_css('option[value="ast"]')).to be_present
     expect(document.at_css("label[for='rss-language-#{row.id}']").text).to eq('言語')
+  end
+
+  it 'saves a regional code and a three-letter code from the settings form and keeps each one selected' do
+    enable_external_bridge_rss!(user)
+    source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/choice.xml', title: 'Choice feed')
+    row = ExternalSubscription.create!(user: user, external_source: source, state: 'active')
+    allow(ExternalBridge::RSS::PresentationReconcileWorker).to receive(:perform_async).and_return('jid')
+
+    %w(zh-CN zh-TW ast).each do |code|
+      @controller = Settings::ExternalServices::RSSSubscriptionsController.new
+      patch :update, params: { id: row.id, media_sensitive: '0', cw_enabled: '0', language: code }, session: challenge
+      expect(response).to redirect_to(settings_external_services_rss_path)
+      expect(row.reload.language_mode).to eq('fixed')
+      expect(row.language).to eq(code)
+
+      @controller = Settings::ExternalServices::RSSController.new
+      get :show, session: challenge
+      selected = Nokogiri::HTML(response.body).at_css("#rss-language-#{row.id} option[selected]")
+      expect(selected['value']).to eq(code)
+    end
+
+    @controller = Settings::ExternalServices::RSSSubscriptionsController.new
+    patch :update, params: { id: row.id, media_sensitive: '0', cw_enabled: '0', language: 'auto' }, session: challenge
+    expect(row.reload.language_mode).to eq('auto')
+    expect(row.language).to be_nil
+
+    patch :update, params: { id: row.id, media_sensitive: '0', cw_enabled: '0', language: 'unspecified' }, session: challenge
+    expect(row.reload.language_mode).to eq('unspecified')
+    expect(row.language).to be_nil
+
+    @controller = Settings::ExternalServices::RSSController.new
+    get :show, session: challenge
+    selected = Nokogiri::HTML(response.body).at_css("#rss-language-#{row.id} option[selected]")
+    expect(selected['value']).to eq('unspecified')
   end
 end

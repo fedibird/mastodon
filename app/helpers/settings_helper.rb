@@ -91,16 +91,19 @@ module SettingsHelper
     LanguageDetector.instance.language_names.select(&HUMAN_LOCALES.method(:key?))
   end
 
-  # Mode labels follow the active UI locale. Language names are the same
-  # native names as the posting-language setting.
+  # Mode labels follow the active UI locale. Fixed languages are every
+  # locale Fedibird already accepts, with the native name from
+  # LanguagesHelper, not the shorter list the detector can recognize.
   def rss_presentation_language_options(selected)
     options = [
       [I18n.t('external_bridge.presentation.language_unspecified'), 'unspecified'],
       [I18n.t('external_bridge.presentation.language_auto'), 'auto'],
     ]
-    options.concat(filterable_languages.sort.map { |code| [human_locale(code), code.to_s] })
+    LanguagesHelper::SUPPORTED_LOCALES.keys.map(&:to_s).sort.each do |code|
+      options << [native_locale_name(code), code]
+    end
     if selected.present? && options.none? { |_label, value| value == selected }
-      options << [human_locale(selected) || human_locale(selected.to_sym) || selected, selected]
+      options << [native_locale_name(selected), selected]
     end
     options
   end
