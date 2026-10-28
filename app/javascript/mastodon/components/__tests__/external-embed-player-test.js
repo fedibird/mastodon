@@ -7,7 +7,7 @@ jest.mock('mastodon/components/thumbhash', () => () => null);
 
 import { formatDuration } from '../external_embed_player';
 import ExternalStatusMedia from '../external_status_media';
-import { connectedPlayerNodes, endExternalStatus, resetExternalPlayersForTests } from 'mastodon/external_player/session';
+import { connectedPlayerNodes, resetExternalPlayersForTests } from 'mastodon/external_player/session';
 
 afterEach(() => {
   resetExternalPlayersForTests();
@@ -97,6 +97,7 @@ describe('ExternalStatusMedia embed player', () => {
     expect(frame.getAttribute('sandbox')).toContain('allow-scripts');
     expect(frame.getAttribute('sandbox')).not.toContain('allow-top-navigation');
     expect(frame.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(frame.getAttribute('allow')).toBe('fullscreen *; encrypted-media; picture-in-picture');
     expect(frame.getAttribute('allow')).not.toContain('autoplay');
     expect(frame.hasAttribute('autoplay')).toBe(false);
     expect(container.querySelector('video')).toBeNull();
@@ -123,9 +124,10 @@ describe('ExternalStatusMedia embed player', () => {
     const kept = connectedPlayerNodes('iframe')[0];
     expect(kept).not.toBeUndefined();
     view.unmount();
-    expect(kept.isConnected).toBe(true);
-    endExternalStatus('1', 'delete');
+    await act(async () => {});
+    expect(kept.isConnected).toBe(false);
     expect(connectedPlayerNodes('iframe')).toHaveLength(0);
+    expect(document.body.innerHTML).not.toContain(player);
   });
 
   it('does not request a signed poster or a javascript player before or after a click', () => {

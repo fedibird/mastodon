@@ -1,3 +1,5 @@
+import { externalEmbedFrameProps } from './frame_props';
+
 // One external player lives in a host node that React never renders.
 // Inline rows and the fixed dock only publish rectangles. The media element
 // stays a child of that host: its src, key, and parent do not change when the
@@ -12,9 +14,11 @@
 // the single fixed slot when its row leaves the screen. Paused and finished
 // media stay paused.
 
-export const IFRAME_SANDBOX = 'allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox';
-export const IFRAME_ALLOW = 'fullscreen; encrypted-media; picture-in-picture';
-export const IFRAME_REFERRER_POLICY = 'no-referrer';
+export { externalEmbedFrameProps } from './frame_props';
+
+export const IFRAME_SANDBOX = externalEmbedFrameProps.sandbox;
+export const IFRAME_ALLOW = externalEmbedFrameProps.allow;
+export const IFRAME_REFERRER_POLICY = externalEmbedFrameProps.referrerPolicy;
 
 const HOST_ID = 'external-player-host';
 
@@ -30,6 +34,10 @@ let attachmentFloatActive = false;
 let claimHandler = null;
 let listening = false;
 let layoutFrame = 0;
+let resizeObserver = null;
+let mutationObserver = null;
+const observedBoxes = new Set();
+const observedTrees = new Set();
 
 const hasText = (value) => value !== undefined && value !== null && String(value) !== '';
 
@@ -122,6 +130,70 @@ const scheduleLayout = () => {
   });
 };
 
+const observeBox = (element) => {
+  if (!element || observedBoxes.has(element) || !resizeObserver) {
+    return;
+  }
+
+  observedBoxes.add(element);
+  resizeObserver.observe(element);
+};
+
+const observeTree = (element) => {
+  if (!element || observedTrees.has(element) || !mutationObserver) {
+    return;
+  }
+
+  observedTrees.add(element);
+  mutationObserver.observe(element, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'style'],
+  });
+};
+
+// Sibling posts change the anchor's position without changing its own box.
+// ResizeObserver on the anchor alone misses that. Watch each ancestor through
+// the scrollport, whose size changes when a warning, the body, or an image
+// above the player grows. Attribute changes on that tree cover class and
+// style updates that move the fixed dock without a scroll.
+const watchPositionContext = (element) => {
+  if (!element || typeof window === 'undefined') {
+    return;
+  }
+
+  ensureLayoutWatch();
+  observeBox(element);
+  observeTree(element);
+
+  let node = element.parentElement;
+
+  while (node && node !== document.documentElement) {
+    observeBox(node);
+    observeTree(node);
+
+    const style = window.getComputedStyle(node);
+    const overflow = `${style.overflow}${style.overflowX}${style.overflowY}`;
+
+    if (/auto|scroll/.test(overflow)) {
+      break;
+    }
+
+    node = node.parentElement;
+  }
+};
+
+const ensureLayoutWatch = () => {
+  if (typeof ResizeObserver === 'function' && !resizeObserver) {
+    resizeObserver = new ResizeObserver(() => scheduleLayout());
+  }
+
+  if (typeof MutationObserver === 'function' && !mutationObserver) {
+    mutationObserver = new MutationObserver(() => scheduleLayout());
+  }
+};
+
 const ensureListening = () => {
   if (listening || typeof window === 'undefined') {
     return;
@@ -130,6 +202,22 @@ const ensureListening = () => {
   listening = true;
   window.addEventListener('scroll', scheduleLayout, true);
   window.addEventListener('resize', scheduleLayout);
+  ensureLayoutWatch();
+};
+
+const stopLayoutWatch = () => {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+
+  if (mutationObserver) {
+    mutationObserver.disconnect();
+    mutationObserver = null;
+  }
+
+  observedBoxes.clear();
+  observedTrees.clear();
 };
 
 const stopListening = () => {
@@ -139,6 +227,7 @@ const stopListening = () => {
   }
 
   listening = false;
+  stopLayoutWatch();
 
   if (layoutFrame && typeof cancelAnimationFrame === 'function') {
     cancelAnimationFrame(layoutFrame);
@@ -354,10 +443,16 @@ const createFrame = (url) => {
   const iframe = document.createElement('iframe');
   iframe.className = 'external-player-host__media';
   iframe.title = 'External video';
-  iframe.setAttribute('sandbox', IFRAME_SANDBOX);
-  iframe.setAttribute('allow', IFRAME_ALLOW);
-  iframe.setAttribute('referrerpolicy', IFRAME_REFERRER_POLICY);
-  iframe.allowFullscreen = true;
+  iframe.setAttribute('sandbox', externalEmbedFrameProps.sandbox);
+  iframe.setAttribute('allow', externalEmbedFrameProps.allow);
+  iframe.setAttribute('referrerpolicy', externalEmbedFrameProps.referrerPolicy);
+
+  if (externalEmbedFrameProps.allowFullScreen) {
+    iframe.allowFullscreen = true;
+  }
+
+  // The container policy is fixed when the frame is created. Later pin and
+  // inline placement only change CSS, never allow, sandbox, or src.
   iframe.src = url;
   return iframe;
 };
@@ -536,6 +631,7 @@ export const registerAnchor = ({ key, element, prefer, releaseMode }) => {
     session.activeAnchorId = id;
   }
 
+  watchPositionContext(element);
   scheduleLayout();
   emitDeferred();
   return id;
@@ -549,6 +645,7 @@ export const updateAnchorElement = (anchorId, element) => {
   }
 
   anchor.element = element;
+  watchPositionContext(element);
   scheduleLayout();
 };
 
@@ -596,6 +693,17 @@ export const unregisterAnchor = (anchorId) => {
     return;
   }
 
+  if (session.pinned) {
+    emitDeferred();
+    scheduleLayout();
+    return;
+  }
+
+  if (session.kind === 'iframe') {
+    scheduleUnpinnedIframeEnd(session.key);
+    return;
+  }
+
   if (attachmentFloatActive) {
     pauseOwnedMedia(session);
     emitDeferred();
@@ -612,8 +720,44 @@ export const unregisterAnchor = (anchorId) => {
   scheduleLayout();
 };
 
+// A replacement anchor in the same commit registers before this runs.
+// A row that actually left the screen still has no anchor, and an unpinned
+// iframe is discarded instead of staying hidden and possibly still playing.
+const scheduleUnpinnedIframeEnd = (key) => {
+  const generation = emitGeneration;
+  const run = () => {
+    if (generation !== emitGeneration) {
+      return;
+    }
+
+    const session = sessions.get(key);
+
+    if (!session || session.closing || session.pinned || session.kind !== 'iframe') {
+      return;
+    }
+
+    if (remainingAnchors(session).length > 0) {
+      return;
+    }
+
+    endSession(session.key, 'anchor-lost', true);
+  };
+
+  if (typeof queueMicrotask === 'function') {
+    queueMicrotask(run);
+  } else {
+    setTimeout(run, 0);
+  }
+};
+
 export const registerDockSlot = (element) => {
   dockSlot = element || null;
+  watchPositionContext(element);
+
+  if (element && element.parentElement) {
+    watchPositionContext(element.parentElement);
+  }
+
   scheduleLayout();
   return () => {
     if (dockSlot === element) {

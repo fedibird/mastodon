@@ -4,6 +4,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { FormattedMessage } from 'react-intl';
 
 import { safeMediaUrl } from 'mastodon/components/external_remote_media';
+import { externalEmbedFrameProps } from 'mastodon/external_player/frame_props';
 import ExternalPlayerSurface from 'mastodon/external_player/surface';
 import {
   getSessionByIdentity,
@@ -11,15 +12,16 @@ import {
   subscribeExternalPlayers,
 } from 'mastodon/external_player/session';
 
+export { externalEmbedFrameProps };
+
 // Click to mount one cross-origin player. The iframe is not in the document
 // until then, so the player host is not contacted earlier. The host, not this
-// row, owns the frame from that click onward. sandbox keeps the frame from
-// navigating this tab. allow-scripts and allow-same-origin are both set
-// because a publisher player will not start without them; that pair is unsafe
-// for a same-origin URL, which the server rejects before this component sees
-// it. allow does not include autoplay. iframe load is not treated as playback
-// success. A saved poster is our file, not the publisher URL. Signature query
-// names are refused here so a publisher URL cannot be used as that image.
+// row, owns the frame from that click onward. sandbox, allow, referrerpolicy,
+// and allowfullscreen come from externalEmbedFrameProps and are applied when
+// the host creates the frame. allow does not include autoplay. iframe load is
+// not treated as playback success. A saved poster is our file, not the
+// publisher URL. Signature query names are refused here so a publisher URL
+// cannot be used as that image.
 const SIGNATURE_QUERY = /(?:^|&)(?:hash|validto|hdnea|exp)=/i;
 const MAX_DURATION = 48 * 60 * 60;
 

@@ -11,7 +11,6 @@ import {
   closeSession,
   connectedPlayerNodes,
   endAllExternalPlayers,
-  endExternalStatus,
   externalPlayerKey,
   getPinnedKey,
   getSessionByIdentity,
@@ -170,17 +169,70 @@ describe('external player sessions', () => {
     });
   });
 
-  it('does not auto-continue an iframe when its row detaches', () => {
-    const session = openSession({ statusId: '8', mediaId: 'embed-1', kind: 'iframe', url: PLAYER });
-    const anchor = document.createElement('div');
-    document.body.appendChild(anchor);
-    const anchorId = registerAnchor({ key: session.key, element: anchor, prefer: true, releaseMode: () => 'detach' });
-    unregisterAnchor(anchorId);
+  it('ends an unpinned iframe when its last anchor detaches and keeps a pinned one', async () => {
+    const loose = openSession({ statusId: '8', mediaId: 'embed-1', kind: 'iframe', url: PLAYER });
+    const looseAnchor = document.createElement('div');
+    document.body.appendChild(looseAnchor);
+    const looseId = registerAnchor({ key: loose.key, element: looseAnchor, prefer: true, releaseMode: () => 'detach' });
+    const looseNode = loose.node;
+    unregisterAnchor(looseId);
+    await act(async () => {});
 
     expect(getPinnedKey()).toBeNull();
-    expect(session.node.isConnected).toBe(true);
+    expect(getSessionByIdentity('8', 'embed-1')).toBeNull();
+    expect(looseNode.isConnected).toBe(false);
+    looseAnchor.remove();
+
+    const pinned = openSession({ statusId: '8', mediaId: 'embed-2', kind: 'iframe', url: PLAYER });
+    const pinnedAnchor = document.createElement('div');
+    document.body.appendChild(pinnedAnchor);
+    const pinnedId = registerAnchor({ key: pinned.key, element: pinnedAnchor, prefer: true, releaseMode: () => 'detach' });
+    pinSession(pinned.key);
+    unregisterAnchor(pinnedId);
+    await act(async () => {});
+
+    expect(getPinnedKey()).toBe(pinned.key);
+    expect(getSessionByIdentity('8', 'embed-2').node).toBe(pinned.node);
+    expect(pinned.node.isConnected).toBe(true);
+    expect(pinned.node.getAttribute('src')).toBe(PLAYER);
+    pinnedAnchor.remove();
+  });
+
+  it('keeps an iframe when another anchor replaces the last one before the turn ends', async () => {
+    const session = openSession({ statusId: '8', mediaId: 'embed-3', kind: 'iframe', url: PLAYER });
+    const first = document.createElement('div');
+    const second = document.createElement('div');
+    document.body.append(first, second);
+    const gone = registerAnchor({ key: session.key, element: first, prefer: true, releaseMode: () => 'detach' });
+    unregisterAnchor(gone);
+    registerAnchor({ key: session.key, element: second, prefer: true, releaseMode: () => 'detach' });
+    await act(async () => {});
+
+    expect(getSessionByIdentity('8', 'embed-3').node).toBe(session.node);
     expect(session.node.getAttribute('src')).toBe(PLAYER);
-    anchor.remove();
+    first.remove();
+    second.remove();
+  });
+
+  it('does not keep an unpinned iframe for every post that scrolls away', async () => {
+    const anchors = [];
+
+    for (let index = 0; index < 4; index += 1) {
+      const session = openSession({ statusId: `post-${index}`, mediaId: 'embed', kind: 'iframe', url: PLAYER });
+      const anchor = document.createElement('div');
+      document.body.appendChild(anchor);
+      const anchorId = registerAnchor({ key: session.key, element: anchor, prefer: true, releaseMode: () => 'detach' });
+      anchors.push({ anchor, anchorId, key: session.key });
+    }
+
+    expect(connectedPlayerNodes('iframe')).toHaveLength(4);
+    pinSession(anchors[0].key);
+    anchors.forEach(({ anchorId }) => unregisterAnchor(anchorId));
+    await act(async () => {});
+
+    expect(connectedPlayerNodes('iframe')).toHaveLength(1);
+    expect(getPinnedKey()).toBe(anchors[0].key);
+    anchors.forEach(({ anchor }) => anchor.remove());
   });
 
   it('ends a session when the last revealed anchor is concealed and keeps it when another copy remains', () => {
@@ -312,9 +364,8 @@ describe('external player rows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'External video 1:01' }));
     const again = connectedPlayerNodes('iframe')[0];
     view.unmount();
-    expect(again.isConnected).toBe(true);
-
-    endExternalStatus('11', 'delete');
+    await act(async () => {});
+    expect(again.isConnected).toBe(false);
     expect(connectedPlayerNodes('iframe')).toHaveLength(0);
   });
 
