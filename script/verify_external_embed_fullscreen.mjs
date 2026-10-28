@@ -3,7 +3,9 @@
 // Three loopback origins (different ports) stand in for a Fedibird page, a
 // player src origin, and another origin reached by redirect or a nested
 // frame. Nothing here is a real publisher. The adopted iframe policy is read
-// from ExternalEmbedPlayer so this probe cannot drift from the component.
+// from the live definition. A shared external_player/frame_props.js wins.
+// This file's component object is used only when that shared file is absent.
+// A shared file that exists but does not yield the object is an error.
 //
 // Usage:
 //   node script/verify_external_embed_fullscreen.mjs --out /tmp/embed-fullscreen
@@ -12,17 +14,16 @@
 // Exit 0 when every required expectation matches. Informational rows are
 // recorded either way.
 //
-// This harness builds its own iframes from externalEmbedFrameProps. It does
-// not open the #625 host. After session.js createFrame copies those props at
-// node creation, repeat the redirect, nested-missing, no-gesture, parent
-// fullscreen=() and fullscreen=(self), and child-denial cases on that live
-// node. Inline and the fixed dock must be the same node: pin must not change
-// src, allow, or the player document token. Attribute equality is not a
-// fullscreen pass. Parent and publisher denials must still fail.
+// This harness builds its own iframes. It does not open the #625 host.
+// --read-policy only checks that the object literal can be read. That is not
+// a fullscreen pass. On an integrated tree, repeat the redirect,
+// nested-missing, no-gesture, parent fullscreen=() and fullscreen=(self),
+// and child-denial cases on the live createFrame node. Inline and the fixed
+// dock share that node. Attribute equality is not a fullscreen pass.
 
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
@@ -51,18 +52,43 @@ function argValue(name, fallback) {
 const outDir = argValue('--out', join(tmpdir(), 'embed-fullscreen'));
 mkdirSync(outDir, { recursive: true });
 
-function policyFromSource() {
-  const source = readFileSync(join(root, 'app/javascript/mastodon/components/external_embed_player.js'), 'utf8');
+const SHARED_FRAME_PROPS = 'app/javascript/mastodon/external_player/frame_props.js';
+const COMPONENT_FRAME_PROPS = 'app/javascript/mastodon/components/external_embed_player.js';
+
+function propsFromObjectLiteral(source, label) {
   const block = source.match(/export const externalEmbedFrameProps = \{([\s\S]*?)\n\};/);
-  if (!block) throw new Error('externalEmbedFrameProps was not found');
+  if (!block) {
+    throw new Error(`externalEmbedFrameProps was not found in ${label}`);
+  }
   const allow = block[1].match(/allow: '([^']+)'/);
   const sandbox = block[1].match(/sandbox: '([^']+)'/);
   const referrerPolicy = block[1].match(/referrerPolicy: '([^']+)'/);
-  if (!allow || !sandbox || !referrerPolicy) throw new Error('iframe policy fields were not found');
-  return { allow: allow[1], sandbox: sandbox[1], referrerPolicy: referrerPolicy[1] };
+  if (!allow || !sandbox || !referrerPolicy) {
+    throw new Error(`iframe policy fields were not found in ${label}`);
+  }
+  return {
+    allow: allow[1],
+    sandbox: sandbox[1],
+    referrerPolicy: referrerPolicy[1],
+    source: label,
+  };
 }
 
-const adopted = policyFromSource();
+// The shared module is the definition after #625. Reading the component when
+// that file exists would accept a stale object the host no longer uses.
+function policyFromSource(treeRoot = root) {
+  const shared = join(treeRoot, SHARED_FRAME_PROPS);
+  if (existsSync(shared)) {
+    return propsFromObjectLiteral(readFileSync(shared, 'utf8'), SHARED_FRAME_PROPS);
+  }
+  return propsFromObjectLiteral(readFileSync(join(treeRoot, COMPONENT_FRAME_PROPS), 'utf8'), COMPONENT_FRAME_PROPS);
+}
+
+const adopted = policyFromSource(argValue('--root', root));
+if (process.argv.includes('--read-policy')) {
+  process.stdout.write(`${JSON.stringify(adopted)}\n`);
+  process.exit(0);
+}
 const currentAllow = 'fullscreen; encrypted-media; picture-in-picture';
 
 function playerHtml(query) {
