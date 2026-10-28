@@ -4,11 +4,13 @@ import appReducer from '../reducers';
 import loadingBarMiddleware from '../middleware/loading_bar';
 import errorsMiddleware from '../middleware/errors';
 import soundsMiddleware from '../middleware/sounds';
+import externalPlayerMiddleware from '../external_player/middleware';
 import { filterReconciliationMiddleware } from '../filter_reconciliation/scheduler';
 
 export default function configureStore() {
   return createStore(appReducer, compose(applyMiddleware(
     thunk,
+    externalPlayerMiddleware,
     filterReconciliationMiddleware,
     loadingBarMiddleware({ promiseTypeSuffixes: ['REQUEST', 'SUCCESS', 'FAIL'] }),
     errorsMiddleware(),

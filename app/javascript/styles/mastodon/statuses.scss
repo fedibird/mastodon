@@ -311,10 +311,23 @@ a.button.logo-button {
   }
 
   video,
-  audio {
+  audio,
+  &__slot {
     display: block;
     width: 100%;
     margin-top: 8px;
+  }
+
+  &__slot--video {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background: $base-overlay-background;
+  }
+
+  &__slot--audio {
+    position: relative;
+    height: 54px;
+    background: $base-overlay-background;
   }
 
   &__fallback {
@@ -398,5 +411,31 @@ a.button.logo-button {
   &__article {
     display: inline-block;
     margin-top: 8px;
+  }
+}
+
+.external-player-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+
+  &__button {
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid var(--border, #d9e1e8);
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+  }
+}
+
+.external-player-surface {
+  &__elsewhere,
+  &__pinned {
+    margin: 0;
+    padding: 12px;
   }
 }

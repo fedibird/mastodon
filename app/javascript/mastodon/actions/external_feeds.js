@@ -14,6 +14,7 @@ import { sourceKey } from '../mix/source';
 import { normalizePage, previousStatusesForImport, resolveRequest, statusesForSharedImport, visibilityConstraints } from '../mix/adapter';
 import { classifyStreamStatus } from '../mix/stream_adapters';
 import { externalFeedSession } from '../external_feeds/session';
+import { applyExternalFeedControl } from '../external_player/session';
 import {
   BATCHES_PER_CYCLE,
   BODY_BATCH,
@@ -171,7 +172,7 @@ export function discardExternalFeedSessionForTests () {
 }
 
 export function receiveExternalFeedChanged (payload) {
-  return (dispatch, getState) => {
+  return (dispatch) => {
     const parsed = parseControl(payload);
 
     if (!parsed.ok) {
@@ -179,6 +180,7 @@ export function receiveExternalFeedChanged (payload) {
     }
 
     externalFeedSession.noteControl(parsed);
+    applyExternalFeedControl(parsed);
 
     if (parsed.reason === 'list_removed') {
       parsed.targets.forEach(target => {

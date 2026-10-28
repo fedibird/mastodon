@@ -102,6 +102,11 @@ jest.mock('react-router-dom', () => ({
 
 import Status, { nextShownMediaState } from '../status';
 import DetailedStatus from '../../features/status/components/detailed_status';
+import { connectedPlayerNodes, resetExternalPlayersForTests } from 'mastodon/external_player/session';
+
+afterEach(() => {
+  resetExternalPlayersForTests();
+});
 
 const store = createStore(() => fromJS({
   relationships: {},
@@ -306,7 +311,8 @@ describe('external status media with the real gallery', () => {
     expect(videoLang).toBe('ja');
 
     fireEvent.click(screen.getByRole('button', { name: 'External video' }));
-    expect(container.querySelector('video[src="https://cdn.example/clip.mp4"]')).not.toBeNull();
+    expect(container.querySelector('video[src="https://cdn.example/clip.mp4"]')).toBeNull();
+    expect(connectedPlayerNodes('video')[0].getAttribute('src')).toBe('https://cdn.example/clip.mp4');
   });
 
   it('omits external media while the content warning is collapsed', () => {

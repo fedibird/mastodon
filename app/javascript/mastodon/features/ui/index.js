@@ -43,6 +43,7 @@ import HashtagMenuController from './components/hashtag_menu_controller';
 import ColumnsAreaContainer from './containers/columns_area_container';
 import DocumentTitle from './components/document_title';
 import PictureInPicture from 'mastodon/features/picture_in_picture';
+import ExternalPlayerDock from 'mastodon/external_player/dock';
 import {
   Compose,
   Status,
@@ -742,6 +743,7 @@ class UI extends React.PureComponent {
           </SwitchingColumnsArea>
 
           {layout !== 'mobile' && <PictureInPicture />}
+          <ExternalPlayerDock />
           <NotificationsContainer />
           <LoadingBarContainer className='loading-bar' />
           <AccountContextLayer />

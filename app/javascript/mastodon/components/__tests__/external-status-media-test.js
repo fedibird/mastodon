@@ -6,6 +6,11 @@ jest.mock('mastodon/components/blurhash', () => () => null);
 jest.mock('mastodon/components/thumbhash', () => () => null);
 
 import ExternalStatusMedia from '../external_status_media';
+import { connectedPlayerNodes, resetExternalPlayersForTests } from 'mastodon/external_player/session';
+
+afterEach(() => {
+  resetExternalPlayersForTests();
+});
 
 jest.mock('react-intl', () => ({
   FormattedMessage: ({ defaultMessage }) => defaultMessage,
@@ -75,7 +80,8 @@ describe('ExternalStatusMedia', () => {
     expect(gallery.compareDocumentPosition(launch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button'));
-    expect(container.querySelector('video').getAttribute('src')).toBe('https://cdn.example/clip.mp4');
+    expect(container.querySelector('video')).toBeNull();
+    expect(connectedPlayerNodes('video')[0].getAttribute('src')).toBe('https://cdn.example/clip.mp4');
   });
 
   it('replaces a remote player that errors with the media and article links', () => {
@@ -95,7 +101,7 @@ describe('ExternalStatusMedia', () => {
 
     expect(container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
     fireEvent.click(screen.getByRole('button'));
-    fireEvent.error(container.querySelector('video'));
+    fireEvent.error(connectedPlayerNodes('video')[0]);
 
     expect(container.querySelector('video')).toBeNull();
     expect(screen.getByRole('link', { name: 'Open media file' }).getAttribute('href')).toBe('https://cdn.example/clip.mp4');
@@ -121,7 +127,8 @@ describe('ExternalStatusMedia', () => {
     expect(container.innerHTML).not.toContain('https://cdn.example/talk.mp3');
 
     fireEvent.click(screen.getByRole('button', { name: 'External audio' }));
-    const audio = container.querySelector('audio');
+    const audio = connectedPlayerNodes('audio')[0];
+    expect(container.querySelector('audio')).toBeNull();
     expect(audio.getAttribute('src')).toBe('https://cdn.example/talk.mp3');
     expect(audio.hasAttribute('autoplay')).toBe(false);
 
@@ -200,7 +207,7 @@ describe('ExternalStatusMedia', () => {
   });
 
   it('drops an unsafe article URL on a payload that has media and no sequence', () => {
-    const { container } = render(
+    render(
       <ExternalStatusMedia status={fromJS({
         id: '1',
         media_attachments: [],
@@ -215,7 +222,7 @@ describe('ExternalStatusMedia', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'External audio' }));
-    fireEvent.error(container.querySelector('audio'));
+    fireEvent.error(connectedPlayerNodes('audio')[0]);
 
     expect(screen.getByRole('link', { name: 'Open media file' }).getAttribute('href')).toBe('https://cdn.example/talk.mp3');
     expect(screen.queryByRole('link', { name: 'Open article' })).toBeNull();
@@ -311,7 +318,8 @@ describe('ExternalStatusMedia', () => {
     expect(screen.getByTestId('gallery').compareDocumentPosition(container.querySelector('video')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'External audio' }));
-    expect(container.querySelector('audio').getAttribute('src')).toBe('https://cdn.example/talk.mp3');
+    expect(container.querySelector('audio')).toBeNull();
+    expect(connectedPlayerNodes('audio')[0].getAttribute('src')).toBe('https://cdn.example/talk.mp3');
   });
 
   it('keeps saved files and a legacy remote URL concealed together', () => {

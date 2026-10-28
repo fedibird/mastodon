@@ -3,6 +3,11 @@ import { fromJS } from 'immutable';
 import React from 'react';
 
 import ExternalRemoteMedia from '../external_remote_media';
+import { connectedPlayerNodes, resetExternalPlayersForTests } from 'mastodon/external_player/session';
+
+afterEach(() => {
+  resetExternalPlayersForTests();
+});
 
 jest.mock('react-intl', () => ({
   FormattedMessage: ({ defaultMessage }) => defaultMessage,
@@ -28,8 +33,9 @@ describe('ExternalRemoteMedia', () => {
 
     fireEvent.click(screen.getByRole('button'));
 
-    const video = container.querySelector('video');
-    expect(video).not.toBeNull();
+    const video = connectedPlayerNodes('video')[0];
+    expect(video).not.toBeUndefined();
+    expect(container.querySelector('video')).toBeNull();
     expect(video.getAttribute('src')).toBe('https://cdn.example/clip.mp4');
     expect(video.hasAttribute('autoplay')).toBe(false);
     expect(video.getAttribute('preload')).toBe('none');
@@ -37,8 +43,9 @@ describe('ExternalRemoteMedia', () => {
 
     fireEvent.error(video);
 
+    expect(connectedPlayerNodes('video')).toHaveLength(0);
     expect(container.querySelector('video')).toBeNull();
-    expect(container.innerHTML).not.toContain('src="https://cdn.example/clip.mp4"');
+    expect(document.body.innerHTML).not.toContain('src="https://cdn.example/clip.mp4"');
     const mediaLink = screen.getByRole('link', { name: 'Open media file' });
     expect(mediaLink.getAttribute('href')).toBe('https://cdn.example/clip.mp4');
     expect(mediaLink.getAttribute('rel')).toBe('noopener noreferrer');
@@ -55,8 +62,9 @@ describe('ExternalRemoteMedia', () => {
     );
 
     fireEvent.click(screen.getByRole('button'));
-    fireEvent.error(container.querySelector('audio'));
+    fireEvent.error(connectedPlayerNodes('audio')[0]);
 
+    expect(connectedPlayerNodes('audio')).toHaveLength(0);
     expect(container.querySelector('audio')).toBeNull();
     expect(screen.getByRole('link', { name: 'Open media file' }).getAttribute('href')).toBe('https://cdn.example/talk.mp3');
     expect(screen.queryByRole('link', { name: 'Open article' })).toBeNull();
@@ -73,29 +81,32 @@ describe('ExternalRemoteMedia', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'External audio' }));
-    const audio = container.querySelector('audio');
+    const audio = connectedPlayerNodes('audio')[0];
     expect(audio.getAttribute('src')).toBe('https://cdn.example/playback.mp3');
+    expect(container.querySelector('audio')).toBeNull();
     expect(audio.hasAttribute('autoplay')).toBe(false);
 
     fireEvent.error(audio);
 
+    expect(connectedPlayerNodes('audio')).toHaveLength(0);
     expect(container.querySelector('audio')).toBeNull();
-    expect(container.innerHTML).not.toContain('src="https://cdn.example/playback.mp3"');
+    expect(document.body.innerHTML).not.toContain('src="https://cdn.example/playback.mp3"');
     expect(screen.getByRole('link', { name: 'Open media file' }).getAttribute('href')).toBe('https://cdn.example/playback.mp3');
     expect(screen.getByRole('link', { name: 'Open article' }).getAttribute('href')).toBe('https://example.com/playback-story');
 
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
+    expect(connectedPlayerNodes('audio')).toHaveLength(0);
     expect(container.querySelector('audio')).toBeNull();
     expect(container.querySelector('video')).toBeNull();
-    expect(container.innerHTML).not.toContain('https://cdn.example/playback.mp3');
+    expect(document.body.innerHTML).not.toContain('https://cdn.example/playback.mp3');
     expect(screen.queryByRole('link', { name: 'Open media file' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Open article' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'External audio' }));
 
-    const again = container.querySelector('audio');
-    expect(again).not.toBeNull();
+    const again = connectedPlayerNodes('audio')[0];
+    expect(again).not.toBeUndefined();
     expect(again.getAttribute('src')).toBe('https://cdn.example/playback.mp3');
     expect(again.hasAttribute('autoplay')).toBe(false);
     expect(again.getAttribute('preload')).toBe('none');

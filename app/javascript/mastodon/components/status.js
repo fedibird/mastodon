@@ -31,6 +31,7 @@ import StatusMediaStack, { hotkeyMediaRoot, openMediaFromHotkey } from 'mastodon
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { externalIdentityOf, externalIdentityName, externalIdentityReaderText } from 'mastodon/external_presentation';
 import ExternalStatusMedia from 'mastodon/components/external_status_media';
+import { assignRelease, spoilerConcealed } from 'mastodon/external_player/session';
 
 const domParser = new DOMParser();
 
@@ -778,6 +779,7 @@ class Status extends ImmutablePureComponent {
     const mediaStatus = translationDisplayStatus(status, this.props.status);
     const translationView = statusTranslationView(mediaStatus);
     const deployPictureInPicture = pictureInPicture.get('available') ? this.handleDeployPictureInPicture : undefined;
+    const mainRelease = assignRelease(this, 'mainRelease', spoilerConcealed(status) || pictureInPicture.get('inUse'));
 
     if (status.get('fedibird_external') && !this.props.muted && !pictureInPicture.get('inUse')) {
       media = (
@@ -793,6 +795,7 @@ class Status extends ImmutablePureComponent {
           visible={this.state.showMedia}
           onToggleVisibility={this.handleToggleMediaVisibility}
           deployPictureInPicture={deployPictureInPicture}
+          releaseSignal={mainRelease}
           {...galleryTranslationProps(translationView)}
         />
       );
@@ -860,6 +863,7 @@ class Status extends ImmutablePureComponent {
       const quoteView = statusTranslationView(quote_status);
 
       let quote_media = null;
+      const quoteRelease = assignRelease(this, 'quoteRelease', spoilerConcealed(status) || spoilerConcealed(quote_status) || pictureInPicture.get('inUse'));
       if (!showCard) {
         // hide media
       } else if (quote_status.get('fedibird_external') && !this.props.muted && !pictureInPicture.get('inUse')) {
@@ -876,6 +880,7 @@ class Status extends ImmutablePureComponent {
             visible={this.state.showQuoteMedia}
             onToggleVisibility={this.handleToggleQuoteMediaVisibility}
             deployPictureInPicture={deployPictureInPicture}
+            releaseSignal={quoteRelease}
             quote
             {...galleryTranslationProps(quoteView)}
           />

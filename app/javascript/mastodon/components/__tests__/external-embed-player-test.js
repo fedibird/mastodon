@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 
@@ -7,6 +7,11 @@ jest.mock('mastodon/components/thumbhash', () => () => null);
 
 import { formatDuration } from '../external_embed_player';
 import ExternalStatusMedia from '../external_status_media';
+import { connectedPlayerNodes, endExternalStatus, resetExternalPlayersForTests } from 'mastodon/external_player/session';
+
+afterEach(() => {
+  resetExternalPlayersForTests();
+});
 
 jest.mock('react-intl', () => ({
   FormattedMessage: ({ defaultMessage }) => defaultMessage,
@@ -77,15 +82,18 @@ describe('ExternalStatusMedia embed player', () => {
 
     expect(screen.getByTestId('gallery').textContent).toBe('still');
     expect(container.querySelector('iframe')).toBeNull();
+    expect(connectedPlayerNodes('iframe')).toHaveLength(0);
     expect(container.innerHTML).not.toContain(player);
+    expect(document.body.innerHTML).not.toContain(player);
     expect(screen.getByText('18:01')).toBeTruthy();
     expect(container.querySelector('img').getAttribute('src')).toBe(poster);
     expect(screen.getByRole('link', { name: 'Open article' }).getAttribute('href')).toBe('https://watch.example/watch?id=abc123');
 
     fireEvent.click(screen.getByRole('button', { name: 'External video 18:01' }));
 
-    const frame = container.querySelector('iframe');
+    const frame = connectedPlayerNodes('iframe')[0];
     expect(frame.getAttribute('src')).toBe(player);
+    expect(container.querySelector('iframe')).toBeNull();
     expect(frame.getAttribute('sandbox')).toContain('allow-scripts');
     expect(frame.getAttribute('sandbox')).not.toContain('allow-top-navigation');
     expect(frame.getAttribute('referrerpolicy')).toBe('no-referrer');
@@ -94,23 +102,30 @@ describe('ExternalStatusMedia embed player', () => {
     expect(container.querySelector('video')).toBeNull();
   });
 
-  it('removes the iframe when the media is concealed again or the status is removed', () => {
+  it('removes the iframe when the media is concealed and keeps it when the row unmounts', async () => {
     const view = render(
       <ExternalStatusMedia visible status={status(sequence.slice(1, 2))} />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'External video 18:01' }));
-    expect(view.container.querySelector('iframe')).not.toBeNull();
+    const frame = connectedPlayerNodes('iframe')[0];
+    expect(frame).not.toBeUndefined();
+    expect(view.container.querySelector('iframe')).toBeNull();
 
     view.rerender(<ExternalStatusMedia visible={false} sensitive status={status(sequence.slice(1, 2))} />);
-    expect(view.container.querySelector('iframe')).toBeNull();
+    await act(async () => {});
+    expect(connectedPlayerNodes('iframe')).toHaveLength(0);
     expect(view.container.innerHTML).not.toContain(player);
+    expect(document.body.innerHTML).not.toContain(player);
 
     view.rerender(<ExternalStatusMedia visible status={status(sequence.slice(1, 2))} />);
     fireEvent.click(screen.getByRole('button', { name: 'External video 18:01' }));
-    expect(view.container.querySelector('iframe')).not.toBeNull();
+    const kept = connectedPlayerNodes('iframe')[0];
+    expect(kept).not.toBeUndefined();
     view.unmount();
-    expect(view.container.querySelector('iframe')).toBeNull();
+    expect(kept.isConnected).toBe(true);
+    endExternalStatus('1', 'delete');
+    expect(connectedPlayerNodes('iframe')).toHaveLength(0);
   });
 
   it('does not request a signed poster or a javascript player before or after a click', () => {

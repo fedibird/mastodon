@@ -4,16 +4,22 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { FormattedMessage } from 'react-intl';
 
 import { safeMediaUrl } from 'mastodon/components/external_remote_media';
+import ExternalPlayerSurface from 'mastodon/external_player/surface';
+import {
+  getSessionByIdentity,
+  openSession,
+  subscribeExternalPlayers,
+} from 'mastodon/external_player/session';
 
 // Click to mount one cross-origin player. The iframe is not in the document
-// until then, so the player host is not contacted earlier. sandbox keeps the
-// frame from navigating this tab. allow-scripts and allow-same-origin are
-// both set because a publisher player will not start without them; that pair
-// is unsafe for a same-origin URL, which the server rejects before this
-// component sees it. allow does not include autoplay. iframe load is not
-// treated as playback success. A saved poster is our file, not the publisher
-// URL. Signature query names are refused here so a publisher URL cannot be
-// used as that image.
+// until then, so the player host is not contacted earlier. The host, not this
+// row, owns the frame from that click onward. sandbox keeps the frame from
+// navigating this tab. allow-scripts and allow-same-origin are both set
+// because a publisher player will not start without them; that pair is unsafe
+// for a same-origin URL, which the server rejects before this component sees
+// it. allow does not include autoplay. iframe load is not treated as playback
+// success. A saved poster is our file, not the publisher URL. Signature query
+// names are refused here so a publisher URL cannot be used as that image.
 const SIGNATURE_QUERY = /(?:^|&)(?:hash|validto|hdnea|exp)=/i;
 const MAX_DURATION = 48 * 60 * 60;
 
@@ -62,19 +68,57 @@ export default class ExternalEmbedPlayer extends React.PureComponent {
   static propTypes = {
     entry: PropTypes.oneOfType([ImmutablePropTypes.map, PropTypes.object]),
     articleUrl: PropTypes.string,
+    statusId: PropTypes.string,
+    releaseSignal: PropTypes.shape({
+      mode: PropTypes.string,
+    }),
   };
 
-  state = {
-    armed: false,
-  };
+  componentDidMount () {
+    this.unsubscribe = subscribeExternalPlayers(() => {
+      if (!this.unmounted) {
+        this.forceUpdate();
+      }
+    });
+  }
 
-  handleArm = () => {
-    this.setState({ armed: true });
-  };
+  componentWillUnmount () {
+    this.unmounted = true;
+
+    if (this.unsubscribe) {
+      this.unsubscribe();
+    }
+  }
 
   playerUrl () {
     return safeMediaUrl(read(this.props.entry, 'url'));
   }
+
+  mediaId () {
+    const id = read(this.props.entry, 'id');
+    return id === undefined || id === null || id === '' ? null : String(id);
+  }
+
+  session () {
+    return getSessionByIdentity(this.props.statusId, this.mediaId());
+  }
+
+  handleArm = () => {
+    const url = this.playerUrl();
+    const mediaId = this.mediaId();
+
+    if (!url || !mediaId || !this.props.statusId || this.session()) {
+      return;
+    }
+
+    this.didOpen = true;
+    openSession({
+      statusId: this.props.statusId,
+      mediaId,
+      kind: 'iframe',
+      url,
+    });
+  };
 
   renderPoster (poster) {
     if (!poster) {
@@ -98,22 +142,6 @@ export default class ExternalEmbedPlayer extends React.PureComponent {
     );
   }
 
-  renderFrame (url) {
-    return (
-      <div className='external-embed-player__frame'>
-        <iframe
-          src={url}
-          title='External video'
-          className='external-embed-player__iframe'
-          sandbox='allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox'
-          allow='fullscreen; encrypted-media; picture-in-picture'
-          referrerPolicy='no-referrer'
-          allowFullScreen
-        />
-      </div>
-    );
-  }
-
   renderArticle (articleUrl) {
     if (!articleUrl) {
       return null;
@@ -128,18 +156,31 @@ export default class ExternalEmbedPlayer extends React.PureComponent {
 
   render () {
     const url = this.playerUrl();
-    if (!url) {
+    if (!url || !this.mediaId()) {
       return null;
     }
 
     const poster = safePosterUrl(read(this.props.entry, 'poster'), url);
     const duration = formatDuration(read(this.props.entry, 'duration'));
     const articleUrl = safeMediaUrl(this.props.articleUrl);
+    const session = this.session();
 
     return (
       <div className='external-embed-player'>
-        {this.state.armed ? this.renderFrame(url) : this.renderLaunch(poster, duration)}
-        {this.renderArticle(articleUrl)}
+        {session ? (
+          <ExternalPlayerSurface
+            session={session}
+            prefer={this.didOpen === true}
+            releaseSignal={this.props.releaseSignal}
+            frameClassName='external-embed-player__frame'
+            footer={this.renderArticle(articleUrl)}
+          />
+        ) : (
+          <React.Fragment>
+            {this.renderLaunch(poster, duration)}
+            {this.renderArticle(articleUrl)}
+          </React.Fragment>
+        )}
       </div>
     );
   }

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fixture player</title>
+  <style>
+    body { margin: 0; font: 16px/1.4 sans-serif; background: #123; color: #eef; }
+    p { margin: 8px; }
+  </style>
+</head>
+<body>
+  <p id="label">Fixture player</p>
+  <p>token <span id="token"></span></p>
+  <p>loads <span id="loads"></span></p>
+  <p>ticks <span id="ticks"></span></p>
+  <script>
+    var loads = Number(sessionStorage.getItem('fedibird-fixture-loads') || '0') + 1;
+    sessionStorage.setItem('fedibird-fixture-loads', String(loads));
+    var token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    var ticks = 0;
+
+    function paint() {
+      document.getElementById('token').textContent = token;
+      document.getElementById('loads').textContent = String(loads);
+      document.getElementById('ticks').textContent = String(ticks);
+    }
+
+    function report() {
+      parent.postMessage({
+        source: 'fedibird-player-fixture',
+        token: token,
+        loads: loads,
+        ticks: ticks,
+      }, '*');
+    }
+
+    paint();
+    report();
+    setInterval(function () {
+      ticks += 1;
+      paint();
+      report();
+    }, 100);
+  </script>
+</body>
+</html>
