@@ -337,30 +337,9 @@ function main() {
     });
   });
 
-  delegate(document, '.quote-status', 'click', ({ target }) => {
-    if (target.closest('.status__content__spoiler-link') ||
-      target.closest('.media-gallery') ||
-      target.closest('.video-player') ||
-      target.closest('.audio-player')) {
-      return false;
-    }
+  const { handlePublicQuoteClick } = require('../mastodon/utils/public_quote_navigation');
 
-    let url = target.closest('.quote-status').getAttribute('dataurl');
-    if (target.closest('.status__display-name')) {
-      url = target.closest('.status__display-name').getAttribute('href');
-    } else if (target.closest('.detailed-status__display-name')) {
-      url = target.closest('.detailed-status__display-name').getAttribute('href');
-    } else if (target.closest('.status-card')) {
-      url = target.closest('.status-card').getAttribute('href');
-    }
-
-    if (window.location.hostname === url.split('/')[2].split(':')[0]) {
-      window.location.href = url;
-    } else {
-      window.open(url, 'blank');
-    }
-    return false;
-  });
+  delegate(document, '.quote-status', 'click', handlePublicQuoteClick);
 }
 
 loadPolyfills()
