@@ -36,13 +36,27 @@ jest.mock('mastodon/components/hashtag', () => () => null);
 jest.mock('mastodon/features/audio', () => () => null);
 jest.mock('mastodon/features/ui/components/media_modal', () => {
   const React = require('react');
-  const Modal = () => <div>Media modal</div>;
+  const Modal = ({ media, index, currentTime }) => (
+    <div data-media-id={media && media.getIn([index || 0, 'id'])} data-current-time={currentTime === undefined || currentTime === null ? '' : String(currentTime)}>
+      Media modal
+    </div>
+  );
 
   return {
     __esModule: true,
     default: Modal,
     PublicMediaModal: Modal,
   };
+});
+jest.mock('mastodon/components/status_media', () => {
+  const React = require('react');
+
+  return ({ onOpenMedia, onOpenVideo, media }) => (
+    <div>
+      <button type='button' onClick={() => onOpenMedia(media.filter(item => item.get('type') === 'image' || item.get('type') === 'gifv'), 1)}>Open stack gallery</button>
+      <button type='button' onClick={() => onOpenVideo(media.find(item => item.get('id') === 'v2'), { startTime: 4 })}>Open second video</button>
+    </div>
+  );
 });
 jest.mock('mastodon/components/status_history_revision', () => ({ revision }) => <div>History revision {revision.get('content')}</div>);
 jest.mock('mastodon/components/public_status_history', () => {
@@ -95,5 +109,31 @@ describe('MediaContainer', () => {
     fireEvent.click(overlay());
     expect(overlay()).toBeNull();
     expect(screen.queryByText(/History revision/)).not.toBeInTheDocument();
+  });
+
+  it('opens the gallery index and the expanded video from a mixed stack', () => {
+    const stackNode = document.createElement('div');
+    stackNode.setAttribute('data-component', 'StatusMediaStack');
+    stackNode.setAttribute('data-props', JSON.stringify({
+      media: [
+        { id: 'img-a', type: 'image' },
+        { id: 'v1', type: 'video' },
+        { id: 'img-b', type: 'image' },
+        { id: 'v2', type: 'video' },
+      ],
+    }));
+    document.body.append(stackNode);
+
+    render(<MediaContainer locale='en' components={[stackNode]} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open stack gallery' }));
+    let modal = document.querySelector('.modal-root__modal, [data-media-id]');
+    expect(modal.getAttribute('data-media-id')).toBe('img-b');
+
+    fireEvent.click(overlay());
+    fireEvent.click(screen.getByRole('button', { name: 'Open second video' }));
+    modal = document.querySelector('[data-media-id]');
+    expect(modal.getAttribute('data-media-id')).toBe('v2');
+    expect(modal.getAttribute('data-current-time')).toBe('4');
   });
 });

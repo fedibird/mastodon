@@ -280,6 +280,10 @@ RSpec.describe 'Private RSS projection access' do
       get '/api/oembed', params: { url: short_account_status_url(owner.account, status) }
       expect(response).to have_http_status(404)
 
+      get "/@#{owner.account.username}/#{status.id}/embed"
+      expect(response).to have_http_status(404)
+      expect(response.body).not_to include('Owner only article')
+
       sign_in owner
       get "/@#{owner.account.username}/#{status.id}"
       expect(response).to have_http_status(200)

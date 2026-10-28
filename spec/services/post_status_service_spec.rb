@@ -538,6 +538,29 @@ RSpec.describe PostStatusService, type: :service do
     )
   end
 
+  it 'does not allow more than one video or audio attachment' do
+    account = Fabricate(:account)
+    first_video = Fabricate(:media_attachment, type: :video, account: account)
+    second_video = Fabricate(:media_attachment, type: :video, account: account)
+    first_video.update(type: :video)
+    second_video.update(type: :video)
+    audio = MediaAttachment.new(account: account, type: :audio, file_file_name: 'talk.mp3', file_content_type: 'audio/mpeg', file_file_size: 1)
+    audio.save!(validate: false)
+    image = Fabricate(:media_attachment, type: :image, account: account)
+
+    expect do
+      subject.call(account, text: 'two videos', media_ids: [first_video.id, second_video.id])
+    end.to raise_error(Mastodon::ValidationError, I18n.t('media_attachments.validations.images_and_video'))
+
+    expect do
+      subject.call(account, text: 'audio and image', media_ids: [audio.id, image.id])
+    end.to raise_error(Mastodon::ValidationError, I18n.t('media_attachments.validations.images_and_video'))
+
+    expect(first_video.reload.status_id).to be_nil
+    expect(second_video.reload.status_id).to be_nil
+    expect(audio.reload.status_id).to be_nil
+  end
+
   it 'returns existing status when used twice with idempotency key' do
     account = Fabricate(:account)
     status1 = subject.call(account, text: 'test', idempotency: 'meepmeep')

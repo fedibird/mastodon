@@ -323,6 +323,7 @@ export const LocalMediaPlayer = ({
   deployPictureInPicture,
   posterFallback,
   quote,
+  detailed,
   translationMode,
   sourceLang,
   targetLang,
@@ -369,6 +370,7 @@ export const LocalMediaPlayer = ({
       width={width}
       height={height}
       inline
+      detailed={detailed}
       sensitive={sensitive}
       onOpenVideo={onOpenVideo}
       cacheWidth={cacheWidth}
@@ -395,6 +397,7 @@ LocalMediaPlayer.propTypes = {
   deployPictureInPicture: PropTypes.func,
   posterFallback: PropTypes.string,
   quote: PropTypes.bool,
+  detailed: PropTypes.bool,
   translationMode: PropTypes.string,
   sourceLang: PropTypes.string,
   targetLang: PropTypes.string,
@@ -415,6 +418,8 @@ export default class StatusMediaStack extends React.PureComponent {
     defaultWidth: PropTypes.number,
     cacheWidth: PropTypes.func,
     standalone: PropTypes.bool,
+    detailed: PropTypes.bool,
+    autoplay: PropTypes.bool,
     quote: PropTypes.bool,
     lang: PropTypes.string,
     translationMode: PropTypes.string,
@@ -451,6 +456,7 @@ export default class StatusMediaStack extends React.PureComponent {
         onOpenMedia={this.props.onOpenMedia || noop}
         defaultWidth={this.props.defaultWidth}
         cacheWidth={this.props.cacheWidth}
+        autoplay={this.props.autoplay}
         visible={this.props.visible}
         onToggleVisibility={this.props.onToggleVisibility}
         standalone={this.props.standalone}
@@ -485,6 +491,7 @@ export default class StatusMediaStack extends React.PureComponent {
         deployPictureInPicture={this.props.deployPictureInPicture}
         posterFallback={this.props.posterFallback}
         quote={this.props.quote}
+        detailed={this.props.detailed}
         translationMode={this.props.translationMode}
         sourceLang={this.props.sourceLang}
         targetLang={this.props.targetLang}
