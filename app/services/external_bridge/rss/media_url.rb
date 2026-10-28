@@ -11,7 +11,7 @@ module ExternalBridge
     # when Fedibird itself fetches. A browser that plays a remote video can
     # still be redirected somewhere this check did not see.
     class MediaURL
-      QUERY_NAMES = %w(w h width height size s format quality q fit crop auto fm dpr cb v ver version rev r t ts resize ixlib).freeze
+      QUERY_NAMES = %w(w h width height size s format quality q fit crop auto fm dpr cb v ver version rev r t ts resize ixlib updated).freeze
       QUERY_VALUE = /\A[A-Za-z0-9._-]{1,64}\z/.freeze
       MAX_PAIRS = 6
       CREDENTIAL = /token|key|sig|auth|credential|password|passwd|secret|session|jwt|access|expires|expiry|nonce/i.freeze
@@ -82,10 +82,14 @@ module ExternalBridge
         decoded_value = fully_decode(value)
         return nil if decoded_name.blank? || decoded_value.blank?
         return nil if CREDENTIAL.match?(decoded_name)
-        return nil unless QUERY_NAMES.include?(decoded_name.downcase)
+        name = decoded_name.downcase
+        return nil unless QUERY_NAMES.include?(name)
+        # Megaphone's podcast enclosures use this non-secret cache revision.
+        # Do not widen the existing generic token-shaped value allowlist.
+        return nil if name == 'updated' && !decoded_value.match?(/\A[0-9]{1,12}\z/)
         return nil unless QUERY_VALUE.match?(decoded_value)
 
-        "#{decoded_name.downcase}=#{decoded_value}"
+        "#{name}=#{decoded_value}"
       end
 
       def private_host?(host)

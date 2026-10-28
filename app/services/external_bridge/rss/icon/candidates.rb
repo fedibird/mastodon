@@ -112,9 +112,26 @@ module ExternalBridge
           text = value.to_s.strip
           return nil if text.empty? || text.bytesize > Limits::MAX_KEY_BYTES
 
-          normalize(Addressable::URI.parse(base).join(text).to_s, asset: true)
+          url = normalize(Addressable::URI.parse(base).join(text).to_s, asset: true)
+          constrain_artwork_size(url) if url
         rescue Addressable::URI::InvalidURIError
           nil
+        end
+
+        # A feed may request a 3000x3000 iTunes cover from an image CDN.
+        # Request an icon-sized rendition instead of fetching a multi-megapixel
+        # image which would exceed ICON_MAX_PIXELS. All query names and values
+        # are validated *before* any rewrite.
+        def constrain_artwork_size(url)
+          uri = Addressable::URI.parse(url)
+          return url if uri.query.blank?
+
+          pairs = uri.query.split('&').map do |pair|
+            name, value = pair.split('=', 2)
+            %w(max-w max-h).include?(name) && value.to_i > 512 ? "#{name}=512" : pair
+          end
+          uri.query = pairs.join('&')
+          uri.to_s
         end
 
         def normalize(value, asset:)

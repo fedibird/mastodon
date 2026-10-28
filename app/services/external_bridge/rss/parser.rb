@@ -14,7 +14,7 @@ module ExternalBridge
     # RSS 1.0 (RDF), RSS 2.0, and Atom. External entities are not resolved.
     # The root element decides the format. Content-Type is not consulted.
     class Parser
-      ICON_HINT_ORDER = %w(atom_icon rss_image atom_logo).freeze
+      ICON_HINT_ORDER = %w(atom_icon rss_image itunes_image atom_logo).freeze
 
       def self.parse!(body)
         new(body).parse!
@@ -54,7 +54,10 @@ module ExternalBridge
           title: Sanitizer.title(text_at(channel, 'title')),
           site_url: safe_url(text_at(channel, 'link')),
           items: items,
-          icon_hints: icon_hints([['rss_image', channel.at_xpath('image/url')&.text]]),
+          icon_hints: icon_hints([
+            ['rss_image', channel.at_xpath('image/url')&.text],
+            ['itunes_image', channel.at_xpath('image[@href]')&.[]('href')],
+          ]),
           **feed_activitypub(channel, items)
         )
       end

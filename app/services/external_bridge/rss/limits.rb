@@ -3,7 +3,9 @@
 module ExternalBridge
   module RSS
     module Limits
-      MAX_RESPONSE_BYTES = 1.megabyte
+      # Podcast feeds can contain years of episodes; the parsed item count is
+      # independently bounded by MAX_ITEMS below.
+      MAX_RESPONSE_BYTES = 4.megabytes
       MAX_TEXT_BYTES = 1.megabyte
       MAX_ITEMS = 40
       # A refresh may replay at most one page of historical import failures.
