@@ -5,7 +5,7 @@ import React from 'react';
 jest.mock('mastodon/components/blurhash', () => () => null);
 jest.mock('mastodon/components/thumbhash', () => () => null);
 
-import { formatDuration } from '../external_embed_player';
+import ExternalEmbedPlayer, { externalEmbedFrameProps, formatDuration } from '../external_embed_player';
 import ExternalStatusMedia from '../external_status_media';
 
 jest.mock('react-intl', () => ({
@@ -49,6 +49,40 @@ describe('formatDuration', () => {
   });
 });
 
+describe('external embed iframe policy', () => {
+  it('delegates fullscreen for any origin inside this frame only', () => {
+    expect(externalEmbedFrameProps.allow.split(';').map(part => part.trim())).toEqual([
+      'fullscreen *',
+      'encrypted-media',
+      'picture-in-picture',
+    ]);
+    expect(externalEmbedFrameProps.sandbox).toBe('allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox');
+    expect(externalEmbedFrameProps.sandbox).not.toContain('allow-top-navigation');
+    expect(externalEmbedFrameProps.allow).not.toContain('autoplay');
+    expect(externalEmbedFrameProps.referrerPolicy).toBe('no-referrer');
+    expect(externalEmbedFrameProps.allowFullScreen).toBe(true);
+  });
+
+  it('applies that policy only after the click that mounts the iframe', () => {
+    const { container } = render(
+      <ExternalEmbedPlayer entry={{ url: player, poster, duration: 1081 }} articleUrl='https://watch.example/watch?id=abc123' />,
+    );
+
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(container.innerHTML).not.toContain(player);
+
+    fireEvent.click(screen.getByRole('button', { name: 'External video 18:01' }));
+
+    const frame = container.querySelector('iframe');
+    expect(frame.getAttribute('src')).toBe(player);
+    expect(frame.getAttribute('allow')).toBe(externalEmbedFrameProps.allow);
+    expect(frame.getAttribute('sandbox')).toBe(externalEmbedFrameProps.sandbox);
+    expect(frame.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(frame.hasAttribute('allowfullscreen')).toBe(true);
+    expect(frame.hasAttribute('autoplay')).toBe(false);
+  });
+});
+
 describe('ExternalStatusMedia embed player', () => {
   const sequence = [
     { type: 'image', delivery: 'local', attachment_id: 'still', position: 0 },
@@ -86,9 +120,11 @@ describe('ExternalStatusMedia embed player', () => {
 
     const frame = container.querySelector('iframe');
     expect(frame.getAttribute('src')).toBe(player);
-    expect(frame.getAttribute('sandbox')).toContain('allow-scripts');
+    expect(frame.getAttribute('sandbox')).toBe(externalEmbedFrameProps.sandbox);
     expect(frame.getAttribute('sandbox')).not.toContain('allow-top-navigation');
     expect(frame.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(frame.getAttribute('allow')).toBe(externalEmbedFrameProps.allow);
+    expect(frame.hasAttribute('allowfullscreen')).toBe(true);
     expect(frame.getAttribute('allow')).not.toContain('autoplay');
     expect(frame.hasAttribute('autoplay')).toBe(false);
     expect(container.querySelector('video')).toBeNull();

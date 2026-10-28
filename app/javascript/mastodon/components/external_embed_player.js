@@ -14,8 +14,27 @@ import { safeMediaUrl } from 'mastodon/components/external_remote_media';
 // treated as playback success. A saved poster is our file, not the publisher
 // URL. Signature query names are refused here so a publisher URL cannot be
 // used as that image.
+//
+// Fullscreen on this iframe is `fullscreen *`. An omitted allowlist means
+// 'src' (the origin of the src URL). Naming fullscreen in allow also
+// disables allowfullscreen, whose allowlist is *. A generic player may
+// redirect or nest an origin we cannot list here. `fullscreen *` is that
+// same per-iframe delegation, written explicitly so it cannot collapse
+// back to 'src'. allowFullScreen remains for agents that ignore allow.
+// This does not override a parent Permissions-Policy denial, a denial
+// from the embedded document, or the user-gesture requirement.
+// Inline playback and a popout host (#619) must copy
+// externalEmbedFrameProps onto the iframe when the node is created.
+// Changing allow after load does not update the container policy.
 const SIGNATURE_QUERY = /(?:^|&)(?:hash|validto|hdnea|exp)=/i;
 const MAX_DURATION = 48 * 60 * 60;
+
+export const externalEmbedFrameProps = {
+  sandbox: 'allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox',
+  allow: 'fullscreen *; encrypted-media; picture-in-picture',
+  referrerPolicy: 'no-referrer',
+  allowFullScreen: true,
+};
 
 const read = (entry, key) => (entry && typeof entry.get === 'function' ? entry.get(key) : entry[key]);
 
@@ -105,10 +124,7 @@ export default class ExternalEmbedPlayer extends React.PureComponent {
           src={url}
           title='External video'
           className='external-embed-player__iframe'
-          sandbox='allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox'
-          allow='fullscreen; encrypted-media; picture-in-picture'
-          referrerPolicy='no-referrer'
-          allowFullScreen
+          {...externalEmbedFrameProps}
         />
       </div>
     );
