@@ -227,6 +227,104 @@ describe('pollCard', () => {
     expect(timers.timers).toHaveLength(2);
   });
 
+  it('removes only the finished subscription when the first completed poll is already hidden', async () => {
+    document.body.innerHTML = `
+      <section class="external-service-deletions">
+        <h4 id="rss-deletions-title">Feed removal progress and history</h4>
+        <article id="rss-deletion-7" data-deletion-progress data-state="running"
+                 data-poll-url="${statusUrl(7)}" data-status-url="${statusUrl(7)}" data-subscription-id="41">
+          <p data-deletion-message>Deleting data.</p>
+        </article>
+        <article id="rss-deletion-8" data-deletion-progress data-state="failed"></article>
+      </section>
+      <article data-deleting-subscription-id="41">removing</article>
+      <article data-deleting-subscription-id="99">kept</article>
+    `;
+    const fetch = jest.fn(() => Promise.resolve(jsonResponse(payload({
+      state: 'completed',
+      polling: false,
+      visible: false,
+      finished: true,
+      subscription_id: '41',
+    }))));
+    const timers = harness();
+    const poller = pollCard(document.querySelector('#rss-deletion-7'), {
+      fetch,
+      setTimeout: timers.setTimeout,
+      clearTimeout: timers.clearTimeout,
+    });
+
+    await poller.tick();
+
+    expect(document.querySelector('#rss-deletion-7')).toBeNull();
+    expect(document.querySelector('[data-deleting-subscription-id="41"]')).toBeNull();
+    expect(document.querySelector('[data-deleting-subscription-id="99"]').textContent).toBe('kept');
+    expect(document.querySelector('#rss-deletion-8')).not.toBeNull();
+    expect(document.querySelector('.external-service-deletions').hidden).toBe(false);
+    expect(timers.timers.map((timer) => timer.ms)).toEqual([3000]);
+
+    applyProgress(document.querySelector('#rss-deletion-8'), { visible: false, state: 'failed' });
+
+    expect(document.querySelector('.external-service-deletions').hidden).toBe(true);
+    expect(document.querySelector('#rss-deletions-title').textContent).toBe('Feed removal progress and history');
+    expect(document.querySelector('[data-deleting-subscription-id="99"]')).not.toBeNull();
+  });
+
+  it('retries a past-deadline hide check after HTTP 500, then stops when the server answers', async () => {
+    const card = document.querySelector('#rss-deletion-7');
+    const done = payload({
+      state: 'completed', polling: false, finished: true, dismissable: true, visible: true, hide_after_ms: 5000,
+    });
+    const fetch = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(done))
+      .mockResolvedValueOnce(jsonResponse({}, 500))
+      .mockResolvedValueOnce(jsonResponse({}, 500))
+      .mockResolvedValueOnce(jsonResponse({ visible: false, state: 'completed', subscription_id: '41' }));
+    const timers = harness();
+    const poller = pollCard(card, { fetch, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout });
+
+    await poller.tick();
+    expect(card.isConnected).toBe(true);
+    await timers.timers.find((timer) => timer.ms === 5000).fn();
+    expect(card.isConnected).toBe(true);
+    expect(timers.timers.map((timer) => timer.ms)).toEqual([3000, 5000, 3000]);
+
+    await timers.timers[timers.timers.length - 1].fn();
+    expect(card.isConnected).toBe(true);
+    expect(timers.timers.map((timer) => timer.ms)).toEqual([3000, 5000, 3000, 6000]);
+
+    await timers.timers[timers.timers.length - 1].fn();
+
+    expect(card.isConnected).toBe(false);
+    expect(timers.timers.map((timer) => timer.ms)).toEqual([3000, 5000, 3000, 6000]);
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('retries a past-deadline hide check after a network failure, then stops when the server answers', async () => {
+    const card = document.querySelector('#rss-deletion-7');
+    const done = payload({
+      state: 'completed', polling: false, finished: true, dismissable: true, visible: true, hide_after_ms: 5000,
+    });
+    const fetch = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(done))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(jsonResponse({ visible: false, state: 'completed', subscription_id: '41' }));
+    const timers = harness();
+    const poller = pollCard(card, { fetch, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout });
+
+    await poller.tick();
+    await timers.timers.find((timer) => timer.ms === 5000).fn();
+
+    expect(card.isConnected).toBe(true);
+    expect(timers.timers.map((timer) => timer.ms)).toEqual([3000, 5000, 3000]);
+
+    await timers.timers[timers.timers.length - 1].fn();
+
+    expect(card.isConnected).toBe(false);
+    expect(timers.timers.map((timer) => timer.ms)).toEqual([3000, 5000, 3000]);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
   it('stops after the job finishes', async () => {
     const card = document.querySelector('#rss-deletion-7');
     const fetch = jest.fn(() => Promise.resolve(jsonResponse(payload({ state: 'completed', polling: false, percent: 100 }))));
@@ -348,6 +446,23 @@ describe('initializeDeletionProgress', () => {
     });
     expect(document.querySelector('#rss-deletion-7')).not.toBeNull();
     expect(timers.timers.some((timer) => timer.ms === 20)).toBe(true);
+  });
+
+  it('does not retry a hide check that fails before the deadline', async () => {
+    document.body.innerHTML = markup().replace(
+      `data-poll-url="${statusUrl(7)}"`,
+      'data-hide-after-ms="60000"',
+    );
+    const fetch = jest.fn(() => Promise.resolve(jsonResponse({}, 500)));
+    const timers = harness();
+    initializeDeletionProgress(document, { fetch, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout });
+
+    await recheckOpenCards(document, { fetch, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout });
+    await Promise.resolve();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(timers.timers.map((timer) => timer.ms)).toEqual([60000]);
+    expect(document.querySelector('#rss-deletion-7')).not.toBeNull();
   });
 
   it('starts one poller for each card that still has a poll url', () => {

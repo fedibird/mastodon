@@ -8,7 +8,9 @@
 // A finished card is not polled. The server sends how many milliseconds it
 // remains visible; when that duration elapses, or when the page is shown
 // again, one request asks the server whether the card is still visible.
-// The client clock is not compared with finished_at.
+// The client clock is not compared with finished_at. A failed check is
+// retried only after that deadline has passed, with the same backoff cap
+// as live polling. A successful answer does not start a new poll.
 
 const CARD = '[data-deletion-progress]';
 const BASE_INTERVAL = 3000;
@@ -44,6 +46,46 @@ const clearHide = (card, options = {}) => {
   hideState.delete(card);
 };
 
+const scopeOf = (root) => (
+  root && typeof root.querySelectorAll === 'function' ? root : document
+);
+
+// The progress card and the subscription row are separate. Only the
+// subscription id in this payload is removed, and only once the job has
+// completed. Doing it before the progress card is removed covers a first
+// observation that is already past the 24 hour window.
+const removeDeletingSubscription = (data, root) => {
+  if (!data || data.state !== 'completed') return;
+  if (data.subscription_id === undefined || data.subscription_id === null || data.subscription_id === '') return;
+
+  const feed = scopeOf(root).querySelector(`[data-deleting-subscription-id="${data.subscription_id}"]`);
+  if (feed) feed.remove();
+};
+
+const removeProgressCard = (card, root) => {
+  card.remove();
+  scopeOf(root).querySelectorAll('.external-service-deletions').forEach((section) => {
+    if (!section.querySelector(CARD)) section.hidden = true;
+  });
+};
+
+// One-shot retry after the visibility deadline. A check that fails before
+// that timer fires leaves the original timer in place.
+const scheduleHideRetry = (card, options) => {
+  const state = hideState.get(card);
+  if (!state || !state.deadlinePassed || !card.isConnected) return;
+
+  const cancel = options.clearTimeout || clearTimeout;
+  if (state.timer !== null) cancel(state.timer);
+  const delay = state.retryDelay || BASE_INTERVAL;
+  state.retryDelay = Math.min(delay * 2, MAX_INTERVAL);
+  const schedule = options.setTimeout || setTimeout;
+  state.timer = schedule(() => {
+    state.timer = null;
+    return recheckVisibility(card, options);
+  }, delay);
+};
+
 const recheckVisibility = async (card, options) => {
   const state = stateFor(card);
   if (state.inflight || !card.isConnected) return;
@@ -61,10 +103,13 @@ const recheckVisibility = async (card, options) => {
     if (!card.isConnected) return;
     if (response.status === 404) {
       clearHide(card, options);
-      card.remove();
+      removeProgressCard(card, options.root || document);
       return;
     }
-    if (!response.ok) return;
+    if (!response.ok) {
+      if (response.status >= 500) scheduleHideRetry(card, options);
+      return;
+    }
 
     const data = await response.json();
     applyProgress(card, data, options.root || document);
@@ -74,7 +119,7 @@ const recheckVisibility = async (card, options) => {
     }
     if (typeof data.hide_after_ms === 'number') armHide(card, data.hide_after_ms, options);
   } catch (e) {
-    // Leave the card. The next time the page is shown, ask the server again.
+    scheduleHideRetry(card, options);
   } finally {
     const current = hideState.get(card);
     if (current) current.inflight = false;
@@ -86,6 +131,8 @@ const armHide = (card, hideAfterMs, options) => {
   const cancel = options.clearTimeout || clearTimeout;
   if (state.timer !== null) cancel(state.timer);
   state.timer = null;
+  state.deadlinePassed = false;
+  state.retryDelay = BASE_INTERVAL;
 
   const ms = Number(hideAfterMs);
   if (!Number.isFinite(ms) || ms <= 0) return;
@@ -93,6 +140,7 @@ const armHide = (card, hideAfterMs, options) => {
   const schedule = options.setTimeout || setTimeout;
   state.timer = schedule(() => {
     state.timer = null;
+    state.deadlinePassed = true;
     return recheckVisibility(card, options);
   }, ms);
 };
@@ -115,8 +163,10 @@ const bindVisibilityRecheck = (root, options) => {
 
 export const applyProgress = (card, data, root = document) => {
   if (!data || typeof data !== 'object') return;
+
+  if (data.state === 'completed') removeDeletingSubscription(data, root);
   if (data.visible === false) {
-    card.remove();
+    removeProgressCard(card, root);
     return;
   }
 
@@ -155,11 +205,6 @@ export const applyProgress = (card, data, root = document) => {
   else card.removeAttribute('data-hide-after-ms');
 
   if (!data.polling) card.removeAttribute('data-poll-url');
-
-  if (data.state === 'completed' && data.subscription_id) {
-    const feed = root.querySelector(`[data-deleting-subscription-id="${data.subscription_id}"]`);
-    if (feed) feed.remove();
-  }
 };
 
 export const pollCard = (card, options = {}) => {
