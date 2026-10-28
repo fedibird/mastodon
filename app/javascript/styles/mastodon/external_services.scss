@@ -718,3 +718,14 @@
   height: 12px;
   margin: 8px 0 0;
 }
+
+.external-service-deletion__dismiss {
+  font-size: 14px;
+  text-transform: none;
+
+  &:focus,
+  &:focus-visible {
+    outline: 2px solid $highlight-text-color !important;
+    outline-offset: 2px;
+  }
+}

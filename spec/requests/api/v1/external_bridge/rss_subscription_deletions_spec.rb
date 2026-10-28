@@ -153,6 +153,25 @@ RSpec.describe 'RSS subscription deletion API' do
       expect(body_as_json.map { |row| row[:id] }).to eq [job[:id]]
     end
 
+    it 'still lists a dismissed and an expired completion for the owner' do
+      job = accept!
+      deletion = ExternalSubscriptionDeletion.find(job[:id])
+      ExternalBridge::RSS::SubscriptionDeletionRunner.new.call(deletion.id)
+      deletion.reload
+      notice_at = deletion.control_enqueued_at
+      deletion.update_columns(dismissed_at: Time.current, finished_at: 2.days.ago)
+
+      get "#{base}/#{job[:id]}", headers: owner_headers
+      expect(response).to have_http_status(200)
+      expect(body_as_json).to include(state: 'completed', id: job[:id])
+      expect(body_as_json.keys.map(&:to_s)).not_to include('dismissed_at', 'visible', 'hide_after_ms', 'dismissable')
+      expect(deletion.reload.control_enqueued_at).to eq notice_at
+
+      get base, headers: owner_headers
+      expect(response).to have_http_status(200)
+      expect(body_as_json.map { |row| row[:id] }).to eq [job[:id]]
+    end
+
     it 'answers 404 for the roommate, another user, a missing id, and 401 for no token' do
       job = accept!
 
