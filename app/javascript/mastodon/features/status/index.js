@@ -44,7 +44,7 @@ import {
 } from '../../actions/statuses';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { statusTranslationView, translationDisplayStatus } from 'mastodon/utils/translation_view';
-import { firstOpenableMedia } from 'mastodon/components/status_media';
+import { hotkeyMediaRoot, openMediaFromHotkey } from 'mastodon/components/status_media';
 import {
   unblockAccount,
   unmuteAccount,
@@ -190,7 +190,7 @@ const makeMapStateToProps = () => {
   return mapStateToProps;
 };
 
-class Status extends ImmutablePureComponent {
+export class Status extends ImmutablePureComponent {
 
   static contextTypes = {
     router: PropTypes.object,
@@ -399,20 +399,14 @@ class Status extends ImmutablePureComponent {
 
     const displayed = (status.get('reblog') && typeof status.get('reblog') === 'object') ? status.get('reblog') : status;
     const mediaStatus = translationDisplayStatus(displayed, status);
-    const attachments = mediaStatus && mediaStatus.get('media_attachments');
-    const target = firstOpenableMedia(attachments);
-
-    if (!target) {
-      return;
-    }
-
     const lang = statusTranslationView(mediaStatus).mediaLang;
 
-    if (target.kind === 'video') {
-      this.handleOpenVideo(target.attachment, { startTime: 0 }, lang);
-    } else {
-      this.handleOpenMedia(target.media, target.index, lang);
-    }
+    openMediaFromHotkey({
+      attachments: mediaStatus && mediaStatus.get('media_attachments'),
+      root: hotkeyMediaRoot(e, this.node),
+      openGallery: (media, index) => this.handleOpenMedia(media, index, lang),
+      openVideo: (attachment, options) => this.handleOpenVideo(attachment, options, lang),
+    });
   }
 
   handleMuteClick = (account) => {

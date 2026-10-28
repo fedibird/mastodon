@@ -282,4 +282,60 @@ describe('ExternalStatusMedia', () => {
     expect(screen.getByTestId('gallery').textContent).toBe('still');
     expect(container.querySelector('video')).toBeNull();
   });
+
+  it('shows saved local files when an older payload has no sequence', () => {
+    const onOpenVideo = jest.fn();
+    const { container } = render(
+      <ExternalStatusMedia
+        visible
+        onOpenVideo={onOpenVideo}
+        status={fromJS({
+          id: '1',
+          media_attachments: [
+            { id: 'vid', type: 'video', url: 'https://cb.example/system/clip.webm', description: 'Clip' },
+            { id: 'img', type: 'image', url: 'https://cb.example/system/still.png', description: 'Still' },
+          ],
+          fedibird_external: {
+            canonical_url: 'https://example.com/legacy-local',
+            media: [
+              { id: 'talk', type: 'audio', url: 'https://cdn.example/talk.mp3' },
+            ],
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('gallery').textContent).toBe('img');
+    expect(container.querySelector('video').getAttribute('src')).toBe('https://cb.example/system/clip.webm');
+    expect(container.innerHTML).not.toContain('https://cdn.example/talk.mp3');
+    expect(screen.getByTestId('gallery').compareDocumentPosition(container.querySelector('video')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'External audio' }));
+    expect(container.querySelector('audio').getAttribute('src')).toBe('https://cdn.example/talk.mp3');
+  });
+
+  it('keeps saved files and a legacy remote URL concealed together', () => {
+    const { container } = render(
+      <ExternalStatusMedia
+        sensitive
+        visible={false}
+        status={fromJS({
+          id: '1',
+          media_attachments: [
+            { id: 'vid', type: 'video', url: 'https://cb.example/system/clip.webm' },
+          ],
+          fedibird_external: {
+            media: [
+              { id: 'talk', type: 'audio', url: 'https://cdn.example/talk.mp3' },
+            ],
+          },
+        })}
+      />,
+    );
+
+    expect(container.querySelector('video')).toBeNull();
+    expect(container.querySelector('audio')).toBeNull();
+    expect(container.innerHTML).not.toContain('cb.example');
+    expect(container.innerHTML).not.toContain('cdn.example');
+  });
 });

@@ -62,7 +62,10 @@ jest.mock('react-intl', () => {
 });
 
 jest.mock('react-hotkeys', () => ({
-  HotKeys: ({ children }) => children,
+  HotKeys: ({ handlers, children }) => {
+    global.__statusHotkeys = handlers;
+    return children;
+  },
 }));
 
 jest.mock('../account_action_bar', () => () => null);
@@ -83,6 +86,14 @@ jest.mock('mastodon/components/thumbhash', () => () => null);
 jest.mock('mastodon/components/alt_text_badge', () => ({ description }) => <span>{description}</span>);
 jest.mock('../../features/status/components/card', () => () => null);
 jest.mock('mastodon/containers/poll_container', () => () => null);
+jest.mock('mastodon/features/ui/components/column', () => ({ children }) => <div>{children}</div>);
+jest.mock('mastodon/components/column_header', () => () => null);
+jest.mock('mastodon/components/column_back_button', () => () => null);
+jest.mock('mastodon/containers/scroll_container', () => ({ children }) => <div>{children}</div>);
+jest.mock('mastodon/features/status/containers/header_container', () => () => null);
+jest.mock('mastodon/containers/status_container', () => () => null);
+jest.mock('mastodon/components/missing_indicator', () => () => null);
+jest.mock('mastodon/features/status/components/action_bar', () => () => null);
 jest.mock('../permalink', () => ({ children }) => <span>{children}</span>);
 jest.mock('react-router-dom', () => ({
   Link: ({ children }) => <a href='https://example.test/'>{children}</a>,
@@ -117,12 +128,17 @@ jest.mock('mastodon/features/video', () => {
 });
 
 jest.mock('mastodon/features/audio', () => {
-  const AudioProbe = ({ src }) => <audio src={src} />;
+  const AudioProbe = ({ src }) => (
+    <div className='audio-player' tabIndex='0'>
+      <audio src={src} />
+    </div>
+  );
   return AudioProbe;
 });
 
 import Status from '../status';
 import DetailedStatus from '../../features/status/components/detailed_status';
+import { Status as StatusColumn } from '../../features/status';
 
 const store = createStore(() => fromJS({ relationships: {} }));
 const pictureInPicture = fromJS({ inUse: false, available: true });
@@ -296,6 +312,166 @@ describe('mixed attachments on a timeline status', () => {
 
     expect(await screen.findByAltText('secret-photo')).toBeTruthy();
     expect(container.querySelector('audio').getAttribute('src')).toBe('https://cdn.example/secret');
+  });
+});
+
+const pressHotkey = (container, selector) => {
+  global.__statusHotkeys.openMedia({
+    preventDefault: jest.fn(),
+    target: container.querySelector(selector),
+  });
+};
+
+describe('media hotkey on a timeline status', () => {
+  it('opens an image or GIF in the media modal', async () => {
+    const onOpenMedia = jest.fn();
+    const onOpenVideo = jest.fn();
+    const { container } = renderTimeline(base({
+      media_attachments: [file('loop', 'gifv'), file('photo', 'image')],
+    }), { onOpenMedia, onOpenVideo });
+
+    await screen.findByAltText('photo');
+    pressHotkey(container, '.status__wrapper');
+
+    expect(onOpenVideo).not.toHaveBeenCalled();
+    expect(onOpenMedia.mock.calls[0][1].map(item => item.get('id')).toArray()).toEqual(['loop', 'photo']);
+    expect(onOpenMedia.mock.calls[0][2]).toBe(0);
+  });
+
+  it('opens a video in the video modal', async () => {
+    const onOpenMedia = jest.fn();
+    const onOpenVideo = jest.fn();
+    const { container } = renderTimeline(base({
+      media_attachments: [file('talk', 'audio'), file('clip', 'video')],
+    }), { onOpenMedia, onOpenVideo });
+
+    await screen.findByRole('button', { name: 'Expand video' });
+    pressHotkey(container, '.status__wrapper');
+
+    expect(onOpenMedia).not.toHaveBeenCalled();
+    expect(onOpenVideo.mock.calls[0][1].get('id')).toBe('clip');
+    expect(onOpenVideo.mock.calls[0][2]).toEqual({ startTime: 0 });
+  });
+
+  it('focuses the audio player and does not open a modal', async () => {
+    const onOpenMedia = jest.fn();
+    const onOpenVideo = jest.fn();
+    const { container } = renderTimeline(base({
+      media_attachments: [file('talk', 'audio')],
+    }), { onOpenMedia, onOpenVideo });
+
+    await waitFor(() => {
+      expect(container.querySelector('.audio-player')).not.toBeNull();
+    });
+    pressHotkey(container, '.status__wrapper');
+
+    expect(onOpenMedia).not.toHaveBeenCalled();
+    expect(onOpenVideo).not.toHaveBeenCalled();
+    expect(document.activeElement.classList.contains('audio-player')).toBe(true);
+  });
+
+  it('focuses a safe unknown link and leaves an unsafe one alone', async () => {
+    const onOpenMedia = jest.fn();
+    const onOpenVideo = jest.fn();
+    const safe = renderTimeline(base({
+      media_attachments: [{
+        id: 'gone',
+        type: 'unknown',
+        remote_url: 'https://remote.example/gone',
+        description: 'Missing',
+      }],
+    }), { onOpenMedia, onOpenVideo });
+
+    const link = await screen.findByRole('link', { name: 'Missing' });
+    pressHotkey(safe.container, '.status__wrapper');
+    expect(onOpenMedia).not.toHaveBeenCalled();
+    expect(onOpenVideo).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(link);
+
+    const unsafe = renderTimeline(base({
+      id: 'status-2',
+      media_attachments: [{
+        id: 'bad',
+        type: 'unknown',
+        remote_url: 'javascript:alert(1)',
+        description: 'Bad',
+      }],
+    }), { onOpenMedia, onOpenVideo });
+    await screen.findByRole('link', { name: 'Bad' });
+    pressHotkey(unsafe.container, '.status__wrapper');
+    expect(onOpenMedia).not.toHaveBeenCalled();
+    expect(document.activeElement).not.toBe(unsafe.container.querySelector('a'));
+  });
+});
+
+describe('media hotkey on the detail column', () => {
+  const renderColumn = (attachments) => {
+    const dispatch = jest.fn();
+    const view = render(
+      <Provider store={store}>
+        <StatusColumn
+          dispatch={dispatch}
+          params={{ statusId: 'status-1' }}
+          status={base({ media_attachments: attachments })}
+          ancestorsIds={fromJS([])}
+          descendantsIds={fromJS([])}
+          intl={{
+            formatMessage: ({ defaultMessage }, values) => {
+              let message = defaultMessage || '';
+              if (values) {
+                Object.keys(values).forEach(key => {
+                  message = message.replace(`{${key}}`, values[key]);
+                });
+              }
+              return message;
+            },
+            formatDate: () => 'date',
+            now: () => Date.now(),
+          }}
+          domain='example.test'
+          pictureInPicture={pictureInPicture}
+        />
+      </Provider>,
+    );
+    return { ...view, dispatch };
+  };
+
+  const modalCalls = (dispatch) => dispatch.mock.calls
+    .map(call => call[0])
+    .filter(action => action && action.type === 'MODAL_OPEN');
+
+  it('opens an image in MEDIA and a video in VIDEO', async () => {
+    const images = renderColumn([file('loop', 'gifv'), file('photo', 'image')]);
+    await screen.findByAltText('photo');
+    pressHotkey(images.container, '.detailed-status__wrapper');
+    expect(modalCalls(images.dispatch).map(action => action.modalType)).toEqual(['MEDIA']);
+    expect(modalCalls(images.dispatch)[0].modalProps.media.map(item => item.get('id')).toArray()).toEqual(['loop', 'photo']);
+
+    const videos = renderColumn([file('clip', 'video')]);
+    await screen.findByRole('button', { name: 'Expand video' });
+    pressHotkey(videos.container, '.detailed-status__wrapper');
+    const opened = modalCalls(videos.dispatch);
+    expect(opened.map(action => action.modalType)).toEqual(['VIDEO']);
+    expect(opened[0].modalProps.media.get('id')).toBe('clip');
+  });
+
+  it('focuses audio and an unknown link without MODAL_OPEN', async () => {
+    const audio = renderColumn([file('talk', 'audio')]);
+    expect(audio.container.querySelector('.audio-player')).not.toBeNull();
+    pressHotkey(audio.container, '.detailed-status__wrapper');
+    expect(modalCalls(audio.dispatch)).toEqual([]);
+    expect(document.activeElement.classList.contains('audio-player')).toBe(true);
+
+    const unknown = renderColumn([{
+      id: 'gone',
+      type: 'unknown',
+      remote_url: 'https://remote.example/gone',
+      description: 'Missing',
+    }]);
+    const link = await screen.findByRole('link', { name: 'Missing' });
+    pressHotkey(unknown.container, '.detailed-status__wrapper');
+    expect(modalCalls(unknown.dispatch)).toEqual([]);
+    expect(document.activeElement).toBe(link);
   });
 });
 

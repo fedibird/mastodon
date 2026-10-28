@@ -11,7 +11,7 @@ import ExternalEmbedPlayer from 'mastodon/components/external_embed_player';
 import Video from 'mastodon/features/video';
 import Audio from 'mastodon/features/audio';
 import { displayMedia, useBlurhash } from 'mastodon/initial_state';
-import { externalMediaBlocks, LocalMediaPlayer } from 'mastodon/components/status_media';
+import StatusMediaStack, { externalMediaBlocks, LocalMediaPlayer } from 'mastodon/components/status_media';
 
 export { externalMediaBlocks };
 
@@ -240,26 +240,72 @@ export default class ExternalStatusMedia extends React.PureComponent {
     return <ExternalRemoteMedia key={key} status={remoteStatus} articleUrl={this.articleUrl()} />;
   }
 
+  renderLegacyMedia () {
+    const attachments = this.props.status.get('media_attachments');
+    const hasLocal = !!(attachments && attachments.size > 0);
+    const remotes = remoteMediaItems(this.props.status);
+    // Nothing playable must not grow a "media hidden" control.
+    if (!hasLocal && remotes.length === 0) {
+      return null;
+    }
+
+    const revealed = !this.concealed();
+    let remote = null;
+    if (remotes.length > 0 && revealed) {
+      remote = <ExternalRemoteMedia status={this.props.status} articleUrl={this.articleUrl()} />;
+    } else if (remotes.length > 0) {
+      remote = this.renderConcealed('legacy-remote', this.legacyConcealedEntry());
+    }
+
+    if (!hasLocal) {
+      return remote;
+    }
+
+    return (
+      <div className='external-status-media status-media-stack'>
+        <StatusMediaStack
+          media={attachments}
+          Gallery={MediaGallery}
+          Video={Video}
+          Audio={Audio}
+          sensitive={this.props.sensitive}
+          visible={revealed}
+          onToggleVisibility={this.props.onToggleVisibility}
+          onOpenMedia={this.props.onOpenMedia}
+          onOpenVideo={this.props.onOpenVideo}
+          height={this.props.height}
+          videoHeight={this.props.videoHeight || this.props.height}
+          audioHeight={this.props.videoHeight || this.props.height}
+          defaultWidth={this.props.defaultWidth}
+          cacheWidth={this.props.cacheWidth}
+          standalone={this.props.standalone}
+          quote={this.props.quote}
+          lang={this.props.lang}
+          translationMode={this.props.translationMode}
+          sourceLang={this.props.sourceLang}
+          targetLang={this.props.targetLang}
+          deployPictureInPicture={this.props.deployPictureInPicture}
+        />
+        {remote}
+      </div>
+    );
+  }
+
   render () {
     if (this.props.muted || !this.props.status) {
       return null;
     }
 
     const blocks = externalMediaBlocks(this.props.status);
-    // No sequence: an older or partial payload can still carry media and
-    // canonical_url. The article link uses the same fallback as the sequence path.
-    // Sensitive or hidden media stays behind the same overlay, so the remote
-    // URL is not written into the document until the owner reveals it.
+    // A response from the current serializer includes sequence whenever a
+    // linked local file or a remote player exists. Sequence is omitted when
+    // that list is empty, and an older or partial payload can still carry
+    // media_attachments and/or fedibird_external.media without it. Local
+    // files then use the same gallery and player stack. Remote files stay
+    // behind the click-to-load player. Without sequence, local players follow
+    // attachment order and remote players follow the legacy media list.
     if (!blocks) {
-      // No sequence only means the payload is old or partial. An article with
-      // no playable file must not grow a "media hidden" control.
-      if (remoteMediaItems(this.props.status).length === 0) {
-        return null;
-      }
-      if (this.concealed()) {
-        return this.renderConcealed('legacy-remote', this.legacyConcealedEntry());
-      }
-      return <ExternalRemoteMedia status={this.props.status} articleUrl={this.articleUrl()} />;
+      return this.renderLegacyMedia();
     }
     if (blocks.length === 0) {
       return null;

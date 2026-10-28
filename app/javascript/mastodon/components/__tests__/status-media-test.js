@@ -24,7 +24,14 @@ jest.mock('mastodon/components/thumbhash', () => () => null);
 jest.mock('mastodon/components/alt_text_badge', () => () => null);
 
 import MediaGallery from '../media_gallery';
-import StatusMediaStack, { externalMediaBlocks, firstOpenableMedia, partitionStatusMedia } from '../status_media';
+import StatusMediaStack, {
+  externalMediaBlocks,
+  firstOpenableMedia,
+  focusStatusAudio,
+  focusStatusUnknownLink,
+  openMediaFromHotkey,
+  partitionStatusMedia,
+} from '../status_media';
 
 const attachment = (id, type, extra = {}) => fromJS({
   id,
@@ -165,18 +172,117 @@ describe('firstOpenableMedia', () => {
     expect(target.attachment.get('id')).toBe('video-1');
   });
 
-  it('opens an audio-only post through the media list', () => {
+  it('points at the first audio player and does not build a gallery list', () => {
     const target = firstOpenableMedia(media(['audio', 'audio']));
 
     expect(target.kind).toBe('audio');
-    expect(target.media.map(item => item.get('id')).toArray()).toEqual(['audio-0', 'audio-1']);
+    expect(target.attachment.get('id')).toBe('audio-0');
+    expect(target.media).toBeUndefined();
   });
 
-  it('opens an uncached placeholder when that is the only attachment', () => {
+  it('does not treat an uncached file as a gallery page', () => {
     const target = firstOpenableMedia(media(['unknown']));
 
+    expect(target.kind).toBe('unknown');
+    expect(target.attachment.get('id')).toBe('unknown-0');
+  });
+
+  it('drops unknown files from the gallery hotkey list', () => {
+    const target = firstOpenableMedia(fromJS([
+      { id: 'gone', type: 'unknown' },
+      { id: 'photo', type: 'image' },
+    ]));
+
     expect(target.kind).toBe('gallery');
-    expect(target.media.getIn([0, 'id'])).toBe('unknown-0');
+    expect(target.media.map(item => item.get('id')).toArray()).toEqual(['photo']);
+  });
+});
+
+describe('openMediaFromHotkey', () => {
+  const press = (attachments, root) => {
+    const openGallery = jest.fn();
+    const openVideo = jest.fn();
+    const result = openMediaFromHotkey({ attachments, root, openGallery, openVideo });
+    return { result, openGallery, openVideo };
+  };
+
+  it('opens image and GIF in the media modal and video in the video modal', () => {
+    const images = fromJS([
+      { id: 'clip', type: 'video' },
+      { id: 'loop', type: 'gifv' },
+      { id: 'photo', type: 'image' },
+    ]);
+    const gallery = press(images, null);
+    expect(gallery.result).toBe('gallery');
+    expect(gallery.openVideo).not.toHaveBeenCalled();
+    expect(gallery.openGallery.mock.calls[0][0].map(item => item.get('id')).toArray()).toEqual(['loop', 'photo']);
+    expect(gallery.openGallery.mock.calls[0][1]).toBe(0);
+
+    const video = press(fromJS([{ id: 'clip', type: 'video' }, { id: 'talk', type: 'audio' }]), null);
+    expect(video.result).toBe('video');
+    expect(video.openGallery).not.toHaveBeenCalled();
+    expect(video.openVideo.mock.calls[0][0].get('id')).toBe('clip');
+    expect(video.openVideo.mock.calls[0][1]).toEqual({ startTime: 0 });
+  });
+
+  it('focuses the status audio player and skips a quoted one', () => {
+    const { container } = render(
+      <div>
+        <div className='quote-status'><div className='audio-player' tabIndex='0' id='quoted' /></div>
+        <div className='audio-player' tabIndex='0' id='own' />
+      </div>,
+    );
+    const { result, openGallery, openVideo } = press(fromJS([{ id: 'talk', type: 'audio' }]), container);
+
+    expect(result).toBe('audio');
+    expect(openGallery).not.toHaveBeenCalled();
+    expect(openVideo).not.toHaveBeenCalled();
+    expect(document.activeElement.id).toBe('own');
+  });
+
+  it('focuses a hidden audio reveal control instead of opening a modal', () => {
+    const { container } = render(
+      <div className='status-media-stack__audio-hidden'><button type='button'>Media hidden</button></div>,
+    );
+    const { result, openGallery } = press(fromJS([{ id: 'talk', type: 'audio' }]), container);
+
+    expect(result).toBe('audio');
+    expect(openGallery).not.toHaveBeenCalled();
+    expect(document.activeElement.textContent).toBe('Media hidden');
+  });
+
+  it('focuses an http unknown link and ignores a javascript link', () => {
+    const safe = render(
+      <div>
+        <div className='quote-status'><a className='media-gallery__item-thumbnail' href='https://remote.example/quoted'>quoted</a></div>
+        <a className='media-gallery__item-thumbnail' href='https://remote.example/gone'>gone</a>
+      </div>,
+    );
+    expect(focusStatusUnknownLink(safe.container)).toBe(true);
+    expect(document.activeElement.textContent).toBe('gone');
+
+    const unsafeRoot = document.createElement('div');
+    const unsafeLink = document.createElement('a');
+    unsafeLink.className = 'media-gallery__item-thumbnail';
+    unsafeLink.setAttribute('href', ['java', 'script:alert(1)'].join(''));
+    unsafeLink.textContent = 'bad';
+    unsafeRoot.appendChild(unsafeLink);
+    document.body.appendChild(unsafeRoot);
+    const pressed = press(fromJS([{ id: 'gone', type: 'unknown' }]), unsafeRoot);
+    expect(pressed.result).toBe('unknown-inert');
+    expect(pressed.openGallery).not.toHaveBeenCalled();
+    expect(pressed.openVideo).not.toHaveBeenCalled();
+    expect(document.activeElement).not.toBe(unsafeLink);
+    document.body.removeChild(unsafeRoot);
+  });
+
+  it('does nothing when the audio player is not mounted', () => {
+    const { result, openGallery, openVideo } = press(fromJS([{ id: 'talk', type: 'audio' }]), document.createElement('div'));
+
+    expect(result).toBe('audio-unavailable');
+    expect(openGallery).not.toHaveBeenCalled();
+    expect(openVideo).not.toHaveBeenCalled();
+    expect(focusStatusAudio(null)).toBe(false);
   });
 });
 
@@ -358,5 +464,44 @@ describe('StatusMediaStack', () => {
 
     expect(container.querySelector('.media-gallery a').getAttribute('href')).toBe('https://remote.example/gone');
     expect(container.querySelector('audio').getAttribute('src')).toBe('https://cdn.example/talk.mp3');
+  });
+
+  it('opens only image and GIF pages, including images past the gallery cap', () => {
+    const onOpenMedia = jest.fn();
+    const media = fromJS([
+      ...['a', 'b', 'c', 'd', 'e'].map(id => ({
+        id,
+        type: 'image',
+        url: `https://cdn.example/${id}.jpg`,
+        preview_url: `https://cdn.example/${id}-small.jpg`,
+        remote_url: `https://remote.example/${id}.jpg`,
+        description: id,
+        meta: { small: { width: 50, aspect: 1 }, original: { width: 100 }, focus: { x: 0, y: 0 } },
+      })),
+      { id: 'gone', type: 'unknown', remote_url: 'https://remote.example/gone', url: 'https://cdn.example/gone', description: 'Missing' },
+      { id: 'loop', type: 'gifv', url: 'https://cdn.example/loop.mp4', preview_url: 'https://cdn.example/loop.jpg', description: 'Loop' },
+    ]);
+    const { container } = render(
+      <StatusMediaStack
+        media={media}
+        Gallery={MediaGallery}
+        Video={VideoProbe}
+        Audio={AudioProbe}
+        onOpenMedia={onOpenMedia}
+        onOpenVideo={jest.fn()}
+        visible
+        height={110}
+        defaultWidth={320}
+      />,
+    );
+
+    expect(container.querySelectorAll('.media-gallery img')).toHaveLength(4);
+    fireEvent.click(container.querySelectorAll('.media-gallery__item-thumbnail')[3]);
+
+    const [opened, index] = onOpenMedia.mock.calls[0];
+    expect(opened.map(item => item.get('type')).toArray().every(type => type === 'image' || type === 'gifv')).toBe(true);
+    expect(opened.map(item => item.get('id')).toArray()).toEqual(['a', 'b', 'c', 'd', 'e', 'loop']);
+    expect(index).toBe(3);
+    expect(opened.getIn([index, 'id'])).toBe('d');
   });
 });

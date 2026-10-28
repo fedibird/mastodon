@@ -27,7 +27,7 @@ import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, 
 import { List as ImmutableList } from 'immutable';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
-import StatusMediaStack, { firstOpenableMedia } from 'mastodon/components/status_media';
+import StatusMediaStack, { hotkeyMediaRoot, openMediaFromHotkey } from 'mastodon/components/status_media';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { externalIdentityOf, externalIdentityName, externalIdentityReaderText } from 'mastodon/external_presentation';
 import ExternalStatusMedia from 'mastodon/components/external_status_media';
@@ -522,26 +522,27 @@ class Status extends ImmutablePureComponent {
   }
 
   handleHotkeyOpenMedia = e => {
-    const { onOpenMedia, onOpenVideo } = this.props;
     const status = this._properStatus();
 
     e.preventDefault();
 
     const mediaStatus = this._translationMediaStatus();
-    const attachments = mediaStatus.get('media_attachments');
-    const target = firstOpenableMedia(attachments);
-
-    if (!target) {
-      return;
-    }
-
     const lang = statusTranslationView(mediaStatus).mediaLang;
 
-    if (target.kind === 'video') {
-      onOpenVideo(status.get('id'), target.attachment, { startTime: 0 }, lang);
-    } else {
-      onOpenMedia(status.get('id'), target.media, target.index, lang);
-    }
+    openMediaFromHotkey({
+      attachments: mediaStatus.get('media_attachments'),
+      root: hotkeyMediaRoot(e, this.node),
+      openGallery: (media, index) => {
+        if (this.props.onOpenMedia) {
+          this.props.onOpenMedia(status.get('id'), media, index, lang);
+        }
+      },
+      openVideo: (attachment, options) => {
+        if (this.props.onOpenVideo) {
+          this.props.onOpenVideo(status.get('id'), attachment, options, lang);
+        }
+      },
+    });
   }
 
   renderAttachmentMedia (mediaStatus, options) {

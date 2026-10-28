@@ -69,14 +69,17 @@ export const partitionStatusMedia = (media) => {
 
 // Images and GIF keep their relative order and come before uncached
 // placeholders so a long unknown run cannot push a picture out of the gallery.
+// The media modal only draws image, gifv, and video, so unknown stays in the
+// gallery for the link and is not part of the modal list.
 export const galleryMediaFor = (parts) => parts.gallery.concat(parts.unknown);
+
+const SAFE_PAGE_LINK = /^https?:\/\//i;
 
 export const firstOpenableMedia = (media) => {
   const parts = partitionStatusMedia(media);
-  const gallery = galleryMediaFor(parts);
 
   if (parts.gallery.size > 0) {
-    return { kind: 'gallery', media: gallery, index: 0 };
+    return { kind: 'gallery', media: parts.gallery, index: 0 };
   }
 
   const video = parts.players.find(attachment => attachment.get('type') === 'video');
@@ -84,15 +87,110 @@ export const firstOpenableMedia = (media) => {
     return { kind: 'video', attachment: video };
   }
 
-  if (gallery.size > 0) {
-    return { kind: 'gallery', media: gallery, index: 0 };
+  const audio = parts.players.find(attachment => attachment.get('type') === 'audio');
+  if (audio) {
+    return { kind: 'audio', attachment: audio };
   }
 
-  if (parts.players.size > 0) {
-    return { kind: 'audio', media: parts.players, index: 0 };
+  if (parts.unknown.size > 0) {
+    return { kind: 'unknown', attachment: parts.unknown.get(0) };
   }
 
   return null;
+};
+
+export const hotkeyMediaRoot = (event, fallback) => {
+  const target = event && event.target;
+  if (target && typeof target.closest === 'function') {
+    const scoped = target.closest('.detailed-status__wrapper')
+      || target.closest('.status__wrapper')
+      || target.closest('.detailed-status')
+      || target.closest('.status');
+    if (scoped) {
+      return scoped;
+    }
+  }
+
+  return fallback || null;
+};
+
+const outsideQuote = (node) => !(node.closest && node.closest('.quote-status'));
+
+export const focusStatusAudio = (root) => {
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return false;
+  }
+
+  const nodes = root.querySelectorAll('.audio-player, .status-media-stack__audio-hidden button');
+  for (let i = 0; i < nodes.length; i += 1) {
+    const node = nodes[i];
+    if (!outsideQuote(node) || typeof node.focus !== 'function') {
+      continue;
+    }
+
+    node.focus();
+    return true;
+  }
+
+  return false;
+};
+
+// Unknown has no lightbox frame. Focus the http(s) link the gallery already
+// rendered. A missing or non-http(s) href is left alone so the hotkey cannot
+// open an empty modal or follow a javascript: URL.
+export const focusStatusUnknownLink = (root) => {
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return false;
+  }
+
+  const links = root.querySelectorAll('a.media-gallery__item-thumbnail');
+  for (let i = 0; i < links.length; i += 1) {
+    const link = links[i];
+    if (!outsideQuote(link) || typeof link.focus !== 'function') {
+      continue;
+    }
+
+    const href = link.getAttribute('href') || '';
+    if (!SAFE_PAGE_LINK.test(href)) {
+      continue;
+    }
+
+    link.focus();
+    return true;
+  }
+
+  return false;
+};
+
+export const openMediaFromHotkey = ({ attachments, root, openGallery, openVideo }) => {
+  const target = firstOpenableMedia(attachments);
+  if (!target) {
+    return 'none';
+  }
+
+  if (target.kind === 'gallery') {
+    if (openGallery) {
+      openGallery(target.media, target.index);
+    }
+    return 'gallery';
+  }
+
+  if (target.kind === 'video') {
+    if (openVideo) {
+      openVideo(target.attachment, { startTime: 0 });
+    }
+    return 'video';
+  }
+
+  if (target.kind === 'audio') {
+    return focusStatusAudio(root) ? 'audio' : 'audio-unavailable';
+  }
+
+  if (target.kind === 'unknown') {
+    return focusStatusUnknownLink(root) ? 'unknown' : 'unknown-inert';
+  }
+
+  return 'none';
 };
 
 const remember = (seen, id) => {
