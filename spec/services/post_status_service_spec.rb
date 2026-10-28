@@ -538,6 +538,34 @@ RSpec.describe PostStatusService, type: :service do
     )
   end
 
+  it 'does not allow more than one video or audio on a local post' do
+    account = Fabricate(:account)
+    videos = Array.new(2) { Fabricate(:media_attachment, type: :video, account: account) }
+    videos.each { |item| item.update(type: :video) }
+
+    expect do
+      subject.call(account, text: 'two videos', media_ids: videos.map(&:id))
+    end.to raise_error(
+      Mastodon::ValidationError,
+      I18n.t('media_attachments.validations.images_and_video'),
+    )
+
+    audio = Fabricate(:media_attachment, account: account)
+    audio.update(type: :audio)
+    image = Fabricate(:media_attachment, type: :image, account: account)
+
+    expect do
+      subject.call(account, text: 'audio and image', media_ids: [audio.id, image.id])
+    end.to raise_error(
+      Mastodon::ValidationError,
+      I18n.t('media_attachments.validations.images_and_video'),
+    )
+
+    expect(videos.map { |item| item.reload.status_id }).to all(be_nil)
+    expect(audio.reload.status_id).to be_nil
+    expect(image.reload.status_id).to be_nil
+  end
+
   it 'returns existing status when used twice with idempotency key' do
     account = Fabricate(:account)
     status1 = subject.call(account, text: 'test', idempotency: 'meepmeep')

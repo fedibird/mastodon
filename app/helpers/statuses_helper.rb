@@ -152,60 +152,39 @@ module StatusesHelper
     params[:controller] == EMBEDDED_CONTROLLER && params[:action] == EMBEDDED_ACTION
   end
 
-  def render_video_component(status, **options)
-    video = status.ordered_media_attachments.first
+  # Public pages use the same split as the signed-in WebUI: images and GIFV
+  # stay in one gallery, then every video and audio attachment stacks in its
+  # original relative order. The serialized list stays in attachment order;
+  # StatusMediaStack partitions it in the browser.
+  def render_status_media(status, **options)
+    attachments = status.ordered_media_attachments
+    return if attachments.empty?
 
-    meta = video.file.meta || {}
-
-    component_params = {
-      sensitive: sensitized?(status, current_account),
-      src: full_asset_url(video.file.url(:original)),
-      preview: full_asset_url(video.thumbnail.present? ? video.thumbnail.url : video.file.url(:small)),
-      alt: video.description,
-      blurhash: video.blurhash,
-      thumbhash: video.thumbhash,
-      frameRate: meta.dig('original', 'frame_rate'),
-      inline: true,
-      media: [
-        ActiveModelSerializers::SerializableResource.new(video, serializer: REST::MediaAttachmentSerializer),
-      ].as_json,
-    }.merge(**options)
-
-    react_component :video, component_params do
-      render partial: 'statuses/attachment_list', locals: { attachments: status.ordered_media_attachments }
+    react_component :status_media_stack, status_media_component_params(status, attachments, options) do
+      render partial: 'statuses/attachment_list', locals: { attachments: attachments }
     end
+  end
+
+  # Older single-type entry points share the stack so a later attachment is
+  # not dropped when the first one is a video or an audio file.
+  def render_video_component(status, **options)
+    render_status_media(status, **options)
   end
 
   def render_audio_component(status, **options)
-    audio = status.ordered_media_attachments.first
-
-    meta = audio.file.meta || {}
-
-    component_params = {
-      src: full_asset_url(audio.file.url(:original)),
-      poster: full_asset_url(audio.thumbnail.present? ? audio.thumbnail.url : status.account.avatar_static_url),
-      alt: audio.description,
-      backgroundColor: meta.dig('colors', 'background'),
-      foregroundColor: meta.dig('colors', 'foreground'),
-      accentColor: meta.dig('colors', 'accent'),
-      duration: meta.dig('original', 'duration'),
-    }.merge(**options)
-
-    react_component :audio, component_params do
-      render partial: 'statuses/attachment_list', locals: { attachments: status.ordered_media_attachments }
-    end
+    render_status_media(status, **options)
   end
 
   def render_media_gallery_component(status, **options)
-    component_params = {
-      sensitive: sensitized?(status, current_account),
-      autoplay: prefers_autoplay?,
-      media: status.ordered_media_attachments.map { |a| ActiveModelSerializers::SerializableResource.new(a, serializer: REST::MediaAttachmentSerializer).as_json },
-    }.merge(**options)
+    render_status_media(status, **options)
+  end
 
-    react_component :media_gallery, component_params do
-      render partial: 'statuses/attachment_list', locals: { attachments: status.ordered_media_attachments }
-    end
+  # One card. Networks that only keep the first player tag would otherwise
+  # advertise whichever attachment happened to be written last.
+  def representative_opengraph_attachment(status)
+    return unless status.respond_to?(:ordered_media_attachments)
+
+    status.ordered_media_attachments.find { |media| media.image? || media.gifv? || media.video? || media.audio? }
   end
 
   def render_card_component(status, **options)
@@ -231,5 +210,31 @@ module StatusesHelper
 
   def prefers_autoplay?
     ActiveModel::Type::Boolean.new.cast(params[:autoplay]) || current_user&.setting_auto_play_media
+  end
+
+  def status_media_component_params(status, attachments, options)
+    height = options.fetch(:height, 343)
+    component_params = {
+      sensitive: options.fetch(:sensitive) { status_media_sensitive?(status, options[:quote]) },
+      autoplay: prefers_autoplay?,
+      height: height,
+      videoHeight: options.fetch(:video_height, height),
+      audioHeight: options.fetch(:audio_height, height),
+      defaultWidth: options[:width],
+      standalone: options[:standalone] || false,
+      quote: options[:quote] || false,
+      posterFallback: full_asset_url(status.account.avatar_static_url),
+      media: attachments.map { |attachment| ActiveModelSerializers::SerializableResource.new(attachment, serializer: REST::MediaAttachmentSerializer).as_json },
+    }
+    component_params[:detailed] = true if options[:detailed]
+    component_params.compact
+  end
+
+  def status_media_sensitive?(status, quote)
+    if quote
+      (!current_account&.user&.show_all_media? && status.sensitive?) || current_account&.user&.hide_all_media?
+    else
+      sensitized?(status, current_account)
+    end
   end
 end

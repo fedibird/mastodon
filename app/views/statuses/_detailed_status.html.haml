@@ -35,12 +35,7 @@
     = render partial: "quote_status", locals: {status: status.quote}
 
   - if !status.ordered_media_attachments.empty?
-    - if status.ordered_media_attachments.first.video?
-      = render_video_component(status, width: 670, height: 380, detailed: true)
-    - elsif status.ordered_media_attachments.first.audio?
-      = render_audio_component(status, width: 670, height: 380)
-    - else
-      = render_media_gallery_component(status, height: 380, standalone: true)
+    = render_status_media(status, width: 670, height: 380, standalone: true, detailed: true)
   - elsif status.preview_card
     = render_card_component(status)
 

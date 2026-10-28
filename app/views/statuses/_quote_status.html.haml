@@ -19,17 +19,7 @@
     .e-content{ lang: status.language, style: "display: #{!current_account&.user&.setting_expand_spoilers && status.spoiler_text? ? 'none' : 'block'}" }
       = Formatter.instance.format_in_quote(status, custom_emojify: true)
   
-  - if !status.media_attachments.empty?
-    - if status.media_attachments.first.video?
-      - video = status.media_attachments.first
-      = react_component :video, src: video.file.url(:original), preview: video.file.url(:small), frameRate: video.file.meta.dig('original', 'frame_rate'), blurhash: video.blurhash, thumbhash: video.thumbhash, sensitive: !current_account&.user&.show_all_media? && status.sensitive? || current_account&.user&.hide_all_media?, width: 610, height: 343, inline: true, alt: video.description, media: [ActiveModelSerializers::SerializableResource.new(video, serializer: REST::MediaAttachmentSerializer)].as_json, quote: true do
-        = render partial: 'statuses/attachment_list', locals: { attachments: status.media_attachments }
-    - elsif status.media_attachments.first.audio?
-      - audio = status.media_attachments.first
-      = react_component :audio, src: audio.file.url(:original), height: 60, alt: audio.description, duration: audio.file.meta.dig(:original, :duration) do
-        = render partial: 'statuses/attachment_list', locals: { attachments: status.media_attachments }
-    - else
-      = react_component :media_gallery, height: 343, sensitive: !current_account&.user&.show_all_media? && status.sensitive? || current_account&.user&.hide_all_media?, autoplay: current_account&.user&.setting_auto_play_media, media: status.media_attachments.map { |a| ActiveModelSerializers::SerializableResource.new(a, serializer: REST::MediaAttachmentSerializer).as_json }, quote: true do
-        = render partial: 'statuses/attachment_list', locals: { attachments: status.media_attachments }
+  - if !status.ordered_media_attachments.empty?
+    = render_status_media(status, width: 610, height: 343, audio_height: 60, quote: true)
   - elsif status.preview_card
     = react_component :card, maxDescription: 10, card: ActiveModelSerializers::SerializableResource.new(status.preview_card, serializer: REST::PreviewCardSerializer).as_json, quote: true

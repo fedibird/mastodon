@@ -6,6 +6,7 @@ import { FormattedMessage } from 'react-intl';
 import Bundle from '../features/ui/components/bundle';
 import { MediaGallery, Video, Audio } from '../features/ui/util/async-components';
 import { attachmentAccessibility } from 'mastodon/utils/translation_view';
+import { displayMedia } from '../initial_state';
 
 // image and gifv stay in one gallery. gifv is a muted looping video inside
 // that gallery, not a standalone player. video and audio keep their original
@@ -23,6 +24,12 @@ const PLAYER_TYPES = {
 };
 
 const noop = () => {};
+
+// Same rule as MediaGallery and Video. Public pages do not pass `visible`,
+// so the stack has to decide before an <audio src> is written.
+export const publicMediaVisible = (sensitive, mode = displayMedia) => (
+  mode !== 'hide_all' && !sensitive || mode === 'show_all'
+);
 
 const read = (item, key) => {
   if (!item) {
@@ -289,19 +296,36 @@ const LoadingVideo = () => <div className='video-player' style={{ height: '110px
 
 const LoadingAudio = () => <div className='audio-player' style={{ height: '110px' }} />;
 
-const AudioConcealed = ({ sensitive, onToggleVisibility }) => (
-  <div className='status-media-stack__audio-hidden'>
-    <button type='button' className='spoiler-button__overlay' onClick={onToggleVisibility}>
-      <span className='spoiler-button__overlay__label'>
-        {sensitive ? (
-          <FormattedMessage id='status.sensitive_warning' defaultMessage='Sensitive content' />
-        ) : (
-          <FormattedMessage id='status.media_hidden' defaultMessage='Media hidden' />
-        )}
-      </span>
-    </button>
-  </div>
-);
+class AudioConcealed extends React.PureComponent {
+
+  handleClick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (this.props.onToggleVisibility) {
+      this.props.onToggleVisibility();
+    }
+  };
+
+  render () {
+    const { sensitive } = this.props;
+
+    return (
+      <div className='status-media-stack__audio-hidden'>
+        <button type='button' className='spoiler-button__overlay' onClick={this.handleClick}>
+          <span className='spoiler-button__overlay__label'>
+            {sensitive ? (
+              <FormattedMessage id='status.sensitive_warning' defaultMessage='Sensitive content' />
+            ) : (
+              <FormattedMessage id='status.media_hidden' defaultMessage='Media hidden' />
+            )}
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+}
 
 AudioConcealed.propTypes = {
   sensitive: PropTypes.bool,
@@ -323,6 +347,7 @@ export const LocalMediaPlayer = ({
   deployPictureInPicture,
   posterFallback,
   quote,
+  detailed,
   translationMode,
   sourceLang,
   targetLang,
@@ -369,6 +394,7 @@ export const LocalMediaPlayer = ({
       width={width}
       height={height}
       inline
+      detailed={detailed}
       sensitive={sensitive}
       onOpenVideo={onOpenVideo}
       cacheWidth={cacheWidth}
@@ -395,6 +421,7 @@ LocalMediaPlayer.propTypes = {
   deployPictureInPicture: PropTypes.func,
   posterFallback: PropTypes.string,
   quote: PropTypes.bool,
+  detailed: PropTypes.bool,
   translationMode: PropTypes.string,
   sourceLang: PropTypes.string,
   targetLang: PropTypes.string,
@@ -415,6 +442,8 @@ export default class StatusMediaStack extends React.PureComponent {
     defaultWidth: PropTypes.number,
     cacheWidth: PropTypes.func,
     standalone: PropTypes.bool,
+    detailed: PropTypes.bool,
+    autoplay: PropTypes.bool,
     quote: PropTypes.bool,
     lang: PropTypes.string,
     translationMode: PropTypes.string,
@@ -431,6 +460,37 @@ export default class StatusMediaStack extends React.PureComponent {
     height: 110,
   };
 
+  // Public Haml leaves `visible` unset. Owning it here keeps a sensitive or
+  // hide_all audio file out of the document until the visitor asks for it.
+  // A parent that passes `visible` (the signed-in WebUI) stays in charge.
+  state = {
+    revealed: publicMediaVisible(this.props.sensitive),
+  };
+
+  componentWillReceiveProps (nextProps) {
+    if (nextProps.visible === undefined && nextProps.sensitive !== this.props.sensitive) {
+      this.setState({ revealed: publicMediaVisible(nextProps.sensitive) });
+    }
+  }
+
+  toggleRevealed = () => {
+    this.setState(({ revealed }) => ({ revealed: !revealed }));
+  };
+
+  visibility () {
+    if (this.props.visible !== undefined) {
+      return {
+        visible: this.props.visible,
+        onToggleVisibility: this.props.onToggleVisibility,
+      };
+    }
+
+    return {
+      visible: this.state.revealed,
+      onToggleVisibility: this.toggleRevealed,
+    };
+  }
+
   openPlayer = (attachment) => (options) => {
     if (this.props.onOpenVideo) {
       this.props.onOpenVideo(attachment, options);
@@ -442,6 +502,8 @@ export default class StatusMediaStack extends React.PureComponent {
   }
 
   renderGallery (key, media, Gallery) {
+    const visibility = this.visibility();
+
     return (
       <Gallery
         key={key}
@@ -451,8 +513,9 @@ export default class StatusMediaStack extends React.PureComponent {
         onOpenMedia={this.props.onOpenMedia || noop}
         defaultWidth={this.props.defaultWidth}
         cacheWidth={this.props.cacheWidth}
-        visible={this.props.visible}
-        onToggleVisibility={this.props.onToggleVisibility}
+        autoplay={this.props.autoplay}
+        visible={visibility.visible}
+        onToggleVisibility={visibility.onToggleVisibility}
         standalone={this.props.standalone}
         quote={this.props.quote}
         lang={this.props.lang}
@@ -463,10 +526,14 @@ export default class StatusMediaStack extends React.PureComponent {
     );
   }
 
-  renderPlayer (attachment, components, key) {
+  renderPlayer (attachment, components, key, videoCount) {
     const height = attachment.get('type') === 'audio'
       ? (this.props.audioHeight || this.props.height)
       : (this.props.videoHeight || this.props.height);
+    const visibility = this.visibility();
+    // `detailed` also sets autoFocus on every play button. One video may
+    // take that. Several would fight for focus while the page hydrates.
+    const detailed = !!this.props.detailed && attachment.get('type') === 'video' && videoCount === 1;
 
     return (
       <LocalMediaPlayer
@@ -475,8 +542,8 @@ export default class StatusMediaStack extends React.PureComponent {
         Video={components.Video}
         Audio={components.Audio}
         sensitive={this.props.sensitive}
-        visible={this.props.visible}
-        onToggleVisibility={this.props.onToggleVisibility}
+        visible={visibility.visible}
+        onToggleVisibility={visibility.onToggleVisibility}
         onOpenVideo={this.openPlayer(attachment)}
         width={this.props.defaultWidth}
         height={height}
@@ -485,6 +552,7 @@ export default class StatusMediaStack extends React.PureComponent {
         deployPictureInPicture={this.props.deployPictureInPicture}
         posterFallback={this.props.posterFallback}
         quote={this.props.quote}
+        detailed={detailed}
         translationMode={this.props.translationMode}
         sourceLang={this.props.sourceLang}
         targetLang={this.props.targetLang}
@@ -492,12 +560,12 @@ export default class StatusMediaStack extends React.PureComponent {
     );
   }
 
-  renderResolvedPlayer = (attachment, Component) => {
+  renderResolvedPlayer = (attachment, Component, videoCount) => {
     const components = attachment.get('type') === 'audio'
       ? { Audio: Component, Video: this.props.Video }
       : { Video: Component, Audio: this.props.Audio };
 
-    return this.renderPlayer(attachment, components);
+    return this.renderPlayer(attachment, components, undefined, videoCount);
   };
 
   renderGalleryNode (key, media) {
@@ -512,13 +580,13 @@ export default class StatusMediaStack extends React.PureComponent {
     );
   }
 
-  renderPlayerNode (attachment, index) {
+  renderPlayerNode (attachment, index, videoCount) {
     const key = `${attachment.get('id')}-${index}`;
     if (this.usesProvidedPlayers()) {
       return this.renderPlayer(attachment, {
         Video: this.props.Video,
         Audio: this.props.Audio,
-      }, key);
+      }, key, videoCount);
     }
 
     const audio = attachment.get('type') === 'audio';
@@ -528,7 +596,7 @@ export default class StatusMediaStack extends React.PureComponent {
         fetchComponent={audio ? Audio : Video}
         loading={audio ? LoadingAudio : LoadingVideo}
       >
-        {Component => this.renderResolvedPlayer(attachment, Component)}
+        {Component => this.renderResolvedPlayer(attachment, Component, videoCount)}
       </Bundle>
     );
   }
@@ -537,6 +605,7 @@ export default class StatusMediaStack extends React.PureComponent {
     const parts = partitionStatusMedia(this.props.media);
     const gallery = galleryMediaFor(parts);
     const blockCount = (gallery.size > 0 ? 1 : 0) + parts.players.size;
+    const videoCount = parts.players.filter(attachment => attachment.get('type') === 'video').size;
 
     if (blockCount === 0) {
       return null;
@@ -547,7 +616,7 @@ export default class StatusMediaStack extends React.PureComponent {
       nodes.push(this.renderGalleryNode('gallery', gallery));
     }
     parts.players.forEach((attachment, index) => {
-      nodes.push(this.renderPlayerNode(attachment, index));
+      nodes.push(this.renderPlayerNode(attachment, index, videoCount));
     });
 
     if (blockCount === 1) {

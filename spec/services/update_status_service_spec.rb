@@ -107,6 +107,27 @@ RSpec.describe UpdateStatusService, type: :service do # rubocop:disable Metrics/
     expect(status.edits.last.media_descriptions).to eq ['second', 'updated first']
   end
 
+  it 'does not allow a local edit to mix audio or video with another attachment' do
+    image = unprocessed_media(account, 'still')
+    video = MediaAttachment.new(account: account, type: :video, file_file_name: 'clip.mp4', file_content_type: 'video/mp4', file_file_size: 1, description: 'clip')
+    video.save!(validate: false)
+    audio = MediaAttachment.new(account: account, type: :audio, file_file_name: 'talk.mp3', file_content_type: 'audio/mpeg', file_file_size: 1, description: 'talk')
+    audio.save!(validate: false)
+    image.update_columns(status_id: status.id)
+    status.update!(ordered_media_attachment_ids: [image.id])
+
+    expect do
+      subject.call(status, account.id, text: 'original text', media_ids: [image.id, video.id])
+    end.to raise_error(Mastodon::ValidationError, I18n.t('media_attachments.validations.images_and_video'))
+
+    expect do
+      subject.call(status, account.id, text: 'original text', media_ids: [video.id, audio.id])
+    end.to raise_error(Mastodon::ValidationError, I18n.t('media_attachments.validations.images_and_video'))
+
+    expect(status.reload.ordered_media_attachment_ids).to eq [image.id]
+    expect(video.reload.status_id).to be_nil
+  end
+
   it 'does not attach another account\'s media' do
     owned = unprocessed_media(account, 'owned')
     foreign = unprocessed_media(Fabricate(:account, username: 'bob'), 'foreign')
