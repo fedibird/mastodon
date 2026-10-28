@@ -13,7 +13,7 @@ module ExternalBridge
       # shares the same public-only rules: Request rejects private addresses on
       # every DNS answer, every redirect hop is normalized again, no credential
       # is sent, and the response is read through a byte limit.
-      FetchProfile = Struct.new(:accept, :max_bytes, :asset_urls, :budget_namespace, :budget, :content_types, :truncate, :timeouts, :url_mode, keyword_init: true)
+      FetchProfile = Struct.new(:accept, :max_bytes, :asset_urls, :budget_namespace, :budget, :content_types, :truncate, :timeouts, :url_mode, :same_origin, keyword_init: true)
 
       FEED_PROFILE = FetchProfile.new(
         accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.1',
@@ -26,6 +26,30 @@ module ExternalBridge
         content_types: nil,
         truncate: false,
         timeouts: nil
+      ).freeze
+
+      NODEINFO_PROFILE = FetchProfile.new(
+        accept: 'application/json',
+        max_bytes: 64.kilobytes,
+        asset_urls: false,
+        budget_namespace: 'external_bridge:rss_nodeinfo:host:',
+        budget: 10,
+        content_types: %w(application/json application/ld+json),
+        truncate: false,
+        timeouts: { connect_timeout: 5, read_timeout: 5, write_timeout: 5, read_deadline: 10 }.freeze,
+        same_origin: true
+      ).freeze
+
+      ACTIVITYPUB_PROFILE = FetchProfile.new(
+        accept: 'application/ld+json; profile="https://www.w3.org/ns/activitystreams", application/activity+json;q=0.9',
+        max_bytes: 256.kilobytes,
+        asset_urls: false,
+        budget_namespace: 'external_bridge:rss_ap:host:',
+        budget: 10,
+        content_types: %w(application/activity+json application/ld+json),
+        truncate: false,
+        timeouts: { connect_timeout: 5, read_timeout: 5, write_timeout: 5, read_deadline: 10 }.freeze,
+        url_mode: :item
       ).freeze
 
       ICON_IMAGE_PROFILE = FetchProfile.new(
@@ -68,18 +92,33 @@ module ExternalBridge
         timeouts: Limits::ICON_TIMEOUTS
       ).freeze
 
-      def self.get(url, etag: nil, last_modified: nil, profile: FEED_PROFILE)
-        new.get(url, etag: etag, last_modified: last_modified, profile: profile)
+      def self.same_origin?(url, origin)
+        left = Addressable::URI.parse(url.to_s)
+        right = Addressable::URI.parse(origin.to_s)
+        return false if left.host.blank? || right.host.blank?
+
+        same_scheme = left.scheme.to_s.casecmp(right.scheme.to_s).zero?
+        same_scheme && left.normalized_host == right.normalized_host && port_of(left) == port_of(right)
+      rescue Addressable::URI::InvalidURIError
+        false
       end
 
-      def self.head(url, profile: FEED_PROFILE)
-        new.head(url, profile: profile)
+      def self.port_of(uri)
+        uri.port || uri.default_port
       end
 
-      def get(url, etag: nil, last_modified: nil, profile: FEED_PROFILE)
-        canonical = canonical_url!(url, profile)
+      def self.get(url, etag: nil, last_modified: nil, profile: FEED_PROFILE, origin: nil)
+        new.get(url, etag: etag, last_modified: last_modified, profile: profile, origin: origin)
+      end
+
+      def self.head(url, profile: FEED_PROFILE, origin: nil)
+        new.head(url, profile: profile, origin: origin)
+      end
+
+      def get(url, etag: nil, last_modified: nil, profile: FEED_PROFILE, origin: nil)
+        canonical = prepare_url!(url, profile, origin)
         consume_budget!(canonical, profile)
-        request = Request.new(:get, canonical, **request_options(profile))
+        request = Request.new(:get, canonical, **request_options(profile, origin))
         request.add_headers(request_headers(etag, last_modified, profile))
         request.perform do |response|
           build_response(response, canonical, profile)
@@ -96,10 +135,10 @@ module ExternalBridge
 
       # Headers only. A missing or unusable Content-Length means the size is
       # unknown. Callers must not fall through to a full GET just to measure.
-      def head(url, profile: FEED_PROFILE)
-        canonical = canonical_url!(url, profile)
+      def head(url, profile: FEED_PROFILE, origin: nil)
+        canonical = prepare_url!(url, profile, origin)
         consume_budget!(canonical, profile)
-        request = Request.new(:head, canonical, **request_options(profile))
+        request = Request.new(:head, canonical, **request_options(profile, origin))
         request.add_headers('Accept' => profile.accept)
         request.perform do |response|
           length = response.content_length
@@ -123,11 +162,34 @@ module ExternalBridge
 
       private
 
+      def prepare_url!(url, profile, origin)
+        raise ArgumentError, 'same-origin fetch requires an origin' if profile.same_origin && origin.blank?
+
+        canonical = canonical_url!(url, profile)
+        enforce_same_origin!(canonical, origin) if profile.same_origin
+        canonical
+      end
+
+      def enforce_same_origin!(url, origin)
+        raise Error, :cross_origin_redirect unless self.class.same_origin?(url, origin)
+      end
+
       def canonical_url!(url, profile)
         return poster_canonical!(url) if profile.url_mode.to_s == 'poster'
         return MediaURL.normalize!(url) if profile.url_mode.to_s == 'media'
+        return activitypub_canonical!(url) if profile.url_mode.to_s == 'item'
 
         CanonicalURL.normalize!(url, asset: profile.asset_urls)
+      end
+
+      # Existing RSS item URLs may use a video viewkey. Such URLs are
+      # intentionally not accepted for extra AP metadata requests.
+      def activitypub_canonical!(url)
+        normalized = CanonicalURL.normalize!(url, item: true)
+        query = Addressable::URI.parse(normalized).query.to_s
+        raise Error, :authenticated_source_rejected if query.split('&').any? { |pair| pair.start_with?('viewkey=') }
+
+        normalized
       end
 
       def media_profile?(profile)
@@ -145,24 +207,32 @@ module ExternalBridge
         text = error.message.to_s
         return 'authenticated_source_rejected' if text.include?('authenticated_source_rejected')
         return 'unsupported_url' if text.include?('unsupported_url')
+        return 'cross_origin_redirect' if text.include?('cross_origin_redirect')
+        return 'rate_limited' if text.include?('rate_limited')
 
         'private_address'
       end
 
-      def request_options(profile)
-        options = { follow: redirect_policy(profile) }
+      def request_options(profile, origin)
+        options = { follow: redirect_policy(profile, origin) }
         options[:timeout_options] = profile.timeouts if profile.timeouts
         options
       end
 
-      # Reject the next hop before HTTP follows it. The socket check still
-      # runs for DNS answers; this stops a private literal, userinfo, or
-      # token-like query from being requested at all.
-      def redirect_policy(profile)
+      # Reject or account for the next hop before HTTP follows it. The socket
+      # check still runs for DNS answers; this stops a private literal,
+      # userinfo, or token-like query from being requested at all. A
+      # same-origin profile also refuses a public cross-origin hop before
+      # that GET is sent. Every followed hop charges the destination host's
+      # budget, so several origins cannot redirect onto one host for free.
+      def redirect_policy(profile, origin)
         {
           max_hops: 3,
           on_redirect: lambda do |_response, next_request|
-            canonical_url!(next_request.uri.to_s, profile)
+            canonical = canonical_url!(next_request.uri.to_s, profile)
+            enforce_same_origin!(canonical, origin) if profile.same_origin
+            consume_budget!(canonical, profile)
+            canonical
           rescue Error => e
             raise Mastodon::HostValidationError, e.code
           end,

@@ -207,6 +207,8 @@ defaults: &defaults
   #   Setting.external_bridge_rss = true
   #   Setting.external_bridge_rss_testers = "17,42"
   external_bridge_rss: false
+  # Extra public AP GETs are opt-in during rollout.
+  external_bridge_rss_activitypub_discovery: false
   external_bridge_rss_testers: ''
   # AT Protocol identity connection. Off, and the tester allowlist is empty,
   # so nobody can start OAuth until an operator opts in. This does not delete

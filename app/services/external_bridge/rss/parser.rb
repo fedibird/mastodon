@@ -2,8 +2,8 @@
 
 module ExternalBridge
   module RSS
-    Item = Struct.new(:key, :title, :body, :canonical_url, :byline, :published_at, :truncated, :media, :keywords, keyword_init: true)
-    Feed = Struct.new(:protocol, :title, :site_url, :items, :icon_hints, keyword_init: true) do
+    Item = Struct.new(:key, :title, :body, :canonical_url, :byline, :published_at, :truncated, :media, :keywords, :activitypub_url, :activitypub_explicit, :activitypub_sample_url, keyword_init: true)
+    Feed = Struct.new(:protocol, :title, :site_url, :items, :icon_hints, :activitypub_hint, :activitypub_generator_hint, keyword_init: true) do
       # The feed-declared image URLs, best candidate first. They are raw text
       # here (possibly relative); the icon job resolves and validates them.
       def icon_hints
@@ -54,7 +54,8 @@ module ExternalBridge
           title: Sanitizer.title(text_at(channel, 'title')),
           site_url: safe_url(text_at(channel, 'link')),
           items: items,
-          icon_hints: icon_hints([['rss_image', channel.at_xpath('image/url')&.text]])
+          icon_hints: icon_hints([['rss_image', channel.at_xpath('image/url')&.text]]),
+          **feed_activitypub(channel, items)
         )
       end
 
@@ -62,12 +63,14 @@ module ExternalBridge
         channel, nodes, image_url = RdfDocument.extract(document)
         raise Error, :malformed_feed if channel.nil?
 
+        items = nodes.first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
         Feed.new(
           protocol: 'rss',
           title: Sanitizer.title(text_at(channel, 'title')),
           site_url: safe_url(text_at(channel, 'link')),
-          items: nodes.first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) },
-          icon_hints: icon_hints([['rss_image', image_url]])
+          items: items,
+          icon_hints: icon_hints([['rss_image', image_url]]),
+          **feed_activitypub(channel, items)
         )
       end
 
@@ -81,7 +84,8 @@ module ExternalBridge
           title: Sanitizer.title(text_at(feed, 'title')),
           site_url: atom_link(feed) || safe_url(text_at(feed, 'link')),
           items: items,
-          icon_hints: icon_hints([['atom_icon', text_at(feed, 'icon')], ['atom_logo', text_at(feed, 'logo')]])
+          icon_hints: icon_hints([['atom_icon', text_at(feed, 'icon')], ['atom_logo', text_at(feed, 'logo')]]),
+          **feed_activitypub(feed, items)
         )
       end
 
@@ -101,7 +105,8 @@ module ExternalBridge
           published_at: parse_time(text_at(node, 'pubDate')) || parse_time(text_at(node, 'date')),
           truncated: truncated,
           media: media_for(node),
-          keywords: keywords_for(node)
+          keywords: keywords_for(node),
+          **activitypub_fields(node, link, key)
         )
       end
 
@@ -121,8 +126,41 @@ module ExternalBridge
           published_at: parse_time(text_at(node, 'published').presence || text_at(node, 'updated')),
           truncated: truncated,
           media: media_for(node),
-          keywords: keywords_for(node)
+          keywords: keywords_for(node),
+          **activitypub_fields(node, link, key)
         )
+      end
+
+      # Typed alternate links are only hints; the probe must verify the JSON.
+      # activitypub_url is that typed link alone. An ordinary permalink is
+      # activitypub_sample_url and is not probed unless the feed sample admits it.
+      def explicit_activitypub_url(node)
+        node.xpath('link[@href]').each do |link|
+          next unless link['rel'].blank? || link['rel'].to_s.split.any? { |rel| %w(alternate self).include?(rel) }
+          next unless %w(application/activity+json application/ld+json).include?(link['type'].to_s.split(';').first.to_s.strip.downcase)
+
+          url = safe_url(link['href'], item: true)
+          return url if url.present?
+        end
+        nil
+      end
+
+      def activitypub_fields(node, link, identity)
+        explicit = explicit_activitypub_url(node)
+        if explicit.present?
+          return { activitypub_url: explicit, activitypub_explicit: true, activitypub_sample_url: nil }
+        end
+
+        { activitypub_url: nil, activitypub_explicit: false, activitypub_sample_url: link || safe_url(identity, item: true) }
+      end
+
+      def feed_activitypub(node, items)
+        generator = generator_hint?(node)
+        { activitypub_hint: generator || items.any?(&:activitypub_explicit), activitypub_generator_hint: generator }
+      end
+
+      def generator_hint?(node)
+        text_at(node, 'generator').first(200).match?(/\b(mastodon|misskey|pixelfed|pleroma|akkoma|gotosocial|friendica|firefish|sharkey|iceshrimp)\b/i)
       end
 
       def atom_link(node, item: false)
