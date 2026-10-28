@@ -43,7 +43,8 @@ import {
   setStatusTranslationMode,
 } from '../../actions/statuses';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
-import { statusTranslationView } from 'mastodon/utils/translation_view';
+import { statusTranslationView, translationDisplayStatus } from 'mastodon/utils/translation_view';
+import { firstOpenableMedia } from 'mastodon/components/status_media';
 import {
   unblockAccount,
   unmuteAccount,
@@ -392,14 +393,25 @@ class Status extends ImmutablePureComponent {
 
     e.preventDefault();
 
-    if (status.get('media_attachments').size > 0) {
-      const lang = statusTranslationView(status).mediaLang;
+    if (!status) {
+      return;
+    }
 
-      if (status.getIn(['media_attachments', 0, 'type']) === 'video') {
-        this.handleOpenVideo(status.getIn(['media_attachments', 0]), { startTime: 0 }, lang);
-      } else {
-        this.handleOpenMedia(status.get('media_attachments'), 0, lang);
-      }
+    const displayed = (status.get('reblog') && typeof status.get('reblog') === 'object') ? status.get('reblog') : status;
+    const mediaStatus = translationDisplayStatus(displayed, status);
+    const attachments = mediaStatus && mediaStatus.get('media_attachments');
+    const target = firstOpenableMedia(attachments);
+
+    if (!target) {
+      return;
+    }
+
+    const lang = statusTranslationView(mediaStatus).mediaLang;
+
+    if (target.kind === 'video') {
+      this.handleOpenVideo(target.attachment, { startTime: 0 }, lang);
+    } else {
+      this.handleOpenMedia(target.media, target.index, lang);
     }
   }
 

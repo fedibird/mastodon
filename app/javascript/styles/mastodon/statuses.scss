@@ -228,7 +228,8 @@ a.button.logo-button {
   }
 }
 
-.external-status-media__concealed {
+.external-status-media__concealed,
+.status-media-stack__audio-hidden {
   position: relative;
   width: 100%;
   margin-top: 8px;
@@ -238,9 +239,16 @@ a.button.logo-button {
   background: $base-overlay-background;
 
   .spoiler-button__overlay {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 100%;
+    min-height: 44px;
     cursor: pointer;
   }
 
@@ -253,6 +261,29 @@ a.button.logo-button {
   .spoiler-button__overlay:focus-visible {
     outline: 2px solid $primary-text-color;
     outline-offset: -4px;
+  }
+}
+
+.status-media-stack,
+.external-status-media {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+
+  > .video-player,
+  > .audio-player,
+  > .media-gallery,
+  > .external-remote-media,
+  > .external-embed-player,
+  > .external-status-media__concealed,
+  > .external-status-media__saved,
+  > .status-media-stack__audio-hidden {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
   }
 }
 

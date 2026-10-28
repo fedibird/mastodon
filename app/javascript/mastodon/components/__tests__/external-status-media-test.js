@@ -67,9 +67,12 @@ describe('ExternalStatusMedia', () => {
       />,
     );
 
-    expect(screen.getAllByTestId('gallery').map(node => node.textContent)).toEqual(['before', 'after']);
+    const gallery = screen.getByTestId('gallery');
+    expect(gallery.textContent).toBe('before,after');
     expect(container.querySelector('video')).toBeNull();
     expect(container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+    const launch = screen.getByRole('button');
+    expect(gallery.compareDocumentPosition(launch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button'));
     expect(container.querySelector('video').getAttribute('src')).toBe('https://cdn.example/clip.mp4');
@@ -216,5 +219,67 @@ describe('ExternalStatusMedia', () => {
 
     expect(screen.getByRole('link', { name: 'Open media file' }).getAttribute('href')).toBe('https://cdn.example/talk.mp3');
     expect(screen.queryByRole('link', { name: 'Open article' })).toBeNull();
+  });
+
+  it('lifts every local image and GIF above players and keeps player order', () => {
+    const { container } = render(
+      <ExternalStatusMedia
+        visible
+        status={status({
+          attachments: [
+            { id: 'img-a', type: 'image', url: 'https://cb.example/system/a.png' },
+            { id: 'gif', type: 'gifv', url: 'https://cb.example/system/loop.mp4' },
+            { id: 'vid', type: 'video', url: 'https://cb.example/system/clip.webm' },
+            { id: 'img-b', type: 'image', url: 'https://cb.example/system/b.png' },
+          ],
+          sequence: [
+            { id: 'remote-clip', type: 'video', delivery: 'remote', url: 'https://cdn.example/clip.mp4', position: 0 },
+            { type: 'image', delivery: 'local', attachment_id: 'img-a', position: 1 },
+            { id: 'rss-embed', type: 'embed', delivery: 'remote', url: 'https://player.example/embed/abc', position: 2 },
+            { type: 'video', delivery: 'local', attachment_id: 'vid', position: 3 },
+            { id: 'remote-talk', type: 'audio', delivery: 'remote', url: 'https://cdn.example/talk.mp3', position: 4 },
+            { type: 'gifv', delivery: 'local', attachment_id: 'gif', position: 5 },
+            { type: 'image', delivery: 'local', attachment_id: 'img-b', position: 6 },
+            { type: 'image', delivery: 'local', attachment_id: 'missing', position: 7 },
+            { type: 'image', delivery: 'local', attachment_id: 'img-a', position: 8 },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('gallery').textContent).toBe('img-a,gif,img-b');
+    expect(container.innerHTML).not.toContain('https://cdn.example/clip.mp4');
+    expect(container.innerHTML).not.toContain('https://cdn.example/talk.mp3');
+    expect(container.innerHTML).not.toContain('https://player.example/embed/abc');
+    expect(container.querySelectorAll('video')).toHaveLength(1);
+    expect(container.querySelector('video').getAttribute('src')).toBe('https://cb.example/system/clip.webm');
+
+    const markers = Array.from(container.querySelectorAll('[data-testid="gallery"], .external-remote-media, .external-embed-player, video'));
+    expect(markers.map(node => node.getAttribute('data-testid') || node.className || node.tagName.toLowerCase())).toEqual([
+      'gallery',
+      'external-remote-media',
+      'external-embed-player',
+      'video',
+      'external-remote-media',
+    ]);
+  });
+
+  it('keeps a saved file that the sequence mislabels when the attachment type is a GIF', () => {
+    const { container } = render(
+      <ExternalStatusMedia
+        visible
+        status={status({
+          attachments: [
+            { id: 'still', type: 'gifv', url: 'https://cb.example/system/loop.mp4' },
+          ],
+          sequence: [
+            { type: 'video', delivery: 'local', attachment_id: 'still', position: 0 },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('gallery').textContent).toBe('still');
+    expect(container.querySelector('video')).toBeNull();
   });
 });
