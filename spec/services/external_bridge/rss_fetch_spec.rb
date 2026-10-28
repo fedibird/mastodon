@@ -343,9 +343,8 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
 
     it 'stores a validator-sized excerpt for a long body, emoji, and a long title' do
       long_url = "https://example.com/#{'a' * 1800}"
-      # The HTTP response cap is 1 MiB including the XML envelope, so a 1 MiB
-      # article is stored through the parser and ingest path. The excerpt still
-      # goes through Status.create!.
+      # The per-item text cap remains 1 MiB independently of the expanded
+      # 4 MiB feed download cap. The excerpt still goes through Status.create!.
       document = rss_document(rss_item(guid: 'long', title: '題' * 800, link: long_url, body: 'a' * 1.megabyte))
       feed = ExternalBridge::RSS::Parser.parse!(document)
       response = ExternalBridge::RSS::Response.new(code: 200, body: '', etag: nil, last_modified: nil, final_url: feed_url)

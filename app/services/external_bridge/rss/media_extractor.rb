@@ -14,6 +14,7 @@ module ExternalBridge
       ATOM = 'http://www.w3.org/2005/Atom'
       CONTENT = 'http://purl.org/rss/1.0/modules/content/'
       MEDIA = 'http://search.yahoo.com/mrss/'
+      ITUNES = 'http://www.itunes.com/dtds/podcast-1.0.dtd'
       XML = 'http://www.w3.org/XML/1998/namespace'
       VIDEO_MIME = %w(video/mp4 video/webm video/ogg video/quicktime).freeze
       HLS_MIME = %w(application/vnd.apple.mpegurl application/x-mpegurl).freeze
@@ -68,10 +69,42 @@ module ExternalBridge
 
         encoded = child_ns(node, CONTENT, 'encoded')
         description = child_named(node, 'description')
+        if podcast_audio?(node)
+          # Some podcast platforms leave only their ad-choice boilerplate in
+          # both general-purpose fields, while the actual episode description
+          # is in iTunes subtitle. Preserve substantive RSS descriptions.
+          return encoded if substantive_podcast_body?(encoded)
+          return description if substantive_podcast_body?(description)
+
+          subtitle = child_ns(node, ITUNES, 'subtitle')
+          return subtitle if subtitle&.text.present?
+        end
         return encoded if encoded&.text.present?
         return description if description&.text.present?
 
         encoded || description
+      end
+
+      def podcast_audio?(node)
+        node.element_children.any? do |child|
+          next false unless child.name == 'enclosure'
+
+          child['type'].to_s.downcase.start_with?('audio/') ||
+            %w(.mp3 .m4a .aac .ogg .oga .wav .flac .opus).include?(File.extname(Addressable::URI.parse(child['url'].to_s).path.to_s).downcase)
+        rescue Addressable::URI::InvalidURIError
+          false
+        end
+      end
+
+      def substantive_podcast_body?(candidate)
+        return false if candidate.nil?
+
+        # Only a recognized, *standalone* ad notice is disregarded. All other
+        # content remains authoritative, even when it mentions advertising.
+        text = candidate.text.to_s.gsub(/<[^>]+>/, ' ').squish
+        return false if text.blank?
+
+        !text.match?(%r{\ALearn more about your ad choices\.\s+Visit\s+(?:https?://)?podcastchoices\.com/adchoices\.?\z}i)
       end
 
       def atom_body(node)

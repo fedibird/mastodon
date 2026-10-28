@@ -47,9 +47,15 @@ RSpec.describe ExternalBridge::RSS::Icon::RefreshSource do
       expect(feed.icon_hints.first['url']).to eq '/icon.png'
     end
 
-    it 'does not treat the iTunes cover art as a site icon' do
-      xml = feed_xml('<itunes:image xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" href="https://cdn.example/cover.jpg"/>')
-      expect(ExternalBridge::RSS::Parser.parse!(xml).icon_hints).to eq []
+    it 'uses iTunes cover art only as a fallback to the regular RSS image' do
+      xml = feed_xml(<<~XML)
+        <image><url>https://cdn.example/rss.png</url></image>
+        <itunes:image xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" href="https://cdn.example/cover.jpg"/>
+      XML
+      expect(ExternalBridge::RSS::Parser.parse!(xml).icon_hints).to eq [
+        { 'kind' => 'rss_image', 'url' => 'https://cdn.example/rss.png' },
+        { 'kind' => 'itunes_image', 'url' => 'https://cdn.example/cover.jpg' },
+      ]
     end
   end
 
@@ -217,6 +223,29 @@ RSpec.describe ExternalBridge::RSS::Icon::RefreshSource do
       source = source.reload
       expect(source.icon_error_code).to eq 'icon_deadline'
       expect(source.icon_next_check_at).to be > 30.minutes.from_now
+    end
+
+    it 'requests an icon-sized Megaphone image with validated imgix parameters' do
+      image = 'https://megaphone.imgix.net/podcast/cover.jpg'
+      declared_url = "#{image}?ixlib=rails-4.3.1&max-w=3000&max-h=3000&fit=crop&auto=format,compress"
+      requested_url = "#{image}?ixlib=rails-4.3.1&max-w=512&max-h=512&fit=crop&auto=format,compress"
+      source = icon_source(hints: [declared('itunes_image', declared_url)])
+      icon_subscriber(source)
+      stub_icon(requested_url)
+
+      expect(refresh.call(source.id)).to eq 'icon_stored'
+      expect(source.reload.icon_remote_url).to eq requested_url
+      expect(a_request(:get, declared_url)).not_to have_been_made
+    end
+
+    it 'rejects credential and unknown parameters on an iTunes image URL' do
+      source = icon_source(hints: [declared('itunes_image', 'https://cdn.example/a.jpg?token=secret&max-w=3000')])
+      icon_subscriber(source)
+      stub_request(:get, 'https://example.com').to_return(status: 404)
+      stub_request(:get, 'https://example.com/favicon.ico').to_return(status: 404)
+
+      expect(refresh.call(source.id)).to eq 'icon_failed'
+      expect(a_request(:get, /token=secret/)).not_to have_been_made
     end
 
     it 'queries are limited to harmless cache-busting names' do

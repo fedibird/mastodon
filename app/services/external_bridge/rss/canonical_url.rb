@@ -15,9 +15,9 @@ module ExternalBridge
       # cache-busting version. Only these names are kept, only as a short
       # token-free value, and never more than a few pairs. Any other name
       # (token, key, sig, auth, expires, ...) still fails closed.
-      ASSET_QUERY_NAMES = %w(v ver version rev r t ts w h width height size s format cb).freeze
+      ASSET_QUERY_NAMES = %w(v ver version rev r t ts w h width height size s format cb max-w max-h fit auto ixlib).freeze
       ASSET_QUERY_VALUE = /\A[A-Za-z0-9._-]{1,32}\z/.freeze
-      ASSET_QUERY_PAIRS = 3
+      ASSET_QUERY_PAIRS = 6
 
       ITEM_QUERY = %w(id v video_id clip clip_id viewkey).freeze
       ITEM_VALUE = /\A[A-Za-z0-9_-]{1,80}\z/.freeze
@@ -140,13 +140,32 @@ module ExternalBridge
           decoded_name = fully_decode(name)
           decoded_value = fully_decode(value)
           raise Error, :authenticated_source_rejected if decoded_name.blank? || decoded_value.blank?
-          raise Error, :authenticated_source_rejected unless ASSET_QUERY_NAMES.include?(decoded_name.downcase)
-          raise Error, :authenticated_source_rejected unless ASSET_QUERY_VALUE.match?(decoded_value)
+          name = decoded_name.downcase
+          raise Error, :authenticated_source_rejected unless ASSET_QUERY_NAMES.include?(name)
+          raise Error, :authenticated_source_rejected unless safe_asset_value?(name, decoded_value)
 
-          "#{decoded_name.downcase}=#{decoded_value}"
+          "#{name}=#{decoded_value}"
         end
 
         uri.query = kept.join('&')
+      end
+
+      # The extra parameters used by podcast artwork CDNs have bounded,
+      # non-credential values; all other asset parameters keep their existing
+      # conservative token-shaped restriction.
+      def safe_asset_value?(name, value)
+        case name
+        when 'max-w', 'max-h'
+          value.match?(/\A[0-9]{1,4}\z/) && value.to_i.between?(1, 4096)
+        when 'fit'
+          %w(crop clip fill max min scale).include?(value)
+        when 'auto'
+          %w(format compress).include?(value) || %w(format,compress compress,format).include?(value)
+        when 'ixlib'
+          value.match?(/\Arails-[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}\z/)
+        else
+          ASSET_QUERY_VALUE.match?(value)
+        end
       end
 
       def fully_decode(raw)
