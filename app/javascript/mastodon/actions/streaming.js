@@ -196,9 +196,28 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
 const refreshHomeTimelineAndNotification = (dispatch, getState, done) => {
   const visibilities = getHomeVisibilities(getState());
 
+  // since_id cannot see an external id that landed behind the loaded top.
+  // The loaded-range reconcile pages that interior with max_id.
+  dispatch(resumeExternalFeedViews({ keys: ['home'], targets: [{ type: 'home' }] }));
   dispatch(expandHomeTimeline({ visibilities }, () =>
     dispatch(expandNotifications({}, () =>
       dispatch(fetchAnnouncements(done))))));
+};
+
+const refreshListTimeline = (listId) => (dispatch, getState, done) => {
+  if (typeof getState !== 'function') {
+    if (typeof done === 'function') {
+      done();
+    }
+
+    return;
+  }
+
+  dispatch(resumeExternalFeedViews({
+    keys: [`list:${listId}`],
+    targets: [{ type: 'list', id: String(listId) }],
+  }));
+  dispatch(expandListTimeline(listId, {}, done));
 };
 
 /**
@@ -260,4 +279,4 @@ export const connectDirectStream = () =>
  * @return {function(): void}
  */
 export const connectListStream = listId =>
-  connectTimelineStream(`list:${listId}`, 'list', { list: listId });
+  connectTimelineStream(`list:${listId}`, 'list', { list: listId }, { fallback: refreshListTimeline(listId) });

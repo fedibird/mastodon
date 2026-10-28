@@ -28,7 +28,7 @@ import {
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import compareId from '../compare_id';
 import { uniqWithoutNull } from '../utils/uniq';
-import { placeReconcileIds } from '../external_feeds/reconcile';
+import { insertIdDescending, isExternalStatus, placeReconcileIds } from '../external_feeds/reconcile';
 import {
   WINDOW_HISTORY_ANCHOR,
   WINDOW_HISTORY_FAIL,
@@ -111,7 +111,108 @@ const expandNormalizedTimeline = (state, timeline, statuses, next, isPartial, is
   }));
 };
 
-const updateTimeline = (state, timeline, status, usePendingItems) => {
+const newestNonNull = (list) => {
+  let newest = null;
+
+  (list || ImmutableList()).forEach(id => {
+    if (id === null || id === undefined) {
+      return;
+    }
+
+    const value = String(id);
+
+    if (newest === null || compareId(value, newest) > 0) {
+      newest = value;
+    }
+  });
+
+  return newest;
+};
+
+const containsId = (list, id) => (list || ImmutableList()).some(item => item !== null && item !== undefined && String(item) === String(id));
+
+const replaceItems = (state, timeline, items) => {
+  let next = state.setIn([timeline, 'items'], ImmutableList(items));
+
+  if (next.getIn([timeline, 'window'])) {
+    next = next.update(timeline, syncHistoryEdges);
+  }
+
+  return next;
+};
+
+// Ordinary arrivals stay prepended. An external id that falls strictly inside
+// a loaded contiguous run is placed there, including across a split history
+// pane. Newer external ids keep the existing top/pending path. An external id
+// between pending and the loaded top is inserted into pending by id. Anything
+// older than the loaded edge stays out so a gap is not closed and paging can
+// still reach it.
+const placeExternalUpdate = (state, timeline, status, usePendingItems) => {
+  const id = status.get('id');
+
+  if (id === null || id === undefined || id === '') {
+    return state;
+  }
+
+  const items = state.getIn([timeline, 'items'], ImmutableList());
+  const pending = state.getIn([timeline, 'pendingItems'], ImmutableList());
+
+  if (containsId(items, id) || containsId(pending, id)) {
+    return state;
+  }
+
+  let next = state;
+  let placed = false;
+  const splitTimeline = next.getIn([timeline, 'splitTimelineId']);
+
+  if (splitTimeline && next.has(splitTimeline)) {
+    const splitItems = next.getIn([splitTimeline, 'items'], ImmutableList());
+
+    if (!containsId(splitItems, id)) {
+      const history = placeReconcileIds(splitItems.toArray(), [id]);
+
+      if (history.inserted.length) {
+        next = replaceItems(next, splitTimeline, history.items);
+        placed = true;
+      }
+    }
+  }
+
+  const direct = placeReconcileIds(next.getIn([timeline, 'items'], ImmutableList()).toArray(), [id]);
+
+  if (direct.inserted.length) {
+    next = replaceItems(next, timeline, direct.items);
+    placed = true;
+  }
+
+  if (placed) {
+    return next;
+  }
+
+  const pendingNow = next.getIn([timeline, 'pendingItems'], ImmutableList());
+  const itemsNow = next.getIn([timeline, 'items'], ImmutableList());
+  const pendingNewest = newestNonNull(pendingNow);
+  const itemsNewest = newestNonNull(itemsNow);
+  let top = pendingNewest || itemsNewest;
+
+  if (pendingNewest && itemsNewest) {
+    top = compareId(pendingNewest, itemsNewest) > 0 ? pendingNewest : itemsNewest;
+  }
+
+  if (!top || compareId(String(id), top) > 0) {
+    return prependTimeline(next, timeline, status, usePendingItems);
+  }
+
+  if (pendingNewest && compareId(String(id), pendingNewest) < 0 && (!itemsNewest || compareId(String(id), itemsNewest) > 0)) {
+    return next.update(timeline, initialTimeline, map => map
+      .set('pendingItems', ImmutableList(insertIdDescending(pendingNow.toArray(), id)))
+      .update('unread', unread => unread + 1));
+  }
+
+  return next;
+};
+
+const prependTimeline = (state, timeline, status, usePendingItems) => {
   const top = state.getIn([timeline, 'top']);
   // While a split is active, keep new ids out of items so the top-of-timeline
   // trim cannot drop arrivals before they are restored as pending.
@@ -140,6 +241,14 @@ const updateTimeline = (state, timeline, status, usePendingItems) => {
     if (top && ids.size > 40) newIds = newIds.take(20);
     mMap.set('items', newIds.unshift(status.get('id')));
   }));
+};
+
+const updateTimeline = (state, timeline, status, usePendingItems) => {
+  if (isExternalStatus(status)) {
+    return placeExternalUpdate(state, timeline, status, usePendingItems);
+  }
+
+  return prependTimeline(state, timeline, status, usePendingItems);
 };
 
 const deleteStatus = (state, id, references, exclude_account = null) => {

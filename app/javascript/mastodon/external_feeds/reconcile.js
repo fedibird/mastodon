@@ -396,6 +396,45 @@ const detachMovedBody = (status, movedSince) => {
 
 // Drop a body whose stream clock moved after the request, including a nested
 // boost or quote. The parent keeps the id so the newer stored body stays.
+export const isExternalStatus = (status) => {
+  if (!status) {
+    return false;
+  }
+
+  const read = (key) => (typeof status.get === 'function' ? status.get(key) : status[key]);
+  const visibility = read('visibility_ex') || read('visibility');
+
+  return visibility === 'external';
+};
+
+// Newest-first. A null gap stays where it is. The inserted id is a decimal
+// string, so compareId never coerces a 64-bit snowflake through Number.
+export const insertIdDescending = (ids, id) => {
+  const value = decimalId(id);
+
+  if (!value) {
+    return (ids || []).slice();
+  }
+
+  const next = [];
+  let placed = false;
+
+  (ids || []).forEach(existing => {
+    if (!placed && existing !== null && existing !== undefined && compareId(value, String(existing)) > 0) {
+      next.push(value);
+      placed = true;
+    }
+
+    next.push(existing);
+  });
+
+  if (!placed) {
+    next.push(value);
+  }
+
+  return next;
+};
+
 export const protectStatusBodies = (statuses, movedSince) => (statuses || []).reduce((kept, status) => {
   if (!status || !status.id || movedSince(status.id)) {
     return kept;

@@ -94,6 +94,87 @@ RSpec.describe ExternalBridge::RSS::Parser do
     expect(feed.icon_hints.first['url']).to eq 'https://cdn.example/rss.png'
   end
 
+  it 'keeps a channel lastBuildDate off the item and rejects a date that is only a clock time' do
+    feed = described_class.parse!(<<~XML)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel>
+        <title>Example feed</title>
+        <link>https://example.com</link>
+        <lastBuildDate>Thu, 02 Jan 2020 08:00:00 GMT</lastBuildDate>
+        <item>
+          <guid>clock-only</guid>
+          <title>Clock</title>
+          <link>https://example.com/clock</link>
+          <pubDate>10:00:00</pubDate>
+        </item>
+      </channel></rss>
+    XML
+
+    expect(feed.items.first.published_at).to be_nil
+  end
+
+  it 'falls back from an invalid pubDate to a valid dc:date and normalizes the offset' do
+    feed = described_class.parse!(<<~XML)
+      <?xml version="1.0"?>
+      <rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>
+        <title>Example feed</title>
+        <link>https://example.com</link>
+        <item>
+          <guid>fallback</guid>
+          <title>Fallback</title>
+          <link>https://example.com/fallback</link>
+          <pubDate>not-a-date</pubDate>
+          <dc:date>2020-01-02T12:00:00+09:00</dc:date>
+        </item>
+        <item>
+          <guid>numeric-zone</guid>
+          <title>Zone</title>
+          <link>https://example.com/zone</link>
+          <pubDate>Thu, 02 Jan 2020 12:00:00 +0900</pubDate>
+        </item>
+      </channel></rss>
+    XML
+
+    expect(feed.items.first.published_at).to eq Time.utc(2020, 1, 2, 3, 0, 0)
+    expect(feed.items.second.published_at).to eq Time.utc(2020, 1, 2, 3, 0, 0)
+  end
+
+  it 'does not fill in today when an Atom date is incomplete, and uses updated when published is unusable' do
+    feed = described_class.parse!(<<~XML)
+      <feed xmlns="http://www.w3.org/2005/Atom">
+        <title>A</title>
+        <link href="https://example.com/"/>
+        <entry>
+          <id>urn:bad-published</id>
+          <title>Bad</title>
+          <link href="https://example.com/bad"/>
+          <published>not-a-date</published>
+          <updated>2020-01-02T03:04:05Z</updated>
+        </entry>
+        <entry>
+          <id>urn:date-only</id>
+          <title>Date</title>
+          <link href="https://example.com/date"/>
+          <published>2020-01-02</published>
+          <updated>10:00</updated>
+        </entry>
+        <entry>
+          <id>urn:published-wins</id>
+          <title>Wins</title>
+          <link href="https://example.com/wins"/>
+          <published>2020-06-01T00:00:00Z</published>
+          <updated>2021-01-01T00:00:00Z</updated>
+        </entry>
+      </feed>
+    XML
+
+    expect(feed.items.map(&:published_at)).to eq [
+      Time.utc(2020, 1, 2, 3, 4, 5),
+      nil,
+      Time.utc(2020, 6, 1, 0, 0, 0),
+    ]
+  end
+
   it 'still reads an Atom feed' do
     feed = described_class.parse!(<<~XML)
       <feed xmlns="http://www.w3.org/2005/Atom">

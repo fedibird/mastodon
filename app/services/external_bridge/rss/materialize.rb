@@ -189,6 +189,11 @@ module ExternalBridge
           )
         end
         if change[:presentation_changed]
+          # Text, spoiler, and sensitive follow the subscriber's presentation.
+          # created_at and the snowflake id stay at the values chosen on
+          # insert, even when the feed later corrects or drops published_at.
+          # #617 (draft PR #623) adds `language: change[:language]` here.
+          # Keep that key. Do not assign id or created_at.
           status.update!(
             text: change[:text],
             spoiler_text: change[:spoiler_text],
