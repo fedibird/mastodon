@@ -38,6 +38,9 @@ let resizeObserver = null;
 let mutationObserver = null;
 const observedBoxes = new Set();
 const observedTrees = new Set();
+// Each anchor and the dock record the elements they need. Shared ancestors
+// stay registered until every record that names them is gone.
+const watchRoots = new Map();
 
 const hasText = (value) => value !== undefined && value !== null && String(value) !== '';
 
@@ -154,24 +157,20 @@ const observeTree = (element) => {
 };
 
 // Sibling posts change the anchor's position without changing its own box.
-// ResizeObserver on the anchor alone misses that. Watch each ancestor through
-// the scrollport, whose size changes when a warning, the body, or an image
-// above the player grows. Attribute changes on that tree cover class and
-// style updates that move the fixed dock without a scroll.
-const watchPositionContext = (element) => {
+// ResizeObserver on the anchor alone misses that. The elements are the node
+// itself and each ancestor through the scrollport.
+const positionContext = (element) => {
+  const needed = [];
+
   if (!element || typeof window === 'undefined') {
-    return;
+    return needed;
   }
 
-  ensureLayoutWatch();
-  observeBox(element);
-  observeTree(element);
-
+  needed.push(element);
   let node = element.parentElement;
 
   while (node && node !== document.documentElement) {
-    observeBox(node);
-    observeTree(node);
+    needed.push(node);
 
     const style = window.getComputedStyle(node);
     const overflow = `${style.overflow}${style.overflowX}${style.overflowY}`;
@@ -182,7 +181,82 @@ const watchPositionContext = (element) => {
 
     node = node.parentElement;
   }
+
+  return needed;
 };
+
+const neededObservations = () => {
+  const boxes = new Set();
+  const trees = new Set();
+
+  watchRoots.forEach((elements) => {
+    elements.forEach((element) => {
+      boxes.add(element);
+      trees.add(element);
+    });
+  });
+
+  return { boxes, trees };
+};
+
+const sameMembers = (left, right) => {
+  if (left.size !== right.size) {
+    return false;
+  }
+
+  let same = true;
+  left.forEach((element) => {
+    if (!right.has(element)) {
+      same = false;
+    }
+  });
+  return same;
+};
+
+// ResizeObserver can drop one target. MutationObserver cannot, so a changed
+// set disconnects and observes only the targets that are still needed.
+const syncLayoutObservers = () => {
+  ensureLayoutWatch();
+  const { boxes, trees } = neededObservations();
+
+  Array.from(observedBoxes).forEach((element) => {
+    if (boxes.has(element)) {
+      return;
+    }
+
+    if (resizeObserver && typeof resizeObserver.unobserve === 'function') {
+      resizeObserver.unobserve(element);
+    }
+
+    observedBoxes.delete(element);
+  });
+  boxes.forEach((element) => observeBox(element));
+
+  if (!sameMembers(observedTrees, trees)) {
+    if (mutationObserver) {
+      mutationObserver.disconnect();
+    }
+
+    observedTrees.clear();
+    trees.forEach((element) => observeTree(element));
+  }
+};
+
+const setWatchRoot = (token, element) => {
+  if (!element) {
+    if (!watchRoots.delete(token)) {
+      return;
+    }
+
+    syncLayoutObservers();
+    return;
+  }
+
+  watchRoots.set(token, positionContext(element));
+  syncLayoutObservers();
+};
+
+const clearWatchRoot = (token) => setWatchRoot(token, null);
 
 const ensureLayoutWatch = () => {
   if (typeof ResizeObserver === 'function' && !resizeObserver) {
@@ -218,6 +292,7 @@ const stopLayoutWatch = () => {
 
   observedBoxes.clear();
   observedTrees.clear();
+  watchRoots.clear();
 };
 
 const stopListening = () => {
@@ -317,8 +392,10 @@ const dropAnchors = (key) => {
   anchors.forEach((anchor, id) => {
     if (anchor.key === key) {
       anchors.delete(id);
+      watchRoots.delete(`anchor:${id}`);
     }
   });
+  syncLayoutObservers();
 };
 
 const endSession = (key, _reason, deferred) => {
@@ -631,7 +708,7 @@ export const registerAnchor = ({ key, element, prefer, releaseMode }) => {
     session.activeAnchorId = id;
   }
 
-  watchPositionContext(element);
+  setWatchRoot(`anchor:${id}`, element);
   scheduleLayout();
   emitDeferred();
   return id;
@@ -645,7 +722,7 @@ export const updateAnchorElement = (anchorId, element) => {
   }
 
   anchor.element = element;
-  watchPositionContext(element);
+  setWatchRoot(`anchor:${anchorId}`, element);
   scheduleLayout();
 };
 
@@ -661,6 +738,7 @@ export const unregisterAnchor = (anchorId) => {
   }
 
   anchors.delete(anchorId);
+  clearWatchRoot(`anchor:${anchorId}`);
   const session = sessions.get(anchor.key);
 
   if (!session || session.closing) {
@@ -750,19 +828,31 @@ const scheduleUnpinnedIframeEnd = (key) => {
   }
 };
 
-export const registerDockSlot = (element) => {
-  dockSlot = element || null;
-  watchPositionContext(element);
+const releaseDockWatch = () => {
+  clearWatchRoot('dock:slot');
+  clearWatchRoot('dock:parent');
+};
 
-  if (element && element.parentElement) {
-    watchPositionContext(element.parentElement);
+export const registerDockSlot = (element) => {
+  releaseDockWatch();
+  dockSlot = element || null;
+
+  if (element) {
+    setWatchRoot('dock:slot', element);
+
+    if (element.parentElement) {
+      setWatchRoot('dock:parent', element.parentElement);
+    }
   }
 
   scheduleLayout();
   return () => {
-    if (dockSlot === element) {
-      dockSlot = null;
+    if (dockSlot !== element) {
+      return;
     }
+
+    dockSlot = null;
+    releaseDockWatch();
   };
 };
 

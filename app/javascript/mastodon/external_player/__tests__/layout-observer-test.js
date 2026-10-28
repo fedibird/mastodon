@@ -5,6 +5,8 @@ class FakeResizeObserver {
   constructor (callback) {
     this.callback = callback;
     this.elements = [];
+    this.unobserveCount = 0;
+    this.disconnectCount = 0;
     FakeResizeObserver.instances.push(this);
   }
 
@@ -14,9 +16,15 @@ class FakeResizeObserver {
     }
   }
 
-  unobserve () {}
+  unobserve (element) {
+    this.unobserveCount += 1;
+    this.elements = this.elements.filter(item => item !== element);
+  }
 
-  disconnect () {}
+  disconnect () {
+    this.disconnectCount += 1;
+    this.elements = [];
+  }
 
 }
 
@@ -24,11 +32,15 @@ FakeResizeObserver.instances = [];
 global.ResizeObserver = FakeResizeObserver;
 
 const {
+  closeSession,
+  connectedPlayerNodes,
   openSession,
   pinSession,
   registerAnchor,
   registerDockSlot,
   resetExternalPlayersForTests,
+  unregisterAnchor,
+  updateAnchorElement,
 } = require('../session');
 
 const PLAYER = 'https://player.example/embed/fixture';
@@ -135,5 +147,108 @@ describe('external player layout watch', () => {
     expect(session.node).toBe(openSession({ statusId: '2', mediaId: 'embed-1', kind: 'iframe', url: PLAYER }).node);
     dock.remove();
     anchor.remove();
+  });
+
+  it('drops detached layout targets while one pinned iframe stays', async () => {
+    const nativeMutation = global.MutationObserver;
+    const mutationRecords = [];
+
+    class RecordingMutation {
+
+      constructor (callback) {
+        this.callback = callback;
+        this.elements = new Set();
+        this.disconnectCount = 0;
+        mutationRecords.push(this);
+      }
+
+      observe (element) {
+        this.elements.add(element);
+      }
+
+      disconnect () {
+        this.disconnectCount += 1;
+        this.elements.clear();
+      }
+
+    }
+
+    global.MutationObserver = RecordingMutation;
+
+    const scrollport = document.createElement('div');
+    scrollport.style.overflow = 'auto';
+    const pinnedAnchor = document.createElement('div');
+    scrollport.appendChild(pinnedAnchor);
+    document.body.appendChild(scrollport);
+    boxes.set(scrollport, box(0, 400));
+    boxes.set(pinnedAnchor, box(140));
+
+    const pinned = openSession({ statusId: 'pinned', mediaId: 'embed', kind: 'iframe', url: PLAYER });
+    const pinnedNode = pinned.node;
+    const pinnedId = registerAnchor({ key: pinned.key, element: pinnedAnchor, prefer: true, releaseMode: () => 'detach' });
+    pinSession(pinned.key);
+
+    const dock = document.createElement('div');
+    const slot = document.createElement('div');
+    dock.appendChild(slot);
+    document.body.appendChild(dock);
+    boxes.set(slot, box(500, 180));
+    const releaseDock = registerDockSlot(slot);
+
+    for (let index = 0; index < 5; index += 1) {
+      const port = document.createElement('div');
+      port.style.overflow = 'auto';
+      const anchor = document.createElement('div');
+      port.appendChild(anchor);
+      document.body.appendChild(port);
+      const session = openSession({ statusId: `other-${index}`, mediaId: 'embed', kind: 'iframe', url: PLAYER });
+      const anchorId = registerAnchor({ key: session.key, element: anchor, prefer: true, releaseMode: () => 'detach' });
+      unregisterAnchor(anchorId);
+      port.remove();
+      await act(async () => {});
+    }
+
+    const resize = FakeResizeObserver.instances[FakeResizeObserver.instances.length - 1];
+    const mutation = mutationRecords[mutationRecords.length - 1];
+    const detached = (elements) => elements.filter(element => !element.isConnected);
+
+    expect(connectedPlayerNodes('iframe')).toHaveLength(1);
+    expect(pinnedNode.isConnected).toBe(true);
+    expect(pinnedNode.getAttribute('src')).toBe(PLAYER);
+    expect(resize.unobserveCount).toBeGreaterThan(0);
+    expect(resize.disconnectCount).toBe(0);
+    expect(detached(resize.elements)).toEqual([]);
+    expect(resize.elements).toContain(scrollport);
+    expect(resize.elements).toContain(pinnedAnchor);
+    expect(detached(Array.from(mutation.elements))).toEqual([]);
+    expect(mutation.elements.has(scrollport)).toBe(true);
+
+    const replacement = document.createElement('div');
+    scrollport.appendChild(replacement);
+    boxes.set(replacement, box(180));
+    updateAnchorElement(pinnedId, replacement);
+    expect(resize.elements).not.toContain(pinnedAnchor);
+    expect(resize.elements).toContain(replacement);
+    expect(resize.elements).toContain(scrollport);
+    expect(openSession({ statusId: 'pinned', mediaId: 'embed', kind: 'iframe', url: PLAYER }).node).toBe(pinnedNode);
+
+    boxes.set(slot, box(640, 180));
+    resize.callback();
+    await flushLayout();
+    expect(pinnedNode.style.top).toBe('640px');
+
+    releaseDock();
+    expect(resize.elements).not.toContain(slot);
+    expect(resize.elements).toContain(scrollport);
+    expect(pinnedNode.isConnected).toBe(true);
+
+    closeSession(pinned.key);
+    await act(async () => {});
+    expect(connectedPlayerNodes('iframe')).toHaveLength(0);
+    expect(resize.disconnectCount).toBeGreaterThan(0);
+
+    global.MutationObserver = nativeMutation;
+    scrollport.remove();
+    dock.remove();
   });
 });
