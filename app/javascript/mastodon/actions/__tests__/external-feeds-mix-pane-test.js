@@ -27,12 +27,20 @@ import statusesReducer from '../../reducers/statuses';
 import accountsReducer from '../../reducers/accounts';
 import relationshipsReducer from '../../reducers/relationships';
 import filtersReducer from '../../reducers/filters';
-import { MIX_EXTERNAL_RECONCILE, MIX_SOURCE_SUCCESS, MIX_TIMELINE_OPEN } from '../mix_timelines';
+import { MIX_EXTERNAL_RECONCILE, MIX_SOURCE_SUCCESS, MIX_SPLIT_CREATE, MIX_TIMELINE_OPEN } from '../mix_timelines';
+import { makeGetStatus } from '../../selectors';
 
 const drain = async () => {
   for (let step = 0; step < 40; step += 1) {
     await Promise.resolve();
   }
+};
+
+// A confirmed tail uses one history page before the loaded range is walked,
+// so the range request can land on the next 2s cycle.
+const followCycle = async () => {
+  jest.advanceTimersByTime(2000);
+  await drain();
 };
 
 const account = (id = '2') => ({
@@ -93,6 +101,7 @@ describe('mix external pane reconcile', () => {
   };
 
   beforeEach(() => {
+    jest.useFakeTimers('modern');
     connections.length = 0;
     resetMixStreams();
     discardExternalFeedSessionForTests();
@@ -124,6 +133,7 @@ describe('mix external pane reconcile', () => {
 
   afterEach(() => {
     discardExternalFeedSessionForTests();
+    jest.useRealTimers();
   });
 
   const column = (extra) => ImmutableMap({
@@ -184,6 +194,11 @@ describe('mix external pane reconcile', () => {
     dispatch(importFetchedStatus(status('3', '<p>NEW</p>')));
     dispatch(openExternalFeedView('mix:col', { targets: [{ type: 'list', id: '4' }] }));
     await drain();
+
+    if (!release) {
+      await followCycle();
+    }
+
     noteExternalStatusStream('3');
     release({
       status: 200,
@@ -280,6 +295,11 @@ describe('mix external pane reconcile', () => {
     }));
     dispatch(openExternalFeedView('mix:col', { targets: [{ type: 'list', id: '4' }] }));
     await drain();
+
+    if (!release) {
+      await followCycle();
+    }
+
     state = state.setIn(['mix_timelines', 'col', 'split', 'id'], 'split-2');
     release({
       status: 200,
@@ -489,6 +509,7 @@ describe('mix external pane reconcile', () => {
     }));
     dispatch(openExternalFeedView('mix:col', { targets: [{ type: 'list', id: '4' }] }));
     await drain();
+    await followCycle();
 
     const timeline = state.getIn(['mix_timelines', 'col']);
     const history = mixTimelineView(timeline, state.get('statuses'), state.get('filters'), '1', 'history');
@@ -583,5 +604,167 @@ describe('mix external pane reconcile', () => {
     expect(state.getIn(['mix_timelines', 'col', 'sources', listKey, 'ids']).toArray()).toEqual([]);
     expect(state.getIn(['mix_timelines', 'col', 'sources', listKey, 'filterResults', '70'])).toBeUndefined();
     expect(state.getIn(['statuses', '70'])).toBeUndefined();
+  });
+
+  it('stores the compact author and referenced post from an exhausted tail page', async () => {
+    let release;
+    const warn = {
+      id: 'warn-tail',
+      title: 'Careful',
+      filter_action: 'warn',
+      context: ['home'],
+    };
+
+    api.mockImplementation(() => ({
+      post: (path, payload) => Promise.resolve({
+        status: 200,
+        headers: {},
+        data: { outcome: 'complete', results: ((payload && payload.ids) || []).map(id => ({ id, outcome: 'member' })) },
+      }),
+      get: (path, config) => {
+        const maxId = config && config.params && config.params.max_id;
+
+        if (maxId === '50') {
+          return new Promise(resolve => {
+            release = resolve;
+          });
+        }
+
+        return Promise.resolve({ status: 200, headers: {}, data: [] });
+      },
+    }));
+    state = state.setIn(['mix_timelines', 'col'], column().setIn(['sources', listKey], sourceEntry(['100', '50'])));
+    dispatch(openExternalFeedView('mix:col', { targets: [{ type: 'list', id: '4' }] }));
+    await drain();
+
+    if (!release) {
+      await followCycle();
+    }
+
+    dispatch(importFetchedStatus(status('30', '<p>NEW</p>', { account: account('3') })));
+    noteExternalStatusStream('30');
+    release({
+      status: 200,
+      headers: {},
+      data: {
+        statuses: [{
+          id: '40',
+          content: '<p>tail</p>',
+          account: '3',
+          reblog: '30',
+          visibility: 'public',
+          emojis: [],
+          media_attachments: [],
+          created_at: '2020-01-01T00:00:00.000Z',
+          filtered: [{ filter: warn }],
+        }],
+        accounts: [account('3')],
+        referenced_statuses: [status('30', '<p>OLD</p>', { account: account('3') })],
+        relationships: [{ id: '3', following: true }],
+      },
+    });
+    await drain();
+
+    const timeline = state.getIn(['mix_timelines', 'col']);
+    const shown = makeGetStatus()(state, { id: '40' });
+
+    expect(timeline.getIn(['sources', listKey, 'ids']).toArray()).toEqual(['100', '50', '40']);
+    expect(state.getIn(['accounts', '3', 'acct'])).toBe('ada');
+    expect(state.getIn(['statuses', '40', 'reblog'])).toBe('30');
+    expect(state.getIn(['statuses', '30', 'content'])).toBe('<p>NEW</p>');
+    expect(state.getIn(['relationships', '3', 'following'])).toBe(true);
+    expect(state.getIn(['filters', 'warn-tail', 'title'])).toBe('Careful');
+    expect(timeline.getIn(['sources', listKey, 'filterResults', '40', 0, 'filter'])).toBe('warn-tail');
+    expect(shown).not.toBeNull();
+    expect(shown.get('id')).toBe('40');
+    expect(shown.getIn(['account', 'id'])).toBe('3');
+  });
+
+  it('reloads an exhausted history tail without extending the live tail', async () => {
+    const requested = [];
+
+    api.mockImplementation(() => ({
+      post: (path, payload) => Promise.resolve({
+        status: 200,
+        headers: {},
+        data: { outcome: 'complete', results: ((payload && payload.ids) || []).map(id => ({ id, outcome: 'member' })) },
+      }),
+      get: (path, config) => {
+        const maxId = config && config.params && String(config.params.max_id || '');
+
+        requested.push(maxId);
+
+        if (maxId === '200') {
+          return Promise.resolve({
+            status: 200,
+            headers: {},
+            data: [status('150', '<p>late</p>')],
+          });
+        }
+
+        if (maxId === '500') {
+          return Promise.resolve({
+            status: 200,
+            headers: {},
+            data: [status('400', '<p>inside</p>'), status('300', '<p>inside</p>'), status('200', '<p>edge</p>')],
+          });
+        }
+
+        return Promise.resolve({ status: 200, headers: {}, data: [] });
+      },
+    }));
+    dispatch({
+      type: MIX_TIMELINE_OPEN,
+      columnKey: 'col',
+      mixId: 'm1',
+      sessionId: 's',
+      definitionFingerprint: 'fp',
+      sources: [{ key: listKey, descriptor: listSource }],
+    });
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'col',
+      sourceKey: listKey,
+      sessionId: 's',
+      definitionFingerprint: 'fp',
+      ids: ['500', '400'],
+      hasMore: true,
+      partial: false,
+      cursor: '400',
+      frontier: '400',
+    });
+    dispatch({
+      type: MIX_SPLIT_CREATE,
+      columnKey: 'col',
+      splitId: 'split-1',
+      sessionId: 's',
+      definitionFingerprint: 'fp',
+      boundaryId: '500',
+    });
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'col',
+      sourceKey: listKey,
+      sessionId: 's',
+      definitionFingerprint: 'fp',
+      scope: 'history',
+      splitId: 'split-1',
+      ids: ['500', '400', '300', '200'],
+      hasMore: false,
+      partial: false,
+      cursor: '200',
+      frontier: '200',
+    });
+    dispatch(openExternalFeedView('mix:col', { targets: [{ type: 'list', id: '4' }] }));
+    await drain();
+    await followCycle();
+    await followCycle();
+
+    const timeline = state.getIn(['mix_timelines', 'col']);
+
+    expect(requested).toContain('200');
+    expect(timeline.getIn(['split', 'history', 'sources', listKey, 'ids']).toArray()).toEqual(['500', '400', '300', '200', '150']);
+    expect(timeline.getIn(['sources', listKey, 'ids']).toArray()).toEqual(['500', '400']);
+    expect(timeline.getIn(['sources', listKey, 'hasMore'])).toBe(true);
   });
 });

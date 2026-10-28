@@ -173,7 +173,7 @@ export function discardExternalFeedSessionForTests () {
 }
 
 export function receiveExternalFeedChanged (payload) {
-  return (dispatch, getState) => {
+  return (dispatch) => {
     const parsed = parseControl(payload);
 
     if (!parsed.ok) {
@@ -955,92 +955,160 @@ async function reconcileMix (dispatch, getState, key, token) {
   return retry;
 }
 
-async function loadExhaustedMixTail (dispatch, getState, client, columnKey, source, keyForSource, snapshot, progress, takePage) {
-  const sourceState = getState().getIn(['mix_timelines', columnKey, 'sources', keyForSource]);
+const mixPaneSource = (getState, columnKey, keyForSource, side) => (
+  side === 'history'
+    ? getState().getIn(['mix_timelines', columnKey, 'split', 'history', 'sources', keyForSource])
+    : getState().getIn(['mix_timelines', columnKey, 'sources', keyForSource])
+);
 
-  if (!sourceState || sourceState.get('hasMore') !== false || sourceState.get('gap') || sourceState.get('partial')) {
-    return { retry: false, stop: false };
-  }
+const paneExhausted = (sourceState) => !!(
+  sourceState && sourceState.get('hasMore') === false && !sourceState.get('gap') && !sourceState.get('partial')
+);
 
-  const items = listOf(sourceState.get('ids'));
-  const tail = exhaustedTailSegment(items);
-
-  if (!tail) {
-    return { retry: false, stop: false };
-  }
-
-  const rangeKey = `${keyForSource}:live:${tail.key}:exhausted`;
-  const saved = progress.history[rangeKey] || { done: false, cursor: tail.oldest };
-
-  if (saved.done) {
-    return { retry: false, stop: false };
-  }
-
-  if (!takePage()) {
-    return { retry: true, stop: false };
-  }
-
-  const request = resolveRequest(source, saved.cursor, mixConstraints(getState));
-
-  if (!request.ok) {
-    return { retry: false, stop: false };
-  }
-
-  const response = await client.get(request.path, { params: { ...request.params, limit: HISTORY_PAGE_SIZE } });
-
-  if (!response || response.status === 206 || responsePreservesDisplayed(response.status)) {
-    return { retry: !response || response.status === 429 || response.status === 206, stop: false };
-  }
-
-  if (!mixColumnCurrent(getState, columnKey, snapshot)) {
-    return { retry: false, stop: true };
-  }
-
-  const live = externalFeedSession.progress(snapshot.key, snapshot.token);
-
-  if (!live) {
-    return { retry: false, stop: true };
-  }
-
-  const page = normalizePage({ status: response.status, data: response.data, path: request.path });
-
-  if (!page.ok) {
-    return { retry: false, stop: false };
-  }
-
-  const flags = visibilityConstraints(mixConstraints(getState));
-  const me = getState().getIn(['meta', 'me']);
+// Compact pages name accounts and boosted or quoted posts by id. Store those
+// rows with the same protection as an ordinary mix history page.
+const storeMixPage = (dispatch, getState, snapshot, page, gated, placed, columnKey, sourceKey, rangeSide, splitId, seed) => {
   const movedSince = (id) => externalFeedSession.statusMovedSince(id, snapshot.streamClock);
-  const visible = page.statuses.filter(status => classifyStreamStatus(source, status, {
-    me,
-    constraints: flags,
-    delivered: source.type === 'list',
-  }) === 'accept');
-  const gated = protectStatusBodies(visible, movedSince);
-  const currentItems = listOf(getState().getIn(['mix_timelines', columnKey, 'sources', keyForSource, 'ids']));
-  const placed = placeReconcileIds(currentItems, gated.map(status => status.id), { extendExhaustedTail: true });
+  const references = protectStatusBodies(page.referencedStatuses, movedSince);
   const inserted = new Set(placed.inserted);
-  const fresh = gated.filter(status => inserted.has(String(status.id)));
+  const fresh = gated.filter(status => status && inserted.has(String(status.id)));
+  const bodies = references.concat(fresh);
+
+  if (page.accounts.length) {
+    dispatch(importFetchedAccounts(page.accounts));
+  }
+
+  if (page.relationships.length) {
+    dispatch(fetchRelationshipsSuccess(page.relationships));
+  }
+
+  if (page.filters.length) {
+    dispatch(importFilters(page.filters));
+  }
+
+  if (bodies.length) {
+    const previous = previousStatusesForImport(getState().get('statuses'), bodies);
+
+    dispatch(importFetchedStatuses(statusesForSharedImport(bodies, previous)));
+  }
 
   if (fresh.length) {
-    dispatch(importFetchedStatuses(fresh));
+    const filterResults = {};
+
+    fresh.forEach(status => {
+      filterResults[status.id] = page.filterResults[status.id] || [];
+    });
     dispatch({
       type: MIX_EXTERNAL_RECONCILE,
       columnKey,
-      sourceKey: keyForSource,
+      sourceKey,
       sessionId: snapshot.sessionId,
       definitionFingerprint: snapshot.definitionFingerprint,
       removeIds: [],
       insertIds: placed.inserted,
-      range: { side: 'live' },
+      seed: seed === true,
+      range: { side: rangeSide, splitId },
+      filterResults,
     });
   }
+};
 
-  const cursor = nextExhaustedPage(page.statuses, HISTORY_PAGE_SIZE);
+async function loadExhaustedMixTail (dispatch, getState, client, columnKey, source, keyForSource, snapshot, progress, takePage) {
+  const ranges = mixRanges(getState(), columnKey, keyForSource);
+  let retry = false;
 
-  live.history[rangeKey] = !cursor.done && cursor.cursor === saved.cursor ? { done: true, cursor: null } : cursor;
+  for (let rangeIndex = 0; rangeIndex < ranges.length; rangeIndex += 1) {
+    const range = ranges[rangeIndex];
+    const sourceState = mixPaneSource(getState, columnKey, keyForSource, range.side);
 
-  return { retry: !live.history[rangeKey].done, stop: false };
+    if (!paneExhausted(sourceState)) {
+      continue;
+    }
+
+    const tail = exhaustedTailSegment(listOf(sourceState.get('ids')));
+
+    if (!tail) {
+      continue;
+    }
+
+    const splitId = range.side === 'history'
+      ? getState().getIn(['mix_timelines', columnKey, 'split', 'id'])
+      : null;
+
+    if (range.side === 'history' && !splitId) {
+      continue;
+    }
+
+    const rangeKey = `${keyForSource}:${range.side}:${tail.key}:exhausted`;
+    const saved = progress.history[rangeKey] || { done: false, cursor: tail.oldest };
+
+    if (saved.done) {
+      continue;
+    }
+
+    if (!takePage()) {
+      return { retry: true, stop: false };
+    }
+
+    const request = resolveRequest(source, saved.cursor, mixConstraints(getState));
+
+    if (!request.ok) {
+      continue;
+    }
+
+    const response = await client.get(request.path, { params: { ...request.params, limit: HISTORY_PAGE_SIZE } });
+
+    if (!response || response.status === 206 || responsePreservesDisplayed(response.status)) {
+      return { retry: !response || response.status === 429 || response.status === 206, stop: false };
+    }
+
+    if (!mixColumnCurrent(getState, columnKey, snapshot)) {
+      return { retry: false, stop: true };
+    }
+
+    const live = externalFeedSession.progress(snapshot.key, snapshot.token);
+
+    if (!live) {
+      return { retry: false, stop: true };
+    }
+
+    if (range.side === 'history' && getState().getIn(['mix_timelines', columnKey, 'split', 'id']) !== splitId) {
+      live.history[rangeKey] = { done: true, cursor: null };
+      continue;
+    }
+
+    const page = normalizePage({ status: response.status, data: response.data, path: request.path });
+
+    if (!page.ok) {
+      continue;
+    }
+
+    const flags = visibilityConstraints(mixConstraints(getState));
+    const me = getState().getIn(['meta', 'me']);
+    const movedSince = (id) => externalFeedSession.statusMovedSince(id, snapshot.streamClock);
+    const visible = page.statuses.filter(status => classifyStreamStatus(source, status, {
+      me,
+      constraints: flags,
+      delivered: source.type === 'list',
+    }) === 'accept');
+    const gated = protectStatusBodies(visible, movedSince);
+    const items = range.side === 'history'
+      ? listOf(getState().getIn(['mix_timelines', columnKey, 'split', 'history', 'sources', keyForSource, 'ids']))
+      : listOf(getState().getIn(['mix_timelines', columnKey, 'sources', keyForSource, 'ids']));
+    const placed = placeReconcileIds(items, gated.map(status => status.id), { extendExhaustedTail: true });
+
+    storeMixPage(dispatch, getState, snapshot, page, gated, placed, columnKey, keyForSource, range.side, splitId, false);
+
+    const cursor = nextExhaustedPage(page.statuses, HISTORY_PAGE_SIZE);
+
+    live.history[rangeKey] = !cursor.done && cursor.cursor === saved.cursor ? { done: true, cursor: null } : cursor;
+
+    if (!live.history[rangeKey].done) {
+      retry = true;
+    }
+  }
+
+  return { retry, stop: false };
 }
 
 async function fillMixSource (dispatch, getState, client, columnKey, source, keyForSource, snapshot, progress, takePage) {
@@ -1124,56 +1192,15 @@ async function fillMixSource (dispatch, getState, client, columnKey, source, key
         delivered: source.type === 'list',
       }) === 'accept');
       const gated = protectStatusBodies(visible, movedSince);
-      const references = protectStatusBodies(page.referencedStatuses, movedSince);
       const currentItems = listOf(getState().getIn(['mix_timelines', columnKey, 'sources', keyForSource, 'ids']));
       const historyItems = listOf(getState().getIn(['mix_timelines', columnKey, 'split', 'history', 'sources', keyForSource, 'ids']));
       const items = range.side === 'history' ? historyItems : currentItems;
-      const sourceState = getState().getIn(['mix_timelines', columnKey, 'sources', keyForSource]);
+      const paneState = mixPaneSource(getState, columnKey, keyForSource, range.side);
       const tail = exhaustedTailSegment(items);
-      const exhausted = !!(sourceState && sourceState.get('hasMore') === false && !sourceState.get('gap') && !sourceState.get('partial') && tail && String(tail.oldest) === String(segment.oldest));
+      const exhausted = paneExhausted(paneState) && tail && String(tail.oldest) === String(segment.oldest);
       const placed = placeReconcileIds(items, gated.map(status => status.id), { seed: segment.empty, extendExhaustedTail: exhausted });
-      const inserted = new Set(placed.inserted);
-      const fresh = gated.filter(status => inserted.has(String(status.id)));
-      const bodies = references.concat(fresh);
 
-      if (page.accounts.length) {
-        dispatch(importFetchedAccounts(page.accounts));
-      }
-
-      if (page.relationships.length) {
-        dispatch(fetchRelationshipsSuccess(page.relationships));
-      }
-
-      if (page.filters.length) {
-        dispatch(importFilters(page.filters));
-      }
-
-      if (bodies.length) {
-        const previous = previousStatusesForImport(getState().get('statuses'), bodies);
-
-        dispatch(importFetchedStatuses(statusesForSharedImport(bodies, previous)));
-      }
-
-      if (fresh.length) {
-        const filterResults = {};
-
-        fresh.forEach(status => {
-          filterResults[status.id] = page.filterResults[status.id] || [];
-        });
-
-        dispatch({
-          type: MIX_EXTERNAL_RECONCILE,
-          columnKey,
-          sourceKey: keyForSource,
-          sessionId: snapshot.sessionId,
-          definitionFingerprint: snapshot.definitionFingerprint,
-          removeIds: [],
-          insertIds: placed.inserted,
-          seed: segment.empty,
-          range: { side: range.side, splitId },
-          filterResults,
-        });
-      }
+      storeMixPage(dispatch, getState, snapshot, page, gated, placed, columnKey, keyForSource, range.side, splitId, segment.empty);
 
       const cursor = nextHistoryCursor(segment, page.statuses, HISTORY_PAGE_SIZE);
 
