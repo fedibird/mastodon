@@ -16,7 +16,7 @@ import AccountActionBar from './account_action_bar';
 import Card from '../features/status/components/card';
 import { injectIntl, defineMessages, FormattedMessage } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { MediaGallery, Video, Audio, ThumbnailGallery } from '../features/ui/util/async-components';
+import { ThumbnailGallery } from '../features/ui/util/async-components';
 import { HotKeys } from 'react-hotkeys';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
@@ -26,7 +26,8 @@ import FilterReason from './filter_reason';
 import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
-import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
+import { galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
+import StatusMediaStack, { hotkeyMediaRoot, openMediaFromHotkey } from 'mastodon/components/status_media';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { externalIdentityOf, externalIdentityName, externalIdentityReaderText } from 'mastodon/external_presentation';
 import ExternalStatusMedia from 'mastodon/components/external_status_media';
@@ -470,18 +471,6 @@ class Status extends ImmutablePureComponent {
     this.props.onToggleHidden(this._properQuoteStatus());
   }
 
-  renderLoadingMediaGallery () {
-    return <div className='media-gallery' style={{ height: '110px' }} />;
-  }
-
-  renderLoadingVideoPlayer () {
-    return <div className='video-player' style={{ height: '110px' }} />;
-  }
-
-  renderLoadingAudioPlayer () {
-    return <div className='audio-player' style={{ height: '110px' }} />;
-  }
-
   renderLoadingThumbnailGallery () {
     return <div className='thumbnail-gallery' style={{ height: '20px' }} />;
   }
@@ -504,23 +493,20 @@ class Status extends ImmutablePureComponent {
     }
   }
 
-  handleOpenVideo = (options) => {
-    const status = this._properStatus();
-    const mediaStatus = this._translationMediaStatus();
-    const lang = statusTranslationView(mediaStatus).mediaLang;
-    this.props.onOpenVideo(status.get('id'), mediaStatus.getIn(['media_attachments', 0]), options, lang);
-  }
-
-  handleOpenSavedVideo = (attachment, options) => {
+  handleOpenVideo = (attachment, options) => {
     const status = this._properStatus();
     const lang = statusTranslationView(this._translationMediaStatus()).mediaLang;
     this.props.onOpenVideo(status.get('id'), attachment, options, lang);
   }
 
-  handleOpenVideoQuote = (options) => {
+  handleOpenSavedVideo = (attachment, options) => {
+    this.handleOpenVideo(attachment, options);
+  }
+
+  handleOpenVideoQuote = (attachment, options) => {
     const status = this._properQuoteStatus();
     const lang = statusTranslationView(status).mediaLang;
-    this.props.onOpenVideo(status.get('id'), status.getIn(['media_attachments', 0]), options, lang);
+    this.props.onOpenVideo(status.get('id'), attachment, options, lang);
   }
 
   handleOpenMedia = (media, index) => {
@@ -536,22 +522,54 @@ class Status extends ImmutablePureComponent {
   }
 
   handleHotkeyOpenMedia = e => {
-    const { onOpenMedia, onOpenVideo } = this.props;
     const status = this._properStatus();
 
     e.preventDefault();
 
     const mediaStatus = this._translationMediaStatus();
+    const lang = statusTranslationView(mediaStatus).mediaLang;
 
-    if (mediaStatus.get('media_attachments').size > 0) {
-      const lang = statusTranslationView(mediaStatus).mediaLang;
+    openMediaFromHotkey({
+      attachments: mediaStatus.get('media_attachments'),
+      root: hotkeyMediaRoot(e, this.node),
+      openGallery: (media, index) => {
+        if (this.props.onOpenMedia) {
+          this.props.onOpenMedia(status.get('id'), media, index, lang);
+        }
+      },
+      openVideo: (attachment, options) => {
+        if (this.props.onOpenVideo) {
+          this.props.onOpenVideo(status.get('id'), attachment, options, lang);
+        }
+      },
+    });
+  }
 
-      if (mediaStatus.getIn(['media_attachments', 0, 'type']) === 'video') {
-        onOpenVideo(status.get('id'), mediaStatus.getIn(['media_attachments', 0]), { startTime: 0 }, lang);
-      } else {
-        onOpenMedia(status.get('id'), mediaStatus.get('media_attachments'), 0, lang);
-      }
-    }
+  renderAttachmentMedia (mediaStatus, options) {
+    const translation = galleryTranslationProps(options.translationView);
+
+    return (
+      <StatusMediaStack
+        media={mediaStatus.get('media_attachments')}
+        sensitive={options.sensitive}
+        height={options.height}
+        videoHeight={options.videoHeight}
+        audioHeight={options.audioHeight}
+        visible={options.visible}
+        onToggleVisibility={options.onToggleVisibility}
+        onOpenMedia={options.onOpenMedia}
+        onOpenVideo={options.onOpenVideo}
+        cacheWidth={this.props.cacheMediaWidth}
+        defaultWidth={this.props.cachedMediaWidth}
+        deployPictureInPicture={options.deployPictureInPicture}
+        quote={options.quote}
+        posterFallback={options.posterFallback}
+        lang={translation.lang}
+        translationMode={translation.translationMode}
+        sourceLang={translation.sourceLang}
+        targetLang={translation.targetLang}
+      />
+    );
   }
 
   handleDeployPictureInPicture = (type, mediaProps) => {
@@ -759,7 +777,7 @@ class Status extends ImmutablePureComponent {
 
     const mediaStatus = translationDisplayStatus(status, this.props.status);
     const translationView = statusTranslationView(mediaStatus);
-    const described = attachment => attachmentAccessibility(attachment, translationView);
+    const deployPictureInPicture = pictureInPicture.get('available') ? this.handleDeployPictureInPicture : undefined;
 
     if (status.get('fedibird_external') && !this.props.muted && !pictureInPicture.get('inUse')) {
       media = (
@@ -774,7 +792,7 @@ class Status extends ImmutablePureComponent {
           defaultWidth={this.props.cachedMediaWidth}
           visible={this.state.showMedia}
           onToggleVisibility={this.handleToggleMediaVisibility}
-          deployPictureInPicture={pictureInPicture.get('available') ? this.handleDeployPictureInPicture : undefined}
+          deployPictureInPicture={deployPictureInPicture}
           {...galleryTranslationProps(translationView)}
         />
       );
@@ -792,74 +810,20 @@ class Status extends ImmutablePureComponent {
             )}
           </Bundle>
         );
-      } else if (mediaStatus.getIn(['media_attachments', 0, 'type']) === 'audio') {
-        const attachment = mediaStatus.getIn(['media_attachments', 0]);
-
-        media = (
-          <Bundle fetchComponent={Audio} loading={this.renderLoadingAudioPlayer} >
-            {Component => (
-              <Component
-                src={attachment.get('url')}
-                alt={described(attachment).text}
-                lang={described(attachment).lang}
-                poster={attachment.get('preview_url') || status.getIn(['account', 'avatar_static'])}
-                backgroundColor={attachment.getIn(['meta', 'colors', 'background'])}
-                foregroundColor={attachment.getIn(['meta', 'colors', 'foreground'])}
-                accentColor={attachment.getIn(['meta', 'colors', 'accent'])}
-                duration={attachment.getIn(['meta', 'original', 'duration'], 0)}
-                width={this.props.cachedMediaWidth}
-                height={110}
-                cacheWidth={this.props.cacheMediaWidth}
-                deployPictureInPicture={pictureInPicture.get('available') ? this.handleDeployPictureInPicture : undefined}
-              />
-            )}
-          </Bundle>
-        );
-      } else if (mediaStatus.getIn(['media_attachments', 0, 'type']) === 'video') {
-        const attachment = mediaStatus.getIn(['media_attachments', 0]);
-
-        media = (
-          <Bundle fetchComponent={Video} loading={this.renderLoadingVideoPlayer} >
-            {Component => (
-              <Component
-                preview={attachment.get('preview_url')}
-                frameRate={attachment.getIn(['meta', 'original', 'frame_rate'])}
-                thumbhash={attachment.get('thumbhash')}
-                blurhash={attachment.get('blurhash')}
-                src={attachment.get('url')}
-                alt={described(attachment).text}
-                lang={described(attachment).lang}
-                width={this.props.cachedMediaWidth}
-                height={110}
-                inline
-                sensitive={status.get('sensitive')}
-                onOpenVideo={this.handleOpenVideo}
-                cacheWidth={this.props.cacheMediaWidth}
-                deployPictureInPicture={pictureInPicture.get('available') ? this.handleDeployPictureInPicture : undefined}
-                visible={this.state.showMedia}
-                onToggleVisibility={this.handleToggleMediaVisibility}
-              />
-            )}
-          </Bundle>
-        );
       } else {
-        media = (
-          <Bundle fetchComponent={MediaGallery} loading={this.renderLoadingMediaGallery}>
-            {Component => (
-              <Component
-                media={mediaStatus.get('media_attachments')}
-                {...galleryTranslationProps(translationView)}
-                sensitive={status.get('sensitive')}
-                height={110}
-                onOpenMedia={this.handleOpenMedia}
-                cacheWidth={this.props.cacheMediaWidth}
-                defaultWidth={this.props.cachedMediaWidth}
-                visible={this.state.showMedia}
-                onToggleVisibility={this.handleToggleMediaVisibility}
-              />
-            )}
-          </Bundle>
-        );
+        media = this.renderAttachmentMedia(mediaStatus, {
+          sensitive: status.get('sensitive'),
+          height: 110,
+          videoHeight: 110,
+          audioHeight: 110,
+          visible: this.state.showMedia,
+          onToggleVisibility: this.handleToggleMediaVisibility,
+          onOpenMedia: this.handleOpenMedia,
+          onOpenVideo: this.handleOpenVideo,
+          translationView,
+          deployPictureInPicture,
+          posterFallback: status.getIn(['account', 'avatar_static']),
+        });
       }
     } else if (showCard && status.get('spoiler_text').length === 0 && status.get('card') && !isHideCard(status.getIn(['card', 'type']))) {
       media = (
@@ -894,11 +858,28 @@ class Status extends ImmutablePureComponent {
       let quote_status = status.get('quote');
       const quoteExternalIdentity = externalIdentityOf(quote_status);
       const quoteView = statusTranslationView(quote_status);
-      const quoteDescribed = attachment => attachmentAccessibility(attachment, quoteView);
 
       let quote_media = null;
       if (!showCard) {
         // hide media
+      } else if (quote_status.get('fedibird_external') && !this.props.muted && !pictureInPicture.get('inUse')) {
+        quote_media = (
+          <ExternalStatusMedia
+            status={quote_status}
+            sensitive={quote_status.get('sensitive')}
+            height={110}
+            videoHeight={110}
+            onOpenMedia={this.handleOpenMediaQuote}
+            onOpenVideo={this.handleOpenVideoQuote}
+            cacheWidth={this.props.cacheMediaWidth}
+            defaultWidth={this.props.cachedMediaWidth}
+            visible={this.state.showQuoteMedia}
+            onToggleVisibility={this.handleToggleQuoteMediaVisibility}
+            deployPictureInPicture={deployPictureInPicture}
+            quote
+            {...galleryTranslationProps(quoteView)}
+          />
+        );
       } else if (quote_status.get('media_attachments').size > 0) {
         if (pictureInPicture.get('inUse')) {
           quote_media = <PictureInPicturePlaceholder width={this.props.cachedMediaWidth} />;
@@ -913,76 +894,21 @@ class Status extends ImmutablePureComponent {
               )}
             </Bundle>
           );
-        } else if (quote_status.getIn(['media_attachments', 0, 'type']) === 'audio') {
-          const attachment = quote_status.getIn(['media_attachments', 0]);
-
-          quote_media = (
-            <Bundle fetchComponent={Audio} loading={this.renderLoadingAudioPlayer} >
-              {Component => (
-                <Component
-                  src={attachment.get('url')}
-                  alt={quoteDescribed(attachment).text}
-                  lang={quoteDescribed(attachment).lang}
-                  poster={attachment.get('preview_url') || quote_status.getIn(['account', 'avatar_static'])}
-                  backgroundColor={attachment.getIn(['meta', 'colors', 'background'])}
-                  foregroundColor={attachment.getIn(['meta', 'colors', 'foreground'])}
-                  accentColor={attachment.getIn(['meta', 'colors', 'accent'])}
-                  duration={attachment.getIn(['meta', 'original', 'duration'], 0)}
-                  width={this.props.cachedMediaWidth}
-                  height={70}
-                  cacheWidth={this.props.cacheMediaWidth}
-                  deployPictureInPicture={pictureInPicture.get('available') ? this.handleDeployPictureInPicture : undefined}
-                />
-              )}
-            </Bundle>
-          );
-        } else if (quote_status.getIn(['media_attachments', 0, 'type']) === 'video') {
-          const attachment = quote_status.getIn(['media_attachments', 0]);
-
-          quote_media = (
-            <Bundle fetchComponent={Video} loading={this.renderLoadingVideoPlayer} >
-              {Component => (
-                <Component
-                  preview={attachment.get('preview_url')}
-                  frameRate={attachment.getIn(['meta', 'original', 'frame_rate'])}
-                  thumbhash={attachment.get('thumbhash')}
-                  blurhash={attachment.get('blurhash')}
-                  src={attachment.get('url')}
-                  alt={quoteDescribed(attachment).text}
-                  lang={quoteDescribed(attachment).lang}
-                  width={this.props.cachedMediaWidth}
-                  height={110}
-                  inline
-                  sensitive={quote_status.get('sensitive')}
-                  onOpenVideo={this.handleOpenVideoQuote}
-                  cacheWidth={this.props.cacheMediaWidth}
-                  deployPictureInPicture={pictureInPicture.get('available') ? this.handleDeployPictureInPicture : undefined}
-                  visible={this.state.showQuoteMedia}
-                  onToggleVisibility={this.handleToggleQuoteMediaVisibility}
-                  quote
-                />
-              )}
-            </Bundle>
-          );
         } else {
-          quote_media = (
-            <Bundle fetchComponent={MediaGallery} loading={this.renderLoadingMediaGallery}>
-              {Component => (
-                <Component
-                  media={quote_status.get('media_attachments')}
-                  {...galleryTranslationProps(quoteView)}
-                  sensitive={quote_status.get('sensitive')}
-                  height={110}
-                  onOpenMedia={this.handleOpenMediaQuote}
-                  cacheWidth={this.props.cacheMediaWidth}
-                  defaultWidth={this.props.cachedMediaWidth}
-                  visible={this.state.showQuoteMedia}
-                  onToggleVisibility={this.handleToggleQuoteMediaVisibility}
-                  quote
-                />
-              )}
-            </Bundle>
-          );
+          quote_media = this.renderAttachmentMedia(quote_status, {
+            sensitive: quote_status.get('sensitive'),
+            height: 110,
+            videoHeight: 110,
+            audioHeight: 70,
+            visible: this.state.showQuoteMedia,
+            onToggleVisibility: this.handleToggleQuoteMediaVisibility,
+            onOpenMedia: this.handleOpenMediaQuote,
+            onOpenVideo: this.handleOpenVideoQuote,
+            translationView: quoteView,
+            deployPictureInPicture,
+            posterFallback: quote_status.getIn(['account', 'avatar_static']),
+            quote: true,
+          });
         }
       }
 

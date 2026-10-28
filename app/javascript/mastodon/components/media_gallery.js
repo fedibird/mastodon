@@ -352,7 +352,21 @@ class MediaGallery extends React.PureComponent {
   }
 
   handleClick = (index) => {
-    this.props.onOpenMedia(this.props.media, index);
+    const chosen = this.props.media.get(index);
+    const chosenType = chosen && chosen.get('type');
+    // The lightbox draws image, video, and gifv. Unknown stays a link in the
+    // gallery; including it here inserts a blank page when paging.
+    if (!chosen || (chosenType !== 'image' && chosenType !== 'gifv')) {
+      return;
+    }
+
+    const modalMedia = this.props.media.filter(item => {
+      const type = item.get('type');
+      return type === 'image' || type === 'gifv';
+    });
+    const modalIndex = modalMedia.findIndex(item => item.get('id') === chosen.get('id'));
+
+    this.props.onOpenMedia(modalMedia, modalIndex < 0 ? 0 : modalIndex);
   }
 
   handleRef = c => {

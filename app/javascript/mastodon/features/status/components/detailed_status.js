@@ -17,7 +17,8 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import Video from '../../video';
 import Audio from '../../audio';
 
-import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, translationDisplayStatus } from 'mastodon/utils/translation_view';
+import { galleryTranslationProps, statusTranslationView, translationDisplayStatus } from 'mastodon/utils/translation_view';
+import StatusMediaStack from 'mastodon/components/status_media';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import scheduleIdleTask from '../../ui/util/schedule_idle_task';
 import classNames from 'classnames';
@@ -178,11 +179,10 @@ class DetailedStatus extends ImmutablePureComponent {
     this.props.onOpenMediaQuote(media, index, lang, quote.get('id'));
   }
 
-  handleOpenVideo = (options) => {
+  handleOpenVideo = (attachment, options) => {
     const status = this._properStatus();
-    const mediaStatus = this._translationMediaStatus();
-    const lang = statusTranslationView(mediaStatus).mediaLang;
-    this.props.onOpenVideo(mediaStatus.getIn(['media_attachments', 0]), options, lang, status.get('id'));
+    const lang = statusTranslationView(this._translationMediaStatus()).mediaLang;
+    this.props.onOpenVideo(attachment, options, lang, status.get('id'));
   }
 
   handleOpenSavedVideo = (attachment, options) => {
@@ -191,14 +191,43 @@ class DetailedStatus extends ImmutablePureComponent {
     this.props.onOpenVideo(attachment, options, lang, status.get('id'));
   }
 
-  handleOpenVideoQuote = (options) => {
+  handleOpenVideoQuote = (attachment, options) => {
     const quote = this._properStatus().get('quote');
     const lang = statusTranslationView(quote).mediaLang;
-    this.props.onOpenVideoQuote(quote.getIn(['media_attachments', 0]), options, lang, quote.get('id'));
+    this.props.onOpenVideoQuote(attachment, options, lang, quote.get('id'));
   }
 
   handleExpandedToggle = () => {
     this.props.onToggleHidden(this.props.status);
+  }
+
+  renderAttachmentMedia (mediaStatus, options) {
+    const translation = galleryTranslationProps(options.translationView);
+
+    return (
+      <StatusMediaStack
+        media={mediaStatus.get('media_attachments')}
+        Gallery={MediaGallery}
+        Video={Video}
+        Audio={Audio}
+        sensitive={options.sensitive}
+        height={options.height}
+        videoHeight={options.videoHeight}
+        audioHeight={options.audioHeight}
+        visible={options.visible}
+        onToggleVisibility={options.onToggleVisibility}
+        onOpenMedia={options.onOpenMedia}
+        onOpenVideo={options.onOpenVideo}
+        defaultWidth={options.width}
+        standalone
+        quote={options.quote}
+        posterFallback={options.posterFallback}
+        lang={translation.lang}
+        translationMode={translation.translationMode}
+        sourceLang={translation.sourceLang}
+        targetLang={translation.targetLang}
+      />
+    );
   }
 
   _measureHeight (heightJustChanged) {
@@ -284,64 +313,39 @@ class DetailedStatus extends ImmutablePureComponent {
       let quote_status = status.get('quote');
       const quoteExternalIdentity = externalIdentityOf(quote_status);
       const quoteView = statusTranslationView(quote_status);
-      const quoteDescribed = attachment => attachmentAccessibility(attachment, quoteView);
 
       let quote_media = null;
-      if (quote_status.get('media_attachments').size > 0) {
-
-        if (quote_status.getIn(['media_attachments', 0, 'type']) === 'audio') {
-          const attachment = quote_status.getIn(['media_attachments', 0]);
-
-          quote_media = (
-            <Audio
-              src={attachment.get('url')}
-              alt={quoteDescribed(attachment).text}
-              lang={quoteDescribed(attachment).lang}
-              duration={attachment.getIn(['meta', 'original', 'duration'], 0)}
-              poster={attachment.get('preview_url') || quote_status.getIn(['account', 'avatar_static'])}
-              backgroundColor={attachment.getIn(['meta', 'colors', 'background'])}
-              foregroundColor={attachment.getIn(['meta', 'colors', 'foreground'])}
-              accentColor={attachment.getIn(['meta', 'colors', 'accent'])}
-              height={60}
-            />
-          );
-        } else if (quote_status.getIn(['media_attachments', 0, 'type']) === 'video') {
-          const attachment = quote_status.getIn(['media_attachments', 0]);
-
-          quote_media = (
-            <Video
-              preview={attachment.get('preview_url')}
-              frameRate={attachment.getIn(['meta', 'original', 'frame_rate'])}
-              thumbhash={attachment.get('thumbhash')}
-              blurhash={attachment.get('blurhash')}
-              src={attachment.get('url')}
-              alt={quoteDescribed(attachment).text}
-              lang={quoteDescribed(attachment).lang}
-              width={300}
-              height={150}
-              inline
-              onOpenVideo={this.handleOpenVideoQuote}
-              sensitive={quote_status.get('sensitive')}
-              visible={this.props.showQuoteMedia}
-              onToggleVisibility={this.props.onToggleQuoteMediaVisibility}
-              quote
-            />
-          );
-        } else {
-          quote_media = (
-            <MediaGallery
-              standalone
-              sensitive={quote_status.get('sensitive')}
-              media={quote_status.get('media_attachments')}
-              {...galleryTranslationProps(quoteView)}
-              height={300}
-              onOpenMedia={this.handleOpenMediaQuote}
-              visible={this.props.showQuoteMedia}
-              onToggleVisibility={this.props.onToggleQuoteMediaVisibility}
-              quote
-            />
-          );
-        }
+      if (quote_status.get('fedibird_external')) {
+        quote_media = (
+          <ExternalStatusMedia
+            status={quote_status}
+            sensitive={quote_status.get('sensitive')}
+            height={300}
+            videoHeight={150}
+            standalone
+            quote
+            onOpenMedia={this.handleOpenMediaQuote}
+            onOpenVideo={this.handleOpenVideoQuote}
+            visible={this.props.showQuoteMedia}
+            onToggleVisibility={this.props.onToggleQuoteMediaVisibility}
+            {...galleryTranslationProps(quoteView)}
+          />
+        );
+      } else if (quote_status.get('media_attachments').size > 0) {
+        quote_media = this.renderAttachmentMedia(quote_status, {
+          sensitive: quote_status.get('sensitive'),
+          height: 300,
+          videoHeight: 150,
+          audioHeight: 60,
+          width: 300,
+          visible: this.props.showQuoteMedia,
+          onToggleVisibility: this.props.onToggleQuoteMediaVisibility,
+          onOpenMedia: this.handleOpenMediaQuote,
+          onOpenVideo: this.handleOpenVideoQuote,
+          translationView: quoteView,
+          posterFallback: quote_status.getIn(['account', 'avatar_static']),
+          quote: true,
+        });
       }
 
       if (quote_muted) {
@@ -384,7 +388,6 @@ class DetailedStatus extends ImmutablePureComponent {
 
     const mediaStatus = translationDisplayStatus(status, this.props.status);
     const translationView = statusTranslationView(mediaStatus);
-    const described = attachment => attachmentAccessibility(attachment, translationView);
 
     if (status.get('fedibird_external') && !pictureInPicture.get('inUse')) {
       media = (
@@ -404,57 +407,19 @@ class DetailedStatus extends ImmutablePureComponent {
     } else if (pictureInPicture.get('inUse')) {
       media = <PictureInPicturePlaceholder />;
     } else if (mediaStatus.get('media_attachments').size > 0) {
-      if (mediaStatus.getIn(['media_attachments', 0, 'type']) === 'audio') {
-        const attachment = mediaStatus.getIn(['media_attachments', 0]);
-
-        media = (
-          <Audio
-            src={attachment.get('url')}
-            alt={described(attachment).text}
-            lang={described(attachment).lang}
-            duration={attachment.getIn(['meta', 'original', 'duration'], 0)}
-            poster={attachment.get('preview_url') || status.getIn(['account', 'avatar_static'])}
-            backgroundColor={attachment.getIn(['meta', 'colors', 'background'])}
-            foregroundColor={attachment.getIn(['meta', 'colors', 'foreground'])}
-            accentColor={attachment.getIn(['meta', 'colors', 'accent'])}
-            height={150}
-          />
-        );
-      } else if (mediaStatus.getIn(['media_attachments', 0, 'type']) === 'video') {
-        const attachment = mediaStatus.getIn(['media_attachments', 0]);
-
-        media = (
-          <Video
-            preview={attachment.get('preview_url')}
-            frameRate={attachment.getIn(['meta', 'original', 'frame_rate'])}
-            thumbhash={attachment.get('thumbhash')}
-            blurhash={attachment.get('blurhash')}
-            src={attachment.get('url')}
-            alt={described(attachment).text}
-            lang={described(attachment).lang}
-            width={300}
-            height={150}
-            inline
-            onOpenVideo={this.handleOpenVideo}
-            sensitive={status.get('sensitive')}
-            visible={this.props.showMedia}
-            onToggleVisibility={this.props.onToggleMediaVisibility}
-          />
-        );
-      } else {
-        media = (
-          <MediaGallery
-            standalone
-            sensitive={status.get('sensitive')}
-            media={mediaStatus.get('media_attachments')}
-            {...galleryTranslationProps(translationView)}
-            height={300}
-            onOpenMedia={this.handleOpenMedia}
-            visible={this.props.showMedia}
-            onToggleVisibility={this.props.onToggleMediaVisibility}
-          />
-        );
-      }
+      media = this.renderAttachmentMedia(mediaStatus, {
+        sensitive: status.get('sensitive'),
+        height: 300,
+        videoHeight: 150,
+        audioHeight: 150,
+        width: 300,
+        visible: this.props.showMedia,
+        onToggleVisibility: this.props.onToggleMediaVisibility,
+        onOpenMedia: this.handleOpenMedia,
+        onOpenVideo: this.handleOpenVideo,
+        translationView,
+        posterFallback: status.getIn(['account', 'avatar_static']),
+      });
     } else if (status.get('spoiler_text').length === 0 && !isHideCard(status.getIn(['card', 'type']))) {
       media = <Card sensitive={status.get('sensitive')} onOpenMedia={this.props.onOpenMedia} card={status.get('card', null)} />;
     }
