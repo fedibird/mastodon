@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_07_120000) do
+ActiveRecord::Schema.define(version: 2026_11_08_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1114,6 +1114,8 @@ ActiveRecord::Schema.define(version: 2026_11_07_120000) do
     t.bigint "feed_routes_revision", default: 0, null: false
     t.boolean "media_sensitive", default: false, null: false
     t.boolean "cw_enabled", default: false, null: false
+    t.string "language_mode", default: "unspecified", null: false
+    t.string "language", limit: 32
     t.bigint "presentation_revision", default: 0, null: false
     t.bigint "presentation_applied_revision", default: 0, null: false
     t.string "presentation_error"
@@ -1125,6 +1127,7 @@ ActiveRecord::Schema.define(version: 2026_11_07_120000) do
     t.index ["user_id", "external_source_id"], name: "index_external_subscriptions_on_user_and_source", unique: true
     t.index ["user_id"], name: "index_external_subscriptions_on_user_id"
     t.check_constraint "(state)::text = ANY ((ARRAY['active'::character varying, 'paused'::character varying, 'error'::character varying, 'deleting'::character varying])::text[])", name: "external_subscriptions_state_check"
+    t.check_constraint "((language_mode)::text = ANY ((ARRAY['unspecified'::character varying, 'auto'::character varying, 'fixed'::character varying])::text[])) AND ((((language_mode)::text = 'fixed'::text) AND (language IS NOT NULL) AND (btrim((language)::text) <> ''::text)) OR (((language_mode)::text <> 'fixed'::text) AND (language IS NULL)))", name: "external_subscriptions_language_check"
   end
 
   create_table "favourite_domains", force: :cascade do |t|

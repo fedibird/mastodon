@@ -10,12 +10,19 @@ class LanguageDetector
     @identifier = CLD3::NNetLanguageIdentifier.new(1, 2048)
   end
 
-  def detect(text, account)
+  # allow_fallback keeps ordinary posts on the account locale (or the
+  # instance default) when detection cannot decide. External articles pass
+  # false so a short or unclear text stays unset.
+  def detect(text, account, allow_fallback: true)
     input_text = prepare_text(text)
 
     return if input_text.blank?
 
-    detect_language_code(input_text) || default_locale(account)
+    detected = detect_language_code(input_text)
+    return detected if detected
+    return unless allow_fallback
+
+    default_locale(account)
   end
 
   def language_names
