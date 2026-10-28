@@ -73,7 +73,9 @@ RSpec.describe 'ExternalBridge RSS podcast compatibility' do
   end
 
   it 'does not use iTunes subtitle in an ordinary text feed without an audio enclosure' do
-    xml = podcast_xml(description: advertising, encoded: '<p> </p>', subtitle: episode_text)
+    # With no audio enclosure, retain the ordinary RSS fallback order:
+    # an empty content:encoded falls back to description, never iTunes subtitle.
+    xml = podcast_xml(description: advertising, encoded: '', subtitle: episode_text)
     xml = xml.sub(/<enclosure [^>]+\/>/, '')
     item = ExternalBridge::RSS::Parser.parse!(xml).items.first
 
