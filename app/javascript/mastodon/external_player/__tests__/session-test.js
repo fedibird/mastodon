@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
+import { Provider } from 'react-redux';
+import { createStore } from 'redux';
 
 import ExternalStatusMedia from '../../components/external_status_media';
+import ExternalPlayerDock from '../dock';
 import {
   IFRAME_ALLOW,
   IFRAME_REFERRER_POLICY,
@@ -338,7 +341,14 @@ describe('external player rows', () => {
     expect(view.container.innerHTML).not.toContain(PLAYER);
     expect(screen.getByText('This player is open on another copy of this post.')).toBeTruthy();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Pop out' })[0]);
+    const popOut = screen.getAllByRole('button', { name: 'Pop out the player' })[0];
+    expect(view.container.querySelector('.external-player-toolbar')).toBeNull();
+    expect(popOut.closest('.external-embed-player__frame')).toBeNull();
+    expect(popOut.getAttribute('data-external-player-action')).toBe('pin');
+    popOut.focus();
+    expect(document.activeElement).toBe(popOut);
+
+    fireEvent.click(popOut);
     expect(connectedPlayerNodes('iframe')[0]).toBe(frame[0]);
     expect(getPinnedKey()).toBe(externalPlayerKey('10', 'embed-1'));
 
@@ -346,7 +356,7 @@ describe('external player rows', () => {
     expect(getPinnedKey()).toBeNull();
     expect(connectedPlayerNodes('iframe')[0]).toBe(frame[0]);
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Close the player' })[0]);
     expect(connectedPlayerNodes('iframe')).toHaveLength(0);
     expect(screen.getAllByRole('button', { name: 'External video 1:01' })).toHaveLength(2);
   });
@@ -403,5 +413,73 @@ describe('external player rows', () => {
       userStarted: true,
       pinned: true,
     }));
+  });
+
+  it('keeps compact audio controls outside the native control and the same node', () => {
+    const view = render(
+      <ExternalStatusMedia
+        visible
+        status={remoteStatus('13', [
+          { id: 'talk', type: 'audio', url: TALK, description: 'Talk' },
+        ])}
+      />,
+    );
+
+    expect(view.container.innerHTML).not.toContain(TALK);
+    fireEvent.click(screen.getByRole('button', { name: /Talk/ }));
+
+    const audio = connectedPlayerNodes('audio')[0];
+    const popOut = screen.getByRole('button', { name: 'Pop out the player' });
+    const close = screen.getByRole('button', { name: 'Close the player' });
+    const slot = view.container.querySelector('.external-remote-media__slot--audio');
+
+    expect(view.container.querySelector('.external-player-toolbar')).toBeNull();
+    expect(view.container.querySelector('.external-player-surface--audio')).toBeTruthy();
+    expect(slot.contains(popOut)).toBe(false);
+    expect(slot.contains(close)).toBe(false);
+    expect(popOut.title).toBe('Pop out the player');
+    expect(close.title).toBe('Close the player');
+    expect(popOut.querySelector('.fa-external-link')).toBeTruthy();
+    expect(close.querySelector('.fa-times')).toBeTruthy();
+    expect(audio.className).toContain('external-player-host__media--audio');
+    expect(audio.getAttribute('src')).toBe(TALK);
+
+    fireEvent.click(popOut);
+    expect(connectedPlayerNodes('audio')[0]).toBe(audio);
+    expect(audio.getAttribute('src')).toBe(TALK);
+    const restore = screen.getByRole('button', { name: 'Return to the post' });
+    expect(restore.getAttribute('data-external-player-action')).toBe('return');
+    expect(restore.querySelector('.fa-chevron-left')).toBeTruthy();
+  });
+
+  it('shows compact dock actions and keeps playback when the post cannot be restored', () => {
+    const session = openSession({ statusId: '14', mediaId: 'embed-1', kind: 'iframe', url: PLAYER });
+    pinSession(session.key);
+    const store = createStore(() => fromJS({ picture_in_picture: {} }));
+    render(
+      <Provider store={store}>
+        <ExternalPlayerDock />
+      </Provider>,
+    );
+
+    const dock = screen.getByRole('region', { name: 'Fixed player' });
+    const restore = screen.getByRole('button', { name: 'Return to the post' });
+    const close = screen.getByRole('button', { name: 'Close the player' });
+
+    const node = session.node;
+
+    expect(dock.className).toContain('external-player-dock--iframe');
+    expect(dock.querySelector('.external-player-dock__button')).toBeNull();
+    expect(restore.getAttribute('aria-describedby')).toBe('external-player-return-note');
+    expect(screen.getByText('The original post is not in this view. Playback stays in the fixed player.')).toBeTruthy();
+    expect(node.isConnected).toBe(true);
+
+    fireEvent.click(restore);
+    expect(getPinnedKey()).toBe(session.key);
+    expect(node.getAttribute('src')).toBe(PLAYER);
+
+    fireEvent.click(close);
+    expect(getPinnedKey()).toBeNull();
+    expect(node.isConnected).toBe(false);
   });
 });

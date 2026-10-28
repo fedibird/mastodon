@@ -4,6 +4,7 @@ import { connect } from 'react-redux';
 import { FormattedMessage } from 'react-intl';
 
 import { removePictureInPicture } from 'mastodon/actions/picture_in_picture';
+import ExternalPlayerActions from './actions';
 import {
   closeSession,
   getPinnedSession,
@@ -88,21 +89,22 @@ class ExternalPlayerDock extends React.PureComponent {
       return null;
     }
 
+    const titleId = 'external-player-dock-title';
     const noteId = 'external-player-return-note';
     const missing = session.returnUnavailable === true || session.anchorIds.size === 0;
 
     return (
-      <div className={`external-player-dock external-player-dock--${session.kind}`} role='region' aria-label='Fixed player'>
+      <div className={`external-player-dock external-player-dock--${session.kind}`} role='region' aria-labelledby={titleId}>
         <div className='external-player-dock__bar'>
-          <p className='external-player-dock__title'>
+          <p id={titleId} className='external-player-dock__title'>
             <FormattedMessage id='external_media.fixed_player' defaultMessage='Fixed player' />
           </p>
-          <button type='button' className='external-player-dock__button' onClick={this.handleReturn} aria-describedby={missing ? noteId : undefined}>
-            <FormattedMessage id='external_media.return_to_post' defaultMessage='Return to the post' />
-          </button>
-          <button type='button' className='external-player-dock__button' onClick={this.handleClose}>
-            <FormattedMessage id='external_media.close' defaultMessage='Close' />
-          </button>
+          <ExternalPlayerActions
+            pinned
+            describedBy={missing ? noteId : undefined}
+            onReturn={this.handleReturn}
+            onClose={this.handleClose}
+          />
         </div>
         {missing ? (
           <p id={noteId} className='external-player-dock__note' aria-live='polite'>

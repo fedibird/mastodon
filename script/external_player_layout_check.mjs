@@ -209,7 +209,7 @@ const run = async () => {
         src: iframe.getAttribute('src'),
       };
     });
-    await page.click('button.external-player-toolbar__button');
+    await page.click('[data-external-player-action="pin"]');
     await sleep(200);
     const pinned = await page.evaluate(() => {
       const slot = document.querySelector('.external-player-dock__slot');
@@ -238,7 +238,7 @@ const run = async () => {
         delta: Math.abs(slotBox.top - iframeBox.top),
       };
     });
-    const returns = await page.$$('button.external-player-toolbar__button');
+    const returns = await page.$$('[data-external-player-action="return"]');
     await returns[0].click();
     await sleep(400);
     const returned = await aligned('returned');
