@@ -142,20 +142,41 @@ const updateTimeline = (state, timeline, status, usePendingItems) => {
   }));
 };
 
+const dropStatusId = (list, id) => (
+  list && typeof list.filterNot === 'function' ? list.filterNot(item => item === id) : ImmutableList()
+);
+
 const deleteStatus = (state, id, references, exclude_account = null) => {
   state.keySeq().forEach(timeline => {
-    if (exclude_account === null || (timeline !== `account:${exclude_account}` && !timeline.startsWith(`account:${exclude_account}:`))) {
-      const helper = list => list.filterNot(item => item === id);
-      state = state.updateIn([timeline, 'items'], helper).updateIn([timeline, 'pendingItems'], helper);
-
-      if (state.getIn([timeline, 'window'])) {
-        state = state.update(timeline, syncHistoryEdges);
-      }
+    if (exclude_account !== null && (timeline === `account:${exclude_account}` || String(timeline).startsWith(`account:${exclude_account}:`))) {
+      return;
     }
+
+    const current = state.get(timeline);
+
+    // One column with a missing list, or a non-timeline entry, must not stop
+    // the other columns from dropping the id. A repeated delete is a no-op.
+    if (!current || typeof current.get !== 'function' || typeof current.update !== 'function') {
+      return;
+    }
+
+    let next = current
+      .update('items', ImmutableList(), list => dropStatusId(list, id))
+      .update('pendingItems', ImmutableList(), list => dropStatusId(list, id));
+
+    if (next.get('window')) {
+      next = syncHistoryEdges(next);
+    }
+
+    state = state.set(timeline, next);
   });
 
   // Remove reblogs of deleted status
   references?.forEach(ref => {
+    if (ref === undefined || ref === null || ref === '') {
+      return;
+    }
+
     state = deleteStatus(state, ref, [], exclude_account);
   });
 
