@@ -1,4 +1,4 @@
-/* eslint-disable react/prop-types */
+/* eslint-disable react/prop-types, jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import { fromJS } from 'immutable';
@@ -144,7 +144,6 @@ describe('public StatusMediaStack audio visibility', () => {
   it('does not open the quote from a concealed audio control, a player, or a video', () => {
     const onQuote = jest.fn();
     const { container } = render(
-      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
       <div className='quote-status' dataurl='https://remote.example/users/bob/1' onClick={onQuote}>
         <p>Quoted text</p>
         <StatusMediaStack
