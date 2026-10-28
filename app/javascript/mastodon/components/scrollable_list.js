@@ -21,6 +21,7 @@ import {
   isDecimalStatusId,
   readDocumentVisibleTop,
   restoreTimelineAnchor,
+  selectAnchorFromMeasurements,
   scheduleTimelineAnchorFrames,
   scrollToLoadedTimelineStatus,
 } from '../timeline_navigation';
@@ -492,10 +493,9 @@ class ScrollableList extends PureComponent {
       return null;
     }
 
-    const scroller = this._getScrollingElement();
-    const rootTop = !scroller || scroller === document.scrollingElement || scroller === document.body
-      ? 0
-      : scroller.getBoundingClientRect().top;
+    const host = this.getTimelineScrollHost();
+    const visibleTop = this.getTimelineVisibleTop(host);
+    const rows = [];
     const articles = this.node.querySelectorAll('article[data-id]');
 
     for (let index = 0; index < articles.length; index += 1) {
@@ -506,12 +506,24 @@ class ScrollableList extends PureComponent {
         continue;
       }
 
-      if (article.getBoundingClientRect().top >= rootTop - 1) {
-        return { id, top: article.getBoundingClientRect().top };
-      }
+      const box = article.getBoundingClientRect();
+
+      rows.push({
+        rowId: id,
+        top: box.top,
+        bottom: box.bottom,
+        height: box.height,
+      });
     }
 
-    return null;
+    const selected = selectAnchorFromMeasurements({ rows, visibleTop });
+    const row = rows.find(item => item.rowId === selected.rowId);
+
+    if (!row) {
+      return null;
+    }
+
+    return { id: row.rowId, top: row.top };
   }
 
   restoreArticleAnchor (snapshot) {

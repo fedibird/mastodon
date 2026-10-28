@@ -4,11 +4,11 @@ jest.mock('react-intl', () => ({
 
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 
-import { TIMELINE_LOAD_PENDING, TIMELINE_UPDATE } from '../../actions/timelines';
-import { MIX_STREAM_STATUS } from '../../actions/mix_timelines';
+import { TIMELINE_DELETE, TIMELINE_EXPAND_SUCCESS, TIMELINE_EXTERNAL_RECONCILE, TIMELINE_LOAD_PENDING, TIMELINE_UPDATE } from '../../actions/timelines';
+import { MIX_EXTERNAL_RECONCILE, MIX_STREAM_STATUS } from '../../actions/mix_timelines';
 import timelines from '../../reducers/timelines';
 import mixTimelines from '../../reducers/mix_timelines';
-import { insertIdDescending } from '../reconcile';
+import { exhaustedTailSegment, insertIdDescending, nextExhaustedPage } from '../reconcile';
 
 const timeline = (overrides = {}) => ImmutableMap({
   unread: 0,
@@ -31,7 +31,7 @@ const arrive = (state, timelineId, id, extra = {}) => timelines(state, {
 describe('external late arrivals', () => {
   it('places 11:00, 09:00, then 10:00 as 11:00, 10:00, 09:00 without using Number', () => {
     let state = ImmutableMap({
-      home: timeline({ items: ImmutableList() }),
+      home: timeline({ items: ImmutableList(), hasMore: false }),
     });
 
     state = arrive(state, 'home', '9007199254741100');
@@ -197,5 +197,164 @@ describe('external late arrivals', () => {
     expect(older.getIn(['column:a', 'sources', 'home', 'ids']).toArray()).toEqual(['500', '300', '100']);
     expect(older.getIn(['column:a', 'live', 'home', 'statusIds'])).toBeUndefined();
     expect(newer.getIn(['column:a', 'pendingStatusIds']).toArray()).toEqual(['600']);
+  });
+
+  it('does not advance an open tail when deletions leave one loaded id', () => {
+    const loaded = Array.from({ length: 20 }, (_value, index) => String(500 - index));
+    let state = ImmutableMap({
+      home: timeline({ hasMore: true }),
+    });
+
+    state = timelines(state, {
+      type: TIMELINE_EXPAND_SUCCESS,
+      timeline: 'home',
+      statuses: loaded.map(id => ({ id })),
+      next: '/api/v1/timelines/home?max_id=481',
+      partial: false,
+      isLoadingRecent: false,
+      isLoadingMore: false,
+      usePendingItems: false,
+    });
+    loaded.slice(1).forEach(id => {
+      state = timelines(state, { type: TIMELINE_DELETE, id, references: [] });
+    });
+    state = arrive(state, 'home', '100');
+
+    expect(state.getIn(['home', 'hasMore'])).toBe(true);
+    expect(state.getIn(['home', 'items']).toArray()).toEqual(['500']);
+
+    const olderPage = Array.from({ length: 20 }, (_value, index) => String(480 - index));
+
+    state = timelines(state, {
+      type: TIMELINE_EXPAND_SUCCESS,
+      timeline: 'home',
+      statuses: olderPage.map(id => ({ id })),
+      next: '/api/v1/timelines/home?max_id=461',
+      partial: false,
+      isLoadingRecent: false,
+      isLoadingMore: true,
+      usePendingItems: false,
+    });
+
+    const items = state.getIn(['home', 'items']).toArray();
+
+    expect(items[0]).toBe('500');
+    expect(items).toContain('480');
+    expect(items).toContain('461');
+    expect(items).not.toContain('100');
+    expect(items[items.length - 1]).toBe('461');
+  });
+
+  it('appends an older external id only after the older page is confirmed empty', () => {
+    let state = ImmutableMap({
+      home: timeline({
+        items: ImmutableList(['500', '300']),
+        hasMore: true,
+      }),
+    });
+
+    state = timelines(state, {
+      type: TIMELINE_EXPAND_SUCCESS,
+      timeline: 'home',
+      statuses: [],
+      next: null,
+      partial: false,
+      isLoadingRecent: false,
+      isLoadingMore: true,
+      usePendingItems: false,
+    });
+    expect(state.getIn(['home', 'hasMore'])).toBe(false);
+    expect(state.getIn(['home', 'items']).toArray()).toEqual(['500', '300']);
+
+    const open = ImmutableMap({
+      home: timeline({ items: ImmutableList(['500', '300']), hasMore: true }),
+    });
+
+    expect(arrive(open, 'home', '200').getIn(['home', 'items']).toArray()).toEqual(['500', '300']);
+    state = arrive(state, 'home', '200');
+    state = arrive(state, 'home', '200');
+    expect(state.getIn(['home', 'items']).toArray()).toEqual(['500', '300', '200']);
+
+    const missed = timelines(ImmutableMap({
+      home: timeline({ items: ImmutableList(['500', '300']), hasMore: false }),
+    }), {
+      type: TIMELINE_EXTERNAL_RECONCILE,
+      timeline: 'home',
+      removeIds: [],
+      insertIds: ['200', '200'],
+    });
+    const stillOpen = timelines(open, {
+      type: TIMELINE_EXTERNAL_RECONCILE,
+      timeline: 'home',
+      removeIds: [],
+      insertIds: ['200'],
+    });
+
+    expect(missed.getIn(['home', 'items']).toArray()).toEqual(['500', '300', '200']);
+    expect(missed.getIn(['home', 'hasMore'])).toBe(false);
+    expect(stillOpen.getIn(['home', 'items']).toArray()).toEqual(['500', '300']);
+    expect(exhaustedTailSegment(['500', '300']).oldest).toBe('300');
+    expect(exhaustedTailSegment(['500', null])).toBeNull();
+    expect(nextExhaustedPage([{ id: '200' }, { id: '100' }], 2)).toEqual({ done: false, cursor: '100' });
+    expect(nextExhaustedPage([{ id: '200' }], 2)).toEqual({ done: true, cursor: null });
+  });
+
+  it('does not extend a mix tail that still has older pages', () => {
+    const open = (hasMore) => {
+      let state = mixTimelines(undefined, {
+        type: 'MIX_TIMELINE_OPEN',
+        columnKey: 'column:a',
+        mixId: 'mix-1',
+        definitionFingerprint: 'home',
+        sessionId: 1,
+        sources: [
+          { key: 'home', descriptor: { type: 'home', params: {} } },
+        ],
+      });
+
+      state = mixTimelines(state, {
+        type: 'MIX_SOURCE_SUCCESS',
+        columnKey: 'column:a',
+        sourceKey: 'home',
+        sessionId: 1,
+        definitionFingerprint: 'home',
+        ids: ['500'],
+        cursor: '500',
+        frontier: '500',
+        hasMore,
+        partial: false,
+      });
+
+      return mixTimelines(state, {
+        type: MIX_STREAM_STATUS,
+        columnKey: 'column:a',
+        sourceKey: 'home',
+        sessionId: 1,
+        definitionFingerprint: 'home',
+        id: '100',
+        decision: 'accept',
+        external: true,
+        filterResults: [],
+      });
+    };
+
+    expect(open(true).getIn(['column:a', 'sources', 'home', 'ids']).toArray()).toEqual(['500']);
+
+    const closed = open(false);
+
+    expect(closed.getIn(['column:a', 'sources', 'home', 'ids']).toArray()).toEqual(['500', '100']);
+
+    const resynced = mixTimelines(closed.setIn(['column:a', 'sources', 'home', 'ids'], ImmutableList(['500', '300'])), {
+      type: MIX_EXTERNAL_RECONCILE,
+      columnKey: 'column:a',
+      sourceKey: 'home',
+      sessionId: 1,
+      definitionFingerprint: 'home',
+      removeIds: [],
+      insertIds: ['200'],
+      range: { side: 'live' },
+    });
+
+    expect(resynced.getIn(['column:a', 'sources', 'home', 'ids']).toArray()).toEqual(['500', '300', '200']);
   });
 });

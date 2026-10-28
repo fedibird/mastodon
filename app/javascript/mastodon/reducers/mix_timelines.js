@@ -26,7 +26,7 @@ import {
   MIX_DISPLAY_HISTORY,
   MIX_EXTERNAL_RECONCILE,
 } from '../actions/mix_timelines';
-import { placeReconcileIds } from '../external_feeds/reconcile';
+import { appendOlderThanTail, placeReconcileIds, spliceHistory } from '../external_feeds/reconcile';
 
 const initialSource = ImmutableMap({
   ids: ImmutableList(),
@@ -78,6 +78,26 @@ const mapColumns = (state, updater) => {
   return next;
 };
 
+// Same rule as the home timeline: a stream id can fill a loaded run, and can
+// extend the tail only when that source has no older page left.
+const placeLoadedMixExternal = (source, ids, id) => {
+  const list = ids.toArray();
+  const interior = spliceHistory(list, [id]);
+  const exhausted = source.get('hasMore') === false && !source.get('gap') && !source.get('partial');
+
+  if (!exhausted) {
+    return interior;
+  }
+
+  const tail = appendOlderThanTail(interior.items, [id]);
+
+  if (!tail.inserted.length) {
+    return interior;
+  }
+
+  return { items: tail.items, inserted: interior.inserted.concat(tail.inserted) };
+};
+
 const recordLiveStatus = (state, action, pending) => state.updateIn([action.columnKey, 'live', action.sourceKey], initialLive, entry => {
   const ids = entry.get('statusIds').includes(action.id) ? entry.get('statusIds') : entry.get('statusIds').push(action.id);
   const results = entry.get('filterResults').merge(fromJS({ [action.id]: action.filterResults || [] }));
@@ -108,8 +128,8 @@ const placeExternalMixStatus = (state, action) => {
   const unconfirmed = (entry) => !!(entry && (entry.get('gap') || entry.get('partial')));
   const sourceOpen = source && !unconfirmed(source);
   const historyOpen = history && !unconfirmed(history);
-  const placed = sourceOpen ? placeReconcileIds(sourceIds.toArray(), [action.id]) : { inserted: [] };
-  const historyPlaced = historyOpen ? placeReconcileIds(historyIds.toArray(), [action.id]) : { inserted: [] };
+  const placed = sourceOpen ? placeLoadedMixExternal(source, sourceIds, action.id) : { inserted: [] };
+  const historyPlaced = historyOpen ? placeLoadedMixExternal(history, historyIds, action.id) : { inserted: [] };
 
   if ((sourceIds.includes(action.id) || (historyIds && historyIds.includes(action.id))) && !placed.inserted.length && !historyPlaced.inserted.length) {
     return state;
@@ -740,11 +760,14 @@ const otherSourceHas = (column, sourceKey, id) => {
   return lists.some(sources => sources && sources.some((source, key) => key !== sourceKey && (source.get('ids') || ImmutableList()).includes(id)));
 };
 
-const patchIdList = (list, blocked, insertIds, seed) => {
+const patchIdList = (list, blocked, insertIds, seed, extendExhaustedTail) => {
   let next = withoutIds(list || ImmutableList(), blocked);
 
   if (insertIds && insertIds.length) {
-    next = ImmutableList(placeReconcileIds(next.toArray(), insertIds, { seed: seed === true }).items);
+    next = ImmutableList(placeReconcileIds(next.toArray(), insertIds, {
+      seed: seed === true,
+      extendExhaustedTail: extendExhaustedTail === true,
+    }).items);
   }
 
   return next;
@@ -845,7 +868,10 @@ const applyMixExternalReconcile = (state, action) => {
     const insertParent = insertPath && insertPath.slice(0, -1);
 
     if (insertPath && next.getIn([action.columnKey].concat(insertParent))) {
-      next = next.updateIn([action.columnKey].concat(insertPath), ImmutableList(), list => patchIdList(list, blocked, action.insertIds, action.seed === true));
+      const parent = next.getIn([action.columnKey].concat(insertParent));
+      const extendExhaustedTail = !!(parent && parent.get && parent.get('hasMore') === false && !parent.get('gap') && !parent.get('partial'));
+
+      next = next.updateIn([action.columnKey].concat(insertPath), ImmutableList(), list => patchIdList(list, blocked, action.insertIds, action.seed === true, extendExhaustedTail));
     }
 
     const resultsPath = filterResultsPathFor(next.get(action.columnKey), action);
