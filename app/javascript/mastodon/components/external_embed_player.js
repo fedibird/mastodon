@@ -23,9 +23,16 @@ import { safeMediaUrl } from 'mastodon/components/external_remote_media';
 // back to 'src'. allowFullScreen remains for agents that ignore allow.
 // This does not override a parent Permissions-Policy denial, a denial
 // from the embedded document, or the user-gesture requirement.
-// Inline playback and a popout host (#619) must copy
-// externalEmbedFrameProps onto the iframe when the node is created.
-// Changing allow after load does not update the container policy.
+// externalEmbedFrameProps is the creation-time contract. This component
+// spreads it into React. The pinned host (#625, session.js createFrame)
+// builds the one live iframe and reuses that node for the inline slot and
+// the fixed dock, so it must copy these fields when the node is created:
+// sandbox and allow through setAttribute, referrerPolicy through
+// setAttribute('referrerpolicy'), and allowFullScreen through the DOM
+// property allowFullscreen. Object.assign does not set that property.
+// Copying the React key allowFullScreen does not either. Writing allow
+// after the framed document has loaded does not update the container
+// policy, and a second allow string must not be introduced for the dock.
 const SIGNATURE_QUERY = /(?:^|&)(?:hash|validto|hdnea|exp)=/i;
 const MAX_DURATION = 48 * 60 * 60;
 

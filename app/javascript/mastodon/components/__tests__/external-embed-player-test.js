@@ -63,6 +63,20 @@ describe('external embed iframe policy', () => {
     expect(externalEmbedFrameProps.allowFullScreen).toBe(true);
   });
 
+  it('copies onto a DOM iframe when the node is created', () => {
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', externalEmbedFrameProps.sandbox);
+    frame.setAttribute('allow', externalEmbedFrameProps.allow);
+    frame.setAttribute('referrerpolicy', externalEmbedFrameProps.referrerPolicy);
+    frame.allowFullscreen = externalEmbedFrameProps.allowFullScreen;
+
+    expect(frame.getAttribute('allow')).toBe('fullscreen *; encrypted-media; picture-in-picture');
+    expect(frame.getAttribute('sandbox')).toBe(externalEmbedFrameProps.sandbox);
+    expect(frame.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(frame.allowFullscreen).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(frame, 'allowFullScreen')).toBe(false);
+  });
+
   it('applies that policy only after the click that mounts the iframe', () => {
     const { container } = render(
       <ExternalEmbedPlayer entry={{ url: player, poster, duration: 1081 }} articleUrl='https://watch.example/watch?id=abc123' />,

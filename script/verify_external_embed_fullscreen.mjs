@@ -11,6 +11,14 @@
 // Requires a display. Headless Chrome does not exercise requestFullscreen.
 // Exit 0 when every required expectation matches. Informational rows are
 // recorded either way.
+//
+// This harness builds its own iframes from externalEmbedFrameProps. It does
+// not open the #625 host. After session.js createFrame copies those props at
+// node creation, repeat the redirect, nested-missing, no-gesture, parent
+// fullscreen=() and fullscreen=(self), and child-denial cases on that live
+// node. Inline and the fixed dock must be the same node: pin must not change
+// src, allow, or the player document token. Attribute equality is not a
+// fullscreen pass. Parent and publisher denials must still fail.
 
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
