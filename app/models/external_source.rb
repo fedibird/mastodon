@@ -109,11 +109,12 @@ class ExternalSource < ApplicationRecord
     activitypub_feed_attribution == FEED_ATTRIBUTION_LIKELY
   end
 
-  # Exploration is over when any of these is true. New ordinary permalinks
-  # may then take a slot that a checked row has released. This is still not
-  # proof that the feed is that server's ActivityPub output.
+  # Wider ordinary sampling is only for the feed host's own signals:
+  # NodeInfo support, or a likely generator match. One verified item,
+  # including an ActivityPub object on another host, does not promote the
+  # feed. That item still counts toward activitypub_state items_verified.
   def activitypub_fresh_items_allowed?
-    host_reports_activitypub? || likely_activitypub_feed? || external_resources.where(activitypub_state: 'verified', source_deleted_at: nil).exists?
+    host_reports_activitypub? || likely_activitypub_feed?
   end
 
   def ordinary_activitypub_probe_blocked?(now = Time.current)

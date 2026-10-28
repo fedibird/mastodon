@@ -7,11 +7,11 @@ module ExternalBridge
       # write. Explicit ActivityStreams links are always kept.
       #
       # Ordinary links have two budgets. An unconfirmed feed keeps a small
-      # exploration sample; a negative result pauses further ordinary URLs
-      # until that cooldown ends. Once the feed is a fresh-item candidate
-      # (NodeInfo support, a likely generator match, or any verified item),
-      # checked rows stop occupying a slot and the next new permalinks can
-      # be queued. The cap is on unchecked rows, not on the whole history.
+      # exploration sample; a negative or inaccessible result pauses further
+      # ordinary URLs until that cooldown ends. A fresh-item candidate is
+      # only NodeInfo support or a likely generator match. A verified item
+      # does not widen the sample. Checked rows stop occupying a slot. The
+      # cap is on unchecked rows, not on the whole history.
       class SampleBudget
         Decision = Struct.new(:url, :explicit, keyword_init: true)
 

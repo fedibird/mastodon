@@ -59,26 +59,51 @@ not a crawl of the feed history.
 Two ordinary budgets are separate:
 
 - **Exploration.** Until the feed is a fresh-item candidate, at most two
-  unchecked ordinary URLs are stored. The first ordinary `unavailable` or
-  `error` sets `activitypub_ordinary_blocked_until` thirty days out. During
-  that cooldown no further ordinary URL is stored and no ordinary GET runs.
-  When the cooldown ends, checked rows no longer occupy a slot, so the next
-  unsampled permalinks can take the two slots. The original two are not
-  pinned forever. Explicit links ignore the cooldown.
-- **Fresh items.** This phase starts when NodeInfo says the host supports
-  ActivityPub, `activitypub_feed_attribution` is `likely`, or any candidate
-  has already returned ActivityStreams. Checked ordinary rows release their
-  slot. Newer permalinks fill those slots, up to eight unchecked ordinary
-  URLs at a time. A negative ordinary result does not start the cooldown.
-  `likely` only opens this budget. It is still not proof of origin.
+  unchecked ordinary URLs are stored. The first ordinary `unavailable`,
+  `error`, or `inaccessible` (401/403) sets
+  `activitypub_ordinary_blocked_until` thirty days out and cancels any later
+  ordinary GET already chosen for that same run. A 401/403 stays
+  `inaccessible` on the resource. It is not reclassified as "not
+  ActivityPub". During the cooldown no further ordinary URL is stored and
+  no ordinary GET runs. When the cooldown ends, checked rows no longer
+  occupy a slot, so the next unsampled permalinks can take the freed slots.
+  Explicit links ignore the cooldown.
+- **Fresh items.** This phase starts only when NodeInfo says the host
+  supports ActivityPub, or `activitypub_feed_attribution` is `likely`.
+  A verified item does not start it, even when that object is on another
+  host or on the feed host. Checked ordinary rows release their slot.
+  Newer permalinks fill those slots, up to eight unchecked ordinary URLs
+  at a time. A negative or inaccessible ordinary result does not start the
+  cooldown. `likely` only opens this budget. It is still not proof of origin.
 
-Each source run performs at most two item GETs, explicit candidates first,
-then ordinary rows whose `activitypub_next_check_at` is due. Unchecked rows
-are due at the epoch, so they are chosen before a later retry. The per-host
-budget remains 10 item requests per hour, counted on the first URL and again
-on each redirect destination before that hop is requested. NodeInfo is at
-most two GETs (well-known, then a same-origin 2.1/2.0 schema) and is
-independent of the item cap.
+Each source run performs at most two item GETs, explicit candidates first.
+On an unconfirmed feed the first ordinary miss can make that run's item
+count one instead of two. Ordinary rows are chosen from those whose
+`activitypub_next_check_at` is due. Unchecked rows are due at the epoch, so
+they are chosen before a later retry. The per-host budget remains 10 item
+requests per hour, counted on the first URL and again on each redirect
+destination before that hop is requested. NodeInfo is at most two GETs
+(well-known, then a same-origin 2.1/2.0 schema) and is independent of the
+item cap.
+
+## How many extra requests
+
+These counts are only the ActivityPub discovery GETs. They do not include
+the feed document or media downloads.
+
+- Setting off: no NodeInfo GET and no item GET.
+- Setting on, one source run: NodeInfo is 1 GET, or 2 when a same-origin
+  schema link is followed. Item GETs are at most 2, and fewer when an
+  ordinary miss pauses the rest of that run. Each HTTP redirect is another
+  GET and is charged to the destination host before it is sent (10 per hour
+  per host).
+- Unconfirmed ordinary permalinks pause for 30 days after the first
+  `unavailable`, `error`, or `inaccessible` result. Typed links do not.
+- NodeInfo is tried again after 7 days, or after 1 day when that check was
+  an error or 401/403. A verified or merely unavailable item waits 7 days
+  before its own retry. An inaccessible or error item waits 1 day, but an
+  unconfirmed feed will not sample further ordinary URLs during the 30-day
+  pause.
 
 ## Operations
 
@@ -90,9 +115,12 @@ The normal RSS bridge master switch and its tester allowlist must also permit
 the source. The separate Sidekiq pull worker checks again at execution time.
 A claimed item is leased for 30 minutes by bumping
 `activitypub_evidence_version` and pushing `activitypub_next_check_at`
-forward. Successful or merely unavailable entries wait seven days.
-Inaccessible or error entries wait one day. Normal feed refresh or subscribe
-schedules subsequent work. There is no walk of every historical permalink.
+forward. Successful or merely unavailable entries wait seven days before
+their own retry. Inaccessible or error entries wait one day before their
+own retry. An unconfirmed feed additionally pauses all further ordinary
+sampling for 30 days, including after 401/403. Normal feed refresh or
+subscribe schedules subsequent work. There is no walk of every historical
+permalink.
 
 Due checks use partial indexes on `external_resources`:
 

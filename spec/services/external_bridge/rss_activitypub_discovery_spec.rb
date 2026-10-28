@@ -299,7 +299,7 @@ RSpec.describe 'RSS ActivityPub discovery' do
       expect(resource.activitypub_checked_at).to be_nil
     end
 
-    it 'probes explicit links before ordinary ones and keeps ordinary checks open after a verified item' do
+    it 'probes explicit links before ordinary ones and still pauses ordinary sampling after a verified item' do
       source = ExternalSource.create!(protocol: 'rss', canonical_key: feed_url)
       ExternalSubscription.create!(user: user, external_source: source)
       explicit = Array.new(3) do |index|
@@ -319,9 +319,92 @@ RSpec.describe 'RSS ActivityPub discovery' do
 
       expect(explicit.sum { |item| request_count(item.activitypub_candidate_url) }).to eq 3
       expect(ordinary.sum { |item| request_count(item.activitypub_candidate_url) }).to eq 1
-      expect(source.reload.activitypub_ordinary_blocked_until).to be_nil
+      expect(source.reload.activitypub_ordinary_blocked_until).to be > Time.current
       expect(source.activitypub_state).to eq 'items_verified'
       expect(source.host_activitypub_supported).to eq 'unknown'
+      expect(source.activitypub_fresh_items_allowed?).to be false
+    end
+
+    it 'pauses ordinary sampling on 401 without marking the feed non-AP' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: feed_url)
+      ExternalSubscription.create!(user: user, external_source: source)
+      stub_request(:get, 'https://feeds.example/.well-known/nodeinfo').to_return(status: 404)
+      rows = Array.new(2) do |index|
+        create_candidate(source, "locked-#{index}", "https://news.example/private/#{index}", explicit: false)
+      end
+      rows.each do |row|
+        stub_request(:get, row.activitypub_candidate_url).to_return(status: 401, headers: { 'Content-Type' => 'text/html' })
+      end
+
+      described_class.new.call(source.id)
+
+      fetched = rows.select { |row| request_count(row.activitypub_candidate_url) == 1 }
+      skipped = rows.select { |row| request_count(row.activitypub_candidate_url).zero? }
+      expect(fetched.size).to eq 1
+      expect(skipped.size).to eq 1
+      expect(fetched.first.reload.activitypub_state).to eq 'inaccessible'
+      expect(skipped.first.reload.activitypub_checked_at).to be_nil
+      expect(source.reload.activitypub_ordinary_blocked_until).to be > Time.current
+      expect(source.host_activitypub_supported).to eq 'unknown'
+      expect(source.activitypub_instance_state).not_to eq 'not_advertised'
+      expect(source.activitypub_state).to eq 'unknown'
+
+      typed = create_candidate(source, 'typed-later', 'https://posts.example/users/alice/statuses/401', explicit: true)
+      public_object(typed.activitypub_candidate_url)
+      described_class.new.call(source.id)
+
+      expect(request_count(typed.activitypub_candidate_url)).to eq 1
+      expect(request_count(skipped.first.activitypub_candidate_url)).to eq 0
+      expect(skipped.first.reload.activitypub_state).to eq 'unknown'
+    end
+
+    it 'does not widen ordinary GETs because one remote item was ActivityStreams' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://news.example/feed.xml')
+      ExternalSubscription.create!(user: user, external_source: source)
+      stub_request(:get, 'https://news.example/.well-known/nodeinfo').to_return(status: 404)
+      ExternalResource.create!(
+        external_source: source, protocol: 'rss', canonical_key: 'remote-ap',
+        activitypub_candidate_url: 'https://posts.example/users/alice/statuses/9',
+        activitypub_state: 'verified', activitypub_object_id: 'https://posts.example/users/alice/statuses/9',
+        activitypub_object_id_status: 'self_reported', activitypub_object_type: 'Note',
+        activitypub_checked_at: Time.current, activitypub_next_check_at: 7.days.from_now,
+        activitypub_explicit: false
+      )
+      ingest = ExternalBridge::RSS::Ingest.new
+      links = (1..8).map { |index| ["story-#{index}", "https://news.example/story/#{index}"] }
+      ingest.apply_public!(source, rss_feed(rss_items(links)), ExternalBridge::RSS::Response.new(code: 200))
+
+      expect(source.reload.activitypub_fresh_items_allowed?).to be false
+      expect(source.activitypub_feed_attribution).to eq 'unknown'
+      queued = ExternalBridge::RSS::ActivityPub::SampleBudget.outstanding_ordinary(source)
+      expect(queued.count).to eq ExternalBridge::RSS::ActivityPub::Limits::ORDINARY_SAMPLE_CAP
+      queued.each do |row|
+        stub_request(:get, row.activitypub_candidate_url).to_return(status: 404, headers: { 'Content-Type' => 'text/html' })
+      end
+
+      described_class.new.call(source.id)
+
+      expect(queued.sum { |row| request_count(row.activitypub_candidate_url) }).to eq 1
+      expect(source.reload.activitypub_ordinary_blocked_until).to be > Time.current
+      expect(source.external_resources.find_by!(canonical_key: 'remote-ap').activitypub_state).to eq 'verified'
+      expect(source.host_activitypub_supported).to eq 'unknown'
+    end
+
+    it 'does not open the fresh ordinary budget from one same-host verified permalink' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://news.example/mixed.xml')
+      ExternalResource.create!(
+        external_source: source, protocol: 'rss', canonical_key: 'same-host-ap',
+        activitypub_candidate_url: 'https://news.example/story/old',
+        activitypub_state: 'verified', activitypub_object_id: 'https://news.example/story/old',
+        activitypub_object_id_status: 'self_reported', activitypub_object_type: 'Note',
+        activitypub_checked_at: Time.current, activitypub_next_check_at: 7.days.from_now,
+        activitypub_explicit: false
+      )
+      links = (1..6).map { |index| ["local-#{index}", "https://news.example/story/#{index}"] }
+      ExternalBridge::RSS::Ingest.new.apply_public!(source, rss_feed(rss_items(links)), ExternalBridge::RSS::Response.new(code: 200))
+
+      expect(source.reload.activitypub_fresh_items_allowed?).to be false
+      expect(ExternalBridge::RSS::ActivityPub::SampleBudget.outstanding_ordinary(source).count).to eq ExternalBridge::RSS::ActivityPub::Limits::ORDINARY_SAMPLE_CAP
     end
 
     it 'reclaims exploration slots for later permalinks after the negative cooldown' do
@@ -339,22 +422,26 @@ RSpec.describe 'RSS ActivityPub discovery' do
 
       described_class.new.call(source.id)
 
+      expect(request_count('https://news.example/1')).to eq 1
+      expect(request_count('https://news.example/2')).to eq 0
+      expect(resource_for(source, 'g1').activitypub_checked_at).to be_present
+      expect(resource_for(source, 'g2').activitypub_checked_at).to be_nil
       expect(source.reload.activitypub_ordinary_blocked_until).to be > Time.current
       ingest.apply_public!(source, rss_feed(rss_items(links)), response)
       expect(source.external_resources.where.not(activitypub_candidate_url: nil).pluck(:activitypub_candidate_url)).to match_array(sampled)
 
       source.update!(activitypub_ordinary_blocked_until: 1.hour.ago)
       ingest.apply_public!(source, rss_feed(rss_items(links)), response)
-      reclaimed = source.external_resources.where(activitypub_checked_at: nil).where.not(activitypub_candidate_url: nil)
-      expect(reclaimed.pluck(:activitypub_candidate_url)).to match_array(%w(https://news.example/3 https://news.example/4))
+      expect(resource_for(source, 'g3').activitypub_candidate_url).to eq 'https://news.example/3'
+      expect(resource_for(source, 'g4').activitypub_candidate_url).to be_nil
       expect(resource_for(source, 'g5').activitypub_candidate_url).to be_nil
-      expect(resource_for(source, 'g6').activitypub_candidate_url).to be_nil
-      reclaimed.each { |row| stub_request(:get, row.activitypub_candidate_url).to_return(status: 404, headers: { 'Content-Type' => 'text/html' }) }
+      stub_request(:get, 'https://news.example/3').to_return(status: 404, headers: { 'Content-Type' => 'text/html' })
 
       described_class.new.call(source.id)
 
-      expect(reclaimed.sum { |row| request_count(row.activitypub_candidate_url) }).to eq reclaimed.size
-      expect(sampled.sum { |candidate| request_count(candidate) }).to eq sampled.size
+      expect(request_count('https://news.example/1')).to eq 1
+      expect(request_count('https://news.example/2')).to eq 1
+      expect(request_count('https://news.example/3')).to eq 0
     end
 
     it 'queues newer ordinary permalinks once checked rows release their slots' do

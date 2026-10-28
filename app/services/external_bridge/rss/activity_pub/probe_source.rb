@@ -62,6 +62,10 @@ module ExternalBridge
 
           snapshot = snapshot_for(resource)
           return if snapshot.url.blank?
+          # The id list was chosen before this run's first result. An ordinary
+          # miss sets the cooldown immediately, and the next ordinary row in
+          # that same list must not be fetched.
+          return if ordinary_stopped?(snapshot)
 
           before_probe_claim(resource)
           lease_until = Time.current + Limits::LEASE
@@ -124,9 +128,19 @@ module ExternalBridge
           end
         end
 
+        def ordinary_stopped?(snapshot)
+          return false if snapshot.explicit
+
+          source = ExternalSource.find_by(id: snapshot.source_id)
+          source.nil? || source.ordinary_activitypub_probe_blocked?
+        end
+
         def note_ordinary!(snapshot, result, checked)
           return if snapshot.explicit
-          return unless %w(unavailable error).include?(result.state)
+          # 401/403 stays inaccessible on the resource. It still pauses
+          # ordinary exploration on an unconfirmed feed. It does not mean
+          # the server has no ActivityPub.
+          return unless %w(unavailable error inaccessible).include?(result.state)
 
           source = ExternalSource.find_by(id: snapshot.source_id)
           return if source.nil? || source.activitypub_fresh_items_allowed?
