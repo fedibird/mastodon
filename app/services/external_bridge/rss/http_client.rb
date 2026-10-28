@@ -208,6 +208,7 @@ module ExternalBridge
         return 'authenticated_source_rejected' if text.include?('authenticated_source_rejected')
         return 'unsupported_url' if text.include?('unsupported_url')
         return 'cross_origin_redirect' if text.include?('cross_origin_redirect')
+        return 'rate_limited' if text.include?('rate_limited')
 
         'private_address'
       end
@@ -218,16 +219,19 @@ module ExternalBridge
         options
       end
 
-      # Reject the next hop before HTTP follows it. The socket check still
-      # runs for DNS answers; this stops a private literal, userinfo, or
-      # token-like query from being requested at all. A same-origin profile
-      # also refuses a public cross-origin hop before that GET is sent.
+      # Reject or account for the next hop before HTTP follows it. The socket
+      # check still runs for DNS answers; this stops a private literal,
+      # userinfo, or token-like query from being requested at all. A
+      # same-origin profile also refuses a public cross-origin hop before
+      # that GET is sent. Every followed hop charges the destination host's
+      # budget, so several origins cannot redirect onto one host for free.
       def redirect_policy(profile, origin)
         {
           max_hops: 3,
           on_redirect: lambda do |_response, next_request|
             canonical = canonical_url!(next_request.uri.to_s, profile)
             enforce_same_origin!(canonical, origin) if profile.same_origin
+            consume_budget!(canonical, profile)
             canonical
           rescue Error => e
             raise Mastodon::HostValidationError, e.code

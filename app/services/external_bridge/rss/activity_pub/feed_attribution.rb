@@ -3,18 +3,19 @@
 module ExternalBridge
   module RSS
     module ActivityPub
-      # Whether this RSS document itself comes from an ActivityPub
-      # implementation. NodeInfo on the host that serves the feed, and an
-      # item URL that happened to return ActivityStreams, are not inputs.
+      # A weak guess that this RSS document might come from an ActivityPub
+      # implementation. The result is "likely" or "unknown", never a
+      # confirmed origin. NodeInfo and an item that returned ActivityStreams
+      # are not inputs.
       class FeedAttribution
         def self.evaluate(feed:, feed_url:)
-          return 'unknown' unless feed.activitypub_generator_hint
+          return ExternalSource::FEED_ATTRIBUTION_UNKNOWN unless feed.activitypub_generator_hint
 
           host = http_host(feed_url)
-          return 'unknown' if host.blank?
-          return 'attributed' if feed.items.any? { |item| entry_on_host?(item, host) }
+          return ExternalSource::FEED_ATTRIBUTION_UNKNOWN if host.blank?
+          return ExternalSource::FEED_ATTRIBUTION_LIKELY if feed.items.any? { |item| entry_on_host?(item, host) }
 
-          'unknown'
+          ExternalSource::FEED_ATTRIBUTION_UNKNOWN
         end
 
         def self.entry_on_host?(item, host)

@@ -62,7 +62,6 @@ module ExternalBridge
 
           snapshot = snapshot_for(resource)
           return if snapshot.url.blank?
-          return unless selectable?(snapshot)
 
           before_probe_claim(resource)
           lease_until = Time.current + Limits::LEASE
@@ -86,17 +85,6 @@ module ExternalBridge
             explicit: resource.activitypub_explicit,
             source_id: resource.external_source_id
           )
-        end
-
-        def selectable?(snapshot)
-          return true if snapshot.explicit
-          return false if ordinary_blocked?(snapshot.source_id)
-
-          DueResources.new(ExternalSource.new(id: snapshot.source_id)).sample_ids.include?(snapshot.id)
-        end
-
-        def ordinary_blocked?(source_id)
-          ExternalSource.where(id: source_id).where('activitypub_ordinary_blocked_until > ?', Time.current).exists?
         end
 
         def claim!(snapshot, lease_until)
@@ -139,7 +127,9 @@ module ExternalBridge
         def note_ordinary!(snapshot, result, checked)
           return if snapshot.explicit
           return unless %w(unavailable error).include?(result.state)
-          return if ExternalSource.where(id: snapshot.source_id, host_activitypub_supported: ExternalSource::HOST_ACTIVITYPUB_SUPPORTED).exists?
+
+          source = ExternalSource.find_by(id: snapshot.source_id)
+          return if source.nil? || source.activitypub_fresh_items_allowed?
 
           until_at = checked + Limits::NEGATIVE_COOLDOWN
           ExternalSource.where(id: snapshot.source_id)

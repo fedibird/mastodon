@@ -33,9 +33,9 @@ module ExternalBridge
         end
 
         # Item evidence and the weak feed hint only. Host NodeInfo lives on
-        # host_activitypub_supported. "This RSS is produced by an AP
-        # implementation" lives on activitypub_feed_attribution. Neither is
-        # copied into activitypub_state, and activitypub_state is never
+        # host_activitypub_supported. activitypub_feed_attribution "likely"
+        # is a generator-and-same-host guess, not a confirmed origin. Neither
+        # is copied into activitypub_state, and activitypub_state is never
         # "verified" (that word on a resource means the candidate URL returned
         # AS2, not that the feed host is an AP server).
         def recompute_source!(source)

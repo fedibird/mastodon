@@ -26,11 +26,12 @@ RSpec.describe 'RSS ActivityPub probe query shape' do
       INSERT INTO external_resources (
         external_source_id, protocol, canonical_key, truncated, media_candidates, keywords,
         activitypub_state, activitypub_explicit, activitypub_evidence_version,
-        activitypub_candidate_url, activitypub_next_check_at, created_at, updated_at
+        activitypub_candidate_url, activitypub_next_check_at, activitypub_checked_at,
+        created_at, updated_at
       )
       SELECT #{@source.id}, 'rss', 'bulk:' || i, false, '[]'::jsonb, '[]'::jsonb,
-             'unknown', false, 0,
-             'https://news.example/item/' || i, TIMESTAMP '1970-01-01 00:00:00', NOW(), NOW()
+             'unavailable', false, 0,
+             'https://news.example/item/' || i, NOW() + interval '7 days', NOW(), NOW(), NOW()
       FROM generate_series(1, 200000) AS i
     SQL
     2.times do |index|
@@ -55,8 +56,8 @@ RSpec.describe 'RSS ActivityPub probe query shape' do
       explicit: explain(due.explicit_probe_scope),
       ordinary: explain(due.ordinary_probe_scope),
       verified: explain(ExternalBridge::RSS::ActivityPub::DueResources.verified_items(@source)),
+      unchecked: explain(ExternalBridge::RSS::ActivityPub::SampleBudget.outstanding_ordinary(@source).unscope(:select).select('COUNT(*)')),
     }
-    File.write('/opt/cursor/artifacts/rss-activitypub-probe-explain.txt', plans.map { |name, plan| "#{name}\n#{plan}" }.join("\n\n"))
 
     plans.each do |name, plan|
       expect(plan).to match(/Index Scan|Index Only Scan|Bitmap Index Scan/), name.to_s
@@ -64,7 +65,10 @@ RSpec.describe 'RSS ActivityPub probe query shape' do
     end
     expect(plans[:explicit]).to match(/index_external_resources_on_ap_probe_due/)
     expect(plans[:explicit]).to match(/Limit/i)
+    expect(plans[:ordinary]).to match(/index_external_resources_on_ap_probe_due/)
+    expect(plans[:ordinary]).to match(/Limit/i)
     expect(plans[:verified]).to match(/index_external_resources_on_ap_item_verified/)
+    expect(plans[:unchecked]).to match(/index_external_resources_on_ap_unchecked/)
 
     ids = due.ids
     expect(ids.size).to eq ExternalBridge::RSS::ActivityPub::Limits::MAX_GETS_PER_RUN

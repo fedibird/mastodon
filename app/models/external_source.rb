@@ -52,6 +52,11 @@ class ExternalSource < ApplicationRecord
   HOST_ACTIVITYPUB_UNKNOWN = 'unknown'
   HOST_ACTIVITYPUB_SUPPORTED = 'supported'
   HOST_ACTIVITYPUB_NOT_ADVERTISED = 'not_advertised'
+  # activitypub_feed_attribution is a guess, not a confirmed origin.
+  # "likely" means the generator names a known ActivityPub project and an
+  # entry sits on the feed host. Later code must not treat it as proof.
+  FEED_ATTRIBUTION_UNKNOWN = 'unknown'
+  FEED_ATTRIBUTION_LIKELY = 'likely'
   # activitypub_state on a source is unknown, hinted, or items_verified.
   # It is never "verified": that word is reserved for a resource whose
   # candidate URL returned ActivityStreams.
@@ -98,5 +103,22 @@ class ExternalSource < ApplicationRecord
 
   def host_reports_activitypub?
     host_activitypub_supported == HOST_ACTIVITYPUB_SUPPORTED
+  end
+
+  def likely_activitypub_feed?
+    activitypub_feed_attribution == FEED_ATTRIBUTION_LIKELY
+  end
+
+  # Exploration is over when any of these is true. New ordinary permalinks
+  # may then take a slot that a checked row has released. This is still not
+  # proof that the feed is that server's ActivityPub output.
+  def activitypub_fresh_items_allowed?
+    host_reports_activitypub? || likely_activitypub_feed? || external_resources.where(activitypub_state: 'verified', source_deleted_at: nil).exists?
+  end
+
+  def ordinary_activitypub_probe_blocked?(now = Time.current)
+    return false if activitypub_fresh_items_allowed?
+
+    activitypub_ordinary_blocked_until.present? && activitypub_ordinary_blocked_until > now
   end
 end

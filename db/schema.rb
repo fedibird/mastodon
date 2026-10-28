@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_05_120000) do
+ActiveRecord::Schema.define(version: 2026_11_06_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -992,6 +992,7 @@ ActiveRecord::Schema.define(version: 2026_11_05_120000) do
     t.index ["external_actor_id"], name: "index_external_resources_on_external_actor_id"
     t.index ["external_source_id", "activitypub_explicit", "activitypub_next_check_at", "id"], name: "index_external_resources_on_ap_probe_due", where: "((source_deleted_at IS NULL) AND (activitypub_candidate_url IS NOT NULL))"
     t.index ["external_source_id", "activitypub_explicit", "id"], name: "index_external_resources_on_ap_sample", where: "((source_deleted_at IS NULL) AND (activitypub_candidate_url IS NOT NULL))"
+    t.index ["external_source_id", "activitypub_explicit", "id"], name: "index_external_resources_on_ap_unchecked", where: "((source_deleted_at IS NULL) AND (activitypub_candidate_url IS NOT NULL) AND (activitypub_checked_at IS NULL))"
     t.index ["external_source_id", "published_at"], name: "index_external_resources_on_source_and_published_at"
     t.index ["external_source_id"], name: "index_external_resources_on_ap_item_verified", where: "(((activitypub_state)::text = 'verified'::text) AND (source_deleted_at IS NULL))"
     t.index ["id", "external_source_id"], name: "index_external_resources_on_id_and_source", unique: true

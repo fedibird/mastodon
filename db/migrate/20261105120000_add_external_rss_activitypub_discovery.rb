@@ -5,9 +5,18 @@
 #
 # Columns use constant defaults so PostgreSQL 11+ updates only the catalog.
 # Nothing backfills old rows. Partial indexes cover the probe scheduler:
-# due explicit/ordinary candidates, the stable ordinary sample, and
+# due explicit/ordinary candidates, the ordinary candidate prefix, and
 # "does this source have any verified item?". Those reads stay index ranges
 # when a source has hundreds of thousands of resources.
+#
+# lock_timeout = 5s applies only to the short ACCESS EXCLUSIVE column changes.
+# CREATE INDEX CONCURRENTLY waits for ShareUpdateExclusiveLock at the start
+# and the end and does not block ordinary reads and writes, so those statements
+# use lock_timeout = 0. Both are session settings because this migration
+# disables the DDL transaction (SET LOCAL would end with the next statement).
+# ensure restores the session default even when a later statement raises.
+# Strong Migrations rejects raw execute, and an ensure outside safety_assured
+# hides the original error, so the whole body stays inside one safety_assured.
 class AddExternalRSSActivityPubDiscovery < ActiveRecord::Migration[6.1]
   disable_ddl_transaction!
 
@@ -18,33 +27,37 @@ class AddExternalRSSActivityPubDiscovery < ActiveRecord::Migration[6.1]
 
   def up
     safety_assured do
-      execute "SET lock_timeout = '5s'"
+      execute "SET lock_timeout TO '5s'"
       add_source_columns
       add_resource_columns
-    end
 
-    # Four columns so `ORDER BY activitypub_next_check_at, id LIMIT 2` is an
-    # index range, including when every new candidate shares the epoch due time.
-    safety_assured do
+      execute 'SET lock_timeout TO 0'
+      # Four columns so `ORDER BY activitypub_next_check_at, id LIMIT 2` is an
+      # index range, including when every new candidate shares the epoch due time.
       add_index :external_resources, [:external_source_id, :activitypub_explicit, :activitypub_next_check_at, :id],
                 where: CANDIDATE_WHERE, name: DUE_INDEX, algorithm: :concurrently, if_not_exists: true
+      add_index :external_resources, [:external_source_id, :activitypub_explicit, :id],
+                where: CANDIDATE_WHERE, name: SAMPLE_INDEX, algorithm: :concurrently, if_not_exists: true
+      add_index :external_resources, [:external_source_id],
+                where: "activitypub_state = 'verified' AND source_deleted_at IS NULL",
+                name: VERIFIED_INDEX, algorithm: :concurrently, if_not_exists: true
+    ensure
+      execute 'SET lock_timeout TO DEFAULT'
     end
-    add_index :external_resources, [:external_source_id, :activitypub_explicit, :id],
-              where: CANDIDATE_WHERE, name: SAMPLE_INDEX, algorithm: :concurrently, if_not_exists: true
-    add_index :external_resources, [:external_source_id],
-              where: "activitypub_state = 'verified' AND source_deleted_at IS NULL",
-              name: VERIFIED_INDEX, algorithm: :concurrently, if_not_exists: true
   end
 
   def down
-    remove_index :external_resources, name: VERIFIED_INDEX, algorithm: :concurrently, if_exists: true
-    remove_index :external_resources, name: SAMPLE_INDEX, algorithm: :concurrently, if_exists: true
-    remove_index :external_resources, name: DUE_INDEX, algorithm: :concurrently, if_exists: true
-
     safety_assured do
-      execute "SET lock_timeout = '5s'"
+      execute 'SET lock_timeout TO 0'
+      remove_index :external_resources, name: VERIFIED_INDEX, algorithm: :concurrently, if_exists: true
+      remove_index :external_resources, name: SAMPLE_INDEX, algorithm: :concurrently, if_exists: true
+      remove_index :external_resources, name: DUE_INDEX, algorithm: :concurrently, if_exists: true
+
+      execute "SET lock_timeout TO '5s'"
       remove_resource_columns
       remove_source_columns
+    ensure
+      execute 'SET lock_timeout TO DEFAULT'
     end
   end
 

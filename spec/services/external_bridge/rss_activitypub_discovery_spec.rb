@@ -165,6 +165,27 @@ RSpec.describe 'RSS ActivityPub discovery' do
       expect(a_request(:get, unsafe)).not_to have_been_made
     end
 
+    it 'charges a shared redirect destination before each cross-origin hop' do
+      destination = 'https://collector.example/objects/1'
+      stub_request(:get, destination).to_return(
+        status: 200,
+        body: object.to_json,
+        headers: { 'Content-Type' => 'application/activity+json' }
+      )
+      budget = ExternalBridge::RSS::HttpClient::ACTIVITYPUB_PROFILE.budget
+      origins = Array.new(budget + 1) { |index| "https://origin-#{index}.example/items/1" }
+      origins.each do |origin|
+        stub_request(:get, origin).to_return(status: 302, headers: { 'Location' => destination })
+      end
+
+      origins.first(budget).each do |origin|
+        expect(described_class.new.call(origin).state).to eq 'verified'
+      end
+      expect(described_class.new.call(origins.last).state).to eq 'error'
+      expect(origins.size).to be > 2
+      expect(request_count(destination)).to eq budget
+    end
+
     it 'refuses an HTTP redirect to a private address' do
       stub_request(:get, url).to_return(status: 302, headers: { 'Location' => 'http://127.0.0.1/private' })
       stub_request(:get, 'http://127.0.0.1/private').to_return(status: 200, body: object.to_json)
@@ -278,7 +299,7 @@ RSpec.describe 'RSS ActivityPub discovery' do
       expect(resource.activitypub_checked_at).to be_nil
     end
 
-    it 'probes explicit links before ordinary ones and stops ordinary sampling after a miss' do
+    it 'probes explicit links before ordinary ones and keeps ordinary checks open after a verified item' do
       source = ExternalSource.create!(protocol: 'rss', canonical_key: feed_url)
       ExternalSubscription.create!(user: user, external_source: source)
       explicit = Array.new(3) do |index|
@@ -298,9 +319,76 @@ RSpec.describe 'RSS ActivityPub discovery' do
 
       expect(explicit.sum { |item| request_count(item.activitypub_candidate_url) }).to eq 3
       expect(ordinary.sum { |item| request_count(item.activitypub_candidate_url) }).to eq 1
-      expect(source.reload.activitypub_ordinary_blocked_until).to be > Time.current
+      expect(source.reload.activitypub_ordinary_blocked_until).to be_nil
       expect(source.activitypub_state).to eq 'items_verified'
       expect(source.host_activitypub_supported).to eq 'unknown'
+    end
+
+    it 'reclaims exploration slots for later permalinks after the negative cooldown' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://news.example/feed.xml')
+      ExternalSubscription.create!(user: user, external_source: source)
+      ingest = ExternalBridge::RSS::Ingest.new
+      response = ExternalBridge::RSS::Response.new(code: 200)
+      stub_request(:get, 'https://news.example/.well-known/nodeinfo').to_return(status: 404)
+      links = (1..6).map { |index| ["g#{index}", "https://news.example/#{index}"] }
+      ingest.apply_public!(source, rss_feed(rss_items(links.first(4))), response)
+
+      sampled = source.external_resources.where.not(activitypub_candidate_url: nil).pluck(:activitypub_candidate_url)
+      expect(sampled.size).to eq ExternalBridge::RSS::ActivityPub::Limits::ORDINARY_SAMPLE_CAP
+      sampled.each { |candidate| stub_request(:get, candidate).to_return(status: 404, headers: { 'Content-Type' => 'text/html' }) }
+
+      described_class.new.call(source.id)
+
+      expect(source.reload.activitypub_ordinary_blocked_until).to be > Time.current
+      ingest.apply_public!(source, rss_feed(rss_items(links)), response)
+      expect(source.external_resources.where.not(activitypub_candidate_url: nil).pluck(:activitypub_candidate_url)).to match_array(sampled)
+
+      source.update!(activitypub_ordinary_blocked_until: 1.hour.ago)
+      ingest.apply_public!(source, rss_feed(rss_items(links)), response)
+      reclaimed = source.external_resources.where(activitypub_checked_at: nil).where.not(activitypub_candidate_url: nil)
+      expect(reclaimed.pluck(:activitypub_candidate_url)).to match_array(%w(https://news.example/3 https://news.example/4))
+      expect(resource_for(source, 'g5').activitypub_candidate_url).to be_nil
+      expect(resource_for(source, 'g6').activitypub_candidate_url).to be_nil
+      reclaimed.each { |row| stub_request(:get, row.activitypub_candidate_url).to_return(status: 404, headers: { 'Content-Type' => 'text/html' }) }
+
+      described_class.new.call(source.id)
+
+      expect(reclaimed.sum { |row| request_count(row.activitypub_candidate_url) }).to eq reclaimed.size
+      expect(sampled.sum { |candidate| request_count(candidate) }).to eq sampled.size
+    end
+
+    it 'queues newer ordinary permalinks once checked rows release their slots' do
+      feed_key = 'https://posts.example/users/alice.rss'
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: feed_key)
+      ExternalSubscription.create!(user: user, external_source: source)
+      ingest = ExternalBridge::RSS::Ingest.new
+      response = ExternalBridge::RSS::Response.new(code: 200)
+      stub_request(:get, 'https://posts.example/.well-known/nodeinfo').to_return(status: 404)
+      early = (1..10).map { |index| ["p#{index}", "https://posts.example/@alice/#{index}"] }
+      ingest.apply_public!(source, rss_feed(rss_items(early), generator: 'Mastodon v4.2.0'), response)
+
+      expect(source.reload.activitypub_feed_attribution).to eq 'likely'
+      expect(source.external_resources.where.not(activitypub_candidate_url: nil).count).to eq ExternalBridge::RSS::ActivityPub::Limits::CONFIRMED_HOST_SAMPLE_CAP
+      source.external_resources.where.not(activitypub_candidate_url: nil).update_all(
+        activitypub_checked_at: Time.current,
+        activitypub_next_check_at: 7.days.from_now,
+        activitypub_state: 'unavailable'
+      )
+
+      later = early + (11..14).map { |index| ["p#{index}", "https://posts.example/@alice/#{index}"] }
+      ingest.apply_public!(source, rss_feed(rss_items(later), generator: 'Mastodon v4.2.0'), response)
+      fresh = source.external_resources.where(activitypub_checked_at: nil).where.not(activitypub_candidate_url: nil)
+      expect(fresh.count).to eq 6
+      (11..14).each do |index|
+        expect(resource_for(source, "p#{index}").activitypub_candidate_url).to eq "https://posts.example/@alice/#{index}"
+      end
+      fresh.each { |row| public_object(row.activitypub_candidate_url) }
+
+      described_class.new.call(source.id)
+
+      expect(fresh.sum { |row| request_count(row.activitypub_candidate_url) }).to eq ExternalBridge::RSS::ActivityPub::Limits::MAX_GETS_PER_RUN
+      expect(source.reload.activitypub_ordinary_blocked_until).to be_nil
+      expect(source.activitypub_feed_attribution).to eq 'likely'
     end
 
     it 'does not GET every ordinary permalink on a host that advertises ActivityPub' do
@@ -332,7 +420,7 @@ RSpec.describe 'RSS ActivityPub discovery' do
       XML
       described_class.new.apply_public!(source, attributed, response)
       expect(source.reload.activitypub_generator_hint).to be true
-      expect(source.activitypub_feed_attribution).to eq 'attributed'
+      expect(source.activitypub_feed_attribution).to eq 'likely'
       expect(source.host_activitypub_supported).to eq 'unknown'
       expect(source.activitypub_state).to eq 'hinted'
       expect(source.external_resources.where.not(activitypub_candidate_url: nil).count).to eq 1
@@ -394,6 +482,19 @@ RSpec.describe 'RSS ActivityPub discovery' do
       expect(a_request(:get, 'https://feeds.example/nodeinfo/discovery')).to have_been_made.once
       expect(a_request(:get, 'https://evil.example/nodeinfo/2.0')).not_to have_been_made
     end
+  end
+
+  def rss_items(pairs)
+    pairs.map { |guid, link| %(<item><guid>#{guid}</guid><link>#{link}</link><title>#{guid}</title></item>) }.join
+  end
+
+  def rss_feed(items_xml, generator: nil)
+    generator_xml = generator ? "<generator>#{generator}</generator>" : ''
+    ExternalBridge::RSS::Parser.parse!("<rss><channel><title>Feed</title>#{generator_xml}#{items_xml}</channel></rss>")
+  end
+
+  def resource_for(source, guid)
+    source.external_resources.find_by!(canonical_key: "feed:#{source.canonical_key}\nitem:#{guid}")
   end
 
   def create_candidate(source, key, candidate, explicit:)

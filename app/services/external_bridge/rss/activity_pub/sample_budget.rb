@@ -4,14 +4,28 @@ module ExternalBridge
   module RSS
     module ActivityPub
       # Chooses which permalinks are stored as probe candidates for one feed
-      # write. Explicit ActivityStreams links are always kept. Ordinary links
-      # fill a small per-feed sample. Replacing the URL already in a sample
-      # slot does not open another slot.
+      # write. Explicit ActivityStreams links are always kept.
+      #
+      # Ordinary links have two budgets. An unconfirmed feed keeps a small
+      # exploration sample; a negative result pauses further ordinary URLs
+      # until that cooldown ends. Once the feed is a fresh-item candidate
+      # (NodeInfo support, a likely generator match, or any verified item),
+      # checked rows stop occupying a slot and the next new permalinks can
+      # be queued. The cap is on unchecked rows, not on the whole history.
       class SampleBudget
         Decision = Struct.new(:url, :explicit, keyword_init: true)
 
+        def self.outstanding_ordinary(source)
+          source.external_resources.where(
+            source_deleted_at: nil,
+            activitypub_explicit: false,
+            activitypub_checked_at: nil
+          ).where.not(activitypub_candidate_url: nil)
+        end
+
         def initialize(source)
-          @blocked = cooldown_active?(source)
+          @fresh = source.activitypub_fresh_items_allowed?
+          @blocked = !@fresh && cooldown_active?(source)
           @remaining = remaining_slots(source)
           @decisions = {}
         end
@@ -32,12 +46,11 @@ module ExternalBridge
         def remaining_slots(source)
           return 0 if @blocked
 
-          used = source.external_resources.where(source_deleted_at: nil, activitypub_explicit: false).where.not(activitypub_candidate_url: nil).count
-          [cap_for(source) - used, 0].max
+          [cap_for - self.class.outstanding_ordinary(source).count, 0].max
         end
 
-        def cap_for(source)
-          return Limits::CONFIRMED_HOST_SAMPLE_CAP if source.host_reports_activitypub?
+        def cap_for
+          return Limits::CONFIRMED_HOST_SAMPLE_CAP if @fresh
 
           Limits::ORDINARY_SAMPLE_CAP
         end
@@ -63,10 +76,13 @@ module ExternalBridge
         end
 
         def release_ordinary_slot!(resource)
-          return unless resource.persisted?
-          return if resource.activitypub_explicit || resource.activitypub_candidate_url.blank?
+          return unless occupying_slot?(resource)
 
           @remaining += 1
+        end
+
+        def occupying_slot?(resource)
+          resource.persisted? && !resource.activitypub_explicit && resource.activitypub_candidate_url.present? && resource.activitypub_checked_at.nil?
         end
       end
     end
