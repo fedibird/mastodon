@@ -33,6 +33,10 @@
     = form_with url: settings_external_services_rss_subscription_presentation_path(subscription.id), method: :patch, local: true, html: { class: 'external-service-presentation' } do
       %fieldset
         %legend= t('external_bridge.presentation.heading')
+        .external-service-presentation__language
+          %label{ for: "rss-language-#{subscription.id}" }= t('external_bridge.presentation.language')
+          = select_tag :language, options_for_select(rss_presentation_language_options(subscription.language_choice), subscription.language_choice), id: "rss-language-#{subscription.id}", aria: { describedby: "rss-language-hint-#{subscription.id}" }
+        %p.hint{ id: "rss-language-hint-#{subscription.id}" }= t('external_bridge.presentation.language_hint')
         .external-service-presentation__choice
           = hidden_field_tag :media_sensitive, '0', id: nil
           %label{ for: "rss-media-sensitive-#{subscription.id}" }

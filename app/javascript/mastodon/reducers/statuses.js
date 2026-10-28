@@ -97,13 +97,31 @@ const applyBoostEvent = (state, action) => {
   });
 };
 
+const clearQuotedStatus = (state, id) => {
+  const quoted = state.get(id);
+
+  if (!quoted || typeof quoted.set !== 'function') {
+    return state;
+  }
+
+  return state.set(id, quoted.set('quote_id', null).set('quote', null));
+};
+
 const deleteStatus = (state, id, references, quotes) => {
+  if (id === undefined || id === null || id === '') {
+    return state;
+  }
+
   references?.forEach(ref => {
+    if (!state.has(ref)) {
+      return;
+    }
+
     state = deleteStatus(state, ref, [], []);
   });
 
   quotes?.forEach(ref => {
-    state = state.setIn([ref, 'quote_id'], null).setIn([ref, 'quote'], null);
+    state = clearQuotedStatus(state, ref);
   });
 
   return state.delete(id);

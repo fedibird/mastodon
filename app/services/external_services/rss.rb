@@ -158,6 +158,17 @@ module ExternalServices
         @subscription.cw_enabled
       end
 
+      def language_choice
+        case @subscription.language_mode
+        when 'auto'
+          'auto'
+        when 'fixed'
+          @subscription.language.to_s
+        else
+          'unspecified'
+        end
+      end
+
       def presentation_message
         return I18n.t('external_bridge.presentation.failed') if @subscription.presentation_failed?
         return I18n.t('external_bridge.presentation.applying') if @subscription.presentation_applying?

@@ -1,6 +1,6 @@
 import { isExclusiveAttachmentType, isExclusiveFile } from '../features/compose/composer_media';
 import { composerSearchability, effectiveSearchability, searchabilityCap } from '../utils/searchability';
-import { COMPOSER_PRIVACIES, composerPrivacy } from '../utils/external_visibility';
+import { COMPOSER_PRIVACIES, composerPrivacy, isExternalProjectionStatus } from '../utils/external_visibility';
 import {
   COMPOSE_MOUNT,
   COMPOSE_UNMOUNT,
@@ -2000,6 +2000,10 @@ function reduceComposer(state = initialState, action) {
         return item;
       }));
   case REDRAFT: {
+    if (!action.status || typeof action.status.get !== 'function' || isExternalProjectionStatus(action.status)) {
+      return state;
+    }
+
     const scheduledStatusId = action.status.get('scheduled_status_id', null);
 
     return state.withMutations(map => {

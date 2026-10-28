@@ -8,7 +8,8 @@ module ExternalBridge
   class ProjectionWriter
     # text, sensitive, and spoiler_text default to the subscriber's current
     # display choices, read under the deletion fence. Callers that pass an
-    # explicit text keep the previous fixed shape (no warning, not sensitive).
+    # explicit text keep the previous fixed shape (no warning, not sensitive,
+    # language unset).
     # rubocop:disable Metrics/ParameterLists
     def create!(user:, subscription:, resource:, text: :generated, sensitive: :generated, spoiler_text: :generated)
       raise Error, :user_not_functional unless user&.functional?
@@ -18,11 +19,9 @@ module ExternalBridge
       visibility = storage_visibility
       RSS::SubscriptionFence.guard!(subscription) do
         fields = fields_for(subscription, resource, text, sensitive, spoiler_text)
-        # created_at is chosen once, for this insert. updated_at stays the
-        # save clock. Do not copy the publication time onto updated_at, and
-        # do not pass override_timestamps.
-        # #617 (draft PR #623) adds `language: fields.language` on this same
-        # create!. Keep that key beside created_at when the branches merge.
+        # created_at is the publication instant, chosen once. language is the
+        # subscriber's choice, or nil when the caller passed an explicit text.
+        # updated_at stays the save clock. Do not pass override_timestamps.
         status = Status.create!(
           account_id: user.account_id,
           text: fields.text,
@@ -34,6 +33,7 @@ module ExternalBridge
           local: true,
           reply: false,
           sensitive: fields.sensitive,
+          language: fields.language,
           created_at: RSS::PublicationTime.for_new_status(resource)
         )
         marker = ExternalStatusProjection.create!(
@@ -67,7 +67,8 @@ module ExternalBridge
       RSS::Presentation::Fields.new(
         text: text.presence || I18n.t('external_bridge.untitled'),
         spoiler_text: spoiler_text == :generated ? '' : spoiler_text.to_s,
-        sensitive: sensitive == true
+        sensitive: sensitive == true,
+        language: nil
       )
     end
 

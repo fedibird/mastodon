@@ -109,11 +109,38 @@ export function updateTimeline(timeline, status, accept, options = {}) {
   };
 };
 
+const relatedStatusIds = (statuses, id, key) => {
+  if (!statuses || typeof statuses.forEach !== 'function') {
+    return [];
+  }
+
+  const related = [];
+
+  statuses.forEach(status => {
+    if (!status || typeof status.get !== 'function') {
+      return;
+    }
+
+    if (status.get(key) !== id) {
+      return;
+    }
+
+    const relatedId = status.get('id');
+
+    if (relatedId !== undefined && relatedId !== null && relatedId !== '') {
+      related.push(relatedId);
+    }
+  });
+
+  return related;
+};
+
 export function deleteFromTimelines(id) {
   return (dispatch, getState) => {
-    const accountId  = getState().getIn(['statuses', id, 'account']);
-    const references = getState().get('statuses').filter(status => status.get('reblog') === id).map(status => status.get('id'));
-    const quotes     = getState().get('statuses').filter(status => status.get('quote_id') === id).map(status => status.get('id'));
+    const statuses = getState().get('statuses');
+    const accountId = statuses && typeof statuses.getIn === 'function' ? statuses.getIn([id, 'account']) : undefined;
+    const references = relatedStatusIds(statuses, id, 'reblog');
+    const quotes = relatedStatusIds(statuses, id, 'quote_id');
 
     dispatch({
       type: TIMELINE_DELETE,
@@ -122,7 +149,7 @@ export function deleteFromTimelines(id) {
       references,
       quotes,
     });
-    cancelImmediateFeedTimersForStatuses([id].concat(references ? references.toArray() : []));
+    cancelImmediateFeedTimersForStatuses([id].concat(references));
   };
 };
 
