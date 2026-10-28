@@ -1,7 +1,9 @@
 import Rails from '@rails/ujs';
 import { resetExternalFeedSession } from '../actions/external_feeds';
+import { endAllExternalPlayers } from '../external_player/session';
 
 export const logOut = () => {
+  endAllExternalPlayers('logout');
   resetExternalFeedSession();
   const form = document.createElement('form');
 

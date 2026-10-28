@@ -7,6 +7,7 @@ import DisplayName from '../../../components/display_name';
 import ExternalSourceIdentity, { TimeLink } from '../../../components/external_source_identity';
 import { externalIdentityOf } from 'mastodon/external_presentation';
 import ExternalStatusMedia from '../../../components/external_status_media';
+import { assignRelease, spoilerConcealed } from 'mastodon/external_player/session';
 import StatusContent from '../../../components/status_content';
 import { isHideCard } from '../../../components/status';
 import MediaGallery from '../../../components/media_gallery';
@@ -315,6 +316,7 @@ class DetailedStatus extends ImmutablePureComponent {
       const quoteView = statusTranslationView(quote_status);
 
       let quote_media = null;
+      const quoteRelease = assignRelease(this, 'quoteRelease', spoilerConcealed(status) || spoilerConcealed(quote_status) || pictureInPicture.get('inUse'));
       if (quote_status.get('fedibird_external')) {
         quote_media = (
           <ExternalStatusMedia
@@ -328,6 +330,7 @@ class DetailedStatus extends ImmutablePureComponent {
             onOpenVideo={this.handleOpenVideoQuote}
             visible={this.props.showQuoteMedia}
             onToggleVisibility={this.props.onToggleQuoteMediaVisibility}
+            releaseSignal={quoteRelease}
             {...galleryTranslationProps(quoteView)}
           />
         );
@@ -389,6 +392,8 @@ class DetailedStatus extends ImmutablePureComponent {
     const mediaStatus = translationDisplayStatus(status, this.props.status);
     const translationView = statusTranslationView(mediaStatus);
 
+    const mainRelease = assignRelease(this, 'mainRelease', spoilerConcealed(status) || pictureInPicture.get('inUse'));
+
     if (status.get('fedibird_external') && !pictureInPicture.get('inUse')) {
       media = (
         <ExternalStatusMedia
@@ -401,6 +406,7 @@ class DetailedStatus extends ImmutablePureComponent {
           onOpenVideo={this.handleOpenSavedVideo}
           visible={this.props.showMedia}
           onToggleVisibility={this.props.onToggleMediaVisibility}
+          releaseSignal={mainRelease}
           {...galleryTranslationProps(translationView)}
         />
       );

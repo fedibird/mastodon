@@ -19,6 +19,15 @@ import { ACCOUNTS_IMPORT } from '../importer';
 import { MIX_SOURCE_SUCCESS, MIX_STREAM_REMOVE, MIX_TIMELINE_OPEN } from '../mix_timelines';
 import { changeCompose } from '../compose';
 import errorsMiddleware from '../../middleware/errors';
+import externalPlayerMiddleware from '../../external_player/middleware';
+import {
+  connectedPlayerNodes,
+  getSessionByIdentity,
+  openSession,
+  pinSession,
+  registerAnchor,
+  resetExternalPlayersForTests,
+} from '../../external_player/session';
 import alerts from '../../reducers/alerts';
 import compose from '../../reducers/composer';
 import contexts from '../../reducers/contexts';
@@ -112,7 +121,7 @@ const makeStore = (statusMap) => {
         broken: 'nope',
       }),
     }),
-    applyMiddleware(thunk, errorsMiddleware(), log.middleware),
+    applyMiddleware(thunk, externalPlayerMiddleware, errorsMiddleware(), log.middleware),
   );
 
   return { store, actions: log.actions };
@@ -146,6 +155,10 @@ const columnIds = (store, columnKey) => store.getState().getIn(['mix_timelines',
 
 describe('external projection delete', () => {
   let client;
+
+  afterEach(() => {
+    resetExternalPlayersForTests();
+  });
 
   beforeEach(() => {
     client = {
@@ -340,6 +353,70 @@ describe('external projection delete', () => {
     expect(store.getState().getIn(['compose', 'media_attachments']).size).toBe(1);
     expect(store.getState().getIn(['timelines', 'home', 'items']).includes('status-1')).toBe(false);
     expect(store.getState().get('statuses').has('status-1')).toBe(false);
+  });
+
+  const pinExternalFrame = () => {
+    const session = openSession({
+      statusId: 'ext-1',
+      mediaId: 'embed-1',
+      kind: 'iframe',
+      url: 'https://player.example/embed/fixture',
+    });
+    const anchor = document.createElement('div');
+    document.body.appendChild(anchor);
+    registerAnchor({ key: session.key, element: anchor, prefer: true, releaseMode: () => 'detach' });
+    pinSession(session.key);
+    return session.node;
+  };
+
+  it('ends a pinned external iframe when delete returns only an id', async () => {
+    const { store, actions } = makeStore(ImmutableMap({
+      'ext-1': externalStatus,
+      keep: fromJS({ id: 'keep', account: '1' }),
+    }));
+    const node = pinExternalFrame();
+    client.delete.mockResolvedValue({ data: { id: 'ext-1' } });
+
+    await store.dispatch(deleteStatus('ext-1', { push: jest.fn() }, true));
+
+    expect(actions.some(action => action.type === 'TIMELINE_DELETE' && action.id === 'ext-1')).toBe(true);
+    expect(getSessionByIdentity('ext-1', 'embed-1')).toBeNull();
+    expect(node.isConnected).toBe(false);
+    expect(connectedPlayerNodes('iframe')).toHaveLength(0);
+    expect(actions.some(action => action.type === ACCOUNTS_IMPORT)).toBe(false);
+    expect(actions.some(action => action.type === REDRAFT)).toBe(false);
+    expect(actions.some(action => action.type === 'STATUS_DELETE_FAIL')).toBe(false);
+    expect(store.getState().get('alerts').size).toBe(0);
+    expect(store.getState().getIn(['compose', 'text'])).toBe('');
+  });
+
+  it('ends the pinned iframe on the stream delete and ignores the later id-only response', async () => {
+    const { store, actions } = makeStore(ImmutableMap({
+      'ext-1': externalStatus,
+      keep: fromJS({ id: 'keep', account: '1' }),
+    }));
+    const node = pinExternalFrame();
+    let resolveDelete;
+    client.delete.mockReturnValue(new Promise(resolve => {
+      resolveDelete = resolve;
+    }));
+
+    const pending = store.dispatch(deleteStatus('ext-1', { push: jest.fn() }, true));
+    expect(() => {
+      store.dispatch(deleteFromTimelines('ext-1'));
+      store.dispatch(deleteFromTimelines('ext-1'));
+    }).not.toThrow();
+    expect(getSessionByIdentity('ext-1', 'embed-1')).toBeNull();
+    expect(node.isConnected).toBe(false);
+
+    resolveDelete({ data: { id: 'ext-1' } });
+    await expect(pending).resolves.toBeUndefined();
+
+    expect(connectedPlayerNodes('iframe')).toHaveLength(0);
+    expect(actions.some(action => action.type === 'STATUS_DELETE_FAIL')).toBe(false);
+    expect(actions.some(action => action.type === ACCOUNTS_IMPORT)).toBe(false);
+    expect(actions.some(action => action.type === REDRAFT)).toBe(false);
+    expect(store.getState().get('alerts').size).toBe(0);
   });
 
   it('clears an existing quote and ignores ids that are not in the state', () => {

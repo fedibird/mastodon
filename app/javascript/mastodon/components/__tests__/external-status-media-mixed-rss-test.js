@@ -6,6 +6,11 @@ jest.mock('mastodon/components/blurhash', () => () => null);
 jest.mock('mastodon/components/thumbhash', () => () => null);
 
 import ExternalStatusMedia from '../external_status_media';
+import { connectedPlayerNodes, resetExternalPlayersForTests } from 'mastodon/external_player/session';
+
+afterEach(() => {
+  resetExternalPlayersForTests();
+});
 
 jest.mock('react-intl', () => ({
   FormattedMessage: ({ defaultMessage }) => defaultMessage,
@@ -68,7 +73,8 @@ describe('ExternalStatusMedia RSS mixed attachments', () => {
     ]);
 
     fireEvent.click(screen.getByRole('button', { name: /Clip B/ }));
-    expect(container.querySelector('video').getAttribute('src')).toBe('https://cdn.example/mixed-secret/clip-b.mp4');
+    expect(connectedPlayerNodes('video')[0].getAttribute('src')).toBe('https://cdn.example/mixed-secret/clip-b.mp4');
+    expect(container.querySelector('video')).toBeNull();
     expect(container.innerHTML).not.toContain('clip-a.mp4');
     expect(container.innerHTML).not.toContain('talk.mp3');
   });
@@ -86,7 +92,8 @@ describe('ExternalStatusMedia RSS mixed attachments', () => {
 
     hidden.rerender(<ExternalStatusMedia sensitive visible status={mixedStatus({ sensitive: true, spoiler: 'CW' })} />);
     fireEvent.click(screen.getByRole('button', { name: /Clip A/ }));
-    expect(hidden.container.querySelector('video').getAttribute('src')).toBe('https://cdn.example/mixed-secret/clip-a.mp4');
+    expect(connectedPlayerNodes('video')[0].getAttribute('src')).toBe('https://cdn.example/mixed-secret/clip-a.mp4');
+    expect(hidden.container.querySelector('video')).toBeNull();
     expect(hidden.container.innerHTML).not.toContain('clip-b.mp4');
   });
 
@@ -124,6 +131,8 @@ describe('ExternalStatusMedia RSS mixed attachments', () => {
     const sources = Array.from(container.querySelectorAll('video')).map(node => node.getAttribute('src'));
     expect(sources).toEqual([
       'https://cb.example/system/saved.webm',
+    ]);
+    expect(connectedPlayerNodes('video').map(node => node.getAttribute('src'))).toEqual([
       'https://cdn.example/mixed-secret/clip-b.mp4',
     ]);
     expect(container.querySelector('iframe')).toBeNull();

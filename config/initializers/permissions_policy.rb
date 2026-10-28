@@ -2,7 +2,8 @@
 # information see https://developers.google.com/web/updates/2018/06/feature-policy
 #
 # External embed fullscreen is delegated only on that iframe
-# (externalEmbedFrameProps in external_embed_player.js: allow="fullscreen *"
+# (externalEmbedFrameProps in external_player/frame_props.js, re-exported
+# from external_embed_player.js: allow="fullscreen *"
 # and the legacy allowfullscreen attribute). Do not enable the block below.
 # fullscreen :none disables the feature for the whole document. fullscreen :self
 # sends Permissions-Policy: fullscreen=(self), and a parent header allowlist

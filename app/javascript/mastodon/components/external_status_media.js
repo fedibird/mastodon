@@ -8,6 +8,7 @@ import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
 import ExternalRemoteMedia, { remoteMediaItems } from 'mastodon/components/external_remote_media';
 import ExternalEmbedPlayer from 'mastodon/components/external_embed_player';
+import { assignRelease } from 'mastodon/external_player/session';
 import Video from 'mastodon/features/video';
 import Audio from 'mastodon/features/audio';
 import { displayMedia, useBlurhash } from 'mastodon/initial_state';
@@ -80,6 +81,9 @@ export default class ExternalStatusMedia extends React.PureComponent {
     targetLang: PropTypes.string,
     deployPictureInPicture: PropTypes.func,
     quote: PropTypes.bool,
+    releaseSignal: PropTypes.shape({
+      mode: PropTypes.string,
+    }),
   };
 
   static defaultProps = {
@@ -221,13 +225,32 @@ export default class ExternalStatusMedia extends React.PureComponent {
     );
   }
 
+  statusId () {
+    const id = this.props.status && this.props.status.get('id');
+    return id === undefined || id === null || id === '' ? null : String(id);
+  }
+
+  playerSignal () {
+    const signal = this.props.releaseSignal || assignRelease(this, 'ownRelease', false);
+    signal.mode = (this.props.muted || this.concealed()) ? 'end' : 'detach';
+    return signal;
+  }
+
   renderEmbed (block, index) {
     const key = read(block.entry, 'id') || `embed-${index}`;
     if (this.concealed()) {
       return this.renderConcealed(key, block.entry);
     }
 
-    return <ExternalEmbedPlayer key={key} entry={block.entry} articleUrl={this.articleUrl()} />;
+    return (
+      <ExternalEmbedPlayer
+        key={key}
+        statusId={this.statusId()}
+        entry={block.entry}
+        articleUrl={this.articleUrl()}
+        releaseSignal={this.playerSignal()}
+      />
+    );
   }
 
   renderRemote (block, index) {
@@ -237,7 +260,15 @@ export default class ExternalStatusMedia extends React.PureComponent {
     }
 
     const remoteStatus = fromJS({ fedibird_external: { media: [block.entry] } });
-    return <ExternalRemoteMedia key={key} status={remoteStatus} articleUrl={this.articleUrl()} />;
+    return (
+      <ExternalRemoteMedia
+        key={key}
+        statusId={this.statusId()}
+        status={remoteStatus}
+        articleUrl={this.articleUrl()}
+        releaseSignal={this.playerSignal()}
+      />
+    );
   }
 
   renderLegacyMedia () {
@@ -252,7 +283,7 @@ export default class ExternalStatusMedia extends React.PureComponent {
     const revealed = !this.concealed();
     let remote = null;
     if (remotes.length > 0 && revealed) {
-      remote = <ExternalRemoteMedia status={this.props.status} articleUrl={this.articleUrl()} />;
+      remote = <ExternalRemoteMedia statusId={this.statusId()} status={this.props.status} articleUrl={this.articleUrl()} releaseSignal={this.playerSignal()} />;
     } else if (remotes.length > 0) {
       remote = this.renderConcealed('legacy-remote', this.legacyConcealedEntry());
     }
@@ -292,6 +323,8 @@ export default class ExternalStatusMedia extends React.PureComponent {
   }
 
   render () {
+    this.playerSignal();
+
     if (this.props.muted || !this.props.status) {
       return null;
     }

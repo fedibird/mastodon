@@ -4,44 +4,27 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { FormattedMessage } from 'react-intl';
 
 import { safeMediaUrl } from 'mastodon/components/external_remote_media';
+import { externalEmbedFrameProps } from 'mastodon/external_player/frame_props';
+import ExternalPlayerSurface from 'mastodon/external_player/surface';
+import {
+  getSessionByIdentity,
+  openSession,
+  subscribeExternalPlayers,
+} from 'mastodon/external_player/session';
+
+export { externalEmbedFrameProps };
 
 // Click to mount one cross-origin player. The iframe is not in the document
-// until then, so the player host is not contacted earlier. sandbox keeps the
-// frame from navigating this tab. allow-scripts and allow-same-origin are
-// both set because a publisher player will not start without them; that pair
-// is unsafe for a same-origin URL, which the server rejects before this
-// component sees it. allow does not include autoplay. iframe load is not
-// treated as playback success. A saved poster is our file, not the publisher
-// URL. Signature query names are refused here so a publisher URL cannot be
-// used as that image.
-//
-// Fullscreen on this iframe is `fullscreen *`. An omitted allowlist means
-// 'src' (the origin of the src URL). Naming fullscreen in allow also
-// disables allowfullscreen, whose allowlist is *. A generic player may
-// redirect or nest an origin we cannot list here. `fullscreen *` is that
-// same per-iframe delegation, written explicitly so it cannot collapse
-// back to 'src'. allowFullScreen remains for agents that ignore allow.
-// This does not override a parent Permissions-Policy denial, a denial
-// from the embedded document, or the user-gesture requirement.
-// externalEmbedFrameProps is the creation-time contract. This component
-// spreads it into React. The pinned host (#625, session.js createFrame)
-// builds the one live iframe and reuses that node for the inline slot and
-// the fixed dock, so it must copy these fields when the node is created:
-// sandbox and allow through setAttribute, referrerPolicy through
-// setAttribute('referrerpolicy'), and allowFullScreen through the DOM
-// property allowFullscreen. Object.assign does not set that property.
-// Copying the React key allowFullScreen does not either. Writing allow
-// after the framed document has loaded does not update the container
-// policy, and a second allow string must not be introduced for the dock.
+// until then, so the player host is not contacted earlier. The host, not this
+// row, owns the frame from that click onward. sandbox, allow, referrerpolicy,
+// and allowfullscreen come from externalEmbedFrameProps and are copied by
+// createFrame when the one live iframe is created, before src is set.
+// Inline and the fixed dock reuse that node. allow does not include autoplay.
+// iframe load is not treated as playback success. A saved poster is our file,
+// not the publisher URL. Signature query names are refused here so a publisher
+// URL cannot be used as that image.
 const SIGNATURE_QUERY = /(?:^|&)(?:hash|validto|hdnea|exp)=/i;
 const MAX_DURATION = 48 * 60 * 60;
-
-export const externalEmbedFrameProps = {
-  sandbox: 'allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox',
-  allow: 'fullscreen *; encrypted-media; picture-in-picture',
-  referrerPolicy: 'no-referrer',
-  allowFullScreen: true,
-};
 
 const read = (entry, key) => (entry && typeof entry.get === 'function' ? entry.get(key) : entry[key]);
 
@@ -88,19 +71,57 @@ export default class ExternalEmbedPlayer extends React.PureComponent {
   static propTypes = {
     entry: PropTypes.oneOfType([ImmutablePropTypes.map, PropTypes.object]),
     articleUrl: PropTypes.string,
+    statusId: PropTypes.string,
+    releaseSignal: PropTypes.shape({
+      mode: PropTypes.string,
+    }),
   };
 
-  state = {
-    armed: false,
-  };
+  componentDidMount () {
+    this.unsubscribe = subscribeExternalPlayers(() => {
+      if (!this.unmounted) {
+        this.forceUpdate();
+      }
+    });
+  }
 
-  handleArm = () => {
-    this.setState({ armed: true });
-  };
+  componentWillUnmount () {
+    this.unmounted = true;
+
+    if (this.unsubscribe) {
+      this.unsubscribe();
+    }
+  }
 
   playerUrl () {
     return safeMediaUrl(read(this.props.entry, 'url'));
   }
+
+  mediaId () {
+    const id = read(this.props.entry, 'id');
+    return id === undefined || id === null || id === '' ? null : String(id);
+  }
+
+  session () {
+    return getSessionByIdentity(this.props.statusId, this.mediaId());
+  }
+
+  handleArm = () => {
+    const url = this.playerUrl();
+    const mediaId = this.mediaId();
+
+    if (!url || !mediaId || !this.props.statusId || this.session()) {
+      return;
+    }
+
+    this.didOpen = true;
+    openSession({
+      statusId: this.props.statusId,
+      mediaId,
+      kind: 'iframe',
+      url,
+    });
+  };
 
   renderPoster (poster) {
     if (!poster) {
@@ -124,19 +145,6 @@ export default class ExternalEmbedPlayer extends React.PureComponent {
     );
   }
 
-  renderFrame (url) {
-    return (
-      <div className='external-embed-player__frame'>
-        <iframe
-          src={url}
-          title='External video'
-          className='external-embed-player__iframe'
-          {...externalEmbedFrameProps}
-        />
-      </div>
-    );
-  }
-
   renderArticle (articleUrl) {
     if (!articleUrl) {
       return null;
@@ -151,18 +159,31 @@ export default class ExternalEmbedPlayer extends React.PureComponent {
 
   render () {
     const url = this.playerUrl();
-    if (!url) {
+    if (!url || !this.mediaId()) {
       return null;
     }
 
     const poster = safePosterUrl(read(this.props.entry, 'poster'), url);
     const duration = formatDuration(read(this.props.entry, 'duration'));
     const articleUrl = safeMediaUrl(this.props.articleUrl);
+    const session = this.session();
 
     return (
       <div className='external-embed-player'>
-        {this.state.armed ? this.renderFrame(url) : this.renderLaunch(poster, duration)}
-        {this.renderArticle(articleUrl)}
+        {session ? (
+          <ExternalPlayerSurface
+            session={session}
+            prefer={this.didOpen === true}
+            releaseSignal={this.props.releaseSignal}
+            frameClassName='external-embed-player__frame'
+            footer={this.renderArticle(articleUrl)}
+          />
+        ) : (
+          <React.Fragment>
+            {this.renderLaunch(poster, duration)}
+            {this.renderArticle(articleUrl)}
+          </React.Fragment>
+        )}
       </div>
     );
   }

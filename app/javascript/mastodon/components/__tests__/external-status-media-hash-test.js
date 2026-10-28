@@ -44,6 +44,11 @@ jest.mock('mastodon/components/blurhash', () => ({ hash, dummy, className }) => 
 /* eslint-enable react/prop-types */
 
 import ExternalStatusMedia from '../external_status_media';
+import { connectedPlayerNodes, resetExternalPlayersForTests } from 'mastodon/external_player/session';
+
+afterEach(() => {
+  resetExternalPlayersForTests();
+});
 
 const THUMB = '3OcRJYB4d3hwiIeHeEh3eIhw';
 const BLUR = 'LEHV6nWB2yk8pyo0adR*.7kCMdnj';
@@ -152,7 +157,8 @@ describe('ExternalStatusMedia sensitive hashes', () => {
     expect(view.container.innerHTML).not.toContain(CLIP);
 
     fireEvent.click(screen.getByRole('button', { name: 'External video' }));
-    const video = view.container.querySelector('video');
+    const video = connectedPlayerNodes('video')[0];
+    expect(view.container.querySelector('video')).toBeNull();
     expect(video.getAttribute('src')).toBe(CLIP);
     expect(video.hasAttribute('autoplay')).toBe(false);
   });
@@ -173,7 +179,8 @@ describe('ExternalStatusMedia sensitive hashes', () => {
     expect(view.container.querySelector('iframe')).toBeNull();
     expect(view.container.querySelector('img').getAttribute('src')).toBe(POSTER);
     fireEvent.click(screen.getByRole('button', { name: 'External video 1:01' }));
-    const frame = view.container.querySelector('iframe');
+    const frame = connectedPlayerNodes('iframe')[0];
+    expect(view.container.querySelector('iframe')).toBeNull();
     expect(frame.getAttribute('src')).toBe(PLAYER);
     expect(frame.getAttribute('allow')).not.toContain('autoplay');
     expect(frame.hasAttribute('autoplay')).toBe(false);
