@@ -27,6 +27,8 @@ RSpec.describe 'RSS subscription presentation API' do
       expect(row[:presentation]).to eq(
         media_sensitive: false,
         cw_enabled: false,
+        language_mode: 'unspecified',
+        language: nil,
         revision: '0',
         applied_revision: '0',
         state: 'settled'
@@ -87,6 +89,71 @@ RSpec.describe 'RSS subscription presentation API' do
       patch path, params: { media_sensitive: true, cw_enabled: true }, headers: owner_headers, as: :json
       expect(response).to have_http_status(409)
       expect(bundle[:subscription].reload.media_sensitive).to eq(false)
+    end
+
+    it 'switches fixed, automatic, and unspecified language without treating an omitted key as unspecified' do
+      allow(ExternalBridge::RSS::PresentationReconcileWorker).to receive(:perform_async).and_return('jid')
+
+      patch path, params: { language_mode: 'fixed', language: 'ja' }, headers: owner_headers, as: :json
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:presentation]).to include(language_mode: 'fixed', language: 'ja', revision: '1', state: 'applying')
+
+      patch path, params: { media_sensitive: true }, headers: owner_headers, as: :json
+      expect(response).to have_http_status(200)
+      subscription = bundle[:subscription].reload
+      expect(subscription.language_mode).to eq('fixed')
+      expect(subscription.language).to eq('ja')
+      expect(subscription.media_sensitive).to eq(true)
+
+      patch path, params: { language_mode: 'auto', language: nil }, headers: owner_headers, as: :json
+      expect(response).to have_http_status(200)
+      expect(bundle[:subscription].reload.language_mode).to eq('auto')
+      expect(bundle[:subscription].language).to be_nil
+
+      patch path, params: { language_mode: 'unspecified' }, headers: owner_headers, as: :json
+      expect(response).to have_http_status(200)
+      expect(bundle[:subscription].reload.language_mode).to eq('unspecified')
+      expect(bundle[:subscription].language).to be_nil
+      expect(bundle[:source].reload.attributes).not_to have_key('language_mode')
+      expect(bundle[:resource].reload.attributes).not_to have_key('language_mode')
+    end
+
+    it 'rejects an unknown mode, an unknown code, a code with the wrong mode, and a bare code' do
+      patch path, params: { language_mode: 'detect' }, headers: owner_headers, as: :json
+      expect(response).to have_http_status(422)
+      expect(body_as_json[:error]).to eq('invalid_presentation')
+
+      patch path, params: { language_mode: 'fixed', language: 'zz' }, headers: owner_headers, as: :json
+      expect(response).to have_http_status(422)
+
+      patch path, params: { language_mode: 'fixed', language: 'EN' }, headers: owner_headers, as: :json
+      expect(response).to have_http_status(422)
+
+      patch path, params: { language_mode: 'auto', language: 'en' }, headers: owner_headers, as: :json
+      expect(response).to have_http_status(422)
+
+      patch path, params: { language_mode: 'unspecified', language: 'ja' }, headers: owner_headers, as: :json
+      expect(response).to have_http_status(422)
+
+      patch path, params: { language: 'ja' }, headers: owner_headers, as: :json
+      expect(response).to have_http_status(422)
+
+      patch path, params: { language_mode: 'fixed', language: 'ja' }, headers: auth_headers_for(roommate), as: :json
+      expect(response).to have_http_status(404)
+
+      expect(bundle[:subscription].reload.language_mode).to eq('unspecified')
+      expect(bundle[:subscription].language).to be_nil
+      expect(bundle[:subscription].presentation_revision).to eq(0)
+    end
+
+    it 'accepts a regional code Fedibird already supports' do
+      allow(ExternalBridge::RSS::PresentationReconcileWorker).to receive(:perform_async).and_return('jid')
+
+      patch path, params: { language_mode: 'fixed', language: 'zh-CN' }, headers: owner_headers, as: :json
+
+      expect(response).to have_http_status(200)
+      expect(bundle[:subscription].reload.language).to eq('zh-CN')
+      expect(bundle[:subscription].language_mode).to eq('fixed')
     end
 
     it 'still saves when RSS import is turned off' do

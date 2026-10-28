@@ -36,11 +36,14 @@ class Settings::ExternalServices::RSSSubscriptionsController < Settings::BaseCon
   end
 
   def update
+    mode, code = presentation_language
     subscription = ExternalBridge::RSS::PresentationUpdate.new.call(
       user: current_user,
       subscription_id: params[:id],
       media_sensitive: params[:media_sensitive],
-      cw_enabled: params[:cw_enabled]
+      cw_enabled: params[:cw_enabled],
+      language_mode: mode,
+      language: code
     )
     redirect_to settings_external_services_rss_path(page_options), notice: presentation_notice(subscription), status: :see_other
   rescue ExternalBridge::Error => e
@@ -72,6 +75,23 @@ class Settings::ExternalServices::RSSSubscriptionsController < Settings::BaseCon
     return I18n.t('external_bridge.errors.invalid_presentation') if error.code == 'invalid_presentation'
 
     I18n.t('external_bridge.errors.not_found')
+  end
+
+  # The select always posts one value. Omitting the field leaves the saved
+  # choice alone. unspecified and auto are not language codes.
+  def presentation_language
+    omit = ExternalBridge::RSS::PresentationUpdate::OMIT
+    return [omit, omit] unless params.key?(:language)
+    return ['invalid', nil] unless params[:language].is_a?(String)
+
+    case params[:language]
+    when 'unspecified'
+      ['unspecified', nil]
+    when 'auto'
+      ['auto', nil]
+    else
+      ['fixed', params[:language]]
+    end
   end
 
   def page_number

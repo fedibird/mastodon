@@ -103,10 +103,16 @@ module ExternalBridge
         wrote = true
         SubscriptionFence.guard!(subscription_id) do
           current = ExternalSubscription.where(id: subscription_id).pick(
-            :presentation_revision, :presentation_lease_token, :media_sensitive, :cw_enabled
+            :presentation_revision, :presentation_lease_token, :media_sensitive, :cw_enabled, :language_mode, :language
           )
           if current && current[0].to_i == revision.to_i && current[1] == token
-            apply_marker(marker_id, media_sensitive: current[2], cw_enabled: current[3])
+            apply_marker(
+              marker_id,
+              media_sensitive: current[2],
+              cw_enabled: current[3],
+              language_mode: current[4],
+              language: current[5]
+            )
           else
             wrote = false
           end

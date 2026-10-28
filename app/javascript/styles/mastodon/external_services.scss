@@ -549,6 +549,28 @@
     min-width: 0;
   }
 
+  .external-service-presentation__language {
+    margin-bottom: 8px;
+
+    label {
+      display: block;
+      min-height: 0;
+      margin-bottom: 4px;
+    }
+
+    select {
+      width: 100%;
+      max-width: 100%;
+      min-height: 44px;
+      box-sizing: border-box;
+    }
+
+    select:focus {
+      outline: 2px solid $highlight-text-color;
+      outline-offset: 2px;
+    }
+  }
+
   label {
     display: flex;
     gap: 8px;

@@ -3,9 +3,12 @@
 module ExternalBridge
   module RSS
     # How one subscriber wants one article drawn. The shared resource is only
-    # read. Sensitive media and the content warning are independent.
+    # read. Sensitive media, the content warning, and language are independent.
+    # Language comes from the subscriber's mode and the original title and
+    # body, not from the warning or the generated excerpt. created_at is left
+    # alone so a public-date change can set it without replacing language.
     module Presentation
-      Fields = Struct.new(:text, :spoiler_text, :sensitive, keyword_init: true)
+      Fields = Struct.new(:text, :spoiler_text, :sensitive, :language, keyword_init: true)
       CONTROL = /[\p{Cc}\u2028\u2029]/.freeze
 
       module_function
@@ -13,13 +16,20 @@ module ExternalBridge
       # The committed choices. Nil when the subscription is gone or fenced
       # for deletion, so a writer does not apply a display choice over a purge.
       def snapshot(subscription_id)
-        row = ExternalSubscription.where(id: subscription_id).pick(:state, :media_sensitive, :cw_enabled)
+        row = ExternalSubscription.where(id: subscription_id).pick(
+          :state, :media_sensitive, :cw_enabled, :language_mode, :language
+        )
         return nil if row.nil? || row[0] == ExternalSubscription::DELETING
 
-        { media_sensitive: row[1], cw_enabled: row[2] }
+        {
+          media_sensitive: row[1],
+          cw_enabled: row[2],
+          language_mode: row[3],
+          language: row[4],
+        }
       end
 
-      def for(resource, media_sensitive:, cw_enabled:)
+      def for(resource, media_sensitive:, cw_enabled:, language_mode: 'unspecified', language: nil)
         if cw_enabled
           spoiler = spoiler_for(resource)
           text = Excerpt.for(resource, spoiler_text: spoiler, omit_title: true)
@@ -27,17 +37,24 @@ module ExternalBridge
           spoiler = ''
           text = Excerpt.for(resource)
         end
-        Fields.new(text: text, spoiler_text: spoiler, sensitive: media_sensitive == true)
+        Fields.new(
+          text: text,
+          spoiler_text: spoiler,
+          sensitive: media_sensitive == true,
+          language: ArticleLanguage.for(resource, mode: language_mode, language: language)
+        )
       end
 
-      # Writes text, spoiler, and sensitive when they differ. Does not change
-      # the status id, visibility, or any other account's row, and does not
-      # publish an ActivityPub update. Returns true when a column changed.
+      # Writes text, spoiler, sensitive, and language when they differ. Does
+      # not change the status id, created_at, visibility, or any other
+      # account's row, and does not publish an ActivityPub update. Returns
+      # true when a column changed.
       def apply!(status, desired)
         changes = {}
         changes[:text] = desired.text if status.text != desired.text
         changes[:spoiler_text] = desired.spoiler_text if status.spoiler_text.to_s != desired.spoiler_text
         changes[:sensitive] = desired.sensitive if status.sensitive != desired.sensitive
+        changes[:language] = desired.language if status.language != desired.language
         return false if changes.empty?
 
         status.update!(changes)
@@ -48,7 +65,8 @@ module ExternalBridge
       def changed?(status, desired)
         status.text != desired.text ||
           status.spoiler_text.to_s != desired.spoiler_text ||
-          status.sensitive != desired.sensitive
+          status.sensitive != desired.sensitive ||
+          status.language != desired.language
       end
 
       # Plain text, one line, short enough that the body can still hold one

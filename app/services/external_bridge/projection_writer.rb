@@ -8,7 +8,8 @@ module ExternalBridge
   class ProjectionWriter
     # text, sensitive, and spoiler_text default to the subscriber's current
     # display choices, read under the deletion fence. Callers that pass an
-    # explicit text keep the previous fixed shape (no warning, not sensitive).
+    # explicit text keep the previous fixed shape (no warning, not sensitive,
+    # language unset).
     # rubocop:disable Metrics/ParameterLists
     def create!(user:, subscription:, resource:, text: :generated, sensitive: :generated, spoiler_text: :generated)
       raise Error, :user_not_functional unless user&.functional?
@@ -28,7 +29,9 @@ module ExternalBridge
           external_projection: true,
           local: true,
           reply: false,
-          sensitive: fields.sensitive
+          sensitive: fields.sensitive,
+          # Subscriber language only. created_at stays unset for a separate public-date change.
+          language: fields.language
         )
         marker = ExternalStatusProjection.create!(
           user_id: user.id,
@@ -61,7 +64,8 @@ module ExternalBridge
       RSS::Presentation::Fields.new(
         text: text.presence || I18n.t('external_bridge.untitled'),
         spoiler_text: spoiler_text == :generated ? '' : spoiler_text.to_s,
-        sensitive: sensitive == true
+        sensitive: sensitive == true,
+        language: nil
       )
     end
 

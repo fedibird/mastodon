@@ -91,6 +91,20 @@ module SettingsHelper
     LanguageDetector.instance.language_names.select(&HUMAN_LOCALES.method(:key?))
   end
 
+  # Mode labels follow the active UI locale. Language names are the same
+  # native names as the posting-language setting.
+  def rss_presentation_language_options(selected)
+    options = [
+      [I18n.t('external_bridge.presentation.language_unspecified'), 'unspecified'],
+      [I18n.t('external_bridge.presentation.language_auto'), 'auto'],
+    ]
+    options.concat(filterable_languages.sort.map { |code| [human_locale(code), code.to_s] })
+    if selected.present? && options.none? { |_label, value| value == selected }
+      options << [human_locale(selected) || human_locale(selected.to_sym) || selected, selected]
+    end
+    options
+  end
+
   def hash_to_object(hash)
     HashObject.new(hash)
   end

@@ -54,14 +54,17 @@ class Api::V1::ExternalBridge::RSS::SubscriptionsController < Api::BaseControlle
     render json: { error: e.code }, status: e.http_status
   end
 
-  # Both flags are optional. A missing key is left unchanged. Any other key
-  # is ignored. The row is saved before imported statuses are rewritten.
+  # Flags and language are optional. A missing key is left unchanged, which
+  # is different from an explicit unspecified language. Any other key is
+  # ignored. The row is saved before imported statuses are rewritten.
   def update
     subscription = ExternalBridge::RSS::PresentationUpdate.new.call(
       user: current_user,
       subscription_id: params[:id],
       media_sensitive: provided_flag(:media_sensitive),
-      cw_enabled: provided_flag(:cw_enabled)
+      cw_enabled: provided_flag(:cw_enabled),
+      language_mode: provided_flag(:language_mode),
+      language: provided_flag(:language)
     )
     render json: subscription_json(subscription)
   rescue ExternalBridge::Error => e
@@ -93,6 +96,8 @@ class Api::V1::ExternalBridge::RSS::SubscriptionsController < Api::BaseControlle
       presentation: {
         media_sensitive: subscription.media_sensitive,
         cw_enabled: subscription.cw_enabled,
+        language_mode: subscription.language_mode,
+        language: subscription.language,
         revision: subscription.presentation_revision.to_s,
         applied_revision: subscription.presentation_applied_revision.to_s,
         state: subscription.presentation_state,

@@ -286,7 +286,32 @@ describe Settings::ExternalServices::RSSController do
     expect(cw['checked']).to be_nil
     expect(label.text).to include(I18n.t('external_bridge.presentation.media_sensitive'))
     expect(response.body).to include(I18n.t('external_bridge.presentation.cw_enabled_hint'))
+    language = document.at_css("#rss-language-#{paused_row.id}")
+    expect(language['name']).to eq('language')
+    expect(language.at_css('option[selected]')['value']).to eq('unspecified')
+    expect(language.at_css('option[value="auto"]').text).to eq(I18n.t('external_bridge.presentation.language_auto'))
+    expect(language.at_css('option[value="ja"]').text).to eq('日本語')
+    expect(language.at_css('option[value="en"]').text).to eq('English')
+    expect(document.at_css("#rss-language-hint-#{paused_row.id}").text).to eq(I18n.t('external_bridge.presentation.language_hint'))
     expect(document.at_css("#rss-media-sensitive-#{removing_row.id}")).to be_nil
     expect(document.at_css("form[action='#{settings_external_services_rss_subscription_presentation_path(removing_row)}']")).to be_nil
+  end
+
+  it 'renders the language choices in Japanese and keeps the saved language selected' do
+    user.update!(locale: 'ja')
+    enable_external_bridge_rss!(user)
+    source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/language.xml', title: 'Language feed')
+    row = ExternalSubscription.create!(user: user, external_source: source, state: 'active', language_mode: 'fixed', language: 'ja')
+
+    get :show, session: challenge
+
+    document = Nokogiri::HTML(response.body)
+    language = document.at_css("#rss-language-#{row.id}")
+    expect(language.at_css('option[selected]')['value']).to eq('ja')
+    expect(language.at_css('option[value="unspecified"]').text).to eq('未指定')
+    expect(language.at_css('option[value="auto"]').text).to eq('記事から自動判別')
+    expect(language.at_css('option[value="ja"]').text).to eq('日本語')
+    expect(language.at_css('option[value="en"]').text).to eq('English')
+    expect(document.at_css("label[for='rss-language-#{row.id}']").text).to eq('言語')
   end
 end

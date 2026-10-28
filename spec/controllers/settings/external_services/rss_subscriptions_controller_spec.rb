@@ -218,6 +218,42 @@ describe Settings::ExternalServices::RSSSubscriptionsController do
     expect(owned[:subscription].reload.media_sensitive).to eq(false)
   end
 
+  it 'saves a fixed language, automatic detection, and an explicit unspecified value' do
+    sign_in tester, scope: :user
+    owned = project_for(tester)
+    other = share_account_user(tester.account)
+    foreign = project_for(other)
+    allow(ExternalBridge::RSS::PresentationReconcileWorker).to receive(:perform_async).and_return('jid')
+
+    patch :update, params: { id: owned[:subscription].id, media_sensitive: '0', cw_enabled: '0', language: 'ja' }, session: challenge
+    expect(response).to redirect_to(settings_external_services_rss_path)
+    expect(owned[:subscription].reload.language_mode).to eq('fixed')
+    expect(owned[:subscription].language).to eq('ja')
+    expect(foreign[:subscription].reload.language_mode).to eq('unspecified')
+
+    patch :update, params: { id: owned[:subscription].id, media_sensitive: '0', cw_enabled: '0', language: 'auto' }, session: challenge
+    expect(owned[:subscription].reload.language_mode).to eq('auto')
+    expect(owned[:subscription].language).to be_nil
+
+    patch :update, params: { id: owned[:subscription].id, media_sensitive: '0', cw_enabled: '0', language: 'unspecified' }, session: challenge
+    expect(owned[:subscription].reload.language_mode).to eq('unspecified')
+    expect(owned[:subscription].language).to be_nil
+    expect(owned[:subscription].presentation_revision).to eq(3)
+    expect(owned[:source].reload.attributes).not_to have_key('language_mode')
+  end
+
+  it 'rejects an unknown language without changing the feed' do
+    sign_in tester, scope: :user
+    owned = project_for(tester)
+
+    patch :update, params: { id: owned[:subscription].id, media_sensitive: '1', cw_enabled: '1', language: 'zz' }, session: challenge
+
+    expect(flash[:alert]).to eq(I18n.t('external_bridge.errors.invalid_presentation'))
+    expect(owned[:subscription].reload.language_mode).to eq('unspecified')
+    expect(owned[:subscription].media_sensitive).to eq(false)
+    expect(owned[:subscription].presentation_revision).to eq(0)
+  end
+
   it 'requires a recent challenge before saving display choices' do
     sign_in tester, scope: :user
     owned = project_for(tester)

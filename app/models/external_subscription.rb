@@ -19,6 +19,8 @@
 #  feed_routes_revision          :bigint(8)        default(0), not null
 #  media_sensitive               :boolean          default(FALSE), not null
 #  cw_enabled                    :boolean          default(FALSE), not null
+#  language_mode                 :string           default("unspecified"), not null
+#  language                      :string(32)
 #  presentation_revision         :bigint(8)        default(0), not null
 #  presentation_applied_revision :bigint(8)        default(0), not null
 #  presentation_error            :string
@@ -35,12 +37,14 @@
 # window. Another subscriber of the same source does not make this row due.
 # feed_routes_revision moves only when the route set changes.
 #
-# media_sensitive and cw_enabled are this subscriber's display choices.
+# media_sensitive, cw_enabled, and language_mode are this subscriber's
+# display choices. language is set only when language_mode is fixed.
 # presentation_revision moves when those choices change. The background
 # rewrite records how far it got in presentation_applied_revision. The
-# shared source and resource rows do not store either choice.
+# shared source and resource rows do not store any of these choices.
 class ExternalSubscription < ApplicationRecord
   STATES = %w(active paused error deleting).freeze
+  LANGUAGE_MODES = %w(unspecified auto fixed).freeze
   DELETING = 'deleting'
 
   belongs_to :user
@@ -50,6 +54,8 @@ class ExternalSubscription < ApplicationRecord
   has_many :external_feed_routes, dependent: :delete_all
 
   validates :state, inclusion: { in: STATES }
+  validates :language_mode, inclusion: { in: LANGUAGE_MODES }
+  validate :language_matches_mode
 
   # Runs before dependent: :delete_all, which is also a before_destroy.
   before_destroy :schedule_external_feed_removed, prepend: true
@@ -108,6 +114,15 @@ class ExternalSubscription < ApplicationRecord
   }
 
   private
+
+  def language_matches_mode
+    if language_mode == 'fixed'
+      code = ExternalBridge::RSS::ArticleLanguage.canonical(language)
+      errors.add(:language, :invalid) if code.nil? || code != language
+    elsif language.present?
+      errors.add(:language, :present)
+    end
+  end
 
   def schedule_external_feed_removed
     targets = external_feed_routes.filter_map { |route| external_feed_target(route) }

@@ -128,6 +128,19 @@ describe LanguageDetector do
 
           expect(result).to eq nil
         end
+
+        it 'keeps the instance default for an ordinary short post and can turn that fallback off' do
+          expect(described_class.instance.detect('Hi', account_without_user_locale)).to eq(:ja)
+          expect(described_class.instance.detect('Hi', account_without_user_locale, allow_fallback: false)).to be_nil
+          expect(described_class.instance.detect('', account_without_user_locale, allow_fallback: false)).to be_nil
+        end
+      end
+
+      it 'uses the account locale for an ordinary short post' do
+        account = Fabricate(:user, locale: 'fr').account
+
+        expect(described_class.instance.detect('Hi', account)).to eq(:fr)
+        expect(described_class.instance.detect('Hi', account, allow_fallback: false)).to be_nil
       end
     end
   end
