@@ -28,7 +28,7 @@ import {
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import compareId from '../compare_id';
 import { uniqWithoutNull } from '../utils/uniq';
-import { placeReconcileIds } from '../external_feeds/reconcile';
+import { appendOlderThanTail, insertIdDescending, isExternalStatus, placeReconcileIds, spliceHistory } from '../external_feeds/reconcile';
 import {
   WINDOW_HISTORY_ANCHOR,
   WINDOW_HISTORY_FAIL,
@@ -111,7 +111,131 @@ const expandNormalizedTimeline = (state, timeline, statuses, next, isPartial, is
   }));
 };
 
-const updateTimeline = (state, timeline, status, usePendingItems) => {
+const newestNonNull = (list) => {
+  let newest = null;
+
+  (list || ImmutableList()).forEach(id => {
+    if (id === null || id === undefined) {
+      return;
+    }
+
+    const value = String(id);
+
+    if (newest === null || compareId(value, newest) > 0) {
+      newest = value;
+    }
+  });
+
+  return newest;
+};
+
+const containsId = (list, id) => (list || ImmutableList()).some(item => item !== null && item !== undefined && String(item) === String(id));
+
+const replaceItems = (state, timeline, items) => {
+  let next = state.setIn([timeline, 'items'], ImmutableList(items));
+
+  if (next.getIn([timeline, 'window'])) {
+    next = next.update(timeline, syncHistoryEdges);
+  }
+
+  return next;
+};
+
+// A stream event may fill a hole inside a loaded run. It may extend a tail
+// only after an empty older page has confirmed that tail is complete.
+// While hasMore is still true, one remaining id must not grow downward:
+// that would move the next max_id past posts that have not been fetched.
+const placeLoadedExternal = (items, id, exhausted) => {
+  const interior = spliceHistory(items, [id]);
+
+  if (!exhausted) {
+    return interior;
+  }
+
+  const tail = appendOlderThanTail(interior.items, [id]);
+
+  if (!tail.inserted.length) {
+    return interior;
+  }
+
+  return { items: tail.items, inserted: interior.inserted.concat(tail.inserted) };
+};
+
+// Ordinary arrivals stay prepended. An external id that falls strictly inside
+// a loaded contiguous run is placed there, including across a split history
+// pane. Newer external ids keep the existing top/pending path. An external id
+// between pending and the loaded top is inserted into pending by id. An id
+// older than an open tail stays out so paging can still load the middle.
+const placeExternalUpdate = (state, timeline, status, usePendingItems) => {
+  const id = status.get('id');
+
+  if (id === null || id === undefined || id === '') {
+    return state;
+  }
+
+  const items = state.getIn([timeline, 'items'], ImmutableList());
+  const pending = state.getIn([timeline, 'pendingItems'], ImmutableList());
+
+  if (containsId(items, id) || containsId(pending, id)) {
+    return state;
+  }
+
+  let next = state;
+  let placed = false;
+  const splitTimeline = next.getIn([timeline, 'splitTimelineId']);
+
+  if (splitTimeline && next.has(splitTimeline)) {
+    const splitItems = next.getIn([splitTimeline, 'items'], ImmutableList());
+
+    if (!containsId(splitItems, id)) {
+      const history = placeLoadedExternal(splitItems.toArray(), id, next.getIn([splitTimeline, 'hasMore']) === false);
+
+      if (history.inserted.length) {
+        next = replaceItems(next, splitTimeline, history.items);
+        placed = true;
+      }
+    }
+  }
+
+  const direct = placeLoadedExternal(
+    next.getIn([timeline, 'items'], ImmutableList()).toArray(),
+    id,
+    next.getIn([timeline, 'hasMore']) === false,
+  );
+
+  if (direct.inserted.length) {
+    next = replaceItems(next, timeline, direct.items);
+    placed = true;
+  }
+
+  if (placed) {
+    return next;
+  }
+
+  const pendingNow = next.getIn([timeline, 'pendingItems'], ImmutableList());
+  const itemsNow = next.getIn([timeline, 'items'], ImmutableList());
+  const pendingNewest = newestNonNull(pendingNow);
+  const itemsNewest = newestNonNull(itemsNow);
+  let top = pendingNewest || itemsNewest;
+
+  if (pendingNewest && itemsNewest) {
+    top = compareId(pendingNewest, itemsNewest) > 0 ? pendingNewest : itemsNewest;
+  }
+
+  if (!top || compareId(String(id), top) > 0) {
+    return prependTimeline(next, timeline, status, usePendingItems);
+  }
+
+  if (pendingNewest && compareId(String(id), pendingNewest) < 0 && (!itemsNewest || compareId(String(id), itemsNewest) > 0)) {
+    return next.update(timeline, initialTimeline, map => map
+      .set('pendingItems', ImmutableList(insertIdDescending(pendingNow.toArray(), id)))
+      .update('unread', unread => unread + 1));
+  }
+
+  return next;
+};
+
+const prependTimeline = (state, timeline, status, usePendingItems) => {
   const top = state.getIn([timeline, 'top']);
   // While a split is active, keep new ids out of items so the top-of-timeline
   // trim cannot drop arrivals before they are restored as pending.
@@ -142,20 +266,49 @@ const updateTimeline = (state, timeline, status, usePendingItems) => {
   }));
 };
 
+const updateTimeline = (state, timeline, status, usePendingItems) => {
+  if (isExternalStatus(status)) {
+    return placeExternalUpdate(state, timeline, status, usePendingItems);
+  }
+
+  return prependTimeline(state, timeline, status, usePendingItems);
+};
+
+const dropStatusId = (list, id) => (
+  list && typeof list.filterNot === 'function' ? list.filterNot(item => item === id) : ImmutableList()
+);
+
 const deleteStatus = (state, id, references, exclude_account = null) => {
   state.keySeq().forEach(timeline => {
-    if (exclude_account === null || (timeline !== `account:${exclude_account}` && !timeline.startsWith(`account:${exclude_account}:`))) {
-      const helper = list => list.filterNot(item => item === id);
-      state = state.updateIn([timeline, 'items'], helper).updateIn([timeline, 'pendingItems'], helper);
-
-      if (state.getIn([timeline, 'window'])) {
-        state = state.update(timeline, syncHistoryEdges);
-      }
+    if (exclude_account !== null && (timeline === `account:${exclude_account}` || String(timeline).startsWith(`account:${exclude_account}:`))) {
+      return;
     }
+
+    const current = state.get(timeline);
+
+    // One column with a missing list, or a non-timeline entry, must not stop
+    // the other columns from dropping the id. A repeated delete is a no-op.
+    if (!current || typeof current.get !== 'function' || typeof current.update !== 'function') {
+      return;
+    }
+
+    let next = current
+      .update('items', ImmutableList(), list => dropStatusId(list, id))
+      .update('pendingItems', ImmutableList(), list => dropStatusId(list, id));
+
+    if (next.get('window')) {
+      next = syncHistoryEdges(next);
+    }
+
+    state = state.set(timeline, next);
   });
 
   // Remove reblogs of deleted status
   references?.forEach(ref => {
+    if (ref === undefined || ref === null || ref === '') {
+      return;
+    }
+
     state = deleteStatus(state, ref, [], exclude_account);
   });
 
@@ -422,7 +575,10 @@ const applyExternalReconcile = (state, timeline, removeIds, insertIds, seed) => 
     const pending = dropIds(map.get('pendingItems', ImmutableList()), blocked);
 
     if (insertIds && insertIds.length) {
-      items = ImmutableList(placeReconcileIds(items.toArray(), insertIds, { seed: allowSeed }).items);
+      items = ImmutableList(placeReconcileIds(items.toArray(), insertIds, {
+        seed: allowSeed,
+        extendExhaustedTail: map.get('hasMore') === false,
+      }).items);
     }
 
     let next = map.set('items', items).set('pendingItems', pending);

@@ -12,7 +12,7 @@ import StatusList from '../../components/status_list';
 import { addColumn, changeColumnParams, moveColumn, removeColumn } from '../../actions/columns';
 import { changeSetting } from '../../actions/settings';
 import { clearMixSplitAnchor, closeMixTimeline, createMixSplit, destroyMixSplit, loadMixTimeline, mixColumnKey, retryMixSource, saveMixSplitAnchor } from '../../actions/mix_timelines';
-import { closeExternalFeedView, openExternalFeedView } from '../../actions/external_feeds';
+import { closeExternalFeedView, openExternalFeedView, resumeExternalFeedViews } from '../../actions/external_feeds';
 import { closeMixStream, openMixStream, pinMixStream, reconcileMixSource, revealMixStream } from '../../actions/mix_streaming';
 import TimelineSplitControllerCore from '../ui/components/timeline_split_controller_core';
 import { defaultColumnWidth, me } from 'mastodon/initial_state';
@@ -353,6 +353,10 @@ export class MixTimelinePage extends React.PureComponent {
 
     if (sourceKey) {
       this.props.dispatch(reconcileMixSource(this.props.columnKey, sourceKey));
+    }
+
+    if (this.externalFeedKey) {
+      this.props.dispatch(resumeExternalFeedViews({ keys: [this.externalFeedKey] }));
     }
   };
 

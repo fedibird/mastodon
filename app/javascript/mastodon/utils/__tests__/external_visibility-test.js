@@ -63,13 +63,16 @@ describe('external visibility', () => {
     const replied = composer(state, { type: COMPOSE_REPLY, status });
     expect(replied.get('privacy')).toBe('private');
 
-    const redrafted = composer(state, {
+    const draft = state.set('text', 'kept draft').set('privacy', 'unlisted');
+    const redrafted = composer(draft, {
       type: REDRAFT,
       raw_text: 'secret',
-      status,
+      status: status.set('media_attachments', fromJS([{ id: 'media-1', type: 'image' }])),
       context_references: fromJS([]),
     });
-    expect(redrafted.get('privacy')).toBe('private');
+    expect(redrafted.get('privacy')).toBe('unlisted');
+    expect(redrafted.get('text')).toBe('kept draft');
+    expect(redrafted.get('media_attachments')).toEqual(draft.get('media_attachments'));
 
     const edited = composer(state, {
       type: COMPOSE_SET_STATUS,

@@ -21,6 +21,7 @@ import {
   isDecimalStatusId,
   readDocumentVisibleTop,
   restoreTimelineAnchor,
+  selectAnchorFromMeasurements,
   scheduleTimelineAnchorFrames,
   scrollToLoadedTimelineStatus,
 } from '../timeline_navigation';
@@ -469,8 +470,77 @@ class ScrollableList extends PureComponent {
 
     if (pendingChanged || someItemInserted && (this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll)) {
       return this.getScrollHeight() - this.getScrollTop();
-    } else {
+    }
+
+    const grew = React.Children.count(this.props.children) > React.Children.count(prevProps.children);
+    const sameHead = this.getFirstChildKey(prevProps) === this.getFirstChildKey(this.props);
+
+    // A late external row can land under the first item. Keep the article
+    // that was at the top of the viewport from jumping.
+    if (grew && sameHead && this.getScrollTop() > 0) {
+      const anchor = this.captureVisibleArticle();
+
+      if (anchor) {
+        return { anchor: true, id: anchor.id, top: anchor.top };
+      }
+    }
+
+    return null;
+  }
+
+  captureVisibleArticle () {
+    if (!this.node || typeof this.node.querySelectorAll !== 'function') {
       return null;
+    }
+
+    const host = this.getTimelineScrollHost();
+    const visibleTop = this.getTimelineVisibleTop(host);
+    const rows = [];
+    const articles = this.node.querySelectorAll('article[data-id]');
+
+    for (let index = 0; index < articles.length; index += 1) {
+      const article = articles[index];
+      const id = article.getAttribute('data-id');
+
+      if (!/^\d+$/.test(id || '')) {
+        continue;
+      }
+
+      const box = article.getBoundingClientRect();
+
+      rows.push({
+        rowId: id,
+        top: box.top,
+        bottom: box.bottom,
+        height: box.height,
+      });
+    }
+
+    const selected = selectAnchorFromMeasurements({ rows, visibleTop });
+    const row = rows.find(item => item.rowId === selected.rowId);
+
+    if (!row) {
+      return null;
+    }
+
+    return { id: row.rowId, top: row.top };
+  }
+
+  restoreArticleAnchor (snapshot) {
+    if (!this.node || !snapshot || !/^\d+$/.test(snapshot.id || '')) {
+      return;
+    }
+
+    const article = this.node.querySelector(`article[data-id="${snapshot.id}"]`);
+
+    if (!article) {
+      return;
+    }
+
+    const delta = article.getBoundingClientRect().top - snapshot.top;
+
+    if (Math.abs(delta) > 0.5) {
+      this.setScrollTop(this.getScrollTop() + delta);
     }
   }
 
@@ -482,7 +552,9 @@ class ScrollableList extends PureComponent {
     }
     // Reset the scroll position when a new child comes in in order not to
     // jerk the scrollbar around if you're already scrolled down the page.
-    if (snapshot !== null) {
+    if (snapshot && snapshot.anchor) {
+      this.restoreArticleAnchor(snapshot);
+    } else if (snapshot !== null) {
       this.setScrollTop(this.getScrollHeight() - snapshot);
     }
 

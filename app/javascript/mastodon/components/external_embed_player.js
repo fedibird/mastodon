@@ -17,11 +17,12 @@ export { externalEmbedFrameProps };
 // Click to mount one cross-origin player. The iframe is not in the document
 // until then, so the player host is not contacted earlier. The host, not this
 // row, owns the frame from that click onward. sandbox, allow, referrerpolicy,
-// and allowfullscreen come from externalEmbedFrameProps and are applied when
-// the host creates the frame. allow does not include autoplay. iframe load is
-// not treated as playback success. A saved poster is our file, not the
-// publisher URL. Signature query names are refused here so a publisher URL
-// cannot be used as that image.
+// and allowfullscreen come from externalEmbedFrameProps and are copied by
+// createFrame when the one live iframe is created, before src is set.
+// Inline and the fixed dock reuse that node. allow does not include autoplay.
+// iframe load is not treated as playback success. A saved poster is our file,
+// not the publisher URL. Signature query names are refused here so a publisher
+// URL cannot be used as that image.
 const SIGNATURE_QUERY = /(?:^|&)(?:hash|validto|hdnea|exp)=/i;
 const MAX_DURATION = 48 * 60 * 60;
 

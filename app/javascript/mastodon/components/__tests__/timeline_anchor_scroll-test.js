@@ -465,6 +465,144 @@ describe('ScrollableList timeline anchor', () => {
     expect(scroller.scrollTop).toBe(36);
     expect(list.scrollTop).toBe(0);
   });
+
+  it('keeps the visible article when a late row is inserted below or above it', () => {
+    const heights = { 900: 400, 500: 1100, 300: 200, 250: 250, 400: 250 };
+    const original = HTMLElement.prototype.getBoundingClientRect;
+
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.classList && this.classList.contains('scrollable')) {
+        return rect(0, 600);
+      }
+
+      const id = this.getAttribute && this.getAttribute('data-id');
+
+      if (!id || heights[id] === undefined) {
+        return original.call(this);
+      }
+
+      const list = this.closest('.scrollable');
+      const articles = Array.from(list.querySelectorAll('article[data-id]'));
+      let offset = 0;
+
+      articles.some(article => {
+        if (article === this) {
+          return true;
+        }
+
+        offset += heights[article.getAttribute('data-id')] || 0;
+
+        return false;
+      });
+
+      return rect(offset - (list.scrollTop || 0), heights[id]);
+    };
+
+    const view = render(
+      <Provider store={store()}>
+        <ScrollableList scrollKey='home' trackScroll={false} hasMore={false}>
+          {rows(['500', '300'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+
+    list.scrollTop = 200;
+    view.rerender(
+      <Provider store={store()}>
+        <ScrollableList scrollKey='home' trackScroll={false} hasMore={false}>
+          {rows(['500', '250', '300'])}
+        </ScrollableList>
+      </Provider>,
+    );
+
+    expect(list.scrollTop).toBe(200);
+
+    view.rerender(
+      <Provider store={store()}>
+        <ScrollableList scrollKey='home' trackScroll={false} hasMore={false}>
+          {rows(['900', '500', '300'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    list.scrollTop = 500;
+    view.rerender(
+      <Provider store={store()}>
+        <ScrollableList scrollKey='home' trackScroll={false} hasMore={false}>
+          {rows(['900', '400', '500', '300'])}
+        </ScrollableList>
+      </Provider>,
+    );
+
+    expect(list.scrollTop).toBe(750);
+    HTMLElement.prototype.getBoundingClientRect = original;
+  });
+
+  it('anchors the article below a sticky header instead of the one the header covers', () => {
+    const heights = { 40: 40, 500: 500, 80: 100 };
+    const original = HTMLElement.prototype.getBoundingClientRect;
+
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.classList && this.classList.contains('tabs-bar__wrapper')) {
+        return rect(0, 48);
+      }
+
+      if (this.classList && this.classList.contains('scrollable')) {
+        return rect(0, 600);
+      }
+
+      const id = this.getAttribute && this.getAttribute('data-id');
+
+      if (!id || heights[id] === undefined) {
+        return original.call(this);
+      }
+
+      const scroller = document.scrollingElement || document.body;
+      const list = this.closest('.scrollable');
+      const articles = Array.from(list.querySelectorAll('article[data-id]'));
+      let offset = 0;
+
+      articles.some(article => {
+        if (article === this) {
+          return true;
+        }
+
+        offset += heights[article.getAttribute('data-id')] || 0;
+
+        return false;
+      });
+
+      return rect(offset - (scroller.scrollTop || 0), heights[id]);
+    };
+
+    const portal = document.createElement('div');
+    portal.id = 'tabs-bar__portal';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tabs-bar__wrapper';
+    wrapper.appendChild(portal);
+    document.body.appendChild(wrapper);
+
+    const view = render(
+      <Provider store={store()}>
+        <ScrollableList scrollKey='home' trackScroll={false} bindToDocument hasMore={false}>
+          {rows(['40', '500'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    const scroller = document.scrollingElement || document.body;
+
+    scroller.scrollTop = 10;
+    view.rerender(
+      <Provider store={store()}>
+        <ScrollableList scrollKey='home' trackScroll={false} bindToDocument hasMore={false}>
+          {rows(['40', '80', '500'])}
+        </ScrollableList>
+      </Provider>,
+    );
+
+    expect(scroller.scrollTop).toBe(110);
+    HTMLElement.prototype.getBoundingClientRect = original;
+  });
 });
 
 describe('StatusList timeline anchor', () => {

@@ -2229,6 +2229,10 @@ en:
       cw_enabled_hint: The title of each article is the content warning, and the text and media stay collapsed until you open them. This setting is yours. It does not change the feed, and it is not shared with anyone else.
       failed: Saved, but updating imported posts stopped. It will try again.
       heading: Display
+      language: Language
+      language_auto: Detect from the article
+      language_hint: Pick a language for posts from this feed, detect it from each article title and text, or leave it unset. Detection does not use your interface language or your default posting language. A short or unclear article stays unset. This choice is yours. It does not change the feed, and it is not shared with anyone else.
+      language_unspecified: Unspecified
       media_sensitive: Show media from this feed as sensitive
       media_sensitive_hint: Images, audio, and video from this feed stay hidden until you choose to view them. This setting is yours. It does not change the feed, and it is not shared with anyone else.
       save: Save display settings

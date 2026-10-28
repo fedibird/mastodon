@@ -450,8 +450,16 @@ class Formatter
     "<span class=\"quote-inline\"><br/>QT: #{link}</span>"
   end
 
+  # A private projection has no public status URL. url_for returns nil for the
+  # same visibility, projection flag, and marker that hide the public page.
+  # The article URL is not a substitute, and an empty href is not a link.
+  # Both the display suffix and add_original_link_from_status come through here.
   def original_media_link_html(status)
+    return if ExternalBridge::ProjectionPrivacy.private_status?(status)
+
     url = ActivityPub::TagManager.instance.url_for(status)
+    return if url.blank?
+
     summary = media_summary(status)
     link = "<a href=\"#{url}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"unhandled-link\">[#{summary}]</a>"
     "<span class=\"original-media-link\"> #{link}</span>"

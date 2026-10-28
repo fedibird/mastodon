@@ -160,6 +160,7 @@ module ExternalBridge
                 text: fresh_desired.text,
                 spoiler_text: fresh_desired.spoiler_text,
                 sensitive: fresh_desired.sensitive,
+                language: fresh_desired.language,
                 deleted: fresh_deleted,
                 presentation_changed: fresh_presentation_changed,
                 deleted_changed: fresh_deleted_changed,
@@ -189,10 +190,14 @@ module ExternalBridge
           )
         end
         if change[:presentation_changed]
+          # Text, spoiler, sensitive, and language follow the subscriber's
+          # presentation. created_at and the snowflake id stay at the values
+          # chosen on insert. Do not assign id or created_at.
           status.update!(
             text: change[:text],
             spoiler_text: change[:spoiler_text],
-            sensitive: change[:sensitive]
+            sensitive: change[:sensitive],
+            language: change[:language]
           )
           Rails.cache.delete("statuses/#{status.id}")
         end

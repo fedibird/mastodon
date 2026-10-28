@@ -8,8 +8,12 @@ module ExternalBridge
     class PresentationUpdate
       OMIT = :omit
 
-      def call(user:, subscription_id:, media_sensitive: OMIT, cw_enabled: OMIT)
-        attrs = flags(media_sensitive, cw_enabled)
+      # rubocop:disable Metrics/ParameterLists
+      def call(user:, subscription_id:, media_sensitive: OMIT, cw_enabled: OMIT, language_mode: OMIT, language: OMIT)
+        # rubocop:enable Metrics/ParameterLists
+        attrs = flags(media_sensitive, cw_enabled).merge(language_change(language_mode, language))
+        raise Error, :invalid_presentation if attrs.empty?
+
         subscription = nil
         ExternalSubscription.transaction do
           subscription = ExternalSubscription.lock.find_by(id: subscription_id, user_id: user.id)
@@ -37,9 +41,32 @@ module ExternalBridge
         attrs = {}
         attrs[:media_sensitive] = cast(media_sensitive) unless media_sensitive == OMIT
         attrs[:cw_enabled] = cast(cw_enabled) unless cw_enabled == OMIT
-        raise Error, :invalid_presentation if attrs.empty?
-
         attrs
+      end
+
+      # A missing mode and code leaves the saved choice alone. An explicit
+      # unspecified is a real change. A code is stored only for fixed mode.
+      def language_change(mode, language)
+        return {} if mode == OMIT && language == OMIT
+        raise Error, :invalid_presentation unless mode.is_a?(String) && ArticleLanguage::MODES.include?(mode)
+
+        case mode
+        when 'unspecified', 'auto'
+          raise Error, :invalid_presentation if language_code_sent?(language)
+
+          { language_mode: mode, language: nil }
+        when 'fixed'
+          code = ArticleLanguage.canonical(language)
+          raise Error, :invalid_presentation if code.nil?
+
+          { language_mode: 'fixed', language: code }
+        end
+      end
+
+      def language_code_sent?(language)
+        return false if language == OMIT || language.nil?
+
+        true
       end
 
       def unchanged?(subscription, attrs)
