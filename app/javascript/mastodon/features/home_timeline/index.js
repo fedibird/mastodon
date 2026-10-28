@@ -1,7 +1,7 @@
 import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { expandHomeTimeline } from '../../actions/timelines';
-import { closeExternalFeedView, invalidateExternalFeedView, openExternalFeedView, reconcileExternalFeedView } from '../../actions/external_feeds';
+import { closeExternalFeedView, invalidateExternalFeedView, openExternalFeedView, reconcileExternalFeedView, resumeExternalFeedViews } from '../../actions/external_feeds';
 import { expandWindowedHistory } from '../../actions/windowed_history';
 import { homeHistoryContract } from '../../windowed_history/sources';
 import { getHomeVisibilities } from 'mastodon/selectors';
@@ -86,6 +86,21 @@ class HomeTimeline extends React.PureComponent {
 
   handleSplitRatioCommit = (ratio) => {
     this.props.dispatch(changeSetting(['home', 'splitRatio'], ratio));
+  }
+
+  refreshColumn = () => {
+    const { dispatch, visibilities } = this.props;
+
+    dispatch(expandHomeTimeline({ visibilities }));
+    dispatch(resumeExternalFeedViews({ keys: ['home'], targets: [{ type: 'home' }] }));
+  }
+
+  handleHeaderClick = () => {
+    if (this.splitActions) {
+      this.splitActions.handleHeaderClick();
+    }
+
+    this.refreshColumn();
   }
 
   handleLoadMore = maxId => {
@@ -197,6 +212,7 @@ class HomeTimeline extends React.PureComponent {
     const emptyMessage = this.renderEmptyMessage();
 
     this.splitTimelineId = split.splitTimelineId;
+    this.splitActions = split;
 
     let announcementsButton = null;
 
@@ -284,7 +300,7 @@ class HomeTimeline extends React.PureComponent {
           title={intl.formatMessage(messages.title)}
           onPin={this.handlePin}
           onMove={this.handleMove}
-          onClick={split.handleHeaderClick}
+          onClick={this.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
           extraButton={extraButton}

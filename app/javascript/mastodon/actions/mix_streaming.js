@@ -14,6 +14,7 @@ import { normalizeFilterResult } from './importer/normalizer';
 import { me } from '../initial_state';
 import { receiveExternalLinkBoostChanged } from './external_boosts';
 import { noteExternalStatusStream, receiveExternalFeedChanged, reconcileExternalFeedView, resumeExternalFeedViews } from './external_feeds';
+import { isExternalStatus } from '../external_feeds/reconcile';
 import {
   MIX_STREAM_READY,
   MIX_STREAM_CONNECT,
@@ -338,6 +339,7 @@ export function reconcileMixSource(columnKey, sourceKey) {
               definitionFingerprint: fingerprint,
               id: status.id,
               decision: 'accept',
+              external: isExternalStatus(status),
               filterResults: page.filterResults[status.id] || filterResultsFor(status),
             });
           });
@@ -379,6 +381,7 @@ export function reconcileMixSource(columnKey, sourceKey) {
           definitionFingerprint: fingerprint,
           id: status.id,
           decision: 'accept',
+          external: isExternalStatus(status),
           filterResults: page.filterResults[status.id] || filterResultsFor(status),
         });
       });
@@ -454,6 +457,7 @@ const handleStatus = (dispatch, getState, columnKey, sessionId, fingerprint, sou
     definitionFingerprint: fingerprint,
     id: status.id,
     decision,
+    external: isExternalStatus(status),
     filterResults: filterResultsFor(status),
   });
 };

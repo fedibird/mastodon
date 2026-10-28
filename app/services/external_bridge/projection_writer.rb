@@ -19,6 +19,9 @@ module ExternalBridge
       visibility = storage_visibility
       RSS::SubscriptionFence.guard!(subscription) do
         fields = fields_for(subscription, resource, text, sensitive, spoiler_text)
+        # created_at is the publication instant, chosen once. language is the
+        # subscriber's choice, or nil when the caller passed an explicit text.
+        # updated_at stays the save clock. Do not pass override_timestamps.
         status = Status.create!(
           account_id: user.account_id,
           text: fields.text,
@@ -30,9 +33,8 @@ module ExternalBridge
           local: true,
           reply: false,
           sensitive: fields.sensitive,
-          # Subscriber language only. #624 sets created_at on this same
-          # create!. Keep both language: and created_at: when the branches merge.
-          language: fields.language
+          language: fields.language,
+          created_at: RSS::PublicationTime.for_new_status(resource)
         )
         marker = ExternalStatusProjection.create!(
           user_id: user.id,

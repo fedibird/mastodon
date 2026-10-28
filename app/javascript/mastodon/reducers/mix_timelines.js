@@ -26,7 +26,7 @@ import {
   MIX_DISPLAY_HISTORY,
   MIX_EXTERNAL_RECONCILE,
 } from '../actions/mix_timelines';
-import { placeReconcileIds } from '../external_feeds/reconcile';
+import { appendOlderThanTail, placeReconcileIds, spliceHistory } from '../external_feeds/reconcile';
 
 const initialSource = ImmutableMap({
   ids: ImmutableList(),
@@ -76,6 +76,85 @@ const mapColumns = (state, updater) => {
   });
 
   return next;
+};
+
+// Same rule as the home timeline: a stream id can fill a loaded run, and can
+// extend the tail only when that source has no older page left.
+const placeLoadedMixExternal = (source, ids, id) => {
+  const list = ids.toArray();
+  const interior = spliceHistory(list, [id]);
+  const exhausted = source.get('hasMore') === false && !source.get('gap') && !source.get('partial');
+
+  if (!exhausted) {
+    return interior;
+  }
+
+  const tail = appendOlderThanTail(interior.items, [id]);
+
+  if (!tail.inserted.length) {
+    return interior;
+  }
+
+  return { items: tail.items, inserted: interior.inserted.concat(tail.inserted) };
+};
+
+const recordLiveStatus = (state, action, pending) => state.updateIn([action.columnKey, 'live', action.sourceKey], initialLive, entry => {
+  const ids = entry.get('statusIds').includes(action.id) ? entry.get('statusIds') : entry.get('statusIds').push(action.id);
+  const results = entry.get('filterResults').merge(fromJS({ [action.id]: action.filterResults || [] }));
+
+  return entry.merge({
+    statusIds: ids,
+    filterResults: results,
+    lastReceivedId: newerId(entry.get('lastReceivedId'), action.id),
+  });
+}).updateIn([action.columnKey, 'sources', action.sourceKey, 'revokedIds'], ImmutableList(), ids => ids.filter(id => id !== action.id)).updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), list => {
+  if (!pending || state.getIn([action.columnKey, 'pinnedToTop']) || list.includes(action.id)) {
+    return list;
+  }
+
+  return list.push(action.id);
+});
+
+// A late external id inside a confirmed loaded run is written into that run
+// and is not held in pending. Newer ids keep the ordinary live/pending path.
+// An id older than the loaded edge is left for paging. A gap or partial page
+// is not treated as a contiguous run.
+const placeExternalMixStatus = (state, action) => {
+  const source = state.getIn([action.columnKey, 'sources', action.sourceKey]);
+  const history = state.getIn([action.columnKey, 'split', 'history', 'sources', action.sourceKey]);
+  const sourceIds = source ? source.get('ids', ImmutableList()) : ImmutableList();
+  const historyIds = history ? history.get('ids', ImmutableList()) : null;
+  const newest = sourceIds.find(id => id !== null && id !== undefined);
+  const unconfirmed = (entry) => !!(entry && (entry.get('gap') || entry.get('partial')));
+  const sourceOpen = source && !unconfirmed(source);
+  const historyOpen = history && !unconfirmed(history);
+  const placed = sourceOpen ? placeLoadedMixExternal(source, sourceIds, action.id) : { inserted: [] };
+  const historyPlaced = historyOpen ? placeLoadedMixExternal(history, historyIds, action.id) : { inserted: [] };
+
+  if ((sourceIds.includes(action.id) || (historyIds && historyIds.includes(action.id))) && !placed.inserted.length && !historyPlaced.inserted.length) {
+    return state;
+  }
+
+  if (placed.inserted.length || historyPlaced.inserted.length) {
+    let next = state;
+
+    if (placed.inserted.length) {
+      next = next.setIn([action.columnKey, 'sources', action.sourceKey, 'ids'], ImmutableList(placed.items));
+      next = next.updateIn([action.columnKey, 'sources', action.sourceKey, 'filterResults'], ImmutableMap(), results => results.merge(fromJS({ [action.id]: action.filterResults || [] })));
+    }
+
+    if (historyPlaced.inserted.length) {
+      next = next.setIn([action.columnKey, 'split', 'history', 'sources', action.sourceKey, 'ids'], ImmutableList(historyPlaced.items));
+    }
+
+    return recordLiveStatus(next, action, false);
+  }
+
+  if (newest && compareId(String(action.id), String(newest)) < 0) {
+    return state;
+  }
+
+  return null;
 };
 
 const newerId = (left, right) => {
@@ -435,22 +514,15 @@ export default function mixTimelines(state = initialState, action) {
       return state.updateIn([action.columnKey, 'live', action.sourceKey], initialLive, entry => entry.update('statusIds', list => list.filter(id => id !== action.id)));
     }
 
-    return state.updateIn([action.columnKey, 'live', action.sourceKey], initialLive, entry => {
-      const ids = entry.get('statusIds').includes(action.id) ? entry.get('statusIds') : entry.get('statusIds').push(action.id);
-      const results = entry.get('filterResults').merge(fromJS({ [action.id]: action.filterResults || [] }));
+    if (action.external) {
+      const placed = placeExternalMixStatus(state, action);
 
-      return entry.merge({
-        statusIds: ids,
-        filterResults: results,
-        lastReceivedId: newerId(entry.get('lastReceivedId'), action.id),
-      });
-    }).updateIn([action.columnKey, 'sources', action.sourceKey, 'revokedIds'], ImmutableList(), ids => ids.filter(id => id !== action.id)).updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), pending => {
-      if (state.getIn([action.columnKey, 'pinnedToTop']) || pending.includes(action.id)) {
-        return pending;
+      if (placed) {
+        return placed;
       }
+    }
 
-      return pending.push(action.id);
-    });
+    return recordLiveStatus(state, action, true);
   case MIX_STREAM_EDIT:
     if (!sameSession(state, action) || !action.id) {
       return state;
@@ -688,11 +760,14 @@ const otherSourceHas = (column, sourceKey, id) => {
   return lists.some(sources => sources && sources.some((source, key) => key !== sourceKey && (source.get('ids') || ImmutableList()).includes(id)));
 };
 
-const patchIdList = (list, blocked, insertIds, seed) => {
+const patchIdList = (list, blocked, insertIds, seed, extendExhaustedTail) => {
   let next = withoutIds(list || ImmutableList(), blocked);
 
   if (insertIds && insertIds.length) {
-    next = ImmutableList(placeReconcileIds(next.toArray(), insertIds, { seed: seed === true }).items);
+    next = ImmutableList(placeReconcileIds(next.toArray(), insertIds, {
+      seed: seed === true,
+      extendExhaustedTail: extendExhaustedTail === true,
+    }).items);
   }
 
   return next;
@@ -793,7 +868,10 @@ const applyMixExternalReconcile = (state, action) => {
     const insertParent = insertPath && insertPath.slice(0, -1);
 
     if (insertPath && next.getIn([action.columnKey].concat(insertParent))) {
-      next = next.updateIn([action.columnKey].concat(insertPath), ImmutableList(), list => patchIdList(list, blocked, action.insertIds, action.seed === true));
+      const parent = next.getIn([action.columnKey].concat(insertParent));
+      const extendExhaustedTail = !!(parent && parent.get && parent.get('hasMore') === false && !parent.get('gap') && !parent.get('partial'));
+
+      next = next.updateIn([action.columnKey].concat(insertPath), ImmutableList(), list => patchIdList(list, blocked, action.insertIds, action.seed === true, extendExhaustedTail));
     }
 
     const resultsPath = filterResultsPathFor(next.get(action.columnKey), action);

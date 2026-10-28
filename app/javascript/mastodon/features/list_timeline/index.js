@@ -9,7 +9,7 @@ import ColumnHeader from '../../components/column_header';
 import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
 import { FormattedMessage, defineMessages, injectIntl } from 'react-intl';
 import { connectListStream } from '../../actions/streaming';
-import { closeExternalFeedView, openExternalFeedView } from '../../actions/external_feeds';
+import { closeExternalFeedView, openExternalFeedView, resumeExternalFeedViews } from '../../actions/external_feeds';
 import { expandListTimeline } from '../../actions/timelines';
 import { expandWindowedHistory } from '../../actions/windowed_history';
 import { listHistoryContract } from '../../windowed_history/sources';
@@ -194,6 +194,25 @@ class ListTimeline extends React.PureComponent {
     this.statusAnchor = null;
   }
 
+  refreshColumn = () => {
+    const { dispatch } = this.props;
+    const { id } = this.props.params;
+
+    dispatch(expandListTimeline(id));
+    dispatch(resumeExternalFeedViews({
+      keys: [`list:${id}`],
+      targets: [{ type: 'list', id: String(id) }],
+    }));
+  }
+
+  handleHeaderClick = () => {
+    if (this.splitActions) {
+      this.splitActions.handleHeaderClick();
+    }
+
+    this.refreshColumn();
+  }
+
   handleLoadMore = maxId => {
     const { id } = this.props.params;
     this.props.dispatch(expandListTimeline(id, { maxId }));
@@ -287,6 +306,7 @@ class ListTimeline extends React.PureComponent {
     const emptyMessage = <FormattedMessage id='empty_column.list' defaultMessage='There is nothing in this list yet. When members of this list post new statuses, they will appear here.' />;
 
     this.splitTimelineId = split.splitTimelineId;
+    this.splitActions = split;
 
     let timeline;
 
@@ -350,7 +370,7 @@ class ListTimeline extends React.PureComponent {
           title={title}
           onPin={this.handlePin}
           onMove={this.handleMove}
-          onClick={split.handleHeaderClick}
+          onClick={this.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
           extraButton={(

@@ -54,12 +54,16 @@ module ExternalBridge
           title: Sanitizer.title(text_at(channel, 'title')),
           site_url: safe_url(text_at(channel, 'link')),
           items: items,
-          icon_hints: icon_hints([
-            ['rss_image', channel.at_xpath('image/url')&.text],
-            ['itunes_image', channel.at_xpath('image[@href]')&.[]('href')],
-          ]),
+          icon_hints: icon_hints(rss_icon_pairs(channel)),
           **feed_activitypub(channel, items)
         )
+      end
+
+      def rss_icon_pairs(channel)
+        [
+          ['rss_image', channel.at_xpath('image/url')&.text],
+          ['itunes_image', channel.at_xpath('image[@href]')&.[]('href')],
+        ]
       end
 
       def parse_rdf(document)
@@ -105,7 +109,7 @@ module ExternalBridge
           body: body,
           canonical_url: link,
           byline: Sanitizer.title(text_at(node, 'creator').presence || text_at(node, 'author')),
-          published_at: parse_time(text_at(node, 'pubDate')) || parse_time(text_at(node, 'date')),
+          published_at: PublicationTime.parse(text_at(node, 'pubDate')) || PublicationTime.parse(text_at(node, 'date')),
           truncated: truncated,
           media: media_for(node),
           keywords: keywords_for(node),
@@ -126,7 +130,7 @@ module ExternalBridge
           body: body,
           canonical_url: link,
           byline: Sanitizer.title(node.at_xpath('author/name')&.text),
-          published_at: parse_time(text_at(node, 'published').presence || text_at(node, 'updated')),
+          published_at: PublicationTime.parse(text_at(node, 'published')) || PublicationTime.parse(text_at(node, 'updated')),
           truncated: truncated,
           media: media_for(node),
           keywords: keywords_for(node),
@@ -217,14 +221,6 @@ module ExternalBridge
 
         CanonicalURL.normalize!(text, item: item)
       rescue Error
-        nil
-      end
-
-      def parse_time(value)
-        return nil if value.blank?
-
-        Time.zone.parse(value)
-      rescue ArgumentError, TypeError
         nil
       end
     end

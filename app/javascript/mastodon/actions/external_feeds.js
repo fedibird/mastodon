@@ -21,7 +21,9 @@ import {
   HISTORY_PAGES_PER_CYCLE,
   MEMBERSHIP_BATCH,
   budgetChunks,
+  exhaustedTailSegment,
   loadedRanges,
+  nextExhaustedPage,
   nextHistoryCursor,
   parseControl,
   placeReconcileIds,
@@ -171,7 +173,7 @@ export function discardExternalFeedSessionForTests () {
 }
 
 export function receiveExternalFeedChanged (payload) {
-  return (dispatch, getState) => {
+  return (dispatch) => {
     const parsed = parseControl(payload);
 
     if (!parsed.ok) {
@@ -618,6 +620,71 @@ function timelineRanges (state, timeline) {
   return ranges;
 }
 
+async function loadExhaustedTimelineTail (dispatch, getState, client, spec, snapshot, progress, range, pages) {
+  if (getState().getIn(['timelines', range.timeline, 'hasMore']) !== false) {
+    return { pages, retry: false, stop: false };
+  }
+
+  const items = listOf(getState().getIn(['timelines', range.timeline, 'items']));
+  const tail = exhaustedTailSegment(items);
+
+  if (!tail) {
+    return { pages, retry: false, stop: false };
+  }
+
+  const rangeKey = `${range.side}:${tail.key}:exhausted`;
+  const saved = progress.history[rangeKey] || { done: false, cursor: tail.oldest };
+
+  if (saved.done) {
+    return { pages, retry: false, stop: false };
+  }
+
+  if (pages >= HISTORY_PAGES_PER_CYCLE) {
+    return { pages, retry: true, stop: false };
+  }
+
+  const path = spec.path || '/api/v1/timelines/home';
+  const params = spec.params ? spec.params() : { visibilities: getHomeVisibilities(getState()) };
+  const response = await client.get(path, { params: { ...params, limit: HISTORY_PAGE_SIZE, max_id: saved.cursor } });
+
+  pages += 1;
+
+  if (!response || response.status === 206 || responsePreservesDisplayed(response.status)) {
+    return { pages, retry: !response || response.status === 429 || response.status === 206, stop: false };
+  }
+
+  const gate = stillCurrent(getState, snapshot, spec.key);
+  const live = gate && externalFeedSession.progress(spec.key, spec.token);
+
+  if (!gate || !live) {
+    return { pages, retry: false, stop: true };
+  }
+
+  const statuses = Array.isArray(response.data) ? response.data : (response.data && response.data.statuses) || [];
+  const currentItems = listOf(getState().getIn(['timelines', range.timeline, 'items']));
+  const gated = freshStatuses(statuses, snapshot.streamClock);
+  const placed = placeReconcileIds(currentItems, gated.map(status => status.id), { extendExhaustedTail: true });
+  const inserted = new Set(placed.inserted);
+  const fresh = gated.filter(status => inserted.has(String(status.id)));
+
+  if (fresh.length) {
+    dispatch(importFetchedStatuses(fresh));
+    dispatch({
+      type: TIMELINE_EXTERNAL_RECONCILE,
+      timeline: range.timeline,
+      removeIds: [],
+      insertIds: placed.inserted,
+      extendExhaustedTail: true,
+    });
+  }
+
+  const cursor = nextExhaustedPage(statuses, HISTORY_PAGE_SIZE);
+
+  live.history[rangeKey] = !cursor.done && cursor.cursor === saved.cursor ? { done: true, cursor: null } : cursor;
+
+  return { pages, retry: !live.history[rangeKey].done, stop: false };
+}
+
 async function fillTimeline (dispatch, getState, client, spec, snapshot, progress) {
   const path = spec.path || '/api/v1/timelines/home';
   const params = spec.params ? spec.params() : { visibilities: getHomeVisibilities(getState()) };
@@ -627,6 +694,18 @@ async function fillTimeline (dispatch, getState, client, spec, snapshot, progres
 
   for (let rangeIndex = 0; rangeIndex < ranges.length; rangeIndex += 1) {
     const range = ranges[rangeIndex];
+    const tailPage = await loadExhaustedTimelineTail(dispatch, getState, client, spec, snapshot, progress, range, pages);
+
+    pages = tailPage.pages;
+
+    if (tailPage.stop) {
+      return { stop: true, retry: false };
+    }
+
+    if (tailPage.retry) {
+      retry = true;
+    }
+
     const segments = loadedRanges(range.items);
 
     for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
@@ -876,9 +955,175 @@ async function reconcileMix (dispatch, getState, key, token) {
   return retry;
 }
 
+const mixPaneSource = (getState, columnKey, keyForSource, side) => (
+  side === 'history'
+    ? getState().getIn(['mix_timelines', columnKey, 'split', 'history', 'sources', keyForSource])
+    : getState().getIn(['mix_timelines', columnKey, 'sources', keyForSource])
+);
+
+const paneExhausted = (sourceState) => !!(
+  sourceState && sourceState.get('hasMore') === false && !sourceState.get('gap') && !sourceState.get('partial')
+);
+
+// Compact pages name accounts and boosted or quoted posts by id. Store those
+// rows with the same protection as an ordinary mix history page.
+const storeMixPage = (dispatch, getState, snapshot, page, gated, placed, columnKey, sourceKey, rangeSide, splitId, seed) => {
+  const movedSince = (id) => externalFeedSession.statusMovedSince(id, snapshot.streamClock);
+  const references = protectStatusBodies(page.referencedStatuses, movedSince);
+  const inserted = new Set(placed.inserted);
+  const fresh = gated.filter(status => status && inserted.has(String(status.id)));
+  const bodies = references.concat(fresh);
+
+  if (page.accounts.length) {
+    dispatch(importFetchedAccounts(page.accounts));
+  }
+
+  if (page.relationships.length) {
+    dispatch(fetchRelationshipsSuccess(page.relationships));
+  }
+
+  if (page.filters.length) {
+    dispatch(importFilters(page.filters));
+  }
+
+  if (bodies.length) {
+    const previous = previousStatusesForImport(getState().get('statuses'), bodies);
+
+    dispatch(importFetchedStatuses(statusesForSharedImport(bodies, previous)));
+  }
+
+  if (fresh.length) {
+    const filterResults = {};
+
+    fresh.forEach(status => {
+      filterResults[status.id] = page.filterResults[status.id] || [];
+    });
+    dispatch({
+      type: MIX_EXTERNAL_RECONCILE,
+      columnKey,
+      sourceKey,
+      sessionId: snapshot.sessionId,
+      definitionFingerprint: snapshot.definitionFingerprint,
+      removeIds: [],
+      insertIds: placed.inserted,
+      seed: seed === true,
+      range: { side: rangeSide, splitId },
+      filterResults,
+    });
+  }
+};
+
+async function loadExhaustedMixTail (dispatch, getState, client, columnKey, source, keyForSource, snapshot, progress, takePage) {
+  const ranges = mixRanges(getState(), columnKey, keyForSource);
+  let retry = false;
+
+  for (let rangeIndex = 0; rangeIndex < ranges.length; rangeIndex += 1) {
+    const range = ranges[rangeIndex];
+    const sourceState = mixPaneSource(getState, columnKey, keyForSource, range.side);
+
+    if (!paneExhausted(sourceState)) {
+      continue;
+    }
+
+    const tail = exhaustedTailSegment(listOf(sourceState.get('ids')));
+
+    if (!tail) {
+      continue;
+    }
+
+    const splitId = range.side === 'history'
+      ? getState().getIn(['mix_timelines', columnKey, 'split', 'id'])
+      : null;
+
+    if (range.side === 'history' && !splitId) {
+      continue;
+    }
+
+    const rangeKey = `${keyForSource}:${range.side}:${tail.key}:exhausted`;
+    const saved = progress.history[rangeKey] || { done: false, cursor: tail.oldest };
+
+    if (saved.done) {
+      continue;
+    }
+
+    if (!takePage()) {
+      return { retry: true, stop: false };
+    }
+
+    const request = resolveRequest(source, saved.cursor, mixConstraints(getState));
+
+    if (!request.ok) {
+      continue;
+    }
+
+    const response = await client.get(request.path, { params: { ...request.params, limit: HISTORY_PAGE_SIZE } });
+
+    if (!response || response.status === 206 || responsePreservesDisplayed(response.status)) {
+      return { retry: !response || response.status === 429 || response.status === 206, stop: false };
+    }
+
+    if (!mixColumnCurrent(getState, columnKey, snapshot)) {
+      return { retry: false, stop: true };
+    }
+
+    const live = externalFeedSession.progress(snapshot.key, snapshot.token);
+
+    if (!live) {
+      return { retry: false, stop: true };
+    }
+
+    if (range.side === 'history' && getState().getIn(['mix_timelines', columnKey, 'split', 'id']) !== splitId) {
+      live.history[rangeKey] = { done: true, cursor: null };
+      continue;
+    }
+
+    const page = normalizePage({ status: response.status, data: response.data, path: request.path });
+
+    if (!page.ok) {
+      continue;
+    }
+
+    const flags = visibilityConstraints(mixConstraints(getState));
+    const me = getState().getIn(['meta', 'me']);
+    const movedSince = (id) => externalFeedSession.statusMovedSince(id, snapshot.streamClock);
+    const visible = page.statuses.filter(status => classifyStreamStatus(source, status, {
+      me,
+      constraints: flags,
+      delivered: source.type === 'list',
+    }) === 'accept');
+    const gated = protectStatusBodies(visible, movedSince);
+    const items = range.side === 'history'
+      ? listOf(getState().getIn(['mix_timelines', columnKey, 'split', 'history', 'sources', keyForSource, 'ids']))
+      : listOf(getState().getIn(['mix_timelines', columnKey, 'sources', keyForSource, 'ids']));
+    const placed = placeReconcileIds(items, gated.map(status => status.id), { extendExhaustedTail: true });
+
+    storeMixPage(dispatch, getState, snapshot, page, gated, placed, columnKey, keyForSource, range.side, splitId, false);
+
+    const cursor = nextExhaustedPage(page.statuses, HISTORY_PAGE_SIZE);
+
+    live.history[rangeKey] = !cursor.done && cursor.cursor === saved.cursor ? { done: true, cursor: null } : cursor;
+
+    if (!live.history[rangeKey].done) {
+      retry = true;
+    }
+  }
+
+  return { retry, stop: false };
+}
+
 async function fillMixSource (dispatch, getState, client, columnKey, source, keyForSource, snapshot, progress, takePage) {
   const ranges = mixRanges(getState(), columnKey, keyForSource);
   let retry = false;
+
+  const tailPage = await loadExhaustedMixTail(dispatch, getState, client, columnKey, source, keyForSource, snapshot, progress, takePage);
+
+  if (tailPage.stop) {
+    return { stop: true, retry: false };
+  }
+
+  if (tailPage.retry) {
+    retry = true;
+  }
 
   for (let rangeIndex = 0; rangeIndex < ranges.length; rangeIndex += 1) {
     const range = ranges[rangeIndex];
@@ -947,53 +1192,15 @@ async function fillMixSource (dispatch, getState, client, columnKey, source, key
         delivered: source.type === 'list',
       }) === 'accept');
       const gated = protectStatusBodies(visible, movedSince);
-      const references = protectStatusBodies(page.referencedStatuses, movedSince);
       const currentItems = listOf(getState().getIn(['mix_timelines', columnKey, 'sources', keyForSource, 'ids']));
       const historyItems = listOf(getState().getIn(['mix_timelines', columnKey, 'split', 'history', 'sources', keyForSource, 'ids']));
       const items = range.side === 'history' ? historyItems : currentItems;
-      const placed = placeReconcileIds(items, gated.map(status => status.id), { seed: segment.empty });
-      const inserted = new Set(placed.inserted);
-      const fresh = gated.filter(status => inserted.has(String(status.id)));
-      const bodies = references.concat(fresh);
+      const paneState = mixPaneSource(getState, columnKey, keyForSource, range.side);
+      const tail = exhaustedTailSegment(items);
+      const exhausted = paneExhausted(paneState) && tail && String(tail.oldest) === String(segment.oldest);
+      const placed = placeReconcileIds(items, gated.map(status => status.id), { seed: segment.empty, extendExhaustedTail: exhausted });
 
-      if (page.accounts.length) {
-        dispatch(importFetchedAccounts(page.accounts));
-      }
-
-      if (page.relationships.length) {
-        dispatch(fetchRelationshipsSuccess(page.relationships));
-      }
-
-      if (page.filters.length) {
-        dispatch(importFilters(page.filters));
-      }
-
-      if (bodies.length) {
-        const previous = previousStatusesForImport(getState().get('statuses'), bodies);
-
-        dispatch(importFetchedStatuses(statusesForSharedImport(bodies, previous)));
-      }
-
-      if (fresh.length) {
-        const filterResults = {};
-
-        fresh.forEach(status => {
-          filterResults[status.id] = page.filterResults[status.id] || [];
-        });
-
-        dispatch({
-          type: MIX_EXTERNAL_RECONCILE,
-          columnKey,
-          sourceKey: keyForSource,
-          sessionId: snapshot.sessionId,
-          definitionFingerprint: snapshot.definitionFingerprint,
-          removeIds: [],
-          insertIds: placed.inserted,
-          seed: segment.empty,
-          range: { side: range.side, splitId },
-          filterResults,
-        });
-      }
+      storeMixPage(dispatch, getState, snapshot, page, gated, placed, columnKey, keyForSource, range.side, splitId, segment.empty);
 
       const cursor = nextHistoryCursor(segment, page.statuses, HISTORY_PAGE_SIZE);
 

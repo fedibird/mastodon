@@ -301,8 +301,86 @@ export const statusesInsideLoadedRange = (items, statuses) => {
   };
 };
 
+// Older ids may follow a tail that the server has already shown is complete.
+// A trailing null is an open gap, so the tail is not extended across it.
+export const appendOlderThanTail = (items, insertIds) => {
+  const list = items || [];
+
+  if (!list.length || list[list.length - 1] === null || list[list.length - 1] === undefined) {
+    return { items: list.slice(), inserted: [] };
+  }
+
+  const segments = segmentsOf(list);
+  const last = segments[segments.length - 1];
+
+  if (!last || !last.length || String(list[list.length - 1]) !== String(last[last.length - 1])) {
+    return { items: list.slice(), inserted: [] };
+  }
+
+  const oldest = String(last[last.length - 1]);
+  const present = new Set(list.filter(id => id !== null && id !== undefined).map(id => String(id)));
+  const older = [];
+
+  (insertIds || []).forEach(value => {
+    const id = decimalId(value);
+
+    if (!id || present.has(id) || older.indexOf(id) !== -1) {
+      return;
+    }
+
+    if (compareId(id, oldest) < 0) {
+      older.push(id);
+      present.add(id);
+    }
+  });
+
+  if (!older.length) {
+    return { items: list.slice(), inserted: [] };
+  }
+
+  older.sort((left, right) => compareId(right, left));
+
+  return { items: list.concat(older), inserted: older };
+};
+
+// The loaded list's final contiguous run, when that run is the real end.
+export const exhaustedTailSegment = (items) => {
+  const segments = loadedRanges(items).filter(segment => !segment.skip && !segment.empty && segment.oldest);
+  const tail = segments[segments.length - 1];
+  const list = items || [];
+
+  if (!tail || !list.length || list[list.length - 1] === null || list[list.length - 1] === undefined) {
+    return null;
+  }
+
+  if (String(list[list.length - 1]) !== String(tail.oldest)) {
+    return null;
+  }
+
+  return tail;
+};
+
+// A short or empty older page finishes the exhausted tail. A full page continues
+// from its oldest id, past the previously loaded edge.
+export const nextExhaustedPage = (statuses, pageSize) => {
+  const page = statuses || [];
+
+  if (page.length < pageSize) {
+    return { done: true, cursor: null };
+  }
+
+  const oldest = decimalId(page[page.length - 1] && page[page.length - 1].id);
+
+  if (!oldest) {
+    return { done: true, cursor: null };
+  }
+
+  return { done: false, cursor: oldest };
+};
+
 // Interior ids stay inside a loaded run. An empty list can be seeded. A single
 // loaded id can gain older neighbours below it. A null gap stays open.
+// extendExhaustedTail also appends ids older than a confirmed, gap-free tail.
 export const placeReconcileIds = (items, insertIds, options = {}) => {
   const list = (items || []).slice();
   const hasId = list.some(id => id !== null && id !== undefined);
@@ -326,48 +404,20 @@ export const placeReconcileIds = (items, insertIds, options = {}) => {
   const interior = spliceHistory(list, insertIds);
   const segments = segmentsOf(interior.items);
   const last = segments[segments.length - 1];
+  const extendSingle = !!(last && last.length === 1);
+  const extendTail = options.extendExhaustedTail === true;
 
-  if (!last || last.length !== 1) {
+  if (!last || (!extendSingle && !extendTail)) {
     return interior;
   }
 
-  const anchor = last[0];
-  const present = new Set(interior.items.filter(id => id !== null && id !== undefined).map(id => String(id)));
-  const older = [];
+  const tail = appendOlderThanTail(interior.items, insertIds);
 
-  (insertIds || []).forEach(value => {
-    const id = decimalId(value);
-
-    if (!id || present.has(id) || older.indexOf(id) !== -1) {
-      return;
-    }
-
-    if (compareId(id, anchor) < 0) {
-      older.push(id);
-      present.add(id);
-    }
-  });
-
-  if (!older.length) {
+  if (!tail.inserted.length) {
     return interior;
   }
 
-  older.sort((left, right) => compareId(right, left));
-  let lastNonNull = -1;
-
-  interior.items.forEach((id, index) => {
-    if (id !== null && id !== undefined) {
-      lastNonNull = index;
-    }
-  });
-
-  if (lastNonNull < 0 || String(interior.items[lastNonNull]) !== anchor) {
-    return interior;
-  }
-
-  const next = interior.items.slice(0, lastNonNull + 1).concat(older, interior.items.slice(lastNonNull + 1));
-
-  return { items: next, inserted: interior.inserted.concat(older) };
+  return { items: tail.items, inserted: interior.inserted.concat(tail.inserted) };
 };
 
 const detachMovedBody = (status, movedSince) => {
@@ -396,6 +446,45 @@ const detachMovedBody = (status, movedSince) => {
 
 // Drop a body whose stream clock moved after the request, including a nested
 // boost or quote. The parent keeps the id so the newer stored body stays.
+export const isExternalStatus = (status) => {
+  if (!status) {
+    return false;
+  }
+
+  const read = (key) => (typeof status.get === 'function' ? status.get(key) : status[key]);
+  const visibility = read('visibility_ex') || read('visibility');
+
+  return visibility === 'external';
+};
+
+// Newest-first. A null gap stays where it is. The inserted id is a decimal
+// string, so compareId never coerces a 64-bit snowflake through Number.
+export const insertIdDescending = (ids, id) => {
+  const value = decimalId(id);
+
+  if (!value) {
+    return (ids || []).slice();
+  }
+
+  const next = [];
+  let placed = false;
+
+  (ids || []).forEach(existing => {
+    if (!placed && existing !== null && existing !== undefined && compareId(value, String(existing)) > 0) {
+      next.push(value);
+      placed = true;
+    }
+
+    next.push(existing);
+  });
+
+  if (!placed) {
+    next.push(value);
+  }
+
+  return next;
+};
+
 export const protectStatusBodies = (statuses, movedSince) => (statuses || []).reduce((kept, status) => {
   if (!status || !status.id || movedSince(status.id)) {
     return kept;
