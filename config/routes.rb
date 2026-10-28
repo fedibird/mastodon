@@ -167,6 +167,7 @@ Rails.application.routes.draw do
     delete 'external_services/rss/subscriptions/:id', to: 'external_services/rss_subscriptions#destroy', as: :external_services_rss_subscription
     get 'external_services/rss/subscription_deletions/:id', to: 'external_services/rss_subscription_deletions#show', as: :external_services_rss_subscription_deletion
     post 'external_services/rss/subscription_deletions/:id/retry', to: 'external_services/rss_subscription_deletions#retry', as: :retry_external_services_rss_subscription_deletion
+    post 'external_services/rss/subscription_deletions/:id/dismiss', to: 'external_services/rss_subscription_deletions#dismiss', as: :dismiss_external_services_rss_subscription_deletion
     patch 'external_services/rss/subscriptions/:id/feed_routes', to: 'external_services/rss_feed_routes#update', as: :external_services_rss_subscription_feed_routes
     patch 'external_services/rss/subscriptions/:id/presentation', to: 'external_services/rss_subscriptions#update', as: :external_services_rss_subscription_presentation
     post 'external_services/feed_route_lists', to: 'external_services/feed_route_lists#create', as: :external_services_feed_route_lists

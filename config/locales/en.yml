@@ -2298,6 +2298,8 @@ en:
         unexpected_error: An unexpected error occurred.
       eta: "Estimated time left: about %{duration}"
       eta_calculating: "Time left: calculating"
+      dismiss: Close
+      dismiss_for: Close the completed removal notice for %{title}
       finished_at: "Finished:"
       heading: Feed removal progress and history
       message:

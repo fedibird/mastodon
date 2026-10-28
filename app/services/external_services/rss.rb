@@ -204,6 +204,24 @@ module ExternalServices
         @deletion.retryable?
       end
 
+      def dismissable?
+        visible? && @deletion.completed?
+      end
+
+      def visible?
+        @deletion.settings_visible?
+      end
+
+      # Positive only while the card is still on the settings page, so the
+      # open page can ask the server again when this many milliseconds have
+      # passed. The value is a duration from Time.current, not a client clock
+      # reading of finished_at.
+      def hide_after_ms
+        return unless @deletion.completed? && visible?
+
+        [@deletion.hide_after_ms.to_i, 1].max
+      end
+
       def finished_at
         @deletion.finished_at
       end
@@ -264,6 +282,9 @@ module ExternalServices
           finished: finished?,
           polling: polling?,
           retryable: retryable?,
+          dismissable: dismissable?,
+          visible: visible?,
+          hide_after_ms: hide_after_ms,
           subscription_id: subscription_id.to_s,
         }
       end
@@ -450,7 +471,7 @@ module ExternalServices
       def deletions_for(user)
         return [] if user.nil?
 
-        records = ExternalSubscriptionDeletion.where(user_id: user.id).order(id: :desc).limit(DELETION_LIMIT).to_a
+        records = ExternalSubscriptionDeletion.settings_visible.where(user_id: user.id).order(id: :desc).limit(DELETION_LIMIT).to_a
         titles = ExternalSource.where(id: records.map(&:external_source_id)).pluck(:id, :title).to_h
         records.map { |record| DeletionRow.new(record, title: titles[record.external_source_id]) }
       end

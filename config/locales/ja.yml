@@ -2227,6 +2227,8 @@ ja:
         unexpected_error: 予期しないエラーが起きました。
       eta: "残り時間の目安: 約%{duration}"
       eta_calculating: "残り時間: 計算中"
+      dismiss: 閉じる
+      dismiss_for: "%{title}の完了した進捗を閉じる"
       finished_at: "完了:"
       heading: 購読削除の進捗と履歴
       message:

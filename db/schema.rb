@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_06_120000) do
+ActiveRecord::Schema.define(version: 2026_11_07_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1079,6 +1079,7 @@ ActiveRecord::Schema.define(version: 2026_11_06_120000) do
     t.datetime "control_enqueued_at"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+    t.datetime "dismissed_at"
     t.index ["external_subscription_id"], name: "index_external_subscription_deletions_on_subscription", unique: true
     t.index ["finished_at"], name: "index_external_subscription_deletions_on_completed", where: "((state)::text = 'completed'::text)"
     t.index ["next_run_at"], name: "index_external_subscription_deletions_on_pending", where: "((state)::text = ANY ((ARRAY['queued'::character varying, 'running'::character varying, 'failed'::character varying])::text[]))"

@@ -46,6 +46,13 @@ describe Settings::ExternalServices::RSSController do
     expect(response.body).to include('Deleting &lt;b&gt;feed&lt;/b&gt;')
     expect(response.body).not_to include('Deleting <b>feed</b>')
     expect(card.at_css('form[hidden]')).to be_present
+    dismiss = card.at_css("form[action='#{settings_dismiss_external_services_rss_subscription_deletion_path(deletion.id)}']")
+    expect(dismiss['hidden']).to be_present
+    close = dismiss.at_css("input[type='submit']")
+    expect(close['value']).to eq I18n.t('external_bridge.deletion.dismiss')
+    expect(close['aria-label']).to eq I18n.t('external_bridge.deletion.dismiss_for', title: 'Deleting <b>feed</b>')
+    expect(card['data-status-url']).to eq settings_external_services_rss_subscription_deletion_path(deletion.id)
+    expect(card['data-hide-after-ms']).to be_nil
 
     subscription_card = document.at_css("[data-deleting-subscription-id='#{deletion.external_subscription_id}']")
     expect(subscription_card).to be_present
@@ -70,12 +77,23 @@ describe Settings::ExternalServices::RSSController do
     form = card.at_css("form[action='#{settings_retry_external_services_rss_subscription_deletion_path(deletion.id)}']")
     expect(form).to be_present
     expect(form['hidden']).to be_nil
+    dismiss = card.at_css("form[action='#{settings_dismiss_external_services_rss_subscription_deletion_path(deletion.id)}']")
+    expect(dismiss['hidden']).to be_present
+    expect(card['data-hide-after-ms']).to be_nil
 
     ExternalSubscriptionDeletion.where(id: deletion.id).update_all(state: 'completed', finished_at: Time.current)
     get :show, session: challenge
     card = Nokogiri::HTML(response.body).at_css("#rss-deletion-#{deletion.id}")
     expect(card.text).to include(I18n.t('external_bridge.deletion.message.completed'))
     expect(card['data-poll-url']).to be_nil
+    expect(card['data-status-url']).to eq settings_external_services_rss_subscription_deletion_path(deletion.id)
+    expect(card['data-hide-after-ms'].to_i).to be_within(10_000).of(24.hours.in_milliseconds)
+    dismiss = card.at_css("form[action='#{settings_dismiss_external_services_rss_subscription_deletion_path(deletion.id)}']")
+    expect(dismiss['hidden']).to be_nil
+    close = dismiss.at_css("input[type='submit']")
+    expect(close['value']).to eq I18n.t('external_bridge.deletion.dismiss')
+    expect(close['aria-label']).to eq I18n.t('external_bridge.deletion.dismiss_for', title: 'Deleting <b>feed</b>')
+    expect(card.at_css("form[action='#{settings_retry_external_services_rss_subscription_deletion_path(deletion.id)}']")['hidden']).to be_present
   end
 
   it 'keeps polling a failed card that will be retried by itself and hides its retry button' do
@@ -103,7 +121,76 @@ describe Settings::ExternalServices::RSSController do
     expect(response.body).to include('購読削除の進捗と履歴')
     expect(response.body).to include('削除を受け付けました。まもなく開始します。')
     expect(response.body).to include('対象の件数を確認しています（準備中）。')
+    expect(response.body).to include('閉じる')
+    expect(response.body).to include('の完了した進捗を閉じる')
     expect(response.body).not_to include("rss-deletion-#{theirs.id}")
+  end
+
+  def persist_deletion(owner, attributes = {})
+    @deletion_seq = (@deletion_seq || 9_600_000_000) + 1
+    ExternalSubscriptionDeletion.create!(
+      {
+        user: owner,
+        external_subscription_id: @deletion_seq,
+        external_source_id: @deletion_seq,
+        state: 'completed',
+        requested_at: Time.current,
+        finished_at: Time.current,
+        route_targets: [],
+      }.merge(attributes)
+    )
+  end
+
+  it 'shows a completion from the last 24 hours and hides one that has reached the boundary' do
+    now = Time.zone.parse('2026-10-28 12:00:00')
+    shown = nil
+    boundary = nil
+    older = nil
+    dismissed = nil
+    failed = nil
+
+    travel_to(now) do
+      shown = persist_deletion(user, finished_at: now - 23.hours - 59.minutes)
+      boundary = persist_deletion(user, finished_at: now - 24.hours)
+      older = persist_deletion(user, finished_at: now - 25.hours)
+      dismissed = persist_deletion(user, finished_at: now - 1.hour, dismissed_at: now)
+      failed = persist_deletion(user, state: 'failed', finished_at: now - 10.days, next_run_at: nil, last_error_code: 'database_error')
+
+      get :show, session: challenge
+    end
+
+    expect(response.body).to include(%(id="rss-deletion-#{shown.id}"))
+    expect(response.body).to include(%(id="rss-deletion-#{failed.id}"))
+    [boundary, older, dismissed].each do |hidden|
+      expect(response.body).not_to include(%(id="rss-deletion-#{hidden.id}"))
+      expect(ExternalSubscriptionDeletion.exists?(hidden.id)).to be true
+    end
+  end
+
+  it 'fills the ten cards from visible rows, after newer dismissed and expired rows' do
+    visible = Array.new(12) { persist_deletion(user, finished_at: 1.hour.ago) }
+    dismissed = Array.new(3) { persist_deletion(user, finished_at: 30.minutes.ago, dismissed_at: Time.current) }
+    expired = Array.new(3) { persist_deletion(user, finished_at: 26.hours.ago) }
+    sqls = []
+    callback = lambda do |_name, _start, _finish, _id, payload|
+      sql = payload[:sql]
+      sqls << sql if sql.include?('external_subscription_deletions') && sql.include?('SELECT')
+    end
+
+    ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+      get :show, session: challenge
+    end
+
+    ids = Nokogiri::HTML(response.body).css('[data-deletion-progress]').map { |node| node['id'] }
+    expect(ids).to eq(visible.last(10).reverse.map { |row| "rss-deletion-#{row.id}" })
+    (dismissed + expired + visible.first(2)).each do |hidden|
+      expect(ids).not_to include("rss-deletion-#{hidden.id}")
+      expect(ExternalSubscriptionDeletion.exists?(hidden.id)).to be true
+    end
+    expect(sqls.size).to eq 1
+    expect(sqls.first).to match(/ORDER BY "external_subscription_deletions"\."id" DESC LIMIT /)
+    expect(sqls.first.index('LIMIT')).to be > sqls.first.index('dismissed_at')
+    expect(sqls.first).to include('dismissed_at')
   end
 
   it 'does not list a deleting feed among the imported items' do

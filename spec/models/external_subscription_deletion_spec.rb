@@ -72,4 +72,107 @@ RSpec.describe ExternalSubscriptionDeletion do
   end
 end
 
+RSpec.describe ExternalSubscriptionDeletion, 'settings visibility and dismiss' do
+  def persist(owner, attributes = {})
+    @subscription_seq = (@subscription_seq || 9_400_000_000) + 1
+    described_class.create!(
+      {
+        user: owner,
+        external_subscription_id: @subscription_seq,
+        external_source_id: @subscription_seq,
+        state: 'completed',
+        requested_at: Time.current,
+        finished_at: Time.current,
+        route_targets: [],
+      }.merge(attributes)
+    )
+  end
+
+  it 'uses the same 24 hour boundary in the query and on a loaded row' do
+    owner = Fabricate(:user)
+    other = Fabricate(:user)
+    now = Time.zone.parse('2026-10-28 12:00:00')
+
+    travel_to(now) do
+      shown = persist(owner, finished_at: now - 23.hours - 59.minutes)
+      boundary = persist(owner, finished_at: now - 24.hours)
+      older = persist(owner, finished_at: now - 24.hours - 1.second)
+      dismissed = persist(owner, finished_at: now - 1.hour, dismissed_at: now - 1.minute)
+      failed = persist(owner, state: 'failed', finished_at: now - 10.days, next_run_at: nil)
+      waiting = persist(owner, state: 'failed', finished_at: nil, next_run_at: now + 5.minutes)
+      running = persist(owner, state: 'running', finished_at: nil, requested_at: now - 3.days)
+      queued = persist(owner, state: 'queued', finished_at: nil, requested_at: now - 3.days)
+      theirs = persist(other, finished_at: now - 1.hour)
+      rows = [shown, boundary, older, dismissed, failed, waiting, running, queued]
+
+      visible_ids = described_class.settings_visible(now).where(user_id: owner.id).order(:id).pluck(:id)
+      expect(visible_ids).to eq(rows.select { |row| row.settings_visible?(now) }.map(&:id))
+      expect(visible_ids).to contain_exactly(shown.id, failed.id, waiting.id, running.id, queued.id)
+      expect(visible_ids).not_to include(theirs.id)
+      expect(described_class.exists?(boundary.id)).to be true
+      expect(described_class.exists?(older.id)).to be true
+
+      sql = described_class.settings_visible.where(user_id: owner.id).order(id: :desc).limit(ExternalServices::RSS::DELETION_LIMIT).to_sql
+      expect(sql).to include('dismissed_at')
+      expect(sql).to match(/LIMIT 10\b/)
+      expect(sql.index('LIMIT')).to be > sql.index('WHERE')
+    end
+  end
+
+  it 'closes only the owner completed row, once, and leaves the rest of the record' do
+    owner = Fabricate(:user)
+    roommate = Fabricate(:user)
+    row = persist(owner, control_enqueued_at: Time.current, route_targets: [{ 'type' => 'home' }])
+    effect = ExternalSubscriptionDeletionEffect.create!(external_subscription_deletion: row, status_id: row.id)
+
+    expect(described_class.dismiss_for(user: owner, id: row.id)).to eq :dismissed
+    row.reload
+    stamp = row.dismissed_at
+    expect(stamp).to be_within(2.seconds).of(Time.current)
+    expect(row).to be_completed
+    expect(row.control_enqueued_at).to be_present
+    expect(row.route_targets).to eq [{ 'type' => 'home' }]
+    expect(ExternalSubscriptionDeletionEffect.exists?(effect.id)).to be true
+
+    expect(described_class.dismiss_for(user: owner, id: row.id)).to eq :already
+    expect(row.reload.dismissed_at).to eq stamp
+
+    running = persist(owner, state: 'running', finished_at: nil)
+    expect(described_class.dismiss_for(user: owner, id: running.id)).to eq :not_completed
+    expect(running.reload).to be_running
+    expect(running.dismissed_at).to be_nil
+
+    queued = persist(owner, state: 'queued', finished_at: nil)
+    failed = persist(owner, state: 'failed', finished_at: 2.days.ago, next_run_at: 1.minute.from_now)
+    exhausted = persist(owner, state: 'failed', finished_at: nil, next_run_at: nil)
+    [queued, failed, exhausted].each do |open|
+      expect(described_class.dismiss_for(user: owner, id: open.id)).to eq :not_completed
+      expect(open.reload.dismissed_at).to be_nil
+      expect(open.state).not_to eq 'completed'
+    end
+
+    expect(described_class.dismiss_for(user: roommate, id: row.id)).to eq :missing
+    expect(described_class.dismiss_for(user: owner, id: 0)).to eq :missing
+    expect(described_class.dismiss_for(user: nil, id: row.id)).to eq :missing
+    expect(row.reload.dismissed_at).to eq stamp
+  end
+
+  it 'keeps a dismissed row for the removal notice and the 30 day cleanup' do
+    owner = Fabricate(:user)
+    young = persist(owner, requested_at: 1.hour.ago, finished_at: 1.hour.ago, dismissed_at: Time.current, control_enqueued_at: nil, route_targets: [])
+    old = persist(owner, requested_at: 40.days.ago, finished_at: 31.days.ago, dismissed_at: 20.days.ago, control_enqueued_at: 31.days.ago, route_targets: [])
+
+    expect(ExternalBridge::RSS::SubscriptionRemovedNotice.recover!).to eq 1
+    expect(young.reload.control_enqueued_at).to be_present
+    expect(young.dismissed_at).to be_present
+    expect(old.reload.control_enqueued_at).to be_present
+
+    Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler.new.perform
+
+    expect(described_class.exists?(young.id)).to be true
+    expect(described_class.exists?(old.id)).to be false
+    expect(young.reload.dismissed_at).to be_present
+  end
+end
+
 # rubocop:enable Metrics/BlockLength

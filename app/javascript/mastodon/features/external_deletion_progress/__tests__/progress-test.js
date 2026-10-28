@@ -1,15 +1,18 @@
-import { applyProgress, initializeDeletionProgress, pollCard } from '../progress';
+import { applyProgress, initializeDeletionProgress, pollCard, recheckOpenCards } from '../progress';
+
+const statusUrl = (id) => `/settings/external_services/rss/subscription_deletions/${id}`;
 
 const markup = (id = 7, subscription = 41) => `
   <article class="external-service-feed" data-deleting-subscription-id="${subscription}">feed</article>
   <article id="rss-deletion-${id}" data-deletion-progress data-state="running"
-           data-poll-url="/settings/external_services/rss/subscription_deletions/${id}" data-subscription-id="${subscription}">
+           data-poll-url="${statusUrl(id)}" data-status-url="${statusUrl(id)}" data-subscription-id="${subscription}">
     <span data-deletion-badge class="external-service-card__badge external-service-card__badge--warning">Deleting</span>
     <p role="status" data-deletion-message>Deleting data.</p>
     <progress max="100" value="25" data-deletion-bar>25%</progress>
     <p data-deletion-detail>50 of 200 deleted</p>
     <p data-deletion-error hidden></p>
     <form hidden><button type="submit" data-deletion-retry>Try again</button></form>
+    <form hidden><button type="submit" data-deletion-dismiss>Close</button></form>
   </article>`;
 
 const payload = (overrides = {}) => ({
@@ -24,6 +27,9 @@ const payload = (overrides = {}) => ({
   finished: false,
   polling: true,
   retryable: false,
+  dismissable: false,
+  visible: true,
+  hide_after_ms: null,
   subscription_id: '41',
   ...overrides,
 });
@@ -107,6 +113,74 @@ describe('applyProgress', () => {
     applyProgress(other, terminal);
     expect(other.hasAttribute('data-poll-url')).toBe(false);
     expect(other.querySelector('form').hidden).toBe(false);
+  });
+
+  it('keeps Close hidden until the job is completed', () => {
+    const card = document.querySelector('#rss-deletion-7');
+
+    applyProgress(card, payload());
+    expect(card.querySelector('[data-deletion-dismiss]').closest('form').hidden).toBe(true);
+
+    applyProgress(card, payload({ state: 'failed', polling: false, retryable: true, dismissable: false, error: 'Temporary error' }));
+    expect(card.querySelector('[data-deletion-dismiss]').closest('form').hidden).toBe(true);
+    expect(card.querySelector('[data-deletion-retry]').closest('form').hidden).toBe(false);
+  });
+
+  it('shows Close when a polled card completes, then removes it when the server says the window ended', async () => {
+    const card = document.querySelector('#rss-deletion-7');
+    const done = payload({
+      state: 'completed', badge: 'connected', polling: false, finished: true, percent: 100,
+      dismissable: true, visible: true, hide_after_ms: 5000, message: 'Complete.',
+    });
+    const fetch = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(done))
+      .mockResolvedValueOnce(jsonResponse({ visible: false }));
+    const timers = harness();
+    const poller = pollCard(card, { fetch, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout });
+
+    await poller.tick();
+
+    expect(card.querySelector('[data-deletion-dismiss]').closest('form').hidden).toBe(false);
+    expect(card.querySelector('[data-deletion-retry]').closest('form').hidden).toBe(true);
+    expect(card.getAttribute('data-hide-after-ms')).toBe('5000');
+    expect(card.hasAttribute('data-poll-url')).toBe(false);
+    const hideTimer = timers.timers.find((timer) => timer.ms === 5000);
+    await hideTimer.fn();
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenLastCalledWith(statusUrl(7), {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    });
+    expect(document.querySelector('#rss-deletion-7')).toBeNull();
+    expect(document.querySelector('[data-deleting-subscription-id]')).toBeNull();
+  });
+
+  it('keeps the card and reschedules when the server says it is still visible', async () => {
+    const card = document.querySelector('#rss-deletion-7');
+    const done = payload({
+      state: 'completed', polling: false, finished: true, dismissable: true, visible: true, hide_after_ms: 5000,
+    });
+    const fetch = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(done))
+      .mockResolvedValueOnce(jsonResponse({ ...done, hide_after_ms: 8000 }));
+    const timers = harness();
+    const poller = pollCard(card, { fetch, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout });
+
+    await poller.tick();
+    await timers.timers.find((timer) => timer.ms === 5000).fn();
+
+    expect(card.isConnected).toBe(true);
+    expect(card.querySelector('[data-deletion-dismiss]').closest('form').hidden).toBe(false);
+    expect(timers.timers.some((timer) => timer.ms === 8000)).toBe(true);
+  });
+
+  it('removes a card the server has already hidden', () => {
+    const card = document.querySelector('#rss-deletion-7');
+
+    applyProgress(card, payload({ visible: false }));
+
+    expect(document.querySelector('#rss-deletion-7')).toBeNull();
   });
 
   it('removes the deleting subscription card when the job completes', () => {
@@ -217,6 +291,65 @@ describe('pollCard', () => {
 });
 
 describe('initializeDeletionProgress', () => {
+  it('schedules one server check from the rendered hide delay and does not use a resident poll', async () => {
+    document.body.innerHTML = markup().replace(
+      `data-poll-url="${statusUrl(7)}"`,
+      'data-hide-after-ms="1500"',
+    );
+    const fetch = jest.fn(() => Promise.resolve(jsonResponse({ visible: false })));
+    const timers = harness();
+
+    const pollers = initializeDeletionProgress(document, { fetch, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout });
+    expect(pollers).toHaveLength(0);
+    expect(timers.timers.map((timer) => timer.ms)).toEqual([1500]);
+
+    await timers.timers[0].fn();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('#rss-deletion-7')).toBeNull();
+  });
+
+  it('asks again when the page becomes visible, and skips the ask while it is hidden', async () => {
+    document.body.innerHTML = markup().replace(
+      `data-poll-url="${statusUrl(7)}"`,
+      'data-hide-after-ms="60000"',
+    );
+    const fetch = jest.fn(() => Promise.resolve(jsonResponse({ visible: false, state: 'completed' })));
+    const timers = harness();
+    initializeDeletionProgress(document, { fetch, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout });
+
+    let hidden = true;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+    expect(fetch).not.toHaveBeenCalled();
+
+    hidden = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('#rss-deletion-7')).toBeNull();
+    delete document.hidden;
+  });
+
+  it('rechecks an open completed card through the same server endpoint', async () => {
+    document.body.innerHTML = markup().replace('data-state="running"', 'data-state="completed" data-hide-after-ms="10"');
+    const fetch = jest.fn(() => Promise.resolve(jsonResponse(payload({ visible: true, dismissable: true, hide_after_ms: 20, state: 'completed', polling: false }))));
+    const timers = harness();
+
+    await recheckOpenCards(document, { fetch, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout });
+    await Promise.resolve();
+
+    expect(fetch).toHaveBeenCalledWith(statusUrl(7), {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    });
+    expect(document.querySelector('#rss-deletion-7')).not.toBeNull();
+    expect(timers.timers.some((timer) => timer.ms === 20)).toBe(true);
+  });
+
   it('starts one poller for each card that still has a poll url', () => {
     document.body.innerHTML = markup(7, 41) + markup(8, 42).replace('data-poll-url="/settings/external_services/rss/subscription_deletions/8"', '');
     const timers = harness();
