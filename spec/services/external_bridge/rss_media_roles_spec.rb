@@ -374,6 +374,15 @@ RSpec.describe 'External RSS image purpose and author metadata', type: :request 
       ExternalResource.find_by!(title: 'Story')
     end
 
+    def apply_byline!(name)
+      creator = name.present? ? "<dc:creator>#{name}</dc:creator>" : ''
+      apply!(document("#{creator}<enclosure url=\"https://cdn.example/clip.mp4\" type=\"video/mp4\" length=\"5\"/><description>Body</description>"))
+      ExternalBridge::RSS::Materialize.new.call(
+        subscription: ExternalSubscription.find_by!(user_id: user.id),
+        resources: [ExternalResource.find_by!(title: 'Story').reload]
+      )
+    end
+
     def apply!(xml)
       parsed = parse(xml)
       response = ExternalBridge::RSS::Response.new(code: 200, body: nil, etag: nil, last_modified: nil, final_url: feed_url)
@@ -481,6 +490,72 @@ RSpec.describe 'External RSS image purpose and author metadata', type: :request 
       expect(a_request(:get, avatar)).not_to have_been_made
       expect(a_request(:get, 'https://cdn.example/chrome.png')).not_to have_been_made
       expect(a_request(:get, image_url)).to have_been_made.once
+    end
+
+    it 'notifies for an empty byline, a name, and a cleared name once each' do
+      video = 'https://cdn.example/clip.mp4'
+      stub_request(:get, video).to_return(status: 200, body: 'video', headers: { 'Content-Type' => 'video/mp4', 'Content-Length' => '5' })
+      resource = subscribe_feed(document("<enclosure url=\"#{video}\" type=\"video/mp4\" length=\"5\"/><description>Body</description>"))
+      marker = ExternalStatusProjection.find_by!(user_id: user.id)
+      status = marker.status
+      created_at = status.created_at
+      media_revision = resource.media_revision
+      expect(marker.last_seen_byline).to eq ''
+
+      notices = 0
+      allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!) { notices += 1 }
+
+      apply_byline!('Ada')
+      expect(marker.reload.last_seen_byline).to eq 'Ada'
+      expect(notices).to eq 1
+
+      apply_byline!(nil)
+      expect(marker.reload.last_seen_byline).to eq ''
+      expect(notices).to eq 2
+
+      apply_byline!('Grace')
+      expect(marker.reload.last_seen_byline).to eq 'Grace'
+      expect(notices).to eq 3
+
+      apply_byline!('Grace')
+      expect(notices).to eq 3
+      expect(resource.reload.media_revision).to eq media_revision
+      expect(resource.body_digest).to eq resource.revision
+      expect(status.reload.created_at).to eq created_at
+      expect(status.account_id).to eq user.account_id
+      expect(a_request(:get, video)).not_to have_been_made
+    end
+
+    it 'initializes an old null byline under the lock and does not keep a stale value' do
+      resource = subscribe_feed(document('<description>Body</description>'))
+      marker = ExternalStatusProjection.find_by!(user_id: user.id)
+      marker.update_columns(last_seen_byline: nil)
+      notices = 0
+      allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!) { notices += 1 }
+      allow(ExternalBridge::RSS::ProjectionWrite).to receive(:latest).and_wrap_original do |method, marker_id, &block|
+        resource.update!(byline: 'Grace')
+        method.call(marker_id, &block)
+      end
+
+      ExternalBridge::RSS::Materialize.new.call(subscription: marker.external_subscription, resources: [resource.reload])
+
+      expect(marker.reload.last_seen_byline).to eq 'Grace'
+      expect(notices).to eq 0
+    end
+
+    it 'does not initialize a byline while the subscription is being deleted' do
+      resource = subscribe_feed(document('<description>Body</description>'))
+      marker = ExternalStatusProjection.find_by!(user_id: user.id)
+      marker.update_columns(last_seen_byline: nil)
+      allow(ExternalBridge::RSS::SubscriptionFence).to receive(:guard!).and_wrap_original do |method, subscription_id, &block|
+        ExternalSubscription.where(id: subscription_id).update_all(state: 'deleting')
+        method.call(subscription_id, &block)
+      end
+
+      result = ExternalBridge::RSS::Materialize.new.call(subscription: marker.external_subscription.reload, resources: [resource.reload])
+
+      expect(result.ran).to be false
+      expect(marker.reload.last_seen_byline).to be_nil
     end
 
     it 'does not refresh a subscription that is being deleted' do

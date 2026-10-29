@@ -49,10 +49,14 @@ module ExternalBridge
           end
         end
 
+        # A poster row carries the signed fetch URL. When the same logical
+        # image is also an article attachment, that poster row is how the
+        # bytes are downloaded. The stored asset is still one logical URL.
         def candidate_for(resource, url_digest)
-          Array(resource.media_candidates).find do |candidate|
+          matches = Array(resource.media_candidates).select do |candidate|
             %w(image video).include?(candidate['kind']) && MediaDigest.url_digest(candidate['url']) == url_digest
           end
+          matches.find { |candidate| candidate['role'] == 'poster' } || matches.first
         end
 
         def download(resource, candidate, url_digest, media_revision)

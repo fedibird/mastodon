@@ -124,7 +124,7 @@ module ExternalBridge
             [candidate, asset]
           end
           gallery, posters = ready.partition { |candidate, _asset| candidate['role'] != 'poster' }
-          gallery.first(attachment_limit) + posters.first(1)
+          SharedFile.collapse(gallery.first(attachment_limit) + posters.first(1))
         end
 
         def asset_for(candidate)

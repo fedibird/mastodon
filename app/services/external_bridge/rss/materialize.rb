@@ -212,8 +212,7 @@ module ExternalBridge
       end
 
       # A byline-only edit does not change body_digest or media_revision.
-      # Rows created before last_seen_byline existed record the current
-      # byline without a second notification when nothing else moved.
+      # NULL means the column has never been recorded. An empty byline is "".
       def remember_seen!(marker, resource, change)
         attrs = {}
         if change[:revision_changed] || change[:deleted_changed] || change[:media_changed]
@@ -222,20 +221,35 @@ module ExternalBridge
           attrs[:last_seen_media_revision] = resource.media_revision
         end
         if change[:byline_changed] || marker.last_seen_byline.nil?
-          attrs[:last_seen_byline] = resource.byline
+          attrs[:last_seen_byline] = displayed_byline(resource)
         end
         marker.update!(attrs) if attrs.present?
       end
 
-      def skip_unchanged!(marker, resource)
-        marker.update_columns(last_seen_byline: resource.byline) if marker.last_seen_byline.nil?
+      # Old rows are initialized under the deletion fence and the projection
+      # lock. The byline written is the one read after those locks, not the
+      # snapshot from before them. Initialization itself does not notify.
+      def skip_unchanged!(marker, _resource)
+        return :skip unless marker.last_seen_byline.nil?
+
+        SubscriptionFence.guard!(marker.external_subscription_id) do
+          ProjectionWrite.latest(marker.id) do |fresh_marker, _fresh_status, fresh_resource|
+            next unless fresh_marker.last_seen_byline.nil?
+
+            fresh_marker.update!(last_seen_byline: displayed_byline(fresh_resource))
+          end
+        end
         :skip
       end
 
       def byline_changed?(marker, resource)
         return false if marker.last_seen_byline.nil?
 
-        marker.last_seen_byline.to_s != resource.byline.to_s
+        marker.last_seen_byline != displayed_byline(resource)
+      end
+
+      def displayed_byline(resource)
+        resource.byline.to_s
       end
 
       # A nil last-seen and an empty candidate digest are the same "no media"
