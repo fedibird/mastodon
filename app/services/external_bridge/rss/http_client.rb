@@ -233,6 +233,11 @@ module ExternalBridge
       # same-origin profile also refuses a public cross-origin hop before
       # that GET is sent. Every followed hop charges the destination host's
       # budget, so several origins cannot redirect onto one host for free.
+      #
+      # HTTP.rb 5.2.0 Redirector#perform ignores this callback's return
+      # value and sends the same request. Its URI normalizer does not fold
+      # query keys or unwind nested percent-encoding. Copy the accepted
+      # canonical URL onto that request so the GET matches the stored key.
       def redirect_policy(profile, origin)
         {
           max_hops: 3,
@@ -240,11 +245,31 @@ module ExternalBridge
             canonical = canonical_url!(next_request.uri.to_s, profile)
             enforce_same_origin!(canonical, origin) if profile.same_origin
             consume_budget!(canonical, profile)
-            canonical
+            apply_redirect_target!(next_request, canonical)
           rescue Error => e
             raise Mastodon::HostValidationError, e.code
           end,
         }
+      end
+
+      # The yielded request is the one Client#perform sends. Its URI writers
+      # are the public HTTP::URI surface; nothing here patches HTTP.rb.
+      def apply_redirect_target!(request, canonical)
+        target = Addressable::URI.parse(canonical)
+        uri = request.uri
+        uri.scheme = target.scheme
+        uri.host = target.host
+        uri.port = target.port
+        uri.path = target.path.to_s.empty? ? '/' : target.path
+        uri.query = target.query
+        uri.fragment = nil
+        request.instance_variable_set(:@scheme, uri.scheme.to_s.downcase.to_sym)
+        request.headers[HTTP::Headers::HOST] = redirect_host_header(uri)
+      end
+
+      def redirect_host_header(uri)
+        default_port = uri.https? ? 443 : 80
+        uri.port == default_port ? uri.host : "#{uri.host}:#{uri.port}"
       end
 
       def request_headers(etag, last_modified, profile)

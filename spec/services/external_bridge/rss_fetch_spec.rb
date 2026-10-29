@@ -484,14 +484,14 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
     let(:flickr_tags) { 'https://www.flickr.com/services/feeds/photos_public.gne?tags=Cat%2CDog&tagmode=any' }
     let(:flickr_other) { 'https://www.flickr.com/services/feeds/photos_public.gne?tags=cat' }
 
-    def atom_body(guid)
+    def rss_body(guid)
       rss_document(rss_item(guid: guid))
     end
 
     it 'subscribes, refreshes, and shares an identifier feed without collapsing a different one' do
-      stub_request(:get, youtube).to_return(status: 200, body: atom_body('channel-item'), headers: { 'Content-Type' => 'application/xml' })
-      stub_request(:get, flickr_tags).to_return(status: 200, body: atom_body('tag-item'), headers: { 'Content-Type' => 'application/xml' })
-      stub_request(:get, flickr_other).to_return(status: 200, body: atom_body('tag-item'), headers: { 'Content-Type' => 'application/xml' })
+      stub_request(:get, youtube).to_return(status: 200, body: rss_body('channel-item'), headers: { 'Content-Type' => 'application/xml' })
+      stub_request(:get, flickr_tags).to_return(status: 200, body: rss_body('tag-item'), headers: { 'Content-Type' => 'application/xml' })
+      stub_request(:get, flickr_other).to_return(status: 200, body: rss_body('tag-item'), headers: { 'Content-Type' => 'application/xml' })
 
       first = described_class.new.call(user: user, url: "https://www.youtube.com/xml/feeds/videos.xml?CHANNEL_ID=#{channel}")
       again = described_class.new.call(user: user, url: youtube)
@@ -528,14 +528,14 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
     it 'follows a redirect only when the next hop still matches that hop' do
       start = 'https://feeds.example/start.xml'
       stub_request(:get, start).to_return(status: 302, headers: { 'Location' => youtube })
-      stub_request(:get, youtube).to_return(status: 200, body: atom_body('hopped-channel'))
+      stub_request(:get, youtube).to_return(status: 200, body: rss_body('hopped-channel'))
       described_class.new.call(user: user, url: start)
       expect(ExternalSource.find_by!(canonical_key: youtube).external_resources.first.canonical_key).to include('item:hopped-channel')
 
       upper = 'https://www.flickr.com/services/feeds/photos_public.gne?id=00000000000%40N99'
       lower = 'https://www.flickr.com/services/feeds/photos_public.gne?id=00000000000%40n99'
       stub_request(:get, upper).to_return(status: 302, headers: { 'Location' => lower })
-      stub_request(:get, lower).to_return(status: 200, body: atom_body('lower-nsid'))
+      stub_request(:get, lower).to_return(status: 200, body: rss_body('lower-nsid'))
       described_class.new.call(user: other, url: 'https://www.flickr.com/services/feeds/photos_public.gne?id=00000000000@N99')
       expect(ExternalSource.find_by!(canonical_key: lower)).to be_present
       expect(ExternalSource.where(canonical_key: upper)).to be_empty
@@ -551,18 +551,81 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       }
       denied.each do |from, location|
         stub_request(:get, from).to_return(status: 302, headers: { 'Location' => location })
-        stub_request(:get, location).to_return(status: 200, body: atom_body('leaked'))
+        stub_request(:get, location).to_return(status: 200, body: rss_body('leaked'))
         expect { described_class.new.call(user: user, url: from) }.to raise_error(ExternalBridge::Error), from
         expect(a_request(:get, location)).not_to have_been_made
       end
       expect(ExternalSource.where("canonical_key ILIKE '%secret%'")).to be_empty
     end
 
+    it 'sends the canonical redirect target and stores that response' do
+      channel_value = "UC#{'0' * 21}A"
+      cases = {
+        'https://feeds.example/finite-jump.xml' => [
+          'https://feeds.example/finite.xml?FORMAT=%2572ss_200',
+          'https://feeds.example/finite.xml?format=rss_200',
+          'finite-canonical',
+        ],
+        'https://feeds.example/tag-jump.xml' => [
+          'https://www.flickr.com/services/feeds/photos_public.gne?TAGS=Cat',
+          'https://www.flickr.com/services/feeds/photos_public.gne?tags=Cat',
+          'tag-canonical',
+        ],
+        'https://feeds.example/comma-jump.xml' => [
+          'https://www.flickr.com/services/feeds/photos_public.gne?tags=Cat%252CDog',
+          'https://www.flickr.com/services/feeds/photos_public.gne?tags=Cat%2CDog',
+          'comma-canonical',
+        ],
+        'https://feeds.example/channel-jump.xml' => [
+          "https://www.youtube.com/xml/feeds/videos.xml?CHANNEL_ID=#{channel_value}",
+          "https://www.youtube.com/xml/feeds/videos.xml?channel_id=#{channel_value}",
+          'channel-canonical',
+        ],
+        'https://feeds.example/nsid-jump.xml' => [
+          'https://www.flickr.com/services/feeds/photos_public.gne?id=00000000000@N99',
+          'https://www.flickr.com/services/feeds/photos_public.gne?id=00000000000%40N99',
+          'nsid-canonical',
+        ],
+        'https://feeds.example/nsid-lower-jump.xml' => [
+          'https://www.flickr.com/services/feeds/photos_public.gne?id=00000000000@n99',
+          'https://www.flickr.com/services/feeds/photos_public.gne?id=00000000000%40n99',
+          'nsid-lower-canonical',
+        ],
+      }
+
+      # WebMock's signature normalizes the default port and some escapes.
+      # Record HTTP::Request#uri, which is the URI Client#perform sends.
+      sent = []
+      allow_any_instance_of(HTTP::Request).to receive(:webmock_signature).and_wrap_original do |original|
+        sent << original.receiver.uri.to_s
+        original.call
+      end
+
+      cases.each do |start, (raw, canonical, guid)|
+        sent.clear
+        answer = lambda do |_request|
+          body = sent.last == canonical ? rss_body(guid) : rss_body("raw-#{guid}")
+          { status: 200, body: body, headers: { 'Content-Type' => 'application/xml' } }
+        end
+        stub_request(:get, raw).to_return(&answer)
+        stub_request(:get, canonical).to_return(&answer)
+        stub_request(:get, start).to_return(status: 302, headers: { 'Location' => raw })
+
+        subscription = described_class.new.call(user: user, url: start)
+        expect(sent).to include(canonical), sent.inspect
+        expect(sent).not_to include(raw)
+        expect(sent.last).to eq(canonical)
+        expect(subscription.external_source.canonical_key).to eq canonical
+        expect(subscription.external_source.external_resources.first.canonical_key).to include("item:#{guid}")
+        expect(subscription.external_source.external_resources.first.canonical_key).not_to include("raw-#{guid}")
+      end
+    end
+
     it 'keeps one final URL when two identifier feeds redirect to the same document' do
       final = 'https://feeds.example/final.xml'
       stub_request(:get, youtube).to_return(status: 302, headers: { 'Location' => final })
       stub_request(:get, flickr_other).to_return(status: 302, headers: { 'Location' => final })
-      stub_request(:get, final).to_return(status: 200, body: atom_body('final-item'))
+      stub_request(:get, final).to_return(status: 200, body: rss_body('final-item'))
 
       first = described_class.new.call(user: user, url: youtube)
       second = described_class.new.call(user: other, url: flickr_other)
