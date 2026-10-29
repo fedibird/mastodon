@@ -583,6 +583,28 @@ RSpec.describe 'RSS ActivityPub discovery' do
       expect(a_request(:get, 'https://evil.example/nodeinfo/2.0')).not_to have_been_made
     end
 
+    it 'reads an identifier feed host and does not send that query to NodeInfo' do
+      redis.del('external_bridge:rss_nodeinfo:host:www.youtube.com')
+      public_nodeinfo('https://www.youtube.com')
+      channel = "UC#{'0' * 22}"
+      feed = "https://www.youtube.com/xml/feeds/videos.xml?channel_id=#{channel}"
+
+      expect(described_class.new.call(feed).state).to eq 'advertised'
+      expect(a_request(:get, 'https://www.youtube.com/.well-known/nodeinfo')).to have_been_made.once
+      expect(a_request(:get, 'https://www.youtube.com/nodeinfo/2.1')).to have_been_made.once
+      expect(a_request(:get, /channel_id/)).not_to have_been_made
+
+      poisoned = "https://www.youtube.com/nodeinfo/2.1?channel_id=#{channel}"
+      stub_request(:get, 'https://www.youtube.com/.well-known/nodeinfo').to_return(
+        status: 200,
+        body: { links: [{ rel: 'http://nodeinfo.diaspora.software/ns/schema/2.1', href: poisoned }] }.to_json,
+        headers: { 'Content-Type' => 'application/json' }
+      )
+      stub_request(:get, poisoned).to_return(status: 200, body: '{}', headers: { 'Content-Type' => 'application/json' })
+      expect(described_class.new.call(feed).state).to eq 'error'
+      expect(a_request(:get, poisoned)).not_to have_been_made
+    end
+
     it 'reads the feed host and does not send selection parameters on the NodeInfo document' do
       redis.del('external_bridge:rss_nodeinfo:host:feeds.example')
       public_nodeinfo

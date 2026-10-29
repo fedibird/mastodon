@@ -478,6 +478,137 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
     end
   end
 
+  describe 'identifier feed queries' do
+    let(:channel) { "UC#{'0' * 22}" }
+    let(:youtube) { "https://www.youtube.com/xml/feeds/videos.xml?channel_id=#{channel}" }
+    let(:flickr_tags) { 'https://www.flickr.com/services/feeds/photos_public.gne?tags=Cat%2CDog&tagmode=any' }
+    let(:flickr_other) { 'https://www.flickr.com/services/feeds/photos_public.gne?tags=cat' }
+
+    def atom_body(guid)
+      rss_document(rss_item(guid: guid))
+    end
+
+    it 'subscribes, refreshes, and shares an identifier feed without collapsing a different one' do
+      stub_request(:get, youtube).to_return(status: 200, body: atom_body('channel-item'), headers: { 'Content-Type' => 'application/xml' })
+      stub_request(:get, flickr_tags).to_return(status: 200, body: atom_body('tag-item'), headers: { 'Content-Type' => 'application/xml' })
+      stub_request(:get, flickr_other).to_return(status: 200, body: atom_body('tag-item'), headers: { 'Content-Type' => 'application/xml' })
+
+      first = described_class.new.call(user: user, url: "https://www.youtube.com/xml/feeds/videos.xml?CHANNEL_ID=#{channel}")
+      again = described_class.new.call(user: user, url: youtube)
+      second_user = described_class.new.call(user: other, url: youtube)
+      tagged = described_class.new.call(user: user, url: 'https://www.flickr.com/services/feeds/photos_public.gne?tags=Cat,Dog&tagmode=ANY')
+      other_tags = described_class.new.call(user: user, url: flickr_other)
+
+      source = first.external_source
+      expect(again.external_source_id).to eq source.id
+      expect(second_user.external_source_id).to eq source.id
+      expect(source.canonical_key).to eq youtube
+      expect(tagged.external_source.canonical_key).to eq flickr_tags
+      expect(other_tags.external_source_id).not_to eq tagged.external_source_id
+      channel_resource = source.external_resources.find_by!("canonical_key LIKE ?", '%item:channel-item')
+      tag_resource = tagged.external_source.external_resources.find_by!("canonical_key LIKE ?", '%item:tag-item')
+      expect(channel_resource.canonical_key).to include(youtube)
+      expect(tag_resource.canonical_key).to include('tags=Cat%2CDog')
+      expect(tag_resource.canonical_key).not_to eq other_tags.external_source.external_resources.first.canonical_key
+
+      first.update!(language_mode: 'fixed', language: 'ja', media_sensitive: true, cw_enabled: true)
+      ExternalBridge::RSS::RefreshSource.new.call(source.id, subscription_id: first.id)
+      expect(first.reload.language_mode).to eq 'fixed'
+      expect(first.language).to eq 'ja'
+      expect(first.media_sensitive).to be true
+      expect(first.cw_enabled).to be true
+      expect(source.reload.external_resources.count).to eq 1
+      expect(ExternalStatusProjection.where(user_id: user.id, external_resource_id: channel_resource.id).count).to eq 1
+      expect(ExternalStatusProjection.where(user_id: other.id, external_resource_id: channel_resource.id).count).to eq 1
+      expect(ExternalStatusProjection.where(user_id: user.id).pluck(:status_id)).not_to include(
+        ExternalStatusProjection.find_by!(user_id: other.id, external_resource_id: channel_resource.id).status_id
+      )
+    end
+
+    it 'follows a redirect only when the next hop still matches that hop' do
+      start = 'https://feeds.example/start.xml'
+      stub_request(:get, start).to_return(status: 302, headers: { 'Location' => youtube })
+      stub_request(:get, youtube).to_return(status: 200, body: atom_body('hopped-channel'))
+      described_class.new.call(user: user, url: start)
+      expect(ExternalSource.find_by!(canonical_key: youtube).external_resources.first.canonical_key).to include('item:hopped-channel')
+
+      upper = 'https://www.flickr.com/services/feeds/photos_public.gne?id=00000000000%40N99'
+      lower = 'https://www.flickr.com/services/feeds/photos_public.gne?id=00000000000%40n99'
+      stub_request(:get, upper).to_return(status: 302, headers: { 'Location' => lower })
+      stub_request(:get, lower).to_return(status: 200, body: atom_body('lower-nsid'))
+      described_class.new.call(user: other, url: 'https://www.flickr.com/services/feeds/photos_public.gne?id=00000000000@N99')
+      expect(ExternalSource.find_by!(canonical_key: lower)).to be_present
+      expect(ExternalSource.where(canonical_key: upper)).to be_empty
+
+      other_channel = "https://www.youtube.com/xml/feeds/videos.xml?channel_id=UC#{'0' * 21}a"
+      denied = {
+        other_channel => "https://www.youtube.com/feeds/videos.xml?channel_id=#{channel}",
+        'https://feeds.example/carry.xml' => "https://evil.example/xml/feeds/videos.xml?channel_id=#{channel}",
+        'https://feeds.example/flickr-key.xml' => 'https://www.youtube.com/xml/feeds/videos.xml?tags=Cat',
+        'https://feeds.example/secret-id.xml' => "#{youtube}&token=SECRET",
+        'https://feeds.example/literal.xml' => 'http://127.0.0.1/xml/feeds/videos.xml?format=rss',
+        'https://feeds.example/userinfo.xml' => "https://user:pw@www.youtube.com/xml/feeds/videos.xml?channel_id=#{channel}",
+      }
+      denied.each do |from, location|
+        stub_request(:get, from).to_return(status: 302, headers: { 'Location' => location })
+        stub_request(:get, location).to_return(status: 200, body: atom_body('leaked'))
+        expect { described_class.new.call(user: user, url: from) }.to raise_error(ExternalBridge::Error), from
+        expect(a_request(:get, location)).not_to have_been_made
+      end
+      expect(ExternalSource.where("canonical_key ILIKE '%secret%'")).to be_empty
+    end
+
+    it 'keeps one final URL when two identifier feeds redirect to the same document' do
+      final = 'https://feeds.example/final.xml'
+      stub_request(:get, youtube).to_return(status: 302, headers: { 'Location' => final })
+      stub_request(:get, flickr_other).to_return(status: 302, headers: { 'Location' => final })
+      stub_request(:get, final).to_return(status: 200, body: atom_body('final-item'))
+
+      first = described_class.new.call(user: user, url: youtube)
+      second = described_class.new.call(user: other, url: flickr_other)
+      expect(second.external_source_id).to eq first.external_source_id
+      expect(ExternalSource.find(first.external_source_id).canonical_key).to eq final
+      expect(ExternalSource.where(canonical_key: [youtube, flickr_other])).to be_empty
+    end
+
+    it 'does not fetch an identifier query on NodeInfo, ActivityPub, media, poster, or icon profiles' do
+      targets = [
+        [ExternalBridge::RSS::HttpClient::NODEINFO_PROFILE, "https://www.youtube.com/.well-known/nodeinfo?channel_id=#{channel}", 'https://www.youtube.com'],
+        [ExternalBridge::RSS::HttpClient::ACTIVITYPUB_PROFILE, "https://posts.example/users/alice/statuses/1?channel_id=#{channel}", nil],
+        [ExternalBridge::RSS::HttpClient::ACTIVITYPUB_PROFILE, 'https://posts.example/users/alice/statuses/1?tags=Cat&tagmode=any', nil],
+        [ExternalBridge::RSS::HttpClient::ACTIVITYPUB_PROFILE, 'https://posts.example/users/alice/statuses/1?viewkey=abc', nil],
+        [ExternalBridge::RSS::HttpClient::MEDIA_IMAGE_PROFILE, 'https://cdn.example/a.jpg?tags=Cat', nil],
+        [ExternalBridge::RSS::HttpClient::MEDIA_POSTER_PROFILE, "https://images.example/p.jpg?channel_id=#{channel}", nil],
+        [ExternalBridge::RSS::HttpClient::ICON_IMAGE_PROFILE, "https://cdn.example/a.png?channel_id=#{channel}", nil],
+      ]
+      targets.each do |profile, url, origin|
+        stub_request(:get, url).to_return(status: 200, body: '{}')
+        expect { ExternalBridge::RSS::HttpClient.get(url, profile: profile, origin: origin) }
+          .to raise_error(ExternalBridge::Error), url
+        expect(a_request(:get, url)).not_to have_been_made
+      end
+    end
+
+    context 'with a private DNS answer' do
+      around do |example|
+        WebMock.disable!
+        example.run
+        WebMock.enable!
+      end
+
+      it 'does not open an identifier feed when the host resolves to a private address' do
+        resolver = double
+        allow(resolver).to receive(:getaddresses).and_return([Resolv::IPv4.create('10.0.0.8')])
+        allow(resolver).to receive(:timeouts=)
+        allow(Resolv::DNS).to receive(:open).and_yield(resolver)
+
+        expect do
+          ExternalBridge::RSS::HttpClient.get(youtube)
+        end.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'private_address' }
+      end
+    end
+  end
+
   describe 'link preview' do
     it 'does not crawl a URL stored on a projection' do
       bundle = project_for(user, body: "See https://example.com/article")
