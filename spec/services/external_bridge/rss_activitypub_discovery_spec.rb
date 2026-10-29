@@ -136,6 +136,19 @@ RSpec.describe 'RSS ActivityPub discovery' do
       end
     end
 
+    it 'does not fetch an object URL that carries a feed selection query or a viewkey' do
+      [
+        'https://posts.example/@alice/123?exclude_body=1',
+        'https://posts.example/@alice/123?format=rss2',
+        'https://posts.example/@alice/123?id=abc&order=created',
+        'https://posts.example/@alice/123?viewkey=abc',
+      ].each do |candidate|
+        stub_request(:get, candidate).to_return(status: 200, body: object.to_json, headers: { 'Content-Type' => 'application/activity+json' })
+        expect(described_class.new.call(candidate).state).to eq('error'), candidate
+        expect(a_request(:get, candidate)).not_to have_been_made
+      end
+    end
+
     it 'does not accept HTML, an actor, or a JSON object lacking the AS2 context' do
       stub_request(:get, url).to_return(status: 200, body: object.to_json, headers: { 'Content-Type' => 'text/html' })
       expect(described_class.new.call(url).state).to eq 'unavailable'
@@ -568,6 +581,32 @@ RSpec.describe 'RSS ActivityPub discovery' do
       expect(described_class.new.call('https://feeds.example/news.xml').state).to eq 'error'
       expect(a_request(:get, 'https://feeds.example/nodeinfo/discovery')).to have_been_made.once
       expect(a_request(:get, 'https://evil.example/nodeinfo/2.0')).not_to have_been_made
+    end
+
+    it 'reads the feed host and does not send selection parameters on the NodeInfo document' do
+      redis.del('external_bridge:rss_nodeinfo:host:feeds.example')
+      public_nodeinfo
+      feed = 'https://feeds.example/news.xml?format=rss_200&exclude_body=1'
+
+      expect(described_class.new.call(feed).state).to eq 'advertised'
+      expect(a_request(:get, 'https://feeds.example/.well-known/nodeinfo')).to have_been_made.once
+      expect(a_request(:get, 'https://feeds.example/nodeinfo/2.1')).to have_been_made.once
+      expect(a_request(:get, /exclude_body|rss_200/)).not_to have_been_made
+    end
+
+    it 'does not fetch a NodeInfo href that carries a feed selection query' do
+      redis.del('external_bridge:rss_nodeinfo:host:feeds.example')
+      poisoned = 'https://feeds.example/nodeinfo/2.1?format=rss2&exclude_body=1'
+      stub_request(:get, 'https://feeds.example/.well-known/nodeinfo').to_return(
+        status: 200,
+        body: { links: [{ rel: 'http://nodeinfo.diaspora.software/ns/schema/2.1', href: poisoned }] }.to_json,
+        headers: { 'Content-Type' => 'application/json' }
+      )
+      stub_request(:get, poisoned).to_return(status: 200, body: '{}', headers: { 'Content-Type' => 'application/json' })
+
+      expect(described_class.new.call('https://feeds.example/news.xml?feed=rss2').state).to eq 'error'
+      expect(a_request(:get, 'https://feeds.example/.well-known/nodeinfo')).to have_been_made.once
+      expect(a_request(:get, poisoned)).not_to have_been_made
     end
   end
 

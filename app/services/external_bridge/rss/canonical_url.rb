@@ -2,14 +2,35 @@
 
 module ExternalBridge
   module RSS
-    # Public feed and item URLs. Query strings are fail-closed: the only
-    # stored form is a known-safe format parameter. Unknown names, credential
-    # aliases, and percent-encoding that does not resolve are rejected before
-    # HTTP and before a shared row is written.
+    # Public feed and item URLs. Query strings are fail-closed.
+    #
+    # The default mode stores only one known format parameter
+    # (`rss`, `atom`, `xml`, `feed`). NodeInfo, site links, and other
+    # non-feed callers use that mode. A feed fetch opts in with `feed: true`
+    # and may keep up to six public selection pairs. Unknown names are
+    # rejected rather than stripped, so the URL is not rewritten into a
+    # different feed. Credential aliases and percent-encoding that does not
+    # resolve are rejected before HTTP and before a shared row is written.
     class CanonicalURL
       SAFE_QUERY_NAMES = %w(format).freeze
       SAFE_FORMAT_VALUES = %w(rss atom xml feed).freeze
       MAX_DECODE = 8
+
+      # Finite public selection values. Names alone are not enough: each
+      # value has to be one of these tokens, and a URL may carry at most
+      # FEED_QUERY_PAIRS pairs. Order is preserved so the same keys in a
+      # different order stay different sources.
+      FEED_QUERY_PAIRS = 6
+      FEED_QUERY_VALUES = {
+        'format' => %w(rss atom xml feed rss2 rss_200 rss_200_enc).freeze,
+        'feed' => %w(rss2).freeze,
+        'alt' => %w(rss).freeze,
+        'exclude_body' => %w(0 1).freeze,
+        'include_scraps' => %w(0 1).freeze,
+        'all' => %w(0 1).freeze,
+        'order' => %w(created).freeze,
+        'period' => %w(weekly).freeze,
+      }.freeze
 
       # Feed icons and site pages are public assets, and CDNs routinely append a
       # cache-busting version. Only these names are kept, only as a short
@@ -22,8 +43,8 @@ module ExternalBridge
       ITEM_QUERY = %w(id v video_id clip clip_id viewkey).freeze
       ITEM_VALUE = /\A[A-Za-z0-9_-]{1,80}\z/.freeze
 
-      def self.normalize!(value, asset: false, item: false)
-        new(value, asset: asset, item: item).normalize!
+      def self.normalize!(value, asset: false, item: false, feed: false)
+        new(value, asset: asset, item: item, feed: feed).normalize!
       end
 
       def self.safe_http?(value)
@@ -33,10 +54,11 @@ module ExternalBridge
         false
       end
 
-      def initialize(value, asset: false, item: false)
+      def initialize(value, asset: false, item: false, feed: false)
         @value = value.to_s
         @asset = asset
         @item = item
+        @feed = feed
       end
 
       def normalize!
@@ -84,6 +106,7 @@ module ExternalBridge
         raise Error, :authenticated_source_rejected if uri.query.blank? || malformed_percent?(uri.query)
         return reject_asset_query!(uri) if @asset
         return reject_item_query!(uri) if @item
+        return reject_feed_query!(uri) if @feed
 
         pairs = uri.query.split(/[&;]/)
         raise Error, :authenticated_source_rejected unless pairs.one?
@@ -98,6 +121,46 @@ module ExternalBridge
         raise Error, :authenticated_source_rejected unless SAFE_FORMAT_VALUES.include?(decoded_value.downcase)
 
         uri.query = "#{decoded_name.downcase}=#{decoded_value.downcase}"
+      end
+
+      # Split on the raw separators first. A decoded `%26`, `%3B`, or `%3D`
+      # stays inside its pair and is rejected, so decoding cannot invent a
+      # new pair or drop an unknown name. Duplicate names are compared after
+      # case folding and percent-decoding. Empty pairs and spare separators
+      # are rejected. Applying this to the result does not change values or
+      # pair boundaries.
+      def reject_feed_query!(uri)
+        pairs = uri.query.split(/[&;]/, -1)
+        raise Error, :authenticated_source_rejected if pairs.empty? || pairs.size > FEED_QUERY_PAIRS
+
+        seen = {}
+        kept = pairs.map { |pair| feed_pair(pair, seen) }
+        uri.query = kept.join('&')
+      end
+
+      def feed_pair(pair, seen)
+        raise Error, :authenticated_source_rejected if pair.blank?
+
+        name, value = pair.split('=', 2)
+        raise Error, :authenticated_source_rejected if value.nil?
+
+        decoded_name = fully_decode(name)
+        decoded_value = fully_decode(value)
+        raise Error, :authenticated_source_rejected if decoded_name.blank? || decoded_value.blank?
+        raise Error, :authenticated_source_rejected if feed_delimiter?(decoded_name) || feed_delimiter?(decoded_value)
+
+        decoded_name = decoded_name.downcase
+        decoded_value = decoded_value.downcase
+        allowed = FEED_QUERY_VALUES[decoded_name]
+        raise Error, :authenticated_source_rejected if allowed.nil? || !allowed.include?(decoded_value)
+        raise Error, :authenticated_source_rejected if seen[decoded_name]
+
+        seen[decoded_name] = true
+        "#{decoded_name}=#{decoded_value}"
+      end
+
+      def feed_delimiter?(text)
+        text.match?(/[&;=]/) || text.match?(/[[:cntrl:]]/)
       end
 
       # An item link may carry the media id the player URL has to repeat.

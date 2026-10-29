@@ -43,5 +43,11 @@ describe ExternalBridge::LinkSharing::ArticleURL do
       .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq('authenticated_source_rejected') }
     expect(ExternalBridge::RSS::CanonicalURL.normalize!('https://feeds.example/listed.xml?format=rss'))
       .to eq('https://feeds.example/listed.xml?format=rss')
+    expect { ExternalBridge::RSS::CanonicalURL.normalize!('https://feeds.example/listed.xml?format=rss2') }
+      .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq('authenticated_source_rejected') }
+    expect { ExternalBridge::RSS::CanonicalURL.normalize!('https://feeds.example/listed.xml?exclude_body=1') }
+      .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq('authenticated_source_rejected') }
+    expect(reject('https://example.com/a?exclude_body=1')).to eq('authenticated_source_rejected')
+    expect(reject('https://example.com/a?format=rss2')).to eq('authenticated_source_rejected')
   end
 end
