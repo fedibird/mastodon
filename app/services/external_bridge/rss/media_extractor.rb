@@ -6,7 +6,9 @@ module ExternalBridge
     # Atom `content`, and `content:encoded` stay distinct. Candidates are
     # taken from the body element the importer will actually use, plus
     # enclosures and Media RSS. Feed icons are not article media. A video
-    # poster is not also stored as an image attachment.
+    # poster is not also stored as an image attachment. A Media RSS
+    # thumbnail uses its `url` attribute whenever that attribute exists;
+    # the element text is only a compatibility source when it was omitted.
     class MediaExtractor
       Preview = Struct.new(:body, :candidates, :keywords, keyword_init: true)
       ATOM = XmlNames::ATOM
@@ -147,10 +149,14 @@ module ExternalBridge
       end
 
       def collect_media(child, raw, posters, base)
-        return child.element_children.each { |nested| collect_media(nested, raw, posters, base) } if child.name == 'group'
-        return add(raw, { url: child['url'], mime: 'image', origin: 'media_thumbnail', base: base }) if child.name == 'thumbnail'
+        return child.element_children.each { |nested| collect_media(nested, raw, posters, base) } if media_group?(child)
+        return add(raw, { url: MediaThumbnail.reference(child), mime: 'image', origin: 'media_thumbnail', base: base }) if MediaThumbnail.thumbnail?(child)
+        # Nested groups reach this method without the outer namespace check.
+        # A thumbnail or group from another namespace is not media, and its
+        # text must not become a content URL.
+        return if %w(thumbnail group).include?(child.name)
 
-        poster = child.element_children.find { |nested| nested.name == 'thumbnail' && nested.namespace&.href == MEDIA }&.[]('url')
+        poster = MediaThumbnail.reference(child.element_children.find { |nested| MediaThumbnail.thumbnail?(nested) })
         description = child['description'].presence || media_description_text(child)
         add(raw, {
               url: child['url'].presence || child.text,

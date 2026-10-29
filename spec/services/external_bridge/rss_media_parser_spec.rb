@@ -357,4 +357,324 @@ RSpec.describe ExternalBridge::RSS::MediaExtractor do
     expect(feed.items.first.body).to include('Article text')
     expect(feed.items.first.media).to eq []
   end
+
+  it 'reads a Media RSS thumbnail body when the url attribute is omitted' do
+    feed = thumbnail_feed([
+      <<~XML,
+        <media:thumbnail>
+          https://cdn.example/cover.png?width=800
+        </media:thumbnail>
+      XML
+      '<media:thumbnail><![CDATA[https://cdn.example/cdata.png]]></media:thumbnail>',
+    ])
+
+    expect(feed.items.map { |item| item.media.map { |row| row['url'] } }).to eq [
+      ['https://cdn.example/cover.png?width=800'],
+      ['https://cdn.example/cdata.png'],
+    ]
+    expect(feed.items.first.media.first['origin']).to eq 'media_thumbnail'
+    expect(feed.items.first.media.first['kind']).to eq 'image'
+    expect(feed.items.first.media.first['position']).to eq 0
+  end
+
+  it 'keeps a thumbnail url attribute ahead of a different body' do
+    feed = thumbnail_feed([
+      <<~XML,
+        <media:thumbnail url="https://cdn.example/attr.jpg">
+          https://cdn.example/body.jpg
+        </media:thumbnail>
+      XML
+      '<media:thumbnail url="https://cdn.example/only.png?width=800"/>',
+      '<media:thumbnail url="cover.png"/>',
+      <<~XML,
+        <media:group>
+          <media:group>
+            <media:thumbnail url="nested.png"/>
+          </media:group>
+        </media:group>
+      XML
+    ])
+
+    expect(feed.items.map { |item| item.media.map { |row| row['url'] } }).to eq [
+      ['https://cdn.example/attr.jpg'],
+      ['https://cdn.example/only.png?width=800'],
+      ['https://example.com/posts/cover.png'],
+      ['https://example.com/posts/nested.png'],
+    ]
+  end
+
+  it 'does not use the thumbnail body when the url attribute is present but unusable' do
+    bodies = 'https://cdn.example/body.png'
+    feed = thumbnail_feed([
+      %(<media:thumbnail url="">#{bodies}</media:thumbnail>),
+      %(<media:thumbnail url="   ">#{bodies}</media:thumbnail>),
+      %(<media:thumbnail url="javascript:alert(1)">#{bodies}</media:thumbnail>),
+      %(<media:thumbnail url="https://cdn.example/nope.png?token=secret">#{bodies}</media:thumbnail>),
+      %(<media:thumbnail url="https://user:pass@cdn.example/secret.png">#{bodies}</media:thumbnail>),
+      %(<media:thumbnail url="https://">#{bodies}</media:thumbnail>),
+    ])
+
+    expect(feed.items.map { |item| item.media }).to all(eq([]))
+  end
+
+  it 'reads only the un-namespaced thumbnail url attribute' do
+    foreign = 'xmlns:other="https://other.example/ns"'
+    feed = thumbnail_feed([
+      <<~XML,
+        <media:thumbnail #{foreign} other:url="https://cdn.example/foreign.jpg">
+          https://cdn.example/body-only.png
+        </media:thumbnail>
+      XML
+      %(<media:thumbnail #{foreign} other:url="https://cdn.example/foreign-only.jpg"/>),
+      %(<media:thumbnail #{foreign} other:url="https://cdn.example/foreign.jpg" url="https://cdn.example/standard-after-foreign.jpg"/>),
+      %(<media:thumbnail #{foreign} url="https://cdn.example/standard-before-foreign.jpg" other:url="https://cdn.example/foreign.jpg"/>),
+      %(<media:thumbnail #{foreign} other:url="" url="https://cdn.example/standard-after-empty.jpg"/>),
+      %(<media:thumbnail #{foreign} other:url="javascript:alert(1)" url="https://cdn.example/standard-after-bad.jpg"/>),
+      %(<media:thumbnail #{foreign} url="" other:url="https://cdn.example/foreign.jpg">https://cdn.example/body.png</media:thumbnail>),
+      %(<media:thumbnail #{foreign} other:url="https://cdn.example/foreign.jpg" url="">https://cdn.example/body.png</media:thumbnail>),
+      %(<media:thumbnail #{foreign} url="javascript:alert(1)" other:url="https://cdn.example/foreign.jpg">https://cdn.example/body.png</media:thumbnail>),
+      <<~XML,
+        <media:content url="https://cdn.example/poster-order.mp4" type="video/mp4">
+          <media:thumbnail #{foreign} other:url="https://cdn.example/foreign-poster.jpg" url="https://cdn.example/standard-poster.jpg"/>
+        </media:content>
+      XML
+      <<~XML,
+        <media:content url="https://cdn.example/poster-body.mp4" type="video/mp4">
+          <media:thumbnail #{foreign} other:url="https://cdn.example/foreign-poster.jpg">
+            https://cdn.example/body-poster.jpg
+          </media:thumbnail>
+        </media:content>
+      XML
+      <<~XML,
+        <media:content url="https://cdn.example/poster-empty.mp4" type="video/mp4">
+          <media:thumbnail #{foreign} other:url="https://cdn.example/foreign-poster.jpg" url="">
+            https://cdn.example/body-poster.jpg
+          </media:thumbnail>
+        </media:content>
+      XML
+    ])
+
+    images = feed.items.first(9).map { |item| item.media.map { |row| row['url'] } }
+    expect(images).to eq [
+      ['https://cdn.example/body-only.png'],
+      [],
+      ['https://cdn.example/standard-after-foreign.jpg'],
+      ['https://cdn.example/standard-before-foreign.jpg'],
+      ['https://cdn.example/standard-after-empty.jpg'],
+      ['https://cdn.example/standard-after-bad.jpg'],
+      [],
+      [],
+      [],
+    ]
+
+    ordered, body, empty = feed.items.last(3).map(&:media)
+    expect(ordered.map { |row| row['url'] }).to eq ['https://cdn.example/poster-order.mp4']
+    expect(ordered.first['poster_url']).to eq 'https://cdn.example/standard-poster.jpg'
+    expect(body.map { |row| row['url'] }).to eq ['https://cdn.example/poster-body.mp4']
+    expect(body.first['poster_url']).to eq 'https://cdn.example/body-poster.jpg'
+    expect(empty.map { |row| [row['url'], row['poster_url']] }).to eq [
+      ['https://cdn.example/poster-empty.mp4', nil],
+    ]
+    stored = feed.items.flat_map { |item| item.media }.to_json
+    expect(stored).not_to include('https://cdn.example/foreign.jpg')
+    expect(stored).not_to include('https://cdn.example/foreign-only.jpg')
+    expect(stored).not_to include('https://cdn.example/foreign-poster.jpg')
+  end
+
+  it 'rejects thumbnail text that is not one explicit http URL' do
+    feed = thumbnail_feed([
+      '<media:thumbnail></media:thumbnail>',
+      '<media:thumbnail>   </media:thumbnail>',
+      '<media:thumbnail>cover.png</media:thumbnail>',
+      '<media:thumbnail>See https://cdn.example/prose.png today</media:thumbnail>',
+      '<media:thumbnail>https://cdn.example/one.png https://cdn.example/two.png</media:thumbnail>',
+      '<media:thumbnail>https://cdn.example/one.pnghttps://cdn.example/two.png</media:thumbnail>',
+      '<media:thumbnail><a href="https://cdn.example/child.png">https://cdn.example/child.png</a></media:thumbnail>',
+      '<media:thumbnail><img src="https://cdn.example/img-child.png"/></media:thumbnail>',
+      '<media:thumbnail>&lt;img src="https://cdn.example/escaped.png"&gt;</media:thumbnail>',
+      '<media:thumbnail><![CDATA[<a href="https://cdn.example/cdata.png">x</a>]]></media:thumbnail>',
+      <<~XML,
+        <media:group>
+          <media:group>
+            <media:thumbnail>cover.png</media:thumbnail>
+          </media:group>
+        </media:group>
+      XML
+    ])
+
+    expect(feed.items.map { |item| item.media }).to all(eq([]))
+  end
+
+  it 'accepts any Media RSS prefix and ignores thumbnails in another namespace' do
+    prefixed = thumbnail_feed(
+      [<<~XML],
+        <m:thumbnail>
+          https://cdn.example/prefixed.png?width=800
+        </m:thumbnail>
+      XML
+      xmlns: 'xmlns:m="http://search.yahoo.com/mrss/"'
+    )
+    default_ns = thumbnail_feed([<<~XML])
+      <thumbnail xmlns="http://search.yahoo.com/mrss/">
+        https://cdn.example/default-ns.png
+      </thumbnail>
+    XML
+    rejected = thumbnail_feed([
+      '<thumbnail url="https://cdn.example/direct-attr.png">https://cdn.example/direct-body.png</thumbnail>',
+      '<other:thumbnail xmlns:other="https://other.example/ns" url="https://cdn.example/other-attr.png">https://cdn.example/other-body.png</other:thumbnail>',
+      <<~XML,
+        <media:group>
+          <thumbnail url="https://cdn.example/level-attr.png">https://cdn.example/level-body.png</thumbnail>
+        </media:group>
+      XML
+      <<~XML,
+        <media:group>
+          <media:group>
+            <thumbnail url="https://cdn.example/deep-attr.png">https://cdn.example/deep-body.png</thumbnail>
+            <other:thumbnail xmlns:other="https://other.example/ns">https://cdn.example/deep-other.png</other:thumbnail>
+            <group>
+              <media:thumbnail>https://cdn.example/inside-plain-group.png</media:thumbnail>
+            </group>
+            <media:thumbnail>
+              https://cdn.example/deep-ok.png
+            </media:thumbnail>
+          </media:group>
+        </media:group>
+      XML
+    ])
+
+    expect(prefixed.items.first.media.map { |row| row['url'] }).to eq ['https://cdn.example/prefixed.png?width=800']
+    expect(default_ns.items.first.media.map { |row| row['url'] }).to eq ['https://cdn.example/default-ns.png']
+    expect(rejected.items[0].media).to eq []
+    expect(rejected.items[1].media).to eq []
+    expect(rejected.items[2].media).to eq []
+    expect(rejected.items[3].media.map { |row| row['url'] }).to eq ['https://cdn.example/deep-ok.png']
+  end
+
+  it 'rejects thumbnail body URLs that fail the existing public URL rules' do
+    long = "https://cdn.example/#{'a' * 2_100}.png"
+    feed = thumbnail_feed([
+      '<media:thumbnail>https://user:pass@cdn.example/secret.png</media:thumbnail>',
+      '<media:thumbnail>https://cdn.example/token.png?token=abcd</media:thumbnail>',
+      '<media:thumbnail>http://127.0.0.1/local.png</media:thumbnail>',
+      '<media:thumbnail>http://localhost/local.png</media:thumbnail>',
+      '<media:thumbnail>javascript:alert(1)</media:thumbnail>',
+      '<media:thumbnail>data:image/png;base64,aaaa</media:thumbnail>',
+      "<media:thumbnail>#{long}</media:thumbnail>",
+    ])
+
+    expect(feed.items.map { |item| item.media }).to all(eq([]))
+  end
+
+  it 'uses a body thumbnail as a video poster without a second attachment' do
+    feed = thumbnail_feed([
+      <<~XML,
+        <media:content url="https://cdn.example/movie.mp4" type="video/mp4"/>
+        <media:thumbnail>
+          https://cdn.example/sibling-thumb.jpg
+        </media:thumbnail>
+        <description><![CDATA[<img src="https://cdn.example/sibling-thumb.jpg" alt="Same">]]></description>
+      XML
+      <<~XML,
+        <media:content url="https://cdn.example/nested.mp4" type="video/mp4">
+          <media:thumbnail>
+            https://cdn.example/nested-thumb.jpg
+          </media:thumbnail>
+        </media:content>
+        <description><![CDATA[<img src="https://cdn.example/nested-thumb.jpg" alt="Same">]]></description>
+      XML
+      <<~XML,
+        <media:group>
+          <media:group>
+            <media:content url="https://cdn.example/deep.mp4" type="video/mp4"/>
+            <media:thumbnail>
+              https://cdn.example/deep-thumb.jpg
+            </media:thumbnail>
+          </media:group>
+        </media:group>
+      XML
+      <<~XML,
+        <media:group>
+          <media:group>
+            <media:content url="https://cdn.example/deep-nested.mp4" type="video/mp4">
+              <media:thumbnail>
+                https://cdn.example/deep-nested-thumb.jpg
+              </media:thumbnail>
+            </media:content>
+          </media:group>
+        </media:group>
+      XML
+    ])
+
+    sibling, nested, deep, deep_nested = feed.items.map(&:media)
+    expect(sibling.map { |row| [row['kind'], row['url'], row['position']] }).to eq [
+      ['video', 'https://cdn.example/movie.mp4', 0],
+    ]
+    expect(sibling.first['poster_url']).to eq 'https://cdn.example/sibling-thumb.jpg'
+    expect(nested.map { |row| [row['kind'], row['url']] }).to eq [
+      ['video', 'https://cdn.example/nested.mp4'],
+    ]
+    expect(nested.first['poster_url']).to eq 'https://cdn.example/nested-thumb.jpg'
+    expect(deep.first['poster_url']).to eq 'https://cdn.example/deep-thumb.jpg'
+    expect(deep.map { |row| row['url'] }).to eq ['https://cdn.example/deep.mp4']
+    expect(deep_nested.first['poster_url']).to eq 'https://cdn.example/deep-nested-thumb.jpg'
+    expect(deep_nested.map { |row| row['url'] }).to eq ['https://cdn.example/deep-nested.mp4']
+  end
+
+  it 'keeps mixed media order when a body thumbnail is the poster' do
+    feed = thumbnail_feed([<<~XML])
+      <media:content url="https://cdn.example/one.png" medium="image"/>
+      <media:thumbnail>
+        https://cdn.example/poster.jpg
+      </media:thumbnail>
+      <media:content url="https://cdn.example/clip-a.mp4" type="video/mp4"/>
+      <media:content url="https://cdn.example/two.png" medium="image"/>
+      <enclosure url="https://cdn.example/talk.mp3" type="audio/mpeg"/>
+      <description><![CDATA[<img src="https://cdn.example/poster.jpg" alt="Poster"><img src="https://cdn.example/one.png" alt="One">]]></description>
+    XML
+
+    media = feed.items.first.media
+    expect(media.map { |row| [row['kind'], row['url'], row['position']] }).to eq [
+      ['image', 'https://cdn.example/one.png', 0],
+      ['video', 'https://cdn.example/clip-a.mp4', 1],
+      ['image', 'https://cdn.example/two.png', 2],
+      ['audio', 'https://cdn.example/talk.mp3', 3],
+    ]
+    expect(media[1]['poster_url']).to eq 'https://cdn.example/poster.jpg'
+    expect(media.map { |row| row['url'] }).not_to include('https://cdn.example/poster.jpg')
+  end
+
+  it 'caps thumbnail body candidates at the existing limit' do
+    fragments = (1..20).map { |number| %(<media:thumbnail>https://cdn.example/cap-#{number}.png</media:thumbnail>) }
+    feed = thumbnail_feed([fragments.join])
+
+    media = feed.items.first.media
+    expect(media.size).to eq ExternalBridge::RSS::Limits::MAX_MEDIA_CANDIDATES
+    expect(media.first['url']).to eq 'https://cdn.example/cap-1.png'
+    expect(media.last['url']).to eq 'https://cdn.example/cap-12.png'
+    expect(media.map { |row| row['position'] }).to eq (0...media.size).to_a
+  end
+
+  def thumbnail_feed(fragments, xmlns: 'xmlns:media="http://search.yahoo.com/mrss/"')
+    items = fragments.each_with_index.map { |fragment, index| thumbnail_item(fragment, index) }.join
+    parse(<<~XML)
+      <?xml version="1.0"?>
+      <rss version="2.0" #{xmlns}><channel>
+        <title>Example</title>
+        <link>https://example.com</link>
+        #{items}
+      </channel></rss>
+    XML
+  end
+
+  def thumbnail_item(fragment, index)
+    <<~XML
+      <item>
+        <guid>thumb-#{index}</guid>
+        <title>Thumb #{index}</title>
+        <link>https://example.com/posts/1</link>
+        #{fragment}
+      </item>
+    XML
+  end
 end
