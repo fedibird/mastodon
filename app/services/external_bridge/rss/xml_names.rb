@@ -56,43 +56,70 @@ module ExternalBridge
         node.attribute_with_ns(name, namespace)&.value
       end
 
-      # RFC 4287 section 4.2.7.2: a missing rel means alternate. The value is
-      # one relation, not an HTML token list. Comparison is case-insensitive
-      # so `Alternate` still matches the registered token.
-      def atom_page_href(node, namespaces = [ATOM])
+      # Page-link hrefs in the order Parser used before namespace selection:
+      # every explicit rel="alternate" first, then links whose rel is omitted
+      # (RFC 4287 section 4.2.7.2). self and enclosure are absent. Callers
+      # validate each href with their own rules and keep the first success,
+      # so a rejected leading URL does not hide a later candidate.
+      def atom_page_hrefs(node, namespaces = [ATOM])
+        explicit = []
+        omitted = []
         children(node, 'link', namespaces).each do |link|
-          next unless page_relation?(link)
           next unless page_type?(link)
 
-          href = link['href'].to_s.strip
-          href = link.text.to_s.strip if href.empty?
-          return href unless href.empty?
+          href = link_href(link)
+          next if href.empty?
+
+          if explicit_alternate?(link)
+            explicit << href
+          elsif omitted_relation?(link)
+            omitted << href
+          end
         end
-        nil
+        explicit + omitted
       end
 
-      def activitypub_href(node)
-        return nil unless node.respond_to?(:element_children)
+      def activitypub_hrefs(node)
+        return [] unless node.respond_to?(:element_children)
 
-        node.element_children.each do |child|
+        node.element_children.filter_map do |child|
           next unless activitypub_link?(child)
           next unless activitypub_relation?(child)
           next unless activitypub_type?(child)
 
           href = child['href'].to_s.strip
-          return href unless href.empty?
+          href unless href.empty?
         end
-        nil
       end
 
-      def page_relation?(link)
-        raw = link['rel']
-        return true if raw.nil? || raw.strip.empty?
-
-        token = raw.strip
-        return false if token.match?(/\s/)
+      # A single relation. Case-insensitive so `Alternate` still matches.
+      # A value that contains whitespace is an HTML token list, not Atom.
+      def explicit_alternate?(link)
+        token = relation_token(link)
+        return false if token.nil?
 
         token.casecmp?('alternate')
+      end
+
+      def omitted_relation?(link)
+        raw = link['rel']
+        raw.nil? || raw.strip.empty?
+      end
+
+      def relation_token(link)
+        raw = link['rel']
+        return nil if raw.nil?
+
+        token = raw.strip
+        return nil if token.empty? || token.match?(/\s/)
+
+        token
+      end
+
+      def link_href(link)
+        href = link['href'].to_s.strip
+        href = link.text.to_s.strip if href.empty?
+        href
       end
 
       def page_type?(link)
@@ -132,7 +159,7 @@ module ExternalBridge
       def allowed(namespaces)
         namespaces.is_a?(Array) ? namespaces : [namespaces]
       end
-      private_class_method :same_name?, :allowed
+      private_class_method :same_name?, :allowed, :explicit_alternate?, :omitted_relation?, :relation_token, :link_href
     end
   end
 end

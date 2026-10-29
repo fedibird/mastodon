@@ -365,8 +365,23 @@ module ExternalBridge
         MediaURL.normalize(absolute(value, base))
       end
 
+      # Same candidate order as Parser. The returned href stays raw: player
+      # matching needs query names MediaURL does not store. Userinfo, private
+      # hosts, and unsafe schemes are skipped so a later candidate can be used.
+      # Relative hrefs are kept for link_base to join.
       def atom_href(node)
-        XmlNames.atom_page_href(node)
+        XmlNames.atom_page_hrefs(node).each do |href|
+          return href if page_href_usable?(href)
+        end
+        nil
+      end
+
+      def page_href_usable?(href)
+        text = href.to_s.strip
+        return false if text.blank? || dangerous_scheme?(text)
+        return true unless text.match?(/\Ahttps?:/i)
+
+        MediaURL.normalize(text.sub(/\?.*\z/, '')).present?
       end
 
       def entry?(node)

@@ -294,6 +294,85 @@ RSpec.describe ExternalBridge::RSS::Parser do
         ['image', 'https://cdn.example/x.png'],
       ]
     end
+
+    it 'prefers an explicit alternate over an earlier omitted rel, and skips a rejected href' do
+      rejected_first = described_class.parse!(atom_feed(
+                                                 feed_links: '<link href="https://user:secret@news.example/wrong"/><link rel="alternate" href="https://news.example/right"/>',
+                                                 entry_links: '<link href="https://user:secret@news.example/wrong"/><link rel="alternate" href="https://news.example/right"/>'
+                                               ))
+      expect(rejected_first.site_url).to eq 'https://news.example/right'
+      expect(rejected_first.items.first.canonical_url).to eq 'https://news.example/right'
+
+      explicit_wins = described_class.parse!(atom_feed(
+                                                feed_links: '<link href="https://news.example/omitted"/><link rel="alternate" href="https://news.example/explicit"/>',
+                                                entry_links: '<link href="https://news.example/omitted"/><link rel="alternate" href="https://news.example/explicit"/>'
+                                              ))
+      expect(explicit_wins.site_url).to eq 'https://news.example/explicit'
+      expect(explicit_wins.items.first.canonical_url).to eq 'https://news.example/explicit'
+
+      swapped = described_class.parse!(atom_feed(
+                                          feed_links: '<link rel="alternate" href="https://news.example/explicit"/><link href="https://news.example/omitted"/>',
+                                          entry_links: '<link rel="alternate" href="https://news.example/explicit"/><link href="https://news.example/omitted"/>'
+                                        ))
+      expect(swapped.site_url).to eq 'https://news.example/explicit'
+      expect(swapped.items.first.canonical_url).to eq 'https://news.example/explicit'
+
+      fallback = described_class.parse!(atom_feed(
+                                           feed_links: '<link rel="alternate" href="https://user:secret@news.example/bad"/><link href="https://news.example/omitted"/>',
+                                           entry_links: '<link rel="alternate" href="http://127.0.0.1/secret"/><link href="https://news.example/omitted"/>'
+                                         ))
+      expect(fallback.site_url).to eq 'https://news.example/omitted'
+      expect(fallback.items.first.canonical_url).to eq 'https://news.example/omitted'
+    end
+
+    it 'resolves entry media against the accepted page link, not a rejected leading link' do
+      html = '<content type="html">&lt;img src="photo.png" alt="Relative"&gt;</content>'
+      preferred = '<link href="https://user:secret@cdn.example/wrong"/><link rel="alternate" href="https://news.example/posts/1"/>'
+      fallback_links = '<link rel="alternate" href="https://user:secret@cdn.example/wrong"/><link href="https://news.example/posts/1"/>'
+      site = '<link rel="alternate" href="https://news.example/"/>'
+
+      feed = described_class.parse!(atom_feed(feed_links: site, entry_links: preferred, content: html))
+      expect(feed.items.first.canonical_url).to eq 'https://news.example/posts/1'
+      expect(feed.items.first.media.map { |row| row['url'] }).to eq ['https://news.example/posts/photo.png']
+
+      fallback = described_class.parse!(atom_feed(feed_links: site, entry_links: fallback_links, content: html))
+      expect(fallback.items.first.canonical_url).to eq 'https://news.example/posts/1'
+      expect(fallback.items.first.media.map { |row| row['url'] }).to eq ['https://news.example/posts/photo.png']
+    end
+
+    it 'keeps a later valid ActivityPub link when earlier typed links are rejected' do
+      entry_links = <<~XML.squish
+        <link rel="alternate" type="application/activity+json" href="http://127.0.0.1/object"/>
+        <link rel="alternate" type="application/activity+json" href="https://user:secret@social.example/object"/>
+        <link rel="alternate" type="application/activity+json" href="/relative-object"/>
+        <link rel="alternate" type="text/html" href="https://news.example/entry"/>
+        <link rel="alternate" type="application/activity+json" href="https://social.example/object"/>
+      XML
+      feed = described_class.parse!(atom_feed(
+                                      feed_links: '<link rel="alternate" href="https://news.example/"/>',
+                                      entry_links: entry_links
+                                    ))
+
+      item = feed.items.first
+      expect(item.canonical_url).to eq 'https://news.example/entry'
+      expect(item.activitypub_explicit).to be true
+      expect(item.activitypub_url).to eq 'https://social.example/object'
+      expect(item.activitypub_sample_url).to be_nil
+    end
+  end
+
+  it 'does not treat a non-Atom feed element as an Atom feed' do
+    foreign = <<~XML
+      <foreign:feed xmlns:foreign="https://foreign.example/ns">
+        <foreign:title>Not Atom</foreign:title>
+        <foreign:link href="https://news.example/stolen"/>
+      </foreign:feed>
+    XML
+    bare = '<feed><title>Bare</title><link href="https://news.example/"/></feed>'
+
+    [foreign, bare].each do |xml|
+      expect { described_class.parse!(xml) }.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'malformed_feed' }
+    end
   end
 end
 

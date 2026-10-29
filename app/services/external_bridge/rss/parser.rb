@@ -12,9 +12,11 @@ module ExternalBridge
     end
 
     # RSS 1.0 (RDF), RSS 2.0, and Atom. External entities are not resolved.
-    # The root element's local name decides the format. Content-Type is not
-    # consulted. Namespaces stay on the document: fields are chosen by URI
-    # and local name, so element order and prefix spelling do not matter.
+    # RSS 2.0 and RSS 1.0 are recognized by the root element's local name.
+    # Atom also requires the Atom namespace URI, so a foreign element named
+    # `feed` is not a feed. Content-Type is not consulted. Namespaces stay on
+    # the document: fields are chosen by URI and local name, so element order
+    # and prefix spelling do not matter.
     class Parser
       ICON_HINT_ORDER = %w(atom_icon rss_image itunes_image atom_logo).freeze
 
@@ -86,7 +88,7 @@ module ExternalBridge
 
       def parse_atom(document)
         feed = document.root
-        raise Error, :malformed_feed unless feed.name.to_s.casecmp?('feed')
+        raise Error, :malformed_feed unless feed.name.to_s.casecmp?('feed') && feed.namespace&.href == XmlNames::ATOM
 
         items = XmlNames.children(feed, 'entry', XmlNames::ATOM).first(Limits::MAX_ITEMS).filter_map { |node| atom_item(node) }
         hints = [['atom_icon', XmlNames.text(feed, 'icon', XmlNames::ATOM)], ['atom_logo', XmlNames.text(feed, 'logo', XmlNames::ATOM)]]
@@ -147,7 +149,11 @@ module ExternalBridge
       # activitypub_url is that typed link alone. An ordinary permalink is
       # activitypub_sample_url and is not probed unless the feed sample admits it.
       def explicit_activitypub_url(node)
-        safe_url(XmlNames.activitypub_href(node), item: true)
+        XmlNames.activitypub_hrefs(node).each do |href|
+          url = safe_url(href, item: true)
+          return url if url.present?
+        end
+        nil
       end
 
       def activitypub_fields(node, link, identity)
@@ -175,11 +181,16 @@ module ExternalBridge
         safe_url(XmlNames.text(node, 'link', XmlNames::RSS_CORE), item: item)
       end
 
-      # Atom page URL: rel="alternate", or rel omitted (RFC 4287 treats that
-      # as alternate). self and enclosure are not page URLs. With no such
-      # link the result is nil; the entry id is left unchanged by the caller.
+      # Explicit rel="alternate" outranks a link whose rel is omitted. Each
+      # href is checked, and a rejected one does not hide the next candidate.
+      # self and enclosure are not page URLs. With no accepted link the result
+      # is nil; the entry id is left unchanged by the caller.
       def atom_link(node, item: false)
-        safe_url(XmlNames.atom_page_href(node), item: item)
+        XmlNames.atom_page_hrefs(node).each do |href|
+          url = safe_url(href, item: item)
+          return url if url.present?
+        end
+        nil
       end
 
       # A square site icon beats a feed image, and a feed image beats an
