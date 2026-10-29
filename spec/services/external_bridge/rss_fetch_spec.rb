@@ -302,8 +302,13 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       mixed = 'https://feeds.example/sel/combo-rss.xml?FORMAT=RSS&Feed=RSS2&Alt=RSS&Exclude_Body=0&Include_Scraps=0&All=0'
       again = described_class.new.call(user: other, url: mixed)
       expect(again.external_source_id).to eq stored.first[:source_id]
-      expect(again.language_mode).to eq 'unspecified'
-      expect(again.language).to be_nil
+      chosen = ExternalBridge::RSS::InitialLanguage.attributes_for(again.external_source)
+      expect(again.language_mode).to eq chosen[:language_mode]
+      expect(again.language).to eq chosen[:language]
+      kept = stored.map do |row|
+        subscription = ExternalSubscription.find_by!(user: user, external_source_id: row[:source_id])
+        [subscription.language_mode, subscription.language]
+      end
       again.update!(language_mode: 'fixed', language: 'ja')
 
       stored.each do |row|
@@ -315,6 +320,10 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       end
       expect(again.reload.language_mode).to eq 'fixed'
       expect(again.language).to eq 'ja'
+      stored.each_with_index do |row, index|
+        subscription = ExternalSubscription.find_by!(user: user, external_source_id: row[:source_id])
+        expect([subscription.language_mode, subscription.language]).to eq kept[index]
+      end
       expect(ExternalStatusProjection.where(user_id: user.id).count).to eq stored.size
       expect(ExternalStatusProjection.where(user_id: other.id).count).to eq 1
       expect(ExternalStatusProjection.where(user_id: user.id).pluck(:status_id)).not_to include(
