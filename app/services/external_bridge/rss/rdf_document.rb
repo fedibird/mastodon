@@ -2,8 +2,8 @@
 
 module ExternalBridge
   module RSS
-    # RSS 1.0. Parser has already removed namespaces, so rdf:RDF is RDF,
-    # rdf:about is the about attribute, and dc:date is a date element.
+    # RSS 1.0. Core elements use the RSS 1.0 URI. `rdf:about`, `rdf:resource`,
+    # `rdf:Seq`, and `rdf:li` use the RDF URI. Prefixes are irrelevant.
     # Items are siblings of channel. The rdf:Seq in channel/items is the
     # published order; item elements that the sequence does not name are kept
     # after it. A generator that nests item under channel is accepted too.
@@ -17,7 +17,7 @@ module ExternalBridge
       end
 
       def extract
-        channel = child(@root, 'channel')
+        channel = rss_child(@root, 'channel')
         return [nil, [], nil] if channel.nil?
 
         [channel, ordered_items(channel), image_url(channel)]
@@ -26,8 +26,8 @@ module ExternalBridge
       private
 
       def ordered_items(channel)
-        nodes = children(@root, 'item')
-        children(channel, 'item').each { |node| nodes << node unless nodes.include?(node) }
+        nodes = rss_children(@root, 'item')
+        rss_children(channel, 'item').each { |node| nodes << node unless nodes.include?(node) }
         sequence = sequence_urls(channel)
         return nodes if sequence.empty?
 
@@ -40,47 +40,51 @@ module ExternalBridge
       end
 
       def sequence_urls(channel)
-        container = child(channel, 'items')
-        seq = child(container, 'seq')
+        container = rss_child(channel, 'items')
+        seq = rdf_child(container, 'seq')
         return [] if seq.nil?
 
-        children(seq, 'li').filter_map { |node| node['resource'].to_s.strip.presence }
+        rdf_children(seq, 'li').filter_map { |node| XmlNames.attr_ns(node, 'resource', XmlNames::RDF).to_s.strip.presence }
       end
 
       def identities(node)
-        [node['about'], child_text(node, 'link'), child_text(node, 'guid')].filter_map { |value| value.to_s.strip.presence }
+        [XmlNames.attr_ns(node, 'about', XmlNames::RDF), rss_text(node, 'link'), rss_text(node, 'guid')].filter_map { |value| value.to_s.strip.presence }
       end
 
       def image_url(channel)
-        image = child(channel, 'image')
-        nested = child_text(image, 'url')
+        image = rss_child(channel, 'image')
+        nested = rss_text(image, 'url')
         return nested if nested.present?
 
-        resource = image&.[]('resource').to_s.strip
-        listed = children(@root, 'image')
-        top = listed.find { |node| resource.present? && node['about'].to_s.strip == resource }
+        resource = XmlNames.attr_ns(image, 'resource', XmlNames::RDF).to_s.strip
+        listed = rss_children(@root, 'image')
+        top = listed.find { |node| resource.present? && XmlNames.attr_ns(node, 'about', XmlNames::RDF).to_s.strip == resource }
         top ||= listed.first
-        declared = child_text(top, 'url')
+        declared = rss_text(top, 'url')
         return declared if declared.present?
         return resource if resource.match?(%r{\Ahttps?://}i)
 
         nil
       end
 
-      def child(node, name)
-        return nil if node.nil?
-
-        node.elements.find { |element| element.name.casecmp(name).zero? }
+      def rss_child(node, name)
+        XmlNames.child(node, name, XmlNames::RSS1, case_insensitive: true)
       end
 
-      def children(node, name)
-        return [] if node.nil?
-
-        node.elements.select { |element| element.name.casecmp(name).zero? }
+      def rss_children(node, name)
+        XmlNames.children(node, name, XmlNames::RSS1, case_insensitive: true)
       end
 
-      def child_text(node, name)
-        child(node, name)&.text.to_s.strip
+      def rdf_child(node, name)
+        XmlNames.child(node, name, XmlNames::RDF, case_insensitive: true)
+      end
+
+      def rdf_children(node, name)
+        XmlNames.children(node, name, XmlNames::RDF, case_insensitive: true)
+      end
+
+      def rss_text(node, name)
+        XmlNames.text(node, name, XmlNames::RSS1, case_insensitive: true)
       end
     end
   end

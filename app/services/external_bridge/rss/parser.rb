@@ -12,7 +12,9 @@ module ExternalBridge
     end
 
     # RSS 1.0 (RDF), RSS 2.0, and Atom. External entities are not resolved.
-    # The root element decides the format. Content-Type is not consulted.
+    # The root element's local name decides the format. Content-Type is not
+    # consulted. Namespaces stay on the document: fields are chosen by URI
+    # and local name, so element order and prefix spelling do not matter.
     class Parser
       ICON_HINT_ORDER = %w(atom_icon rss_image itunes_image atom_logo).freeze
 
@@ -28,10 +30,9 @@ module ExternalBridge
         document = Nokogiri::XML(@body) { |config| config.nonet.noblanks }
         raise Error, :invalid_xml if document.root.nil?
 
-        # Media RSS `content` and Atom `content` collide after namespaces
-        # are removed, so candidates and the real body element are marked first.
+        # Media RSS `content` and Atom `content` share a local name. Mark the
+        # body element and candidates while the namespace URIs are still present.
         MediaExtractor.index!(document)
-        document.remove_namespaces!
         case document.root.name.to_s.downcase
         when 'rss' then parse_rss(document)
         when 'feed' then parse_atom(document)
@@ -45,14 +46,14 @@ module ExternalBridge
       private
 
       def parse_rss(document)
-        channel = document.at_xpath('/rss/channel')
+        channel = XmlNames.child(document.root, 'channel', XmlNames::RSS_CORE)
         raise Error, :malformed_feed if channel.nil?
 
-        items = channel.xpath('item').first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
+        items = XmlNames.children(channel, 'item', XmlNames::RSS_CORE).first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
         Feed.new(
           protocol: 'rss',
-          title: Sanitizer.title(text_at(channel, 'title')),
-          site_url: safe_url(text_at(channel, 'link')),
+          title: Sanitizer.title(XmlNames.text(channel, 'title', XmlNames::RSS_CORE)),
+          site_url: rss_link(channel),
           items: items,
           icon_hints: icon_hints(rss_icon_pairs(channel)),
           **feed_activitypub(channel, items)
@@ -60,9 +61,11 @@ module ExternalBridge
       end
 
       def rss_icon_pairs(channel)
+        image = XmlNames.child(channel, 'image', XmlNames::RSS_CORE)
+        itunes = XmlNames.child(channel, 'image', XmlNames::ITUNES)
         [
-          ['rss_image', channel.at_xpath('image/url')&.text],
-          ['itunes_image', channel.at_xpath('image[@href]')&.[]('href')],
+          ['rss_image', XmlNames.text(image, 'url', XmlNames::RSS_CORE)],
+          ['itunes_image', itunes&.[]('href')],
         ]
       end
 
@@ -73,8 +76,8 @@ module ExternalBridge
         items = nodes.first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
         Feed.new(
           protocol: 'rss',
-          title: Sanitizer.title(text_at(channel, 'title')),
-          site_url: safe_url(text_at(channel, 'link')),
+          title: Sanitizer.title(XmlNames.text(channel, 'title', XmlNames::RSS_CORE)),
+          site_url: rss_link(channel),
           items: items,
           icon_hints: icon_hints([['rss_image', image_url]]),
           **feed_activitypub(channel, items)
@@ -82,34 +85,35 @@ module ExternalBridge
       end
 
       def parse_atom(document)
-        feed = document.at_xpath('/feed')
-        raise Error, :malformed_feed if feed.nil?
+        feed = document.root
+        raise Error, :malformed_feed unless feed.name.to_s.casecmp?('feed')
 
-        items = feed.xpath('entry').first(Limits::MAX_ITEMS).filter_map { |node| atom_item(node) }
+        items = XmlNames.children(feed, 'entry', XmlNames::ATOM).first(Limits::MAX_ITEMS).filter_map { |node| atom_item(node) }
+        hints = [['atom_icon', XmlNames.text(feed, 'icon', XmlNames::ATOM)], ['atom_logo', XmlNames.text(feed, 'logo', XmlNames::ATOM)]]
         Feed.new(
           protocol: 'atom',
-          title: Sanitizer.title(text_at(feed, 'title')),
-          site_url: atom_link(feed) || safe_url(text_at(feed, 'link')),
+          title: Sanitizer.title(XmlNames.text(feed, 'title', XmlNames::ATOM)),
+          site_url: atom_link(feed),
           items: items,
-          icon_hints: icon_hints([['atom_icon', text_at(feed, 'icon')], ['atom_logo', text_at(feed, 'logo')]]),
+          icon_hints: icon_hints(hints),
           **feed_activitypub(feed, items)
         )
       end
 
       def rss_item(node)
-        about = node['about'].to_s.strip.presence
-        link = safe_url(text_at(node, 'link').presence || about, item: true)
-        key = text_at(node, 'guid').presence || about || link
+        about = XmlNames.attr_ns(node, 'about', XmlNames::RDF).to_s.strip.presence
+        link = safe_url(XmlNames.text(node, 'link', XmlNames::RSS_CORE).presence || about, item: true)
+        key = XmlNames.text(node, 'guid', XmlNames::RSS_CORE).presence || about || link
         return nil if key.blank?
 
-        body, truncated = Sanitizer.capped(raw_body(node, 'encoded', 'description'))
+        body, truncated = Sanitizer.capped(raw_body(node))
         Item.new(
           key: key.strip,
-          title: Sanitizer.title(text_at(node, 'title')),
+          title: Sanitizer.title(XmlNames.text(node, 'title', XmlNames::RSS_CORE)),
           body: body,
           canonical_url: link,
-          byline: Sanitizer.title(text_at(node, 'creator').presence || text_at(node, 'author')),
-          published_at: PublicationTime.parse(text_at(node, 'pubDate')) || PublicationTime.parse(text_at(node, 'date')),
+          byline: Sanitizer.title(XmlNames.text(node, 'creator', XmlNames::DC).presence || XmlNames.text(node, 'author', XmlNames::RSS_CORE)),
+          published_at: PublicationTime.parse(XmlNames.text(node, 'pubDate', XmlNames::RSS_CORE)) || PublicationTime.parse(XmlNames.text(node, 'date', XmlNames::DC)),
           truncated: truncated,
           media: media_for(node),
           keywords: keywords_for(node),
@@ -118,19 +122,20 @@ module ExternalBridge
       end
 
       def atom_item(node)
-        key = text_at(node, 'id').presence
+        key = XmlNames.text(node, 'id', XmlNames::ATOM).presence
         link = atom_link(node, item: true)
         key ||= link
         return nil if key.blank?
 
-        body, truncated = Sanitizer.capped(raw_body(node, 'content', 'summary'))
+        author = XmlNames.child(node, 'author', XmlNames::ATOM)
+        body, truncated = Sanitizer.capped(raw_body(node))
         Item.new(
           key: key.strip,
-          title: Sanitizer.title(text_at(node, 'title')),
+          title: Sanitizer.title(XmlNames.text(node, 'title', XmlNames::ATOM)),
           body: body,
           canonical_url: link,
-          byline: Sanitizer.title(node.at_xpath('author/name')&.text),
-          published_at: PublicationTime.parse(text_at(node, 'published')) || PublicationTime.parse(text_at(node, 'updated')),
+          byline: Sanitizer.title(XmlNames.text(author, 'name', XmlNames::ATOM)),
+          published_at: PublicationTime.parse(XmlNames.text(node, 'published', XmlNames::ATOM)) || PublicationTime.parse(XmlNames.text(node, 'updated', XmlNames::ATOM)),
           truncated: truncated,
           media: media_for(node),
           keywords: keywords_for(node),
@@ -142,14 +147,7 @@ module ExternalBridge
       # activitypub_url is that typed link alone. An ordinary permalink is
       # activitypub_sample_url and is not probed unless the feed sample admits it.
       def explicit_activitypub_url(node)
-        node.xpath('link[@href]').each do |link|
-          next unless link['rel'].blank? || link['rel'].to_s.split.any? { |rel| %w(alternate self).include?(rel) }
-          next unless %w(application/activity+json application/ld+json).include?(link['type'].to_s.split(';').first.to_s.strip.downcase)
-
-          url = safe_url(link['href'], item: true)
-          return url if url.present?
-        end
-        nil
+        safe_url(XmlNames.activitypub_href(node), item: true)
       end
 
       def activitypub_fields(node, link, identity)
@@ -167,15 +165,21 @@ module ExternalBridge
       end
 
       def generator_hint?(node)
-        text_at(node, 'generator').first(200).match?(/\b(mastodon|misskey|pixelfed|pleroma|akkoma|gotosocial|friendica|firefish|sharkey|iceshrimp)\b/i)
+        namespaces = node.namespace&.href == XmlNames::ATOM ? XmlNames::ATOM : XmlNames::RSS_CORE
+        XmlNames.text(node, 'generator', namespaces).first(200).match?(/\b(mastodon|misskey|pixelfed|pleroma|akkoma|gotosocial|friendica|firefish|sharkey|iceshrimp)\b/i)
       end
 
+      # RSS `link` is the element text in the RSS vocabulary. An Atom `link`
+      # in the same parent, including rel="self", is a different element.
+      def rss_link(node, item: false)
+        safe_url(XmlNames.text(node, 'link', XmlNames::RSS_CORE), item: item)
+      end
+
+      # Atom page URL: rel="alternate", or rel omitted (RFC 4287 treats that
+      # as alternate). self and enclosure are not page URLs. With no such
+      # link the result is nil; the entry id is left unchanged by the caller.
       def atom_link(node, item: false)
-        alternate = node.at_xpath("link[@rel='alternate']")
-        chosen = alternate || node.at_xpath('link[@href]')
-        href = chosen&.[]('href')
-        href = text_at(node, 'link') if href.blank?
-        safe_url(href, item: item)
+        safe_url(XmlNames.atom_page_href(node), item: item)
       end
 
       # A square site icon beats a feed image, and a feed image beats an
@@ -190,14 +194,10 @@ module ExternalBridge
         end.first(Limits::ICON_HINTS)
       end
 
-      def raw_body(node, *fallbacks)
+      def raw_body(node)
         preview = node.instance_variable_get(:@external_rss_preview)
         return preview.body if preview
 
-        fallbacks.each do |name|
-          value = text_at(node, name).presence
-          return value if value
-        end
         nil
       end
 
@@ -209,10 +209,6 @@ module ExternalBridge
       def keywords_for(node)
         preview = node.instance_variable_get(:@external_rss_preview)
         Array(preview&.keywords)
-      end
-
-      def text_at(node, name)
-        node.at_xpath(name)&.text.to_s.strip
       end
 
       def safe_url(value, item: false)
