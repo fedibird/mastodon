@@ -15,11 +15,14 @@ RSpec.describe 'RSS subscription language' do
   end
 
   around do |example|
-    previous = I18n.default_locale
+    previous_default = I18n.default_locale
+    previous_locale = I18n.locale
     I18n.default_locale = :ja
-    I18n.with_locale(:ja) { example.run }
+    I18n.locale = :ja
+    example.run
   ensure
-    I18n.default_locale = previous
+    I18n.default_locale = previous_default
+    I18n.locale = previous_locale
   end
 
   def feed_for(user, body:, title: 'Imported title')
