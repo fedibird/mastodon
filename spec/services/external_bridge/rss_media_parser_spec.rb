@@ -417,6 +417,70 @@ RSpec.describe ExternalBridge::RSS::MediaExtractor do
     expect(feed.items.map { |item| item.media }).to all(eq([]))
   end
 
+  it 'reads only the un-namespaced thumbnail url attribute' do
+    foreign = 'xmlns:other="https://other.example/ns"'
+    feed = thumbnail_feed([
+      <<~XML,
+        <media:thumbnail #{foreign} other:url="https://cdn.example/foreign.jpg">
+          https://cdn.example/body-only.png
+        </media:thumbnail>
+      XML
+      %(<media:thumbnail #{foreign} other:url="https://cdn.example/foreign-only.jpg"/>),
+      %(<media:thumbnail #{foreign} other:url="https://cdn.example/foreign.jpg" url="https://cdn.example/standard-after-foreign.jpg"/>),
+      %(<media:thumbnail #{foreign} url="https://cdn.example/standard-before-foreign.jpg" other:url="https://cdn.example/foreign.jpg"/>),
+      %(<media:thumbnail #{foreign} other:url="" url="https://cdn.example/standard-after-empty.jpg"/>),
+      %(<media:thumbnail #{foreign} other:url="javascript:alert(1)" url="https://cdn.example/standard-after-bad.jpg"/>),
+      %(<media:thumbnail #{foreign} url="" other:url="https://cdn.example/foreign.jpg">https://cdn.example/body.png</media:thumbnail>),
+      %(<media:thumbnail #{foreign} other:url="https://cdn.example/foreign.jpg" url="">https://cdn.example/body.png</media:thumbnail>),
+      %(<media:thumbnail #{foreign} url="javascript:alert(1)" other:url="https://cdn.example/foreign.jpg">https://cdn.example/body.png</media:thumbnail>),
+      <<~XML,
+        <media:content url="https://cdn.example/poster-order.mp4" type="video/mp4">
+          <media:thumbnail #{foreign} other:url="https://cdn.example/foreign-poster.jpg" url="https://cdn.example/standard-poster.jpg"/>
+        </media:content>
+      XML
+      <<~XML,
+        <media:content url="https://cdn.example/poster-body.mp4" type="video/mp4">
+          <media:thumbnail #{foreign} other:url="https://cdn.example/foreign-poster.jpg">
+            https://cdn.example/body-poster.jpg
+          </media:thumbnail>
+        </media:content>
+      XML
+      <<~XML,
+        <media:content url="https://cdn.example/poster-empty.mp4" type="video/mp4">
+          <media:thumbnail #{foreign} other:url="https://cdn.example/foreign-poster.jpg" url="">
+            https://cdn.example/body-poster.jpg
+          </media:thumbnail>
+        </media:content>
+      XML
+    ])
+
+    images = feed.items.first(9).map { |item| item.media.map { |row| row['url'] } }
+    expect(images).to eq [
+      ['https://cdn.example/body-only.png'],
+      [],
+      ['https://cdn.example/standard-after-foreign.jpg'],
+      ['https://cdn.example/standard-before-foreign.jpg'],
+      ['https://cdn.example/standard-after-empty.jpg'],
+      ['https://cdn.example/standard-after-bad.jpg'],
+      [],
+      [],
+      [],
+    ]
+
+    ordered, body, empty = feed.items.last(3).map(&:media)
+    expect(ordered.map { |row| row['url'] }).to eq ['https://cdn.example/poster-order.mp4']
+    expect(ordered.first['poster_url']).to eq 'https://cdn.example/standard-poster.jpg'
+    expect(body.map { |row| row['url'] }).to eq ['https://cdn.example/poster-body.mp4']
+    expect(body.first['poster_url']).to eq 'https://cdn.example/body-poster.jpg'
+    expect(empty.map { |row| [row['url'], row['poster_url']] }).to eq [
+      ['https://cdn.example/poster-empty.mp4', nil],
+    ]
+    stored = feed.items.flat_map { |item| item.media }.to_json
+    expect(stored).not_to include('https://cdn.example/foreign.jpg')
+    expect(stored).not_to include('https://cdn.example/foreign-only.jpg')
+    expect(stored).not_to include('https://cdn.example/foreign-poster.jpg')
+  end
+
   it 'rejects thumbnail text that is not one explicit http URL' do
     feed = thumbnail_feed([
       '<media:thumbnail></media:thumbnail>',

@@ -4,7 +4,8 @@ module ExternalBridge
   module RSS
     # URL of one Media RSS thumbnail.
     #
-    # The standard source is the un-namespaced `url` attribute. When that
+    # The standard source is the un-namespaced `url` attribute. A same-named
+    # attribute in another namespace is not that attribute. When the standard
     # attribute is present it is the only source, including when the value is
     # blank or later rejected. Some feeds put a single absolute http(s) URL
     # in the element text instead. That text is read only when the attribute
@@ -29,7 +30,11 @@ module ExternalBridge
       def reference
         return nil unless self.class.thumbnail?(@node)
 
-        attribute = @node.attribute('url')
+        # Node#attribute matches the local name in every namespace, so a
+        # leading other:url would hide the standard attribute or block the
+        # text fallback. [] and attribute_with_ns(..., nil) are the
+        # un-namespaced attribute only.
+        attribute = @node.attribute_with_ns('url', nil)
         return attribute.value if attribute
 
         body_reference
