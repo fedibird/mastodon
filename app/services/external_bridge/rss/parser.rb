@@ -48,13 +48,14 @@ module ExternalBridge
       private
 
       def parse_rss(document)
-        channel = XmlNames.child(document.root, 'channel', XmlNames::RSS_CORE)
+        namespaces = core_namespaces(document.root)
+        channel = XmlNames.child(document.root, 'channel', namespaces)
         raise Error, :malformed_feed if channel.nil?
 
-        items = XmlNames.children(channel, 'item', XmlNames::RSS_CORE).first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
+        items = XmlNames.children(channel, 'item', namespaces).first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
         Feed.new(
           protocol: 'rss',
-          title: Sanitizer.title(XmlNames.text(channel, 'title', XmlNames::RSS_CORE)),
+          title: Sanitizer.title(XmlNames.text(channel, 'title', namespaces)),
           site_url: rss_link(channel),
           items: items,
           icon_hints: icon_hints(rss_icon_pairs(channel)),
@@ -63,10 +64,11 @@ module ExternalBridge
       end
 
       def rss_icon_pairs(channel)
-        image = XmlNames.child(channel, 'image', XmlNames::RSS_CORE)
+        namespaces = core_namespaces(channel)
+        image = XmlNames.child(channel, 'image', namespaces)
         itunes = XmlNames.child(channel, 'image', XmlNames::ITUNES)
         [
-          ['rss_image', XmlNames.text(image, 'url', XmlNames::RSS_CORE)],
+          ['rss_image', XmlNames.text(image, 'url', namespaces)],
           ['itunes_image', itunes&.[]('href')],
         ]
       end
@@ -78,7 +80,7 @@ module ExternalBridge
         items = nodes.first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
         Feed.new(
           protocol: 'rss',
-          title: Sanitizer.title(XmlNames.text(channel, 'title', XmlNames::RSS_CORE)),
+          title: Sanitizer.title(XmlNames.text(channel, 'title', core_namespaces(channel))),
           site_url: rss_link(channel),
           items: items,
           icon_hints: icon_hints([['rss_image', image_url]]),
@@ -103,19 +105,20 @@ module ExternalBridge
       end
 
       def rss_item(node)
+        namespaces = core_namespaces(node)
         about = XmlNames.attr_ns(node, 'about', XmlNames::RDF).to_s.strip.presence
-        link = safe_url(XmlNames.text(node, 'link', XmlNames::RSS_CORE).presence || about, item: true)
-        key = XmlNames.text(node, 'guid', XmlNames::RSS_CORE).presence || about || link
+        link = safe_url(XmlNames.text(node, 'link', namespaces).presence || about, item: true)
+        key = XmlNames.text(node, 'guid', namespaces).presence || about || link
         return nil if key.blank?
 
         body, truncated = Sanitizer.capped(raw_body(node))
         Item.new(
           key: key.strip,
-          title: Sanitizer.title(XmlNames.text(node, 'title', XmlNames::RSS_CORE)),
+          title: Sanitizer.title(XmlNames.text(node, 'title', namespaces)),
           body: body,
           canonical_url: link,
-          byline: Sanitizer.title(XmlNames.text(node, 'creator', XmlNames::DC).presence || XmlNames.text(node, 'author', XmlNames::RSS_CORE)),
-          published_at: PublicationTime.parse(XmlNames.text(node, 'pubDate', XmlNames::RSS_CORE)) || PublicationTime.parse(XmlNames.text(node, 'date', XmlNames::DC)),
+          byline: Sanitizer.title(XmlNames.text(node, 'creator', XmlNames::DC).presence || XmlNames.text(node, 'author', namespaces)),
+          published_at: PublicationTime.parse(XmlNames.text(node, 'pubDate', namespaces)) || PublicationTime.parse(XmlNames.text(node, 'date', XmlNames::DC)),
           truncated: truncated,
           media: media_for(node),
           keywords: keywords_for(node),
@@ -171,14 +174,18 @@ module ExternalBridge
       end
 
       def generator_hint?(node)
-        namespaces = node.namespace&.href == XmlNames::ATOM ? XmlNames::ATOM : XmlNames::RSS_CORE
+        namespaces = node.namespace&.href == XmlNames::ATOM ? XmlNames::ATOM : core_namespaces(node)
         XmlNames.text(node, 'generator', namespaces).first(200).match?(/\b(mastodon|misskey|pixelfed|pleroma|akkoma|gotosocial|friendica|firefish|sharkey|iceshrimp)\b/i)
       end
 
-      # RSS `link` is the element text in the RSS vocabulary. An Atom `link`
-      # in the same parent, including rel="self", is a different element.
+      # RSS `link` is the element text in this document's core namespace.
+      # An Atom `link`, including rel="self", is a different element.
       def rss_link(node, item: false)
-        safe_url(XmlNames.text(node, 'link', XmlNames::RSS_CORE), item: item)
+        safe_url(XmlNames.text(node, 'link', core_namespaces(node)), item: item)
+      end
+
+      def core_namespaces(node)
+        XmlNames.core_namespaces(node&.document&.root)
       end
 
       # Explicit rel="alternate" outranks a link whose rel is omitted. Each

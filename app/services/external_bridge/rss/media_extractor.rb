@@ -39,7 +39,7 @@ module ExternalBridge
       end
 
       def item_node?(node)
-        XmlNames.element?(node, 'item', XmlNames::RSS_CORE) || XmlNames.element?(node, 'entry', XmlNames::ATOM)
+        XmlNames.element?(node, 'item', core_namespaces(node)) || XmlNames.element?(node, 'entry', XmlNames::ATOM)
       end
 
       def tag(node)
@@ -89,7 +89,7 @@ module ExternalBridge
 
       def podcast_audio?(node)
         node.element_children.any? do |child|
-          next false unless XmlNames.element?(child, 'enclosure', XmlNames::RSS_CORE)
+          next false unless XmlNames.element?(child, 'enclosure', core_namespaces(child))
 
           child['type'].to_s.downcase.start_with?('audio/') ||
             %w(.mp3 .m4a .aac .ogg .oga .wav .flac .opus).include?(File.extname(Addressable::URI.parse(child['url'].to_s).path.to_s).downcase)
@@ -127,7 +127,7 @@ module ExternalBridge
       end
 
       def enclosure?(child)
-        return true if XmlNames.element?(child, 'enclosure', XmlNames::RSS_CORE)
+        return true if XmlNames.element?(child, 'enclosure', core_namespaces(child))
         return false unless XmlNames.element?(child, 'link', ATOM)
 
         child['rel'].to_s.downcase == 'enclosure'
@@ -331,7 +331,18 @@ module ExternalBridge
 
       def link_base(node)
         href = entry?(node) ? atom_href(node) : link_value(node)
-        MediaURL.normalize(href) || absolute_against(href, channel_base(node))
+        found = MediaURL.normalize(href)
+        found = page_path_base(href) if found.blank? && entry?(node)
+        found || absolute_against(href, channel_base(node))
+      end
+
+      # CanonicalURL accepts item queries that MediaURL does not store. The
+      # path of that same absolute URL is still the base for a relative image.
+      def page_path_base(href)
+        text = href.to_s.strip
+        return nil unless text.match?(/\Ahttps?:/i)
+
+        MediaURL.normalize(text.sub(/\?.*\z/, '').sub(/#.*\z/, ''))
       end
 
       def link_value(node)
@@ -352,9 +363,10 @@ module ExternalBridge
       end
 
       def container_href(node)
+        namespaces = core_namespaces(node)
         return atom_href(node) if XmlNames.element?(node, 'feed', ATOM, case_insensitive: true)
-        return XmlNames.text(node, 'link', XmlNames::RSS_CORE).presence if XmlNames.element?(node, 'channel', XmlNames::RSS_CORE, case_insensitive: true)
-        return XmlNames.text(node, 'link', XmlNames::RSS_CORE).presence if XmlNames.element?(node, 'rdf', XmlNames::RDF, case_insensitive: true)
+        return XmlNames.text(node, 'link', namespaces).presence if XmlNames.element?(node, 'channel', namespaces, case_insensitive: true)
+        return XmlNames.text(node, 'link', namespaces).presence if XmlNames.element?(node, 'rdf', XmlNames::RDF, case_insensitive: true)
 
         nil
       end
@@ -365,23 +377,29 @@ module ExternalBridge
         MediaURL.normalize(absolute(value, base))
       end
 
-      # Same candidate order as Parser. The returned href stays raw: player
-      # matching needs query names MediaURL does not store. Userinfo, private
-      # hosts, and unsafe schemes are skipped so a later candidate can be used.
-      # Relative hrefs are kept for link_base to join.
+      # The same candidate Parser keeps for canonical_url / site_url. The
+      # returned string is the raw href, so a player can still see an item id
+      # query that CanonicalURL accepts and MediaURL does not store.
       def atom_href(node)
+        item = entry?(node)
         XmlNames.atom_page_hrefs(node).each do |href|
-          return href if page_href_usable?(href)
+          return href if canonical_page?(href, item: item)
         end
         nil
       end
 
-      def page_href_usable?(href)
+      def canonical_page?(href, item:)
         text = href.to_s.strip
-        return false if text.blank? || dangerous_scheme?(text)
-        return true unless text.match?(/\Ahttps?:/i)
+        return false if text.blank?
 
-        MediaURL.normalize(text.sub(/\?.*\z/, '')).present?
+        CanonicalURL.normalize!(text, item: item)
+        true
+      rescue Error
+        false
+      end
+
+      def core_namespaces(node)
+        XmlNames.core_namespaces(node&.document&.root)
       end
 
       def entry?(node)
@@ -403,7 +421,7 @@ module ExternalBridge
       end
 
       def child_named(node, name)
-        XmlNames.child(node, name, XmlNames::RSS_CORE)
+        XmlNames.child(node, name, core_namespaces(node))
       end
     end
   end

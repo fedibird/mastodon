@@ -7,9 +7,9 @@ module ExternalBridge
     # are the same element when they share the Atom URI.
     #
     # RSS 2.0 core elements have no namespace. RSS 1.0 core elements use the
-    # RSS 1.0 URI. Dublin Core, Content, Media RSS, iTunes, RDF, and Atom stay
-    # distinct, so a same-named element in another URI cannot take over a
-    # standard field. Callers pass the URI list that is valid for that field.
+    # RSS 1.0 URI. A document uses one of those, chosen from the root, and
+    # the other must not supply title, link, or the other standard fields.
+    # Dublin Core, Content, Media RSS, iTunes, RDF, and Atom stay distinct.
     module XmlNames
       RSS1 = 'http://purl.org/rss/1.0/'
       RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#'
@@ -19,7 +19,6 @@ module ExternalBridge
       MEDIA = 'http://search.yahoo.com/mrss/'
       ITUNES = 'http://www.itunes.com/dtds/podcast-1.0.dtd'
       XML = 'http://www.w3.org/XML/1998/namespace'
-      RSS_CORE = [nil, RSS1].freeze
       # RFC 4287 does not require atom:link/@type. When it is present, only an
       # HTML page representation is the article or site URL. ActivityPub
       # documents stay on the typed-link path instead.
@@ -27,6 +26,14 @@ module ExternalBridge
       ACTIVITY_TYPES = %w(application/activity+json application/ld+json).freeze
 
       module_function
+
+      # RSS 1.0 is an RDF document. RSS 2.0 core elements are un-namespaced
+      # even when the file also declares the RSS 1.0 URI for something else.
+      def core_namespaces(root)
+        return [RSS1] if root&.name.to_s.casecmp?('rdf')
+
+        [nil]
+      end
 
       def children(node, name, namespaces, case_insensitive: false)
         return [] unless node.respond_to?(:element_children)

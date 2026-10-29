@@ -359,6 +359,99 @@ RSpec.describe ExternalBridge::RSS::Parser do
       expect(item.activitypub_url).to eq 'https://social.example/object'
       expect(item.activitypub_sample_url).to be_nil
     end
+
+    it 'uses the same absolute page link for the canonical URL and a relative image' do
+      html = '<content type="html">&lt;img src="photo.png" alt="Relative"&gt;</content>'
+      site = '<link rel="alternate" href="https://news.example/"/>'
+      relative_first = '<link rel="alternate" href="/other"/><link rel="alternate" href="https://news.example/posts/1"/>'
+      secret_first = '<link rel="alternate" href="https://wrong.example/path?auth_token=SECRET"/><link rel="alternate" href="https://news.example/posts/1"/>'
+
+      [relative_first, secret_first].each do |entry_links|
+        feed = described_class.parse!(atom_feed(feed_links: site, entry_links: entry_links, content: html))
+        expect(feed.items.first.canonical_url).to eq 'https://news.example/posts/1'
+        expect(feed.items.first.media.map { |row| row['url'] }).to eq ['https://news.example/posts/photo.png']
+      end
+    end
+  end
+
+  it 'does not let the RSS 1.0 namespace replace RSS 2.0 channel or item fields' do
+    feed = described_class.parse!(<<~XML)
+      <?xml version="1.0"?>
+      <rss version="2.0" xmlns:r="http://purl.org/rss/1.0/">
+        <r:channel>
+          <r:title>Not the channel</r:title>
+          <r:link>https://evil.example/channel</r:link>
+        </r:channel>
+        <channel>
+          <r:title>Foreign</r:title>
+          <title>Real</title>
+          <r:link>https://evil.example/</r:link>
+          <link>https://news.example/</link>
+          <item>
+            <r:title>Foreign item</r:title>
+            <title>Real item</title>
+            <r:guid>foreign-guid</r:guid>
+            <guid>real-guid</guid>
+            <r:link>https://evil.example/item</r:link>
+            <link>https://news.example/item</link>
+            <r:description>Foreign body</r:description>
+            <description>Real body</description>
+          </item>
+          <r:item>
+            <title>Stolen item</title>
+            <guid>stolen</guid>
+            <link>https://evil.example/stolen</link>
+            <description>Stolen body</description>
+          </r:item>
+        </channel>
+      </rss>
+    XML
+
+    expect(feed.title).to eq 'Real'
+    expect(feed.site_url).to eq 'https://news.example'
+    expect(feed.items.map(&:key)).to eq ['real-guid']
+    expect(feed.items.first.title).to eq 'Real item'
+    expect(feed.items.first.canonical_url).to eq 'https://news.example/item'
+    expect(feed.items.first.body).to eq 'Real body'
+  end
+
+  it 'does not let an un-namespaced element replace an RSS 1.0 field' do
+    feed = described_class.parse!(<<~XML)
+      <?xml version="1.0"?>
+      <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+        <channel xmlns="">
+          <title>Bare channel</title>
+          <link>https://evil.example/bare</link>
+        </channel>
+        <channel rdf:about="https://news.example/">
+          <title xmlns="">Foreign</title>
+          <title>Real</title>
+          <link xmlns="">https://evil.example/</link>
+          <link>https://news.example/</link>
+        </channel>
+        <item xmlns="">
+          <title>Bare item</title>
+          <link>https://evil.example/bare-item</link>
+          <description>Bare body</description>
+        </item>
+        <item rdf:about="https://news.example/story">
+          <title xmlns="">Foreign item</title>
+          <title>Real item</title>
+          <guid xmlns="">foreign-guid</guid>
+          <link xmlns="">https://evil.example/item</link>
+          <link>https://news.example/story</link>
+          <description xmlns="">Foreign body</description>
+          <description>Real body</description>
+        </item>
+      </rdf:RDF>
+    XML
+
+    expect(feed.title).to eq 'Real'
+    expect(feed.site_url).to eq 'https://news.example'
+    expect(feed.items.map(&:title)).to eq ['Real item']
+    expect(feed.items.first.key).to eq 'https://news.example/story'
+    expect(feed.items.first.canonical_url).to eq 'https://news.example/story'
+    expect(feed.items.first.body).to eq 'Real body'
   end
 
   it 'does not treat a non-Atom feed element as an Atom feed' do
