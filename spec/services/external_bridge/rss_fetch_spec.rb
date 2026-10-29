@@ -75,6 +75,23 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       expect(ExternalSource.find_by!(canonical_key: feed_url).external_resources.count).to eq 2
     end
 
+    it 'does not fold a different selection query into the same source or projection' do
+      selected = 'https://feeds.example/news.xml?exclude_body=1&order=created'
+      stub_request(:get, feed_url).to_return(status: 200, body: rss_document(rss_item(guid: 'guid-1')))
+      stub_request(:get, selected).to_return(status: 200, body: rss_document(rss_item(guid: 'guid-1')))
+
+      plain = described_class.new.call(user: user, url: feed_url)
+      other_subscription = described_class.new.call(user: other, url: selected)
+      expect(other_subscription.external_source_id).not_to eq plain.external_source_id
+      expect(ExternalSource.find(plain.external_source_id).canonical_key).to eq feed_url
+      expect(ExternalSource.find(other_subscription.external_source_id).canonical_key).to eq selected
+      expect(ExternalStatusProjection.where(user_id: user.id).count).to eq 1
+      expect(ExternalStatusProjection.where(user_id: other.id).count).to eq 1
+      expect(ExternalStatusProjection.where(user_id: user.id).pick(:status_id)).not_to eq(
+        ExternalStatusProjection.where(user_id: other.id).pick(:status_id)
+      )
+    end
+
     it 'stores a nil publication time for a malformed date and still projects the item' do
       stub_request(:get, feed_url).to_return(status: 200, body: rss_document(rss_item(guid: 'dated', date: 'not-a-date')))
 
@@ -164,6 +181,19 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       expect(ExternalStatusProjection.where(user_id: other.id).count).to eq 1
       expect(ExternalResource.where(external_source_id: source.id).count).to eq 1
     end
+
+    it 'does not keep a shared row when a public selection query returns 401, 403, or HTML' do
+      url = 'https://feeds.example/closed.xml?format=rss2&exclude_body=1'
+      stub_request(:get, url).to_return(status: 401, body: 'no')
+      expect { described_class.new.call(user: user, url: url) }.to raise_error(ExternalBridge::Error)
+      stub_request(:get, url).to_return(status: 403, body: 'no')
+      expect { described_class.new.call(user: user, url: url) }.to raise_error(ExternalBridge::Error)
+      stub_request(:get, url).to_return(status: 200, body: '<html><body>Not a feed</body></html>', headers: { 'Content-Type' => 'text/html' })
+      expect { described_class.new.call(user: user, url: url) }
+        .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'malformed_feed' }
+      expect(ExternalSource.where(canonical_key: url)).to be_empty
+      expect(ExternalResource.where("canonical_key ILIKE '%closed.xml%'")).to be_empty
+    end
   end
 
   describe 'XML safety' do
@@ -205,6 +235,188 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       expect(status.tags).to be_empty
       expect(status.mentions).to be_empty
       expect(status.preview_cards).to be_empty
+    end
+  end
+
+  describe 'public selection queries' do
+    def atom_document
+      <<~XML
+        <?xml version="1.0"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <title>Example Atom</title>
+          <link href="https://example.com/"/>
+          <entry>
+            <id>urn:example:item-1</id>
+            <title>Atom item</title>
+            <link href="https://example.com/atom-1"/>
+            <updated>2020-01-02T03:04:05Z</updated>
+            <summary>Atom body</summary>
+          </entry>
+        </feed>
+      XML
+    end
+
+    def rdf_document
+      <<~XML
+        <?xml version="1.0"?>
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+          <channel rdf:about="https://news.example/">
+            <title>Example RDF</title>
+            <link>https://news.example/</link>
+            <item>
+              <title>RDF item</title>
+              <link>https://news.example/rdf-1</link>
+              <description>RDF body</description>
+            </item>
+          </channel>
+        </rdf:RDF>
+      XML
+    end
+
+    def selection_cases
+      [
+        ['combo-rss.xml?format=rss&feed=rss2&alt=rss&exclude_body=0&include_scraps=0&all=0', rss_document(rss_item(guid: 'combo-rss')), 'rss', 'combo-rss'],
+        ['combo-atom.xml?format=atom&exclude_body=1&include_scraps=1&all=1&order=created&period=weekly', atom_document, 'atom', 'urn:example:item-1'],
+        ['format-xml.xml?format=xml', rss_document(rss_item(guid: 'format-xml')), 'rss', 'format-xml'],
+        ['format-feed.xml?format=feed', rss_document(rss_item(guid: 'format-feed')), 'rss', 'format-feed'],
+        ['format-rss2.xml?format=rss2', rss_document(rss_item(guid: 'format-rss2')), 'rss', 'format-rss2'],
+        ['format-rdf.xml?format=rss_200', rdf_document, 'rss', 'https://news.example/rdf-1'],
+        ['format-enc.xml?format=rss_200_enc', rss_document(rss_item(guid: 'format-enc')), 'rss', 'format-enc'],
+      ]
+    end
+
+    it 'subscribes and refreshes every finite value without collapsing different conditions' do
+      stored = selection_cases.map do |suffix, body, protocol, item_key|
+        url = "https://feeds.example/sel/#{suffix}"
+        stub_request(:get, url).to_return(status: 200, body: body, headers: { 'Content-Type' => 'application/xml' })
+        subscription = described_class.new.call(user: user, url: url)
+        source = subscription.external_source
+        resource = source.external_resources.find_by!("canonical_key LIKE ?", "%item:#{item_key}")
+        projection = ExternalStatusProjection.find_by!(user_id: user.id, external_resource_id: resource.id)
+        expect(source.canonical_key).to eq url
+        expect(source.protocol).to eq protocol
+        { url: url, source_id: source.id, resource_id: resource.id, projection_id: projection.id, item_key: item_key }
+      end
+      expect(stored.map { |row| row[:source_id] }.uniq.size).to eq stored.size
+
+      mixed = 'https://feeds.example/sel/combo-rss.xml?FORMAT=RSS&Feed=RSS2&Alt=RSS&Exclude_Body=0&Include_Scraps=0&All=0'
+      again = described_class.new.call(user: other, url: mixed)
+      expect(again.external_source_id).to eq stored.first[:source_id]
+      chosen = ExternalBridge::RSS::InitialLanguage.attributes_for(again.external_source)
+      expect(again.language_mode).to eq chosen[:language_mode]
+      expect(again.language).to eq chosen[:language]
+      kept = stored.map do |row|
+        subscription = ExternalSubscription.find_by!(user: user, external_source_id: row[:source_id])
+        [subscription.language_mode, subscription.language]
+      end
+      again.update!(language_mode: 'fixed', language: 'ja')
+
+      stored.each do |row|
+        ExternalBridge::RSS::RefreshSource.new.call(row[:source_id], subscription_id: again.external_source_id == row[:source_id] ? again.id : ExternalSubscription.find_by!(user: user, external_source_id: row[:source_id]).id)
+        resource = ExternalResource.find(row[:resource_id])
+        expect(resource.canonical_key).to include("item:#{row[:item_key]}")
+        expect(ExternalStatusProjection.find(row[:projection_id]).external_resource_id).to eq resource.id
+        expect(ExternalSource.find(row[:source_id]).canonical_key).to eq row[:url]
+      end
+      expect(again.reload.language_mode).to eq 'fixed'
+      expect(again.language).to eq 'ja'
+      stored.each_with_index do |row, index|
+        subscription = ExternalSubscription.find_by!(user: user, external_source_id: row[:source_id])
+        expect([subscription.language_mode, subscription.language]).to eq kept[index]
+      end
+      expect(ExternalStatusProjection.where(user_id: user.id).count).to eq stored.size
+      expect(ExternalStatusProjection.where(user_id: other.id).count).to eq 1
+      expect(ExternalStatusProjection.where(user_id: user.id).pluck(:status_id)).not_to include(
+        ExternalStatusProjection.find_by!(user_id: other.id).status_id
+      )
+    end
+
+    it 'follows a redirect hop only when that hop is still a public feed query' do
+      start = 'https://feeds.example/start.xml?format=rss'
+      hop = 'https://feeds.example/next.xml?format=rss_200&exclude_body=1'
+      stub_request(:get, start).to_return(status: 302, headers: { 'Location' => hop })
+      stub_request(:get, hop).to_return(status: 200, body: rss_document(rss_item(guid: 'hopped')))
+      described_class.new.call(user: user, url: start)
+      expect(ExternalSource.find_by!(canonical_key: hop).external_resources.first.canonical_key).to include('item:hopped')
+
+      {
+        'https://feeds.example/token-start.xml' => 'https://feeds.example/hidden.xml?format=rss&auth_token=SECRET',
+        'https://feeds.example/encoded-start.xml' => 'https://feeds.example/encoded-hidden.xml?format=rss%26token%3DSECRET',
+        'https://feeds.example/unknown-start.xml' => 'https://feeds.example/unknown.xml?format=rss2&channel=news',
+        'https://feeds.example/dup-start.xml' => 'https://feeds.example/dup.xml?format=rss&FORMAT=atom',
+        'https://feeds.example/private-start.xml?period=weekly' => 'http://127.0.0.1/secret.xml',
+        'https://feeds.example/userinfo-start.xml' => 'https://user:pw@feeds.example/userinfo.xml?format=rss',
+      }.each do |from, location|
+        stub_request(:get, from).to_return(status: 302, headers: { 'Location' => location })
+        stub_request(:get, location).to_return(status: 200, body: rss_document(rss_item(guid: 'leaked')))
+        expect { described_class.new.call(user: user, url: from) }
+          .to raise_error(ExternalBridge::Error), from
+        expect(a_request(:get, location)).not_to have_been_made
+      end
+      expect(a_request(:get, /hidden\.xml|encoded-hidden|unknown\.xml|dup\.xml|127\.0\.0\.1|userinfo\.xml/)).not_to have_been_made
+      expect(ExternalSource.where("canonical_key ILIKE '%secret%'")).to be_empty
+    end
+
+    it 'keeps the final URL when two different queries redirect to one feed' do
+      left = 'https://feeds.example/left.xml?format=rss'
+      right = 'https://feeds.example/right.xml?exclude_body=1'
+      final = 'https://feeds.example/final.xml'
+      stub_request(:get, left).to_return(status: 302, headers: { 'Location' => final })
+      stub_request(:get, right).to_return(status: 302, headers: { 'Location' => final })
+      stub_request(:get, final).to_return(status: 200, body: rss_document(rss_item(guid: 'final-item')))
+
+      first = described_class.new.call(user: user, url: left)
+      second = described_class.new.call(user: other, url: right)
+      expect(second.external_source_id).to eq first.external_source_id
+      expect(ExternalSource.find(first.external_source_id).canonical_key).to eq final
+      expect(ExternalSource.where(canonical_key: [left, right])).to be_empty
+      expect(ExternalResource.where(external_source_id: first.external_source_id).count).to eq 1
+    end
+
+    it 'does not request NodeInfo or ActivityPub URLs that use a feed selection query' do
+      nodeinfo = 'https://feeds.example/nodeinfo/2.1?exclude_body=1'
+      legacy = 'https://feeds.example/nodeinfo/2.1?format=rss'
+      activity = 'https://posts.example/users/alice/statuses/1?format=rss2'
+      viewkey = 'https://posts.example/users/alice/statuses/1?viewkey=abc'
+      stub_request(:get, nodeinfo).to_return(status: 200, body: '{}')
+      stub_request(:get, legacy).to_return(status: 404, body: '')
+      stub_request(:get, activity).to_return(status: 200, body: '{}')
+      stub_request(:get, viewkey).to_return(status: 200, body: '{}')
+
+      expect do
+        ExternalBridge::RSS::HttpClient.get(nodeinfo, profile: ExternalBridge::RSS::HttpClient::NODEINFO_PROFILE, origin: 'https://feeds.example')
+      end.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'authenticated_source_rejected' }
+      ExternalBridge::RSS::HttpClient.get(legacy, profile: ExternalBridge::RSS::HttpClient::NODEINFO_PROFILE, origin: 'https://feeds.example')
+      expect do
+        ExternalBridge::RSS::HttpClient.get(activity, profile: ExternalBridge::RSS::HttpClient::ACTIVITYPUB_PROFILE)
+      end.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'authenticated_source_rejected' }
+      expect do
+        ExternalBridge::RSS::HttpClient.get(viewkey, profile: ExternalBridge::RSS::HttpClient::ACTIVITYPUB_PROFILE)
+      end.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'authenticated_source_rejected' }
+
+      expect(a_request(:get, nodeinfo)).not_to have_been_made
+      expect(a_request(:get, legacy)).to have_been_made.once
+      expect(a_request(:get, activity)).not_to have_been_made
+      expect(a_request(:get, viewkey)).not_to have_been_made
+    end
+
+    context 'with a private DNS answer' do
+      around do |example|
+        WebMock.disable!
+        example.run
+        WebMock.enable!
+      end
+
+      it 'does not open a feed request when the host resolves to a private address' do
+        resolver = double
+        allow(resolver).to receive(:getaddresses).and_return([Resolv::IPv4.create('10.0.0.8')])
+        allow(resolver).to receive(:timeouts=)
+        allow(Resolv::DNS).to receive(:open).and_yield(resolver)
+
+        expect do
+          ExternalBridge::RSS::HttpClient.get('https://feeds.example/news.xml?format=rss2&exclude_body=1')
+        end.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'private_address' }
+      end
     end
   end
 
@@ -332,6 +544,33 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
         .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'authenticated_source_rejected' }
       expect(a_request(:get, 'https://feeds.example/hidden.xml?auth_token=SECRET')).not_to have_been_made
       expect(ExternalSource.where("canonical_key ILIKE '%secret%'")).to be_empty
+    end
+
+    it 'rejects duplicate keys, encoded delimiters, and a known key mixed with a credential before a request or a log line' do
+      messages = []
+      allow(Rails.logger).to receive(:info) { |message| messages << message.to_s }
+      allow(Rails.logger).to receive(:error) { |message| messages << message.to_s }
+      urls = [
+        'https://feeds.example/rss?format=rss&FORMAT=atom',
+        'https://feeds.example/rss?format=rss%26token%3DSECRET',
+        'https://feeds.example/rss?format=rss%3Bauth%3DSECRET',
+        'https://feeds.example/rss?format=rss&signature=SECRET',
+        'https://feeds.example/rss?exclude_body=1&token=SECRET',
+        'https://feeds.example/rss?format=',
+        'https://feeds.example/rss?format=rss&',
+        'https://user:pw@feeds.example/rss?format=rss2&auth_token=SECRET',
+      ]
+
+      urls.each do |url|
+        expect { described_class.new.call(user: user, url: url) }
+          .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'authenticated_source_rejected' }
+      end
+
+      logged = messages.join("\n")
+      expect(logged).not_to include('SECRET')
+      expect(logged).not_to include('user:pw')
+      expect(ExternalSource.where("canonical_key ILIKE '%secret%'")).to be_empty
+      expect(a_request(:get, /SECRET|user:pw/)).not_to have_been_made
     end
   end
 

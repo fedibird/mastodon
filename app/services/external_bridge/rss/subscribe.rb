@@ -8,7 +8,8 @@ module ExternalBridge
         raise Error, :tester_only unless Feature.tester?(user)
         raise Error, :user_not_functional unless user&.functional?
 
-        canonical = CanonicalURL.normalize!(url)
+        # Feed profile rules, including every later refresh of this key.
+        canonical = CanonicalURL.normalize!(url, feed: true)
         source = ExternalSource.find_by(canonical_key: canonical)
         assert_not_deleting!(user, source)
         if source && fresh?(source)

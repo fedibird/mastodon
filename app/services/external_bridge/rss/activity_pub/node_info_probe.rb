@@ -37,8 +37,11 @@ module ExternalBridge
 
         private
 
+        # Scheme and host only. Selection parameters on the feed URL are not
+        # copied onto the NodeInfo request. The document href keeps the
+        # default CanonicalURL rules.
         def origin_for(url)
-          uri = Addressable::URI.parse(CanonicalURL.normalize!(url))
+          uri = Addressable::URI.parse(CanonicalURL.normalize!(url, feed: true))
           "#{uri.scheme}://#{uri.authority}"
         end
 

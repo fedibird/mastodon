@@ -4,9 +4,9 @@ module ExternalBridge
   module LinkSharing
     # Public article permalink stored on a reference note.
     #
-    # This is not ExternalBridge::RSS::CanonicalURL. Feed fetch URLs still
-    # allow only format=rss|atom|xml|feed. An article URL may carry a short
-    # public permalink query. Credential names, userinfo, private IP literals,
+    # This is not ExternalBridge::RSS::CanonicalURL. Feed fetches opt into
+    # that class's feed mode. An article URL may carry a short public
+    # permalink query. Credential names, userinfo, private IP literals,
     # and percent-encoding that hides those names are rejected. Unknown query
     # names are rejected too.
     class ArticleURL

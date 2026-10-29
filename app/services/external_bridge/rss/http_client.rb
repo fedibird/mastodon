@@ -25,7 +25,10 @@ module ExternalBridge
         # and a Content-Type alone does not decide whether the body is a feed.
         content_types: nil,
         truncate: false,
-        timeouts: nil
+        timeouts: nil,
+        # Public selection parameters are accepted only on this profile.
+        # NodeInfo, ActivityPub, icons, and media keep their own URL rules.
+        url_mode: :feed
       ).freeze
 
       NODEINFO_PROFILE = FetchProfile.new(
@@ -178,8 +181,13 @@ module ExternalBridge
         return poster_canonical!(url) if profile.url_mode.to_s == 'poster'
         return MediaURL.normalize!(url) if profile.url_mode.to_s == 'media'
         return activitypub_canonical!(url) if profile.url_mode.to_s == 'item'
+        return feed_canonical!(url) if profile.url_mode.to_s == 'feed'
 
         CanonicalURL.normalize!(url, asset: profile.asset_urls)
+      end
+
+      def feed_canonical!(url)
+        CanonicalURL.normalize!(url, feed: true)
       end
 
       # Existing RSS item URLs may use a video viewkey. Such URLs are
