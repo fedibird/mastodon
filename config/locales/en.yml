@@ -2195,9 +2195,9 @@ en:
       deepl:
         description: Use your own DeepL API key to translate posts.
         name: DeepL
-        subtitle: Personal translation
+        subtitle: Your own translation service
       rss:
-        description: Subscribe to a public RSS or Atom feed. Items become private posts on your account. You open them from the feed list, the post, your favourites, or your bookmarks.
+        description: Subscribe to a public RSS or Atom feed. Items are treated as private posts only you can see.
         name: RSS
         subtitle: "%{count} public feeds · %{active} active, %{paused} paused, %{error} fetch errors"
       bluesky:
@@ -2222,19 +2222,23 @@ en:
     pause: Pause
     pause_for: Pause %{title}
     previous: Previous
+    privacy_help: About who can see imported RSS posts
     privacy_note: Imported posts stay private to you. They are not delivered over ActivityPub, and other people cannot see them. Open them from this list, the post, your favourites, or your bookmarks. A post stored as external content is left off your personal timeline.
     presentation:
       applying: Saved. Updating imported posts from this feed.
       cw_enabled: Use each article title as a content warning
-      cw_enabled_hint: The title of each article is the content warning, and the text and media stay collapsed until you open them. This setting is yours. It does not change the feed, and it is not shared with anyone else.
+      cw_enabled_hint: Each article title becomes the content warning, and the text and media stay collapsed until you open them.
+      cw_help: About content warnings
       failed: Saved, but updating imported posts stopped. It will try again.
       heading: Display
-      language: Language
-      language_auto: Detect from the article
-      language_hint: Pick a language for posts from this feed, detect it from each article title and text, or leave it unset. Detection does not use your interface language or your default posting language. A short or unclear article stays unset. This choice is yours. It does not change the feed, and it is not shared with anyone else.
-      language_unspecified: Unspecified
+      language: Content language
+      language_auto: Detect each article automatically
+      language_help: About content language
+      language_hint: Sets the language of each article. A chosen language stays fixed. Automatic detection estimates every article. Unset adds no language.
+      language_unspecified: Unset
       media_sensitive: Show media from this feed as sensitive
-      media_sensitive_hint: Images, audio, and video from this feed stay hidden until you choose to view them. This setting is yours. It does not change the feed, and it is not shared with anyone else.
+      media_sensitive_help: About sensitive media
+      media_sensitive_hint: Images, audio, and video from this feed stay hidden until you choose to show them.
       save: Save display settings
       save_for: Save display settings for %{title}
       saved: Display settings saved.

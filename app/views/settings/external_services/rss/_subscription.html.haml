@@ -34,21 +34,24 @@
       %fieldset
         %legend= t('external_bridge.presentation.heading')
         .external-service-presentation__language
-          %label{ for: "rss-language-#{subscription.id}" }= t('external_bridge.presentation.language')
-          = select_tag :language, options_for_select(rss_presentation_language_options(subscription.language_choice), subscription.language_choice), id: "rss-language-#{subscription.id}", aria: { describedby: "rss-language-hint-#{subscription.id}" }
-        %p.hint{ id: "rss-language-hint-#{subscription.id}" }= t('external_bridge.presentation.language_hint')
+          .external-service-help-row
+            %label{ for: "rss-language-#{subscription.id}" }= t('external_bridge.presentation.language')
+            = render 'settings/external_services/help', body_id: "rss-language-hint-#{subscription.id}", label: t('external_bridge.presentation.language_help'), text: t('external_bridge.presentation.language_hint'), controls: "rss-language-#{subscription.id}"
+          = select_tag :language, options_for_select(rss_presentation_language_options(subscription.language_choice), subscription.language_choice), id: "rss-language-#{subscription.id}"
         .external-service-presentation__choice
           = hidden_field_tag :media_sensitive, '0', id: nil
-          %label{ for: "rss-media-sensitive-#{subscription.id}" }
-            = check_box_tag :media_sensitive, '1', subscription.media_sensitive?, id: "rss-media-sensitive-#{subscription.id}", aria: { describedby: "rss-media-sensitive-hint-#{subscription.id}" }
-            %span= t('external_bridge.presentation.media_sensitive')
-        %p.hint{ id: "rss-media-sensitive-hint-#{subscription.id}" }= t('external_bridge.presentation.media_sensitive_hint')
+          .external-service-help-row
+            %label{ for: "rss-media-sensitive-#{subscription.id}" }
+              = check_box_tag :media_sensitive, '1', subscription.media_sensitive?, id: "rss-media-sensitive-#{subscription.id}"
+              %span= t('external_bridge.presentation.media_sensitive')
+            = render 'settings/external_services/help', body_id: "rss-media-sensitive-hint-#{subscription.id}", label: t('external_bridge.presentation.media_sensitive_help'), text: t('external_bridge.presentation.media_sensitive_hint'), controls: "rss-media-sensitive-#{subscription.id}"
         .external-service-presentation__choice
           = hidden_field_tag :cw_enabled, '0', id: nil
-          %label{ for: "rss-cw-enabled-#{subscription.id}" }
-            = check_box_tag :cw_enabled, '1', subscription.cw_enabled?, id: "rss-cw-enabled-#{subscription.id}", aria: { describedby: "rss-cw-hint-#{subscription.id}" }
-            %span= t('external_bridge.presentation.cw_enabled')
-        %p.hint{ id: "rss-cw-hint-#{subscription.id}" }= t('external_bridge.presentation.cw_enabled_hint')
+          .external-service-help-row
+            %label{ for: "rss-cw-enabled-#{subscription.id}" }
+              = check_box_tag :cw_enabled, '1', subscription.cw_enabled?, id: "rss-cw-enabled-#{subscription.id}"
+              %span= t('external_bridge.presentation.cw_enabled')
+            = render 'settings/external_services/help', body_id: "rss-cw-hint-#{subscription.id}", label: t('external_bridge.presentation.cw_help'), text: t('external_bridge.presentation.cw_enabled_hint'), controls: "rss-cw-enabled-#{subscription.id}"
         = hidden_field_tag :page, @page.page, id: nil if @page&.page.to_i > 1
         .actions
           = button_tag t('external_bridge.presentation.save'), type: 'submit', class: 'button', data: { disable_with: t('external_bridge.working') }, aria: { label: t('external_bridge.presentation.save_for', title: subscription.title) }

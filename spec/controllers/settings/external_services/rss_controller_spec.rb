@@ -296,6 +296,10 @@ describe Settings::ExternalServices::RSSController do
     expect(language.at_css('option[value="zh-TW"]').text).to eq('繁體中文（臺灣）')
     expect(language.at_css('option[value="ast"]').text).to eq('Asturianu')
     expect(document.at_css("#rss-language-hint-#{paused_row.id}").text).to eq(I18n.t('external_bridge.presentation.language_hint'))
+    expect(language['aria-describedby']).to be_nil
+    expect(media['aria-describedby']).to be_nil
+    expect(cw['aria-describedby']).to be_nil
+    expect(label.at_css('summary, details')).to be_nil
     expect(document.at_css("#rss-media-sensitive-#{removing_row.id}")).to be_nil
     expect(document.at_css("form[action='#{settings_external_services_rss_subscription_presentation_path(removing_row)}']")).to be_nil
   end
@@ -311,13 +315,48 @@ describe Settings::ExternalServices::RSSController do
     document = Nokogiri::HTML(response.body)
     language = document.at_css("#rss-language-#{row.id}")
     expect(language.at_css('option[selected]')['value']).to eq('ja')
-    expect(language.at_css('option[value="unspecified"]').text).to eq('未指定')
-    expect(language.at_css('option[value="auto"]').text).to eq('記事から自動判別')
+    expect(language.at_css('option[value="unspecified"]').text).to eq('未設定')
+    expect(language.at_css('option[value="auto"]').text).to eq('記事ごとに自動判定')
     expect(language.at_css('option[value="ja"]').text).to eq('日本語')
     expect(language.at_css('option[value="en"]').text).to eq('English')
     expect(language.at_css('option[value="zh-CN"]')).to be_present
     expect(language.at_css('option[value="ast"]')).to be_present
-    expect(document.at_css("label[for='rss-language-#{row.id}']").text).to eq('言語')
+    expect(document.at_css("label[for='rss-language-#{row.id}']").text).to eq('コンテンツの言語')
+  end
+
+  it 'keeps each feed explanation closed, independent, and out of the checkbox label' do
+    user.update!(locale: 'ja')
+    enable_external_bridge_rss!(user)
+    first_source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/help-a.xml', title: 'Help A')
+    second_source = ExternalSource.create!(protocol: 'rss', canonical_key: 'https://feeds.example/help-b.xml', title: 'Help B')
+    first = ExternalSubscription.create!(user: user, external_source: first_source, state: 'active', last_error_code: 'fetch_failed', failed_item_count: 1)
+    second = ExternalSubscription.create!(user: user, external_source: second_source, state: 'paused')
+
+    get :show, session: challenge
+
+    document = Nokogiri::HTML(response.body)
+    notes = document.css('details.external-service-help')
+    expect(notes).not_to be_empty
+    expect(notes.map { |note| note['open'] }.uniq).to eq([nil])
+    expect(document.css('label summary, label details')).to be_empty
+    expect(document.css('form button.external-service-help, summary.button')).to be_empty
+    expect(document.at_css('#rss-subscribe')['aria-describedby']).to eq('rss-feed-url-hint')
+    expect(document.at_css('#rss-feed-url')['aria-describedby']).to eq('rss-feed-url-hint')
+    expect(document.at_css('#rss-privacy-note').text).to eq('取り込んだ投稿はあなた専用です。ActivityPubでは配信されず、ほかの人には見えません。この一覧、投稿そのもの、お気に入り、ブックマークから開けます。外部コンテンツとして保存された投稿は自分限定タイムラインには出ません。')
+    expect(document.at_css('summary[aria-controls="rss-privacy-note"]')['aria-label']).to eq('RSSの公開範囲について')
+    expect(document.at_css("summary[aria-controls='rss-language-hint-#{first.id}']")['aria-label']).to eq('コンテンツの言語について')
+    expect(document.at_css("summary[aria-controls='rss-media-sensitive-hint-#{first.id}']")['aria-label']).to eq('閲覧注意について')
+    expect(document.at_css("summary[aria-controls='rss-cw-hint-#{first.id}']")['aria-label']).to eq('CWについて')
+    expect(document.at_css("#rss-language-hint-#{first.id}")['id']).not_to eq(document.at_css("#rss-language-hint-#{second.id}")['id'])
+    expect(document.at_css("details[data-described-controls='rss-language-#{first.id}']")).to be_present
+    expect(document.at_css("details[data-described-controls='rss-language-#{second.id}']")).to be_present
+    expect(document.at_css('.external-service-help .warning-hint, .external-service-help #rss-unsubscribe-note')).to be_nil
+    I18n.with_locale(:ja) do
+      expect(response.body).to include(I18n.t('external_bridge.errors.fetch_failed'))
+      expect(response.body).to include(I18n.t('external_bridge.unsubscribe_note'))
+    end
+    expect(response.body).not_to include('この設定はあなた個人のものです')
+    expect(response.body).to include('公開のRSSまたはAtomを購読します。項目はあなた専用の非公開投稿扱いになります。')
   end
 
   it 'saves a regional code and a three-letter code from the settings form and keeps each one selected' do

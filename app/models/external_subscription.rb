@@ -39,6 +39,8 @@
 #
 # media_sensitive, cw_enabled, and language_mode are this subscriber's
 # display choices. language is set only when language_mode is fixed.
+# A new RSS subscription may start as fixed or auto from the first import
+# page. Saving again, resuming, or refreshing does not repeat that guess.
 # presentation_revision moves when those choices change. The background
 # rewrite records how far it got in presentation_applied_revision. The
 # shared source and resource rows do not store any of these choices.

@@ -13,6 +13,12 @@ class LanguageDetector
   # allow_fallback keeps ordinary posts on the account locale (or the
   # instance default) when detection cannot decide. External articles pass
   # false so a short or unclear text stays unset.
+  # The same cleanup detect uses, exposed so a caller can tell an empty
+  # article from one that still has text but no reliable language.
+  def prepared_text(text)
+    prepare_text(text)
+  end
+
   def detect(text, account, allow_fallback: true)
     input_text = prepare_text(text)
 

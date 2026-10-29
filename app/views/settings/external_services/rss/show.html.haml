@@ -9,10 +9,10 @@
   .external-service-header
     = render 'settings/external_services/icon', icon: ExternalServices::RSS.icon
     .external-service-header__text
-      %h3= t('external_services.providers.rss.name')
+      .external-service-help-row
+        %h3= t('external_services.providers.rss.name')
+        = render 'settings/external_services/help', body_id: 'rss-privacy-note', label: t('external_bridge.privacy_help'), text: t('external_bridge.privacy_note'), controls: 'rss-subscribe'
       %p= t('external_services.providers.rss.description')
-
-  %p.hint#rss-privacy-note= t('external_bridge.privacy_note')
 
   - if @page.blocked_reason
     %p.warning-hint#rss-blocked-reason{ role: 'status' }= @page.blocked_reason
@@ -24,7 +24,7 @@
         = url_field_tag :feed_url, nil, id: 'rss-feed-url', required: true, placeholder: 'https://example.com/feed.xml', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'none', aria: { describedby: 'rss-feed-url-hint' }
       %p.hint#rss-feed-url-hint= t('external_bridge.feed_url_hint')
       .actions
-        = button_tag t('external_bridge.subscribe'), type: 'submit', class: 'button', data: { disable_with: t('external_bridge.working') }, aria: { describedby: 'rss-feed-url-hint rss-privacy-note' }
+        = button_tag t('external_bridge.subscribe'), type: 'submit', id: 'rss-subscribe', class: 'button', data: { disable_with: t('external_bridge.working') }, aria: { describedby: 'rss-feed-url-hint' }
 
   - if @page.deletions.any?
     %section.external-service-deletions{ aria: { labelledby: 'rss-deletions-title' } }

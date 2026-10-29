@@ -2124,9 +2124,9 @@ ja:
       deepl:
         description: 自分のDeepL APIキーを使って投稿を翻訳します。
         name: DeepL
-        subtitle: 個人の翻訳
+        subtitle: 自分専用の翻訳サービス
       rss:
-        description: 公開のRSSまたはAtomを購読します。項目はあなたのアカウントの非公開投稿になります。フィードの一覧、投稿そのもの、お気に入り、ブックマークから開けます。
+        description: 公開のRSSまたはAtomを購読します。項目はあなた専用の非公開投稿扱いになります。
         name: RSS
         subtitle: "公開フィード %{count}件（有効 %{active}、一時停止 %{paused}、取得エラー %{error}）"
       bluesky:
@@ -2151,19 +2151,23 @@ ja:
     pause: 一時停止
     pause_for: "%{title}を一時停止"
     previous: 前へ
+    privacy_help: RSSの公開範囲について
     privacy_note: 取り込んだ投稿はあなた専用です。ActivityPubでは配信されず、ほかの人には見えません。この一覧、投稿そのもの、お気に入り、ブックマークから開けます。外部コンテンツとして保存された投稿は自分限定タイムラインには出ません。
     presentation:
       applying: 保存しました。取り込んだ投稿へ反映しています。
       cw_enabled: 記事タイトルをCWにして本文とメディアを隠す
-      cw_enabled_hint: 各記事のタイトルを内容警告にし、本文とメディアは開くまで折りたたみます。この設定はあなた個人のものです。フィード自体は変わらず、ほかの人とは共有されません。
+      cw_enabled_hint: 各記事のタイトルを内容警告にし、本文とメディアは開くまで折りたたみます。
+      cw_help: CWについて
       failed: 保存はできましたが、取り込んだ投稿への反映が止まっています。あとで再試行します。
       heading: 表示設定
-      language: 言語
-      language_auto: 記事から自動判別
-      language_hint: このフィードの投稿の言語を選ぶか、各記事のタイトルと本文から判別するか、未指定のままにします。判別は表示言語や投稿の既定言語には頼りません。短い記事や判別できない記事は未指定のままです。この設定はあなた個人のものです。フィード自体は変わらず、ほかの人とは共有されません。
-      language_unspecified: 未指定
+      language: コンテンツの言語
+      language_auto: 記事ごとに自動判定
+      language_help: コンテンツの言語について
+      language_hint: 記事の言語を設定します。言語を選ぶとその言語に固定し、自動判定では記事ごとに推定します。未設定では言語を付けません。
+      language_unspecified: 未設定
       media_sensitive: この購読のメディアを閲覧注意として表示
-      media_sensitive_hint: このフィードの画像・音声・動画は、表示を選ぶまで隠します。この設定はあなた個人のものです。フィード自体は変わらず、ほかの人とは共有されません。
+      media_sensitive_help: 閲覧注意について
+      media_sensitive_hint: このフィードの画像・音声・動画は、表示を選ぶまで隠します。
       save: 表示設定を保存
       save_for: "%{title}の表示設定を保存"
       saved: 表示設定を保存しました。

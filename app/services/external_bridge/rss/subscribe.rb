@@ -105,12 +105,18 @@ module ExternalBridge
 
       # The row is locked while it is read, so a subscription that is fenced
       # between the read and the save cannot be written back to `active`.
+      # Language is chosen only for a row that does not exist yet, and it is
+      # assigned before the first save so the projection that follows reads it.
       def ensure_subscription!(user, source)
         ExternalSubscription.transaction do
           subscription = ExternalSubscription.lock.find_by(user_id: user.id, external_source_id: source.id)
           raise Error, :subscription_deleting if subscription&.deleting?
 
-          subscription ||= ExternalSubscription.new(user_id: user.id, external_source_id: source.id)
+          if subscription.nil?
+            subscription = ExternalSubscription.new(
+              { user_id: user.id, external_source_id: source.id }.merge(InitialLanguage.attributes_for(source))
+            )
+          end
           subscription.state = 'active'
           subscription.last_error_code = nil
           subscription.last_error_at = nil
