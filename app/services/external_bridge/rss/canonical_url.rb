@@ -11,6 +11,10 @@ module ExternalBridge
     # rejected rather than stripped, so the URL is not rewritten into a
     # different feed. Credential aliases and percent-encoding that does not
     # resolve are rejected before HTTP and before a shared row is written.
+    #
+    # Finite tokens are case-folded. Host-scoped identifiers are not: folding
+    # `channel_id` or a tag would address a different feed. Those names are
+    # validated by FeedQuery and are not added to the global tables below.
     class CanonicalURL
       SAFE_QUERY_NAMES = %w(format).freeze
       SAFE_FORMAT_VALUES = %w(rss atom xml feed).freeze
@@ -128,17 +132,30 @@ module ExternalBridge
       # new pair or drop an unknown name. Duplicate names are compared after
       # case folding and percent-decoding. Empty pairs and spare separators
       # are rejected. Applying this to the result does not change values or
-      # pair boundaries.
+      # pair boundaries. Finite values are folded; identifier values are
+      # re-encoded from the decoded text so a later pass does not move a
+      # delimiter.
       def reject_feed_query!(uri)
         pairs = uri.query.split(/[&;]/, -1)
         raise Error, :authenticated_source_rejected if pairs.empty? || pairs.size > FEED_QUERY_PAIRS
 
         seen = {}
-        kept = pairs.map { |pair| feed_pair(pair, seen) }
+        kept = pairs.map { |pair| feed_pair(pair, seen, uri) }
+        FeedQuery.validate_combination!(uri, seen)
         uri.query = kept.join('&')
       end
 
-      def feed_pair(pair, seen)
+      def feed_pair(pair, seen, uri)
+        decoded_name, decoded_value = decoded_feed_pair(pair)
+        raise Error, :authenticated_source_rejected if seen.key?(decoded_name)
+
+        canonical = FeedQuery.canonicalize(uri, decoded_name, decoded_value) || finite_feed_pair(decoded_name, decoded_value)
+        _name, stored = canonical.split('=', 2)
+        seen[decoded_name] = stored
+        canonical
+      end
+
+      def decoded_feed_pair(pair)
         raise Error, :authenticated_source_rejected if pair.blank?
 
         name, value = pair.split('=', 2)
@@ -149,14 +166,15 @@ module ExternalBridge
         raise Error, :authenticated_source_rejected if decoded_name.blank? || decoded_value.blank?
         raise Error, :authenticated_source_rejected if feed_delimiter?(decoded_name) || feed_delimiter?(decoded_value)
 
-        decoded_name = decoded_name.downcase
-        decoded_value = decoded_value.downcase
-        allowed = FEED_QUERY_VALUES[decoded_name]
-        raise Error, :authenticated_source_rejected if allowed.nil? || !allowed.include?(decoded_value)
-        raise Error, :authenticated_source_rejected if seen[decoded_name]
+        [decoded_name.downcase, decoded_value]
+      end
 
-        seen[decoded_name] = true
-        "#{decoded_name}=#{decoded_value}"
+      def finite_feed_pair(decoded_name, decoded_value)
+        folded = decoded_value.downcase
+        allowed = FEED_QUERY_VALUES[decoded_name]
+        raise Error, :authenticated_source_rejected if allowed.nil? || !allowed.include?(folded)
+
+        "#{decoded_name}=#{folded}"
       end
 
       def feed_delimiter?(text)

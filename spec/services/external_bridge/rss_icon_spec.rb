@@ -178,6 +178,31 @@ RSpec.describe ExternalBridge::RSS::Icon::RefreshSource do
       expect(source.icon_origin).to eq 'rss_image'
     end
 
+    it 're-reads an identifier feed and does not request a channel id on the wrong host' do
+      channel = "UC#{'0' * 22}"
+      url = "https://www.youtube.com/xml/feeds/videos.xml?channel_id=#{channel}"
+      source = icon_source(site_url: 'https://www.youtube.com', canonical_key: url, hints: nil)
+      icon_subscriber(source)
+      stub_request(:get, url).to_return(status: 200, body: feed_xml(''), headers: { 'Content-Type' => 'application/rss+xml' })
+      stub_request(:get, 'https://www.youtube.com').to_return(status: 404, body: '')
+      stub_request(:get, 'https://www.youtube.com/').to_return(status: 404, body: '')
+      stub_request(:get, 'https://www.youtube.com/favicon.ico').to_return(status: 404, body: '')
+
+      refresh.call(source.id)
+      expect(a_request(:get, url)).to have_been_made.once
+
+      foreign = "https://evil.example/xml/feeds/videos.xml?channel_id=#{channel}"
+      foreign_source = icon_source(site_url: 'https://evil.example', canonical_key: foreign, hints: nil)
+      icon_subscriber(foreign_source)
+      stub_request(:get, foreign).to_return(status: 200, body: feed_xml(''))
+      stub_request(:get, 'https://evil.example').to_return(status: 404, body: '')
+      stub_request(:get, 'https://evil.example/').to_return(status: 404, body: '')
+      stub_request(:get, 'https://evil.example/favicon.ico').to_return(status: 404, body: '')
+
+      refresh.call(foreign_source.id)
+      expect(a_request(:get, foreign)).not_to have_been_made
+    end
+
     it 'persists the hints read from the feed together with a failed outcome' do
       source = icon_source(hints: nil)
       icon_subscriber(source)
