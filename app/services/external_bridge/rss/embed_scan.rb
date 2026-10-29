@@ -70,6 +70,7 @@ module ExternalBridge
 
       def duration_from(child)
         return nil unless child.name == 'duration'
+        return nil unless duration_namespace?(child)
 
         text = child.text.to_s.strip
         return nil unless text.match?(/\A\d{1,7}\z/)
@@ -84,8 +85,19 @@ module ExternalBridge
 
       def keywords_from(child)
         return nil unless child.name == 'keywords'
+        return nil unless keyword_namespace?(child)
 
         child.text
+      end
+
+      def duration_namespace?(child)
+        href = child.namespace&.href
+        href.nil? || href == MediaExtractor::ITUNES
+      end
+
+      def keyword_namespace?(child)
+        href = child.namespace&.href
+        href.nil? || href == MediaExtractor::ITUNES || href == MediaExtractor::MEDIA
       end
 
       def remember_thumb(child, at)

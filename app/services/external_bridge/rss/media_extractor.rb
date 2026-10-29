@@ -2,20 +2,18 @@
 
 module ExternalBridge
   module RSS
-    # Article media, read before Parser strips XML namespaces.
-    #
-    # `media:content` and Atom `content` share a local name once namespaces
-    # are gone, and `content:encoded` is the HTML body. Candidates are taken
-    # from the body element the importer will actually use, plus enclosures
-    # and Media RSS. Feed icons are not article media. A video poster is not
-    # also stored as an image attachment.
+    # Article media. Namespaces stay on the document, so `media:content`,
+    # Atom `content`, and `content:encoded` stay distinct. Candidates are
+    # taken from the body element the importer will actually use, plus
+    # enclosures and Media RSS. Feed icons are not article media. A video
+    # poster is not also stored as an image attachment.
     class MediaExtractor
       Preview = Struct.new(:body, :candidates, :keywords, keyword_init: true)
-      ATOM = 'http://www.w3.org/2005/Atom'
-      CONTENT = 'http://purl.org/rss/1.0/modules/content/'
-      MEDIA = 'http://search.yahoo.com/mrss/'
-      ITUNES = 'http://www.itunes.com/dtds/podcast-1.0.dtd'
-      XML = 'http://www.w3.org/XML/1998/namespace'
+      ATOM = XmlNames::ATOM
+      CONTENT = XmlNames::CONTENT
+      MEDIA = XmlNames::MEDIA
+      ITUNES = XmlNames::ITUNES
+      XML = XmlNames::XML
       VIDEO_MIME = %w(video/mp4 video/webm video/ogg video/quicktime).freeze
       HLS_MIME = %w(application/vnd.apple.mpegurl application/x-mpegurl).freeze
       AUDIO_EXT = %w(.mp3 .m4a .aac .ogg .oga .wav .flac .opus).freeze
@@ -37,7 +35,11 @@ module ExternalBridge
       private
 
       def item_nodes
-        @document.xpath('//*[local-name()="item" or local-name()="entry"]')
+        @document.xpath('//*[local-name()="item" or local-name()="entry"]').select { |node| item_node?(node) }
+      end
+
+      def item_node?(node)
+        XmlNames.element?(node, 'item', core_namespaces(node)) || XmlNames.element?(node, 'entry', XmlNames::ATOM)
       end
 
       def tag(node)
@@ -65,7 +67,7 @@ module ExternalBridge
       end
 
       def choose_body(node)
-        return atom_body(node) if node.name == 'entry'
+        return atom_body(node) if entry?(node)
 
         encoded = child_ns(node, CONTENT, 'encoded')
         description = child_named(node, 'description')
@@ -87,7 +89,7 @@ module ExternalBridge
 
       def podcast_audio?(node)
         node.element_children.any? do |child|
-          next false unless child.name == 'enclosure'
+          next false unless XmlNames.element?(child, 'enclosure', core_namespaces(child))
 
           child['type'].to_s.downcase.start_with?('audio/') ||
             %w(.mp3 .m4a .aac .ogg .oga .wav .flac .opus).include?(File.extname(Addressable::URI.parse(child['url'].to_s).path.to_s).downcase)
@@ -125,8 +127,8 @@ module ExternalBridge
       end
 
       def enclosure?(child)
-        return true if child.name == 'enclosure'
-        return false unless child.name == 'link' && child.namespace&.href == ATOM
+        return true if XmlNames.element?(child, 'enclosure', core_namespaces(child))
+        return false unless XmlNames.element?(child, 'link', ATOM)
 
         child['rel'].to_s.downcase == 'enclosure'
       end
@@ -149,7 +151,7 @@ module ExternalBridge
         return add(raw, { url: child['url'], mime: 'image', origin: 'media_thumbnail', base: base }) if child.name == 'thumbnail'
 
         poster = child.element_children.find { |nested| nested.name == 'thumbnail' && nested.namespace&.href == MEDIA }&.[]('url')
-        description = child['description'].presence || child.element_children.find { |nested| nested.name == 'description' }&.text
+        description = child['description'].presence || media_description_text(child)
         add(raw, {
               url: child['url'].presence || child.text,
           mime: child['medium'].presence || child['type'],
@@ -323,13 +325,24 @@ module ExternalBridge
       end
 
       def article_href(node)
-        href = node.name == 'entry' ? atom_href(node) : link_value(node)
-        href.presence || node['about'].to_s.strip.presence
+        href = entry?(node) ? atom_href(node) : link_value(node)
+        href.presence || XmlNames.attr_ns(node, 'about', XmlNames::RDF).to_s.strip.presence
       end
 
       def link_base(node)
-        href = node.name == 'entry' ? atom_href(node) : link_value(node)
-        MediaURL.normalize(href) || absolute_against(href, channel_base(node))
+        href = entry?(node) ? atom_href(node) : link_value(node)
+        found = MediaURL.normalize(href)
+        found = page_path_base(href) if found.blank? && entry?(node)
+        found || absolute_against(href, channel_base(node))
+      end
+
+      # CanonicalURL accepts item queries that MediaURL does not store. The
+      # path of that same absolute URL is still the base for a relative image.
+      def page_path_base(href)
+        text = href.to_s.strip
+        return nil unless text.match?(/\Ahttps?:/i)
+
+        MediaURL.normalize(text.sub(/\?.*\z/, '').sub(/#.*\z/, ''))
       end
 
       def link_value(node)
@@ -340,13 +353,21 @@ module ExternalBridge
       def channel_base(node)
         current = node.parent
         while current.is_a?(Nokogiri::XML::Element)
-          if %w(channel feed rdf).include?(current.name.to_s.downcase)
-            href = current.name == 'feed' ? atom_href(current) : child_named(current, 'link')&.text
-            found = MediaURL.normalize(href)
-            return found if found.present?
-          end
+          href = container_href(current)
+          found = MediaURL.normalize(href) if href.present?
+          return found if found.present?
+
           current = current.parent
         end
+        nil
+      end
+
+      def container_href(node)
+        namespaces = core_namespaces(node)
+        return atom_href(node) if XmlNames.element?(node, 'feed', ATOM, case_insensitive: true)
+        return XmlNames.text(node, 'link', namespaces).presence if XmlNames.element?(node, 'channel', namespaces, case_insensitive: true)
+        return XmlNames.text(node, 'link', namespaces).presence if XmlNames.element?(node, 'rdf', XmlNames::RDF, case_insensitive: true)
+
         nil
       end
 
@@ -356,17 +377,51 @@ module ExternalBridge
         MediaURL.normalize(absolute(value, base))
       end
 
+      # The same candidate Parser keeps for canonical_url / site_url. The
+      # returned string is the raw href, so a player can still see an item id
+      # query that CanonicalURL accepts and MediaURL does not store.
       def atom_href(node)
-        alternate = node.element_children.find { |child| child.name == 'link' && child['rel'].to_s.downcase.in?(['', 'alternate']) && child.namespace&.href == ATOM }
-        alternate&.[]('href')
+        item = entry?(node)
+        XmlNames.atom_page_hrefs(node).each do |href|
+          return href if canonical_page?(href, item: item)
+        end
+        nil
+      end
+
+      def canonical_page?(href, item:)
+        text = href.to_s.strip
+        return false if text.blank?
+
+        CanonicalURL.normalize!(text, item: item)
+        true
+      rescue Error
+        false
+      end
+
+      def core_namespaces(node)
+        XmlNames.core_namespaces(node&.document&.root)
+      end
+
+      def entry?(node)
+        XmlNames.element?(node, 'entry', ATOM)
+      end
+
+      def media_description_text(child)
+        nested = child.element_children.find do |node|
+          next false unless node.name == 'description'
+
+          href = node.namespace&.href
+          href.nil? || href == MEDIA
+        end
+        nested&.text
       end
 
       def child_ns(node, href, name)
-        node.element_children.find { |child| child.name == name && child.namespace&.href == href }
+        XmlNames.child(node, name, href)
       end
 
       def child_named(node, name)
-        node.element_children.find { |child| child.name == name && child.namespace&.href != MEDIA }
+        XmlNames.child(node, name, core_namespaces(node))
       end
     end
   end
