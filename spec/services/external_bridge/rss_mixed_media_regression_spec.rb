@@ -28,10 +28,12 @@ RSpec.describe 'External RSS mixed media regression', type: :request do
         ['video', 'attachment', video_url('b'), 3],
         ['image', 'attachment', image_url(3), 4],
         ['audio', 'attachment', audio_url, 5],
+        ['image', 'attachment', poster_url, 6],
       ]
-      expect(item.media.map { |row| row['url'] }).not_to include(poster_url)
+      expect(item.media.last['origin']).to eq 'html_img'
       expect(item.media.first['description']).to eq 'One'
       expect(item.media[1]['poster_url']).to eq poster_url
+      expect(item.media[3]['poster_url']).to eq poster_url
       expect(item.media[1]['url']).not_to eq item.media[3]['url']
     end
 
@@ -65,8 +67,9 @@ RSpec.describe 'External RSS mixed media regression', type: :request do
         ['video', video_url('b')],
         ['image', image_url(3)],
         ['audio', audio_url],
+        ['image', poster_url],
       ]
-      expect(item.media.map { |row| row['url'] }).not_to include(poster_url)
+      expect(item.media.last['origin']).to eq 'html_img'
     end
 
     it 'stops at 12 candidates in document order when images and videos overflow' do
@@ -230,7 +233,9 @@ RSpec.describe 'External RSS mixed media regression', type: :request do
       link_poster!(bundle)
 
       body = owner_json(user, bundle[:status].reload)
-      expect(body[:fedibird_external][:sequence].map { |row| row[:type] }).to eq %w(image video image video image audio)
+      # The explicit HTML image uses the poster URL and stays an attachment.
+      # The role=poster row is not a second gallery tile.
+      expect(body[:fedibird_external][:sequence].map { |row| row[:type] }).to eq %w(image video image video image audio image)
       expect(body[:media_attachments].map { |row| row[:description] }).to eq %w(One Two Three)
       expect(body.to_json).not_to include(poster_url)
       expect(bundle[:status].reload.ordered_media_attachments.map(&:description)).to eq %w(One Two Three)

@@ -14,6 +14,7 @@
 #  title                        :text
 #  body                         :text
 #  byline                       :text
+#  author_hints                 :jsonb            not null
 #  body_digest                  :string
 #  published_at                 :datetime
 #  source_deleted_at            :datetime

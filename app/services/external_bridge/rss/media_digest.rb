@@ -33,6 +33,11 @@ module ExternalBridge
 
       # `fallbacks` is stored for the fetch path and omitted from `row`, so a
       # change of alternates does not by itself change `media_revision`.
+      # `usage` and `subject_url` are the same kind of hint: audio artwork
+      # stays an attachment in this phase, and recording that label must not
+      # by itself change media_revision.
+      HINTS = %w(audio_art author decoration).freeze
+
       def stored_row(candidate)
         source = source_hash(candidate)
         memo = row(source)
@@ -41,7 +46,17 @@ module ExternalBridge
         fallbacks = fallback_urls(source['fallbacks'], memo['url'])
         memo['fallbacks'] = fallbacks if fallbacks.present?
         assign_poster_fetch!(memo, source)
+        assign_usage!(memo, source)
         memo
+      end
+
+      def assign_usage!(memo, source)
+        usage = source['usage'].to_s
+        return unless HINTS.include?(usage)
+
+        memo['usage'] = usage
+        subject = source['subject_url'].to_s
+        memo['subject_url'] = subject if usage == 'audio_art' && subject.present? && safe_fallback(subject, nil)
       end
 
       # The signed URL is how the bytes are fetched. It is not part of `row`,

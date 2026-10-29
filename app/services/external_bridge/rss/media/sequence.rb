@@ -28,6 +28,7 @@ module ExternalBridge
         private
 
         def entry(candidate)
+          return nil if MediaScope.skipped?(candidate)
           return nil if candidate['role'] == 'poster'
           return embed_entry(candidate) if candidate['kind'] == 'embed'
 

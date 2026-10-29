@@ -18,6 +18,7 @@
 #  created_at                    :datetime         not null
 #  updated_at                    :datetime         not null
 #  last_seen_media_revision      :text
+#  last_seen_byline              :text
 #
 class ExternalStatusProjection < ApplicationRecord
   belongs_to :user

@@ -86,6 +86,7 @@ module ExternalBridge
         resource.title = item.title
         resource.body = item.body
         resource.byline = item.byline
+        resource.author_hints = item.author_hints.presence || {}
         resource.body_digest = digest
         resource.published_at = item.published_at
         resource.truncated = item.truncated
