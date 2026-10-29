@@ -1,0 +1,10 @@
+-# Locals: body_id, label, text, controls
+-# The summary is a sibling of the field label, never inside it, so opening
+-# the note does not toggle a checkbox or submit the form. The long text is
+-# not an aria-describedby target until the note is open.
+- help_data = {}
+- help_data[:described_controls] = controls if controls.present?
+%details.external-service-help{ data: help_data }
+  %summary.external-service-help__summary{ aria: { label: label, controls: body_id } }
+    %span{ aria: { hidden: 'true' } } ?
+  %p.external-service-help__body.hint{ id: body_id }= text

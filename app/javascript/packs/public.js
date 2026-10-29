@@ -5,6 +5,7 @@ import ready from '../mastodon/ready';
 import { start } from '../mastodon/common';
 import loadKeyboardExtensions from '../mastodon/load_keyboard_extensions';
 import 'cocoon-js-vanilla';
+import { initializeExternalServiceHelp } from '../mastodon/features/external_service_help/help';
 import { initializeFilterForms } from '../mastodon/features/filters/filter_form';
 import { initExternalServiceIconFallback } from '../mastodon/external_service_icon_fallback';
 
@@ -190,6 +191,7 @@ function main() {
       return false;
     });
 
+    initializeExternalServiceHelp(document);
     initializeFilterForms(document);
 
     [].forEach.call(document.querySelectorAll('.status__content__spoiler-link'), (spoilerLink) => {
