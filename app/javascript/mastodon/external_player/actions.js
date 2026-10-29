@@ -4,18 +4,29 @@ import { FormattedMessage } from 'react-intl';
 
 import Icon from 'mastodon/components/icon';
 
-// Labels stay in FormattedMessage so a locale can replace them. The visible
-// control is only the icon; the name is copied onto aria-label and title.
-const copyLabel = (button) => {
-  const name = button.querySelector('.external-player-controls__name');
-  const text = name && name.textContent;
+// The translated string is the accessible name and the tooltip in the same
+// render. Reading it back from the DOM after commit goes stale when the
+// locale changes without this component rendering again.
+const ActionButton = ({ label, action, icon, onClick, describedBy }) => (
+  <button
+    type='button'
+    className='external-player-controls__button'
+    data-external-player-action={action}
+    aria-label={label}
+    title={label}
+    aria-describedby={describedBy || undefined}
+    onClick={onClick}
+  >
+    <Icon id={icon} fixedWidth aria-hidden='true' />
+  </button>
+);
 
-  if (!text) {
-    return;
-  }
-
-  button.title = text;
-  button.setAttribute('aria-label', text);
+ActionButton.propTypes = {
+  label: PropTypes.string.isRequired,
+  action: PropTypes.string.isRequired,
+  icon: PropTypes.string.isRequired,
+  onClick: PropTypes.func,
+  describedBy: PropTypes.string,
 };
 
 export default class ExternalPlayerActions extends React.PureComponent {
@@ -36,70 +47,38 @@ export default class ExternalPlayerActions extends React.PureComponent {
     this.groupLabelId = `external-player-controls-label-${ExternalPlayerActions.nextId}`;
   }
 
-  componentDidMount () {
-    this.syncLabels();
-  }
+  renderPin = (label) => (
+    <ActionButton label={label} action='pin' icon='external-link' onClick={this.props.onPin} />
+  );
 
-  componentDidUpdate () {
-    this.syncLabels();
-  }
+  renderReturn = (label) => (
+    <ActionButton label={label} action='return' icon='chevron-left' onClick={this.props.onReturn} describedBy={this.props.describedBy} />
+  );
 
-  setRoot = (element) => {
-    this.root = element;
-  };
-
-  syncLabels = () => {
-    if (!this.root) {
-      return;
-    }
-
-    this.root.querySelectorAll('button').forEach(copyLabel);
-  };
-
-  renderButton (action, icon, label, onClick, describedBy) {
-    return (
-      <button
-        type='button'
-        className='external-player-controls__button'
-        data-external-player-action={action}
-        aria-describedby={describedBy || undefined}
-        onClick={onClick}
-      >
-        <Icon id={icon} fixedWidth aria-hidden='true' />
-        <span className='external-player-controls__name'>
-          {label}
-        </span>
-      </button>
-    );
-  }
+  renderClose = (label) => (
+    <ActionButton label={label} action='close' icon='times' onClick={this.props.onClose} />
+  );
 
   render () {
-    const { pinned, describedBy, onPin, onReturn, onClose } = this.props;
-    const primary = pinned ? this.renderButton(
-      'return',
-      'chevron-left',
-      <FormattedMessage id='external_media.return_to_post' defaultMessage='Return to the post' />,
-      onReturn,
-      describedBy,
-    ) : this.renderButton(
-      'pin',
-      'external-link',
-      <FormattedMessage id='external_media.pop_out' defaultMessage='Pop out the player' />,
-      onPin,
-    );
+    const { pinned } = this.props;
 
     return (
-      <div className='external-player-controls' role='group' aria-labelledby={this.groupLabelId} ref={this.setRoot}>
+      <div className='external-player-controls' role='group' aria-labelledby={this.groupLabelId}>
         <span className='external-player-controls__name' id={this.groupLabelId}>
           <FormattedMessage id='external_media.player_controls' defaultMessage='Player controls' />
         </span>
-        {primary}
-        {this.renderButton(
-          'close',
-          'times',
-          <FormattedMessage id='external_media.close' defaultMessage='Close the player' />,
-          onClose,
+        {pinned ? (
+          <FormattedMessage id='external_media.return_to_post' defaultMessage='Return to the post'>
+            {this.renderReturn}
+          </FormattedMessage>
+        ) : (
+          <FormattedMessage id='external_media.pop_out' defaultMessage='Pop out the player'>
+            {this.renderPin}
+          </FormattedMessage>
         )}
+        <FormattedMessage id='external_media.close' defaultMessage='Close the player'>
+          {this.renderClose}
+        </FormattedMessage>
       </div>
     );
   }

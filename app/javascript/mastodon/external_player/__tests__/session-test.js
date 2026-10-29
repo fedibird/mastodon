@@ -29,7 +29,9 @@ import {
 } from '../session';
 
 jest.mock('react-intl', () => ({
-  FormattedMessage: ({ defaultMessage }) => defaultMessage,
+  FormattedMessage: ({ defaultMessage, children }) => (
+    typeof children === 'function' ? children(defaultMessage) : defaultMessage
+  ),
 }));
 
 jest.mock('mastodon/components/blurhash', () => () => null);
