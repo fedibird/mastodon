@@ -327,7 +327,7 @@ a.button.logo-button {
   &__slot--audio {
     position: relative;
     height: 54px;
-    background: $base-overlay-background;
+    background: transparent;
   }
 
   &__fallback {
@@ -414,25 +414,43 @@ a.button.logo-button {
   }
 }
 
-.external-player-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 8px;
-
-  &__button {
-    min-height: 44px;
-    padding: 8px 12px;
-    border: 1px solid var(--border, #d9e1e8);
-    border-radius: 8px;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
-    font: inherit;
-  }
-}
-
 .external-player-surface {
+  margin-top: 8px;
+
+  &__row {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+
+    > .external-remote-media__slot,
+    > .external-embed-player__frame {
+      flex: 1 1 0;
+      width: auto;
+      min-width: 0;
+      margin-top: 0;
+    }
+  }
+
+  // Audio keeps the native control as wide as it can. Below 16rem the icons
+  // wrap to the trailing edge instead of covering seek, volume, or the menu.
+  &--audio &__row {
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+
+    > .external-remote-media__slot--audio {
+      flex: 1 1 16rem;
+      min-width: 100%;
+      min-width: min(100%, 16rem);
+    }
+  }
+
+  &--iframe .external-player-controls,
+  &--video .external-player-controls {
+    flex-direction: column;
+  }
+
   &__elsewhere,
   &__pinned {
     margin: 0;

@@ -518,7 +518,7 @@ const onError = (event) => {
 
 const createFrame = (url) => {
   const iframe = document.createElement('iframe');
-  iframe.className = 'external-player-host__media';
+  iframe.className = 'external-player-host__media external-player-host__media--iframe';
   iframe.title = 'External video';
   iframe.setAttribute('sandbox', externalEmbedFrameProps.sandbox);
   iframe.setAttribute('allow', externalEmbedFrameProps.allow);
@@ -536,7 +536,7 @@ const createFrame = (url) => {
 
 const createRemote = (kind, url) => {
   const media = document.createElement(kind);
-  media.className = 'external-player-host__media';
+  media.className = `external-player-host__media external-player-host__media--${kind}`;
   media.controls = true;
   media.preload = 'none';
   media.autoplay = false;
