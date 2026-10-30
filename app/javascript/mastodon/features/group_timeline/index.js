@@ -23,6 +23,7 @@ import { defaultColumnWidth } from 'mastodon/initial_state';
 import {
   groupPortableComposerMounted,
   groupPortableComposerToggleEligible,
+  groupAccountBecameAvailable,
   shouldApplyGroupComposerSurface,
   shouldFetchGroupPostingContext,
 } from '../compose/portable_composer_eligibility';
@@ -160,6 +161,7 @@ class GroupTimeline extends React.PureComponent {
       composerVisible,
       discoveryRecord: this.props.postingContextDiscovery,
       account: this.props.account,
+      groupId: id,
     })) {
       dispatch(fetchPostingContext(id));
     }
@@ -171,6 +173,7 @@ class GroupTimeline extends React.PureComponent {
   componentDidUpdate (prevProps) {
     const { dispatch, onlyMedia, withoutMedia, composerVisible, postingContext, postingContextDiscovery, account, columnId, params: { id, tagged } } = this.props;
     const idChanged = prevProps.params.id !== id;
+    const accountBecameAvailable = groupAccountBecameAvailable(prevProps.account, account);
 
     this.restoreComposerScroll(prevProps, idChanged);
     syncImmediateFeedView(dispatch, this.immediateFeedView(prevProps), this.immediateFeedView());
@@ -182,13 +185,22 @@ class GroupTimeline extends React.PureComponent {
         composerVisible,
         discoveryRecord: postingContextDiscovery,
         account,
+        groupId: id,
       })) {
         dispatch(fetchPostingContext(id));
       }
+    } else if (accountBecameAvailable && shouldFetchGroupPostingContext({
+      composerVisible,
+      discoveryRecord: postingContextDiscovery,
+      account,
+      groupId: id,
+    })) {
+      dispatch(fetchPostingContext(id));
     } else if (composerVisible && !prevProps.composerVisible && !postingContext && shouldFetchGroupPostingContext({
       composerVisible: true,
       discoveryRecord: postingContextDiscovery,
       account,
+      groupId: id,
     })) {
       dispatch(fetchPostingContext(id));
     }

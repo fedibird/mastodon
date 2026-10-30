@@ -155,12 +155,13 @@ const renderTimeline = (GroupTimeline, {
   tagged,
   discovery = discoveryRecord('resolved', groupPostingContext),
   visibility,
+  deferAccount = false,
 } = {}) => {
   captured.length = 0;
-  const accountMap = accounts || ImmutableMap({
+  const accountMap = accounts || (deferAccount ? ImmutableMap() : ImmutableMap({
     [account.get('id')]: account,
-  });
-  const postingContexts = discovery ? accountMap.map(item => (
+  }));
+  const postingContexts = discovery && !deferAccount ? accountMap.map(item => (
     item.get('id') === account.get('id') ? discovery : null
   )).filter(value => value) : ImmutableMap();
   let settingsState = withVisibility(settingsReducer(undefined, { type: '@@INIT' }), visibility);
@@ -591,6 +592,51 @@ describe('GroupTimeline portable composer', () => {
     });
 
     expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
+  });
+
+  it('starts discovery on a route timeline before the account arrives and shows the toggle after resolution', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const view = renderTimeline(GroupTimeline, {
+      deferAccount: true,
+      discovery: null,
+      visibility: { 'portable:group-route:123': false },
+    });
+
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+
+    view.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: view.store.getState()
+        .setIn(['accounts', '123'], localGroup)
+        .setIn(['posting_contexts', '123'], discoveryRecord('resolved', groupPostingContext)),
+    });
+
+    expect(screen.getByRole('button', { name: 'Show composer' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.queryByTestId('portable-composer')).toBeNull();
+  });
+
+  it('starts discovery on a pinned column before the account arrives and mounts a saved visible composer', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const view = renderTimeline(GroupTimeline, {
+      columnId: 'col-a',
+      deferAccount: true,
+      discovery: null,
+      visibility: { 'portable:group-column:col-a': true },
+    });
+
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
+    expect(screen.queryByTestId('portable-composer')).toBeNull();
+
+    view.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: view.store.getState()
+        .setIn(['accounts', '123'], localGroup)
+        .setIn(['posting_contexts', '123'], discoveryRecord('resolved', groupPostingContext)),
+    });
+
+    expect(screen.getByRole('button', { name: 'Hide composer' }).getAttribute('aria-pressed')).toBe('true');
+    expect(pinnedComposer('portable:group-column:col-a').composerId).toEqual('portable:group-column:col-a');
   });
 
   it('fetches discovery for a hidden Fedibird composer so the toggle can appear after resolution', () => {
