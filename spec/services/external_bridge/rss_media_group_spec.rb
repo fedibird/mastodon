@@ -31,6 +31,24 @@ RSpec.describe 'External RSS media groups' do
     story.media.map { |row| row['url'] }
   end
 
+  # `takes` is every accepted scan token. `entered` is every media:group
+  # that is actually opened. A loose media:content does not enter a group.
+  def trace_group_scan(limit)
+    entered = 0
+    takes = 0
+    stub_const('ExternalBridge::RSS::Limits::MAX_GROUP_SCAN', limit)
+    allow_any_instance_of(ExternalBridge::RSS::MediaGroup).to receive(:collect).and_wrap_original do |method|
+      entered += 1
+      method.call
+    end
+    allow_any_instance_of(ExternalBridge::RSS::MediaGroup::Budget).to receive(:take?).and_wrap_original do |method|
+      result = method.call
+      takes += 1 if result
+      result
+    end
+    { story: yield, entered: entered, takes: takes }
+  end
+
   def group_for(story)
     story.media.find { |row| row['group'] }['group']
   end
@@ -338,17 +356,74 @@ RSpec.describe 'External RSS media groups' do
     end
 
     it 'stops reading a huge group without dropping the next independent file' do
-      stub_const('ExternalBridge::RSS::Limits::MAX_GROUP_SCAN', 3)
-      story = item(<<~XML)
-        <media:group>
-          <media:title>https://cdn.example/title.mp4</media:title>
-          <media:content url="https://cdn.example/seen.mp4" type="video/mp4"/>
-          <media:content url="https://cdn.example/hidden.mp4" type="video/mp4"/>
-        </media:group>
-        <enclosure url="https://cdn.example/after.mp3" type="audio/mpeg"/>
-      XML
+      traced = trace_group_scan(3) do
+        item(<<~XML)
+          <media:group>
+            <media:title>https://cdn.example/title.mp4</media:title>
+            <media:content url="https://cdn.example/seen.mp4" type="video/mp4"/>
+            <media:content url="https://cdn.example/hidden.mp4" type="video/mp4"/>
+          </media:group>
+          <enclosure url="https://cdn.example/after.mp3" type="audio/mpeg"/>
+        XML
+      end
 
-      expect(urls(story)).to eq ['https://cdn.example/seen.mp4', 'https://cdn.example/after.mp3']
+      expect(urls(traced[:story])).to eq ['https://cdn.example/seen.mp4', 'https://cdn.example/after.mp3']
+      expect(traced[:takes]).to eq 3
+      expect(traced[:entered]).to eq 1
+    end
+
+    it 'does not retain or enter nested groups past the shared scan budget' do
+      empty = (1..1_000).map { '<media:group></media:group>' }.join
+      plain = (1..1_000).map { '<group></group>' }.join
+      nested = trace_group_scan(64) do
+        item(<<~XML)
+          <media:content url="https://cdn.example/before.mp4" type="video/mp4"/>
+          <media:group>
+            <media:content url="https://cdn.example/inside.mp4" type="video/mp4"/>
+            #{empty}
+            <media:content url="https://cdn.example/after-inside.mp4" type="video/mp4"/>
+          </media:group>
+          <media:group>
+            <media:content url="https://cdn.example/second.mp4" type="video/mp4"/>
+          </media:group>
+          <enclosure url="https://cdn.example/tail.mp3" type="audio/mpeg"/>
+        XML
+      end
+      invalid = trace_group_scan(4) do
+        item(<<~XML)
+          <media:group>
+            #{plain}
+            <media:content url="https://cdn.example/late.mp4" type="video/mp4"/>
+          </media:group>
+          <enclosure url="https://cdn.example/tail.mp3" type="audio/mpeg"/>
+        XML
+      end
+      shared = trace_group_scan(2) do
+        item(<<~XML)
+          <media:group>
+            <media:content url="https://cdn.example/first.mp4" type="video/mp4"/>
+          </media:group>
+          <media:group>
+            <media:content url="https://cdn.example/second.mp4" type="video/mp4"/>
+          </media:group>
+          <enclosure url="https://cdn.example/tail.mp3" type="audio/mpeg"/>
+        XML
+      end
+
+      expect(urls(nested[:story])).to eq [
+        'https://cdn.example/before.mp4',
+        'https://cdn.example/inside.mp4',
+        'https://cdn.example/tail.mp3',
+      ]
+      expect(nested[:takes]).to eq 64
+      expect(nested[:entered]).to eq 63
+      expect(nested[:entered]).to be <= 64
+      expect(urls(invalid[:story])).to eq ['https://cdn.example/tail.mp3']
+      expect(invalid[:takes]).to eq 4
+      expect(invalid[:entered]).to eq 1
+      expect(urls(shared[:story])).to eq ['https://cdn.example/first.mp4', 'https://cdn.example/tail.mp3']
+      expect(shared[:takes]).to eq 2
+      expect(shared[:entered]).to eq 1
     end
 
     it 'does not enter a group nested past the depth cap' do

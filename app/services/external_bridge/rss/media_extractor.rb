@@ -68,7 +68,7 @@ module ExternalBridge
         )
         node.element_children.each do |child|
           if media_group?(child)
-            MediaGroup.collect(child, @group_sink)
+            open_group(child)
           else
             scan.observe(child, raw.size)
             collect(child, body_node, raw, posters, base)
@@ -161,9 +161,15 @@ module ExternalBridge
         child.name == 'group' && child.namespace&.href == MEDIA
       end
 
+      def open_group(child)
+        return unless @group_sink.budget.take?
+
+        MediaGroup.collect(child, @group_sink)
+      end
+
       def collect_media(child, raw, posters, base)
         if media_group?(child)
-          MediaGroup.collect(child, @group_sink)
+          open_group(child)
           return
         end
         return add(raw, { url: MediaThumbnail.reference(child), mime: 'image', origin: 'media_thumbnail', base: base }) if MediaThumbnail.thumbnail?(child)

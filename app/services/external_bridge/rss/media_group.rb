@@ -86,8 +86,9 @@ module ExternalBridge
         @sink = sink
       end
 
+      # The caller already spent one scan token for this group element.
+      # Nested groups spend their own token when they are seen, not again here.
       def collect
-        return unless @sink.budget.take?
         return if @sink.depth >= Limits::MAX_GROUP_DEPTH
 
         @sink.depth += 1
@@ -115,17 +116,21 @@ module ExternalBridge
         @sink.depth -= 1
       end
 
+      # Every child spends one token when it is reached, including a nested
+      # group. The loop stops at the first child that does not fit, so later
+      # siblings are not stored and are not turned into group objects.
+      # A nested group is not charged again when it is entered.
       def walk_children
         variants = []
         seen = {}
         nested = []
         @node.element_children.each do |child|
+          break unless @sink.budget.take?
+
           if group?(child)
             nested << child
             next
           end
-          break unless @sink.budget.take?
-
           @sink.scan&.observe_facts(child)
           collect_child(child, variants, seen)
         end
