@@ -189,6 +189,7 @@ RSpec.describe ExternalBridge::RSS::MediaExtractor do
       ['image', 'https://cdn.example/b.webp'],
       ['video', 'https://cdn.example/clip.mp4'],
       ['audio', 'https://cdn.example/talk.mp3'],
+      ['image', 'https://cdn.example/poster.jpg'],
     ]
     expect(media.find { |row| row['url'] == 'https://cdn.example/b.webp' }['description']).to eq 'B'
     expect(media.first['description']).to eq 'Caption A'
@@ -609,10 +610,13 @@ RSpec.describe ExternalBridge::RSS::MediaExtractor do
     sibling, nested, deep, deep_nested = feed.items.map(&:media)
     expect(sibling.map { |row| [row['kind'], row['url'], row['position']] }).to eq [
       ['video', 'https://cdn.example/movie.mp4', 0],
+      ['image', 'https://cdn.example/sibling-thumb.jpg', 1],
     ]
     expect(sibling.first['poster_url']).to eq 'https://cdn.example/sibling-thumb.jpg'
+    expect(sibling.last['origin']).to eq 'html_img'
     expect(nested.map { |row| [row['kind'], row['url']] }).to eq [
       ['video', 'https://cdn.example/nested.mp4'],
+      ['image', 'https://cdn.example/nested-thumb.jpg'],
     ]
     expect(nested.first['poster_url']).to eq 'https://cdn.example/nested-thumb.jpg'
     expect(deep.first['poster_url']).to eq 'https://cdn.example/deep-thumb.jpg'
@@ -639,9 +643,10 @@ RSpec.describe ExternalBridge::RSS::MediaExtractor do
       ['video', 'https://cdn.example/clip-a.mp4', 1],
       ['image', 'https://cdn.example/two.png', 2],
       ['audio', 'https://cdn.example/talk.mp3', 3],
+      ['image', 'https://cdn.example/poster.jpg', 4],
     ]
     expect(media[1]['poster_url']).to eq 'https://cdn.example/poster.jpg'
-    expect(media.map { |row| row['url'] }).not_to include('https://cdn.example/poster.jpg')
+    expect(media.last['origin']).to eq 'html_img'
   end
 
   it 'caps thumbnail body candidates at the existing limit' do

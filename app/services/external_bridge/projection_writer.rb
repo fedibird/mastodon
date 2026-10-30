@@ -45,6 +45,7 @@ module ExternalBridge
           status_id: status.id,
           last_seen_revision: resource.revision,
           last_seen_media_revision: resource.media_revision,
+          last_seen_byline: resource.byline.to_s,
           source_deleted: resource.source_deleted_at.present?
         )
         RSS::Media::Sync.attach_ready!(marker, resource)

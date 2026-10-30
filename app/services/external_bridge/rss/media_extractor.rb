@@ -5,10 +5,12 @@ module ExternalBridge
     # Article media. Namespaces stay on the document, so `media:content`,
     # Atom `content`, and `content:encoded` stay distinct. Candidates are
     # taken from the body element the importer will actually use, plus
-    # enclosures and Media RSS. Feed icons are not article media. A video
-    # poster is not also stored as an image attachment. A Media RSS
-    # thumbnail uses its `url` attribute whenever that attribute exists;
+    # enclosures and Media RSS. Feed icons are not article media. A Media
+    # RSS thumbnail uses its `url` attribute whenever that attribute exists;
     # the element text is only a compatibility source when it was omitted.
+    # Thumbnail scope is content, then group, then item. A thumbnail used as
+    # a video poster is not also an attachment. An explicit article image
+    # with the same URL stays an attachment.
     class MediaExtractor
       Preview = Struct.new(:body, :candidates, :keywords, keyword_init: true)
       ATOM = XmlNames::ATOM
@@ -50,11 +52,14 @@ module ExternalBridge
         posters = []
         base = base_for(node)
         scan = EmbedScan.new
+        @group_path = []
         node.element_children.each do |child|
           if media_group?(child)
-            child.element_children.each do |nested|
-              scan.observe(nested, raw.size)
-              collect(nested, body_node, raw, posters, base)
+            within_group(child) do
+              child.element_children.each do |nested|
+                scan.observe(nested, raw.size)
+                collect(nested, body_node, raw, posters, base)
+              end
             end
           else
             scan.observe(child, raw.size)
@@ -149,7 +154,10 @@ module ExternalBridge
       end
 
       def collect_media(child, raw, posters, base)
-        return child.element_children.each { |nested| collect_media(nested, raw, posters, base) } if media_group?(child)
+        if media_group?(child)
+          within_group(child) { child.element_children.each { |nested| collect_media(nested, raw, posters, base) } }
+          return
+        end
         return add(raw, { url: MediaThumbnail.reference(child), mime: 'image', origin: 'media_thumbnail', base: base }) if MediaThumbnail.thumbnail?(child)
         # Nested groups reach this method without the outer namespace check.
         # A thumbnail or group from another namespace is not media, and its
@@ -182,7 +190,7 @@ module ExternalBridge
       end
 
       def candidate(source)
-        {
+        row = {
           'url' => source[:url],
           'kind' => source[:kind],
           'role' => 'attachment',
@@ -192,6 +200,27 @@ module ExternalBridge
           'description' => clean(source[:description]),
           'poster_url' => source[:kind] == 'video' ? normalize(source[:poster], source[:base]) : nil,
         }.compact
+        stamp_scope!(row, source)
+        row
+      end
+
+      # Scope is used while binding thumbnails and then removed. It is not
+      # stored and does not belong in the media digest.
+      def stamp_scope!(row, source)
+        if source[:origin] == 'media_thumbnail'
+          row['_scope'] = @group_path.present? ? 'group' : 'item'
+          row['_group_id'] = @group_path.last if @group_path.present?
+        end
+        return if @group_path.blank? || !%w(video audio).include?(source[:kind])
+
+        row['_group_path'] = @group_path.dup
+      end
+
+      def within_group(node)
+        @group_path << node.object_id
+        yield
+      ensure
+        @group_path.pop
       end
 
       def remember_poster(posters, poster, base)
@@ -200,13 +229,16 @@ module ExternalBridge
       end
 
       def finalize(raw, posters)
-        claim_thumbnails(raw, posters)
+        MediaScope.apply!(raw)
         seen = {}
         kept = []
         raw.each do |candidate|
-          next if candidate['kind'] == 'image' && candidate['role'] != 'poster' && posters.include?(candidate['url'])
+          next if candidate.delete('_consumed')
 
-          key = "#{candidate['kind']}\n#{candidate['url']}"
+          release_scope!(candidate)
+          next if hidden_thumbnail?(candidate, posters)
+
+          key = "#{candidate['kind']}\n#{candidate['role']}\n#{candidate['url']}"
           next if seen[key]
 
           seen[key] = true
@@ -216,18 +248,20 @@ module ExternalBridge
         kept.each_with_index.map { |candidate, index| candidate.merge('position' => index) }
       end
 
-      # A Media RSS thumbnail beside a video is that video's poster, not a
-      # second image attachment.
-      def claim_thumbnails(raw, posters)
-        return unless raw.any? { |candidate| candidate['kind'] == 'video' }
+      def release_scope!(candidate)
+        candidate.delete('_scope')
+        candidate.delete('_group_id')
+        candidate.delete('_group_path')
+      end
 
-        raw.each do |candidate|
-          next unless candidate['origin'] == 'media_thumbnail'
+      # Embed scan still hides its own thumb URL when that URL was not an
+      # explicit article image. A media:thumbnail consumed as a poster is
+      # already gone. An html or media:content image with the same URL stays.
+      def hidden_thumbnail?(candidate, posters)
+        return false unless candidate['kind'] == 'image' && candidate['role'] != 'poster'
+        return false if MediaScope::INDEPENDENT_ORIGINS.include?(candidate['origin'])
 
-          posters << candidate['url']
-          video = raw.find { |item| item['kind'] == 'video' && item['poster_url'].blank? }
-          video['poster_url'] = candidate['url'] if video
-        end
+        posters.include?(candidate['url'])
       end
 
       def html_for(node)

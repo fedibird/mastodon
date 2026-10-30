@@ -121,6 +121,7 @@ module ExternalBridge
         deleted_changed = marker.source_deleted != deleted
         revision_changed = marker.last_seen_revision.to_s != resource.revision.to_s
         media_changed = media_revision_changed?(marker, resource)
+        byline_changed = byline_changed?(marker, resource)
         links_stale = Media::Sync.links_stale?(marker, resource)
         # A quick read avoids the share lock when nothing moved. The write
         # below reads the choices again under that lock, so a save that
@@ -132,7 +133,7 @@ module ExternalBridge
         desired = Presentation.for(resource, **policy)
         presentation_changed = Presentation.changed?(status, desired)
         marker_changed = deleted_changed || revision_changed || media_changed || links_stale
-        return :skip unless presentation_changed || marker_changed
+        return skip_unchanged!(marker, resource) unless presentation_changed || marker_changed || byline_changed
 
         outcome = :skip
         SubscriptionFence.guard!(marker.external_subscription_id) do
@@ -148,9 +149,10 @@ module ExternalBridge
             fresh_deleted_changed = fresh_marker.source_deleted != fresh_deleted
             fresh_revision_changed = fresh_marker.last_seen_revision.to_s != fresh_resource.revision.to_s
             fresh_media_changed = media_revision_changed?(fresh_marker, fresh_resource)
+            fresh_byline_changed = byline_changed?(fresh_marker, fresh_resource)
             fresh_links_stale = Media::Sync.links_stale?(fresh_marker, fresh_resource)
             fresh_presentation_changed = Presentation.changed?(fresh_status, fresh_desired)
-            next unless fresh_presentation_changed || fresh_deleted_changed || fresh_revision_changed || fresh_media_changed || fresh_links_stale
+            next unless fresh_presentation_changed || fresh_deleted_changed || fresh_revision_changed || fresh_media_changed || fresh_byline_changed || fresh_links_stale
 
             write_refresh!(
               fresh_marker,
@@ -166,6 +168,7 @@ module ExternalBridge
                 deleted_changed: fresh_deleted_changed,
                 revision_changed: fresh_revision_changed,
                 media_changed: fresh_media_changed,
+                byline_changed: fresh_byline_changed,
                 links_stale: fresh_links_stale,
               }
             )
@@ -182,13 +185,7 @@ module ExternalBridge
       end
 
       def write_refresh!(marker, status, resource, change)
-        if change[:revision_changed] || change[:deleted_changed] || change[:media_changed]
-          marker.update!(
-            last_seen_revision: resource.revision,
-            source_deleted: change[:deleted],
-            last_seen_media_revision: resource.media_revision
-          )
-        end
+        remember_seen!(marker, resource, change)
         if change[:presentation_changed]
           # Text, spoiler, sensitive, and language follow the subscriber's
           # presentation. created_at and the snowflake id stay at the values
@@ -203,15 +200,56 @@ module ExternalBridge
         end
         files_changed = change[:media_changed] || change[:links_stale]
         Media::Sync.attach_ready!(marker, resource) if files_changed
-        if files_changed && !change[:presentation_changed]
+        if (files_changed || change[:byline_changed]) && !change[:presentation_changed]
           status.update_columns(updated_at: Time.current)
           Rails.cache.delete("statuses/#{status.id}")
         end
         if change[:deleted_changed]
           schedule_membership_change!(marker, change[:deleted])
-        elsif change[:presentation_changed] || files_changed
+        elsif change[:presentation_changed] || files_changed || change[:byline_changed]
           Streaming::Scheduler.bump_and_schedule_content!(marker)
         end
+      end
+
+      # A byline-only edit does not change body_digest or media_revision.
+      # NULL means the column has never been recorded. An empty byline is "".
+      def remember_seen!(marker, resource, change)
+        attrs = {}
+        if change[:revision_changed] || change[:deleted_changed] || change[:media_changed]
+          attrs[:last_seen_revision] = resource.revision
+          attrs[:source_deleted] = change[:deleted]
+          attrs[:last_seen_media_revision] = resource.media_revision
+        end
+        if change[:byline_changed] || marker.last_seen_byline.nil?
+          attrs[:last_seen_byline] = displayed_byline(resource)
+        end
+        marker.update!(attrs) if attrs.present?
+      end
+
+      # Old rows are initialized under the deletion fence and the projection
+      # lock. The byline written is the one read after those locks, not the
+      # snapshot from before them. Initialization itself does not notify.
+      def skip_unchanged!(marker, _resource)
+        return :skip unless marker.last_seen_byline.nil?
+
+        SubscriptionFence.guard!(marker.external_subscription_id) do
+          ProjectionWrite.latest(marker.id) do |fresh_marker, _fresh_status, fresh_resource|
+            next unless fresh_marker.last_seen_byline.nil?
+
+            fresh_marker.update!(last_seen_byline: displayed_byline(fresh_resource))
+          end
+        end
+        :skip
+      end
+
+      def byline_changed?(marker, resource)
+        return false if marker.last_seen_byline.nil?
+
+        marker.last_seen_byline != displayed_byline(resource)
+      end
+
+      def displayed_byline(resource)
+        resource.byline.to_s
       end
 
       # A nil last-seen and an empty candidate digest are the same "no media"

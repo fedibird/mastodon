@@ -171,18 +171,12 @@ module ExternalBridge
         def candidate
           return @candidate if defined?(@candidate)
 
-          @candidate = Array(resource&.media_candidates).find do |row|
-            row['kind'] == 'image' && source_urls(row).any? { |url| MediaDigest.url_digest(url) == @url_digest }
-          end
+          @candidate = CandidateLookup.for_revalidate(resource&.media_candidates, @url_digest)
         end
 
         def source_url
           request = ImageAttempts.requests(candidate).find { |item| MediaDigest.url_digest(item.store) == @url_digest }
           request&.get
-        end
-
-        def source_urls(row)
-          ImageAttempts.requests(row).map(&:store)
         end
       end
     end

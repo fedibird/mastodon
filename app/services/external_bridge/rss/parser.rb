@@ -2,7 +2,7 @@
 
 module ExternalBridge
   module RSS
-    Item = Struct.new(:key, :title, :body, :canonical_url, :byline, :published_at, :truncated, :media, :keywords, :activitypub_url, :activitypub_explicit, :activitypub_sample_url, keyword_init: true)
+    Item = Struct.new(:key, :title, :body, :canonical_url, :byline, :author_hints, :published_at, :truncated, :media, :keywords, :activitypub_url, :activitypub_explicit, :activitypub_sample_url, keyword_init: true)
     Feed = Struct.new(:protocol, :title, :site_url, :items, :icon_hints, :activitypub_hint, :activitypub_generator_hint, keyword_init: true) do
       # The feed-declared image URLs, best candidate first. They are raw text
       # here (possibly relative); the icon job resolves and validates them.
@@ -112,12 +112,14 @@ module ExternalBridge
         return nil if key.blank?
 
         body, truncated = Sanitizer.capped(raw_body(node))
+        author = AuthorMetadata.for_rss(node, namespaces)
         Item.new(
           key: key.strip,
           title: Sanitizer.title(XmlNames.text(node, 'title', namespaces)),
           body: body,
           canonical_url: link,
-          byline: Sanitizer.title(XmlNames.text(node, 'creator', XmlNames::DC).presence || XmlNames.text(node, 'author', namespaces)),
+          byline: author.byline,
+          author_hints: author.hints,
           published_at: PublicationTime.parse(XmlNames.text(node, 'pubDate', namespaces)) || PublicationTime.parse(XmlNames.text(node, 'date', XmlNames::DC)),
           truncated: truncated,
           media: media_for(node),
@@ -132,14 +134,15 @@ module ExternalBridge
         key ||= link
         return nil if key.blank?
 
-        author = XmlNames.child(node, 'author', XmlNames::ATOM)
         body, truncated = Sanitizer.capped(raw_body(node))
+        author = AuthorMetadata.for_atom(node)
         Item.new(
           key: key.strip,
           title: Sanitizer.title(XmlNames.text(node, 'title', XmlNames::ATOM)),
           body: body,
           canonical_url: link,
-          byline: Sanitizer.title(XmlNames.text(author, 'name', XmlNames::ATOM)),
+          byline: author.byline,
+          author_hints: author.hints,
           published_at: PublicationTime.parse(XmlNames.text(node, 'published', XmlNames::ATOM)) || PublicationTime.parse(XmlNames.text(node, 'updated', XmlNames::ATOM)),
           truncated: truncated,
           media: media_for(node),

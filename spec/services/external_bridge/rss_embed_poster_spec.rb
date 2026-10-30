@@ -180,6 +180,120 @@ RSpec.describe 'External RSS embed poster' do
     expect(a_request(:get, player)).not_to have_been_made
   end
 
+  it 'stores one link when an article image and an embed poster share a URL' do
+    image = 'https://cdn.example/still.png'
+    stub_request(:get, image).to_return(status: 200, body: png, headers: { 'Content-Type' => 'image/png' })
+    stub_request(:get, feed_url).to_return(status: 200, body: rss_document(shared_image_xml(image)))
+
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed_url)
+    ExternalBridge::RSS::Subscribe.new.call(user: other, url: feed_url)
+
+    expect(a_request(:get, image)).to have_been_made.once
+    expect(ExternalMediaAsset.where(kind: 'image', state: 'ready').count).to eq 1
+    expect_shared_image!(user, image, description: 'Still frame')
+    expect_shared_image!(other, image, description: 'Still frame')
+
+    notices = 0
+    allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!) { notices += 1 }
+    refresh_role!(feed_url, shared_image_xml(image))
+
+    expect(notices).to eq 0
+    expect(a_request(:get, image)).to have_been_made.once
+    expect_shared_image!(user, image, description: 'Still frame')
+  end
+
+  it 'keeps the gallery ALT when a poster is added to an existing article image' do
+    image = 'https://cdn.example/still.png'
+    stub_request(:get, image).to_return(status: 200, body: png, headers: { 'Content-Type' => 'image/png' })
+    stub_request(:get, feed_url).to_return(status: 200, body: rss_document(article_image_xml(image)))
+
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed_url)
+    attachment_id = expect_shared_image!(user, image, description: 'Still frame', embed: false)
+
+    refresh_role!(feed_url, shared_image_xml(image))
+
+    expect(a_request(:get, image)).to have_been_made.once
+    expect(expect_shared_image!(user, image, description: 'Still frame')).to eq attachment_id
+  end
+
+  it 'promotes an existing poster link when the same URL becomes an article image' do
+    image = 'https://cdn.example/still.png'
+    stub_request(:get, image).to_return(status: 200, body: png, headers: { 'Content-Type' => 'image/png' })
+    stub_request(:get, feed_url).to_return(status: 200, body: rss_document(poster_only_xml(image)))
+
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed_url)
+    status = Status.find(ExternalStatusProjection.find_by!(user_id: user.id).status_id)
+    attachment_id = status.media_attachments.pick(:id)
+    expect(ExternalProjectionAttachment.find_by!(media_attachment_id: attachment_id).kind).to eq 'poster'
+    expect(status.ordered_media_attachments).to eq []
+
+    refresh_role!(feed_url, shared_image_xml(image))
+
+    expect(a_request(:get, image)).to have_been_made.once
+    expect(expect_shared_image!(user, image, description: 'Still frame')).to eq attachment_id
+  end
+
+  it 'downloads a shared image through the poster fetch URL' do
+    logical = ExternalBridge::RSS::PosterURL.pair(large_url).logical
+    stub_request(:get, large_fetch).to_return(status: 200, body: png, headers: { 'Content-Type' => 'image/png' })
+    stub_request(:get, feed_url).to_return(status: 200, body: rss_document(shared_image_xml(logical, thumb: large_url)))
+
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed_url)
+
+    expect(a_request(:get, large_fetch)).to have_been_made.once
+    expect(a_request(:get, logical)).not_to have_been_made
+    expect(ExternalMediaAsset.where(kind: 'image', state: 'ready').count).to eq 1
+    expect_shared_image!(user, logical, description: 'Still frame')
+  end
+
+  it 'does not put an over-cap shared image into the gallery sequence' do
+    previous = Setting.attachments_max
+    Setting.attachments_max = 4
+    feed = 'https://feeds.example/cap.xml'
+    letters = %w(a b c d e)
+    letters.each do |letter|
+      stub_request(:get, "https://cdn.example/cap-#{letter}.png").to_return(status: 200, body: png, headers: { 'Content-Type' => 'image/png' })
+    end
+    stub_request(:get, feed).to_return(status: 200, body: rss_document(capped_xml(letters)))
+
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed)
+    poster_link = projection_link_for('e')
+    stable = %w(b c d).map { |letter| attachment_id_for(letter) }
+    expect(ordered_descriptions).to eq %w(a b c d)
+    expect(poster_link.kind).to eq 'poster'
+    expect_sequence_ids!
+
+    refresh_role!(feed, capped_xml(%w(e b c d a)))
+
+    expect(ordered_descriptions).to match_array(%w(e b c d))
+    expect(poster_link.reload.kind).to eq 'image'
+    expect(poster_link.media_attachment.description).to eq 'e'
+    expect(%w(b c d).map { |letter| attachment_id_for(letter) }).to eq stable
+    expect(a_request(:get, 'https://cdn.example/cap-e.png')).to have_been_made.once
+    expect_sequence_ids!
+    shown = ordered_ids
+
+    notices = 0
+    allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!) { notices += 1 }
+    refresh_role!(feed, capped_xml(%w(e b c d a)))
+    expect(notices).to eq 0
+    expect(ordered_ids).to eq shown
+    expect(poster_link.reload.kind).to eq 'image'
+
+    refresh_role!(feed, capped_xml(letters))
+
+    expect(ordered_descriptions).to match_array(%w(a b c d))
+    expect(poster_link.reload.kind).to eq 'poster'
+    expect(ordered_ids).not_to include(poster_link.media_attachment_id)
+    expect_sequence_ids!
+    body = owner_json(user)
+    player = body[:fedibird_external][:sequence].find { |row| row[:type] == 'embed' }
+    expect(player[:poster]).to be_present
+    expect(player[:poster]).not_to include('cap-e.png')
+  ensure
+    Setting.attachments_max = previous
+  end
+
   it 'keeps one attachment when the same image changes between gallery and poster' do
     image = 'https://cdn.example/still.png'
     feed = 'https://feeds.example/role.xml'
@@ -245,6 +359,102 @@ RSpec.describe 'External RSS embed poster' do
         #{media}
       </item>
     XML
+  end
+
+  def capped_xml(letters)
+    images = letters.map { |letter| %(<img src="https://cdn.example/cap-#{letter}.png" alt="#{letter}">) }.join
+    <<~XML
+      <item>
+        <title>Example</title>
+        <link>https://watch.example.com/watch?id=abc123</link>
+        <description><![CDATA[#{images}]]></description>
+        <thumb>https://cdn.example/cap-e.png</thumb>
+        <embed><![CDATA[<iframe src="#{player_url}"></iframe>]]></embed>
+      </item>
+    XML
+  end
+
+  def projection_link_for(letter)
+    digest = ExternalBridge::RSS::MediaDigest.url_digest("https://cdn.example/cap-#{letter}.png")
+    asset = ExternalMediaAsset.find_by!(url_digest: digest)
+    ExternalProjectionAttachment.find_by!(external_media_asset_id: asset.id)
+  end
+
+  def attachment_id_for(letter)
+    projection_link_for(letter).media_attachment_id
+  end
+
+  def ordered_descriptions
+    status = Status.find(ExternalStatusProjection.find_by!(user_id: user.id).status_id)
+    status.ordered_media_attachments.map(&:description)
+  end
+
+  def ordered_ids
+    status = Status.find(ExternalStatusProjection.find_by!(user_id: user.id).status_id)
+    status.ordered_media_attachments.map(&:id)
+  end
+
+  def expect_sequence_ids!
+    body = owner_json(user)
+    local_ids = body[:fedibird_external][:sequence].filter_map { |row| row[:attachment_id] }
+    attachment_ids = body[:media_attachments].map { |row| row[:id].to_s }
+    expect(local_ids).to match_array(attachment_ids)
+    expect(local_ids).not_to be_empty
+  end
+
+  def shared_image_xml(image, thumb: image)
+    <<~XML
+      <item>
+        <title>Example</title>
+        <link>https://watch.example.com/watch?id=abc123</link>
+        <description><![CDATA[<img src="#{image}" alt="Still frame">]]></description>
+        <thumb>#{thumb.to_s.gsub('&', '&amp;')}</thumb>
+        <embed><![CDATA[<iframe src="#{player_url}"></iframe>]]></embed>
+      </item>
+    XML
+  end
+
+  def article_image_xml(image)
+    <<~XML
+      <item>
+        <title>Example</title>
+        <link>https://watch.example.com/watch?id=abc123</link>
+        <description><![CDATA[<img src="#{image}" alt="Still frame">]]></description>
+      </item>
+    XML
+  end
+
+  def poster_only_xml(image)
+    <<~XML
+      <item>
+        <title>Example</title>
+        <link>https://watch.example.com/watch?id=abc123</link>
+        <description>Same words</description>
+        <thumb>#{image}</thumb>
+        <embed><![CDATA[<iframe src="#{player_url}"></iframe>]]></embed>
+      </item>
+    XML
+  end
+
+  def expect_shared_image!(owner, image, description:, embed: true)
+    body = owner_json(owner)
+    status = Status.find(ExternalStatusProjection.find_by!(user_id: owner.id).status_id)
+    link = ExternalProjectionAttachment.find_by!(external_status_projection_id: status.external_status_projection.id)
+    expect(ExternalProjectionAttachment.where(external_status_projection_id: link.external_status_projection_id).count).to eq 1
+    expect(link.kind).to eq 'image'
+    expect(status.media_attachments.map(&:id)).to eq [link.media_attachment_id]
+    expect(status.media_attachments.map(&:description)).to eq [description]
+    attachment_ids = body[:media_attachments].map { |row| row[:id].to_s }
+    expect(attachment_ids).to eq [link.media_attachment_id.to_s]
+    local = body[:fedibird_external][:sequence].select { |row| row[:delivery] == 'local' }
+    expect(local.map { |row| row[:attachment_id] }).to eq attachment_ids
+    if embed
+      player = body[:fedibird_external][:sequence].find { |row| row[:type] == 'embed' }
+      expect(player[:poster]).to be_present
+      expect(player[:poster]).not_to include(image)
+    end
+    expect(body.to_json).not_to include(image)
+    link.media_attachment_id
   end
 
   def refresh_role!(feed, xml)

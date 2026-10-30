@@ -124,7 +124,7 @@ module ExternalBridge
             [candidate, asset]
           end
           gallery, posters = ready.partition { |candidate, _asset| candidate['role'] != 'poster' }
-          gallery.first(attachment_limit) + posters.first(1)
+          SharedFile.collapse(gallery.first(attachment_limit) + posters.first(1))
         end
 
         def asset_for(candidate)
@@ -165,7 +165,16 @@ module ExternalBridge
         end
 
         def saved_candidates
-          Array(@resource.media_candidates).select { |candidate| %w(image video).include?(candidate['kind']) && candidate['url'].present? }
+          Array(@resource.media_candidates).select { |candidate| display_file?(candidate) }
+        end
+
+        # Author avatars and decorative images are not gallery files and are
+        # not fetched. Audio artwork stays an attachment until it has a
+        # display slot. A missing usage is an ordinary attachment or poster.
+        def display_file?(candidate)
+          return false unless %w(image video).include?(candidate['kind']) && candidate['url'].present?
+
+          !MediaScope.skipped?(candidate)
         end
 
         def pending_candidates(videos)

@@ -50,9 +50,7 @@ module ExternalBridge
         end
 
         def candidate_for(resource, url_digest)
-          Array(resource.media_candidates).find do |candidate|
-            %w(image video).include?(candidate['kind']) && MediaDigest.url_digest(candidate['url']) == url_digest
-          end
+          CandidateLookup.for_fetch(resource.media_candidates, url_digest)
         end
 
         def download(resource, candidate, url_digest, media_revision)

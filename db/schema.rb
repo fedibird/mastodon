@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_08_120000) do
+ActiveRecord::Schema.define(version: 2026_11_09_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -969,6 +969,7 @@ ActiveRecord::Schema.define(version: 2026_11_08_120000) do
     t.text "title"
     t.text "body"
     t.text "byline"
+    t.jsonb "author_hints", default: {}, null: false
     t.string "body_digest"
     t.datetime "published_at"
     t.datetime "source_deleted_at"
@@ -1054,6 +1055,7 @@ ActiveRecord::Schema.define(version: 2026_11_08_120000) do
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.text "last_seen_media_revision"
+    t.text "last_seen_byline"
     t.index ["account_id"], name: "index_external_status_projections_on_account_id"
     t.index ["external_subscription_id"], name: "index_external_status_projections_on_subscription"
     t.index ["status_id"], name: "index_external_status_projections_on_status_id", unique: true
