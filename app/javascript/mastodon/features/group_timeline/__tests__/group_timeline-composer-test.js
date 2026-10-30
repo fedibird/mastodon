@@ -155,12 +155,13 @@ const renderTimeline = (GroupTimeline, {
   tagged,
   discovery = discoveryRecord('resolved', groupPostingContext),
   visibility,
+  deferAccount = false,
 } = {}) => {
   captured.length = 0;
-  const accountMap = accounts || ImmutableMap({
+  const accountMap = accounts || (deferAccount ? ImmutableMap() : ImmutableMap({
     [account.get('id')]: account,
-  });
-  const postingContexts = discovery ? accountMap.map(item => (
+  }));
+  const postingContexts = discovery && !deferAccount ? accountMap.map(item => (
     item.get('id') === account.get('id') ? discovery : null
   )).filter(value => value) : ImmutableMap();
   let settingsState = withVisibility(settingsReducer(undefined, { type: '@@INIT' }), visibility);
@@ -570,17 +571,250 @@ describe('GroupTimeline portable composer', () => {
     expect(pinnedComposer().postingContextAccountId).toEqual('123');
   });
 
-  it('does not fetch or mount a composer for a non-administrator', () => {
+  it('mounts the composer for a non-administrator when visibility is saved and discovery is resolved', () => {
     const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
-    const props = renderTimeline(GroupTimeline, {
+    const view = renderTimeline(GroupTimeline, {
       visibility: { 'portable:group-route:123': true },
-    }).props;
+    });
+
+    expect(mockFetchPostingContext).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Hide composer' }).getAttribute('aria-pressed')).toBe('true');
+    expect(pinnedComposer().composerId).toEqual('portable:group-route:123');
+    expect(view.props.prepend).toBeFalsy();
+  });
+
+  it('requests discovery for a non-administrator before the Fedibird group is known', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+
+    renderTimeline(GroupTimeline, {
+      discovery: null,
+      visibility: { 'portable:group-route:123': true },
+    });
+
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
+  });
+
+  it('starts discovery on a route timeline before the account arrives and shows the toggle after resolution', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const view = renderTimeline(GroupTimeline, {
+      deferAccount: true,
+      discovery: null,
+      visibility: { 'portable:group-route:123': false },
+    });
+
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+
+    view.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: view.store.getState()
+        .setIn(['accounts', '123'], localGroup)
+        .setIn(['posting_contexts', '123'], discoveryRecord('resolved', groupPostingContext)),
+    });
+
+    expect(screen.getByRole('button', { name: 'Show composer' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.queryByTestId('portable-composer')).toBeNull();
+  });
+
+  it('starts discovery on a pinned column before the account arrives and mounts a saved visible composer', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const view = renderTimeline(GroupTimeline, {
+      columnId: 'col-a',
+      deferAccount: true,
+      discovery: null,
+      visibility: { 'portable:group-column:col-a': true },
+    });
+
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
+    expect(screen.queryByTestId('portable-composer')).toBeNull();
+
+    view.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: view.store.getState()
+        .setIn(['accounts', '123'], localGroup)
+        .setIn(['posting_contexts', '123'], discoveryRecord('resolved', groupPostingContext)),
+    });
+
+    expect(screen.getByRole('button', { name: 'Hide composer' }).getAttribute('aria-pressed')).toBe('true');
+    expect(pinnedComposer('portable:group-column:col-a').composerId).toEqual('portable:group-column:col-a');
+  });
+
+  it('fetches discovery for a hidden Fedibird composer so the toggle can appear after resolution', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    renderTimeline(GroupTimeline, {
+      discovery: null,
+      visibility: { 'portable:group-route:123': false },
+    });
+
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Hide composer' })).toBeNull();
+  });
+
+  it('shows the Fedibird composer toggle after discovery resolves while the composer stays hidden', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const view = renderTimeline(GroupTimeline, {
+      discovery: discoveryRecord('loading'),
+      visibility: { 'portable:group-route:123': false },
+    });
+
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+
+    view.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: view.store.getState().setIn(['posting_contexts', '123'], discoveryRecord('resolved', groupPostingContext)),
+    });
+
+    expect(screen.getByRole('button', { name: 'Show composer' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.queryByTestId('portable-composer')).toBeNull();
+  });
+
+  it('retries discovery after an error when the timeline remounts and restores the toggle', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const errorDiscovery = discoveryRecord('error');
+    const initialState = ImmutableMap({
+      accounts: ImmutableMap({ '123': localGroup }),
+      posting_contexts: ImmutableMap({ '123': errorDiscovery }),
+      timelines: ImmutableMap(),
+      settings: withVisibility(settingsReducer(undefined, { type: '@@INIT' }), {
+        'portable:group-route:123': false,
+      }).setIn(['group', 'other'], ImmutableMap({ onlyMedia: false, withoutMedia: false })),
+    });
+    const store = createStore((state = initialState, action) => {
+      if (action && action.type === 'TEST_REPLACE') {
+        return action.state;
+      }
+
+      if (action && (action.type === 'SETTING_CHANGE' || action.type === 'SETTING_SAVE')) {
+        return state.set('settings', settingsReducer(state.get('settings'), action));
+      }
+
+      return state;
+    }, initialState, applyMiddleware(thunk));
+
+    const timeline = (
+      <Provider store={store}>
+        <GroupTimeline params={{ id: '123' }} multiColumn={false} />
+      </Provider>
+    );
+
+    const first = render(timeline);
+
+    expect(mockFetchPostingContext).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+
+    first.unmount();
+    mockFetchPostingContext.mockClear();
+
+    render(timeline);
+
+    expect(mockFetchPostingContext).toHaveBeenCalledTimes(1);
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
+
+    store.dispatch({
+      type: 'TEST_REPLACE',
+      state: store.getState().setIn(['posting_contexts', '123'], discoveryRecord('resolved', groupPostingContext)),
+    });
+
+    expect(screen.getByRole('button', { name: 'Show composer' }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('retries discovery after an error on remount for a saved visible composer', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const errorDiscovery = discoveryRecord('error');
+    const initialState = ImmutableMap({
+      accounts: ImmutableMap({ '123': localGroup }),
+      posting_contexts: ImmutableMap({ '123': errorDiscovery }),
+      timelines: ImmutableMap(),
+      settings: withVisibility(settingsReducer(undefined, { type: '@@INIT' }), {
+        'portable:group-route:123': true,
+      }).setIn(['group', 'other'], ImmutableMap({ onlyMedia: false, withoutMedia: false })),
+    });
+    const store = createStore((state = initialState, action) => {
+      if (action && action.type === 'TEST_REPLACE') {
+        return action.state;
+      }
+
+      return state;
+    }, initialState, applyMiddleware(thunk));
+
+    const timeline = (
+      <Provider store={store}>
+        <GroupTimeline params={{ id: '123' }} multiColumn={false} />
+      </Provider>
+    );
+
+    const first = render(timeline);
+
+    expect(mockFetchPostingContext).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('portable-composer')).toBeNull();
+
+    first.unmount();
+    mockFetchPostingContext.mockClear();
+    render(timeline);
+
+    expect(mockFetchPostingContext).toHaveBeenCalledTimes(1);
+
+    store.dispatch({
+      type: 'TEST_REPLACE',
+      state: store.getState().setIn(['posting_contexts', '123'], discoveryRecord('resolved', groupPostingContext)),
+    });
+
+    expect(screen.getByTestId('portable-composer')).toBeTruthy();
+    expect(pinnedComposer('portable:group-route:123').composerId).toEqual('portable:group-route:123');
+  });
+
+  it('does not loop discovery fetches when an in-flight request fails without remounting', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const view = renderTimeline(GroupTimeline, {
+      discovery: null,
+      visibility: { 'portable:group-route:123': false },
+    });
+
+    expect(mockFetchPostingContext).toHaveBeenCalledTimes(1);
+    mockFetchPostingContext.mockClear();
+
+    view.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: view.store.getState().setIn(['posting_contexts', '123'], discoveryRecord('loading')),
+    });
+
+    expect(mockFetchPostingContext).not.toHaveBeenCalled();
+
+    view.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: view.store.getState().setIn(['posting_contexts', '123'], discoveryRecord('error')),
+    });
 
     expect(mockFetchPostingContext).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+  });
+
+  it('does not expose a non-administrator composer for unsupported or remote-looking groups', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const mitra = renderTimeline(GroupTimeline, {
+      account: ImmutableMap({
+        id: '456',
+        username: 'group',
+        acct: 'group@mitra.example',
+        group: true,
+        display_name: 'Remote group',
+      }),
+      discovery: discoveryRecord('resolved', mitraGroupPostingContext),
+      visibility: { 'portable:group-route:456': true },
+    });
+
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Hide composer' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Show group detail' })).toBeTruthy();
-    expect(props.prepend).toBeNull();
-    expect(props.alwaysPrepend).toBe(false);
+    expect(mitra.props.prepend).toBeNull();
+
+    cleanup();
+    const unsupported = renderTimeline(GroupTimeline, {
+      discovery: discoveryRecord('unsupported', null, 'no_supported_adapter'),
+      visibility: { 'portable:group-route:123': true },
+    });
+
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+    expect(unsupported.props.prepend).toBeNull();
   });
 });

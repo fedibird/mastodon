@@ -1,4 +1,4 @@
-const FEDIBIRD_GROUP_KEY = /^builtin:fedibird-group:([1-9]\d*)$/;
+export const FEDIBIRD_GROUP_KEY = /^builtin:fedibird-group:([1-9]\d*)$/;
 const MITRA_GROUP_KEY = /^protocol:fep-1b12-group:([1-9]\d*)$/;
 const NODEBB_GROUP_KEY = /^protocol:fep-1b12-nodebb:([1-9]\d*)$/;
 const LEMMY_GROUP_KEY = /^protocol:fep-1b12-lemmy:([1-9]\d*)$/;

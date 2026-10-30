@@ -19,7 +19,8 @@ import MissingIndicator from '../../components/missing_indicator';
 import LoadingIndicator from '../../components/loading_indicator';
 import Icon from 'mastodon/components/icon';
 import RadioButton from 'mastodon/components/radio_button';
-import { defaultColumnWidth, isAdministrator } from 'mastodon/initial_state';
+import { defaultColumnWidth } from 'mastodon/initial_state';
+import { listPortableComposerEligible } from '../compose/portable_composer_eligibility';
 import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
 import PortableComposer from '../compose/portable_composer';
 import ColumnDropHint from '../compose/components/column_drop_hint';
@@ -179,8 +180,8 @@ class ListTimeline extends React.PureComponent {
       return;
     }
 
-    const wasMounted = isAdministrator && prevProps.composerVisible;
-    const isMounted = isAdministrator && this.props.composerVisible;
+    const wasMounted = listPortableComposerEligible() && prevProps.composerVisible;
+    const isMounted = listPortableComposerEligible() && this.props.composerVisible;
 
     if (wasMounted === isMounted) {
       return;
@@ -300,7 +301,7 @@ class ListTimeline extends React.PureComponent {
     const replies_policy = list ? list.get('replies_policy') : undefined;
     const sourceTimelineId = `list:${id}`;
     const composerId = listComposerId(id, columnId);
-    const portableComposer = isAdministrator && composerVisible ? (
+    const portableComposer = listPortableComposerEligible() && composerVisible ? (
       <PortableComposer key={composerId} composerId={composerId} surface={{ kind: 'list', key: String(id) }} />
     ) : null;
     const emptyMessage = <FormattedMessage id='empty_column.list' defaultMessage='There is nothing in this list yet. When members of this list post new statuses, they will appear here.' />;
@@ -379,7 +380,7 @@ class ListTimeline extends React.PureComponent {
               {split.jumpButton}
               {split.bookmarkButton}
               {split.resumeButton}
-              <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
+              <PortableComposerToggle enabled={listPortableComposerEligible()} visible={composerVisible} onToggle={this.handleToggleComposer} />
               {split.closeLiveButton}
             </Fragment>
           )}

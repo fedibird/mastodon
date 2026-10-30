@@ -18,7 +18,8 @@ import { isEqual } from 'lodash';
 import { fetchHashtag, followHashtag, unfollowHashtag } from 'mastodon/actions/tags';
 import Icon from 'mastodon/components/icon';
 import classNames from 'classnames';
-import { defaultColumnWidth, followTagModal, unfollowTagModal, isAdministrator } from 'mastodon/initial_state';
+import { defaultColumnWidth, followTagModal, unfollowTagModal } from 'mastodon/initial_state';
+import { hashtagPortableComposerEligible } from '../compose/portable_composer_eligibility';
 import PortableComposer from '../compose/portable_composer';
 import ColumnDropHint from '../compose/components/column_drop_hint';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
@@ -215,8 +216,8 @@ class HashtagTimeline extends React.PureComponent {
       return;
     }
 
-    const wasMounted = isAdministrator && prevProps.composerVisible;
-    const isMounted = isAdministrator && this.props.composerVisible;
+    const wasMounted = hashtagPortableComposerEligible() && prevProps.composerVisible;
+    const isMounted = hashtagPortableComposerEligible() && this.props.composerVisible;
 
     if (wasMounted === isMounted) {
       return;
@@ -317,7 +318,7 @@ class HashtagTimeline extends React.PureComponent {
     const pinned = !!columnId;
     const sourceTimelineId = hashtagTimelineId(id);
     const composerId = hashtagComposerId(id, columnId);
-    const portableComposer = isAdministrator && composerVisible ? (
+    const portableComposer = hashtagPortableComposerEligible() && composerVisible ? (
       <PortableComposer
         key={composerId}
         composerId={composerId}
@@ -414,7 +415,7 @@ class HashtagTimeline extends React.PureComponent {
               {split.jumpButton}
               {split.bookmarkButton}
               {split.resumeButton}
-              <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
+              <PortableComposerToggle enabled={hashtagPortableComposerEligible()} visible={composerVisible} onToggle={this.handleToggleComposer} />
               {followButton}
               {split.closeLiveButton}
             </Fragment>

@@ -19,7 +19,14 @@ import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
 import ColumnSettingsContainer from './containers/column_settings_container';
 import GroupDetail from './components/group_detail';
 import { connectGroupStream } from '../../actions/streaming';
-import { defaultColumnWidth, isAdministrator } from 'mastodon/initial_state';
+import { defaultColumnWidth } from 'mastodon/initial_state';
+import {
+  groupPortableComposerMounted,
+  groupPortableComposerToggleEligible,
+  groupAccountBecameAvailable,
+  shouldApplyGroupComposerSurface,
+  shouldFetchGroupPostingContext,
+} from '../compose/portable_composer_eligibility';
 import PortableComposer from '../compose/portable_composer';
 import ColumnDropHint from '../compose/components/column_drop_hint';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
@@ -27,7 +34,7 @@ import { captureVisibleStatusAnchor, columnNodeFromRef, scheduleStatusAnchorRest
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
 import { applyComposerSurface } from '../../actions/composer';
 import { fetchPostingContext } from '../../actions/posting_contexts';
-import { selectPostingContextForAccount } from '../../selectors/posting_contexts';
+import { selectPostingContextDiscovery, selectPostingContextForAccount } from '../../selectors/posting_contexts';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
@@ -63,6 +70,7 @@ const makeMapStateToProps = () => {
       withoutMedia,
       account,
       postingContext: selectPostingContextForAccount(state, id),
+      postingContextDiscovery: selectPostingContextDiscovery(state, id),
       columnWidth: columnWidth ?? defaultColumnWidth,
       splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'group', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
       composerVisible: selectPortableComposerVisible(state, groupComposerId(id, columnId)),
@@ -97,6 +105,7 @@ class GroupTimeline extends React.PureComponent {
     onlyMedia: PropTypes.bool,
     withoutMedia: PropTypes.bool,
     postingContext: PropTypes.object,
+    postingContextDiscovery: PropTypes.object,
     composerVisible: PropTypes.bool,
     splitRatio: PropTypes.number,
     location: PropTypes.shape({
@@ -148,7 +157,12 @@ class GroupTimeline extends React.PureComponent {
     syncImmediateFeedView(dispatch, null, this.immediateFeedView());
     dispatch(fetchAccount(id));
 
-    if (isAdministrator && composerVisible) {
+    if (shouldFetchGroupPostingContext({
+      composerVisible,
+      discoveryRecord: this.props.postingContextDiscovery,
+      account: this.props.account,
+      groupId: id,
+    })) {
       dispatch(fetchPostingContext(id));
     }
 
@@ -157,8 +171,9 @@ class GroupTimeline extends React.PureComponent {
   }
 
   componentDidUpdate (prevProps) {
-    const { dispatch, onlyMedia, withoutMedia, composerVisible, postingContext, columnId, params: { id, tagged } } = this.props;
+    const { dispatch, onlyMedia, withoutMedia, composerVisible, postingContext, postingContextDiscovery, account, columnId, params: { id, tagged } } = this.props;
     const idChanged = prevProps.params.id !== id;
+    const accountBecameAvailable = groupAccountBecameAvailable(prevProps.account, account);
 
     this.restoreComposerScroll(prevProps, idChanged);
     syncImmediateFeedView(dispatch, this.immediateFeedView(prevProps), this.immediateFeedView());
@@ -166,14 +181,36 @@ class GroupTimeline extends React.PureComponent {
     if (idChanged) {
       dispatch(fetchAccount(id));
 
-      if (isAdministrator && composerVisible) {
+      if (shouldFetchGroupPostingContext({
+        composerVisible,
+        discoveryRecord: postingContextDiscovery,
+        account,
+        groupId: id,
+      })) {
         dispatch(fetchPostingContext(id));
       }
-    } else if (isAdministrator && composerVisible && !prevProps.composerVisible && !postingContext) {
+    } else if (accountBecameAvailable && shouldFetchGroupPostingContext({
+      composerVisible,
+      discoveryRecord: postingContextDiscovery,
+      account,
+      groupId: id,
+    })) {
+      dispatch(fetchPostingContext(id));
+    } else if (composerVisible && !prevProps.composerVisible && !postingContext && shouldFetchGroupPostingContext({
+      composerVisible: true,
+      discoveryRecord: postingContextDiscovery,
+      account,
+      groupId: id,
+    })) {
       dispatch(fetchPostingContext(id));
     }
 
-    if (isAdministrator && (idChanged || (prevProps.postingContext && !postingContext))) {
+    if (shouldApplyGroupComposerSurface({
+      discoveryRecord: postingContextDiscovery,
+      account,
+      idChanged,
+      postingContextCleared: Boolean(prevProps.postingContext && !postingContext),
+    })) {
       dispatch(applyComposerSurface(groupComposerId(id, columnId), { kind: 'group', key: String(id) }, postingContext, id));
     }
 
@@ -217,7 +254,12 @@ class GroupTimeline extends React.PureComponent {
     }
   }
 
-  composerIsMounted = (props) => isAdministrator && props.composerVisible && props.postingContext
+  composerIsMounted = (props) => groupPortableComposerMounted({
+    composerVisible: props.composerVisible,
+    postingContext: props.postingContext,
+    discoveryRecord: props.postingContextDiscovery,
+    account: props.account,
+  })
 
   restoreComposerScroll = (prevProps, idChanged) => {
     if (idChanged) {
@@ -300,20 +342,29 @@ class GroupTimeline extends React.PureComponent {
   renderColumn = (split) => {
     this.forwardColumnRef = split.setColumnRef;
 
-    const { intl, hasUnread, columnId, multiColumn, onlyMedia, withoutMedia, params: { id, tagged }, account, columnWidth, postingContext, composerVisible } = this.props;
+    const { intl, hasUnread, columnId, multiColumn, onlyMedia, withoutMedia, params: { id, tagged }, account, columnWidth, postingContext, postingContextDiscovery, composerVisible } = this.props;
     const pinned = !!columnId;
     const { collapsed, animating } = this.state;
     const sourceTimelineId = groupTimelineId(id, { withoutMedia, onlyMedia, tagged });
     const composerId = groupComposerId(id, columnId);
-    const portableComposer = isAdministrator && composerVisible && postingContext ? (
-      <PortableComposer
-        key={composerId}
-        composerId={composerId}
-        surface={{ kind: 'group', key: String(id) }}
-        postingContext={postingContext}
-        postingContextAccountId={id}
-      />
-    ) : null;
+    let portableComposer = null;
+
+    if (groupPortableComposerMounted({
+      composerVisible,
+      postingContext,
+      discoveryRecord: postingContextDiscovery,
+      account,
+    })) {
+      portableComposer = (
+        <PortableComposer
+          key={composerId}
+          composerId={composerId}
+          surface={{ kind: 'group', key: String(id) }}
+          postingContext={postingContext}
+          postingContextAccountId={id}
+        />
+      );
+    }
     const emptyMessage = <FormattedMessage id='empty_column.group' defaultMessage='The group timeline is empty. When members of this group post new toots, they will appear here.' />;
 
     this.splitTimelineId = split.splitTimelineId;
@@ -424,7 +475,11 @@ class GroupTimeline extends React.PureComponent {
               {split.jumpButton}
               {split.bookmarkButton}
               {split.resumeButton}
-              <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
+              <PortableComposerToggle
+                enabled={groupPortableComposerToggleEligible({ discoveryRecord: postingContextDiscovery, account })}
+                visible={composerVisible}
+                onToggle={this.handleToggleComposer}
+              />
               {groupDetailButton}
               {split.closeLiveButton}
             </Fragment>

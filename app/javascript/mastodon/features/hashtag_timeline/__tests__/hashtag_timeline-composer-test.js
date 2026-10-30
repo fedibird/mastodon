@@ -248,16 +248,14 @@ describe('HashtagTimeline portable composer', () => {
     expect(view.store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:hashtag-route:javascript'])).toBe(false);
   });
 
-  it('hides the toggle and composer from a non-administrator even when visibility is saved', () => {
+  it('shows the toggle and composer for a non-administrator when visibility is saved', () => {
     const HashtagTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
-    const props = renderTimeline(HashtagTimeline, {
+    const view = renderTimeline(HashtagTimeline, {
       visibility: { 'portable:hashtag-route:foo': true },
-    }).props;
+    });
 
-    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Hide composer' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Follow hashtag' })).toBeTruthy();
-    expect(props.prepend).toBeNull();
-    expect(props.alwaysPrepend).toBe(false);
+    expect(screen.getByRole('button', { name: 'Hide composer' }).getAttribute('aria-pressed')).toBe('true');
+    expect(pinnedComposer().composerId).toEqual('portable:hashtag-route:foo');
+    expect(view.props.prepend).toBeFalsy();
   });
 });
