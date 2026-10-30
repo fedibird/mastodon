@@ -13,12 +13,6 @@ const discoveryInFlight = discoveryRecord => (
   || (discoveryRecord && discoveryRecord.get && discoveryRecord.get('refreshing') === true)
 );
 
-const discoveryTerminalForRetry = discoveryRecord => {
-  const status = discoveryStatus(discoveryRecord);
-
-  return status === 'unsupported' || status === 'error' || status === 'not_applicable';
-};
-
 export function hashtagPortableComposerEligible () {
   return true;
 }
@@ -64,12 +58,11 @@ export function shouldFetchGroupPostingContext ({ composerVisible, discoveryReco
     return false;
   }
 
-  if (discoveryTerminalForRetry(discoveryRecord)) {
+  // A resolved Fedibird payload is enough; cache TTL and unsupported/not_applicable
+  // freshness stay in fetchPostingContext, not here.
+  if (discoveryStatus(discoveryRecord) === 'resolved'
+    && isResolvedFedibirdGroupDiscovery(discoveryRecord, groupId)) {
     return false;
-  }
-
-  if (discoveryStatus(discoveryRecord) === 'resolved') {
-    return !isResolvedFedibirdGroupDiscovery(discoveryRecord, groupId);
   }
 
   return true;

@@ -56,6 +56,27 @@ describe('shouldFetchGroupPostingContext for general users', () => {
     })).toBe(false);
   });
 
+  it('allows remount-driven fetch after errors and defers unsupported TTL to the action', () => {
+    expect(shouldFetchGroupPostingContext({
+      composerVisible: false,
+      discoveryRecord: discoveryRecord('error'),
+      account: localGroup,
+      groupId: '123',
+    })).toBe(true);
+
+    expect(shouldFetchGroupPostingContext({
+      composerVisible: false,
+      discoveryRecord: fromJS({
+        status: 'unsupported',
+        context: null,
+        discovery: { mechanism: null, adapter: null, authority: null },
+        receivedAt: Date.now(),
+      }),
+      account: localGroup,
+      groupId: '123',
+    })).toBe(true);
+  });
+
   it('detects when the account record becomes available', () => {
     expect(groupAccountBecameAvailable(null, localGroup)).toBe(true);
     expect(groupAccountBecameAvailable(localGroup, localGroup)).toBe(false);

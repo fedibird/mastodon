@@ -669,6 +669,127 @@ describe('GroupTimeline portable composer', () => {
     expect(screen.queryByTestId('portable-composer')).toBeNull();
   });
 
+  it('retries discovery after an error when the timeline remounts and restores the toggle', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const errorDiscovery = discoveryRecord('error');
+    const initialState = ImmutableMap({
+      accounts: ImmutableMap({ '123': localGroup }),
+      posting_contexts: ImmutableMap({ '123': errorDiscovery }),
+      timelines: ImmutableMap(),
+      settings: withVisibility(settingsReducer(undefined, { type: '@@INIT' }), {
+        'portable:group-route:123': false,
+      }).setIn(['group', 'other'], ImmutableMap({ onlyMedia: false, withoutMedia: false })),
+    });
+    const store = createStore((state = initialState, action) => {
+      if (action && action.type === 'TEST_REPLACE') {
+        return action.state;
+      }
+
+      if (action && (action.type === 'SETTING_CHANGE' || action.type === 'SETTING_SAVE')) {
+        return state.set('settings', settingsReducer(state.get('settings'), action));
+      }
+
+      return state;
+    }, initialState, applyMiddleware(thunk));
+
+    const timeline = (
+      <Provider store={store}>
+        <GroupTimeline params={{ id: '123' }} multiColumn={false} />
+      </Provider>
+    );
+
+    const first = render(timeline);
+
+    expect(mockFetchPostingContext).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+
+    first.unmount();
+    mockFetchPostingContext.mockClear();
+
+    render(timeline);
+
+    expect(mockFetchPostingContext).toHaveBeenCalledTimes(1);
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
+
+    store.dispatch({
+      type: 'TEST_REPLACE',
+      state: store.getState().setIn(['posting_contexts', '123'], discoveryRecord('resolved', groupPostingContext)),
+    });
+
+    expect(screen.getByRole('button', { name: 'Show composer' }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('retries discovery after an error on remount for a saved visible composer', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const errorDiscovery = discoveryRecord('error');
+    const initialState = ImmutableMap({
+      accounts: ImmutableMap({ '123': localGroup }),
+      posting_contexts: ImmutableMap({ '123': errorDiscovery }),
+      timelines: ImmutableMap(),
+      settings: withVisibility(settingsReducer(undefined, { type: '@@INIT' }), {
+        'portable:group-route:123': true,
+      }).setIn(['group', 'other'], ImmutableMap({ onlyMedia: false, withoutMedia: false })),
+    });
+    const store = createStore((state = initialState, action) => {
+      if (action && action.type === 'TEST_REPLACE') {
+        return action.state;
+      }
+
+      return state;
+    }, initialState, applyMiddleware(thunk));
+
+    const timeline = (
+      <Provider store={store}>
+        <GroupTimeline params={{ id: '123' }} multiColumn={false} />
+      </Provider>
+    );
+
+    const first = render(timeline);
+
+    expect(mockFetchPostingContext).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('portable-composer')).toBeNull();
+
+    first.unmount();
+    mockFetchPostingContext.mockClear();
+    render(timeline);
+
+    expect(mockFetchPostingContext).toHaveBeenCalledTimes(1);
+
+    store.dispatch({
+      type: 'TEST_REPLACE',
+      state: store.getState().setIn(['posting_contexts', '123'], discoveryRecord('resolved', groupPostingContext)),
+    });
+
+    expect(screen.getByTestId('portable-composer')).toBeTruthy();
+    expect(pinnedComposer('portable:group-route:123').composerId).toEqual('portable:group-route:123');
+  });
+
+  it('does not loop discovery fetches when an in-flight request fails without remounting', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const view = renderTimeline(GroupTimeline, {
+      discovery: null,
+      visibility: { 'portable:group-route:123': false },
+    });
+
+    expect(mockFetchPostingContext).toHaveBeenCalledTimes(1);
+    mockFetchPostingContext.mockClear();
+
+    view.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: view.store.getState().setIn(['posting_contexts', '123'], discoveryRecord('loading')),
+    });
+
+    expect(mockFetchPostingContext).not.toHaveBeenCalled();
+
+    view.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: view.store.getState().setIn(['posting_contexts', '123'], discoveryRecord('error')),
+    });
+
+    expect(mockFetchPostingContext).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+  });
+
   it('does not expose a non-administrator composer for unsupported or remote-looking groups', () => {
     const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
     const mitra = renderTimeline(GroupTimeline, {
