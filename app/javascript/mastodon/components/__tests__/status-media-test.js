@@ -326,6 +326,36 @@ describe('externalMediaBlocks', () => {
     expect(blocks[3].attachment.get('id')).toBe('vid');
     expect(blocks[5].attachment.get('id')).toBe('talk');
   });
+
+  it('keeps two logical frames that share a remote url, an embed, or one saved file', () => {
+    const blocks = externalMediaBlocks(fromJS({
+      media_attachments: [
+        { id: 'saved', type: 'video' },
+      ],
+      fedibird_external: {
+        sequence: [
+          { id: 'frame-a', type: 'video', delivery: 'local', attachment_id: 'saved' },
+          { id: 'frame-b', type: 'video', delivery: 'local', attachment_id: 'saved' },
+          { id: 'remote-a', type: 'audio', delivery: 'remote', url: 'https://cdn.example/talk.mp3' },
+          { id: 'remote-b', type: 'audio', delivery: 'remote', url: 'https://cdn.example/talk.mp3' },
+          { id: 'embed-a', type: 'embed', delivery: 'remote', url: 'https://player.example/embed/abc123' },
+          { id: 'embed-b', type: 'embed', delivery: 'remote', url: 'https://player.example/embed/abc123' },
+        ],
+      },
+    }));
+
+    expect(blocks.map(block => block.kind)).toEqual(['video', 'video', 'remote', 'remote', 'embed', 'embed']);
+    expect(blocks.map(block => block.frameId || block.entry.get('id'))).toEqual([
+      'frame-a',
+      'frame-b',
+      'remote-a',
+      'remote-b',
+      'embed-a',
+      'embed-b',
+    ]);
+    expect(blocks[0].attachment.get('id')).toBe('saved');
+    expect(blocks[1].attachment.get('id')).toBe('saved');
+  });
 });
 
 describe('StatusMediaStack', () => {

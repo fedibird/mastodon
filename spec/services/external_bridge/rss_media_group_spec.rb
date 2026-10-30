@@ -511,6 +511,151 @@ RSpec.describe 'External RSS media groups' do
       expect(grouped.media.to_json).not_to include('evil.example', 'clip.mp4')
       expect(grouped.media.first['description']).to eq 'https://cdn.example/not-a-file.mp4'
     end
+
+    it 'keeps the parent content default and expression when the file URL is a player' do
+      chosen = item(<<~XML, link: link)
+        <media:group>
+          <media:content url="https://cdn.example/file.mp4" type="video/mp4"/>
+          <media:content isDefault="true">
+            <media:player url="https://player.example.com/embed/abc123"/>
+          </media:content>
+        </media:group>
+      XML
+      sample = item(<<~XML, link: link)
+        <media:group>
+          <media:content expression="sample">
+            <media:player url="https://player.example.com/embed/abc123"/>
+          </media:content>
+          <media:content url="https://cdn.example/full.mp4" type="video/mp4"/>
+        </media:group>
+      XML
+      embedded = item(<<~XML, link: link)
+        <media:group>
+          <media:content url="https://cdn.example/file.mp4" type="video/mp4" expression="full"/>
+          <media:content isDefault="true" expression="sample">
+            <media:embed url="https://player.example.com/embed/abc123">
+              <media:param name="flashvars">file=https://cdn.example/secret.mp4</media:param>
+            </media:embed>
+          </media:content>
+        </media:group>
+      XML
+
+      expect(chosen.media.map { |row| [row['kind'], row['origin']] }).to eq [['embed', 'media_player']]
+      expect(chosen.media.first['group']['variants'].map { |row| row['is_default'] }).to eq [nil, true]
+      expect(sample.media.map { |row| row['url'] }).to eq ['https://cdn.example/full.mp4']
+      expect(sample.media.first['group']['variants'].map { |row| row['expression'] }).to eq ['sample', nil]
+      expect(embedded.media.map { |row| [row['kind'], row['origin']] }).to eq [['embed', 'media_embed']]
+      expect(embedded.media.to_json).not_to include('secret.mp4', 'flashvars')
+    end
+  end
+
+  describe 'http files and separate frames' do
+    let(:link) { 'https://watch.example.com/watch?id=abc123' }
+
+    it 'keeps http and https variants through normalize and a database reload' do
+      story = item(<<~XML)
+        <media:group>
+          <media:content url="http://cdn.example/clip.mp4" type="video/mp4"/>
+          <media:content url="https://cdn.example/clip-hd.mp4" type="video/mp4" isDefault="true"/>
+        </media:group>
+      XML
+      only_http = item(<<~XML)
+        <media:group>
+          <media:content url="http://cdn.example/only.mp4" type="video/mp4"/>
+        </media:group>
+      XML
+      rejected = item(<<~XML, link: link)
+        <media:group>
+          <media:content url="http://user:pass@cdn.example/secret.mp4" type="video/mp4"/>
+          <media:content url="http://127.0.0.1/local.mp4" type="video/mp4"/>
+          <media:player url="http://player.example.com/embed/abc123"/>
+        </media:group>
+      XML
+
+      stored = ExternalBridge::RSS::MediaDigest.normalize(story.media)
+      expect(stored.first['url']).to eq 'https://cdn.example/clip-hd.mp4'
+      expect(stored.first['group']['variants'].map { |row| row['url'] }).to eq [
+        'http://cdn.example/clip.mp4',
+        'https://cdn.example/clip-hd.mp4',
+      ]
+      expect(stored.first['group']['key']).to eq story.media.first['group']['key']
+      expect(ExternalBridge::RSS::MediaDigest.normalize(only_http.media).first['group']['variants'].map { |row| row['url'] }).to eq [
+        'http://cdn.example/only.mp4',
+      ]
+      expect(rejected.media).to eq []
+
+      user = Fabricate(:user)
+      enable_external_bridge_rss!(user)
+      world = external_project_for(user)
+      world[:resource].update!(media_candidates: stored, media_revision: ExternalBridge::RSS::MediaDigest.hexdigest(stored))
+      reloaded = world[:resource].reload.media_candidates.first
+      expect(reloaded['group']['key']).to eq stored.first['group']['key']
+      expect(reloaded['group']['variants'].map { |row| row['url'] }).to eq stored.first['group']['variants'].map { |row| row['url'] }
+    end
+
+    it 'gives two groups that share a file two playback ids and one attachment' do
+      user = Fabricate(:user)
+      enable_external_bridge_rss!(user)
+      world = external_project_for(user)
+      same = item(<<~XML)
+        <media:group>
+          <media:content url="https://cdn.example/same.mp4" type="video/mp4"/>
+        </media:group>
+        <media:group>
+          <media:content url="https://cdn.example/same.mp4" type="video/mp4"/>
+          <media:content url="https://cdn.example/extra.mp4" type="video/mp4"/>
+        </media:group>
+        <media:group>
+          <media:content url="https://cdn.example/same.mp4" type="video/mp4"/>
+        </media:group>
+      XML
+      different = item(<<~XML, link: link)
+        <media:group>
+          <media:content url="https://cdn.example/same.mp4" type="video/mp4"/>
+        </media:group>
+        <media:group>
+          <media:content>
+            <media:player url="https://player.example.com/embed/abc123"/>
+          </media:content>
+        </media:group>
+      XML
+      media = ExternalBridge::RSS::MediaDigest.normalize(same.media)
+      world[:resource].update!(
+        canonical_url: 'https://example.com/story',
+        media_candidates: media,
+        media_revision: ExternalBridge::RSS::MediaDigest.hexdigest(media)
+      )
+      digest = ExternalBridge::RSS::MediaDigest.url_digest('https://cdn.example/same.mp4')
+      asset = ExternalMediaAsset.create!(url_digest: digest, kind: 'video', state: 'failed')
+      attachment = MediaAttachment.create!(
+        account: world[:status].account,
+        status: world[:status],
+        file: attachment_fixture('attachment.webm'),
+        remote_url: ''
+      )
+      ExternalProjectionAttachment.create!(
+        external_status_projection: world[:marker],
+        external_media_asset: asset,
+        media_attachment: attachment,
+        position: 0,
+        kind: 'video'
+      )
+      sequence = ExternalBridge::RSS::Media::Sequence.for(world[:marker].reload)
+      expect(sequence.size).to eq 3
+      expect(sequence.map { |row| row[:id] }.uniq.size).to eq 3
+      expect(sequence.map { |row| row[:attachment_id] }.uniq).to eq [attachment.id.to_s]
+      expect(sequence.map { |row| row[:delivery] }).to eq %w(local local local)
+      pairs = media.map { |candidate| [candidate, asset] }
+      expect(ExternalBridge::RSS::Media::SharedFile.collapse(pairs).size).to eq 1
+
+      embeds = ExternalBridge::RSS::MediaDigest.normalize(different.media)
+      world[:resource].update!(canonical_url: link, media_candidates: embeds, media_revision: ExternalBridge::RSS::MediaDigest.hexdigest(embeds))
+      remote = ExternalBridge::RSS::Media::Sequence.for(world[:marker].reload)
+      expect(remote.map { |row| row[:type] }).to eq %w(video embed)
+      expect(remote.map { |row| row[:id] }.uniq.size).to eq 2
+      flat = { 'url' => 'https://cdn.example/same.mp4', 'kind' => 'video', 'role' => 'attachment', 'position' => 0 }
+      expect(ExternalBridge::RSS::MediaDigest.playback_id(flat['url'], nil, nil)).to eq "rss-media:#{digest[0, 16]}"
+    end
   end
 
   describe 'saved representative', type: :request do
@@ -565,7 +710,12 @@ RSpec.describe 'External RSS media groups' do
       expect(resource.media_candidates.map { |row| [row['kind'], row['url']] }).to eq [['video', high]]
       expect(bundle[:marker].reload.external_resource.media_candidates.map { |row| row['url'] }).to eq [high]
       expect(sequence.map { |row| row[:url] }).to eq [high]
-      expect(sequence.map { |row| row[:id] }).to eq ["rss-media:#{high_digest[0, 16]}"]
+      expect(sequence.map { |row| row[:id] }).to eq [
+        ExternalBridge::RSS::MediaDigest.playback_id(high, resource.media_candidates.first.dig('group', 'key'), 0),
+      ]
+      flat_id = ExternalBridge::RSS::MediaDigest.playback_id(high, nil, nil)
+      expect(flat_id).to eq "rss-media:#{high_digest[0, 16]}"
+      expect(sequence.first[:id]).not_to eq flat_id
       expect(remote.map { |row| row[:url] }).to eq [high]
       expect(sequence.to_json).not_to include(low)
       expect(ExternalBridge::RSS::Media::CandidateLookup.for_fetch(resource.media_candidates, low_digest)).to be_nil

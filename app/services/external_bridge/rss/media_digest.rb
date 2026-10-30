@@ -126,6 +126,39 @@ module ExternalBridge
       rescue Addressable::URI::InvalidURIError
         true
       end
+
+      # One pass in candidate order. A group key gets 0, 1, 2… among copies
+      # of that same key. A flat candidate has no ordinal, so its playback id
+      # stays the file digest.
+      def each_frame(candidates)
+        counts = Hash.new(0)
+        Array(candidates).each do |candidate|
+          key = frame_group_key(candidate)
+          ordinal = nil
+          if key
+            ordinal = counts[key]
+            counts[key] += 1
+          end
+          yield candidate, ordinal
+        end
+      end
+
+      # Physical file id is the URL digest. A group adds its key and the
+      # copy number so two logical frames can share one file. `0` is a real
+      # copy number. Flat candidates omit the suffix.
+      def playback_id(url, group_key, ordinal)
+        base = "rss-media:#{url_digest(url.to_s)[0, 16]}"
+        return base if group_key.blank? || ordinal.nil?
+
+        "#{base}:g:#{group_key.to_s[0, 12]}:#{ordinal}"
+      end
+
+      def frame_group_key(candidate)
+        return nil unless candidate.is_a?(Hash)
+
+        key = candidate.dig('group', 'key').to_s
+        key if key.match?(/\A[0-9a-f]{64}\z/)
+      end
     end
   end
 end

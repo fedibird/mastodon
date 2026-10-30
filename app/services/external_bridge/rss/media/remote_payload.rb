@@ -25,12 +25,14 @@ module ExternalBridge
           return [] if @resource.nil?
 
           saved = saved_digests
-          Array(@resource.media_candidates).filter_map do |candidate|
+          rows = []
+          MediaDigest.each_frame(@resource.media_candidates) do |candidate, ordinal|
             next unless %w(video audio).include?(candidate['kind'])
             next if saved.include?(MediaDigest.url_digest(candidate['url']))
 
-            entry(candidate)
+            rows << entry(candidate, ordinal)
           end
+          rows
         end
 
         private
@@ -43,9 +45,9 @@ module ExternalBridge
           end
         end
 
-        def entry(candidate)
+        def entry(candidate, ordinal)
           {
-            id: "rss-media:#{MediaDigest.url_digest(candidate['url'])[0, 16]}",
+            id: MediaDigest.playback_id(candidate['url'], candidate.dig('group', 'key'), ordinal),
             type: candidate['kind'],
             url: candidate['url'],
             description: candidate['description'],

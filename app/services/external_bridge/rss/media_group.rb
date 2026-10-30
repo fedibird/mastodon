@@ -217,8 +217,12 @@ module ExternalBridge
         variant = player?(child) ? player_variant(child) : embed_variant(child)
         return nil if variant.nil?
 
+        # isDefault and expression belong to the media:content. The nested
+        # player does not supply them.
         text = description_for(node)
         variant['description'] = text if text
+        variant['is_default'] = MediaClassifier.flag(node['isDefault'])
+        variant['expression'] = MediaClassifier.expression(node['expression'])
         variant
       end
 
@@ -385,10 +389,11 @@ module ExternalBridge
           row['length_hint'] = length if length.is_a?(Integer) && !length.negative? && length <= 1_099_511_627_776
         end
 
+        # Files use the same http/https rule as MediaURL. Embeds stay on
+        # https because that is the player rule.
         def acceptable_url?(kind, url)
           return false if url.blank? || url.bytesize > Limits::MAX_KEY_BYTES || url.match?(/[\s\\<>"]/)
-          return false unless url.match?(%r{\Ahttps://}i)
-          return true if kind == 'embed'
+          return url.match?(%r{\Ahttps://}i) if kind == 'embed'
 
           MediaURL.normalize(url) == url
         end

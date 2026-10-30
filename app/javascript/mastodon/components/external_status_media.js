@@ -357,7 +357,7 @@ export default class ExternalStatusMedia extends React.PureComponent {
             return <React.Fragment key={read(block.entry, 'id') || `remote-${index}`}>{this.renderRemote(block, index)}</React.Fragment>;
           }
           return (
-            <div className='external-status-media__saved' key={block.attachment.get('id')}>
+            <div className='external-status-media__saved' key={block.frameId || block.attachment.get('id')}>
               {this.renderLocal(block)}
             </div>
           );
