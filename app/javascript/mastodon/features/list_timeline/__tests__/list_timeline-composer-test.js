@@ -276,7 +276,7 @@ describe('ListTimeline portable composer', () => {
 
     const onToggle = jest.fn();
 
-    render(<PortableComposerToggle visible={false} onToggle={onToggle} />);
+    render(<PortableComposerToggle enabled visible={false} onToggle={onToggle} />);
 
     const button = screen.getByRole('button', { name: 'Show composer' });
     const event = new window.MouseEvent('click', { bubbles: true, cancelable: true });

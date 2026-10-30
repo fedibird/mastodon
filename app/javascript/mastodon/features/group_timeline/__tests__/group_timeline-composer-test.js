@@ -570,17 +570,84 @@ describe('GroupTimeline portable composer', () => {
     expect(pinnedComposer().postingContextAccountId).toEqual('123');
   });
 
-  it('does not fetch or mount a composer for a non-administrator', () => {
+  it('mounts the composer for a non-administrator when visibility is saved and discovery is resolved', () => {
     const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
-    const props = renderTimeline(GroupTimeline, {
+    const view = renderTimeline(GroupTimeline, {
       visibility: { 'portable:group-route:123': true },
-    }).props;
+    });
 
     expect(mockFetchPostingContext).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Hide composer' }).getAttribute('aria-pressed')).toBe('true');
+    expect(pinnedComposer().composerId).toEqual('portable:group-route:123');
+    expect(view.props.prepend).toBeFalsy();
+  });
+
+  it('requests discovery for a non-administrator before the Fedibird group is known', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+
+    renderTimeline(GroupTimeline, {
+      discovery: null,
+      visibility: { 'portable:group-route:123': true },
+    });
+
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
+  });
+
+  it('fetches discovery for a hidden Fedibird composer so the toggle can appear after resolution', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    renderTimeline(GroupTimeline, {
+      discovery: null,
+      visibility: { 'portable:group-route:123': false },
+    });
+
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
     expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Hide composer' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Show group detail' })).toBeTruthy();
-    expect(props.prepend).toBeNull();
-    expect(props.alwaysPrepend).toBe(false);
+  });
+
+  it('shows the Fedibird composer toggle after discovery resolves while the composer stays hidden', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const view = renderTimeline(GroupTimeline, {
+      discovery: discoveryRecord('loading'),
+      visibility: { 'portable:group-route:123': false },
+    });
+
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+
+    view.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: view.store.getState().setIn(['posting_contexts', '123'], discoveryRecord('resolved', groupPostingContext)),
+    });
+
+    expect(screen.getByRole('button', { name: 'Show composer' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.queryByTestId('portable-composer')).toBeNull();
+  });
+
+  it('does not expose a non-administrator composer for unsupported or remote-looking groups', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: false, isStaff: true });
+    const mitra = renderTimeline(GroupTimeline, {
+      account: ImmutableMap({
+        id: '456',
+        username: 'group',
+        acct: 'group@mitra.example',
+        group: true,
+        display_name: 'Remote group',
+      }),
+      discovery: discoveryRecord('resolved', mitraGroupPostingContext),
+      visibility: { 'portable:group-route:456': true },
+    });
+
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Hide composer' })).toBeNull();
+    expect(mitra.props.prepend).toBeNull();
+
+    cleanup();
+    const unsupported = renderTimeline(GroupTimeline, {
+      discovery: discoveryRecord('unsupported', null, 'no_supported_adapter'),
+      visibility: { 'portable:group-route:123': true },
+    });
+
+    expect(screen.queryByRole('button', { name: 'Show composer' })).toBeNull();
+    expect(unsupported.props.prepend).toBeNull();
   });
 });
