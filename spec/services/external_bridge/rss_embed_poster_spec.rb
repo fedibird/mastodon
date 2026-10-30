@@ -246,6 +246,54 @@ RSpec.describe 'External RSS embed poster' do
     expect_shared_image!(user, logical, description: 'Still frame')
   end
 
+  it 'does not put an over-cap shared image into the gallery sequence' do
+    previous = Setting.attachments_max
+    Setting.attachments_max = 4
+    feed = 'https://feeds.example/cap.xml'
+    letters = %w(a b c d e)
+    letters.each do |letter|
+      stub_request(:get, "https://cdn.example/cap-#{letter}.png").to_return(status: 200, body: png, headers: { 'Content-Type' => 'image/png' })
+    end
+    stub_request(:get, feed).to_return(status: 200, body: rss_document(capped_xml(letters)))
+
+    ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed)
+    poster_link = projection_link_for('e')
+    stable = %w(b c d).map { |letter| attachment_id_for(letter) }
+    expect(ordered_descriptions).to eq %w(a b c d)
+    expect(poster_link.kind).to eq 'poster'
+    expect_sequence_ids!
+
+    refresh_role!(feed, capped_xml(%w(e b c d a)))
+
+    expect(ordered_descriptions).to match_array(%w(e b c d))
+    expect(poster_link.reload.kind).to eq 'image'
+    expect(poster_link.media_attachment.description).to eq 'e'
+    expect(%w(b c d).map { |letter| attachment_id_for(letter) }).to eq stable
+    expect(a_request(:get, 'https://cdn.example/cap-e.png')).to have_been_made.once
+    expect_sequence_ids!
+    shown = ordered_ids
+
+    notices = 0
+    allow(ExternalBridge::Streaming::Scheduler).to receive(:bump_and_schedule_content!) { notices += 1 }
+    refresh_role!(feed, capped_xml(%w(e b c d a)))
+    expect(notices).to eq 0
+    expect(ordered_ids).to eq shown
+    expect(poster_link.reload.kind).to eq 'image'
+
+    refresh_role!(feed, capped_xml(letters))
+
+    expect(ordered_descriptions).to match_array(%w(a b c d))
+    expect(poster_link.reload.kind).to eq 'poster'
+    expect(ordered_ids).not_to include(poster_link.media_attachment_id)
+    expect_sequence_ids!
+    body = owner_json(user)
+    player = body[:fedibird_external][:sequence].find { |row| row[:type] == 'embed' }
+    expect(player[:poster]).to be_present
+    expect(player[:poster]).not_to include('cap-e.png')
+  ensure
+    Setting.attachments_max = previous
+  end
+
   it 'keeps one attachment when the same image changes between gallery and poster' do
     image = 'https://cdn.example/still.png'
     feed = 'https://feeds.example/role.xml'
@@ -311,6 +359,47 @@ RSpec.describe 'External RSS embed poster' do
         #{media}
       </item>
     XML
+  end
+
+  def capped_xml(letters)
+    images = letters.map { |letter| %(<img src="https://cdn.example/cap-#{letter}.png" alt="#{letter}">) }.join
+    <<~XML
+      <item>
+        <title>Example</title>
+        <link>https://watch.example.com/watch?id=abc123</link>
+        <description><![CDATA[#{images}]]></description>
+        <thumb>https://cdn.example/cap-e.png</thumb>
+        <embed><![CDATA[<iframe src="#{player_url}"></iframe>]]></embed>
+      </item>
+    XML
+  end
+
+  def projection_link_for(letter)
+    digest = ExternalBridge::RSS::MediaDigest.url_digest("https://cdn.example/cap-#{letter}.png")
+    asset = ExternalMediaAsset.find_by!(url_digest: digest)
+    ExternalProjectionAttachment.find_by!(external_media_asset_id: asset.id)
+  end
+
+  def attachment_id_for(letter)
+    projection_link_for(letter).media_attachment_id
+  end
+
+  def ordered_descriptions
+    status = Status.find(ExternalStatusProjection.find_by!(user_id: user.id).status_id)
+    status.ordered_media_attachments.map(&:description)
+  end
+
+  def ordered_ids
+    status = Status.find(ExternalStatusProjection.find_by!(user_id: user.id).status_id)
+    status.ordered_media_attachments.map(&:id)
+  end
+
+  def expect_sequence_ids!
+    body = owner_json(user)
+    local_ids = body[:fedibird_external][:sequence].filter_map { |row| row[:attachment_id] }
+    attachment_ids = body[:media_attachments].map { |row| row[:id].to_s }
+    expect(local_ids).to match_array(attachment_ids)
+    expect(local_ids).not_to be_empty
   end
 
   def shared_image_xml(image, thumb: image)

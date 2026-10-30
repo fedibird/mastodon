@@ -233,9 +233,9 @@ RSpec.describe 'External RSS mixed media regression', type: :request do
       link_poster!(bundle)
 
       body = owner_json(user, bundle[:status].reload)
-      # The explicit HTML image uses the poster URL and stays an attachment.
-      # The role=poster row is not a second gallery tile.
-      expect(body[:fedibird_external][:sequence].map { |row| row[:type] }).to eq %w(image video image video image audio image)
+      # This link is poster-only, so the article image past the saved gallery
+      # does not borrow its attachment id.
+      expect(body[:fedibird_external][:sequence].map { |row| row[:type] }).to eq %w(image video image video image audio)
       expect(body[:media_attachments].map { |row| row[:description] }).to eq %w(One Two Three)
       expect(body.to_json).not_to include(poster_url)
       expect(bundle[:status].reload.ordered_media_attachments.map(&:description)).to eq %w(One Two Three)

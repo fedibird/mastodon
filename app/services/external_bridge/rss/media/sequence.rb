@@ -32,12 +32,21 @@ module ExternalBridge
           return nil if candidate['role'] == 'poster'
           return embed_entry(candidate) if candidate['kind'] == 'embed'
 
-          link = link_for(candidate)
+          link = gallery_link_for(candidate)
           if link&.media_attachment_id
             local_entry(candidate, link)
           elsif %w(video audio).include?(candidate['kind'])
             remote_entry(candidate)
           end
+        end
+
+        # A poster-only link is the embed image. It is not a gallery file, so
+        # an article image past the attachment cap must not borrow that id.
+        def gallery_link_for(candidate)
+          link = link_for(candidate)
+          return nil if link.nil? || link.kind == 'poster'
+
+          link
         end
 
         def embed_entry(candidate)
