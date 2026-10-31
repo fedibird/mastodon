@@ -6,27 +6,40 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import Column from 'mastodon/components/column';
 import ColumnHeader from 'mastodon/components/column_header';
 import { addColumn, removeColumn, moveColumn, changeColumnParams } from 'mastodon/actions/columns';
-import { fetchGroupDirectory, expandGroupDirectory } from 'mastodon/actions/group_directory';
-import { List as ImmutableList } from 'immutable';
+import { fetchGroupDirectory, expandGroupDirectory, discardGroupDirectory } from 'mastodon/actions/group_directory';
+import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import AccountCard from './components/account_card';
-import RadioButton from 'mastodon/components/radio_button';
+import GroupDirectoryFilterForm from './components/filter_form';
 import classNames from 'classnames';
 import LoadMore from 'mastodon/components/load_more';
 import { ScrollContainer } from 'react-router-scroll-4';
-import { defaultColumnWidth } from 'mastodon/initial_state';
+import { defaultColumnWidth, me } from 'mastodon/initial_state';
 import { changeSetting } from '../../actions/settings';
+import { groupDirectoryFilterKey, groupDirectoryViewKey } from './params';
 
 const messages = defineMessages({
   title: { id: 'column.group_directory', defaultMessage: 'Browse groups' },
-  recentlyActive: { id: 'group_directory.recently_active', defaultMessage: 'Recently active' },
-  newArrivals: { id: 'group_directory.new_arrivals', defaultMessage: 'New arrivals' },
+  empty: { id: 'group_directory.empty', defaultMessage: 'No groups match these filters' },
+  error: { id: 'group_directory.error', defaultMessage: 'The group directory could not be loaded' },
+  retry: { id: 'group_directory.retry', defaultMessage: 'Try again' },
+  end: { id: 'group_directory.end', defaultMessage: 'End of the directory' },
 });
 
-const mapStateToProps = state => ({
-  accountIds: state.getIn(['user_lists', 'group_directory', 'items'], ImmutableList()),
-  isLoading: state.getIn(['user_lists', 'group_directory', 'isLoading'], true),
-  columnWidth: state.getIn(['settings', 'group_directory', 'columnWidth'], defaultColumnWidth),
-});
+const mapStateToProps = (state, ownProps) => {
+  const viewKey = groupDirectoryViewKey(ownProps.columnId);
+  const list = state.getIn(['user_lists', 'group_directories', viewKey]);
+
+  return {
+    viewKey,
+    accountIds: list ? list.get('items', ImmutableList()) : ImmutableList(),
+    directories: list ? list.get('directories', ImmutableMap()) : ImmutableMap(),
+    isLoading: list ? list.get('isLoading') : true,
+    isExpanding: list ? list.get('isExpanding') : false,
+    exhausted: list ? list.get('exhausted') : false,
+    hasError: list ? list.get('error') : false,
+    columnWidth: state.getIn(['settings', 'group_directory', 'columnWidth'], defaultColumnWidth),
+  };
+};
 
 export default @connect(mapStateToProps)
 @injectIntl
@@ -38,7 +51,12 @@ class GroupDirectory extends React.PureComponent {
 
   static propTypes = {
     isLoading: PropTypes.bool,
+    isExpanding: PropTypes.bool,
+    exhausted: PropTypes.bool,
+    hasError: PropTypes.bool,
     accountIds: ImmutablePropTypes.list.isRequired,
+    directories: ImmutablePropTypes.map.isRequired,
+    viewKey: PropTypes.string.isRequired,
     dispatch: PropTypes.func.isRequired,
     columnId: PropTypes.string,
     intl: PropTypes.object.isRequired,
@@ -46,12 +64,17 @@ class GroupDirectory extends React.PureComponent {
     columnWidth: PropTypes.string,
     params: PropTypes.shape({
       order: PropTypes.string,
+      scope: PropTypes.string,
+      software: PropTypes.string,
+      q: PropTypes.string,
     }),
   };
 
   state = {
     order: null,
-    local: null,
+    scope: null,
+    software: null,
+    q: null,
   };
 
   handlePin = () => {
@@ -65,7 +88,10 @@ class GroupDirectory extends React.PureComponent {
   }
 
   getParams = (props, state) => ({
-    order: state.order === null ? (props.params.order || 'active') : state.order,
+    order: state.order === null ? ((props.params && props.params.order) || 'active') : state.order,
+    scope: state.scope === null ? ((props.params && props.params.scope) || 'all') : state.scope,
+    software: state.software === null ? ((props.params && props.params.software) || '') : state.software,
+    q: state.q === null ? ((props.params && props.params.q) || '') : state.q,
   });
 
   handleMove = dir => {
@@ -78,37 +104,44 @@ class GroupDirectory extends React.PureComponent {
   }
 
   componentDidMount () {
-    const { dispatch } = this.props;
-    dispatch(fetchGroupDirectory(this.getParams(this.props, this.state)));
+    const { dispatch, viewKey } = this.props;
+    dispatch(fetchGroupDirectory(viewKey, this.getParams(this.props, this.state)));
   }
 
   componentDidUpdate (prevProps, prevState) {
-    const { dispatch } = this.props;
+    const { dispatch, viewKey } = this.props;
     const paramsOld = this.getParams(prevProps, prevState);
     const paramsNew = this.getParams(this.props, this.state);
 
-    if (paramsOld.order !== paramsNew.order || paramsOld.local !== paramsNew.local) {
-      dispatch(fetchGroupDirectory(paramsNew));
+    if (groupDirectoryFilterKey(paramsOld) !== groupDirectoryFilterKey(paramsNew)) {
+      dispatch(fetchGroupDirectory(viewKey, paramsNew));
     }
+  }
+
+  componentWillUnmount () {
+    this.props.dispatch(discardGroupDirectory(this.props.viewKey));
   }
 
   setRef = c => {
     this.column = c;
   }
 
-  handleChangeOrder = e => {
+  handleParamsChange = (patch) => {
     const { dispatch, columnId } = this.props;
 
     if (columnId) {
-      dispatch(changeColumnParams(columnId, ['order'], e.target.value));
-    } else {
-      this.setState({ order: e.target.value });
+      Object.keys(patch).forEach(key => {
+        dispatch(changeColumnParams(columnId, [key], patch[key]));
+      });
+      return;
     }
+
+    this.setState(patch);
   }
 
   handleLoadMore = () => {
-    const { dispatch } = this.props;
-    dispatch(expandGroupDirectory(this.getParams(this.props, this.state)));
+    const { dispatch, viewKey } = this.props;
+    dispatch(expandGroupDirectory(viewKey, this.getParams(this.props, this.state)));
   }
 
   handleWidthChange = (value) => {
@@ -116,24 +149,46 @@ class GroupDirectory extends React.PureComponent {
   }
 
   render () {
-    const { isLoading, accountIds, intl, columnId, multiColumn, columnWidth } = this.props;
-    const { order }  = this.getParams(this.props, this.state);
+    const { isLoading, isExpanding, exhausted, hasError, accountIds, directories, intl, columnId, multiColumn, columnWidth, viewKey } = this.props;
+    const params = this.getParams(this.props, this.state);
     const pinned = !!columnId;
+    const showMore = !isLoading && !isExpanding && !exhausted && !hasError && accountIds.size > 0;
 
     const scrollableArea = (
       <div className='scrollable' style={{ background: 'transparent' }}>
-        <div className='filter-form'>
-          <div className='filter-form__column' role='group'>
-            <RadioButton name='order' value='active' label={intl.formatMessage(messages.recentlyActive)} checked={order === 'active'} onChange={this.handleChangeOrder} />
-            <RadioButton name='order' value='new' label={intl.formatMessage(messages.newArrivals)} checked={order === 'new'} onChange={this.handleChangeOrder} />
-          </div>
+        <GroupDirectoryFilterForm
+          viewKey={viewKey}
+          params={params}
+          signedIn={!!me}
+          onChange={this.handleParamsChange}
+        />
+
+        <ul className={classNames('directory__list', 'directory__list--groups', { loading: isLoading })}>
+          {accountIds.map(accountId => (
+            <li key={accountId}>
+              <AccountCard id={accountId} directory={directories.get(accountId)} />
+            </li>
+          ))}
+        </ul>
+
+        <div className='group-directory-status' aria-live='polite'>
+          {hasError && (
+            <div role='alert'>
+              <p>{intl.formatMessage(messages.error)}</p>
+              <button type='button' className='group-directory-status__retry' onClick={this.handleRetry}>
+                {intl.formatMessage(messages.retry)}
+              </button>
+            </div>
+          )}
+          {!isLoading && !hasError && accountIds.isEmpty() && (
+            <p>{intl.formatMessage(messages.empty)}</p>
+          )}
+          {exhausted && !accountIds.isEmpty() && !hasError && (
+            <p>{intl.formatMessage(messages.end)}</p>
+          )}
         </div>
 
-        <div className={classNames('directory__list', { loading: isLoading })}>
-          {accountIds.map(accountId => <AccountCard id={accountId} key={accountId} />)}
-        </div>
-
-        <LoadMore onClick={this.handleLoadMore} visible={!isLoading} />
+        <LoadMore onClick={this.handleLoadMore} visible={showMore} />
       </div>
     );
 
@@ -151,9 +206,14 @@ class GroupDirectory extends React.PureComponent {
           onWidthChange={this.handleWidthChange}
         />
 
-        {multiColumn && !pinned ? <ScrollContainer scrollKey='group_directory'>{scrollableArea}</ScrollContainer> : scrollableArea}
+        {multiColumn && !pinned ? <ScrollContainer scrollKey={`group-directory-${viewKey}`}>{scrollableArea}</ScrollContainer> : scrollableArea}
       </Column>
     );
+  }
+
+  handleRetry = () => {
+    const { dispatch, viewKey } = this.props;
+    dispatch(fetchGroupDirectory(viewKey, this.getParams(this.props, this.state)));
   }
 
 }

@@ -78,7 +78,9 @@ import {
   GROUP_DIRECTORY_EXPAND_REQUEST,
   GROUP_DIRECTORY_EXPAND_SUCCESS,
   GROUP_DIRECTORY_EXPAND_FAIL,
+  GROUP_DIRECTORY_DISCARD,
 } from 'mastodon/actions/group_directory';
+import { COLUMN_REMOVE } from 'mastodon/actions/columns';
 import {
   DIRECTORY_FETCH_REQUEST,
   DIRECTORY_FETCH_SUCCESS,
@@ -127,6 +129,7 @@ const initialState = ImmutableMap({
   featured_tags: ImmutableMap(),
   custom_emojis_detail: initialListState,
   referred_by: ImmutableMap(),
+  group_directories: ImmutableMap(),
 });
 
 const normalizeStatusesList = (state, path, statuses, next) => {
@@ -156,6 +159,34 @@ const appendToList = (state, path, accounts, next) => {
     return map.set('next', next).set('isLoading', false).update('items', list => list.concat(accounts.map(item => item.id)));
   });
 };
+
+const emptyGroupDirectory = ImmutableMap({
+  items: ImmutableList(),
+  directories: ImmutableMap(),
+  isLoading: false,
+  isExpanding: false,
+  exhausted: false,
+  error: false,
+  filterKey: null,
+  requestId: null,
+});
+
+const groupDirectoryPath = (viewKey) => ['group_directories', viewKey];
+
+const matchingGroupDirectory = (state, action) => {
+  const current = state.getIn(groupDirectoryPath(action.viewKey));
+
+  if (!current || current.get('filterKey') !== action.filterKey || current.get('requestId') !== action.requestId) {
+    return null;
+  }
+
+  return current;
+};
+
+const directoryMetadata = (accounts) => ImmutableMap(accounts.map(account => [
+  account.id,
+  fromJS(account.group_directory || {}),
+]));
 
 const normalizeFollowRequest = (state, notification) => {
   return state.updateIn(['follow_requests', 'items'], list => {
@@ -301,16 +332,77 @@ export default function userLists(state = initialState, action) {
   case MUTES_FETCH_FAIL:
   case MUTES_EXPAND_FAIL:
     return state.setIn(['mutes', 'isLoading'], false);
-  case GROUP_DIRECTORY_FETCH_SUCCESS:
-    return normalizeList(state, ['group_directory'], action.accounts, action.next);
-  case GROUP_DIRECTORY_EXPAND_SUCCESS:
-    return appendToList(state, ['group_directory'], action.accounts, action.next);
   case GROUP_DIRECTORY_FETCH_REQUEST:
-  case GROUP_DIRECTORY_EXPAND_REQUEST:
-    return state.setIn(['group_directory', 'isLoading'], true);
+    return state.setIn(groupDirectoryPath(action.viewKey), emptyGroupDirectory.merge({
+      isLoading: true,
+      filterKey: action.filterKey,
+      requestId: action.requestId,
+    }));
+  case GROUP_DIRECTORY_FETCH_SUCCESS: {
+    const current = matchingGroupDirectory(state, action);
+
+    if (!current) {
+      return state;
+    }
+
+    return state.setIn(groupDirectoryPath(action.viewKey), current.merge({
+      isLoading: false,
+      isExpanding: false,
+      error: false,
+      exhausted: action.exhausted,
+      items: ImmutableList(action.accounts.map(item => item.id)),
+      directories: directoryMetadata(action.accounts),
+    }));
+  }
+  case GROUP_DIRECTORY_EXPAND_REQUEST: {
+    const current = state.getIn(groupDirectoryPath(action.viewKey));
+
+    if (!current || current.get('filterKey') !== action.filterKey) {
+      return state;
+    }
+
+    return state.setIn(groupDirectoryPath(action.viewKey), current.merge({
+      isExpanding: true,
+      error: false,
+      requestId: action.requestId,
+    }));
+  }
+  case GROUP_DIRECTORY_EXPAND_SUCCESS: {
+    const current = matchingGroupDirectory(state, action);
+
+    if (!current) {
+      return state;
+    }
+
+    const items = current.get('items');
+    const incoming = action.accounts.filter(account => !items.includes(account.id));
+
+    return state.setIn(groupDirectoryPath(action.viewKey), current.merge({
+      isExpanding: false,
+      error: false,
+      exhausted: action.exhausted,
+      items: items.concat(incoming.map(account => account.id)),
+      directories: current.get('directories').merge(directoryMetadata(incoming)),
+    }));
+  }
   case GROUP_DIRECTORY_FETCH_FAIL:
-  case GROUP_DIRECTORY_EXPAND_FAIL:
-    return state.setIn(['group_directory', 'isLoading'], false);
+  case GROUP_DIRECTORY_EXPAND_FAIL: {
+    const current = matchingGroupDirectory(state, action);
+
+    if (!current) {
+      return state;
+    }
+
+    return state.setIn(groupDirectoryPath(action.viewKey), current.merge({
+      isLoading: false,
+      isExpanding: false,
+      error: true,
+    }));
+  }
+  case GROUP_DIRECTORY_DISCARD:
+    return state.deleteIn(groupDirectoryPath(action.viewKey));
+  case COLUMN_REMOVE:
+    return state.deleteIn(groupDirectoryPath(`column:${action.uuid}`));
   case DIRECTORY_FETCH_SUCCESS:
     return normalizeList(state, ['directory'], action.accounts, action.next);
   case DIRECTORY_EXPAND_SUCCESS:

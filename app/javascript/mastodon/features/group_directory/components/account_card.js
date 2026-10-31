@@ -145,6 +145,7 @@ class AccountCard extends ImmutablePureComponent {
     onAddToList: PropTypes.func.isRequired,
     onBlock: PropTypes.func.isRequired,
     onMute: PropTypes.func.isRequired,
+    directory: ImmutablePropTypes.map,
   };
 
   _updateEmojis() {
@@ -293,7 +294,9 @@ class AccountCard extends ImmutablePureComponent {
     const hide_statuses_count = account.getIn(['other_settings', 'hide_statuses_count'], false);
     const hide_followers_count = account.getIn(['other_settings', 'hide_followers_count'], false);
     const timelinePath = `/timelines/groups/${account.get('id')}`;
-    const software = account.getIn(['group_directory', 'software']);
+    const directory = this.props.directory || account.get('group_directory');
+    const software = directory ? directory.get('software') : null;
+    const posting = directory ? directory.getIn(['capabilities', 'posting']) : null;
     const originalUrl = account.get('url');
     const originalIsHttp = typeof originalUrl === 'string' && /^https?:\/\//.test(originalUrl);
 
@@ -323,6 +326,12 @@ class AccountCard extends ImmutablePureComponent {
 
         <div className='group-directory-card__meta'>
           <span>{software || intl.formatMessage(messages.unknownSoftware)}</span>
+          {posting === true && (
+            <span><FormattedMessage id='group_directory.can_post' defaultMessage='You can post' /></span>
+          )}
+          {posting === false && (
+            <span><FormattedMessage id='group_directory.cannot_post' defaultMessage='Posting is closed' /></span>
+          )}
         </div>
 
         <div className='group-directory-card__links'>
