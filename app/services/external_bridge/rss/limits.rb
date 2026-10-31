@@ -19,6 +19,33 @@ module ExternalBridge
       # are independent: a test profile may raise one without raising the
       # other. This phase does not.
       MAX_RECEIVED_BYTES = 4.megabytes
+      # Bytes of the string given to Parser.parse!, counted before a document
+      # exists. This is not BodyReader's cap. A caller that already holds a
+      # body still cannot parse past it. The number matches MAX_RESPONSE_BYTES
+      # so a direct parse cannot accept a feed the client rejects. The
+      # constants are separate; raising one does not raise the other.
+      MAX_PARSE_BYTES = 4.megabytes
+      # Element nesting. The root element is depth 1. A synthetic 1,017-item
+      # feed is depth 4. 64 leaves room for an XHTML entry body. libxml's own
+      # ceiling still applies because the parser does not set HUGE.
+      MAX_XML_DEPTH = 64
+      # Element start tags in the whole document, including items that will
+      # not be stored. The same synthetic feed is 6,107 elements. 100_000 is
+      # about ninety elements for each of 1,100 episodes, which covers
+      # chapters and media markup, and it stops a million-node document
+      # before a DOM is built.
+      MAX_XML_ELEMENTS = 100_000
+      # xmlTextReaderAttributeCount includes xmlns declarations. Media RSS
+      # attributes and a handful of namespaces sit well under this.
+      MAX_XML_ATTRIBUTES = 64
+      # One text, CDATA, or comment node, in bytes. It matches the document
+      # cap so a description the byte budget already accepted is not rejected
+      # again. Entity expansion that materializes a larger node fails here,
+      # before the DOM exists. MAX_TEXT_BYTES is the later storage cap.
+      MAX_XML_TEXT_BYTES = MAX_PARSE_BYTES
+      # One attribute value, in bytes. Feed URLs fit. A multi-megabyte
+      # attribute does not.
+      MAX_XML_ATTRIBUTE_BYTES = 64.kilobytes
       MAX_TEXT_BYTES = 1.megabyte
       MAX_ITEMS = 40
       # A refresh may replay at most one page of historical import failures.

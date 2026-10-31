@@ -71,6 +71,68 @@ module ExternalBridge
         copies, rest = bytes.divmod(SENTENCE.bytesize)
         (SENTENCE * copies) + ('a' * rest)
       end
+
+      # Small items for structure tests. This is not the 6 MiB fixture.
+      def compact(items:, description: 'Synthetic note.')
+        body = +channel_open
+        items.times { |index| body << compact_item(index, description: description) }
+        body << channel_close
+        body
+      end
+
+      def compact_item(index, description: 'Synthetic note.')
+        number = format('%04d', index + 1)
+        <<~XML
+          <item>
+          <title>Synthetic note #{number}</title>
+          <link>https://articles.example/notes/#{number}</link>
+          <guid isPermaLink="false">synthetic-#{number}</guid>
+          <description>#{description}</description>
+          </item>
+        XML
+      end
+
+      # Forty complete items, then a start tag that never closes.
+      def broken_after(valid_items: 40)
+        body = +channel_open
+        valid_items.times { |index| body << compact_item(index) }
+        body << '<item><title>broken'
+        body
+      end
+
+      def unclosed_cdata(valid_items: 40)
+        body = +channel_open
+        valid_items.times { |index| body << compact_item(index) }
+        body << '<item><description><![CDATA[unterminated'
+        body
+      end
+
+      def missing_close(valid_items: 40)
+        body = +channel_open
+        valid_items.times { |index| body << compact_item(index) }
+        body << '</channel>'
+        body
+      end
+
+      # Root is depth 1. `depth` is the number of nested elements.
+      def deep(depth)
+        inner = 'x'
+        depth.times { |index| inner = "<e#{index}>#{inner}</e#{index}>" }
+        inner
+      end
+
+      def repeated_elements(count)
+        %(<r>#{'<e/>' * count}</r>)
+      end
+
+      def repeated_attributes(count, value: 'v')
+        attrs = Array.new(count) { |index| %(a#{index}="#{value}") }.join(' ')
+        %(<r #{attrs}/>)
+      end
+
+      def text_node(copies, char: 'a')
+        %(<r>#{char * copies}</r>)
+      end
     end
   end
 end

@@ -218,7 +218,7 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       stub_request(:get, feed_url).to_return(status: 200, body: '<rss>')
 
       expect { described_class.new.call(user: user, url: feed_url) }
-        .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'malformed_feed' }
+        .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'invalid_xml' }
       expect(ExternalSource.where(canonical_key: feed_url)).to be_empty
     end
 

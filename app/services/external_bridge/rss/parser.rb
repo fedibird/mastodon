@@ -20,16 +20,22 @@ module ExternalBridge
     class Parser
       ICON_HINT_ORDER = %w(atom_icon rss_image itunes_image atom_logo).freeze
 
-      def self.parse!(body)
-        new(body).parse!
+      def self.parse!(body, budget: DocumentBudget::Budget.default)
+        new(body, budget: budget).parse!
       end
 
-      def initialize(body)
+      def initialize(body, budget: DocumentBudget::Budget.default)
         @body = body.to_s
+        @budget = budget
       end
 
       def parse!
-        document = Nokogiri::XML(@body) { |config| config.nonet.noblanks }
+        # The pull parser enforces the byte and structure budgets and requires
+        # a well-formed document through to the end. Recovery is off, so a
+        # truncated tail is invalid_xml rather than a feed missing its last
+        # tags. The DOM pass only runs after that walk returns.
+        DocumentBudget.check!(@body, budget: @budget)
+        document = Nokogiri::XML(@body) { |config| config.strict.nonet.noblanks.nohuge }
         raise Error, :invalid_xml if document.root.nil?
 
         # Media RSS `content` and Atom `content` share a local name. Mark the
