@@ -95,6 +95,8 @@ module AccountAssociations
              dependent: :delete_all,
              inverse_of: :group_account
 
+    include AccountGroupAdministration
+
     # TagAccountMute
     has_many :tag_account_mute_relationships, class_name: 'TagAccountMute', inverse_of: :tag, dependent: :destroy
     has_many :mute_tags, through: :tag_account_mute_relationships, source: :tag

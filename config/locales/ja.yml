@@ -3114,6 +3114,42 @@ ja:
           attributes:
             role_id:
               elevated: 自分より上位のロールは割り当てできません
+        group_creation_request:
+          attributes:
+            username:
+              immutable: は申請後に変更できません
+            display_name:
+              immutable: は申請後に変更できません
+            note:
+              immutable: は申請後に変更できません
+            requester_account_id:
+              immutable: は申請後に変更できません
+            requested_at:
+              immutable: は申請後に変更できません
+            previous_request_id:
+              immutable: は申請後に変更できません
+            initial_owner_account_id:
+              immutable: は承認後の申請に残ります
+            reviewer_account:
+              invalid: はサーバー管理者が決める必要があります
+            requester_account:
+              invalid: はログインできるローカルの個人アカウントである必要があります
+        group_role_assignment:
+          attributes:
+            revoked_at:
+              owner_required: 承認済みグループの唯一のオーナーは外せません
+            group_account_id:
+              immutable: は変更できません。この行を解除して別の行を追加してください
+            member_account_id:
+              immutable: は変更できません。この行を解除して別の行を追加してください
+              taken: はこのグループで既に有効な役職を持っています
+            role:
+              immutable: は変更できません。この行を解除して別の行を追加してください
+              taken: には既に有効なオーナーがいます
+            granted_at:
+              immutable: は変更できません
+            granted_by_account_id:
+              immutable: は変更できません
         user_role:
           attributes:
             name:
