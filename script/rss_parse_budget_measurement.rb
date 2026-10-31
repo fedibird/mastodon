@@ -247,11 +247,19 @@ generate_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - generate_start
 compressed = Zlib.gzip(document)
 fixture = File.join(Dir.tmpdir, 'rss-synthetic-feed.xml')
 File.binwrite(fixture, document)
+feed = ExternalBridge::RSS::SyntheticFeed
+worst = feed.element_feed_open
+worst << ('<e a="v"/>' * (ExternalBridge::RSS::Limits::MAX_XML_ELEMENTS - feed::ELEMENT_FEED_SHELL))
+worst << '</channel></rss>'
+worst_path = File.join(Dir.tmpdir, 'rss-structural-worst.xml')
+File.binwrite(worst_path, worst)
 
 scenarios = [
   ['parse_4mib', -> { run_parse(fixture, RECEIVED_4) }, 'oversized_feed', nil],
   ['parse_8mib', -> { run_parse(fixture, CANDIDATE_8) }, 'ok', ExternalBridge::RSS::Limits::MAX_ITEMS],
   ['parse_8mib_threads_5', -> { run_parse(fixture, CANDIDATE_8, 5) }, 'ok', ExternalBridge::RSS::Limits::MAX_ITEMS],
+  ['worst_structure', -> { run_parse(worst_path, CANDIDATE_8) }, 'ok', ExternalBridge::RSS::Limits::MAX_ITEMS],
+  ['worst_structure_threads_5', -> { run_parse(worst_path, CANDIDATE_8, 5) }, 'ok', ExternalBridge::RSS::Limits::MAX_ITEMS],
   ['receive_identity_4mib', -> { run_receive(document, {}, RECEIVED_4, INFLATED_4, RECEIVED_4) }, 'oversized_feed', nil],
   ['receive_identity_8mib', -> { run_receive(document, {}, CANDIDATE_8, CANDIDATE_8, CANDIDATE_8) }, 'ok', ExternalBridge::RSS::Limits::MAX_ITEMS],
   ['receive_gzip_4mib_inflated', -> { run_receive(compressed, { 'Content-Encoding' => 'gzip' }, CANDIDATE_8, INFLATED_4, INFLATED_4) }, 'oversized_feed', nil],
@@ -267,7 +275,7 @@ runs = scenarios.flat_map do |name, call, expected, items|
     result['expected'] = expected
     result['pass'] = result['code'] == expected && result['client_status'].zero?
     result['pass'] &&= result['items'] == items if expected == 'ok'
-    result['pass'] &&= result['bytes'] == document.bytesize if expected == 'ok' && result['bytes']
+    result['pass'] &&= result['bytes'] == document.bytesize if expected == 'ok' && result['bytes'] && !name.start_with?('worst_')
     result['pass'] = false if result['auto_inflate']
     warn("FAIL #{name} #{result.except('output')}") unless result['pass']
     result
@@ -299,10 +307,15 @@ summary = {
   product_max_parse_bytes: ExternalBridge::RSS::Limits::MAX_PARSE_BYTES,
   product_max_response_bytes: ExternalBridge::RSS::Limits::MAX_RESPONSE_BYTES,
   product_max_received_bytes: ExternalBridge::RSS::Limits::MAX_RECEIVED_BYTES,
+  product_max_elements: ExternalBridge::RSS::Limits::MAX_XML_ELEMENTS,
+  product_max_attributes_total: ExternalBridge::RSS::Limits::MAX_XML_ATTRIBUTES_TOTAL,
+  structural_worst_bytes: worst.bytesize,
   note: 'parse and receive children do not boot Rails. rails_parse_8mib does. ' \
         'VmRSS is sampled during the timed section. rss_before_kb is after load and GC, before the timed work. ' \
         'A 5-thread run is one process, which is the Sidekiq shape, not five processes. ' \
-        'The 4 MiB and 8 MiB figures passed to children are explicit budgets. product_max_* are Limits.',
+        'The 4 MiB and 8 MiB figures passed to children are explicit byte budgets. product_max_* are Limits. ' \
+        'worst_structure is 100_000 elements and one attribute on each filler, the accepted structural worst case. ' \
+        'It is not the 6,107-element public-feed fixture.',
   runs: runs + rails_runs,
 }
 
@@ -311,4 +324,5 @@ puts text
 out_arg = ARGV.find { |arg| arg.start_with?('--out=') }
 File.write(out_arg.split('=', 2)[1], text) if out_arg
 FileUtils.rm_f(fixture)
+FileUtils.rm_f(worst_path)
 exit((runs + rails_runs).all? { |run| run['pass'] } ? 0 : 1)
