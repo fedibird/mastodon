@@ -326,6 +326,9 @@ class AccountCard extends ImmutablePureComponent {
 
         <div className='group-directory-card__meta'>
           <span>{software || intl.formatMessage(messages.unknownSoftware)}</span>
+          {directory && directory.get('languages') && directory.get('languages').size > 0 && (
+            <span className='group-directory-card__languages'>{directory.get('languages').join(', ')}</span>
+          )}
           {posting === true && (
             <span><FormattedMessage id='group_directory.can_post' defaultMessage='You can post' /></span>
           )}

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_12_090000) do
+ActiveRecord::Schema.define(version: 2026_11_12_093000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1462,6 +1462,16 @@ create_table "group_creation_requests", force: :cascade do |t|
     t.check_constraint "(username)::text ~ '^[a-z0-9_]{1,30}$'::text", name: "group_creation_requests_username_shape"
     t.check_constraint "((icon_storage_key IS NULL) AND (icon_content_type IS NULL) AND (icon_byte_size IS NULL) AND (icon_purged_at IS NULL)) OR ((icon_storage_key IS NOT NULL) AND ((icon_storage_key)::text ~ '^[0-9a-f]{64}$'::text) AND ((icon_content_type)::text = ANY (ARRAY[('image/jpeg'::character varying)::text, ('image/png'::character varying)::text, ('image/gif'::character varying)::text, ('image/webp'::character varying)::text, ('image/bmp'::character varying)::text, ('image/vnd.microsoft.icon'::character varying)::text])) AND (icon_byte_size IS NOT NULL) AND (icon_byte_size > 0) AND (icon_byte_size < 4194304))", name: "group_creation_requests_icon_shape"
     t.check_constraint "(submission_token IS NULL) OR ((submission_token)::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text)", name: "group_creation_requests_submission_token_shape"
+  end
+
+  create_table "group_languages", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.string "tag", limit: 35, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id", "tag"], name: "index_group_languages_on_account_id_and_tag", unique: true
+    t.index ["tag"], name: "index_group_languages_on_tag"
+    t.check_constraint "tag ~ '^[a-z]{2,3}(-[0-9A-Za-z]{2,8}){0,3}$'::text", name: "group_languages_tag_shape"
   end
 
 create_table "group_role_assignments", force: :cascade do |t|

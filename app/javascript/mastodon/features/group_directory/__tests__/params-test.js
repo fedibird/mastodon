@@ -15,6 +15,7 @@ describe('group directory params', () => {
     expect(groupDirectoryFilterKey({ ...base, software: 'lemmy' })).not.toEqual(groupDirectoryFilterKey({ ...base, software: 'unknown' }));
     expect(groupDirectoryFilterKey({ ...base, scope: 'following' })).not.toEqual(groupDirectoryFilterKey({ ...base, scope: 'local' }));
     expect(groupDirectoryFilterKey({ ...base, order: 'new' })).not.toEqual(groupDirectoryFilterKey(base));
+    expect(groupDirectoryFilterKey({ ...base, language: 'ja' })).not.toEqual(groupDirectoryFilterKey({ ...base, language: 'unset' }));
   });
 
   it('omits empty filters and keeps order=new as the existing API value', () => {
@@ -29,5 +30,7 @@ describe('group directory params', () => {
       software: 'lemmy',
       scope: 'local',
     });
+    expect(groupDirectoryApiParams({ language: 'unset' }).language).toEqual('unset');
+    expect(groupDirectoryApiParams({ language: '' }).language).toBeUndefined();
   });
 });

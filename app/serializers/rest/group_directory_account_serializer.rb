@@ -30,9 +30,13 @@ class REST::GroupDirectoryAccountSerializer < REST::AccountSerializer
     object.node&.software_name.to_s.strip.downcase.presence
   end
 
-  # Replaced when GroupLanguage rows exist. Empty means the group has not
-  # declared a language. Do not infer one here.
+  # Empty means the group has not declared a language. Do not infer one.
   def directory_languages
-    []
+    tags = if object.association(:group_languages).loaded?
+             object.group_languages.map(&:tag)
+           else
+             object.group_languages.pluck(:tag)
+           end
+    tags.sort
   end
 end

@@ -79,4 +79,23 @@ describe('GroupDirectoryFilterForm', () => {
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search groups' }), { target: { value: '' } });
     expect(onChange).toHaveBeenCalledWith({ q: '' });
   });
+
+  it('sends an explicit language tag and the unset choice without guessing', () => {
+    const onChange = jest.fn();
+    renderForm({ viewKey: 'route', signedIn: true, onChange });
+
+    fireEvent.click(screen.getByRole('button', { name: 'More filters' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'unset' } });
+    expect(onChange).toHaveBeenCalledWith({ language: 'unset' });
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'tag' } });
+    const tag = screen.getByRole('textbox', { name: 'Specific language tag' });
+    fireEvent.change(tag, { target: { value: 'j' } });
+    jest.advanceTimersByTime(300);
+    expect(onChange).not.toHaveBeenCalledWith({ language: 'j' });
+
+    fireEvent.change(tag, { target: { value: 'ja' } });
+    jest.advanceTimersByTime(300);
+    expect(onChange).toHaveBeenCalledWith({ language: 'ja' });
+  });
 });
