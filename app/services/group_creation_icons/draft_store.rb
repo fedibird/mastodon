@@ -16,7 +16,11 @@ module GroupCreationIcons
       session[SESSION_KEY]
     rescue StandardError
       delete_quietly(stored_key)
-      session.delete(SESSION_KEY)
+      if previous
+        session[SESSION_KEY] = previous
+      else
+        session.delete(SESSION_KEY)
+      end
       raise
     end
 

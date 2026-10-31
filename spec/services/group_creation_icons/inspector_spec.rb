@@ -53,6 +53,25 @@ RSpec.describe GroupCreationIcons::Inspector do
     expect(described_class.call('spec/fixtures/files/attachment.jpg').error).to eq :unreadable
   end
 
+  it 'rejects an ICO whose DIB is only a BITMAPINFOHEADER' do
+    result = inspect_bytes(header_only_dib_ico, filename: 'header.ico', type: 'image/vnd.microsoft.icon')
+
+    expect(result).not_to be_ok
+  end
+
+  it 'accepts an ICO whose DIB contains the XOR bitmap and the AND mask' do
+    result = inspect_bytes(solid_dib_ico, filename: 'solid.ico', type: 'image/vnd.microsoft.icon')
+
+    expect(result).to be_ok
+    expect(result.mime).to eq 'image/vnd.microsoft.icon'
+  end
+
+  it 'rejects an ICO whose embedded PNG has valid chunks but does not decode' do
+    result = inspect_bytes(undecodable_png_ico, filename: 'broken.ico', type: 'image/vnd.microsoft.icon')
+
+    expect(result).not_to be_ok
+  end
+
   it 'rejects an ICO whose directory points at missing image bytes' do
     result = inspect_bytes(directory_only_ico, filename: 'broken.ico', type: 'image/vnd.microsoft.icon')
 
@@ -80,6 +99,29 @@ RSpec.describe GroupCreationIcons::Inspector do
     end
     expect(migration).not_to match(/heic|heif|avif|svg/i)
     expect(GroupCreationIcons::FAST_IMAGE_TYPES.values).to match_array(AccountAvatar::IMAGE_MIME_TYPES)
+  end
+
+  def header_only_dib_ico
+    dib = [40, 16, 32, 1, 32, 0, 0, 0, 0, 0, 0].pack('VVVvvVVVVVV')
+    [0, 1, 1].pack('vvv') + [16, 16, 0, 0, 1, 32, dib.bytesize, 22].pack('CCCCvvVV') + dib
+  end
+
+  def solid_dib_ico
+    xor_row = ((1 * 32) + 31) / 32 * 4
+    mask_row = (1 + 31) / 32 * 4
+    dib = [40, 1, 2, 1, 32, 0, 0, 0, 0, 0, 0].pack('VVVvvVVVVVV')
+    dib += "\x00".b * (xor_row + mask_row)
+    [0, 1, 1].pack('vvv') + [1, 1, 0, 0, 1, 32, dib.bytesize, 22].pack('CCCCvvVV') + dib
+  end
+
+  def undecodable_png_ico
+    ihdr = [8, 8, 8, 2, 0, 0, 0].pack('NNCCCCC')
+    png = png_chunk('IHDR', ihdr) + png_chunk('IDAT', 'not zlib'.b) + png_chunk('IEND', ''.b)
+    ico_wrapping("\x89PNG\r\n\x1a\n".b + png, 8, 8)
+  end
+
+  def png_chunk(type, data)
+    [data.bytesize].pack('N') + type + data + [Zlib.crc32(type + data)].pack('N')
   end
 
   def directory_only_ico

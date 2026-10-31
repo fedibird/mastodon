@@ -35,7 +35,7 @@ Setting.group_creation_requests = true
 
 Paperclip の `has_attached_file` は使わない。`config/initializers/paperclip.rb` の初期値が `public/system`、S3 の `public-read`、Swift の `fog_public: true` だからである。`Account#avatar` と `avatar_remote_url` にも書かない。
 
-許可タイプは `AccountAvatar::IMAGE_MIME_TYPES`（jpeg、png、gif、webp、bmp、ico）。HEIC、HEIF、AVIF、SVG は許可しない。上限は `AccountAvatar::LIMIT`（4 MiB 未満）。クライアントの Content-Type と拡張子は見ない。`FastImage` と `Marcel` の両方が同じ許可タイプを示し、寸法が読めて、一辺 8192 px 以下、総画素 8_294_400 以下であるものだけを受ける。PNG は IHDR、IDAT、IEND と CRC が揃っていること、それ以外の画像は ImageMagick の `identify` が制限付きで復号できることを追加で求める。ICO は各ディレクトリ要素のサイズとオフセットがファイル内に収まり、その実体が完全な PNG か BITMAPINFOHEADER であることまで見る。ヘッダだけの PNG と、画像実体の無い ICO は拒否する。オリジナルだけを保存し、400x400 や tiny は作らない。
+許可タイプは `AccountAvatar::IMAGE_MIME_TYPES`（jpeg、png、gif、webp、bmp、ico）。HEIC、HEIF、AVIF、SVG は許可しない。上限は `AccountAvatar::LIMIT`（4 MiB 未満）。クライアントの Content-Type と拡張子は見ない。`FastImage` と `Marcel` の両方が同じ許可タイプを示し、寸法が読めて、一辺 8192 px 以下、総画素 8_294_400 以下であるものだけを受ける。PNG は IHDR、IDAT、IEND と CRC が揃っていること、それ以外の画像は ImageMagick の `identify` が制限付きで復号できることを追加で求める。ICO の DIB は幅・高さ・bpp・無圧縮・パレットと、4 バイト境界の XOR 行および AND マスクの必要バイト数まで見る。BITMAPINFOHEADER だけの DIB は拒否する。ICO 内の PNG はチャンクが揃ったうえで ImageMagick が復号できることまで見る。オリジナルだけを保存し、400x400 や tiny は作らない。
 
 保存キーは 64 文字の十六進であり、利用者のファイル名ではない。
 
@@ -66,7 +66,7 @@ Paperclip の `has_attached_file` は使わない。`config/initializers/papercl
 1. 確認 POST は、モデル検証と画像検証が通ってから非公開ストレージへ書く。検証に失敗したときは書かない。
 2. 書いたあとでセッションの更新に失敗したら、そのキーを消す。
 3. 作成 POST は、セッションのキーを読み直し、バイト列を再度検証してから `GroupCreationRequest` を挿入する。挿入が失敗してもファイルは残し、確認をやり直せる。挿入できたらセッションだけ消し、ファイルは行が参照する。
-4. プロセスが「書いたあと、行を挿入する前」に死ぬと、未参照ファイルが残る。`Scheduler::GroupCreationIconsScheduler` が 1 時間ごとに、24 時間より古くどの行も参照しないキーを消す。確認ドラフトは 30 分なので、この猶予で消えない。同じジョブが、削除に失敗した却下・取り下げの再試行も行う。1 件のストレージ例外では残りの行を止めない。`rake group_creation_icons:sweep` と `rake group_creation_icons:purge_terminal` は手動の再実行用である。
+4. プロセスが「書いたあと、行を挿入する前」に死ぬと、未参照ファイルが残る。`Scheduler::GroupCreationIconsScheduler` が 1 時間ごとに、24 時間より古くどの行も参照しないキーを消す。確認ドラフトは 30 分なので、この猶予で消えない。Swift の一覧は 1000 件ずつ `limit` と `marker` で最後まで進む。1 ページが参照済みでも次のページを見る。削除した名前も marker に使うので、削除しながら進めても後ろのページを飛ばさない。件数が多いと、名前 1000 件ごとに GET が 1 回、消すオブジェクトごとに DELETE が 1 回かかる。同じジョブが、削除に失敗した却下・取り下げの再試行も行う。1 件のストレージ例外では残りの行を止めない。`rake group_creation_icons:sweep` と `rake group_creation_icons:purge_terminal` は手動の再実行用である。確認の保存に失敗したときは、新しいファイルだけ消し、それまでの確認ドラフトはセッションに残す。
 5. 取り下げと却下は、状態変更のトランザクションがコミットしたあと `GroupCreationIcons::Purge` がファイルを消す。消してから `icon_purged_at` を入れる。AWS、Fog、OS の例外でも `icon_purged_at` は空のまま残し、次の定期実行で再試行する。オブジェクトが既に無い場合は完了として印を付ける。
 6. 承認では消さない。トランザクションが戻った確認前のファイルも消さない。
 

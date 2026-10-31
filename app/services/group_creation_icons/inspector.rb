@@ -138,17 +138,68 @@ module GroupCreationIcons
 
     def ico_image_complete?(bytes, index, directory_bytes)
       entry = bytes.byteslice(6 + (index * 16), 16)
-      _width, _height, _colors, _reserved, _planes, _bits, size, offset = entry.unpack('CCCCvvVV')
+
+      width, height, colors, _reserved, _planes, bit_count, size, offset = entry.unpack('CCCCvvVV')
       return false if size <= 0 || offset < directory_bytes || offset + size > bytes.bytesize
 
       payload = bytes.byteslice(offset, size)
-      png_complete?(payload) || dib_complete?(payload)
+      return png_payload_decodes?(payload) if payload.start_with?("\x89PNG".b)
+
+      dib_complete?(
+        payload,
+        width: width.zero? ? 256 : width,
+        height: height.zero? ? 256 : height,
+        bit_count: bit_count,
+        colors: colors
+      )
     end
 
-    def dib_complete?(bytes)
-      return false if bytes.bytesize < 40
+    def png_payload_decodes?(payload)
+      return false unless png_complete?(payload)
 
-      bytes.byteslice(0, 4).unpack1('V') == 40
+      file = Tempfile.new(['group-creation-ico'])
+      file.binmode
+      file.write(payload)
+      file.flush
+      imagemagick_decodes?(file.path)
+    ensure
+      file&.close!
+    end
+
+    def dib_complete?(bytes, width:, height:, bit_count:, colors:)
+      return false if bytes.bytesize < 40 || width <= 0 || height <= 0
+      return false if width > MAX_DIMENSION || height > MAX_DIMENSION || (width * height) > MAX_PIXELS
+
+      header_size, dib_width, dib_height, planes, dib_bits, compression = bytes.unpack('VVVvvV')
+      return false unless header_size == 40 && planes == 1 && compression.zero?
+      return false unless [1, 4, 8, 16, 24, 32].include?(dib_bits)
+      return false unless dib_width == width
+      return false if bit_count.positive? && bit_count != dib_bits
+
+      image_height = if dib_height == height * 2
+                       height
+                     elsif dib_height == height
+                       height
+                     end
+      return false if image_height.nil?
+
+      palette = dib_palette_bytes(dib_bits, colors)
+      return false if palette.nil?
+
+      xor_bytes = dib_row_stride(width, dib_bits) * image_height
+      mask_bytes = dib_height == height * 2 ? dib_row_stride(width, 1) * image_height : 0
+      bytes.bytesize >= 40 + palette + xor_bytes + mask_bytes
+    end
+
+    def dib_palette_bytes(dib_bits, colors)
+      return 0 if dib_bits > 8
+      return nil if colors.negative? || colors > (1 << dib_bits)
+
+      (colors.positive? ? colors : (1 << dib_bits)) * 4
+    end
+
+    def dib_row_stride(width, bits)
+      ((width * bits) + 31) / 32 * 4
     end
 
     def imagemagick_decodes?(path)

@@ -6,6 +6,8 @@ module GroupCreationIcons
   # read_acl, and Directories#get lists every object, so ACL checks use
   # Fog::Storage#head_container only.
   class Swift
+    PAGE_SIZE = 1_000
+
     def self.from_env
       container = ENV['GROUP_CREATION_ICON_SWIFT_CONTAINER'].to_s.strip
       public_container = ENV['SWIFT_CONTAINER'].to_s.strip
@@ -90,23 +92,47 @@ module GroupCreationIcons
       nil
     end
 
-    def sweep_unreferenced(older_than:, now:)
+    # One GET per page of object names. Swift stops a listing at `limit`,
+    # so a single call would leave later orphans in place. Marker is the
+    # last name returned, including names we delete, so the next page is
+    # not skipped and this page is not repeated.
+    def sweep_unreferenced(older_than:, now:, page_size: PAGE_SIZE, &referenced)
       deleted = 0
-      response = @service.get_container(@container, 'prefix' => 'group-creation-icons/')
-      Array(response.body).each do |entry|
-        name = File.basename(entry['name'].to_s)
-        next unless KEY_FORMAT.match?(name)
-        modified = entry['last_modified']
-        next if modified.present? && Time.zone.parse(modified.to_s) > now - older_than
-        next if yield(name)
+      marker = nil
+      previous_marker = nil
+      loop do
+        entries = container_page(marker, page_size)
+        break if entries.empty?
 
-        delete(name)
-        deleted += 1
+        entries.each { |entry| deleted += 1 if delete_unreferenced(entry, older_than, now, &referenced) }
+        last_name = entries.last['name'].to_s
+        break if entries.size < page_size || last_name.blank? || last_name == previous_marker
+
+        previous_marker = last_name
+        marker = last_name
       end
       deleted
     end
 
     private
+
+    def container_page(marker, page_size)
+      options = { 'prefix' => 'group-creation-icons/', 'limit' => page_size }
+      options['marker'] = marker if marker.present?
+      Array(@service.get_container(@container, options).body)
+    end
+
+    def delete_unreferenced(entry, older_than, now)
+      name = File.basename(entry['name'].to_s)
+      return false unless KEY_FORMAT.match?(name)
+
+      modified = entry['last_modified']
+      return false if modified.present? && Time.zone.parse(modified.to_s) > now - older_than
+      return false if yield(name)
+
+      delete(name)
+      true
+    end
 
     def ensure_private_container!
       response = head_container

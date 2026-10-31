@@ -135,6 +135,60 @@ RSpec.describe GroupCreationIcons::Storage do
     expect(puts).to be_empty
   end
 
+  it 'pages through a Swift container and deletes an orphan after a full referenced page' do
+    kept = [GroupCreationIcons.generate_key, GroupCreationIcons.generate_key]
+    orphan = GroupCreationIcons.generate_key
+    pages = [
+      kept.map { |key| { 'name' => GroupCreationIcons.relative_path(key), 'last_modified' => 3.days.ago.iso8601 } },
+      [{ 'name' => GroupCreationIcons.relative_path(orphan), 'last_modified' => 3.days.ago.iso8601 }],
+    ]
+    calls = []
+    removed = []
+    service = Object.new
+    service.define_singleton_method(:get_container) do |_container, options|
+      calls << options
+      body = if options['marker'].nil?
+               pages[0]
+             elsif options['marker'] == pages[0].last['name']
+               pages[1]
+             else
+               []
+             end
+      Struct.new(:body).new(body)
+    end
+    service.define_singleton_method(:delete_object) { |_container, object| removed << object }
+    storage = GroupCreationIcons::Swift.new(container: 'private-icons', public_container: 'mastodon-public', service: service)
+
+    deleted = storage.sweep_unreferenced(older_than: 24.hours, now: Time.current, page_size: 2) do |key|
+      kept.include?(key)
+    end
+
+    expect(deleted).to eq 1
+    expect(calls.map { |options| options['marker'] }).to eq [nil, pages[0].last['name']]
+    expect(calls).to all(include('limit' => 2, 'prefix' => 'group-creation-icons/'))
+    expect(removed).to eq [GroupCreationIcons.relative_path(orphan)]
+  end
+
+  it 'keeps the previous draft when a replacement upload fails' do
+    requester = Fabricate(:user)
+    record = requester.account.group_creation_requests.new(username: 'draftkeep', display_name: 'Keep', note: 'first draft')
+    record.valid?
+    session = {}
+    inspection = GroupCreationIcons::Inspector.call(StringIO.new(icon_image('png')))
+    GroupCreationIcons::DraftStore.write!(session: session, request: record, inspection: inspection)
+    token = session[GroupCreationIcons::DraftStore::SESSION_KEY]['submission_token']
+    storage = described_class.resolve
+    allow(described_class).to receive(:resolve).and_return(storage)
+    allow(storage).to receive(:write).and_raise(GroupCreationIcons::ConfigurationError, 'public')
+
+    expect do
+      GroupCreationIcons::DraftStore.write!(session: session, request: record, inspection: inspection)
+    end.to raise_error(GroupCreationIcons::ConfigurationError)
+
+    expect(session[GroupCreationIcons::DraftStore::SESSION_KEY]['submission_token']).to eq token
+    expect(session[GroupCreationIcons::DraftStore::SESSION_KEY]['note']).to eq 'first draft'
+  end
+
   it 'sweeps old unreferenced files and keeps a saved request' do
     storage = described_class.resolve
     requester = Fabricate(:user)
