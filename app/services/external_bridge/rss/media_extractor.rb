@@ -32,12 +32,26 @@ module ExternalBridge
         new(document).index!
       end
 
+      # Parser calls this with the items it will actually consider. Walking
+      # every item in a long feed built a preview, an HTML fragment, and
+      # media candidates for entries that MAX_ITEMS then discarded.
+      def self.index_items!(nodes)
+        nodes = Array(nodes).compact
+        return if nodes.empty?
+
+        new(nodes.first.document).index_items!(nodes)
+      end
+
       def initialize(document)
         @document = document
       end
 
       def index!
-        item_nodes.each { |node| tag(node) }
+        index_items!(item_nodes)
+      end
+
+      def index_items!(nodes)
+        nodes.each { |node| tag(node) }
       end
 
       private
