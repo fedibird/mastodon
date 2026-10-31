@@ -283,11 +283,24 @@ module ExternalBridge
       def perform_request(verb, url, &block)
         request = Request.new(verb, url, **request_options)
         # Request#initialize runs Addressable::URI#normalize, which decodes
-        # reserved octets such as %2C. The canonical string is the GET target.
+        # reserved octets such as %2C, and set_common_headers! stores Host
+        # without a non-default port. HTTP.rb keeps an existing Host, so put
+        # the canonical target and its authority back before the hop is sent.
         request.instance_variable_set(:@url, Addressable::URI.parse(url))
         headers = verb == :head ? { 'Accept' => @profile.accept } : request_headers(@etag, @last_modified, @profile)
+        headers['Host'] = host_header(url)
         request.add_headers(headers)
         request.perform(&block)
+      end
+
+      # CanonicalURL drops a port that equals the scheme default. A remaining
+      # port is part of the authority and must be on Host; the socket port
+      # alone is not enough for a name-based server.
+      def host_header(url)
+        uri = Addressable::URI.parse(url)
+        default_port = uri.scheme.to_s.casecmp('https').zero? ? 443 : 80
+        port = uri.port || default_port
+        port == default_port ? uri.host : "#{uri.host}:#{port}"
       end
 
       def redirect_response?(response)

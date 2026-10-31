@@ -17,19 +17,21 @@ module ExternalBridge
     # requests pass a client without that feature; inflating twice would
     # hide the encoded size and then corrupt the bytes.
     #
-    # One deflate input of N bytes produces at most N * 1032 output bytes.
-    # The longest match is 258 bytes and the shortest code for that match is
-    # 2 bits (258 / (2/8) = 1032). INPUT_CHUNK is therefore inflated into a
-    # temporary string of at most INPUT_CHUNK * 1032 bytes, and a larger
-    # result is rejected instead of appended. Ruby's Zlib::Inflate#inflate
-    # grows its own buffer for the whole call, so the input is sliced to
-    # INPUT_CHUNK before that call. The 1032 ratio was checked against zlib
-    # in this repository's Ruby 3.2: a 1024-byte slice of a gzip of NUL
-    # bytes returned 1_056_768 bytes and no slice returned more.
+    # Inflated bytes are accepted only by the running total against
+    # inflated_limit. Ruby 3.2's Zlib::Inflate#inflate, when given a block,
+    # yields its output buffer once the buffer reaches
+    # ZSTREAM_AVAIL_OUT_STEP_MAX (ext/zlib/zlib.c, 16384 bytes) and yields a
+    # shorter tail when the stream ends. Each temporary string is therefore
+    # at most one step. A yield that does not fit is not appended; the
+    # exception aborts inflate before the next yield. A per-call ratio is
+    # not an acceptance check: inflater state carried from earlier input can
+    # make one slice emit more than 1032 times its own length while the
+    # whole document stays inside the cap.
     class BodyReader
       INPUT_CHUNK = 1024
-      MAX_EXPANSION = 1032
-      MAX_INFLATE_OUTPUT = INPUT_CHUNK * MAX_EXPANSION
+      # Ruby 3.2 ZSTREAM_AVAIL_OUT_STEP_MAX. Documents the yield size; a
+      # larger yield is still judged only by the cumulative inflated cap.
+      INFLATE_YIELD_MAX = 16 * 1024
       # Same window as HTTP.rb 5.2.0's Inflater. It accepts a gzip or zlib
       # wrapper and does not accept raw deflate. A second inflater with a
       # different window is not tried.
@@ -129,9 +131,9 @@ module ExternalBridge
           each_input_slice do |slice|
             ensure_room!(received, slice.bytesize, @received_limit)
             received += slice.bytesize
-            append_output!(buffer, inflate_slice(inflater, slice))
+            inflate_slice(inflater, slice, buffer)
           end
-          append_output!(buffer, finish_stream(inflater))
+          finish_stream(inflater, buffer)
           buffer
         ensure
           close_stream(inflater)
@@ -160,16 +162,16 @@ module ExternalBridge
         chunk.b
       end
 
-      def inflate_slice(inflater, slice)
-        inflater.inflate(slice)
+      def inflate_slice(inflater, slice, buffer)
+        inflater.inflate(slice) { |chunk| append_output!(buffer, chunk) }
       rescue Zlib::Error
         raise Error, :fetch_failed
       end
 
-      def finish_stream(inflater)
-        return ''.b if inflater.finished?
+      def finish_stream(inflater, buffer)
+        return if inflater.finished?
 
-        inflater.finish
+        inflater.finish { |chunk| append_output!(buffer, chunk) }
       rescue Zlib::Error
         raise Error, :fetch_failed
       end
@@ -179,7 +181,7 @@ module ExternalBridge
         return if produced.nil? || produced.empty? # rubocop:disable Rails/Blank
 
         bytes = produced.b
-        unless bytes.bytesize <= MAX_INFLATE_OUTPUT && room?(buffer.bytesize, bytes.bytesize, @inflated_limit)
+        unless room?(buffer.bytesize, bytes.bytesize, @inflated_limit)
           bytes.clear
           raise Error, :oversized_feed
         end

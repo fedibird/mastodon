@@ -59,7 +59,7 @@ module ExternalBridge
           <description><![CDATA[<p>
         XML
         suffix = <<~XML
-          </p><img src="https://media.example/images/#{number}.jpg" alt="illustration #{number}"></description>
+          </p><img src="https://media.example/images/#{number}.jpg" alt="illustration #{number}">]]></description>
           </item>
         XML
         [prefix, suffix]

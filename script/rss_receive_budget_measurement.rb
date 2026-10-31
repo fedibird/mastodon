@@ -5,6 +5,7 @@
 # its RSS is not the parent's copy of the fixture.
 #
 #   bundle exec ruby script/rss_receive_budget_measurement.rb
+#   bundle exec ruby script/rss_receive_budget_measurement.rb --out=result.json
 
 require 'json'
 require 'socket'
@@ -179,7 +180,12 @@ summary = {
 }
 
 text = JSON.pretty_generate(summary)
-path = '/opt/cursor/artifacts/rss_receive_budget_measurement.json'
-File.write(path, text)
 puts text
+out_arg = ARGV.find { |arg| arg.start_with?('--out=') }
+if out_arg
+  out_path = out_arg.split('=', 2)[1].to_s
+  raise ArgumentError, 'pass --out=PATH' if out_path.empty?
+
+  File.write(out_path, text)
+end
 exit(runs.all? { |run| run['pass'] } ? 0 : 1)

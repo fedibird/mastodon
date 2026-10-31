@@ -131,20 +131,37 @@ RSpec.describe ExternalBridge::RSS::BodyReader do
     end.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'oversized_feed' }
   end
 
-  it 'keeps one inflate output inside the deflate expansion cap and closes the inflater' do
-    plain = "\0" * 1_200_000
-    compressed = gzip(plain)
-    inflater = Zlib::Inflate.new(described_class::WINDOW_BITS)
-    offset = 0
-    while offset < compressed.bytesize
-      slice = compressed.byteslice(offset, described_class::INPUT_CHUNK)
-      offset += slice.bytesize
-      expect(inflater.inflate(slice).bytesize).to be <= described_class::MAX_INFLATE_OUTPUT
-    end
-    inflater.finish
-    inflater.close
-    expect(described_class::MAX_INFLATE_OUTPUT).to eq(described_class::INPUT_CHUNK * described_class::MAX_EXPANSION)
+  it 'accepts a carried inflate state that one input slice expands past 1032 times' do
+    xml = '<rss version="2.0"><channel><title>Example</title>' \
+          '<link>https://news.example/</link><description>News</description>' \
+          '<item><guid>entry-1</guid><title>Entry 1</title>' \
+          '<link>https://news.example/1</link><description>' +
+          ('a' * 3_900_000) +
+          '</description></item></channel></rss>'
+    compressed = Zlib.gzip(xml, level: 6)
+    expect(xml.bytesize).to be < 4.megabytes
+    expect(compressed.bytesize).to be < 4.megabytes
 
+    yields = []
+    inflater = Zlib::Inflate.new(described_class::WINDOW_BITS)
+    inflater.inflate(compressed) { |chunk| yields << chunk.bytesize }
+    inflater.close
+    expect(yields.max).to be <= described_class::INFLATE_YIELD_MAX
+    expect(yields.max).to eq described_class::INFLATE_YIELD_MAX
+
+    [1, 6, 7, 64, 1024].each do |lead|
+      source = RssScriptedBody.new(
+        [compressed.byteslice(0, lead), compressed.byteslice(lead..-1)],
+        headers: { 'Content-Encoding' => 'gzip' }
+      )
+      body = described_class.read!(source, received_limit: 4.megabytes, inflated_limit: 4.megabytes)
+      expect(body.b).to eq(xml.b), "lead #{lead}"
+    end
+  end
+
+  it 'closes the inflater when inflate succeeds, fails, or passes the cap' do
+    plain = "\0" * 80_000
+    compressed = gzip(plain)
     closed = 0
     allow(Zlib::Inflate).to receive(:new).and_wrap_original do |original, *args|
       stream = original.call(*args)
@@ -234,6 +251,22 @@ RSpec.describe ExternalBridge::RSS::HttpClient do
     expect(closes).to be >= 1
   end
 
+  it 'sends Host without a default port and keeps a non-default port after redirect' do
+    start = 'https://feeds.example/start.xml'
+    redirected = 'https://feeds.example:8443/feed.xml'
+    stub_request(:get, start).to_return(status: 302, headers: { 'Location' => redirected })
+    stub_request(:get, redirected).to_return(status: 200, body: '<rss/>')
+    stub_request(:head, start).to_return(status: 302, headers: { 'Location' => redirected })
+    stub_request(:head, redirected).to_return(status: 200, headers: { 'Content-Length' => '4' })
+
+    expect(described_class.get(start).body).to eq '<rss/>'
+    expect(described_class.head(start).code).to eq 200
+    %i(get head).each do |verb|
+      expect(a_request(verb, start).with(headers: { 'Host' => 'feeds.example' })).to have_been_made
+      expect(a_request(verb, redirected).with(headers: { 'Host' => 'feeds.example:8443' })).to have_been_made
+    end
+  end
+
   it 'follows a relative redirect, repeats validators, and stops after three hops' do
     start = 'https://feeds.example/dir/start.xml'
     final_url = 'https://feeds.example/dir/next.xml'
@@ -312,6 +345,31 @@ RSpec.describe ExternalBridge::RSS::HttpClient do
     expect(described_class.get(page, profile: described_class::ICON_PAGE_PROFILE).body.bytesize).to eq ExternalBridge::RSS::Limits::ICON_MAX_PAGE_BYTES
   end
 
+  it 'records the non-default Host on the redirect target that actually received the request' do
+    with_local_feed do |server, url, port|
+      %i(get head).each do |verb|
+        seen = Queue.new
+        server_thread(server) do |redirect|
+          seen << request_host(read_http_request(redirect))
+          redirect.write("HTTP/1.1 302 Found\r\nLocation: http://feeds.example:#{port}/final.xml\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+          redirect.close
+          final = server.accept
+          seen << request_host(read_http_request(final))
+          if verb == :head
+            final.write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+          else
+            final.write("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello")
+          end
+          final.close
+        end
+        result = described_class.public_send(verb, url)
+        expect(seen.pop(timeout: 2)).to eq "feeds.example:#{port}"
+        expect(seen.pop(timeout: 2)).to eq "feeds.example:#{port}"
+        expect(result.body).to eq(verb == :head ? nil : 'hello')
+      end
+    end
+  end
+
   it 'reads real chunked bodies, stops when the cap is crossed, and does not wait on a redirect body' do
     with_local_feed do |server, url, port|
       server_thread(server) do |client|
@@ -387,7 +445,12 @@ RSpec.describe ExternalBridge::RSS::HttpClient do
     document = ExternalBridge::RSS::SyntheticFeed.generate
     expect(document.bytesize).to eq ExternalBridge::RSS::SyntheticFeed::TARGET_BYTES
     expect(document.scan('<item>').size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
+    expect(document.scan('<![CDATA[').size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
+    expect(document.scan(']]>').size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
     expect(document).not_to include('<!--')
+    strict = Nokogiri::XML(document) { |config| config.strict.nonet }
+    expect(strict.xpath('/rss/channel/item').size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
+    expect(ExternalBridge::RSS::Parser.parse!(document).items.size).to eq ExternalBridge::RSS::Limits::MAX_ITEMS
     expect(document.scan(%r{https://media\.example/audio/\d+\.mp3}).uniq.size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
     expect(document.scan(%r{https://media\.example/images/\d+\.jpg}).uniq.size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
 
@@ -471,6 +534,10 @@ RSpec.describe ExternalBridge::RSS::HttpClient do
     buffer = +''
     buffer << io.readpartial(1024) while buffer.exclude?("\r\n\r\n") && buffer.bytesize < 65_536
     buffer
+  end
+
+  def request_host(raw)
+    raw[/^Host:\s*(\S+)/i, 1]
   end
 end
 
