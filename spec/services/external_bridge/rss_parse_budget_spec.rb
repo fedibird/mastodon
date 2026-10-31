@@ -286,9 +286,9 @@ RSpec.describe ExternalBridge::RSS::Parser do
   it 'keeps the feed byte cap and the other fetch profiles unchanged' do
     limits = ExternalBridge::RSS::Limits
     client = ExternalBridge::RSS::HttpClient
-    expect(limits::MAX_PARSE_BYTES).to eq 4.megabytes
-    expect(limits::MAX_RESPONSE_BYTES).to eq 4.megabytes
-    expect(limits::MAX_RECEIVED_BYTES).to eq 4.megabytes
+    expect(limits::MAX_PARSE_BYTES).to eq 8.megabytes
+    expect(limits::MAX_RESPONSE_BYTES).to eq 8.megabytes
+    expect(limits::MAX_RECEIVED_BYTES).to eq 8.megabytes
     expect(limits::MAX_ITEMS).to eq 40
     expect(client::FEED_PROFILE.max_received_bytes).to eq limits::MAX_RECEIVED_BYTES
     expect(client::FEED_PROFILE.max_inflated_bytes).to eq limits::MAX_RESPONSE_BYTES

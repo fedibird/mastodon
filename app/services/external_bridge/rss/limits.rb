@@ -4,27 +4,27 @@ module ExternalBridge
   module RSS
     module Limits
       # Inflated body of one feed response, in bytes. This is the document
-      # the parser would see. Phase 1 keeps the previous 4 MiB ceiling.
-      # Podcast feeds can contain years of episodes; the parsed item count is
-      # independently bounded by MAX_ITEMS below. 8 MiB is an unadopted
-      # candidate and is not this constant.
-      MAX_RESPONSE_BYTES = 4.megabytes
+      # the parser would see. 8 MiB covers the measured public-feed shape
+      # (about 6.3 MiB and 1,017 items) with headroom. The stored item count
+      # stays MAX_ITEMS. One parse of that fixture is about 110–150 ms and
+      # peaks near 80–100 MB RSS, including the interpreter.
+      MAX_RESPONSE_BYTES = 8.megabytes
       # Encoded body of one HTTP response, in bytes, after transfer framing
       # (including chunked framing) is removed and before Content-Encoding
       # is inflated. TLS records and header bytes are not included.
       # Content-Length describes this size when it is present and honest; a
       # missing, invalid, or short value does not replace the count of bytes
-      # actually read. The default matches MAX_RESPONSE_BYTES so a public
-      # feed still cannot accept more than 4 MiB on the wire. The two caps
-      # are independent: a test profile may raise one without raising the
-      # other. This phase does not.
-      MAX_RECEIVED_BYTES = 4.megabytes
+      # actually read. This cap is independent of MAX_RESPONSE_BYTES. It is
+      # the same number because an identity-encoded copy of the same feed
+      # uses that many received bytes. Gzip of the synthetic fixture is much
+      # smaller, which is not a reason to reject the uncompressed form.
+      MAX_RECEIVED_BYTES = 8.megabytes
       # Bytes of the string given to Parser.parse!, counted before a document
       # exists. This is not BodyReader's cap. A caller that already holds a
       # body still cannot parse past it. The number matches MAX_RESPONSE_BYTES
       # so a direct parse cannot accept a feed the client rejects. The
       # constants are separate; raising one does not raise the other.
-      MAX_PARSE_BYTES = 4.megabytes
+      MAX_PARSE_BYTES = 8.megabytes
       # Element nesting. The root element is depth 1. A synthetic 1,017-item
       # feed is depth 4. 64 leaves room for an XHTML entry body. libxml's own
       # ceiling still applies because the parser does not set HUGE.
