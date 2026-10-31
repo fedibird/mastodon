@@ -53,6 +53,12 @@ RSpec.describe GroupCreationIcons::Inspector do
     expect(described_class.call('spec/fixtures/files/attachment.jpg').error).to eq :unreadable
   end
 
+  it 'rejects an ICO whose directory points at missing image bytes' do
+    result = inspect_bytes(directory_only_ico, filename: 'broken.ico', type: 'image/vnd.microsoft.icon')
+
+    expect(result).not_to be_ok
+  end
+
   it 'rejects a PNG that has a valid signature and IHDR but no image data' do
     result = inspect_bytes(header_only_png, filename: 'broken.png', type: 'image/png')
 
@@ -74,6 +80,10 @@ RSpec.describe GroupCreationIcons::Inspector do
     end
     expect(migration).not_to match(/heic|heif|avif|svg/i)
     expect(GroupCreationIcons::FAST_IMAGE_TYPES.values).to match_array(AccountAvatar::IMAGE_MIME_TYPES)
+  end
+
+  def directory_only_ico
+    [0, 1, 1].pack('vvv') + [16, 16, 0, 0, 1, 32, 100, 22].pack('CCCCvvVV')
   end
 
   def header_only_png

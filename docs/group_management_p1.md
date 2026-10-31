@@ -35,7 +35,7 @@ Setting.group_creation_requests = true
 
 Paperclip の `has_attached_file` は使わない。`config/initializers/paperclip.rb` の初期値が `public/system`、S3 の `public-read`、Swift の `fog_public: true` だからである。`Account#avatar` と `avatar_remote_url` にも書かない。
 
-許可タイプは `AccountAvatar::IMAGE_MIME_TYPES`（jpeg、png、gif、webp、bmp、ico）。HEIC、HEIF、AVIF、SVG は許可しない。上限は `AccountAvatar::LIMIT`（4 MiB 未満）。クライアントの Content-Type と拡張子は見ない。`FastImage` と `Marcel` の両方が同じ許可タイプを示し、寸法が読めて、一辺 8192 px 以下、総画素 8_294_400 以下であるものだけを受ける。PNG は IHDR、IDAT、IEND と CRC が揃っていること、それ以外の画像（ICO を除く）は ImageMagick の `identify` が制限付きで復号できることを追加で求める。ヘッダだけの PNG は拒否する。ICO は ImageMagick の policy が coder を止めるため、ディレクトリが読めることだけを見る。オリジナルだけを保存し、400x400 や tiny は作らない。
+許可タイプは `AccountAvatar::IMAGE_MIME_TYPES`（jpeg、png、gif、webp、bmp、ico）。HEIC、HEIF、AVIF、SVG は許可しない。上限は `AccountAvatar::LIMIT`（4 MiB 未満）。クライアントの Content-Type と拡張子は見ない。`FastImage` と `Marcel` の両方が同じ許可タイプを示し、寸法が読めて、一辺 8192 px 以下、総画素 8_294_400 以下であるものだけを受ける。PNG は IHDR、IDAT、IEND と CRC が揃っていること、それ以外の画像は ImageMagick の `identify` が制限付きで復号できることを追加で求める。ICO は各ディレクトリ要素のサイズとオフセットがファイル内に収まり、その実体が完全な PNG か BITMAPINFOHEADER であることまで見る。ヘッダだけの PNG と、画像実体の無い ICO は拒否する。オリジナルだけを保存し、400x400 や tiny は作らない。
 
 保存キーは 64 文字の十六進であり、利用者のファイル名ではない。
 
@@ -49,7 +49,7 @@ Paperclip の `has_attached_file` は使わない。`config/initializers/papercl
 | S3 または Swift が有効で、専用の保存先が未設定 | アイコンアップロードを拒否する。アイコン無しの申請はできる |
 | `GROUP_CREATION_ICON_STORAGE=filesystem` | 上のディレクトリ。パスが公開配下なら拒否する。複数ホストで読むには、そのディレクトリを共有する必要がある。共有しないホストからはプレビューも P2 のコピーもできない |
 | `GROUP_CREATION_ICON_STORAGE=s3` | `GROUP_CREATION_ICON_S3_BUCKET` が必須で、`S3_BUCKET` と同名は拒否する。書き込み前に Block Public Access の4つ（`BlockPublicAcls`、`IgnorePublicAcls`、`BlockPublicPolicy`、`RestrictPublicBuckets`）がすべて有効で、bucket policy が `Principal "*"` の `s3:GetObject` を許さず、`GetBucketPolicyStatus` が public でないことを確認する。確認できない、API が無い、policy が読めない場合は書かない。オブジェクト ACL は `private`。`GROUP_CREATION_ICON_S3_ALIAS_HOST` と `GROUP_CREATION_ICON_S3_CLOUDFRONT_HOST` があると拒否する。公開 URL と署名付き URL は作らない |
-| `GROUP_CREATION_ICON_STORAGE=swift` | 専用コンテナが必須で、`SWIFT_CONTAINER` と同名は拒否する。既存コンテナは `X-Container-Read` を読む。空なら非公開。`.r:*` や `.rlistings` があれば拒否する。ACL を読めないコンテナも拒否する。`public: false` だけでは既存コンテナを信用しない |
+| `GROUP_CREATION_ICON_STORAGE=swift` | 専用コンテナが必須で、`SWIFT_CONTAINER` と同名は拒否する。fog-openstack 0.3.10 の `Directory` には `read_acl` が無く、`directories.get` はオブジェクト一覧を取る。ACL は `Fog::Storage#head_container` の `X-Container-Read` だけを見る。ヘッダが無ければ非公開。`.r:*` や `.rlistings`、HEAD 失敗、ヘッダが読めない場合は拒否する |
 
 公開 URL を発行しないことと、匿名 GET が失敗することは別である。このコードはバケットまたはコンテナ自身の公開読み取り設定を見て、匿名 GET は実行しない。バケットの前段にある CloudFront などの配信は API からは見えない。運用者は、アイコンを有効にする前に、保存したオブジェクトの URL を認証なしで GET し、403 または 404 になることを確認する。その確認ができない構成では S3/Swift を使わない。
 
@@ -88,6 +88,8 @@ GroupCreationIcons::Handoff.release_after_copy!(request)
 ```
 
 `release_after_copy!` は `approved` 以外では拒否する。P1 はこれを呼ばない。
+
+`release_after_copy!` が失敗すると、承認済みの行は `Purge.purge_terminal` の対象ではなく、sweep も申請行がキーを参照しているので消さない。ステージングが残る。P2 は、`Account#avatar` へのコピーと承認トランザクションのコミットが成功したことを後から判定できる印を申請に残し、失敗したコピーを再試行できるようにする。P1 はその印も承認処理も足さない。
 
 Paperclip はコミット前に公開パスへ書く。ロールバックしたときは、その Account id 用に書いた公開ファイルを P2 が消す。ステージング側は `release_after_copy!` を呼ばなければ残る。
 

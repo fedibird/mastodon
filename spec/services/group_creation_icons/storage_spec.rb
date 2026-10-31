@@ -103,52 +103,36 @@ RSpec.describe GroupCreationIcons::Storage do
     expect { storage.write(GroupCreationIcons.generate_key, StringIO.new('png'), content_type: 'image/png') }.to raise_error(GroupCreationIcons::ConfigurationError)
   end
 
-  it 'refuses the public Swift container and marks objects private' do
+  it 'reads Swift ACLs from head_container, which fog-openstack 0.3.10 directories do not expose' do
+    require 'fog/openstack'
+    Fog::Storage::OpenStack
+    require 'fog/storage/openstack/models/directory'
+    expect(Fog::Storage::OpenStack::Directory.method_defined?(:read_acl)).to be false
+
     expect do
-      GroupCreationIcons::Swift.new(container: 'Media', public_container: 'media', directories: double)
+      GroupCreationIcons::Swift.new(container: 'Media', public_container: 'media', service: Object.new)
     end.to raise_error(GroupCreationIcons::ConfigurationError)
 
-    created = []
-    files = Class.new do
-      def initialize(created)
-        @created = created
-      end
+    puts = []
+    service = swift_head_service(puts, 'X-Container-Read' => nil)
+    storage = GroupCreationIcons::Swift.new(container: 'private-icons', public_container: 'mastodon-public', service: service)
+    key = GroupCreationIcons.generate_key
+    storage.write(key, StringIO.new('png'), content_type: 'image/png')
 
-      def create(attrs)
-        @created << attrs
-      end
-    end.new(created)
-    directory = Struct.new(:files, :read_acl).new(files, '')
-    directories = Struct.new(:directory).new(directory)
-    directories.define_singleton_method(:get) { |_name| directory }
-
-    storage = GroupCreationIcons::Swift.new(container: 'private-icons', public_container: 'mastodon-public', directories: directories)
-    storage.write(GroupCreationIcons.generate_key, StringIO.new('png'), content_type: 'image/png')
-
-    expect(created.first[:public]).to be false
-    expect(created.first[:key]).to start_with('group-creation-icons/')
+    expect(puts.size).to eq 1
+    expect(puts.first[:object]).to eq GroupCreationIcons.relative_path(key)
+    expect(puts.first[:options]['Content-Type']).to eq 'image/png'
   end
 
-  it 'refuses an existing Swift container with a public read ACL' do
-    created = []
-    files = Class.new do
-      def initialize(created)
-        @created = created
-      end
-
-      def create(attrs)
-        @created << attrs
-      end
-    end.new(created)
-    ['.r:*', '.rlistings', nil].each do |acl|
-      directory = Struct.new(:files, :read_acl).new(files, acl)
-      directories = Object.new
-      directories.define_singleton_method(:get) { |_name| directory }
-      storage = GroupCreationIcons::Swift.new(container: 'shared-but-public', public_container: 'mastodon-public', directories: directories)
+  it 'refuses a Swift container with a public read ACL or an unverifiable HEAD' do
+    puts = []
+    ['.r:*', '.rlistings', :fail, :no_headers].each do |acl|
+      service = swift_head_service(puts, acl)
+      storage = GroupCreationIcons::Swift.new(container: 'shared-but-public', public_container: 'mastodon-public', service: service)
 
       expect { storage.write(GroupCreationIcons.generate_key, StringIO.new('png'), content_type: 'image/png') }.to raise_error(GroupCreationIcons::ConfigurationError)
     end
-    expect(created).to be_empty
+    expect(puts).to be_empty
   end
 
   it 'sweeps old unreferenced files and keeps a saved request' do
@@ -212,6 +196,23 @@ RSpec.describe GroupCreationIcons::Storage do
         raise @no_policy, 'missing' if @policy.nil? && !@policy_public
 
         Struct.new(:policy_status).new(Struct.new(:is_public).new(@policy_public))
+      end
+    end.new
+  end
+
+  def swift_head_service(puts, acl)
+    Class.new do
+      define_method(:initialize) { @puts = puts }
+      define_method(:head_container) do |_|
+        raise StandardError, 'head failed' if acl == :fail
+        return Struct.new(:headers).new(nil) if acl == :no_headers
+
+        headers = {}
+        headers['X-Container-Read'] = acl unless acl.nil?
+        Struct.new(:headers).new(headers)
+      end
+      define_method(:put_object) do |_container, object, _data, options = {}|
+        @puts << { object: object, options: options }
       end
     end.new
   end

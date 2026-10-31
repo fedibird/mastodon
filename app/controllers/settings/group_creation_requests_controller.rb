@@ -26,6 +26,9 @@ class Settings::GroupCreationRequestsController < Settings::BaseController
 
     GroupCreationIcons::DraftStore.write!(session: session, request: @request, inspection: inspection)
     redirect_to review_settings_group_creation_requests_path
+  rescue GroupCreationIcons::ConfigurationError
+    @request.errors.add(:base, I18n.t('group_creation_requests.icon_errors.storage_unavailable'))
+    render :new, status: :unprocessable_entity
   end
 
   def review

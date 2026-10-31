@@ -90,7 +90,7 @@ module GroupCreationIcons
       return if key.blank?
 
       Storage.resolve.delete(key)
-    rescue Error => e
+    rescue StandardError => e
       Rails.logger.error("Group creation icon draft cleanup failed error=#{e.class}")
     end
 

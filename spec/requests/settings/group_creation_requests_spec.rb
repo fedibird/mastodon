@@ -22,6 +22,72 @@ RSpec.describe 'Settings group creation requests' do
     Setting.group_creation_requests = true
   end
 
+  def expect_storage_refusal(storage, message)
+    allow(GroupCreationIcons::Storage).to receive(:available?).and_return(true)
+    allow(GroupCreationIcons::Storage).to receive(:resolve).and_return(storage)
+
+    expect { submit_form(username: "priv#{storage.class.name.demodulize.downcase}") }.not_to change(GroupCreationRequest, :count)
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response.body).to include(message)
+    expect(Dir.glob(File.join(ENV.fetch('GROUP_CREATION_ICON_ROOT'), '**', '*')).select { |path| File.file?(path) }).to be_empty
+  end
+
+  def private_s3_client(calls, policy: nil, policy_public: false)
+    no_policy = Class.new(StandardError)
+    no_policy.define_singleton_method(:name) { 'Aws::S3::Errors::NoSuchBucketPolicy' }
+    Class.new do
+      define_method(:initialize) do
+        @calls = calls
+        @policy = policy
+        @policy_public = policy_public
+        @no_policy = no_policy
+      end
+
+      def put_object(options)
+        @calls << options
+      end
+
+      def get_public_access_block(*)
+        config = Struct.new(:block_public_acls, :ignore_public_acls, :block_public_policy, :restrict_public_buckets).new(true, true, true, true)
+        Struct.new(:public_access_block_configuration).new(config)
+      end
+
+      def get_bucket_policy(*)
+        return Struct.new(:policy).new(@policy) if @policy
+
+        raise @no_policy, 'missing'
+      end
+
+      def get_bucket_policy_status(*)
+        raise @no_policy, 'missing' if @policy.nil? && !@policy_public
+
+        Struct.new(:policy_status).new(Struct.new(:is_public).new(@policy_public))
+      end
+    end.new
+  end
+
+  def public_read_policy
+    {
+      'Version' => '2012-10-17',
+      'Statement' => [
+        { 'Effect' => 'Allow', 'Principal' => '*', 'Action' => 's3:GetObject', 'Resource' => 'arn:aws:s3:::another-icons/*' },
+      ],
+    }.to_json
+  end
+
+  def swift_head_service(puts, acl)
+    Class.new do
+      define_method(:initialize) { @puts = puts }
+      define_method(:head_container) do |_|
+        headers = { 'X-Container-Read' => acl }
+        Struct.new(:headers).new(headers)
+      end
+      define_method(:put_object) do |_container, object, _data, options = {}|
+        @puts << { object: object, options: options }
+      end
+    end.new
+  end
+
   def saved_request(owner = user)
     GroupCreationRequest.where(requester_account_id: owner.account.id).order(:id).last
   end
@@ -282,6 +348,40 @@ RSpec.describe 'Settings group creation requests' do
       sign_in suspended, scope: :user
       get new_settings_group_creation_request_path
       expect(response).to redirect_to(edit_user_registration_path)
+    end
+
+    it 'returns the form when private icon storage refuses the upload' do
+      sign_in user, scope: :user
+      message = I18n.t('group_creation_requests.icon_errors.storage_unavailable')
+
+      s3_calls = []
+      s3 = GroupCreationIcons::S3.new(
+        bucket: 'another-icons',
+        client: private_s3_client(s3_calls, policy: public_read_policy, policy_public: false),
+        public_bucket: 'mastodon-public'
+      )
+      expect_storage_refusal(s3, message)
+      expect(s3_calls).to be_empty
+
+      swift_puts = []
+      swift = GroupCreationIcons::Swift.new(
+        container: 'shared-but-public',
+        public_container: 'mastodon-public',
+        service: swift_head_service(swift_puts, '.r:*')
+      )
+      expect_storage_refusal(swift, message)
+      expect(swift_puts).to be_empty
+    end
+
+    it 'does not turn an unexpected storage error into a validation message' do
+      sign_in user, scope: :user
+      storage = Object.new
+      storage.define_singleton_method(:write) { |*_args, **_kwargs| raise RuntimeError, 'disk' }
+      allow(GroupCreationIcons::Storage).to receive(:available?).and_return(true)
+      allow(GroupCreationIcons::Storage).to receive(:resolve).and_return(storage)
+
+      expect { submit_form }.to raise_error(RuntimeError, 'disk')
+      expect(GroupCreationRequest.count).to eq 0
     end
 
     it 'discards an icon draft when the same session authenticates as someone else' do

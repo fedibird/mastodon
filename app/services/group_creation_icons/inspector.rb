@@ -128,7 +128,27 @@ module GroupCreationIcons
       return false if bytes.bytesize < 22
 
       reserved, type, count = bytes.byteslice(0, 6).unpack('vvv')
-      reserved.zero? && type == 1 && count.positive? && bytes.bytesize >= 6 + (count * 16)
+      return false unless reserved.zero? && type == 1 && count.positive?
+
+      directory_bytes = 6 + (count * 16)
+      return false if bytes.bytesize < directory_bytes
+
+      count.times.all? { |index| ico_image_complete?(bytes, index, directory_bytes) }
+    end
+
+    def ico_image_complete?(bytes, index, directory_bytes)
+      entry = bytes.byteslice(6 + (index * 16), 16)
+      _width, _height, _colors, _reserved, _planes, _bits, size, offset = entry.unpack('CCCCvvVV')
+      return false if size <= 0 || offset < directory_bytes || offset + size > bytes.bytesize
+
+      payload = bytes.byteslice(offset, size)
+      png_complete?(payload) || dib_complete?(payload)
+    end
+
+    def dib_complete?(bytes)
+      return false if bytes.bytesize < 40
+
+      bytes.byteslice(0, 4).unpack1('V') == 40
     end
 
     def imagemagick_decodes?(path)
