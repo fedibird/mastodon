@@ -15,9 +15,12 @@ module GroupManagement
     account.user&.functional? == true
   end
 
-  # Server administration is the Owner permission bit or the Admin role's
-  # manage_settings permission. Moderator and the legacy users.admin flag
-  # are not enough. Action Review policy modes never satisfy this check.
+  # Parent issue #657 separates server administrators from group moderators
+  # and from the server Moderator role. Owner has can?(:administrator).
+  # The Admin role does not have that bit, but it has manage_settings,
+  # which is the server-settings gate and not granted to Moderator.
+  # The legacy users.admin flag does not select a role, so it is not enough.
+  # Action Review policy modes never satisfy this check.
   def server_administrator?(account)
     return false unless local_functional_person?(account)
 

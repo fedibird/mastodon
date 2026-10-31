@@ -6,7 +6,6 @@ RSpec.describe GroupCreationRequest do # rubocop:disable Metrics/BlockLength
   before { load Rails.root.join('db', 'seeds', '03_roles.rb') }
 
   let(:requester) { Fabricate(:user) }
-  let(:owner) { Fabricate(:user) }
   let(:reviewer) { user_with_role('Owner') }
 
   def submit_request(**attrs)
@@ -20,7 +19,7 @@ RSpec.describe GroupCreationRequest do # rubocop:disable Metrics/BlockLength
     )
   end
 
-  def approve!(request, owner_account: owner.account, reviewer_account: reviewer.account)
+  def approve!(request, owner_account: request.requester_account, reviewer_account: reviewer.account)
     group = nil
     described_class.transaction do
       group = Fabricate(:account, username: request.username, display_name: request.display_name, note: request.note, actor_type: 'Group')
@@ -144,18 +143,51 @@ RSpec.describe GroupCreationRequest do # rubocop:disable Metrics/BlockLength
     expect { request.record_approval!(reviewer_account: reviewer_account, group_account: nil) }.to raise_error(ActiveRecord::RecordInvalid)
     expect(request.reload).to be_pending
 
-    owner_account = owner.account
     group = nil
     expect do
-      group = approve!(request, owner_account: owner_account, reviewer_account: reviewer_account)
+      group = approve!(request, reviewer_account: reviewer_account)
     end.to change(Account, :count).by(1)
 
     expect(request.reload).to be_approved
     expect(request.group_account).to eq group
-    expect(request.initial_owner_account).to eq owner.account
+    expect(request.initial_owner_account).to eq requester.account
     expect(request.reviewer_account).to eq reviewer.account
     expect(group.managed_group.creation_request).to eq request
-    expect(group.group_role_assignments.active.owner.map(&:member_account)).to eq [owner.account]
+    expect(group.group_role_assignments.active.owner.map(&:member_account)).to eq [requester.account]
+
+    expect { request.record_approval!(reviewer_account: reviewer_account, group_account: group) }.to raise_error(ActiveRecord::RecordInvalid)
+    expect(request.reload).to be_approved
+    expect(Account.where(username: request.username).count).to eq 1
+  end
+
+  it 'refuses approval when the active owner is not the requester' do
+    request = submit_request
+    reviewer_account = reviewer.account
+    someone = Fabricate(:user)
+
+    expect { approve!(request, owner_account: someone.account, reviewer_account: reviewer_account) }.to raise_error(ActiveRecord::RecordInvalid)
+    expect(request.reload).to be_pending
+    expect(request.initial_owner_account).to be_nil
+    expect(Account.where(username: 'freshgroup')).to be_empty
+  end
+
+  it 'refuses approval after the requester can no longer act, and leaves the request pending' do
+    request = submit_request
+    reviewer_account = reviewer.account
+    group = Fabricate(:account, username: request.username, display_name: request.display_name, note: request.note, actor_type: 'Group')
+    ManagedGroup.create!(account: group, origin: :approved_request, creation_request: request)
+    GroupRoleAssignment.create!(
+      group_account: group,
+      member_account: requester.account,
+      role: :owner,
+      granted_by_account: reviewer_account,
+      granted_at: Time.current
+    )
+    requester.account.update_columns(suspended_at: Time.now.utc)
+
+    expect { request.record_approval!(reviewer_account: reviewer_account, group_account: group) }.to raise_error(ActiveRecord::RecordInvalid)
+    expect(request.reload).to be_pending
+    expect(request.group_account).to be_nil
   end
 
   it 'lets an admin reject and refuses a moderator or a legacy admin flag' do

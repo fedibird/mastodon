@@ -73,6 +73,11 @@ class GroupCreationRequest < ApplicationRecord
   def record_approval!(reviewer_account:, group_account:, reviewed_at: Time.current, decision_note: nil)
     transaction do
       lock!
+      unless pending?
+        errors.add(:state, :invalid)
+        raise ActiveRecord::RecordInvalid, self
+      end
+
       owner = GroupRoleAssignment.active.owner.find_by(group_account_id: group_account&.id)
       update!(
         state: :approved,
@@ -214,7 +219,8 @@ class GroupCreationRequest < ApplicationRecord
     errors.add(:group_account, :invalid) unless managed&.approved_request? && managed.creation_request_id == id
 
     owner = GroupRoleAssignment.active.owner.find_by(group_account_id: group_account.id)
-    errors.add(:initial_owner_account, :invalid) unless owner&.member_account_id == initial_owner_account_id
+    errors.add(:initial_owner_account, :invalid) unless owner&.member_account_id == requester_account_id
+    errors.add(:initial_owner_account, :invalid) unless initial_owner_account_id == requester_account_id
     errors.add(:initial_owner_account, :invalid) unless GroupManagement.local_functional_person?(initial_owner_account)
   end
 end

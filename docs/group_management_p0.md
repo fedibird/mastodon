@@ -73,7 +73,7 @@ GroupCreationRequest.transaction do
   )
   GroupRoleAssignment.create!(
     group_account: group,
-    member_account: initial_owner,
+    member_account: request.requester_account,
     role: :owner,
     granted_by_account: reviewer,
     granted_at: Time.current
@@ -82,13 +82,49 @@ GroupCreationRequest.transaction do
 end
 ```
 
-`initial_owner` は申請者と同じとは限らない。P2 の画面が決める。写した `initial_owner_account_id` は申請に固定し、後の移譲では変更しない。
+初代 owner は申請者である。`record_approval!` は有効な owner の member と `initial_owner_account_id` がどちらも `requester_account_id` であることを要求する。別の人を owner にして承認することはできない。写した初代 owner は申請に固定し、後の移譲では変更しない。
 
 `Account.create!` はローカルなら鍵を作り、`account_stat` を保存する。Group 用の User を作るかどうかは P2 が既存の投稿経路を見て決める。作る場合でも、その User を `GroupRoleAssignment` の owner にしてはいけない。
 
-承認済みの新規グループは owner 不在を許さない。`record_approval!` が owner 1件と `initial_owner_account_id` の一致を要求する。DB は `state = approved` の行に `group_account_id` と `initial_owner_account_id` を要求する。有効な owner はグループあたり高々1件を partial unique index が保証する。承認後にその唯一の owner を `revoke!` するとモデルが拒否する。
+承認済みの新規グループは owner 不在を許さない。DB は `state = approved` の行に `group_account_id` と `initial_owner_account_id` を要求する。有効な owner はグループあたり高々1件を partial unique index が保証する。承認後にその唯一の owner を `revoke!` するとモデルが拒否する。
 
-P3 の移譲は、有効 owner を0件や2件にしない。推奨手順は、現在の owner 行の member を新しい個人へ置き換え、古い member は `revoked_at` 付きの履歴行として残すことである。partial unique index は `revoked_at IS NULL` だけを見る。移譲サービスはこの PR には無い。
+### 審査者と、P0 が止めること
+
+親 #657 のサーバー管理者は、グループの moderator でもサーバーの Moderator ロールでもない。`GroupManagement.server_administrator?` はログインできるローカル個人で、次のどちらかを持つ人である。
+
+- `can?(:administrator)`。`config/roles.yml` の Owner。`require_admin!` と同じビット。
+- `can?(:manage_settings)`。Admin ロール。このロールは `administrator` ビットを持たないが、サーバー設定を扱う。Moderator ロールには付かない。
+
+レガシーの `users.admin` だけではロールが Everyone のままなので、承認できない。Action Review には登録しない。
+
+P0 が止めること:
+
+- `record_approval!` は Account を作らない。Group、`ManagedGroup`、申請者本人の有効な owner が揃っていなければ `approved` にしない。
+- 申請行を `lock!` してから状態を見る。pending 以外からの承認は拒否する。同じ申請の二度目の `record_approval!` は失敗し、Group は増えない。
+- 申請者が承認前に停止・無効などで `User#functional?` でなくなると、owner 行の作成も `record_approval!` も失敗する。pending の申請自体は残る。自動却下はしない。
+- 直接 `record_approval!` を呼んでも、上の形が無ければ承認にならない。
+
+P2 に残すこと:
+
+- 上の作成を一つのトランザクションに入れ、`username_available_for_approval?` を Account 挿入の直前に再実行する。別申請との同時承認は `accounts` の unique index が `RecordNotUnique` で止める。P2 はそれを承認失敗にする。
+- 申請者が無効なときの pending を管理者が却下する画面。P0 はその申請を消さない。
+- アイコンのコピー、通知、配送などのコミット後処理。
+- `record_approval!` の外で Group を作ってコミットしない。途中で例外になったとき、その Group と owner 行が残らないようにトランザクションで包む。
+
+### 所有権移譲（P3 の永続化手順。申し出と承諾の画面は作らない）
+
+有効な owner 行の member は書き換えない。`identity_is_immutable` が member、role、付与時刻、付与者を固定する。履歴は解除済みの行として残す。
+
+移譲は `GroupRoleAssignment.transfer_owner!` だけが行う。
+
+1. `managed_groups` の行をロックする。
+2. そのグループの有効な owner 行をロックする。
+3. 対象が承認済みの新規グループであり、後継が現 owner と別の人であることを確認する。
+4. 現 owner 行に `revoked_at` を入れる。この解除だけは「他に有効な owner がいること」を要求しない。単独の `revoke!` は引き続き拒否する。
+5. 後継の owner 行を挿入する。partial unique index は解除後の行を見ないので、ここで1件になる。
+6. 挿入が失敗したらトランザクション全体を戻す。解除も残らない。
+
+`initial_owner_account_id` は申請者のままである。申し出と承諾、既存 Group の初回 owner 割当は P3 のサービスである。
 
 ## ローカル管理行
 

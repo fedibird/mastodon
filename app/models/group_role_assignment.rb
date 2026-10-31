@@ -31,7 +31,42 @@ class GroupRoleAssignment < ApplicationRecord
     update!(revoked_at: revoked_at)
   end
 
+  # Revoke the current owner and insert the successor in one transaction.
+  # Lock the managed group first, then the active owner row. The partial
+  # unique index allows the new owner only after the previous row is
+  # revoked, and a failed insert rolls that revocation back. This does not
+  # change GroupCreationRequest#initial_owner_account_id. Offer and acceptance
+  # stay in the P3 service.
+  def self.transfer_owner!(group_account:, member_account:, granted_by_account: nil, transferred_at: Time.current)
+    transaction do
+      managed = ManagedGroup.lock.find_by!(account_id: group_account.id)
+      current = active.owner.lock.find_by!(group_account_id: group_account.id)
+      current.send(:transfer_owner_to!, managed, member_account, granted_by_account, transferred_at)
+    end
+  end
+
   private
+
+  def transfer_owner_to!(managed, member_account, granted_by_account, transferred_at)
+    unless managed.approved_request? && managed.creation_request&.approved?
+      errors.add(:group_account, :invalid)
+      raise ActiveRecord::RecordInvalid, self
+    end
+    if member_account&.id == member_account_id
+      errors.add(:member_account, :invalid)
+      raise ActiveRecord::RecordInvalid, self
+    end
+
+    @replacing_owner = true
+    update!(revoked_at: transferred_at)
+    self.class.create!(
+      group_account_id: group_account_id,
+      member_account: member_account,
+      role: :owner,
+      granted_by_account: granted_by_account,
+      granted_at: transferred_at
+    )
+  end
 
   def assign_granted_at
     self.granted_at ||= Time.current
@@ -81,6 +116,7 @@ class GroupRoleAssignment < ApplicationRecord
   end
 
   def approved_group_keeps_its_owner
+    return if @replacing_owner
     return unless will_save_change_to_revoked_at? && owner? && revoked_at.present?
     return unless approved_group_requires_owner?
 

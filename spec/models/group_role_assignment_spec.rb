@@ -59,12 +59,12 @@ RSpec.describe GroupRoleAssignment do # rubocop:disable Metrics/BlockLength
   end
 
   it 'allows one active owner and a distinct moderator, including after revocation' do
-    first = assign_owner
+    first = assign_owner(requester.account)
     duplicate = described_class.new(group_account: group, member_account: Fabricate(:user).account, role: :owner, granted_at: Time.current)
     expect(duplicate).not_to be_valid
     expect(duplicate.errors.added?(:role, :taken)).to be true
 
-    same_person = described_class.new(group_account: group, member_account: owner.account, role: :moderator, granted_at: Time.current)
+    same_person = described_class.new(group_account: group, member_account: requester.account, role: :moderator, granted_at: Time.current)
     expect(same_person).not_to be_valid
     expect(same_person.errors.added?(:member_account_id, :taken)).to be true
 
@@ -79,6 +79,33 @@ RSpec.describe GroupRoleAssignment do # rubocop:disable Metrics/BlockLength
     expect(other.reload.revoked_at).to be_present
     again = described_class.create!(group_account: group, member_account: moderator.account, role: :moderator, granted_at: Time.current)
     expect(again.revoked_at).to be_nil
+  end
+
+  it 'transfers ownership by revoking the current row and inserting the next owner' do
+    current = assign_owner(requester.account)
+    request.record_approval!(reviewer_account: reviewer.account, group_account: group)
+    follow = Fabricate(:follow, account: requester.account, target_account: group)
+    successor = Fabricate(:user)
+
+    replacement = nil
+    expect do
+      replacement = described_class.transfer_owner!(
+        group_account: group,
+        member_account: successor.account,
+        granted_by_account: requester.account
+      )
+    end.not_to(change { Follow.count })
+
+    expect(current.reload.revoked_at).to be_present
+    expect(current.member_account).to eq requester.account
+    expect(replacement).to be_owner
+    expect(replacement.revoked_at).to be_nil
+    expect(described_class.active.owner.where(group_account: group).map(&:member_account)).to eq [successor.account]
+    expect(request.reload.initial_owner_account).to eq requester.account
+    expect(follow.reload).to be_persisted
+
+    expect { described_class.transfer_owner!(group_account: group, member_account: group) }.to raise_error(ActiveRecord::RecordInvalid)
+    expect(described_class.active.owner.where(group_account: group).map(&:member_account)).to eq [successor.account]
   end
 
   it 'enforces one active owner and no self-assignment in the database' do
