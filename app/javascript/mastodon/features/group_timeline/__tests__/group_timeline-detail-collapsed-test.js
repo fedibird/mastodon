@@ -250,7 +250,18 @@ describe('GroupTimeline group detail collapsed setting', () => {
     const store = buildStore({
       group: { detailCollapsed: { 8: true } },
     });
-    const view = renderGroups(store, [{ key: 'route', params: { id: '7' }, multiColumn: false }]);
+    const location = locationFor('route');
+    const timelineAt = (id) => (
+      <Provider store={store}>
+        <GroupTimeline
+          key='route'
+          params={{ id }}
+          multiColumn={false}
+          location={location}
+        />
+      </Provider>
+    );
+    const view = render(timelineAt('7'));
 
     expect(screen.getByTestId('group-detail').getAttribute('data-group-id')).toBe('7');
     expect(mockPut).not.toHaveBeenCalled();
@@ -261,11 +272,7 @@ describe('GroupTimeline group detail collapsed setting', () => {
     expect(store.getState().getIn(['settings', 'group', 'detailCollapsed', '7'])).toBe(true);
     detailRenders.length = 0;
 
-    view.rerender(
-      <Provider store={store}>
-        <GroupTimeline params={{ id: '8' }} multiColumn={false} location={locationFor('8')} />
-      </Provider>,
-    );
+    view.rerender(timelineAt('8'));
 
     expect(detailRenders).not.toContain('8');
     expect(screen.queryByTestId('group-detail')).toBeNull();
@@ -276,11 +283,7 @@ describe('GroupTimeline group detail collapsed setting', () => {
     expect(store.getState().getIn(['settings', 'group', 'detailCollapsed', '7'])).toBe(true);
     expect(mockPut).toHaveBeenCalledTimes(1);
 
-    view.rerender(
-      <Provider store={store}>
-        <GroupTimeline params={{ id: '7' }} multiColumn={false} location={locationFor('7')} />
-      </Provider>,
-    );
+    view.rerender(timelineAt('7'));
 
     expect(screen.queryByTestId('group-detail')).toBeNull();
     expect(detailButton('Show group detail')).toBeTruthy();
