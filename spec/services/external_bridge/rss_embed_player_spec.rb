@@ -63,7 +63,7 @@ RSpec.describe ExternalBridge::RSS::PlayerResolver do
     expect(item.media.first.keys).not_to include('html')
   end
 
-  it 'prefers media:player over a body iframe and does not keep the file as an embed' do
+  it 'keeps a group file and its player as one frame, and does not repeat the body iframe' do
     item = media_for(<<~XML)
       <media:group>
         <media:content url="https://cdn.example/clip.mp4" type="video/mp4"/>
@@ -74,9 +74,12 @@ RSpec.describe ExternalBridge::RSS::PlayerResolver do
 
     expect(item.media.map { |row| [row['kind'], row['origin']] }).to eq [
       ['video', 'media_rss'],
-      ['embed', 'media_player'],
       ['image', 'html_img'],
     ]
+    variants = item.media.first['group']['variants']
+    expect(variants.map { |row| row['kind'] }).to eq %w(video embed)
+    expect(variants.last['url']).to eq 'https://player.example.com/embed/abc123'
+    expect(item.media.to_json).not_to include('iframe')
   end
 
   it 'does not keep a poster when the player is rejected' do

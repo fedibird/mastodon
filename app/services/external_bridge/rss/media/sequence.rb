@@ -22,21 +22,26 @@ module ExternalBridge
         def to_a
           return [] if @resource.nil?
 
-          Array(@resource.media_candidates).filter_map { |candidate| entry(candidate) }
+          rows = []
+          MediaDigest.each_frame(@resource.media_candidates) do |candidate, ordinal|
+            built = entry(candidate, ordinal)
+            rows << built if built
+          end
+          rows
         end
 
         private
 
-        def entry(candidate)
+        def entry(candidate, ordinal)
           return nil if MediaScope.skipped?(candidate)
           return nil if candidate['role'] == 'poster'
-          return embed_entry(candidate) if candidate['kind'] == 'embed'
+          return embed_entry(candidate, ordinal) if candidate['kind'] == 'embed'
 
           link = gallery_link_for(candidate)
           if link&.media_attachment_id
-            local_entry(candidate, link)
+            local_entry(candidate, link, ordinal)
           elsif %w(video audio).include?(candidate['kind'])
-            remote_entry(candidate)
+            remote_entry(candidate, ordinal)
           end
         end
 
@@ -49,7 +54,7 @@ module ExternalBridge
           link
         end
 
-        def embed_entry(candidate)
+        def embed_entry(candidate, ordinal)
           chosen = PlayerResolver.choose(
             @resource.canonical_url,
             [{ priority: 1, at: 0, origin: candidate['origin'], urls: [candidate['url']] }]
@@ -57,7 +62,7 @@ module ExternalBridge
           return nil if chosen.nil?
 
           payload = {
-            id: "rss-media:#{MediaDigest.url_digest(chosen.url)[0, 16]}",
+            id: MediaDigest.playback_id(chosen.url, candidate.dig('group', 'key'), ordinal),
             type: 'embed',
             delivery: 'remote',
             url: chosen.url,
@@ -144,19 +149,21 @@ module ExternalBridge
           text
         end
 
-        def local_entry(candidate, link)
-          {
+        def local_entry(candidate, link, ordinal)
+          entry = {
             type: candidate['kind'],
             delivery: 'local',
             attachment_id: link.media_attachment_id.to_s,
             position: candidate['position'],
             description: candidate['description'],
           }.compact
+          entry[:id] = MediaDigest.playback_id(candidate['url'], candidate.dig('group', 'key'), ordinal) unless ordinal.nil?
+          entry
         end
 
-        def remote_entry(candidate)
+        def remote_entry(candidate, ordinal)
           entry = {
-            id: "rss-media:#{MediaDigest.url_digest(candidate['url'])[0, 16]}",
+            id: MediaDigest.playback_id(candidate['url'], candidate.dig('group', 'key'), ordinal),
             type: candidate['kind'],
             delivery: 'remote',
             url: candidate['url'],

@@ -11,6 +11,10 @@ module ExternalBridge
     # Thumbnail scope is content, then group, then item. A thumbnail used as
     # a video poster is not also an attachment. An explicit article image
     # with the same URL stays an attachment.
+    #
+    # A media:group is one logical candidate. Its renditions stay inside
+    # that candidate. Another group, a loose content element, an enclosure,
+    # and a body image stay separate even when a URL looks similar.
     class MediaExtractor
       Preview = Struct.new(:body, :candidates, :keywords, keyword_init: true)
       ATOM = XmlNames::ATOM
@@ -53,14 +57,18 @@ module ExternalBridge
         base = base_for(node)
         scan = EmbedScan.new
         @group_path = []
+        @group_sink = MediaGroup::Sink.new(
+          raw: raw,
+          posters: posters,
+          base: base,
+          article_url: article_href(node),
+          scope: @group_path,
+          budget: MediaGroup::Budget.new(Limits::MAX_GROUP_SCAN),
+          scan: scan
+        )
         node.element_children.each do |child|
           if media_group?(child)
-            within_group(child) do
-              child.element_children.each do |nested|
-                scan.observe(nested, raw.size)
-                collect(nested, body_node, raw, posters, base)
-              end
-            end
+            open_group(child)
           else
             scan.observe(child, raw.size)
             collect(child, body_node, raw, posters, base)
@@ -153,29 +161,28 @@ module ExternalBridge
         child.name == 'group' && child.namespace&.href == MEDIA
       end
 
+      def open_group(child)
+        return unless @group_sink.budget.take?
+
+        MediaGroup.collect(child, @group_sink)
+      end
+
       def collect_media(child, raw, posters, base)
         if media_group?(child)
-          within_group(child) { child.element_children.each { |nested| collect_media(nested, raw, posters, base) } }
+          open_group(child)
           return
         end
         return add(raw, { url: MediaThumbnail.reference(child), mime: 'image', origin: 'media_thumbnail', base: base }) if MediaThumbnail.thumbnail?(child)
-        # Nested groups reach this method without the outer namespace check.
-        # A thumbnail or group from another namespace is not media, and its
-        # text must not become a content URL.
-        return if %w(thumbnail group).include?(child.name)
+        # A title, description, or player from this namespace is not a file
+        # URL, and neither is an element from another namespace.
+        return unless MediaGroup.content?(child)
 
-        poster = MediaThumbnail.reference(child.element_children.find { |nested| MediaThumbnail.thumbnail?(nested) })
-        description = child['description'].presence || media_description_text(child)
-        add(raw, {
-              url: child['url'].presence || child.text,
-          mime: child['medium'].presence || child['type'],
-          length: child['fileSize'],
-          origin: 'media_rss',
-          base: base,
-          description: description,
-          poster: poster,
-          posters: posters,
-            })
+        row = MediaGroup.single(child, @group_sink)
+        return if row.nil?
+
+        stamp_scope!(row, { origin: row['origin'], kind: row['kind'] })
+        raw << row
+        remember_poster(posters, row['poster_url'], base) if row['kind'] == 'video'
       end
 
       def add(raw, source)
@@ -216,36 +223,50 @@ module ExternalBridge
         row['_group_path'] = @group_path.dup
       end
 
-      def within_group(node)
-        @group_path << node.object_id
-        yield
-      ensure
-        @group_path.pop
-      end
-
       def remember_poster(posters, poster, base)
         absolute = normalize(poster, base)
         posters << absolute if absolute.present? && posters
       end
 
+      # A group frame is always its own logical media. An independent
+      # candidate is dropped only when its kind, role, and URL already belong
+      # to an earlier independent candidate or to a variant of an earlier
+      # group. A later group is not folded into that claim. Similar URLs are
+      # not claims.
       def finalize(raw, posters)
         MediaScope.apply!(raw)
-        seen = {}
+        claimed = {}
         kept = []
         raw.each do |candidate|
           next if candidate.delete('_consumed')
 
           release_scope!(candidate)
           next if hidden_thumbnail?(candidate, posters)
+          next if skip_independent?(candidate, claimed)
 
-          key = "#{candidate['kind']}\n#{candidate['role']}\n#{candidate['url']}"
-          next if seen[key]
-
-          seen[key] = true
           kept << candidate
+          claim!(claimed, candidate)
           break if kept.size >= Limits::MAX_MEDIA_CANDIDATES
         end
         kept.each_with_index.map { |candidate, index| candidate.merge('position' => index) }
+      end
+
+      def skip_independent?(candidate, claimed)
+        return false if candidate['group'].is_a?(Hash)
+
+        claimed[exact_key(candidate['kind'], candidate['role'], candidate['url'])]
+      end
+
+      def claim!(claimed, candidate)
+        claimed[exact_key(candidate['kind'], candidate['role'], candidate['url'])] = true
+        Array(candidate.dig('group', 'variants')).each do |variant|
+          role = variant['kind'] == 'embed' ? 'player' : 'attachment'
+          claimed[exact_key(variant['kind'], role, variant['url'])] = true
+        end
+      end
+
+      def exact_key(kind, role, url)
+        "#{kind}\n#{role}\n#{url}"
       end
 
       def release_scope!(candidate)
@@ -302,50 +323,23 @@ module ExternalBridge
       end
 
       def mime_hint(value)
-        label = value.to_s.split(';').first.to_s.strip.downcase
-        return nil if label.blank? || %w(image video audio).include?(label)
-        return nil unless label.match?(%r{\A[\w.+-]+/[\w.+-]+\z})
-
-        label
+        MediaLocator.mime_hint(value)
       end
 
       def length_hint(value)
-        return nil if value.blank?
-
-        number = Integer(value.to_s, 10)
-        return nil if number.negative? || number > 1_099_511_627_776
-
-        number
-      rescue ArgumentError, TypeError
-        nil
+        MediaLocator.length_hint(value)
       end
 
       def clean(value)
-        text = Sanitizer.plain(value).gsub(/\s+/, ' ').strip
-        return nil if text.blank?
-
-        text.slice(0, Limits::MAX_MEDIA_DESCRIPTION)
+        MediaLocator.clean(value)
       end
 
       def normalize(value, base)
-        text = value.to_s.strip
-        return nil if text.blank?
-        return nil if dangerous_scheme?(text)
-
-        MediaURL.normalize(absolute(text, base))
-      end
-
-      def dangerous_scheme?(text)
-        text.match?(/\A[a-z][a-z0-9+.-]*:/i) && !text.match?(/\Ahttps?:/i)
+        MediaLocator.normalize(value, base)
       end
 
       def absolute(text, base)
-        return text if text.match?(/\Ahttps?:/i)
-        return nil if base.blank?
-
-        Addressable::URI.join(base, text).to_s
-      rescue Addressable::URI::InvalidURIError
-        nil
+        MediaLocator.absolute(text, base)
       end
 
       def base_for(node)
@@ -444,16 +438,6 @@ module ExternalBridge
 
       def entry?(node)
         XmlNames.element?(node, 'entry', ATOM)
-      end
-
-      def media_description_text(child)
-        nested = child.element_children.find do |node|
-          next false unless node.name == 'description'
-
-          href = node.namespace&.href
-          href.nil? || href == MEDIA
-        end
-        nested&.text
       end
 
       def child_ns(node, href, name)

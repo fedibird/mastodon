@@ -24,11 +24,18 @@ module ExternalBridge
       end
 
       def observe(child, at)
-        @duration ||= duration_from(child)
-        @keywords ||= keywords_from(child)
+        observe_facts(child)
         remember_thumb(child, at)
         remember_embed(child, at)
         remember_player(child, at)
+      end
+
+      # Duration and keywords inside a media:group still count. Players and
+      # embeds in that group belong to the group, so they are not collected
+      # here.
+      def observe_facts(child)
+        @duration ||= duration_from(child)
+        @keywords ||= keywords_from(child)
       end
 
       def note_html_at(at)
@@ -120,14 +127,36 @@ module ExternalBridge
         nil
       end
 
+      # media:embed contributes its url attribute only. An embed with no
+      # namespace still contributes iframe src values. media:param and the
+      # element's text are not player markup.
       def remember_embed(child, at)
         return unless child.name == 'embed'
-        return if child.namespace&.href == MediaExtractor::ATOM
+
+        href = child.namespace&.href
+        return if href == MediaExtractor::ATOM
+        if href == MediaExtractor::MEDIA
+          remember_media_embed(child, at)
+          return
+        end
+        # RSS 1.0 puts the default namespace on embed. That is still the
+        # iframe path. A foreign namespace is not.
+        return if href && href != XmlNames::RSS1
 
         urls = embed_urls(child)
         return if urls.empty?
 
         @players << { priority: 1, at: at, origin: 'rss_embed', urls: urls }
+      end
+
+      def remember_media_embed(child, at)
+        attribute = child.attribute_with_ns('url', nil)
+        return if attribute.nil?
+
+        url = attribute.value.to_s.strip
+        return if url.blank?
+
+        @players << { priority: 1, at: at, origin: 'media_embed', urls: [url] }
       end
 
       def remember_player(child, at)
@@ -138,12 +167,9 @@ module ExternalBridge
       end
 
       def player_urls(child)
-        if child.name == 'group' && child.namespace&.href == MediaExtractor::MEDIA
-          return child.element_children.flat_map { |nested| player_urls(nested) }
-        end
         return [] unless child.name == 'player' && child.namespace&.href == MediaExtractor::MEDIA
 
-        [child['url'].to_s].reject(&:blank?)
+        [child.attribute_with_ns('url', nil)&.value.to_s].reject(&:blank?)
       end
 
       def embed_urls(child)

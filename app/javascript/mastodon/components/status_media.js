@@ -216,7 +216,9 @@ const remember = (seen, id) => {
 
 // One image/GIF gallery, then video, audio, remote players, and embeds in
 // sequence order. A missing local file is skipped. A repeated attachment id
-// is drawn once. Returns null when the payload has no sequence.
+// is drawn once, unless the sequence entry has its own id. That id is a
+// logical frame, so two Media RSS groups can share one saved file and still
+// both appear. Returns null when the payload has no sequence.
 export const externalMediaBlocks = (status) => {
   const sequence = status && status.getIn && status.getIn(['fedibird_external', 'sequence']);
   if (!sequence || typeof sequence.forEach !== 'function' || sequence.size === 0) {
@@ -252,13 +254,14 @@ export const externalMediaBlocks = (status) => {
     if (delivery === 'local') {
       const attachmentId = read(entry, 'attachment_id');
       const attachment = attachments[String(attachmentId)];
-      if (!attachment || !remember(seen, attachment.get('id'))) {
+      const frameId = read(entry, 'id');
+      if (!attachment || !remember(seen, frameId || attachment.get('id'))) {
         return;
       }
 
       const attachmentType = attachment.get('type') || type;
       if (isPlayerType(attachmentType)) {
-        players.push({ kind: attachmentType, attachment });
+        players.push({ kind: attachmentType, attachment, frameId });
       } else if (isGalleryType(attachmentType)) {
         images.push(attachment);
       } else {

@@ -22,6 +22,8 @@ module ExternalBridge
           rows.find { |row| row['role'] == 'poster' } || rows.first
         end
 
+        # Group renditions are not fetch targets. Only the representative
+        # URL on the candidate itself matches, plus image fallbacks below.
         def fetch_match?(row, url_digest)
           %w(image video).include?(row['kind']) && MediaDigest.url_digest(row['url'].to_s) == url_digest
         end

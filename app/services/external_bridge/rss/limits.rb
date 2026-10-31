@@ -39,6 +39,17 @@ module ExternalBridge
       # unless a later server policy says otherwise. The candidate cap is the
       # hard attachment ceiling; the live post limit can be lower.
       MAX_MEDIA_CANDIDATES = 12
+      # Alternate renditions stored for one media:group. Selection may look
+      # at every eligible rendition the scan budget reached, then keeps this
+      # many, always including the representative. These do not each spend a
+      # MAX_MEDIA_CANDIDATES slot. Image fallbacks are a different cap.
+      MAX_GROUP_VARIANTS = 8
+      # Element nodes visited inside one item's media:group trees: contents,
+      # players, thumbnails, titles, rejected nodes, and nested groups.
+      MAX_GROUP_SCAN = 64
+      # Nested media:group elements entered under one item. The outermost
+      # group is depth 1. A deeper group is not read.
+      MAX_GROUP_DEPTH = 4
       MAX_MEDIA_DESCRIPTION = 500
       # One player per item. The HTML fragment is discarded after src is read.
       MAX_EMBED_HTML_BYTES = 8.kilobytes

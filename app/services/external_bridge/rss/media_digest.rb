@@ -36,6 +36,10 @@ module ExternalBridge
       # `usage` and `subject_url` are the same kind of hint: audio artwork
       # stays an attachment in this phase, and recording that label must not
       # by itself change media_revision.
+      # `group` is the rendition list for one logical media. It is stored and
+      # reloaded, and it is not part of `row`. A representative change is
+      # already visible because url and kind are. A non-selected rendition
+      # change updates the stored list without invalidating workers.
       HINTS = %w(audio_art author decoration).freeze
 
       def stored_row(candidate)
@@ -47,7 +51,15 @@ module ExternalBridge
         memo['fallbacks'] = fallbacks if fallbacks.present?
         assign_poster_fetch!(memo, source)
         assign_usage!(memo, source)
+        assign_group!(memo, source)
         memo
+      end
+
+      # Image fallbacks are not reused here. A group that fails the whitelist
+      # is omitted and the representative candidate is kept.
+      def assign_group!(memo, source)
+        group = MediaGroup.sanitize_stored(source['group'])
+        memo['group'] = group if group
       end
 
       def assign_usage!(memo, source)
@@ -113,6 +125,39 @@ module ExternalBridge
         File.extname(Addressable::URI.parse(url).path.to_s).casecmp('.svg').zero?
       rescue Addressable::URI::InvalidURIError
         true
+      end
+
+      # One pass in candidate order. A group key gets 0, 1, 2… among copies
+      # of that same key. A flat candidate has no ordinal, so its playback id
+      # stays the file digest.
+      def each_frame(candidates)
+        counts = Hash.new(0)
+        Array(candidates).each do |candidate|
+          key = frame_group_key(candidate)
+          ordinal = nil
+          if key
+            ordinal = counts[key]
+            counts[key] += 1
+          end
+          yield candidate, ordinal
+        end
+      end
+
+      # Physical file id is the URL digest. A group adds its key and the
+      # copy number so two logical frames can share one file. `0` is a real
+      # copy number. Flat candidates omit the suffix.
+      def playback_id(url, group_key, ordinal)
+        base = "rss-media:#{url_digest(url.to_s)[0, 16]}"
+        return base if group_key.blank? || ordinal.nil?
+
+        "#{base}:g:#{group_key.to_s[0, 12]}:#{ordinal}"
+      end
+
+      def frame_group_key(candidate)
+        return nil unless candidate.is_a?(Hash)
+
+        key = candidate.dig('group', 'key').to_s
+        key if key.match?(/\A[0-9a-f]{64}\z/)
       end
     end
   end
