@@ -3,9 +3,22 @@
 module ExternalBridge
   module RSS
     module Limits
+      # Inflated body of one feed response, in bytes. This is the document
+      # the parser would see. Phase 1 keeps the previous 4 MiB ceiling.
       # Podcast feeds can contain years of episodes; the parsed item count is
-      # independently bounded by MAX_ITEMS below.
+      # independently bounded by MAX_ITEMS below. 8 MiB is an unadopted
+      # candidate and is not this constant.
       MAX_RESPONSE_BYTES = 4.megabytes
+      # Encoded body of one HTTP response, in bytes, after transfer framing
+      # (including chunked framing) is removed and before Content-Encoding
+      # is inflated. TLS records and header bytes are not included.
+      # Content-Length describes this size when it is present and honest; a
+      # missing, invalid, or short value does not replace the count of bytes
+      # actually read. The default matches MAX_RESPONSE_BYTES so a public
+      # feed still cannot accept more than 4 MiB on the wire. The two caps
+      # are independent: a test profile may raise one without raising the
+      # other. This phase does not.
+      MAX_RECEIVED_BYTES = 4.megabytes
       MAX_TEXT_BYTES = 1.megabyte
       MAX_ITEMS = 40
       # A refresh may replay at most one page of historical import failures.
