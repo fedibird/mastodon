@@ -11,7 +11,6 @@ import RelativeTimestamp from 'mastodon/components/relative_timestamp';
 import IconButton from 'mastodon/components/icon_button';
 import { FormattedMessage, injectIntl, defineMessages } from 'react-intl';
 import {
-  autoPlayHeader,
   autoPlayEmoji,
   me,
   followModal,
@@ -47,6 +46,7 @@ const messages = defineMessages({
   followConfirm: { id: 'confirmations.follow.confirm', defaultMessage: 'Follow' },
   unfollowConfirm: { id: 'confirmations.unfollow.confirm', defaultMessage: 'Unfollow' },
   subscribeConfirm: { id: 'confirmations.subscribe.confirm', defaultMessage: 'Subscribe' },
+  unknownSoftware: { id: 'group_directory.unknown_software', defaultMessage: 'Implementation unknown' },
   unsubscribeConfirm: { id: 'confirmations.unsubscribe.confirm', defaultMessage: 'Unsubscribe' },
 });
 
@@ -290,20 +290,12 @@ class AccountCard extends ImmutablePureComponent {
       }
     }
 
+    const software = account.getIn(['group_directory', 'software']);
     const hide_statuses_count = account.getIn(['other_settings', 'hide_statuses_count'], false);
     const hide_followers_count = account.getIn(['other_settings', 'hide_followers_count'], false);
 
     return (
-      <div className='directory__card'>
-        <div className='directory__card__img'>
-          <img
-            src={
-              autoPlayHeader ? account.get('header') : account.get('header_static')
-            }
-            alt=''
-          />
-        </div>
-
+      <div className='directory__card directory__card--group'>
         <div className='directory__card__bar'>
           <Permalink
             className='directory__card__bar__name'
@@ -317,6 +309,17 @@ class AccountCard extends ImmutablePureComponent {
           <div className='directory__card__bar__relationship account__relationship'>
             {buttons}
           </div>
+        </div>
+
+        <div className='group-directory__metadata'>
+          <span>{software || intl.formatMessage(messages.unknownSoftware)}</span>
+          <Permalink
+            className='group-directory__open'
+            href={account.get('url')}
+            to={`/timelines/groups/${account.get('id')}`}
+          >
+            <FormattedMessage id='group_directory.open_group' defaultMessage='Open group' />
+          </Permalink>
         </div>
 
         <div className='directory__card__extra' ref={this.setRef}>
@@ -337,8 +340,8 @@ class AccountCard extends ImmutablePureComponent {
             {hide_followers_count ? '-' : <ShortNumber value={account.get('followers_count')} />}{' '}
             <small>
               <FormattedMessage
-                id='account.members'
-                defaultMessage='Members'
+                id='account.followers'
+                defaultMessage='Followers'
               />
             </small>
           </div>

@@ -13030,3 +13030,61 @@ div.external-source-identity:hover .external-source-identity__name {
     color: $dark-text-color;
   }
 }
+
+
+// Community-focused Group Directory cards: compact, readable, and distinct
+// from both the profile directory and a Group timeline's detail banner.
+.directory__card--group {
+  .directory__card__bar {
+    border-bottom: 1px solid lighten($ui-base-color, 8%);
+  }
+
+  .directory__card__extra .account__header__content {
+    min-height: 0;
+    padding: 10px 12px;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.45;
+
+    p {
+      display: block;
+      margin: 0 0 4px;
+    }
+
+    br {
+      display: inline;
+    }
+  }
+
+  .group-directory__metadata {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 12px;
+    color: $darker-text-color;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+
+    span {
+      min-width: 0;
+    }
+
+    .group-directory__open {
+      flex: 0 0 auto;
+      color: $highlight-text-color;
+      text-decoration: none;
+      font-weight: 500;
+
+      &:hover,
+      &:focus {
+        text-decoration: underline;
+      }
+    }
+  }
+}
