@@ -11,7 +11,6 @@ import RelativeTimestamp from 'mastodon/components/relative_timestamp';
 import IconButton from 'mastodon/components/icon_button';
 import { FormattedMessage, injectIntl, defineMessages } from 'react-intl';
 import {
-  autoPlayHeader,
   autoPlayEmoji,
   me,
   followModal,
@@ -48,6 +47,7 @@ const messages = defineMessages({
   unfollowConfirm: { id: 'confirmations.unfollow.confirm', defaultMessage: 'Unfollow' },
   subscribeConfirm: { id: 'confirmations.subscribe.confirm', defaultMessage: 'Subscribe' },
   unsubscribeConfirm: { id: 'confirmations.unsubscribe.confirm', defaultMessage: 'Unsubscribe' },
+  unknownSoftware: { id: 'group_directory.unknown_software', defaultMessage: 'Implementation unknown' },
 });
 
 const makeMapStateToProps = () => {
@@ -292,23 +292,18 @@ class AccountCard extends ImmutablePureComponent {
 
     const hide_statuses_count = account.getIn(['other_settings', 'hide_statuses_count'], false);
     const hide_followers_count = account.getIn(['other_settings', 'hide_followers_count'], false);
+    const timelinePath = `/timelines/groups/${account.get('id')}`;
+    const software = account.getIn(['group_directory', 'software']);
+    const originalUrl = account.get('url');
+    const originalIsHttp = typeof originalUrl === 'string' && /^https?:\/\//.test(originalUrl);
 
     return (
-      <div className='directory__card'>
-        <div className='directory__card__img'>
-          <img
-            src={
-              autoPlayHeader ? account.get('header') : account.get('header_static')
-            }
-            alt=''
-          />
-        </div>
-
+      <article className='directory__card directory__card--group'>
         <div className='directory__card__bar'>
           <Permalink
             className='directory__card__bar__name'
-            href={account.get('url')}
-            to={`/timelines/groups/${account.get('id')}`}
+            href={timelinePath}
+            to={timelinePath}
           >
             <Avatar account={account} size={48} />
             <DisplayName account={account} />
@@ -319,14 +314,29 @@ class AccountCard extends ImmutablePureComponent {
           </div>
         </div>
 
-        <div className='directory__card__extra' ref={this.setRef}>
+        <div className='directory__card__extra group-directory-card__note' ref={this.setRef}>
           <div
             className='account__header__content'
             dangerouslySetInnerHTML={{ __html: account.get('note_emojified') }}
           />
         </div>
 
-        <div className='directory__card__extra'>
+        <div className='group-directory-card__meta'>
+          <span>{software || intl.formatMessage(messages.unknownSoftware)}</span>
+        </div>
+
+        <div className='group-directory-card__links'>
+          <Permalink href={timelinePath} to={timelinePath}>
+            <FormattedMessage id='group_directory.open_timeline' defaultMessage='Open group timeline' />
+          </Permalink>
+          {originalIsHttp && (
+            <a href={originalUrl} target='_blank' rel='noopener noreferrer'>
+              <FormattedMessage id='group_directory.original_site' defaultMessage='Original site' />
+            </a>
+          )}
+        </div>
+
+        <div className='directory__card__extra group-directory-card__counts'>
           <div className='accounts-table__count'>
             {hide_statuses_count ? '-' : <ShortNumber value={account.get('statuses_count')} />}
             <small>
@@ -336,10 +346,7 @@ class AccountCard extends ImmutablePureComponent {
           <div className='accounts-table__count'>
             {hide_followers_count ? '-' : <ShortNumber value={account.get('followers_count')} />}{' '}
             <small>
-              <FormattedMessage
-                id='account.members'
-                defaultMessage='Members'
-              />
+              <FormattedMessage id='account.followers' defaultMessage='Followers' />
             </small>
           </div>
           <div className='accounts-table__count'>
@@ -359,7 +366,7 @@ class AccountCard extends ImmutablePureComponent {
             </small>
           </div>
         </div>
-      </div>
+      </article>
     );
   }
 
