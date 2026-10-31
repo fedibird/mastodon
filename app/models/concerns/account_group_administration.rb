@@ -19,5 +19,9 @@ module AccountGroupAdministration
              class_name: 'GroupRoleAssignment',
              foreign_key: :member_account_id,
              inverse_of: :member_account
+    has_one :group_registration_invite_policy,
+            foreign_key: :group_account_id,
+            inverse_of: :group_account,
+            dependent: :restrict_with_exception
   end
 end

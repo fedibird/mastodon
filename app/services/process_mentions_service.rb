@@ -226,7 +226,7 @@ class ProcessMentionsService < BaseService
 
     if mentioned_account.local? && mentioned_account.group?
       group      = mentioned_account
-      visibility = Status.visibilities.key([Status.visibilities[status.visibility], Status.visibilities[group.user&.setting_default_privacy]].max)
+      visibility = ActivityPub::GroupAnnounce.visibility_for(status, group)
 
       ReblogService.new.call(group, status, { visibility: visibility })
     elsif mentioned_account.local?

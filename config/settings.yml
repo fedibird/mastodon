@@ -255,11 +255,25 @@ defaults: &defaults
     account_migration: 'off'
     invite_creation: 'off'
     status_import: 'off'
-  # Group creation requests (P1). Off until P2 can approve end to end.
+  # Group creation requests (P1). Off until an operator turns it on.
   # Unset stays off. This is not on the admin settings form. Operators turn
   # it on from a console for development:
   #   Setting.group_creation_requests = true
   group_creation_requests: false
+  # Site defaults copied onto a new group's registration-invite policy at
+  # approval. Changing these does not rewrite a policy that already exists,
+  # and groups that already exist are not backfilled. Issuance stays off and
+  # the shared quota stays 0, so a fresh copy cannot issue or consume an
+  # invite. P5 issues URLs and decrements the quota. P2-B is the settings UI.
+  #   Setting.group_registration_invites_enabled = false
+  #   Setting.group_registration_invites_shared_quota = 0
+  group_registration_invites_enabled: false
+  group_registration_invites_shared_quota: 0
+  group_registration_invites_shared_quota_unlimited: false
+  group_registration_invites_per_link_max_uses: 1
+  group_registration_invites_per_link_unlimited_uses: false
+  group_registration_invites_per_link_lifetime_seconds: 604800
+  group_registration_invites_per_link_indefinite: false
 
 development:
   <<: *defaults

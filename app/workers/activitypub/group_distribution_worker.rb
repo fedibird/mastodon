@@ -12,7 +12,7 @@ class ActivityPub::GroupDistributionWorker
     groups.each do |group|
       next unless status.account.following?(group)
 
-      visibility = Status.visibilities.key([Status.visibilities[status.visibility], Status.visibilities[group.user&.setting_default_privacy]].max)
+      visibility = ActivityPub::GroupAnnounce.visibility_for(status, group)
 
       ReblogService.new.call(group, status, { visibility: visibility })
     end

@@ -26,6 +26,7 @@ class GroupCreationRequest < ApplicationRecord
   belongs_to :initial_owner_account, class_name: 'Account', optional: true
   has_one :managed_group, foreign_key: :creation_request_id, inverse_of: :creation_request, dependent: :restrict_with_exception
   has_one :successor_request, class_name: 'GroupCreationRequest', foreign_key: :previous_request_id, inverse_of: :previous_request, dependent: :restrict_with_exception
+  has_one :decision, class_name: 'GroupCreationDecision', inverse_of: :group_creation_request, dependent: :restrict_with_exception
 
   validates :username, presence: true, format: { with: USERNAME_PATTERN }, length: { maximum: 30 }
   validates_with UnreservedUsernameValidator, on: :create
@@ -48,10 +49,12 @@ class GroupCreationRequest < ApplicationRecord
   validate :initial_owner_is_fixed, on: :update
   validate :state_transition_is_legal, on: :update
   validate :decision_shape
+  validate :handoff_progress_is_legal, on: :update
 
   before_validation :normalize_snapshot, on: :create
   before_validation :normalize_decision_note
   before_validation :assign_requested_at, on: :create
+  before_validation :assign_handoff_attempts, on: :create
 
   after_commit :purge_terminal_icon, on: :update
   after_commit :purge_destroyed_icon, on: :destroy
@@ -141,6 +144,46 @@ class GroupCreationRequest < ApplicationRecord
   def assign_requested_at
     self.requested_at ||= Time.current
     self.state ||= :pending
+  end
+
+  def assign_handoff_attempts
+    self.icon_handoff_attempts = 0 if icon_handoff_attempts.nil?
+  end
+
+  def handoff_progress_is_legal
+    copied_at_is_one_way
+    digest_is_one_way
+    attempts_do_not_decrease
+    handoff_error_shape
+  end
+
+  def copied_at_is_one_way
+    return unless will_save_change_to_icon_handoff_copied_at?
+
+    errors.add(:icon_handoff_copied_at, :invalid) if icon_handoff_copied_at_in_database.present? || icon_handoff_copied_at.nil?
+    errors.add(:icon_handoff_copied_at, :invalid) if icon_storage_key.blank? || !approved?
+    errors.add(:icon_handoff_source_digest, :invalid) if icon_handoff_source_digest.blank?
+  end
+
+  def digest_is_one_way
+    return unless will_save_change_to_icon_handoff_source_digest?
+
+    errors.add(:icon_handoff_source_digest, :immutable) if icon_handoff_source_digest_in_database.present?
+    errors.add(:icon_handoff_source_digest, :invalid) unless icon_handoff_source_digest.to_s.match?(/\A[0-9a-f]{64}\z/)
+    errors.add(:icon_handoff_source_digest, :invalid) if icon_storage_key.blank?
+  end
+
+  def attempts_do_not_decrease
+    return unless will_save_change_to_icon_handoff_attempts?
+
+    errors.add(:icon_handoff_attempts, :invalid) if icon_handoff_attempts.to_i < icon_handoff_attempts_in_database.to_i
+  end
+
+  def handoff_error_shape
+    return unless will_save_change_to_icon_handoff_error?
+    return if icon_handoff_error.nil?
+
+    errors.add(:icon_handoff_error, :invalid) unless icon_handoff_error.match?(/\A[a-z0-9_]{1,64}\z/)
   end
 
   def starts_pending

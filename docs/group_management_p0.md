@@ -64,7 +64,8 @@ GroupCreationRequest.transaction do
     note: request.note,
     actor_type: 'Group'
   )
-  # アイコンの受渡しは下の「承認時の avatar」。ここで Account#avatar へコピーする。
+  # アイコンはここではコピーしない。公開ファイルは承認のコミット後に書く。
+  # docs/group_management_p2a.md
 
   ManagedGroup.create!(
     account: group,

@@ -72,25 +72,8 @@ Paperclip の `has_attached_file` は使わない。`config/initializers/papercl
 
 ## P2 への引き渡し
 
-承認トランザクションの中で Group Account を作ったあと、コミット前に次でオリジナルを読む。
+承認の実行、コミット後の avatar コピー、再試行の印は [group_management_p2a.md](group_management_p2a.md) が正本である。P1 は `GroupCreationIcons::Handoff.staged_original` と `release_after_copy!` を用意するだけで、どちらも呼ばない。
 
-```ruby
-file = GroupCreationIcons::Handoff.staged_original(request)
-# file は Tempfile。P2 が close する。
-# ここで group.avatar へコピーし、既存の Paperclip スタイルを作る。
-# avatar_remote_url は使わない。
-```
+`release_after_copy!` は `approved` 以外では拒否する。失敗しても `Purge.purge_terminal` は rejected と cancelled だけを消す。sweep は申請行がキーを参照している間は消さない。ステージングは、承認済みのコピーを確認してから消す。
 
-コピーと承認行のコミットが成功してから、公開ファイルを残したままステージングを消す。
-
-```ruby
-GroupCreationIcons::Handoff.release_after_copy!(request)
-```
-
-`release_after_copy!` は `approved` 以外では拒否する。P1 はこれを呼ばない。
-
-`release_after_copy!` が失敗すると、承認済みの行は `Purge.purge_terminal` の対象ではなく、sweep も申請行がキーを参照しているので消さない。ステージングが残る。P2 は、`Account#avatar` へのコピーと承認トランザクションのコミットが成功したことを後から判定できる印を申請に残し、失敗したコピーを再試行できるようにする。P1 はその印も承認処理も足さない。
-
-Paperclip はコミット前に公開パスへ書く。ロールバックしたときは、その Account id 用に書いた公開ファイルを P2 が消す。ステージング側は `release_after_copy!` を呼ばなければ残る。
-
-P2 が審査者にプレビューを許すときは `GroupCreationRequests::Access.reviewer?` を、ログインできるサーバー管理者に限って true にする。コントローラの検索も、本人の `has_many` だけでは審査者の ID を見つけられないので、同じ門に合わせる。
+`GroupCreationRequests::Access.reviewer?` はログインできるサーバー管理者で true になる。設定画面の検索は引き続き本人の申請だけであり、審査画面は P2-B である。

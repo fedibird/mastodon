@@ -54,7 +54,7 @@ class FollowService < BaseService
     # and the feeds are being merged
     mark_home_feed_as_partial! if @source_account.not_following_anyone?
 
-    follow = if ((@target_account.locked? || @target_account.local? && @source_account.bot? && @target_account.user.setting_confirm_follow_from_bot) && !@options[:bypass_locked]) || @source_account.silenced? || @target_account.activitypub?
+    follow = if follow_request_required?
                request_follow!
              elsif @target_account.local?
                direct_follow!
@@ -116,6 +116,24 @@ class FollowService < BaseService
 
   def mark_home_feed_as_partial!
     redis.set("account:#{@source_account.id}:regeneration", true, nx: true, ex: 1.day.seconds)
+  end
+
+  # Locked accounts, silenced sources, and remote ActivityPub targets still
+  # become follow requests. A bot follow of a Person keeps that Person's
+  # confirm-from-bot setting. A group has no login: an unlocked group
+  # accepts the follow, and a locked group stays a request.
+  def follow_request_required?
+    return true if @source_account.silenced? || @target_account.activitypub?
+    return false if @options[:bypass_locked]
+
+    @target_account.locked? || bot_follow_needs_confirmation?
+  end
+
+  def bot_follow_needs_confirmation?
+    return false unless @source_account.bot? && @target_account.local?
+    return false if @target_account.group?
+
+    @target_account.user&.setting_confirm_follow_from_bot
   end
 
   def following_not_possible?

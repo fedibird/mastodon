@@ -26,7 +26,7 @@ class ReblogService < BaseService
       if reblogged_status.hidden?
         reblogged_status.visibility
       else
-        options[:visibility] || account.user&.setting_default_privacy
+        options[:visibility] || account.user&.setting_default_privacy || ('public' if account.local? && account.group?)
       end
     end
     ExternalBridge::Visibility.reject_composable!(visibility)

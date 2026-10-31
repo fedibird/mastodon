@@ -12,4 +12,10 @@ namespace :group_creation_icons do
     counts = GroupCreationIcons::Purge.purge_terminal
     puts "purged #{counts[:purged]} group creation icon(s), #{counts[:failed]} still need a retry"
   end
+
+  desc 'Retry approved icon copies and deletion of the private original'
+  task handoff: :environment do
+    counts = GroupCreationIcons::HandoffRecovery.call
+    puts "finished #{counts[:finished]} group creation icon handoff(s), #{counts[:pending]} still pending, #{counts[:failed]} failed"
+  end
 end
