@@ -15,6 +15,17 @@ module ExternalBridge
     # text node is materialized by the reader and then counted. Crossing a
     # budget raises before the next node is visited and before the DOM parse.
     #
+    # NOENT is not set. That flag turns entity substitution on, and with it
+    # libxml loads external general and parameter entities, including file:
+    # URLs. NONET only blocks the network. A custom entity reference is
+    # rejected here so the DOM, which substitutes internal entities even
+    # without NOENT, never sees it. The five predefined entities are ordinary
+    # text and are not references by the time the reader reports them.
+    #
+    # Disallowed C0 controls are removed before this walk. That is a
+    # compatibility exception: a broken tree or a missing end tag is still
+    # rejected, and this removal does not make the document strict XML.
+    #
     # Depth counts elements. The root is depth 1, which is reader depth 0.
     # Attribute count includes xmlns declarations.
     class DocumentBudget
@@ -43,6 +54,9 @@ module ExternalBridge
       TEXT = Nokogiri::XML::Reader::TYPE_TEXT
       CDATA = Nokogiri::XML::Reader::TYPE_CDATA
       COMMENT = Nokogiri::XML::Reader::TYPE_COMMENT
+      ENTITY_REFERENCE = Nokogiri::XML::Reader::TYPE_ENTITY_REFERENCE
+      ENTITY = Nokogiri::XML::Reader::TYPE_ENTITY
+      PREDEFINED_ENTITIES = %w(amp lt gt apos quot).freeze
 
       # XML 1.0 disallows most C0 controls. A strict parser rejects the whole
       # document when one appears in text, which used to be recovered and then
@@ -86,8 +100,10 @@ module ExternalBridge
         end
       end
 
+      # nonet blocks network I/O. nohuge keeps libxml's amplification ceiling.
+      # noent is omitted on purpose: it is entity substitution, not a limit.
       def reader(source)
-        Nokogiri::XML::Reader.new(source) { |config| config.nonet.noent.nohuge }
+        Nokogiri::XML::Reader.new(source) { |config| config.nonet.nohuge }
       end
 
       def visit!(node, elements)
@@ -97,9 +113,18 @@ module ExternalBridge
         when TEXT, CDATA, COMMENT
           limit_bytes!(node.value, @budget.max_text_bytes)
           elements
+        when ENTITY_REFERENCE, ENTITY
+          reject_custom_entity!(node)
+          elements
         else
           elements
         end
+      end
+
+      def reject_custom_entity!(node)
+        return if node.node_type == ENTITY_REFERENCE && PREDEFINED_ENTITIES.include?(node.name)
+
+        raise Error, :invalid_xml
       end
 
       def count_element!(node, elements)

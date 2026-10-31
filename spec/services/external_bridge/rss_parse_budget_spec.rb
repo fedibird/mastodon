@@ -1,6 +1,46 @@
 # frozen_string_literal: true
 
 require 'rails_helper'
+require 'fiddle'
+require 'tmpdir'
+
+# Records libxml external-entity loads. The loader is process-global, so it
+# is restored before the example returns. A null result means "no bytes".
+module RssEntityLoaderProbe
+  module_function
+
+  def capturing
+    library = Fiddle.dlopen(nokogiri_so)
+    setter = Fiddle::Function.new(library['xmlSetExternalEntityLoader'], [Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOID)
+    getter = Fiddle::Function.new(library['xmlGetExternalEntityLoader'], [], Fiddle::TYPE_VOIDP)
+    calls = []
+    callback = Fiddle::Closure::BlockCaller.new(
+      Fiddle::TYPE_VOIDP,
+      [Fiddle::TYPE_VOIDP, Fiddle::TYPE_VOIDP, Fiddle::TYPE_VOIDP]
+    ) do |url, identifier, _context|
+      calls << [pointer_string(url), pointer_string(identifier)]
+      Fiddle::NULL
+    end
+    previous = getter.call
+    setter.call(callback)
+    begin
+      yield calls
+    ensure
+      setter.call(previous)
+    end
+  end
+
+  def nokogiri_so
+    version = RUBY_VERSION.split('.').take(2).join('.')
+    File.join(Gem.loaded_specs.fetch('nokogiri').full_gem_path, 'lib/nokogiri', version, 'nokogiri.so')
+  end
+
+  def pointer_string(value)
+    return nil if value.nil? || (value.respond_to?(:null?) && value.null?)
+
+    value.to_s
+  end
+end
 
 RSpec.describe ExternalBridge::RSS::DocumentBudget do
   def budget(**overrides)
@@ -77,7 +117,7 @@ RSpec.describe ExternalBridge::RSS::DocumentBudget do
     expect_oversized(xml, max_elements: 3)
   end
 
-  it 'rejects entity amplification before a DOM is built' do
+  it 'rejects an internal entity bomb before a DOM is built and does not load it' do
     payload = +%(<?xml version="1.0"?>\n<!DOCTYPE r [\n<!ENTITY a "aaaaaaaaaa">\n)
     previous = 'a'
     'b'.upto('f') do |name|
@@ -86,9 +126,100 @@ RSpec.describe ExternalBridge::RSS::DocumentBudget do
     end
     payload << "]>\n<r>&#{previous};</r>\n"
 
-    expect(Nokogiri::XML::Document).not_to receive(:parse)
-    expect { ExternalBridge::RSS::Parser.parse!(payload) }
-      .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'oversized_feed' }
+    RssEntityLoaderProbe.capturing do |calls|
+      expect(Nokogiri::XML::Document).not_to receive(:parse)
+      expect { ExternalBridge::RSS::Parser.parse!(payload) }
+        .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'oversized_feed' }
+      expect(calls).to eq []
+    end
+  end
+
+  it 'rejects a custom internal entity instead of substituting it' do
+    xml = <<~XML
+      <?xml version="1.0"?>
+      <!DOCTYPE rss [<!ENTITY nick "SECRET-NICK">]>
+      <rss version="2.0"><channel><title>&nick;</title><link>https://feeds.example/a</link>
+        <item><guid>g</guid><title>t</title><link>https://articles.example/n</link></item>
+      </channel></rss>
+    XML
+
+    RssEntityLoaderProbe.capturing do |calls|
+      expect(Nokogiri::XML::Document).not_to receive(:parse)
+      expect { ExternalBridge::RSS::Parser.parse!(xml) }
+        .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'invalid_xml' }
+      expect(calls).to eq []
+    end
+  end
+
+  it 'does not load an external general entity from file or http' do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'hostname')
+      File.write(path, 'SENTINEL-NOT-A-HOSTNAME')
+      file_xml = %(<?xml version="1.0"?><!DOCTYPE rss [<!ENTITY x SYSTEM "file://#{path}">]><rss version="2.0"><channel><title>&x;</title></channel></rss>)
+      http_xml = <<~XML
+        <?xml version="1.0"?>
+        <!DOCTYPE rss [<!ENTITY xxe SYSTEM "http://127.0.0.1/xxe-secret">]>
+        <rss version="2.0"><channel><title>&xxe;</title></channel></rss>
+      XML
+      https_xml = <<~XML
+        <?xml version="1.0"?>
+        <!DOCTYPE rss [<!ENTITY xxe SYSTEM "https://feeds.example/secret.ent">]>
+        <rss version="2.0"><channel><title>&xxe;</title></channel></rss>
+      XML
+      stub_request(:get, 'http://127.0.0.1/xxe-secret').to_return(status: 200, body: 'SECRET')
+      stub_request(:get, 'https://feeds.example/secret.ent').to_return(status: 200, body: 'SECRET')
+
+      [file_xml, http_xml, https_xml].each do |xml|
+        RssEntityLoaderProbe.capturing do |calls|
+          expect { ExternalBridge::RSS::Parser.parse!(xml) }
+            .to raise_error(ExternalBridge::Error) { |error| expect(error.message).to eq 'invalid_xml' }
+          expect(calls).to eq []
+        end
+      end
+      expect(a_request(:get, 'http://127.0.0.1/xxe-secret')).not_to have_been_made
+      expect(a_request(:get, 'https://feeds.example/secret.ent')).not_to have_been_made
+    end
+  end
+
+  it 'does not load a parameter entity or an external DTD' do
+    parameter = <<~XML
+      <?xml version="1.0"?>
+      <!DOCTYPE rss [<!ENTITY % remote SYSTEM "http://127.0.0.1/remote.dtd"> %remote;]>
+      <rss version="2.0"><channel><title>Kept</title><link>https://feeds.example/a</link>
+        <item><guid>g</guid><title>t</title><link>https://articles.example/n</link></item>
+      </channel></rss>
+    XML
+    external = <<~XML
+      <?xml version="1.0"?>
+      <!DOCTYPE rss SYSTEM "http://127.0.0.1/rss.dtd">
+      <rss version="2.0"><channel><title>Kept</title><link>https://feeds.example/a</link>
+        <item><guid>g</guid><title>t</title><link>https://articles.example/n</link></item>
+      </channel></rss>
+    XML
+    stub_request(:get, 'http://127.0.0.1/remote.dtd').to_return(status: 200, body: '<!ENTITY stolen "SECRET">')
+    stub_request(:get, 'http://127.0.0.1/rss.dtd').to_return(status: 200, body: '<!ELEMENT rss ANY>')
+
+    RssEntityLoaderProbe.capturing do |calls|
+      feed = ExternalBridge::RSS::Parser.parse!(parameter)
+      expect(feed.title).to eq 'Kept'
+      external_feed = ExternalBridge::RSS::Parser.parse!(external)
+      expect(external_feed.title).to eq 'Kept'
+      expect(calls).to eq []
+    end
+    expect(a_request(:get, 'http://127.0.0.1/remote.dtd')).not_to have_been_made
+    expect(a_request(:get, 'http://127.0.0.1/rss.dtd')).not_to have_been_made
+  end
+
+  it 'still reads predefined entities and a doctype that declares none' do
+    xml = <<~XML
+      <?xml version="1.0"?>
+      <!DOCTYPE rss>
+      <rss version="2.0"><channel><title>A &amp; B &#38; C</title><link>https://feeds.example/a</link>
+        <item><guid>g</guid><title>t</title><link>https://articles.example/n</link></item>
+      </channel></rss>
+    XML
+
+    expect(ExternalBridge::RSS::Parser.parse!(xml).title).to eq 'A & B & C'
   end
 
   it 'does not build a DOM when the structure budget fails' do

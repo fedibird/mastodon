@@ -12,6 +12,10 @@ module ExternalBridge
     end
 
     # RSS 1.0 (RDF), RSS 2.0, and Atom. External entities are not resolved.
+    # A custom entity reference is invalid XML for this parser, so the DOM
+    # never substitutes it. Predefined entities and numeric character
+    # references stay text. A missing end tag is rejected. A disallowed C0
+    # control is removed first, which is the one compatibility exception.
     # RSS 2.0 and RSS 1.0 are recognized by the root element's local name.
     # Atom also requires the Atom namespace URI, so a foreign element named
     # `feed` is not a feed. Content-Type is not consulted. Namespaces stay on

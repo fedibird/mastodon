@@ -206,8 +206,8 @@ RSpec.describe ExternalBridge::RSS::Parser do
       </rdf:RDF>
     XML
 
-    feed = described_class.parse!(xml)
-    expect(feed.title.to_s).not_to include('SECRET')
+    expect { described_class.parse!(xml) }
+      .to raise_error(ExternalBridge::Error) { |error| expect(error.message).to eq 'invalid_xml' }
   end
 
   it 'distinguishes unreadable XML from a document that is not a feed' do

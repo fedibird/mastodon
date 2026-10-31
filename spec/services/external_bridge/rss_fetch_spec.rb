@@ -208,10 +208,11 @@ RSpec.describe ExternalBridge::RSS::Subscribe do
       stub_request(:get, 'http://127.0.0.1/xxe-secret').to_return(status: 200, body: 'SECRET')
       stub_request(:get, feed_url).to_return(status: 200, body: xml)
 
-      described_class.new.call(user: user, url: feed_url)
+      expect { described_class.new.call(user: user, url: feed_url) }
+        .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'invalid_xml' }
 
       expect(a_request(:get, 'http://127.0.0.1/xxe-secret')).not_to have_been_made
-      expect(ExternalSource.find_by!(canonical_key: feed_url).title.to_s).not_to include('SECRET')
+      expect(ExternalSource.where(canonical_key: feed_url)).to be_empty
     end
 
     it 'rejects malformed XML and does not keep a shared row from it' do
