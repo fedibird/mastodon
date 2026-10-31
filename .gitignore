@@ -19,6 +19,7 @@
 /tmp
 /coverage
 /public/system
+/storage/group_creation_icons
 /public/assets
 /public/packs
 /public/packs-test

@@ -1,0 +1,32 @@
+- content_for :page_title do
+  = t('settings.group_creation_requests')
+
+- content_for :heading_actions do
+  = link_to t('group_creation_requests.open_new'), new_settings_group_creation_request_path, class: 'button'
+
+%p= t('group_creation_requests.lead')
+
+%hr.spacer/
+
+.table-wrapper
+  %table.table
+    %thead
+      %tr
+        %th= t('group_creation_requests.fields.display_name')
+        %th= t('group_creation_requests.acct')
+        %th= t('group_creation_requests.state')
+        %th= t('group_creation_requests.requested_at')
+        %th
+    %tbody
+      - if @requests.empty?
+        %tr
+          %td.muted-hint{ colspan: 5 }= t('group_creation_requests.empty')
+      - else
+        - @requests.each do |group_request|
+          %tr
+            %td= group_request.display_name.presence || t('group_creation_requests.no_display_name')
+            %td= group_creation_request_acct(group_request.username)
+            %td= group_creation_request_state(group_request)
+            %td
+              %time{ datetime: group_request.requested_at.iso8601, title: l(group_request.requested_at) }= l(group_request.requested_at)
+            %td= link_to t('group_creation_requests.details'), settings_group_creation_request_path(group_request)

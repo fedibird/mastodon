@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_10_120000) do
+ActiveRecord::Schema.define(version: 2026_11_11_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1441,7 +1441,14 @@ create_table "group_creation_requests", force: :cascade do |t|
     t.integer "lock_version", default: 0, null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+    t.string "icon_storage_key"
+    t.string "icon_content_type"
+    t.integer "icon_byte_size"
+    t.datetime "icon_purged_at"
+    t.string "submission_token"
     t.index "lower((username)::text)", name: "index_group_creation_requests_on_lower_username"
+    t.index ["icon_storage_key"], name: "index_group_creation_requests_on_icon_storage_key", unique: true, where: "(icon_storage_key IS NOT NULL)"
+    t.index ["submission_token"], name: "index_group_creation_requests_on_submission_token", unique: true, where: "(submission_token IS NOT NULL)"
     t.index ["group_account_id"], name: "index_group_creation_requests_on_group_account_id", unique: true
     t.index ["initial_owner_account_id"], name: "index_group_creation_requests_on_initial_owner_account_id"
     t.index ["previous_request_id"], name: "index_group_creation_requests_on_previous_request_id", unique: true
@@ -1452,6 +1459,8 @@ create_table "group_creation_requests", force: :cascade do |t|
     t.check_constraint "((state = 0) AND (reviewer_account_id IS NULL) AND (reviewed_at IS NULL) AND (decision_note IS NULL) AND (group_account_id IS NULL) AND (cancelled_at IS NULL) AND (initial_owner_account_id IS NULL)) OR ((state = 1) AND (reviewer_account_id IS NOT NULL) AND (reviewed_at IS NOT NULL) AND (group_account_id IS NOT NULL) AND (cancelled_at IS NULL) AND (initial_owner_account_id IS NOT NULL)) OR ((state = 2) AND (reviewer_account_id IS NOT NULL) AND (reviewed_at IS NOT NULL) AND (decision_note IS NOT NULL) AND (btrim(decision_note) <> ''::text) AND (group_account_id IS NULL) AND (cancelled_at IS NULL) AND (initial_owner_account_id IS NULL)) OR ((state = 3) AND (reviewer_account_id IS NULL) AND (reviewed_at IS NULL) AND (group_account_id IS NULL) AND (cancelled_at IS NOT NULL) AND (initial_owner_account_id IS NULL))", name: "group_creation_requests_state_shape"
     t.check_constraint "(previous_request_id IS NULL) OR (previous_request_id <> id)", name: "group_creation_requests_previous_not_self"
     t.check_constraint "(username)::text ~ '^[a-z0-9_]{1,30}$'::text", name: "group_creation_requests_username_shape"
+    t.check_constraint "((icon_storage_key IS NULL) AND (icon_content_type IS NULL) AND (icon_byte_size IS NULL) AND (icon_purged_at IS NULL)) OR ((icon_storage_key IS NOT NULL) AND ((icon_storage_key)::text ~ '^[0-9a-f]{64}$'::text) AND ((icon_content_type)::text = ANY (ARRAY[('image/jpeg'::character varying)::text, ('image/png'::character varying)::text, ('image/gif'::character varying)::text, ('image/webp'::character varying)::text, ('image/bmp'::character varying)::text, ('image/vnd.microsoft.icon'::character varying)::text])) AND (icon_byte_size IS NOT NULL) AND (icon_byte_size > 0) AND (icon_byte_size < 4194304))", name: "group_creation_requests_icon_shape"
+    t.check_constraint "(submission_token IS NULL) OR ((submission_token)::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text)", name: "group_creation_requests_submission_token_shape"
   end
 
 create_table "group_role_assignments", force: :cascade do |t|

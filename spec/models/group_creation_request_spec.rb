@@ -226,9 +226,12 @@ RSpec.describe GroupCreationRequest do # rubocop:disable Metrics/BlockLength
     end.to raise_error(ActiveRecord::StatementInvalid)
   end
 
-  it 'does not add a public route for the request' do
+  it 'only exposes the request under signed-in settings routes' do
     paths = Rails.application.routes.routes.map { |route| route.path.spec.to_s }
+    request_paths = paths.grep(/group_creation_request/)
 
-    expect(paths.grep(/group_creation_request|managed_group|group_role_assignment/)).to be_empty
+    expect(paths.grep(/managed_group|group_role_assignment/)).to be_empty
+    expect(request_paths).not_to be_empty
+    expect(request_paths).to all(start_with('/settings/group_creation_requests'))
   end
 end

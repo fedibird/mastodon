@@ -1,0 +1,20 @@
+= simple_form_for @request, url: confirm_settings_group_creation_requests_path, html: { multipart: true } do |f|
+  - if @request.errors.any?
+    %ul
+      - @request.errors.full_messages.each do |message|
+        %li= message
+
+  = hidden_field_tag :previous_request_id, @previous_request.id if @previous_request
+
+  .fields-group
+    = f.input :username, wrapper: :with_label, label: t('group_creation_requests.fields.username'), required: true, hint: t('group_creation_requests.hints.username', domain: Rails.configuration.x.local_domain), input_html: { maxlength: 30, autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false', pattern: '[A-Za-z0-9_]{1,30}' }
+  .fields-group
+    = f.input :display_name, wrapper: :with_label, label: t('group_creation_requests.fields.display_name'), required: false, hint: t('group_creation_requests.hints.display_name')
+  .fields-group
+    = f.input :note, as: :text, wrapper: :with_label, label: t('group_creation_requests.fields.note'), required: false, hint: t('group_creation_requests.hints.note'), input_html: { rows: 6 }
+  .fields-group
+    = f.input :icon, as: :file, wrapper: :with_label, label: t('group_creation_requests.fields.icon'), required: false, hint: t('group_creation_requests.hints.icon', size: number_to_human_size(AccountAvatar::LIMIT)), input_html: { accept: AccountAvatar::IMAGE_MIME_TYPES.join(',') }
+
+  .actions
+    = f.button :button, t('group_creation_requests.review_button'), type: :submit
+    = link_to t('group_creation_requests.back'), settings_group_creation_requests_path, class: 'button negative'

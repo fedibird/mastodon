@@ -1,0 +1,48 @@
+- content_for :page_title do
+  = t('group_creation_requests.show_title')
+
+%p
+  %strong= group_creation_request_state(@request)
+
+%dl
+  %dt= t('group_creation_requests.fields.display_name')
+  %dd= @request.display_name.presence || t('group_creation_requests.no_display_name')
+  %dt= t('group_creation_requests.acct')
+  %dd= group_creation_request_acct(@request.username)
+  %dt= t('group_creation_requests.fields.note')
+  %dd= @request.note.present? ? simple_format(@request.note) : t('group_creation_requests.no_note')
+  %dt= t('group_creation_requests.fields.icon')
+  %dd
+    - if @request.icon_previewable?
+      = image_tag icon_settings_group_creation_request_path(@request), alt: t('group_creation_requests.icon_alt'), class: 'account__avatar'
+    - else
+      = image_tag full_asset_url('avatars/original/missing.png', skip_pipeline: true), alt: t('group_creation_requests.default_icon'), class: 'account__avatar'
+      %p.hint= t('group_creation_requests.default_icon')
+  %dt= t('group_creation_requests.requested_at')
+  %dd
+    %time{ datetime: @request.requested_at.iso8601 }= l(@request.requested_at)
+  - if @request.rejected? && @request.decision_note.present?
+    %dt= t('group_creation_requests.rejection_reason')
+    %dd= simple_format(@request.decision_note)
+  - if @request.approved? && @request.group_account
+    %dt= t('group_creation_requests.group')
+    %dd= link_to group_creation_request_acct(@request.group_account.username), account_path(@request.group_account)
+  - if @request.approved?
+    %dt= t('group_creation_requests.initial_owner')
+    %dd= t('group_creation_requests.initial_owner_you')
+
+%ul
+  %li= t('group_creation_requests.rules.owner')
+  %li= t('group_creation_requests.rules.absent') unless @request.approved?
+  %li= t('group_creation_requests.rules.immutable')
+
+- if @request.pending?
+  = button_to t('group_creation_requests.cancel'), cancel_settings_group_creation_request_path(@request), method: :post, class: 'button negative', params: { lock_version: @request.lock_version }, data: { confirm: t('group_creation_requests.cancel_confirm') }
+
+- if (@request.rejected? || @request.cancelled?) && @request.successor_request.nil?
+  = link_to t('group_creation_requests.reapply'), new_settings_group_creation_request_path(previous_request_id: @request.id), class: 'button'
+
+- if @request.successor_request
+  %p= link_to t('group_creation_requests.successor'), settings_group_creation_request_path(@request.successor_request)
+
+%p= link_to t('group_creation_requests.back'), settings_group_creation_requests_path

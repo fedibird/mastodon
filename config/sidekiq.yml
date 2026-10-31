@@ -168,6 +168,13 @@
       every: '1m'
       class: Scheduler::ExternalBridgeLinkBoostNotifyScheduler
       queue: scheduler
+    # Deletes unreferenced private group-request icons older than the 24h
+    # grace period and retries icon deletion for cancelled or rejected rows.
+    # One storage error does not stop the rest of the pass.
+    group_creation_icons_scheduler:
+      every: '1h'
+      class: Scheduler::GroupCreationIconsScheduler
+      queue: scheduler
     follow_import_dispatch_scheduler:
       every: '<%= (canonical = ENV["FOLLOW_IMPORT_DISPATCH_INTERVAL"].to_i; alias_n = ENV["FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL"].to_i; n = canonical.positive? ? canonical : alias_n; n.positive? ? n : 60) %>s'
       class: Scheduler::FollowImportDispatchScheduler
