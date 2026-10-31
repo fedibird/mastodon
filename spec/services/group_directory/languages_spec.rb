@@ -63,7 +63,13 @@ describe GroupDirectory::Languages do
     remote = Fabricate(:account, username: 'remotegroup', domain: 'lemmy.example', actor_type: 'Group')
     expect { described_class.replace!(account: remote, tags: ['ja'], actor: admin.account) }.to raise_error(Mastodon::NotPermittedError)
     expect(GroupLanguage.where(account: remote)).to be_empty
+    expect(described_class.canonicalize('zh-Hans')).to eq('zh-Hans')
+    expect(described_class.canonicalize('es-419')).to eq('es-419')
+    expect(described_class.canonicalize('zh-Hans-CN')).to eq('zh-Hans-CN')
+    expect(described_class.canonicalize('i-klingon')).to be_nil
+    expect(described_class.canonicalize('en-US-u-co-phonebk')).to be_nil
     expect { described_class.replace!(account: group, tags: ['not a language'], actor: owner.account) }.to raise_error(Mastodon::ValidationError)
+    expect { described_class.replace!(account: group, tags: ['i-enochian'], actor: owner.account) }.to raise_error(Mastodon::ValidationError)
     expect { described_class.replace!(account: group, tags: %w(aa ab ae af ak am an ar as), actor: owner.account) }.to raise_error(Mastodon::ValidationError)
     expect(GroupLanguage.where(account: Fabricate(:account, username: 'personlang'))).to be_empty
     expect(GroupLanguage.new(account: Fabricate(:account, username: 'notgroup'), tag: 'ja')).not_to be_valid

@@ -2,6 +2,7 @@
 
 # One explicit directory language for a group Account.
 # Absence of rows means the language is unset. Do not infer a tag.
+# The tag shape is GroupDirectory::Languages::PATTERN, a limited BCP 47 subset.
 class GroupLanguage < ApplicationRecord
   belongs_to :account, inverse_of: :group_languages
 

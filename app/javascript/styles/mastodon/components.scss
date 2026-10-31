@@ -13175,6 +13175,13 @@ div.external-source-identity:hover .external-source-identity__name {
     font-weight: 500;
   }
 
+  &__hint {
+    margin: 0;
+    color: $darker-text-color;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
   &__search,
   &__select {
     box-sizing: border-box;

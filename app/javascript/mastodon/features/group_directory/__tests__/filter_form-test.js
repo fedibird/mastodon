@@ -80,22 +80,78 @@ describe('GroupDirectoryFilterForm', () => {
     expect(onChange).toHaveBeenCalledWith({ q: '' });
   });
 
-  it('sends an explicit language tag and the unset choice without guessing', () => {
+  it('clears unset when switching to an empty tag and queries only a finished tag', () => {
     const onChange = jest.fn();
-    renderForm({ viewKey: 'route', signedIn: true, onChange });
+    let language = 'unset';
+    function handleChange(patch) {
+      onChange(patch);
+      if (Object.prototype.hasOwnProperty.call(patch, 'language')) {
+        language = patch.language;
+      }
+    }
+    const ui = () => (
+      <GroupDirectoryFilterForm
+        viewKey='route'
+        params={{ order: 'active', scope: 'all', software: '', q: '', language }}
+        signedIn
+        onChange={handleChange}
+      />
+    );
+    const { rerender } = render(ui());
+    const mode = () => screen.getByRole('combobox', { name: 'Language' });
+    expect(mode().value).toBe('unset');
 
-    fireEvent.click(screen.getByRole('button', { name: 'More filters' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'unset' } });
-    expect(onChange).toHaveBeenCalledWith({ language: 'unset' });
+    fireEvent.change(mode(), { target: { value: 'tag' } });
+    expect(onChange).toHaveBeenLastCalledWith({ language: '' });
+    expect(onChange).not.toHaveBeenCalledWith({ language: 'unset' });
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'tag' } });
     const tag = screen.getByRole('textbox', { name: 'Specific language tag' });
     fireEvent.change(tag, { target: { value: 'j' } });
+    language = '';
+    rerender(ui());
     jest.advanceTimersByTime(300);
-    expect(onChange).not.toHaveBeenCalledWith({ language: 'j' });
 
-    fireEvent.change(tag, { target: { value: 'ja' } });
-    jest.advanceTimersByTime(300);
-    expect(onChange).toHaveBeenCalledWith({ language: 'ja' });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('combobox', { name: 'Language' }).value).toBe('tag');
+    expect(screen.getByRole('textbox', { name: 'Specific language tag' }).value).toBe('j');
+    expect(screen.getByRole('textbox', { name: 'Specific language tag' }).getAttribute('aria-invalid')).toBe('true');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Specific language tag' }), { target: { value: 'ja' } });
+    jest.advanceTimersByTime(299);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    expect(onChange).toHaveBeenLastCalledWith({ language: 'ja' });
+    language = 'ja';
+    rerender(ui());
+    expect(screen.getByRole('textbox', { name: 'Specific language tag' }).value).toBe('ja');
+    expect(screen.getByText('A 2–3 letter language, then up to 3 subtags of 2–8 letters or digits, such as ja, en-US, or zh-Hans. Not every BCP 47 tag.')).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'all' } });
+    expect(onChange).toHaveBeenLastCalledWith({ language: '' });
+    language = '';
+    rerender(ui());
+    expect(screen.getByRole('combobox', { name: 'Language' }).value).toBe('all');
+    expect(screen.queryByRole('textbox', { name: 'Specific language tag' })).toBeNull();
+  });
+
+  it('follows an external reset from unset to no language without querying again', () => {
+    const onChange = jest.fn();
+    const params = { order: 'active', scope: 'all', software: '', q: '', language: 'unset' };
+    const { rerender } = renderForm({ viewKey: 'saved', signedIn: true, params, onChange });
+
+    expect(screen.getByRole('combobox', { name: 'Language' }).value).toBe('unset');
+
+    rerender(
+      <GroupDirectoryFilterForm
+        viewKey='saved'
+        params={{ ...params, language: '' }}
+        signedIn
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.getByRole('combobox', { name: 'Language' }).value).toBe('all');
+    expect(screen.queryByRole('textbox', { name: 'Specific language tag' })).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

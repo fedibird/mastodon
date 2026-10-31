@@ -26,7 +26,8 @@ const messages = defineMessages({
   languageAll: { id: 'group_directory.language_all', defaultMessage: 'All languages' },
   languageUnset: { id: 'group_directory.language_unset', defaultMessage: 'Not set' },
   languageTag: { id: 'group_directory.language_tag', defaultMessage: 'Specific language tag' },
-  languagePlaceholder: { id: 'group_directory.language_placeholder', defaultMessage: 'ja or en-US' },
+  languagePlaceholder: { id: 'group_directory.language_placeholder', defaultMessage: 'ja, en-US, zh-Hans' },
+  languageHint: { id: 'group_directory.language_hint', defaultMessage: 'A 2–3 letter language, then up to 3 subtags of 2–8 letters or digits, such as ja, en-US, or zh-Hans. Not every BCP 47 tag.' },
   moreFilters: { id: 'group_directory.more_filters', defaultMessage: 'More filters' },
   fewerFilters: { id: 'group_directory.fewer_filters', defaultMessage: 'Fewer filters' },
 });
@@ -87,11 +88,26 @@ class GroupDirectoryFilterForm extends React.PureComponent {
       this.setState({ query: this.props.params.q || '' });
     }
 
-    if (prevProps.params.language !== this.props.params.language && this.props.params.language !== this.state.languageDraft.trim()) {
-      this.setState({
-        languageDraft: this.languageDraftFrom(this.props.params.language),
-        languageMode: this.languageModeFrom(this.props.params.language),
-      });
+    if (prevProps.params.language === this.props.params.language) {
+      return;
+    }
+
+    const incoming = this.props.params.language || '';
+
+    // The value we just sent coming back must not reset a tag the user is still typing.
+    if (this.pendingLanguage !== undefined && incoming === this.pendingLanguage) {
+      this.pendingLanguage = undefined;
+      return;
+    }
+
+    this.pendingLanguage = undefined;
+    clearTimeout(this.languageTimer);
+    this.languageTimer = null;
+    const languageDraft = this.languageDraftFrom(this.props.params.language);
+    const languageMode = this.languageModeFrom(this.props.params.language);
+
+    if (languageDraft !== this.state.languageDraft || languageMode !== this.state.languageMode) {
+      this.setState({ languageDraft, languageMode });
     }
   }
 
@@ -143,36 +159,68 @@ class GroupDirectoryFilterForm extends React.PureComponent {
     this.props.onChange({ software: e.target.value });
   };
 
+  commitLanguage = (language) => {
+    const current = this.props.params.language || '';
+
+    if (current === language) {
+      return;
+    }
+
+    this.pendingLanguage = language;
+    this.props.onChange({ language });
+  };
+
   handleLanguageMode = (e) => {
     const languageMode = e.target.value;
-    this.setState({ languageMode });
+    clearTimeout(this.languageTimer);
+    this.languageTimer = null;
 
     if (languageMode === 'all') {
-      this.setState({ languageDraft: '' });
-      this.props.onChange({ language: '' });
-    } else if (languageMode === 'unset') {
-      this.setState({ languageDraft: '' });
-      this.props.onChange({ language: 'unset' });
-    } else if (LANGUAGE_PATTERN.test(this.state.languageDraft.trim())) {
-      this.props.onChange({ language: this.state.languageDraft.trim() });
+      this.setState({ languageMode: 'all', languageDraft: '' });
+      this.commitLanguage('');
+      return;
     }
+
+    if (languageMode === 'unset') {
+      this.setState({ languageMode: 'unset', languageDraft: '' });
+      this.commitLanguage('unset');
+      return;
+    }
+
+    const draft = this.state.languageDraft.trim();
+    this.setState({ languageMode: 'tag' });
+
+    if (LANGUAGE_PATTERN.test(draft)) {
+      this.commitLanguage(draft);
+      return;
+    }
+
+    // Empty or unfinished input is not a tag. Drop unset and any previous tag
+    // so the list matches the screen, and do not query with the partial text.
+    this.commitLanguage('');
   };
 
   handleLanguageDraft = (e) => {
     const languageDraft = e.target.value.slice(0, 35);
     this.setState({ languageDraft, languageMode: 'tag' });
     clearTimeout(this.languageTimer);
+    this.languageTimer = null;
 
-    if (languageDraft.trim() === '') {
-      this.props.onChange({ language: '' });
+    const trimmed = languageDraft.trim();
+
+    if (trimmed === '') {
+      this.commitLanguage('');
       return;
     }
 
-    if (!LANGUAGE_PATTERN.test(languageDraft.trim())) {
+    if (!LANGUAGE_PATTERN.test(trimmed)) {
       return;
     }
 
-    this.languageTimer = setTimeout(() => this.props.onChange({ language: languageDraft.trim() }), SEARCH_DELAY);
+    this.languageTimer = setTimeout(() => {
+      this.languageTimer = null;
+      this.commitLanguage(trimmed);
+    }, SEARCH_DELAY);
   };
 
   toggleDetails = () => {
@@ -254,9 +302,12 @@ class GroupDirectoryFilterForm extends React.PureComponent {
             </label>
 
             {languageMode === 'tag' && (
-              <label className='group-directory-filters__field'>
-                <span className='group-directory-filters__label'>{intl.formatMessage(messages.languageTag)}</span>
+              <div className='group-directory-filters__field'>
+                <label className='group-directory-filters__label' htmlFor={`group-directory-language-${viewKey}`}>
+                  {intl.formatMessage(messages.languageTag)}
+                </label>
                 <input
+                  id={`group-directory-language-${viewKey}`}
                   type='text'
                   className='group-directory-filters__search'
                   value={languageDraft}
@@ -264,10 +315,14 @@ class GroupDirectoryFilterForm extends React.PureComponent {
                   maxLength={35}
                   placeholder={intl.formatMessage(messages.languagePlaceholder)}
                   aria-invalid={languageInvalid}
+                  aria-describedby={`group-directory-language-hint-${viewKey}`}
                   autoComplete='off'
                   spellCheck='false'
                 />
-              </label>
+                <p id={`group-directory-language-hint-${viewKey}`} className='group-directory-filters__hint'>
+                  {intl.formatMessage(messages.languageHint)}
+                </p>
+              </div>
             )}
           </div>
         )}
