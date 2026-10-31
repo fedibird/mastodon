@@ -293,14 +293,18 @@ module ExternalBridge
         request.perform(&block)
       end
 
-      # CanonicalURL drops a port that equals the scheme default. A remaining
-      # port is part of the authority and must be on Host; the socket port
-      # alone is not enough for a name-based server.
+      # CanonicalURL lowercases the host and does not convert it to ASCII.
+      # The Host header has to be the IDNA form the socket will use, while
+      # the stored URL keeps its original path and query. Addressable's
+      # normalized_host is that ASCII name and still wraps an IPv6 literal
+      # in brackets. HTTP::URI#normalized_host removes those brackets, so it
+      # is not used here. A non-default port stays on the header.
       def host_header(url)
         uri = Addressable::URI.parse(url)
+        host = uri.normalized_host
         default_port = uri.scheme.to_s.casecmp('https').zero? ? 443 : 80
         port = uri.port || default_port
-        port == default_port ? uri.host : "#{uri.host}:#{port}"
+        port == default_port ? host : "#{host}:#{port}"
       end
 
       def redirect_response?(response)

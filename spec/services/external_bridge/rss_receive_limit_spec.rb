@@ -251,6 +251,58 @@ RSpec.describe ExternalBridge::RSS::HttpClient do
     expect(closes).to be >= 1
   end
 
+  it 'sends an ASCII Host for an IDN on the first hop and after a redirect' do
+    plain = 'https://例え.テスト/feed.xml'
+    ported = 'https://例え.テスト:8443/feed.xml'
+    ascii_host = 'xn--r8jz45g.xn--zckzah'
+    stub_request(:get, plain).to_return(status: 200, body: '<rss/>')
+    stub_request(:head, plain).to_return(status: 200, headers: { 'Content-Length' => '0' })
+    stub_request(:get, ported).to_return(status: 200, body: '<rss/>')
+    stub_request(:head, ported).to_return(status: 200, headers: { 'Content-Length' => '0' })
+
+    expect(described_class.get(plain).body).to eq '<rss/>'
+    expect(described_class.head(plain).code).to eq 200
+    expect(described_class.get(ported).body).to eq '<rss/>'
+    expect(described_class.head(ported).code).to eq 200
+
+    {
+      'https://feeds.example/to-idn.xml' => plain,
+      'https://feeds.example/to-idn-port.xml' => ported,
+    }.each do |start, location|
+      stub_request(:get, start).to_return(status: 302, headers: { 'Location' => location })
+      stub_request(:head, start).to_return(status: 302, headers: { 'Location' => location })
+      expect(described_class.get(start).body).to eq '<rss/>'
+      expect(described_class.head(start).code).to eq 200
+      expect(a_request(:get, start).with(headers: { 'Host' => 'feeds.example' })).to have_been_made
+      expect(a_request(:head, start).with(headers: { 'Host' => 'feeds.example' })).to have_been_made
+    end
+
+    ascii_url = "https://#{ascii_host}/feed.xml"
+    ascii_ported = "https://#{ascii_host}:8443/feed.xml"
+    expect(a_request(:get, ascii_url).with(headers: { 'Host' => ascii_host })).to have_been_made.twice
+    expect(a_request(:head, ascii_url).with(headers: { 'Host' => ascii_host })).to have_been_made.twice
+    expect(a_request(:get, ascii_ported).with(headers: { 'Host' => "#{ascii_host}:8443" })).to have_been_made.twice
+    expect(a_request(:head, ascii_ported).with(headers: { 'Host' => "#{ascii_host}:8443" })).to have_been_made.twice
+  end
+
+  it 'keeps brackets around an IPv6 literal in Host' do
+    literal = 'https://[2606:4700:4700::1111]/feed.xml'
+    ported = 'https://[2606:4700:4700::1111]:8443/feed.xml'
+    stub_request(:get, literal).to_return(status: 200, body: '<rss/>')
+    stub_request(:head, literal).to_return(status: 200, headers: { 'Content-Length' => '0' })
+    stub_request(:get, ported).to_return(status: 200, body: '<rss/>')
+    stub_request(:head, ported).to_return(status: 200, headers: { 'Content-Length' => '0' })
+
+    expect(described_class.get(literal).body).to eq '<rss/>'
+    expect(described_class.head(literal).code).to eq 200
+    expect(described_class.get(ported).body).to eq '<rss/>'
+    expect(described_class.head(ported).code).to eq 200
+    expect(a_request(:get, literal).with(headers: { 'Host' => '[2606:4700:4700::1111]' })).to have_been_made
+    expect(a_request(:head, literal).with(headers: { 'Host' => '[2606:4700:4700::1111]' })).to have_been_made
+    expect(a_request(:get, ported).with(headers: { 'Host' => '[2606:4700:4700::1111]:8443' })).to have_been_made
+    expect(a_request(:head, ported).with(headers: { 'Host' => '[2606:4700:4700::1111]:8443' })).to have_been_made
+  end
+
   it 'sends Host without a default port and keeps a non-default port after redirect' do
     start = 'https://feeds.example/start.xml'
     redirected = 'https://feeds.example:8443/feed.xml'
