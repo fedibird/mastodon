@@ -34,8 +34,8 @@ module ExternalBridge
         # a well-formed document through to the end. Recovery is off, so a
         # truncated tail is invalid_xml rather than a feed missing its last
         # tags. The DOM pass only runs after that walk returns.
-        DocumentBudget.check!(@body, budget: @budget)
-        document = Nokogiri::XML(@body) { |config| config.strict.nonet.noblanks.nohuge }
+        source = DocumentBudget.check!(@body, budget: @budget)
+        document = Nokogiri::XML(source) { |config| config.strict.nonet.noblanks.nohuge }
         raise Error, :invalid_xml if document.root.nil?
 
         # Media RSS `content` and Atom `content` share a local name. Mark the

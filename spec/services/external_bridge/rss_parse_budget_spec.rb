@@ -16,7 +16,7 @@ RSpec.describe ExternalBridge::RSS::DocumentBudget do
 
   it 'accepts a document at the byte cap and rejects one extra byte' do
     xml = '<r/>'
-    expect(described_class.check!(xml, budget: budget(max_bytes: xml.bytesize))).to be_nil
+    expect(described_class.check!(xml, budget: budget(max_bytes: xml.bytesize))).to eq xml
     expect_oversized(xml, max_bytes: xml.bytesize - 1)
 
     cap = 32
@@ -29,44 +29,44 @@ RSpec.describe ExternalBridge::RSS::DocumentBudget do
   it 'counts UTF-8 text, CDATA, and comments in bytes' do
     text = ExternalBridge::RSS::SyntheticFeed.text_node(4, char: 'あ')
     expect(text).to include('あ')
-    expect(described_class.check!(text, budget: budget(max_text_bytes: 12))).to be_nil
+    expect(described_class.check!(text, budget: budget(max_text_bytes: 12))).to eq text
     expect_oversized(text, max_text_bytes: 11)
 
     cdata = '<r><![CDATA[abcdef]]></r>'
-    expect(described_class.check!(cdata, budget: budget(max_text_bytes: 6))).to be_nil
+    expect(described_class.check!(cdata, budget: budget(max_text_bytes: 6))).to eq cdata
     expect_oversized(cdata, max_text_bytes: 5)
 
     comment = '<r><!--abcdef--></r>'
-    expect(described_class.check!(comment, budget: budget(max_text_bytes: 6))).to be_nil
+    expect(described_class.check!(comment, budget: budget(max_text_bytes: 6))).to eq comment
     expect_oversized(comment, max_text_bytes: 5)
   end
 
   it 'rejects one element, one level, or one attribute past the budget' do
     elements = ExternalBridge::RSS::SyntheticFeed.repeated_elements(2)
-    expect(described_class.check!(elements, budget: budget(max_elements: 3))).to be_nil
+    expect(described_class.check!(elements, budget: budget(max_elements: 3))).to eq elements
     expect_oversized(elements, max_elements: 2)
 
     nested = ExternalBridge::RSS::SyntheticFeed.deep(3)
-    expect(described_class.check!(nested, budget: budget(max_depth: 3))).to be_nil
+    expect(described_class.check!(nested, budget: budget(max_depth: 3))).to eq nested
     expect_oversized(nested, max_depth: 2)
 
     attrs = ExternalBridge::RSS::SyntheticFeed.repeated_attributes(2, value: 'あ')
-    expect(described_class.check!(attrs, budget: budget(max_attributes: 2, max_attribute_bytes: 3))).to be_nil
+    expect(described_class.check!(attrs, budget: budget(max_attributes: 2, max_attribute_bytes: 3))).to eq attrs
     expect_oversized(attrs, max_attributes: 1)
     expect_oversized(attrs, max_attribute_bytes: 2)
   end
 
   it 'uses the product ceilings for depth, elements, and attributes' do
     limits = ExternalBridge::RSS::Limits
-    expect(described_class.check!(ExternalBridge::RSS::SyntheticFeed.deep(limits::MAX_XML_DEPTH))).to be_nil
+    expect(described_class.check!(ExternalBridge::RSS::SyntheticFeed.deep(limits::MAX_XML_DEPTH))).to include('<e0>')
     expect_oversized(ExternalBridge::RSS::SyntheticFeed.deep(limits::MAX_XML_DEPTH + 1))
 
-    expect(described_class.check!(ExternalBridge::RSS::SyntheticFeed.repeated_attributes(limits::MAX_XML_ATTRIBUTES))).to be_nil
+    expect(described_class.check!(ExternalBridge::RSS::SyntheticFeed.repeated_attributes(limits::MAX_XML_ATTRIBUTES))).to include('a0=')
     expect_oversized(ExternalBridge::RSS::SyntheticFeed.repeated_attributes(limits::MAX_XML_ATTRIBUTES + 1))
 
     under = ExternalBridge::RSS::SyntheticFeed.repeated_elements(limits::MAX_XML_ELEMENTS - 1)
     over = ExternalBridge::RSS::SyntheticFeed.repeated_elements(limits::MAX_XML_ELEMENTS)
-    expect(described_class.check!(under)).to be_nil
+    expect(described_class.check!(under)).to include('<e/>')
     expect_oversized(over)
   end
 
@@ -100,6 +100,21 @@ RSpec.describe ExternalBridge::RSS::DocumentBudget do
 end
 
 RSpec.describe ExternalBridge::RSS::Parser do
+  it 'drops an illegal XML control and still rejects a truncated document' do
+    xml = %(<rss version="2.0"><channel><title>Ada\u0007</title><link>https://feeds.example/a</link>) +
+          '<item><guid>g</guid><title>t</title><link>https://articles.example/n</link></item></channel></rss>'
+    feed = described_class.parse!(xml)
+
+    expect(feed.title).to eq 'Ada'
+    expect(feed.items.size).to eq 1
+    expect { described_class.parse!(xml.delete_suffix('</rss>')) }
+      .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'invalid_xml' }
+
+    padded = ("\u0007" * 8) + '<r/>'
+    expect { ExternalBridge::RSS::DocumentBudget.check!(padded, budget: ExternalBridge::RSS::DocumentBudget::Budget.default.tap { |item| item.max_bytes = padded.bytesize - 1 }) }
+      .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'oversized_feed' }
+  end
+
   it 'rejects a truncated tail, an open CDATA section, and a missing root close' do
     feed = ExternalBridge::RSS::SyntheticFeed
     [feed.broken_after, feed.unclosed_cdata, feed.missing_close].each do |xml|

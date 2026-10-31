@@ -44,8 +44,21 @@ module ExternalBridge
       CDATA = Nokogiri::XML::Reader::TYPE_CDATA
       COMMENT = Nokogiri::XML::Reader::TYPE_COMMENT
 
+      # XML 1.0 disallows most C0 controls. A strict parser rejects the whole
+      # document when one appears in text, which used to be recovered and then
+      # removed by the author sanitizer. They are dropped here, after the
+      # original byte cap is applied, so the walk and the DOM see the same
+      # string. Tab, LF, and CR stay. This does not repair a truncated tree.
+      ILLEGAL_CONTROLS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.freeze
+
       def self.check!(body, budget: Budget.default)
         new(body, budget).check!
+      end
+
+      def self.xml_text(body)
+        return body unless body.match?(ILLEGAL_CONTROLS)
+
+        body.gsub(ILLEGAL_CONTROLS, '')
       end
 
       def initialize(body, budget)
@@ -53,26 +66,28 @@ module ExternalBridge
         @budget = budget
       end
 
+      # Returns the string the DOM parser should read.
       def check!
         raise Error, :oversized_feed if @body.bytesize > @budget.max_bytes
 
-        walk!
-        nil
+        source = self.class.xml_text(@body)
+        walk!(source)
+        source
       rescue Nokogiri::XML::SyntaxError => e
         raise Error, amplification?(e) ? :oversized_feed : :invalid_xml
       end
 
       private
 
-      def walk!
+      def walk!(source)
         elements = 0
-        reader.each do |node|
+        reader(source).each do |node|
           elements = visit!(node, elements)
         end
       end
 
-      def reader
-        Nokogiri::XML::Reader.new(@body) { |config| config.nonet.noent.nohuge }
+      def reader(source)
+        Nokogiri::XML::Reader.new(source) { |config| config.nonet.noent.nohuge }
       end
 
       def visit!(node, elements)
