@@ -34,6 +34,7 @@ module ExternalBridge
         :max_depth,
         :max_elements,
         :max_attributes,
+        :max_attribute_total,
         :max_text_bytes,
         :max_attribute_bytes,
         keyword_init: true
@@ -44,6 +45,7 @@ module ExternalBridge
             max_depth: Limits::MAX_XML_DEPTH,
             max_elements: Limits::MAX_XML_ELEMENTS,
             max_attributes: Limits::MAX_XML_ATTRIBUTES,
+            max_attribute_total: Limits::MAX_XML_ATTRIBUTES_TOTAL,
             max_text_bytes: Limits::MAX_XML_TEXT_BYTES,
             max_attribute_bytes: Limits::MAX_XML_ATTRIBUTE_BYTES
           )
@@ -94,10 +96,9 @@ module ExternalBridge
       private
 
       def walk!(source)
-        elements = 0
-        reader(source).each do |node|
-          elements = visit!(node, elements)
-        end
+        @elements = 0
+        @attribute_total = 0
+        reader(source).each { |node| visit!(node) }
       end
 
       # nonet blocks network I/O. nohuge keeps libxml's amplification ceiling.
@@ -106,18 +107,14 @@ module ExternalBridge
         Nokogiri::XML::Reader.new(source) { |config| config.nonet.nohuge }
       end
 
-      def visit!(node, elements)
+      def visit!(node)
         case node.node_type
         when ELEMENT
-          count_element!(node, elements)
+          count_element!(node)
         when TEXT, CDATA, COMMENT
           limit_bytes!(node.value, @budget.max_text_bytes)
-          elements
         when ENTITY_REFERENCE, ENTITY
           reject_custom_entity!(node)
-          elements
-        else
-          elements
         end
       end
 
@@ -127,18 +124,22 @@ module ExternalBridge
         raise Error, :invalid_xml
       end
 
-      def count_element!(node, elements)
-        elements += 1
-        raise Error, :oversized_feed if elements > @budget.max_elements
+      def count_element!(node)
+        @elements += 1
+        raise Error, :oversized_feed if @elements > @budget.max_elements
         raise Error, :oversized_feed if node.depth + 1 > @budget.max_depth
 
         limit_attributes!(node)
-        elements
       end
 
+      # attribute_count includes xmlns. The per-element cap is checked before
+      # the document total, and before any attribute value is copied.
       def limit_attributes!(node)
         count = node.attribute_count
         raise Error, :oversized_feed if count > @budget.max_attributes
+
+        @attribute_total += count
+        raise Error, :oversized_feed if @attribute_total > @budget.max_attribute_total
 
         index = 0
         while index < count

@@ -133,6 +133,53 @@ module ExternalBridge
       def text_node(copies, char: 'a')
         %(<r>#{char * copies}</r>)
       end
+
+      # rss, channel, title, link, description, and 40 items of five elements.
+      ELEMENT_FEED_SHELL = 205
+      # Only rss@version. Item guids in this generator have no attributes.
+      ELEMENT_FEED_SHELL_ATTRIBUTES = 1
+
+      # A well-formed RSS document with exactly `elements` element start tags.
+      # Forty items are real. The rest are empty <e/> nodes.
+      def element_cap_feed(elements:)
+        raise ArgumentError, 'element target is below the 40 item shell' if elements < ELEMENT_FEED_SHELL
+
+        body = element_feed_open
+        body << ('<e/>' * (elements - ELEMENT_FEED_SHELL))
+        body << '</channel></rss>'
+        body
+      end
+
+      # attribute_count summed across the document, including rss@version.
+      # Filler attributes are packed at 64 per element, under the per-element cap.
+      def attribute_total_feed(attributes:)
+        needed = attributes - ELEMENT_FEED_SHELL_ATTRIBUTES
+        raise ArgumentError, 'attribute target is below the shell' if needed.negative?
+
+        per = 64
+        full, rest = needed.divmod(per)
+        body = element_feed_open
+        if full.positive?
+          packed = %(<e #{per.times.map { |index| %(a#{index}="v") }.join(' ')}/>)
+          body << (packed * full)
+        end
+        if rest.positive?
+          body << %(<e #{rest.times.map { |index| %(a#{index}="v") }.join(' ')}/>)
+        end
+        body << '</channel></rss>'
+        body
+      end
+
+      def element_feed_open
+        body = +%(<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel><title>Synthetic</title><link>https://feeds.example/synthetic</link><description>Generated.</description>\n)
+        40.times { |index| body << plain_item(index) }
+        body
+      end
+
+      def plain_item(index)
+        number = format('%04d', index + 1)
+        %(<item><title>Synthetic note #{number}</title><link>https://articles.example/notes/#{number}</link><guid>synthetic-#{number}</guid><description>Note</description></item>)
+      end
     end
   end
 end

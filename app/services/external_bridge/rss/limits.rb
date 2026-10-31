@@ -30,14 +30,20 @@ module ExternalBridge
       # ceiling still applies because the parser does not set HUGE.
       MAX_XML_DEPTH = 64
       # Element start tags in the whole document, including items that will
-      # not be stored. The same synthetic feed is 6,107 elements. 100_000 is
-      # about ninety elements for each of 1,100 episodes, which covers
-      # chapters and media markup, and it stops a million-node document
-      # before a DOM is built.
+      # not be stored. A generated feed of this many elements (40 real items,
+      # the rest empty) is about 400 KiB. Parser.parse! returned 40 items in
+      # about 200 ms and peaked near 79 MB RSS, from about 54 MB before the
+      # parse. The 6,107-element synthetic feed is far under this.
       MAX_XML_ELEMENTS = 100_000
-      # xmlTextReaderAttributeCount includes xmlns declarations. Media RSS
-      # attributes and a handful of namespaces sit well under this.
+      # xmlTextReaderAttributeCount on one element, including xmlns.
+      # Media RSS attributes and a handful of namespaces sit under this.
       MAX_XML_ATTRIBUTES = 64
+      # Sum of those per-element counts. An 8 MiB document with about 1.1
+      # million attributes peaked near 339 MB on one thread, so the byte cap
+      # alone does not bound the DOM. 100_000 elements plus about 100_000
+      # attribute nodes peaked near 103 MB, and five threads in one process
+      # peaked near 305 MB. That is the accepted structural worst case.
+      MAX_XML_ATTRIBUTES_TOTAL = 100_000
       # One text, CDATA, or comment node, in bytes. It matches the document
       # cap so a description the byte budget already accepted is not rejected
       # again. Entity expansion that materializes a larger node fails here,

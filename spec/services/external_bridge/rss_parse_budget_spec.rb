@@ -94,6 +94,10 @@ RSpec.describe ExternalBridge::RSS::DocumentBudget do
     expect(described_class.check!(attrs, budget: budget(max_attributes: 2, max_attribute_bytes: 3))).to eq attrs
     expect_oversized(attrs, max_attributes: 1)
     expect_oversized(attrs, max_attribute_bytes: 2)
+
+    one = '<r a="v"/>'
+    expect(described_class.check!(one, budget: budget(max_attribute_total: 1))).to eq one
+    expect_oversized('<r a="v" b="v"/>', max_attribute_total: 1)
   end
 
   it 'uses the product ceilings for depth, elements, and attributes' do
@@ -108,6 +112,23 @@ RSpec.describe ExternalBridge::RSS::DocumentBudget do
     over = ExternalBridge::RSS::SyntheticFeed.repeated_elements(limits::MAX_XML_ELEMENTS)
     expect(described_class.check!(under)).to include('<e/>')
     expect_oversized(over)
+  end
+
+  it 'parses a feed at the element and attribute-node caps' do
+    limits = ExternalBridge::RSS::Limits
+    elements = ExternalBridge::RSS::SyntheticFeed.element_cap_feed(elements: limits::MAX_XML_ELEMENTS)
+    feed = ExternalBridge::RSS::Parser.parse!(elements)
+    expect(feed.items.size).to eq limits::MAX_ITEMS
+    expect(feed.items.first.key).to eq 'synthetic-0001'
+    expect(feed.items.last.key).to eq 'synthetic-0040'
+    expect { ExternalBridge::RSS::Parser.parse!(elements.sub('</channel>', '<e/></channel>')) }
+      .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'oversized_feed' }
+
+    at_attributes = ExternalBridge::RSS::SyntheticFeed.attribute_total_feed(attributes: limits::MAX_XML_ATTRIBUTES_TOTAL)
+    expect(ExternalBridge::RSS::Parser.parse!(at_attributes).items.size).to eq limits::MAX_ITEMS
+    over_attributes = ExternalBridge::RSS::SyntheticFeed.attribute_total_feed(attributes: limits::MAX_XML_ATTRIBUTES_TOTAL + 1)
+    expect { ExternalBridge::RSS::Parser.parse!(over_attributes) }
+      .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'oversized_feed' }
   end
 
   it 'stops on the budget and does not report the later syntax error' do
