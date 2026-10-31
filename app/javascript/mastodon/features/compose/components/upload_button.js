@@ -19,6 +19,23 @@ const iconStyle = {
   lineHeight: '27px',
 };
 
+export const uploadButtonCopy = (intl, { stillImagesOnly, disabled, uploadReason }) => {
+  const label = intl.formatMessage(stillImagesOnly ? messages.stillImage : messages.upload);
+  let notice = null;
+
+  if (stillImagesOnly && !disabled) {
+    notice = intl.formatMessage(messages.stillImageOnly);
+  } else if (uploadReason === 'media') {
+    notice = intl.formatMessage(messages.mediaUnavailable);
+  } else if (uploadReason === 'media_type') {
+    notice = intl.formatMessage(messages.mediaType);
+  } else if (uploadReason === 'media_owner') {
+    notice = intl.formatMessage(messages.mediaOwner);
+  }
+
+  return { label, notice };
+};
+
 export default @injectIntl
 class UploadButton extends ImmutablePureComponent {
 
@@ -34,26 +51,31 @@ class UploadButton extends ImmutablePureComponent {
     intl: PropTypes.object.isRequired,
     presentation: PropTypes.oneOf(['menu', 'file']),
     onFileInput: PropTypes.func,
-    onDisabledChange: PropTypes.func,
+    onAvailabilityChange: PropTypes.func,
   };
 
   componentDidMount () {
-    this.publishFileInput();
+    this.publishAvailability();
   }
 
   componentDidUpdate (prevProps) {
-    if (prevProps.disabled !== this.props.disabled || prevProps.presentation !== this.props.presentation) {
-      this.publishFileInput();
+    if (prevProps.disabled !== this.props.disabled || prevProps.unavailable !== this.props.unavailable || prevProps.stillImagesOnly !== this.props.stillImagesOnly || prevProps.uploadReason !== this.props.uploadReason || prevProps.presentation !== this.props.presentation) {
+      this.publishAvailability();
     }
   }
 
-  publishFileInput () {
+  publishAvailability () {
     if (this.props.onFileInput) {
-      this.props.onFileInput(this.fileElement || null);
+      this.props.onFileInput(this.props.unavailable ? null : (this.fileElement || null));
     }
 
-    if (this.props.onDisabledChange) {
-      this.props.onDisabledChange(Boolean(this.props.disabled));
+    if (this.props.onAvailabilityChange) {
+      this.props.onAvailabilityChange({
+        disabled: Boolean(this.props.disabled),
+        unavailable: Boolean(this.props.unavailable),
+        stillImagesOnly: Boolean(this.props.stillImagesOnly),
+        uploadReason: this.props.uploadReason || null,
+      });
     }
   }
 
@@ -73,7 +95,7 @@ class UploadButton extends ImmutablePureComponent {
     this.fileElement = c;
 
     if (this.props.onFileInput) {
-      this.props.onFileInput(c);
+      this.props.onFileInput(this.props.unavailable ? null : c);
     }
   }
 
@@ -84,19 +106,8 @@ class UploadButton extends ImmutablePureComponent {
       return null;
     }
 
-    const message = intl.formatMessage(stillImagesOnly ? messages.stillImage : messages.upload);
+    const { label: message, notice } = uploadButtonCopy(intl, { stillImagesOnly, disabled, uploadReason });
     const fileOnly = this.props.presentation === 'file';
-    let notice = null;
-
-    if (stillImagesOnly && !disabled) {
-      notice = intl.formatMessage(messages.stillImageOnly);
-    } else if (uploadReason === 'media') {
-      notice = intl.formatMessage(messages.mediaUnavailable);
-    } else if (uploadReason === 'media_type') {
-      notice = intl.formatMessage(messages.mediaType);
-    } else if (uploadReason === 'media_owner') {
-      notice = intl.formatMessage(messages.mediaOwner);
-    }
 
     const fileInput = (
       <label>

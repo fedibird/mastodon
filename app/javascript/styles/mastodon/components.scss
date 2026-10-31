@@ -2114,6 +2114,14 @@ body > [data-popper-placement] {
     }
   }
 
+  .compose-form__account-retry {
+    flex: 1 1 100%;
+    margin: 0 0 8px;
+    color: $secondary-text-color;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
   .compose-form__buttons-wrapper {
     padding: 10px;
     background: darken($simple-background-color, 8%);
@@ -2121,7 +2129,7 @@ body > [data-popper-placement] {
     display: flex;
     align-items: center;
     gap: 8px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     flex: 0 0 auto;
     overflow: hidden;
 

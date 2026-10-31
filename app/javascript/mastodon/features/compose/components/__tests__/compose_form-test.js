@@ -1275,6 +1275,76 @@ describe('ComposeForm composer toolbar', () => {
     expect(screen.queryByRole('button', { name: 'Search visibility' })).toBeNull();
   });
 
+  const everyControl = (placement) => [
+    'posting_account', 'media', 'cw', 'language', 'datetime', 'searchability', 'poll',
+  ].map(id => ({ id, placement }));
+
+  it('does not leave an empty more menu when the destination context has nothing to show', () => {
+    renderForm({
+      overflowContext: <div data-testid='posting-context'>Required mention</div>,
+      overflowContextActive: false,
+      composerToolbar: everyControl('visible'),
+    });
+
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
+    expect(screen.queryByTestId('posting-context')).toBeNull();
+    expect(document.querySelector('.compose-form__submit')).toContainElement(screen.getByRole('button', { name: 'Toot!' }));
+  });
+
+  it('keeps more actions last when the destination context has content', () => {
+    renderForm({
+      overflowContext: <div data-testid='posting-context'>Required mention</div>,
+      overflowContextActive: true,
+      composerToolbar: everyControl('visible'),
+    });
+
+    expect(controlOrder()[controlOrder().length - 1]).toEqual('overflow');
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByTestId('composer-overflow-menu')).toContainElement(screen.getByTestId('posting-context'));
+  });
+
+  it('shows a failed account retry outside the menu anchor unless the control is hidden', () => {
+    const onRetry = jest.fn();
+    const view = renderForm({
+      postingAccountLoadFailed: true,
+      onRetryPostingAccounts: onRetry,
+      showPostingAccount: false,
+      composerToolbar: [
+        { id: 'posting_account', placement: 'menu' },
+        { id: 'media', placement: 'visible' },
+        { id: 'cw', placement: 'visible' },
+        { id: 'language', placement: 'visible' },
+        { id: 'datetime', placement: 'visible' },
+        { id: 'searchability', placement: 'visible' },
+        { id: 'poll', placement: 'visible' },
+      ],
+    });
+    const retry = screen.getByTestId('posting-account-load-retry');
+
+    expect(document.querySelector('.compose-form__detached-anchors').contains(retry)).toBe(false);
+    expect(document.querySelector('.compose-form__buttons-wrapper').contains(retry)).toBe(true);
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    renderForm({
+      postingAccountLoadFailed: true,
+      onRetryPostingAccounts: onRetry,
+      composerToolbar: [
+        { id: 'posting_account', placement: 'hidden' },
+        { id: 'media', placement: 'visible' },
+        { id: 'cw', placement: 'visible' },
+        { id: 'language', placement: 'visible' },
+        { id: 'datetime', placement: 'visible' },
+        { id: 'searchability', placement: 'visible' },
+        { id: 'poll', placement: 'visible' },
+      ],
+    });
+
+    expect(screen.queryByTestId('posting-account-load-retry')).toBeNull();
+  });
+
   it('drops a hidden posting account without rendering it', () => {
     renderForm({
       senderIdentity: senderIdentity(),

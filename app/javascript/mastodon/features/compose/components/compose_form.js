@@ -40,6 +40,7 @@ import { localizedCommonName } from '../../../utils/language_names';
 import { searchabilityIsChanged } from '../../../utils/searchability';
 import { isExternalFileDrag, markComposerFileDrop } from '../composer_drop';
 import { normalizeComposerToolbar } from '../composer_toolbar';
+import { uploadButtonCopy } from './upload_button';
 import ComposerOverflowMenu from './composer_overflow_menu';
 
 const allowedAroundShortCode = '><\u0085\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\u2028\u2029\u0009\u000a\u000b\u000c\u000d';
@@ -75,6 +76,13 @@ const messages = defineMessages({
   languageMenu: { id: 'compose.language.change', defaultMessage: 'Change language' },
   postingAccountMenu: { id: 'compose_form.sender_identity.label', defaultMessage: 'Posting as' },
   mediaMenu: { id: 'upload_button.label', defaultMessage: 'Add images, a video or an audio file' },
+  stillImage: { id: 'upload_button.still_image', defaultMessage: 'Add a still image' },
+  stillImageOnly: { id: 'upload_button.still_image_only', defaultMessage: 'Still images only.' },
+  mediaUnavailable: { id: 'upload_button.media_unavailable', defaultMessage: 'Image upload needs posting and media permission for this account.' },
+  mediaType: { id: 'upload_button.media_type', defaultMessage: 'Video and audio cannot be posted as this account.' },
+  mediaOwner: { id: 'compose_form.media_owner', defaultMessage: 'These images belong to a different posting account. They stay attached, and this post cannot be sent until they match the selected account.' },
+  senderLoadFailed: { id: 'compose_form.sender_identity.failed', defaultMessage: 'Couldn’t confirm who this post is from.' },
+  senderRetry: { id: 'compose_form.sender_identity.retry', defaultMessage: 'Retry' },
   cwMenu: { id: 'compose_form.overflow.cw', defaultMessage: 'Content warning' },
   searchPublic: { id: 'searchability.public.short', defaultMessage: 'Public' },
   searchPrivate: { id: 'searchability.private.short', defaultMessage: 'Followers-only' },
@@ -175,6 +183,9 @@ class ComposeForm extends ImmutablePureComponent {
       placement: PropTypes.string.isRequired,
     })),
     overflowContext: PropTypes.node,
+    overflowContextActive: PropTypes.bool,
+    postingAccountLoadFailed: PropTypes.bool,
+    onRetryPostingAccounts: PropTypes.func,
     onCancelEdit: PropTypes.func,
     onChange: PropTypes.func.isRequired,
     onSubmit: PropTypes.func.isRequired,
@@ -222,7 +233,7 @@ class ComposeForm extends ImmutablePureComponent {
     searchabilityOpen: false,
     languageOpen: false,
     senderMenuOpen: false,
-    mediaPickerDisabled: false,
+    mediaAvailability: { disabled: false, unavailable: false, stillImagesOnly: false, uploadReason: null },
   };
 
   static defaultProps = {
@@ -624,23 +635,31 @@ class ComposeForm extends ImmutablePureComponent {
     this.mediaFileInput = node;
   };
 
-  handleMediaDisabled = (disabled) => {
-    if (disabled === this.state.mediaPickerDisabled) {
+  handleMediaAvailability = (next) => {
+    const prev = this.state.mediaAvailability;
+
+    if (prev.disabled === next.disabled && prev.unavailable === next.unavailable && prev.stillImagesOnly === next.stillImagesOnly && prev.uploadReason === next.uploadReason) {
       return;
     }
 
-    this.setState({ mediaPickerDisabled: disabled });
+    this.setState({ mediaAvailability: next });
   };
 
   openMediaPicker = () => {
     const input = this.mediaFileInput;
 
-    if (input && !input.disabled) {
+    if (input && !input.disabled && !this.state.mediaAvailability.unavailable) {
       input.click();
     }
 
     this.requestOverflowClose();
   };
+
+  postingAccountPlacement () {
+    const item = normalizeComposerToolbar(this.props.composerToolbar).find(entry => entry.id === 'posting_account');
+
+    return item ? item.placement : 'hidden';
+  }
 
   postingAccountMenuAvailable () {
     if (this.props.showPostingAccount === false) {
@@ -690,18 +709,30 @@ class ComposeForm extends ImmutablePureComponent {
           <span>{intl.formatMessage(messages.postingAccountMenu)}</span>
         </button>
       );
-    case 'media':
+    case 'media': {
+      const availability = this.state.mediaAvailability;
+
+      if (availability.unavailable) {
+        return null;
+      }
+
+      const { label, notice } = uploadButtonCopy(intl, availability);
+
       return (
-        <button
-          type='button'
-          className='compose-form__menu-row'
-          disabled={this.state.mediaPickerDisabled}
-          onClick={this.openMediaPicker}
-        >
-          <Icon id='paperclip' fixedWidth aria-hidden='true' />
-          <span>{intl.formatMessage(messages.mediaMenu)}</span>
-        </button>
+        <div className='compose-form__upload-menu'>
+          <button
+            type='button'
+            className='compose-form__menu-row'
+            disabled={availability.disabled}
+            onClick={this.openMediaPicker}
+          >
+            <Icon id='paperclip' fixedWidth aria-hidden='true' />
+            <span>{label}</span>
+          </button>
+          {notice ? <p className='compose-form__upload-notice' role='status'>{notice}</p> : null}
+        </div>
       );
+    }
     case 'cw':
       return <SpoilerButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />;
     case 'language':
@@ -776,7 +807,7 @@ class ComposeForm extends ImmutablePureComponent {
           <UploadButtonContainer
             presentation='file'
             onFileInput={this.bindMediaFileInput}
-            onDisabledChange={this.handleMediaDisabled}
+            onAvailabilityChange={this.handleMediaAvailability}
           />
         </div>,
       );
@@ -972,12 +1003,22 @@ class ComposeForm extends ImmutablePureComponent {
       }
     });
 
-    if (!editing && this.props.overflowContext) {
+    if (!editing && this.props.overflowContext && this.props.overflowContextActive !== false) {
       menuRows.push(<Fragment key='overflow-context'>{this.props.overflowContext}</Fragment>);
     }
 
+    const showAccountRetry = this.props.postingAccountLoadFailed && this.postingAccountPlacement() !== 'hidden';
+
     return (
       <div className='compose-form__buttons-wrapper'>
+        {showAccountRetry ? (
+          <p className='compose-form__account-retry' role='status' data-testid='posting-account-load-retry'>
+            {intl.formatMessage(messages.senderLoadFailed)}
+            <button type='button' className='compose-form__sender-retry' onClick={this.props.onRetryPostingAccounts}>
+              {intl.formatMessage(messages.senderRetry)}
+            </button>
+          </p>
+        ) : null}
         <div className='compose-form__buttons'>
           {visible.map(item => (
             <div className='compose-form__toolbar-slot' data-composer-control={item.id} key={item.id}>

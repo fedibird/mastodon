@@ -16,7 +16,7 @@ import {
 } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
 import { acceptComposerSurface, targetComposerAction } from '../../../actions/composer';
-import { scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
+import { fetchPostingIdentities, scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
 import { selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
 import { materializeComposerText } from '../../../posting_context/materialize';
 import { selectComposer } from '../../../selectors/composer';
@@ -29,7 +29,9 @@ import ComposerContextDetails from '../components/composer_context_details';
 import { injectIntl, defineMessages } from 'react-intl';
 import { composerRedraftNotice, confirmDiscardUnconfirmedRedraft, retryRedraftMedia } from '../../../actions/redraft_media';
 import { composerToolbar, isAdministrator, showComposerPostingStyleSelector } from '../../../initial_state';
+import { postingContextHasDetails } from '../components/posting_context_bar';
 import { postingAccountControlAvailable } from '../composer_toolbar';
+import { mapStateToProps as postingContextState } from './posting_context_bar_container';
 
 const messages = defineMessages({
   cancelEditConfirm: { id: 'confirmations.cancel_edit.confirm', defaultMessage: 'Discard changes' },
@@ -85,6 +87,12 @@ const mapStateToProps = (state, { composerId }) => {
       selectedId: composer.getIn(['senderIdentity', 'id']),
       canLink: isAdministrator,
     }),
+    postingAccountLoadFailed: isAdministrator && state.getIn(['postingIdentities', 'status'], 'idle') === 'failed' && !postingAccountControlAvailable({
+      catalog: state.getIn(['postingIdentities', 'identities']),
+      selectedId: composer.getIn(['senderIdentity', 'id']),
+      canLink: isAdministrator,
+    }),
+    overflowContextActive: !styleControlsAvailable && postingContextHasDetails(postingContextState(state, { composerId })),
     surfaceMismatch: composer.get('surfaceMismatch') === true,
     redraftNotice: composerRedraftNotice(composer),
   };
@@ -143,6 +151,10 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onDiscardUnconfirmedRedraft () {
     dispatch(confirmDiscardUnconfirmedRedraft(composerId, intl));
+  },
+
+  onRetryPostingAccounts () {
+    dispatch(fetchPostingIdentities({ force: true }));
   },
 
   onCancelEdit () {

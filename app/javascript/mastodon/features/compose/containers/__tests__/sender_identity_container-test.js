@@ -1,5 +1,5 @@
 import { List as ImmutableList, Map as ImmutableMap, fromJS } from 'immutable';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { Provider } from 'react-redux';
 
@@ -174,10 +174,9 @@ describe('SenderIdentityContainer', () => {
     );
 
     expect(screen.queryByTestId('sender-identity')).toBeNull();
-    const before = dispatch.mock.calls.length;
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(dispatch.mock.calls.length).toBe(before + 1);
+    expect(screen.queryByTestId('posting-account-load-retry')).toBeNull();
     expect(state.getIn(['compose', 'senderIdentity', 'id'])).toEqual('local:42');
+    expect(dispatch).toHaveBeenCalled();
   });
 
   it('keeps the account button when a linked identity is already known and the catalog then fails', () => {
