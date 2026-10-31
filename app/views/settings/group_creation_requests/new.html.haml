@@ -1,0 +1,11 @@
+- content_for :page_title do
+  = t('group_creation_requests.new_title')
+
+%p= t('group_creation_requests.lead')
+%ul
+  %li= t('group_creation_requests.rules.owner')
+  %li= t('group_creation_requests.rules.absent')
+  %li= t('group_creation_requests.rules.not_reserved')
+  %li= t('group_creation_requests.rules.immutable')
+
+= render 'form'

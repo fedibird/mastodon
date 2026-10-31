@@ -254,6 +254,18 @@ Rails.application.routes.draw do
         post :unlink
       end
     end
+    resources :group_creation_requests, only: [:index, :new, :create, :show] do
+      collection do
+        post :confirm
+        get :review
+        get :draft_icon, format: false
+        delete :draft, action: :destroy_draft
+      end
+      member do
+        post :cancel
+        get :icon, format: false
+      end
+    end
     resources :user_posting_contexts, except: [:show] do
       member do
         post :duplicate
