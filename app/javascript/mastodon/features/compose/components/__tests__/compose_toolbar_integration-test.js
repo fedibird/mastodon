@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { List as ImmutableList, Map as ImmutableMap, Set as ImmutableSet } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -105,10 +105,26 @@ const menuToolbar = [
 ];
 
 const renderComposer = (state, { openMenu = true } = {}) => {
+  const listeners = [];
+  let current = state;
   const store = {
-    getState: () => state,
+    getState: () => current,
     dispatch: jest.fn(),
-    subscribe: () => () => {},
+    subscribe: (listener) => {
+      listeners.push(listener);
+
+      return () => {
+        const index = listeners.indexOf(listener);
+
+        if (index >= 0) {
+          listeners.splice(index, 1);
+        }
+      };
+    },
+    replaceState (next) {
+      current = next;
+      listeners.slice().forEach(listener => listener());
+    },
   };
 
   render(
@@ -144,14 +160,14 @@ const attachButton = () => screen.queryByRole('button', { name: /Add (images, a 
 
 describe('ComposeForm media menu with the real upload button', () => {
   it('hides the menu row while a poll blocks uploads and restores it afterward', () => {
-    renderComposer(stateFor(composerWith({ poll: ImmutableMap({ options: ImmutableList(['a', 'b']) }) })), { openMenu: false });
+    const store = renderComposer(stateFor(composerWith({ poll: ImmutableMap({ options: ImmutableList(['a', 'b']) }) })), { openMenu: false });
 
     expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
     expect(attachButton()).toBeNull();
 
-    cleanup();
-    renderComposer(stateFor(composerWith({ poll: null })));
+    store.replaceState(stateFor(composerWith({ poll: null })));
 
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     expect(attachButton()).toBeEnabled();
   });
 

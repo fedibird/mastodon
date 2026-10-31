@@ -117,10 +117,11 @@ export const installComposerToolbarEditor = root => {
   root.dataset.composerToolbarReady = 'true';
 
   const initial = normalizeComposerToolbar(root.dataset.initial);
+  const savedItems = () => normalizeComposerToolbar(root.dataset.saved || root.dataset.initial);
   let items = initial.map(item => ({ ...item }));
   let drag = null;
 
-  const savedValue = () => root.dataset.saved || dumpComposerToolbar(initial);
+  const savedValue = () => dumpComposerToolbar(savedItems());
 
   const sync = () => {
     field.value = dumpComposerToolbar(items);
@@ -280,7 +281,7 @@ export const installComposerToolbarEditor = root => {
   const onCancel = event => {
     event.preventDefault();
     drag = null;
-    items = initial.map(item => ({ ...item }));
+    items = savedItems().map(item => ({ ...item }));
     paint();
   };
 
@@ -296,22 +297,6 @@ export const installComposerToolbarEditor = root => {
   const onPageShow = event => {
     if (event.persisted) {
       root.dataset.submitting = 'false';
-    }
-  };
-
-  const onNavigate = event => {
-    if (root.dataset.dirty !== 'true' || !root.isConnected) {
-      return;
-    }
-
-    const link = event.target.closest && event.target.closest('a[href]');
-
-    if (!link || link.target === '_blank' || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-      return;
-    }
-
-    if (!window.confirm(root.dataset.unsaved || '')) {
-      event.preventDefault();
     }
   };
 
@@ -337,7 +322,6 @@ export const installComposerToolbarEditor = root => {
 
   window.addEventListener('beforeunload', onBeforeUnload);
   window.addEventListener('pageshow', onPageShow);
-  document.addEventListener('click', onNavigate, true);
   paint();
 
   return () => {
@@ -354,7 +338,6 @@ export const installComposerToolbarEditor = root => {
     }
     window.removeEventListener('beforeunload', onBeforeUnload);
     window.removeEventListener('pageshow', onPageShow);
-    document.removeEventListener('click', onNavigate, true);
     delete root.dataset.composerToolbarReady;
   };
 };

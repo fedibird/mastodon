@@ -29,8 +29,7 @@ const labels = {
   },
 };
 
-const mount = () => {
-  const initial = dumpComposerToolbar(normalizeComposerToolbar(null));
+const mount = ({ initial = dumpComposerToolbar(normalizeComposerToolbar(null)), saved = null } = {}) => {
   const form = document.createElement('form');
   const root = document.createElement('div');
   const field = document.createElement('input');
@@ -44,6 +43,11 @@ const mount = () => {
   cancel.dataset.composerToolbarCancel = 'true';
   root.dataset.composerToolbarEditor = 'true';
   root.dataset.initial = initial;
+
+  if (saved) {
+    root.dataset.saved = saved;
+  }
+
   root.dataset.labels = JSON.stringify(labels);
   root.dataset.unsaved = 'Leave without saving?';
   root.append(field, list, cancel);
@@ -150,18 +154,55 @@ describe('composer toolbar editor', () => {
     view.cleanup();
   });
 
-  it('asks before leaving with an unsaved draft and clears the flag on submit', () => {
+  it('restores the stored layout when cancel follows a rejected save', () => {
+    const saved = dumpComposerToolbar(normalizeComposerToolbar(null));
+    const rejected = dumpComposerToolbar(normalizeComposerToolbar('v1|poll:visible|media:hidden'));
+    const view = mount({ initial: rejected, saved });
+
+    expect(view.rows().map(row => row.dataset.id).slice(0, 2)).toEqual(['poll', 'media']);
+    expect(view.rows()[1].querySelector('[data-placement]').value).toEqual('hidden');
+    expect(view.root.dataset.dirty).toEqual('true');
+
+    fireEvent.click(view.root.querySelector('[data-composer-toolbar-cancel]'));
+
+    expect(view.rows().map(row => row.dataset.id)).toEqual(normalizeComposerToolbar(null).map(item => item.id));
+    expect(view.rows()[0].querySelector('[data-placement]').value).toEqual('visible');
+    expect(view.rows()[1].querySelector('[data-placement]').value).toEqual('visible');
+    expect(view.field.value).toEqual(saved);
+    expect(view.root.dataset.dirty).toEqual('false');
+    view.cleanup();
+  });
+
+  it('warns once through beforeunload and ignores in-page links', () => {
     const view = mount();
     const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
-    const link = document.createElement('a');
+    const hashLink = document.createElement('a');
+    const sidebarToggle = document.createElement('a');
+    const pageLink = document.createElement('a');
 
-    link.href = '/settings/preferences';
-    document.body.appendChild(link);
+    hashLink.href = '#composer-toolbar';
+    sidebarToggle.href = '#';
+    pageLink.href = '/settings/preferences';
+    document.body.append(hashLink, sidebarToggle, pageLink);
     fireEvent.change(view.rows()[0].querySelector('[data-placement]'), { target: { value: 'menu' } });
-    fireEvent.click(link);
 
-    expect(confirm).toHaveBeenCalledWith('Leave without saving?');
-    confirm.mockClear();
+    const hashClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    hashLink.dispatchEvent(hashClick);
+    const toggleClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    sidebarToggle.dispatchEvent(toggleClick);
+    const pageClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    pageLink.dispatchEvent(pageClick);
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(hashClick.defaultPrevented).toBe(false);
+    expect(toggleClick.defaultPrevented).toBe(false);
+    expect(pageClick.defaultPrevented).toBe(false);
+
+    const leaving = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(leaving);
+    expect(leaving.defaultPrevented).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
+
     fireEvent.submit(view.root.closest('form'));
 
     expect(confirm).not.toHaveBeenCalled();
@@ -177,9 +218,9 @@ describe('composer toolbar editor', () => {
     window.dispatchEvent(restored);
     expect(view.root.dataset.submitting).toEqual('false');
 
-    const leaving = new Event('beforeunload', { cancelable: true });
-    window.dispatchEvent(leaving);
-    expect(leaving.defaultPrevented).toBe(true);
+    const leavingAgain = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(leavingAgain);
+    expect(leavingAgain.defaultPrevented).toBe(true);
     confirm.mockRestore();
     view.cleanup();
   });
