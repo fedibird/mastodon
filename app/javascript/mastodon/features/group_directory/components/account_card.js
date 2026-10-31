@@ -311,6 +311,13 @@ class AccountCard extends ImmutablePureComponent {
           </div>
         </div>
 
+        <div className='directory__card__extra' ref={this.setRef}>
+          <div
+            className='account__header__content'
+            dangerouslySetInnerHTML={{ __html: account.get('note_emojified') }}
+          />
+        </div>
+
         <div className='group-directory__metadata'>
           <span>{software || intl.formatMessage(messages.unknownSoftware)}</span>
           <Permalink
@@ -320,13 +327,6 @@ class AccountCard extends ImmutablePureComponent {
           >
             <FormattedMessage id='group_directory.open_group' defaultMessage='Open group' />
           </Permalink>
-        </div>
-
-        <div className='directory__card__extra' ref={this.setRef}>
-          <div
-            className='account__header__content'
-            dangerouslySetInnerHTML={{ __html: account.get('note_emojified') }}
-          />
         </div>
 
         <div className='directory__card__extra'>

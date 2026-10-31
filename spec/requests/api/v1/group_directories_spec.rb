@@ -26,8 +26,8 @@ describe 'Group Directory API' do
   end
 
   it 'retains public community groups, excludes known PeerTube channels, and returns an Account array' do
-    make_node('lemmy.example', 'lemmy')
-    make_node('video.example', 'peertube')
+    make_node('lemmy.example', 'Lemmy')
+    make_node('video.example', 'PeerTube')
     make_node('unknown.example', '')
     local = make_group('my_group')
     lemmy = make_group('lemmy_group', domain: 'lemmy.example')

@@ -43,11 +43,11 @@ class Api::V1::GroupDirectoriesController < Api::BaseController
 
       scope = case software
               when 'fedibird'
-                scope.where(domain: nil).or(scope.where(domain: Node.software('fedibird').select(:domain)))
+                scope.where(domain: nil).or(scope.where(domain: Node.where("LOWER(COALESCE(info->>'software_name', '')) = ?", 'fedibird').select(:domain)))
               when 'unknown'
                 scope.where(domain: Node.has_nodeinfo.where("COALESCE(info->>'software_name', '') = ''").select(:domain))
               else
-                scope.where(domain: Node.software(software).select(:domain))
+                scope.where(domain: Node.where("LOWER(COALESCE(info->>'software_name', '')) = ?", software).select(:domain))
               end
     end
 

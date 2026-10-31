@@ -567,6 +567,8 @@
   "getting_started.open_source_notice": "Mastodonはオープンソースソフトウェアです。誰でもGitHub ( {github} ) から開発に参加したり、問題を報告したりできます。",
   "getting_started.security": "アカウント設定",
   "getting_started.terms": "プライバシーポリシー",
+  "group_directory.open_group": "グループを開く",
+  "group_directory.unknown_software": "実装未確認",
   "group_directory.new_arrivals": "新着順",
   "group_directory.recently_active": "最近の活動順",
   "hashtag.column_header.tag_mode.all": "と {additional}",
