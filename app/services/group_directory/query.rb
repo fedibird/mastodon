@@ -90,6 +90,9 @@ class GroupDirectory::Query
     case software
     when 'fedibird'
       scope.where(local_or_domains(software_nodes('fedibird')))
+    # Present NodeInfo with no software_name. Missing NodeInfo stays out of
+    # the directory, including this filter. That is the existing listing
+    # rule. unknown does not mean every unrecognized or unfetched domain.
     when 'unknown'
       scope.where(domain: Node.has_nodeinfo.where("#{blank_software_sql} = ''").select(:domain))
     when 'other'

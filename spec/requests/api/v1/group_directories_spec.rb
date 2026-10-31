@@ -235,6 +235,27 @@ describe 'Group Directory API' do
     end
   end
 
+  it 'treats software=unknown as NodeInfo with no software name, and still hides missing NodeInfo' do
+    directory_node('blank.example', '')
+    directory_node('missing.example', '', nodeinfo: { 'error' => 'missing' })
+    blank = directory_group('blank_group', domain: 'blank.example')
+    missing = directory_group('missing_group', domain: 'missing.example')
+    orphan = directory_group('orphan_group', domain: 'orphan.example')
+    local = directory_group('local_group')
+
+    get '/api/v1/group_directory', headers: headers, params: { software: 'unknown' }
+
+    expect(response).to have_http_status(200)
+    expect(ids).to eq([blank.id.to_s])
+
+    get '/api/v1/group_directory', headers: headers
+
+    expect(ids).to contain_exactly(blank.id.to_s, local.id.to_s)
+    expect(ids).not_to include(missing.id.to_s, orphan.id.to_s)
+  end
+
+  # enable_seqscan=off only shows the partial index can be used. It does not
+  # show that a normal planner picks it, or that note ILIKE is indexed.
   it 'uses the discoverable-group index without multiplying rows through nodes' do
     listed = directory_group('indexed_group')
     relation = GroupDirectory::Query.new(viewer: nil, params: {}, limit: 20).results
