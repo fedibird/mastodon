@@ -1,0 +1,34 @@
+- content_for :page_title do
+  = t('composer_toolbar.title')
+
+- content_for :heading_actions do
+  = button_tag t('generic.save_changes'), class: 'button', form: 'edit_composer_toolbar'
+
+= simple_form_for current_user, url: settings_preferences_composer_path, html: { method: :put, id: 'edit_composer_toolbar' } do |f|
+  = render 'shared/error_messages', object: current_user
+
+  %p.lead= t('composer_toolbar.lead')
+
+  - saved_toolbar = @saved_toolbar || @toolbar
+  - shown_dump = ComposerToolbarPreference.dump(@toolbar)
+  - saved_dump = ComposerToolbarPreference.dump(saved_toolbar)
+  .composer-toolbar{ data: { composer_toolbar_editor: true, initial: shown_dump, saved: saved_dump, unsaved: t('composer_toolbar.unsaved'), labels: { drag: t('composer_toolbar.drag'), placement: t('composer_toolbar.placement_label'), moveUp: t('composer_toolbar.move_up'), moveDown: t('composer_toolbar.move_down'), placements: { visible: t('composer_toolbar.placements.visible'), menu: t('composer_toolbar.placements.menu'), hidden: t('composer_toolbar.placements.hidden') }, items: ComposerToolbarPreference::IDS.index_with { |id| t("composer_toolbar.items.#{id}") }, icons: ComposerToolbarPreference::ICONS }.to_json } }
+    = hidden_field_tag 'user[composer_toolbar]', shown_dump, id: 'composer_toolbar_value', data: { composer_toolbar_field: true }
+    %ul.composer-toolbar__list{ data: { composer_toolbar_list: true } }
+      - @toolbar.each_with_index do |item, index|
+        %li.composer-toolbar__row{ data: { id: item['id'] } }
+          %button.composer-toolbar__handle{ type: 'button', data: { drag_handle: true }, aria: { label: t('composer_toolbar.drag') } }
+            = fa_icon 'bars'
+          %span.composer-toolbar__name
+            %i.fa{ class: "fa-#{ComposerToolbarPreference::ICONS[item['id']]}", aria: { hidden: true } }
+            %span= t("composer_toolbar.items.#{item['id']}")
+          %select.composer-toolbar__placement{ data: { placement: true }, aria: { label: "#{t("composer_toolbar.items.#{item['id']}")} #{t('composer_toolbar.placement_label')}" } }
+            - ComposerToolbarPreference::PLACEMENTS.each do |placement|
+              %option{ value: placement, selected: item['placement'] == placement }= t("composer_toolbar.placements.#{placement}")
+          %span.composer-toolbar__moves
+            %button.button.composer-toolbar__move{ type: 'button', data: { move: 'up' }, disabled: index.zero?, aria: { label: "#{t('composer_toolbar.move_up')} #{t("composer_toolbar.items.#{item['id']}")}" } }= t('composer_toolbar.move_up')
+            %button.button.composer-toolbar__move{ type: 'button', data: { move: 'down' }, disabled: index == @toolbar.size - 1, aria: { label: "#{t('composer_toolbar.move_down')} #{t("composer_toolbar.items.#{item['id']}")}" } }= t('composer_toolbar.move_down')
+    %p.composer-toolbar__actions
+      %button.button{ type: 'button', data: { composer_toolbar_cancel: true } }= t('composer_toolbar.cancel')
+
+  %p.hint= t('composer_toolbar.hint')

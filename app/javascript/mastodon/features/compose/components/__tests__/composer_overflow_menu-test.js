@@ -38,4 +38,19 @@ describe('ComposerOverflowMenu', () => {
 
     expect(screen.queryByText('Portable schedule')).toBeNull();
   });
+
+  it('closes when a touch ends outside the menu', () => {
+    render(
+      <ComposerOverflowMenu label='More actions'>
+        <button type='button'>Schedule</button>
+      </ComposerOverflowMenu>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByText('Schedule')).toBeTruthy();
+
+    fireEvent.touchEnd(document.body);
+
+    expect(screen.queryByText('Schedule')).toBeNull();
+  });
 });

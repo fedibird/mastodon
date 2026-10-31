@@ -114,6 +114,11 @@ class SenderIdentity extends React.PureComponent {
     selectable: PropTypes.bool,
     composerId: PropTypes.string,
     catalog: ImmutablePropTypes.list,
+    presentation: PropTypes.oneOf(['toolbar', 'detached']),
+    suppressed: PropTypes.bool,
+    open: PropTypes.bool,
+    anchor: PropTypes.object,
+    onDismiss: PropTypes.func,
   };
 
   state = {
@@ -136,12 +141,18 @@ class SenderIdentity extends React.PureComponent {
     document.removeEventListener('keydown', this.handleDocumentKey);
   }
 
+  menuIsOpen = () => (this.props.presentation === 'detached' ? Boolean(this.props.open) : this.state.open);
+
   handleDocumentClick = event => {
-    if (!this.state.open) {
+    if (!this.menuIsOpen()) {
       return;
     }
 
     if (this.trigger && this.trigger.contains(event.target)) {
+      return;
+    }
+
+    if (this.props.anchor && this.props.anchor.contains && this.props.anchor.contains(event.target)) {
       return;
     }
 
@@ -151,11 +162,16 @@ class SenderIdentity extends React.PureComponent {
       return;
     }
 
+    if (this.props.presentation === 'detached') {
+      this.closeMenu();
+      return;
+    }
+
     this.setState({ open: false });
   };
 
   handleDocumentKey = event => {
-    if (event.key !== 'Escape' || !this.state.open) {
+    if (event.key !== 'Escape' || !this.menuIsOpen()) {
       return;
     }
 
@@ -166,11 +182,21 @@ class SenderIdentity extends React.PureComponent {
     const nothingFocused = !active || active === document.body || active === document.documentElement;
 
     if (!focusInMenu && !focusOnTrigger && !nothingFocused) {
-      this.setState({ open: false });
+      if (this.props.presentation === 'detached') {
+        this.closeMenu();
+      } else {
+        this.setState({ open: false });
+      }
       return;
     }
 
     event.preventDefault();
+
+    if (this.props.presentation === 'detached') {
+      this.closeMenu();
+      return;
+    }
+
     this.setState({ open: false }, () => {
       if (this.trigger) {
         this.trigger.focus();
@@ -186,7 +212,7 @@ class SenderIdentity extends React.PureComponent {
     this.trigger = node;
   };
 
-  findTrigger = () => this.trigger;
+  findTrigger = () => (this.props.presentation === 'detached' ? (this.props.anchor || this.trigger) : this.trigger);
 
   renderSenderMenu = ({ props, placement }) => {
     const { ref: popperRef, style, ...overlayProps } = props;
@@ -241,11 +267,25 @@ class SenderIdentity extends React.PureComponent {
   };
 
   closeMenu = () => {
-    this.setState({ open: false }, () => {
-      if (this.trigger) {
-        this.trigger.focus();
+    const detached = this.props.presentation === 'detached';
+    const finish = () => {
+      if (detached && this.props.onDismiss) {
+        this.props.onDismiss();
       }
-    });
+
+      const focusTarget = detached ? (this.props.anchor || this.trigger) : this.trigger;
+
+      if (focusTarget && typeof focusTarget.focus === 'function') {
+        focusTarget.focus();
+      }
+    };
+
+    if (detached) {
+      finish();
+      return;
+    }
+
+    this.setState({ open: false }, finish);
   };
 
   handleChoiceClick = event => {
@@ -546,7 +586,27 @@ class SenderIdentity extends React.PureComponent {
     );
   }
 
+  renderDetached () {
+    return (
+      <div className='compose-form__sender-anchor' data-testid='sender-identity-anchor' ref={this.setTrigger}>
+        {this.props.open ? (
+          <Overlay show placement='top' flip target={this.findTrigger} popperConfig={{ strategy: 'fixed' }}>
+            {this.renderSenderMenu}
+          </Overlay>
+        ) : null}
+      </div>
+    );
+  }
+
   render () {
+    if (this.props.suppressed) {
+      return null;
+    }
+
+    if (this.props.presentation === 'detached') {
+      return this.renderDetached();
+    }
+
     if (this.props.header) {
       if (this.props.selectable === false) {
         return this.renderStaticHeader();

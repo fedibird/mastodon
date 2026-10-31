@@ -18,6 +18,10 @@ class LanguageDropdown extends React.PureComponent {
     intl: PropTypes.object.isRequired,
     onChange: PropTypes.func,
     onClose: PropTypes.func,
+    presentation: PropTypes.oneOf(['detached']),
+    open: PropTypes.bool,
+    onDismiss: PropTypes.func,
+    returnFocus: PropTypes.object,
   };
 
   static defaultProps = {
@@ -48,16 +52,21 @@ class LanguageDropdown extends React.PureComponent {
   }
 
   handleClose = (language) => {
-    const { value, onClose } = this.props;
+    const { value, onClose, onDismiss, returnFocus } = this.props;
+    const focusTarget = returnFocus || this.activeElement;
 
-    if (this.state.open && this.activeElement) {
-      this.activeElement.focus({ preventScroll: true });
+    if (focusTarget && typeof focusTarget.focus === 'function') {
+      focusTarget.focus({ preventScroll: true });
     }
 
     this.setState({ open: false });
 
     if (onClose) {
       onClose(language || value);
+    }
+
+    if (onDismiss) {
+      onDismiss();
     }
   };
 
@@ -81,7 +90,36 @@ class LanguageDropdown extends React.PureComponent {
     this.setState({ placement: state.placement });
   };
 
+  renderDetached () {
+    const { value, intl, frequentlyUsedLanguages, open } = this.props;
+
+    return (
+      <div className='compose-form__language-anchor' ref={this.setTargetRef}>
+        <Overlay show={Boolean(open)} placement='bottom' flip target={this.findTarget} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
+          {({ props, placement }) => (
+            <div {...props}>
+              <div className={`dropdown-animation language-dropdown__dropdown ${placement}`}>
+                <LanguageDropdownMenu
+                  value={value}
+                  languages={this.props.languages}
+                  frequentlyUsedLanguages={frequentlyUsedLanguages}
+                  onClose={this.handleClose}
+                  onChange={this.handleChange}
+                  intl={intl}
+                />
+              </div>
+            </div>
+          )}
+        </Overlay>
+      </div>
+    );
+  }
+
   render () {
+    if (this.props.presentation === 'detached') {
+      return this.renderDetached();
+    }
+
     const { value, intl, frequentlyUsedLanguages } = this.props;
     const { open, placement } = this.state;
 

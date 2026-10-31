@@ -1961,6 +1961,28 @@ ja:
       over_character_limit: は%{max}文字より長くすることはできません
       too_few_options: は複数必要です
       too_many_options: は%{max}個までです
+  composer_toolbar:
+    title: コンポーザーのボタン
+    lead: コンポーザーの各操作を表示・メニュー・非表示のどれにするか選び、ドラッグで順番を変えられます。コンポーザーに反映されるのは保存した内容だけです。
+    hint: 「変更を保存」が成功するまで、コンポーザーの表示は変わりません。保存したあとはコンポーザーを読み込み直すと反映されます。
+    unsaved: コンポーザーのボタンに未保存の変更があります。保存せずに移動しますか？
+    cancel: キャンセル
+    drag: ドラッグして順番を変える
+    placement_label: 配置
+    move_up: 上へ
+    move_down: 下へ
+    placements:
+      visible: 表示
+      menu: メニュー
+      hidden: 非表示
+    items:
+      posting_account: 投稿アカウント選択
+      media: メディア添付
+      cw: CW
+      language: 言語
+      datetime: 公開と終了の日時
+      searchability: 検索の公開範囲
+      poll: アンケート
   preferences:
     invalid_input: "%{key} を保存できませんでした。"
     beta_features: ベータ機能
@@ -2390,6 +2412,7 @@ ja:
     account_subscribes: アカウントの購読
     aliases: アカウントエイリアス
     appearance: 外観
+    composer_buttons: コンポーザーのボタン
     authorized_apps: 認証済みアプリ
     back: Mastodon に戻る
     delete: アカウントの削除
