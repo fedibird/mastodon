@@ -1,6 +1,5 @@
 import React from 'react';
 import IconButton from '../../../components/icon_button';
-import Icon from 'mastodon/components/icon';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
@@ -33,9 +32,30 @@ class UploadButton extends ImmutablePureComponent {
     uploadReason: PropTypes.string,
     acceptContentTypes: ImmutablePropTypes.listOf(PropTypes.string).isRequired,
     intl: PropTypes.object.isRequired,
-    presentation: PropTypes.oneOf(['menu']),
-    onMenuClose: PropTypes.func,
+    presentation: PropTypes.oneOf(['menu', 'file']),
+    onFileInput: PropTypes.func,
+    onDisabledChange: PropTypes.func,
   };
+
+  componentDidMount () {
+    this.publishFileInput();
+  }
+
+  componentDidUpdate (prevProps) {
+    if (prevProps.disabled !== this.props.disabled || prevProps.presentation !== this.props.presentation) {
+      this.publishFileInput();
+    }
+  }
+
+  publishFileInput () {
+    if (this.props.onFileInput) {
+      this.props.onFileInput(this.fileElement || null);
+    }
+
+    if (this.props.onDisabledChange) {
+      this.props.onDisabledChange(Boolean(this.props.disabled));
+    }
+  }
 
   handleChange = (e) => {
     if (e.target.files.length > 0) {
@@ -47,14 +67,14 @@ class UploadButton extends ImmutablePureComponent {
     if (this.fileElement) {
       this.fileElement.click();
     }
-
-    if (this.props.onMenuClose) {
-      this.props.onMenuClose();
-    }
   }
 
   setRef = (c) => {
     this.fileElement = c;
+
+    if (this.props.onFileInput) {
+      this.props.onFileInput(c);
+    }
   }
 
   render () {
@@ -65,7 +85,7 @@ class UploadButton extends ImmutablePureComponent {
     }
 
     const message = intl.formatMessage(stillImagesOnly ? messages.stillImage : messages.upload);
-    const menu = this.props.presentation === 'menu';
+    const fileOnly = this.props.presentation === 'file';
     let notice = null;
 
     if (stillImagesOnly && !disabled) {
@@ -94,14 +114,9 @@ class UploadButton extends ImmutablePureComponent {
       </label>
     );
 
-    if (menu) {
+    if (fileOnly) {
       return (
         <div className='compose-form__upload-button'>
-          <button type='button' className='compose-form__menu-row' disabled={disabled} onClick={this.handleClick}>
-            <Icon id='paperclip' fixedWidth aria-hidden='true' />
-            <span>{message}</span>
-          </button>
-          {notice ? <p className='compose-form__upload-notice' role='status'>{notice}</p> : null}
           {fileInput}
         </div>
       );

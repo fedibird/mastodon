@@ -9,8 +9,11 @@
 
   %p.lead= t('composer_toolbar.lead')
 
-  .composer-toolbar{ data: { composer_toolbar_editor: true, initial: ComposerToolbarPreference.dump(@toolbar), unsaved: t('composer_toolbar.unsaved'), labels: { drag: t('composer_toolbar.drag'), placement: t('composer_toolbar.placement_label'), moveUp: t('composer_toolbar.move_up'), moveDown: t('composer_toolbar.move_down'), placements: { visible: t('composer_toolbar.placements.visible'), menu: t('composer_toolbar.placements.menu'), hidden: t('composer_toolbar.placements.hidden') }, items: ComposerToolbarPreference::IDS.index_with { |id| t("composer_toolbar.items.#{id}") }, icons: ComposerToolbarPreference::ICONS }.to_json } }
-    = hidden_field_tag 'user[composer_toolbar]', ComposerToolbarPreference.dump(@toolbar), id: 'composer_toolbar_value', data: { composer_toolbar_field: true }
+  - saved_toolbar = @saved_toolbar || @toolbar
+  - shown_dump = ComposerToolbarPreference.dump(@toolbar)
+  - saved_dump = ComposerToolbarPreference.dump(saved_toolbar)
+  .composer-toolbar{ data: { composer_toolbar_editor: true, initial: shown_dump, saved: saved_dump, unsaved: t('composer_toolbar.unsaved'), labels: { drag: t('composer_toolbar.drag'), placement: t('composer_toolbar.placement_label'), moveUp: t('composer_toolbar.move_up'), moveDown: t('composer_toolbar.move_down'), placements: { visible: t('composer_toolbar.placements.visible'), menu: t('composer_toolbar.placements.menu'), hidden: t('composer_toolbar.placements.hidden') }, items: ComposerToolbarPreference::IDS.index_with { |id| t("composer_toolbar.items.#{id}") }, icons: ComposerToolbarPreference::ICONS }.to_json } }
+    = hidden_field_tag 'user[composer_toolbar]', shown_dump, id: 'composer_toolbar_value', data: { composer_toolbar_field: true }
     %ul.composer-toolbar__list{ data: { composer_toolbar_list: true } }
       - @toolbar.each_with_index do |item, index|
         %li.composer-toolbar__row{ data: { id: item['id'] } }

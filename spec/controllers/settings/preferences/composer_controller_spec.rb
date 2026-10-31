@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-describe Settings::Preferences::ComposerController do
+describe Settings::Preferences::ComposerController do # rubocop:disable Metrics/BlockLength
   render_views
 
   let(:user) { Fabricate(:user) }
@@ -62,14 +62,20 @@ describe Settings::Preferences::ComposerController do
       expect(other.reload.settings['composer_toolbar']).to be_nil
     end
 
-    it 'does not store an invalid layout' do
-      user.settings['composer_toolbar'] = ComposerToolbarPreference.dump(ComposerToolbarPreference.default_items)
+    it 'does not store an invalid layout and keeps the rejected draft' do
+      saved = ComposerToolbarPreference.dump(ComposerToolbarPreference.default_items)
+      user.settings['composer_toolbar'] = saved
+      partial = 'v1|poll:visible|media:hidden'
+      draft = ComposerToolbarPreference.dump(ComposerToolbarPreference.normalize(partial))
 
-      put :update, params: { user: { composer_toolbar: '{"items":"all"}' } }
+      put :update, params: { user: { composer_toolbar: partial } }
 
       expect(response).to have_http_status(:unprocessable_entity)
-      expect(user.reload.settings['composer_toolbar']).to eq ComposerToolbarPreference.dump(ComposerToolbarPreference.default_items)
+      expect(user.reload.settings['composer_toolbar']).to eq saved
       expect(response.body).to include(I18n.t('preferences.invalid_input', key: I18n.t('composer_toolbar.title')))
+      expect(response.body).to include(%(data-initial="#{draft}"))
+      expect(response.body).to include(%(data-saved="#{saved}"))
+      expect(response.body).to include('data-id="poll"')
     end
   end
 end

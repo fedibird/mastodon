@@ -161,9 +161,25 @@ describe('composer toolbar editor', () => {
     fireEvent.click(link);
 
     expect(confirm).toHaveBeenCalledWith('Leave without saving?');
-    confirm.mockReturnValue(true);
+    confirm.mockClear();
     fireEvent.submit(view.root.closest('form'));
-    expect(view.root.dataset.dirty).toEqual('false');
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(view.root.dataset.dirty).toEqual('true');
+    expect(view.root.dataset.submitting).toEqual('true');
+
+    const saving = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(saving);
+    expect(saving.defaultPrevented).toBe(false);
+
+    const restored = new Event('pageshow');
+    Object.defineProperty(restored, 'persisted', { value: true });
+    window.dispatchEvent(restored);
+    expect(view.root.dataset.submitting).toEqual('false');
+
+    const leaving = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(leaving);
+    expect(leaving.defaultPrevented).toBe(true);
     confirm.mockRestore();
     view.cleanup();
   });

@@ -31,33 +31,72 @@ import TextIconButton from '../text_icon_button';
 import UploadButton from '../upload_button';
 
 describe('composer toolbar actions', () => {
-  it('opens the file picker from a menu row and from the footer icon', () => {
+  it('opens the file picker from the footer icon', () => {
     const click = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
-    const onMenuClose = jest.fn();
 
-    const { rerender } = render(
+    render(
       <UploadButton
-        presentation='menu'
-        onMenuClose={onMenuClose}
         onSelectFile={jest.fn()}
         acceptContentTypes={ImmutableList(['image/png'])}
       />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Add images, a video or an audio file' }));
-
     expect(click).toHaveBeenCalled();
-    expect(onMenuClose).toHaveBeenCalled();
+    click.mockRestore();
+  });
 
-    rerender(
-      <UploadButton
-        onSelectFile={jest.fn()}
-        acceptContentTypes={ImmutableList(['image/png'])}
-      />,
-    );
+  it('delivers a file chosen after the menu row has closed', () => {
+    const onSelectFile = jest.fn();
+    const click = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
 
+    class Harness extends React.Component {
+
+      state = { open: true };
+
+      input = null;
+
+      bindInput = (node) => {
+        this.input = node;
+      };
+
+      closeMenu = () => {
+        this.input.click();
+        this.setState({ open: false });
+      };
+
+      render () {
+        return (
+          <div>
+            {this.state.open ? (
+              <button type='button' onClick={this.closeMenu}>
+                Add images, a video or an audio file
+              </button>
+            ) : null}
+            <UploadButton
+              presentation='file'
+              onFileInput={this.bindInput}
+              onSelectFile={onSelectFile}
+              acceptContentTypes={ImmutableList(['image/png'])}
+            />
+          </div>
+        );
+      }
+
+    }
+
+    render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: 'Add images, a video or an audio file' }));
-    expect(click).toHaveBeenCalledTimes(2);
+
+    expect(screen.queryByRole('button', { name: 'Add images, a video or an audio file' })).toBeNull();
+    const file = document.querySelector('input[type="file"]');
+    const chosen = [{ name: 'a.png', type: 'image/png' }];
+
+    expect(file).toBeTruthy();
+    Object.defineProperty(file, 'files', { configurable: true, value: chosen });
+    fireEvent.change(file);
+
+    expect(onSelectFile).toHaveBeenCalledWith(chosen);
     click.mockRestore();
   });
 

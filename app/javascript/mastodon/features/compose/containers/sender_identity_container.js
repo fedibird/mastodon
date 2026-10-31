@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import { defineMessages, injectIntl } from 'react-intl';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { connect } from 'react-redux';
 import { fetchPostingIdentities, retryComposerInteraction, selectComposerSenderIdentity } from '../../../actions/posting_identities';
@@ -10,6 +11,25 @@ import { PORTABLE_COMPOSER_MODE_SIMPLE, selectComposer, selectPortableComposerDi
 import { selectComposerCanSendAsIdentity, selectComposerSenderIdentity as selectSender } from '../../../selectors/posting_identities';
 import { withComposerId } from '../composer_id_context';
 import SenderIdentity from '../components/sender_identity';
+
+const messages = defineMessages({
+  loadFailed: { id: 'compose_form.sender_identity.failed', defaultMessage: 'Couldn’t confirm who this post is from.' },
+  retry: { id: 'compose_form.sender_identity.retry', defaultMessage: 'Retry' },
+});
+
+const PostingAccountLoadRetry = injectIntl(({ intl, onRetry }) => (
+  <p className='compose-form__sender-status' role='status' data-testid='posting-account-load-retry'>
+    {intl.formatMessage(messages.loadFailed)}
+    <button type='button' className='compose-form__sender-retry' onClick={onRetry}>
+      {intl.formatMessage(messages.retry)}
+    </button>
+  </p>
+));
+
+PostingAccountLoadRetry.propTypes = {
+  intl: PropTypes.object,
+  onRetry: PropTypes.func.isRequired,
+};
 
 // The signed-in account fills in a sender only when that sender is the
 // session identity. A missing delegated identity must not borrow it.
@@ -80,6 +100,7 @@ export const mapStateToProps = (state, { composerId }) => {
       blockReason: null,
       sendBlocked: null,
       failed: false,
+      canLink: false,
       compact: selectPortableComposerDisplayMode(state, composerId) === PORTABLE_COMPOSER_MODE_SIMPLE,
       catalog: null,
     };
@@ -102,6 +123,7 @@ export const mapStateToProps = (state, { composerId }) => {
       return delegated && !decision.canSend ? decision.reason : null;
     })(),
     failed: catalogStatus === 'failed',
+    canLink: true,
     compact: selectPortableComposerDisplayMode(state, composerId) === PORTABLE_COMPOSER_MODE_SIMPLE,
     catalog: state.getIn(['postingIdentities', 'identities']),
   };
@@ -116,6 +138,7 @@ class SenderIdentityContainer extends React.PureComponent {
     selectable: PropTypes.bool,
     current: PropTypes.object,
     failed: PropTypes.bool,
+    canLink: PropTypes.bool,
     compact: PropTypes.bool,
     showPostingAccount: PropTypes.bool,
     presentation: PropTypes.string,
@@ -151,7 +174,15 @@ class SenderIdentityContainer extends React.PureComponent {
   };
 
   render () {
-    if (this.props.suppressed || !this.props.showPostingAccount || !this.props.visible) {
+    if (this.props.suppressed || !this.props.visible) {
+      return null;
+    }
+
+    if (!this.props.showPostingAccount) {
+      if (this.props.failed && this.props.canLink) {
+        return <PostingAccountLoadRetry onRetry={this.handleRetry} />;
+      }
+
       return null;
     }
 

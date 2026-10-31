@@ -1440,7 +1440,12 @@ body > [data-popper-placement] {
   .compose-form__buttons {
     flex: 1 1 auto;
     min-width: 0;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .compose-form__toolbar-slot {
+    flex: 0 0 auto;
   }
 
   .compose-form__toolbar-slot:empty {
@@ -1452,6 +1457,17 @@ body > [data-popper-placement] {
     width: 0;
     height: 0;
     overflow: visible;
+  }
+
+  .compose-form__upload-file-host {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
   }
 
   .compose-form__submit,
@@ -1834,9 +1850,18 @@ body > [data-popper-placement] {
       min-width: 0;
     }
 
-    .compose-form__buttons-wrapper .compose-form__submit {
+    .compose-form__buttons-wrapper {
+      flex-wrap: wrap;
+    }
+
+    .compose-form__buttons {
       flex: 1 1 100%;
-      margin-inline-start: 0;
+      max-width: 100%;
+    }
+
+    .compose-form__buttons-wrapper .compose-form__submit {
+      flex: 0 0 auto;
+      margin-inline-start: auto;
     }
 
     .compose-form__upload-notice,
@@ -2106,7 +2131,8 @@ body > [data-popper-placement] {
       flex: 1 1 auto;
       flex-wrap: nowrap;
       min-width: 0;
-      overflow: hidden;
+      overflow-x: auto;
+      overflow-y: hidden;
 
       .compose-form__upload-button-icon {
         line-height: 27px;
@@ -2143,7 +2169,7 @@ body > [data-popper-placement] {
       display: flex;
       align-items: center;
       gap: 8px;
-      flex: 0 1 auto;
+      flex: 0 0 auto;
       min-width: 0;
       margin-inline-start: auto;
     }

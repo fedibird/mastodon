@@ -1188,6 +1188,12 @@ describe('ComposeForm composer toolbar', () => {
     expect(document.querySelector('.compose-form__buttons')).toContainElement(screen.getByTestId('poll-button'));
     expect(document.querySelector('.compose-form__buttons')).toContainElement(screen.getByTestId('searchability-dropdown'));
     expect(screen.getByTestId('searchability-dropdown')).toHaveAttribute('data-presentation', '');
+
+    const buttons = document.querySelector('.compose-form__buttons');
+    const submit = document.querySelector('.compose-form__submit');
+
+    expect(buttons.contains(submit)).toBe(false);
+    expect(submit.contains(screen.getByRole('button', { name: 'Toot!' }))).toBe(true);
   });
 
   it('hides every control and still opens non-custom overflow content', () => {
@@ -1226,15 +1232,16 @@ describe('ComposeForm composer toolbar', () => {
     });
 
     expect(controlOrder().slice(0, 3)).toEqual(['datetime', 'searchability', 'poll']);
-    expect(screen.queryByTestId('upload-button')).toBeNull();
     expect(screen.queryByTestId('sender-identity')).toBeNull();
+    expect(document.querySelector('.compose-form__upload-file-host')).toContainElement(screen.getByTestId('upload-button'));
 
     fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
 
     const menu = screen.getByTestId('composer-overflow-menu');
 
     expect(menu).toContainElement(screen.getByRole('button', { name: 'Posting as' }));
-    expect(menu).toContainElement(screen.getByTestId('upload-button'));
+    expect(menu).toContainElement(screen.getByRole('button', { name: 'Add images, a video or an audio file' }));
+    expect(menu).not.toContainElement(screen.getByTestId('upload-button'));
     expect(menu).toContainElement(screen.getByTestId('spoiler-button'));
     expect(menu).toContainElement(screen.getByRole('button', { name: 'Change language' }));
     expect(controlOrder()[controlOrder().length - 1]).toEqual('overflow');

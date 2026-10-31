@@ -152,10 +152,11 @@ export const targetIndexForPointer = (rects, dragIndex, clientY) => {
   return next;
 };
 
-// A configured link is a delegated identity. The signed-in account alone is
-// not a link. Failed catalog loads stay available so the existing retry path
-// can still be opened by someone allowed to link accounts.
-export const postingAccountControlAvailable = ({ catalog, status, selectedId, canLink }) => {
+// A configured link is a delegated identity in the catalog, or a delegated
+// sender already chosen by someone who can post as a linked account. The
+// signed-in account alone is not a link. A failed catalog load is not
+// evidence that a link exists.
+export const postingAccountControlAvailable = ({ catalog, selectedId, canLink }) => {
   const hasDelegated = Boolean(catalog && typeof catalog.some === 'function' && catalog.some(identity => identity && identity.get && identity.get('kind') === 'delegated'));
 
   if (hasDelegated) {
@@ -166,9 +167,5 @@ export const postingAccountControlAvailable = ({ catalog, status, selectedId, ca
     return false;
   }
 
-  if (typeof selectedId === 'string' && selectedId.startsWith('delegated:')) {
-    return true;
-  }
-
-  return status === 'failed';
+  return typeof selectedId === 'string' && selectedId.startsWith('delegated:');
 };

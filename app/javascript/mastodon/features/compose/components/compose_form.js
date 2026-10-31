@@ -222,6 +222,7 @@ class ComposeForm extends ImmutablePureComponent {
     searchabilityOpen: false,
     languageOpen: false,
     senderMenuOpen: false,
+    mediaPickerDisabled: false,
   };
 
   static defaultProps = {
@@ -619,6 +620,28 @@ class ComposeForm extends ImmutablePureComponent {
     this.setState({ senderMenuOpen: false });
   };
 
+  bindMediaFileInput = (node) => {
+    this.mediaFileInput = node;
+  };
+
+  handleMediaDisabled = (disabled) => {
+    if (disabled === this.state.mediaPickerDisabled) {
+      return;
+    }
+
+    this.setState({ mediaPickerDisabled: disabled });
+  };
+
+  openMediaPicker = () => {
+    const input = this.mediaFileInput;
+
+    if (input && !input.disabled) {
+      input.click();
+    }
+
+    this.requestOverflowClose();
+  };
+
   postingAccountMenuAvailable () {
     if (this.props.showPostingAccount === false) {
       return false;
@@ -668,7 +691,17 @@ class ComposeForm extends ImmutablePureComponent {
         </button>
       );
     case 'media':
-      return <UploadButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />;
+      return (
+        <button
+          type='button'
+          className='compose-form__menu-row'
+          disabled={this.state.mediaPickerDisabled}
+          onClick={this.openMediaPicker}
+        >
+          <Icon id='paperclip' fixedWidth aria-hidden='true' />
+          <span>{intl.formatMessage(messages.mediaMenu)}</span>
+        </button>
+      );
     case 'cw':
       return <SpoilerButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />;
     case 'language':
@@ -734,6 +767,18 @@ class ComposeForm extends ImmutablePureComponent {
           onClose={this.closeSearchabilityMenu}
           returnFocus={this.searchabilityReturn}
         />,
+      );
+    }
+
+    if (placement('media') === 'menu') {
+      nodes.push(
+        <div className='compose-form__upload-file-host' key='media-file'>
+          <UploadButtonContainer
+            presentation='file'
+            onFileInput={this.bindMediaFileInput}
+            onDisabledChange={this.handleMediaDisabled}
+          />
+        </div>,
       );
     }
 

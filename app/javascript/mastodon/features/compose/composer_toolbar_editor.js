@@ -120,9 +120,11 @@ export const installComposerToolbarEditor = root => {
   let items = initial.map(item => ({ ...item }));
   let drag = null;
 
+  const savedValue = () => root.dataset.saved || dumpComposerToolbar(initial);
+
   const sync = () => {
     field.value = dumpComposerToolbar(items);
-    root.dataset.dirty = field.value === dumpComposerToolbar(initial) ? 'false' : 'true';
+    root.dataset.dirty = field.value === savedValue() ? 'false' : 'true';
   };
 
   const paint = () => {
@@ -283,12 +285,18 @@ export const installComposerToolbarEditor = root => {
   };
 
   const onBeforeUnload = event => {
-    if (!root.isConnected || root.dataset.dirty !== 'true') {
+    if (!root.isConnected || root.dataset.submitting === 'true' || root.dataset.dirty !== 'true') {
       return;
     }
 
     event.preventDefault();
     event.returnValue = '';
+  };
+
+  const onPageShow = event => {
+    if (event.persisted) {
+      root.dataset.submitting = 'false';
+    }
   };
 
   const onNavigate = event => {
@@ -309,7 +317,7 @@ export const installComposerToolbarEditor = root => {
 
   const form = root.closest('form');
   const onSubmit = () => {
-    root.dataset.dirty = 'false';
+    root.dataset.submitting = 'true';
   };
 
   list.addEventListener('change', onChange);
@@ -328,6 +336,7 @@ export const installComposerToolbarEditor = root => {
   }
 
   window.addEventListener('beforeunload', onBeforeUnload);
+  window.addEventListener('pageshow', onPageShow);
   document.addEventListener('click', onNavigate, true);
   paint();
 
@@ -344,6 +353,7 @@ export const installComposerToolbarEditor = root => {
       form.removeEventListener('submit', onSubmit);
     }
     window.removeEventListener('beforeunload', onBeforeUnload);
+    window.removeEventListener('pageshow', onPageShow);
     document.removeEventListener('click', onNavigate, true);
     delete root.dataset.composerToolbarReady;
   };

@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 
 import {
@@ -73,6 +76,17 @@ describe('moveComposerToolbarItem', () => {
   });
 });
 
+describe('composer footer scrolling', () => {
+  const scss = fs.readFileSync(path.join(__dirname, '../../../../styles/mastodon/components.scss'), 'utf8');
+  const footer = scss.slice(scss.lastIndexOf('.compose-form__buttons-wrapper {'));
+
+  it('scrolls the action row and keeps publish from shrinking away', () => {
+    expect(footer).toContain('overflow-x: auto');
+    expect(footer).toContain('flex: 0 0 auto');
+    expect(footer).not.toMatch(/\.compose-form__buttons \{[^}]*overflow:\s*hidden/);
+  });
+});
+
 describe('postingAccountControlAvailable', () => {
   const delegated = ImmutableList([
     ImmutableMap({ id: 'local:1', kind: 'local' }),
@@ -103,6 +117,18 @@ describe('postingAccountControlAvailable', () => {
       status: 'failed',
       selectedId: 'local:1',
       canLink: true,
+    })).toBe(false);
+    expect(postingAccountControlAvailable({
+      catalog: delegated,
+      status: 'failed',
+      selectedId: 'local:1',
+      canLink: true,
+    })).toBe(true);
+    expect(postingAccountControlAvailable({
+      catalog: ImmutableList(),
+      status: 'failed',
+      selectedId: 'delegated:9',
+      canLink: true,
     })).toBe(true);
     expect(postingAccountControlAvailable({
       catalog: ImmutableList(),
@@ -110,11 +136,5 @@ describe('postingAccountControlAvailable', () => {
       selectedId: 'delegated:9',
       canLink: false,
     })).toBe(false);
-    expect(postingAccountControlAvailable({
-      catalog: ImmutableList(),
-      status: 'ready',
-      selectedId: 'delegated:9',
-      canLink: true,
-    })).toBe(true);
   });
 });

@@ -6,18 +6,22 @@ class Settings::Preferences::ComposerController < Settings::BaseController
   def show; end
 
   def update
-    ComposerToolbarPreference.write!(current_user, composer_toolbar_param)
+    raw = composer_toolbar_param
+    ComposerToolbarPreference.write!(current_user, raw)
     redirect_to settings_preferences_composer_path, notice: I18n.t('generic.changes_saved_msg')
   rescue ComposerToolbarPreference::Invalid, ActionController::ParameterMissing
     current_user.errors.add(:base, I18n.t('preferences.invalid_input', key: I18n.t('composer_toolbar.title')))
-    assign_toolbar
+    @saved_toolbar = ComposerToolbarPreference.effective(current_user)
+    submitted = params.dig(:user, :composer_toolbar)
+    @toolbar = ComposerToolbarPreference.normalize(submitted)
     render :show, status: :unprocessable_entity
   end
 
   private
 
   def assign_toolbar
-    @toolbar = ComposerToolbarPreference.effective(current_user)
+    @saved_toolbar = ComposerToolbarPreference.effective(current_user)
+    @toolbar = @saved_toolbar
   end
 
   def composer_toolbar_param
