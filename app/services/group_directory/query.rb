@@ -24,7 +24,6 @@ class GroupDirectory::Query
   PEERTUBE = 'peertube'
   KNOWN_SOFTWARE = %w(fedibird lemmy piefed nodebb mbin mitra).freeze
   SOFTWARE_PATTERN = /\A[a-z0-9][a-z0-9_.-]*\z/
-  ACTIVE_ORDER = Arel.sql('(CASE WHEN account_stats.last_status_at IS NULL THEN 1 ELSE 0 END) ASC, account_stats.last_status_at DESC, accounts.id DESC')
 
   def initialize(viewer:, params:, limit:)
     @viewer = viewer
@@ -39,7 +38,7 @@ class GroupDirectory::Query
     scope = apply_software(scope)
     scope = apply_listing_scope(scope)
     scope = apply_language(scope)
-    scope.order(order_clause).offset(offset_value).limit(@limit).preload(:node, :group_languages)
+    apply_order(scope).offset(offset_value).limit(@limit).preload(:node, :group_languages)
   end
 
   private
@@ -73,6 +72,7 @@ class GroupDirectory::Query
       <<~SQL.squish,
         accounts.display_name ILIKE :pattern
         OR accounts.username ILIKE :pattern
+        OR accounts.domain ILIKE :pattern
         OR accounts.note ILIKE :pattern
         OR (accounts.username || COALESCE('@' || accounts.domain, '')) ILIKE :pattern
       SQL
@@ -122,12 +122,14 @@ class GroupDirectory::Query
     scope.where(id: GroupLanguage.where(tag: tag).select(:account_id))
   end
 
-  def order_clause
+  # active stays on Account.by_recent_status so this list keeps the existing
+  # activity order. new is id desc, which is when this server stored the row.
+  def apply_order(scope)
     order = string_param(:order, 16)&.downcase || 'active'
     invalid!('order') unless ORDERS.include?(order)
-    return Arel.sql('accounts.id DESC') if order == 'new'
+    return scope.reorder(id: :desc) if order == 'new'
 
-    ACTIVE_ORDER
+    scope.merge(Account.by_recent_status)
   end
 
   def offset_value

@@ -2646,6 +2646,7 @@ create_table "managed_groups", force: :cascade do |t|
   add_foreign_key "group_creation_requests", "accounts", column: "requester_account_id", on_delete: :restrict
   add_foreign_key "group_creation_requests", "accounts", column: "reviewer_account_id", on_delete: :restrict
   add_foreign_key "group_creation_requests", "group_creation_requests", column: "previous_request_id", on_delete: :restrict
+  add_foreign_key "group_languages", "accounts", on_delete: :cascade
   add_foreign_key "group_role_assignments", "accounts", column: "granted_by_account_id", on_delete: :nullify
   add_foreign_key "group_role_assignments", "accounts", column: "group_account_id", on_delete: :restrict
   add_foreign_key "group_role_assignments", "accounts", column: "member_account_id", on_delete: :restrict

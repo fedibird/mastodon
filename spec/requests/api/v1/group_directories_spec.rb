@@ -87,6 +87,9 @@ describe 'Group Directory API' do
     get '/api/v1/group_directory', headers: headers, params: { q: 'walkers@lemmy.example' }
     expect(ids).to eq([remote.id.to_s])
 
+    get '/api/v1/group_directory', headers: headers, params: { q: 'lemmy.example' }
+    expect(ids).to eq([remote.id.to_s])
+
     get '/api/v1/group_directory', headers: headers, params: { q: "%_not_present" }
     expect(body_as_json).to be_empty
 
