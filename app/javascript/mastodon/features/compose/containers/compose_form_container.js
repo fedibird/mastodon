@@ -28,7 +28,8 @@ import UserPostingStylePickerContainer from './user_posting_style_picker_contain
 import ComposerContextDetails from '../components/composer_context_details';
 import { injectIntl, defineMessages } from 'react-intl';
 import { composerRedraftNotice, confirmDiscardUnconfirmedRedraft, retryRedraftMedia } from '../../../actions/redraft_media';
-import { isAdministrator, showComposerPostingStyleSelector } from '../../../initial_state';
+import { composerToolbar, isAdministrator, showComposerPostingStyleSelector } from '../../../initial_state';
+import { postingAccountControlAvailable } from '../composer_toolbar';
 
 const messages = defineMessages({
   cancelEditConfirm: { id: 'confirmations.cancel_edit.confirm', defaultMessage: 'Discard changes' },
@@ -78,6 +79,12 @@ const mapStateToProps = (state, { composerId }) => {
     isScheduledStatusEditting: !!composer.get('scheduled_status_id'),
     isEditing: !!composer.get('id'),
     lang: composer.get('language'),
+    showPostingAccount: postingAccountControlAvailable({
+      catalog: state.getIn(['postingIdentities', 'identities']),
+      status: state.getIn(['postingIdentities', 'status'], 'idle'),
+      selectedId: composer.getIn(['senderIdentity', 'id']),
+      canLink: isAdministrator,
+    }),
     surfaceMismatch: composer.get('surfaceMismatch') === true,
     redraftNotice: composerRedraftNotice(composer),
   };
@@ -167,6 +174,7 @@ const ComposeFormWithPostingStyles = props => (
     styleController={<UserPostingStyleController />}
     stylePicker={<UserPostingStylePickerContainer header contextDetails={styleControlsAvailable ? <ComposerContextDetails /> : null} />}
     overflowContext={styleControlsAvailable ? null : <ComposerContextDetails />}
+    composerToolbar={composerToolbar}
     senderIdentity={<SenderIdentityContainer />}
   />
 );

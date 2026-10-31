@@ -16,6 +16,7 @@ SimpleNavigation::Configuration.run do |navigation|
 
     n.item :preferences, safe_join([fa_icon('cog fw'), t('settings.preferences')]), settings_preferences_url, if: -> { current_user.functional? } do |s|
       s.item :appearance, safe_join([fa_icon('desktop fw'), t('settings.appearance')]), settings_preferences_appearance_url
+      s.item :composer, safe_join([fa_icon('pencil fw'), t('settings.composer_buttons')]), settings_preferences_composer_url, highlights_on: %r{/settings/preferences/composer}
       s.item :notifications, safe_join([fa_icon('bell fw'), t('settings.notifications')]), settings_preferences_notifications_url
       s.item :external_services, safe_join([fa_icon('plug fw'), t('settings.external_services')]), settings_external_services_url, highlights_on: %r{/settings/external_services}
       s.item :favourite_domains, safe_join([fa_icon('users fw'), t('settings.favourite_domains')]), settings_favourite_domains_url

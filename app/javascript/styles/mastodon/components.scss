@@ -1443,6 +1443,17 @@ body > [data-popper-placement] {
     overflow: hidden;
   }
 
+  .compose-form__toolbar-slot:empty {
+    display: none;
+  }
+
+  .compose-form__detached-anchors {
+    flex: 0 0 0px;
+    width: 0;
+    height: 0;
+    overflow: visible;
+  }
+
   .compose-form__submit,
   .compose-form__toolbar-account,
   .compose-form__overflow,

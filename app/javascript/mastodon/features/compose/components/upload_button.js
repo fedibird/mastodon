@@ -1,5 +1,6 @@
 import React from 'react';
 import IconButton from '../../../components/icon_button';
+import Icon from 'mastodon/components/icon';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
@@ -32,6 +33,8 @@ class UploadButton extends ImmutablePureComponent {
     uploadReason: PropTypes.string,
     acceptContentTypes: ImmutablePropTypes.listOf(PropTypes.string).isRequired,
     intl: PropTypes.object.isRequired,
+    presentation: PropTypes.oneOf(['menu']),
+    onMenuClose: PropTypes.func,
   };
 
   handleChange = (e) => {
@@ -41,7 +44,13 @@ class UploadButton extends ImmutablePureComponent {
   }
 
   handleClick = () => {
-    this.fileElement.click();
+    if (this.fileElement) {
+      this.fileElement.click();
+    }
+
+    if (this.props.onMenuClose) {
+      this.props.onMenuClose();
+    }
   }
 
   setRef = (c) => {
@@ -56,6 +65,7 @@ class UploadButton extends ImmutablePureComponent {
     }
 
     const message = intl.formatMessage(stillImagesOnly ? messages.stillImage : messages.upload);
+    const menu = this.props.presentation === 'menu';
     let notice = null;
 
     if (stillImagesOnly && !disabled) {
@@ -68,23 +78,40 @@ class UploadButton extends ImmutablePureComponent {
       notice = intl.formatMessage(messages.mediaOwner);
     }
 
+    const fileInput = (
+      <label>
+        <span style={{ display: 'none' }}>{message}</span>
+        <input
+          key={resetFileKey}
+          ref={this.setRef}
+          type='file'
+          multiple
+          accept={acceptContentTypes.toArray().join(',')}
+          onChange={this.handleChange}
+          disabled={disabled}
+          style={{ display: 'none' }}
+        />
+      </label>
+    );
+
+    if (menu) {
+      return (
+        <div className='compose-form__upload-button'>
+          <button type='button' className='compose-form__menu-row' disabled={disabled} onClick={this.handleClick}>
+            <Icon id='paperclip' fixedWidth aria-hidden='true' />
+            <span>{message}</span>
+          </button>
+          {notice ? <p className='compose-form__upload-notice' role='status'>{notice}</p> : null}
+          {fileInput}
+        </div>
+      );
+    }
+
     return (
       <div className='compose-form__upload-button'>
         <IconButton icon='paperclip' title={message} disabled={disabled} onClick={this.handleClick} className='compose-form__upload-button-icon' size={18} inverted style={iconStyle} />
         {notice ? <p className='compose-form__upload-notice' role='status'>{notice}</p> : null}
-        <label>
-          <span style={{ display: 'none' }}>{message}</span>
-          <input
-            key={resetFileKey}
-            ref={this.setRef}
-            type='file'
-            multiple
-            accept={acceptContentTypes.toArray().join(',')}
-            onChange={this.handleChange}
-            disabled={disabled}
-            style={{ display: 'none' }}
-          />
-        </label>
+        {fileInput}
       </div>
     );
   }

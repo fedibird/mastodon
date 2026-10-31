@@ -39,6 +39,7 @@ import { isAutoPostingLanguage, postingPlaceholderText, textareaLanguage } from 
 import { localizedCommonName } from '../../../utils/language_names';
 import { searchabilityIsChanged } from '../../../utils/searchability';
 import { isExternalFileDrag, markComposerFileDrop } from '../composer_drop';
+import { normalizeComposerToolbar } from '../composer_toolbar';
 import ComposerOverflowMenu from './composer_overflow_menu';
 
 const allowedAroundShortCode = '><\u0085\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\u2028\u2029\u0009\u000a\u000b\u000c\u000d';
@@ -71,6 +72,10 @@ const messages = defineMessages({
   mediaType: { id: 'upload_button.media_type', defaultMessage: 'Video and audio cannot be posted as this account.' },
   mediaOwner: { id: 'compose_form.media_owner', defaultMessage: 'These images belong to a different posting account. They stay attached, and this post cannot be sent until they match the selected account.' },
   more: { id: 'compose_form.more_actions', defaultMessage: 'More actions' },
+  languageMenu: { id: 'compose.language.change', defaultMessage: 'Change language' },
+  postingAccountMenu: { id: 'compose_form.sender_identity.label', defaultMessage: 'Posting as' },
+  mediaMenu: { id: 'upload_button.label', defaultMessage: 'Add images, a video or an audio file' },
+  cwMenu: { id: 'compose_form.overflow.cw', defaultMessage: 'Content warning' },
   searchPublic: { id: 'searchability.public.short', defaultMessage: 'Public' },
   searchPrivate: { id: 'searchability.private.short', defaultMessage: 'Followers-only' },
   searchDirect: { id: 'searchability.direct.short', defaultMessage: 'Reacted-users-only' },
@@ -164,6 +169,11 @@ class ComposeForm extends ImmutablePureComponent {
     styleController: PropTypes.node,
     stylePicker: PropTypes.node,
     senderIdentity: PropTypes.node,
+    showPostingAccount: PropTypes.bool,
+    composerToolbar: PropTypes.arrayOf(PropTypes.shape({
+      id: PropTypes.string.isRequired,
+      placement: PropTypes.string.isRequired,
+    })),
     overflowContext: PropTypes.node,
     onCancelEdit: PropTypes.func,
     onChange: PropTypes.func.isRequired,
@@ -210,6 +220,8 @@ class ComposeForm extends ImmutablePureComponent {
     uploadNotice: null,
     overflowClose: 0,
     searchabilityOpen: false,
+    languageOpen: false,
+    senderMenuOpen: false,
   };
 
   static defaultProps = {
@@ -587,6 +599,147 @@ class ComposeForm extends ImmutablePureComponent {
     this.setState({ searchabilityOpen: false });
   };
 
+  openLanguageMenu = () => {
+    this.languageReturn = this.formNode ? this.formNode.querySelector('.compose-form__overflow-button') : null;
+    this.requestOverflowClose();
+    this.setState({ languageOpen: true });
+  };
+
+  closeLanguageMenu = () => {
+    this.setState({ languageOpen: false });
+  };
+
+  openSenderMenu = () => {
+    this.senderMenuAnchor = this.formNode ? this.formNode.querySelector('.compose-form__overflow-button') : null;
+    this.requestOverflowClose();
+    this.setState({ senderMenuOpen: true });
+  };
+
+  closeSenderMenu = () => {
+    this.setState({ senderMenuOpen: false });
+  };
+
+  postingAccountMenuAvailable () {
+    if (this.props.showPostingAccount === false) {
+      return false;
+    }
+
+    if (this.props.showPostingAccount === true) {
+      return true;
+    }
+
+    return Boolean(this.props.senderIdentity);
+  }
+
+  renderVisibleControl (id) {
+    switch (id) {
+    case 'posting_account':
+      return this.props.senderIdentity ? React.cloneElement(this.props.senderIdentity, { presentation: 'toolbar', suppressed: false }) : null;
+    case 'media':
+      return <UploadButtonContainer />;
+    case 'cw':
+      return <SpoilerButtonContainer />;
+    case 'language':
+      return <LanguageDropdownContainer />;
+    case 'datetime':
+      return <DateTimeButtonContainer />;
+    case 'searchability':
+      return <SearchabilityDropdownContainer />;
+    case 'poll':
+      return <PollButtonContainer />;
+    default:
+      return null;
+    }
+  }
+
+  renderMenuControl (id) {
+    const { intl } = this.props;
+
+    switch (id) {
+    case 'posting_account':
+      if (!this.postingAccountMenuAvailable()) {
+        return null;
+      }
+
+      return (
+        <button type='button' className='compose-form__menu-row' onClick={this.openSenderMenu}>
+          <Icon id='user' fixedWidth aria-hidden='true' />
+          <span>{intl.formatMessage(messages.postingAccountMenu)}</span>
+        </button>
+      );
+    case 'media':
+      return <UploadButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />;
+    case 'cw':
+      return <SpoilerButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />;
+    case 'language':
+      return (
+        <button type='button' className='compose-form__menu-row' onClick={this.openLanguageMenu}>
+          <Icon id='globe' fixedWidth aria-hidden='true' />
+          <span>{intl.formatMessage(messages.languageMenu)}</span>
+        </button>
+      );
+    case 'datetime':
+      return <DateTimeButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />;
+    case 'searchability':
+      return (
+        <button type='button' className='compose-form__menu-row' onClick={this.openSearchabilityMenu}>
+          <Icon id='search' fixedWidth aria-hidden='true' />
+          <span>{intl.formatMessage(messages.searchMenu)}</span>
+        </button>
+      );
+    case 'poll':
+      return <PollButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />;
+    default:
+      return null;
+    }
+  }
+
+  renderDetachedAnchors (items, editing) {
+    const placement = id => {
+      const item = items.find(entry => entry.id === id);
+
+      return item ? item.placement : 'hidden';
+    };
+    const nodes = [];
+
+    if (placement('posting_account') !== 'visible' && this.props.senderIdentity) {
+      nodes.push(React.cloneElement(this.props.senderIdentity, {
+        key: 'sender-anchor',
+        suppressed: placement('posting_account') === 'hidden',
+        presentation: 'detached',
+        open: this.state.senderMenuOpen,
+        anchor: this.senderMenuAnchor,
+        onDismiss: this.closeSenderMenu,
+      }));
+    }
+
+    if (placement('language') === 'menu') {
+      nodes.push(
+        <LanguageDropdownContainer
+          key='language-anchor'
+          presentation='detached'
+          open={this.state.languageOpen}
+          returnFocus={this.languageReturn}
+          onDismiss={this.closeLanguageMenu}
+        />,
+      );
+    }
+
+    if (!editing && placement('searchability') === 'menu') {
+      nodes.push(
+        <SearchabilityDropdownContainer
+          key='searchability-anchor'
+          presentation='detached'
+          open={this.state.searchabilityOpen}
+          onClose={this.closeSearchabilityMenu}
+          returnFocus={this.searchabilityReturn}
+        />,
+      );
+    }
+
+    return nodes;
+  }
+
   isPortableComposer () {
     return typeof this.props.onDisplayModeChange === 'function';
   }
@@ -758,33 +911,44 @@ class ComposeForm extends ImmutablePureComponent {
 
   renderFooter (publishText) {
     const { intl } = this.props;
+    const items = normalizeComposerToolbar(this.props.composerToolbar);
+    const editing = Boolean(this.props.isEditing);
+    const blockedWhileEditing = editing ? ['datetime', 'searchability', 'poll'] : [];
+    const allowed = item => !blockedWhileEditing.includes(item.id);
+    const visible = items.filter(item => item.placement === 'visible' && allowed(item));
+    const menu = items.filter(item => item.placement === 'menu' && allowed(item));
+    const menuRows = [];
+
+    menu.forEach(item => {
+      const row = this.renderMenuControl(item.id);
+
+      if (row) {
+        menuRows.push(React.cloneElement(row, { key: item.id }));
+      }
+    });
+
+    if (!editing && this.props.overflowContext) {
+      menuRows.push(<Fragment key='overflow-context'>{this.props.overflowContext}</Fragment>);
+    }
 
     return (
       <div className='compose-form__buttons-wrapper'>
         <div className='compose-form__buttons'>
-          <div className='compose-form__toolbar-account'>{this.props.senderIdentity}</div>
-          <UploadButtonContainer />
-          <SpoilerButtonContainer />
-          <LanguageDropdownContainer />
-          {!this.props.isEditing && (
-            <ComposerOverflowMenu closeToken={this.state.overflowClose} label={intl.formatMessage(messages.more)}>
-              <DateTimeButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />
-              <button type='button' className='compose-form__menu-row' onClick={this.openSearchabilityMenu}>
-                <Icon id='search' fixedWidth aria-hidden='true' />
-                <span>{intl.formatMessage(messages.searchMenu)}</span>
-              </button>
-              <PollButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />
-              {this.props.overflowContext}
-            </ComposerOverflowMenu>
+          {visible.map(item => (
+            <div className='compose-form__toolbar-slot' data-composer-control={item.id} key={item.id}>
+              {this.renderVisibleControl(item.id)}
+            </div>
+          ))}
+          {menuRows.length > 0 && (
+            <div className='compose-form__toolbar-slot' data-composer-control='overflow'>
+              <ComposerOverflowMenu closeToken={this.state.overflowClose} label={intl.formatMessage(messages.more)}>
+                {menuRows}
+              </ComposerOverflowMenu>
+            </div>
           )}
-          {!this.props.isEditing && (
-            <SearchabilityDropdownContainer
-              presentation='detached'
-              open={this.state.searchabilityOpen}
-              onClose={this.closeSearchabilityMenu}
-              returnFocus={this.searchabilityReturn}
-            />
-          )}
+          <div className='compose-form__detached-anchors'>
+            {this.renderDetachedAnchors(items, editing)}
+          </div>
         </div>
 
         <div className='compose-form__submit'>

@@ -1,3 +1,4 @@
+import { normalizeComposerToolbar } from './features/compose/composer_toolbar';
 import { normalizeTranslationBarVisibility, normalizeTranslationPreferredMode } from './utils/translation_view';
 
 const element = document.getElementById('initial-state');
@@ -75,6 +76,7 @@ export const show_reply_tree_button = getMeta('show_reply_tree_button');
 export const disable_joke_appearance = getMeta('disable_joke_appearance');
 export const new_features_policy = getMeta('new_features_policy');
 export const showComposerPostingStyleSelector = getMeta('show_composer_posting_style_selector') !== false;
+export const composerToolbar = normalizeComposerToolbar(getMeta('composer_toolbar'));
 export const domain = getMeta('domain');
 export const enableStatusReference = getMeta('enable_status_reference');
 export const maxReferences = initialState?.status_references?.max_references;

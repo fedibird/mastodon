@@ -54,6 +54,7 @@ describe('regular account sender avatar', () => {
     const props = mapStateToProps(state, { composerId: 'primary' });
     const dispatch = jest.fn();
 
+    expect(props.showPostingAccount).toBe(false);
     expect(props.visible).toBe(true);
     expect(props.selectable).toBe(false);
     expect(props.current.getIn(['account', 'acct'])).toEqual('member');
@@ -69,10 +70,9 @@ describe('regular account sender avatar', () => {
     );
 
     expect(dispatch).not.toHaveBeenCalled();
-    expect(document.querySelector('.compose-form__sender-avatar').getAttribute('src')).toBe('/avatars/member.png');
-    expect(document.querySelector('.compose-form__sender-stack')).toBeNull();
+    expect(screen.queryByTestId('sender-identity')).toBeNull();
     expect(screen.queryByRole('button', { name: /Choose posting account/ })).toBeNull();
     expect(screen.queryByRole('menuitemradio')).toBeNull();
-    expect(screen.getByTestId('sender-identity-current').textContent).toContain('@member');
+    expect(state.getIn(['compose', 'senderIdentity', 'id'])).toEqual('delegated:99');
   });
 });

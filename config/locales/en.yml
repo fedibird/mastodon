@@ -2027,6 +2027,28 @@ en:
       self_vote: You cannot vote in your own polls
       too_few_options: must have more than one item
       too_many_options: can't contain more than %{max} items
+  composer_toolbar:
+    title: Composer buttons
+    lead: Choose whether each composer action is shown, placed in the more menu, or hidden, and drag to change the order. The composer keeps the saved layout.
+    hint: Nothing changes in the composer until this page saves successfully. Reload the composer after saving to see it.
+    unsaved: You have unsaved composer button changes. Leave without saving?
+    cancel: Cancel
+    drag: Drag to reorder
+    placement_label: Placement
+    move_up: Move up
+    move_down: Move down
+    placements:
+      visible: Show
+      menu: Menu
+      hidden: Hide
+    items:
+      posting_account: Posting account
+      media: Attach media
+      cw: Content warning
+      language: Language
+      datetime: Publish and expiry time
+      searchability: Search visibility
+      poll: Poll
   preferences:
     invalid_input: "%{key} could not be saved."
     beta_features: Beta features
@@ -2461,6 +2483,7 @@ en:
     account_subscribes: Account subscribes
     aliases: Account aliases
     appearance: Appearance
+    composer_buttons: Composer buttons
     authorized_apps: Authorized apps
     back: Back to Mastodon
     delete: Account deletion

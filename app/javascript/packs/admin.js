@@ -3,6 +3,7 @@ import { delegate } from '@rails/ujs';
 import ready from '../mastodon/ready';
 import { initializeFeedRoutePickers } from '../mastodon/features/external_feed_routes/picker';
 import { initializeDeletionProgress } from '../mastodon/features/external_deletion_progress/progress';
+import { installComposerToolbarEditors } from '../mastodon/features/compose/composer_toolbar_editor';
 import { bindUserPostingContextCardMenus, bindUserPostingContextPreview } from '../mastodon/features/user_posting_contexts/preview';
 
 const batchCheckboxClassName = '.batch-checkbox input[type="checkbox"]';
@@ -176,6 +177,7 @@ ready(() => {
     });
   };
   initializePostingStyleWidgets();
+  installComposerToolbarEditors(document);
   initializeFeedRoutePickers(document);
   initializeDeletionProgress(document);
   document.addEventListener('embedded-settings:render', initializePostingStyleWidgets);
