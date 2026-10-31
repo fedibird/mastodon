@@ -6,18 +6,50 @@ module ExternalBridge
 
     # Public GET through Request. Private addresses are rejected on every hop.
     # No Authorization header is ever attached.
+    #
+    # Redirects are followed here, not by HTTP.rb. HTTP.rb 5.2.0 calls
+    # Response#flush before on_redirect, and flush reads the body with
+    # Body#to_s, which is not subject to the feed byte caps. Closing the
+    # redirect response without reading it keeps that body out of the
+    # process. The next hop is a new Request for the canonical URL, so the
+    # GET matches the stored key. Set-Cookie is not copied onto that hop:
+    # this client never sends a cookie of its own.
+    #
+    # One response is capped on its own. Redirect bodies are not added in,
+    # so three hops do not multiply the byte cap. Each hop opens a new
+    # connection and uses the profile timeout or Request::TIMEOUT. Those
+    # timeouts are not lengthened. The worst case is the original request
+    # plus REDIRECT_HOPS connections, each with its own deadline.
     class HttpClient
       include Redisable
+
+      # Matches the max_hops previously passed to HTTP.rb. The response that
+      # would be the next hop after this many redirects is a failure, and
+      # its Location is not requested.
+      REDIRECT_HOPS = 3
+      REDIRECT_STATUSES = [300, 301, 302, 303, 307, 308].freeze
 
       # How one kind of public GET differs from the feed fetch. Every profile
       # shares the same public-only rules: Request rejects private addresses on
       # every DNS answer, every redirect hop is normalized again, no credential
       # is sent, and the response is read through a byte limit.
-      FetchProfile = Struct.new(:accept, :max_bytes, :asset_urls, :budget_namespace, :budget, :content_types, :truncate, :timeouts, :url_mode, :same_origin, keyword_init: true)
+      #
+      # max_bytes is the inflated-body cap used by profiles that still read
+      # through Request#body_with_limit (HTTP.rb auto_inflate). Feed fetches
+      # do not use that path. max_received_bytes is the encoded body cap and
+      # max_inflated_bytes is the inflated body cap, both in bytes. max_bytes
+      # on the feed profile stays equal to the inflated cap.
+      FetchProfile = Struct.new(
+        :accept, :max_bytes, :asset_urls, :budget_namespace, :budget, :content_types,
+        :truncate, :timeouts, :url_mode, :same_origin, :max_received_bytes, :max_inflated_bytes,
+        keyword_init: true
+      )
 
       FEED_PROFILE = FetchProfile.new(
         accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.1',
         max_bytes: Limits::MAX_RESPONSE_BYTES,
+        max_received_bytes: Limits::MAX_RECEIVED_BYTES,
+        max_inflated_bytes: Limits::MAX_RESPONSE_BYTES,
         asset_urls: false,
         budget_namespace: 'external_bridge:rss:host:',
         budget: Limits::HOST_BUDGET,
@@ -119,48 +151,23 @@ module ExternalBridge
       end
 
       def get(url, etag: nil, last_modified: nil, profile: FEED_PROFILE, origin: nil)
-        canonical = prepare_url!(url, profile, origin)
-        consume_budget!(canonical, profile)
-        request = Request.new(:get, canonical, **request_options(profile, origin))
-        request.add_headers(request_headers(etag, last_modified, profile))
-        request.perform do |response|
-          build_response(response, canonical, profile)
+        with_fetch_errors do
+          prepare_call(profile, origin, etag, last_modified)
+          canonical = prepare_url!(url, profile, origin)
+          consume_budget!(canonical, profile)
+          follow(:get, canonical, REDIRECT_HOPS)
         end
-      rescue Mastodon::HostValidationError => e
-        raise Error, host_validation_code(e)
-      rescue Mastodon::LengthValidationError
-        raise Error, media_profile?(profile) ? :media_too_large : :oversized_feed
-      rescue HTTP::Redirector::TooManyRedirectsError
-        raise Error, :too_many_redirects
-      rescue HTTP::Error, OpenSSL::SSL::SSLError, Addressable::URI::InvalidURIError
-        raise Error, :fetch_failed
       end
 
       # Headers only. A missing or unusable Content-Length means the size is
       # unknown. Callers must not fall through to a full GET just to measure.
       def head(url, profile: FEED_PROFILE, origin: nil)
-        canonical = prepare_url!(url, profile, origin)
-        consume_budget!(canonical, profile)
-        request = Request.new(:head, canonical, **request_options(profile, origin))
-        request.add_headers('Accept' => profile.accept)
-        request.perform do |response|
-          length = response.content_length
-          Response.new(
-            code: response.code.to_i,
-            body: nil,
-            etag: nil,
-            last_modified: nil,
-            final_url: safe_final_url(response, canonical, profile),
-            content_type: response.headers['Content-Type'].to_s.split(';').first.to_s.strip.downcase.presence,
-            content_length: length.present? && length.positive? ? length.to_i : nil
-          )
+        with_fetch_errors do
+          prepare_call(profile, origin, nil, nil)
+          canonical = prepare_url!(url, profile, origin)
+          consume_budget!(canonical, profile)
+          follow(:head, canonical, REDIRECT_HOPS)
         end
-      rescue Mastodon::HostValidationError => e
-        raise Error, host_validation_code(e)
-      rescue HTTP::Redirector::TooManyRedirectsError
-        raise Error, :too_many_redirects
-      rescue HTTP::Error, OpenSSL::SSL::SSLError, Addressable::URI::InvalidURIError
-        raise Error, :fetch_failed
       end
 
       private
@@ -221,55 +228,115 @@ module ExternalBridge
         'private_address'
       end
 
-      def request_options(profile, origin)
-        options = { follow: redirect_policy(profile, origin) }
-        options[:timeout_options] = profile.timeouts if profile.timeouts
+      def prepare_call(profile, origin, etag, last_modified)
+        @profile = profile
+        @origin = origin
+        @etag = etag
+        @last_modified = last_modified
+        @visited = []
+      end
+
+      def with_fetch_errors
+        yield
+      rescue Mastodon::HostValidationError => e
+        raise Error, host_validation_code(e)
+      rescue Mastodon::LengthValidationError
+        raise Error, media_profile?(@profile) ? :media_too_large : :oversized_feed
+      rescue HTTP::Redirector::TooManyRedirectsError
+        raise Error, :too_many_redirects
+      rescue HTTP::Error, OpenSSL::SSL::SSLError, Addressable::URI::InvalidURIError
+        raise Error, :fetch_failed
+      end
+
+      # follow: nil disables HTTP.rb's redirector, whose flush would read the
+      # redirect body before our cap. A feed client also omits auto_inflate
+      # so BodyReader sees the encoded bytes exactly once.
+      def request_options
+        options = { follow: nil }
+        options[:timeout_options] = @profile.timeouts if @profile.timeouts
+        options[:http_client] = HTTP::Client.new if feed_profile?
         options
       end
 
-      # Reject or account for the next hop before HTTP follows it. The socket
-      # check still runs for DNS answers; this stops a private literal,
-      # userinfo, or token-like query from being requested at all. A
-      # same-origin profile also refuses a public cross-origin hop before
-      # that GET is sent. Every followed hop charges the destination host's
-      # budget, so several origins cannot redirect onto one host for free.
-      #
-      # HTTP.rb 5.2.0 Redirector#perform ignores this callback's return
-      # value and sends the same request. Its URI normalizer does not fold
-      # query keys or unwind nested percent-encoding. Copy the accepted
-      # canonical URL onto that request so the GET matches the stored key.
-      def redirect_policy(profile, origin)
-        {
-          max_hops: 3,
-          on_redirect: lambda do |_response, next_request|
-            canonical = canonical_url!(next_request.uri.to_s, profile)
-            enforce_same_origin!(canonical, origin) if profile.same_origin
-            consume_budget!(canonical, profile)
-            apply_redirect_target!(next_request, canonical)
-          rescue Error => e
-            raise Mastodon::HostValidationError, e.code
-          end,
-        }
+      def feed_profile?
+        @profile.url_mode.to_s == 'feed'
       end
 
-      # The yielded request is the one Client#perform sends. Its URI writers
-      # are the public HTTP::URI surface; nothing here patches HTTP.rb.
-      def apply_redirect_target!(request, canonical)
-        target = Addressable::URI.parse(canonical)
-        uri = request.uri
-        uri.scheme = target.scheme
-        uri.host = target.host
-        uri.port = target.port
-        uri.path = target.path.to_s.empty? ? '/' : target.path
-        uri.query = target.query
-        uri.fragment = nil
-        request.instance_variable_set(:@scheme, uri.scheme.to_s.downcase.to_sym)
-        request.headers[HTTP::Headers::HOST] = redirect_host_header(uri)
+      def follow(verb, url, hops_left)
+        redirect_to = nil
+        result = nil
+        perform_request(verb, url) do |response|
+          if redirect_response?(response)
+            raise Error, :too_many_redirects if hops_left <= 0 || @visited.include?(url)
+
+            @visited << url
+            redirect_to = accept_redirect!(response, url)
+          else
+            result = terminal_response(verb, response, url)
+          end
+        end
+        return result if redirect_to.nil?
+
+        follow(verb, redirect_to, hops_left - 1)
       end
 
-      def redirect_host_header(uri)
-        default_port = uri.https? ? 443 : 80
-        uri.port == default_port ? uri.host : "#{uri.host}:#{uri.port}"
+      def perform_request(verb, url, &block)
+        request = Request.new(verb, url, **request_options)
+        # Request#initialize runs Addressable::URI#normalize, which decodes
+        # reserved octets such as %2C. The canonical string is the GET target.
+        request.instance_variable_set(:@url, Addressable::URI.parse(url))
+        headers = verb == :head ? { 'Accept' => @profile.accept } : request_headers(@etag, @last_modified, @profile)
+        request.add_headers(headers)
+        request.perform(&block)
+      end
+
+      def redirect_response?(response)
+        REDIRECT_STATUSES.include?(response.code.to_i)
+      end
+
+      # Canonicalize and charge the host budget before the next socket
+      # exists. The redirect body is left unread; Request closes the
+      # non-persistent client when this block returns.
+      def accept_redirect!(response, current_url)
+        canonical = canonical_url!(join_location(current_url, redirect_location(response)), @profile)
+        enforce_same_origin!(canonical, @origin) if @profile.same_origin
+        consume_budget!(canonical, @profile)
+        canonical
+      end
+
+      def redirect_location(response)
+        values = response.headers.get(HTTP::Headers::LOCATION)
+        raise Error, :fetch_failed unless values.size == 1
+
+        location = values.first.to_s
+        raise Error, :fetch_failed if location.blank? || location.bytesize > Limits::MAX_KEY_BYTES
+
+        location
+      end
+
+      def join_location(current_url, location)
+        Addressable::URI.parse(current_url).join(location).to_s
+      rescue Addressable::URI::InvalidURIError
+        raise Error, :fetch_failed
+      end
+
+      def terminal_response(verb, response, url)
+        return head_result(response, url) if verb == :head
+
+        build_response(response, url, @profile)
+      end
+
+      def head_result(response, requested_url)
+        length = response.content_length
+        Response.new(
+          code: response.code.to_i,
+          body: nil,
+          etag: nil,
+          last_modified: nil,
+          final_url: safe_final_url(response, requested_url, @profile),
+          content_type: response.headers['Content-Type'].to_s.split(';').first.to_s.strip.downcase.presence,
+          content_length: length.present? && length.positive? ? length.to_i : nil
+        )
       end
 
       def request_headers(etag, last_modified, profile)
@@ -305,6 +372,13 @@ module ExternalBridge
       end
 
       def read_body(response, profile)
+        if profile.url_mode.to_s == 'feed'
+          return BodyReader.read!(
+            response,
+            received_limit: profile.max_received_bytes,
+            inflated_limit: profile.max_inflated_bytes
+          )
+        end
         return response.body_with_limit(profile.max_bytes) unless profile.truncate
 
         response.truncated_body(profile.max_bytes).to_s.b.byteslice(0, profile.max_bytes)
