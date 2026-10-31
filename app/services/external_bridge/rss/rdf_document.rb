@@ -25,18 +25,52 @@ module ExternalBridge
 
       private
 
+      # Root items, then channel items that are not the same node. Membership
+      # is object identity, which is what Node#== uses here. A linear index
+      # replaces the previous scan of the remaining pool for every rdf:li.
       def ordered_items(channel)
-        nodes = rss_children(@root, 'item')
-        rss_children(channel, 'item').each { |node| nodes << node unless nodes.include?(node) }
+        nodes = merged_items(channel)
         sequence = sequence_urls(channel)
         return nodes if sequence.empty?
 
-        pool = nodes.dup
-        ordered = sequence.filter_map do |url|
-          index = pool.index { |node| identities(node).include?(url) }
-          pool.delete_at(index) if index
+        order_by_sequence(nodes, sequence)
+      end
+
+      def merged_items(channel)
+        nodes = rss_children(@root, 'item')
+        seen = {}.compare_by_identity
+        nodes.each { |node| seen[node] = true }
+        rss_children(channel, 'item').each do |node|
+          next if seen[node]
+
+          seen[node] = true
+          nodes << node
         end
-        ordered + pool
+        nodes
+      end
+
+      def order_by_sequence(nodes, sequence)
+        lists = Hash.new { |map, key| map[key] = [] }
+        nodes.each do |node|
+          identities(node).each { |value| lists[value] << node }
+        end
+        used = {}.compare_by_identity
+        cursors = Hash.new(0)
+        ordered = sequence.filter_map { |url| take_identity(lists, cursors, used, url) }
+        ordered + nodes.reject { |node| used[node] }
+      end
+
+      def take_identity(lists, cursors, used, url)
+        list = lists[url]
+        index = cursors[url]
+        index += 1 while index < list.length && used[list[index]]
+        cursors[url] = index
+        return nil if index >= list.length
+
+        cursors[url] = index + 1
+        node = list[index]
+        used[node] = true
+        node
       end
 
       def sequence_urls(channel)

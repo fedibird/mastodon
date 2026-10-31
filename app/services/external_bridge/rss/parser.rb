@@ -42,9 +42,6 @@ module ExternalBridge
         document = Nokogiri::XML(source) { |config| config.strict.nonet.noblanks.nohuge }
         raise Error, :invalid_xml if document.root.nil?
 
-        # Media RSS `content` and Atom `content` share a local name. Mark the
-        # body element and candidates while the namespace URIs are still present.
-        MediaExtractor.index!(document)
         case document.root.name.to_s.downcase
         when 'rss' then parse_rss(document)
         when 'feed' then parse_atom(document)
@@ -62,7 +59,7 @@ module ExternalBridge
         channel = XmlNames.child(document.root, 'channel', namespaces)
         raise Error, :malformed_feed if channel.nil?
 
-        items = XmlNames.children(channel, 'item', namespaces).first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
+        items = accepted(XmlNames.children(channel, 'item', namespaces)).filter_map { |node| rss_item(node) }
         Feed.new(
           protocol: 'rss',
           title: Sanitizer.title(XmlNames.text(channel, 'title', namespaces)),
@@ -87,7 +84,7 @@ module ExternalBridge
         channel, nodes, image_url = RdfDocument.extract(document)
         raise Error, :malformed_feed if channel.nil?
 
-        items = nodes.first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
+        items = accepted(nodes).filter_map { |node| rss_item(node) }
         Feed.new(
           protocol: 'rss',
           title: Sanitizer.title(XmlNames.text(channel, 'title', core_namespaces(channel))),
@@ -102,7 +99,7 @@ module ExternalBridge
         feed = document.root
         raise Error, :malformed_feed unless feed.name.to_s.casecmp?('feed') && feed.namespace&.href == XmlNames::ATOM
 
-        items = XmlNames.children(feed, 'entry', XmlNames::ATOM).first(Limits::MAX_ITEMS).filter_map { |node| atom_item(node) }
+        items = accepted(XmlNames.children(feed, 'entry', XmlNames::ATOM)).filter_map { |node| atom_item(node) }
         hints = [['atom_icon', XmlNames.text(feed, 'icon', XmlNames::ATOM)], ['atom_logo', XmlNames.text(feed, 'logo', XmlNames::ATOM)]]
         Feed.new(
           protocol: 'atom',
@@ -112,6 +109,15 @@ module ExternalBridge
           icon_hints: icon_hints(hints),
           **feed_activitypub(feed, items)
         )
+      end
+
+      # The first MAX_ITEMS nodes in the feed's existing order, including a
+      # node that will not become an item. Later nodes do not fill that gap,
+      # and body, HTML, and media extraction run only for this slice.
+      def accepted(nodes)
+        selected = nodes.first(Limits::MAX_ITEMS)
+        MediaExtractor.index_items!(selected)
+        selected
       end
 
       def rss_item(node)

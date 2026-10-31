@@ -134,6 +134,68 @@ module ExternalBridge
         %(<r>#{char * copies}</r>)
       end
 
+      # One HTML description per item, so media extraction has work to do.
+      # The markup is generated. It is not copied from a public feed.
+      def html_items(count, html: '<p><img src="https://media.example/images/note.jpg" alt="picture"></p>')
+        body = +channel_open
+        count.times { |index| body << html_item(index, html) }
+        body << channel_close
+        body
+      end
+
+      def html_item(index, html)
+        number = format('%04d', index + 1)
+        <<~XML
+          <item>
+          <title>Synthetic note #{number}</title>
+          <link>https://articles.example/notes/#{number}</link>
+          <guid isPermaLink="false">synthetic-#{number}</guid>
+          <enclosure url="https://media.example/audio/#{number}.mp3" type="audio/mpeg" length="128000"/>
+          <description><![CDATA[#{html}]]></description>
+          </item>
+        XML
+      end
+
+      # RSS 1.0. rdf:Seq lists the items from last to first, which is the
+      # order Parser must keep. Unlisted items are not generated.
+      def rdf_feed(count)
+        entries = count.times.map { |index| rdf_entry(index) }
+        sequence = entries.reverse.map { |entry| %(<rdf:li rdf:resource="#{entry[:about]}"/>) }.join
+        <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+            <channel rdf:about="https://news.example/">
+              <title>Synthetic RDF</title>
+              <link>https://news.example/</link>
+              <items><rdf:Seq>#{sequence}</rdf:Seq></items>
+            </channel>
+            #{entries.map { |entry| entry[:xml] }.join}
+          </rdf:RDF>
+        XML
+      end
+
+      def rdf_entry(index)
+        number = format('%04d', index + 1)
+        about = "https://articles.example/notes/#{number}"
+        xml = <<~XML
+          <item rdf:about="#{about}">
+            <title>Synthetic note #{number}</title>
+            <link>#{about}</link>
+          </item>
+        XML
+        { about: about, number: number, xml: xml }
+      end
+
+      def duplicate_guids
+        shared = compact_item(0).sub('synthetic-0001', 'synthetic-shared').sub('Synthetic note 0001', 'First shared')
+        again = compact_item(1).sub('synthetic-0002', 'synthetic-shared').sub('Synthetic note 0002', 'Second shared')
+        body = +channel_open
+        body << shared << again
+        3.upto(41) { |index| body << compact_item(index) }
+        body << channel_close
+        body
+      end
+
       # rss, channel, title, link, description, and 40 items of five elements.
       ELEMENT_FEED_SHELL = 205
       # Only rss@version. Item guids in this generator have no attributes.
