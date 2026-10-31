@@ -12,6 +12,10 @@ module ExternalBridge
     end
 
     # RSS 1.0 (RDF), RSS 2.0, and Atom. External entities are not resolved.
+    # A custom entity reference is invalid XML for this parser, so the DOM
+    # never substitutes it. Predefined entities and numeric character
+    # references stay text. A missing end tag is rejected. A disallowed C0
+    # control is removed first, which is the one compatibility exception.
     # RSS 2.0 and RSS 1.0 are recognized by the root element's local name.
     # Atom also requires the Atom namespace URI, so a foreign element named
     # `feed` is not a feed. Content-Type is not consulted. Namespaces stay on
@@ -20,16 +24,22 @@ module ExternalBridge
     class Parser
       ICON_HINT_ORDER = %w(atom_icon rss_image itunes_image atom_logo).freeze
 
-      def self.parse!(body)
-        new(body).parse!
+      def self.parse!(body, budget: DocumentBudget::Budget.default)
+        new(body, budget: budget).parse!
       end
 
-      def initialize(body)
+      def initialize(body, budget: DocumentBudget::Budget.default)
         @body = body.to_s
+        @budget = budget
       end
 
       def parse!
-        document = Nokogiri::XML(@body) { |config| config.nonet.noblanks }
+        # The pull parser enforces the byte and structure budgets and requires
+        # a well-formed document through to the end. Recovery is off, so a
+        # truncated tail is invalid_xml rather than a feed missing its last
+        # tags. The DOM pass only runs after that walk returns.
+        source = DocumentBudget.check!(@body, budget: @budget)
+        document = Nokogiri::XML(source) { |config| config.strict.nonet.noblanks.nohuge }
         raise Error, :invalid_xml if document.root.nil?
 
         # Media RSS `content` and Atom `content` share a local name. Mark the

@@ -71,6 +71,115 @@ module ExternalBridge
         copies, rest = bytes.divmod(SENTENCE.bytesize)
         (SENTENCE * copies) + ('a' * rest)
       end
+
+      # Small items for structure tests. This is not the 6 MiB fixture.
+      def compact(items:, description: 'Synthetic note.')
+        body = +channel_open
+        items.times { |index| body << compact_item(index, description: description) }
+        body << channel_close
+        body
+      end
+
+      def compact_item(index, description: 'Synthetic note.')
+        number = format('%04d', index + 1)
+        <<~XML
+          <item>
+          <title>Synthetic note #{number}</title>
+          <link>https://articles.example/notes/#{number}</link>
+          <guid isPermaLink="false">synthetic-#{number}</guid>
+          <description>#{description}</description>
+          </item>
+        XML
+      end
+
+      # Forty complete items, then a start tag that never closes.
+      def broken_after(valid_items: 40)
+        body = +channel_open
+        valid_items.times { |index| body << compact_item(index) }
+        body << '<item><title>broken'
+        body
+      end
+
+      def unclosed_cdata(valid_items: 40)
+        body = +channel_open
+        valid_items.times { |index| body << compact_item(index) }
+        body << '<item><description><![CDATA[unterminated'
+        body
+      end
+
+      def missing_close(valid_items: 40)
+        body = +channel_open
+        valid_items.times { |index| body << compact_item(index) }
+        body << '</channel>'
+        body
+      end
+
+      # Root is depth 1. `depth` is the number of nested elements.
+      def deep(depth)
+        inner = 'x'
+        depth.times { |index| inner = "<e#{index}>#{inner}</e#{index}>" }
+        inner
+      end
+
+      def repeated_elements(count)
+        %(<r>#{'<e/>' * count}</r>)
+      end
+
+      def repeated_attributes(count, value: 'v')
+        attrs = Array.new(count) { |index| %(a#{index}="#{value}") }.join(' ')
+        %(<r #{attrs}/>)
+      end
+
+      def text_node(copies, char: 'a')
+        %(<r>#{char * copies}</r>)
+      end
+
+      # rss, channel, title, link, description, and 40 items of five elements.
+      ELEMENT_FEED_SHELL = 205
+      # Only rss@version. Item guids in this generator have no attributes.
+      ELEMENT_FEED_SHELL_ATTRIBUTES = 1
+
+      # A well-formed RSS document with exactly `elements` element start tags.
+      # Forty items are real. The rest are empty <e/> nodes.
+      def element_cap_feed(elements:)
+        raise ArgumentError, 'element target is below the 40 item shell' if elements < ELEMENT_FEED_SHELL
+
+        body = element_feed_open
+        body << ('<e/>' * (elements - ELEMENT_FEED_SHELL))
+        body << '</channel></rss>'
+        body
+      end
+
+      # attribute_count summed across the document, including rss@version.
+      # Filler attributes are packed at 64 per element, under the per-element cap.
+      def attribute_total_feed(attributes:)
+        needed = attributes - ELEMENT_FEED_SHELL_ATTRIBUTES
+        raise ArgumentError, 'attribute target is below the shell' if needed.negative?
+
+        per = 64
+        full, rest = needed.divmod(per)
+        body = element_feed_open
+        if full.positive?
+          packed = %(<e #{per.times.map { |index| %(a#{index}="v") }.join(' ')}/>)
+          body << (packed * full)
+        end
+        if rest.positive?
+          body << %(<e #{rest.times.map { |index| %(a#{index}="v") }.join(' ')}/>)
+        end
+        body << '</channel></rss>'
+        body
+      end
+
+      def element_feed_open
+        body = +%(<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel><title>Synthetic</title><link>https://feeds.example/synthetic</link><description>Generated.</description>\n)
+        40.times { |index| body << plain_item(index) }
+        body
+      end
+
+      def plain_item(index)
+        number = format('%04d', index + 1)
+        %(<item><title>Synthetic note #{number}</title><link>https://articles.example/notes/#{number}</link><guid>synthetic-#{number}</guid><description>Note</description></item>)
+      end
     end
   end
 end

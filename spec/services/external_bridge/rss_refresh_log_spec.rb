@@ -332,7 +332,7 @@ RSpec.describe 'ExternalBridge RSS refresh INFO log' do
 
     it 'logs parse_failed with the malformed_feed code' do
       subscription = subscribe!
-      stub_request(:get, feed_url).to_return(status: 200, body: '<html>not a feed')
+      stub_request(:get, feed_url).to_return(status: 200, body: '<html><body>not a feed</body></html>')
 
       described_class.new.perform(source.id)
 

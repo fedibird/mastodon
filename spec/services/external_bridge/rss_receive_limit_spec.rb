@@ -502,7 +502,12 @@ RSpec.describe ExternalBridge::RSS::HttpClient do
     expect(document).not_to include('<!--')
     strict = Nokogiri::XML(document) { |config| config.strict.nonet }
     expect(strict.xpath('/rss/channel/item').size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
-    expect(ExternalBridge::RSS::Parser.parse!(document).items.size).to eq ExternalBridge::RSS::Limits::MAX_ITEMS
+    expect { ExternalBridge::RSS::Parser.parse!(document) }
+      .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'oversized_feed' }
+    wide = ExternalBridge::RSS::DocumentBudget::Budget.default
+    wide.max_bytes = 8.megabytes
+    wide.max_text_bytes = 8.megabytes
+    expect(ExternalBridge::RSS::Parser.parse!(document, budget: wide).items.size).to eq ExternalBridge::RSS::Limits::MAX_ITEMS
     expect(document.scan(%r{https://media\.example/audio/\d+\.mp3}).uniq.size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
     expect(document.scan(%r{https://media\.example/images/\d+\.jpg}).uniq.size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
 
