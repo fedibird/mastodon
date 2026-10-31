@@ -59,7 +59,7 @@ export const fetchGroupDirectory = (viewKey, params) => (dispatch, getState) => 
     requestId,
   });
 
-  api(getState).get('/api/v1/group_directory', {
+  return api(getState).get('/api/v1/group_directory', {
     params: groupDirectoryApiParams(params),
   }).then(({ data }) => {
     finish(dispatch, viewKey, filterKey, requestId, data, 'fetch');
@@ -82,16 +82,22 @@ export const expandGroupDirectory = (viewKey, params) => (dispatch, getState) =>
   const filterKey = groupDirectoryFilterKey(params);
   const list = getState().getIn(['user_lists', 'group_directories', viewKey]);
 
-  if (!list || list.get('isLoading') || list.get('isExpanding') || list.get('exhausted') || list.get('error')) {
-    return;
+  if (!list || list.get('isLoading') || list.get('isExpanding') || list.get('exhausted')) {
+    return Promise.resolve();
+  }
+
+  // A failed first page has nothing to extend. A failed extra page can be
+  // requested again at the same consumed offset.
+  if (list.get('error') && list.get('failure') !== 'expand') {
+    return Promise.resolve();
   }
 
   if (list.get('filterKey') !== filterKey) {
-    return;
+    return Promise.resolve();
   }
 
   const requestId = beginRequest(viewKey);
-  const offset = list.get('items').size;
+  const offset = list.get('nextOffset');
 
   dispatch({
     type: GROUP_DIRECTORY_EXPAND_REQUEST,
@@ -100,7 +106,7 @@ export const expandGroupDirectory = (viewKey, params) => (dispatch, getState) =>
     requestId,
   });
 
-  api(getState).get('/api/v1/group_directory', {
+  return api(getState).get('/api/v1/group_directory', {
     params: { ...groupDirectoryApiParams(params), offset },
   }).then(({ data }) => {
     finish(dispatch, viewKey, filterKey, requestId, data, 'expand');

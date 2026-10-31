@@ -37,6 +37,7 @@ const mapStateToProps = (state, ownProps) => {
     isExpanding: list ? list.get('isExpanding') : false,
     exhausted: list ? list.get('exhausted') : false,
     hasError: list ? list.get('error') : false,
+    failure: list ? list.get('failure') : null,
     columnWidth: state.getIn(['settings', 'group_directory', 'columnWidth'], defaultColumnWidth),
   };
 };
@@ -54,6 +55,7 @@ class GroupDirectory extends React.PureComponent {
     isExpanding: PropTypes.bool,
     exhausted: PropTypes.bool,
     hasError: PropTypes.bool,
+    failure: PropTypes.oneOf(['fetch', 'expand', null]),
     accountIds: ImmutablePropTypes.list.isRequired,
     directories: ImmutablePropTypes.map.isRequired,
     viewKey: PropTypes.string.isRequired,
@@ -212,8 +214,15 @@ class GroupDirectory extends React.PureComponent {
   }
 
   handleRetry = () => {
-    const { dispatch, viewKey } = this.props;
-    dispatch(fetchGroupDirectory(viewKey, this.getParams(this.props, this.state)));
+    const { dispatch, failure, viewKey } = this.props;
+    const params = this.getParams(this.props, this.state);
+
+    if (failure === 'expand') {
+      dispatch(expandGroupDirectory(viewKey, params));
+      return;
+    }
+
+    dispatch(fetchGroupDirectory(viewKey, params));
   }
 
 }

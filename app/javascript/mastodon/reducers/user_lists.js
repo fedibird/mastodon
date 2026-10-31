@@ -167,6 +167,8 @@ const emptyGroupDirectory = ImmutableMap({
   isExpanding: false,
   exhausted: false,
   error: false,
+  failure: null,
+  nextOffset: 0,
   filterKey: null,
   requestId: null,
 });
@@ -187,6 +189,21 @@ const directoryMetadata = (accounts) => ImmutableMap(accounts.map(account => [
   account.id,
   fromJS(account.group_directory || {}),
 ]));
+
+const failGroupDirectory = (state, action, failure) => {
+  const current = matchingGroupDirectory(state, action);
+
+  if (!current) {
+    return state;
+  }
+
+  return state.setIn(groupDirectoryPath(action.viewKey), current.merge({
+    isLoading: false,
+    isExpanding: false,
+    error: true,
+    failure,
+  }));
+};
 
 const normalizeFollowRequest = (state, notification) => {
   return state.updateIn(['follow_requests', 'items'], list => {
@@ -349,7 +366,9 @@ export default function userLists(state = initialState, action) {
       isLoading: false,
       isExpanding: false,
       error: false,
+      failure: null,
       exhausted: action.exhausted,
+      nextOffset: action.accounts.length,
       items: ImmutableList(action.accounts.map(item => item.id)),
       directories: directoryMetadata(action.accounts),
     }));
@@ -364,6 +383,7 @@ export default function userLists(state = initialState, action) {
     return state.setIn(groupDirectoryPath(action.viewKey), current.merge({
       isExpanding: true,
       error: false,
+      failure: null,
       requestId: action.requestId,
     }));
   }
@@ -380,25 +400,17 @@ export default function userLists(state = initialState, action) {
     return state.setIn(groupDirectoryPath(action.viewKey), current.merge({
       isExpanding: false,
       error: false,
+      failure: null,
       exhausted: action.exhausted,
+      nextOffset: current.get('nextOffset') + action.accounts.length,
       items: items.concat(incoming.map(account => account.id)),
       directories: current.get('directories').merge(directoryMetadata(incoming)),
     }));
   }
   case GROUP_DIRECTORY_FETCH_FAIL:
-  case GROUP_DIRECTORY_EXPAND_FAIL: {
-    const current = matchingGroupDirectory(state, action);
-
-    if (!current) {
-      return state;
-    }
-
-    return state.setIn(groupDirectoryPath(action.viewKey), current.merge({
-      isLoading: false,
-      isExpanding: false,
-      error: true,
-    }));
-  }
+    return failGroupDirectory(state, action, 'fetch');
+  case GROUP_DIRECTORY_EXPAND_FAIL:
+    return failGroupDirectory(state, action, 'expand');
   case GROUP_DIRECTORY_DISCARD:
     return state.deleteIn(groupDirectoryPath(action.viewKey));
   case COLUMN_REMOVE:

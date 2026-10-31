@@ -6,6 +6,7 @@ import { Map as ImmutableMap } from 'immutable';
 import userLists from '../user_lists';
 import {
   GROUP_DIRECTORY_DISCARD,
+  GROUP_DIRECTORY_EXPAND_FAIL,
   GROUP_DIRECTORY_EXPAND_REQUEST,
   GROUP_DIRECTORY_EXPAND_SUCCESS,
   GROUP_DIRECTORY_FETCH_FAIL,
@@ -105,9 +106,53 @@ describe('group directory lists', () => {
     });
 
     expect(state.getIn(['group_directories', 'column:a', 'items']).toArray()).toEqual(['1', '2']);
+    expect(state.getIn(['group_directories', 'column:a', 'nextOffset'])).toBe(3);
     expect(state.getIn(['group_directories', 'column:a', 'exhausted'])).toBe(true);
     expect(state.getIn(['group_directories', 'column:a', 'isExpanding'])).toBe(false);
     expect(state.getIn(['group_directories', 'column:a', 'directories']).keySeq().toArray()).toEqual(['1', '2']);
+  });
+
+  it('advances nextOffset by the raw page when every returned id is already shown', () => {
+    const first = Array.from({ length: 20 }, (_, index) => account(String(index + 1), 'fedibird'));
+    let state = userLists(undefined, fetch('column:a', 'active', 1));
+    state = userLists(state, fetch('column:b', 'active', 1));
+    state = userLists(state, {
+      type: GROUP_DIRECTORY_FETCH_SUCCESS,
+      viewKey: 'column:a',
+      filterKey: 'active',
+      requestId: 1,
+      accounts: first,
+      exhausted: false,
+    });
+    state = userLists(state, {
+      type: GROUP_DIRECTORY_FETCH_SUCCESS,
+      viewKey: 'column:b',
+      filterKey: 'active',
+      requestId: 1,
+      accounts: [account('other', 'lemmy')],
+      exhausted: true,
+    });
+    state = userLists(state, {
+      type: GROUP_DIRECTORY_EXPAND_REQUEST,
+      viewKey: 'column:a',
+      filterKey: 'active',
+      requestId: 2,
+    });
+    state = userLists(state, {
+      type: GROUP_DIRECTORY_EXPAND_SUCCESS,
+      viewKey: 'column:a',
+      filterKey: 'active',
+      requestId: 2,
+      accounts: first,
+      exhausted: false,
+    });
+
+    expect(state.getIn(['group_directories', 'column:a', 'items']).size).toBe(20);
+    expect(state.getIn(['group_directories', 'column:a', 'nextOffset'])).toBe(40);
+    expect(state.getIn(['group_directories', 'column:a', 'exhausted'])).toBe(false);
+    expect(state.getIn(['group_directories', 'column:a', 'directories']).size).toBe(20);
+    expect(state.getIn(['group_directories', 'column:b', 'nextOffset'])).toBe(1);
+    expect(state.getIn(['group_directories', 'column:b', 'items']).toArray()).toEqual(['other']);
   });
 
   it('keeps an error distinct from an empty result and ignores a late success', () => {
@@ -129,8 +174,44 @@ describe('group directory lists', () => {
     });
 
     expect(state.getIn(['group_directories', 'route', 'error'])).toBe(true);
+    expect(state.getIn(['group_directories', 'route', 'failure'])).toBe('fetch');
     expect(state.getIn(['group_directories', 'route', 'items']).size).toBe(0);
+    expect(state.getIn(['group_directories', 'route', 'nextOffset'])).toBe(0);
     expect(state.getIn(['group_directories', 'route', 'isLoading'])).toBe(false);
+  });
+
+  it('keeps the loaded page and next offset when the extra page fails', () => {
+    const first = Array.from({ length: 20 }, (_, index) => account(String(index + 1), 'fedibird'));
+    let state = userLists(undefined, fetch('route', 'active', 1));
+    state = userLists(state, {
+      type: GROUP_DIRECTORY_FETCH_SUCCESS,
+      viewKey: 'route',
+      filterKey: 'active',
+      requestId: 1,
+      accounts: first,
+      exhausted: false,
+    });
+    state = userLists(state, {
+      type: GROUP_DIRECTORY_EXPAND_REQUEST,
+      viewKey: 'route',
+      filterKey: 'active',
+      requestId: 2,
+    });
+    state = userLists(state, {
+      type: GROUP_DIRECTORY_EXPAND_FAIL,
+      viewKey: 'route',
+      filterKey: 'active',
+      requestId: 2,
+      error: new Error('500'),
+    });
+
+    expect(state.getIn(['group_directories', 'route', 'items']).size).toBe(20);
+    expect(state.getIn(['group_directories', 'route', 'directories']).size).toBe(20);
+    expect(state.getIn(['group_directories', 'route', 'nextOffset'])).toBe(20);
+    expect(state.getIn(['group_directories', 'route', 'error'])).toBe(true);
+    expect(state.getIn(['group_directories', 'route', 'failure'])).toBe('expand');
+    expect(state.getIn(['group_directories', 'route', 'isExpanding'])).toBe(false);
+    expect(state.getIn(['group_directories', 'route', 'exhausted'])).toBe(false);
   });
 
   it('releases a closed column without touching another view', () => {
