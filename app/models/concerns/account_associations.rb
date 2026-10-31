@@ -95,6 +95,8 @@ module AccountAssociations
              dependent: :delete_all,
              inverse_of: :group_account
 
+    include AccountGroupAdministration
+
     # TagAccountMute
     has_many :tag_account_mute_relationships, class_name: 'TagAccountMute', inverse_of: :tag, dependent: :destroy
     has_many :mute_tags, through: :tag_account_mute_relationships, source: :tag
@@ -107,13 +109,10 @@ module AccountAssociations
     visibility.push(:private) if account&.following?(self)
 
     # A simple CASE never matches NULL, so a group's own post was dropped.
-    scope = Status.unscoped
-                  .where(id:
-                    Status.reorder(nil)
-                          .where(account_id: id)
-                          .where(visibility: visibility)
-                          .select('CASE WHEN reblog_of_id IS NULL THEN id ELSE reblog_of_id END')
-                  )
+    scope = Status.unscoped.where(id: Status.reorder(nil)
+                                              .where(account_id: id)
+                                              .where(visibility: visibility)
+                                              .select('CASE WHEN reblog_of_id IS NULL THEN id ELSE reblog_of_id END'))
     scope = scope.where.not(account_id: account.excluded_from_timeline_account_ids) unless account.nil?
     scope
   end

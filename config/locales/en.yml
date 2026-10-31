@@ -3194,6 +3194,42 @@ en:
           attributes:
             role_id:
               elevated: cannot be higher than your own role
+        group_creation_request:
+          attributes:
+            username:
+              immutable: cannot be changed after the request is submitted
+            display_name:
+              immutable: cannot be changed after the request is submitted
+            note:
+              immutable: cannot be changed after the request is submitted
+            requester_account_id:
+              immutable: cannot be changed after the request is submitted
+            requested_at:
+              immutable: cannot be changed after the request is submitted
+            previous_request_id:
+              immutable: cannot be changed after the request is submitted
+            initial_owner_account_id:
+              immutable: stays with the request after approval
+            reviewer_account:
+              invalid: must be decided by a server administrator
+            requester_account:
+              invalid: must be a local personal account that can sign in
+        group_role_assignment:
+          attributes:
+            revoked_at:
+              owner_required: cannot remove the only owner of an approved group
+            group_account_id:
+              immutable: cannot be changed; revoke this row and add another
+            member_account_id:
+              immutable: cannot be changed; revoke this row and add another
+              taken: already holds an active role in this group
+            role:
+              immutable: cannot be changed; revoke this row and add another
+              taken: already has an active owner
+            granted_at:
+              immutable: cannot be changed
+            granted_by_account_id:
+              immutable: cannot be changed
         user_role:
           attributes:
             name:

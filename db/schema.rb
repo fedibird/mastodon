@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_09_120000) do
+ActiveRecord::Schema.define(version: 2026_11_10_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1424,6 +1424,56 @@ ActiveRecord::Schema.define(version: 2026_11_09_120000) do
     t.index ["group_account_id"], name: "index_group_affiliations_on_group_account_id"
   end
 
+create_table "group_creation_requests", force: :cascade do |t|
+    t.bigint "requester_account_id", null: false
+    t.string "username", limit: 30, null: false
+    t.string "display_name", default: "", null: false
+    t.text "note", default: "", null: false
+    t.integer "state", default: 0, null: false
+    t.datetime "requested_at", null: false
+    t.bigint "reviewer_account_id"
+    t.datetime "reviewed_at"
+    t.text "decision_note"
+    t.bigint "group_account_id"
+    t.bigint "previous_request_id"
+    t.datetime "cancelled_at"
+    t.bigint "initial_owner_account_id"
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index "lower((username)::text)", name: "index_group_creation_requests_on_lower_username"
+    t.index ["group_account_id"], name: "index_group_creation_requests_on_group_account_id", unique: true
+    t.index ["initial_owner_account_id"], name: "index_group_creation_requests_on_initial_owner_account_id"
+    t.index ["previous_request_id"], name: "index_group_creation_requests_on_previous_request_id", unique: true
+    t.index ["requested_at"], name: "index_group_creation_requests_on_pending_requested_at", where: "(state = 0)"
+    t.index ["requester_account_id", "requested_at"], name: "index_group_creation_requests_on_requester_requested_at"
+    t.index ["requester_account_id"], name: "index_group_creation_requests_on_requester_account_id"
+    t.index ["reviewer_account_id"], name: "index_group_creation_requests_on_reviewer_account_id"
+    t.check_constraint "((state = 0) AND (reviewer_account_id IS NULL) AND (reviewed_at IS NULL) AND (decision_note IS NULL) AND (group_account_id IS NULL) AND (cancelled_at IS NULL) AND (initial_owner_account_id IS NULL)) OR ((state = 1) AND (reviewer_account_id IS NOT NULL) AND (reviewed_at IS NOT NULL) AND (group_account_id IS NOT NULL) AND (cancelled_at IS NULL) AND (initial_owner_account_id IS NOT NULL)) OR ((state = 2) AND (reviewer_account_id IS NOT NULL) AND (reviewed_at IS NOT NULL) AND (decision_note IS NOT NULL) AND (btrim(decision_note) <> ''::text) AND (group_account_id IS NULL) AND (cancelled_at IS NULL) AND (initial_owner_account_id IS NULL)) OR ((state = 3) AND (reviewer_account_id IS NULL) AND (reviewed_at IS NULL) AND (group_account_id IS NULL) AND (cancelled_at IS NOT NULL) AND (initial_owner_account_id IS NULL))", name: "group_creation_requests_state_shape"
+    t.check_constraint "(previous_request_id IS NULL) OR (previous_request_id <> id)", name: "group_creation_requests_previous_not_self"
+    t.check_constraint "(username)::text ~ '^[a-z0-9_]{1,30}$'::text", name: "group_creation_requests_username_shape"
+  end
+
+create_table "group_role_assignments", force: :cascade do |t|
+    t.bigint "group_account_id", null: false
+    t.bigint "member_account_id", null: false
+    t.integer "role", null: false
+    t.bigint "granted_by_account_id"
+    t.datetime "granted_at", null: false
+    t.datetime "revoked_at"
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["granted_by_account_id"], name: "index_group_role_assignments_on_granted_by_account_id"
+    t.index ["group_account_id", "member_account_id"], name: "index_group_role_assignments_one_active_member", unique: true, where: "(revoked_at IS NULL)"
+    t.index ["group_account_id"], name: "index_group_role_assignments_on_group_account_id"
+    t.index ["group_account_id"], name: "index_group_role_assignments_one_active_owner", unique: true, where: "((role = 0) AND (revoked_at IS NULL))"
+    t.index ["member_account_id"], name: "index_group_role_assignments_on_active_member", where: "(revoked_at IS NULL)"
+    t.check_constraint "(revoked_at IS NULL) OR (revoked_at >= granted_at)", name: "group_role_assignments_revocation_order"
+    t.check_constraint "member_account_id <> group_account_id", name: "group_role_assignments_member_is_not_group"
+    t.check_constraint "role = ANY (ARRAY[0, 1])", name: "group_role_assignments_role_known"
+  end
+
   create_table "identities", force: :cascade do |t|
     t.string "provider", default: "", null: false
     t.string "uid", default: "", null: false
@@ -1519,6 +1569,18 @@ ActiveRecord::Schema.define(version: 2026_11_09_120000) do
     t.string "user_agent"
     t.datetime "created_at"
     t.index ["user_id"], name: "index_login_activities_on_user_id"
+  end
+
+create_table "managed_groups", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "creation_request_id"
+    t.integer "origin", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id"], name: "index_managed_groups_on_account_id", unique: true
+    t.index ["creation_request_id"], name: "index_managed_groups_on_creation_request_id", unique: true
+    t.check_constraint "((origin = 0) AND (creation_request_id IS NOT NULL)) OR ((origin = 1) AND (creation_request_id IS NULL))", name: "managed_groups_origin_shape"
   end
 
   create_table "markers", force: :cascade do |t|
@@ -2559,6 +2621,14 @@ ActiveRecord::Schema.define(version: 2026_11_09_120000) do
   add_foreign_key "follows", "accounts", column: "target_account_id", name: "fk_745ca29eac", on_delete: :cascade
   add_foreign_key "follows", "accounts", name: "fk_32ed1b5560", on_delete: :cascade
   add_foreign_key "group_affiliations", "accounts", column: "group_account_id", on_delete: :cascade
+  add_foreign_key "group_creation_requests", "accounts", column: "group_account_id", on_delete: :restrict
+  add_foreign_key "group_creation_requests", "accounts", column: "initial_owner_account_id", on_delete: :restrict
+  add_foreign_key "group_creation_requests", "accounts", column: "requester_account_id", on_delete: :restrict
+  add_foreign_key "group_creation_requests", "accounts", column: "reviewer_account_id", on_delete: :restrict
+  add_foreign_key "group_creation_requests", "group_creation_requests", column: "previous_request_id", on_delete: :restrict
+  add_foreign_key "group_role_assignments", "accounts", column: "granted_by_account_id", on_delete: :nullify
+  add_foreign_key "group_role_assignments", "accounts", column: "group_account_id", on_delete: :restrict
+  add_foreign_key "group_role_assignments", "accounts", column: "member_account_id", on_delete: :restrict
   add_foreign_key "identities", "users", name: "fk_bea040f377", on_delete: :cascade
   add_foreign_key "imports", "accounts", name: "fk_6db1b6e408", on_delete: :cascade
   add_foreign_key "invites", "users", on_delete: :cascade
@@ -2569,6 +2639,8 @@ ActiveRecord::Schema.define(version: 2026_11_09_120000) do
   add_foreign_key "list_accounts", "lists", on_delete: :cascade
   add_foreign_key "lists", "accounts", on_delete: :cascade
   add_foreign_key "login_activities", "users", on_delete: :cascade
+  add_foreign_key "managed_groups", "accounts", on_delete: :restrict
+  add_foreign_key "managed_groups", "group_creation_requests", column: "creation_request_id", on_delete: :restrict
   add_foreign_key "markers", "users", on_delete: :cascade
   add_foreign_key "media_attachments", "accounts", name: "fk_96dd81e81b", on_delete: :nullify
   add_foreign_key "media_attachments", "scheduled_statuses", on_delete: :nullify
