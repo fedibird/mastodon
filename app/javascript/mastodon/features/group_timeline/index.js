@@ -1,5 +1,5 @@
 import React, { Fragment } from 'react';
-import { connect } from 'react-redux';
+import { batch, connect } from 'react-redux';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
@@ -51,6 +51,12 @@ const groupComposerId = (id, columnId) => (
   columnId ? `portable:group-column:${columnId}` : `portable:group-route:${id}`
 );
 
+const groupDetailCollapsedSettingPath = (groupId) => ['group', 'detailCollapsed', String(groupId)];
+
+const readGroupDetailCollapsed = (state, groupId) => (
+  state.getIn(['settings', ...groupDetailCollapsedSettingPath(groupId)]) === true
+);
+
 const makeMapStateToProps = () => {
   const getAccount = makeGetAccount();
 
@@ -74,6 +80,7 @@ const makeMapStateToProps = () => {
       columnWidth: columnWidth ?? defaultColumnWidth,
       splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'group', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
       composerVisible: selectPortableComposerVisible(state, groupComposerId(id, columnId)),
+      collapsed: readGroupDetailCollapsed(state, id),
     };
   };
 
@@ -91,6 +98,7 @@ class GroupTimeline extends React.PureComponent {
   static defaultProps = {
     onlyMedia: false,
     withoutMedia: false,
+    collapsed: false,
   };
 
   static propTypes = {
@@ -107,6 +115,7 @@ class GroupTimeline extends React.PureComponent {
     postingContext: PropTypes.object,
     postingContextDiscovery: PropTypes.object,
     composerVisible: PropTypes.bool,
+    collapsed: PropTypes.bool,
     splitRatio: PropTypes.number,
     location: PropTypes.shape({
       key: PropTypes.string,
@@ -114,8 +123,8 @@ class GroupTimeline extends React.PureComponent {
   };
 
   state = {
-    collapsed: false,
     animating: false,
+    animatingGroupId: null,
   };
 
   handlePin = () => {
@@ -174,6 +183,10 @@ class GroupTimeline extends React.PureComponent {
     const { dispatch, onlyMedia, withoutMedia, composerVisible, postingContext, postingContextDiscovery, account, columnId, params: { id, tagged } } = this.props;
     const idChanged = prevProps.params.id !== id;
     const accountBecameAvailable = groupAccountBecameAvailable(prevProps.account, account);
+
+    if (String(prevProps.params.id) !== String(id) && this.state.animating) {
+      this.setState({ animating: false, animatingGroupId: null });
+    }
 
     this.restoreComposerScroll(prevProps, idChanged);
     syncImmediateFeedView(dispatch, this.immediateFeedView(prevProps), this.immediateFeedView());
@@ -314,11 +327,16 @@ class GroupTimeline extends React.PureComponent {
 
   handleToggleClick = (e) => {
     e.stopPropagation();
-    this.setState({ collapsed: !this.state.collapsed, animating: true });
+    const { collapsed, dispatch, params: { id } } = this.props;
+
+    batch(() => {
+      this.setState({ animating: true, animatingGroupId: String(id) });
+      dispatch(changeSetting(groupDetailCollapsedSettingPath(id), !collapsed));
+    });
   }
 
   handleTransitionEnd = () => {
-    this.setState({ animating: false });
+    this.setState({ animating: false, animatingGroupId: null });
   }
 
   handleToggleComposer = (event) => {
@@ -342,9 +360,9 @@ class GroupTimeline extends React.PureComponent {
   renderColumn = (split) => {
     this.forwardColumnRef = split.setColumnRef;
 
-    const { intl, hasUnread, columnId, multiColumn, onlyMedia, withoutMedia, params: { id, tagged }, account, columnWidth, postingContext, postingContextDiscovery, composerVisible } = this.props;
+    const { intl, hasUnread, columnId, multiColumn, onlyMedia, withoutMedia, collapsed, params: { id, tagged }, account, columnWidth, postingContext, postingContextDiscovery, composerVisible } = this.props;
     const pinned = !!columnId;
-    const { collapsed, animating } = this.state;
+    const animating = this.state.animating && this.state.animatingGroupId === String(id);
     const sourceTimelineId = groupTimelineId(id, { withoutMedia, onlyMedia, tagged });
     const composerId = groupComposerId(id, columnId);
     let portableComposer = null;
@@ -381,8 +399,8 @@ class GroupTimeline extends React.PureComponent {
     const groupDetailButton = (
       <button
         className={collapsibleButtonClassName}
-        title={intl.formatMessage(collapsed ? messages.hide_group_detail : messages.show_group_detail)}
-        aria-label={intl.formatMessage(collapsed ? messages.hide_group_detail : messages.show_group_detail)}
+        title={intl.formatMessage(collapsed ? messages.show_group_detail : messages.hide_group_detail)}
+        aria-label={intl.formatMessage(collapsed ? messages.show_group_detail : messages.hide_group_detail)}
         aria-pressed={collapsed ? 'false' : 'true'}
         onClick={this.handleToggleClick}
       >

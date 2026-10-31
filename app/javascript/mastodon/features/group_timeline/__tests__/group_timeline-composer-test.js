@@ -216,7 +216,7 @@ describe('GroupTimeline portable composer', () => {
     const view = renderTimeline(GroupTimeline, { discovery: null });
 
     expect(screen.getByRole('button', { name: 'Split timeline' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Show group detail' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Hide group detail' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Show composer' }).getAttribute('aria-pressed')).toBe('false');
     expect(mockFetchPostingContext).not.toHaveBeenCalled();
     expect(mockFetchAccount).toHaveBeenCalledWith('123');

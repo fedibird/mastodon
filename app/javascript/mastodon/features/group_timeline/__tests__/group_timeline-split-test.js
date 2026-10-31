@@ -136,17 +136,18 @@ describe('GroupTimeline split', () => {
       headerLabels.push(child.getAttribute('aria-label'));
     }
 
-    expect(headerLabels.slice(0, 4)).toEqual([
+    expect(headerLabels.slice(0, 5)).toEqual([
       'Split timeline',
       'Find in this timeline',
+      'Reading bookmarks',
       'Show composer',
-      'Show group detail',
+      'Hide group detail',
     ]);
 
     fireEvent.click(screen.getByRole('button', { name: 'Show composer' }));
 
     expect(container.querySelector('[data-testid="portable-composer"]').getAttribute('data-composer-id')).toBe('portable:group-column:col-a');
-    expect(screen.getByRole('button', { name: 'Show group detail' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Hide group detail' })).toBeTruthy();
 
     const frames = [];
     const spy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
@@ -176,11 +177,11 @@ describe('GroupTimeline split', () => {
     expect(container.querySelectorAll('.timeline-split__pane--live [data-testid="portable-composer"]')).toHaveLength(0);
     expect(container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]')).toHaveLength(0);
     expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:group-column:col-a'])).toBe(false);
-    expect(screen.getByRole('button', { name: 'Show group detail' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Hide group detail' })).toBeTruthy();
     expect(streamLog).toEqual(['connect:7:']);
 
     history.scrollTop = 640;
-    fireEvent.click(screen.getByRole('button', { name: 'Show group detail' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hide group detail' }));
 
     expect(container.querySelector('.timeline-split__pane--history .scrollable').scrollTop).toBe(640);
     expect(streamLog).toEqual(['connect:7:']);
