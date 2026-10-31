@@ -29,7 +29,7 @@ class Settings::GroupCreationRequestsController < Settings::BaseController
   end
 
   def review
-    @draft = GroupCreationIcons::DraftStore.read(session)
+    @draft = current_draft
     if @draft.nil?
       redirect_to new_settings_group_creation_request_path, alert: I18n.t('group_creation_requests.expired')
       return
@@ -39,7 +39,7 @@ class Settings::GroupCreationRequestsController < Settings::BaseController
   end
 
   def create
-    draft = GroupCreationIcons::DraftStore.read(session)
+    draft = current_draft
     if draft.nil?
       redirect_to new_settings_group_creation_request_path, alert: I18n.t('group_creation_requests.expired')
       return
@@ -76,7 +76,7 @@ class Settings::GroupCreationRequestsController < Settings::BaseController
   end
 
   def draft_icon
-    draft = GroupCreationIcons::DraftStore.read(session)
+    draft = current_draft
     return not_found if draft.nil? || draft['icon_storage_key'].blank?
 
     send_stored_icon(draft['icon_storage_key'], draft['icon_content_type'])
@@ -88,6 +88,10 @@ class Settings::GroupCreationRequestsController < Settings::BaseController
   end
 
   private
+
+  def current_draft
+    GroupCreationIcons::DraftStore.read(session, account: current_account)
+  end
 
   def require_group_creation_feature!
     not_found unless GroupCreationRequests::Feature.enabled?
@@ -161,7 +165,7 @@ class Settings::GroupCreationRequestsController < Settings::BaseController
       GroupCreationIcons::DraftStore.clear!(session)
       redirect_to settings_group_creation_request_path(result.request), notice: I18n.t('group_creation_requests.duplicate')
     else
-      @draft = GroupCreationIcons::DraftStore.read(session)
+      @draft = current_draft
       @request = result.request
       render :review
     end

@@ -29,13 +29,13 @@ Setting.group_creation_requests = true
 5. 詳細は本人の行だけ。却下理由も本人の詳細だけに出す。審査中だけ取り下げできる。`lock_version` が合わない、または pending でない取り下げは状態を壊さず失敗する。
 6. 却下または取り下げで、まだ後継が無い行からだけ再申請できる。`previous_request_id` の自由入力欄は無い。他人の ID、審査中、承認済み、後継のある行は 404 である。過去の行は更新しない。
 
-確認ドラフトの寿命は 30 分である。二重送信は `submission_token` の部分ユニーク索引で 1 行に畳む。
+確認ドラフトの寿命は 30 分である。ドラフトには申請者の Account ID を文字列で入れ、確認・プレビュー・送信のたびに現在の Account と照合する。一致しなければドラフトと非公開ファイルを捨てる。`Auth::SessionsController` は既ログインの create を skip しているので、ログアウトでセッションが消えることには依存しない。二重送信は `submission_token` の部分ユニーク索引で 1 行に畳む。
 
 ## アイコンのバイト列
 
 Paperclip の `has_attached_file` は使わない。`config/initializers/paperclip.rb` の初期値が `public/system`、S3 の `public-read`、Swift の `fog_public: true` だからである。`Account#avatar` と `avatar_remote_url` にも書かない。
 
-許可タイプは `AccountAvatar::IMAGE_MIME_TYPES`（jpeg、png、gif、webp、bmp、ico）。HEIC、HEIF、AVIF、SVG は許可しない。上限は `AccountAvatar::LIMIT`（4 MiB 未満）。クライアントの Content-Type と拡張子は見ない。`FastImage` と `Marcel` の両方が同じ許可タイプを示し、寸法が読めて、一辺 8192 px 以下、総画素 8_294_400 以下であるものだけを受ける。オリジナルだけを保存し、400x400 や tiny は作らない。
+許可タイプは `AccountAvatar::IMAGE_MIME_TYPES`（jpeg、png、gif、webp、bmp、ico）。HEIC、HEIF、AVIF、SVG は許可しない。上限は `AccountAvatar::LIMIT`（4 MiB 未満）。クライアントの Content-Type と拡張子は見ない。`FastImage` と `Marcel` の両方が同じ許可タイプを示し、寸法が読めて、一辺 8192 px 以下、総画素 8_294_400 以下であるものだけを受ける。PNG は IHDR、IDAT、IEND と CRC が揃っていること、それ以外の画像（ICO を除く）は ImageMagick の `identify` が制限付きで復号できることを追加で求める。ヘッダだけの PNG は拒否する。ICO は ImageMagick の policy が coder を止めるため、ディレクトリが読めることだけを見る。オリジナルだけを保存し、400x400 や tiny は作らない。
 
 保存キーは 64 文字の十六進であり、利用者のファイル名ではない。
 
@@ -48,10 +48,12 @@ Paperclip の `has_attached_file` は使わない。`config/initializers/papercl
 | `GROUP_CREATION_ICON_STORAGE` 未設定、かつ S3 も Swift も無効 | `Rails.root/storage/group_creation_icons`（`GROUP_CREATION_ICON_ROOT` で変更可）。`public/` と Paperclip の公開ルートの中は拒否する |
 | S3 または Swift が有効で、専用の保存先が未設定 | アイコンアップロードを拒否する。アイコン無しの申請はできる |
 | `GROUP_CREATION_ICON_STORAGE=filesystem` | 上のディレクトリ。パスが公開配下なら拒否する。複数ホストで読むには、そのディレクトリを共有する必要がある。共有しないホストからはプレビューも P2 のコピーもできない |
-| `GROUP_CREATION_ICON_STORAGE=s3` | `GROUP_CREATION_ICON_S3_BUCKET` が必須。`S3_BUCKET` と同じ名前は拒否する。別 prefix や private ACL だけでは足りない。オブジェクト ACL は `private`（`GROUP_CREATION_ICON_S3_ACL=omit` のときだけ ACL 引数を付けない）。公開 ACL は拒否する。アクセスキーが明示されていない場合も拒否する。公開 URL と署名付き URL は作らない |
-| `GROUP_CREATION_ICON_STORAGE=swift` | `GROUP_CREATION_ICON_SWIFT_CONTAINER` が必須。`SWIFT_CONTAINER` と同じ名前は拒否する。`public: false` で作成し、temp URL は作らない |
+| `GROUP_CREATION_ICON_STORAGE=s3` | `GROUP_CREATION_ICON_S3_BUCKET` が必須で、`S3_BUCKET` と同名は拒否する。書き込み前に Block Public Access の4つ（`BlockPublicAcls`、`IgnorePublicAcls`、`BlockPublicPolicy`、`RestrictPublicBuckets`）がすべて有効で、bucket policy が `Principal "*"` の `s3:GetObject` を許さず、`GetBucketPolicyStatus` が public でないことを確認する。確認できない、API が無い、policy が読めない場合は書かない。オブジェクト ACL は `private`。`GROUP_CREATION_ICON_S3_ALIAS_HOST` と `GROUP_CREATION_ICON_S3_CLOUDFRONT_HOST` があると拒否する。公開 URL と署名付き URL は作らない |
+| `GROUP_CREATION_ICON_STORAGE=swift` | 専用コンテナが必須で、`SWIFT_CONTAINER` と同名は拒否する。既存コンテナは `X-Container-Read` を読む。空なら非公開。`.r:*` や `.rlistings` があれば拒否する。ACL を読めないコンテナも拒否する。`public: false` だけでは既存コンテナを信用しない |
 
-S3 と Swift の実バケットへの結合試験はこのリポジトリのテストでは行わない。設定の拒否と、クライアントへ渡す引数（別バケット、private ACL、公開 URL を作らないこと）は単体テストで見る。
+公開 URL を発行しないことと、匿名 GET が失敗することは別である。このコードはバケットまたはコンテナ自身の公開読み取り設定を見て、匿名 GET は実行しない。バケットの前段にある CloudFront などの配信は API からは見えない。運用者は、アイコンを有効にする前に、保存したオブジェクトの URL を認証なしで GET し、403 または 404 になることを確認する。その確認ができない構成では S3/Swift を使わない。
+
+実 S3 バケットと実 Swift コンテナへの結合試験は未実施である。テストは、公開 bucket policy と公開 Swift ACL（`.r:*`、`.rlistings`、ACL 不明）を持つ別名の保存先で `put` が呼ばれないことまでを見る。
 
 ### プレビュー
 
@@ -64,8 +66,8 @@ S3 と Swift の実バケットへの結合試験はこのリポジトリのテ�
 1. 確認 POST は、モデル検証と画像検証が通ってから非公開ストレージへ書く。検証に失敗したときは書かない。
 2. 書いたあとでセッションの更新に失敗したら、そのキーを消す。
 3. 作成 POST は、セッションのキーを読み直し、バイト列を再度検証してから `GroupCreationRequest` を挿入する。挿入が失敗してもファイルは残し、確認をやり直せる。挿入できたらセッションだけ消し、ファイルは行が参照する。
-4. プロセスが「書いたあと、行を挿入する前」に死ぬと、未参照ファイルが残る。`rake group_creation_icons:sweep` が、24 時間より古く、どの行も参照しないキーを消す。確認ドラフトは 30 分なので、この猶予で消えない。
-5. 取り下げと却下は、状態変更のトランザクションがコミットしたあと `GroupCreationIcons::Purge` がファイルを消す。消してから `icon_purged_at` を入れる。削除が失敗しても状態は戻さない。`icon_purged_at` が空の終端行は `rake group_creation_icons:purge_terminal` で再試行する。オブジェクトが既に無い場合も完了として印を付ける。
+4. プロセスが「書いたあと、行を挿入する前」に死ぬと、未参照ファイルが残る。`Scheduler::GroupCreationIconsScheduler` が 1 時間ごとに、24 時間より古くどの行も参照しないキーを消す。確認ドラフトは 30 分なので、この猶予で消えない。同じジョブが、削除に失敗した却下・取り下げの再試行も行う。1 件のストレージ例外では残りの行を止めない。`rake group_creation_icons:sweep` と `rake group_creation_icons:purge_terminal` は手動の再実行用である。
+5. 取り下げと却下は、状態変更のトランザクションがコミットしたあと `GroupCreationIcons::Purge` がファイルを消す。消してから `icon_purged_at` を入れる。AWS、Fog、OS の例外でも `icon_purged_at` は空のまま残し、次の定期実行で再試行する。オブジェクトが既に無い場合は完了として印を付ける。
 6. 承認では消さない。トランザクションが戻った確認前のファイルも消さない。
 
 ## P2 への引き渡し

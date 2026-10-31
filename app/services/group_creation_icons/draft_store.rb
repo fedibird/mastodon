@@ -20,9 +20,14 @@ module GroupCreationIcons
       raise
     end
 
-    def self.read(session)
+    def self.read(session, account:)
       raw = session[SESSION_KEY]
       return unless raw.is_a?(Hash)
+
+      unless owns?(raw, account)
+        discard!(session)
+        return
+      end
 
       expires = parse_time(raw['expires_at'])
       if expires.nil? || expires <= Time.current
@@ -58,6 +63,7 @@ module GroupCreationIcons
     def self.payload(request, inspection, stored_key)
       {
         'submission_token' => SecureRandom.uuid,
+        'requester_account_id' => request.requester_account_id.to_s,
         'username' => request.username,
         'display_name' => request.display_name,
         'note' => request.note,
@@ -88,12 +94,17 @@ module GroupCreationIcons
       Rails.logger.error("Group creation icon draft cleanup failed error=#{e.class}")
     end
 
+    def self.owns?(raw, account)
+      owner_id = raw['requester_account_id'].to_s
+      owner_id.present? && account&.id.to_s == owner_id
+    end
+
     def self.parse_time(value)
       Time.zone.parse(value.to_s)
     rescue ArgumentError, TypeError
       nil
     end
 
-    private_class_method :store_icon, :payload, :release_replaced_icon, :delete_quietly, :parse_time
+    private_class_method :store_icon, :payload, :release_replaced_icon, :delete_quietly, :owns?, :parse_time
   end
 end

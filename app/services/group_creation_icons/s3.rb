@@ -49,6 +49,7 @@ module GroupCreationIcons
     def initialize(bucket:, client:, public_bucket:, acl: 'private', server_side_encryption: 'AES256')
       self.class.validate_bucket!(bucket, public_bucket.to_s)
       raise ConfigurationError, 'refusing a public icon ACL' unless %w(private omit).include?(acl)
+      raise ConfigurationError, 'refusing a public icon hostname' if public_hostname_configured?
 
       @bucket = bucket
       @client = client
@@ -57,6 +58,7 @@ module GroupCreationIcons
     end
 
     def write(key, io, content_type:)
+      ensure_private_bucket!
       @client.put_object(put_options(key, io, content_type))
     end
 
@@ -113,6 +115,42 @@ module GroupCreationIcons
     end
 
     private
+
+    def public_hostname_configured?
+      ENV['GROUP_CREATION_ICON_S3_ALIAS_HOST'].present? || ENV['GROUP_CREATION_ICON_S3_CLOUDFRONT_HOST'].present?
+    end
+
+    def ensure_private_bucket!
+      configuration = @client.get_public_access_block(bucket: @bucket).public_access_block_configuration
+      policy_json, policy_public = bucket_policy_evidence
+      return if S3Access.public_read_blocked?(block_configuration: configuration, policy_json: policy_json, policy_status_public: policy_public)
+
+      raise ConfigurationError, 'refusing a bucket that allows anonymous reads'
+    rescue ConfigurationError
+      raise
+    rescue StandardError
+      raise ConfigurationError, 'cannot verify that the icon bucket blocks anonymous reads'
+    end
+
+    def bucket_policy_evidence
+      policy_json = nil
+      policy_public = false
+      begin
+        policy_json = @client.get_bucket_policy(bucket: @bucket).policy
+      rescue StandardError => e
+        raise unless no_such_bucket_policy?(e)
+      end
+      begin
+        policy_public = @client.get_bucket_policy_status(bucket: @bucket).policy_status.is_public
+      rescue StandardError => e
+        raise unless no_such_bucket_policy?(e)
+      end
+      [policy_json, policy_public]
+    end
+
+    def no_such_bucket_policy?(error)
+      error.class.name.to_s.end_with?('NoSuchBucketPolicy')
+    end
 
     def put_options(key, io, content_type)
       io.rewind if io.respond_to?(:rewind)

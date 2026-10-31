@@ -64,15 +64,7 @@ RSpec.describe GroupCreationIcons::Storage do
     end
 
     calls = []
-    client = Class.new do
-      def initialize(calls)
-        @calls = calls
-      end
-
-      def put_object(options)
-        @calls << options
-      end
-    end.new(calls)
+    client = private_s3_client(calls)
 
     storage = GroupCreationIcons::S3.new(bucket: 'private-icons', client: client, public_bucket: 'mastodon-public', server_side_encryption: 'AES256')
     key = GroupCreationIcons.generate_key
@@ -85,6 +77,30 @@ RSpec.describe GroupCreationIcons::Storage do
     expect(calls.first[:key]).to eq GroupCreationIcons.relative_path(key)
     expect(calls.first[:key]).not_to include('png-bytes')
     expect(storage.local_path(key)).to be_nil
+  end
+
+  it 'refuses an S3 bucket whose policy allows anonymous reads, even under another name' do
+    calls = []
+    client = private_s3_client(calls, policy: public_read_policy, policy_public: false)
+    storage = GroupCreationIcons::S3.new(bucket: 'another-icons', client: client, public_bucket: 'mastodon-public')
+
+    expect { storage.write(GroupCreationIcons.generate_key, StringIO.new('png'), content_type: 'image/png') }.to raise_error(GroupCreationIcons::ConfigurationError)
+    expect(calls).to be_empty
+  end
+
+  it 'refuses an S3 bucket when public access cannot be verified' do
+    client = Class.new do
+      def get_public_access_block(*)
+        raise StandardError, 'access denied'
+      end
+
+      def put_object(*)
+        raise 'must not write'
+      end
+    end.new
+    storage = GroupCreationIcons::S3.new(bucket: 'unchecked-icons', client: client, public_bucket: 'mastodon-public')
+
+    expect { storage.write(GroupCreationIcons.generate_key, StringIO.new('png'), content_type: 'image/png') }.to raise_error(GroupCreationIcons::ConfigurationError)
   end
 
   it 'refuses the public Swift container and marks objects private' do
@@ -102,7 +118,7 @@ RSpec.describe GroupCreationIcons::Storage do
         @created << attrs
       end
     end.new(created)
-    directory = Struct.new(:files).new(files)
+    directory = Struct.new(:files, :read_acl).new(files, '')
     directories = Struct.new(:directory).new(directory)
     directories.define_singleton_method(:get) { |_name| directory }
 
@@ -111,6 +127,28 @@ RSpec.describe GroupCreationIcons::Storage do
 
     expect(created.first[:public]).to be false
     expect(created.first[:key]).to start_with('group-creation-icons/')
+  end
+
+  it 'refuses an existing Swift container with a public read ACL' do
+    created = []
+    files = Class.new do
+      def initialize(created)
+        @created = created
+      end
+
+      def create(attrs)
+        @created << attrs
+      end
+    end.new(created)
+    ['.r:*', '.rlistings', nil].each do |acl|
+      directory = Struct.new(:files, :read_acl).new(files, acl)
+      directories = Object.new
+      directories.define_singleton_method(:get) { |_name| directory }
+      storage = GroupCreationIcons::Swift.new(container: 'shared-but-public', public_container: 'mastodon-public', directories: directories)
+
+      expect { storage.write(GroupCreationIcons.generate_key, StringIO.new('png'), content_type: 'image/png') }.to raise_error(GroupCreationIcons::ConfigurationError)
+    end
+    expect(created).to be_empty
   end
 
   it 'sweeps old unreferenced files and keeps a saved request' do
@@ -142,5 +180,48 @@ RSpec.describe GroupCreationIcons::Storage do
 
   def object_double
     Object.new
+  end
+
+  def private_s3_client(calls, policy: nil, policy_public: false)
+    no_policy = Class.new(StandardError)
+    no_policy.define_singleton_method(:name) { 'Aws::S3::Errors::NoSuchBucketPolicy' }
+    Class.new do
+      define_method(:initialize) do
+        @calls = calls
+        @policy = policy
+        @policy_public = policy_public
+        @no_policy = no_policy
+      end
+
+      def put_object(options)
+        @calls << options
+      end
+
+      def get_public_access_block(*)
+        config = Struct.new(:block_public_acls, :ignore_public_acls, :block_public_policy, :restrict_public_buckets).new(true, true, true, true)
+        Struct.new(:public_access_block_configuration).new(config)
+      end
+
+      def get_bucket_policy(*)
+        return Struct.new(:policy).new(@policy) if @policy
+
+        raise @no_policy, 'missing'
+      end
+
+      def get_bucket_policy_status(*)
+        raise @no_policy, 'missing' if @policy.nil? && !@policy_public
+
+        Struct.new(:policy_status).new(Struct.new(:is_public).new(@policy_public))
+      end
+    end.new
+  end
+
+  def public_read_policy
+    {
+      'Version' => '2012-10-17',
+      'Statement' => [
+        { 'Effect' => 'Allow', 'Principal' => '*', 'Action' => 's3:GetObject', 'Resource' => 'arn:aws:s3:::another-icons/*' },
+      ],
+    }.to_json
   end
 end

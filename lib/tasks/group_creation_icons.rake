@@ -9,8 +9,7 @@ namespace :group_creation_icons do
 
   desc 'Retry deletion of staged icons for cancelled or rejected requests'
   task purge_terminal: :environment do
-    scope = GroupCreationRequest.where(state: GroupCreationRequest.states.values_at('rejected', 'cancelled'))
-    scope = scope.where.not(icon_storage_key: nil).where(icon_purged_at: nil)
-    scope.find_each { |request| GroupCreationIcons::Purge.call(request) }
+    counts = GroupCreationIcons::Purge.purge_terminal
+    puts "purged #{counts[:purged]} group creation icon(s), #{counts[:failed]} still need a retry"
   end
 end

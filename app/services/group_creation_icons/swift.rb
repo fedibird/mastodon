@@ -107,7 +107,30 @@ module GroupCreationIcons
       return @directory if defined?(@directory)
 
       found = @directories.get(@container)
-      @directory = found || @directories.create(key: @container, public: false)
+      if found.nil?
+        @directories.create(key: @container, public: false)
+        found = @directories.get(@container)
+      end
+      raise ConfigurationError, 'cannot verify that the icon container blocks anonymous reads' unless private_container?(found)
+
+      @directory = found
+    end
+
+    def private_container?(found)
+      return false if found.nil?
+      return false if found.respond_to?(:public?) && found.public?
+      return false unless found.respond_to?(:read_acl)
+
+      acl = found.read_acl
+      return false if acl.nil?
+
+      !public_read_acl?(acl)
+    end
+
+    def public_read_acl?(acl)
+      acl.to_s.split(',').map(&:strip).any? do |part|
+        part == '.rlistings' || part.start_with?('.r:')
+      end
     end
 
     def object_key(key)

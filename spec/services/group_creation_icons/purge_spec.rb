@@ -55,6 +55,30 @@ RSpec.describe GroupCreationIcons::Purge do
     expect(request.icon_storage_key).to eq key
   end
 
+  it 'keeps going when one terminal icon raises a storage exception' do
+    first, = store_request(username: 'purgeone')
+    second, second_key, = store_request(username: 'purgetwo')
+    first.record_cancellation!
+    second.record_cancellation!
+    first.update_columns(icon_purged_at: nil)
+    second.update_columns(icon_purged_at: nil)
+    storage = GroupCreationIcons::Storage.resolve
+    allow(GroupCreationIcons::Storage).to receive(:resolve).and_return(storage)
+    allow(storage).to receive(:delete).and_wrap_original do |method, key|
+      raise RuntimeError, 'sdk timeout' if key == first.icon_storage_key
+
+      method.call(key)
+    end
+
+    counts = described_class.purge_terminal
+
+    expect(counts[:failed]).to eq 1
+    expect(counts[:purged]).to be >= 1
+    expect(first.reload.icon_purged_at).to be_nil
+    expect(second.reload.icon_purged_at).to be_present
+    expect(storage.exist?(second_key)).to be false
+  end
+
   it 'deletes the icon after rejection and keeps it across approval until P2 releases it' do
     rejected, rejected_key, = store_request(username: 'rejecticon')
     rejected.record_rejection!(reviewer_account: reviewer.account, decision_note: 'not a fit')

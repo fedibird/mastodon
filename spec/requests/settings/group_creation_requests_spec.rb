@@ -284,6 +284,28 @@ RSpec.describe 'Settings group creation requests' do
       expect(response).to redirect_to(edit_user_registration_path)
     end
 
+    it 'discards an icon draft when the same session authenticates as someone else' do
+      sign_in user, scope: :user
+      submit_form(username: 'alicedraft', display_name: 'Alice Only', note: 'only-alice-sees-this')
+      expect(response).to redirect_to(review_settings_group_creation_requests_path)
+
+      other = Fabricate(:user)
+      sign_in other, scope: :user
+      get review_settings_group_creation_requests_path
+      expect(response).to redirect_to(new_settings_group_creation_request_path)
+      follow_redirect!
+      expect(response.body).not_to include('only-alice-sees-this')
+
+      get draft_icon_settings_group_creation_requests_path
+      expect(response).to have_http_status(:not_found)
+
+      expect do
+        post settings_group_creation_requests_path, params: { confirmed: '1' }
+      end.not_to change(GroupCreationRequest, :count)
+      expect(GroupCreationRequest.where(requester_account_id: other.account.id)).to be_empty
+      expect(Dir.glob(File.join(ENV.fetch('GROUP_CREATION_ICON_ROOT'), '**', '*')).select { |path| File.file?(path) }).to be_empty
+    end
+
     it 'renders the Japanese explanation for a Japanese user' do
       user.update!(locale: 'ja')
       sign_in user, scope: :user

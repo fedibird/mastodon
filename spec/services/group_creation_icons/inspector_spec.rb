@@ -53,6 +53,12 @@ RSpec.describe GroupCreationIcons::Inspector do
     expect(described_class.call('spec/fixtures/files/attachment.jpg').error).to eq :unreadable
   end
 
+  it 'rejects a PNG that has a valid signature and IHDR but no image data' do
+    result = inspect_bytes(header_only_png, filename: 'broken.png', type: 'image/png')
+
+    expect(result.error).to eq :corrupt
+  end
+
   it 'rejects an image with too many pixels' do
     result = described_class.call(Rack::Test::UploadedFile.new(Rails.root.join('spec/fixtures/files/4096x4097.png'), 'image/png'))
 
@@ -68,6 +74,13 @@ RSpec.describe GroupCreationIcons::Inspector do
     end
     expect(migration).not_to match(/heic|heif|avif|svg/i)
     expect(GroupCreationIcons::FAST_IMAGE_TYPES.values).to match_array(AccountAvatar::IMAGE_MIME_TYPES)
+  end
+
+  def header_only_png
+    signature = "\x89PNG\r\n\x1a\n".b
+    data = [8, 8, 8, 2, 0, 0, 0].pack('NNCCCCC')
+    chunk = [data.bytesize].pack('N') + 'IHDR' + data + [Zlib.crc32('IHDR' + data)].pack('N')
+    signature + chunk
   end
 
   def bmp_1x1
