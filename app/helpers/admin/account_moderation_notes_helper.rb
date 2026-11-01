@@ -20,11 +20,21 @@ module Admin::AccountModerationNotesHelper
     end
   end
 
+  # The absence of a login User is normal for an approved, locally managed Group.
+  # Other local accounts without a User retain the deleted-account appearance.
+  def admin_managed_group_without_login?(account)
+    account.local? && account.group? && account.user.nil? && account.managed_group.present?
+  end
+
+  def admin_deleted_local_account?(account)
+    account.local? && account.user.nil? && !admin_managed_group_without_login?(account)
+  end
+
   private
 
   def name_tag_classes(account, inline = false)
     classes = [inline ? 'inline-name-tag' : 'name-tag']
-    classes << 'suspended' if account.suspended? || (account.local? && account.user.nil?)
+    classes << 'suspended' if account.suspended? || admin_deleted_local_account?(account)
     classes.join(' ')
   end
 end
