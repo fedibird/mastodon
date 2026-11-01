@@ -22,6 +22,9 @@ class REST::AccountSerializer < ActiveModel::Serializer
   attribute :header_full_static, if: :with_fullsize_header?
   attribute :fetched,            if: :remote?
   attribute :followed_message,   if: :following?
+  # Cached NodeInfo software.name / software.version for the account domain.
+  # Absent when NodeInfo was not stored. The hashtag menu decides the public URL.
+  attribute :nodeinfo_software,  if: :include_nodeinfo_software?
 
   class AccountDecorator < SimpleDelegator
     def self.model_name
@@ -223,6 +226,20 @@ class REST::AccountSerializer < ActiveModel::Serializer
 
   def remote?
     !object.local?
+  end
+
+  def include_nodeinfo_software?
+    cached_nodeinfo_software.present?
+  end
+
+  def nodeinfo_software
+    cached_nodeinfo_software
+  end
+
+  def cached_nodeinfo_software
+    return @cached_nodeinfo_software if defined?(@cached_nodeinfo_software)
+
+    @cached_nodeinfo_software = object.domain.present? ? NodeInfoSoftwareLookup.read(object.domain) : nil
   end
 
   def fetched

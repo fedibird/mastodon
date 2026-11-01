@@ -57,6 +57,7 @@ module CacheConcern
     records = raw.to_a
 
     klass.preload_cacheable_associations(records)
+    NodeInfoSoftwareLookup.preload_records(records)
 
     records
   end

@@ -8,6 +8,7 @@ import { DropdownMenu } from 'mastodon/components/dropdown_menu';
 import { createFavouriteTag } from 'mastodon/actions/favourite_tags';
 import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
+import { accountTagPageUrl } from 'mastodon/utils/account_tag_page_url';
 import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
 
 const messages = defineMessages({
@@ -173,14 +174,33 @@ class HashtagMenuController extends React.PureComponent {
     return null;
   }
 
-  // The remote equivalent of /@user/tagged/:tag is not known for non-Mastodon servers,
-  // so only local accounts get an href.
+  // Local accounts keep Fedibird's signed-out /@user/tagged/:tag page.
+  // Remote accounts get an href only when cached NodeInfo matches a confirmed
+  // public route. The in-app `to` path is unchanged either way.
   accountTagHref () {
-    if (!this.isLocalAccount()) {
+    if (this.isLocalAccount()) {
+      return `${window.location.origin}/@${encodeURIComponent(this.accountAcct())}/tagged/${encodeURIComponent(this.state.hashtag)}`;
+    }
+
+    const account = this.props.accounts && this.props.accounts.get(this.state.accountId);
+
+    if (!account) {
       return null;
     }
 
-    return `${window.location.origin}/@${encodeURIComponent(this.accountAcct())}/tagged/${encodeURIComponent(this.state.hashtag)}`;
+    const software = account.get('nodeinfo_software');
+
+    try {
+      return accountTagPageUrl({
+        softwareName: software && software.get('name'),
+        softwareVersion: software && software.get('version'),
+        domain: software && software.get('domain'),
+        username: account.get('username'),
+        tag: this.state.hashtag,
+      });
+    } catch (error) {
+      return null;
+    }
   }
 
   menuItems () {
