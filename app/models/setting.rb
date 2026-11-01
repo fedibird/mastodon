@@ -15,30 +15,35 @@
 class Setting < RailsSettings::Base
   source Rails.root.join('config', 'settings.yml')
 
-  # Shared with GroupRegistrationInvites::UpdateSiteDefaults. The transaction
-  # lock and this cache refresh use one advisory-lock key, so a refresh
-  # cannot publish a row that a writer has not committed yet.
-  CACHE_LOCK_KEY = 6_740_002_002
-
   def to_param
     var
   end
 
-  # The saved instance can be older than the committed row by the time this
-  # runs: commit releases the transaction lock before after_commit. Read the
-  # row again while holding the lock so a newer commit is what gets cached.
+  # Group invite defaults are the only rows that re-read under a lock.
+  # Every other setting keeps RailsSettings' own after_commit write.
+  # The lock is transaction-scoped: PgBouncer transaction pooling can send
+  # a later unlock to a different backend, so there is no session lock.
   def rewrite_cache
-    connection = self.class.connection
-    connection.execute("SELECT pg_advisory_lock(#{CACHE_LOCK_KEY})")
-    current = self.class.unscoped.find_by(id: id)
-    if current
-      Rails.cache.write(cache_key, current.value)
+    if GroupRegistrationInvites::UpdateSiteDefaults::KEYS.include?(var)
+      refresh_group_invite_default_cache
     else
-      expire_cache
+      super
     end
-  ensure
-    connection&.execute("SELECT pg_advisory_unlock(#{CACHE_LOCK_KEY})")
   end
+
+  def refresh_group_invite_default_cache
+    lock_key = GroupRegistrationInvites::UpdateSiteDefaults::LOCK_KEY
+    self.class.transaction do
+      self.class.connection.execute("SELECT pg_advisory_xact_lock(#{lock_key})")
+      current = self.class.unscoped.find_by(id: id)
+      if current && GroupRegistrationInvites::UpdateSiteDefaults::KEYS.include?(current.var)
+        Rails.cache.write(current.cache_key, current.value)
+      else
+        expire_cache
+      end
+    end
+  end
+  private :refresh_group_invite_default_cache
 
   class << self
     def [](key)

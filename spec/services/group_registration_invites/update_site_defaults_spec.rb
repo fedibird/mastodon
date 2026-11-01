@@ -266,10 +266,28 @@ RSpec.describe 'group invite defaults from two connections' do
       fingerprint: GroupRegistrationInvites::UpdateSiteDefaults.fingerprint
     )
     expect(second.code).to eq :updated
-    older.each(&:rewrite_cache)
+    ids = older.map(&:id)
+    Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        ids.each { |setting_id| Setting.find(setting_id).rewrite_cache }
+      end
+    end.join
 
     expect(Setting.group_registration_invites_shared_quota).to eq 8
     expect_cached_settings_match_database
+  end
+
+  it 'does not take an advisory lock when some other setting is saved' do
+    sql = []
+    callback = lambda { |*_args, payload| sql << payload[:sql].to_s }
+    previous = Setting.noindex
+    ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+      Setting.noindex = !previous
+    end
+    expect(sql.join("\n")).not_to include('pg_advisory')
+    expect(Setting.noindex).to eq !previous
+  ensure
+    Setting.noindex = previous
   end
 
   def expect_cached_settings_match_database

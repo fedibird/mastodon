@@ -8,14 +8,13 @@ module GroupRegistrationInvites
   # Setting.[]= writes Rails.cache before the surrounding transaction
   # commits. Production cache is Redis, shared by every process, so that
   # would publish a value that might still roll back. This writer saves
-  # the row only. RailsSettings republishes each row in after_commit, and
-  # Setting#rewrite_cache reads the committed row under the same advisory
-  # lock. A snapshot written after this method returns could land after a
-  # newer commit and leave the cache behind the database, so there is no
-  # second publish. A rolled-back save does not run after_commit, and this
-  # method does not delete cache keys: doing so can drop a newer update
-  # that already published. The lock does not include console writes or
-  # other admin setting screens.
+  # the row only. after_commit re-reads these seven keys inside a new
+  # transaction that takes pg_advisory_xact_lock. The lock ends at COMMIT,
+  # so a pooled connection cannot keep it. A late callback therefore
+  # publishes whatever row is committed, not the value this instance saved.
+  # Other settings do not take that lock. A rolled-back save does not run
+  # after_commit and does not delete cache keys. The lock does not include
+  # console writes or other admin setting screens.
   class UpdateSiteDefaults
     KEYS = %w(
       group_registration_invites_enabled
@@ -29,8 +28,8 @@ module GroupRegistrationInvites
 
     # Serializes writers. The settings table has no single parent row, so a
     # transaction advisory lock is the critical section for compare-and-set.
-    # Cache refresh uses the same key after commit.
-    LOCK_KEY = Setting::CACHE_LOCK_KEY
+    # The after_commit refresh uses the same key and releases it at COMMIT.
+    LOCK_KEY = 6_740_002_002
 
     Result = Struct.new(:code, :errors, keyword_init: true) do
       def success?
