@@ -32,10 +32,25 @@ class GroupProtocol::Contract
     reject('remote state') unless GroupProtocol::REMOTE_FEDIBIRD_STATES.include?(remote)
     reject('posting state') unless GroupProtocol::FEDIBIRD_POSTING_STATES.include?(posting)
     reject('named remote') if named != (remote == 'self_declared')
-    reject('local posting') if posting == 'server_local' && !(@assessment[:local] && @assessment[:group])
-    reject('remote posting') if posting == 'withheld' && @assessment[:local]
+    reject('posting shape') unless posting == expected_posting
+    reject('remote shape') unless remote_matches_actor?(remote)
     reject('self-declared profile') if remote == 'self_declared' && @assessment.dig(:profile, :kind) != 'unknown'
     reject('self-declared release') if remote == 'self_declared' && posting != 'withheld'
+  end
+
+  def expected_posting
+    return 'not_applicable' unless @assessment[:group]
+    return 'server_local' if @assessment[:local]
+
+    'withheld'
+  end
+
+  def remote_matches_actor?(remote)
+    if @assessment[:group] && !@assessment[:local]
+      %w(self_declared not_determined).include?(remote)
+    else
+      remote == 'not_applicable'
+    end
   end
 
   def assert_profile

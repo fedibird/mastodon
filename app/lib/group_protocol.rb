@@ -104,9 +104,8 @@ module GroupProtocol
       assess(account).slice(*PUBLIC_KEYS)
     end
 
-    # Hook for a future stored actor advertisement. P0 has no column and
-    # must not fetch the actor to look for one. Callers ignore the return
-    # value until a later phase reviews the shape.
+    # Reserved until a later phase reviews an explicit protocol IRI.
+    # P0 has no column, does not fetch, and ProfileReader does not call this.
     def explicit_protocol_feature(_account)
       nil
     end

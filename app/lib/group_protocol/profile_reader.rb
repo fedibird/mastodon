@@ -11,10 +11,9 @@ class GroupProtocol::ProfileReader
     return inapplicable unless @account.group?
     return local_profile if @account.local?
 
-    # Remote advertisement is not accepted in P0, including a value a
-    # later stub might return. Selecting it here would skip the review
-    # that has to decide Fedibird's own namespace versus a FEP IRI.
-    GroupProtocol.explicit_protocol_feature(@account)
+    # P0 does not consult GroupProtocol.explicit_protocol_feature. A later
+    # phase has to choose Fedibird's own IRI or a FEP IRI before this
+    # reader may select one.
     unknown_profile
   end
 

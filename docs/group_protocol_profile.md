@@ -118,7 +118,7 @@ viewer を渡したときだけ、別の配列 `viewer_capabilities` を付け�
 | `fep_5219_can_view` | 同上 | 同上 |
 | `can_post` | 常に unknown / `nil` | 常に unknown / `nil` |
 
-FEP-5219 の `canCreate = none` は「affiliation 不要」というプロトコル上の観測であり、Fedibird 方式の投稿許可でも役職でもない。stale は未知のまま関係を返さず、否定にしない。未取得は `unfetched` である。定義と affiliation の鮮度はこれまで通り各 1 日で、どちらかが stale なら能力の鮮度は stale である。
+FEP-5219 の `canCreate = none` は「affiliation 不要」というプロトコル上の観測であり、Fedibird 方式の投稿許可でも役職でもない。`GroupPermissionEvidenceResolver` が `allowed` を返すのは、定義スナップショットが fresh のときだけである。識別子が `none` のときは affiliation の鮮度を見ない。それ以外の識別子は、affiliation も fresh で一致したときだけである。定義が stale または未取得なら、`none` でも `allowed` にならない。この層は、その不変条件を満たす `allowed` の証拠鮮度だけを `fresh` にする。条件を外れた `allowed` は fresh な観測として保存せず、契約違反にする。`none` 以外でどちらかが stale なら能力は unknown、鮮度は stale であり、否定にはしない。未取得は `unfetched` である。定義と affiliation の鮮度はこれまで通り各 1 日である。
 
 ## 公開メタデータ
 
@@ -126,7 +126,7 @@ FEP-5219 の `canCreate = none` は「affiliation 不要」というプロトコ
 
 ## 方式広告の案（未実装）
 
-リモートを `determined` にするには、ソフトウェア名でも `type=Group` でもなく、Group Actor が方式を明示する必要がある。P0 はどの形も配信せず、保存済み文書に後から載ってもプロファイルへ採用しない。`explicit_protocol_feature` は常に `nil` を返し、ネットワークへ出ない。
+リモートを `determined` にするには、ソフトウェア名でも `type=Group` でもなく、Group Actor が方式を明示する必要がある。P0 はどの形も配信しない。`explicit_protocol_feature` は後続が接続するまでの nil であり、プロファイルの読み取りはこれを呼ばない。保存済み文書に方式 IRI が後から載っても、この段階は採用しない。
 
 検討した案:
 
@@ -137,7 +137,7 @@ FEP-5219 の `canCreate = none` は「affiliation 不要」というプロトコ
 採用するまでのフォールバックは次の順で、下の段は上の段の主張を兼ねない。
 
 1. ローカル Group はサーバー権威のプロファイル。
-2. レビュー済みの明示的な方式 IRI。保存列が無く、P0 は値を捨てる。Actor を取り直さない。
+2. レビュー済みの明示的な方式 IRI。保存列が無く、P0 はフックを呼ばない。Actor を取り直さない。
 3. fresh で Actor に結び付いた NodeInfo の `software_name` は互換候補だけ。
 4. それ以外は `unknown`。欠落、期限切れ、ホスト不一致、フォーク形の名前は、不明であって否定ではない。
 

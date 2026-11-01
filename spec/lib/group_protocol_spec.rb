@@ -321,6 +321,21 @@ RSpec.describe GroupProtocol do # rubocop:disable Metrics/BlockLength
 
       expect { described_class::Contract.assert!(bad) }.to raise_error(described_class::ContractError, 'determined remote')
     end
+
+    it 'rejects a posting or remote state that does not match the actor' do
+      local = described_class.assess(Fabricate(:account, username: 'shapegroup', actor_type: 'Group'))
+      remote = described_class.assess(remote_group('shape.example'))
+      person = described_class.assess(Fabricate(:account, username: 'shapeperson'))
+
+      expect { described_class::Contract.assert!(local.merge(fedibird_posting: 'not_applicable')) }.to raise_error(described_class::ContractError, 'posting shape')
+      expect { described_class::Contract.assert!(local.merge(fedibird_posting: 'withheld')) }.to raise_error(described_class::ContractError, 'posting shape')
+      expect { described_class::Contract.assert!(local.merge(remote_fedibird: 'not_determined')) }.to raise_error(described_class::ContractError, 'remote shape')
+      expect { described_class::Contract.assert!(remote.merge(fedibird_posting: 'server_local')) }.to raise_error(described_class::ContractError, 'posting shape')
+      expect { described_class::Contract.assert!(remote.merge(fedibird_posting: 'not_applicable')) }.to raise_error(described_class::ContractError, 'posting shape')
+      expect { described_class::Contract.assert!(remote.merge(remote_fedibird: 'not_applicable')) }.to raise_error(described_class::ContractError, 'remote shape')
+      expect { described_class::Contract.assert!(person.merge(fedibird_posting: 'withheld')) }.to raise_error(described_class::ContractError, 'posting shape')
+      expect { described_class::Contract.assert!(person.merge(remote_fedibird: 'self_declared')) }.to raise_error(described_class::ContractError, 'named remote')
+    end
   end
 
   describe 'viewer capabilities' do # rubocop:disable Metrics/BlockLength
@@ -424,6 +439,55 @@ RSpec.describe GroupProtocol do # rubocop:disable Metrics/BlockLength
         expect(capability(unfetched, 'can_post', scope: :viewer)[:state]).to eq 'unknown'
       end
     end
+
+    it 'keeps an observed FEP allow fresh only while the resolver may allow that snapshot' do
+      travel_to(Time.utc(2026, 11, 1, 12, 0, 0)) do
+        group = remote_group('none-aff.example')
+        group.update_columns(
+          affiliations_url: 'https://none-aff.example/affiliations',
+          affiliations_fetched_at: Time.current - 1.day,
+          permission_definitions_fetched_at: Time.current,
+          can_create_affiliation: 'none'
+        )
+
+        observed = described_class.assess(group, viewer: viewer)
+        expect(capability(observed, 'fep_5219_can_create', scope: :viewer)).to include(state: 'observed', value: true, evidence: include(freshness: 'fresh'))
+
+        group.update_columns(permission_definitions_fetched_at: Time.current - 1.day)
+        stale_definition = described_class.assess(group.reload, viewer: viewer)
+        expect(capability(stale_definition, 'fep_5219_can_create', scope: :viewer)).to include(state: 'unknown', value: nil, evidence: include(freshness: 'stale', uncertainty: 'stale'))
+
+        group.update_columns(permission_definitions_fetched_at: nil, affiliations_fetched_at: nil)
+        unfetched_definition = described_class.assess(group.reload, viewer: viewer)
+        expect(capability(unfetched_definition, 'fep_5219_can_create', scope: :viewer)).to include(state: 'unfetched', value: nil, evidence: include(freshness: 'unfetched'))
+      end
+    end
+
+    it 'rejects an allowed FEP decision when the snapshot the resolver requires is not fresh' do
+      group = remote_group('guard-aff.example')
+      group.update_columns(
+        affiliations_url: 'https://guard-aff.example/affiliations',
+        affiliations_fetched_at: nil,
+        permission_definitions_fetched_at: nil,
+        can_create_affiliation: 'none'
+      )
+      resolver = instance_double(PostingContext::GroupPermissionEvidenceResolver)
+      allow(PostingContext::GroupPermissionEvidenceResolver).to receive(:new).and_return(resolver)
+      allow(resolver).to receive(:call).and_return(
+        create: { status: 'allowed', via_relationship: 'none', source: 'fep-5219', authority: 'protocol' },
+        view: { status: 'unknown', via_relationship: nil, source: 'fep-5219', authority: 'protocol' }
+      )
+
+      expect { described_class.assess(group, viewer: viewer) }.to raise_error(described_class::ContractError, 'stale fep allow')
+
+      group.update_columns(permission_definitions_fetched_at: Time.current, can_create_affiliation: 'member')
+      allow(resolver).to receive(:call).and_return(
+        create: { status: 'allowed', via_relationship: 'member', source: 'fep-5219', authority: 'protocol' },
+        view: { status: 'unknown', via_relationship: nil, source: 'fep-5219', authority: 'protocol' }
+      )
+
+      expect { described_class.assess(group.reload, viewer: viewer) }.to raise_error(described_class::ContractError, 'stale fep allow')
+    end
   end
 
   describe '.public_metadata' do
@@ -490,10 +554,10 @@ RSpec.describe GroupProtocol do # rubocop:disable Metrics/BlockLength
       expect(assessed[:authorizes_posting]).to be false
     end
 
-    it 'ignores an explicit protocol feature value until a later phase reviews it' do
+    it 'does not consult an explicit protocol feature in this phase' do
       create_node('feature.example', software: 'mastodon', upstream: 'mastodon')
       account = remote_group('feature.example')
-      allow(described_class).to receive(:explicit_protocol_feature).and_return('https://fedibird.com/ns#MentionFollowAnnounce')
+      expect(described_class).not_to receive(:explicit_protocol_feature)
 
       result = described_class.assess(account)
 

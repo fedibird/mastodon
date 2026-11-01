@@ -94,13 +94,30 @@ class GroupProtocol::CapabilityReader
     ]
   end
 
+  # `allowed` is a fresh observation only. The permission resolver returns it
+  # when the definition snapshot is fresh, and, unless the identifier is
+  # none, when the affiliation snapshot is fresh too. A stale or unfetched
+  # allow must not be stored as fresh evidence.
   def fep_capability(name, decision, affiliations, definitions)
     if decision[:status] == 'allowed'
+      reject_stale_allow!(decision, affiliations, definitions)
       return cap(name, 'observed', true, fep_evidence('fresh', 'none'), 'viewer')
     end
 
     freshness, state, uncertainty = fep_unknown(affiliations[:snapshot_status], definitions[:snapshot_status])
     cap(name, state, nil, fep_evidence(freshness, uncertainty), 'viewer')
+  end
+
+  def reject_stale_allow!(decision, affiliations, definitions)
+    return if definitions[:snapshot_status] == 'fresh' && affiliation_supports_allow?(decision, affiliations)
+
+    raise GroupProtocol::ContractError, 'stale fep allow'
+  end
+
+  def affiliation_supports_allow?(decision, affiliations)
+    return true if decision[:via_relationship] == PostingContext::GroupPermissionEvidenceResolver::NO_AFFILIATION
+
+    affiliations[:snapshot_status] == 'fresh'
   end
 
   def fep_unknown(affiliation_status, definition_status)
