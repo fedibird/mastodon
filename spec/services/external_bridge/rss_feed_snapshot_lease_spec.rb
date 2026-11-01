@@ -11,8 +11,16 @@ RSpec.describe 'RSS snapshot lease fencing', type: :model do
     source_ids = ExternalSource.where('canonical_key LIKE ?', 'https://feeds.example/lease-%').pluck(:id)
     subscription_ids = ExternalSubscription.where(external_source_id: source_ids).pluck(:id)
     ExternalFeedCatchUp.where(external_subscription_id: subscription_ids).delete_all
+    resource_ids = ExternalResource.where(external_source_id: source_ids).pluck(:id)
+    projections = ExternalStatusProjection.where(external_resource_id: resource_ids)
+    status_ids = projections.pluck(:status_id)
+    ApplicationRecord.transaction do
+      ApplicationRecord.connection.execute("SET LOCAL fedibird.projection_status_delete = 'on'")
+      projections.delete_all
+    end
+    Status.where(id: status_ids).delete_all
     ExternalSubscription.where(id: subscription_ids).delete_all
-    ExternalResource.where(external_source_id: source_ids).delete_all
+    ExternalResource.where(id: resource_ids).delete_all
     ExternalFeedSnapshot.where(external_source_id: source_ids).delete_all
     keys = ExternalSource.where(id: source_ids).pluck(:canonical_key)
     ExternalActor.where(native_id: keys).delete_all
@@ -87,6 +95,39 @@ RSpec.describe 'RSS snapshot lease fencing', type: :model do
     expect(row.position).to eq(0)
     expect(row.generation).to eq(3)
     expect(ExternalStatusProjection.where(user_id: user.id).count).to eq(0)
+  end
+
+  it 'does not let catch-up pass a position whose drain cursor is still uncommitted' do
+    user = Fabricate(:user)
+    enable_external_bridge_rss!(user)
+    source = ExternalSource.create!(protocol: 'rss', canonical_key: "https://feeds.example/lease-#{SecureRandom.hex(4)}.xml", title: 'Open')
+    subscription = ExternalSubscription.create!(user: user, external_source: source, state: 'active')
+    subscription.update_columns(created_at: 1.hour.ago)
+    ExternalActor.create!(protocol: 'rss', native_id: source.canonical_key, display_name: source.title)
+    body = <<~XML
+      <?xml version="1.0"?><rss version="2.0"><channel><title>t</title><link>https://example.com</link>
+      <item><title>One</title><guid>guid-open-1</guid><link>https://example.com/i/1</link><description>B</description><pubDate>Wed, 01 Jan 2020 00:00:00 +0000</pubDate></item>
+      <item><title>Two</title><guid>guid-open-2</guid><link>https://example.com/i/2</link><description>B</description><pubDate>Thu, 02 Jan 2020 00:00:00 +0000</pubDate></item>
+      </channel></rss>
+    XML
+    snapshot = ExternalFeedSnapshot.create!(
+      external_source: source, generation: 1, state: 'pending', body: body, byte_size: body.bytesize,
+      item_count: 2, next_index: 0, history_positions: []
+    )
+    row = ExternalFeedCatchUp.create!(external_subscription: subscription, generation: 0, position: 0, state: 'pending')
+    seen = []
+    allow_any_instance_of(ExternalBridge::RSS::FeedSnapshot::Drain).to receive(:before_progress!).and_wrap_original do |method, *arguments|
+      in_connection { ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(subscription.id) }
+      seen << ExternalFeedCatchUp.find(row.id).position
+      method.call(*arguments)
+    end
+
+    expect(ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(source.id)).to eq(:ok)
+
+    expect(seen).to eq([0, 1])
+    expect(ExternalStatusProjection.where(user_id: user.id).count).to eq(2)
+    expect(row.reload.position).to eq(snapshot.item_count)
+    expect(row.state).to eq('done')
   end
 
   it 'lets only one of two connections pass the snapshot byte cap' do

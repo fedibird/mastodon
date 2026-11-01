@@ -12,6 +12,7 @@
 #  state                      :string           default("pending"), not null
 #  lease_token                :string
 #  lease_expires_at           :datetime
+#  busy_retry_at              :datetime
 #  created_at                 :datetime         not null
 #  updated_at                 :datetime         not null
 #
@@ -29,7 +30,7 @@ class ExternalFeedCatchUp < ApplicationRecord
     updated = self.class.where(id: id)
                   .where('lease_expires_at IS NULL OR lease_expires_at <= ?', now)
                   .where(state: %w(pending running))
-                  .update_all(lease_token: token, lease_expires_at: expiry, state: 'running', updated_at: now)
+                  .update_all(lease_token: token, lease_expires_at: expiry, state: 'running', busy_retry_at: nil, updated_at: now)
     return nil unless updated == 1
 
     reload

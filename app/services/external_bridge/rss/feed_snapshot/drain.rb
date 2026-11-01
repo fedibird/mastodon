@@ -48,6 +48,7 @@ module ExternalBridge
             snapshot.release_lease!(token)
           end
           FeedSnapshotDrainWorker.perform_async(source_id) if handoff
+          wake_catch_ups!(source_id)
           :ok
         end
 
@@ -72,6 +73,16 @@ module ExternalBridge
         end
 
         private
+
+        # A resumed subscriber's catch-up is parked until this batch commits.
+        # Wake it after the cursor is durable. Paused rows are left alone:
+        # advance! would mark them stopped.
+        def wake_catch_ups!(source_id)
+          ExternalFeedCatchUp.joins(:external_subscription)
+                             .where(external_subscriptions: { external_source_id: source_id, state: 'active' }, state: 'pending')
+                             .pluck(:external_subscription_id)
+                             .each { |subscription_id| FeedSnapshotCatchUpWorker.perform_async(subscription_id) }
+        end
 
         def next_snapshot(source_id)
           scope = ExternalFeedSnapshot.where(external_source_id: source_id)

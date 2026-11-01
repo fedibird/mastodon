@@ -62,6 +62,7 @@ module ExternalBridge
         snapshot_purged
         snapshot_body_purged
         snapshot_capacity
+        snapshot_waiting
       ).freeze
 
       ERROR_CODES = %w(
