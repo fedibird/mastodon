@@ -11,7 +11,7 @@ RSpec.describe FollowService, 'deferred distribution' do
     allow(LocalNotificationWorker).to receive(:perform_async) { local_calls += 1 }
     allow(MergeWorker).to receive(:perform_async) do
       merge_calls += 1
-      raise RuntimeError, 'mid' if merge_calls == 1
+      raise 'mid' if merge_calls == 1
     end
     service = described_class.new
     follow = service.call(source, target, defer_distribution: true)
@@ -49,8 +49,13 @@ RSpec.describe FollowService, 'deferred distribution' do
       attempted_at: attempted_at
     )
 
-    described_class.distribute_persisted!(follow,
-      home_feed_partial_required: true, shadow_observation_required: true, shadow_target_locked: true, attempted_at: attempted_at)
+    described_class.distribute_persisted!(
+      follow,
+      home_feed_partial_required: true,
+      shadow_observation_required: true,
+      shadow_target_locked: true,
+      attempted_at: attempted_at
+    )
   end
 
   it 'does not create another followed notification while replaying the same committed follow' do

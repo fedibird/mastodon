@@ -95,11 +95,9 @@ module GroupInitialFollows
     # update. ActiveRecord refuses lock!/with_lock on dirty records. Each
     # critical section reloads a fresh persisted row, then obtains its lock.
     # Ownership and discharge are still verified *after* acquiring the lock.
-    def with_record_lock
+    def with_record_lock(&block)
       @record = GroupInitialFollow.find(@record.id)
-      @record.with_lock do
-        yield
-      end
+      @record.with_lock(&block)
     end
 
     def lock_record!
