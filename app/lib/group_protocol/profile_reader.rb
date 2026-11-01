@@ -1,0 +1,61 @@
+# frozen_string_literal: true
+
+# Which delivery contract is actually established for this Group.
+# Local Fedibird is server authority. A remote software name is not.
+class GroupProtocol::ProfileReader
+  def initialize(account)
+    @account = account
+  end
+
+  def call
+    return inapplicable unless @account.group?
+    return local_profile if @account.local?
+
+    # P0 does not consult GroupProtocol.explicit_protocol_feature. A later
+    # phase has to choose Fedibird's own IRI or a FEP IRI before this
+    # reader may select one.
+    unknown_profile
+  end
+
+  private
+
+  def local_profile
+    {
+      kind: 'fedibird_mention_follow_announce',
+      delivery: 'announce_original_uri',
+      requires_mention: true,
+      requires_follow: true,
+      allowed_visibilities: %w(public unlisted),
+      evidence: GroupProtocol::Evidence.build(
+        source: 'builtin:fedibird-group',
+        authority: 'server',
+        freshness: 'current',
+        uncertainty: 'none'
+      ),
+    }
+  end
+
+  def unknown_profile
+    blank('unknown', 'not_advertised')
+  end
+
+  def inapplicable
+    blank('not_applicable', 'none')
+  end
+
+  def blank(kind, uncertainty)
+    {
+      kind: kind,
+      delivery: nil,
+      requires_mention: nil,
+      requires_follow: nil,
+      allowed_visibilities: nil,
+      evidence: GroupProtocol::Evidence.build(
+        source: 'none',
+        authority: 'none',
+        freshness: 'not_applicable',
+        uncertainty: uncertainty
+      ),
+    }
+  end
+end
