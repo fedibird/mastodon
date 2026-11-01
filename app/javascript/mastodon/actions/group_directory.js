@@ -1,7 +1,7 @@
 import api from '../api';
 import { importFetchedAccounts } from './importer';
 import { fetchRelationships } from './accounts';
-import { groupDirectoryApiParams, groupDirectoryFilterKey } from '../features/group_directory/params';
+import { groupDirectoryApiParams, groupDirectoryFilterKey, GROUP_DIRECTORY_MAX_OFFSET } from '../features/group_directory/params';
 
 export const GROUP_DIRECTORY_FETCH_REQUEST = 'GROUP_DIRECTORY_FETCH_REQUEST';
 export const GROUP_DIRECTORY_FETCH_SUCCESS = 'GROUP_DIRECTORY_FETCH_SUCCESS';
@@ -106,12 +106,40 @@ export const expandGroupDirectory = (viewKey, params) => (dispatch, getState) =>
     requestId,
   });
 
+  if (offset > GROUP_DIRECTORY_MAX_OFFSET) {
+    dispatch({
+      type: GROUP_DIRECTORY_EXPAND_SUCCESS,
+      viewKey,
+      filterKey,
+      requestId,
+      accounts: [],
+      exhausted: true,
+      capped: true,
+    });
+
+    return Promise.resolve();
+  }
+
   return api(getState).get('/api/v1/group_directory', {
     params: { ...groupDirectoryApiParams(params), offset },
   }).then(({ data }) => {
     finish(dispatch, viewKey, filterKey, requestId, data, 'expand');
   }).catch(error => {
     if (requestIds.get(viewKey) !== requestId) {
+      return;
+    }
+
+    const message = error?.response?.data?.error;
+    if (error?.response?.status === 400 && typeof message === 'string' && message.includes('offset')) {
+      dispatch({
+        type: GROUP_DIRECTORY_EXPAND_SUCCESS,
+        viewKey,
+        filterKey,
+        requestId,
+        accounts: [],
+        exhausted: true,
+        capped: true,
+      });
       return;
     }
 

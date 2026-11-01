@@ -3,6 +3,7 @@ jest.mock('react-intl', () => ({
 }));
 
 import { Map as ImmutableMap } from 'immutable';
+import accounts from '../accounts';
 import userLists from '../user_lists';
 import {
   GROUP_DIRECTORY_DISCARD,
@@ -225,5 +226,62 @@ describe('group directory lists', () => {
     expect(state.getIn(['group_directories', 'column:a'])).toBeUndefined();
     expect(state.getIn(['group_directories', 'column:b', 'filterKey'])).toEqual('same');
     expect(state.get('followers')).toEqual(ImmutableMap());
+  });
+
+  it('keeps directory software after a normal account import replaces the shared record', () => {
+    let lists = userLists(undefined, fetch('column:a', 'active', 1));
+    lists = userLists(lists, {
+      type: GROUP_DIRECTORY_FETCH_SUCCESS,
+      viewKey: 'column:a',
+      filterKey: 'active',
+      requestId: 1,
+      accounts: [account('9', 'lemmy')],
+      exhausted: false,
+    });
+
+    let accountState = accounts(undefined, {
+      type: 'ACCOUNTS_IMPORT',
+      accounts: [{ id: '9', username: 'group', group_directory: { software: 'lemmy' } }],
+    });
+    accountState = accounts(accountState, {
+      type: 'ACCOUNTS_IMPORT',
+      accounts: [{ id: '9', username: 'group' }],
+    });
+
+    expect(accountState.getIn(['9', 'group_directory'])).toBeUndefined();
+    expect(lists.getIn(['group_directories', 'column:a', 'directories', '9', 'software'])).toBe('lemmy');
+  });
+
+  it('records the offset cap without dropping the loaded page', () => {
+    let state = userLists(undefined, fetch('route', 'active', 1));
+    state = userLists(state, {
+      type: GROUP_DIRECTORY_FETCH_SUCCESS,
+      viewKey: 'route',
+      filterKey: 'active',
+      requestId: 1,
+      accounts: [account('1', 'fedibird')],
+      exhausted: false,
+    });
+    state = userLists(state, {
+      type: GROUP_DIRECTORY_EXPAND_REQUEST,
+      viewKey: 'route',
+      filterKey: 'active',
+      requestId: 2,
+    });
+    state = userLists(state, {
+      type: GROUP_DIRECTORY_EXPAND_SUCCESS,
+      viewKey: 'route',
+      filterKey: 'active',
+      requestId: 2,
+      accounts: [],
+      exhausted: true,
+      capped: true,
+    });
+
+    expect(state.getIn(['group_directories', 'route', 'items']).toArray()).toEqual(['1']);
+    expect(state.getIn(['group_directories', 'route', 'capped'])).toBe(true);
+    expect(state.getIn(['group_directories', 'route', 'exhausted'])).toBe(true);
+    expect(state.getIn(['group_directories', 'route', 'error'])).toBe(false);
+    expect(state.getIn(['group_directories', 'route', 'directories', '1', 'software'])).toBe('fedibird');
   });
 });

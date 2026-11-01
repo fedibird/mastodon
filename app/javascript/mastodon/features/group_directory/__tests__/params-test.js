@@ -1,4 +1,4 @@
-import { groupDirectoryApiParams, groupDirectoryFilterKey, groupDirectoryViewKey, normalizeGroupDirectoryParams } from '../params';
+import { GROUP_DIRECTORY_MAX_OFFSET, groupDirectoryApiParams, groupDirectoryFilterKey, groupDirectoryViewKey, normalizeGroupDirectoryParams } from '../params';
 
 describe('group directory params', () => {
   it('keeps pinned columns and the route on different view keys', () => {
@@ -30,6 +30,7 @@ describe('group directory params', () => {
       software: 'lemmy',
       scope: 'local',
     });
+    expect(GROUP_DIRECTORY_MAX_OFFSET).toBe(10000);
     expect(groupDirectoryApiParams({ language: 'unset' }).language).toEqual('unset');
     expect(groupDirectoryApiParams({ language: '' }).language).toBeUndefined();
   });

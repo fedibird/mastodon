@@ -294,7 +294,9 @@ class AccountCard extends ImmutablePureComponent {
     const hide_statuses_count = account.getIn(['other_settings', 'hide_statuses_count'], false);
     const hide_followers_count = account.getIn(['other_settings', 'hide_followers_count'], false);
     const timelinePath = `/timelines/groups/${account.get('id')}`;
-    const directory = this.props.directory || account.get('group_directory');
+    // Directory metadata lives on the column list. A later Account import
+    // replaces the shared record and does not include group_directory.
+    const directory = this.props.directory;
     const software = directory ? directory.get('software') : null;
     const posting = directory ? directory.getIn(['capabilities', 'posting']) : null;
     const originalUrl = account.get('url');
