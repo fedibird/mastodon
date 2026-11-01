@@ -159,7 +159,13 @@ module GroupInitialFollows
           next
         end
 
-        @record.update!(latch_attributes(relationship).merge(claim_token: token, claim_expires_at: GroupInitialFollow::LEASE.from_now))
+        @record.update!(
+          latch_attributes(relationship).merge(
+            claim_token: token,
+            claim_expires_at: GroupInitialFollow::LEASE.from_now,
+            home_feed_partial_required: service.deferred_home_partial?
+          )
+        )
         latched = true
       end
       raise Crash, 'after_latch_commit' if latched && @crash_after == :after_latch_commit
@@ -188,7 +194,11 @@ module GroupInitialFollows
       relationship = reserve_distribution!(token)
       return unless relationship
 
-      FollowService.distribute_persisted!(relationship)
+      FollowService.distribute_persisted!(
+        relationship,
+        home_feed_partial_required: @record.home_feed_partial_required?,
+        attempted_at: @record.relationship_recorded_at
+      )
       finish_distribution!(token)
     end
 

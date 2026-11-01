@@ -1496,6 +1496,7 @@ create_table "group_creation_requests", force: :cascade do |t|
     t.datetime "claim_expires_at"
     t.string "claim_token", limit: 36
     t.datetime "distribution_enqueued_at"
+    t.boolean "home_feed_partial_required", default: false, null: false
     t.integer "attempts", default: 0, null: false
     t.datetime "finished_at"
     t.datetime "created_at", precision: 6, null: false

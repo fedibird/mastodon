@@ -159,6 +159,53 @@ RSpec.describe GroupInitialFollows::Perform do
     expect(follows(requester.account, group)).to be_empty
   end
 
+  it 'records the empty-home hint with the Follow and replays optional effects after a crash' do
+    _request, group, record = approve_without_running('recoverextras')
+    expect do
+      described_class.call(record, crash_after: :after_latch_commit)
+    end.to raise_error(described_class::Crash)
+
+    record.reload
+    expect(record.home_feed_partial_required?).to be true
+    attempted_at = record.relationship_recorded_at
+
+    expect(FollowService).to receive(:distribute_persisted!).with(
+      instance_of(Follow),
+      home_feed_partial_required: true,
+      attempted_at: attempted_at
+    ).and_call_original
+    expect(Moderation::FollowGateShadowObserver).to receive(:observe).with(
+      source_account: requester.account,
+      target_account: group,
+      mechanism: nil,
+      attempted_at: attempted_at
+    )
+
+    described_class.call(record.reload)
+    expect(record.reload).to be_succeeded
+    expect(follows(requester.account, group).count).to eq 1
+  end
+
+  it 'does not mark the empty-home hint when the owner was already following someone' do
+    friend = Fabricate(:account, username: 'followedbefore')
+    requester.account.follow!(friend)
+    _request, group, record = approve_without_running('notfirst')
+    expect do
+      described_class.call(record, crash_after: :after_latch_commit)
+    end.to raise_error(described_class::Crash)
+
+    expect(record.reload.home_feed_partial_required?).to be false
+    expect(FollowService).to receive(:distribute_persisted!).with(
+      instance_of(Follow),
+      home_feed_partial_required: false,
+      attempted_at: record.relationship_recorded_at
+    ).and_call_original
+
+    described_class.call(record.reload)
+    expect(record.reload).to be_succeeded
+    expect(follows(requester.account, group).count).to eq 1
+  end
+
   it 'does not distribute again when a follow request became a follow before resume' do
     _request, group, record = approve_without_running('accepted')
     group.update!(locked: true)

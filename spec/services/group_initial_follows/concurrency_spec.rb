@@ -216,13 +216,13 @@ RSpec.describe 'Group initial follow concurrency' do
     entered = Queue.new
     release = Queue.new
     mutex = Mutex.new
-    allow(FollowService).to receive(:distribute_persisted!).and_wrap_original do |method, record|
+    allow(FollowService).to receive(:distribute_persisted!).and_wrap_original do |method, record, **options|
       mine = mutex.synchronize { calls += 1 }
       if mine == 1
         entered << true
         release.pop
       end
-      method.call(record)
+      method.call(record, **options)
     end
 
     first = Thread.new do

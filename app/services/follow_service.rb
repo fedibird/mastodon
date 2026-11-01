@@ -123,10 +123,17 @@ class FollowService < BaseService
   # Deferred, then sent here: LocalNotificationWorker, MergeWorker,
   # UnmergeWorker, ActivityPub::DeliveryWorker, NotifyService, the interaction
   # counter, the empty-home Redis hint, and the shadow follow-gate job.
-  # distribute_persisted! is the cross-process fallback. It sends the worker,
-  # NotifyService, and the counter again. It does not replay the empty-home
-  # hint or the shadow observation; both are optional. The initial follow is
-  # not a follow import, so import delivery metadata is never part of it.
+  # distribute_persisted! is the cross-process fallback. The founding-follow
+  # obligation stores whether the empty-home hint was needed before inserting
+  # its relationship, and passes that along with its original attempt time.
+  # Jobs are at-least-once if a process dies between enqueue and the durable
+  # distribution marker. Replaying a "followed" notice checks the persisted
+  # notification first; this limits duplicates but is not an exactly-once
+  # guarantee across separate processes. Follow imports do not use this path.
+  def deferred_home_partial?
+    @deferred_home_partial == true
+  end
+
   def flush_distribution!
     flush_deferred_jobs!
     flush_deferred_notices!
@@ -178,25 +185,37 @@ class FollowService < BaseService
 
   # Distribution for a follow that was committed by an earlier process.
   # Used when that process died before flush_distribution!.
-  def self.distribute_persisted!(record)
+  def self.distribute_persisted!(record, home_feed_partial_required: false, attempted_at: nil)
     return if record.nil?
 
-    new.distribute_persisted!(record)
+    new.distribute_persisted!(record, home_feed_partial_required: home_feed_partial_required, attempted_at: attempted_at)
   end
 
-  def distribute_persisted!(record)
+  def distribute_persisted!(record, home_feed_partial_required: false, attempted_at: nil)
     source = record.account
     target = record.target_account
     if record.is_a?(Follow)
       LocalNotificationWorker.perform_async(target.id, record.id, record.class.name, 'follow')
-      NotifyService.new.call(source, 'followed', record) if source.local?
+      # The followed notification has no general uniqueness constraint.
+      # A replay of the same committed follow must not create another one.
+      already_notified = Notification.where(account_id: source.id, activity_type: record.class.name, activity_id: record.id, type: 'followed').exists?
+      NotifyService.new.call(source, 'followed', record) if source.local? && !already_notified
       MergeWorker.perform_async(target.id, source.id) if record.delivery?
     elsif target.local?
       LocalNotificationWorker.perform_async(target.id, record.id, record.class.name, 'follow_request')
     elsif target.activitypub? && source.local?
       ActivityPub::DeliveryWorker.perform_async(build_json(record), source.id, target.inbox_url, { 'bypass_availability' => true })
     end
+
     ActivityTracker.increment('activity:interactions')
+    @source_account = source
+    mark_home_feed_as_partial! if home_feed_partial_required
+    Moderation::FollowGateShadowObserver.observe(
+      source_account: source,
+      target_account: target,
+      mechanism: nil,
+      attempted_at: attempted_at
+    )
   end
 
   private
