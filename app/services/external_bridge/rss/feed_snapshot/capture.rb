@@ -27,9 +27,9 @@ module ExternalBridge
           @items = @positions.empty? ? [] : Parser.parse_positions!(@body, @positions)
           @feed = feed_for(@index)
           resolved = resolve_source(canonical_key, source, @feed)
+          # Drop only disposable text before taking the capacity lock.
+          # The hard check runs again inside that lock, with the insert.
           Purge.call
-          raise Error, :snapshot_capacity unless ExternalFeedSnapshot.room_for?(@body.bytesize)
-
           store!(resolved)
         end
 
@@ -49,6 +49,9 @@ module ExternalBridge
 
         def insert_generation!(resolved)
           ApplicationRecord.transaction do
+            lock_capacity!
+            raise Error, :snapshot_capacity unless ExternalFeedSnapshot.room_for?(@body.bytesize)
+
             locked = ExternalSource.lock.find(resolved.id)
             ingest = Ingest.new
             ingest.hold_feed_lock(locked.canonical_key)
@@ -57,13 +60,20 @@ module ExternalBridge
             ingest.assign_channel!(locked, @feed, @response)
             ingest.ensure_actor!(locked, @feed)
             snapshot = insert_snapshot!(locked)
-            # A newer body waits behind an unfinished snapshot. Importing
-            # its items now would let the older generation overwrite them
-            # when that generation later reaches the same guid.
-            import_history!(ingest, locked, snapshot) unless older_open?(locked, snapshot)
+            # Same rule as Drain#next_snapshot. A failed remainder is not
+            # open, but its items have not been applied. Writing this
+            # generation's history now would let a later Retry of the older
+            # body overwrite those rows.
+            import_history!(ingest, locked, snapshot) unless older_unfinished?(locked, snapshot)
             ingest.recompute_activitypub!(locked)
             snapshot
           end
+        end
+
+        # One global transaction lock for the byte cap. Check and insert of
+        # every source share it, so two captures cannot both pass room_for?.
+        def lock_capacity!
+          ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{Limits::SNAPSHOT_CAPACITY_LOCK})")
         end
 
         def insert_snapshot!(source)
@@ -81,8 +91,10 @@ module ExternalBridge
           )
         end
 
-        def older_open?(source, snapshot)
-          source.external_feed_snapshots.open.where('generation < ?', snapshot.generation).exists?
+        def older_unfinished?(source, snapshot)
+          source.external_feed_snapshots.where('generation < ?', snapshot.generation).where(
+            "state IN ('pending', 'draining') OR (state = 'failed' AND next_index < item_count)"
+          ).exists?
         end
 
         def import_history!(ingest, source, snapshot)

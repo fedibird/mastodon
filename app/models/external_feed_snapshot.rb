@@ -41,19 +41,36 @@ class ExternalFeedSnapshot < ApplicationRecord
   scope :open, -> { where(state: OPEN_STATES) }
 
   # Text that can be removed without losing the only copy of an unprocessed
-  # position. complete rows, and finished rows whose isolated codes are all
-  # superseded. A remainder or a retryable isolated position keeps its body.
+  # position, and without pulling a body out from under a catch-up that is
+  # still walking it. pending and running cursors pin the snapshot they are
+  # inside and every later generation they have not entered. stopped and done
+  # cursors do not pin. A paused subscriber therefore does not reserve the
+  # body; resume skips a generation whose text is already gone.
   scope :body_disposable, -> {
     where.not(body: nil).where(<<~SQL.squish)
-      state = 'complete'
-      OR (
-        state IN ('incomplete', 'failed')
-        AND next_index >= item_count
-        AND retry_positions = '[]'::jsonb
-        AND NOT EXISTS (
-          SELECT 1 FROM jsonb_array_elements(isolated_positions) AS elem
-          WHERE COALESCE(elem->>'code', 'snapshot_failed') <> 'snapshot_superseded'
+      (
+        state = 'complete'
+        OR (
+          state IN ('incomplete', 'failed')
+          AND next_index >= item_count
+          AND retry_positions = '[]'::jsonb
+          AND NOT EXISTS (
+            SELECT 1 FROM jsonb_array_elements(isolated_positions) AS elem
+            WHERE COALESCE(elem->>'code', 'snapshot_failed') <> 'snapshot_superseded'
+          )
         )
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM external_feed_catch_ups c
+        INNER JOIN external_subscriptions sub ON sub.id = c.external_subscription_id
+        WHERE c.state IN ('pending', 'running')
+          AND sub.external_source_id = external_feed_snapshots.external_source_id
+          AND external_feed_snapshots.created_at > sub.created_at
+          AND (
+            (c.external_feed_snapshot_id = external_feed_snapshots.id AND c.position < external_feed_snapshots.item_count)
+            OR external_feed_snapshots.generation > c.generation
+          )
       )
     SQL
   }

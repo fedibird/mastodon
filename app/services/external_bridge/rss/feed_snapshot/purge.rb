@@ -6,12 +6,13 @@ module ExternalBridge
       # Removes snapshot text that is no longer the only copy of an
       # unprocessed position.
       #
-      # complete bodies, and finished bodies whose isolated positions are all
-      # superseded, become eligible SNAPSHOT_BODY_RETENTION after they
-      # finish. The scheduler runs this even when no feed is due. A failed
-      # remainder or a retryable isolated position keeps its body until
-      # FeedSnapshot::Retry finishes it or every remaining code is
-      # superseded. That is an operator decision, not a timer.
+      # Disposable bodies become eligible SNAPSHOT_BODY_RETENTION after they
+      # finish. A pending or running catch-up pins the snapshot it is inside
+      # and every later generation it has not entered, so that text is not
+      # disposable. stopped and done cursors do not pin: a paused subscriber
+      # does not reserve the body, and resume skips a generation whose text
+      # is already gone. A failed remainder or a retryable isolated position
+      # keeps its body until Retry finishes it. That is an operator decision.
       #
       # If disposable bodies are not enough to fit SNAPSHOT_RETAINED_BODY_BYTES,
       # nothing recoverable is deleted. Capture then refuses the new response
@@ -26,25 +27,31 @@ module ExternalBridge
         end
 
         def call
-          expired = expire(Limits::SNAPSHOT_PURGE_BATCH)
-          capped = release_over_cap(Limits::SNAPSHOT_PURGE_BATCH)
-          retained = ExternalFeedSnapshot.held_body_bytes
-          isolated = isolated_count
-          unprocessed = ExternalFeedSnapshot.unprocessed_count
-          if expired.positive? || capped.positive?
-            RefreshLog.emit(
-              'snapshot',
-              outcome: 'snapshot_purged',
-              purged: expired + capped,
-              retained_bytes: retained,
-              isolated: isolated,
-              unprocessed: unprocessed
-            )
+          expired = 0
+          capped = 0
+          ApplicationRecord.transaction do
+            ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{Limits::SNAPSHOT_CAPACITY_LOCK})")
+            expired = expire(Limits::SNAPSHOT_PURGE_BATCH)
+            capped = release_over_cap(Limits::SNAPSHOT_PURGE_BATCH)
           end
+          report(expired, capped)
           expired + capped
         rescue StandardError => e
           RefreshLog.emit('snapshot', outcome: 'snapshot_failed', error_class: e.class)
           0
+        end
+
+        def report(expired, capped)
+          return unless expired.positive? || capped.positive?
+
+          RefreshLog.emit(
+            'snapshot',
+            outcome: 'snapshot_purged',
+            purged: expired + capped,
+            retained_bytes: ExternalFeedSnapshot.held_body_bytes,
+            isolated: isolated_count,
+            unprocessed: ExternalFeedSnapshot.unprocessed_count
+          )
         end
 
         def expire(limit)

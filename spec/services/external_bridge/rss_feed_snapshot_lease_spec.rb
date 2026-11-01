@@ -14,6 +14,8 @@ RSpec.describe 'RSS snapshot lease fencing', type: :model do
     ExternalSubscription.where(id: subscription_ids).delete_all
     ExternalResource.where(external_source_id: source_ids).delete_all
     ExternalFeedSnapshot.where(external_source_id: source_ids).delete_all
+    keys = ExternalSource.where(id: source_ids).pluck(:canonical_key)
+    ExternalActor.where(native_id: keys).delete_all
     ExternalSource.where(id: source_ids).delete_all
     Setting.external_bridge_rss = false
     Setting.external_bridge_rss_testers = ''
@@ -85,6 +87,95 @@ RSpec.describe 'RSS snapshot lease fencing', type: :model do
     expect(row.position).to eq(0)
     expect(row.generation).to eq(3)
     expect(ExternalStatusProjection.where(user_id: user.id).count).to eq(0)
+  end
+
+  it 'lets only one of two connections pass the snapshot byte cap' do
+    body = rss_document(rss_item(guid: 'guid-cap', title: 'Cap', link: 'https://example.com/i/cap'))
+    extra = body.bytesize
+    stub_const('ExternalBridge::RSS::Limits::SNAPSHOT_RETAINED_BODY_BYTES', ExternalFeedSnapshot.held_body_bytes + extra + 10)
+    source_a = ExternalSource.create!(protocol: 'rss', canonical_key: "https://feeds.example/lease-cap-a-#{SecureRandom.hex(4)}.xml", title: 'Cap A')
+    source_b = ExternalSource.create!(protocol: 'rss', canonical_key: "https://feeds.example/lease-cap-b-#{SecureRandom.hex(4)}.xml", title: 'Cap B')
+    hold = Queue.new
+    holding = Queue.new
+    inserter, inserter_errors = start_locked_insert(source_a, body, hold, holding)
+    capturer = nil
+    capture_errors = []
+    begin
+      expect(holding.pop).to be true
+      capturer = start_blocked_capture(source_b, body, capture_errors)
+      expect(wait_for_capacity_waiter).to be true
+      expect(capturer).to be_alive
+      expect(ExternalFeedSnapshot.where(external_source_id: source_b.id)).to be_empty
+      hold << true
+      expect(inserter.join(15)).to eq(inserter)
+      expect(capturer.join(15)).to eq(capturer)
+    ensure
+      hold << true
+      inserter.join(15)
+      capturer&.join(15)
+    end
+
+    expect(inserter_errors).to be_empty
+    expect(capture_errors.first).to be_a(ExternalBridge::Error)
+    expect(capture_errors.first.code).to eq('snapshot_capacity')
+    expect(ExternalFeedSnapshot.where(external_source_id: source_a.id).where.not(body: nil).count).to eq(1)
+    expect(ExternalFeedSnapshot.where(external_source_id: source_b.id)).to be_empty
+    expect(source_b.reload.etag).to be_nil
+  end
+
+  def start_locked_insert(source, body, hold, holding)
+    errors = []
+    thread = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        ApplicationRecord.transaction do
+          ApplicationRecord.connection.execute("SELECT pg_advisory_xact_lock(#{ExternalBridge::RSS::Limits::SNAPSHOT_CAPACITY_LOCK})")
+          holding << true
+          hold.pop
+          ExternalFeedSnapshot.create!(
+            external_source: source, generation: 1, state: 'complete', body: body, byte_size: body.bytesize,
+            item_count: 1, next_index: 1, completed_at: Time.current
+          )
+        end
+      end
+    rescue StandardError => e
+      errors << e
+      holding << false
+    end
+    [thread, errors]
+  end
+
+  def start_blocked_capture(source, body, errors)
+    response = feed_response(source, body)
+    Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        ExternalBridge::RSS::FeedSnapshot::Capture.new.call(response: response, canonical_key: source.canonical_key, source: source)
+      end
+    rescue StandardError => e
+      errors << e
+    end
+  end
+
+  def feed_response(source, body)
+    ExternalBridge::RSS.const_get(:HttpClient)
+    ExternalBridge::RSS::Response.new(
+      code: 200, body: body, etag: 'W/"b"', last_modified: nil, final_url: source.canonical_key,
+      content_type: 'application/rss+xml', content_length: body.bytesize
+    )
+  end
+
+  def wait_for_capacity_waiter
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 10
+    loop do
+      waiting = ApplicationRecord.connection.select_value(<<~SQL.squish)
+        SELECT COUNT(*) FROM pg_locks
+        WHERE locktype = 'advisory' AND classid = 0 AND objid = #{ExternalBridge::RSS::Limits::SNAPSHOT_CAPACITY_LOCK}
+          AND objsubid = 1 AND NOT granted
+      SQL
+      return true if waiting.to_i >= 1
+      return false if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+
+      sleep 0.05
+    end
   end
 
   def in_connection

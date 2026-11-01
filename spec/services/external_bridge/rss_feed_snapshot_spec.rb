@@ -535,6 +535,151 @@ RSpec.describe 'RSS snapshot drain' do
         expect(held.reload.body).to be_present
       end
     end
+
+    it 'does not purge a complete body a pending or running catch-up still needs' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: "https://feeds.example/pin-#{SecureRandom.hex(4)}.xml", title: 'Pin')
+      walking = ExternalSubscription.create!(user: user, external_source: source, state: 'active')
+      finished = ExternalSubscription.create!(user: other, external_source: source, state: 'active')
+      walking.update_columns(created_at: 3.hours.ago)
+      finished.update_columns(created_at: 3.hours.ago)
+      early = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 1, state: 'complete', body: 'early', byte_size: 5,
+        item_count: 1, next_index: 1, completed_at: 3.days.ago
+      )
+      pinned_body = rss_document(rss_item(guid: 'guid-pin', title: 'Pinned', link: 'https://example.com/i/pin'))
+      current = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 2, state: 'complete', body: pinned_body, byte_size: pinned_body.bytesize,
+        item_count: 1, next_index: 1, completed_at: 3.days.ago
+      )
+      later = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 3, state: 'complete', body: 'later', byte_size: 5,
+        item_count: 1, next_index: 1, completed_at: 3.days.ago
+      )
+      early.update_columns(created_at: 2.hours.ago)
+      current.update_columns(created_at: 90.minutes.ago)
+      later.update_columns(created_at: 30.minutes.ago)
+      cursor = ExternalFeedCatchUp.create!(
+        external_subscription: walking, external_feed_snapshot: current, generation: 2, position: 0, state: 'pending'
+      )
+      ExternalFeedCatchUp.create!(
+        external_subscription: finished, external_feed_snapshot: later, generation: 3, position: 1, state: 'done'
+      )
+
+      ExternalBridge::RSS::FeedSnapshot::Purge.call
+      expect(early.reload.body).to be_nil
+      expect(current.reload.body).to eq(pinned_body)
+      expect(later.reload.body).to eq('later')
+
+      cursor.update!(state: 'running', lease_token: 'live', lease_expires_at: 5.minutes.from_now)
+      ExternalBridge::RSS::FeedSnapshot::Purge.call
+      expect(current.reload.body).to eq(pinned_body)
+      expect(later.reload.body).to eq('later')
+
+      cursor.update!(state: 'pending', lease_token: nil, lease_expires_at: nil)
+      Sidekiq::Testing.fake! do
+        ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(walking.id)
+      end
+      expect(cursor.reload.generation).to eq(2)
+      expect(cursor.position).to eq(1)
+      expect(cursor.state).to eq('pending')
+      ExternalBridge::RSS::FeedSnapshot::Purge.call
+      expect(current.reload.body).to be_nil
+      expect(later.reload.body).to eq('later')
+
+      cursor.update!(state: 'done')
+      ExternalBridge::RSS::FeedSnapshot::Purge.call
+      expect(later.reload.body).to be_nil
+    end
+
+    it 'purges a stopped catch-up body and resume skips that generation' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: "https://feeds.example/gap-#{SecureRandom.hex(4)}.xml", title: 'Gap')
+      subscription = ExternalSubscription.create!(user: user, external_source: source, state: 'paused')
+      subscription.update_columns(created_at: 3.hours.ago)
+      body = rss_document(rss_item(guid: 'guid-gap', title: 'Gap', link: 'https://example.com/i/gap'))
+      snapshot = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 4, state: 'complete', body: body, byte_size: body.bytesize,
+        item_count: 1, next_index: 1, completed_at: 3.days.ago
+      )
+      snapshot.update_columns(created_at: 1.hour.ago)
+      row = ExternalFeedCatchUp.create!(
+        external_subscription: subscription, external_feed_snapshot: snapshot, generation: 4, position: 0, state: 'stopped'
+      )
+
+      ExternalBridge::RSS::FeedSnapshot::Purge.call
+      expect(snapshot.reload.body).to be_nil
+
+      subscription.update!(state: 'active')
+      messages = []
+      allow(Rails.logger).to receive(:info) { |message| messages << message.to_s }
+      Sidekiq::Testing.fake! do
+        ExternalBridge::RSS::FeedSnapshot::CatchUp.enqueue!(subscription)
+        expect(row.reload.state).to eq('pending')
+        expect(row.position).to eq(0)
+        expect(row.generation).to eq(4)
+        ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(subscription.id)
+      end
+      expect(row.reload.state).to eq('done')
+      expect(row.generation).to eq(4)
+      expect(row.position).to eq(0)
+      expect(messages.join("\n")).to include('outcome=snapshot_body_purged')
+      expect(ExternalResource.where(external_source_id: source.id, title: 'Gap')).to be_empty
+    end
+
+    it 'keeps a newer history item behind a failed remainder until that generation is drained' do
+      subscribe_feed(rss_document(rss_item(guid: 'guid-shared', title: 'First', link: 'https://example.com/i/shared')))
+      shared = ExternalResource.find_by!(external_source_id: source_id, title: 'First')
+      fillers = (0...page).map do |index|
+        rss_item(
+          guid: "guid-tail-#{index}", title: "Tail#{index}", link: "https://example.com/i/tail-#{index}",
+          date: stamp(Time.utc(2024, 6, 1) + index.days)
+        )
+      end.join
+      older_body = rss_document(fillers + rss_item(guid: 'guid-shared', title: 'OldGen', link: 'https://example.com/i/shared', date: stamp(Time.utc(2020, 1, 1))))
+      newer_items = rss_item(guid: 'guid-shared', title: 'NewGen', link: 'https://example.com/i/shared', date: stamp(Time.utc(2025, 1, 1)))
+      newer_items += rss_item(guid: 'guid-fresh', title: 'Fresh', link: 'https://example.com/i/fresh', date: stamp(Time.utc(2024, 12, 1)))
+      newer_items += (0...(page - 1)).map do |index|
+        rss_item(
+          guid: "guid-rest-#{index}", title: "Rest#{index}", link: "https://example.com/i/rest-#{index}",
+          date: stamp(Time.utc(2024, 1, 1) + index.days)
+        )
+      end.join
+      newer_body = rss_document(newer_items)
+
+      older_id = nil
+      Sidekiq::Testing.fake! do
+        ExternalBridge::RSS::FeedSnapshotDrainWorker.jobs.clear
+        refresh_feed(older_body)
+        expect(shared.reload.title).to eq('First')
+        stub_const('ExternalBridge::RSS::Limits::SNAPSHOT_MAX_BATCHES', 0)
+        expect(ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(source_id)).to eq(:ok)
+        older = ExternalFeedSnapshot.find_by!(external_source_id: source_id, state: 'failed')
+        older_id = older.id
+        expect(older).to be_blocked_remainder
+
+        etag_before = ExternalSource.find(source_id).etag
+        refresh_feed(newer_body)
+        newer = ExternalFeedSnapshot.where(external_source_id: source_id).order(:generation).last
+        expect(newer.state).to eq('pending')
+        expect(newer.history_applied_at).to be_nil
+        expect(newer.body).to be_present
+        expect(ExternalSource.find(source_id).etag).to eq(%(W/"#{newer_body.bytesize}"))
+        expect(ExternalSource.find(source_id).etag).not_to eq(etag_before)
+        expect(shared.reload.title).to eq('First')
+        expect(resource_guids).not_to include('guid-fresh')
+        expect(ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(source_id)).to eq(:blocked)
+        expect(shared.reload.title).to eq('First')
+
+        stub_const('ExternalBridge::RSS::Limits::SNAPSHOT_MAX_BATCHES', 160)
+        expect(ExternalBridge::RSS::FeedSnapshot::Retry.call(older.id)).to eq(:queued)
+        expect(ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(source_id)).to eq(:ok)
+        expect(shared.reload.title).to eq('OldGen')
+        expect(resource_guids).not_to include('guid-fresh')
+        expect(ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(source_id)).to eq(:ok)
+        expect(shared.reload.title).to eq('NewGen')
+        expect(resource_guids).to include('guid-fresh')
+      end
+      expect(ExternalFeedSnapshot.find(older_id).state).to eq('complete')
+    end
   end
 
   describe 'caps' do

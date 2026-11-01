@@ -94,12 +94,16 @@ module ExternalBridge
       # superseded positions. Eligibility is not the moment of deletion.
       SNAPSHOT_BODY_RETENTION = 24.hours
       SNAPSHOT_PURGE_BATCH = 50
-      # Bytes of snapshot text kept in the database. Disposable bodies are
-      # dropped oldest-first until the sum fits. Bodies that are still the
-      # only copy of an unprocessed remainder are not dropped. If a new
-      # response would still exceed the cap, capture refuses it and does not
-      # move etag. 32 MiB is four responses at the feed byte cap.
+      # Hard cap on snapshot text, in bytes. Disposable bodies are dropped
+      # oldest-first until the sum fits. Bodies still needed by a pending or
+      # running catch-up, and bodies that are the only copy of a remainder,
+      # are not dropped. Capture takes SNAPSHOT_CAPACITY_LOCK for the check
+      # and the insert together, so two sources cannot both pass a full cap.
+      # A response that still does not fit is refused and etag stays. 32 MiB
+      # is four responses at the feed byte cap.
       SNAPSHOT_RETAINED_BODY_BYTES = 32.megabytes
+      # pg_advisory_xact_lock key. Distinct from the per-source refresh lock.
+      SNAPSHOT_CAPACITY_LOCK = 810_532
       # Failures of the same cursor position before that position is
       # isolated. The snapshot stays open and the rest of the generation
       # still runs. The isolated position is not retried until
