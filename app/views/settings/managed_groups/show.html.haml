@@ -1,0 +1,53 @@
+- content_for :page_title do
+  = t('group_role_management.show', group: @managed_group.account.acct)
+
+- content_for :heading_actions do
+  = link_to t('group_role_management.back'), settings_managed_groups_path, class: 'button'
+
+%p= link_to @managed_group.account.acct, account_path(@managed_group.account)
+%p= t('group_role_management.viewer_role', role: t("group_role_management.roles.#{@viewer_role.role}"))
+%p.muted-hint= t('group_role_management.follow_independent')
+
+%h3= t('group_role_management.owner')
+%p= @owner.member_account.acct
+
+%h3= t('group_role_management.moderators')
+- if @moderators.empty?
+  %p.muted-hint= t('group_role_management.no_moderators')
+- else
+  .table-wrapper
+    %table.table
+      %tbody
+        - @moderators.each do |assignment|
+          %tr
+            %td= assignment.member_account.acct
+            %td
+              - if @viewer_role.owner?
+                = button_to t('group_role_management.revoke'), revoke_moderator_settings_managed_group_path(@managed_group), method: :post, params: { member_account_id: assignment.member_account_id }, class: 'button negative', data: { confirm: t('group_role_management.confirm_revoke') }
+              - elsif assignment.member_account_id == current_account.id
+                = button_to t('group_role_management.resign'), resign_moderator_settings_managed_group_path(@managed_group), method: :post, class: 'button negative', data: { confirm: t('group_role_management.confirm_resign') }
+
+- if @viewer_role.owner?
+  %h3= t('group_role_management.appoint')
+  = form_tag appoint_moderator_settings_managed_group_path(@managed_group), method: :post do
+    .fields-group
+      = label_tag :username, t('group_role_management.username')
+      = text_field_tag :username, nil, required: true, maxlength: 31, autocomplete: 'off'
+    .actions
+      = button_tag t('group_role_management.appoint_button'), type: :submit, class: 'button'
+
+  %h3= t('group_role_management.transfer')
+  %p.muted-hint= t('group_role_management.transfer_hint')
+  - if @pending_offer
+    %p
+      = t('group_role_management.pending_to', account: @pending_offer.candidate_account.acct)
+      %time{ datetime: @pending_offer.expires_at.iso8601 }= l(@pending_offer.expires_at)
+    = button_to t('group_role_management.cancel'), cancel_transfer_settings_managed_group_path(@managed_group), method: :post, params: { offer_id: @pending_offer.id }, class: 'button negative', data: { confirm: t('group_role_management.confirm_cancel') }
+  = form_tag offer_transfer_settings_managed_group_path(@managed_group), method: :post do
+    .fields-group
+      = label_tag :username, t('group_role_management.successor')
+      = text_field_tag :username, nil, required: true, maxlength: 31, autocomplete: 'off'
+    .actions
+      = button_tag t('group_role_management.offer_button'), type: :submit, class: 'button', data: { confirm: t('group_role_management.confirm_offer') }
+- elsif @viewer_role.moderator?
+  %p= button_to t('group_role_management.resign'), resign_moderator_settings_managed_group_path(@managed_group), method: :post, class: 'button negative', data: { confirm: t('group_role_management.confirm_resign') }

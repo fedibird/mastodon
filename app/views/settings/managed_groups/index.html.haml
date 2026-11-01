@@ -1,0 +1,32 @@
+- content_for :page_title do
+  = t('group_role_management.title')
+
+%p.muted-hint= t('group_role_management.lead')
+
+- if @managed_groups.empty?
+  %p.muted-hint= t('group_role_management.empty')
+- else
+  .table-wrapper
+    %table.table
+      %thead
+        %tr
+          %th= t('group_role_management.group')
+          %th= t('group_role_management.role')
+          %th
+      %tbody
+        - @managed_groups.each do |managed|
+          - role = @memberships[managed.account_id]
+          %tr
+            %td= managed.account.acct
+            %td= t("group_role_management.roles.#{role.role}")
+            %td= link_to t('group_role_management.open'), settings_managed_group_path(managed)
+
+%h3= t('group_role_management.incoming')
+- if @incoming_offers.empty?
+  %p.muted-hint= t('group_role_management.no_offers')
+- else
+  - @incoming_offers.each do |offer|
+    %p
+      = t('group_role_management.offer_for', group: offer.group_account.acct, owner: offer.offered_by_account.acct)
+      %time{ datetime: offer.expires_at.iso8601 }= l(offer.expires_at)
+    = button_to t('group_role_management.accept'), settings_accept_group_owner_transfer_offer_path(offer), method: :post, class: 'button', data: { confirm: t('group_role_management.confirm_accept') }
