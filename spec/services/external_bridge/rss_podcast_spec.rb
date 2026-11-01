@@ -90,8 +90,8 @@ RSpec.describe 'ExternalBridge RSS podcast compatibility' do
     end
   end
 
-  it 'allows a podcast-sized feed while preserving the 4 MiB HTTP limit and 40-item parser cap' do
-    expect(ExternalBridge::RSS::Limits::MAX_RESPONSE_BYTES).to eq 4.megabytes
+  it 'allows a podcast-sized feed while preserving the 8 MiB HTTP limit and 40-item parser cap' do
+    expect(ExternalBridge::RSS::Limits::MAX_RESPONSE_BYTES).to eq 8.megabytes
     expect(ExternalBridge::RSS::Limits::MAX_ITEMS).to eq 40
 
     xml = podcast_xml(description: advertising, encoded: '<p> </p>', subtitle: episode_text)
@@ -101,7 +101,7 @@ RSpec.describe 'ExternalBridge RSS podcast compatibility' do
     expect(response.body.bytesize).to be > 1.megabyte
     expect(ExternalBridge::RSS::Parser.parse!(response.body).items.size).to eq 1
 
-    stub_request(:get, feed_url).to_return(status: 200, body: 'x' * (4.megabytes + 1))
+    stub_request(:get, feed_url).to_return(status: 200, body: 'x' * (8.megabytes + 1))
     expect { ExternalBridge::RSS::HttpClient.get(feed_url) }
       .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'oversized_feed' }
   end
