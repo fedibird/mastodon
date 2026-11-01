@@ -1329,7 +1329,61 @@ en:
       edit: Edit rule
       empty: No server rules have been defined yet.
       title: Server rules
-    settings:
+    group_role_management:
+    title: "My groups"
+    lead: "Manage groups for which you currently hold a local role. Roles do not confer server-wide permissions."
+    empty: "You do not currently have a group role."
+    group: "Group"
+    role: "Role"
+    open: "Manage"
+    incoming: "Ownership offers addressed to you"
+    no_offers: "No pending ownership offers."
+    offer_for: "%{owner} is offering ownership of %{group}. Expires: "
+    accept: "Accept ownership"
+    confirm_accept: "Accept ownership? The current owner will lose their owner role."
+    show: "Manage %{group}"
+    back: "Back to my groups"
+    viewer_role: "Your role: %{role}"
+    follow_independent: "Group roles are separate from following. Posting to a group still requires a completed Follow."
+    owner: "Owner"
+    moderators: "Moderators"
+    no_moderators: "No moderators."
+    revoke: "Remove moderator"
+    resign: "Resign as moderator"
+    confirm_revoke: "Remove this moderator?"
+    confirm_resign: "Resign your moderator role?"
+    appoint: "Appoint a moderator"
+    username: "Local account username"
+    appoint_button: "Appoint"
+    transfer: "Transfer ownership"
+    transfer_hint: "The successor must be an active personal account on this server and must accept the offer. Offers expire after 7 days."
+    pending_to: "Pending offer to %{account}. Expires: "
+    cancel: "Cancel offer"
+    confirm_cancel: "Cancel this ownership offer?"
+    successor: "Successor's local username"
+    offer_button: "Offer ownership"
+    confirm_offer: "Offer ownership to this account? An earlier pending offer will be cancelled."
+    roles:
+      owner: "Owner"
+      moderator: "Moderator"
+    results:
+      appointed: "The moderator was appointed."
+      revoked: "The moderator was removed."
+      resigned: "Your moderator role was ended."
+      offered: "The successor can now accept this ownership offer from their My groups page."
+      cancelled: "The offer was cancelled."
+      accepted: "You are now the group owner."
+      already_assigned: "This account already has an active role in this group."
+      already_pending: "The same offer is already pending."
+      invalid_target: "Choose an active local personal account."
+      not_found: "The active moderator could not be found."
+      not_pending: "The offer is no longer pending."
+      expired: "This offer has expired. Ask the owner to make a new offer."
+      stale_owner: "The person who made the offer is no longer the owner."
+      unmanaged: "This group cannot be managed here."
+      audit_failed: "The audit could not be recorded, so the change was rolled back."
+      conflict: "The change was not saved. Reload the group and try again."
+  settings:
       activity_api_enabled:
         desc_html: Counts of locally published posts, active users, and new registrations in weekly buckets
         title: Publish aggregate statistics about user activity in the API
@@ -2698,6 +2752,7 @@ en:
     statuses_cleanup: Automated post deletion
     two_factor_authentication: Two-factor Auth
     group_creation_requests: Create a group
+    managed_groups: "My groups"
     user_posting_contexts: Posting style and purpose
     webauthn_authentication: Security keys
   posting_identity_links:

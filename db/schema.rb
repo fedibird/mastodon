@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_13_170100) do
+ActiveRecord::Schema.define(version: 2026_11_13_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1583,7 +1583,27 @@ create_table "group_registration_invite_policies", force: :cascade do |t|
     t.check_constraint "tag ~ '^[a-z]{2,3}(-[0-9A-Za-z]{2,8}){0,3}$'::text", name: "group_languages_tag_shape"
   end
 
-create_table "group_role_assignments", force: :cascade do |t|
+create_table "group_owner_transfer_offers", force: :cascade do |t|
+    t.bigint "group_account_id", null: false
+    t.bigint "offered_by_account_id", null: false
+    t.bigint "candidate_account_id", null: false
+    t.integer "state", default: 0, null: false
+    t.datetime "expires_at", null: false
+    t.datetime "responded_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["candidate_account_id", "state", "expires_at"], name: "index_group_owner_transfer_offers_incoming"
+    t.index ["candidate_account_id"], name: "index_group_owner_transfer_offers_on_candidate_account_id"
+    t.index ["group_account_id"], name: "index_group_owner_transfer_offers_on_group_account_id"
+    t.index ["group_account_id"], name: "index_group_owner_transfer_offers_one_pending", unique: true, where: "(state = 0)"
+    t.index ["offered_by_account_id"], name: "index_group_owner_transfer_offers_on_offered_by_account_id"
+    t.check_constraint "candidate_account_id <> group_account_id", name: "group_owner_transfer_offers_candidate_not_group"
+    t.check_constraint "offered_by_account_id <> candidate_account_id", name: "group_owner_transfer_offers_distinct_people"
+    t.check_constraint "((state = 0) AND (responded_at IS NULL)) OR ((state = ANY (ARRAY[1, 2])) AND (responded_at IS NOT NULL))", name: "group_owner_transfer_offers_response_shape"
+    t.check_constraint "state = ANY (ARRAY[0, 1, 2])", name: "group_owner_transfer_offers_state_known"
+  end
+
+  create_table "group_role_assignments", force: :cascade do |t|
     t.bigint "group_account_id", null: false
     t.bigint "member_account_id", null: false
     t.integer "role", null: false
@@ -2764,6 +2784,9 @@ create_table "managed_groups", force: :cascade do |t|
   add_foreign_key "group_languages", "accounts", on_delete: :cascade
   add_foreign_key "group_registration_invite_policies", "accounts", column: "group_account_id", on_delete: :restrict
   add_foreign_key "group_registration_invite_policies", "managed_groups", on_delete: :restrict
+  add_foreign_key "group_owner_transfer_offers", "accounts", column: "candidate_account_id", on_delete: :restrict
+  add_foreign_key "group_owner_transfer_offers", "accounts", column: "group_account_id", on_delete: :restrict
+  add_foreign_key "group_owner_transfer_offers", "accounts", column: "offered_by_account_id", on_delete: :restrict
   add_foreign_key "group_role_assignments", "accounts", column: "granted_by_account_id", on_delete: :nullify
   add_foreign_key "group_role_assignments", "accounts", column: "group_account_id", on_delete: :restrict
   add_foreign_key "group_role_assignments", "accounts", column: "member_account_id", on_delete: :restrict
