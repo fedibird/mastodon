@@ -2,6 +2,7 @@
 
 class REST::StatusSerializer < ActiveModel::Serializer
   include Redisable
+  include RoutingHelper
 
   attributes :id, :created_at, :edited_at, :updated_at, :in_reply_to_id, :in_reply_to_account_id,
              :sensitive, :spoiler_text, :visibility, :language,
@@ -41,7 +42,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
 
   has_many :ordered_media_attachments, key: :media_attachments, serializer: REST::MediaAttachmentSerializer
   has_many :ordered_mentions, key: :mentions
-  has_many :tags
+  attribute :tags
   has_many :emojis, serializer: REST::CustomEmojiSerializer
 
   has_one :preview_card, key: :card, serializer: REST::PreviewCardSerializer
@@ -108,7 +109,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
     elsif instance_options[:compact]
       object.reblog.id.to_s
     else
-      REST::StatusSerializer.new(object.reblog, root: false, relationships: instance_options[:relationships], account_relationships: instance_options[:account_relationships], application_name: instance_options[:application_name], compact: false, scope: current_user, scope_name: :current_user)
+      REST::StatusSerializer.new(object.reblog, root: false, relationships: instance_options[:relationships], account_tag_pages: account_tag_pages, account_relationships: instance_options[:account_relationships], application_name: instance_options[:application_name], compact: false, scope: current_user, scope_name: :current_user)
     end
   end
 
@@ -388,6 +389,8 @@ class REST::StatusSerializer < ActiveModel::Serializer
     end
   end
 
+  # Announcements and other non-status tag lists use this serializer.
+  # account_url is intentionally absent: it belongs to one status author.
   class TagSerializer < ActiveModel::Serializer
     include RoutingHelper
 
@@ -396,6 +399,33 @@ class REST::StatusSerializer < ActiveModel::Serializer
     def url
       tag_url(object)
     end
+  end
+
+  def tags
+    object.tags.map { |tag| tag_payload(tag) }
+  end
+
+  private
+
+  def tag_payload(tag)
+    payload = { name: tag.name, url: tag_url(tag) }
+    account_url = account_tag_pages.url_for(object.account, tag)
+    payload[:account_url] = account_url if account_url.present?
+    payload
+  rescue StandardError => e
+    Rails.logger.warn("Account tag page omitted for status #{object.id}: #{e.class}")
+    { name: tag.name, url: tag_url(tag) }
+  end
+
+  def account_tag_pages
+    return @account_tag_pages if defined?(@account_tag_pages)
+
+    @account_tag_pages = instance_options[:account_tag_pages] || relationship_account_tag_pages || AccountTagPage::Pages.prefetch([object])
+  end
+
+  def relationship_account_tag_pages
+    relationships = instance_options[:relationships]
+    relationships.account_tag_pages if relationships.respond_to?(:account_tag_pages)
   end
 end
 
@@ -423,7 +453,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
     elsif instance_options[:compact]
       object.quote.id.to_s
     else
-      REST::NestedQuoteSerializer.new(object.quote, root: false, relationships: instance_options[:relationships], account_relationships: instance_options[:account_relationships], application_name: instance_options[:application_name], compact: false, scope: current_user, scope_name: :current_user)
+      REST::NestedQuoteSerializer.new(object.quote, root: false, relationships: instance_options[:relationships], account_tag_pages: account_tag_pages, account_relationships: instance_options[:account_relationships], application_name: instance_options[:application_name], compact: false, scope: current_user, scope_name: :current_user)
     end
   end
 
@@ -443,5 +473,4 @@ class REST::StatusSerializer < ActiveModel::Serializer
   def relationships
     instance_options && instance_options[:relationships]
   end
-
 end

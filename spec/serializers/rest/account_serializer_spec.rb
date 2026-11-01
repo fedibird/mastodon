@@ -30,6 +30,7 @@ RSpec.describe REST::AccountSerializer do
 
     it 'includes noindex false by default' do
       expect(json).to include(noindex: false)
+      expect(json).not_to have_key(:nodeinfo_software)
     end
 
     it 'includes noindex true when enabled' do
@@ -82,6 +83,7 @@ RSpec.describe REST::AccountSerializer do
       expect(json[:uri]).to eq('https://remote.example/users/alice')
       expect(json).not_to have_key(:noindex)
       expect(json).not_to have_key(:roles)
+      expect(json).not_to have_key(:nodeinfo_software)
     end
   end
 

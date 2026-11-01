@@ -3,9 +3,10 @@
 class StatusRelationshipsPresenter
   attr_reader :reblogs_map, :favourites_map, :mutes_map, :pins_map,
               :bookmarks_map, :filters_map, :emoji_reactions_map, :attributes_map,
-              :link_boost_states
+              :link_boost_states, :account_tag_pages
 
   def initialize(statuses, current_account_id = nil, **options)
+    @account_tag_pages = AccountTagPage::Pages.prefetch(statuses)
     @link_boost_states = {}
 
     if current_account_id.nil?

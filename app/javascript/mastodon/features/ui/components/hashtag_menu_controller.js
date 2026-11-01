@@ -8,6 +8,7 @@ import { DropdownMenu } from 'mastodon/components/dropdown_menu';
 import { createFavouriteTag } from 'mastodon/actions/favourite_tags';
 import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
+import { accountUrlForHashtag } from 'mastodon/utils/account_tag_url';
 import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
 
 const messages = defineMessages({
@@ -173,14 +174,35 @@ class HashtagMenuController extends React.PureComponent {
     return null;
   }
 
-  // The remote equivalent of /@user/tagged/:tag is not known for non-Mastodon servers,
-  // so only local accounts get an href.
+  // href is the public URL from tags[].account_url when this label matches one tag.
+  // Local HTML-only tags keep the signed-out page. Remote misses stay without href.
+  // The in-app `to` path is chosen separately and does not use this URL.
   accountTagHref () {
-    if (!this.isLocalAccount()) {
+    const fromStatus = this.accountUrlFromStatus();
+
+    if (fromStatus) {
+      return fromStatus;
+    }
+
+    if (this.isLocalAccount()) {
+      return `${window.location.origin}/@${encodeURIComponent(this.accountAcct())}/tagged/${encodeURIComponent(this.state.hashtag)}`;
+    }
+
+    return null;
+  }
+
+  accountUrlFromStatus () {
+    const status = this.props.statuses && this.props.statuses.get(this.state.statusId);
+
+    if (!status) {
       return null;
     }
 
-    return `${window.location.origin}/@${encodeURIComponent(this.accountAcct())}/tagged/${encodeURIComponent(this.state.hashtag)}`;
+    try {
+      return accountUrlForHashtag(status.get('tags'), this.state.hashtag);
+    } catch (e) {
+      return null;
+    }
   }
 
   menuItems () {

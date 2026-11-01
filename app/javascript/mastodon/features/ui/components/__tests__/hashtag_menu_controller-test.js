@@ -157,11 +157,17 @@ function buildStatus(overrides = {}) {
   });
 }
 
-function renderMenu({ status, signedIn, onClick = jest.fn(), account, tags, contentHtml: html } = {}) {
+function renderMenu({ status, signedIn, onClick = jest.fn(), account, accounts, tags, contentHtml: html } = {}) {
   let state = initialState();
 
   if (account) {
     state = state.setIn(['accounts', 'a1'], fromJS(account));
+  }
+
+  if (accounts) {
+    Object.keys(accounts).forEach(id => {
+      state = state.setIn(['accounts', id], fromJS(accounts[id]));
+    });
   }
 
   if (html) {
@@ -400,6 +406,66 @@ describe('HashtagMenuController', () => {
       expect(screen.getByRole('button', { name: 'View posts with #hidden' })).not.toHaveAttribute('href');
       expect(screen.getByRole('button', { name: 'View bob\'s posts with #hidden' })).not.toHaveAttribute('href');
     });
+
+    it('uses tags[].account_url for the matching tag and keeps the in-app path', () => {
+      const tag = 'ハッシュ';
+      const encoded = encodeURIComponent(tag);
+      const accountUrl = `https://remote.example/@bob/tagged/${encoded}`;
+      const html = `<p><a href="https://evil.example/tags/${encoded}" class="mention hashtag" rel="tag">#<span>${tag}</span></a></p>`;
+      const { container } = renderRemote({
+        html,
+        account: { ...remoteAccount, url: 'https://evil.example/@bob' },
+        tags: [
+          { name: 'other', url: 'https://remote.example/tags/other', account_url: 'https://remote.example/@bob/tagged/other' },
+          { name: tag, url: `https://remote.example/tags/${encoded}`, account_url: accountUrl },
+        ],
+      });
+
+      const link = container.querySelector('.status__content__text a.mention.hashtag');
+      const modified = click(link, { ctrlKey: true });
+
+      expect(modified.defaultPrevented).toBe(false);
+      expect(history.push).not.toHaveBeenCalled();
+      expect(screen.queryByRole('button', { name: `View posts with #${tag}` })).toBeNull();
+
+      click(link);
+
+      const browse = screen.getByRole('button', { name: `View posts with #${tag}` });
+      const browseAccount = screen.getByRole('button', { name: `View bob's posts with #${tag}` });
+
+      expect(browse).toHaveAttribute('href', `https://evil.example/tags/${encoded}`);
+      expect(browseAccount).toHaveAttribute('href', accountUrl);
+      expect(browseAccount.getAttribute('href')).not.toContain('evil.example');
+      expect(browseAccount.getAttribute('href')).not.toContain('/web/');
+
+      fireEvent.click(browseAccount);
+      expect(history.push).toHaveBeenLastCalledWith(`/accounts/a1/posts/${encoded}`);
+    });
+
+    it('omits the remote href when the label is not on status.tags and still opens the in-app timeline', () => {
+      const html = '<p><a href="https://remote.example/tags/rails" class="mention hashtag" rel="tag">#<span>rails</span></a></p>';
+      const { container } = renderRemote({
+        html,
+        tags: [{ name: 'other', url: 'https://remote.example/tags/other', account_url: 'https://remote.example/@bob/tagged/other' }],
+      });
+
+      click(container.querySelector('.status__content__text a.mention.hashtag'));
+      const browseAccount = screen.getByRole('button', { name: 'View bob\'s posts with #rails' });
+      expect(browseAccount).not.toHaveAttribute('href');
+      fireEvent.click(browseAccount);
+      expect(history.push).toHaveBeenLastCalledWith('/accounts/a1/posts/rails');
+    });
+
+    it('matches a tag case-insensitively and ignores a tag that has no account_url', () => {
+      const html = '<p><a href="https://remote.example/tags/Rails" class="mention hashtag" rel="tag">#<span>Rails</span></a></p>';
+      const { container } = renderRemote({
+        html,
+        tags: [{ name: 'rails', url: 'https://example.test/tags/rails' }],
+      });
+
+      click(container.querySelector('.status__content__text a.mention.hashtag'));
+      expect(screen.getByRole('button', { name: 'View bob\'s posts with #Rails' })).not.toHaveAttribute('href');
+    });
   });
 
   describe('hrefs of local posts', () => {
@@ -414,6 +480,18 @@ describe('HashtagMenuController', () => {
 
       expect(screen.getByRole('button', { name: 'View posts with #ハッシュ' })).toHaveAttribute('href', `${window.location.origin}/tags/${encoded}`);
       expect(screen.getByRole('button', { name: 'View alice\'s posts with #ハッシュ' })).toHaveAttribute('href', `${window.location.origin}/@alice/tagged/${encoded}`);
+    });
+
+    it('uses the server account_url for a local tag when the status carries one', () => {
+      const html = '<p>本文<br><br><a href="https://example.com/tags/mastodon" class="mention hashtag" rel="tag">#<span>mastodon</span></a></p>';
+      const accountUrl = `${window.location.origin}/@alice/tagged/mastodon`;
+      const { container } = renderMenu({
+        contentHtml: html,
+        tags: [{ name: 'mastodon', url: `${window.location.origin}/tags/mastodon`, account_url: accountUrl }],
+      });
+
+      click(container.querySelector('a.status__content__hashtag-badge'));
+      expect(screen.getByRole('button', { name: 'View alice\'s posts with #mastodon' })).toHaveAttribute('href', accountUrl);
     });
   });
 
