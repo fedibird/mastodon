@@ -1,0 +1,40 @@
+- content_for :page_title do
+  = t('admin.group_registration_invite_defaults.title')
+
+- content_for :heading_actions do
+  = button_tag t('generic.save_changes'), class: 'button', form: 'edit_group_registration_invite_defaults'
+
+%p.muted-hint= t('admin.group_registration_invite_defaults.lead')
+
+%h3= t('admin.group_registration_invite_defaults.next_copy')
+.table-wrapper
+  %table.table.inline-table
+    %tbody
+      %tr
+        %th= t('admin.group_registration_invite_defaults.fields.issuance_enabled')
+        %td= group_admin_yes_no(@snapshot[:issuance_enabled])
+      %tr
+        %th= t('admin.group_registration_invite_defaults.fields.shared_quota_unlimited')
+        %td= group_admin_yes_no(@snapshot[:shared_quota_unlimited])
+      %tr
+        %th= t('admin.group_registration_invite_defaults.fields.shared_registration_quota')
+        %td= @snapshot[:shared_registration_quota]
+      %tr
+        %th= t('admin.group_registration_invite_defaults.fields.per_link_unlimited_uses')
+        %td= group_admin_yes_no(@snapshot[:per_link_unlimited_uses])
+      %tr
+        %th= t('admin.group_registration_invite_defaults.fields.per_link_max_uses')
+        %td= @snapshot[:per_link_max_uses].nil? ? t('admin.group_registration_invite_defaults.not_copied') : @snapshot[:per_link_max_uses]
+      %tr
+        %th= t('admin.group_registration_invite_defaults.fields.per_link_indefinite')
+        %td= group_admin_yes_no(@snapshot[:per_link_indefinite])
+      %tr
+        %th= t('admin.group_registration_invite_defaults.fields.per_link_lifetime_seconds')
+        %td= @snapshot[:per_link_lifetime_seconds].nil? ? t('admin.group_registration_invite_defaults.not_copied') : @snapshot[:per_link_lifetime_seconds]
+
+= simple_form_for @form, url: admin_group_registration_invite_defaults_path, html: { method: :patch, id: 'edit_group_registration_invite_defaults' } do |f|
+  = render 'shared/error_messages', object: @form
+  = f.hidden_field :fingerprint
+  = render 'admin/group_registration_invite_policies/fields', f: f
+  .actions
+    = f.button :button, t('generic.save_changes'), data: { confirm: t('admin.group_registration_invite_defaults.confirm') }

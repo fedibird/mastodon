@@ -1,0 +1,73 @@
+- content_for :page_title do
+  = t('admin.managed_groups.show', acct: @account.acct)
+
+- content_for :heading_actions do
+  = link_to t('admin.managed_groups.back'), admin_managed_groups_path, class: 'button'
+
+%p.muted-hint= t('admin.managed_groups.show_lead')
+
+.table-wrapper
+  %table.table.inline-table
+    %tbody
+      %tr
+        %th= t('admin.managed_groups.group')
+        %td= link_to @account.acct, admin_account_path(@account.id)
+      %tr
+        %th= t('admin.managed_groups.display_name')
+        %td= @account.display_name.presence || t('admin.group_administration.none')
+      %tr
+        %th= t('admin.managed_groups.login')
+        %td= @account.user.present? ? t('admin.managed_groups.login_present') : t('admin.managed_groups.login_absent')
+      %tr
+        %th= t('admin.managed_groups.origin')
+        %td= t("admin.managed_groups.origins.#{@managed_group.origin}")
+      %tr
+        %th= t('admin.managed_groups.owner')
+        %td
+          - if @owner
+            = admin_account_inline_link_to(@owner.member_account)
+            = formatted_browser_local_time(@owner.granted_at)
+          - else
+            = t('admin.group_administration.none')
+      %tr
+        %th= t('admin.managed_groups.moderators')
+        %td
+          - if @moderators.blank?
+            = t('admin.group_administration.none')
+          - else
+            - @moderators.each do |assignment|
+              = admin_account_inline_link_to(assignment.member_account)
+      %tr
+        %th= t('admin.managed_groups.source_request')
+        %td
+          - if @creation_request
+            = link_to @creation_request.username, admin_group_creation_request_path(@creation_request)
+          - else
+            = t('admin.group_administration.none')
+      - if @creation_request
+        %tr
+          %th= t('admin.group_creation_requests.handoff')
+          %td
+            = t("admin.group_creation_requests.handoff_states.#{group_creation_handoff_state(@creation_request)}")
+            - if @creation_request.icon_handoff_error.present?
+              %span= t('admin.group_creation_requests.handoff_error', code: @creation_request.icon_handoff_error)
+
+- if group_creation_icon_retryable?(@creation_request)
+  = form_tag retry_icon_admin_group_creation_request_path(@creation_request), method: :post do
+    .actions
+      = button_tag t('admin.group_creation_requests.retry_button'), type: 'submit', class: 'button', data: { confirm: t('admin.group_creation_requests.retry_confirm') }
+
+%h3= t('admin.managed_groups.policy_heading')
+- if @policy
+  %p.muted-hint= t('admin.managed_groups.policy_lead')
+  = simple_form_for @policy, url: admin_managed_group_registration_invite_policy_path(@managed_group), html: { method: :patch } do |f|
+    = render 'shared/error_messages', object: @policy
+    = f.hidden_field :lock_version
+    = render 'admin/group_registration_invite_policies/fields', f: f
+    .actions
+      = f.button :button, t('generic.save_changes'), data: { confirm: t('admin.managed_groups.policy_confirm') }
+- else
+  %p.muted-hint= t('admin.managed_groups.policy_missing')
+
+%h3= t('admin.group_administration.audit_heading')
+= render 'admin/group_administration/audits', audits: @audits

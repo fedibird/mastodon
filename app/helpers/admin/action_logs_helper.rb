@@ -33,6 +33,14 @@ module Admin::ActionLogsHelper
       "#{record.ip}/#{record.ip.prefix} (#{I18n.t("simple_form.labels.ip_block.severities.#{record.severity}")})"
     when 'UserRole'
       link_to record.name, edit_admin_role_path(record)
+    when 'GroupCreationRequest'
+      link_to "##{record.id}", admin_group_creation_request_path(record.id)
+    when 'ManagedGroup'
+      link_to "##{record.id}", admin_managed_group_path(record.id)
+    when 'GroupRegistrationInvitePolicy'
+      link_to "##{record.managed_group_id}", admin_managed_group_path(record.managed_group_id)
+    when 'Setting'
+      link_to(t('admin.group_registration_invite_defaults.nav'), edit_admin_group_registration_invite_defaults_path) if record.var.to_s.start_with?('group_registration_invites_')
     end
   end
 

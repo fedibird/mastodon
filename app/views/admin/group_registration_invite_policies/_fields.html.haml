@@ -1,0 +1,14 @@
+.fields-group
+  = f.input :issuance_enabled, as: :boolean, wrapper: :with_label, label: t('admin.group_registration_invite_defaults.fields.issuance_enabled'), hint: t('admin.group_registration_invite_defaults.hints.issuance_enabled')
+.fields-group
+  = f.input :shared_quota_unlimited, as: :boolean, wrapper: :with_label, label: t('admin.group_registration_invite_defaults.fields.shared_quota_unlimited'), hint: t('admin.group_registration_invite_defaults.hints.shared_quota_unlimited')
+.fields-group
+  = f.input :shared_registration_quota, as: :integer, wrapper: :with_label, label: t('admin.group_registration_invite_defaults.fields.shared_registration_quota'), hint: t('admin.group_registration_invite_defaults.hints.shared_registration_quota')
+.fields-group
+  = f.input :per_link_unlimited_uses, as: :boolean, wrapper: :with_label, label: t('admin.group_registration_invite_defaults.fields.per_link_unlimited_uses'), hint: t('admin.group_registration_invite_defaults.hints.per_link_unlimited_uses')
+.fields-group
+  = f.input :per_link_max_uses, as: :integer, wrapper: :with_label, label: t('admin.group_registration_invite_defaults.fields.per_link_max_uses'), hint: t('admin.group_registration_invite_defaults.hints.per_link_max_uses')
+.fields-group
+  = f.input :per_link_indefinite, as: :boolean, wrapper: :with_label, label: t('admin.group_registration_invite_defaults.fields.per_link_indefinite'), hint: t('admin.group_registration_invite_defaults.hints.per_link_indefinite')
+.fields-group
+  = f.input :per_link_lifetime_seconds, as: :integer, wrapper: :with_label, label: t('admin.group_registration_invite_defaults.fields.per_link_lifetime_seconds'), hint: t('admin.group_registration_invite_defaults.hints.per_link_lifetime_seconds')

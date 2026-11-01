@@ -65,6 +65,9 @@ RSpec.describe 'admin navigation parents', type: :helper do
     expect(parent_link(admin)['href']).to eq helper.admin_dashboard_url
     expect(admin.at_css("a[href='#{helper.admin_dashboard_url}']")).to be_present
     expect(admin.at_css("a[href='#{helper.edit_admin_settings_url}']")).to be_nil
+    expect(admin.at_css("a[href='#{helper.admin_group_creation_requests_url}']")).to be_nil
+    expect(admin.at_css("a[href='#{helper.admin_managed_groups_url}']")).to be_nil
+    expect(admin.at_css("a[href='#{helper.edit_admin_group_registration_invite_defaults_url}']")).to be_nil
     expect(admin.at_css("a[href='#{helper.admin_roles_path}']")).to be_nil
   end
 
@@ -75,6 +78,9 @@ RSpec.describe 'admin navigation parents', type: :helper do
     expect(admin).to be_present
     expect(parent_link(admin)['href']).to eq helper.edit_admin_settings_url
     expect(admin.at_css("a[href='#{helper.edit_admin_settings_url}']")).to be_present
+    expect(admin.at_css("a[href='#{helper.admin_group_creation_requests_url}']")).to be_present
+    expect(admin.at_css("a[href='#{helper.admin_managed_groups_url}']")).to be_present
+    expect(admin.at_css("a[href='#{helper.edit_admin_group_registration_invite_defaults_url}']")).to be_present
     expect(admin.at_css("a[href='#{helper.admin_dashboard_url}']")).to be_nil
   end
 

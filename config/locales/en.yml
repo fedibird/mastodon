@@ -99,6 +99,147 @@ en:
     new:
       title: Add new account subscription
   admin:
+    group_administration:
+      audit_action: Action
+      audit_actor: Administrator
+      audit_code: Result
+      audit_empty: No administration log for this record yet.
+      audit_heading: Administration log
+      audit_when: When
+      'no': 'No'
+      none: None
+      'yes': 'Yes'
+    group_creation_requests:
+      approve: Approve
+      approve_confirm: Approve this request and create the group? The requester becomes the first owner. This does not follow the group.
+      back: Back to requests
+      decision_heading: Review record
+      decision_note: Review note
+      display_name: Display name
+      empty: No requests in this view.
+      errors:
+        conflict: The request changed while it was being reviewed. It is still pending, and the latest state is shown.
+        decision_note_blank: A rejection needs a reason.
+        feature_disabled: Group creation requests are turned off, so this decision was refused. The request is still pending.
+        icon_missing: The private icon is missing, so the request was not approved. It is still pending.
+        invalid_icon: The private icon is not a valid image, so the request was not approved. It is still pending.
+        invalid_requester: The requester is not an active local person, so the request was not approved. It is still pending.
+        not_authorized: You cannot review group requests.
+        not_pending: This request is no longer pending. The latest state is shown.
+        storage_unavailable: Private icon storage is unavailable, so the request was not approved. It is still pending.
+        username_taken: That username is already a local account, so the request was not approved. It is still pending.
+      feature_disabled_banner: Group creation requests are turned off. Approval and rejection stay refused until Setting.group_creation_requests is enabled elsewhere. This screen does not turn it on.
+      group_account: Group account
+      handoff: Icon handoff
+      handoff_attempts: "%{count} copy attempts"
+      handoff_error: "Last error: %{code}"
+      handoff_states:
+        absent: No icon was submitted.
+        copied: Copied to the group avatar. The private original is still being removed.
+        exhausted: Automatic copy stopped. An administrator can retry it.
+        failed: The last copy failed and can be retried.
+        pending: Copy has not finished.
+        purged: The private original was removed after a successful copy.
+        staged: Private icon is waiting for review.
+      icon: Icon
+      icon_absent: No icon was submitted.
+      icon_alt: Private icon submitted with this request
+      icon_failure_hint: If the image does not appear, the private file could not be read. It is not published as an avatar while the request is pending.
+      icon_purged: The private original has been removed.
+      initial_owner: First owner
+      lead: Pending requests are listed first. Approving uses the existing review service and creates the group only then. Rejecting requires a reason.
+      no_display_name: No display name
+      no_note: No description
+      note: Description
+      reject: Reject
+      reject_confirm: Reject this request? The group will not be created.
+      reject_hint: The requester can read this reason on their own request. It is not sent over ActivityPub.
+      requested_at: Submitted
+      requester: Requester
+      requester_not_ready: This person cannot become an owner until their account is usable again.
+      requester_ready: This person can become the first owner.
+      results:
+        approved: The request was approved and the group was created. The first owner was not followed automatically.
+        rejected: The request was rejected. No group was created.
+      retry:
+        enqueue_failed: The retry was not queued. The hourly recovery can still run if the icon is eligible.
+        enqueued: The icon handoff was queued again.
+        not_retryable: This icon cannot be retried.
+        resumed: The stopped icon copy was reset and queued again.
+      retry_button: Retry icon handoff
+      retry_confirm: Queue another icon handoff? This does not create another group.
+      reviewed_at: Reviewed
+      reviewer: Reviewer
+      show: Group request %{username}
+      state: Status
+      states:
+        all: All
+        approved: Approved
+        cancelled: Cancelled
+        pending: Pending review
+        rejected: Rejected
+      title: Group requests
+      username: Username
+    group_registration_invite_defaults:
+      confirm: Save the defaults for groups approved from now on? Groups that already exist keep their own policy.
+      errors:
+        conflict: Someone else saved these defaults first. The current values are shown.
+        per_link_lifetime_seconds: Enter a lifetime of at least 1 second, or leave it blank only while links are indefinite.
+        per_link_max_uses: Enter a per-link maximum of at least 1, or leave it blank only while uses are unlimited.
+        shared_quota: Enter a shared registration quota of 0 or more.
+        shared_quota_unlimited_mismatch: An unlimited shared quota has to be stored as 0. The next approval copies that number.
+      fields:
+        issuance_enabled: Allow issuing registration invites
+        per_link_indefinite: Allow links without an expiry
+        per_link_lifetime_seconds: Per-link lifetime in seconds
+        per_link_max_uses: Per-link maximum uses
+        per_link_unlimited_uses: Allow links with unlimited uses
+        shared_quota_unlimited: Unlimited shared registration quota
+        shared_registration_quota: Shared registration quota
+      hints:
+        issuance_enabled: This does not create an invite link. Link issuing and use stay in a later phase.
+        per_link_indefinite: While this is on, a group policy stores no lifetime. On these site defaults, a number left in the field is kept for the next time you turn this off.
+        per_link_lifetime_seconds: Used for the next approval when links have an expiry. The minimum is 1 second.
+        per_link_max_uses: Used for the next approval when uses are limited. The minimum is 1.
+        per_link_unlimited_uses: While this is on, a group policy stores no per-link maximum. On these site defaults, a number left in the field is kept for the next time you turn this off.
+        shared_quota_unlimited: While this is on, the shared quota saved here must be 0. That is the value copied onto a new group.
+        shared_registration_quota: Copied onto each group approved after you save. 0 means a new group starts with no shared registrations.
+      lead: These values are copied onto a group when a request is approved. Saving here does not change a group that already has a policy, and it does not turn group creation requests on.
+      nav: Group invite defaults
+      next_copy: Values the next approval would copy
+      not_copied: Not copied while unlimited
+      saved: Defaults for newly approved groups were saved. Existing groups were left as they are.
+      title: Group invite defaults
+    managed_groups:
+      back: Back to groups
+      created_at: Registered
+      display_name: Display name
+      empty: No local groups have been registered through an approved request.
+      group: Group
+      issuance: Invites can be issued
+      lead: Local groups created from an approved request. An existing group with its own login is not added here.
+      login: Login
+      login_absent: This group has no login of its own.
+      login_present: This group has a login. New approved groups do not.
+      moderators: Group moderators
+      origin: Origin
+      origins:
+        approved_request: Approved request
+        legacy_unassigned: Legacy
+      owner: Owner
+      policy_confirm: Save this group's invite policy? The site defaults and other groups stay unchanged.
+      policy_errors:
+        conflict: Someone else saved this policy first. The latest values are shown.
+        invalid: The policy was not saved. Check the limits below.
+      policy_heading: Registration invite policy
+      policy_lead: This is the copy stored for this group. It does not follow later changes to the site defaults, and it does not issue an invite link.
+      policy_missing: This group has no registration invite policy. This screen does not create one.
+      policy_saved: This group's invite policy was saved.
+      show: Group %{acct}
+      show_lead: Owner role, the request it came from, icon handoff, and the invite policy stored for this group.
+      show_link: Group record
+      source_request: Creation request
+      title: Registered groups
     account_actions:
       action: Perform action
       title: Perform moderation action on %{acct}
@@ -462,6 +603,14 @@ en:
         update_domain_block: Update Domain Block
         update_status: Update Post
         update_user_role: Update Role
+        approve_group_creation_request: Approve group request
+        reject_group_creation_request: Reject group request
+        fail_group_creation_request: Group request decision failed
+        retry_icon_group_creation_request: Retry group icon handoff
+        update_group_registration_invite_policy: Update group invite policy
+        fail_group_registration_invite_policy: Group invite policy update failed
+        update_group_invite_defaults_setting: Update group invite defaults
+        fail_group_invite_defaults_account: Group invite defaults update failed
       actions:
         assigned_to_self_report_html: "%{name} assigned report %{target} to themselves"
         change_email_user_html: "%{name} changed the e-mail address of user %{target}"
@@ -516,6 +665,14 @@ en:
         update_domain_block_html: "%{name} updated domain block for %{target}"
         update_status_html: "%{name} updated post by %{target}"
         update_user_role_html: "%{name} changed %{target} role"
+        approve_group_creation_request_html: "%{name} approved group request %{target}"
+        reject_group_creation_request_html: "%{name} rejected group request %{target}"
+        fail_group_creation_request_html: "%{name} could not decide group request %{target}"
+        retry_icon_group_creation_request_html: "%{name} retried the icon handoff for group request %{target}"
+        update_group_registration_invite_policy_html: "%{name} updated the invite policy for group %{target}"
+        fail_group_registration_invite_policy_html: "%{name} could not update the invite policy for group %{target}"
+        update_group_invite_defaults_setting_html: "%{name} updated site defaults for new group invites (%{target})"
+        fail_group_invite_defaults_account_html: "%{name} could not update site defaults for new group invites (%{target})"
       deleted_status: "(deleted post)"
       empty: No logs found.
       filter_by_action: Filter by action
@@ -3287,6 +3444,14 @@ en:
         display_name: Display name
         note: Description
         previous_request_id: Previous request
+      group_registration_invite_policy:
+        issuance_enabled: Allow issuing registration invites
+        per_link_indefinite: Allow links without an expiry
+        per_link_lifetime_seconds: Per-link lifetime in seconds
+        per_link_max_uses: Per-link maximum uses
+        per_link_unlimited_uses: Allow links with unlimited uses
+        shared_quota_unlimited: Unlimited shared registration quota
+        shared_registration_quota: Shared registration quota
     errors:
       models:
         user:

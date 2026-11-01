@@ -1,0 +1,33 @@
+- content_for :page_title do
+  = t('admin.managed_groups.title')
+
+- content_for :heading_actions do
+  = link_to t('admin.group_creation_requests.title'), admin_group_creation_requests_path, class: 'button'
+  = link_to t('admin.group_registration_invite_defaults.title'), edit_admin_group_registration_invite_defaults_path, class: 'button'
+
+%p.muted-hint= t('admin.managed_groups.lead')
+
+- if @managed_groups.empty?
+  %p.muted-hint.center-text= t('admin.managed_groups.empty')
+- else
+  .table-wrapper
+    %table.table
+      %thead
+        %tr
+          %th= t('admin.managed_groups.group')
+          %th= t('admin.managed_groups.owner')
+          %th= t('admin.managed_groups.origin')
+          %th= t('admin.managed_groups.issuance')
+          %th= t('admin.managed_groups.created_at')
+      %tbody
+        - @managed_groups.each do |managed_group|
+          - owner = managed_group_owner(managed_group)
+          - policy = managed_group.registration_invite_policy
+          %tr
+            %td= link_to managed_group.account.acct, admin_managed_group_path(managed_group)
+            %td= owner ? admin_account_inline_link_to(owner.member_account) : t('admin.group_administration.none')
+            %td= t("admin.managed_groups.origins.#{managed_group.origin}")
+            %td= policy ? group_admin_yes_no(policy.issuance_enabled?) : t('admin.managed_groups.policy_missing')
+            %td= formatted_browser_local_time(managed_group.created_at)
+
+= paginate @managed_groups

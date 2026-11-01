@@ -32,4 +32,5 @@ Rails.application.config.filter_parameters += [
   # The settings RSS form only. Exact, so oembed and webhook :url stay visible
   # and the JSON subscription API keeps its url parameter.
   /\Afeed_url\z/,
+  :decision_note,
 ]
