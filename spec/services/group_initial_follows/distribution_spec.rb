@@ -111,6 +111,48 @@ RSpec.describe FollowService, 'deferred distribution' do
     described_class.distribute_persisted!(follow, home_feed_partial_required: true)
   end
 
+  it 'retries Push using the saved notification when the first Push fails after insert' do
+    source = Fabricate(:user).account
+    target = Fabricate(:account, username: 'savedbeforepush')
+    follow = source.follow!(target)
+
+    allow_any_instance_of(NotifyService).to receive(:push_notification!).and_raise(RuntimeError, 'push interrupted')
+    expect do
+      NotifyService.new.call(source, 'followed', follow)
+    end.to raise_error(RuntimeError, 'push interrupted')
+
+    original = Notification.find_by!(account: source, activity: follow, type: 'followed')
+    attempts = 0
+    allow_any_instance_of(NotifyService).to receive(:push_notification!) { attempts += 1 }
+    allow_any_instance_of(NotifyService).to receive(:send_email!)
+    allow(LocalNotificationWorker).to receive(:perform_async)
+    allow(MergeWorker).to receive(:perform_async)
+
+    described_class.distribute_persisted!(follow)
+
+    expect(Notification.where(account: source, activity: follow, type: 'followed').pluck(:id)).to eq [original.id]
+    expect(attempts).to eq 1
+  end
+
+  it 'uses the saved locked snapshot and original time for a shadow observation' do
+    source = Fabricate(:user).account
+    target = Fabricate(:account, username: 'laterlocked')
+    observed_at = Time.utc(2026, 11, 1, 12, 0, 0)
+    allow(Moderation::FollowGateShadowObserver).to receive(:enabled?).and_return(true)
+
+    expect(Moderation::FollowGateShadowWorker).to receive(:perform_async).with(
+      source.id,
+      hash_including('target_locality' => 'local', 'target_locked' => true),
+      observed_at.iso8601
+    )
+    Moderation::FollowGateShadowObserver.observe(
+      source_account: source,
+      target_account: target,
+      target_locked: true,
+      attempted_at: observed_at
+    )
+  end
+
   it 'does not touch Redis or workers until flush, including an option change on an existing follow' do
     source = Fabricate(:user).account
     target = Fabricate(:account, username: 'already')
