@@ -25,13 +25,11 @@
 
 1. 承認トランザクションは Group、ManagedGroup、owner、招待ポリシー、審査記録、pending の `group_initial_follows` だけを書く。
 2. コミット後にワーカーを積む。Redis や Sidekiq が拒否しても承認結果は成功のまま、`last_error` に `enqueue_failed` を残す。
-3. ワーカーは短いトランザクションで `processing` にする。
-4. その次の savepoint で `FollowService` を呼ぶ。Follow または FollowRequest の挿入と、`relationship_recorded_at`、`outcome`、関係 id は同じ savepoint でコミットする。挿入のあと、discharge の更新前に落ちた場合は savepoint ごと戻る。ユーザーはその Follow を見られないので、解除との競合は起きない。再実行は最初の1回として Follow を作る。
-5. `succeeded` または `completed` は、その savepoint のあとに別トランザクションで書く。この間に落ちると state は `processing` のまま、discharge 時刻は残る。再開は終端状態へ進めるだけで、Follow が既に解除されていても作り直さない。
-6. 既にある Follow / FollowRequest は `FollowService` を呼ばずに `completed` にする。オプション変更や再配送をしない。
-7. 通知、ホームへの merge、リモート配送は `FollowService` の既存実装に任せる。ロック、サイレンス、ブロック、停止は迂回しない。ロックまたはサイレンスのときは Follow ではなく Follow 申請で終わり、こちらから承認しない。
-
-セッション単位の advisory lock で、同じ行のワーカーは同時に1つだけ中へ入る。ロックを取れない側は何もしない。クラッシュでセッションが終わるとロックは外れる。
+3. ワーカーは短いトランザクションで `processing`、`claim_token`、`claim_expires_at` を書く。セッション advisory lock は使わない。PgBouncer の transaction pooling では、次の文が別の PostgreSQL backend に当たることがあり、セッションロックの取得と解放が同じ backend に届かない。
+4. Follow を作るトランザクションは、もう一度行を `lock!` し、自分の `claim_token` がまだ有効な lease のときだけ `FollowService` を呼ぶ。lease が切れたあとに別ワーカーが claim していると、古いワーカーは Follow を作らない。Follow の挿入と `relationship_recorded_at` は同じトランザクションである。そのコミット前に落ちた場合は両方戻る。この時点では Follow は他の接続から見えず、Sidekiq も通知も Redis もまだ動かない。
+5. `FollowService` は `defer_distribution: true` で呼ぶ。権限判定と Follow / FollowRequest の作成は通常どおり行う。`LocalNotificationWorker`、`MergeWorker`、`ActivityPub::DeliveryWorker`、`NotifyService`、Redis の活動カウンタとホームフィード印、フォローゲートの shadow ジョブはインスタンスに溜め、`flush_distribution!` がコミットのあとで送る。savepoint が戻ったあとに flush しないので、配送ジョブだけ残ることはない。
+6. ユーザーから Follow が見えるのは、このトランザクションのコミット後である。通知と merge はその直後である。コミット後、終端 state の前に落ちた場合、Follow は見えるが配送はまだのことがある。再開は同じ Follow 行が残っているときだけ配送し、解除済みなら配送せず、どちらも Follow を作り直さない。Follow 申請が通常の承認で Follow に変わったあとも、元の申請行が無いので再開は二重に通知しない。
+7. `succeeded` または `completed` はそのあとのトランザクションで書く。既にある Follow / FollowRequest は `FollowService` を呼ばずに `completed` にする。ロック、サイレンス、ブロック、停止は `FollowService` の判定を使う。ロックまたはサイレンスは Follow 申請で終わり、こちらから承認しない。ブロックは恒久失敗であり、あとでブロックを外してもワーカー再実行では Follow しない。管理者が再試行したときだけ、未実施なら試す。
 
 ## やらないこと
 
@@ -41,7 +39,7 @@
 
 enqueue に失敗した行と、lease が切れた `processing` は `Scheduler::GroupInitialFollowsScheduler`（5分、最大20行）が同じワーカーを積み直す。行が無い Group は見ない。
 
-管理画面の申請詳細に状態が出る。discharge 済みの再試行ボタンは出さない。POST しても `already_done` で、Follow は戻らない。恒久失敗と enqueue 失敗は、管理者が再試行できる。再試行は監査ログ `retry_initial_follow` にコードだけを残す。
+管理画面の申請詳細に状態が出る。discharge 済みの再試行ボタンは出さない。POST しても `already_done` で、Follow は戻らない。恒久失敗と enqueue 失敗は、サーバー管理者が再試行できる。`GroupInitialFollows::Retry` は `GroupManagement.server_administrator?` を自分で見る。一般利用者、Moderator、グループの owner からの直接呼び出しは `not_authorized` で、Follow を作らない。再試行は監査ログ `retry_initial_follow` にコードだけを残す。
 
 ## Staging での確認
 

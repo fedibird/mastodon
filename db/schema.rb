@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_13_120000) do
+ActiveRecord::Schema.define(version: 2026_11_13_130100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1494,6 +1494,8 @@ create_table "group_creation_requests", force: :cascade do |t|
     t.bigint "follow_request_id"
     t.datetime "relationship_recorded_at"
     t.datetime "claim_expires_at"
+    t.string "claim_token", limit: 36
+    t.datetime "distribution_enqueued_at"
     t.integer "attempts", default: 0, null: false
     t.datetime "finished_at"
     t.datetime "created_at", precision: 6, null: false

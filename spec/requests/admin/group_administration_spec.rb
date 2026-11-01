@@ -123,6 +123,8 @@ RSpec.describe 'Admin group administration' do
         expect(response).to have_http_status(:forbidden)
         post reject_admin_group_creation_request_path(request), params: { decision_note: 'no' }
         expect(response).to have_http_status(:forbidden)
+        post retry_initial_follow_admin_group_creation_request_path(request)
+        expect(response).to have_http_status(:forbidden)
         sign_out :user
       end
 

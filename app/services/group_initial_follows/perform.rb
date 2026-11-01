@@ -3,46 +3,39 @@
 module GroupInitialFollows
   # Runs the one-time follow for a founding owner.
   #
-  # Boundaries:
-  # 1. The approval transaction inserts this row as pending and does not
-  #    insert a Follow. The worker is enqueued after that commit.
-  # 2. A short transaction claims the row (processing) so a crash is visible.
-  # 3. FollowService creates the Follow or FollowRequest. The discharge
-  #    timestamp, outcome, and relationship id commit in that same
-  #    transaction. A crash before commit rolls both back, so the person
-  #    cannot unfollow a follow they never saw.
-  # 4. The terminal state (succeeded or completed) commits after that. A
-  #    crash in between leaves the discharge timestamp set. Resume finalizes
-  #    the marker and does not create another follow, even if the person
-  #    already unfollowed.
-  # 5. An existing relationship is completed without calling FollowService,
-  #    so options and delivery are left alone.
-  # 6. Delivery, notifications, and feed merge stay inside FollowService.
-  #    They are not reimplemented here. Locked, silenced, blocked, and
-  #    suspended accounts keep those rules.
+  # There is no session advisory lock. PgBouncer transaction pooling can
+  # move the next statement to another PostgreSQL backend, so a session
+  # lock taken on one statement is not held or released on the next.
+  # Exclusion is a row lock plus a claim token:
+  #
+  # 1. A short transaction sets processing, claim_token, and claim_expires_at.
+  # 2. The follow transaction locks the row again and continues only when
+  #    that token is still the live lease. A worker whose lease expired
+  #    while it was outside this transaction does not create a follow.
+  # 3. FollowService creates the row with defer_distribution. The discharge
+  #    timestamp commits in that same transaction. Sidekiq, NotifyService,
+  #    and the Redis counters stay on the FollowService instance until
+  #    flush_distribution!, which runs only after commit. A rollback
+  #    therefore leaves no delivery job and the follow is not visible yet.
+  # 4. The terminal state is a later commit. If the process dies after the
+  #    follow commits, resume finalizes the marker and distributes only
+  #    when that same follow row still exists. An unfollow in the gap is
+  #    not replaced.
   class Perform
     class Crash < StandardError; end
 
-    def self.call(record, crash_after: nil)
-      new(record, crash_after).call
+    def self.call(record, crash_after: nil, after_claim: nil)
+      new(record, crash_after, after_claim).call
     end
 
-    def initialize(record, crash_after)
+    def initialize(record, crash_after, after_claim)
       @record = record
       @crash_after = crash_after
-      @locked = false
+      @after_claim = after_claim
     end
 
     def call
-      @record.class.connection_pool.with_connection do
-        return unless take_lock!
-
-        begin
-          execute
-        ensure
-          release_lock!
-        end
-      end
+      execute
     end
 
     private
@@ -51,19 +44,41 @@ module GroupInitialFollows
       @record.reload
       return if @record.terminal?
 
-      claim! unless @record.discharged?
+      if @record.discharged?
+        publish_persisted!
+        finalize!
+        return
+      end
+
+      token = claim!
+      return if token.nil?
+
+      @after_claim&.call
+      @record.reload
       return if @record.terminal?
-      return finalize! if @record.discharged?
+
+      if @record.discharged?
+        publish_persisted!
+        finalize!
+        return
+      end
+      return unless owns?(token)
 
       refusal = refusal_code
       return mark_permanent!(refusal) if refusal
+      return mark_existing!(existing_relationship) if existing_relationship
 
-      existing = existing_relationship
-      return mark_existing!(existing) if existing
+      service = create_and_latch!(token)
+      return if service.nil?
+      return unless @record.reload.discharged?
 
-      create_and_latch!
-      finalize! if @record.reload.discharged?
+      publish!(service)
+      finalize!
     rescue Crash
+      # The follow transaction rolled back, but the earlier claim lease is
+      # still in the future. Drop it so this job's retry can enter. A
+      # committed discharge is left alone.
+      release_claim!
       raise
     rescue Mastodon::NotPermittedError
       mark_permanent!(:not_permitted) unless fresh_discharged?
@@ -80,52 +95,100 @@ module GroupInitialFollows
     end
 
     def claim!
+      token = SecureRandom.uuid
+      owned = false
       @record.with_lock do
         @record.reload
-        unless @record.terminal? || @record.discharged?
+        if claimable?
           @record.update!(
             state: :processing,
+            claim_token: token,
             claim_expires_at: GroupInitialFollow::LEASE.from_now,
             attempts: @record.attempts + 1,
             last_error: nil
           )
+          owned = true
         end
+      end
+      token if owned
+    end
+
+    def release_claim!
+      @record.with_lock do
+        @record.reload
+        @record.update!(claim_expires_at: 1.second.ago) if @record.processing? && !@record.discharged? && !@record.terminal?
       end
     end
 
-    # requires_new so a crash after the follow insert rolls that insert back
-    # even when a test or caller already has a transaction open. The claim
-    # above stays in place. The discharge columns are written before this
-    # savepoint commits, so they are not visible without the follow.
-    def create_and_latch!
+    def claimable?
+      !@record.terminal? && !@record.discharged? && !@record.claim_held?
+    end
+
+    def owns?(token)
+      @record.claim_token == token && @record.claim_held?
+    end
+
+    # The token is checked again under the row lock before FollowService
+    # runs. Losing the lease commits nothing from this transaction.
+    def create_and_latch!(token)
+      service = nil
       latched = false
       ApplicationRecord.transaction(requires_new: true) do
         @record.lock!
         @record.reload
-        next if @record.terminal? || @record.discharged?
+        next if @record.terminal? || @record.discharged? || !owns?(token)
 
+        @record.update!(claim_expires_at: GroupInitialFollow::LEASE.from_now)
         if (existing = existing_relationship)
           mark_existing!(existing)
           next
         end
-
         if (refusal = refusal_code)
           mark_permanent!(refusal)
           next
         end
 
-        relationship = FollowService.new.call(owner, group, with_rate_limit: true)
+        service = FollowService.new
+        relationship = service.call(owner, group, with_rate_limit: true, defer_distribution: true)
         raise Crash, 'after_relationship_insert' if @crash_after == :after_relationship_insert
 
         if relationship.nil?
           mark_failure!(:empty_relationship)
+          service = nil
           next
         end
 
-        @record.update!(latch_attributes(relationship).merge(state: :processing, claim_expires_at: GroupInitialFollow::LEASE.from_now))
+        @record.update!(latch_attributes(relationship).merge(claim_token: token, claim_expires_at: GroupInitialFollow::LEASE.from_now))
         latched = true
       end
       raise Crash, 'after_latch_commit' if latched && @crash_after == :after_latch_commit
+
+      service if latched
+    end
+
+    def publish!(service)
+      return if @record.reload.distribution_enqueued_at.present?
+
+      if created_relationship.nil?
+        @record.update!(distribution_enqueued_at: Time.current)
+        return
+      end
+
+      service.flush_distribution!
+      @record.update!(distribution_enqueued_at: Time.current)
+    end
+
+    def publish_persisted!
+      @record.reload
+      return if @record.distribution_enqueued_at.present? || !@record.outcome.to_s.start_with?('created_')
+
+      relationship = created_relationship
+      FollowService.distribute_persisted!(relationship) if relationship
+      @record.update!(distribution_enqueued_at: Time.current)
+    end
+
+    def created_relationship
+      Follow.find_by(id: @record.follow_id) || FollowRequest.find_by(id: @record.follow_request_id)
     end
 
     def finalize!
@@ -243,26 +306,6 @@ module GroupInitialFollows
     def error_code(error)
       code = error.class.name.demodulize.underscore
       code.match?(/\A[a-z0-9_]{1,64}\z/) ? code : 'unexpected'
-    end
-
-    def take_lock!
-      key = Integer(@record.id)
-      return false if key.negative? || key > 2_147_483_647
-
-      held = @record.class.connection.select_value(
-        "SELECT pg_try_advisory_lock(#{GroupInitialFollow::LOCK_NAMESPACE}, #{key})"
-      )
-      @locked = held == true || held.to_s == 't'
-    end
-
-    def release_lock!
-      return unless @locked
-
-      key = Integer(@record.id)
-      @record.class.connection.select_value(
-        "SELECT pg_advisory_unlock(#{GroupInitialFollow::LOCK_NAMESPACE}, #{key})"
-      )
-      @locked = false
     end
   end
 end

@@ -8,7 +8,6 @@
 class GroupInitialFollow < ApplicationRecord
   LEASE = 2.minutes
   MAX_ATTEMPTS = 8
-  LOCK_NAMESPACE = 1_683_021
 
   enum state: {
     pending: 0,
@@ -34,6 +33,7 @@ class GroupInitialFollow < ApplicationRecord
 
   validates :attempts, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :outcome, :last_error, format: { with: /\A[a-z0-9_]{1,64}\z/ }, allow_nil: true
+  validates :claim_token, format: { with: /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/ }, allow_nil: true
   validate :request_is_approved, on: :create
   validate :state_transition, on: :update
   validate :discharge_is_permanent, on: :update

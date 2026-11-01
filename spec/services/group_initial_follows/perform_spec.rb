@@ -114,8 +114,96 @@ RSpec.describe GroupInitialFollows::Perform do
     expect(record.reload).to be_succeeded
     expect(record.outcome).to eq 'created_follow'
     expect(record).to be_discharged
-    expect(GroupInitialFollows::Retry.call(request: record.group_creation_request)).to eq :already_done
+    expect(GroupInitialFollows::Retry.call(request: record.group_creation_request, actor_account: reviewer.account)).to eq :already_done
     expect(follows(requester.account, group)).to be_empty
+  end
+
+  it 'does not enqueue distribution when the follow savepoint rolls back' do
+    _request, group, record = approve_without_running('noside')
+    jobs = []
+    allow(MergeWorker).to receive(:perform_async) { |*args| jobs << args }
+    allow(LocalNotificationWorker).to receive(:perform_async) { |*args| jobs << args }
+    allow(ActivityPub::DeliveryWorker).to receive(:perform_async) { |*args| jobs << args }
+    expect(NotifyService).not_to receive(:new)
+
+    expect do
+      described_class.call(record, crash_after: :after_relationship_insert)
+    end.to raise_error(described_class::Crash, 'after_relationship_insert')
+
+    expect(jobs).to be_empty
+    expect(follows(requester.account, group)).to be_empty
+    expect(File.read(Rails.root.join('app/services/group_initial_follows/perform.rb'))).not_to include('pg_advisory')
+  end
+
+  it 'distributes once after commit and does not distribute again when the owner already unfollowed' do
+    _request, group, record = approve_without_running('afterjobs')
+    jobs = []
+    allow(MergeWorker).to receive(:perform_async) { |*args| jobs << [:merge, args] }
+    allow(LocalNotificationWorker).to receive(:perform_async) { |*args| jobs << [:local, args] }
+
+    expect do
+      described_class.call(record, crash_after: :after_latch_commit)
+    end.to raise_error(described_class::Crash, 'after_latch_commit')
+    expect(jobs).to be_empty
+    expect(follows(requester.account, group).count).to eq 1
+    expect(record.reload.distribution_enqueued_at).to be_nil
+
+    described_class.call(record)
+    expect(jobs.size).to eq 2
+    expect(follows(requester.account, group).count).to eq 1
+    expect(record.reload.distribution_enqueued_at).to be_present
+
+    UnfollowService.new.call(requester.account, group)
+    described_class.call(record.reload)
+    expect(jobs.size).to eq 2
+    expect(follows(requester.account, group)).to be_empty
+  end
+
+  it 'does not distribute again when a follow request became a follow before resume' do
+    _request, group, record = approve_without_running('accepted')
+    group.update!(locked: true)
+    jobs = []
+    allow(MergeWorker).to receive(:perform_async) { |*args| jobs << args }
+
+    expect do
+      described_class.call(record, crash_after: :after_latch_commit)
+    end.to raise_error(described_class::Crash)
+    expect(requester.account.requested?(group)).to be true
+    expect(jobs).to be_empty
+
+    group.update!(locked: false)
+    AuthorizeFollowService.new.call(requester.account, group)
+    expect(requester.account.following?(group)).to be true
+    sent = jobs.size
+
+    described_class.call(record.reload)
+    expect(jobs.size).to eq sent
+    expect(follows(requester.account, group).count).to eq 1
+    expect(record.reload).to be_succeeded
+
+    UnfollowService.new.call(requester.account, group)
+    described_class.call(record.reload)
+    expect(follows(requester.account, group)).to be_empty
+  end
+
+  it 'does not follow after a block is removed unless an administrator retries' do
+    request, group, record = approve_without_running('unblocked')
+    group.block!(requester.account)
+    described_class.call(record)
+    expect(record.reload).to be_permanent_failure
+    group.unblock!(requester.account)
+
+    described_class.call(record.reload)
+    expect(follows(requester.account, group)).to be_empty
+    expect(record.reload).to be_permanent_failure
+
+    [nil, requester.account, Fabricate(:user).account, user_with_role('Moderator').account].each do |actor|
+      expect(GroupInitialFollows::Retry.call(request: request, actor_account: actor)).to eq :not_authorized
+    end
+    expect(follows(requester.account, group)).to be_empty
+    allow(GroupInitialFollows::Worker).to receive(:perform_async).and_call_original
+    expect(GroupInitialFollows::Retry.call(request: request, actor_account: reviewer.account)).to eq :enqueued
+    expect(follows(requester.account, group).count).to eq 1
   end
 
   it 'does not put the follow back after a finished attempt is undone' do
@@ -128,7 +216,7 @@ RSpec.describe GroupInitialFollows::Perform do
 
     expect(follows(requester.account, group)).to be_empty
     expect(record.reload).to be_succeeded
-    expect(GroupInitialFollows::Retry.call(request: request)).to eq :already_done
+    expect(GroupInitialFollows::Retry.call(request: request, actor_account: reviewer.account)).to eq :already_done
   end
 
   it 'completes an existing follow without calling FollowService' do
@@ -207,7 +295,7 @@ RSpec.describe GroupInitialFollows::Perform do
     expect(follows(requester.account, group)).to be_empty
 
     allow(GroupInitialFollows::Worker).to receive(:perform_async).and_call_original
-    expect(GroupInitialFollows::Retry.call(request: request)).to eq :enqueued
+    expect(GroupInitialFollows::Retry.call(request: request, actor_account: reviewer.account)).to eq :enqueued
     expect(follows(requester.account, group).count).to eq 1
     expect(record.reload).to be_succeeded
   end

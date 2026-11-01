@@ -1,18 +1,22 @@
 # frozen_string_literal: true
 
 module GroupInitialFollows
-  # Administrator retry. A discharged row is refused, including one whose
-  # follow was removed, so this cannot put the follow back.
+  # Administrator retry. Authorization is checked here, not only in the
+  # HTTP filter. A discharged row is refused, including one whose follow
+  # was removed, so this cannot put the follow back.
   class Retry
-    def self.call(request:)
-      new(request).call
+    def self.call(request:, actor_account:)
+      new(request, actor_account).call
     end
 
-    def initialize(request)
+    def initialize(request, actor_account)
       @request = request
+      @actor_account = actor_account
     end
 
     def call
+      return :not_authorized unless GroupManagement.server_administrator?(@actor_account)
+
       record = @request.initial_follow
       return :not_applicable if record.nil?
 
@@ -44,6 +48,7 @@ module GroupInitialFollows
                      last_error: nil,
                      finished_at: nil,
                      claim_expires_at: nil,
+                     claim_token: nil,
                      attempts: 0
                    )
                    :ready

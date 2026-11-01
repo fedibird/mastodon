@@ -17,7 +17,6 @@ RSpec.describe 'Group initial follow concurrency' do
     cleanup!
     Setting.group_creation_requests = false
     ActiveRecord::Base.connection_pool.lock_thread = true
-    ActiveRecord::Base.connection.select_value('SELECT pg_advisory_unlock_all()')
   end
 
   def track_user(user)
@@ -59,6 +58,47 @@ RSpec.describe 'Group initial follow concurrency' do
     expect(results).to all(be true)
     expect(Follow.where(account: requester.account, target_account: request.reload.group_account).count).to eq 1
     expect(GroupInitialFollow.find(record_id).state).to eq('succeeded').or eq('completed')
+  end
+
+  it 'does not let an expired lease create a second follow while the first worker is still running' do
+    requester = track_user(Fabricate(:user))
+    reviewer = track_user(user_with_role('Owner'))
+    request = GroupCreationRequest.create!(
+      requester_account: requester.account,
+      username: "lease#{SecureRandom.hex(4)}",
+      display_name: 'Lease',
+      note: 'race'
+    )
+    @created_request_ids << request.id
+    allow(GroupInitialFollows::Worker).to receive(:perform_async)
+    GroupCreationRequests::ApproveService.call(request: request, reviewer_account: reviewer.account)
+    record_id = request.reload.initial_follow.id
+
+    started = Queue.new
+    release = Queue.new
+    outcome = Queue.new
+    worker = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        GroupInitialFollows::Perform.call(GroupInitialFollow.find(record_id), after_claim: lambda {
+          started << true
+          release.pop
+        })
+        outcome << :ok
+      rescue StandardError => e
+        outcome << e
+      end
+    end
+
+    started.pop
+    GroupInitialFollow.find(record_id).update_columns(claim_expires_at: 1.minute.ago)
+    GroupInitialFollows::Perform.call(GroupInitialFollow.find(record_id))
+    expect(Follow.where(account: requester.account, target_account: request.reload.group_account).count).to eq 1
+
+    release << true
+    worker.join(15)
+    expect(outcome.pop).to eq :ok
+    expect(Follow.where(account: requester.account, target_account: request.reload.group_account).count).to eq 1
+    expect(GroupInitialFollow.find(record_id)).to be_succeeded
   end
 
   def cleanup!

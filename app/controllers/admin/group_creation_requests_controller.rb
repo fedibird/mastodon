@@ -42,7 +42,9 @@ module Admin
 
     def retry_initial_follow
       authorize_group_admin!(@request, :retry_initial_follow?)
-      code = GroupInitialFollows::Retry.call(request: @request)
+      code = GroupInitialFollows::Retry.call(request: @request, actor_account: current_account)
+      raise Mastodon::NotPermittedError if code == :not_authorized
+
       GroupAdministration::Audit.record!(
         account: current_account,
         action: :retry_initial_follow,

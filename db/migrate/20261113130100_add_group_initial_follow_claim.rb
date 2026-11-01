@@ -1,0 +1,22 @@
+# frozen_string_literal: true
+
+# Claim token and distribution timestamp for the one-time founding follow.
+# Both are nullable. Existing rows, if any, stay pending without a claim.
+# This does not insert follows and does not lock the follows table.
+class AddGroupInitialFollowClaim < ActiveRecord::Migration[6.1]
+  def up
+    safety_assured do
+      execute "SET LOCAL lock_timeout TO '5s'"
+      add_column :group_initial_follows, :claim_token, :string, limit: 36
+      add_column :group_initial_follows, :distribution_enqueued_at, :datetime
+    end
+  end
+
+  def down
+    safety_assured do
+      execute "SET LOCAL lock_timeout TO '5s'"
+      remove_column :group_initial_follows, :distribution_enqueued_at
+      remove_column :group_initial_follows, :claim_token
+    end
+  end
+end
