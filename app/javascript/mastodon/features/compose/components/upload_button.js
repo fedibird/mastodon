@@ -19,6 +19,23 @@ const iconStyle = {
   lineHeight: '27px',
 };
 
+export const uploadButtonCopy = (intl, { stillImagesOnly, disabled, uploadReason }) => {
+  const label = intl.formatMessage(stillImagesOnly ? messages.stillImage : messages.upload);
+  let notice = null;
+
+  if (stillImagesOnly && !disabled) {
+    notice = intl.formatMessage(messages.stillImageOnly);
+  } else if (uploadReason === 'media') {
+    notice = intl.formatMessage(messages.mediaUnavailable);
+  } else if (uploadReason === 'media_type') {
+    notice = intl.formatMessage(messages.mediaType);
+  } else if (uploadReason === 'media_owner') {
+    notice = intl.formatMessage(messages.mediaOwner);
+  }
+
+  return { label, notice };
+};
+
 export default @injectIntl
 class UploadButton extends ImmutablePureComponent {
 
@@ -32,7 +49,35 @@ class UploadButton extends ImmutablePureComponent {
     uploadReason: PropTypes.string,
     acceptContentTypes: ImmutablePropTypes.listOf(PropTypes.string).isRequired,
     intl: PropTypes.object.isRequired,
+    presentation: PropTypes.oneOf(['menu', 'file']),
+    onFileInput: PropTypes.func,
+    onAvailabilityChange: PropTypes.func,
   };
+
+  componentDidMount () {
+    this.publishAvailability();
+  }
+
+  componentDidUpdate (prevProps) {
+    if (prevProps.disabled !== this.props.disabled || prevProps.unavailable !== this.props.unavailable || prevProps.stillImagesOnly !== this.props.stillImagesOnly || prevProps.uploadReason !== this.props.uploadReason || prevProps.presentation !== this.props.presentation) {
+      this.publishAvailability();
+    }
+  }
+
+  publishAvailability () {
+    if (this.props.onFileInput) {
+      this.props.onFileInput(this.props.unavailable ? null : (this.fileElement || null));
+    }
+
+    if (this.props.onAvailabilityChange) {
+      this.props.onAvailabilityChange({
+        disabled: Boolean(this.props.disabled),
+        unavailable: Boolean(this.props.unavailable),
+        stillImagesOnly: Boolean(this.props.stillImagesOnly),
+        uploadReason: this.props.uploadReason || null,
+      });
+    }
+  }
 
   handleChange = (e) => {
     if (e.target.files.length > 0) {
@@ -41,11 +86,17 @@ class UploadButton extends ImmutablePureComponent {
   }
 
   handleClick = () => {
-    this.fileElement.click();
+    if (this.fileElement) {
+      this.fileElement.click();
+    }
   }
 
   setRef = (c) => {
     this.fileElement = c;
+
+    if (this.props.onFileInput) {
+      this.props.onFileInput(this.props.unavailable ? null : c);
+    }
   }
 
   render () {
@@ -55,36 +106,38 @@ class UploadButton extends ImmutablePureComponent {
       return null;
     }
 
-    const message = intl.formatMessage(stillImagesOnly ? messages.stillImage : messages.upload);
-    let notice = null;
+    const { label: message, notice } = uploadButtonCopy(intl, { stillImagesOnly, disabled, uploadReason });
+    const fileOnly = this.props.presentation === 'file';
 
-    if (stillImagesOnly && !disabled) {
-      notice = intl.formatMessage(messages.stillImageOnly);
-    } else if (uploadReason === 'media') {
-      notice = intl.formatMessage(messages.mediaUnavailable);
-    } else if (uploadReason === 'media_type') {
-      notice = intl.formatMessage(messages.mediaType);
-    } else if (uploadReason === 'media_owner') {
-      notice = intl.formatMessage(messages.mediaOwner);
+    const fileInput = (
+      <label>
+        <span style={{ display: 'none' }}>{message}</span>
+        <input
+          key={resetFileKey}
+          ref={this.setRef}
+          type='file'
+          multiple
+          accept={acceptContentTypes.toArray().join(',')}
+          onChange={this.handleChange}
+          disabled={disabled}
+          style={{ display: 'none' }}
+        />
+      </label>
+    );
+
+    if (fileOnly) {
+      return (
+        <div className='compose-form__upload-button'>
+          {fileInput}
+        </div>
+      );
     }
 
     return (
       <div className='compose-form__upload-button'>
         <IconButton icon='paperclip' title={message} disabled={disabled} onClick={this.handleClick} className='compose-form__upload-button-icon' size={18} inverted style={iconStyle} />
         {notice ? <p className='compose-form__upload-notice' role='status'>{notice}</p> : null}
-        <label>
-          <span style={{ display: 'none' }}>{message}</span>
-          <input
-            key={resetFileKey}
-            ref={this.setRef}
-            type='file'
-            multiple
-            accept={acceptContentTypes.toArray().join(',')}
-            onChange={this.handleChange}
-            disabled={disabled}
-            style={{ display: 'none' }}
-          />
-        </label>
+        {fileInput}
       </div>
     );
   }

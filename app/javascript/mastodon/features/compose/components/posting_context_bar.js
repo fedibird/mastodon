@@ -70,6 +70,47 @@ const revalidationMessages = {
 
 export const postingContextCapabilityMessages = messages;
 
+const hasEntries = (value) => {
+  if (!value) {
+    return false;
+  }
+
+  if (typeof value.isEmpty === 'function') {
+    return !value.isEmpty();
+  }
+
+  return typeof value.length === 'number' && value.length > 0;
+};
+
+// Same conditions as the bar's empty render. Callers use this to avoid an
+// overflow menu whose only child would render nothing.
+export const postingContextHasDetails = (props) => {
+  const { hashtags, mentions, audience, visibility, followingAccounts, createNotice, canRecheck, revalidationNotice, threadiverse, threadiverseDelegated, weakTitle } = props || {};
+  const requiredMentions = mentions && mentions.filter ? mentions.filter(mention => mention.get && mention.get('enforcement') === 'required' && mention.get('acct')) : null;
+  const audienceAcct = audience && audience.get && audience.get('enforcement') === 'required' ? audience.get('acct') : null;
+  const allowed = visibility && visibility.allowed;
+  const showVisibility = Array.isArray(allowed) && allowed.includes('public') && allowed.includes('unlisted');
+  const showPublicOnly = Array.isArray(allowed) && allowed.length === 1 && allowed[0] === 'public';
+  const showResume = revalidationNotice === 'interrupted' || revalidationNotice === 'timed_out';
+  const showRecheck = Boolean(canRecheck && !showResume && revalidationNotice !== 'running');
+  const threadiverseMessage = (threadiverseDelegated && (threadiverse === 'lemmy' || threadiverse === 'piefed')) || threadiverse === 'lemmy' || threadiverse === 'piefed';
+
+  return Boolean(
+    hasEntries(hashtags)
+    || hasEntries(requiredMentions)
+    || audienceAcct
+    || showVisibility
+    || showPublicOnly
+    || hasEntries(followingAccounts)
+    || createNoticeMessages[createNotice]
+    || showRecheck
+    || showResume
+    || revalidationMessages[revalidationNotice]
+    || threadiverseMessage
+    || weakTitle,
+  );
+};
+
 const followMessages = {
   satisfied: messages.followSatisfied,
   unknown: messages.followUnknown,
@@ -208,6 +249,11 @@ class PostingContextBar extends React.PureComponent {
 
   render () {
     const { intl, hashtags, suppressedHashtags, mentions, audience, visibility, followingAccounts, createNotice, canRecheck, revalidationNotice, revalidationActor, revalidationAffiliations, onToggle, threadiverse, threadiverseDelegated, weakTitle } = this.props;
+
+    if (!postingContextHasDetails(this.props)) {
+      return null;
+    }
+
     const hasHashtags = Boolean(hashtags && !hashtags.isEmpty());
     const requiredMentions = mentions ? mentions.filter(mention => mention.get('enforcement') === 'required' && mention.get('acct')) : null;
     const hasMentions = Boolean(requiredMentions && !requiredMentions.isEmpty());
@@ -229,10 +275,6 @@ class PostingContextBar extends React.PureComponent {
       threadiverseMessage = messages.threadiverseLemmy;
     } else if (threadiverse === 'piefed') {
       threadiverseMessage = messages.threadiversePiefed;
-    }
-
-    if (!hasHashtags && !hasMentions && !showAudience && !showVisibility && !showPublicOnly && !hasFollows && !createMessage && !showRecheck && !showResume && !revalidationMessage && !threadiverseMessage && !weakTitle) {
-      return null;
     }
 
     return (

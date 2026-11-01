@@ -1149,3 +1149,217 @@ describe('ComposeForm sender identity', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });
+
+const controlOrder = () => Array.from(document.querySelectorAll('.compose-form__buttons [data-composer-control]')).map(node => node.getAttribute('data-composer-control'));
+
+describe('ComposeForm composer toolbar', () => {
+  it('uses the saved default order and keeps more actions last', () => {
+    renderForm({ senderIdentity: senderIdentity() });
+
+    expect(controlOrder()).toEqual(['posting_account', 'media', 'cw', 'language', 'overflow']);
+    expect(document.querySelector('.compose-form__buttons')).toContainElement(screen.getByTestId('sender-identity'));
+    expect(document.querySelector('.compose-form__submit')).toContainElement(screen.getByRole('button', { name: 'Toot!' }));
+    expect(screen.queryByRole('button', { name: 'Publish and expiry time' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+
+    const menu = screen.getByTestId('composer-overflow-menu');
+
+    expect(menu).toContainElement(screen.getByRole('button', { name: 'Search visibility' }));
+    expect(menu).toContainElement(screen.getByTestId('poll-button'));
+    expect(controlOrder()[controlOrder().length - 1]).toEqual('overflow');
+  });
+
+  it('shows every control in the footer and omits more actions when none are in the menu', () => {
+    renderForm({
+      composerToolbar: [
+        { id: 'poll', placement: 'visible' },
+        { id: 'datetime', placement: 'visible' },
+        { id: 'searchability', placement: 'visible' },
+        { id: 'language', placement: 'visible' },
+        { id: 'cw', placement: 'visible' },
+        { id: 'media', placement: 'visible' },
+        { id: 'posting_account', placement: 'visible' },
+      ],
+    });
+
+    expect(controlOrder()).toEqual(['poll', 'datetime', 'searchability', 'language', 'cw', 'media', 'posting_account']);
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
+    expect(document.querySelector('.compose-form__buttons')).toContainElement(screen.getByTestId('poll-button'));
+    expect(document.querySelector('.compose-form__buttons')).toContainElement(screen.getByTestId('searchability-dropdown'));
+    expect(screen.getByTestId('searchability-dropdown')).toHaveAttribute('data-presentation', '');
+
+    const buttons = document.querySelector('.compose-form__buttons');
+    const submit = document.querySelector('.compose-form__submit');
+
+    expect(buttons.contains(submit)).toBe(false);
+    expect(submit.contains(screen.getByRole('button', { name: 'Toot!' }))).toBe(true);
+  });
+
+  it('hides every control and still opens non-custom overflow content', () => {
+    renderForm({
+      composerToolbar: [
+        'posting_account', 'media', 'cw', 'language', 'datetime', 'searchability', 'poll',
+      ].map(id => ({ id, placement: 'hidden' })),
+      overflowContext: <div data-testid='posting-context'>Required mention</div>,
+    });
+
+    expect(controlOrder()).toEqual(['overflow']);
+    expect(screen.queryByTestId('upload-button')).toBeNull();
+    expect(screen.queryByTestId('poll-button')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+
+    const menu = screen.getByTestId('composer-overflow-menu');
+
+    expect(menu).toContainElement(screen.getByTestId('posting-context'));
+    expect(menu).not.toContainElement(screen.queryByRole('button', { name: 'Search visibility' }));
+  });
+
+  it('moves the old footer actions into the menu and the old menu actions into the footer', () => {
+    renderForm({
+      showPostingAccount: true,
+      senderIdentity: senderIdentity(),
+      composerToolbar: [
+        { id: 'datetime', placement: 'visible' },
+        { id: 'searchability', placement: 'visible' },
+        { id: 'poll', placement: 'visible' },
+        { id: 'posting_account', placement: 'menu' },
+        { id: 'media', placement: 'menu' },
+        { id: 'cw', placement: 'menu' },
+        { id: 'language', placement: 'menu' },
+      ],
+    });
+
+    expect(controlOrder().slice(0, 3)).toEqual(['datetime', 'searchability', 'poll']);
+    expect(screen.queryByTestId('sender-identity')).toBeNull();
+    expect(document.querySelector('.compose-form__upload-file-host')).toContainElement(screen.getByTestId('upload-button'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+
+    const menu = screen.getByTestId('composer-overflow-menu');
+
+    expect(menu).toContainElement(screen.getByRole('button', { name: 'Posting as' }));
+    expect(menu).toContainElement(screen.getByRole('button', { name: 'Add images, a video or an audio file' }));
+    expect(menu).not.toContainElement(screen.getByTestId('upload-button'));
+    expect(menu).toContainElement(screen.getByTestId('spoiler-button'));
+    expect(menu).toContainElement(screen.getByRole('button', { name: 'Change language' }));
+    expect(controlOrder()[controlOrder().length - 1]).toEqual('overflow');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change language' }));
+
+    expect(screen.queryByTestId('composer-overflow-menu')).toBeNull();
+    expect(screen.getByTestId('language-dropdown')).toBeTruthy();
+  });
+
+  it('keeps editable menu actions while editing and drops schedule actions', () => {
+    renderForm({
+      isEditing: true,
+      overflowContext: <div data-testid='posting-context'>Required mention</div>,
+      composerToolbar: [
+        { id: 'posting_account', placement: 'hidden' },
+        { id: 'media', placement: 'visible' },
+        { id: 'cw', placement: 'menu' },
+        { id: 'language', placement: 'hidden' },
+        { id: 'datetime', placement: 'menu' },
+        { id: 'searchability', placement: 'visible' },
+        { id: 'poll', placement: 'menu' },
+      ],
+    });
+
+    expect(screen.queryByTestId('poll-button')).toBeNull();
+    expect(screen.queryByTestId('searchability-dropdown')).toBeNull();
+    expect(screen.queryByTestId('posting-context')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByTestId('composer-overflow-menu')).toContainElement(screen.getByTestId('spoiler-button'));
+    expect(screen.queryByRole('button', { name: 'Search visibility' })).toBeNull();
+  });
+
+  const everyControl = (placement) => [
+    'posting_account', 'media', 'cw', 'language', 'datetime', 'searchability', 'poll',
+  ].map(id => ({ id, placement }));
+
+  it('does not leave an empty more menu when the destination context has nothing to show', () => {
+    renderForm({
+      overflowContext: <div data-testid='posting-context'>Required mention</div>,
+      overflowContextActive: false,
+      composerToolbar: everyControl('visible'),
+    });
+
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
+    expect(screen.queryByTestId('posting-context')).toBeNull();
+    expect(document.querySelector('.compose-form__submit')).toContainElement(screen.getByRole('button', { name: 'Toot!' }));
+  });
+
+  it('keeps more actions last when the destination context has content', () => {
+    renderForm({
+      overflowContext: <div data-testid='posting-context'>Required mention</div>,
+      overflowContextActive: true,
+      composerToolbar: everyControl('visible'),
+    });
+
+    expect(controlOrder()[controlOrder().length - 1]).toEqual('overflow');
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByTestId('composer-overflow-menu')).toContainElement(screen.getByTestId('posting-context'));
+  });
+
+  it('shows a failed account retry outside the menu anchor unless the control is hidden', () => {
+    const onRetry = jest.fn();
+    const view = renderForm({
+      postingAccountLoadFailed: true,
+      onRetryPostingAccounts: onRetry,
+      showPostingAccount: false,
+      composerToolbar: [
+        { id: 'posting_account', placement: 'menu' },
+        { id: 'media', placement: 'visible' },
+        { id: 'cw', placement: 'visible' },
+        { id: 'language', placement: 'visible' },
+        { id: 'datetime', placement: 'visible' },
+        { id: 'searchability', placement: 'visible' },
+        { id: 'poll', placement: 'visible' },
+      ],
+    });
+    const retry = screen.getByTestId('posting-account-load-retry');
+
+    expect(document.querySelector('.compose-form__detached-anchors').contains(retry)).toBe(false);
+    expect(document.querySelector('.compose-form__buttons-wrapper').contains(retry)).toBe(true);
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    renderForm({
+      postingAccountLoadFailed: true,
+      onRetryPostingAccounts: onRetry,
+      composerToolbar: [
+        { id: 'posting_account', placement: 'hidden' },
+        { id: 'media', placement: 'visible' },
+        { id: 'cw', placement: 'visible' },
+        { id: 'language', placement: 'visible' },
+        { id: 'datetime', placement: 'visible' },
+        { id: 'searchability', placement: 'visible' },
+        { id: 'poll', placement: 'visible' },
+      ],
+    });
+
+    expect(screen.queryByTestId('posting-account-load-retry')).toBeNull();
+  });
+
+  it('drops a hidden posting account without rendering it', () => {
+    renderForm({
+      senderIdentity: senderIdentity(),
+      composerToolbar: [
+        { id: 'posting_account', placement: 'hidden' },
+        { id: 'media', placement: 'visible' },
+        { id: 'cw', placement: 'visible' },
+        { id: 'language', placement: 'visible' },
+        { id: 'datetime', placement: 'menu' },
+        { id: 'searchability', placement: 'menu' },
+        { id: 'poll', placement: 'menu' },
+      ],
+    });
+
+    expect(screen.queryByTestId('sender-identity')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Posting as' })).toBeNull();
+  });
+});

@@ -153,6 +153,8 @@ P2 に残すこと:
 
 アイコンは申請の対象である。P0 は公開経路へ載せず、実装は次の段階へ残す。列を先に足すと、既存の Paperclip 初期化が公開ストレージへ書いてしまうためである。
 
+P1 の保存方式と P2 への引き渡しは [group_management_p1.md](group_management_p1.md) が正本である。公開バケットの private ACL や `public/system` には置かない。非公開を保証できない構成ではアップロードを拒否する。
+
 現状の `AccountAvatar`:
 
 - 許可タイプは `AccountAvatar::IMAGE_MIME_TYPES`（jpeg、png、gif、webp、bmp、ico）。HEIC/HEIF/AVIF は止めたまま。
@@ -163,21 +165,7 @@ P2 に残すこと:
 
 したがって、承認前に `Account#avatar` へ保存すること、`avatar_remote_url` をセットすること、申請モデルへデフォルト設定の `has_attached_file` を足すことは、いずれも未承認の画像を公開 Actor または公開 URL から届く状態にする。
 
-P1 で足す staging:
-
-- 申請行の非公開ファイル。パスは `public/` の外（例: `storage/group_creation_icons/:id/original`）。S3 を使う環境では別 prefix と private ACL。公開用バケットの `public-read` を継承しない。
-- 審査前に作るのはオリジナルだけ。400x400 や tiny の公開派生物は承認時に Account の既存パイプラインへ任せる。
-- タイプと上限は `AccountAvatar::IMAGE_MIME_TYPES` と `LIMIT` と同じ。
-- 審査プレビューはサーバー管理者だけのコントローラが `send_file` / `send_data` する。`Cache-Control: private, no-store`。media proxy、`/system`、ActivityPub の icon には出さない。
-- 却下、取消、申請行の削除では、コミット後に staging ファイルを消す。トランザクションが戻った場合は消さない。
-- 未承認の間は Group Account が無いので、プロフィール URL も ActivityPub の icon も存在しない。
-
-P2 の受渡し:
-
-1. 上のトランザクションで Group Account を作ったあと、staging のオリジナルを `group.avatar` へコピーし、既存の Paperclip スタイルを作る。
-2. コピーが成功しトランザクションがコミットしてから staging を消す。
-3. Paperclip はコミット前に公開パスへ書く。ロールバックしたときは、その Account id 用に書いたファイルを消す。公開 URL が残っても、行が無ければ Actor としては配信しない。残ファイルの削除をロールバック処理に含める。
-4. `avatar_remote_url` は申請アイコンに使わない。
+P1 の保存先、プレビュー、失敗時の片付け、P2 の `GroupCreationIcons::Handoff` は [group_management_p1.md](group_management_p1.md) に書いた。公開バケットへ private ACL だけで置く案は採用していない。審査前のプレビューは申請者本人に限り、P2 が審査者を足す。未承認の間は Group Account が無いので、プロフィール URL も ActivityPub の icon も存在しない。
 
 ## 既存 Group の移行（P3。この PR では行を作らない）
 

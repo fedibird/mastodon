@@ -1440,7 +1440,34 @@ body > [data-popper-placement] {
   .compose-form__buttons {
     flex: 1 1 auto;
     min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .compose-form__toolbar-slot {
+    flex: 0 0 auto;
+  }
+
+  .compose-form__toolbar-slot:empty {
+    display: none;
+  }
+
+  .compose-form__detached-anchors {
+    flex: 0 0 0px;
+    width: 0;
+    height: 0;
+    overflow: visible;
+  }
+
+  .compose-form__upload-file-host {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
     overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
   }
 
   .compose-form__submit,
@@ -1823,9 +1850,18 @@ body > [data-popper-placement] {
       min-width: 0;
     }
 
-    .compose-form__buttons-wrapper .compose-form__submit {
+    .compose-form__buttons-wrapper {
+      flex-wrap: wrap;
+    }
+
+    .compose-form__buttons {
       flex: 1 1 100%;
-      margin-inline-start: 0;
+      max-width: 100%;
+    }
+
+    .compose-form__buttons-wrapper .compose-form__submit {
+      flex: 0 0 auto;
+      margin-inline-start: auto;
     }
 
     .compose-form__upload-notice,
@@ -2078,6 +2114,14 @@ body > [data-popper-placement] {
     }
   }
 
+  .compose-form__account-retry {
+    flex: 1 1 100%;
+    margin: 0 0 8px;
+    color: $secondary-text-color;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
   .compose-form__buttons-wrapper {
     padding: 10px;
     background: darken($simple-background-color, 8%);
@@ -2085,7 +2129,7 @@ body > [data-popper-placement] {
     display: flex;
     align-items: center;
     gap: 8px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     flex: 0 0 auto;
     overflow: hidden;
 
@@ -2095,7 +2139,8 @@ body > [data-popper-placement] {
       flex: 1 1 auto;
       flex-wrap: nowrap;
       min-width: 0;
-      overflow: hidden;
+      overflow-x: auto;
+      overflow-y: hidden;
 
       .compose-form__upload-button-icon {
         line-height: 27px;
@@ -2132,7 +2177,7 @@ body > [data-popper-placement] {
       display: flex;
       align-items: center;
       gap: 8px;
-      flex: 0 1 auto;
+      flex: 0 0 auto;
       min-width: 0;
       margin-inline-start: auto;
     }
@@ -9754,6 +9799,11 @@ a.status-card.compact:hover {
     display: none;
   }
 
+  &.disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
   &__input {
     display: inline-block;
     position: relative;
@@ -13028,5 +13078,163 @@ div.external-source-identity:hover .external-source-identity__name {
     overflow-wrap: anywhere;
     font-size: 12px;
     color: $dark-text-color;
+  }
+}
+
+.directory__card--group {
+  min-width: 0;
+
+  .directory__card__bar {
+    border-bottom: 1px solid lighten($ui-base-color, 8%);
+  }
+
+  .group-directory-card__note .account__header__content,
+  .directory__card__extra .account__header__content {
+    min-height: 0;
+    padding: 10px 12px;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.45;
+
+    p {
+      display: block;
+      margin: 0 0 4px;
+    }
+
+    br {
+      display: inline;
+    }
+  }
+
+  .group-directory__metadata {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 12px;
+    color: $darker-text-color;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+
+    > span:first-child {
+      min-width: 0;
+    }
+  }
+
+  .group-directory__languages {
+    display: inline;
+    margin-left: 8px;
+  }
+
+  .group-directory__actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px 12px;
+
+    a {
+      color: $highlight-text-color;
+      font-weight: 500;
+      text-decoration: none;
+
+      &:hover,
+      &:focus {
+        text-decoration: underline;
+      }
+    }
+  }
+
+  .group-directory-card__counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+}
+
+.group-directory-filters {
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+
+  &__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  &__label {
+    color: $darker-text-color;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  &__hint {
+    margin: 0;
+    color: $darker-text-color;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  &__search,
+  &__select {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 1px solid lighten($ui-base-color, 12%);
+    border-radius: 4px;
+    background: lighten($ui-base-color, 4%);
+    color: $primary-text-color;
+    font-size: 16px;
+  }
+
+  &__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  &__details,
+  .group-directory-status__retry {
+    align-self: flex-start;
+    padding: 4px 0;
+    border: 0;
+    background: transparent;
+    color: $ui-highlight-color;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+
+    &:hover,
+    &:focus {
+      text-decoration: underline;
+    }
+  }
+}
+
+.directory__list--groups {
+  margin: 0;
+  padding: 0;
+
+  > li {
+    min-width: 0;
+    list-style: none;
+  }
+}
+
+.group-directory-status {
+  padding: 12px 15px;
+  color: $darker-text-color;
+  font-size: 14px;
+
+  p {
+    margin: 0 0 8px;
   }
 }

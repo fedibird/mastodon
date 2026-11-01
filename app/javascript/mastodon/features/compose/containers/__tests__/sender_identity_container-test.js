@@ -1,6 +1,7 @@
 import { List as ImmutableList, Map as ImmutableMap, fromJS } from 'immutable';
 import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
+import { Provider } from 'react-redux';
 
 jest.mock('react-intl', () => {
   const intl = {
@@ -26,7 +27,7 @@ jest.mock('../../../../initial_state', () => ({
 
 import { initialState as composerInitialState } from '../../../../reducers/composer';
 import SenderIdentity from '../../components/sender_identity';
-import { mapStateToProps } from '../sender_identity_container';
+import SenderIdentityContainer, { mapStateToProps } from '../sender_identity_container';
 
 const adminAccount = ImmutableMap({
   id: '42',
@@ -151,5 +152,60 @@ describe('SenderIdentityContainer', () => {
     expect(props.current.getIn(['account', 'acct'])).toEqual('admin');
     expect(props.selectedId).toEqual('local:42');
     expect(props.sendBlocked).toBeNull();
+    expect(props.showPostingAccount).toBe(false);
+  });
+
+  it('retries a failed catalog without showing the account button when no link is configured', () => {
+    const state = stateFor('primary', {
+      identities: ImmutableList([localIdentity]),
+      senderIdentity: ImmutableMap({
+        id: 'local:42',
+        selectionOrigin: 'default',
+        status: 'ready',
+        changeEpoch: 0,
+      }),
+    }).setIn(['postingIdentities', 'status'], 'failed');
+    const dispatch = jest.fn();
+
+    render(
+      <Provider store={{ getState: () => state, dispatch, subscribe: () => () => {} }}>
+        <SenderIdentityContainer />
+      </Provider>,
+    );
+
+    expect(screen.queryByTestId('sender-identity')).toBeNull();
+    expect(screen.queryByTestId('posting-account-load-retry')).toBeNull();
+    expect(state.getIn(['compose', 'senderIdentity', 'id'])).toEqual('local:42');
+    expect(dispatch).toHaveBeenCalled();
+  });
+
+  it('keeps the account button when a linked identity is already known and the catalog then fails', () => {
+    const state = stateFor('primary', {
+      identities: ImmutableList([
+        localIdentity,
+        fromJS({
+          id: 'delegated:7',
+          kind: 'delegated',
+          authorization: 'revoked',
+          account: { acct: 'other@example.com', displayName: 'Other' },
+          capabilities: { post: 'unavailable' },
+        }),
+      ]),
+      senderIdentity: ImmutableMap({
+        id: 'local:42',
+        selectionOrigin: 'default',
+        status: 'ready',
+        changeEpoch: 0,
+      }),
+    }).setIn(['postingIdentities', 'status'], 'failed');
+
+    render(
+      <Provider store={{ getState: () => state, dispatch: jest.fn(), subscribe: () => () => {} }}>
+        <SenderIdentityContainer />
+      </Provider>,
+    );
+
+    expect(screen.getByTestId('sender-identity')).toBeTruthy();
+    expect(screen.queryByTestId('posting-account-load-retry')).toBeNull();
   });
 });

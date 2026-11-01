@@ -1961,6 +1961,28 @@ ja:
       over_character_limit: は%{max}文字より長くすることはできません
       too_few_options: は複数必要です
       too_many_options: は%{max}個までです
+  composer_toolbar:
+    title: コンポーザーのボタン
+    lead: コンポーザーの各操作を表示・メニュー・非表示のどれにするか選び、ドラッグで順番を変えられます。コンポーザーに反映されるのは保存した内容だけです。
+    hint: 「変更を保存」が成功するまで、コンポーザーの表示は変わりません。保存したあとはコンポーザーを読み込み直すと反映されます。
+    unsaved: コンポーザーのボタンに未保存の変更があります。保存せずに移動しますか？
+    cancel: キャンセル
+    drag: ドラッグして順番を変える
+    placement_label: 配置
+    move_up: 上へ
+    move_down: 下へ
+    placements:
+      visible: 表示
+      menu: メニュー
+      hidden: 非表示
+    items:
+      posting_account: 投稿アカウント選択
+      media: メディア添付
+      cw: CW
+      language: 言語
+      datetime: 公開と終了の日時
+      searchability: 検索の公開範囲
+      poll: アンケート
   preferences:
     invalid_input: "%{key} を保存できませんでした。"
     beta_features: ベータ機能
@@ -2390,6 +2412,7 @@ ja:
     account_subscribes: アカウントの購読
     aliases: アカウントエイリアス
     appearance: 外観
+    composer_buttons: コンポーザーのボタン
     authorized_apps: 認証済みアプリ
     back: Mastodon に戻る
     delete: アカウントの削除
@@ -2418,6 +2441,7 @@ ja:
     safety: 安全とプライバシー
     statuses_cleanup: 投稿の自動削除
     two_factor_authentication: 二段階認証
+    group_creation_requests: グループを作成する
     user_posting_contexts: 投稿のスタイルと目的
     webauthn_authentication: セキュリティキー
   posting_identity_links:
@@ -2570,6 +2594,75 @@ ja:
     unavailable_defaults_for: "%{name} の利用できない既定設定を確認"
     used_as_default: "%{count}か所の既定として使用中"
     used_as_default_for: "%{name} は%{count}か所の既定として使用中"
+  group_creation_requests:
+    acct: アカウント名
+    back: 戻る
+    cancel: 申請を取り下げる
+    cancel_confirm: この申請を取り下げますか？取り下げたあと、新しい申請を出せます。
+    cancel_failed: この申請は、もう取り下げられません。
+    cancelled: 申請を取り下げました。
+    confirm_checkbox: この内容で申請します。承認されれば、自分が初代オーナーになります。承認されるまでグループは存在しません。
+    created: 申請を受け付けました。サーバー管理者が審査するまで保留のままです。
+    default_icon: 既定のアイコン
+    details: 詳細
+    discard_draft: この確認を破棄する
+    draft_discarded: 確認中の内容を破棄しました。
+    duplicate: この申請は、すでに送信されています。
+    edit_again: 内容を修正する
+    empty: グループの申請はまだありません。
+    errors:
+      confirm_required: 送信する前に、確認のチェックを入れてください。
+    expired: 確認の期限が切れました。もう一度入力してください。
+    fields:
+      display_name: 表示名
+      icon: アイコン
+      note: 説明
+      username: ユーザー名
+    group: グループ
+    hints:
+      display_name: 30文字までです。カスタム絵文字は1文字として数えます。
+      icon: 任意です。JPEG、PNG、GIF、WebP、BMP、ICOで、%{size}未満にしてください。付けない場合は既定のアイコンになります。提出後に差し替えはできません。
+      note: 500文字までです。
+      username: '1〜30文字の英数字とアンダースコアです。小文字で保存され、審査中は予約されません。アカウント名のドメインは %{domain} です。'
+    icon_alt: この申請のアイコン
+    icon_errors:
+      corrupt: アイコンが正しい画像ではありません。
+      empty: アイコンファイルが空です。
+      missing: 確認中のアイコンがもうありません。最初からやり直してください。
+      spoofed: アイコンの中身が、許可された画像の種類と一致しません。
+      storage_unavailable: このサーバーはアイコンを非公開の場所に保存できないため、アイコン付きの申請は受け付けていません。アイコンなしで申請できます。
+      too_large: アイコンは4MB未満にしてください。
+      too_many_pixels: アイコンの画素数が多すぎるため、安全に扱えません。
+      type_not_allowed: JPEG、PNG、GIF、WebP、BMP、ICOのいずれかを選んでください。
+      unreadable: アイコンを読み取れませんでした。
+    initial_owner: 初代オーナー
+    initial_owner_you: あなた
+    lead: このサーバーにグループを申請します。表示名、ユーザー名、説明、任意のアイコンを指定します。サーバー管理者が承認するまで、グループは存在しません。
+    new_title: 新しいグループ申請
+    no_display_name: 表示名なし
+    no_note: 説明なし
+    open_new: グループを作成する
+    reapply: 新しい申請として出し直す
+    rejection_reason: 却下理由
+    requested_at: 申請日時
+    review_button: 内容を確認する
+    review_lead: 送信する前に内容を確認してください。確認するまで保存されません。
+    review_title: グループ申請の確認
+    rules:
+      absent: サーバー管理者が承認するまで、グループのアカウントは作られません。
+      immutable: 提出した申請は修正できません。審査中の申請は取り下げてから、新しい申請を出してください。アイコンもその場では差し替えられません。
+      not_reserved: ユーザー名は審査中に予約されません。承認より前に、他の人が同じ名前を取得できます。
+      owner: この申請が承認されると、申請したあなたが初代オーナーになります。
+    show_title: グループ申請
+    state: 状態
+    states:
+      approved: 承認済み
+      cancelled: 取り下げ
+      pending: 審査中
+      rejected: 却下
+    stale: 表示している間に申請の状態が変わりました。読み込み直してから、もう一度操作してください。
+    submit: 申請する
+    successor: 出し直した申請を開く
   user_posting_contexts:
     advisory: この投稿スタイルによる参考タグ
     auto_language: 投稿時に言語を自動判定します。
@@ -3108,6 +3201,12 @@ ja:
     otp_required: セキュリティキーを使用するには、まず二段階認証を有効にしてください。
     registered_on: "%{date} に登録"
   activerecord:
+    attributes:
+      group_creation_request:
+        username: ユーザー名
+        display_name: 表示名
+        note: 説明
+        previous_request_id: 前回の申請
     errors:
       models:
         user:
@@ -3118,6 +3217,24 @@ ja:
           attributes:
             username:
               immutable: は申請後に変更できません
+              taken: は、このサーバーのアカウントが既に使っています
+              reserved: は、このサーバーで予約されています
+              invalid: は英数字とアンダースコアで30文字以内にしてください
+            icon_storage_key:
+              immutable: は申請後に変更できません
+              invalid: は非公開のアイコンではありません
+            icon_content_type:
+              immutable: は申請後に変更できません
+              invalid: は許可された画像の種類ではありません
+            icon_byte_size:
+              immutable: は申請後に変更できません
+              invalid: は許可されたアイコンの大きさではありません
+            icon_purged_at:
+              immutable: は既に削除されています
+              invalid: はアイコンがない申請には設定できません
+            submission_token:
+              immutable: は申請後に変更できません
+              invalid: が正しくありません
             display_name:
               immutable: は申請後に変更できません
             note:
@@ -3128,6 +3245,7 @@ ja:
               immutable: は申請後に変更できません
             previous_request_id:
               immutable: は申請後に変更できません
+              invalid: は、まだ出し直していない、自分の却下または取り下げ済みの申請である必要があります
             initial_owner_account_id:
               immutable: は承認後の申請に残ります
             reviewer_account:

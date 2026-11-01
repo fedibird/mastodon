@@ -5,9 +5,17 @@
 # are the review snapshot. Approval records a decision only after the group
 # Account, ManagedGroup, and single owner already exist in the same
 # transaction. See docs/group_management_p0.md.
+#
+# An optional icon is a private original staged outside Paperclip. The bytes
+# are not an Account avatar. See docs/group_management_p1.md.
 class GroupCreationRequest < ApplicationRecord
   USERNAME_PATTERN = /\A[a-z0-9_]{1,30}\z/
   NOTE_LIMIT = 500
+  SUBMISSION_TOKEN_PATTERN = /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
+
+  # Form-only. Paperclip would publish this through the public storage
+  # defaults, so the column is not an attachment.
+  attr_accessor :icon
 
   enum state: { pending: 0, approved: 1, rejected: 2, cancelled: 3 }
 
@@ -27,12 +35,16 @@ class GroupCreationRequest < ApplicationRecord
   validates :state, presence: true
   validates :previous_request_id, uniqueness: true, allow_nil: true
   validates :group_account_id, uniqueness: true, allow_nil: true
+  validates :submission_token, uniqueness: true, allow_nil: true, format: { with: SUBMISSION_TOKEN_PATTERN }
+  validates :icon_storage_key, uniqueness: true, allow_nil: true
 
   validate :starts_pending, on: :create
+  validate :icon_shape, on: :create
   validate :requester_is_eligible, on: :create
   validate :username_is_free, on: :create
   validate :previous_request_is_reapplication, on: :create
   validate :snapshot_is_immutable, on: :update
+  validate :icon_columns_are_immutable, on: :update
   validate :initial_owner_is_fixed, on: :update
   validate :state_transition_is_legal, on: :update
   validate :decision_shape
@@ -40,6 +52,9 @@ class GroupCreationRequest < ApplicationRecord
   before_validation :normalize_snapshot, on: :create
   before_validation :normalize_decision_note
   before_validation :assign_requested_at, on: :create
+
+  after_commit :purge_terminal_icon, on: :update
+  after_commit :purge_destroyed_icon, on: :destroy
 
   def self.local_username_taken?(username)
     normalized = username.to_s.downcase
@@ -99,6 +114,10 @@ class GroupCreationRequest < ApplicationRecord
     )
   end
 
+  def icon_previewable?
+    icon_storage_key.present? && icon_purged_at.nil?
+  end
+
   def record_cancellation!(cancelled_at: Time.current, decision_note: nil)
     update!(
       state: :cancelled,
@@ -148,6 +167,46 @@ class GroupCreationRequest < ApplicationRecord
     return errors.add(:previous_request_id, :invalid) unless prior.rejected? || prior.cancelled?
 
     errors.add(:previous_request_id, :invalid) if prior.id == id
+  end
+
+  def icon_shape
+    if icon_storage_key.blank?
+      errors.add(:icon_content_type, :invalid) if icon_content_type.present?
+      errors.add(:icon_byte_size, :invalid) if icon_byte_size.present?
+      errors.add(:icon_purged_at, :invalid) if icon_purged_at.present?
+      return
+    end
+
+    errors.add(:icon_storage_key, :invalid) unless icon_storage_key.match?(GroupCreationIcons::KEY_FORMAT)
+    errors.add(:icon_content_type, :invalid) unless AccountAvatar::IMAGE_MIME_TYPES.include?(icon_content_type)
+    errors.add(:icon_byte_size, :invalid) unless icon_byte_size.is_a?(Integer) && icon_byte_size.positive? && icon_byte_size < AccountAvatar::LIMIT
+  end
+
+  def icon_columns_are_immutable
+    %w(icon_storage_key icon_content_type icon_byte_size submission_token).each do |attribute|
+      errors.add(attribute, :immutable) if will_save_change_to_attribute?(attribute)
+    end
+    return unless will_save_change_to_icon_purged_at?
+
+    errors.add(:icon_purged_at, :immutable) if icon_purged_at_in_database.present?
+    errors.add(:icon_purged_at, :invalid) if icon_storage_key.blank?
+  end
+
+  def purge_terminal_icon
+    return unless saved_change_to_state?
+    return unless rejected? || cancelled?
+
+    GroupCreationIcons::Purge.call(self)
+  rescue StandardError => e
+    Rails.logger.error("Group creation icon purge failed request_id=#{id} error=#{e.class}")
+  end
+
+  def purge_destroyed_icon
+    return if icon_storage_key.blank?
+
+    GroupCreationIcons::Storage.resolve.delete(icon_storage_key)
+  rescue StandardError => e
+    Rails.logger.error("Group creation icon delete failed request_id=#{id} error=#{e.class}")
   end
 
   def snapshot_is_immutable

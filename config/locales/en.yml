@@ -2027,6 +2027,28 @@ en:
       self_vote: You cannot vote in your own polls
       too_few_options: must have more than one item
       too_many_options: can't contain more than %{max} items
+  composer_toolbar:
+    title: Composer buttons
+    lead: Choose whether each composer action is shown, placed in the more menu, or hidden, and drag to change the order. The composer keeps the saved layout.
+    hint: Nothing changes in the composer until this page saves successfully. Reload the composer after saving to see it.
+    unsaved: You have unsaved composer button changes. Leave without saving?
+    cancel: Cancel
+    drag: Drag to reorder
+    placement_label: Placement
+    move_up: Move up
+    move_down: Move down
+    placements:
+      visible: Show
+      menu: Menu
+      hidden: Hide
+    items:
+      posting_account: Posting account
+      media: Attach media
+      cw: Content warning
+      language: Language
+      datetime: Publish and expiry time
+      searchability: Search visibility
+      poll: Poll
   preferences:
     invalid_input: "%{key} could not be saved."
     beta_features: Beta features
@@ -2461,6 +2483,7 @@ en:
     account_subscribes: Account subscribes
     aliases: Account aliases
     appearance: Appearance
+    composer_buttons: Composer buttons
     authorized_apps: Authorized apps
     back: Back to Mastodon
     delete: Account deletion
@@ -2489,6 +2512,7 @@ en:
     safety: Safety & Privacy
     statuses_cleanup: Automated post deletion
     two_factor_authentication: Two-factor Auth
+    group_creation_requests: Create a group
     user_posting_contexts: Posting style and purpose
     webauthn_authentication: Security keys
   posting_identity_links:
@@ -2641,6 +2665,75 @@ en:
     unavailable_defaults_for: Review defaults for %{name} that cannot be used
     used_as_default: Used as the default in %{count} places
     used_as_default_for: "%{name} is used as the default in %{count} places"
+  group_creation_requests:
+    acct: Account name
+    back: Back
+    cancel: Cancel this request
+    cancel_confirm: Cancel this request? You can submit a new one afterwards.
+    cancel_failed: This request can no longer be cancelled.
+    cancelled: The request was cancelled.
+    confirm_checkbox: I confirm this request. I will be the first owner, and the group will not exist until a server administrator approves it.
+    created: Your request was submitted. It stays pending until a server administrator reviews it.
+    default_icon: Default icon
+    details: Details
+    discard_draft: Discard this confirmation
+    draft_discarded: The confirmation was discarded.
+    duplicate: This request was already submitted.
+    edit_again: Change the details
+    empty: You have no group requests.
+    errors:
+      confirm_required: Check the confirmation box before submitting.
+    expired: The confirmation expired. Enter the request again.
+    fields:
+      display_name: Display name
+      icon: Icon
+      note: Description
+      username: Username
+    group: Group
+    hints:
+      display_name: Up to 30 characters. A custom emoji counts as one character.
+      icon: Optional. JPEG, PNG, GIF, WebP, BMP, or ICO, smaller than %{size}. If you skip it, the default icon is used. You cannot change it after submitting.
+      note: Up to 500 characters.
+      username: '1–30 characters: letters, numbers, and underscores. It is stored in lowercase and is not reserved while the request is pending. The account name will use %{domain}.'
+    icon_alt: Icon submitted with this request
+    icon_errors:
+      corrupt: The icon file is not a valid image.
+      empty: The icon file is empty.
+      missing: The icon for this confirmation is no longer available. Start again.
+      spoofed: The icon contents do not match an allowed image type.
+      storage_unavailable: This server cannot store icons privately, so an icon cannot be attached. You can submit the request without one.
+      too_large: The icon must be smaller than 4 MB.
+      too_many_pixels: The icon image is too large to process safely.
+      type_not_allowed: Use a JPEG, PNG, GIF, WebP, BMP, or ICO file.
+      unreadable: The icon could not be read.
+    initial_owner: First owner
+    initial_owner_you: You
+    lead: Request a group on this server. You choose the display name, username, description, and an optional icon. A server administrator has to approve it before the group exists.
+    new_title: New group request
+    no_display_name: No display name
+    no_note: No description
+    open_new: Create a group
+    reapply: Submit a new request
+    rejection_reason: Reason for rejection
+    requested_at: Submitted
+    review_button: Review request
+    review_lead: Check the request before submitting it. Nothing is saved until you confirm.
+    review_title: Confirm the group request
+    rules:
+      absent: No group account exists until a server administrator approves the request.
+      immutable: You cannot edit a request after it is submitted. Cancel a pending request and submit a new one. The icon cannot be replaced in place.
+      not_reserved: The username is not reserved. Someone else can register it before approval.
+      owner: If this request is approved, you become the first owner.
+    show_title: Group request
+    state: Status
+    states:
+      approved: Approved
+      cancelled: Cancelled
+      pending: Pending review
+      rejected: Rejected
+    stale: This request changed while you were looking at it. Refresh and try again.
+    submit: Submit request
+    successor: Open the newer request
   user_posting_contexts:
     advisory: Advisory tag from this posting style
     auto_language: Language will be detected when you post.
@@ -3188,6 +3281,12 @@ en:
     otp_required: To use security keys please enable two-factor authentication first.
     registered_on: Registered on %{date}
   activerecord:
+    attributes:
+      group_creation_request:
+        username: Username
+        display_name: Display name
+        note: Description
+        previous_request_id: Previous request
     errors:
       models:
         user:
@@ -3198,6 +3297,24 @@ en:
           attributes:
             username:
               immutable: cannot be changed after the request is submitted
+              taken: is already used by a local account
+              reserved: is reserved on this server
+              invalid: can only use letters, numbers, and underscores, up to 30 characters
+            icon_storage_key:
+              immutable: cannot be changed after the request is submitted
+              invalid: is not a private icon
+            icon_content_type:
+              immutable: cannot be changed after the request is submitted
+              invalid: is not an allowed image type
+            icon_byte_size:
+              immutable: cannot be changed after the request is submitted
+              invalid: is not an allowed icon size
+            icon_purged_at:
+              immutable: has already been removed
+              invalid: cannot be set without an icon
+            submission_token:
+              immutable: cannot be changed after the request is submitted
+              invalid: is not valid
             display_name:
               immutable: cannot be changed after the request is submitted
             note:
@@ -3208,6 +3325,7 @@ en:
               immutable: cannot be changed after the request is submitted
             previous_request_id:
               immutable: cannot be changed after the request is submitted
+              invalid: must be your own rejected or cancelled request that has not already been replaced
             initial_owner_account_id:
               immutable: stays with the request after approval
             reviewer_account:

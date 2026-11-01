@@ -148,6 +148,7 @@ Rails.application.routes.draw do
 
     namespace :preferences do
       resource :appearance, only: [:show, :update], controller: :appearance
+      resource :composer, only: [:show, :update], controller: :composer
       resource :notifications, only: [:show, :update]
       resource :safety, only: [:show, :update], controller: :safety
       resource :other, only: [:show, :update], controller: :other
@@ -252,6 +253,18 @@ Rails.application.routes.draw do
       member do
         post :revoke
         post :unlink
+      end
+    end
+    resources :group_creation_requests, only: [:index, :new, :create, :show] do
+      collection do
+        post :confirm
+        get :review
+        get :draft_icon, format: false
+        delete :draft, action: :destroy_draft
+      end
+      member do
+        post :cancel
+        get :icon, format: false
       end
     end
     resources :user_posting_contexts, except: [:show] do

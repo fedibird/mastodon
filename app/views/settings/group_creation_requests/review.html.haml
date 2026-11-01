@@ -1,0 +1,41 @@
+- content_for :page_title do
+  = t('group_creation_requests.review_title')
+
+%p= t('group_creation_requests.review_lead')
+
+- if @request.errors.any?
+  .flash-message.alert
+    %ul
+      - @request.errors.full_messages.each do |message|
+        %li= message
+
+%dl
+  %dt= t('group_creation_requests.fields.display_name')
+  %dd= @request.display_name.presence || t('group_creation_requests.no_display_name')
+  %dt= t('group_creation_requests.acct')
+  %dd= group_creation_request_acct(@request.username)
+  %dt= t('group_creation_requests.fields.note')
+  %dd= @request.note.present? ? simple_format(@request.note) : t('group_creation_requests.no_note')
+  %dt= t('group_creation_requests.fields.icon')
+  %dd
+    - if @draft['icon_storage_key'].present?
+      = image_tag draft_icon_settings_group_creation_requests_path, alt: t('group_creation_requests.icon_alt'), class: 'account__avatar'
+    - else
+      = image_tag full_asset_url('avatars/original/missing.png', skip_pipeline: true), alt: t('group_creation_requests.default_icon'), class: 'account__avatar'
+      %p.hint= t('group_creation_requests.default_icon')
+
+%ul
+  %li= t('group_creation_requests.rules.owner')
+  %li= t('group_creation_requests.rules.absent')
+  %li= t('group_creation_requests.rules.not_reserved')
+  %li= t('group_creation_requests.rules.immutable')
+
+= form_tag settings_group_creation_requests_path, method: :post do
+  .fields-group
+    = label_tag :confirmed, t('group_creation_requests.confirm_checkbox')
+    = check_box_tag :confirmed, '1', false, required: true
+  .actions
+    = submit_tag t('group_creation_requests.submit'), class: 'button'
+
+= button_to t('group_creation_requests.discard_draft'), draft_settings_group_creation_requests_path, method: :delete, class: 'button negative'
+= link_to t('group_creation_requests.edit_again'), new_settings_group_creation_request_path, class: 'button negative'

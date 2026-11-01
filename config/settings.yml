@@ -255,6 +255,11 @@ defaults: &defaults
     account_migration: 'off'
     invite_creation: 'off'
     status_import: 'off'
+  # Group creation requests (P1). Off until P2 can approve end to end.
+  # Unset stays off. This is not on the admin settings form. Operators turn
+  # it on from a console for development:
+  #   Setting.group_creation_requests = true
+  group_creation_requests: false
 
 development:
   <<: *defaults

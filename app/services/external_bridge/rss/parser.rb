@@ -12,6 +12,10 @@ module ExternalBridge
     end
 
     # RSS 1.0 (RDF), RSS 2.0, and Atom. External entities are not resolved.
+    # A custom entity reference is invalid XML for this parser, so the DOM
+    # never substitutes it. Predefined entities and numeric character
+    # references stay text. A missing end tag is rejected. A disallowed C0
+    # control is removed first, which is the one compatibility exception.
     # RSS 2.0 and RSS 1.0 are recognized by the root element's local name.
     # Atom also requires the Atom namespace URI, so a foreign element named
     # `feed` is not a feed. Content-Type is not consulted. Namespaces stay on
@@ -20,21 +24,24 @@ module ExternalBridge
     class Parser
       ICON_HINT_ORDER = %w(atom_icon rss_image itunes_image atom_logo).freeze
 
-      def self.parse!(body)
-        new(body).parse!
+      def self.parse!(body, budget: DocumentBudget::Budget.default)
+        new(body, budget: budget).parse!
       end
 
-      def initialize(body)
+      def initialize(body, budget: DocumentBudget::Budget.default)
         @body = body.to_s
+        @budget = budget
       end
 
       def parse!
-        document = Nokogiri::XML(@body) { |config| config.nonet.noblanks }
+        # The pull parser enforces the byte and structure budgets and requires
+        # a well-formed document through to the end. Recovery is off, so a
+        # truncated tail is invalid_xml rather than a feed missing its last
+        # tags. The DOM pass only runs after that walk returns.
+        source = DocumentBudget.check!(@body, budget: @budget)
+        document = Nokogiri::XML(source) { |config| config.strict.nonet.noblanks.nohuge }
         raise Error, :invalid_xml if document.root.nil?
 
-        # Media RSS `content` and Atom `content` share a local name. Mark the
-        # body element and candidates while the namespace URIs are still present.
-        MediaExtractor.index!(document)
         case document.root.name.to_s.downcase
         when 'rss' then parse_rss(document)
         when 'feed' then parse_atom(document)
@@ -52,7 +59,7 @@ module ExternalBridge
         channel = XmlNames.child(document.root, 'channel', namespaces)
         raise Error, :malformed_feed if channel.nil?
 
-        items = XmlNames.children(channel, 'item', namespaces).first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
+        items = accepted(XmlNames.children(channel, 'item', namespaces)).filter_map { |node| rss_item(node) }
         Feed.new(
           protocol: 'rss',
           title: Sanitizer.title(XmlNames.text(channel, 'title', namespaces)),
@@ -77,7 +84,7 @@ module ExternalBridge
         channel, nodes, image_url = RdfDocument.extract(document)
         raise Error, :malformed_feed if channel.nil?
 
-        items = nodes.first(Limits::MAX_ITEMS).filter_map { |node| rss_item(node) }
+        items = accepted(nodes).filter_map { |node| rss_item(node) }
         Feed.new(
           protocol: 'rss',
           title: Sanitizer.title(XmlNames.text(channel, 'title', core_namespaces(channel))),
@@ -92,7 +99,7 @@ module ExternalBridge
         feed = document.root
         raise Error, :malformed_feed unless feed.name.to_s.casecmp?('feed') && feed.namespace&.href == XmlNames::ATOM
 
-        items = XmlNames.children(feed, 'entry', XmlNames::ATOM).first(Limits::MAX_ITEMS).filter_map { |node| atom_item(node) }
+        items = accepted(XmlNames.children(feed, 'entry', XmlNames::ATOM)).filter_map { |node| atom_item(node) }
         hints = [['atom_icon', XmlNames.text(feed, 'icon', XmlNames::ATOM)], ['atom_logo', XmlNames.text(feed, 'logo', XmlNames::ATOM)]]
         Feed.new(
           protocol: 'atom',
@@ -102,6 +109,15 @@ module ExternalBridge
           icon_hints: icon_hints(hints),
           **feed_activitypub(feed, items)
         )
+      end
+
+      # The first MAX_ITEMS nodes in the feed's existing order, including a
+      # node that will not become an item. Later nodes do not fill that gap,
+      # and body, HTML, and media extraction run only for this slice.
+      def accepted(nodes)
+        selected = nodes.first(Limits::MAX_ITEMS)
+        MediaExtractor.index_items!(selected)
+        selected
       end
 
       def rss_item(node)

@@ -68,7 +68,7 @@ const canRecheckPermission = (composer, capability) => {
   return !(delivery.adapter === 'fedibird_group' && delivery.authority === 'server');
 };
 
-const mapStateToProps = (state, { composerId }) => {
+export const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
 
   if (!composer) {

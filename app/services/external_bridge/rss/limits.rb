@@ -4,21 +4,54 @@ module ExternalBridge
   module RSS
     module Limits
       # Inflated body of one feed response, in bytes. This is the document
-      # the parser would see. Phase 1 keeps the previous 4 MiB ceiling.
-      # Podcast feeds can contain years of episodes; the parsed item count is
-      # independently bounded by MAX_ITEMS below. 8 MiB is an unadopted
-      # candidate and is not this constant.
-      MAX_RESPONSE_BYTES = 4.megabytes
+      # the parser would see. 8 MiB covers the measured public-feed shape
+      # (about 6.3 MiB and 1,017 items) with headroom. The stored item count
+      # stays MAX_ITEMS. One parse of that fixture is about 110–150 ms and
+      # peaks near 80–100 MB RSS, including the interpreter.
+      MAX_RESPONSE_BYTES = 8.megabytes
       # Encoded body of one HTTP response, in bytes, after transfer framing
       # (including chunked framing) is removed and before Content-Encoding
       # is inflated. TLS records and header bytes are not included.
       # Content-Length describes this size when it is present and honest; a
       # missing, invalid, or short value does not replace the count of bytes
-      # actually read. The default matches MAX_RESPONSE_BYTES so a public
-      # feed still cannot accept more than 4 MiB on the wire. The two caps
-      # are independent: a test profile may raise one without raising the
-      # other. This phase does not.
-      MAX_RECEIVED_BYTES = 4.megabytes
+      # actually read. This cap is independent of MAX_RESPONSE_BYTES. It is
+      # the same number because an identity-encoded copy of the same feed
+      # uses that many received bytes. Gzip of the synthetic fixture is much
+      # smaller, which is not a reason to reject the uncompressed form.
+      MAX_RECEIVED_BYTES = 8.megabytes
+      # Bytes of the string given to Parser.parse!, counted before a document
+      # exists. This is not BodyReader's cap. A caller that already holds a
+      # body still cannot parse past it. The number matches MAX_RESPONSE_BYTES
+      # so a direct parse cannot accept a feed the client rejects. The
+      # constants are separate; raising one does not raise the other.
+      MAX_PARSE_BYTES = 8.megabytes
+      # Element nesting. The root element is depth 1. A synthetic 1,017-item
+      # feed is depth 4. 64 leaves room for an XHTML entry body. libxml's own
+      # ceiling still applies because the parser does not set HUGE.
+      MAX_XML_DEPTH = 64
+      # Element start tags in the whole document, including items that will
+      # not be stored. A generated feed of this many elements (40 real items,
+      # the rest empty) is about 400 KiB. Parser.parse! returned 40 items in
+      # about 200 ms and peaked near 79 MB RSS, from about 54 MB before the
+      # parse. The 6,107-element synthetic feed is far under this.
+      MAX_XML_ELEMENTS = 100_000
+      # xmlTextReaderAttributeCount on one element, including xmlns.
+      # Media RSS attributes and a handful of namespaces sit under this.
+      MAX_XML_ATTRIBUTES = 64
+      # Sum of those per-element counts. An 8 MiB document with about 1.1
+      # million attributes peaked near 339 MB on one thread, so the byte cap
+      # alone does not bound the DOM. 100_000 elements plus about 100_000
+      # attribute nodes peaked near 103 MB, and five threads in one process
+      # peaked near 305 MB. That is the accepted structural worst case.
+      MAX_XML_ATTRIBUTES_TOTAL = 100_000
+      # One text, CDATA, or comment node, in bytes. It matches the document
+      # cap so a description the byte budget already accepted is not rejected
+      # again. Entity expansion that materializes a larger node fails here,
+      # before the DOM exists. MAX_TEXT_BYTES is the later storage cap.
+      MAX_XML_TEXT_BYTES = MAX_PARSE_BYTES
+      # One attribute value, in bytes. Feed URLs fit. A multi-megabyte
+      # attribute does not.
+      MAX_XML_ATTRIBUTE_BYTES = 64.kilobytes
       MAX_TEXT_BYTES = 1.megabyte
       MAX_ITEMS = 40
       # A refresh may replay at most one page of historical import failures.

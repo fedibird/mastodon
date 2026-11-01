@@ -4,6 +4,7 @@ import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { connect } from 'react-redux';
 import { fetchPostingIdentities, retryComposerInteraction, selectComposerSenderIdentity } from '../../../actions/posting_identities';
 import { isAdministrator, me } from '../../../initial_state';
+import { postingAccountControlAvailable } from '../composer_toolbar';
 import { sessionPostingIdentityId } from '../../../posting_identity/identity';
 import { PORTABLE_COMPOSER_MODE_SIMPLE, selectComposer, selectPortableComposerDisplayMode } from '../../../selectors/composer';
 import { selectComposerCanSendAsIdentity, selectComposerSenderIdentity as selectSender } from '../../../selectors/posting_identities';
@@ -38,11 +39,18 @@ export const presentSenderIdentity = (sender, sessionAccount, sessionIdentityId)
 export const mapStateToProps = (state, { composerId }) => {
   const sender = selectSender(state, composerId);
   const composer = selectComposer(state, composerId);
+  const catalog = state.getIn(['postingIdentities', 'identities']);
   const catalogStatus = state.getIn(['postingIdentities', 'status'], 'idle');
+  const showPostingAccount = postingAccountControlAvailable({
+    catalog,
+    status: catalogStatus,
+    selectedId: sender ? sender.get('id') : null,
+    canLink: isAdministrator,
+  });
   const sessionId = sessionPostingIdentityId();
   const sessionAccount = me ? state.getIn(['accounts', me]) : null;
   const current = presentSenderIdentity(sender, sessionAccount, sessionId);
-  const choices = (state.getIn(['postingIdentities', 'identities']) || []).filter(identity => {
+  const choices = (catalog || []).filter(identity => {
     if (!identity || identity.get('authorization') !== 'ready') {
       return false;
     }
@@ -56,6 +64,7 @@ export const mapStateToProps = (state, { composerId }) => {
 
   if (!isAdministrator) {
     return {
+      showPostingAccount,
       visible: Boolean(sessionAccount),
       current: sessionAccount ? ImmutableMap({
         id: sessionId,
@@ -71,12 +80,14 @@ export const mapStateToProps = (state, { composerId }) => {
       blockReason: null,
       sendBlocked: null,
       failed: false,
+      canLink: false,
       compact: selectPortableComposerDisplayMode(state, composerId) === PORTABLE_COMPOSER_MODE_SIMPLE,
       catalog: null,
     };
   }
 
   return {
+    showPostingAccount,
     visible: Boolean(sender),
     selectable: true,
     current,
@@ -92,6 +103,7 @@ export const mapStateToProps = (state, { composerId }) => {
       return delegated && !decision.canSend ? decision.reason : null;
     })(),
     failed: catalogStatus === 'failed',
+    canLink: true,
     compact: selectPortableComposerDisplayMode(state, composerId) === PORTABLE_COMPOSER_MODE_SIMPLE,
     catalog: state.getIn(['postingIdentities', 'identities']),
   };
@@ -106,7 +118,14 @@ class SenderIdentityContainer extends React.PureComponent {
     selectable: PropTypes.bool,
     current: PropTypes.object,
     failed: PropTypes.bool,
+    canLink: PropTypes.bool,
     compact: PropTypes.bool,
+    showPostingAccount: PropTypes.bool,
+    presentation: PropTypes.string,
+    suppressed: PropTypes.bool,
+    open: PropTypes.bool,
+    anchor: PropTypes.object,
+    onDismiss: PropTypes.func,
     choices: PropTypes.object,
     selectedId: PropTypes.string,
     sessionIdentityId: PropTypes.string,
@@ -135,31 +154,45 @@ class SenderIdentityContainer extends React.PureComponent {
   };
 
   render () {
-    if (!this.props.visible) {
+    if (this.props.suppressed || !this.props.visible) {
+      return null;
+    }
+
+    if (!this.props.showPostingAccount) {
       return null;
     }
 
     const blockReason = this.props.blockReason || this.props.sendBlocked;
+    const shared = {
+      current: this.props.current,
+      choices: this.props.choices,
+      selectedId: this.props.selectedId,
+      sessionIdentityId: this.props.sessionIdentityId,
+      text: this.props.text,
+      blockReason,
+      failed: this.props.failed,
+      compact: this.props.compact,
+      selectable: this.props.selectable,
+      composerId: this.props.composerId,
+      catalog: this.props.catalog,
+      onRetry: this.handleRetry,
+      onRetryInteraction: this.props.sendBlocked === 'target' || this.props.sendBlocked === 'follow' ? this.handleRetryInteraction : null,
+      onSelect: this.handleSelect,
+    };
 
-    return (
-      <SenderIdentity
-        current={this.props.current}
-        choices={this.props.choices}
-        selectedId={this.props.selectedId}
-        sessionIdentityId={this.props.sessionIdentityId}
-        text={this.props.text}
-        blockReason={blockReason}
-        failed={this.props.failed}
-        compact={this.props.compact}
-        header
-        selectable={this.props.selectable}
-        composerId={this.props.composerId}
-        catalog={this.props.catalog}
-        onRetry={this.handleRetry}
-        onRetryInteraction={this.props.sendBlocked === 'target' || this.props.sendBlocked === 'follow' ? this.handleRetryInteraction : null}
-        onSelect={this.handleSelect}
-      />
-    );
+    if (this.props.presentation === 'detached') {
+      return (
+        <SenderIdentity
+          {...shared}
+          presentation='detached'
+          open={this.props.open}
+          anchor={this.props.anchor}
+          onDismiss={this.props.onDismiss}
+        />
+      );
+    }
+
+    return <SenderIdentity {...shared} header />;
   }
 
 }

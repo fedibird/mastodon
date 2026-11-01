@@ -198,12 +198,12 @@ RSpec.describe ExternalBridge::RSS::HttpClient do
     Zlib.gzip(bytes)
   end
 
-  it 'keeps the public 4 MiB caps and leaves the other profiles on their own limits' do
+  it 'keeps the public 8 MiB caps and leaves the other profiles on their own limits' do
     limits = ExternalBridge::RSS::Limits
-    expect(limits::MAX_RESPONSE_BYTES).to eq 4.megabytes
-    expect(limits::MAX_RECEIVED_BYTES).to eq 4.megabytes
-    expect(described_class::FEED_PROFILE.max_received_bytes).to eq 4.megabytes
-    expect(described_class::FEED_PROFILE.max_inflated_bytes).to eq 4.megabytes
+    expect(limits::MAX_RESPONSE_BYTES).to eq 8.megabytes
+    expect(limits::MAX_RECEIVED_BYTES).to eq 8.megabytes
+    expect(described_class::FEED_PROFILE.max_received_bytes).to eq 8.megabytes
+    expect(described_class::FEED_PROFILE.max_inflated_bytes).to eq 8.megabytes
     expect(described_class::NODEINFO_PROFILE.max_bytes).to eq 64.kilobytes
     expect(described_class::ACTIVITYPUB_PROFILE.max_bytes).to eq 256.kilobytes
     expect(described_class::ICON_IMAGE_PROFILE.max_bytes).to eq limits::ICON_MAX_BYTES
@@ -493,7 +493,7 @@ RSpec.describe ExternalBridge::RSS::HttpClient do
     end
   end
 
-  it 'rejects the synthetic document at 4 MiB and accepts it only on an explicit larger profile' do
+  it 'accepts the synthetic document at the 8 MiB caps and still rejects it at 4 MiB' do
     document = ExternalBridge::RSS::SyntheticFeed.generate
     expect(document.bytesize).to eq ExternalBridge::RSS::SyntheticFeed::TARGET_BYTES
     expect(document.scan('<item>').size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
@@ -503,6 +503,11 @@ RSpec.describe ExternalBridge::RSS::HttpClient do
     strict = Nokogiri::XML(document) { |config| config.strict.nonet }
     expect(strict.xpath('/rss/channel/item').size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
     expect(ExternalBridge::RSS::Parser.parse!(document).items.size).to eq ExternalBridge::RSS::Limits::MAX_ITEMS
+    narrow = ExternalBridge::RSS::DocumentBudget::Budget.default
+    narrow.max_bytes = 4.megabytes
+    narrow.max_text_bytes = 4.megabytes
+    expect { ExternalBridge::RSS::Parser.parse!(document, budget: narrow) }
+      .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'oversized_feed' }
     expect(document.scan(%r{https://media\.example/audio/\d+\.mp3}).uniq.size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
     expect(document.scan(%r{https://media\.example/images/\d+\.jpg}).uniq.size).to eq ExternalBridge::RSS::SyntheticFeed::ITEMS
 
@@ -516,16 +521,16 @@ RSpec.describe ExternalBridge::RSS::HttpClient do
     expect do
       ExternalBridge::RSS::BodyReader.read!(
         source,
-        received_limit: ExternalBridge::RSS::Limits::MAX_RECEIVED_BYTES,
-        inflated_limit: ExternalBridge::RSS::Limits::MAX_RESPONSE_BYTES
+        received_limit: 4.megabytes,
+        inflated_limit: 4.megabytes
       )
     end.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'oversized_feed' }
     expect(source.remaining_bytes).to be > 1.megabyte
 
     accepted = ExternalBridge::RSS::BodyReader.read!(
       RssScriptedBody.new([document]),
-      received_limit: 8.megabytes,
-      inflated_limit: 8.megabytes
+      received_limit: ExternalBridge::RSS::Limits::MAX_RECEIVED_BYTES,
+      inflated_limit: ExternalBridge::RSS::Limits::MAX_RESPONSE_BYTES
     )
     expect(accepted.bytesize).to eq document.bytesize
 
@@ -541,10 +546,10 @@ RSpec.describe ExternalBridge::RSS::HttpClient do
 
     url = 'https://feeds.example/synthetic.xml'
     stub_request(:get, url).to_return(status: 200, body: document, headers: { 'Content-Type' => 'application/rss+xml' })
+    expect(described_class.get(url).body.bytesize).to eq document.bytesize
     expect(ExternalBridge::RSS::Parser).not_to receive(:parse!)
-    expect { described_class.get(url) }
+    expect { described_class.get(url, profile: feed_limits(received: 4.megabytes, inflated: 4.megabytes)) }
       .to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'oversized_feed' }
-    expect(described_class.get(url, profile: feed_limits(received: 8.megabytes, inflated: 8.megabytes)).body.bytesize).to eq document.bytesize
   end
 
   def with_local_feed
@@ -603,7 +608,7 @@ RSpec.describe 'RSS feed cap failures' do
   end
 
   it 'does not store a source, resource, or projection when the first fetch is too large' do
-    stub_request(:get, feed_url).to_return(status: 200, body: 'x' * (4.megabytes + 1))
+    stub_request(:get, feed_url).to_return(status: 200, body: 'x' * (8.megabytes + 1))
     expect(ExternalBridge::RSS::Parser).not_to receive(:parse!)
 
     expect { ExternalBridge::RSS::Subscribe.new.call(user: user, url: feed_url) }
@@ -631,7 +636,7 @@ RSpec.describe 'RSS feed cap failures' do
     lines = []
     allow(Rails.logger).to receive(:info) { |message| lines << message.to_s }
 
-    stub_request(:get, feed_url).to_return(status: 200, body: 'x' * (4.megabytes + 1), headers: { 'ETag' => 'W/"huge"' })
+    stub_request(:get, feed_url).to_return(status: 200, body: 'x' * (8.megabytes + 1), headers: { 'ETag' => 'W/"huge"' })
     ExternalBridge::RSS::RefreshSourceWorker.new.perform(source.id)
 
     expect(source.reload.attributes.slice(*before_row.keys)).to eq before_row

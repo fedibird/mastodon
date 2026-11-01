@@ -206,13 +206,13 @@ RSpec.describe ExternalBridge::RSS::Parser do
       </rdf:RDF>
     XML
 
-    feed = described_class.parse!(xml)
-    expect(feed.title.to_s).not_to include('SECRET')
+    expect { described_class.parse!(xml) }
+      .to raise_error(ExternalBridge::Error) { |error| expect(error.message).to eq 'invalid_xml' }
   end
 
   it 'distinguishes unreadable XML from a document that is not a feed' do
     expect { described_class.parse!('not xml') }.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'invalid_xml' }
-    expect { described_class.parse!('<rss>') }.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'malformed_feed' }
+    expect { described_class.parse!('<rss>') }.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'invalid_xml' }
     expect { described_class.parse!('<html><body>No</body></html>') }.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'malformed_feed' }
     expect { described_class.parse!(rdf('<channel/>').sub('<channel/>', '')) }.to raise_error(ExternalBridge::Error) { |error| expect(error.code).to eq 'malformed_feed' }
   end

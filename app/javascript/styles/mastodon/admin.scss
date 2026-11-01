@@ -1714,3 +1714,79 @@ a.name-tag,
     }
   }
 }
+
+.composer-toolbar {
+  max-width: 40rem;
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 8px;
+    border: 1px solid lighten($ui-base-color, 8%);
+    border-radius: 4px;
+    background: lighten($ui-base-color, 4%);
+    color: $primary-text-color;
+
+    &.is-dragging {
+      outline: 2px solid $ui-highlight-color;
+    }
+  }
+
+  &__handle,
+  &__move {
+    touch-action: none;
+  }
+
+  &__handle {
+    flex: 0 0 auto;
+    padding: 6px 8px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: grab;
+  }
+
+  &__name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
+
+  &__placement {
+    flex: 1 1 10rem;
+    min-width: 8rem;
+    max-width: 100%;
+  }
+
+  &__moves {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  &__actions {
+    margin: 0;
+  }
+
+  @media screen and (max-width: $no-columns-breakpoint) {
+    &__placement,
+    &__moves {
+      flex-basis: 100%;
+    }
+  }
+}

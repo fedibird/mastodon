@@ -52,11 +52,13 @@ export default class ComposerOverflowMenu extends React.PureComponent {
 
   componentDidMount () {
     document.addEventListener('mousedown', this.handleDocumentClick);
+    document.addEventListener('touchend', this.handleDocumentClick);
     document.addEventListener('keydown', this.handleDocumentKey);
   }
 
   componentWillUnmount () {
     document.removeEventListener('mousedown', this.handleDocumentClick);
+    document.removeEventListener('touchend', this.handleDocumentClick);
     document.removeEventListener('keydown', this.handleDocumentKey);
   }
 
