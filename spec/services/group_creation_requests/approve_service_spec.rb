@@ -55,6 +55,11 @@ RSpec.describe GroupCreationRequests::ApproveService do
     expect(request.reload).to be_approved
     expect(request.initial_owner_account).to eq requester.account
     expect(request.reviewer_account).to eq reviewer.account
+    initial_follow = request.initial_follow
+    expect(initial_follow).to be_succeeded
+    expect(initial_follow.outcome).to eq 'created_follow'
+    expect(initial_follow.relationship_recorded_at).to be_present
+    expect(Follow.where(account: requester.account, target_account: group).count).to eq 1
     policy = group.group_registration_invite_policy
     expect(policy.issuance_enabled).to be false
     expect(policy.shared_registration_quota).to eq 0
@@ -67,7 +72,6 @@ RSpec.describe GroupCreationRequests::ApproveService do
     expect(decision).to be_approved
     expect(decision.reviewer_account).to eq reviewer.account
     expect(decision.group_account).to eq group
-    expect(Follow.where(account: requester.account, target_account: group)).to be_empty
   end
 
   it 'does not enqueue an icon job when the request has no icon' do
@@ -144,6 +148,35 @@ RSpec.describe GroupCreationRequests::ApproveService do
     expect(GroupRoleAssignment.count).to eq 0
     expect(GroupRegistrationInvitePolicy.count).to eq 0
     expect(GroupCreationDecision.count).to eq 0
+    expect(GroupInitialFollow.count).to eq 0
+    expect(Follow.where(target_account: Account.where(username: 'rollbackgroup'))).to be_empty
+  end
+
+  it 'keeps the follow row out of the approval transaction and enqueues it after commit' do
+    request = submit(username: 'latergroup')
+    observed = nil
+    allow(GroupInitialFollows::Worker).to receive(:perform_async) do |request_id|
+      observed = {
+        follows: Follow.where(account_id: request.requester_account_id).count,
+        rows: GroupInitialFollow.where(group_creation_request_id: request_id).count,
+        state: GroupInitialFollow.find_by(group_creation_request_id: request_id)&.state,
+      }
+    end
+
+    expect(approve(request).code).to eq :approved
+    expect(observed).to include(follows: 0, rows: 1, state: 'pending')
+    expect(Follow.where(account_id: request.requester_account_id)).to be_empty
+  end
+
+  it 'leaves the approval in place when the follow job cannot be queued' do
+    request = submit(username: 'queuegroup')
+    allow(GroupInitialFollows::Worker).to receive(:perform_async).and_raise(Redis::CannotConnectError)
+
+    expect(approve(request).code).to eq :approved
+    expect(request.reload).to be_approved
+    expect(request.initial_follow).to be_pending
+    expect(request.initial_follow.last_error).to eq 'enqueue_failed'
+    expect(Follow.where(account_id: request.requester_account_id)).to be_empty
   end
 
   it 'does not copy a later site-default change onto an approved group' do

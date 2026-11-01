@@ -1,6 +1,6 @@
 # グループ作成申請の承認（P2-A）
 
-状態: P2-A。管理者の明示的な承認と却下を内部サービスで行う。User を持たないローカル Group を、検索・フォロー・Announce が扱えるようにする。申請画面の追加、審査画面、招待 URL、初代 owner の自動 Follow は作らない。
+状態: P2-A。管理者の明示的な承認と却下を内部サービスで行う。User を持たないローカル Group を、検索・フォロー・Announce が扱えるようにする。申請画面の追加、審査画面、招待 URLは作らない。初代 owner の自動 Follow は承認トランザクションには入れず、P2-C がコミット後に一度だけ行う。
 
 親は [#674](https://github.com/fedibird/mastodon/issues/674) と [#675](https://github.com/fedibird/mastodon/issues/675)。保存モデルは [group_management_p0.md](group_management_p0.md)。非公開アイコンは [group_management_p1.md](group_management_p1.md)。
 
@@ -46,5 +46,5 @@ Bot からロックされていない Group へのフォローは成立する。
 ## この段階でやらないこと
 
 - 審査画面、一般向けの新しい書込 API、招待 URL、枠の消費
-- 初代 owner の自動 Follow（P2-C）
+- 初代 owner の自動 Follow。P2-A の承認トランザクションでは作らない。P2-C が承認コミットのあと、一度だけ非同期で行う（[group_management_p2c.md](group_management_p2c.md)）
 - 機能フラグを true にすること、本番 migration、本番デプロイ

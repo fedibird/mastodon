@@ -257,7 +257,9 @@ defaults: &defaults
     status_import: 'off'
   # Group creation requests (P1). Off until an operator turns it on.
   # Unset stays off. This is not on the admin settings form. Operators turn
-  # it on from a console for development:
+  # it on from a console for development or staging. P2-C does not change
+  # this default. While it is off, approval and the one-time founding
+  # follow do not run.
   #   Setting.group_creation_requests = true
   group_creation_requests: false
   # Site defaults copied onto a new group's registration-invite policy at

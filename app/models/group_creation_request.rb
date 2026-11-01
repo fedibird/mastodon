@@ -27,6 +27,7 @@ class GroupCreationRequest < ApplicationRecord
   has_one :managed_group, foreign_key: :creation_request_id, inverse_of: :creation_request, dependent: :restrict_with_exception
   has_one :successor_request, class_name: 'GroupCreationRequest', foreign_key: :previous_request_id, inverse_of: :previous_request, dependent: :restrict_with_exception
   has_one :decision, class_name: 'GroupCreationDecision', inverse_of: :group_creation_request, dependent: :restrict_with_exception
+  has_one :initial_follow, class_name: 'GroupInitialFollow', inverse_of: :group_creation_request, dependent: :restrict_with_exception
 
   validates :username, presence: true, format: { with: USERNAME_PATTERN }, length: { maximum: 30 }
   validates_with UnreservedUsernameValidator, on: :create

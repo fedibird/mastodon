@@ -112,7 +112,7 @@ en:
       'yes': 'Yes'
     group_creation_requests:
       approve: Approve
-      approve_confirm: Approve this request and create the group? The requester becomes the first owner. This does not follow the group.
+      approve_confirm: Approve this request and create the group? The requester becomes the first owner. After approval, one follow is queued. It is not created again if they unfollow.
       back: Back to requests
       decision_heading: Review record
       decision_note: Review note
@@ -144,11 +144,34 @@ en:
         staged: Private icon is waiting for review.
       icon: Icon
       icon_absent: No icon was submitted.
+      initial_follow:
+        absent: Not queued. Approvals from before this step are not followed automatically.
+        error: "Last error: %{code}"
+        label: First-owner follow
+        not_following: The first owner is not following the group now. Automatic follow will not put it back.
+        outcome: "Result: %{code}"
+        retry:
+          already_done: The follow attempt already finished. It was not run again.
+          busy: A follow attempt is already running.
+          enqueue_failed: The retry was not queued. Recovery can still pick up an open row.
+          enqueued: The one-time follow was queued again.
+          not_applicable: This request has no one-time follow to retry.
+          not_retryable: This follow cannot be retried.
+        retry_button: Retry one-time follow
+        retry_confirm: Queue the one-time follow again? This does nothing if that attempt already finished, and it does not create another group.
+        states:
+          completed: Finished. A follow or follow request was already there.
+          pending: Queued. The follow has not been attempted yet.
+          permanent_failure: Stopped. It will not be retried until an administrator asks.
+          processing: Running.
+          retryable_failure: Failed. It can be tried again.
+          succeeded: Finished. The follow or follow request was created once.
+        still_following: The first owner is following the group, or a follow request is still open.
       icon_alt: Private icon submitted with this request
       icon_failure_hint: If the image does not appear, the private file could not be read. It is not published as an avatar while the request is pending.
       icon_purged: The private original has been removed.
       initial_owner: First owner
-      lead: Pending requests are listed first. Approving uses the existing review service and creates the group only then. Rejecting requires a reason.
+      lead: Pending requests are listed first. Approving uses the existing review service and creates the group only then. One follow for the first owner is queued after that, and is not repeated if they unfollow. Rejecting requires a reason.
       no_display_name: No display name
       no_note: No description
       note: Description
@@ -160,7 +183,7 @@ en:
       requester_not_ready: This person cannot become an owner until their account is usable again.
       requester_ready: This person can become the first owner.
       results:
-        approved: The request was approved and the group was created. The first owner was not followed automatically.
+        approved: The request was approved and the group was created. One follow for the first owner was queued.
         rejected: The request was rejected. No group was created.
       retry:
         enqueue_failed: The retry was not queued. The hourly recovery can still run if the icon is eligible.
@@ -609,6 +632,7 @@ en:
         reject_group_creation_request: Reject group request
         fail_group_creation_request: Group request decision failed
         retry_icon_group_creation_request: Retry group icon handoff
+        retry_initial_follow_group_creation_request: Retry one-time group follow
         update_group_registration_invite_policy: Update group invite policy
         fail_group_registration_invite_policy: Group invite policy update failed
         update_group_invite_defaults_setting: Update group invite defaults
@@ -671,6 +695,7 @@ en:
         reject_group_creation_request_html: "%{name} rejected group request %{target}"
         fail_group_creation_request_html: "%{name} could not decide group request %{target}"
         retry_icon_group_creation_request_html: "%{name} retried the icon handoff for group request %{target}"
+        retry_initial_follow_group_creation_request_html: "%{name} retried the one-time follow for group request %{target}"
         update_group_registration_invite_policy_html: "%{name} updated the invite policy for group %{target}"
         update_invite_policy_group_registration_invite_policy_html: "%{name} updated the invite policy for group %{target}"
         fail_group_registration_invite_policy_html: "%{name} could not update the invite policy for group %{target}"

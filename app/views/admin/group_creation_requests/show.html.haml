@@ -74,6 +74,16 @@
             %span= t('admin.group_creation_requests.handoff_error', code: @request.icon_handoff_error)
           - if @request.icon_storage_key.present?
             = t('admin.group_creation_requests.handoff_attempts', count: @request.icon_handoff_attempts.to_i)
+      %tr
+        %th= t('admin.group_creation_requests.initial_follow.label')
+        %td
+          = group_initial_follow_label(@request.initial_follow)
+          - if @request.initial_follow&.outcome.present?
+            %span= t('admin.group_creation_requests.initial_follow.outcome', code: @request.initial_follow.outcome)
+          - if @request.initial_follow&.last_error.present?
+            %span= t('admin.group_creation_requests.initial_follow.error', code: @request.initial_follow.last_error)
+          - if @request.initial_follow&.discharged?
+            %p.hint= t(@request.initial_follow.relationship_still_present? ? 'admin.group_creation_requests.initial_follow.still_following' : 'admin.group_creation_requests.initial_follow.not_following')
 
 - if @request.decision
   %h3= t('admin.group_creation_requests.decision_heading')
@@ -108,6 +118,11 @@
       %p.hint= t('admin.group_creation_requests.reject_hint')
     .actions
       = button_tag t('admin.group_creation_requests.reject'), type: 'submit', class: 'button button--destructive', data: { confirm: t('admin.group_creation_requests.reject_confirm') }
+
+- if group_initial_follow_retryable?(@request)
+  = form_tag retry_initial_follow_admin_group_creation_request_path(@request), method: :post do
+    .actions
+      = button_tag t('admin.group_creation_requests.initial_follow.retry_button'), type: 'submit', class: 'button', data: { confirm: t('admin.group_creation_requests.initial_follow.retry_confirm') }
 
 - if group_creation_icon_retryable?(@request)
   = form_tag retry_icon_admin_group_creation_request_path(@request), method: :post do

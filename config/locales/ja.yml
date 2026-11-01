@@ -106,7 +106,7 @@ ja:
       'yes': はい
     group_creation_requests:
       approve: 承認する
-      approve_confirm: この申請を承認してグループを作りますか？申請者が初代オーナーになります。グループのフォローは行いません。
+      approve_confirm: この申請を承認してグループを作りますか？申請者が初代オーナーになります。承認後に一度だけのフォローをキューへ入れます。本人が解除したあとに作り直すことはありません。
       back: 申請一覧へ戻る
       decision_heading: 審査記録
       decision_note: 審査メモ
@@ -138,11 +138,34 @@ ja:
         staged: 非公開アイコンは審査待ちです。
       icon: アイコン
       icon_absent: アイコンは提出されていません。
+      initial_follow:
+        absent: キューに入っていません。この機能より前の承認は、自動ではフォローしません。
+        error: "直近のエラー: %{code}"
+        label: 初代オーナーのフォロー
+        not_following: 初代オーナーは今このグループをフォローしていません。自動フォローでは戻しません。
+        outcome: "結果: %{code}"
+        retry:
+          already_done: フォローの試行は既に終わっているため、再実行しませんでした。
+          busy: フォローの試行が進行中です。
+          enqueue_failed: 再試行をキューに入れられませんでした。未完了の行は復旧処理が引き続き扱えます。
+          enqueued: 一度だけのフォローを再度キューに入れました。
+          not_applicable: この申請に再試行できる一度だけのフォローはありません。
+          not_retryable: このフォローは再試行できません。
+        retry_button: 一度だけのフォローを再試行
+        retry_confirm: 一度だけのフォローを再度キューに入れますか？試行が終わっていれば何もせず、グループはもう一つ作りません。
+        states:
+          completed: 終了しました。フォローまたはフォロー申請が既にありました。
+          pending: キューに入っています。フォローはまだ試していません。
+          permanent_failure: 停止しました。管理者が再試行するまで繰り返しません。
+          processing: 実行中です。
+          retryable_failure: 失敗しました。再試行できます。
+          succeeded: 終了しました。フォローまたはフォロー申請を一度作りました。
+        still_following: 初代オーナーはグループをフォローしているか、フォロー申請が残っています。
       icon_alt: この申請に提出された非公開アイコン
       icon_failure_hint: 画像が表示されない場合、非公開ファイルを読めません。申請が保留の間、アバターとしては公開しません。
       icon_purged: 非公開の元ファイルは削除済みです。
       initial_owner: 初代オーナー
-      lead: 保留中の申請を先に表示します。承認は既存の審査サービスだけが行い、そのとき初めてグループを作ります。却下には理由が必要です。
+      lead: 保留中の申請を先に表示します。承認は既存の審査サービスだけが行い、そのとき初めてグループを作ります。承認後に初代オーナーのフォローを一度だけキューへ入れ、解除後に作り直しません。却下には理由が必要です。
       no_display_name: 表示名なし
       no_note: 説明なし
       note: 説明
@@ -154,7 +177,7 @@ ja:
       requester_not_ready: この人のアカウントが再び使えるようになるまで、オーナーにはできません。
       requester_ready: この人は初代オーナーになれます。
       results:
-        approved: 申請を承認し、グループを作りました。初代オーナーのフォローは自動では行っていません。
+        approved: 申請を承認し、グループを作りました。初代オーナーの一度だけのフォローをキューへ入れました。
         rejected: 申請を却下しました。グループは作っていません。
       retry:
         enqueue_failed: 再試行をキューに入れられませんでした。条件を満たすアイコンは、毎時の復旧が引き続き処理できます。
@@ -596,6 +619,7 @@ ja:
         reject_group_creation_request: グループ申請を却下
         fail_group_creation_request: グループ申請の審査に失敗
         retry_icon_group_creation_request: グループアイコンの引き継ぎを再試行
+        retry_initial_follow_group_creation_request: グループの一度だけのフォローを再試行
         update_group_registration_invite_policy: グループ招待ポリシーを更新
         fail_group_registration_invite_policy: グループ招待ポリシーの更新に失敗
         update_group_invite_defaults_setting: グループ招待の初期値を更新
@@ -656,6 +680,7 @@ ja:
         reject_group_creation_request_html: "%{name} さんがグループ申請 %{target} を却下しました"
         fail_group_creation_request_html: "%{name} さんはグループ申請 %{target} を確定できませんでした"
         retry_icon_group_creation_request_html: "%{name} さんがグループ申請 %{target} のアイコン引き継ぎを再試行しました"
+        retry_initial_follow_group_creation_request_html: "%{name} さんがグループ申請 %{target} の一度だけのフォローを再試行しました"
         update_group_registration_invite_policy_html: "%{name} さんがグループ %{target} の招待ポリシーを更新しました"
         update_invite_policy_group_registration_invite_policy_html: "%{name} さんがグループ %{target} の招待ポリシーを更新しました"
         fail_group_registration_invite_policy_html: "%{name} さんはグループ %{target} の招待ポリシーを更新できませんでした"

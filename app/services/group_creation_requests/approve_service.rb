@@ -4,8 +4,10 @@ module GroupCreationRequests
   # Approves one pending request. The reviewer is checked here, not only in
   # an HTTP filter. The request row is locked, then the group Account,
   # ManagedGroup, owner role, invite-policy snapshot, approved request, and
-  # audit row commit together. A staged icon is revalidated before that
-  # insert and copied only after commit. No follow is created.
+  # audit row, and a pending initial-follow obligation commit together.
+  # A staged icon is revalidated before that insert and copied only after
+  # commit. The Follow itself is not created here. The worker after commit
+  # tries it once.
   class ApproveService
     def self.call(request:, reviewer_account:)
       new(request, reviewer_account).call
@@ -25,6 +27,7 @@ module GroupCreationRequests
         outcome = approve_locked!
       end
       enqueue_icon_handoff
+      enqueue_initial_follow
       outcome
     rescue DecisionError => e
       DecisionResult.new(request: reload_request, code: e.code)
@@ -77,6 +80,7 @@ module GroupCreationRequests
       GroupRegistrationInvitePolicy.copy_site_defaults!(managed_group: managed)
       @request.record_approval!(reviewer_account: @reviewer_account, group_account: group)
       GroupCreationDecision.record!(@request)
+      GroupInitialFollow.create!(group_creation_request: @request)
       group
     end
 
@@ -90,6 +94,24 @@ module GroupCreationRequests
     rescue StandardError => e
       Rails.logger.error("Group creation icon enqueue failed request_id=#{@request.id} error=#{e.class}")
       record_enqueue_failure
+    end
+
+    # Same rule as the icon job: a Redis or Sidekiq miss must not turn a
+    # committed approval into a failure. The row stays pending so recovery
+    # can enqueue it. Nothing here inserts a Follow.
+    def enqueue_initial_follow
+      return if GroupInitialFollow.where(group_creation_request_id: @request.id).none?
+
+      GroupInitialFollows::Worker.perform_async(@request.id)
+    rescue StandardError => e
+      Rails.logger.error("Group initial follow enqueue failed request_id=#{@request.id} error=#{e.class}")
+      record_initial_follow_enqueue_failure
+    end
+
+    def record_initial_follow_enqueue_failure
+      GroupInitialFollow.find_by(group_creation_request_id: @request.id)&.update!(last_error: 'enqueue_failed')
+    rescue StandardError => e
+      Rails.logger.error("Group initial follow enqueue record failed request_id=#{@request.id} error=#{e.class}")
     end
 
     def record_enqueue_failure
