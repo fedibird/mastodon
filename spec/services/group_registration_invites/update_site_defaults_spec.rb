@@ -33,6 +33,12 @@ RSpec.describe GroupRegistrationInvites::UpdateSiteDefaults do
     row ? row.value : 0
   end
 
+  def clear_invite_cache!
+    GroupRegistrationInvites::UpdateSiteDefaults::KEYS.each do |key|
+      Rails.cache.delete(Setting.cache_key(key, nil))
+    end
+  end
+
   def defaults_attributes(quota)
     {
       issuance_enabled: '0',
@@ -75,6 +81,7 @@ RSpec.describe GroupRegistrationInvites::UpdateSiteDefaults do
       per_link_lifetime_seconds: '90',
     }
     expect(call(base).code).to eq :updated
+    clear_invite_cache!
     first = described_class.fingerprint
     expect(GroupRegistrationInvites::SiteDefaults.snapshot[:per_link_max_uses]).to be_nil
     expect(GroupRegistrationInvites::SiteDefaults.snapshot[:per_link_lifetime_seconds]).to be_nil
@@ -82,11 +89,11 @@ RSpec.describe GroupRegistrationInvites::UpdateSiteDefaults do
     changed = described_class.call(actor_account: actor, attributes: base.merge(per_link_max_uses: '9', per_link_lifetime_seconds: '120'), fingerprint: first)
     expect(changed.code).to eq :updated
     expect(described_class.fingerprint).not_to eq first
-    expect(Setting.group_registration_invites_per_link_max_uses).to eq 9
+    expect(database_setting('group_registration_invites_per_link_max_uses')).to eq 9
 
     stale = described_class.call(actor_account: actor, attributes: base.merge(per_link_max_uses: '3'), fingerprint: first)
     expect(stale.code).to eq :conflict
-    expect(Setting.group_registration_invites_per_link_max_uses).to eq 9
+    expect(database_setting('group_registration_invites_per_link_max_uses')).to eq 9
   end
 
   it 'asks for the writer lock before comparing the stored values' do
@@ -171,8 +178,8 @@ RSpec.describe GroupRegistrationInvites::UpdateSiteDefaults do
     expect(snapshot[:shared_registration_quota]).to eq 0
     expect(snapshot[:per_link_max_uses]).to be_nil
     expect(snapshot[:per_link_lifetime_seconds]).to be_nil
-    expect(Setting.group_registration_invites_per_link_max_uses).to eq 6
-    expect(Setting.group_registration_invites_per_link_lifetime_seconds).to eq 90
+    expect(database_setting('group_registration_invites_per_link_max_uses')).to eq 6
+    expect(database_setting('group_registration_invites_per_link_lifetime_seconds')).to eq 90
   end
 end
 
@@ -233,5 +240,42 @@ RSpec.describe 'group invite defaults from two connections' do
     database_quota = Setting.unscoped.find_by!(thing_type: nil, thing_id: nil, var: 'group_registration_invites_shared_quota').value
     expect([4, 8]).to include(database_quota)
     expect(Setting.group_registration_invites_shared_quota).to eq database_quota
+  end
+
+  it 'publishes every saved key after commit, and a late callback does not restore the older value' do
+    actor_id = user_with_role('Owner').account.id
+    first_attributes = defaults_attributes('4').merge(
+      issuance_enabled: '1',
+      per_link_max_uses: '2',
+      per_link_lifetime_seconds: '120'
+    )
+    first = GroupRegistrationInvites::UpdateSiteDefaults.call(
+      actor_account: Account.find(actor_id),
+      attributes: first_attributes,
+      fingerprint: GroupRegistrationInvites::UpdateSiteDefaults.fingerprint
+    )
+    expect(first.code).to eq :updated
+    older = GroupRegistrationInvites::UpdateSiteDefaults::KEYS.map do |key|
+      Setting.unscoped.find_by!(thing_type: nil, thing_id: nil, var: key)
+    end
+    expect_cached_settings_match_database
+
+    second = GroupRegistrationInvites::UpdateSiteDefaults.call(
+      actor_account: Account.find(actor_id),
+      attributes: first_attributes.merge(shared_registration_quota: '8'),
+      fingerprint: GroupRegistrationInvites::UpdateSiteDefaults.fingerprint
+    )
+    expect(second.code).to eq :updated
+    older.each(&:rewrite_cache)
+
+    expect(Setting.group_registration_invites_shared_quota).to eq 8
+    expect_cached_settings_match_database
+  end
+
+  def expect_cached_settings_match_database
+    GroupRegistrationInvites::UpdateSiteDefaults::KEYS.each do |key|
+      row = Setting.unscoped.find_by!(thing_type: nil, thing_id: nil, var: key)
+      expect(Setting[key]).to eq(row.value)
+    end
   end
 end

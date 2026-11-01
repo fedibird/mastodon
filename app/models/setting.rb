@@ -15,8 +15,29 @@
 class Setting < RailsSettings::Base
   source Rails.root.join('config', 'settings.yml')
 
+  # Shared with GroupRegistrationInvites::UpdateSiteDefaults. The transaction
+  # lock and this cache refresh use one advisory-lock key, so a refresh
+  # cannot publish a row that a writer has not committed yet.
+  CACHE_LOCK_KEY = 6_740_002_002
+
   def to_param
     var
+  end
+
+  # The saved instance can be older than the committed row by the time this
+  # runs: commit releases the transaction lock before after_commit. Read the
+  # row again while holding the lock so a newer commit is what gets cached.
+  def rewrite_cache
+    connection = self.class.connection
+    connection.execute("SELECT pg_advisory_lock(#{CACHE_LOCK_KEY})")
+    current = self.class.unscoped.find_by(id: id)
+    if current
+      Rails.cache.write(cache_key, current.value)
+    else
+      expire_cache
+    end
+  ensure
+    connection&.execute("SELECT pg_advisory_unlock(#{CACHE_LOCK_KEY})")
   end
 
   class << self

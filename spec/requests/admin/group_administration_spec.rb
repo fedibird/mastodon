@@ -42,6 +42,12 @@ RSpec.describe 'Admin group administration' do
   let(:moderator) { user_with_role('Moderator') }
   let(:requester) { Fabricate(:user, account: Fabricate(:account, username: 'requester')) }
 
+  def clear_invite_cache!
+    GroupRegistrationInvites::UpdateSiteDefaults::KEYS.each do |key|
+      Rails.cache.delete(Setting.cache_key(key, nil))
+    end
+  end
+
   def defaults_fingerprint(body)
     Nokogiri::HTML(body).at_css('#form_group_registration_invite_defaults_fingerprint')&.[]('value')
   end
@@ -412,6 +418,7 @@ RSpec.describe 'Admin group administration' do
       }
       expect(response).to redirect_to(edit_admin_group_registration_invite_defaults_path)
       expect(Setting.group_creation_requests).to eq false
+      clear_invite_cache!
       expect(Setting.group_registration_invites_shared_quota).to eq 4
       Setting.group_creation_requests = true
       expect(policy.reload.shared_registration_quota).to eq 0

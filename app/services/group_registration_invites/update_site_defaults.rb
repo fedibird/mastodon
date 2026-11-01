@@ -8,11 +8,14 @@ module GroupRegistrationInvites
   # Setting.[]= writes Rails.cache before the surrounding transaction
   # commits. Production cache is Redis, shared by every process, so that
   # would publish a value that might still roll back. This writer saves
-  # the row only. RailsSettings republishes the cache in after_commit,
-  # and publish_cache below covers a test transaction that never commits
-  # the outer savepoint. A failure deletes the keys so the next read
-  # reloads the committed row. The advisory lock does not include console
-  # writes or other admin setting screens.
+  # the row only. RailsSettings republishes each row in after_commit, and
+  # Setting#rewrite_cache reads the committed row under the same advisory
+  # lock. A snapshot written after this method returns could land after a
+  # newer commit and leave the cache behind the database, so there is no
+  # second publish. A rolled-back save does not run after_commit, and this
+  # method does not delete cache keys: doing so can drop a newer update
+  # that already published. The lock does not include console writes or
+  # other admin setting screens.
   class UpdateSiteDefaults
     KEYS = %w(
       group_registration_invites_enabled
@@ -26,7 +29,8 @@ module GroupRegistrationInvites
 
     # Serializes writers. The settings table has no single parent row, so a
     # transaction advisory lock is the critical section for compare-and-set.
-    LOCK_KEY = 6_740_002_002
+    # Cache refresh uses the same key after commit.
+    LOCK_KEY = Setting::CACHE_LOCK_KEY
 
     Result = Struct.new(:code, :errors, keyword_init: true) do
       def success?
@@ -85,7 +89,6 @@ module GroupRegistrationInvites
       return Result.new(code: :not_authorized, errors: []) unless GroupManagement.server_administrator?(@actor_account)
 
       outcome = nil
-      published = nil
       Setting.transaction do
         lock_writers!
         current = locked_stored
@@ -102,21 +105,15 @@ module GroupRegistrationInvites
 
         write!(values)
         audit!(before, values)
-        published = values
         outcome = Result.new(code: :updated, errors: [])
       end
-      publish_cache(published) if published
       outcome
     rescue Conflict
       Result.new(code: :conflict, errors: [:conflict])
     rescue Invalid => e
       Result.new(code: :invalid, errors: e.error_codes)
     rescue GroupAdministration::Audit::Error
-      expire_cache
       Result.new(code: :audit_failed, errors: [:audit_failed])
-    rescue StandardError
-      expire_cache
-      raise
     end
 
     private
@@ -205,12 +202,6 @@ module GroupRegistrationInvites
       end
     end
 
-    def publish_cache(values)
-      values.each do |key, value|
-        Rails.cache.write(Setting.cache_key(key, nil), value)
-      end
-    end
-
     def audit!(before, after)
       setting = Setting.unscoped.find_by!(thing_type: nil, thing_id: nil, var: 'group_registration_invites_enabled')
       GroupAdministration::Audit.record!(
@@ -219,10 +210,6 @@ module GroupRegistrationInvites
         target: setting,
         changes: { 'before' => before, 'after' => after }
       )
-    end
-
-    def expire_cache
-      KEYS.each { |key| Rails.cache.delete(Setting.cache_key(key, nil)) }
     end
   end
 end
