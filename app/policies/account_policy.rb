@@ -74,11 +74,11 @@ class AccountPolicy < ApplicationPolicy
   end
 
   def change_person_type?
-    role.can?(:manage_users) && !record.person_type?
+    role.can?(:manage_users) && !record.person_type? && record.managed_group.nil?
   end
 
   def change_service_type?
-    role.can?(:manage_users) && !record.service_type?
+    role.can?(:manage_users) && !record.service_type? && record.managed_group.nil?
   end
 
   def change_group_type?
