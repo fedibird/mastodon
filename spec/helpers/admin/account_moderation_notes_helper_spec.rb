@@ -58,12 +58,13 @@ RSpec.describe Admin::AccountModerationNotesHelper, type: :helper do
     let(:creation_request) do
       GroupCreationRequest.create!(
         requester_account: Fabricate(:user).account,
-        username: group.username,
+        username: 'adminmanagedgroup',
         display_name: 'Managed group'
       )
     end
 
     before do
+      creation_request # Reserve the requested username before the Actor is created.
       ManagedGroup.create!(account: group, creation_request: creation_request, origin: :approved_request)
     end
 
