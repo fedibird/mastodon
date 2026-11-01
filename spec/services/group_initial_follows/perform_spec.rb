@@ -37,6 +37,12 @@ RSpec.describe GroupInitialFollows::Perform do
     Follow.where(account: owner, target_account: group)
   end
 
+  # A simulated Crash is caught by the spec process, unlike a real process
+  # death. Expire its persisted lease before exercising scheduler recovery.
+  def expire_claim!(record)
+    record.update_columns(claim_expires_at: 1.second.ago)
+  end
+
   it 'does not create a group, an owner, or a follow while the request is pending or rejected' do
     request = submit('stillpending')
 
@@ -100,6 +106,7 @@ RSpec.describe GroupInitialFollows::Perform do
     expect(follows(requester.account, group).count).to eq 1
     expect(record.reload).to be_processing
     expect(record).to be_discharged
+    expect(record.claim_expires_at).to be > Time.current
     expect(record.outcome).to eq 'created_follow'
     expect(record.finished_at).to be_nil
 
@@ -147,7 +154,9 @@ RSpec.describe GroupInitialFollows::Perform do
     expect(jobs).to be_empty
     expect(follows(requester.account, group).count).to eq 1
     expect(record.reload.distribution_enqueued_at).to be_nil
+    expect(record.claim_expires_at).to be > Time.current
 
+    expire_claim!(record)
     described_class.call(record)
     expect(jobs.size).to eq 2
     expect(follows(requester.account, group).count).to eq 1
@@ -161,26 +170,33 @@ RSpec.describe GroupInitialFollows::Perform do
 
   it 'records the empty-home hint with the Follow and replays optional effects after a crash' do
     _request, group, record = approve_without_running('recoverextras')
+    allow(Moderation::FollowGateShadowObserver).to receive(:enabled?).and_return(true)
     expect do
       described_class.call(record, crash_after: :after_latch_commit)
     end.to raise_error(described_class::Crash)
 
     record.reload
     expect(record.home_feed_partial_required?).to be true
+    expect(record.shadow_observation_required?).to be true
+    expect(record.shadow_target_locked?).to be false
     attempted_at = record.relationship_recorded_at
 
     expect(FollowService).to receive(:distribute_persisted!).with(
       instance_of(Follow),
       home_feed_partial_required: true,
+      shadow_observation_required: true,
+      shadow_target_locked: false,
       attempted_at: attempted_at
     ).and_call_original
     expect(Moderation::FollowGateShadowObserver).to receive(:observe).with(
       source_account: requester.account,
       target_account: group,
       mechanism: nil,
+      target_locked: false,
       attempted_at: attempted_at
     )
 
+    expire_claim!(record)
     described_class.call(record.reload)
     expect(record.reload).to be_succeeded
     expect(follows(requester.account, group).count).to eq 1
@@ -198,9 +214,29 @@ RSpec.describe GroupInitialFollows::Perform do
     expect(FollowService).to receive(:distribute_persisted!).with(
       instance_of(Follow),
       home_feed_partial_required: false,
+      shadow_observation_required: false,
+      shadow_target_locked: false,
       attempted_at: record.relationship_recorded_at
     ).and_call_original
 
+    expire_claim!(record)
+    described_class.call(record.reload)
+    expect(record.reload).to be_succeeded
+    expect(follows(requester.account, group).count).to eq 1
+  end
+
+  it 'does not invent a shadow observation when shadow mode is enabled only after the follow' do
+    _request, group, record = approve_without_running('shadowlater')
+    allow(Moderation::FollowGateShadowObserver).to receive(:enabled?).and_return(false)
+    expect do
+      described_class.call(record, crash_after: :after_latch_commit)
+    end.to raise_error(described_class::Crash)
+
+    expect(record.reload.shadow_observation_required?).to be false
+    allow(Moderation::FollowGateShadowObserver).to receive(:enabled?).and_return(true)
+    expect(Moderation::FollowGateShadowObserver).not_to receive(:observe)
+
+    expire_claim!(record)
     described_class.call(record.reload)
     expect(record.reload).to be_succeeded
     expect(follows(requester.account, group).count).to eq 1

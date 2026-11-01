@@ -45,10 +45,12 @@ RSpec.describe FollowService, 'deferred distribution' do
       source_account: source,
       target_account: target,
       mechanism: nil,
+      target_locked: true,
       attempted_at: attempted_at
     )
 
-    described_class.distribute_persisted!(follow, home_feed_partial_required: true, attempted_at: attempted_at)
+    described_class.distribute_persisted!(follow,
+      home_feed_partial_required: true, shadow_observation_required: true, shadow_target_locked: true, attempted_at: attempted_at)
   end
 
   it 'does not create another followed notification while replaying the same committed follow' do
@@ -59,11 +61,54 @@ RSpec.describe FollowService, 'deferred distribution' do
 
     allow(LocalNotificationWorker).to receive(:perform_async)
     allow(MergeWorker).to receive(:perform_async)
-    expect(NotifyService).not_to receive(:new)
+    expect_any_instance_of(NotifyService).to receive(:redeliver_existing!).with(instance_of(Notification))
 
     described_class.distribute_persisted!(follow)
 
     expect(Notification.where(account: source, activity: follow, type: 'followed').count).to eq 1
+  end
+
+  it 're-delivers Push on the existing notification if the first process died after save' do
+    source = Fabricate(:user).account
+    target = Fabricate(:account, username: 'pushreplay')
+    follow = source.follow!(target)
+    notification = Notification.create!(account: source, activity: follow, type: 'followed')
+
+    pushed = []
+    allow_any_instance_of(NotifyService).to receive(:push_notification!) { pushed << notification.id }
+    allow_any_instance_of(NotifyService).to receive(:send_email!)
+    allow(LocalNotificationWorker).to receive(:perform_async)
+    allow(MergeWorker).to receive(:perform_async)
+
+    described_class.distribute_persisted!(follow)
+
+    expect(Notification.where(account: source, activity: follow, type: 'followed').count).to eq 1
+    expect(pushed).to eq [notification.id]
+  end
+
+  it 'sets the regeneration hint before enqueueing MergeWorker during a deferred flush' do
+    source = Fabricate(:user).account
+    target = Fabricate(:account, username: 'orderdeferred')
+    service = described_class.new
+    service.call(source, target, defer_distribution: true)
+
+    expect(service).to receive(:mark_home_feed_as_partial!).ordered
+    allow(LocalNotificationWorker).to receive(:perform_async)
+    expect(MergeWorker).to receive(:perform_async).ordered
+    allow(NotifyService).to receive(:new).and_return(double(call: nil))
+    service.flush_distribution!
+  end
+
+  it 'sets the regeneration hint before enqueueing MergeWorker on recovery' do
+    source = Fabricate(:user).account
+    target = Fabricate(:account, username: 'orderrecover')
+    follow = source.follow!(target)
+
+    expect_any_instance_of(FollowService).to receive(:mark_home_feed_as_partial!).ordered
+    allow(LocalNotificationWorker).to receive(:perform_async)
+    expect(MergeWorker).to receive(:perform_async).ordered
+    allow(NotifyService).to receive(:new).and_return(double(call: nil))
+    described_class.distribute_persisted!(follow, home_feed_partial_required: true)
   end
 
   it 'does not touch Redis or workers until flush, including an option change on an existing follow' do

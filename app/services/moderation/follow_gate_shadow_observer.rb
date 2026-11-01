@@ -17,7 +17,7 @@
 module Moderation
   class FollowGateShadowObserver
     class << self
-      def observe(source_account:, target_account:, mechanism: nil, attempted_at: nil)
+      def observe(source_account:, target_account:, mechanism: nil, attempted_at: nil, target_locked: nil)
         return unless enabled?
         return if source_account.nil? || target_account.nil?
 
@@ -25,7 +25,7 @@ module Moderation
         # decision is evaluated as of the follow attempt — not as of worker
         # execution. This prevents later follows/rejections/blocks from leaking
         # future events into a past attempt's decision during calibration.
-        Moderation::FollowGateShadowWorker.perform_async(source_account.id, shadow_context(target_account, mechanism), (attempted_at || Time.now.utc).utc.iso8601)
+        Moderation::FollowGateShadowWorker.perform_async(source_account.id, shadow_context(target_account, mechanism, target_locked: target_locked), (attempted_at || Time.now.utc).utc.iso8601)
       rescue StandardError => e
         Rails.logger.warn("[Moderation::FollowGateShadowObserver] failed to enqueue shadow observation: #{e.class}: #{e.message}")
         nil
@@ -37,11 +37,11 @@ module Moderation
 
       private
 
-      def shadow_context(target_account, mechanism)
+      def shadow_context(target_account, mechanism, target_locked: nil)
         {
           'mechanism'       => mechanism,
           'target_locality' => target_account.local? ? 'local' : 'remote',
-          'target_locked'   => target_account.locked? ? true : false,
+          'target_locked'   => target_locked.nil? ? target_account.locked? : target_locked,
         }
       end
     end

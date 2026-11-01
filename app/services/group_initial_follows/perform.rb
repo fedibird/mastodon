@@ -72,7 +72,9 @@ module GroupInitialFollows
       publish!(service)
       finalize!
     rescue Crash
-      # Drop only this worker's lease. A newer claim_token must stay.
+      # Drop only an uncommitted attempt's lease. Once the discharge commits,
+      # keep the distribution lease until it expires; another worker must not
+      # resume delivery while the original publisher may still be active.
       release_claim!(@token)
       raise
     rescue Mastodon::NotPermittedError
@@ -115,7 +117,7 @@ module GroupInitialFollows
 
       @record.with_lock do
         @record.reload
-        if @record.claim_token == token && @record.distribution_enqueued_at.nil? && !@record.terminal?
+        if @record.claim_token == token && !@record.discharged? && @record.distribution_enqueued_at.nil? && !@record.terminal?
           @record.update!(claim_expires_at: 1.second.ago)
         end
       end
@@ -163,7 +165,9 @@ module GroupInitialFollows
           latch_attributes(relationship).merge(
             claim_token: token,
             claim_expires_at: GroupInitialFollow::LEASE.from_now,
-            home_feed_partial_required: service.deferred_home_partial?
+            home_feed_partial_required: service.deferred_home_partial?,
+            shadow_observation_required: service.deferred_shadow_snapshot.present?,
+            shadow_target_locked: service.deferred_shadow_snapshot&.dig(:target_locked) == true
           )
         )
         latched = true
@@ -197,6 +201,8 @@ module GroupInitialFollows
       FollowService.distribute_persisted!(
         relationship,
         home_feed_partial_required: @record.home_feed_partial_required?,
+        shadow_observation_required: @record.shadow_observation_required?,
+        shadow_target_locked: @record.shadow_target_locked?,
         attempted_at: @record.relationship_recorded_at
       )
       finish_distribution!(token)

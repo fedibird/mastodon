@@ -211,6 +211,7 @@ RSpec.describe 'Group initial follow concurrency' do
     expect do
       GroupInitialFollows::Perform.call(GroupInitialFollow.find(record_id), crash_after: :after_latch_commit)
     end.to raise_error(GroupInitialFollows::Perform::Crash)
+    GroupInitialFollow.find(record_id).update_columns(claim_expires_at: 1.second.ago)
 
     calls = 0
     entered = Queue.new

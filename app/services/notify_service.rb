@@ -18,6 +18,24 @@ class NotifyService < BaseService
     nil
   end
 
+  # Retry delivery of a notification saved by a previous process, without
+  # inserting another notification. A crash between save! and Push must not
+  # be mistaken for a completed delivery just because the row now exists.
+  # Push and email remain at-least-once until a durable per-channel outbox is
+  # introduced; the existing row ID is reused for replay.
+  def redeliver_existing!(notification)
+    return if notification.nil? || !notification.persisted?
+
+    @notification = notification
+    @recipient = notification.account
+    @activity = notification.activity
+    return if @recipient.nil? || @activity.nil? || @recipient.user.nil? || blocked?
+
+    push_notification!
+    push_to_conversation! if direct_message?
+    send_email! if email_enabled?
+  end
+
   private
 
   def blocked_mention?

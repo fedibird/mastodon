@@ -86,11 +86,15 @@ class FollowService < BaseService
       # what friction the adaptive follow gate WOULD propose. It never alters this
       # follow. A deferred follow enqueues it with the other distribution.
       if defer_distribution?
-        @deferred_shadow = {
-          source_account: @source_account,
-          target_account: @target_account,
-          mechanism: shadow_follow_mechanism,
-        }
+        if Moderation::FollowGateShadowObserver.enabled?
+          @deferred_shadow = {
+            source_account: @source_account,
+            target_account: @target_account,
+            mechanism: shadow_follow_mechanism,
+            target_locked: @target_account.locked?,
+            attempted_at: Time.now.utc,
+          }
+        end
       else
         Moderation::FollowGateShadowObserver.observe(
           source_account: @source_account,
@@ -127,18 +131,28 @@ class FollowService < BaseService
   # obligation stores whether the empty-home hint was needed before inserting
   # its relationship, and passes that along with its original attempt time.
   # Jobs are at-least-once if a process dies between enqueue and the durable
-  # distribution marker. Replaying a "followed" notice checks the persisted
-  # notification first; this limits duplicates but is not an exactly-once
-  # guarantee across separate processes. Follow imports do not use this path.
+  # distribution marker. A persisted "followed" notification is redelivered
+  # using the same DB row: a prior crash after saving it but before Push must
+  # not silently drop that Push. External Push/email may still be repeated.
+  # Follow imports do not use this path.
   def deferred_home_partial?
     @deferred_home_partial == true
   end
 
+  # Capture what was observable at Follow creation. The current shadow flag
+  # remains a kill switch if it is disabled before a deferred send.
+  def deferred_shadow_snapshot
+    @deferred_shadow
+  end
+
   def flush_distribution!
+    # MergeWorker clears the regeneration hint in ensure. Set the hint before
+    # enqueuing Merge, otherwise a fast worker may clear it and we may recreate
+    # a stale, day-long marker after the merge is finished.
+    flush_deferred_home!
     flush_deferred_jobs!
     flush_deferred_notices!
     flush_deferred_activity!
-    flush_deferred_home!
     flush_deferred_shadow!
   end
 
@@ -185,21 +199,41 @@ class FollowService < BaseService
 
   # Distribution for a follow that was committed by an earlier process.
   # Used when that process died before flush_distribution!.
-  def self.distribute_persisted!(record, home_feed_partial_required: false, attempted_at: nil)
+  def self.distribute_persisted!(record, home_feed_partial_required: false, attempted_at: nil, shadow_observation_required: false, shadow_target_locked: false)
     return if record.nil?
 
-    new.distribute_persisted!(record, home_feed_partial_required: home_feed_partial_required, attempted_at: attempted_at)
+    new.distribute_persisted!(
+      record,
+      home_feed_partial_required: home_feed_partial_required,
+      attempted_at: attempted_at,
+      shadow_observation_required: shadow_observation_required,
+      shadow_target_locked: shadow_target_locked
+    )
   end
 
-  def distribute_persisted!(record, home_feed_partial_required: false, attempted_at: nil)
+  def distribute_persisted!(record, home_feed_partial_required: false, attempted_at: nil, shadow_observation_required: false, shadow_target_locked: false)
     source = record.account
     target = record.target_account
+
+    # MergeWorker deletes this hint after the merge. Queueing it first can
+    # leave a stale Redis hint if Merge finishes before this line executes.
+    if home_feed_partial_required
+      @source_account = source
+      mark_home_feed_as_partial!
+    end
+
     if record.is_a?(Follow)
       LocalNotificationWorker.perform_async(target.id, record.id, record.class.name, 'follow')
-      # The followed notification has no general uniqueness constraint.
-      # A replay of the same committed follow must not create another one.
-      already_notified = Notification.where(account_id: source.id, activity_type: record.class.name, activity_id: record.id, type: 'followed').exists?
-      NotifyService.new.call(source, 'followed', record) if source.local? && !already_notified
+      if source.local?
+        existing = Notification.find_by(account_id: source.id, activity_type: record.class.name, activity_id: record.id, type: 'followed')
+        if existing
+          # The row might have committed before the previous process crashed
+          # while sending Push. Resend that *same* row rather than skipping.
+          NotifyService.new.redeliver_existing!(existing)
+        else
+          NotifyService.new.call(source, 'followed', record)
+        end
+      end
       MergeWorker.perform_async(target.id, source.id) if record.delivery?
     elsif target.local?
       LocalNotificationWorker.perform_async(target.id, record.id, record.class.name, 'follow_request')
@@ -208,14 +242,15 @@ class FollowService < BaseService
     end
 
     ActivityTracker.increment('activity:interactions')
-    @source_account = source
-    mark_home_feed_as_partial! if home_feed_partial_required
-    Moderation::FollowGateShadowObserver.observe(
-      source_account: source,
-      target_account: target,
-      mechanism: nil,
-      attempted_at: attempted_at
-    )
+    if shadow_observation_required
+      Moderation::FollowGateShadowObserver.observe(
+        source_account: source,
+        target_account: target,
+        mechanism: nil,
+        target_locked: shadow_target_locked,
+        attempted_at: attempted_at
+      )
+    end
   end
 
   private
