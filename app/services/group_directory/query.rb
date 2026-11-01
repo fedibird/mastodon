@@ -17,12 +17,16 @@
 #
 # Search has two paths. A handle (@name, @name@domain, name@domain) matches
 # username and domain exactly, including a local account looked up by this
-# server's domain, and does not also run a leading-wildcard scan. Any other
-# query of at least two characters matches name, handle, domain, and
-# description, with % and _ as literals. One character that is not a
-# username matches nothing. /api is already covered by the Rack::Attack API
-# throttles. The nodes.info GIN index does not serve
-# LOWER(info->>'software_name'); that predicate stays a filter on Node rows.
+# server's domain, and does not also run a leading-wildcard scan. A handle
+# whose domain cannot be normalized matches nothing. Any other query of at
+# least two characters matches name, handle, domain, and description, with
+# % and _ as literals. One character that is not a username matches nothing;
+# the search form explains that names and descriptions need two characters.
+# /api is already covered by the Rack::Attack API throttles. The nodes.info
+# GIN index does not serve LOWER(info->>'software_name'); that predicate
+# stays a filter on Node rows. A two-character ILIKE, including note, is
+# still a filter on the discoverable-group index. This tree has no
+# production-sized measurement of that filter.
 class GroupDirectory::Query
   MAX_QUERY_LENGTH = 100
   MIN_SUBSTRING_LENGTH = 2
@@ -39,6 +43,8 @@ class GroupDirectory::Query
   SOFTWARE_PATTERN = /\A[a-z0-9][a-z0-9_.-]*\z/
   ACCT_WITH_DOMAIN = /\A@?(?<username>#{Account::USERNAME_RE})@(?<domain>[^@\s]+)\z/i
   ACCT_USERNAME = /\A@(?<username>#{Account::USERNAME_RE})\z/i
+  # A name@domain shape whose domain cannot be normalized. Not a description search.
+  REJECTED_HANDLE = :rejected_handle
 
   def initialize(viewer:, params:, limit:)
     @viewer = viewer
@@ -82,7 +88,10 @@ class GroupDirectory::Query
     query = string_param(:q, MAX_QUERY_LENGTH)
     return scope if query.nil?
 
-    if (acct = exact_acct(query))
+    acct = exact_acct(query)
+    return scope.none if acct == REJECTED_HANDLE
+
+    if acct
       binds = { acct_username: acct[:username] }
       binds[:acct_domain] = acct[:domain] if acct[:domain_constrained]
       return scope.where(acct_clause(acct), binds)
@@ -179,7 +188,7 @@ class GroupDirectory::Query
   def exact_acct(query)
     if (match = query.match(ACCT_WITH_DOMAIN))
       domain = acct_domain(match[:domain])
-      return if domain.nil?
+      return REJECTED_HANDLE if domain.nil?
 
       return { username: match[:username].downcase, domain: domain, domain_constrained: true }
     end

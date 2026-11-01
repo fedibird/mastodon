@@ -68,6 +68,26 @@ describe('GroupDirectoryFilterForm', () => {
     expect(onLeft).toHaveBeenCalledWith({ q: '写真サークル' });
   });
 
+  it('explains a one-character search and hides the note at two characters', () => {
+    const onChange = jest.fn();
+    renderForm({ viewKey: 'route', signedIn: true, onChange });
+    const search = screen.getByRole('searchbox', { name: 'Search groups' });
+    const note = 'Names and descriptions need at least 2 characters. One character matches a username exactly.';
+
+    fireEvent.change(search, { target: { value: '猫' } });
+    expect(screen.getByText(note)).toBeTruthy();
+    expect(search.getAttribute('aria-describedby')).toEqual('group-directory-search-hint-route');
+    jest.advanceTimersByTime(300);
+    expect(onChange).toHaveBeenCalledWith({ q: '猫' });
+
+    fireEvent.change(search, { target: { value: '猫好' } });
+    expect(screen.queryByText(note)).toBeNull();
+    expect(search.getAttribute('aria-describedby')).toBeNull();
+
+    fireEvent.change(search, { target: { value: 'a' } });
+    expect(screen.getByText(note)).toBeTruthy();
+  });
+
   it('clears the search immediately and disables following when logged out', () => {
     const onChange = jest.fn();
     renderForm({ viewKey: 'route', signedIn: false, params: { q: 'books' }, onChange });

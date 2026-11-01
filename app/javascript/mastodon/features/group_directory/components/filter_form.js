@@ -9,6 +9,7 @@ const LANGUAGE_PATTERN = /^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8}){0,3}$/;
 
 const messages = defineMessages({
   search: { id: 'group_directory.search', defaultMessage: 'Search groups' },
+  searchMinLength: { id: 'group_directory.search_min_length', defaultMessage: 'Names and descriptions need at least 2 characters. One character matches a username exactly.' },
   searchPlaceholder: { id: 'group_directory.search_placeholder', defaultMessage: 'Name, @handle, or description' },
   order: { id: 'group_directory.order', defaultMessage: 'Order' },
   recentlyActive: { id: 'group_directory.recently_active', defaultMessage: 'Recently active' },
@@ -240,6 +241,8 @@ class GroupDirectoryFilterForm extends React.PureComponent {
     const { query, detailsOpen, languageMode, languageDraft } = this.state;
     const languageInvalid = languageMode === 'tag' && languageDraft.trim() !== '' && !LANGUAGE_PATTERN.test(languageDraft.trim());
     const detailsId = `group-directory-details-${viewKey}`;
+    const shortQuery = query.trim().length === 1;
+    const searchHintId = `group-directory-search-hint-${viewKey}`;
 
     return (
       <div className='filter-form group-directory-filters'>
@@ -253,9 +256,15 @@ class GroupDirectoryFilterForm extends React.PureComponent {
             onKeyDown={this.handleQueryKeyDown}
             maxLength={SEARCH_LIMIT}
             placeholder={intl.formatMessage(messages.searchPlaceholder)}
+            aria-describedby={shortQuery ? searchHintId : undefined}
             autoComplete='off'
           />
         </label>
+        {shortQuery && (
+          <p id={searchHintId} className='group-directory-filters__hint'>
+            {intl.formatMessage(messages.searchMinLength)}
+          </p>
+        )}
 
         <div className='group-directory-filters__row' role='group' aria-label={intl.formatMessage(messages.order)}>
           <RadioButton name={`group-directory-order-${viewKey}`} value='active' label={intl.formatMessage(messages.recentlyActive)} checked={params.order !== 'new'} onChange={this.handleOrder} />

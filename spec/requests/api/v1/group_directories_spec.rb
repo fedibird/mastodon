@@ -148,6 +148,21 @@ describe 'Group Directory API' do
     expect(GroupDirectory::Query.new(viewer: nil, params: { q: 'a' }, limit: 20).results.to_sql).not_to include('ILIKE')
   end
 
+  it 'does not substring-search a one-character name or a handle with a malformed domain' do
+    directory_group('neko', display_name: '猫', note: '猫好き')
+    directory_group('mentions', note: 'see walkers@https://evil.example please')
+
+    get '/api/v1/group_directory', headers: headers, params: { q: '猫' }
+    expect(response).to have_http_status(200)
+    expect(body_as_json).to be_empty
+    expect(GroupDirectory::Query.new(viewer: nil, params: { q: '猫' }, limit: 20).results.to_sql).not_to include('ILIKE')
+
+    get '/api/v1/group_directory', headers: headers, params: { q: 'walkers@https://evil.example' }
+    expect(response).to have_http_status(200)
+    expect(body_as_json).to be_empty
+    expect(GroupDirectory::Query.new(viewer: nil, params: { q: 'walkers@https://evil.example' }, limit: 20).results.to_sql).not_to include('ILIKE')
+  end
+
   it 'filters by local scope, software, unknown, other, and followed groups' do
     directory_node('lemmy.example', 'lemmy')
     directory_node('blank.example', '   ')

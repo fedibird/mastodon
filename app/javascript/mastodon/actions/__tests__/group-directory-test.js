@@ -1,4 +1,4 @@
-import { Map as ImmutableMap } from 'immutable';
+import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { applyMiddleware, createStore } from 'redux';
 import thunk from 'redux-thunk';
 
@@ -20,6 +20,7 @@ jest.mock('../accounts', () => ({
 }));
 
 import api from '../../api';
+import { groupDirectoryFilterKey } from '../../features/group_directory/params';
 import userLists from '../../reducers/user_lists';
 import { expandGroupDirectory, fetchGroupDirectory } from '../group_directory';
 import { importFetchedAccounts } from '../importer';
@@ -29,13 +30,33 @@ const page = (start, count) => Array.from({ length: count }, (_, index) => ({
   group_directory: { software: 'fedibird', languages: [], capabilities: { posting: null } },
 }));
 
-const makeStore = () => createStore((state = ImmutableMap(), action) => {
+const makeStore = (preloadedState = ImmutableMap()) => createStore((state = preloadedState, action) => {
   if (!String(action.type).startsWith('GROUP_DIRECTORY_')) {
     return state;
   }
 
   return state.set('user_lists', userLists(state.get('user_lists'), action));
-}, applyMiddleware(thunk));
+}, preloadedState, applyMiddleware(thunk));
+
+const directoryAtOffset = (viewKey, nextOffset) => ImmutableMap({
+  user_lists: ImmutableMap({
+    group_directories: ImmutableMap({
+      [viewKey]: ImmutableMap({
+        items: ImmutableList(['1', '2']),
+        directories: ImmutableMap(),
+        isLoading: false,
+        isExpanding: false,
+        exhausted: false,
+        capped: false,
+        error: false,
+        failure: null,
+        nextOffset,
+        filterKey: groupDirectoryFilterKey({ order: 'active' }),
+        requestId: 1,
+      }),
+    }),
+  }),
+});
 
 const directory = (store, viewKey) => store.getState().getIn(['user_lists', 'group_directories', viewKey]);
 
@@ -152,20 +173,28 @@ describe('group directory actions', () => {
     expect(directory(store, 'column:a').getIn(['directories', '9', 'languages']).toArray()).toEqual(['ja']);
   });
 
-  it('stops at the offset cap instead of requesting another page', async () => {
-    const get = jest.fn().mockResolvedValue({ data: page(1, 10001) });
+  it('requests offset 10000 and does not request the following page of 20', async () => {
+    const get = jest.fn().mockResolvedValue({ data: page(10001, 20) });
     api.mockReturnValue({ get });
-    const store = makeStore();
-
-    await store.dispatch(fetchGroupDirectory('column:a', { order: 'active' }));
-    expect(directory(store, 'column:a').get('nextOffset')).toBe(10001);
+    const store = makeStore(directoryAtOffset('column:a', 10000));
 
     await store.dispatch(expandGroupDirectory('column:a', { order: 'active' }));
 
     expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith('/api/v1/group_directory', {
+      params: { order: 'active', limit: 20, offset: 10000 },
+    });
+    expect(directory(store, 'column:a').get('nextOffset')).toBe(10020);
+    expect(directory(store, 'column:a').get('capped')).toBe(false);
+    expect(directory(store, 'column:a').get('items').size).toBe(22);
+
+    await store.dispatch(expandGroupDirectory('column:a', { order: 'active' }));
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(directory(store, 'column:a').get('nextOffset')).toBe(10020);
     expect(directory(store, 'column:a').get('capped')).toBe(true);
     expect(directory(store, 'column:a').get('exhausted')).toBe(true);
-    expect(directory(store, 'column:a').get('items').size).toBe(10001);
+    expect(directory(store, 'column:a').get('items').size).toBe(22);
     expect(directory(store, 'column:a').get('error')).toBe(false);
   });
 

@@ -595,6 +595,7 @@
   "group_directory.scope_following_disabled": "Log in to filter by groups you follow",
   "group_directory.scope_local": "On this server",
   "group_directory.search": "Search groups",
+  "group_directory.search_min_length": "Names and descriptions need at least 2 characters. One character matches a username exactly.",
   "group_directory.search_placeholder": "Name, @handle, or description",
   "group_directory.software": "Implementation",
   "group_directory.software_all": "All implementations",

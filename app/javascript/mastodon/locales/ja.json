@@ -595,6 +595,7 @@
   "group_directory.scope_following_disabled": "ログインするとフォロー中で絞り込めます",
   "group_directory.scope_local": "このサーバー",
   "group_directory.search": "グループを検索",
+  "group_directory.search_min_length": "名前・説明は2文字以上で検索します。1文字はユーザー名の完全一致だけです。",
   "group_directory.search_placeholder": "名前、@acct、説明",
   "group_directory.software": "実装",
   "group_directory.software_all": "すべての実装",
