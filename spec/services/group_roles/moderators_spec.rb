@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe GroupRoles::Moderators do
+RSpec.describe GroupRoles::Moderators do # rubocop:disable Metrics/BlockLength
   before { load Rails.root.join('db', 'seeds', '03_roles.rb') }
 
   let(:owner) { Fabricate(:user) }
@@ -52,7 +52,7 @@ RSpec.describe GroupRoles::Moderators do
     expect(appoint(outsider.account)).to eq(:not_authorized)
     expect(appoint(moderator.account)).to eq(:not_authorized)
     expect(appoint(owner.account, owner.account)).to eq(:already_assigned)
-    expect(appoint(owner.account, Fabricate(:account, username: 'remoteP3', domain: 'other.example'))).to eq(:invalid_target)
+    expect(appoint(owner.account, Fabricate(:account, username: 'remotep3', domain: 'other.example'))).to eq(:invalid_target)
     expect(appoint(owner.account, group)).to eq(:invalid_target)
     bot = Fabricate(:user, account: Fabricate(:account, username: 'p3bot', actor_type: 'Service'))
     expect(appoint(owner.account, bot.account)).to eq(:invalid_target)

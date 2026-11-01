@@ -24,8 +24,6 @@
             %td
               - if @viewer_role.owner?
                 = button_to t('group_role_management.revoke'), revoke_moderator_settings_managed_group_path(@managed_group), method: :post, params: { member_account_id: assignment.member_account_id }, class: 'button negative', data: { confirm: t('group_role_management.confirm_revoke') }
-              - elsif assignment.member_account_id == current_account.id
-                = button_to t('group_role_management.resign'), resign_moderator_settings_managed_group_path(@managed_group), method: :post, class: 'button negative', data: { confirm: t('group_role_management.confirm_resign') }
 
 - if @viewer_role.owner?
   %h3= t('group_role_management.appoint')

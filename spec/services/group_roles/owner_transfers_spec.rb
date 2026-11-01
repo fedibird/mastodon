@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe GroupRoles::OwnerTransfers do
+RSpec.describe GroupRoles::OwnerTransfers do # rubocop:disable Metrics/BlockLength
   before { load Rails.root.join('db', 'seeds', '03_roles.rb') }
 
   let(:owner) { Fabricate(:user) }
@@ -59,6 +59,19 @@ RSpec.describe GroupRoles::OwnerTransfers do
     old = pending
     expect(described_class.accept(offer: old, actor_account: successor.account)).to eq(:accepted)
     expect(described_class.accept(offer: old, actor_account: successor.account)).to eq(:not_pending)
+  end
+
+  it 'replaces a pending offer and invalidates the old candidate' do
+    expect(offer).to eq(:offered)
+    first = pending
+    next_candidate = outsider.account
+
+    expect(offer(next_candidate)).to eq(:offered)
+    expect(first.reload).to be_cancelled
+    expect(pending.candidate_account).to eq(next_candidate)
+    expect(described_class.accept(offer: first, actor_account: successor.account)).to eq(:not_pending)
+    expect(described_class.accept(offer: pending, actor_account: outsider.account)).to eq(:accepted)
+    expect(GroupRoleAssignment.active.owner.find_by!(group_account_id: group.id).member_account).to eq(outsider.account)
   end
 
   it 'cancels a pending offer and prevents acceptance' do

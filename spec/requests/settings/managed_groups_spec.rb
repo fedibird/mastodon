@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe 'Personal group role management' do
+RSpec.describe 'Personal group role management' do # rubocop:disable Metrics/BlockLength
   before do
     https!
     stub_webpacker_manifest

@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe 'Personal group management CSRF' do
+RSpec.describe 'Personal group management CSRF' do # rubocop:disable Metrics/BlockLength
   before do
     https!
     stub_webpacker_manifest

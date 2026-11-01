@@ -4,10 +4,10 @@ Source: #657 / #685. Builds on the merged P0–P2 code; unrelated to remote Grou
 
 ## Boundaries
 
-- The active owner is the one \`GroupRoleAssignment.active.owner\` row, not \`Account.user\` or a Follow.
+- The active owner is the one `GroupRoleAssignment.active.owner` row, not `Account.user` or a Follow.
 - Only the active owner can appoint or remove moderators or propose/cancel an owner-transfer offer. A moderator can resign their own role. A successor can accept **only** an unexpired offer addressed to their own local functional Person Account.
 - No action from this phase changes a Follow/FollowRequest, GroupAffiliation, group posts/Announce, server privileges, or login sessions.
-- \`GroupCreationRequest.initial_owner_account_id\` is a historical snapshot and never changes during a transfer. Legacy groups remain outside P3-A.
+- `GroupCreationRequest.initial_owner_account_id` is a historical snapshot and never changes during a transfer. Legacy groups remain outside P3-A.
 - Transfer offers last 7 days. A subsequent offer supersedes an earlier one only under the same ManagedGroup row lock. There is one pending offer per group at the DB level; expiration is checked on acceptance, not by a background job.
 - A successor who is currently a moderator has that moderator row revoked in the same transaction before the new owner row is inserted. Role assignment history stays intact.
 
