@@ -68,7 +68,7 @@ class Settings::ManagedGroupsController < Settings::BaseController
   end
 
   def accept_transfer
-    offer = GroupOwnerTransferOffer.find(params[:offer_id])
+    offer = GroupOwnerTransferOffer.where(candidate_account_id: current_account.id).find(params[:offer_id])
     status = GroupRoles::OwnerTransfers.accept(offer: offer, actor_account: current_account)
     finish(status, settings_managed_groups_path)
   end

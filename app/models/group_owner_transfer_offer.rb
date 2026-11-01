@@ -50,7 +50,7 @@ class GroupOwnerTransferOffer < ApplicationRecord
   def valid_transition
     return unless will_save_change_to_state?
 
-    errors.add(:state, :invalid) unless state_in_database == self.class.states.fetch('pending') && (accepted? || cancelled?)
+    errors.add(:state, :invalid) unless (self.class.states.key(state_in_database) || state_in_database).to_s == 'pending' && (accepted? || cancelled?)
   end
 
   def response_shape
