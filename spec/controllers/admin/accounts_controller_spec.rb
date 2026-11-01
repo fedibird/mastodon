@@ -109,7 +109,8 @@ RSpec.describe Admin::AccountsController, type: :controller do
         headers = doc.css('.inline-table th').map { |element| element.text.strip }
         expect(headers).to include(I18n.t('admin.accounts.type'), I18n.t('admin.accounts.priority'), I18n.t('admin.accounts.joined'))
         expect(headers).not_to include(I18n.t('admin.accounts.role'), I18n.t('admin.accounts.email'), I18n.t('admin.accounts.security'))
-        expect(response.body).not_to include(person_admin_account_type_path(account.id), service_admin_account_type_path(account.id))
+        expect(response.body).not_to include(person_admin_account_type_path(account.id))
+        expect(response.body).not_to include(service_admin_account_type_path(account.id))
       end
 
       it 'prioritizes suspension status over the no-login label' do
