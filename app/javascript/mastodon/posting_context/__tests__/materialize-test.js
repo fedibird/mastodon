@@ -25,6 +25,15 @@ describe('materializeComposerText', () => {
     expect(materializeComposerText(composerWith('Hello'))).toEqual('@group Hello\n\n#foo');
   });
 
+  it('merges authored and managed terminal tags in the submit text without mutating the draft', () => {
+    const composer = composerWith('Hello\n#manual');
+
+    expect(materializeComposerText(composer)).toEqual('@group Hello\n\n#manual #foo');
+    expect(composer.get('text')).toEqual('Hello\n#manual');
+    expect(materializeComposerText(composerWith('Hello\n#foo'))).toEqual('@group Hello\n\n#foo');
+    expect(materializeComposerText(composerWith('Hello #inline\n#manual'))).toEqual('@group Hello #inline\n\n#manual #foo');
+  });
+
   it('returns raw text while editing an existing or scheduled status', () => {
     expect(materializeComposerText(composerWith('Hello', { id: 'status-1' }))).toEqual('Hello');
     expect(materializeComposerText(composerWith('Hello', { scheduledStatusId: 'sched-1' }))).toEqual('Hello');
