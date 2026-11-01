@@ -32,7 +32,7 @@ class ActivityPub::Activity::Follow < ActivityPub::Activity
 
     follow_request = FollowRequest.create!(account: @account, target_account: target_account, uri: @json['id'])
 
-    if target_account.locked? || @account.silenced? || @account.bot? && target_account.user.setting_confirm_follow_from_bot
+    if follow_needs_confirmation?(target_account)
       NotifyService.new.call(target_account, :follow_request, follow_request)
     else
       AuthorizeFollowService.new.call(@account, target_account)
@@ -53,6 +53,17 @@ class ActivityPub::Activity::Follow < ActivityPub::Activity
   end
 
   private
+
+  # Same rule as FollowService. A group has no user, so a bot follow of an
+  # unlocked group is accepted. A locked group stays a request. A Person
+  # keeps setting_confirm_follow_from_bot.
+  def follow_needs_confirmation?(target_account)
+    return true if target_account.locked? || @account.silenced?
+    return false unless @account.bot?
+    return false if target_account.group?
+
+    target_account.user&.setting_confirm_follow_from_bot
+  end
 
   def record_inbound_follow(target_account)
     source_record = ::Follow.find_by(account: @account, target_account: target_account) ||

@@ -17,8 +17,11 @@ module GroupCreationRequests
       request.requester_account_id == account.id
     end
 
-    def reviewer?(_request, _account)
-      false
+    # Server administrators may be shown a staged icon by a later review
+    # screen. This does not add that screen. The settings controller still
+    # loads only the signed-in account's own requests.
+    def reviewer?(_request, account)
+      GroupManagement.server_administrator?(account)
     end
   end
 end

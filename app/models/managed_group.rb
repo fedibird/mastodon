@@ -9,6 +9,7 @@ class ManagedGroup < ApplicationRecord
   belongs_to :account, inverse_of: :managed_group
   belongs_to :creation_request, class_name: 'GroupCreationRequest', optional: true, inverse_of: :managed_group
   has_many :role_assignments, class_name: 'GroupRoleAssignment', foreign_key: :group_account_id, primary_key: :account_id, inverse_of: :managed_group
+  has_one :registration_invite_policy, class_name: 'GroupRegistrationInvitePolicy', inverse_of: :managed_group, dependent: :restrict_with_exception
 
   validates :origin, presence: true
   validates :account_id, uniqueness: true

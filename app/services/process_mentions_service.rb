@@ -225,10 +225,13 @@ class ProcessMentionsService < BaseService
     status            = mention.status || @status
 
     if mentioned_account.local? && mentioned_account.group?
-      group      = mentioned_account
-      visibility = Status.visibilities.key([Status.visibilities[status.visibility], Status.visibilities[group.user&.setting_default_privacy]].max)
+      return unless ActivityPub::GroupAnnounce.announce?(status, mentioned_account)
 
-      ReblogService.new.call(group, status, { visibility: visibility })
+      ReblogService.new.call(
+        mentioned_account,
+        status,
+        { visibility: ActivityPub::GroupAnnounce.visibility_for(status, mentioned_account) }
+      )
     elsif mentioned_account.local?
       LocalNotificationWorker.perform_async(mentioned_account.id, mention.id, mention.class.name, 'mention')
     elsif mentioned_account.activitypub? && !covered_by_audience_delivery?(mentioned_account, status)

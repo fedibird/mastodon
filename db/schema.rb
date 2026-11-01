@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_12_093000) do
+ActiveRecord::Schema.define(version: 2026_11_12_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1425,6 +1425,20 @@ ActiveRecord::Schema.define(version: 2026_11_12_093000) do
     t.index ["group_account_id"], name: "index_group_affiliations_on_group_account_id"
   end
 
+create_table "group_creation_decisions", force: :cascade do |t|
+    t.bigint "group_creation_request_id", null: false
+    t.bigint "reviewer_account_id", null: false
+    t.bigint "group_account_id"
+    t.integer "action", null: false
+    t.text "decision_note"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["group_account_id"], name: "index_group_creation_decisions_on_group_account_id"
+    t.index ["group_creation_request_id"], name: "index_group_creation_decisions_on_request_id", unique: true
+    t.index ["reviewer_account_id"], name: "index_group_creation_decisions_on_reviewer_account_id"
+    t.check_constraint "((action = 0) AND (group_account_id IS NOT NULL)) OR ((action = 1) AND (group_account_id IS NULL) AND (decision_note IS NOT NULL) AND (btrim(decision_note) <> ''::text))", name: "group_creation_decisions_shape"
+  end
+
 create_table "group_creation_requests", force: :cascade do |t|
     t.bigint "requester_account_id", null: false
     t.string "username", limit: 30, null: false
@@ -1447,6 +1461,11 @@ create_table "group_creation_requests", force: :cascade do |t|
     t.integer "icon_byte_size"
     t.datetime "icon_purged_at"
     t.string "submission_token"
+    t.datetime "icon_handoff_copied_at"
+    t.string "icon_handoff_source_digest", limit: 64
+    t.integer "icon_handoff_attempts", default: 0, null: false
+    t.string "icon_handoff_error", limit: 64
+    t.datetime "icon_handoff_failed_at"
     t.index "lower((username)::text)", name: "index_group_creation_requests_on_lower_username"
     t.index ["icon_storage_key"], name: "index_group_creation_requests_on_icon_storage_key", unique: true, where: "(icon_storage_key IS NOT NULL)"
     t.index ["submission_token"], name: "index_group_creation_requests_on_submission_token", unique: true, where: "(submission_token IS NOT NULL)"
@@ -1456,12 +1475,33 @@ create_table "group_creation_requests", force: :cascade do |t|
     t.index ["requested_at"], name: "index_group_creation_requests_on_pending_requested_at", where: "(state = 0)"
     t.index ["requester_account_id", "requested_at"], name: "index_group_creation_requests_on_requester_requested_at"
     t.index ["requester_account_id"], name: "index_group_creation_requests_on_requester_account_id"
+    t.index ["reviewed_at"], name: "index_group_creation_requests_on_open_icon_handoff", where: "((state = 1) AND (icon_storage_key IS NOT NULL) AND (icon_purged_at IS NULL))"
     t.index ["reviewer_account_id"], name: "index_group_creation_requests_on_reviewer_account_id"
     t.check_constraint "((state = 0) AND (reviewer_account_id IS NULL) AND (reviewed_at IS NULL) AND (decision_note IS NULL) AND (group_account_id IS NULL) AND (cancelled_at IS NULL) AND (initial_owner_account_id IS NULL)) OR ((state = 1) AND (reviewer_account_id IS NOT NULL) AND (reviewed_at IS NOT NULL) AND (group_account_id IS NOT NULL) AND (cancelled_at IS NULL) AND (initial_owner_account_id IS NOT NULL)) OR ((state = 2) AND (reviewer_account_id IS NOT NULL) AND (reviewed_at IS NOT NULL) AND (decision_note IS NOT NULL) AND (btrim(decision_note) <> ''::text) AND (group_account_id IS NULL) AND (cancelled_at IS NULL) AND (initial_owner_account_id IS NULL)) OR ((state = 3) AND (reviewer_account_id IS NULL) AND (reviewed_at IS NULL) AND (group_account_id IS NULL) AND (cancelled_at IS NOT NULL) AND (initial_owner_account_id IS NULL))", name: "group_creation_requests_state_shape"
     t.check_constraint "(previous_request_id IS NULL) OR (previous_request_id <> id)", name: "group_creation_requests_previous_not_self"
     t.check_constraint "(username)::text ~ '^[a-z0-9_]{1,30}$'::text", name: "group_creation_requests_username_shape"
     t.check_constraint "((icon_storage_key IS NULL) AND (icon_content_type IS NULL) AND (icon_byte_size IS NULL) AND (icon_purged_at IS NULL)) OR ((icon_storage_key IS NOT NULL) AND ((icon_storage_key)::text ~ '^[0-9a-f]{64}$'::text) AND ((icon_content_type)::text = ANY (ARRAY[('image/jpeg'::character varying)::text, ('image/png'::character varying)::text, ('image/gif'::character varying)::text, ('image/webp'::character varying)::text, ('image/bmp'::character varying)::text, ('image/vnd.microsoft.icon'::character varying)::text])) AND (icon_byte_size IS NOT NULL) AND (icon_byte_size > 0) AND (icon_byte_size < 4194304))", name: "group_creation_requests_icon_shape"
     t.check_constraint "(submission_token IS NULL) OR ((submission_token)::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text)", name: "group_creation_requests_submission_token_shape"
+    t.check_constraint "(icon_handoff_attempts >= 0) AND ((icon_handoff_error IS NULL) OR ((icon_handoff_error)::text ~ '^[a-z0-9_]{1,64}$'::text)) AND ((icon_handoff_source_digest IS NULL) OR ((icon_handoff_source_digest)::text ~ '^[0-9a-f]{64}$'::text)) AND ((icon_handoff_copied_at IS NULL) OR ((state = 1) AND (icon_handoff_source_digest IS NOT NULL))) AND ((icon_storage_key IS NOT NULL) OR ((icon_handoff_copied_at IS NULL) AND (icon_handoff_source_digest IS NULL) AND (icon_handoff_failed_at IS NULL) AND (icon_handoff_error IS NULL) AND (icon_handoff_attempts = 0)))", name: "group_creation_requests_icon_handoff_shape"
+  end
+
+create_table "group_registration_invite_policies", force: :cascade do |t|
+    t.bigint "managed_group_id", null: false
+    t.bigint "group_account_id", null: false
+    t.boolean "issuance_enabled", null: false
+    t.integer "shared_registration_quota", null: false
+    t.boolean "shared_quota_unlimited", default: false, null: false
+    t.integer "per_link_max_uses"
+    t.boolean "per_link_unlimited_uses", default: false, null: false
+    t.integer "per_link_lifetime_seconds"
+    t.boolean "per_link_indefinite", default: false, null: false
+    t.datetime "copied_at", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["group_account_id"], name: "index_group_invite_policies_on_group_account_id", unique: true
+    t.index ["managed_group_id"], name: "index_group_invite_policies_on_managed_group_id", unique: true
+    t.check_constraint "(shared_registration_quota >= 0) AND (((shared_quota_unlimited = true) AND (shared_registration_quota = 0)) OR (shared_quota_unlimited = false)) AND (((per_link_unlimited_uses = true) AND (per_link_max_uses IS NULL)) OR ((per_link_unlimited_uses = false) AND (per_link_max_uses IS NOT NULL) AND (per_link_max_uses >= 1))) AND (((per_link_indefinite = true) AND (per_link_lifetime_seconds IS NULL)) OR ((per_link_indefinite = false) AND (per_link_lifetime_seconds IS NOT NULL) AND (per_link_lifetime_seconds >= 1)))", name: "group_registration_invite_policies_limits"
   end
 
   create_table "group_languages", force: :cascade do |t|
@@ -2641,12 +2681,17 @@ create_table "managed_groups", force: :cascade do |t|
   add_foreign_key "follows", "accounts", column: "target_account_id", name: "fk_745ca29eac", on_delete: :cascade
   add_foreign_key "follows", "accounts", name: "fk_32ed1b5560", on_delete: :cascade
   add_foreign_key "group_affiliations", "accounts", column: "group_account_id", on_delete: :cascade
+  add_foreign_key "group_creation_decisions", "accounts", column: "group_account_id", on_delete: :restrict
+  add_foreign_key "group_creation_decisions", "accounts", column: "reviewer_account_id", on_delete: :restrict
+  add_foreign_key "group_creation_decisions", "group_creation_requests", on_delete: :restrict
   add_foreign_key "group_creation_requests", "accounts", column: "group_account_id", on_delete: :restrict
   add_foreign_key "group_creation_requests", "accounts", column: "initial_owner_account_id", on_delete: :restrict
   add_foreign_key "group_creation_requests", "accounts", column: "requester_account_id", on_delete: :restrict
   add_foreign_key "group_creation_requests", "accounts", column: "reviewer_account_id", on_delete: :restrict
   add_foreign_key "group_creation_requests", "group_creation_requests", column: "previous_request_id", on_delete: :restrict
   add_foreign_key "group_languages", "accounts", on_delete: :cascade
+  add_foreign_key "group_registration_invite_policies", "accounts", column: "group_account_id", on_delete: :restrict
+  add_foreign_key "group_registration_invite_policies", "managed_groups", on_delete: :restrict
   add_foreign_key "group_role_assignments", "accounts", column: "granted_by_account_id", on_delete: :nullify
   add_foreign_key "group_role_assignments", "accounts", column: "group_account_id", on_delete: :restrict
   add_foreign_key "group_role_assignments", "accounts", column: "member_account_id", on_delete: :restrict

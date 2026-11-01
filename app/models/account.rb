@@ -145,7 +145,20 @@ class Account < ApplicationRecord
   scope :matches_username, ->(value) { where('lower((username)::text) LIKE lower(?)', "#{value}%") }
   scope :matches_display_name, ->(value) { where(arel_table[:display_name].matches("#{value}%")) }
   scope :matches_domain, ->(value) { where(arel_table[:domain].matches("%#{value}%")) }
-  scope :without_unapproved, -> { left_outer_joins(:user).remote.or(left_outer_joins(:user).merge(User.approved.confirmed)) }
+  # Remote actors, local accounts with a confirmed approved login, and local
+  # groups that have a managed row. A managed row is written only when an
+  # approval commits, so a user-less approved group can be found without
+  # treating an unapproved person as searchable. Legacy local groups keep
+  # their login and still match the user clause. A local group with neither
+  # a login nor a managed row stays out.
+  scope :without_unapproved, -> {
+    with_user = left_outer_joins(:user)
+    managed = ManagedGroup.arel_table
+    managed_exists = ManagedGroup.where(managed[:account_id].eq(arel_table[:id])).arel.exists
+    local_managed_group = with_user.where(domain: nil, actor_type: 'Group').where(managed_exists)
+
+    with_user.remote.or(with_user.merge(User.approved.confirmed)).or(local_managed_group)
+  }
   scope :searchable, -> { without_unapproved.without_suspended.where(moved_to_account_id: nil) }
   scope :discoverable, -> { searchable.without_silenced.where(discoverable: true).joins(:account_stat) }
   scope :followable_by, ->(account) { joins(arel_table.join(Follow.arel_table, Arel::Nodes::OuterJoin).on(arel_table[:id].eq(Follow.arel_table[:target_account_id]).and(Follow.arel_table[:account_id].eq(account.id))).join_sources).where(Follow.arel_table[:id].eq(nil)).joins(arel_table.join(FollowRequest.arel_table, Arel::Nodes::OuterJoin).on(arel_table[:id].eq(FollowRequest.arel_table[:target_account_id]).and(FollowRequest.arel_table[:account_id].eq(account.id))).join_sources).where(FollowRequest.arel_table[:id].eq(nil)) }

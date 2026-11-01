@@ -729,7 +729,7 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
   def distribute_group(status)
     return unless @options[:delivery]
 
-    ActivityPub::GroupDistributionWorker.perform_async(status.id) if Account.local.groups.where(id: @status.mentions.select(:account_id)).joins(:passive_relationships).exists?
+    ActivityPub::GroupDistributionWorker.perform_async(status.id) if Account.local.groups.where(id: @status.mentions.active.select(:account_id)).joins(:passive_relationships).exists?
   end
 
   def increment_voters_count!
