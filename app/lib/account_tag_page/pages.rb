@@ -16,6 +16,12 @@ module AccountTagPage
         ELSE nodes.nodeinfo #>> '{software,version}'
       END
     SQL
+    # Status has no maximum reblog or quote depth. Each id is fetched once.
+    # A long chain or a wide shared-child graph stops here; domains past the
+    # cap are omitted and the status response still renders.
+    MAX_NESTED_DEPTH = 8
+    MAX_NESTED_IDS = 200
+    private_constant :SOFTWARE_NAME_SQL, :SOFTWARE_VERSION_SQL, :MAX_NESTED_DEPTH, :MAX_NESTED_IDS
 
     def self.prefetch(statuses)
       software = load_software(remote_domains(statuses))
@@ -77,7 +83,7 @@ module AccountTagPage
         seen = {}
 
         records.each { |status| collect(status, domains, account_ids, nested_status_ids, seen) }
-        domains.concat(domains_for_nested(nested_status_ids))
+        domains.concat(domains_for_nested(nested_status_ids, seen))
         domains.concat(Account.where(id: account_ids.uniq).where.not(domain: nil).pluck(:domain)) if account_ids.any?
         domains.compact.map { |domain| domain.to_s.downcase }.uniq.reject(&:empty?)
       end
@@ -117,30 +123,50 @@ module AccountTagPage
         end
       end
 
-      # One query for every unloaded reblog or quote, at any depth. Loaded
-      # records are walked in memory and are not selected again. Cycles and
-      # ids already seen are skipped.
-      def domains_for_nested(status_ids)
-        ids = status_ids.compact.uniq
-        return [] if ids.empty?
+      # Breadth-first by id. A shared child is selected once, not once per path.
+      # Past MAX_NESTED_DEPTH or MAX_NESTED_IDS the rest are left unresolved.
+      def domains_for_nested(status_ids, seen)
+        pending = status_ids.compact.uniq.reject { |id| seen[id] }
+        return [] if pending.empty?
 
-        sql = ActiveRecord::Base.sanitize_sql_array([<<~SQL.squish, ids])
-          WITH RECURSIVE nest AS (
-            SELECT id, account_id, reblog_of_id, quote_id, ARRAY[id] AS path
-            FROM statuses
-            WHERE id IN (?)
-            UNION ALL
-            SELECT child.id, child.account_id, child.reblog_of_id, child.quote_id, nest.path || child.id
-            FROM statuses child
-            INNER JOIN nest ON child.id = nest.reblog_of_id OR child.id = nest.quote_id
-            WHERE NOT child.id = ANY(nest.path)
-          )
-          SELECT DISTINCT accounts.domain
-          FROM nest
-          INNER JOIN accounts ON accounts.id = nest.account_id
-          WHERE accounts.domain IS NOT NULL
-        SQL
-        ActiveRecord::Base.connection.select_values(sql)
+        account_ids = []
+        depth = 0
+        fetched = 0
+        truncated = false
+
+        while pending.any? && depth < MAX_NESTED_DEPTH && fetched < MAX_NESTED_IDS
+          unseen = pending.uniq.reject { |id| seen[id] }
+          batch = unseen.take(MAX_NESTED_IDS - fetched)
+          truncated ||= unseen.size > batch.size
+          break if batch.empty?
+
+          rows = Status.where(id: batch).pluck(:id, :account_id, :reblog_of_id, :quote_id)
+          found = rows.to_h { |id, account_id, reblog_id, quote_id| [id, [account_id, reblog_id, quote_id]] }
+          depth += 1
+          next_ids = []
+          follow = depth < MAX_NESTED_DEPTH && (fetched + batch.size) < MAX_NESTED_IDS
+
+          batch.each do |id|
+            seen[id] = true
+            fetched += 1
+            account_id, reblog_id, quote_id = found[id]
+            account_ids << account_id if account_id
+            children = [reblog_id, quote_id].compact.reject { |child_id| seen[child_id] }
+            if follow
+              next_ids.concat(children)
+            else
+              truncated ||= children.any?
+            end
+          end
+
+          pending = next_ids
+        end
+
+        Rails.logger.warn("Account tag page nested walk stopped depth=#{depth} ids=#{fetched}") if truncated
+
+        return [] if account_ids.empty?
+
+        Account.where(id: account_ids.uniq).where.not(domain: nil).pluck(:domain)
       end
     end
   end
