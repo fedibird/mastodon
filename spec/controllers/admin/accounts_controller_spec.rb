@@ -96,8 +96,6 @@ RSpec.describe Admin::AccountsController, type: :controller do
       get :show, params: { id: account.id }
       expect(response).to have_http_status(200)
     end
-  end
-
 
     context 'with an approved Group that has no login User' do
       let(:account) { create_managed_group_account(username: 'managedshow') }
@@ -131,6 +129,7 @@ RSpec.describe Admin::AccountsController, type: :controller do
         expect(Nokogiri::HTML(response.body).at_css('table.inline-table')).to be_nil
       end
     end
+  end
 
   describe 'POST #memorialize' do
     subject { post :memorialize, params: { id: account.id } }
