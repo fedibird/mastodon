@@ -86,6 +86,14 @@ describe('GroupDirectoryFilterForm', () => {
 
     fireEvent.change(search, { target: { value: 'a' } });
     expect(screen.getByText(note)).toBeTruthy();
+
+    fireEvent.change(search, { target: { value: '𠮷' } });
+    expect(search.value).toHaveLength(2);
+    expect(screen.getByText(note)).toBeTruthy();
+    expect(search.getAttribute('aria-describedby')).toEqual('group-directory-search-hint-route');
+
+    fireEvent.change(search, { target: { value: '𠮷好' } });
+    expect(screen.queryByText(note)).toBeNull();
   });
 
   it('clears the search immediately and disables following when logged out', () => {

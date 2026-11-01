@@ -241,7 +241,8 @@ class GroupDirectoryFilterForm extends React.PureComponent {
     const { query, detailsOpen, languageMode, languageDraft } = this.state;
     const languageInvalid = languageMode === 'tag' && languageDraft.trim() !== '' && !LANGUAGE_PATTERN.test(languageDraft.trim());
     const detailsId = `group-directory-details-${viewKey}`;
-    const shortQuery = query.trim().length === 1;
+    // Match Ruby's character length. UTF-16 length treats 𠮷 and emoji as two.
+    const shortQuery = Array.from(query.trim()).length === 1;
     const searchHintId = `group-directory-search-hint-${viewKey}`;
 
     return (
