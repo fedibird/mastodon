@@ -8,7 +8,7 @@ import { DropdownMenu } from 'mastodon/components/dropdown_menu';
 import { createFavouriteTag } from 'mastodon/actions/favourite_tags';
 import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
-import { accountTagPageUrl } from 'mastodon/utils/account_tag_page_url';
+import { accountUrlForHashtag } from 'mastodon/utils/account_tag_url';
 import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
 
 const messages = defineMessages({
@@ -174,31 +174,33 @@ class HashtagMenuController extends React.PureComponent {
     return null;
   }
 
-  // Local accounts keep Fedibird's signed-out /@user/tagged/:tag page.
-  // Remote accounts get an href only when cached NodeInfo matches a confirmed
-  // public route. The in-app `to` path is unchanged either way.
+  // href is the public URL from tags[].account_url when this label matches one tag.
+  // Local HTML-only tags keep the signed-out page. Remote misses stay without href.
+  // The in-app `to` path is chosen separately and does not use this URL.
   accountTagHref () {
+    const fromStatus = this.accountUrlFromStatus();
+
+    if (fromStatus) {
+      return fromStatus;
+    }
+
     if (this.isLocalAccount()) {
       return `${window.location.origin}/@${encodeURIComponent(this.accountAcct())}/tagged/${encodeURIComponent(this.state.hashtag)}`;
     }
 
-    const account = this.props.accounts && this.props.accounts.get(this.state.accountId);
+    return null;
+  }
 
-    if (!account) {
+  accountUrlFromStatus () {
+    const status = this.props.statuses && this.props.statuses.get(this.state.statusId);
+
+    if (!status) {
       return null;
     }
 
-    const software = account.get('nodeinfo_software');
-
     try {
-      return accountTagPageUrl({
-        softwareName: software && software.get('name'),
-        softwareVersion: software && software.get('version'),
-        domain: software && software.get('domain'),
-        username: account.get('username'),
-        tag: this.state.hashtag,
-      });
-    } catch (error) {
+      return accountUrlForHashtag(status.get('tags'), this.state.hashtag);
+    } catch (e) {
       return null;
     }
   }

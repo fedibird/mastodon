@@ -3,8 +3,6 @@
 require 'rails_helper'
 
 RSpec.describe REST::AccountSerializer do
-  before { NodeInfoSoftwareLookup.reset! }
-
   subject(:json) do
     JSON.parse(
       ActiveModelSerializers::SerializableResource.new(
@@ -86,40 +84,6 @@ RSpec.describe REST::AccountSerializer do
       expect(json).not_to have_key(:noindex)
       expect(json).not_to have_key(:roles)
       expect(json).not_to have_key(:nodeinfo_software)
-    end
-
-    it 'adds the cached NodeInfo software for the account domain' do
-      Node.create!(
-        domain: 'remote.example',
-        info: { 'software_name' => 'mastodon', 'software_version' => '9.9.9', 'upstream_name' => 'mastodon' },
-        info_override: { 'software_name' => 'mastodon', 'software_version' => '8.8.8' },
-        nodeinfo: { 'software' => { 'name' => 'Mastodon', 'version' => '4.2.1' } },
-        last_fetched_at: Time.now.utc
-      )
-
-      expect(UpdateNodeService).not_to receive(:new)
-      expect(json[:nodeinfo_software]).to eq(name: 'Mastodon', version: '4.2.1', domain: 'remote.example')
-    end
-
-    it 'reads NodeInfo for a collection with one query' do
-      other = Fabricate(:account, username: 'ben', domain: 'other.example', uri: 'https://other.example/users/ben', url: 'https://other.example/@ben')
-      Node.create!(domain: 'remote.example', nodeinfo: { 'software' => { 'name' => 'mastodon', 'version' => '4.2.1' } }, last_fetched_at: Time.now.utc)
-      Node.create!(domain: 'other.example', nodeinfo: { 'software' => { 'name' => 'fedibird', 'version' => '0.1' } }, last_fetched_at: Time.now.utc)
-      queries = []
-      callback = lambda do |_name, _start, _finish, _id, payload|
-        queries << payload[:sql] if payload[:sql].to_s.include?('nodes')
-      end
-
-      payload = nil
-      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
-        payload = JSON.parse(ActiveModelSerializers::SerializableResource.new([account, other], each_serializer: described_class).to_json, symbolize_names: true)
-      end
-
-      expect(queries.size).to eq(1)
-      expect(payload.map { |item| item[:nodeinfo_software] }).to eq [
-        { name: 'mastodon', version: '4.2.1', domain: 'remote.example' },
-        { name: 'fedibird', version: '0.1', domain: 'other.example' },
-      ]
     end
   end
 

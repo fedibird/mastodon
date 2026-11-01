@@ -407,17 +407,18 @@ describe('HashtagMenuController', () => {
       expect(screen.getByRole('button', { name: 'View bob\'s posts with #hidden' })).not.toHaveAttribute('href');
     });
 
-    it('uses the confirmed public page for a remote Mastodon account and keeps the in-app path', () => {
+    it('uses tags[].account_url for the matching tag and keeps the in-app path', () => {
       const tag = 'ハッシュ';
       const encoded = encodeURIComponent(tag);
+      const accountUrl = `https://remote.example/@bob/tagged/${encoded}`;
       const html = `<p><a href="https://evil.example/tags/${encoded}" class="mention hashtag" rel="tag">#<span>${tag}</span></a></p>`;
       const { container } = renderRemote({
         html,
-        account: {
-          ...remoteAccount,
-          url: 'https://evil.example/@bob',
-          nodeinfo_software: { name: 'Mastodon', version: '4.2.1', domain: 'remote.example' },
-        },
+        account: { ...remoteAccount, url: 'https://evil.example/@bob' },
+        tags: [
+          { name: 'other', url: 'https://remote.example/tags/other', account_url: 'https://remote.example/@bob/tagged/other' },
+          { name: tag, url: `https://remote.example/tags/${encoded}`, account_url: accountUrl },
+        ],
       });
 
       const link = container.querySelector('.status__content__text a.mention.hashtag');
@@ -433,52 +434,19 @@ describe('HashtagMenuController', () => {
       const browseAccount = screen.getByRole('button', { name: `View bob's posts with #${tag}` });
 
       expect(browse).toHaveAttribute('href', `https://evil.example/tags/${encoded}`);
-      expect(browseAccount).toHaveAttribute('href', `https://remote.example/@bob/tagged/${encoded}`);
-      expect(browseAccount.getAttribute('href')).not.toContain('/web/');
+      expect(browseAccount).toHaveAttribute('href', accountUrl);
       expect(browseAccount.getAttribute('href')).not.toContain('evil.example');
+      expect(browseAccount.getAttribute('href')).not.toContain('/web/');
 
       fireEvent.click(browseAccount);
       expect(history.push).toHaveBeenLastCalledWith(`/accounts/a1/posts/${encoded}`);
     });
 
-    it('uses the Fedibird public page only for NodeInfo version 0.1', () => {
-      const html = '<p><a href="https://bird.example/tags/rails" class="mention hashtag" rel="tag">#<span>rails</span></a></p>';
-      const account = {
-        ...remoteAccount,
-        username: 'alice',
-        acct: 'alice@bird.example',
-        url: 'https://elsewhere.example/users/alice',
-        nodeinfo_software: { name: 'fedibird', version: '0.1', domain: 'bird.example' },
-      };
-      const first = renderRemote({ html, account });
-
-      click(first.container.querySelector('.status__content__text a.mention.hashtag'));
-      expect(screen.getByRole('button', { name: 'View alice\'s posts with #rails' })).toHaveAttribute('href', 'https://bird.example/@alice/tagged/rails');
-      first.unmount();
-
-      const older = {
-        ...account,
-        nodeinfo_software: { name: 'fedibird', version: '4.2.13', domain: 'bird.example' },
-      };
-      const again = renderRemote({ html, account: older });
-      click(again.container.querySelector('.status__content__text a.mention.hashtag'));
-      expect(screen.getByRole('button', { name: 'View alice\'s posts with #rails' })).not.toHaveAttribute('href');
-    });
-
-    it.each([
-      ['misskey', '2024.11.0'],
-      ['mastodon', '2.7.4'],
-      ['pleroma', '2.5.0'],
-      ['akkoma', '3.10.0'],
-      ['pixelfed', '0.12.0'],
-    ])('omits the account href for %s %s and still opens the Fedibird timeline', (name, version) => {
+    it('omits the remote href when the label is not on status.tags and still opens the in-app timeline', () => {
       const html = '<p><a href="https://remote.example/tags/rails" class="mention hashtag" rel="tag">#<span>rails</span></a></p>';
       const { container } = renderRemote({
         html,
-        account: {
-          ...remoteAccount,
-          nodeinfo_software: { name, version, domain: 'remote.example' },
-        },
+        tags: [{ name: 'other', url: 'https://remote.example/tags/other', account_url: 'https://remote.example/@bob/tagged/other' }],
       });
 
       click(container.querySelector('.status__content__text a.mention.hashtag'));
@@ -488,27 +456,15 @@ describe('HashtagMenuController', () => {
       expect(history.push).toHaveBeenLastCalledWith('/accounts/a1/posts/rails');
     });
 
-    it('does not borrow another account\'s NodeInfo and ignores a broken software value', () => {
-      const html = '<p><a href="https://remote.example/tags/rails" class="mention hashtag" rel="tag">#<span>rails</span></a></p>';
+    it('matches a tag case-insensitively and ignores a tag that has no account_url', () => {
+      const html = '<p><a href="https://remote.example/tags/Rails" class="mention hashtag" rel="tag">#<span>Rails</span></a></p>';
       const { container } = renderRemote({
         html,
-        account: { ...remoteAccount, nodeinfo_software: 'mastodon' },
-        accounts: {
-          a2: {
-            id: 'a2',
-            username: 'carol',
-            acct: 'carol@mastodon.social',
-            url: 'https://mastodon.social/@carol',
-            nodeinfo_software: { name: 'mastodon', version: '4.2.1', domain: 'mastodon.social' },
-          },
-        },
+        tags: [{ name: 'rails', url: 'https://example.test/tags/rails' }],
       });
 
       click(container.querySelector('.status__content__text a.mention.hashtag'));
-      const browseAccount = screen.getByRole('button', { name: 'View bob\'s posts with #rails' });
-      expect(browseAccount).not.toHaveAttribute('href');
-      fireEvent.click(browseAccount);
-      expect(history.push).toHaveBeenLastCalledWith('/accounts/a1/posts/rails');
+      expect(screen.getByRole('button', { name: 'View bob\'s posts with #Rails' })).not.toHaveAttribute('href');
     });
   });
 
@@ -526,20 +482,16 @@ describe('HashtagMenuController', () => {
       expect(screen.getByRole('button', { name: 'View alice\'s posts with #ハッシュ' })).toHaveAttribute('href', `${window.location.origin}/@alice/tagged/${encoded}`);
     });
 
-    it('keeps the local public page when a local account also carries remote software data', () => {
+    it('uses the server account_url for a local tag when the status carries one', () => {
+      const html = '<p>本文<br><br><a href="https://example.com/tags/mastodon" class="mention hashtag" rel="tag">#<span>mastodon</span></a></p>';
+      const accountUrl = `${window.location.origin}/@alice/tagged/mastodon`;
       const { container } = renderMenu({
-        account: {
-          id: 'a1',
-          display_name: 'Alice',
-          username: 'alice',
-          acct: 'alice',
-          url: 'https://evil.example/@alice',
-          nodeinfo_software: { name: 'mastodon', version: '4.2.1', domain: 'evil.example' },
-        },
+        contentHtml: html,
+        tags: [{ name: 'mastodon', url: `${window.location.origin}/tags/mastodon`, account_url: accountUrl }],
       });
 
-      click(container.querySelector('.status__content__hashtag-badge'));
-      expect(screen.getByRole('button', { name: 'View alice\'s posts with #mastodon' })).toHaveAttribute('href', `${window.location.origin}/@alice/tagged/mastodon`);
+      click(container.querySelector('a.status__content__hashtag-badge'));
+      expect(screen.getByRole('button', { name: 'View alice\'s posts with #mastodon' })).toHaveAttribute('href', accountUrl);
     });
   });
 

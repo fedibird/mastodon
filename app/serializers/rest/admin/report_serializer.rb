@@ -1,6 +1,11 @@
 # frozen_string_literal: true
 
 class REST::Admin::ReportSerializer < ActiveModel::Serializer
+  def initialize(*)
+    super
+    instance_options[:account_tag_pages] ||= AccountTagPage::Pages.prefetch(object.statuses) if object.respond_to?(:statuses)
+  end
+
   attributes :id, :action_taken, :action_taken_at, :category, :comment,
              :forwarded, :created_at, :updated_at
 

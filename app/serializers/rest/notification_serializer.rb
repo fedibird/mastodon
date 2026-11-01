@@ -42,7 +42,7 @@ class REST::NotificationSerializer < ActiveModel::Serializer
   # delegate :filtered?, to: :object
 
   def target_status
-      REST::StatusSerializer.new(object.target_status, root: false, relationships: instance_options[:relationships], account_relationships: instance_options[:account_relationships], application_name: instance_options[:application_name], compact: false, scope: current_user, scope_name: :current_user)
+      REST::StatusSerializer.new(object.target_status, root: false, relationships: instance_options[:relationships], account_tag_pages: instance_options[:account_tag_pages] || instance_options[:relationships].try(:account_tag_pages), account_relationships: instance_options[:account_relationships], application_name: instance_options[:application_name], compact: false, scope: current_user, scope_name: :current_user)
   end
 
   class EmojiReactionSerializer < REST::GroupedEmojiReactionSerializer

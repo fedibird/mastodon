@@ -24,7 +24,7 @@ class Api::V1::StatusesController < Api::BaseController
 
   def index
     @statuses = cache_collection(@statuses, Status)
-    render json: @statuses, each_serializer: REST::StatusSerializer
+    render json: @statuses, each_serializer: REST::StatusSerializer, account_tag_pages: AccountTagPage::Pages.prefetch(@statuses)
   end
 
   def show
@@ -35,7 +35,7 @@ class Api::V1::StatusesController < Api::BaseController
 
   def updated
     @statuses = cache_collection(@statuses, Status)
-    render json: @statuses, each_serializer: REST::StatusSerializer
+    render json: @statuses, each_serializer: REST::StatusSerializer, account_tag_pages: AccountTagPage::Pages.prefetch(@statuses)
   end
 
   def context
