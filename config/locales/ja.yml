@@ -301,7 +301,6 @@ ja:
       default_priority_msg: "%{username} を優先度（通常）に更新しました"
       delete: データを削除する
       deleted: 削除済み
-      group_without_login: 管理グループ（ログインなし）
       demote: 降格
       destroyed_msg: "%{username} のデータは完全に削除されるよう登録されました"
       disable: 無効化
@@ -318,6 +317,7 @@ ja:
       followers: フォロワー数
       follows: フォロー数
       group_type_msg: "%{username} をGroup Actorに更新しました"
+      group_without_login: 管理グループ（ログインなし）
       hard_silence: ハードサイレンス
       hard_silenced: ハードサイレンス済み
       header: ヘッダー
