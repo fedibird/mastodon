@@ -1,5 +1,8 @@
 export const GROUP_DIRECTORY_LIMIT = 20;
 
+// GroupDirectory::Query::MAX_OFFSET. The next page is not requested past this.
+export const GROUP_DIRECTORY_MAX_OFFSET = 10000;
+
 export const groupDirectoryViewKey = (columnId) => (
   columnId ? `column:${columnId}` : 'route'
 );

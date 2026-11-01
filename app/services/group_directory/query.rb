@@ -14,16 +14,31 @@
 # order=new is the existing id order (when this server stored the row), not
 # the group's created_at. Software is a NodeInfo self-report, not a promise
 # that the viewer can post.
+#
+# Search has two paths. A handle (@name, @name@domain, name@domain) matches
+# username and domain exactly, including a local account looked up by this
+# server's domain, and does not also run a leading-wildcard scan. Any other
+# query of at least two characters matches name, handle, domain, and
+# description, with % and _ as literals. One character that is not a
+# username matches nothing. /api is already covered by the Rack::Attack API
+# throttles. The nodes.info GIN index does not serve
+# LOWER(info->>'software_name'); that predicate stays a filter on Node rows.
 class GroupDirectory::Query
   MAX_QUERY_LENGTH = 100
+  MIN_SUBSTRING_LENGTH = 2
   MAX_SOFTWARE_LENGTH = 40
   MAX_LANGUAGE_LENGTH = 35
+  # The directory API still pages with offset. Past this point a large OFFSET
+  # walks the candidate index, so the request is rejected. A cursor can
+  # replace this later; this query does not add one.
   MAX_OFFSET = 10_000
   ORDERS = %w(active new).freeze
   SCOPES = %w(all local following).freeze
   PEERTUBE = 'peertube'
   KNOWN_SOFTWARE = %w(fedibird lemmy piefed nodebb mbin mitra).freeze
   SOFTWARE_PATTERN = /\A[a-z0-9][a-z0-9_.-]*\z/
+  ACCT_WITH_DOMAIN = /\A@?(?<username>#{Account::USERNAME_RE})@(?<domain>[^@\s]+)\z/i
+  ACCT_USERNAME = /\A@(?<username>#{Account::USERNAME_RE})\z/i
 
   def initialize(viewer:, params:, limit:)
     @viewer = viewer
@@ -67,17 +82,15 @@ class GroupDirectory::Query
     query = string_param(:q, MAX_QUERY_LENGTH)
     return scope if query.nil?
 
-    pattern = "%#{Account.sanitize_sql_like(query)}%"
-    scope.where(
-      <<~SQL.squish,
-        accounts.display_name ILIKE :pattern
-        OR accounts.username ILIKE :pattern
-        OR accounts.domain ILIKE :pattern
-        OR accounts.note ILIKE :pattern
-        OR (accounts.username || COALESCE('@' || accounts.domain, '')) ILIKE :pattern
-      SQL
-      pattern: pattern
-    )
+    if (acct = exact_acct(query))
+      binds = { acct_username: acct[:username] }
+      binds[:acct_domain] = acct[:domain] if acct[:domain_constrained]
+      return scope.where(acct_clause(acct), binds)
+    end
+
+    return scope.none if query.length < MIN_SUBSTRING_LENGTH
+
+    scope.where(substring_clause, pattern: "%#{Account.sanitize_sql_like(query)}%")
   end
 
   def apply_software(scope)
@@ -158,6 +171,55 @@ class GroupDirectory::Query
 
   def software_nodes(name)
     Node.has_nodeinfo.where("#{software_sql} = ?", name)
+  end
+
+  # @name matches that username on every domain. name@domain and
+  # @name@domain also constrain the domain. This server's own domain means
+  # the local row, whose domain column is null.
+  def exact_acct(query)
+    if (match = query.match(ACCT_WITH_DOMAIN))
+      domain = acct_domain(match[:domain])
+      return if domain.nil?
+
+      return { username: match[:username].downcase, domain: domain, domain_constrained: true }
+    end
+
+    if (match = query.match(ACCT_USERNAME))
+      return { username: match[:username].downcase, domain_constrained: false }
+    end
+
+    return unless query.length < MIN_SUBSTRING_LENGTH && Account::USERNAME_ONLY_RE.match?(query)
+
+    { username: query.downcase, domain_constrained: false }
+  end
+
+  def acct_domain(domain)
+    return '' if TagManager.instance.local_domain?(domain)
+
+    normalized = TagManager.instance.normalize_domain(domain)
+    return if normalized.blank?
+    return '' if TagManager.instance.local_domain?(normalized)
+
+    normalized
+  rescue Addressable::URI::InvalidURIError, IDN::Idna::IdnaError
+    nil
+  end
+
+  def acct_clause(acct)
+    sql = 'lower((accounts.username)::text) = :acct_username'
+    return sql unless acct[:domain_constrained]
+
+    "(#{sql} AND COALESCE(lower((accounts.domain)::text), '') = :acct_domain)"
+  end
+
+  def substring_clause
+    <<~SQL.squish
+      (accounts.display_name ILIKE :pattern
+      OR accounts.username ILIKE :pattern
+      OR accounts.domain ILIKE :pattern
+      OR accounts.note ILIKE :pattern
+      OR (accounts.username || COALESCE('@' || accounts.domain, '')) ILIKE :pattern)
+    SQL
   end
 
   def software_sql

@@ -23,6 +23,7 @@ const messages = defineMessages({
   error: { id: 'group_directory.error', defaultMessage: 'The group directory could not be loaded' },
   retry: { id: 'group_directory.retry', defaultMessage: 'Try again' },
   end: { id: 'group_directory.end', defaultMessage: 'End of the directory' },
+  offsetLimit: { id: 'group_directory.offset_limit', defaultMessage: 'This list has reached its page limit, so older results are not available here.' },
 });
 
 const mapStateToProps = (state, ownProps) => {
@@ -36,6 +37,7 @@ const mapStateToProps = (state, ownProps) => {
     isLoading: list ? list.get('isLoading') : true,
     isExpanding: list ? list.get('isExpanding') : false,
     exhausted: list ? list.get('exhausted') : false,
+    capped: list ? list.get('capped') : false,
     hasError: list ? list.get('error') : false,
     failure: list ? list.get('failure') : null,
     columnWidth: state.getIn(['settings', 'group_directory', 'columnWidth'], defaultColumnWidth),
@@ -54,6 +56,7 @@ class GroupDirectory extends React.PureComponent {
     isLoading: PropTypes.bool,
     isExpanding: PropTypes.bool,
     exhausted: PropTypes.bool,
+    capped: PropTypes.bool,
     hasError: PropTypes.bool,
     failure: PropTypes.oneOf(['fetch', 'expand', null]),
     accountIds: ImmutablePropTypes.list.isRequired,
@@ -154,7 +157,7 @@ class GroupDirectory extends React.PureComponent {
   }
 
   render () {
-    const { isLoading, isExpanding, exhausted, hasError, accountIds, directories, intl, columnId, multiColumn, columnWidth, viewKey } = this.props;
+    const { isLoading, isExpanding, exhausted, capped, hasError, accountIds, directories, intl, columnId, multiColumn, columnWidth, viewKey } = this.props;
     const params = this.getParams(this.props, this.state);
     const pinned = !!columnId;
     const showMore = !isLoading && !isExpanding && !exhausted && !hasError && accountIds.size > 0;
@@ -189,7 +192,7 @@ class GroupDirectory extends React.PureComponent {
             <p>{intl.formatMessage(messages.empty)}</p>
           )}
           {exhausted && !accountIds.isEmpty() && !hasError && (
-            <p>{intl.formatMessage(messages.end)}</p>
+            <p>{intl.formatMessage(capped ? messages.offsetLimit : messages.end)}</p>
           )}
         </div>
 

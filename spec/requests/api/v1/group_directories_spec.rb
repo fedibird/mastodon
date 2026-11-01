@@ -101,6 +101,53 @@ describe 'Group Directory API' do
     expect(ids.size).to eq(1)
   end
 
+  it 'matches @acct exactly and treats % and _ as literal characters' do
+    directory_node('lemmy.example', 'lemmy')
+    directory_node('other.example', 'lemmy')
+    local = directory_group('camera', display_name: 'Camera club')
+    remote = directory_group('Walkers', domain: 'lemmy.example', display_name: 'Walkers')
+    same_name = directory_group('Walkers', domain: 'other.example', display_name: 'Also walkers')
+    literal = directory_group('percentgroup', display_name: '100%_done')
+    directory_group('plainingroup', display_name: '100Xdone')
+    directory_group('readinggroup', display_name: 'reading')
+    solo = directory_group('a', display_name: 'solo')
+    directory_group('alphabet', display_name: 'a story', note: 'a note')
+
+    get '/api/v1/group_directory', headers: headers, params: { q: '@Walkers' }
+    expect(ids).to contain_exactly(remote.id.to_s, same_name.id.to_s)
+
+    get '/api/v1/group_directory', headers: headers, params: { q: '@walkers@lemmy.example' }
+    expect(ids).to eq([remote.id.to_s])
+
+    get '/api/v1/group_directory', headers: headers, params: { q: 'walkers@LEMMY.EXAMPLE' }
+    expect(ids).to eq([remote.id.to_s])
+
+    get '/api/v1/group_directory', headers: headers, params: { q: "@camera@#{Rails.configuration.x.local_domain}" }
+    expect(ids).to eq([local.id.to_s])
+
+    get '/api/v1/group_directory', headers: headers, params: { q: '@walkers@missing.example' }
+    expect(body_as_json).to be_empty
+
+    get '/api/v1/group_directory', headers: headers, params: { q: 'walkers@missing.example' }
+    expect(body_as_json).to be_empty
+
+    get '/api/v1/group_directory', headers: headers, params: { q: '@walkers%' }
+    expect(body_as_json).to be_empty
+
+    get '/api/v1/group_directory', headers: headers, params: { q: '100%_done' }
+    expect(ids).to eq([literal.id.to_s])
+
+    get '/api/v1/group_directory', headers: headers, params: { q: '_d' }
+    expect(ids).to eq([literal.id.to_s])
+
+    get '/api/v1/group_directory', headers: headers, params: { q: '%' }
+    expect(body_as_json).to be_empty
+
+    get '/api/v1/group_directory', headers: headers, params: { q: 'a' }
+    expect(ids).to eq([solo.id.to_s])
+    expect(GroupDirectory::Query.new(viewer: nil, params: { q: 'a' }, limit: 20).results.to_sql).not_to include('ILIKE')
+  end
+
   it 'filters by local scope, software, unknown, other, and followed groups' do
     directory_node('lemmy.example', 'lemmy')
     directory_node('blank.example', '   ')
@@ -181,6 +228,10 @@ describe 'Group Directory API' do
 
     get '/api/v1/group_directory', headers: headers, params: { order: 'new', limit: 2 }
     expect(ids).to eq([third.id.to_s, second.id.to_s])
+
+    get '/api/v1/group_directory', headers: headers, params: { offset: '10000' }
+    expect(response).to have_http_status(200)
+    expect(body_as_json).to be_empty
   end
 
   it 'filters only explicit group language tags' do
@@ -236,6 +287,7 @@ describe 'Group Directory API' do
       { order: 'random' },
       { order: ['new'] },
       { offset: '-1' },
+      { offset: '10001' },
       { offset: '100001' },
       { offset: ['1'] },
       { language: '<script>' },
@@ -281,5 +333,35 @@ describe 'Group Directory API' do
     expect(relation.map(&:id)).to eq([listed.id])
     expect(relation.to_sql.scan(/nodes/).size).to be >= 1
     expect(relation.to_sql).not_to match(/JOIN ["']?nodes/i)
+  end
+
+  # enable_seqscan=off shows which indexes can serve the predicate. It is not
+  # a production-sized ANALYZE, and it does not add a trigram index for note.
+  it 'explains an exact username with the account index and a substring with the group index' do
+    directory_group('a', display_name: 'solo')
+    directory_group('photo', display_name: '写真', note: '撮影会')
+    exact = GroupDirectory::Query.new(viewer: nil, params: { q: 'a' }, limit: 20).results
+    handle = GroupDirectory::Query.new(viewer: nil, params: { q: '@photo' }, limit: 20).results
+    wide = GroupDirectory::Query.new(viewer: nil, params: { q: '撮影' }, limit: 20).results
+    exact_plan = nil
+    wide_plan = nil
+
+    Account.connection.transaction do
+      Account.connection.execute('SET LOCAL enable_seqscan = off')
+      exact_plan = Account.connection.exec_query("EXPLAIN (ANALYZE, BUFFERS) #{exact.to_sql}").rows.flatten.join("\n")
+      wide_plan = Account.connection.exec_query("EXPLAIN (ANALYZE, BUFFERS) #{wide.to_sql}").rows.flatten.join("\n")
+    end
+
+    expect(exact.map(&:username)).to eq(['a'])
+    expect(exact.to_sql).to include('lower((accounts.username)::text)')
+    expect(exact.to_sql).not_to include('ILIKE')
+    expect(handle.to_sql).not_to include('ILIKE')
+    expect(exact_plan).to include('index_accounts_on_username_and_domain_lower').or include('index_accounts_on_discoverable_groups')
+    expect(exact_plan).not_to match(/Seq Scan on accounts/)
+    expect(exact_plan).not_to include('index_nodes_on_info')
+    expect(wide.map(&:username)).to eq(['photo'])
+    expect(wide_plan).to include('index_accounts_on_discoverable_groups')
+    expect(wide_plan).not_to match(/Seq Scan on accounts/)
+    expect(wide_plan).not_to include('index_nodes_on_info')
   end
 end

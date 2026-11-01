@@ -582,6 +582,7 @@
   "group_directory.more_filters": "More filters",
   "group_directory.new_arrivals": "Newly found",
   "group_directory.newly_found": "Newly found",
+  "group_directory.offset_limit": "This list has reached its page limit, so older results are not available here.",
   "group_directory.open_group": "Open group",
   "group_directory.open_timeline": "Open group timeline",
   "group_directory.order": "Order",

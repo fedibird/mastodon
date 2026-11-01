@@ -22,6 +22,7 @@ jest.mock('../accounts', () => ({
 import api from '../../api';
 import userLists from '../../reducers/user_lists';
 import { expandGroupDirectory, fetchGroupDirectory } from '../group_directory';
+import { importFetchedAccounts } from '../importer';
 
 const page = (start, count) => Array.from({ length: count }, (_, index) => ({
   id: String(start + index),
@@ -123,5 +124,67 @@ describe('group directory actions', () => {
     expect(directory(store, 'route').get('items').toArray()).toEqual(['1', '2']);
     expect(directory(store, 'route').get('nextOffset')).toBe(2);
     expect(directory(store, 'route').get('failure')).toBe(null);
+  });
+
+  it('keeps directory software when the imported account has none', async () => {
+    const payload = {
+      id: '9',
+      username: 'group',
+      acct: 'group@lemmy.example',
+      display_name: 'Group',
+      note: '<p>hello</p>',
+      url: 'https://lemmy.example/group',
+      emojis: [],
+      group_directory: { software: 'lemmy', languages: ['ja'], capabilities: { posting: null } },
+    };
+    const get = jest.fn().mockResolvedValue({ data: [payload] });
+    api.mockReturnValue({ get });
+    importFetchedAccounts.mockClear();
+    const store = makeStore();
+
+    await store.dispatch(fetchGroupDirectory('column:a', { order: 'active' }));
+
+    const imported = importFetchedAccounts.mock.calls[0][0];
+    expect(imported).toHaveLength(1);
+    expect(imported[0].id).toBe('9');
+    expect(imported[0].group_directory).toBeUndefined();
+    expect(directory(store, 'column:a').getIn(['directories', '9', 'software'])).toBe('lemmy');
+    expect(directory(store, 'column:a').getIn(['directories', '9', 'languages']).toArray()).toEqual(['ja']);
+  });
+
+  it('stops at the offset cap instead of requesting another page', async () => {
+    const get = jest.fn().mockResolvedValue({ data: page(1, 10001) });
+    api.mockReturnValue({ get });
+    const store = makeStore();
+
+    await store.dispatch(fetchGroupDirectory('column:a', { order: 'active' }));
+    expect(directory(store, 'column:a').get('nextOffset')).toBe(10001);
+
+    await store.dispatch(expandGroupDirectory('column:a', { order: 'active' }));
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(directory(store, 'column:a').get('capped')).toBe(true);
+    expect(directory(store, 'column:a').get('exhausted')).toBe(true);
+    expect(directory(store, 'column:a').get('items').size).toBe(10001);
+    expect(directory(store, 'column:a').get('error')).toBe(false);
+  });
+
+  it('treats an offset rejection as the page limit', async () => {
+    const error = new Error('400');
+    error.response = { status: 400, data: { error: 'Invalid offset' } };
+    const get = jest.fn()
+      .mockResolvedValueOnce({ data: page(1, 20) })
+      .mockRejectedValueOnce(error);
+    api.mockReturnValue({ get });
+    const store = makeStore();
+
+    await store.dispatch(fetchGroupDirectory('route', { order: 'active' }));
+    await store.dispatch(expandGroupDirectory('route', { order: 'active' }));
+
+    expect(directory(store, 'route').get('capped')).toBe(true);
+    expect(directory(store, 'route').get('exhausted')).toBe(true);
+    expect(directory(store, 'route').get('error')).toBe(false);
+    expect(directory(store, 'route').get('items').size).toBe(20);
+    expect(directory(store, 'route').get('nextOffset')).toBe(20);
   });
 });

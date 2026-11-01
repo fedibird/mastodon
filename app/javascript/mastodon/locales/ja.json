@@ -582,6 +582,7 @@
   "group_directory.more_filters": "詳細条件",
   "group_directory.new_arrivals": "新しく見つかった順",
   "group_directory.newly_found": "新しく見つかった順",
+  "group_directory.offset_limit": "表示の上限に達したため、これより先はたどれません。",
   "group_directory.open_group": "グループを開く",
   "group_directory.open_timeline": "グループタイムラインを開く",
   "group_directory.order": "並び",
