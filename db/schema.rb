@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_11_120000) do
+ActiveRecord::Schema.define(version: 2026_11_12_090000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -227,6 +227,7 @@ ActiveRecord::Schema.define(version: 2026_11_11_120000) do
     t.index "(((setweight(to_tsvector('simple'::regconfig, (display_name)::text), 'A'::\"char\") || setweight(to_tsvector('simple'::regconfig, (username)::text), 'B'::\"char\")) || setweight(to_tsvector('simple'::regconfig, (COALESCE(domain, ''::character varying))::text), 'C'::\"char\")))", name: "search_index", using: :gin
     t.index "lower((username)::text), COALESCE(lower((domain)::text), ''::text)", name: "index_accounts_on_username_and_domain_lower", unique: true
     t.index ["domain", "id"], name: "index_accounts_on_domain_and_id"
+    t.index ["id"], name: "index_accounts_on_discoverable_groups", order: { id: :desc }, where: "(((actor_type)::text = 'Group'::text) AND (discoverable = true) AND (suspended_at IS NULL) AND (silenced_at IS NULL) AND (moved_to_account_id IS NULL))"
     t.index ["moved_to_account_id"], name: "index_accounts_on_moved_to_account_id"
     t.index ["searchability"], name: "index_accounts_on_searchability"
     t.index ["settings"], name: "index_accounts_on_settings", using: :gin

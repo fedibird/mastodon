@@ -13075,3 +13075,62 @@ div.external-source-identity:hover .external-source-identity__name {
     color: $dark-text-color;
   }
 }
+
+.directory__card--group {
+  min-width: 0;
+
+  .directory__card__bar {
+    border-bottom: 1px solid lighten($ui-base-color, 8%);
+  }
+
+  .group-directory-card__note .account__header__content {
+    min-height: 0;
+    padding: 10px 12px;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.45;
+
+    p {
+      display: block;
+      margin: 0 0 4px;
+    }
+  }
+
+  .group-directory-card__meta,
+  .group-directory-card__links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    color: $darker-text-color;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+
+  .group-directory-card__links {
+    padding-top: 0;
+
+    a {
+      color: $ui-highlight-color;
+      font-weight: 500;
+      text-decoration: none;
+
+      &:hover,
+      &:focus {
+        text-decoration: underline;
+      }
+    }
+  }
+
+  .group-directory-card__counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+}
