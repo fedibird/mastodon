@@ -97,6 +97,7 @@ class ExternalSource < ApplicationRecord
 
   has_many :external_resources, dependent: :restrict_with_exception
   has_many :external_subscriptions, dependent: :restrict_with_exception
+  has_many :external_feed_snapshots, dependent: :delete_all
 
   validates :protocol, inclusion: { in: PROTOCOLS }
   validates :canonical_key, presence: true

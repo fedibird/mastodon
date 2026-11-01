@@ -470,7 +470,7 @@ RSpec.describe GroupInitialFollows::Perform do
 
     expect(GroupInitialFollows::Recovery.call).to eq 0
     expect(Follow.where(target_account: legacy)).to be_empty
-    migration = File.read(Rails.root.join('db/migrate/20261113120000_create_group_initial_follows.rb'))
+    migration = File.read(Rails.root.join('db/migrate/20261113170000_create_group_initial_follows.rb'))
     expect(migration).to include('def down')
     expect(migration).to include('drop_table :group_initial_follows')
     expect(migration).not_to match(/INSERT\s+INTO/i)

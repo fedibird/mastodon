@@ -3,6 +3,11 @@
 module ExternalBridge
   module RSS
     Item = Struct.new(:key, :title, :body, :canonical_url, :byline, :author_hints, :published_at, :truncated, :media, :keywords, :activitypub_url, :activitypub_explicit, :activitypub_sample_url, keyword_init: true)
+    # One keyed item in document order. published_at is nil when the feed
+    # omits it or the value does not parse. activitypub_explicit is the
+    # cheap link scan, not a probe.
+    IndexEntry = Struct.new(:published_at, :activitypub_explicit, keyword_init: true)
+    FeedIndex = Struct.new(:protocol, :title, :site_url, :icon_hints, :activitypub_hint, :activitypub_generator_hint, :keyed_items, keyword_init: true)
     Feed = Struct.new(:protocol, :title, :site_url, :items, :icon_hints, :activitypub_hint, :activitypub_generator_hint, keyword_init: true) do
       # The feed-declared image URLs, best candidate first. They are raw text
       # here (possibly relative); the icon job resolves and validates them.
@@ -28,28 +33,54 @@ module ExternalBridge
         new(body, budget: budget).parse!
       end
 
+      # Every keyed item, without media or HTML extraction. parse! still
+      # returns only the first MAX_ITEMS nodes for callers that want one page.
+      def self.index!(body, budget: DocumentBudget::Budget.default)
+        new(body, budget: budget).index!
+      end
+
+      # Items at keyed-document positions, in the order requested. Media and
+      # HTML run only for those nodes. A position past the end is nil.
+      def self.parse_positions!(body, positions, budget: DocumentBudget::Budget.default)
+        new(body, budget: budget).parse_positions!(Array(positions))
+      end
+
       def initialize(body, budget: DocumentBudget::Budget.default)
         @body = body.to_s
         @budget = budget
       end
 
       def parse!
-        # The pull parser enforces the byte and structure budgets and requires
-        # a well-formed document through to the end. Recovery is off, so a
-        # truncated tail is invalid_xml rather than a feed missing its last
-        # tags. The DOM pass only runs after that walk returns.
-        source = DocumentBudget.check!(@body, budget: @budget)
-        document = Nokogiri::XML(source) { |config| config.strict.nonet.noblanks.nohuge }
-        raise Error, :invalid_xml if document.root.nil?
-
+        document = document!
         case document.root.name.to_s.downcase
         when 'rss' then parse_rss(document)
         when 'feed' then parse_atom(document)
         when 'rdf' then parse_rdf(document)
         else raise Error, :malformed_feed
         end
-      rescue Nokogiri::XML::SyntaxError
-        raise Error, :invalid_xml
+      end
+
+      def index!
+        channel, nodes, kind, image_url = candidates(document!)
+        keyed_items = keyed_identities(nodes, kind).map { |_node, explicit, published| IndexEntry.new(published_at: published, activitypub_explicit: explicit) }
+        generator = generator_hint?(channel)
+        FeedIndex.new(
+          protocol: kind == :atom ? 'atom' : 'rss',
+          title: channel_title(channel, kind),
+          site_url: channel_site(channel, kind),
+          icon_hints: icon_hints(icon_pairs(channel, kind, image_url)),
+          activitypub_hint: generator || keyed_items.any?(&:activitypub_explicit),
+          activitypub_generator_hint: generator,
+          keyed_items: keyed_items
+        )
+      end
+
+      def parse_positions!(positions)
+        _channel, nodes, kind, _image_url = candidates(document!)
+        keyed = keyed_identities(nodes, kind).map(&:first)
+        selected = positions.map { |position| keyed[position.to_i] }
+        MediaExtractor.index_items!(selected.compact)
+        selected.map { |node| item_at(node, kind) }
       end
 
       private
@@ -111,32 +142,129 @@ module ExternalBridge
         )
       end
 
-      # The first MAX_ITEMS nodes in the feed's existing order, including a
-      # node that will not become an item. Later nodes do not fill that gap,
-      # and body, HTML, and media extraction run only for this slice.
-      def accepted(nodes)
-        selected = nodes.first(Limits::MAX_ITEMS)
-        MediaExtractor.index_items!(selected)
-        selected
+      # The pull parser enforces the byte and structure budgets and requires
+      # a well-formed document through to the end. Recovery is off, so a
+      # truncated tail is invalid_xml rather than a feed missing its last
+      # tags. The DOM pass only runs after that walk returns.
+      def document!
+        source = DocumentBudget.check!(@body, budget: @budget)
+        document = Nokogiri::XML(source) { |config| config.strict.nonet.noblanks.nohuge }
+        raise Error, :invalid_xml if document.root.nil?
+
+        document
+      rescue Nokogiri::XML::SyntaxError
+        raise Error, :invalid_xml
       end
 
-      def rss_item(node)
+      def candidates(document)
+        case document.root.name.to_s.downcase
+        when 'rss'
+          namespaces = core_namespaces(document.root)
+          channel = XmlNames.child(document.root, 'channel', namespaces)
+          raise Error, :malformed_feed if channel.nil?
+
+          [channel, XmlNames.children(channel, 'item', namespaces), :rss, nil]
+        when 'feed'
+          feed = document.root
+          raise Error, :malformed_feed unless feed.name.to_s.casecmp?('feed') && feed.namespace&.href == XmlNames::ATOM
+
+          [feed, XmlNames.children(feed, 'entry', XmlNames::ATOM), :atom, nil]
+        when 'rdf'
+          channel, nodes, image_url = RdfDocument.extract(document)
+          raise Error, :malformed_feed if channel.nil?
+
+          [channel, nodes, :rdf, image_url]
+        else
+          raise Error, :malformed_feed
+        end
+      end
+
+      # Keyed items keep their document order. A node with no guid, atom id,
+      # rdf:about, or link does not consume a position, so a later item is
+      # still reachable. parse!'s MAX_ITEMS slice is a separate page and
+      # still counts nodes that will not become items.
+      def keyed_identities(nodes, kind)
+        nodes.filter_map do |node|
+          identity = kind == :atom ? atom_identity(node) : rss_identity(node)
+          next if identity.nil?
+
+          [node, explicit_activitypub_url(node).present?, identity[1]]
+        end
+      end
+
+      def rss_identity(node)
         namespaces = core_namespaces(node)
         about = XmlNames.attr_ns(node, 'about', XmlNames::RDF).to_s.strip.presence
         link = safe_url(XmlNames.text(node, 'link', namespaces).presence || about, item: true)
         key = XmlNames.text(node, 'guid', namespaces).presence || about || link
         return nil if key.blank?
 
+        published = PublicationTime.parse(XmlNames.text(node, 'pubDate', namespaces)) || PublicationTime.parse(XmlNames.text(node, 'date', XmlNames::DC))
+        [key.strip, published, link]
+      end
+
+      def atom_identity(node)
+        link = atom_link(node, item: true)
+        key = XmlNames.text(node, 'id', XmlNames::ATOM).presence || link
+        return nil if key.blank?
+
+        published = PublicationTime.parse(XmlNames.text(node, 'published', XmlNames::ATOM)) || PublicationTime.parse(XmlNames.text(node, 'updated', XmlNames::ATOM))
+        [key.strip, published, link]
+      end
+
+      def channel_title(channel, kind)
+        namespaces = kind == :atom ? XmlNames::ATOM : core_namespaces(channel)
+        Sanitizer.title(XmlNames.text(channel, 'title', namespaces))
+      end
+
+      def channel_site(channel, kind)
+        kind == :atom ? atom_link(channel) : rss_link(channel)
+      end
+
+      def icon_pairs(channel, kind, image_url)
+        case kind
+        when :atom
+          [['atom_icon', XmlNames.text(channel, 'icon', XmlNames::ATOM)], ['atom_logo', XmlNames.text(channel, 'logo', XmlNames::ATOM)]]
+        when :rdf
+          [['rss_image', image_url]]
+        else
+          rss_icon_pairs(channel)
+        end
+      end
+
+      # The first MAX_ITEMS nodes in the feed's existing order, including a
+      # node that will not become an item. Later nodes do not fill that gap,
+      # and body, HTML, and media extraction run only for this slice.
+      # Snapshot import does not use this slice. It indexes every keyed item
+      # and extracts a batch at a time.
+      def accepted(nodes)
+        selected = nodes.first(Limits::MAX_ITEMS)
+        MediaExtractor.index_items!(selected)
+        selected
+      end
+
+      def item_at(node, kind)
+        return nil if node.nil?
+
+        kind == :atom ? atom_item(node) : rss_item(node)
+      end
+
+      def rss_item(node)
+        identity = rss_identity(node)
+        return nil if identity.nil?
+
+        key, published, link = identity
+        namespaces = core_namespaces(node)
         body, truncated = Sanitizer.capped(raw_body(node))
         author = AuthorMetadata.for_rss(node, namespaces)
         Item.new(
-          key: key.strip,
+          key: key,
           title: Sanitizer.title(XmlNames.text(node, 'title', namespaces)),
           body: body,
           canonical_url: link,
           byline: author.byline,
           author_hints: author.hints,
-          published_at: PublicationTime.parse(XmlNames.text(node, 'pubDate', namespaces)) || PublicationTime.parse(XmlNames.text(node, 'date', XmlNames::DC)),
+          published_at: published,
           truncated: truncated,
           media: media_for(node),
           keywords: keywords_for(node),
@@ -145,21 +273,20 @@ module ExternalBridge
       end
 
       def atom_item(node)
-        key = XmlNames.text(node, 'id', XmlNames::ATOM).presence
-        link = atom_link(node, item: true)
-        key ||= link
-        return nil if key.blank?
+        identity = atom_identity(node)
+        return nil if identity.nil?
 
+        key, published, link = identity
         body, truncated = Sanitizer.capped(raw_body(node))
         author = AuthorMetadata.for_atom(node)
         Item.new(
-          key: key.strip,
+          key: key,
           title: Sanitizer.title(XmlNames.text(node, 'title', XmlNames::ATOM)),
           body: body,
           canonical_url: link,
           byline: author.byline,
           author_hints: author.hints,
-          published_at: PublicationTime.parse(XmlNames.text(node, 'published', XmlNames::ATOM)) || PublicationTime.parse(XmlNames.text(node, 'updated', XmlNames::ATOM)),
+          published_at: published,
           truncated: truncated,
           media: media_for(node),
           keywords: keywords_for(node),

@@ -41,6 +41,13 @@ module ExternalBridge
           refresh_locked(source, subscription_id)
         end
       rescue Error => e
+        # The fetched body did not fit the open-snapshot cap. The bodies
+        # already stored stay, and this poll is not a subscriber failure.
+        if %w(snapshot_backlog snapshot_capacity).include?(e.code)
+          @fields[:error_code] = RefreshLog.code(e.code)
+          return e.code
+        end
+
         record_failure(source_id, subscription_id, e.code)
       end
 
@@ -66,20 +73,24 @@ module ExternalBridge
         @fields[:http_status] = response.code
         if response.code == 304
           source.update!(checked_at: Time.current)
-          resources = source.external_resources.order(published_at: :desc, id: :desc).limit(Limits::MAX_ITEMS).to_a
+          resources = recent_resources(source)
           @fields[:cached_items] = resources.size
           @stage = :ingest
           apply_resources(permitted, accounted, resources)
+          enqueue_drain(source)
           Icon::Schedule.enqueue_if_due(source)
           ActivityPub::Schedule.enqueue_if_due(source)
           'not_modified'
         elsif response.code.between?(200, 299)
           @stage = :parse
-          feed = Parser.parse!(response.body)
+          snapshot = FeedSnapshot::Capture.new.call(response: response, canonical_key: source.canonical_key, source: source)
           @stage = :ingest
-          resources = Ingest.new.apply_public!(source, feed, response)
-          @fields[:items] = resources.size
-          apply_resources(permitted, accounted, resources)
+          @fields[:items] = snapshot.item_count
+          @fields[:snapshot_id] = snapshot.id
+          @fields[:snapshot_items] = snapshot.item_count
+          @fields[:snapshot_generation] = snapshot.generation
+          apply_resources(permitted, accounted, recent_resources(source))
+          enqueue_drain(source)
           Icon::Schedule.enqueue_if_due(source)
           ActivityPub::Schedule.enqueue_if_due(source)
           'fetched'
@@ -95,6 +106,18 @@ module ExternalBridge
         return 'skipped_no_permitted_subscriptions' if permitted.empty?
 
         subscription_id.present? ? 'skipped_inactive_subscription' : 'skipped_not_due'
+      end
+
+      def recent_resources(source)
+        source.external_resources.order(published_at: :desc, id: :desc).limit(Limits::MAX_ITEMS).to_a
+      end
+
+      # The tail worker is idempotent. A 304 with an open snapshot keeps
+      # that body and continues it. A finished snapshot does not enqueue.
+      def enqueue_drain(source)
+        return unless ExternalFeedSnapshot.open.exists?(external_source_id: source.id)
+
+        FeedSnapshotDrainWorker.perform_async(source.id)
       end
 
       def apply_resources(permitted, accounted, resources)

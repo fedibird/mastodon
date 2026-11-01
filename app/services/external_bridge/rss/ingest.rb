@@ -16,24 +16,59 @@ module ExternalBridge
         ApplicationRecord.transaction do
           with_feed_lock(source.canonical_key)
           source.reload
-          source.update!(
-            title: feed.title.presence || source.title,
-            site_url: feed.site_url.presence || source.site_url,
-            activitypub_hint: feed.activitypub_hint || false,
-            activitypub_generator_hint: feed.activitypub_generator_hint || false,
-            activitypub_feed_attribution: ActivityPub::FeedAttribution.evaluate(feed: feed, feed_url: source.canonical_key),
-            etag: response.etag,
-            last_modified: response.last_modified,
-            fetched_at: Time.current,
-            checked_at: Time.current,
-            **icon_hint_attributes(source, feed)
-          )
+          assign_channel!(source, feed, response)
           budget = ActivityPub::SampleBudget.new(source)
           actor = upsert_actor!(source, feed)
           written = feed.items.map { |item| upsert_resource!(source, actor, item, budget) }
           ActivityPub::Schedule.recompute_source!(source)
         end
         written
+      end
+
+      # Channel metadata and the shared actor. Items stay with the caller so
+      # a snapshot can commit its body and history page together, then drain
+      # the tail outside this transaction.
+      def assign_channel!(source, feed, response)
+        source.update!(
+          title: feed.title.presence || source.title,
+          site_url: feed.site_url.presence || source.site_url,
+          activitypub_hint: feed.activitypub_hint || false,
+          activitypub_generator_hint: feed.activitypub_generator_hint || false,
+          activitypub_feed_attribution: ActivityPub::FeedAttribution.evaluate(feed: feed, feed_url: source.canonical_key),
+          etag: response.etag,
+          last_modified: response.last_modified,
+          fetched_at: Time.current,
+          checked_at: Time.current,
+          **icon_hint_attributes(source, feed)
+        )
+        source
+      end
+
+      def ensure_actor!(source, feed)
+        upsert_actor!(source, feed)
+      end
+
+      def recompute_activitypub!(source)
+        ActivityPub::Schedule.recompute_source!(source)
+      end
+
+      # lock: false when the caller already holds the feed advisory lock in
+      # this transaction. Taking it twice in one transaction deadlocks.
+      def upsert_item!(source, item, lock: true)
+        ApplicationRecord.transaction(requires_new: true) do
+          with_feed_lock(source.canonical_key) if lock
+          actor = ExternalActor.find_by!(protocol: source.protocol, native_id: source.canonical_key)
+          budget = ActivityPub::SampleBudget.new(source)
+          upsert_resource!(source, actor, item, budget)
+        end
+      end
+
+      def hold_feed_lock(canonical)
+        with_feed_lock(canonical)
+      end
+
+      def canonical_resource_key(source, item_key)
+        resource_key(source, item_key)
       end
 
       def find_or_create_source!(feed, canonical_key)

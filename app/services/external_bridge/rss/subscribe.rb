@@ -15,6 +15,7 @@ module ExternalBridge
         if source && fresh?(source)
           subscription = ensure_subscription!(user, source)
           materialize!(subscription, source)
+          enqueue_drain(source)
           Icon::Schedule.enqueue_if_due(source)
           ActivityPub::Schedule.enqueue_if_due(source)
           return subscription
@@ -38,6 +39,7 @@ module ExternalBridge
         transition!(subscription, state: 'active', last_error_code: nil, last_error_at: nil, next_retry_at: nil, retry_count: 0)
         subscription.external_projection_failures.update_all(attempt_count: 0, next_attempt_at: nil)
         RefreshSource.new.call(subscription.external_source_id, subscription_id: subscription.id)
+        FeedSnapshot::CatchUp.enqueue!(subscription)
         subscription.reload
       end
 
@@ -76,6 +78,7 @@ module ExternalBridge
           source.update!(checked_at: Time.current)
           subscription = ensure_subscription!(user, source)
           materialize!(subscription, source)
+          enqueue_drain(source)
           Icon::Schedule.enqueue_if_due(source)
           ActivityPub::Schedule.enqueue_if_due(source)
           return subscription
@@ -87,11 +90,12 @@ module ExternalBridge
           raise Error, code
         end
 
-        feed = Parser.parse!(response.body)
         canonical_key = response.final_url.presence || canonical
-        source, = Ingest.new.write_public!(feed, canonical_key, response)
+        snapshot = FeedSnapshot::Capture.new.call(response: response, canonical_key: canonical_key, source: source)
+        source = snapshot.external_source
         subscription = ensure_subscription!(user, source)
         materialize!(subscription, source)
+        enqueue_drain(source)
         Icon::Schedule.enqueue_if_due(source)
         ActivityPub::Schedule.enqueue_if_due(source)
         subscription
@@ -139,6 +143,12 @@ module ExternalBridge
         return if subscription.update_unless_deleting!(attributes)
 
         raise Error, ExternalSubscription.exists?(subscription.id) ? :subscription_deleting : :not_found
+      end
+
+      def enqueue_drain(source)
+        return unless ExternalFeedSnapshot.open.exists?(external_source_id: source.id)
+
+        FeedSnapshotDrainWorker.perform_async(source.id)
       end
 
       def materialize!(subscription, source)

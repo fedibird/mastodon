@@ -10,6 +10,10 @@ class Scheduler::ExternalBridgeRSSRefreshScheduler
   def perform
     started = ExternalBridge::RSS::RefreshLog.now
     stats = { selected: 0, enqueued: 0, rejected: 0, source_ids: [] }
+    # Finished snapshot bodies. Runs even when no feed is due, so retention
+    # does not wait for the next fetch of that source. It does not choose
+    # which feeds are polled.
+    ExternalBridge::RSS::FeedSnapshot::Purge.call
 
     return log(started, 'feature_disabled', stats) unless ExternalBridge::Feature.enabled?
 
