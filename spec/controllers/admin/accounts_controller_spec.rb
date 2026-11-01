@@ -85,7 +85,6 @@ RSpec.describe Admin::AccountsController, type: :controller do
       expect(link).to be_present
       expect(link['class'].split).not_to include('suspended')
     end
-
   end
 
   describe 'GET #show' do
@@ -110,6 +109,7 @@ RSpec.describe Admin::AccountsController, type: :controller do
         headers = doc.css('.inline-table th').map { |element| element.text.strip }
         expect(headers).to include(I18n.t('admin.accounts.type'), I18n.t('admin.accounts.priority'), I18n.t('admin.accounts.joined'))
         expect(headers).not_to include(I18n.t('admin.accounts.role'), I18n.t('admin.accounts.email'), I18n.t('admin.accounts.security'))
+        expect(response.body).not_to include(person_admin_account_type_path(account.id), service_admin_account_type_path(account.id))
       end
 
       it 'prioritizes suspension status over the no-login label' do
@@ -263,6 +263,19 @@ RSpec.describe Admin::AccountsController, type: :controller do
         expect(response).to redirect_to(admin_account_path(account.id))
         expect(Admin::ActionLog.find_by!(target: account, action: 'remove_avatar')).to be_present
       end
+    end
+  end
+
+  describe 'POST #remove_header' do
+    let(:current_user) { user_with_role('Owner') }
+
+    it 'logs header removal against a managed Group Account when there is no User' do
+      account = create_managed_group_account(username: 'managedheader')
+
+      post :remove_header, params: { id: account.id }
+
+      expect(response).to redirect_to(admin_account_path(account.id))
+      expect(Admin::ActionLog.find_by!(target: account, action: 'remove_header')).to be_present
     end
   end
 end
