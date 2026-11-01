@@ -5,9 +5,11 @@ module ExternalBridge
     module Limits
       # Inflated body of one feed response, in bytes. This is the document
       # the parser would see. 8 MiB covers the measured public-feed shape
-      # (about 6.3 MiB and 1,017 items) with headroom. The stored item count
-      # stays MAX_ITEMS. One parse of that fixture is about 110–150 ms and
-      # peaks near 80–100 MB RSS, including the interpreter.
+      # (about 6.3 MiB and 1,017 items) with headroom. One parse of that
+      # fixture is about 110–150 ms and peaks near 80–100 MB RSS, including
+      # the interpreter. A response may contain more than MAX_ITEMS keyed
+      # items. Those stay in a snapshot and are imported
+      # SNAPSHOT_BATCH_ITEMS at a time. MAX_ITEMS remains the history page.
       MAX_RESPONSE_BYTES = 8.megabytes
       # Encoded body of one HTTP response, in bytes, after transfer framing
       # (including chunked framing) is removed and before Content-Encoding
@@ -53,7 +55,60 @@ module ExternalBridge
       # attribute does not.
       MAX_XML_ATTRIBUTE_BYTES = 64.kilobytes
       MAX_TEXT_BYTES = 1.megabyte
+      # Initial history, shared-cache materialize, failure replay, and the
+      # first-subscription language sample. Not the parse cap and not the
+      # number of new items a continued subscription may import.
       MAX_ITEMS = 40
+      # One drain job after the synchronous history page. The same size as
+      # MAX_ITEMS because that is the page Materialize already applies in
+      # one pass. A larger page would hold the projection locks longer; a
+      # smaller page would multiply feed reparses. It is not a reason to
+      # stop at the first 40 keyed items.
+      SNAPSHOT_BATCH_ITEMS = 40
+      # Keyed items kept from one response. Document budgets still reject
+      # hostile XML first. 4,096 is above the measured public feed (about
+      # 1,017 items) and far below MAX_XML_ELEMENTS. Crossing it fails the
+      # snapshot and does not advance validators, so the tail is not dropped
+      # and the next poll can retry.
+      SNAPSHOT_MAX_ITEMS = 4_096
+      # Unfinished snapshots kept per source. A newer response is stored
+      # behind them. Past this, the new body is refused and the stored
+      # bodies stay. 3 is one in flight plus a fetch that arrived during
+      # the drain and one more, which is the most a single source can owe
+      # while each body is still at most MAX_PARSE_BYTES.
+      SNAPSHOT_OPEN_LIMIT = 3
+      # Successful tail batches for one snapshot. 4,096 / 40 is 102.4, plus
+      # room for a short batch. The history page does not consume one.
+      # Past this the snapshot fails instead of enqueueing itself again.
+      SNAPSHOT_MAX_BATCHES = 160
+      # How long a drain worker owns a snapshot. A second worker does not
+      # enter until this lapses. The worker renews it on every item. Two
+      # minutes covers one batch of projection writes without letting a
+      # dead process block the source until the next scheduler pass.
+      SNAPSHOT_LEASE = 2.minutes
+      # A body that no longer needs to be reread becomes eligible this long
+      # after completed_at (or updated_at). The scheduler pass and capture
+      # delete at most SNAPSHOT_PURGE_BATCH of those. An incomplete or failed
+      # body with a remainder or a retryable isolated position is not eligible.
+      # It stays until Retry finishes it or the operator leaves only
+      # superseded positions. Eligibility is not the moment of deletion.
+      SNAPSHOT_BODY_RETENTION = 24.hours
+      SNAPSHOT_PURGE_BATCH = 50
+      # Hard cap on snapshot text, in bytes. Disposable bodies are dropped
+      # oldest-first until the sum fits. Bodies still needed by a pending or
+      # running catch-up, and bodies that are the only copy of a remainder,
+      # are not dropped. Capture takes SNAPSHOT_CAPACITY_LOCK for the check
+      # and the insert together, so two sources cannot both pass a full cap.
+      # A response that still does not fit is refused and etag stays. 32 MiB
+      # is four responses at the feed byte cap.
+      SNAPSHOT_RETAINED_BODY_BYTES = 32.megabytes
+      # pg_advisory_xact_lock key. Distinct from the per-source refresh lock.
+      SNAPSHOT_CAPACITY_LOCK = 810_532
+      # Failures of the same cursor position before that position is
+      # isolated. The snapshot stays open and the rest of the generation
+      # still runs. The isolated position is not retried until
+      # FeedSnapshot::Retry. This is not a Sidekiq retry budget.
+      SNAPSHOT_ATTEMPT_CEILING = 5
       # A refresh may replay at most one page of historical import failures.
       # After this many attempts an item is left alone until the owner resumes.
       ITEM_ATTEMPT_CEILING = 5
