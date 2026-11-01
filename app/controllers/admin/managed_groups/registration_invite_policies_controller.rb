@@ -56,22 +56,14 @@ module Admin
 
       def finish_update(result)
         if result.success?
-          audit_saved_policy(result.policy)
           redirect_to admin_managed_group_path(@managed_group), notice: t('admin.managed_groups.policy_saved')
           return
         end
 
-        audit_group_action(:fail, result.policy, code: result.code)
         @policy = result.policy
         @audits = group_admin_audits(@policy, @creation_request)
-        flash.now[:alert] = t("admin.managed_groups.policy_errors.#{result.code}", default: t('admin.managed_groups.policy_errors.invalid'))
+        flash.now[:alert] = t("admin.managed_groups.policy_errors.#{result.code}", default: t('admin.group_administration.audit_failed'))
         render 'admin/managed_groups/show'
-      end
-
-      def audit_saved_policy(policy)
-        return if policy.previous_changes.except('updated_at', 'lock_version').empty?
-
-        audit_group_action(:update, policy)
       end
     end
   end

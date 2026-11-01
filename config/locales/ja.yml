@@ -101,6 +101,7 @@ ja:
       audit_heading: 管理ログ
       audit_when: 日時
       'no': いいえ
+      audit_failed: 管理ログを書けなかったため、成功としては記録していません。
       none: なし
       'yes': はい
     group_creation_requests:
@@ -223,6 +224,7 @@ ja:
       owner: オーナー
       policy_confirm: このグループの招待ポリシーを保存しますか？サイトの初期値と他のグループは変わりません。
       policy_errors:
+        audit_failed: 管理ログを書けなかったため、ポリシーは保存していません。
         conflict: 別の管理者が先にこのポリシーを保存しました。最新の値を表示しています。
         invalid: ポリシーは保存していません。下の制限を確認してください。
       policy_heading: 登録招待ポリシー
@@ -655,6 +657,7 @@ ja:
         fail_group_creation_request_html: "%{name} さんはグループ申請 %{target} を確定できませんでした"
         retry_icon_group_creation_request_html: "%{name} さんがグループ申請 %{target} のアイコン引き継ぎを再試行しました"
         update_group_registration_invite_policy_html: "%{name} さんがグループ %{target} の招待ポリシーを更新しました"
+        update_invite_policy_group_registration_invite_policy_html: "%{name} さんがグループ %{target} の招待ポリシーを更新しました"
         fail_group_registration_invite_policy_html: "%{name} さんはグループ %{target} の招待ポリシーを更新できませんでした"
         update_group_invite_defaults_setting_html: "%{name} さんが新しいグループ招待の初期値を更新しました（%{target}）"
         fail_group_invite_defaults_account_html: "%{name} さんは新しいグループ招待の初期値を更新できませんでした（%{target}）"

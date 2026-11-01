@@ -107,6 +107,7 @@ en:
       audit_heading: Administration log
       audit_when: When
       'no': 'No'
+      audit_failed: The administration log could not be written, so this was not recorded as a successful change.
       none: None
       'yes': 'Yes'
     group_creation_requests:
@@ -229,6 +230,7 @@ en:
       owner: Owner
       policy_confirm: Save this group's invite policy? The site defaults and other groups stay unchanged.
       policy_errors:
+        audit_failed: The policy was not saved because the administration log could not be written.
         conflict: Someone else saved this policy first. The latest values are shown.
         invalid: The policy was not saved. Check the limits below.
       policy_heading: Registration invite policy
@@ -670,6 +672,7 @@ en:
         fail_group_creation_request_html: "%{name} could not decide group request %{target}"
         retry_icon_group_creation_request_html: "%{name} retried the icon handoff for group request %{target}"
         update_group_registration_invite_policy_html: "%{name} updated the invite policy for group %{target}"
+        update_invite_policy_group_registration_invite_policy_html: "%{name} updated the invite policy for group %{target}"
         fail_group_registration_invite_policy_html: "%{name} could not update the invite policy for group %{target}"
         update_group_invite_defaults_setting_html: "%{name} updated site defaults for new group invites (%{target})"
         fail_group_invite_defaults_account_html: "%{name} could not update site defaults for new group invites (%{target})"

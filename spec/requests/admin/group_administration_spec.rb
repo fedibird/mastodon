@@ -212,6 +212,13 @@ RSpec.describe 'Admin group administration' do
       expect(request.reload).to be_pending
       expect(Setting.group_creation_requests).to eq false
       expect(Admin::ActionLog.where(target: request, action: 'fail').last.recorded_changes).to eq('code' => 'feature_disabled')
+
+      allow(GroupAdministration::Audit).to receive(:record!).and_raise(GroupAdministration::Audit::Error)
+      post approve_admin_group_creation_request_path(request)
+      follow_redirect!
+      expect(response.body).to include(I18n.t('admin.group_administration.audit_failed'))
+      expect(response.body).not_to include(I18n.t('admin.group_creation_requests.results.approved'))
+      expect(request.reload).to be_pending
     end
 
     it 'approves through the service, audits it, and does not follow or create a login' do
@@ -233,18 +240,14 @@ RSpec.describe 'Admin group administration' do
       follow_redirect!
       expect(response.body).to include(I18n.t('admin.group_creation_requests.results.approved'))
       expect(response.headers['Cache-Control']).to eq 'private, no-store'
-      log = Admin::ActionLog.where(target: request, action: 'approve').last
-      expect(log.account).to eq owner.account
-      expect(log.recorded_changes).to eq ''
+      expect(Admin::ActionLog.where(target: request, action: 'approve')).to be_empty
+      expect(request.decision).to be_approved
+      expect(request.decision.reviewer_account).to eq owner.account
 
       post approve_admin_group_creation_request_path(request)
       follow_redirect!
       expect(response.body).to include(I18n.t('admin.group_creation_requests.errors.not_pending'))
       expect(Account.where(username: 'queuedgroup').count).to eq 1
-
-      get admin_action_logs_path
-      expect(response).to have_http_status(:ok)
-      expect(response.body).to include(I18n.t('admin.action_logs.actions.approve_group_creation_request_html', name: 'NAME', target: 'TARGET').split('NAME').first.strip)
     end
 
     it 'requires a rejection reason and keeps a blank rejection pending' do
@@ -318,6 +321,7 @@ RSpec.describe 'Admin group administration' do
       sign_in_as moderator
       get icon_admin_group_creation_request_path(request)
       expect(response).to have_http_status(:forbidden)
+      expect(response.headers['Cache-Control']).to eq 'private, no-store'
       expect(response.body).not_to include(png)
       expect(response.body).not_to include(request.icon_storage_key)
 
@@ -346,6 +350,26 @@ RSpec.describe 'Admin group administration' do
     it 'filters the review note from parameter logs' do
       filter = ActiveSupport::ParameterFilter.new(Rails.application.config.filter_parameters)
       expect(filter.filter(decision_note: 'secret-review-note')[:decision_note]).to eq '[FILTERED]'
+    end
+
+    it 'does not read an oversized icon and keeps failure responses uncached' do
+      sign_in_as owner
+      storage = GroupCreationIcons::Storage.resolve
+      allow(storage).to receive(:byte_size).and_return(GroupCreationIcons::MAX_BYTES)
+      allow(storage).to receive(:read)
+      allow(GroupCreationIcons::Storage).to receive(:resolve).and_return(storage)
+
+      get icon_admin_group_creation_request_path(request)
+      expect(response).to have_http_status(:not_found)
+      expect(response.headers['Cache-Control']).to eq 'private, no-store'
+      expect(storage).not_to have_received(:read)
+
+      allow(storage).to receive(:byte_size).and_raise(Errno::ECONNREFUSED)
+      get icon_admin_group_creation_request_path(request)
+      expect(response).to have_http_status(:service_unavailable)
+      expect(response.headers['Cache-Control']).to eq 'private, no-store'
+      expect(response.body).not_to include('ECONNREFUSED')
+      expect(response.body).not_to include(request.icon_storage_key)
     end
   end
 
@@ -449,7 +473,10 @@ RSpec.describe 'Admin group administration' do
       expect(policy.reload.shared_registration_quota).to eq 6
       expect(policy.issuance_enabled).to eq true
       expect(second.group_account.group_registration_invite_policy.reload.shared_registration_quota).to eq 4
-      expect(Admin::ActionLog.where(target: policy, action: 'update')).to exist
+      log = Admin::ActionLog.where(target: policy, action: 'update_invite_policy').last
+      expect(log.recorded_changes['before']['shared_registration_quota']).to eq 3
+      expect(log.recorded_changes['after']['shared_registration_quota']).to eq 6
+      expect(log.recorded_changes['after']).not_to have_key('decision_note')
     end
 
     it 'rejects an unlimited shared quota that is not zero and a stale defaults form' do
@@ -488,6 +515,56 @@ RSpec.describe 'Admin group administration' do
       }
       expect(response.body).to include(I18n.t('admin.group_registration_invite_defaults.errors.conflict'))
       expect(Setting.group_registration_invites_shared_quota).to eq 2
+    end
+
+    it 'does not save defaults when the administration log cannot be written' do
+      first = approve_request(submit_request(username: 'auditedgroup'))
+      policy = first.group_account.group_registration_invite_policy
+      get edit_admin_group_registration_invite_defaults_path
+      fingerprint = defaults_fingerprint(response.body)
+      allow(GroupAdministration::Audit).to receive(:record!).and_raise(GroupAdministration::Audit::Error)
+
+      patch admin_group_registration_invite_defaults_path, params: {
+        form_group_registration_invite_defaults: {
+          fingerprint: fingerprint,
+          issuance_enabled: '0',
+          shared_quota_unlimited: '0',
+          shared_registration_quota: '7',
+          per_link_unlimited_uses: '0',
+          per_link_max_uses: '1',
+          per_link_indefinite: '0',
+          per_link_lifetime_seconds: '60',
+        },
+      }
+
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include(I18n.t('admin.group_administration.audit_failed'))
+      expect(response.body).not_to include(I18n.t('admin.group_registration_invite_defaults.saved'))
+      expect(Setting.group_registration_invites_shared_quota).to eq 0
+      expect(policy.reload.shared_registration_quota).to eq 0
+    end
+
+    it 'rolls back a group policy change when the administration log cannot be written' do
+      approved = approve_request(submit_request(username: 'policyaudit'))
+      policy = approved.group_account.group_registration_invite_policy
+      allow(GroupAdministration::Audit).to receive(:record!).and_raise(GroupAdministration::Audit::Error)
+
+      patch admin_managed_group_registration_invite_policy_path(approved.group_account.managed_group), params: {
+        group_registration_invite_policy: {
+          lock_version: policy.lock_version,
+          issuance_enabled: '1',
+          shared_quota_unlimited: '0',
+          shared_registration_quota: '4',
+          per_link_unlimited_uses: '0',
+          per_link_max_uses: '2',
+          per_link_indefinite: '0',
+          per_link_lifetime_seconds: '30',
+        },
+      }
+
+      expect(response.body).to include(I18n.t('admin.managed_groups.policy_errors.audit_failed'))
+      expect(policy.reload.shared_registration_quota).to eq 0
+      expect(policy.issuance_enabled).to eq false
     end
   end
 

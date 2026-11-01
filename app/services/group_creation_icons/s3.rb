@@ -62,10 +62,23 @@ module GroupCreationIcons
       @client.put_object(put_options(key, io, content_type))
     end
 
+    def byte_size(key)
+      response = @client.head_object(bucket: @bucket, key: object_key(key))
+      response.content_length
+    rescue StandardError => e
+      raise NotFound, 'missing icon' if e.class.name.end_with?('NotFound', 'NoSuchKey')
+
+      raise
+    end
+
     def read(key)
+      raise Error, 'too_large' if byte_size(key).to_i >= GroupCreationIcons::MAX_BYTES
+
       response = @client.get_object(bucket: @bucket, key: object_key(key))
       body = response.body
       body.respond_to?(:read) ? body.read : body.to_s
+    rescue NotFound, Error
+      raise
     rescue StandardError => e
       raise NotFound, 'missing icon' if e.class.name.end_with?('NoSuchKey')
 

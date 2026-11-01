@@ -12,8 +12,7 @@ module Admin::GroupAdministrationConcern
   private
 
   def disallow_shared_cache
-    response.headers['Cache-Control'] = 'private, no-store'
-    response.headers['Pragma'] = 'no-cache'
+    private_cache_headers
   end
 
   # Pundit runs first so verify_authorized passes. The second call is the
@@ -25,20 +24,27 @@ module Admin::GroupAdministrationConcern
     raise Mastodon::NotPermittedError
   end
 
-  # Codes and setting snapshots only. Decision notes and storage keys stay
-  # off this row and off the Rails log line below.
-  def audit_group_action(action, target, code: nil, changes: nil)
-    return if target.nil?
+  def private_cache_headers
+    response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['Pragma'] = 'no-cache'
+  end
 
-    entry = Admin::ActionLog.new(account: current_account, action: action.to_s, target: target)
-    if changes
-      entry.recorded_changes = changes
-    elsif code.present?
-      entry.recorded_changes = { 'code' => code.to_s }
-    end
-    entry.save!
-  rescue StandardError => e
-    Rails.logger.error("Group administration audit failed action=#{action} target_type=#{target.class.name} target_id=#{target.id} error=#{e.class}")
+  def forbidden
+    super
+  ensure
+    private_cache_headers
+  end
+
+  def not_found
+    super
+  ensure
+    private_cache_headers
+  end
+
+  def service_unavailable
+    super
+  ensure
+    private_cache_headers
   end
 
   def group_admin_audits(*targets)

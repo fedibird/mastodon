@@ -31,12 +31,24 @@ module GroupRegistrationInvites
           return Result.new(code: :conflict, policy: @policy)
         end
 
+        before = limits_of(@policy)
         assign_limits
         return Result.new(code: :invalid, policy: @policy) unless @policy.valid?
 
+        after = limits_of(@policy)
+        next if before == after
+
         @policy.save!
+        GroupAdministration::Audit.record!(
+          account: @actor_account,
+          action: :update_invite_policy,
+          target: @policy,
+          changes: { 'before' => before, 'after' => after }
+        )
       end
       Result.new(code: :updated, policy: @policy)
+    rescue GroupAdministration::Audit::Error
+      Result.new(code: :audit_failed, policy: @policy.reload)
     rescue ActiveRecord::StaleObjectError
       Result.new(code: :conflict, policy: @policy.reload)
     rescue ActiveRecord::RecordInvalid
@@ -47,6 +59,18 @@ module GroupRegistrationInvites
 
     def expected_version
       Attributes.strict_integer(@attributes[:lock_version])
+    end
+
+    def limits_of(policy)
+      {
+        'issuance_enabled' => policy.issuance_enabled,
+        'shared_registration_quota' => policy.shared_registration_quota,
+        'shared_quota_unlimited' => policy.shared_quota_unlimited,
+        'per_link_max_uses' => policy.per_link_max_uses,
+        'per_link_unlimited_uses' => policy.per_link_unlimited_uses,
+        'per_link_lifetime_seconds' => policy.per_link_lifetime_seconds,
+        'per_link_indefinite' => policy.per_link_indefinite,
+      }
     end
 
     def assign_limits

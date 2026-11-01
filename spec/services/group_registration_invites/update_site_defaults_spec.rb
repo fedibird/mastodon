@@ -41,7 +41,44 @@ RSpec.describe GroupRegistrationInvites::UpdateSiteDefaults do
     expect(call(shared_quota_unlimited: '1', shared_registration_quota: '4', per_link_max_uses: '1', per_link_lifetime_seconds: '60').errors).to include(:shared_quota_unlimited_mismatch)
     expect(call(shared_registration_quota: '1', per_link_max_uses: '0', per_link_lifetime_seconds: '60').errors).to include(:per_link_max_uses)
     expect(call(shared_registration_quota: '1', per_link_max_uses: '1', per_link_lifetime_seconds: '2147483648').errors).to include(:per_link_lifetime_seconds)
+    expect(call(shared_registration_quota: '2147483648', per_link_max_uses: '1', per_link_lifetime_seconds: '60').errors).to include(:shared_quota)
+    expect(call(shared_registration_quota: '1.5', per_link_max_uses: '1', per_link_lifetime_seconds: '60').errors).to include(:shared_quota)
     expect(Setting.group_registration_invites_shared_quota).to eq 0
+    expect(Setting.group_registration_invites_shared_quota_unlimited).to eq false
+  end
+
+  it 'detects a fallback-only change that the approval snapshot does not copy' do
+    base = {
+      issuance_enabled: '0',
+      shared_quota_unlimited: '0',
+      shared_registration_quota: '0',
+      per_link_unlimited_uses: '1',
+      per_link_max_uses: '1',
+      per_link_indefinite: '1',
+      per_link_lifetime_seconds: '90',
+    }
+    expect(call(base).code).to eq :updated
+    first = described_class.fingerprint
+    expect(GroupRegistrationInvites::SiteDefaults.snapshot[:per_link_max_uses]).to be_nil
+    expect(GroupRegistrationInvites::SiteDefaults.snapshot[:per_link_lifetime_seconds]).to be_nil
+
+    changed = described_class.call(actor_account: actor, attributes: base.merge(per_link_max_uses: '9', per_link_lifetime_seconds: '120'), fingerprint: first)
+    expect(changed.code).to eq :updated
+    expect(described_class.fingerprint).not_to eq first
+    expect(Setting.group_registration_invites_per_link_max_uses).to eq 9
+
+    stale = described_class.call(actor_account: actor, attributes: base.merge(per_link_max_uses: '3'), fingerprint: first)
+    expect(stale.code).to eq :conflict
+    expect(Setting.group_registration_invites_per_link_max_uses).to eq 9
+  end
+
+  it 'asks for the writer lock before comparing the stored values' do
+    sql = []
+    callback = lambda { |*_args, payload| sql << payload[:sql].to_s }
+    ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+      expect(call(shared_registration_quota: '0', per_link_max_uses: '1', per_link_lifetime_seconds: '604800').code).to eq :updated
+    end
+    expect(sql).to include("SELECT pg_advisory_xact_lock(#{described_class::LOCK_KEY})")
   end
 
   it 'stores an unlimited fallback without copying it into the snapshot' do

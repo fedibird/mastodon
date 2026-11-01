@@ -12,7 +12,6 @@ module Admin
 
     def update
       authorize_group_admin!(:group_registration_invite_defaults, :update?)
-      before = GroupRegistrationInvites::SiteDefaults.snapshot
       result = GroupRegistrationInvites::UpdateSiteDefaults.call(
         actor_account: current_account,
         attributes: defaults_params,
@@ -20,7 +19,7 @@ module Admin
       )
       raise Mastodon::NotPermittedError if result.code == :not_authorized
 
-      finish_update(result, before)
+      finish_update(result)
     end
 
     private
@@ -38,34 +37,23 @@ module Admin
       )
     end
 
-    def finish_update(result, before)
+    def finish_update(result)
       if result.success?
-        audit_defaults(before)
         redirect_to edit_admin_group_registration_invite_defaults_path, notice: t('admin.group_registration_invite_defaults.saved')
         return
       end
 
-      audit_group_action(:fail_group_invite_defaults, current_account, code: result.code)
       @snapshot = GroupRegistrationInvites::SiteDefaults.snapshot
       @form = result.code == :conflict ? Form::GroupRegistrationInviteDefaults.from_settings : Form::GroupRegistrationInviteDefaults.from_submission(defaults_params)
+      if result.code == :audit_failed
+        flash.now[:alert] = t('admin.group_administration.audit_failed')
+      end
       result.errors.each do |code|
-        @form.errors.add(:base, t("admin.group_registration_invite_defaults.errors.#{code}"))
+        next if code == :audit_failed
+
+        @form.errors.add(:base, t("admin.group_registration_invite_defaults.errors.#{code}", default: t('admin.group_administration.audit_failed')))
       end
       render :edit
-    end
-
-    def audit_defaults(before)
-      setting = defaults_setting
-      return if setting.nil?
-
-      after = GroupRegistrationInvites::SiteDefaults.snapshot
-      return if before == after
-
-      audit_group_action(:update_group_invite_defaults, setting, changes: { 'before' => before.stringify_keys, 'after' => after.stringify_keys })
-    end
-
-    def defaults_setting
-      Setting.find_by(var: 'group_registration_invites_enabled')
     end
   end
 end
