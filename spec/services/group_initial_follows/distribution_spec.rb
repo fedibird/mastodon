@@ -104,7 +104,9 @@ RSpec.describe FollowService, 'deferred distribution' do
     target = Fabricate(:account, username: 'orderrecover')
     follow = source.follow!(target)
 
-    expect_any_instance_of(FollowService).to receive(:mark_home_feed_as_partial!).ordered
+    service = described_class.new
+    allow(described_class).to receive(:new).and_return(service)
+    expect(service).to receive(:mark_home_feed_as_partial!).ordered
     allow(LocalNotificationWorker).to receive(:perform_async)
     expect(MergeWorker).to receive(:perform_async).ordered
     allow(NotifyService).to receive(:new).and_return(double(call: nil))
