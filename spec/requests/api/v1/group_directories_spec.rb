@@ -87,6 +87,9 @@ describe 'Group Directory API' do
     get '/api/v1/group_directory', headers: headers, params: { q: 'walkers@lemmy.example' }
     expect(ids).to eq([remote.id.to_s])
 
+    get '/api/v1/group_directory', headers: headers, params: { q: 'lemmy.example' }
+    expect(ids).to eq([remote.id.to_s])
+
     get '/api/v1/group_directory', headers: headers, params: { q: "%_not_present" }
     expect(body_as_json).to be_empty
 
@@ -180,25 +183,33 @@ describe 'Group Directory API' do
     expect(ids).to eq([third.id.to_s, second.id.to_s])
   end
 
-  it 'does not invent a language and rejects a specific tag until one is declared' do
+  it 'filters only explicit group language tags' do
     directory_node('lemmy.example', 'lemmy')
     Node.find_by(domain: 'lemmy.example').update!(info: { 'software_name' => 'lemmy', 'languages' => ['ja'] })
-    listed = directory_group('listed_group')
-    listed.user.update!(locale: 'ja')
-
-    get '/api/v1/group_directory', headers: headers
-    all_ids = ids
-    expect(body_as_json.first.dig(:group_directory, :languages)).to eq([])
+    bilingual = directory_group('bilingual_group')
+    bilingual.user.update!(locale: 'en')
+    GroupLanguage.create!(account: bilingual, tag: 'ja')
+    GroupLanguage.create!(account: bilingual, tag: 'en-US')
+    quiet = directory_group('quiet_group')
+    node_only = directory_group('node_only', domain: 'lemmy.example')
+    declared_remote = directory_group('declared_remote', domain: 'lemmy.example')
+    GroupLanguage.create!(account: declared_remote, tag: 'ja')
 
     get '/api/v1/group_directory', headers: headers, params: { language: 'ja' }
     expect(response).to have_http_status(200)
-    expect(body_as_json).to be_empty
+    expect(ids).to contain_exactly(bilingual.id.to_s, declared_remote.id.to_s)
+    row = body_as_json.find { |item| item[:id] == bilingual.id.to_s }
+    expect(row.dig(:group_directory, :languages)).to eq(['en-US', 'ja'])
+
+    get '/api/v1/group_directory', headers: headers, params: { language: 'en-us' }
+    expect(ids).to eq([bilingual.id.to_s])
 
     get '/api/v1/group_directory', headers: headers, params: { language: 'unset' }
-    expect(ids).to eq(all_ids)
+    expect(ids).to contain_exactly(quiet.id.to_s, node_only.id.to_s)
 
     get '/api/v1/group_directory', headers: headers, params: { language: 'all' }
-    expect(ids).to eq(all_ids)
+    expect(ids).to contain_exactly(bilingual.id.to_s, quiet.id.to_s, node_only.id.to_s, declared_remote.id.to_s)
+    expect(GroupDirectory::Query.new(viewer: nil, params: { language: 'ja' }, limit: 20).results.to_sql).not_to match(/JOIN ["']?group_languages/i)
   end
 
   it 'serves logged-out viewers the public list and an empty following scope' do

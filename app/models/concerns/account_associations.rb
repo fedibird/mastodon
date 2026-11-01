@@ -95,6 +95,9 @@ module AccountAssociations
              dependent: :delete_all,
              inverse_of: :group_account
 
+    # Explicit directory languages. Empty means unset.
+    has_many :group_languages, dependent: :delete_all, inverse_of: :account
+
     include AccountGroupAdministration
 
     # TagAccountMute

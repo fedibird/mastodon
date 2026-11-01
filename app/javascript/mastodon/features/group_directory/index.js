@@ -69,6 +69,7 @@ class GroupDirectory extends React.PureComponent {
       scope: PropTypes.string,
       software: PropTypes.string,
       q: PropTypes.string,
+      language: PropTypes.string,
     }),
   };
 
@@ -77,6 +78,7 @@ class GroupDirectory extends React.PureComponent {
     scope: null,
     software: null,
     q: null,
+    language: null,
   };
 
   handlePin = () => {
@@ -94,6 +96,7 @@ class GroupDirectory extends React.PureComponent {
     scope: state.scope === null ? ((props.params && props.params.scope) || 'all') : state.scope,
     software: state.software === null ? ((props.params && props.params.software) || '') : state.software,
     q: state.q === null ? ((props.params && props.params.q) || '') : state.q,
+    language: state.language === null ? ((props.params && props.params.language) || '') : state.language,
   });
 
   handleMove = dir => {

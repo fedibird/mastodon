@@ -324,25 +324,29 @@ class AccountCard extends ImmutablePureComponent {
           />
         </div>
 
-        <div className='group-directory-card__meta'>
-          <span>{software || intl.formatMessage(messages.unknownSoftware)}</span>
-          {posting === true && (
-            <span><FormattedMessage id='group_directory.can_post' defaultMessage='You can post' /></span>
-          )}
-          {posting === false && (
-            <span><FormattedMessage id='group_directory.cannot_post' defaultMessage='Posting is closed' /></span>
-          )}
-        </div>
-
-        <div className='group-directory-card__links'>
-          <Permalink href={timelinePath} to={timelinePath}>
-            <FormattedMessage id='group_directory.open_timeline' defaultMessage='Open group timeline' />
-          </Permalink>
-          {originalIsHttp && (
-            <a href={originalUrl} target='_blank' rel='noopener noreferrer'>
-              <FormattedMessage id='group_directory.original_site' defaultMessage='Original site' />
-            </a>
-          )}
+        <div className='group-directory__metadata'>
+          <span>
+            {software || intl.formatMessage(messages.unknownSoftware)}
+            {directory && directory.get('languages') && directory.get('languages').size > 0 && (
+              <span className='group-directory__languages'>{directory.get('languages').join(', ')}</span>
+            )}
+            {posting === true && (
+              <span><FormattedMessage id='group_directory.can_post' defaultMessage='You can post' /></span>
+            )}
+            {posting === false && (
+              <span><FormattedMessage id='group_directory.cannot_post' defaultMessage='Posting is closed' /></span>
+            )}
+          </span>
+          <span className='group-directory__actions'>
+            <Permalink className='group-directory__open' href={timelinePath} to={timelinePath}>
+              <FormattedMessage id='group_directory.open_group' defaultMessage='Open group' />
+            </Permalink>
+            {originalIsHttp && (
+              <a className='group-directory__original' href={originalUrl} target='_blank' rel='noopener noreferrer'>
+                <FormattedMessage id='group_directory.original_site' defaultMessage='Original site' />
+              </a>
+            )}
+          </span>
         </div>
 
         <div className='directory__card__extra group-directory-card__counts'>

@@ -6,10 +6,10 @@
 # channels are left out only when NodeInfo itself reports software_name
 # peertube. A missing, blank, or unrecognized name is not treated as PeerTube.
 #
-# Languages are explicit group metadata. This query never copies NodeInfo
-# languages, the viewer's UI locale, or the language of a post. Until a group
-# declares tags, a specific language matches nobody and "unset" matches the
-# same rows as "all".
+# Languages are rows in group_languages. This query never copies NodeInfo
+# languages, the viewer's UI locale, or the language of a post. A specific
+# tag matches only groups that declared it. "unset" matches groups with no
+# declared tags, not every group.
 #
 # order=new is the existing id order (when this server stored the row), not
 # the group's created_at. Software is a NodeInfo self-report, not a promise
@@ -24,8 +24,6 @@ class GroupDirectory::Query
   PEERTUBE = 'peertube'
   KNOWN_SOFTWARE = %w(fedibird lemmy piefed nodebb mbin mitra).freeze
   SOFTWARE_PATTERN = /\A[a-z0-9][a-z0-9_.-]*\z/
-  LANGUAGE_PATTERN = /\A[a-z]{2,3}(?:-[0-9A-Za-z]{2,8}){0,3}\z/
-  ACTIVE_ORDER = Arel.sql('(CASE WHEN account_stats.last_status_at IS NULL THEN 1 ELSE 0 END) ASC, account_stats.last_status_at DESC, accounts.id DESC')
 
   def initialize(viewer:, params:, limit:)
     @viewer = viewer
@@ -40,7 +38,7 @@ class GroupDirectory::Query
     scope = apply_software(scope)
     scope = apply_listing_scope(scope)
     scope = apply_language(scope)
-    scope.order(order_clause).offset(offset_value).limit(@limit).preload(:node)
+    apply_order(scope).offset(offset_value).limit(@limit).preload(:node, :group_languages)
   end
 
   private
@@ -74,6 +72,7 @@ class GroupDirectory::Query
       <<~SQL.squish,
         accounts.display_name ILIKE :pattern
         OR accounts.username ILIKE :pattern
+        OR accounts.domain ILIKE :pattern
         OR accounts.note ILIKE :pattern
         OR (accounts.username || COALESCE('@' || accounts.domain, '')) ILIKE :pattern
       SQL
@@ -116,18 +115,21 @@ class GroupDirectory::Query
   def apply_language(scope)
     language = string_param(:language, MAX_LANGUAGE_LENGTH)
     return scope if language.nil? || language.casecmp('all').zero?
-    return scope if language.casecmp('unset').zero?
+    return scope.where.not(id: GroupLanguage.select(:account_id)) if language.casecmp('unset').zero?
 
-    invalid!('language') if canonical_language(language).nil?
-    scope.none
+    tag = GroupDirectory::Languages.canonicalize(language)
+    invalid!('language') if tag.nil?
+    scope.where(id: GroupLanguage.where(tag: tag).select(:account_id))
   end
 
-  def order_clause
+  # active stays on Account.by_recent_status so this list keeps the existing
+  # activity order. new is id desc, which is when this server stored the row.
+  def apply_order(scope)
     order = string_param(:order, 16)&.downcase || 'active'
     invalid!('order') unless ORDERS.include?(order)
-    return Arel.sql('accounts.id DESC') if order == 'new'
+    return scope.reorder(id: :desc) if order == 'new'
 
-    ACTIVE_ORDER
+    scope.merge(Account.by_recent_status)
   end
 
   def offset_value
@@ -164,25 +166,6 @@ class GroupDirectory::Query
 
   def blank_software_sql
     "BTRIM(COALESCE(nodes.info->>'software_name', ''))"
-  end
-
-  def canonical_language(value)
-    parts = value.split('-')
-    return if parts.empty? || parts.any?(&:blank?)
-
-    parts = parts.each_with_index.map do |part, index|
-      if index.zero?
-        part.downcase
-      elsif part.match?(/\A[a-zA-Z]{4}\z/)
-        part.capitalize
-      elsif part.match?(/\A(?:[a-zA-Z]{2}|[0-9]{3})\z/)
-        part.upcase
-      else
-        part.downcase
-      end
-    end
-    tag = parts.join('-')
-    tag if LANGUAGE_PATTERN.match?(tag)
   end
 
   def invalid!(name)

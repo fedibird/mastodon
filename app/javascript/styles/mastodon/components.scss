@@ -13088,7 +13088,8 @@ div.external-source-identity:hover .external-source-identity__name {
     border-bottom: 1px solid lighten($ui-base-color, 8%);
   }
 
-  .group-directory-card__note .account__header__content {
+  .group-directory-card__note .account__header__content,
+  .directory__card__extra .account__header__content {
     min-height: 0;
     padding: 10px 12px;
     white-space: normal;
@@ -13103,26 +13104,42 @@ div.external-source-identity:hover .external-source-identity__name {
       display: block;
       margin: 0 0 4px;
     }
+
+    br {
+      display: inline;
+    }
   }
 
-  .group-directory-card__meta,
-  .group-directory-card__links {
+  .group-directory__metadata {
+    box-sizing: border-box;
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: 10px;
     padding: 8px 12px;
     color: $darker-text-color;
-    font-size: 13px;
+    font-size: 12px;
     overflow-wrap: anywhere;
+
+    > span:first-child {
+      min-width: 0;
+    }
   }
 
-  .group-directory-card__links {
-    padding-top: 0;
+  .group-directory__languages {
+    display: inline;
+    margin-left: 8px;
+  }
+
+  .group-directory__actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px 12px;
 
     a {
-      color: $ui-highlight-color;
+      color: $highlight-text-color;
       font-weight: 500;
       text-decoration: none;
 
@@ -13156,6 +13173,13 @@ div.external-source-identity:hover .external-source-identity__name {
     color: $darker-text-color;
     font-size: 13px;
     font-weight: 500;
+  }
+
+  &__hint {
+    margin: 0;
+    color: $darker-text-color;
+    font-size: 12px;
+    line-height: 1.4;
   }
 
   &__search,

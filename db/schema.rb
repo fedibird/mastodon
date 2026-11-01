@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_12_090000) do
+ActiveRecord::Schema.define(version: 2026_11_12_093000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1464,6 +1464,16 @@ create_table "group_creation_requests", force: :cascade do |t|
     t.check_constraint "(submission_token IS NULL) OR ((submission_token)::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text)", name: "group_creation_requests_submission_token_shape"
   end
 
+  create_table "group_languages", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.string "tag", limit: 35, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id", "tag"], name: "index_group_languages_on_account_id_and_tag", unique: true
+    t.index ["tag"], name: "index_group_languages_on_tag"
+    t.check_constraint "tag ~ '^[a-z]{2,3}(-[0-9A-Za-z]{2,8}){0,3}$'::text", name: "group_languages_tag_shape"
+  end
+
 create_table "group_role_assignments", force: :cascade do |t|
     t.bigint "group_account_id", null: false
     t.bigint "member_account_id", null: false
@@ -2636,6 +2646,7 @@ create_table "managed_groups", force: :cascade do |t|
   add_foreign_key "group_creation_requests", "accounts", column: "requester_account_id", on_delete: :restrict
   add_foreign_key "group_creation_requests", "accounts", column: "reviewer_account_id", on_delete: :restrict
   add_foreign_key "group_creation_requests", "group_creation_requests", column: "previous_request_id", on_delete: :restrict
+  add_foreign_key "group_languages", "accounts", on_delete: :cascade
   add_foreign_key "group_role_assignments", "accounts", column: "granted_by_account_id", on_delete: :nullify
   add_foreign_key "group_role_assignments", "accounts", column: "group_account_id", on_delete: :restrict
   add_foreign_key "group_role_assignments", "accounts", column: "member_account_id", on_delete: :restrict

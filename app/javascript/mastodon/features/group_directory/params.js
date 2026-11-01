@@ -9,13 +9,14 @@ export const normalizeGroupDirectoryParams = (params = {}) => ({
   scope: params.scope === 'local' || params.scope === 'following' ? params.scope : 'all',
   software: typeof params.software === 'string' ? params.software : '',
   q: typeof params.q === 'string' ? params.q : '',
+  language: typeof params.language === 'string' ? params.language : '',
 });
 
 // Stable identity for one set of filters. Paging state is stored separately.
 export const groupDirectoryFilterKey = (params) => {
   const normalized = normalizeGroupDirectoryParams(params);
 
-  return [normalized.order, normalized.scope, normalized.software, normalized.q].join('\n');
+  return [normalized.order, normalized.scope, normalized.software, normalized.q, normalized.language].join('\n');
 };
 
 export const groupDirectoryApiParams = (params) => {
@@ -35,6 +36,10 @@ export const groupDirectoryApiParams = (params) => {
 
   if (normalized.q) {
     apiParams.q = normalized.q;
+  }
+
+  if (normalized.language) {
+    apiParams.language = normalized.language;
   }
 
   return apiParams;
