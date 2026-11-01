@@ -8,7 +8,7 @@ module Admin
 
     def index
       authorize :account, :index?
-      @accounts = filtered_accounts.page(params[:page])
+      @accounts = filtered_accounts.includes(:managed_group).page(params[:page])
     end
 
     def batch
@@ -106,7 +106,7 @@ module Admin
       @account.avatar = nil
       @account.save!
 
-      log_action :remove_avatar, @account.user
+      log_action :remove_avatar, @account.user || @account
 
       redirect_to admin_account_path(@account.id), notice: I18n.t('admin.accounts.removed_avatar_msg', username: @account.acct)
     end
@@ -117,7 +117,7 @@ module Admin
       @account.header = nil
       @account.save!
 
-      log_action :remove_header, @account.user
+      log_action :remove_header, @account.user || @account
 
       redirect_to admin_account_path(@account.id), notice: I18n.t('admin.accounts.removed_header_msg', username: @account.acct)
     end

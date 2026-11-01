@@ -325,6 +325,7 @@ en:
       followers: Followers
       follows: Follows
       group_type_msg: Successfully changed %{username} to group type
+      group_without_login: Managed group (no login)
       hard_silence: Hard limit
       hard_silenced: Hard limited
       header: Header

@@ -317,6 +317,7 @@ ja:
       followers: フォロワー数
       follows: フォロー数
       group_type_msg: "%{username} をGroup Actorに更新しました"
+      group_without_login: 管理グループ（ログインなし）
       hard_silence: ハードサイレンス
       hard_silenced: ハードサイレンス済み
       header: ヘッダー
