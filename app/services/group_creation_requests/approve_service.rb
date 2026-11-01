@@ -24,7 +24,7 @@ module GroupCreationRequests
       GroupCreationRequest.transaction do
         outcome = approve_locked!
       end
-      enqueue_icon_handoff(outcome.group_account)
+      enqueue_icon_handoff
       outcome
     rescue DecisionError => e
       DecisionResult.new(request: reload_request, code: e.code)
@@ -80,10 +80,25 @@ module GroupCreationRequests
       group
     end
 
-    def enqueue_icon_handoff(_group)
+    # The approval is already committed. A Redis or Sidekiq outage must not
+    # look like a failed approval: a second call would only return
+    # not_pending. The hourly handoff recovery copies the icon later.
+    def enqueue_icon_handoff
       return if @request.icon_storage_key.blank? || @request.icon_purged_at.present?
 
       GroupCreationIcons::HandoffWorker.perform_async(@request.id)
+    rescue StandardError => e
+      Rails.logger.error("Group creation icon enqueue failed request_id=#{@request.id} error=#{e.class}")
+      record_enqueue_failure
+    end
+
+    def record_enqueue_failure
+      @request.update!(
+        icon_handoff_error: 'enqueue_failed',
+        icon_handoff_failed_at: Time.current
+      )
+    rescue StandardError => e
+      Rails.logger.error("Group creation icon enqueue record failed request_id=#{@request.id} error=#{e.class}")
     end
 
     def reload_request

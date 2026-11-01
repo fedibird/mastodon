@@ -39,7 +39,9 @@ Action Review には登録しない。グループの owner 権限では承認�
 
 Group 用の User は作らない。`Account.without_unapproved` は、リモート、確認済みかつ承認済みのローカル User、または `managed_groups` があるローカル Group を含む。未承認の個人は入らない。管理行の無いローカル Group は、従来どおり User があるときだけ入る。
 
-Bot からロックされていない Group へのフォローは成立する。ロックされた Group は承認待ちになる。Person の `setting_confirm_follow_from_bot` は変えない。Group の Announce は、メンションされ、かつ原投稿者がその Group をフォローしているときだけである。公開範囲の下限は、User が無い Group では public であり、原投稿が unlisted なら unlisted より開かない。User がある Group は、その User の既定公開範囲を下限にしたままである。
+Bot からロックされていない Group へのフォローは成立する。ロックされた Group は承認待ちになる。Person の `setting_confirm_follow_from_bot` は変えない。ローカル投稿の `ProcessMentionsService` と、リモート投稿の `ActivityPub::GroupDistributionWorker` は同じ `ActivityPub::GroupAnnounce.announce?` を使う。明示メンションに加え、成立済みの Follow があり、公開範囲が public または unlisted のときだけ、その公開範囲のまま元投稿を1回 Announce する。フォロー申請中、private、direct、limited、personal などは掲載しない。Group のログイン既定公開範囲では狭めも広げもしない。リモート Group はローカルでは Announce せず、従来の配送のままである。元投稿は消さない。
+
+承認コミットのあとに Sidekiq へアイコンジョブを積む。enqueue が失敗しても承認結果は成功のまま返し、`icon_handoff_error` に `enqueue_failed` を残す。毎時の復旧がコピーする。画像が無い申請は積まない。公開ファイルの実体が無いときは、ファイル名だけを根拠にコピー済みにせず、非公開の元は消さない。
 
 ## この段階でやらないこと
 

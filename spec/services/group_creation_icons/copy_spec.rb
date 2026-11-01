@@ -142,4 +142,53 @@ RSpec.describe GroupCreationIcons::Copy do
     expect(request.reload.icon_purged_at).to be_present
     expect(Account.where(username: 'twiceicon').count).to eq 1
   end
+
+  it 'does not mark the copy done or delete the original when the public file is missing' do
+    request = stage(png, username: 'ghosticon')
+    allow(GroupCreationIcons::HandoffWorker).to receive(:perform_async)
+    group = approve(request).group_account
+    group.update_columns(
+      avatar_file_name: 'ghost.png',
+      avatar_content_type: 'image/png',
+      avatar_file_size: png.bytesize,
+      avatar_updated_at: Time.current
+    )
+    request.update!(icon_handoff_source_digest: Digest::SHA256.hexdigest(png))
+    allow_any_instance_of(described_class).to receive(:avatar_bytes_present?).and_return(false)
+
+    expect { described_class.call(request.reload) }.not_to raise_error
+    expect(request.reload.icon_handoff_copied_at).to be_nil
+    expect(request.icon_purged_at).to be_nil
+    expect(GroupCreationIcons::Storage.resolve.exist?(request.icon_storage_key)).to be true
+    expect(Account.where(username: 'ghosticon').count).to eq 1
+    expect(group.reload.avatar_remote_url).to be_blank
+  end
+
+  it 'keeps an approved group when enqueue fails and the scheduler finishes the icon' do
+    reviewer
+    request = stage(png, username: 'enqueueicon')
+    allow(GroupCreationIcons::HandoffWorker).to receive(:perform_async).and_raise(IOError, 'redis down')
+
+    result = nil
+    expect { result = approve(request) }.to change(Account, :count).by(1)
+    expect(result.code).to eq :approved
+    expect(request.reload).to be_approved
+    expect(request.icon_handoff_error).to eq 'enqueue_failed'
+    expect(request.icon_handoff_copied_at).to be_nil
+    expect(request.icon_purged_at).to be_nil
+    expect(GroupRoleAssignment.active.owner.where(group_account: request.group_account).count).to eq 1
+    expect(GroupCreationDecision.where(group_creation_request: request).count).to eq 1
+    expect(approve(request).code).to eq :not_pending
+    expect(Account.where(username: 'enqueueicon').count).to eq 1
+
+    allow(GroupCreationIcons::HandoffWorker).to receive(:perform_async).and_call_original
+    Scheduler::GroupCreationIconsScheduler.new.perform
+
+    expect(request.reload.icon_handoff_copied_at).to be_present
+    expect(request.icon_purged_at).to be_present
+    expect(request.icon_handoff_error).to be_nil
+    expect(request.group_account.reload.avatar.exists?).to be true
+    expect(GroupCreationIcons::Storage.resolve.exist?(request.icon_storage_key)).to be false
+    expect(Account.where(username: 'enqueueicon').count).to eq 1
+  end
 end

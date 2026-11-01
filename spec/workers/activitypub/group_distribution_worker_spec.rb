@@ -49,21 +49,54 @@ RSpec.describe ActivityPub::GroupDistributionWorker do
     expect(Status.find_by(account: group, reblog_of_id: other.id)).to be_nil
   end
 
-  it 'keeps a group login default as the privacy floor and a person mention unchanged' do
-    legacy_user = Fabricate(:user, account: Fabricate(:account, username: 'legacywithuser', actor_type: 'Group'))
-    legacy_user.settings.default_privacy = 'unlisted'
-    legacy_user.save!
-    group = legacy_user.account
-    author.follow!(group)
-    status = mention_status(group, visibility: :public)
+  it 'announces a remote post once for a followed local group and skips other visibilities' do
+    group = Fabricate(:user, account: Fabricate(:account, username: 'legacywithuser', actor_type: 'Group')).account
+    remote = Fabricate(
+      :account,
+      username: 'remoteauthor',
+      domain: 'remote.example',
+      protocol: :activitypub,
+      uri: 'https://remote.example/users/remoteauthor',
+      inbox_url: 'https://remote.example/inbox'
+    )
+    remote.follow!(group)
+    status = Fabricate(:status, account: remote, visibility: :public, text: "hello @#{group.username}")
+    status.mentions.create!(account: group)
+
+    described_class.new.perform(status.id)
+    described_class.new.perform(status.id)
+
+    boosts = Status.where(account: group, reblog_of_id: status.id)
+    expect(boosts.count).to eq 1
+    expect(boosts.first.visibility).to eq 'public'
+    expect(status.reload).not_to be_discarded
+
+    %w(private direct limited personal).each do |visibility|
+      hidden = Fabricate(:status, account: remote, visibility: visibility, text: "hidden @#{group.username}")
+      hidden.mentions.create!(account: group)
+      described_class.new.perform(hidden.id)
+      expect(Status.find_by(account: group, reblog_of_id: hidden.id)).to be_nil
+      expect(hidden.reload).not_to be_discarded
+    end
+  end
+
+  it 'does not announce a remote post while only a follow request exists' do
+    group = Fabricate(:account, username: 'lockedremote', actor_type: 'Group', locked: true)
+    remote = Fabricate(
+      :account,
+      username: 'requestor',
+      domain: 'remote.example',
+      protocol: :activitypub,
+      uri: 'https://remote.example/users/requestor',
+      inbox_url: 'https://remote.example/inbox'
+    )
+    FollowService.new.call(remote, group)
+    expect(remote.requested?(group)).to be true
+    status = Fabricate(:status, account: remote, visibility: :public, text: "please @#{group.username}")
+    status.mentions.create!(account: group)
 
     described_class.new.perform(status.id)
 
-    expect(Status.find_by(account: group, reblog_of_id: status.id).visibility).to eq 'unlisted'
-
-    person = Fabricate(:user).account
-    mentioned = Fabricate(:status, account: author, visibility: :public, text: "hi @#{person.username}")
-    expect { ProcessMentionsService.new.call(mentioned) }.not_to raise_error
-    expect(Status.where(account: person, reblog_of_id: mentioned.id)).to be_empty
+    expect(Status.find_by(account: group, reblog_of_id: status.id)).to be_nil
   end
 end

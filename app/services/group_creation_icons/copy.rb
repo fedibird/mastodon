@@ -62,8 +62,22 @@ module GroupCreationIcons
       true
     end
 
+    # A stored file name is not a copy. If the public object is gone, copy
+    # again and leave the private original in place until that object exists.
     def same_avatar?(digest)
-      @request.icon_handoff_source_digest == digest && @request.group_account.avatar_file_name.present?
+      return false unless @request.icon_handoff_source_digest == digest
+
+      group = @request.group_account
+      return false if group.nil? || group.avatar_file_name.blank?
+
+      avatar_bytes_present?(group)
+    end
+
+    def avatar_bytes_present?(group)
+      group.avatar.exists?
+    rescue StandardError => e
+      Rails.logger.error("Group icon avatar existence check failed account_id=#{group.id} error=#{e.class}")
+      false
     end
 
     def write_avatar!(bytes, mime, digest)
@@ -105,7 +119,9 @@ module GroupCreationIcons
       @request.with_lock do
         return if @request.icon_handoff_copied_at.present?
         return if @request.icon_handoff_source_digest.blank?
-        return if @request.group_account&.avatar_file_name.blank?
+
+        group = @request.group_account
+        return if group.nil? || group.avatar_file_name.blank? || !avatar_bytes_present?(group)
 
         @request.update!(
           icon_handoff_copied_at: Time.current,
