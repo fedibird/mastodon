@@ -1583,7 +1583,7 @@ create_table "group_registration_invite_policies", force: :cascade do |t|
     t.check_constraint "tag ~ '^[a-z]{2,3}(-[0-9A-Za-z]{2,8}){0,3}$'::text", name: "group_languages_tag_shape"
   end
 
-create_table "group_owner_transfer_offers", force: :cascade do |t|
+  create_table "group_owner_transfer_offers", force: :cascade do |t|
     t.bigint "group_account_id", null: false
     t.bigint "offered_by_account_id", null: false
     t.bigint "candidate_account_id", null: false
