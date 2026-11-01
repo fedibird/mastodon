@@ -18,7 +18,7 @@ module Admin
 
     def show
       authorize_group_admin!(@managed_group, :show?)
-      @audits = group_admin_audits(@policy, @creation_request)
+      @audits = group_admin_audits(@managed_group, @policy, @creation_request)
     end
 
     private

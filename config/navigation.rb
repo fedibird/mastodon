@@ -12,6 +12,7 @@ SimpleNavigation::Configuration.run do |navigation|
       s.item :profile, safe_join([fa_icon('pencil fw'), t('settings.appearance')]), settings_profile_url
       s.item :featured_tags, safe_join([fa_icon('hashtag fw'), t('settings.featured_tags')]), settings_featured_tags_url
       s.item :group_creation_requests, safe_join([fa_icon('users fw'), t('settings.group_creation_requests')]), settings_group_creation_requests_url, highlights_on: %r{/settings/group_creation_requests}, if: -> { GroupCreationRequests::Feature.enabled? && GroupManagement.local_functional_person?(current_account) }
+      s.item :managed_groups, safe_join([fa_icon('users fw'), t('settings.managed_groups')]), settings_managed_groups_url, highlights_on: %r{/settings/managed_groups|/settings/group_owner_transfer_offers}, if: -> { GroupManagement.local_functional_person?(current_account) && (current_account.held_group_roles.active.exists? || GroupOwnerTransferOffer.pending.where(candidate_account_id: current_account.id).where('expires_at > ?', Time.current).exists?) }
       s.item :identity_proofs, safe_join([fa_icon('key fw'), t('settings.identity_proofs')]), settings_identity_proofs_path, highlights_on: %r{/settings/identity_proofs*}, if: proc { current_account.identity_proofs.exists? }
     end
 
