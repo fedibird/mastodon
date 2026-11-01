@@ -109,22 +109,71 @@ class FollowService < BaseService
   end
 
   # Runs the Redis and Sidekiq work skipped by defer_distribution. Call this
-  # only after the follow transaction has committed. Missing rows are skipped
-  # so a follow removed in that gap does not raise.
+  # only after the follow transaction has committed. Each step is marked
+  # done after it succeeds, so a later call on this same instance continues
+  # the remaining steps and does not repeat a finished one. A deleted follow
+  # is skipped instead of raising.
+  #
+  # With defer_distribution, non-database work is only the list below.
+  # Database writes (the follow row, its counters, follow-import bookkeeping,
+  # and the moderation interaction) stay in the caller's transaction and roll
+  # back with it. The follow rate-limit Redis key is recorded on create and
+  # removed by Follow's after_rollback.
+  #
+  # Deferred, then sent here: LocalNotificationWorker, MergeWorker,
+  # UnmergeWorker, ActivityPub::DeliveryWorker, NotifyService, the interaction
+  # counter, the empty-home Redis hint, and the shadow follow-gate job.
+  # distribute_persisted! is the cross-process fallback. It sends the worker,
+  # NotifyService, and the counter again. It does not replay the empty-home
+  # hint or the shadow observation; both are optional. The initial follow is
+  # not a follow import, so import delivery metadata is never part of it.
   def flush_distribution!
-    return if @distribution_flushed
+    flush_deferred_jobs!
+    flush_deferred_notices!
+    flush_deferred_activity!
+    flush_deferred_home!
+    flush_deferred_shadow!
+  end
 
-    @distribution_flushed = true
-    deferred_distribution.each { |worker, args| worker.perform_async(*args) }
-    Array(@deferred_notices).each do |account_id, type, record_class, record_id|
-      record = record_class.constantize.find_by(id: record_id)
-      next if record.nil?
-
-      NotifyService.new.call(Account.find(account_id), type, record)
+  def flush_deferred_jobs!
+    @deferred_job_index ||= 0
+    while @deferred_job_index < deferred_distribution.length
+      worker, args = deferred_distribution[@deferred_job_index]
+      worker.perform_async(*args)
+      @deferred_job_index += 1
     end
-    ActivityTracker.increment('activity:interactions') if @deferred_activity
-    mark_home_feed_as_partial! if @deferred_home_partial
-    Moderation::FollowGateShadowObserver.observe(**@deferred_shadow) if @deferred_shadow
+  end
+
+  def flush_deferred_notices!
+    @deferred_notice_index ||= 0
+    notices = Array(@deferred_notices)
+    while @deferred_notice_index < notices.length
+      account_id, type, record_class, record_id = notices[@deferred_notice_index]
+      record = record_class.constantize.find_by(id: record_id)
+      NotifyService.new.call(Account.find(account_id), type, record) if record
+      @deferred_notice_index += 1
+    end
+  end
+
+  def flush_deferred_activity!
+    return if @deferred_activity_flushed || !@deferred_activity
+
+    ActivityTracker.increment('activity:interactions')
+    @deferred_activity_flushed = true
+  end
+
+  def flush_deferred_home!
+    return if @deferred_home_flushed || !@deferred_home_partial
+
+    mark_home_feed_as_partial!
+    @deferred_home_flushed = true
+  end
+
+  def flush_deferred_shadow!
+    return if @deferred_shadow_flushed || @deferred_shadow.nil?
+
+    Moderation::FollowGateShadowObserver.observe(**@deferred_shadow)
+    @deferred_shadow_flushed = true
   end
 
   # Distribution for a follow that was committed by an earlier process.
@@ -221,9 +270,9 @@ class FollowService < BaseService
 
   def change_follow_options!
     if !@source_account.delivery_following?(@target_account) && @options[:delivery]
-      MergeWorker.perform_async(@target_account.id, @source_account.id)   if !@source_account.delivery_following?(@target_account) && @options[:delivery]
+      enqueue_distribution(MergeWorker, @target_account.id, @source_account.id)
     elsif @source_account.delivery_following?(@target_account) && @options[:delivery] == false
-      UnmergeWorker.perform_async(@target_account.id, @source_account.id) if @source_account.delivery_following?(@target_account) && @options[:delivery] == false
+      enqueue_distribution(UnmergeWorker, @target_account.id, @source_account.id)
     end
     @source_account.follow!(@target_account, reblogs: @options[:reblogs], notify: @options[:notify], notify_reblogs: @options[:notify_reblogs], delivery: @options[:delivery], languages: @options[:languages])
   end

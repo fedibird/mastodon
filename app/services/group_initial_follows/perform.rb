@@ -32,6 +32,7 @@ module GroupInitialFollows
       @record = record
       @crash_after = crash_after
       @after_claim = after_claim
+      @token = nil
     end
 
     def call
@@ -50,8 +51,8 @@ module GroupInitialFollows
         return
       end
 
-      token = claim!
-      return if token.nil?
+      @token = claim!
+      return if @token.nil?
 
       @after_claim&.call
       @record.reload
@@ -62,35 +63,29 @@ module GroupInitialFollows
         finalize!
         return
       end
-      return unless owns?(token)
+      return unless owns?(@token)
 
-      refusal = refusal_code
-      return mark_permanent!(refusal) if refusal
-      return mark_existing!(existing_relationship) if existing_relationship
-
-      service = create_and_latch!(token)
+      service = create_and_latch!(@token)
       return if service.nil?
       return unless @record.reload.discharged?
 
       publish!(service)
       finalize!
     rescue Crash
-      # The follow transaction rolled back, but the earlier claim lease is
-      # still in the future. Drop it so this job's retry can enter. A
-      # committed discharge is left alone.
-      release_claim!
+      # Drop only this worker's lease. A newer claim_token must stay.
+      release_claim!(@token)
       raise
     rescue Mastodon::NotPermittedError
-      mark_permanent!(:not_permitted) unless fresh_discharged?
+      mark_permanent!(:not_permitted, @token)
     rescue ActiveRecord::RecordNotFound
-      mark_permanent!(:not_possible) unless fresh_discharged?
+      mark_permanent!(:not_possible, @token)
     rescue Mastodon::RateLimitExceededError
-      mark_failure!(:rate_limited) unless fresh_discharged?
+      mark_failure!(:rate_limited, @token)
     rescue ActiveRecord::RecordInvalid
-      mark_failure!(:invalid_follow) unless fresh_discharged?
+      mark_failure!(:invalid_follow, @token)
       raise
     rescue StandardError => e
-      mark_failure!(error_code(e)) unless fresh_discharged?
+      mark_failure!(error_code(e), @token)
       raise
     end
 
@@ -113,10 +108,16 @@ module GroupInitialFollows
       token if owned
     end
 
-    def release_claim!
+    # Expire this worker's lease only. After another worker has stored its
+    # own claim_token, or after distribution was recorded, this is a no-op.
+    def release_claim!(token)
+      return if token.nil?
+
       @record.with_lock do
         @record.reload
-        @record.update!(claim_expires_at: 1.second.ago) if @record.processing? && !@record.discharged? && !@record.terminal?
+        if @record.claim_token == token && @record.distribution_enqueued_at.nil? && !@record.terminal?
+          @record.update!(claim_expires_at: 1.second.ago)
+        end
       end
     end
 
@@ -144,7 +145,7 @@ module GroupInitialFollows
           next
         end
         if (refusal = refusal_code)
-          mark_permanent!(refusal)
+          mark_permanent!(refusal, token)
           next
         end
 
@@ -153,7 +154,7 @@ module GroupInitialFollows
         raise Crash, 'after_relationship_insert' if @crash_after == :after_relationship_insert
 
         if relationship.nil?
-          mark_failure!(:empty_relationship)
+          mark_failure!(:empty_relationship, token)
           service = nil
           next
         end
@@ -166,25 +167,55 @@ module GroupInitialFollows
       service if latched
     end
 
+    # One worker owns distribution. The row lock decides. A second worker
+    # that sees a live lease or distribution_enqueued_at does not send.
+    # The follow row is loaded inside that lock; a missing row means the
+    # person already unfollowed, so the timestamp is stored and nothing
+    # is sent. The timestamp is stored only after a successful send, while
+    # this token is still the claim. A crash during the send leaves the
+    # lease. After it expires, one later worker may send the full set
+    # again. That is the only at-least-once window.
     def publish!(service)
-      return if @record.reload.distribution_enqueued_at.present?
-
-      if created_relationship.nil?
-        @record.update!(distribution_enqueued_at: Time.current)
-        return
-      end
+      relationship = reserve_distribution!(@token)
+      return unless relationship
 
       service.flush_distribution!
-      @record.update!(distribution_enqueued_at: Time.current)
+      finish_distribution!(@token)
     end
 
     def publish_persisted!
-      @record.reload
-      return if @record.distribution_enqueued_at.present? || !@record.outcome.to_s.start_with?('created_')
+      token = @token || SecureRandom.uuid
+      relationship = reserve_distribution!(token)
+      return unless relationship
 
-      relationship = created_relationship
-      FollowService.distribute_persisted!(relationship) if relationship
-      @record.update!(distribution_enqueued_at: Time.current)
+      FollowService.distribute_persisted!(relationship)
+      finish_distribution!(token)
+    end
+
+    def reserve_distribution!(token)
+      reserved = nil
+      @record.with_lock do
+        @record.reload
+        if @record.distribution_enqueued_at.nil? && @record.discharged? && @record.outcome.to_s.start_with?('created_')
+          relationship = created_relationship
+          if relationship.nil?
+            @record.update!(distribution_enqueued_at: Time.current)
+          elsif !(@record.claim_held? && @record.claim_token != token)
+            @record.update!(claim_token: token, claim_expires_at: GroupInitialFollow::LEASE.from_now)
+            reserved = relationship
+          end
+        end
+      end
+      reserved
+    end
+
+    def finish_distribution!(token)
+      @record.with_lock do
+        @record.reload
+        if @record.claim_token == token && @record.distribution_enqueued_at.nil?
+          @record.update!(distribution_enqueued_at: Time.current)
+        end
+      end
     end
 
     def created_relationship
@@ -194,11 +225,17 @@ module GroupInitialFollows
     def finalize!
       @record.with_lock do
         @record.reload
-        if !@record.terminal? && @record.discharged?
+        # Leave the distribution lease in place until the send is recorded.
+        # Another worker must not clear it and start a second send.
+        if !@record.terminal? && @record.discharged? && !distribution_outstanding?
           state = @record.outcome.to_s.start_with?('existing_') ? :completed : :succeeded
           @record.update!(state: state, finished_at: Time.current, claim_expires_at: nil, last_error: nil)
         end
       end
+    end
+
+    def distribution_outstanding?
+      @record.outcome.to_s.start_with?('created_') && @record.distribution_enqueued_at.nil?
     end
 
     def mark_existing!(relationship)
@@ -214,10 +251,12 @@ module GroupInitialFollows
       )
     end
 
-    def mark_permanent!(code)
+    def mark_permanent!(code, token)
+      return if token.nil?
+
       @record.with_lock do
         @record.reload
-        unless @record.discharged? || @record.succeeded? || @record.completed?
+        if @record.claim_token == token && !@record.discharged? && !@record.terminal?
           @record.update!(
             state: :permanent_failure,
             last_error: code.to_s,
@@ -228,10 +267,12 @@ module GroupInitialFollows
       end
     end
 
-    def mark_failure!(code)
+    def mark_failure!(code, token)
+      return if token.nil?
+
       @record.with_lock do
         @record.reload
-        unless @record.discharged? || @record.terminal?
+        if @record.claim_token == token && !@record.discharged? && !@record.terminal?
           exhausted = code.to_s != 'rate_limited' && @record.attempts >= GroupInitialFollow::MAX_ATTEMPTS
           if exhausted
             @record.update!(state: :permanent_failure, last_error: 'attempts_exhausted', finished_at: Time.current, claim_expires_at: nil)

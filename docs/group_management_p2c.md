@@ -27,9 +27,9 @@
 2. コミット後にワーカーを積む。Redis や Sidekiq が拒否しても承認結果は成功のまま、`last_error` に `enqueue_failed` を残す。
 3. ワーカーは短いトランザクションで `processing`、`claim_token`、`claim_expires_at` を書く。セッション advisory lock は使わない。PgBouncer の transaction pooling では、次の文が別の PostgreSQL backend に当たることがあり、セッションロックの取得と解放が同じ backend に届かない。
 4. Follow を作るトランザクションは、もう一度行を `lock!` し、自分の `claim_token` がまだ有効な lease のときだけ `FollowService` を呼ぶ。lease が切れたあとに別ワーカーが claim していると、古いワーカーは Follow を作らない。Follow の挿入と `relationship_recorded_at` は同じトランザクションである。そのコミット前に落ちた場合は両方戻る。この時点では Follow は他の接続から見えず、Sidekiq も通知も Redis もまだ動かない。
-5. `FollowService` は `defer_distribution: true` で呼ぶ。権限判定と Follow / FollowRequest の作成は通常どおり行う。`LocalNotificationWorker`、`MergeWorker`、`ActivityPub::DeliveryWorker`、`NotifyService`、Redis の活動カウンタとホームフィード印、フォローゲートの shadow ジョブはインスタンスに溜め、`flush_distribution!` がコミットのあとで送る。savepoint が戻ったあとに flush しないので、配送ジョブだけ残ることはない。
-6. ユーザーから Follow が見えるのは、このトランザクションのコミット後である。通知と merge はその直後である。コミット後、終端 state の前に落ちた場合、Follow は見えるが配送はまだのことがある。再開は同じ Follow 行が残っているときだけ配送し、解除済みなら配送せず、どちらも Follow を作り直さない。Follow 申請が通常の承認で Follow に変わったあとも、元の申請行が無いので再開は二重に通知しない。
-7. `succeeded` または `completed` はそのあとのトランザクションで書く。既にある Follow / FollowRequest は `FollowService` を呼ばずに `completed` にする。ロック、サイレンス、ブロック、停止は `FollowService` の判定を使う。ロックまたはサイレンスは Follow 申請で終わり、こちらから承認しない。ブロックは恒久失敗であり、あとでブロックを外してもワーカー再実行では Follow しない。管理者が再試行したときだけ、未実施なら試す。
+5. `FollowService` は `defer_distribution: true` で呼ぶ。権限判定と Follow / FollowRequest の作成、フォロー数、フォローインポートの台帳、モデレーションの interaction はトランザクション内の DB 書き込みである。レート制限の Redis は作成時に増え、ロールバックの `after_rollback` で戻る。DB の外に出るのは `LocalNotificationWorker`、`MergeWorker`、`UnmergeWorker`、`ActivityPub::DeliveryWorker`、`NotifyService`、活動カウンタ、ホームが空の印、shadow のフォローゲートだけである。初期 Follow はインポートではないので、インポート用の配送追跡は積まない。`flush_distribution!` は各段階が成功したあとだけ進み、同じインスタンスでの再呼び出しは残りだけ送る。
+6. ユーザーから Follow が見えるのは、discharge を含むトランザクションのコミット後である。配送はそのあと、行ロックで lease を取ったワーカーが1つだけ行う。`distribution_enqueued_at` は送信が成功したあと、その claim_token のまま書く。別ワーカーは有効な lease かこの時刻を見たら送らない。解除されて作成した Follow 行が無いときは時刻だけ書いて通知しない。送信中にプロセスが死ぬと lease が切れたあとに1回だけ送り直すことがある。それが唯一の at-least-once である。プロセスをまたぐ再開は `distribute_persisted!` を使う。通知、merge、カウンタは同じである。ホームの空印と shadow 観測はプロセス内の flush だけが行い、欠落しても Follow は変えない。
+7. `release_claim!`、恒久失敗、再試行可能失敗は、行ロックの下で自分の `claim_token` のときだけ書く。discharge 後と、別ワーカーの token には触れない。`succeeded` または `completed` は配送の記録後に書く。既にある Follow / FollowRequest は `FollowService` を呼ばずに `completed` にする。ロック、サイレンス、ブロック、停止は `FollowService` の判定を使う。ロックまたはサイレンスは Follow 申請で終わり、こちらから承認しない。ブロックは恒久失敗であり、あとでブロックを外してもワーカー再実行では Follow しない。管理者が再試行したときだけ、未実施なら試す。
 
 ## やらないこと
 
@@ -55,4 +55,4 @@ enqueue に失敗した行と、lease が切れた `processing` は `Scheduler::
 8. 別のローカルアカウント、Bot、リモートアカウントからの通常 Follow は、この行とは独立に従来どおり動く。public または unlisted の明示メンションは、成立済み Follow があるときだけ Announce になる。
 9. 確認が終わったら `Setting.group_creation_requests = false` に戻す。既にできた Group と Follow は消えない。フラグ OFF は新しい承認を止めるだけである。
 
-ロールバックは、その環境にこの変更以外の未適用 migration が無いときだけ、`bin/rails db:rollback STEP=1` で `group_initial_follows` を落とす。Follow 行は消えない。承認済み Group も残る。再度上げるときは `bin/rails db:migrate`。既に承認済みの Group へ Follow 行は戻さない。本番の migration とデプロイは、この手順の対象外である。
+ロールバックは、その環境にこの変更以外の未適用 migration が無いときだけ、`bin/rails db:rollback STEP=2` で claim 列と `group_initial_follows` をこの順に落とす。Follow 行は消えない。承認済み Group も残る。再度上げるときは `bin/rails db:migrate`。既に承認済みの Group へ Follow 行は戻さない。本番の migration とデプロイは、この手順の対象外である。
