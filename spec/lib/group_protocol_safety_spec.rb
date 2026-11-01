@@ -28,8 +28,14 @@ RSpec.describe GroupProtocol do
     ActiveSupport::Notifications.unsubscribe(subscriber) if subscriber
   end
 
+  # Schema reflection is not part of the query budget. Rails issues it once
+  # per process, before the column cache is warm, and production boots with
+  # that cache already loaded.
   def statement_sql(sqls)
-    sqls.reject { |sql| sql.match?(/\A(?:BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE|SHOW|SET)\b/i) }
+    sqls.reject do |sql|
+      sql.match?(/\A(?:BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE|SHOW|SET)\b/i) ||
+        sql.match?(/\bpg_(?:attribute|attrdef|type|collation|class|namespace|index)\b/)
+    end
   end
 
   def expect_no_network
