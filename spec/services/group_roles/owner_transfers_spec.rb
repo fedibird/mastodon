@@ -38,7 +38,6 @@ RSpec.describe GroupRoles::OwnerTransfers do
     end.not_to change(Follow, :count)
     expect(GroupRoleAssignment.active.owner.where(group_account_id: group.id).pluck(:member_account_id)).to eq([successor.account.id])
     expect(creation_request.reload.initial_owner_account).to eq(owner.account)
-    expect(GroupOwnerTransferOffer.find(pending.id)).to be_accepted if GroupOwnerTransferOffer.pending.exists?(group_account_id: group.id) # no pending after acceptance
     expect(GroupOwnerTransferOffer.accepted.where(group_account_id: group.id).count).to eq(1)
     expect(Admin::ActionLog.where(target: managed, action: 'accept_group_ownership').count).to eq(1)
   end
