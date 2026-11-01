@@ -8,6 +8,7 @@
 #  external_subscription_id   :bigint(8)        not null
 #  external_feed_snapshot_id  :bigint(8)
 #  position                   :integer          default(0), not null
+#  generation                 :integer          default(0), not null
 #  state                      :string           default("pending"), not null
 #  lease_token                :string
 #  lease_expires_at           :datetime

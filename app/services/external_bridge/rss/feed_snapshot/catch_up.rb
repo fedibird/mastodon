@@ -5,13 +5,28 @@ module ExternalBridge
     module FeedSnapshot
       # One batch of projections a subscriber missed while paused.
       #
-      # The cursor lives on external_feed_catch_ups. Resume enqueues the
-      # worker and returns. Each job parses at most SNAPSHOT_BATCH_ITEMS
-      # positions of one snapshot, checks the subscription is still active,
-      # then enqueues itself when anything remains. A deleting or paused
-      # subscription stops the cursor. It does not walk every generation in
-      # the request.
+      # generation is a high-water mark. The cursor enters a snapshot and
+      # never returns to an earlier one, including when that body is purged
+      # or the row is gone. position is the next keyed index inside the
+      # snapshot named by external_feed_snapshot_id.
+      #
+      # pending: cursor saved, no live lease.
+      # running: this token owns the row.
+      # done: the mark sits on the newest snapshot that was finished, and
+      # nothing later had a body.
+      # stopped: the subscription was not active. The mark stays.
+      #
+      # Resume does not zero the mark. A second enqueue while a batch is in
+      # flight, or while the lease has already been released, leaves position
+      # and generation alone. Projection and the mark commit together. A
+      # lost lease writes nothing.
       class CatchUp
+        class LeaseLost < ExternalBridge::Error
+          def initialize
+            super(:snapshot_lease_lost)
+          end
+        end
+
         def self.enqueue!(subscription)
           new.enqueue!(subscription)
         end
@@ -24,9 +39,17 @@ module ExternalBridge
           return unless subscription&.state == 'active'
 
           row = ExternalFeedCatchUp.find_or_initialize_by(external_subscription_id: subscription.id)
-          return if row.persisted? && row.state == 'running' && row.lease_expires_at.present? && row.lease_expires_at > Time.current
+          return if live?(row)
 
-          row.update!(state: 'pending', external_feed_snapshot_id: nil, position: 0, lease_token: nil, lease_expires_at: nil)
+          if row.new_record?
+            row.generation = 0
+            row.position = 0
+            row.external_feed_snapshot_id = nil
+          end
+          row.state = 'pending'
+          row.lease_token = nil
+          row.lease_expires_at = nil
+          row.save!
           FeedSnapshotCatchUpWorker.perform_async(subscription.id)
         end
 
@@ -40,6 +63,8 @@ module ExternalBridge
           more = false
           begin
             more = step!(row, token)
+          rescue LeaseLost
+            more = ExternalFeedCatchUp.exists?(id: row.id, lease_token: token)
           ensure
             row.release!(token)
           end
@@ -49,82 +74,136 @@ module ExternalBridge
 
         private
 
+        def live?(row)
+          row.persisted? && row.state == 'running' && row.lease_token.present? && row.lease_expires_at.present? && row.lease_expires_at > Time.current
+        end
+
         def step!(row, token)
           subscription = ExternalSubscription.find_by(id: row.external_subscription_id)
-          unless active?(subscription)
-            stop!(row, token)
-            return false
-          end
+          return stop!(row, token) unless active?(subscription)
 
+          note_purged!(row)
           snapshot = select_snapshot(row, subscription)
-          if snapshot.nil?
-            finish!(row, token)
-            return false
-          end
+          return finish!(row, token) if snapshot.nil?
 
-          project_batch!(row, snapshot, subscription)
-          advance_row!(row, token, snapshot)
+          start = row.external_feed_snapshot_id == snapshot.id ? row.position : 0
+          bound = [start + Limits::SNAPSHOT_BATCH_ITEMS, snapshot.item_count].min
+          items = snapshot.body.present? ? Parser.parse_positions!(snapshot.body.to_s, (start...bound).to_a) : []
+          resources = items.filter_map { |item| stored_resource(snapshot.external_source, item) }
+          before_catch_up_write!(row)
+          write_batch!(row, token, snapshot: snapshot, subscription: subscription, resources: resources, bound: bound)
+        end
+
+        # Test seam. Runs after the body is read and before the lease is
+        # checked again under the row lock.
+        def before_catch_up_write!(_row)
+          nil
+        end
+
+        def write_batch!(row, token, **work)
+          snapshot = work.fetch(:snapshot)
+          subscription = work.fetch(:subscription)
+          resources = work.fetch(:resources)
+          bound = work.fetch(:bound)
+          more = false
+          rolled_back = false
+          ApplicationRecord.transaction do
+            locked = ExternalFeedCatchUp.lock.find(row.id)
+            raise LeaseLost unless owned?(locked, token)
+
+            current = ExternalSubscription.lock('FOR SHARE').find_by(id: subscription.id)
+            unless active?(current)
+              rolled_back = true
+              raise ActiveRecord::Rollback
+            end
+
+            missing = resources.reject { |resource| projected?(current, resource) }
+            Materialize.new.call(subscription: current, resources: missing, retries: false) if missing.any?
+            unless active?(ExternalSubscription.find_by(id: current.id))
+              rolled_back = true
+              raise ActiveRecord::Rollback
+            end
+
+            more = advance_locked!(locked, token, snapshot, bound, current)
+          end
+          return stop!(row, token) if rolled_back
+
+          more
+        end
+
+        def select_snapshot(row, subscription)
+          if row.external_feed_snapshot_id
+            current = ExternalFeedSnapshot.find_by(id: row.external_feed_snapshot_id)
+            if current&.body.present? && row.position < current.item_count && current.generation >= row.generation.to_i
+              return current
+            end
+          end
+          later_bodies(subscription, row.generation.to_i).first
+        end
+
+        def later_bodies(subscription, generation)
+          ExternalFeedSnapshot.where(external_source_id: subscription.external_source_id)
+                              .where('created_at > ?', subscription.created_at)
+                              .where('generation > ?', generation)
+                              .where.not(body: nil)
+                              .order(:generation, :id)
+        end
+
+        def note_purged!(row)
+          return if row.external_feed_snapshot_id.nil?
+
+          current = ExternalFeedSnapshot.find_by(id: row.external_feed_snapshot_id)
+          return if current.nil? || current.body.present? || row.position >= current.item_count
+
+          RefreshLog.emit(
+            'snapshot',
+            source_id: current.external_source_id,
+            snapshot_id: current.id,
+            subscription_id: row.external_subscription_id,
+            outcome: 'snapshot_body_purged',
+            snapshot_generation: current.generation
+          )
+        end
+
+        def advance_locked!(row, token, snapshot, bound, subscription)
+          nxt = bound
+          finished = nxt >= snapshot.item_count
+          later = later_bodies(subscription, snapshot.generation).exists?
+          state = finished && !later ? 'done' : 'pending'
+          updated = ExternalFeedCatchUp.where(id: row.id, lease_token: token).update_all(
+            external_feed_snapshot_id: snapshot.id,
+            generation: snapshot.generation,
+            position: finished ? snapshot.item_count : nxt,
+            state: state,
+            updated_at: Time.current
+          )
+          raise LeaseLost unless updated == 1
+
+          !finished || later
+        end
+
+        def owned?(row, token)
+          row.lease_token == token && row.lease_expires_at.present? && row.lease_expires_at > Time.current
         end
 
         def active?(subscription)
           subscription&.state == 'active' && !subscription.deleting?
         end
 
-        def select_snapshot(row, subscription)
-          scope = bodies(subscription)
-          current = scope.find_by(id: row.external_feed_snapshot_id) if row.external_feed_snapshot_id
-          return current if current && row.position < current.item_count
-
-          if current
-            scope.where('generation > ?', current.generation).order(:generation, :id).first
-          else
-            scope.order(:generation, :id).first
-          end
-        end
-
-        def bodies(subscription)
-          ExternalFeedSnapshot.where(external_source_id: subscription.external_source_id)
-                              .where('created_at > ?', subscription.created_at)
-                              .where.not(body: nil)
-        end
-
-        def project_batch!(row, snapshot, subscription)
-          return unless active?(ExternalSubscription.find_by(id: subscription.id))
-
-          start = row.external_feed_snapshot_id == snapshot.id ? row.position : 0
-          finish = [start + Limits::SNAPSHOT_BATCH_ITEMS, snapshot.item_count].min
-          return if start >= finish
-
-          items = Parser.parse_positions!(snapshot.body.to_s, (start...finish).to_a)
-          resources = items.filter_map { |item| stored_resource(snapshot.external_source, item) }
-          missing = resources.reject { |resource| projected?(subscription, resource) }
-          return if missing.empty?
-          return unless active?(ExternalSubscription.find_by(id: subscription.id))
-
-          Materialize.new.call(subscription: subscription, resources: missing, retries: false)
-        end
-
-        def advance_row!(row, token, snapshot)
-          start = row.external_feed_snapshot_id == snapshot.id ? row.position : 0
-          nxt = [start + Limits::SNAPSHOT_BATCH_ITEMS, snapshot.item_count].min
-          done = nxt >= snapshot.item_count
-          updated = ExternalFeedCatchUp.where(id: row.id, lease_token: token).update_all(
-            external_feed_snapshot_id: snapshot.id,
-            position: done ? snapshot.item_count : nxt,
-            state: 'pending',
-            updated_at: Time.current
-          )
-          return false unless updated == 1
-
-          done ? bodies(row.external_subscription).where('generation > ?', snapshot.generation).exists? : true
-        end
-
         def stop!(row, token)
-          ExternalFeedCatchUp.where(id: row.id, lease_token: token).update_all(state: 'stopped', lease_token: nil, lease_expires_at: nil, updated_at: Time.current)
+          ExternalFeedCatchUp.where(id: row.id, lease_token: token).update_all(
+            state: 'stopped', lease_token: nil, lease_expires_at: nil, updated_at: Time.current
+          )
+          false
         end
 
         def finish!(row, token)
-          ExternalFeedCatchUp.where(id: row.id, lease_token: token).update_all(state: 'done', external_feed_snapshot_id: nil, position: 0, lease_token: nil, lease_expires_at: nil, updated_at: Time.current)
+          updated = ExternalFeedCatchUp.where(id: row.id, lease_token: token).update_all(
+            state: 'done', lease_token: nil, lease_expires_at: nil, updated_at: Time.current
+          )
+          raise LeaseLost unless updated == 1
+
+          false
         end
 
         def stored_resource(source, item)

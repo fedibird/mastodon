@@ -221,14 +221,16 @@ module ExternalBridge
           ) == 1
         end
 
-        # A newer finished generation already had its turn. Do not overwrite
-        # a resource it wrote. A missing resource is still imported: that key
-        # was not in the newer body.
+        # The first newer finished generation is the line. A resource fetched
+        # at or after that row was created was written by that generation or
+        # a later one, including when the clocks match. An earlier fetched_at,
+        # or no row, is still this generation's to import.
         def superseded?(snapshot, item)
-          return false unless ExternalFeedSnapshot.where(external_source_id: snapshot.external_source_id, state: %w(complete incomplete)).where('generation > ?', snapshot.generation).exists?
+          newer = ExternalFeedSnapshot.where(external_source_id: snapshot.external_source_id, state: %w(complete incomplete)).where('generation > ?', snapshot.generation).order(:generation, :id).first
+          return false if newer.nil?
 
           resource = stored_resource(snapshot.external_source, item)
-          resource.present? && resource.fetched_at.present? && resource.fetched_at > snapshot.created_at
+          resource.present? && resource.fetched_at.present? && resource.fetched_at >= newer.created_at
         end
 
         def write_item!(snapshot, item, position)

@@ -27,7 +27,9 @@ module ExternalBridge
           @items = @positions.empty? ? [] : Parser.parse_positions!(@body, @positions)
           @feed = feed_for(@index)
           resolved = resolve_source(canonical_key, source, @feed)
-          ExternalFeedSnapshot.purge_expired!
+          Purge.call
+          raise Error, :snapshot_capacity unless ExternalFeedSnapshot.room_for?(@body.bytesize)
+
           store!(resolved)
         end
 

@@ -40,6 +40,41 @@ class ExternalFeedSnapshot < ApplicationRecord
 
   scope :open, -> { where(state: OPEN_STATES) }
 
+  # Text that can be removed without losing the only copy of an unprocessed
+  # position. complete rows, and finished rows whose isolated codes are all
+  # superseded. A remainder or a retryable isolated position keeps its body.
+  scope :body_disposable, -> {
+    where.not(body: nil).where(<<~SQL.squish)
+      state = 'complete'
+      OR (
+        state IN ('incomplete', 'failed')
+        AND next_index >= item_count
+        AND retry_positions = '[]'::jsonb
+        AND NOT EXISTS (
+          SELECT 1 FROM jsonb_array_elements(isolated_positions) AS elem
+          WHERE COALESCE(elem->>'code', 'snapshot_failed') <> 'snapshot_superseded'
+        )
+      )
+    SQL
+  }
+
+  def self.held_body_bytes
+    where.not(body: nil).sum(:byte_size).to_i
+  end
+
+  def self.room_for?(extra_bytes)
+    held_body_bytes + extra_bytes.to_i <= ExternalBridge::RSS::Limits::SNAPSHOT_RETAINED_BODY_BYTES
+  end
+
+  def self.unprocessed_count
+    connection.select_value(<<~SQL).to_i
+      SELECT COALESCE(SUM(GREATEST(item_count - next_index, 0)), 0)
+           + COALESCE(SUM(jsonb_array_length(isolated_positions)), 0)
+           + COALESCE(SUM(jsonb_array_length(retry_positions)), 0)
+      FROM external_feed_snapshots
+    SQL
+  end
+
   def self.purge_expired!(limit: ExternalBridge::RSS::Limits::SNAPSHOT_PURGE_BATCH)
     ExternalBridge::RSS::FeedSnapshot::Purge.expired!(limit)
   end

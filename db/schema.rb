@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_13_140000) do
+ActiveRecord::Schema.define(version: 2026_11_13_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -579,6 +579,7 @@ ActiveRecord::Schema.define(version: 2026_11_13_140000) do
     t.bigint "external_subscription_id", null: false
     t.bigint "external_feed_snapshot_id"
     t.integer "position", default: 0, null: false
+    t.integer "generation", default: 0, null: false
     t.string "state", default: "pending", null: false
     t.string "lease_token"
     t.datetime "lease_expires_at"

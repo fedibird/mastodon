@@ -43,9 +43,9 @@ module ExternalBridge
       rescue Error => e
         # The fetched body did not fit the open-snapshot cap. The bodies
         # already stored stay, and this poll is not a subscriber failure.
-        if e.code == 'snapshot_backlog'
+        if %w(snapshot_backlog snapshot_capacity).include?(e.code)
           @fields[:error_code] = RefreshLog.code(e.code)
-          return 'snapshot_backlog'
+          return e.code
         end
 
         record_failure(source_id, subscription_id, e.code)

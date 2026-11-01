@@ -8,8 +8,15 @@ RSpec.describe 'RSS snapshot lease fencing', type: :model do
   self.use_transactional_tests = false
 
   after do
-    ExternalFeedSnapshot.where(external_source_id: ExternalSource.where('canonical_key LIKE ?', 'https://feeds.example/lease-%').select(:id)).delete_all
-    ExternalSource.where('canonical_key LIKE ?', 'https://feeds.example/lease-%').delete_all
+    source_ids = ExternalSource.where('canonical_key LIKE ?', 'https://feeds.example/lease-%').pluck(:id)
+    subscription_ids = ExternalSubscription.where(external_source_id: source_ids).pluck(:id)
+    ExternalFeedCatchUp.where(external_subscription_id: subscription_ids).delete_all
+    ExternalSubscription.where(id: subscription_ids).delete_all
+    ExternalResource.where(external_source_id: source_ids).delete_all
+    ExternalFeedSnapshot.where(external_source_id: source_ids).delete_all
+    ExternalSource.where(id: source_ids).delete_all
+    Setting.external_bridge_rss = false
+    Setting.external_bridge_rss_testers = ''
   end
 
   it 'does not let the worker that lost the lease clear the successor after an exception' do
@@ -43,6 +50,41 @@ RSpec.describe 'RSS snapshot lease fencing', type: :model do
     expect(snapshot.reload.lease_token).to eq(stolen)
     expect(snapshot.state).to eq('draining')
     expect(snapshot.attempt_count).to eq(0)
+  end
+
+  it 'does not let an expired catch-up worker advance the cursor or project' do
+    user = Fabricate(:user)
+    enable_external_bridge_rss!(user)
+    source = ExternalSource.create!(protocol: 'rss', canonical_key: "https://feeds.example/lease-#{SecureRandom.hex(4)}.xml", title: 'Catch')
+    subscription = ExternalSubscription.create!(user: user, external_source: source, state: 'active')
+    snapshot = ExternalFeedSnapshot.create!(
+      external_source: source, generation: 3, state: 'complete', byte_size: 40, item_count: 1, next_index: 1,
+      body: <<~XML,
+        <?xml version="1.0"?><rss version="2.0"><channel><title>t</title><link>https://example.com</link>
+        <item><title>T</title><guid>guid-x</guid><link>https://example.com/i/x</link><description>B</description><pubDate>Wed, 01 Jan 2020 00:00:00 +0000</pubDate></item>
+        </channel></rss>
+      XML
+      created_at: 1.minute.from_now
+    )
+    row = ExternalFeedCatchUp.create!(
+      external_subscription: subscription, external_feed_snapshot: snapshot, generation: 3, position: 0, state: 'pending'
+    )
+    stolen = nil
+    allow_any_instance_of(ExternalBridge::RSS::FeedSnapshot::CatchUp).to receive(:before_catch_up_write!).and_wrap_original do |_method, caught|
+      in_connection do
+        ExternalFeedCatchUp.find(caught.id).update_columns(lease_expires_at: 1.minute.ago)
+        stolen = ExternalFeedCatchUp.find(caught.id).claim!
+      end
+    end
+
+    expect(ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(subscription.id)).to eq(:ok)
+
+    row.reload
+    expect(stolen).to be_present
+    expect(row.lease_token).to eq(stolen)
+    expect(row.position).to eq(0)
+    expect(row.generation).to eq(3)
+    expect(ExternalStatusProjection.where(user_id: user.id).count).to eq(0)
   end
 
   def in_connection

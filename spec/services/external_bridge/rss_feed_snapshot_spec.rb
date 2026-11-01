@@ -358,7 +358,44 @@ RSpec.describe 'RSS snapshot drain' do
         ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(subscription.id)
         expect(row.reload.state).to eq('stopped')
         expect(row.position).to eq(ExternalBridge::RSS::Limits::SNAPSHOT_BATCH_ITEMS)
+        expect(row.generation).to eq(generations.second.generation)
       end
+    end
+
+    it 'does not rewind the catch-up mark when an in-progress body is purged' do
+      subscribe_feed(feed_xml(1))
+      subscription = ExternalSubscription.find_by!(user_id: user.id)
+      source = ExternalSource.find(source_id)
+      older = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 8, state: 'complete', body: rss_document(rss_item(guid: 'guid-old')),
+        byte_size: 20, item_count: 1, next_index: 1, created_at: 1.minute.from_now
+      )
+      current = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 9, state: 'complete', body: rss_document(rss_item(guid: 'guid-mid')),
+        byte_size: 20, item_count: 1, next_index: 1, created_at: 2.minutes.from_now
+      )
+      newer = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 10, state: 'complete', body: rss_document(rss_item(guid: 'guid-next')),
+        byte_size: 20, item_count: 1, next_index: 1, created_at: 3.minutes.from_now
+      )
+      row = ExternalFeedCatchUp.create!(
+        external_subscription: subscription, external_feed_snapshot: current, generation: 9, position: 0, state: 'pending'
+      )
+      current.update_columns(body: nil, body_purged_at: Time.current)
+      Sidekiq::Testing.fake! do
+        ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(subscription.id)
+      end
+      row.reload
+      expect(row.external_feed_snapshot_id).to eq(newer.id)
+      expect(row.generation).to eq(10)
+      expect(row.position).to eq(1)
+      expect(row.state).to eq('done')
+      expect(row.generation).to be > older.generation
+
+      row.update!(state: 'pending')
+      ExternalBridge::RSS::FeedSnapshot::CatchUp.enqueue!(subscription)
+      expect(row.reload.position).to eq(1)
+      expect(row.generation).to eq(10)
     end
 
     it 'keeps one busy retry until the lease wait has passed' do
@@ -376,36 +413,127 @@ RSpec.describe 'RSS snapshot drain' do
       end
     end
 
-    it 'purges eligible finished bodies and refuses retry after the body is gone' do
+    it 'keeps recoverable bodies and purges only disposable text' do
       source = ExternalSource.create!(protocol: 'rss', canonical_key: "https://feeds.example/purge-#{SecureRandom.hex(4)}.xml", title: 'Purge')
-      finished = ExternalFeedSnapshot.create!(
+      recoverable = ExternalFeedSnapshot.create!(
         external_source: source, generation: 1, state: 'incomplete', body: '<rss/>', byte_size: 6,
         item_count: 2, next_index: 2, isolated_positions: [{ 'position' => 1, 'code' => 'snapshot_failed' }],
         completed_at: 2.days.ago
       )
+      disposable = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 2, state: 'complete', body: 'old', byte_size: 3,
+        item_count: 1, next_index: 1, completed_at: 2.days.ago
+      )
       pending = ExternalFeedSnapshot.create!(
-        external_source: source, generation: 2, state: 'pending', body: 'keep', byte_size: 4, item_count: 1, next_index: 0
+        external_source: source, generation: 3, state: 'pending', body: 'keep', byte_size: 4, item_count: 1, next_index: 0
       )
       ExternalBridge::RSS::FeedSnapshot::Purge.call
-      expect(finished.reload.body).to be_nil
-      expect(finished.body_purged_at).to be_present
+      expect(recoverable.reload.body).to eq('<rss/>')
+      expect(recoverable.body_purged_at).to be_nil
+      expect(disposable.reload.body).to be_nil
       expect(pending.reload.body).to eq('keep')
-      expect(ExternalBridge::RSS::FeedSnapshot::Retry.call(finished.id)).to eq(:body_purged)
-      expect(finished.reload.last_error_code).to eq('snapshot_body_purged')
+      queued = Sidekiq::Testing.fake! { ExternalBridge::RSS::FeedSnapshot::Retry.call(recoverable.id) }
+      expect(queued).to eq(:queued)
+      expect(recoverable.reload.state).to eq('pending')
+      expect(recoverable.body).to eq('<rss/>')
 
-      stub_const('ExternalBridge::RSS::Limits::SNAPSHOT_RETAINED_BODY_BYTES', 10)
+      stub_const('ExternalBridge::RSS::Limits::SNAPSHOT_RETAINED_BODY_BYTES', 18)
       older = ExternalFeedSnapshot.create!(
-        external_source: source, generation: 3, state: 'complete', body: 'a' * 8, byte_size: 8,
+        external_source: source, generation: 4, state: 'complete', body: 'a' * 8, byte_size: 8,
         item_count: 1, next_index: 1, completed_at: 1.hour.ago
       )
       newer = ExternalFeedSnapshot.create!(
-        external_source: source, generation: 4, state: 'complete', body: 'b' * 8, byte_size: 8,
+        external_source: source, generation: 5, state: 'complete', body: 'b' * 8, byte_size: 8,
         item_count: 1, next_index: 1, completed_at: 1.minute.ago
       )
       ExternalBridge::RSS::FeedSnapshot::Purge.call
       expect(older.reload.body).to be_nil
       expect(newer.reload.body).to eq('b' * 8)
       expect(pending.reload.body).to eq('keep')
+      expect(recoverable.reload.body).to eq('<rss/>')
+    end
+
+    it 'does not reset a catch-up cursor when enqueue runs again' do
+      subscribe_feed(feed_xml(1))
+      subscription = ExternalSubscription.find_by!(user_id: user.id)
+      row = ExternalFeedCatchUp.create!(
+        external_subscription: subscription, generation: 4, position: 12, state: 'pending'
+      )
+      Sidekiq::Testing.fake! do
+        ExternalBridge::RSS::FeedSnapshot::CatchUp.enqueue!(subscription)
+      end
+      expect(row.reload.position).to eq(12)
+      expect(row.generation).to eq(4)
+    end
+
+    it 'retries a catch-up batch from the same cursor when materialize raises' do
+      subscription = subscribe_feed(feed_xml(1))
+      source = subscription.external_source
+      ExternalResource.create!(
+        external_source: source, protocol: 'rss', canonical_key: "feed:#{source.canonical_key}\nitem:guid-extra",
+        title: 'Extra', body: 'Extra', canonical_url: 'https://example.com/i/extra', revision: 'r', published_at: Time.utc(2024, 1, 2)
+      )
+      ExternalFeedSnapshot.create!(
+        external_source: source, generation: 5, state: 'complete', byte_size: 30, item_count: 1, next_index: 1,
+        body: rss_document(rss_item(guid: 'guid-extra', title: 'Extra', link: 'https://example.com/i/extra')),
+        created_at: 1.minute.from_now
+      )
+      ExternalFeedCatchUp.create!(external_subscription: subscription, generation: 0, position: 0, state: 'pending')
+      allow_any_instance_of(ExternalBridge::RSS::Materialize).to receive(:call).and_raise(StandardError, 'catch-up boom')
+      expect { ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(subscription.id) }.to raise_error('catch-up boom')
+      row = ExternalFeedCatchUp.find_by!(external_subscription_id: subscription.id)
+      expect(row.position).to eq(0)
+      expect(row.generation).to eq(0)
+      expect(ExternalStatusProjection.where(user_id: user.id, external_resource_id: ExternalResource.find_by(title: 'Extra').id)).to be_empty
+      allow_any_instance_of(ExternalBridge::RSS::Materialize).to receive(:call).and_call_original
+      Sidekiq::Testing.fake! do
+        ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(subscription.id)
+      end
+      expect(row.reload.generation).to eq(5)
+      expect(row.position).to eq(1)
+      expect(ExternalStatusProjection.where(user_id: user.id).count).to eq(2)
+    end
+
+    it 'does not treat an earlier fetched_at as a newer generation' do
+      source = ExternalSource.find(subscribe_feed(feed_xml(1)).external_source_id)
+      older = ExternalFeedSnapshot.find_by!(external_source_id: source.id, generation: 1)
+      resource = ExternalResource.find_by!(external_source_id: source.id)
+      resource.update_columns(fetched_at: older.created_at + 1.second)
+      newer = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 2, state: 'complete', body: 'x', byte_size: 1,
+        item_count: 1, next_index: 1, created_at: older.created_at + 1.minute
+      )
+      drain = ExternalBridge::RSS::FeedSnapshot::Drain.new
+      item = ExternalBridge::RSS::Parser.parse!(older.body).items.first
+      expect(drain.send(:superseded?, older, item)).to be false
+
+      resource.update_columns(fetched_at: newer.created_at)
+      expect(drain.send(:superseded?, older.reload, item)).to be true
+    end
+
+    it 'stores a later body while a failed remainder blocks, and refuses a capture that would not fit' do
+      subscription = subscribe_feed(feed_xml(1))
+      held = nil
+      Sidekiq::Testing.fake! do
+        ExternalBridge::RSS::FeedSnapshotDrainWorker.jobs.clear
+        refresh_feed(feed_xml(page + 1, order: :newest_first))
+        held = ExternalFeedSnapshot.open.order(:generation).last
+        stub_const('ExternalBridge::RSS::Limits::SNAPSHOT_MAX_BATCHES', 0)
+        ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(source_id)
+        expect(held.reload).to be_blocked_remainder
+        etag_before = ExternalSource.find(source_id).etag
+        refresh_feed(feed_xml(2), subscriber: subscription.user)
+        expect(ExternalSource.find(source_id).etag).not_to eq(etag_before)
+        expect(ExternalFeedSnapshot.where(external_source_id: source_id).order(:generation).last.body).to be_present
+        expect(ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(source_id)).to eq(:blocked)
+
+        stub_const('ExternalBridge::RSS::Limits::SNAPSHOT_RETAINED_BODY_BYTES', 1)
+        etag_full = ExternalSource.find(source_id).etag
+        outcome = refresh_feed(feed_xml(2))
+        expect(outcome[:outcome]).to eq('snapshot_capacity')
+        expect(ExternalSource.find(source_id).etag).to eq(etag_full)
+        expect(held.reload.body).to be_present
+      end
     end
   end
 

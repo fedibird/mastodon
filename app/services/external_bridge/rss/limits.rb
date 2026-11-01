@@ -86,19 +86,19 @@ module ExternalBridge
       # minutes covers one batch of projection writes without letting a
       # dead process block the source until the next scheduler pass.
       SNAPSHOT_LEASE = 2.minutes
-      # A finished body becomes eligible for removal this long after
-      # completed_at (or updated_at when that is nil). The RSS scheduler
-      # pass, and a capture or drain, delete at most SNAPSHOT_PURGE_BATCH
-      # eligible bodies. Eligibility is not the moment of deletion: an idle
-      # source waits for the next pass, which is the existing 15 minute
-      # scheduler tick, not a new feed poll.
+      # A body that no longer needs to be reread becomes eligible this long
+      # after completed_at (or updated_at). The scheduler pass and capture
+      # delete at most SNAPSHOT_PURGE_BATCH of those. An incomplete or failed
+      # body with a remainder or a retryable isolated position is not eligible.
+      # It stays until Retry finishes it or the operator leaves only
+      # superseded positions. Eligibility is not the moment of deletion.
       SNAPSHOT_BODY_RETENTION = 24.hours
       SNAPSHOT_PURGE_BATCH = 50
-      # Sum of byte_size for finished bodies that still hold text. Open
-      # bodies are outside this cap (SNAPSHOT_OPEN_LIMIT bounds those per
-      # source). The purge drops the oldest finished bodies until the sum
-      # fits or the batch is spent. 32 MiB is four responses at the feed
-      # byte cap.
+      # Bytes of snapshot text kept in the database. Disposable bodies are
+      # dropped oldest-first until the sum fits. Bodies that are still the
+      # only copy of an unprocessed remainder are not dropped. If a new
+      # response would still exceed the cap, capture refuses it and does not
+      # move etag. 32 MiB is four responses at the feed byte cap.
       SNAPSHOT_RETAINED_BODY_BYTES = 32.megabytes
       # Failures of the same cursor position before that position is
       # isolated. The snapshot stays open and the rest of the generation
