@@ -48,6 +48,7 @@ class GroupCreationRequest < ApplicationRecord
   validate :icon_columns_are_immutable, on: :update
   validate :initial_owner_is_fixed, on: :update
   validate :state_transition_is_legal, on: :update
+  validate :decision_identity_is_fixed, on: :update
   validate :decision_shape
   validate :handoff_progress_is_legal, on: :update
 
@@ -121,6 +122,24 @@ class GroupCreationRequest < ApplicationRecord
     icon_storage_key.present? && icon_purged_at.nil?
   end
 
+  # An exhausted icon copy is not deleted. An operator resumes it explicitly
+  # so a long storage outage does not retry on every hourly pass, and so a
+  # later pass can finish after the storage recovers. This does not change
+  # the approval snapshot.
+  def resume_icon_handoff!
+    with_lock do
+      unless approved? && icon_storage_key.present? && icon_purged_at.nil? && icon_handoff_copied_at.nil? && icon_handoff_attempts.to_i >= GroupCreationIcons::Copy::MAX_ATTEMPTS
+        errors.add(:icon_handoff_attempts, :invalid)
+        raise ActiveRecord::RecordInvalid, self
+      end
+
+      @resuming_icon_handoff = true
+      update!(icon_handoff_attempts: 0, icon_handoff_error: nil, icon_handoff_failed_at: nil)
+    end
+  ensure
+    @resuming_icon_handoff = false
+  end
+
   def record_cancellation!(cancelled_at: Time.current, decision_note: nil)
     update!(
       state: :cancelled,
@@ -174,6 +193,7 @@ class GroupCreationRequest < ApplicationRecord
   end
 
   def attempts_do_not_decrease
+    return if @resuming_icon_handoff
     return unless will_save_change_to_icon_handoff_attempts?
 
     errors.add(:icon_handoff_attempts, :invalid) if icon_handoff_attempts.to_i < icon_handoff_attempts_in_database.to_i
@@ -274,6 +294,10 @@ class GroupCreationRequest < ApplicationRecord
     errors.add(:state, :invalid) unless allowed.fetch(from.to_s, []).include?(state.to_s)
   end
 
+  # Live reviewer and owner checks run only while the decision itself is
+  # being recorded. Later icon handoff updates must not depend on whether
+  # that reviewer is still an administrator, whether the requester is still
+  # functional, or whether the active owner is still the initial owner.
   def decision_shape
     if pending?
       errors.add(:reviewer_account, :invalid) if reviewer_account_id.present?
@@ -285,29 +309,46 @@ class GroupCreationRequest < ApplicationRecord
       return
     end
 
-    if approved?
-      errors.add(:reviewer_account, :invalid) unless GroupManagement.server_administrator?(reviewer_account)
-      errors.add(:reviewed_at, :blank) if reviewed_at.blank?
-      errors.add(:cancelled_at, :invalid) if cancelled_at.present?
-      approval_matches_group
-      return
-    end
-
-    if rejected?
-      errors.add(:reviewer_account, :invalid) unless GroupManagement.server_administrator?(reviewer_account)
-      errors.add(:reviewed_at, :blank) if reviewed_at.blank?
-      errors.add(:decision_note, :blank) if decision_note.blank?
-      errors.add(:group_account, :invalid) if group_account_id.present?
-      errors.add(:cancelled_at, :invalid) if cancelled_at.present?
-      errors.add(:initial_owner_account, :invalid) if initial_owner_account_id.present?
-      return
-    end
+    return approved_decision_shape if approved?
+    return rejected_decision_shape if rejected?
 
     errors.add(:reviewer_account, :invalid) if reviewer_account_id.present?
     errors.add(:reviewed_at, :invalid) if reviewed_at.present?
     errors.add(:group_account, :invalid) if group_account_id.present?
     errors.add(:cancelled_at, :blank) if cancelled_at.blank?
     errors.add(:initial_owner_account, :invalid) if initial_owner_account_id.present?
+  end
+
+  def deciding_now?
+    will_save_change_to_state?
+  end
+
+  def approved_decision_shape
+    errors.add(:reviewed_at, :blank) if reviewed_at.blank?
+    errors.add(:cancelled_at, :invalid) if cancelled_at.present?
+    if deciding_now?
+      errors.add(:reviewer_account, :invalid) unless GroupManagement.server_administrator?(reviewer_account)
+      approval_matches_group
+    else
+      approval_record_is_stable
+    end
+  end
+
+  def rejected_decision_shape
+    errors.add(:reviewed_at, :blank) if reviewed_at.blank?
+    errors.add(:decision_note, :blank) if decision_note.blank?
+    errors.add(:group_account, :invalid) if group_account_id.present?
+    errors.add(:cancelled_at, :invalid) if cancelled_at.present?
+    errors.add(:initial_owner_account, :invalid) if initial_owner_account_id.present?
+    errors.add(:reviewer_account, :invalid) if deciding_now? && !GroupManagement.server_administrator?(reviewer_account)
+  end
+
+  def decision_identity_is_fixed
+    return if deciding_now?
+
+    %w(reviewer_account_id reviewed_at group_account_id decision_note cancelled_at).each do |attribute|
+      errors.add(attribute, :immutable) if will_save_change_to_attribute?(attribute)
+    end
   end
 
   def approval_matches_group
@@ -324,5 +365,20 @@ class GroupCreationRequest < ApplicationRecord
     errors.add(:initial_owner_account, :invalid) unless owner&.member_account_id == requester_account_id
     errors.add(:initial_owner_account, :invalid) unless initial_owner_account_id == requester_account_id
     errors.add(:initial_owner_account, :invalid) unless GroupManagement.local_functional_person?(initial_owner_account)
+  end
+
+  # The historical snapshot. It does not ask whether the reviewer can still
+  # administer the server, whether the initial owner can still sign in, or
+  # who the active owner is today.
+  def approval_record_is_stable
+    errors.add(:reviewer_account, :blank) if reviewer_account_id.blank?
+    errors.add(:initial_owner_account, :invalid) unless initial_owner_account_id == requester_account_id
+    errors.add(:group_account, :blank) if group_account_id.blank?
+    return if group_account.nil?
+
+    errors.add(:group_account, :invalid) unless group_account.local? && group_account.group?
+    errors.add(:group_account, :invalid) unless group_account.username.to_s.downcase == username
+    managed = ManagedGroup.find_by(account_id: group_account_id)
+    errors.add(:group_account, :invalid) unless managed&.approved_request? && managed.creation_request_id == id
   end
 end

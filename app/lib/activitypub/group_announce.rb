@@ -2,11 +2,11 @@
 
 module ActivityPub
   # Whether a local group boosts a mentioned status. ProcessMentionsService
-  # and GroupDistributionWorker both use this, so a local post cannot skip
-  # the follow check that remote delivery already had. A follow request is
-  # not a follow. Only public and unlisted are announced, and the boost
-  # keeps that visibility. The group's login default does not widen or
-  # tighten it. Remote groups are not boosted here.
+  # and GroupDistributionWorker both use this. A follow request is not a
+  # follow. Only a public or unlisted original is announced. A group with a
+  # login keeps that user's default privacy as the floor, so the boost is
+  # never more public than that setting. A group without a login uses
+  # public as the floor. Remote groups are not boosted here.
   module GroupAnnounce
     ANNOUNCEABLE_VISIBILITIES = %w(public unlisted).freeze
 
@@ -23,8 +23,18 @@ module ActivityPub
       author.following?(group)
     end
 
-    def visibility_for(status, _group)
-      status.visibility
+    def visibility_for(status, group)
+      original = Status.visibilities[status.visibility.to_s]
+      return status.visibility if original.nil?
+
+      floor = Status.visibilities[privacy_floor(group)] || Status.visibilities['public']
+      Status.visibilities.key([original, floor].max)
+    end
+
+    def privacy_floor(group)
+      return 'public' if group.user.nil?
+
+      group.user.setting_default_privacy.presence || 'public'
     end
   end
 end

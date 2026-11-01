@@ -33,13 +33,13 @@ Action Review には登録しない。グループの owner 権限では承認�
 
 アイコンが無い申請はワーカーを積まない。ある場合は承認トランザクションの中で非公開ストレージから読み、バイト数、MIME、画像実体を再検証する。失敗なら pending のまま承認しない。公開 avatar にはまだ書かない。
 
-コミット後に `GroupCreationIcons::HandoffWorker` が `GroupCreationIcons::Copy` を実行する。`icon_handoff_source_digest` と avatar のファイル名が揃ってから `icon_handoff_copied_at` を入れる。同じ digest の再実行は avatar を上書きしない。`icon_handoff_copied_at` のあとだけ `Handoff.release_after_copy!` が非公開の元を消す。失敗は `icon_handoff_error` と `icon_handoff_attempts` と `icon_handoff_failed_at` に残り、元画像は消さない。コピーは 8 回で自動再試行を止め、元の削除は成功するまで毎時の `Scheduler::GroupCreationIconsScheduler` が続ける。Paperclip がトランザクションの外へ書いたファイルは、その avatar 保存が戻ったとき消す。
+コミット後に `GroupCreationIcons::HandoffWorker` が `GroupCreationIcons::Copy` を実行する。`icon_handoff_source_digest` と avatar のファイル名が揃ってから `icon_handoff_copied_at` を入れる。同じ digest の再実行は avatar を上書きしない。`icon_handoff_copied_at` のあとだけ `Handoff.release_after_copy!` が非公開の元を消す。失敗は `icon_handoff_error` と `icon_handoff_attempts` と `icon_handoff_failed_at` に残り、元画像は消さない。コピーは 8 回で毎時の自動再試行を止める。止まった行は `rake group_creation_icons:resume` が試行回数を戻してから1回だけ再実行する。元の削除はコピー成功後、成功するまで毎時の `Scheduler::GroupCreationIconsScheduler` が続ける。承認後のアイコン列更新は、審査者が今も管理者か、申請者が今も有効か、現在の owner が初代のままかには依存しない。Paperclip がトランザクションの外へ書いたファイルは、その avatar 保存が戻ったとき消す。
 
 ## User なし Group
 
 Group 用の User は作らない。`Account.without_unapproved` は、リモート、確認済みかつ承認済みのローカル User、または `managed_groups` があるローカル Group を含む。未承認の個人は入らない。管理行の無いローカル Group は、従来どおり User があるときだけ入る。
 
-Bot からロックされていない Group へのフォローは成立する。ロックされた Group は承認待ちになる。Person の `setting_confirm_follow_from_bot` は変えない。ローカル投稿の `ProcessMentionsService` と、リモート投稿の `ActivityPub::GroupDistributionWorker` は同じ `ActivityPub::GroupAnnounce.announce?` を使う。明示メンションに加え、成立済みの Follow があり、公開範囲が public または unlisted のときだけ、その公開範囲のまま元投稿を1回 Announce する。フォロー申請中、private、direct、limited、personal などは掲載しない。Group のログイン既定公開範囲では狭めも広げもしない。リモート Group はローカルでは Announce せず、従来の配送のままである。元投稿は消さない。
+Bot からロックされていない Group へのフォローは成立する。ロックされた Group は承認待ちになる。Person の `setting_confirm_follow_from_bot` は変えない。ローカル投稿の `ProcessMentionsService` と、リモート投稿の `ActivityPub::GroupDistributionWorker` は同じ `ActivityPub::GroupAnnounce.announce?` を使う。明示メンションに加え、成立済みの Follow があり、原投稿が public または unlisted のときだけ1回 Announce する。フォロー申請中、private、direct、limited、personal などの原投稿は掲載しない。User 付きの既存 Group は、その User の既定公開範囲を下限にする。User なしの新しい Group の下限は public である。リモート Group はローカルでは Announce せず、従来の配送のままである。元投稿は消さない。
 
 承認コミットのあとに Sidekiq へアイコンジョブを積む。enqueue が失敗しても承認結果は成功のまま返し、`icon_handoff_error` に `enqueue_failed` を残す。毎時の復旧がコピーする。画像が無い申請は積まない。公開ファイルの実体が無いときは、ファイル名だけを根拠にコピー済みにせず、非公開の元は消さない。
 

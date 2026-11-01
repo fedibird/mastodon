@@ -191,4 +191,57 @@ RSpec.describe GroupCreationIcons::Copy do
     expect(GroupCreationIcons::Storage.resolve.exist?(request.icon_storage_key)).to be false
     expect(Account.where(username: 'enqueueicon').count).to eq 1
   end
+
+  it 'finishes the handoff after the reviewer, requester, and owner no longer match the approval' do
+    request = stage(png, username: 'latericon')
+    allow(GroupCreationIcons::HandoffWorker).to receive(:perform_async)
+    result = approve(request)
+    group = result.group_account
+    successor = Fabricate(:user)
+    GroupRoleAssignment.transfer_owner!(group_account: group, member_account: successor.account, granted_by_account: reviewer.account)
+    reviewer.update_columns(role_id: nil)
+    reviewer.update!(disabled: true)
+    requester.update!(disabled: true)
+
+    expect(GroupManagement.server_administrator?(reviewer.account)).to be false
+    expect(GroupManagement.local_functional_person?(requester.account)).to be false
+    expect(GroupRoleAssignment.active.owner.find_by!(group_account: group).member_account).to eq successor.account
+
+    described_class.call(request.reload)
+    expect(request.reload.icon_handoff_copied_at).to be_present
+    expect(request.icon_purged_at).to be_present
+    expect(request.initial_owner_account).to eq requester.account
+    expect(group.reload.avatar.exists?).to be true
+    expect(GroupCreationIcons::Storage.resolve.exist?(request.icon_storage_key)).to be false
+    expect(Account.where(username: 'latericon').count).to eq 1
+  end
+
+  it 'stops after eight failures and resumes explicitly once storage works' do
+    request = stage(png, username: 'exhausticon')
+    allow(GroupCreationIcons::HandoffWorker).to receive(:perform_async)
+    approve(request)
+    failed = GroupCreationIcons::Revalidation::Result.new(code: :storage_unavailable)
+    allow(GroupCreationIcons::Revalidation).to receive(:call).and_return(failed)
+
+    GroupCreationIcons::Copy::MAX_ATTEMPTS.times do
+      expect { described_class.call(request.reload) }.to raise_error(GroupCreationIcons::Copy::Error)
+    end
+    expect(request.reload.icon_handoff_attempts).to eq GroupCreationIcons::Copy::MAX_ATTEMPTS
+    expect { described_class.call(request) }.not_to raise_error
+    expect(request.reload.icon_handoff_attempts).to eq GroupCreationIcons::Copy::MAX_ATTEMPTS
+    expect(GroupCreationIcons::HandoffRecovery.scope.where(id: request.id)).to be_empty
+    expect(GroupCreationIcons::Storage.resolve.exist?(request.icon_storage_key)).to be true
+
+    allow(GroupCreationIcons::Revalidation).to receive(:call).and_call_original
+    expect { GroupCreationIcons::HandoffRecovery.call }.not_to change { request.reload.icon_handoff_copied_at }
+    request.resume_icon_handoff!
+    expect(request.icon_handoff_attempts).to eq 0
+    GroupCreationIcons::HandoffRecovery.call
+
+    expect(request.reload.icon_handoff_copied_at).to be_present
+    expect(request.icon_purged_at).to be_present
+    expect(request.group_account.avatar.exists?).to be true
+    expect(GroupCreationIcons::Storage.resolve.exist?(request.icon_storage_key)).to be false
+    expect(Account.where(username: 'exhausticon').count).to eq 1
+  end
 end

@@ -37,7 +37,15 @@ RSpec.describe ProcessMentionsService do
 
     legacy_public = post(legacy, visibility: :public, text: 'pub @legacygroup')
     described_class.new.call(legacy_public)
-    expect(Status.find_by(account: legacy, reblog_of_id: legacy_public.id).visibility).to eq 'public'
+    expect(Status.find_by(account: legacy, reblog_of_id: legacy_public.id).visibility).to eq 'unlisted'
+
+    private_group = Fabricate(:user, account: Fabricate(:account, username: 'privategroup', actor_type: 'Group')).account
+    private_group.user.settings.default_privacy = 'private'
+    private_group.user.save!
+    author.follow!(private_group)
+    private_floor = post(private_group, text: 'pub @privategroup')
+    described_class.new.call(private_floor)
+    expect(Status.find_by(account: private_group, reblog_of_id: private_floor.id).visibility).to eq 'private'
   end
 
   it 'does not announce without a follow, during a follow request, or for closed visibilities' do
