@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_12_120000) do
+ActiveRecord::Schema.define(version: 2026_11_13_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -586,6 +586,33 @@ ActiveRecord::Schema.define(version: 2026_11_12_120000) do
     t.index ["user_id", "external_subscription_id"], name: "index_external_feed_routes_on_home", unique: true, where: "(((destination)::text = 'home'::text) AND (list_id IS NULL))"
     t.index ["user_id", "external_subscription_id", "list_id"], name: "index_external_feed_routes_on_list", unique: true, where: "(((destination)::text = 'list'::text) AND (list_id IS NOT NULL))"
     t.check_constraint "(((destination)::text = 'home'::text) AND (list_id IS NULL)) OR (((destination)::text = 'list'::text) AND (list_id IS NOT NULL))", name: "external_feed_routes_destination_shape"
+  end
+
+  create_table "external_feed_snapshots", force: :cascade do |t|
+    t.bigint "external_source_id", null: false
+    t.integer "generation", null: false
+    t.string "state", default: "pending", null: false
+    t.text "etag"
+    t.text "last_modified"
+    t.text "body"
+    t.integer "byte_size", null: false
+    t.integer "item_count", default: 0, null: false
+    t.integer "next_index", default: 0, null: false
+    t.jsonb "history_positions", default: [], null: false
+    t.datetime "history_applied_at"
+    t.string "lease_token"
+    t.datetime "lease_expires_at"
+    t.integer "batch_count", default: 0, null: false
+    t.integer "attempt_count", default: 0, null: false
+    t.string "last_error_code"
+    t.datetime "completed_at"
+    t.datetime "body_purged_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_source_id", "generation"], name: "index_external_feed_snapshots_on_source_and_generation", unique: true
+    t.index ["external_source_id", "state", "generation"], name: "index_external_feed_snapshots_on_source_state", where: "(state IN ('pending', 'draining'))"
+    t.check_constraint "generation > 0 AND item_count >= 0 AND next_index >= 0 AND next_index <= item_count AND byte_size >= 0 AND batch_count >= 0 AND attempt_count >= 0", name: "external_feed_snapshots_progress_check"
+    t.check_constraint "state IN ('pending', 'draining', 'complete', 'failed')", name: "external_feed_snapshots_state_check"
   end
 
   create_table "external_identities", force: :cascade do |t|
@@ -2624,6 +2651,7 @@ create_table "managed_groups", force: :cascade do |t|
   add_foreign_key "emoji_reactions", "statuses", on_delete: :cascade
   add_foreign_key "encrypted_messages", "accounts", column: "from_account_id", on_delete: :cascade
   add_foreign_key "encrypted_messages", "devices", on_delete: :cascade
+  add_foreign_key "external_feed_snapshots", "external_sources", on_delete: :cascade
   add_foreign_key "external_feed_routes", "lists", name: "fk_external_feed_routes_list", on_delete: :cascade
   add_foreign_key "external_feed_routes", "users", name: "fk_external_feed_routes_user", on_delete: :cascade
   add_foreign_key "external_identities", "user_external_credentials", column: "credential_id", on_delete: :nullify

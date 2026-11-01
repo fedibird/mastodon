@@ -22,7 +22,7 @@ module ExternalBridge
       MAX_IDS = 20
       MAX_DIGITS = 19
 
-      EVENTS = %w(scheduler refresh icon).freeze
+      EVENTS = %w(scheduler refresh icon snapshot).freeze
 
       OUTCOMES = %w(
         feature_disabled
@@ -52,6 +52,11 @@ module ExternalBridge
         icon_not_found
         icon_failed
         skipped_no_subscriptions
+        snapshot_backlog
+        snapshot_stored
+        snapshot_complete
+        snapshot_failed
+        snapshot_lease_held
       ).freeze
 
       ERROR_CODES = %w(
@@ -76,16 +81,22 @@ module ExternalBridge
         icon_deadline
         icon_storage_failed
         icon_no_candidate
+        snapshot_item_limit
+        snapshot_backlog
+        snapshot_batch_limit
+        snapshot_stalled
+        snapshot_failed
+        snapshot_lease_lost
       ).freeze
 
       HTTP_CODE = /\Ahttp_[1-5]\d\d\z/
       CLASS_NAME = /\A[A-Z][A-Za-z0-9_]*(::[A-Z][A-Za-z0-9_]*)*\z/
 
-      ID_FIELDS = %i(source_id subscription_id).freeze
+      ID_FIELDS = %i(source_id subscription_id snapshot_id).freeze
       COUNTER_FIELDS = %i(
         selected enqueued rejected accounted offered offer_failed items cached_items
         projected_ok projected_failed projected_skipped failures http_status elapsed_ms
-        candidates attempts
+        candidates attempts snapshot_items snapshot_generation batches
       ).freeze
 
       module_function

@@ -22,7 +22,9 @@ module ExternalBridge
     # This is a guess from the first import page. It does not describe the
     # whole history or later articles, and one article still has one code.
     # The choice is written only on the new subscription, before its first
-    # save and before the first projection. A later refresh does not repeat it.
+    # save and before the first projection. A later refresh does not repeat
+    # it. Items past the history page of a snapshot are not imported yet
+    # when the row is created, and draining them does not sample again.
     module InitialLanguage
       module_function
 
