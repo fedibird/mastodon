@@ -267,6 +267,16 @@ Rails.application.routes.draw do
         get :icon, format: false
       end
     end
+    resources :managed_groups, only: [:index, :show] do
+      member do
+        post :appoint_moderator
+        post :revoke_moderator
+        post :resign_moderator
+        post :offer_transfer
+        post :cancel_transfer
+      end
+    end
+    post 'group_owner_transfer_offers/:offer_id/accept', to: 'managed_groups#accept_transfer', as: :accept_group_owner_transfer_offer
     resources :user_posting_contexts, except: [:show] do
       member do
         post :duplicate
