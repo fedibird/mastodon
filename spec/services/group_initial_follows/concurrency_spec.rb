@@ -55,7 +55,8 @@ RSpec.describe 'Group initial follow concurrency' do
     threads.each { |thread| thread.join(15) }
 
     results = Array.new(2) { done.pop }
-    expect(results).to all(be true)
+    failures = results.grep(Exception).map { |error| error.full_message(highlight: false) }
+    expect(results).to all(be true), failures.join("\n\n")
     expect(Follow.where(account: requester.account, target_account: request.reload.group_account).count).to eq 1
     expect(GroupInitialFollow.find(record_id).state).to eq('succeeded').or eq('completed')
   end
@@ -155,7 +156,8 @@ RSpec.describe 'Group initial follow concurrency' do
     b_go << true
     newer.join(15)
     stale.join(15)
-    expect(b_result.pop).to eq :ok
+    newer_outcome = b_result.pop
+    expect(newer_outcome).to eq(:ok), (newer_outcome.full_message(highlight: false) if newer_outcome.is_a?(Exception))
     expect(Follow.where(account_id: request.requester_account_id, target_account_id: request.group_account_id).count).to eq 1
   end
 

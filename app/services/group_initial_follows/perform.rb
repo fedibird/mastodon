@@ -91,10 +91,26 @@ module GroupInitialFollows
       raise
     end
 
+    # Never lock an in-memory object carrying changes from an interrupted
+    # update. ActiveRecord refuses lock!/with_lock on dirty records. Each
+    # critical section reloads a fresh persisted row, then obtains its lock.
+    # Ownership and discharge are still verified *after* acquiring the lock.
+    def with_record_lock
+      @record = GroupInitialFollow.find(@record.id)
+      @record.with_lock do
+        yield
+      end
+    end
+
+    def lock_record!
+      @record = GroupInitialFollow.find(@record.id)
+      @record.lock!
+    end
+
     def claim!
       token = SecureRandom.uuid
       owned = false
-      @record.with_lock do
+      with_record_lock do
         @record.reload
         if claimable?
           @record.update!(
@@ -115,7 +131,7 @@ module GroupInitialFollows
     def release_claim!(token)
       return if token.nil?
 
-      @record.with_lock do
+      with_record_lock do
         @record.reload
         if @record.claim_token == token && !@record.discharged? && @record.distribution_enqueued_at.nil? && !@record.terminal?
           @record.update!(claim_expires_at: 1.second.ago)
@@ -137,7 +153,7 @@ module GroupInitialFollows
       service = nil
       latched = false
       ApplicationRecord.transaction(requires_new: true) do
-        @record.lock!
+        lock_record!
         @record.reload
         next if @record.terminal? || @record.discharged? || !owns?(token)
 
@@ -210,7 +226,7 @@ module GroupInitialFollows
 
     def reserve_distribution!(token)
       reserved = nil
-      @record.with_lock do
+      with_record_lock do
         @record.reload
         if @record.distribution_enqueued_at.nil? && @record.discharged? && @record.outcome.to_s.start_with?('created_')
           relationship = created_relationship
@@ -226,7 +242,7 @@ module GroupInitialFollows
     end
 
     def finish_distribution!(token)
-      @record.with_lock do
+      with_record_lock do
         @record.reload
         if @record.claim_token == token && @record.distribution_enqueued_at.nil?
           @record.update!(distribution_enqueued_at: Time.current)
@@ -239,7 +255,7 @@ module GroupInitialFollows
     end
 
     def finalize!
-      @record.with_lock do
+      with_record_lock do
         @record.reload
         # Leave the distribution lease in place until the send is recorded.
         # Another worker must not clear it and start a second send.
@@ -270,7 +286,7 @@ module GroupInitialFollows
     def mark_permanent!(code, token)
       return if token.nil?
 
-      @record.with_lock do
+      with_record_lock do
         @record.reload
         if @record.claim_token == token && !@record.discharged? && !@record.terminal?
           @record.update!(
@@ -286,7 +302,7 @@ module GroupInitialFollows
     def mark_failure!(code, token)
       return if token.nil?
 
-      @record.with_lock do
+      with_record_lock do
         @record.reload
         if @record.claim_token == token && !@record.discharged? && !@record.terminal?
           exhausted = code.to_s != 'rate_limited' && @record.attempts >= GroupInitialFollow::MAX_ATTEMPTS
