@@ -4,6 +4,15 @@ module GroupRegistrationInvites
   # Writes the site defaults that the next approval copies. Existing
   # GroupRegistrationInvitePolicy rows are not loaded or updated.
   # group_creation_requests is not one of these keys.
+  #
+  # Setting.[]= writes Rails.cache before the surrounding transaction
+  # commits. Production cache is Redis, shared by every process, so that
+  # would publish a value that might still roll back. This writer saves
+  # the row only. RailsSettings republishes the cache in after_commit,
+  # and publish_cache below covers a test transaction that never commits
+  # the outer savepoint. A failure deletes the keys so the next read
+  # reloads the committed row. The advisory lock does not include console
+  # writes or other admin setting screens.
   class UpdateSiteDefaults
     KEYS = %w(
       group_registration_invites_enabled
@@ -76,6 +85,7 @@ module GroupRegistrationInvites
       return Result.new(code: :not_authorized, errors: []) unless GroupManagement.server_administrator?(@actor_account)
 
       outcome = nil
+      published = nil
       Setting.transaction do
         lock_writers!
         current = locked_stored
@@ -92,8 +102,10 @@ module GroupRegistrationInvites
 
         write!(values)
         audit!(before, values)
+        published = values
         outcome = Result.new(code: :updated, errors: [])
       end
+      publish_cache(published) if published
       outcome
     rescue Conflict
       Result.new(code: :conflict, errors: [:conflict])
@@ -102,6 +114,9 @@ module GroupRegistrationInvites
     rescue GroupAdministration::Audit::Error
       expire_cache
       Result.new(code: :audit_failed, errors: [:audit_failed])
+    rescue StandardError
+      expire_cache
+      raise
     end
 
     private
@@ -180,14 +195,20 @@ module GroupRegistrationInvites
       number
     end
 
+    # save! does not touch Rails.cache. Setting.[]= would.
     def write!(values)
-      Setting.group_registration_invites_enabled = values['group_registration_invites_enabled']
-      Setting.group_registration_invites_shared_quota = values['group_registration_invites_shared_quota']
-      Setting.group_registration_invites_shared_quota_unlimited = values['group_registration_invites_shared_quota_unlimited']
-      Setting.group_registration_invites_per_link_max_uses = values['group_registration_invites_per_link_max_uses']
-      Setting.group_registration_invites_per_link_unlimited_uses = values['group_registration_invites_per_link_unlimited_uses']
-      Setting.group_registration_invites_per_link_lifetime_seconds = values['group_registration_invites_per_link_lifetime_seconds']
-      Setting.group_registration_invites_per_link_indefinite = values['group_registration_invites_per_link_indefinite']
+      values.each do |key, value|
+        record = Setting.unscoped.where(thing_type: nil, thing_id: nil).lock.find_by(var: key)
+        record ||= Setting.new(var: key)
+        record.value = value
+        record.save!
+      end
+    end
+
+    def publish_cache(values)
+      values.each do |key, value|
+        Rails.cache.write(Setting.cache_key(key, nil), value)
+      end
     end
 
     def audit!(before, after)
