@@ -20,13 +20,26 @@ module ExternalBridge
 
       private
 
-      # Inline tests run perform_in immediately and would recurse while the
-      # lease is still held. Production retries after the lease can lapse
-      # so a killed worker is not stuck until the next feed poll.
+      # One delayed retry while the lease is still held. A second busy call
+      # in that window does not enqueue again. The wait is the time left on
+      # the lease, not another full lease stacked on the first. Inline tests
+      # would run perform_in immediately and recurse.
       def schedule_busy_retry(source_id)
         return if defined?(Sidekiq::Testing) && Sidekiq::Testing.inline?
 
-        self.class.perform_in(Limits::SNAPSHOT_LEASE.to_i, source_id)
+        snapshot = ExternalFeedSnapshot.open.where(external_source_id: source_id).order(:generation, :id).first
+        return if snapshot.nil?
+
+        wait = busy_wait(snapshot)
+        claimed = ExternalFeedSnapshot.where(id: snapshot.id).where('busy_retry_at IS NULL OR busy_retry_at <= ?', Time.current).update_all(busy_retry_at: Time.current + wait)
+        return if claimed.zero?
+
+        self.class.perform_in(wait, source_id)
+      end
+
+      def busy_wait(snapshot)
+        remaining = snapshot.lease_expires_at.present? ? snapshot.lease_expires_at - Time.current : Limits::SNAPSHOT_LEASE.to_i
+        [[remaining.ceil, 1].max, Limits::SNAPSHOT_LEASE.to_i].min
       end
     end
   end

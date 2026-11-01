@@ -57,6 +57,10 @@ module ExternalBridge
         snapshot_complete
         snapshot_failed
         snapshot_lease_held
+        snapshot_blocked
+        snapshot_isolated
+        snapshot_purged
+        snapshot_body_purged
       ).freeze
 
       ERROR_CODES = %w(
@@ -87,6 +91,8 @@ module ExternalBridge
         snapshot_stalled
         snapshot_failed
         snapshot_lease_lost
+        snapshot_superseded
+        snapshot_body_purged
       ).freeze
 
       HTTP_CODE = /\Ahttp_[1-5]\d\d\z/
@@ -97,6 +103,7 @@ module ExternalBridge
         selected enqueued rejected accounted offered offer_failed items cached_items
         projected_ok projected_failed projected_skipped failures http_status elapsed_ms
         candidates attempts snapshot_items snapshot_generation batches
+        purged retained_bytes isolated
       ).freeze
 
       module_function

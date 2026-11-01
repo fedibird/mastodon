@@ -27,7 +27,7 @@ RSpec.describe 'RSS snapshot drain' do
     it 'imports an empty feed without a projection' do
       subscribe_feed(rss_document(''))
 
-      expect(ExternalResource.count).to eq(0)
+      expect(resources.count).to eq(0)
       expect(ExternalStatusProjection.count).to eq(0)
       expect(ExternalFeedSnapshot.last.state).to eq('complete')
     end
@@ -35,10 +35,10 @@ RSpec.describe 'RSS snapshot drain' do
     it 'keeps a 40 item feed on the history page and does not open a tail' do
       subscribe_feed(feed_xml(page))
 
-      expect(ExternalResource.count).to eq(page)
+      expect(resources.count).to eq(page)
       expect(projections_for(user).size).to eq(page)
       expect(ExternalFeedSnapshot.last.state).to eq('complete')
-      expect(ExternalFeedSnapshot.open.count).to eq(0)
+      expect(ExternalFeedSnapshot.open.where(external_source_id: source_id).count).to eq(0)
     end
 
     it 'imports the 41st item for a subscriber that already existed' do
@@ -52,7 +52,7 @@ RSpec.describe 'RSS snapshot drain' do
     it 'gives a new subscriber the history page and still stores the tail' do
       subscribe_feed(feed_xml(page + 1, order: :oldest_first))
 
-      expect(ExternalResource.count).to eq(page + 1)
+      expect(resources.count).to eq(page + 1)
       expect(projections_for(user).size).to eq(page)
       expect(projection_guids(user)).not_to include('guid-0')
       expect(resource_guids).to include('guid-0')
@@ -70,7 +70,7 @@ RSpec.describe 'RSS snapshot drain' do
       refresh_feed(feed_xml(81))
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
-      expect(ExternalResource.count).to eq(81)
+      expect(resources.count).to eq(81)
       expect(projections_for(user).size).to eq(81)
       expect(ExternalStatusProjection.where(user_id: user.id).distinct.count(:external_resource_id)).to eq(81)
       expect(batches).to be >= 2
@@ -85,7 +85,7 @@ RSpec.describe 'RSS snapshot drain' do
 
       expect(resource_guids).to include('guid-new')
       expect(projection_guids(user)).to include('guid-new')
-      expect(ExternalResource.count).to eq(page + 1)
+      expect(resources.count).to eq(page + 1)
     end
 
     it 'imports oldest-first, newest-first, irregular, identical, and missing dates without dropping guids' do
@@ -99,11 +99,11 @@ RSpec.describe 'RSS snapshot drain' do
       refresh_feed(feed_xml(page + 1, order: :oldest_first))
       expect(projection_guids(user).size).to eq(page + 1)
       refresh_feed(feed_xml(page + 1, order: :newest_first))
-      expect(ExternalResource.count).to eq(page + 1)
+      expect(resources.count).to eq(page + 1)
       refresh_feed(feed_xml(page + 1, order: :same))
-      expect(ExternalResource.count).to eq(page + 1)
+      expect(resources.count).to eq(page + 1)
       refresh_feed(feed_xml(page + 1, order: :missing))
-      expect(ExternalResource.where(published_at: nil).count).to eq(page + 1)
+      expect(resources.where(published_at: nil).count).to eq(page + 1)
       expect(projections_for(user).size).to eq(page + 1)
     end
 
@@ -116,9 +116,9 @@ RSpec.describe 'RSS snapshot drain' do
       )
       refresh_feed(body)
 
-      expect(ExternalResource.where("canonical_key LIKE ?", "%item:guid-dup").count).to eq(1)
-      expect(ExternalResource.find_by(title: 'Second title')).to be_present
-      expect(ExternalResource.find_by(title: 'First title')).to be_nil
+      expect(resources.where('canonical_key LIKE ?', '%item:guid-dup').count).to eq(1)
+      expect(resources.find_by(title: 'Second title')).to be_present
+      expect(resources.find_by(title: 'First title')).to be_nil
       expect(projection_guids(user)).to include('guid-dup', 'guid-other')
     end
 
@@ -143,7 +143,7 @@ RSpec.describe 'RSS snapshot drain' do
       described_class_subscribe(other, feed_xml(1))
       refresh_feed(feed_xml(page + 1))
 
-      expect(ExternalResource.count).to eq(page + 1)
+      expect(resources.count).to eq(page + 1)
       expect(projection_guids(user)).to match_array(projection_guids(other))
       expect(projections_for(user).pluck(:status_id)).not_to match_array(projections_for(other).pluck(:status_id))
     end
@@ -181,10 +181,10 @@ RSpec.describe 'RSS snapshot drain' do
 
       snapshot = ExternalFeedSnapshot.order(:id).last
       expect(snapshot.next_index).to eq(page)
-      expect(ExternalResource.count).to eq(page)
+      expect(resources.count).to eq(page)
       expect { refresh_without_http }.not_to raise_error
-      expect(ExternalResource.count).to eq(page + 1)
-      expect(ExternalResource.distinct.count(:canonical_key)).to eq(page + 1)
+      expect(resources.count).to eq(page + 1)
+      expect(resources.distinct.count(:canonical_key)).to eq(page + 1)
     end
 
     it 'fails the snapshot observably after the attempt ceiling' do
@@ -195,10 +195,16 @@ RSpec.describe 'RSS snapshot drain' do
       3.times { expect { ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(source_id) }.to raise_error('poison') }
       expect { ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(source_id) }.not_to raise_error
 
-      snapshot = ExternalFeedSnapshot.order(:id).last
-      expect(snapshot.state).to eq('failed')
-      expect(snapshot.last_error_code).to eq('snapshot_failed')
-      expect(snapshot.next_index).to be < snapshot.item_count
+      snapshot = ExternalFeedSnapshot.order(:generation).last
+      expect(snapshot.state).to eq('incomplete')
+      expect(snapshot.isolated_entries.map { |entry| entry['position'] }).to include(page)
+      expect(snapshot.next_index).to eq(snapshot.item_count)
+      expect(resources.count).to eq(page)
+
+      allow_any_instance_of(ExternalBridge::RSS::FeedSnapshot::Drain).to receive(:before_progress!).and_call_original
+      expect(ExternalBridge::RSS::FeedSnapshot::Retry.call(snapshot.id)).to eq(:queued)
+      expect(resources.count).to eq(page + 1)
+      expect(ExternalFeedSnapshot.find(snapshot.id).state).to eq('complete')
     end
 
     it 'does not let a second worker take a live lease, and resumes after the lease lapses' do
@@ -211,7 +217,7 @@ RSpec.describe 'RSS snapshot drain' do
       expect(snapshot.reload.lease_token).to eq(token)
       snapshot.update_columns(lease_expires_at: 1.minute.ago)
       expect(ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(snapshot.external_source_id)).to eq(:ok)
-      expect(ExternalResource.count).to eq(page + 1)
+      expect(resources.count).to eq(page + 1)
     end
   end
 
@@ -228,15 +234,15 @@ RSpec.describe 'RSS snapshot drain' do
       }.join + rss_item(guid: 'guid-only-new', title: 'Only new', link: 'https://example.com/i/only-new', date: stamp(Time.utc(2019, 2, 1)))
       refresh_feed(rss_document(newer))
 
-      expect(ExternalFeedSnapshot.order(:generation).pluck(:generation)).to eq([1, 2, 3])
+      expect(ExternalFeedSnapshot.where(external_source_id: source_id).order(:generation).pluck(:generation)).to eq([1, 2, 3])
       expect(ExternalFeedSnapshot.find(first.id).body).to include('guid-only-old')
-      expect(ExternalResource.find_by(title: 'Only old')).to be_nil
+      expect(resources.find_by(title: 'Only old')).to be_nil
       release_drain
       ExternalBridge::RSS::FeedSnapshotDrainWorker.new.perform(source_id)
 
-      expect(ExternalResource.find_by(title: 'Only old')).to be_present
-      expect(ExternalResource.find_by(title: 'Only new')).to be_present
-      expect(ExternalResource.find_by(title: 'U0')).to be_present
+      expect(resources.find_by(title: 'Only old')).to be_present
+      expect(resources.find_by(title: 'Only new')).to be_present
+      expect(resources.find_by(title: 'U0')).to be_present
       expect(projection_guids(user)).to include('guid-only-old', 'guid-only-new')
     end
 
@@ -244,7 +250,7 @@ RSpec.describe 'RSS snapshot drain' do
       subscribe_feed(feed_xml(1))
       hold_drain
       refresh_feed(feed_xml(page + 1, order: :newest_first))
-      expect(ExternalResource.count).to eq(page)
+      expect(resources.count).to eq(page)
       snapshot = ExternalFeedSnapshot.open.last
       release_drain
       stub_request(:get, feed_url).to_return(status: 304, headers: { 'ETag' => 'W/"same"' })
@@ -252,7 +258,7 @@ RSpec.describe 'RSS snapshot drain' do
 
       expect(ExternalFeedSnapshot.find(snapshot.id).state).to eq('complete')
       expect(ExternalFeedSnapshot.find(snapshot.id).body).to include('guid-0')
-      expect(ExternalResource.count).to eq(page + 1)
+      expect(resources.count).to eq(page + 1)
     end
 
     it 'does not project a fenced subscriber or revive that backlog on resubscribe' do
@@ -297,6 +303,112 @@ RSpec.describe 'RSS snapshot drain' do
     end
   end
 
+  describe 'remainder, catch-up, and retention' do
+    it 'blocks a newer generation until the failed remainder is explicitly retried' do
+      subscribe_feed(feed_xml(1))
+      older_id = nil
+      Sidekiq::Testing.fake! do
+        ExternalBridge::RSS::FeedSnapshotDrainWorker.jobs.clear
+        refresh_feed(feed_xml(page + 1, order: :newest_first))
+        older = ExternalFeedSnapshot.open.order(:generation).last
+        older_id = older.id
+        newer_body = rss_document(items_xml(page, order: :newest_first) + rss_item(guid: 'guid-only-new', title: 'Only new', link: 'https://example.com/i/only-new', date: stamp(Time.utc(2019, 2, 1))))
+        refresh_feed(newer_body)
+        stub_const('ExternalBridge::RSS::Limits::SNAPSHOT_MAX_BATCHES', 0)
+        expect(ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(source_id)).to eq(:ok)
+        expect(older.reload.state).to eq('failed')
+        expect(older.next_index).to be < older.item_count
+        expect(ExternalBridge::RSS::FeedSnapshot::Drain.new.advance!(source_id)).to eq(:blocked)
+        expect(resource_guids).not_to include('guid-only-new')
+
+        stub_const('ExternalBridge::RSS::Limits::SNAPSHOT_MAX_BATCHES', 160)
+        expect(ExternalBridge::RSS::FeedSnapshot::Retry.call(older.id)).to eq(:queued)
+      end
+      ExternalBridge::RSS::FeedSnapshotDrainWorker.new.perform(source_id)
+      expect(resource_guids).to include('guid-only-new')
+      expect(ExternalFeedSnapshot.find(older_id).state).to eq('complete')
+    end
+
+    it 'advances catch-up one batch per job across 4000-item generations and stops when fenced' do
+      subscribe_feed(feed_xml(1))
+      subscription = ExternalSubscription.find_by!(user_id: user.id)
+      Sidekiq::Testing.fake! do
+        ExternalBridge::RSS::FeedSnapshotDrainWorker.jobs.clear
+        refresh_feed(feed_xml(4_000, order: :oldest_first))
+        refresh_feed(feed_xml(4_000, order: :newest_first))
+        generations = ExternalFeedSnapshot.where('item_count >= 4000').order(:generation).to_a
+        expect(generations.size).to eq(2)
+
+        ExternalBridge::RSS::FeedSnapshotCatchUpWorker.jobs.clear
+        ExternalBridge::RSS::FeedSnapshot::CatchUp.enqueue!(subscription)
+        ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(subscription.id)
+        row = ExternalFeedCatchUp.find_by!(external_subscription_id: subscription.id)
+        expect(row.external_feed_snapshot_id).to eq(generations.first.id)
+        expect(row.position).to eq(ExternalBridge::RSS::Limits::SNAPSHOT_BATCH_ITEMS)
+
+        ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(subscription.id)
+        expect(row.reload.position).to eq(ExternalBridge::RSS::Limits::SNAPSHOT_BATCH_ITEMS * 2)
+
+        row.update!(position: generations.first.item_count)
+        ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(subscription.id)
+        expect(row.reload.external_feed_snapshot_id).to eq(generations.second.id)
+        expect(row.position).to eq(ExternalBridge::RSS::Limits::SNAPSHOT_BATCH_ITEMS)
+
+        subscription.update_columns(state: 'deleting')
+        ExternalBridge::RSS::FeedSnapshot::CatchUp.advance!(subscription.id)
+        expect(row.reload.state).to eq('stopped')
+        expect(row.position).to eq(ExternalBridge::RSS::Limits::SNAPSHOT_BATCH_ITEMS)
+      end
+    end
+
+    it 'keeps one busy retry until the lease wait has passed' do
+      subscribe_feed(feed_xml(1))
+      Sidekiq::Testing.fake! do
+        ExternalBridge::RSS::FeedSnapshotDrainWorker.jobs.clear
+        refresh_feed(feed_xml(page + 1, order: :newest_first))
+        snapshot = ExternalFeedSnapshot.open.order(:id).last
+        snapshot.claim_lease!
+        ExternalBridge::RSS::FeedSnapshotDrainWorker.jobs.clear
+        ExternalBridge::RSS::FeedSnapshotDrainWorker.new.perform(snapshot.external_source_id)
+        ExternalBridge::RSS::FeedSnapshotDrainWorker.new.perform(snapshot.external_source_id)
+        expect(ExternalBridge::RSS::FeedSnapshotDrainWorker.jobs.size).to eq(1)
+        expect(snapshot.reload.busy_retry_at).to be_within(5.seconds).of(snapshot.lease_expires_at)
+      end
+    end
+
+    it 'purges eligible finished bodies and refuses retry after the body is gone' do
+      source = ExternalSource.create!(protocol: 'rss', canonical_key: "https://feeds.example/purge-#{SecureRandom.hex(4)}.xml", title: 'Purge')
+      finished = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 1, state: 'incomplete', body: '<rss/>', byte_size: 6,
+        item_count: 2, next_index: 2, isolated_positions: [{ 'position' => 1, 'code' => 'snapshot_failed' }],
+        completed_at: 2.days.ago
+      )
+      pending = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 2, state: 'pending', body: 'keep', byte_size: 4, item_count: 1, next_index: 0
+      )
+      ExternalBridge::RSS::FeedSnapshot::Purge.call
+      expect(finished.reload.body).to be_nil
+      expect(finished.body_purged_at).to be_present
+      expect(pending.reload.body).to eq('keep')
+      expect(ExternalBridge::RSS::FeedSnapshot::Retry.call(finished.id)).to eq(:body_purged)
+      expect(finished.reload.last_error_code).to eq('snapshot_body_purged')
+
+      stub_const('ExternalBridge::RSS::Limits::SNAPSHOT_RETAINED_BODY_BYTES', 10)
+      older = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 3, state: 'complete', body: 'a' * 8, byte_size: 8,
+        item_count: 1, next_index: 1, completed_at: 1.hour.ago
+      )
+      newer = ExternalFeedSnapshot.create!(
+        external_source: source, generation: 4, state: 'complete', body: 'b' * 8, byte_size: 8,
+        item_count: 1, next_index: 1, completed_at: 1.minute.ago
+      )
+      ExternalBridge::RSS::FeedSnapshot::Purge.call
+      expect(older.reload.body).to be_nil
+      expect(newer.reload.body).to eq('b' * 8)
+      expect(pending.reload.body).to eq('keep')
+    end
+  end
+
   describe 'caps' do
     it 'refuses a body over the item cap without moving validators' do
       subscribe_feed(feed_xml(1))
@@ -307,7 +419,7 @@ RSpec.describe 'RSS snapshot drain' do
       outcome = refresh_feed_without_stub
       expect(outcome[:outcome]).to eq('parse_failed')
       expect(outcome[:error_code]).to eq('snapshot_item_limit')
-      expect(ExternalFeedSnapshot.where('item_count > 1').count).to eq(0)
+      expect(ExternalFeedSnapshot.where(external_source_id: source_id).where('item_count > 1').count).to eq(0)
       expect(ExternalSource.find(source_id).etag).to eq(etag)
     end
 
@@ -367,8 +479,12 @@ RSpec.describe 'RSS snapshot drain' do
     resource.canonical_key[/item:(.+)\z/, 1]
   end
 
+  def resources
+    ExternalResource.where(external_source_id: source_id)
+  end
+
   def resource_guids
-    ExternalResource.order(:id).map { |resource| guid_from_resource(resource) }
+    resources.order(:id).map { |resource| guid_from_resource(resource) }
   end
 
   def hold_drain
@@ -411,18 +527,24 @@ RSpec.describe 'RSS snapshot drain' do
   end
 
   def rss_kb
-    File.read('/proc/self/status')[/VmRSS:\s+(\d+)/, 1].to_i
+    return nil unless File.exist?('/proc/self/status')
+
+    File.read('/proc/self/status')[/VmRSS:\s+(\d+)/, 1]&.to_i
   end
 
+  # Opt-in. A normal run does not touch a fixed path or require /proc.
   def write_measurement(elapsed, rss_before, batches)
-    path = '/opt/cursor/artifacts/rss-snapshot-measurements.txt'
-    File.write(path, <<~TEXT)
+    return unless ENV['RSS_SNAPSHOT_MEASURE'] == '1'
+
+    directory = ENV.fetch('RSS_SNAPSHOT_MEASURE_DIR', Dir.tmpdir)
+    FileUtils.mkdir_p(directory)
+    File.write(File.join(directory, 'rss-snapshot-measurements.txt'), <<~TEXT)
       items=81
       elapsed_seconds=#{elapsed.round(3)}
       rss_before_kb=#{rss_before}
       rss_after_kb=#{rss_kb}
       drain_batches=#{batches}
-      resources=#{ExternalResource.count}
+      resources=#{resources.count}
       projections=#{ExternalStatusProjection.where(user_id: user.id).count}
     TEXT
   end

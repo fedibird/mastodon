@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_13_120000) do
+ActiveRecord::Schema.define(version: 2026_11_13_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -575,6 +575,20 @@ ActiveRecord::Schema.define(version: 2026_11_13_120000) do
     t.check_constraint "(protocol)::text = ANY ((ARRAY['rss'::character varying, 'atom'::character varying])::text[])", name: "external_actors_protocol_check"
   end
 
+  create_table "external_feed_catch_ups", force: :cascade do |t|
+    t.bigint "external_subscription_id", null: false
+    t.bigint "external_feed_snapshot_id"
+    t.integer "position", default: 0, null: false
+    t.string "state", default: "pending", null: false
+    t.string "lease_token"
+    t.datetime "lease_expires_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["external_feed_snapshot_id"], name: "index_external_feed_catch_ups_on_snapshot"
+    t.index ["external_subscription_id"], name: "index_external_feed_catch_ups_on_external_subscription_id", unique: true
+    t.check_constraint "state IN ('pending', 'running', 'done', 'stopped') AND position >= 0", name: "external_feed_catch_ups_progress_check"
+  end
+
   create_table "external_feed_routes", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.bigint "external_subscription_id", null: false
@@ -607,12 +621,15 @@ ActiveRecord::Schema.define(version: 2026_11_13_120000) do
     t.string "last_error_code"
     t.datetime "completed_at"
     t.datetime "body_purged_at"
+    t.jsonb "isolated_positions", default: [], null: false
+    t.jsonb "retry_positions", default: [], null: false
+    t.datetime "busy_retry_at"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["external_source_id", "generation"], name: "index_external_feed_snapshots_on_source_and_generation", unique: true
     t.index ["external_source_id", "state", "generation"], name: "index_external_feed_snapshots_on_source_state", where: "(state IN ('pending', 'draining'))"
     t.check_constraint "generation > 0 AND item_count >= 0 AND next_index >= 0 AND next_index <= item_count AND byte_size >= 0 AND batch_count >= 0 AND attempt_count >= 0", name: "external_feed_snapshots_progress_check"
-    t.check_constraint "state IN ('pending', 'draining', 'complete', 'failed')", name: "external_feed_snapshots_state_check"
+    t.check_constraint "state IN ('pending', 'draining', 'complete', 'incomplete', 'failed')", name: "external_feed_snapshots_state_check"
   end
 
   create_table "external_identities", force: :cascade do |t|
@@ -2651,6 +2668,7 @@ create_table "managed_groups", force: :cascade do |t|
   add_foreign_key "emoji_reactions", "statuses", on_delete: :cascade
   add_foreign_key "encrypted_messages", "accounts", column: "from_account_id", on_delete: :cascade
   add_foreign_key "encrypted_messages", "devices", on_delete: :cascade
+  add_foreign_key "external_feed_catch_ups", "external_subscriptions", on_delete: :cascade
   add_foreign_key "external_feed_snapshots", "external_sources", on_delete: :cascade
   add_foreign_key "external_feed_routes", "lists", name: "fk_external_feed_routes_list", on_delete: :cascade
   add_foreign_key "external_feed_routes", "users", name: "fk_external_feed_routes_user", on_delete: :cascade

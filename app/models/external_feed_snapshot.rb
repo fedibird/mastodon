@@ -23,11 +23,14 @@
 #  last_error_code     :string
 #  completed_at        :datetime
 #  body_purged_at      :datetime
+#  isolated_positions  :jsonb            not null
+#  retry_positions     :jsonb            not null
+#  busy_retry_at       :datetime
 #  created_at          :datetime         not null
 #  updated_at          :datetime         not null
 #
 class ExternalFeedSnapshot < ApplicationRecord
-  STATES = %w(pending draining complete failed).freeze
+  STATES = %w(pending draining complete incomplete failed).freeze
   OPEN_STATES = %w(pending draining).freeze
 
   belongs_to :external_source
@@ -37,29 +40,37 @@ class ExternalFeedSnapshot < ApplicationRecord
 
   scope :open, -> { where(state: OPEN_STATES) }
 
-  def self.purge_expired!(limit: 50)
-    cutoff = ExternalBridge::RSS::Limits::SNAPSHOT_BODY_RETENTION.ago
-    ids = where.not(body: nil).where(state: %w(complete failed)).where('COALESCE(completed_at, updated_at) < ?', cutoff).limit(limit).pluck(:id)
-    return 0 if ids.empty?
-
-    where(id: ids).update_all(body: nil, body_purged_at: Time.current, updated_at: Time.current)
+  def self.purge_expired!(limit: ExternalBridge::RSS::Limits::SNAPSHOT_PURGE_BATCH)
+    ExternalBridge::RSS::FeedSnapshot::Purge.expired!(limit)
   end
 
   def history_position_list
     Array(self[:history_positions]).map(&:to_i)
   end
 
+  def isolated_entries
+    Array(self[:isolated_positions]).filter_map { |entry| isolated_entry(entry) }
+  end
+
+  def retry_position_list
+    Array(self[:retry_positions]).map(&:to_i)
+  end
+
   def open?
     OPEN_STATES.include?(state)
+  end
+
+  # failed while the cursor has not reached the end. Newer generations wait.
+  def blocked_remainder?
+    state == 'failed' && next_index < item_count
   end
 
   def claim_lease!(now: Time.current)
     token = SecureRandom.hex(16)
     expiry = now + ExternalBridge::RSS::Limits::SNAPSHOT_LEASE
     updated = self.class.where(id: id, state: OPEN_STATES)
-                  .where('attempt_count < ?', ExternalBridge::RSS::Limits::SNAPSHOT_ATTEMPT_CEILING)
                   .where('lease_expires_at IS NULL OR lease_expires_at <= ?', now)
-                  .update_all(lease_token: token, lease_expires_at: expiry, state: 'draining', updated_at: now)
+                  .update_all(lease_token: token, lease_expires_at: expiry, state: 'draining', busy_retry_at: nil, updated_at: now)
     return nil unless updated == 1
 
     reload
@@ -67,45 +78,141 @@ class ExternalFeedSnapshot < ApplicationRecord
   end
 
   def release_lease!(token)
-    self.class.where(id: id, lease_token: token, state: OPEN_STATES).update_all(lease_token: nil, lease_expires_at: nil, updated_at: Time.current)
+    owned_scope(token).update_all(lease_token: nil, lease_expires_at: nil, updated_at: Time.current)
   end
 
-  def complete!(token)
+  # True when this token still owned an open row and the cursor was finished.
+  def finish!(token)
     now = Time.current
-    self.class.where(id: id, lease_token: token).update_all(
-      state: 'complete',
-      next_index: item_count,
-      lease_token: nil,
-      lease_expires_at: nil,
-      completed_at: now,
-      updated_at: now
-    )
+    owned_scope(token).where('next_index >= item_count').update_all(
+      [
+        "state = CASE WHEN isolated_positions = '[]'::jsonb AND retry_positions = '[]'::jsonb THEN 'complete' ELSE 'incomplete' END, lease_token = NULL, lease_expires_at = NULL, completed_at = ?, updated_at = ?",
+        now,
+        now,
+      ]
+    ) == 1
   end
 
-  def fail!(code)
+  # True when this token still owned the open row.
+  def fail!(code, token)
     now = Time.current
-    self.class.where(id: id, state: OPEN_STATES).update_all(
+    owned_scope(token).update_all(
       state: 'failed',
       last_error_code: code.to_s,
       lease_token: nil,
       lease_expires_at: nil,
       updated_at: now
-    )
+    ) == 1
   end
 
-  # Returns true when this attempt moved the row to failed.
-  def note_attempt!(code)
+  # Attempt count after a fenced increment, or nil when this token no longer
+  # owns the row. Does not clear a lease, so a successor's token stays.
+  def note_attempt!(code, token)
     now = Time.current
-    ceiling = ExternalBridge::RSS::Limits::SNAPSHOT_ATTEMPT_CEILING
-    self.class.where(id: id).update_all(
+    updated = owned_scope(token).update_all(
+      ['attempt_count = attempt_count + 1, last_error_code = ?, updated_at = ?', code.to_s, now]
+    )
+    return nil unless updated == 1
+
+    reload
+    attempt_count
+  end
+
+  # Skip the current cursor position after the attempt ceiling. The rest of
+  # this generation stays open. Returns false when the token lost the row.
+  def isolate_current!(token, code)
+    now = Time.current
+    position = next_index
+    return false if position >= item_count
+
+    entry = [{ 'position' => position, 'code' => code.to_s }].to_json
+    expiry = now + ExternalBridge::RSS::Limits::SNAPSHOT_LEASE
+    updated = owned_scope(token).where(next_index: position).update_all(
       [
-        "attempt_count = attempt_count + 1, last_error_code = ?, lease_token = NULL, lease_expires_at = NULL, updated_at = ?, state = CASE WHEN attempt_count + 1 >= ? AND state IN ('pending', 'draining') THEN 'failed' ELSE state END",
+        <<~SQL.squish,
+          isolated_positions = isolated_positions || ?::jsonb,
+          next_index = next_index + 1,
+          attempt_count = 0,
+          last_error_code = ?,
+          updated_at = ?,
+          state = CASE WHEN next_index + 1 >= item_count THEN 'incomplete' ELSE 'draining' END,
+          completed_at = CASE WHEN next_index + 1 >= item_count THEN ?::timestamp ELSE completed_at END,
+          lease_token = CASE WHEN next_index + 1 >= item_count THEN NULL ELSE lease_token END,
+          lease_expires_at = CASE WHEN next_index + 1 >= item_count THEN NULL ELSE ?::timestamp END
+        SQL
+        entry,
         code.to_s,
         now,
-        ceiling,
+        now,
+        expiry,
       ]
     )
     reload
-    state == 'failed'
+    updated == 1
+  end
+
+  # Moves the cursor forward while this token still owns the row.
+  def advance_cursor!(token, position, now: Time.current)
+    scope = owned_scope(token).where(next_index: position)
+    if position + 1 >= item_count
+      scope.update_all(
+        [
+          <<~SQL.squish,
+            next_index = next_index + 1,
+            updated_at = ?,
+            state = CASE WHEN isolated_positions = '[]'::jsonb AND retry_positions = '[]'::jsonb THEN 'complete' ELSE 'incomplete' END,
+            completed_at = ?::timestamp,
+            lease_token = NULL,
+            lease_expires_at = NULL
+          SQL
+          now,
+          now,
+        ]
+      ) == 1
+    else
+      scope.update_all(next_index: position + 1, lease_expires_at: now + ExternalBridge::RSS::Limits::SNAPSHOT_LEASE, updated_at: now) == 1
+    end
+  end
+
+  def skip_to!(token, cursor, now: Time.current)
+    return false if cursor <= next_index
+
+    scope = owned_scope(token).where('next_index < ?', cursor)
+    if cursor >= item_count
+      scope.update_all(
+        [
+          <<~SQL.squish,
+            next_index = ?,
+            updated_at = ?,
+            state = CASE WHEN isolated_positions = '[]'::jsonb AND retry_positions = '[]'::jsonb THEN 'complete' ELSE 'incomplete' END,
+            completed_at = ?::timestamp,
+            lease_token = NULL,
+            lease_expires_at = NULL
+          SQL
+          item_count,
+          now,
+          now,
+        ]
+      ) == 1
+    else
+      scope.update_all(next_index: cursor, lease_expires_at: now + ExternalBridge::RSS::Limits::SNAPSHOT_LEASE, updated_at: now) == 1
+    end
+  end
+
+  private
+
+  def owned_scope(token)
+    self.class.where(id: id, lease_token: token, state: OPEN_STATES)
+  end
+
+  def isolated_entry(entry)
+    if entry.is_a?(Hash)
+      position = entry['position'] || entry[:position]
+      return nil if position.nil?
+
+      { 'position' => position.to_i, 'code' => (entry['code'] || entry[:code] || 'snapshot_failed').to_s }
+    else
+      { 'position' => entry.to_i, 'code' => 'snapshot_failed' }
+    end
   end
 end

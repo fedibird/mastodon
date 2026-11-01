@@ -84,16 +84,26 @@ module ExternalBridge
       # How long a drain worker owns a snapshot. A second worker does not
       # enter until this lapses. The worker renews it on every item. Two
       # minutes covers one batch of projection writes without letting a
-      # dead process block the source until the next poll.
+      # dead process block the source until the next scheduler pass.
       SNAPSHOT_LEASE = 2.minutes
-      # Completed and failed bodies are nulled after this, when a later
-      # capture or drain runs. There is no separate sweeper. The header row
-      # (generation, cursor, error) stays. Catch-up for a subscriber who
-      # was paused needs the body, so the window is a day rather than the
-      # length of one job.
+      # A finished body becomes eligible for removal this long after
+      # completed_at (or updated_at when that is nil). The RSS scheduler
+      # pass, and a capture or drain, delete at most SNAPSHOT_PURGE_BATCH
+      # eligible bodies. Eligibility is not the moment of deletion: an idle
+      # source waits for the next pass, which is the existing 15 minute
+      # scheduler tick, not a new feed poll.
       SNAPSHOT_BODY_RETENTION = 24.hours
-      # Raised batches before the snapshot is failed and left observable.
-      # Matches the Sidekiq retry budget of the drain worker.
+      SNAPSHOT_PURGE_BATCH = 50
+      # Sum of byte_size for finished bodies that still hold text. Open
+      # bodies are outside this cap (SNAPSHOT_OPEN_LIMIT bounds those per
+      # source). The purge drops the oldest finished bodies until the sum
+      # fits or the batch is spent. 32 MiB is four responses at the feed
+      # byte cap.
+      SNAPSHOT_RETAINED_BODY_BYTES = 32.megabytes
+      # Failures of the same cursor position before that position is
+      # isolated. The snapshot stays open and the rest of the generation
+      # still runs. The isolated position is not retried until
+      # FeedSnapshot::Retry. This is not a Sidekiq retry budget.
       SNAPSHOT_ATTEMPT_CEILING = 5
       # A refresh may replay at most one page of historical import failures.
       # After this many attempts an item is left alone until the owner resumes.
