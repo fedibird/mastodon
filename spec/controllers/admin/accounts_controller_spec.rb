@@ -129,6 +129,30 @@ RSpec.describe Admin::AccountsController, type: :controller do
         expect(Nokogiri::HTML(response.body).at_css('table.inline-table')).to be_nil
       end
     end
+
+    context 'with an unmanaged User-less Group' do
+      let(:account) { Fabricate(:account, username: 'unmanagedshow', actor_type: 'Group') }
+
+      it 'retains the legacy deleted state without exposing the management table' do
+        get :show, params: { id: account.id }
+
+        doc = Nokogiri::HTML(response.body)
+        expect(doc.at_css('.dashboard__counters__text').text.strip).to eq(I18n.t('admin.accounts.deleted'))
+        expect(doc.at_css('table.inline-table')).to be_nil
+      end
+    end
+
+    context 'with a local Person that has a User' do
+      let(:account) { Fabricate(:user).account }
+
+      it 'keeps the normal login and email settings available' do
+        get :show, params: { id: account.id }
+
+        expect(response).to have_http_status(:ok)
+        headers = Nokogiri::HTML(response.body).css('.inline-table th').map { |element| element.text.strip }
+        expect(headers).to include(I18n.t('admin.accounts.role'), I18n.t('admin.accounts.email'), I18n.t('admin.accounts.security'))
+      end
+    end
   end
 
   describe 'POST #memorialize' do
