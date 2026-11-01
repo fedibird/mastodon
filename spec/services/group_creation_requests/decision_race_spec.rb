@@ -59,6 +59,7 @@ RSpec.describe 'Group creation decision races' do
     return if request_ids.blank?
 
     group_ids = GroupCreationRequest.where(id: request_ids).where.not(group_account_id: nil).pluck(:group_account_id)
+    GroupInitialFollow.where(group_creation_request_id: request_ids).delete_all
     GroupCreationDecision.where(group_creation_request_id: request_ids).delete_all
     GroupRegistrationInvitePolicy.where(group_account_id: group_ids).delete_all
     GroupRoleAssignment.where(group_account_id: group_ids).delete_all
@@ -109,6 +110,28 @@ RSpec.describe 'Group creation decision races' do
       expect(Account.where(username: request.username)).to be_empty
       expect(GroupCreationDecision.where(group_creation_request_id: request.id).count).to eq 0
     end
+  end
+
+  it 'enqueues the initial follow after the approval commit' do
+    request = submit(username: "commit#{SecureRandom.hex(3)}")
+    reviewer = track_user(user_with_role('Owner'))
+    commits = 0
+    callback = lambda do |_name, _started, _finished, _unique_id, payload|
+      commits += 1 if payload[:sql].to_s.match?(/\ACOMMIT\b/i)
+    end
+    commits_before_enqueue = nil
+    allow(GroupInitialFollows::Worker).to receive(:perform_async) do
+      commits_before_enqueue = commits
+    end
+
+    ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+      result = GroupCreationRequests::ApproveService.call(request: GroupCreationRequest.find(request.id), reviewer_account: reviewer.account)
+      expect(result.code).to eq :approved
+    end
+
+    expect(commits_before_enqueue).to be >= 1
+    expect(request.reload.initial_follow).to be_pending
+    expect(Follow.where(account_id: request.requester_account_id)).to be_empty
   end
 
   it 'keeps the losing same-name request pending' do

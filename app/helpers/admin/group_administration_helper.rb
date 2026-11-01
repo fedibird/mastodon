@@ -24,6 +24,22 @@ module Admin::GroupAdministrationHelper
     :pending
   end
 
+  def group_initial_follow_label(record)
+    return t('admin.group_creation_requests.initial_follow.absent') if record.nil?
+
+    t("admin.group_creation_requests.initial_follow.states.#{record.state}")
+  end
+
+  def group_initial_follow_retryable?(request)
+    record = request&.initial_follow
+    return false if record.nil? || record.discharged? || record.succeeded? || record.completed?
+    return true if record.retryable_failure? || record.permanent_failure?
+    return true if record.pending? && record.last_error.present?
+    return true if record.processing? && !record.claim_held?
+
+    false
+  end
+
   def group_creation_icon_retryable?(request)
     request&.approved? && request.icon_storage_key.present? && request.icon_purged_at.nil?
   end

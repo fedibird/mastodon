@@ -175,6 +175,12 @@
       every: '1h'
       class: Scheduler::GroupCreationIconsScheduler
       queue: scheduler
+    # Retries a founding-owner follow whose enqueue was missed or whose
+    # worker stopped. At most 20 existing rows. No backfill of older groups.
+    group_initial_follows_scheduler:
+      every: '5m'
+      class: Scheduler::GroupInitialFollowsScheduler
+      queue: scheduler
     follow_import_dispatch_scheduler:
       every: '<%= (canonical = ENV["FOLLOW_IMPORT_DISPATCH_INTERVAL"].to_i; alias_n = ENV["FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL"].to_i; n = canonical.positive? ? canonical : alias_n; n.positive? ? n : 60) %>s'
       class: Scheduler::FollowImportDispatchScheduler

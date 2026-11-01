@@ -32,6 +32,10 @@ class GroupServerAdministrationPolicy < ApplicationPolicy
     allowed?
   end
 
+  def retry_initial_follow?
+    allowed?
+  end
+
   private
 
   def allowed?

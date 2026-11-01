@@ -4,7 +4,7 @@ module Admin
   class GroupCreationRequestsController < BaseController
     include GroupAdministrationConcern
 
-    before_action :set_request, only: [:show, :approve, :reject, :icon, :retry_icon]
+    before_action :set_request, only: [:show, :approve, :reject, :icon, :retry_icon, :retry_initial_follow]
 
     def index
       authorize_group_admin!(:group_creation_request, :index?)
@@ -40,6 +40,20 @@ module Admin
       send_private_icon
     end
 
+    def retry_initial_follow
+      authorize_group_admin!(@request, :retry_initial_follow?)
+      code = GroupInitialFollows::Retry.call(request: @request)
+      GroupAdministration::Audit.record!(
+        account: current_account,
+        action: :retry_initial_follow,
+        target: @request,
+        changes: { 'code' => code.to_s }
+      )
+      redirect_back fallback_location: admin_group_creation_request_path(@request), notice: t("admin.group_creation_requests.initial_follow.retry.#{code}")
+    rescue GroupAdministration::Audit::Error
+      redirect_back fallback_location: admin_group_creation_request_path(@request), alert: t('admin.group_administration.audit_failed')
+    end
+
     def retry_icon
       authorize_group_admin!(@request, :retry_icon?)
       code = GroupCreationIcons::RetryHandoff.call(request: @request, actor_account: current_account)
@@ -65,6 +79,7 @@ module Admin
         :group_account,
         :initial_owner_account,
         :managed_group,
+        :initial_follow,
         decision: :reviewer_account
       ).find(params[:id])
     end

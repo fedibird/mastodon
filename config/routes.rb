@@ -396,6 +396,7 @@ Rails.application.routes.draw do
         post :reject
         get :icon
         post :retry_icon
+        post :retry_initial_follow
       end
     end
     resources :managed_groups, only: [:index, :show] do

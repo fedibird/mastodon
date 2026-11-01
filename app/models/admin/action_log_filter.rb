@@ -59,6 +59,7 @@ class Admin::ActionLogFilter
     reject_group_creation_request: { target_type: 'GroupCreationRequest', action: 'reject' }.freeze,
     fail_group_creation_request: { target_type: 'GroupCreationRequest', action: 'fail' }.freeze,
     retry_icon_group_creation_request: { target_type: 'GroupCreationRequest', action: 'retry_icon' }.freeze,
+    retry_initial_follow_group_creation_request: { target_type: 'GroupCreationRequest', action: 'retry_initial_follow' }.freeze,
     update_group_registration_invite_policy: { target_type: 'GroupRegistrationInvitePolicy', action: 'update_invite_policy' }.freeze,
     fail_group_registration_invite_policy: { target_type: 'GroupRegistrationInvitePolicy', action: 'fail' }.freeze,
     update_group_invite_defaults_setting: { target_type: 'Setting', action: 'update_group_invite_defaults' }.freeze,

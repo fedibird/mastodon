@@ -227,7 +227,7 @@ RSpec.describe 'Admin group administration' do
       expect(request.reload).to be_pending
     end
 
-    it 'approves through the service, audits it, and does not follow or create a login' do
+    it 'approves through the service, audits it, and follows the owner once without a login' do
       enable_requests!
       request = submit_request
       users = User.count
@@ -240,11 +240,15 @@ RSpec.describe 'Admin group administration' do
       group = request.group_account
       expect(group.user).to be_nil
       expect(group.group?).to be true
-      expect(Follow.where(account: requester.account, target_account: group)).to be_empty
+      expect(Follow.where(account: requester.account, target_account: group).count).to eq 1
+      expect(request.initial_follow).to be_succeeded
       expect(User.count).to eq users
       expect(response).to redirect_to(admin_group_creation_request_path(request))
       follow_redirect!
       expect(response.body).to include(I18n.t('admin.group_creation_requests.results.approved'))
+      expect(response.body).to include(I18n.t('admin.group_creation_requests.initial_follow.states.succeeded'))
+      expect(response.body).to include(I18n.t('admin.group_creation_requests.initial_follow.still_following'))
+      expect(response.body).not_to include(I18n.t('admin.group_creation_requests.initial_follow.retry_button'))
       expect(response.headers['Cache-Control']).to eq 'private, no-store'
       expect(Admin::ActionLog.where(target: request, action: 'approve')).to be_empty
       expect(request.decision).to be_approved
@@ -254,6 +258,28 @@ RSpec.describe 'Admin group administration' do
       follow_redirect!
       expect(response.body).to include(I18n.t('admin.group_creation_requests.errors.not_pending'))
       expect(Account.where(username: 'queuedgroup').count).to eq 1
+      expect(Follow.where(account: requester.account, target_account: group).count).to eq 1
+      expect(GroupInitialFollow.where(group_creation_request: request).count).to eq 1
+    end
+
+    it 'does not follow again when an administrator retries after the owner unfollows' do
+      enable_requests!
+      sign_in_as owner
+      request = submit_request(username: 'oncefollow')
+      post approve_admin_group_creation_request_path(request)
+      request.reload
+      group = request.group_account
+      UnfollowService.new.call(requester.account, group)
+
+      expect do
+        post retry_initial_follow_admin_group_creation_request_path(request)
+      end.not_to change(Follow, :count)
+
+      follow_redirect!
+      expect(response.body).to include(I18n.t('admin.group_creation_requests.initial_follow.retry.already_done'))
+      expect(response.body).to include(I18n.t('admin.group_creation_requests.initial_follow.not_following'))
+      expect(Admin::ActionLog.where(target: request, action: 'retry_initial_follow').last.recorded_changes).to eq('code' => 'already_done')
+      expect(requester.account.following?(group)).to be false
     end
 
     it 'requires a rejection reason and keeps a blank rejection pending' do

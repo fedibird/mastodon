@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_12_120000) do
+ActiveRecord::Schema.define(version: 2026_11_13_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1485,6 +1485,24 @@ create_table "group_creation_requests", force: :cascade do |t|
     t.check_constraint "(icon_handoff_attempts >= 0) AND ((icon_handoff_error IS NULL) OR ((icon_handoff_error)::text ~ '^[a-z0-9_]{1,64}$'::text)) AND ((icon_handoff_source_digest IS NULL) OR ((icon_handoff_source_digest)::text ~ '^[0-9a-f]{64}$'::text)) AND ((icon_handoff_copied_at IS NULL) OR ((state = 1) AND (icon_handoff_source_digest IS NOT NULL))) AND ((icon_storage_key IS NOT NULL) OR ((icon_handoff_copied_at IS NULL) AND (icon_handoff_source_digest IS NULL) AND (icon_handoff_failed_at IS NULL) AND (icon_handoff_error IS NULL) AND (icon_handoff_attempts = 0)))", name: "group_creation_requests_icon_handoff_shape"
   end
 
+  create_table "group_initial_follows", force: :cascade do |t|
+    t.bigint "group_creation_request_id", null: false
+    t.integer "state", default: 0, null: false
+    t.string "outcome", limit: 64
+    t.string "last_error", limit: 64
+    t.bigint "follow_id"
+    t.bigint "follow_request_id"
+    t.datetime "relationship_recorded_at"
+    t.datetime "claim_expires_at"
+    t.integer "attempts", default: 0, null: false
+    t.datetime "finished_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["group_creation_request_id"], name: "index_group_initial_follows_on_request_id", unique: true
+    t.index ["state"], name: "index_group_initial_follows_on_open_state", where: "(state IN (0, 1, 3))"
+    t.check_constraint "(attempts >= 0) AND ((outcome IS NULL) OR ((outcome)::text ~ '^[a-z0-9_]{1,64}$'::text)) AND ((last_error IS NULL) OR ((last_error)::text ~ '^[a-z0-9_]{1,64}$'::text)) AND (NOT ((follow_id IS NOT NULL) AND (follow_request_id IS NOT NULL))) AND (((state = 0) AND (relationship_recorded_at IS NULL) AND (follow_id IS NULL) AND (follow_request_id IS NULL) AND (finished_at IS NULL) AND (outcome IS NULL) AND ((last_error IS NULL) OR ((last_error)::text = 'enqueue_failed'::text))) OR ((state = 1) AND (finished_at IS NULL) AND (((relationship_recorded_at IS NULL) AND (follow_id IS NULL) AND (follow_request_id IS NULL) AND (outcome IS NULL)) OR ((relationship_recorded_at IS NOT NULL) AND (outcome IS NOT NULL)))) OR ((state = ANY (ARRAY[2, 4])) AND (relationship_recorded_at IS NOT NULL) AND (finished_at IS NOT NULL) AND (outcome IS NOT NULL) AND (last_error IS NULL)) OR ((state = 3) AND (relationship_recorded_at IS NULL) AND (follow_id IS NULL) AND (follow_request_id IS NULL) AND (finished_at IS NULL) AND (last_error IS NOT NULL)) OR ((state = 5) AND (relationship_recorded_at IS NULL) AND (follow_id IS NULL) AND (follow_request_id IS NULL) AND (finished_at IS NOT NULL) AND (last_error IS NOT NULL) AND (outcome IS NULL)))", name: "group_initial_follows_state_shape"
+  end
+
 create_table "group_registration_invite_policies", force: :cascade do |t|
     t.bigint "managed_group_id", null: false
     t.bigint "group_account_id", null: false
@@ -2689,6 +2707,7 @@ create_table "managed_groups", force: :cascade do |t|
   add_foreign_key "group_creation_requests", "accounts", column: "requester_account_id", on_delete: :restrict
   add_foreign_key "group_creation_requests", "accounts", column: "reviewer_account_id", on_delete: :restrict
   add_foreign_key "group_creation_requests", "group_creation_requests", column: "previous_request_id", on_delete: :restrict
+  add_foreign_key "group_initial_follows", "group_creation_requests", on_delete: :restrict
   add_foreign_key "group_languages", "accounts", on_delete: :cascade
   add_foreign_key "group_registration_invite_policies", "accounts", column: "group_account_id", on_delete: :restrict
   add_foreign_key "group_registration_invite_policies", "managed_groups", on_delete: :restrict
