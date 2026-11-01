@@ -9799,6 +9799,11 @@ a.status-card.compact:hover {
     display: none;
   }
 
+  &.disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
   &__input {
     display: inline-block;
     position: relative;
@@ -13132,5 +13137,80 @@ div.external-source-identity:hover .external-source-identity__name {
     display: flex;
     flex-wrap: wrap;
     gap: 8px 12px;
+  }
+}
+
+.group-directory-filters {
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+
+  &__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  &__label {
+    color: $darker-text-color;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  &__search,
+  &__select {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 1px solid lighten($ui-base-color, 12%);
+    border-radius: 4px;
+    background: lighten($ui-base-color, 4%);
+    color: $primary-text-color;
+    font-size: 16px;
+  }
+
+  &__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  &__details,
+  .group-directory-status__retry {
+    align-self: flex-start;
+    padding: 4px 0;
+    border: 0;
+    background: transparent;
+    color: $ui-highlight-color;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+
+    &:hover,
+    &:focus {
+      text-decoration: underline;
+    }
+  }
+}
+
+.directory__list--groups {
+  margin: 0;
+  padding: 0;
+
+  > li {
+    min-width: 0;
+    list-style: none;
+  }
+}
+
+.group-directory-status {
+  padding: 12px 15px;
+  color: $darker-text-color;
+  font-size: 14px;
+
+  p {
+    margin: 0 0 8px;
   }
 }

@@ -1,6 +1,7 @@
 import api from '../api';
 import { importFetchedAccounts } from './importer';
 import { fetchRelationships } from './accounts';
+import { groupDirectoryApiParams, groupDirectoryFilterKey } from '../features/group_directory/params';
 
 export const GROUP_DIRECTORY_FETCH_REQUEST = 'GROUP_DIRECTORY_FETCH_REQUEST';
 export const GROUP_DIRECTORY_FETCH_SUCCESS = 'GROUP_DIRECTORY_FETCH_SUCCESS';
@@ -10,52 +11,125 @@ export const GROUP_DIRECTORY_EXPAND_REQUEST = 'GROUP_DIRECTORY_EXPAND_REQUEST';
 export const GROUP_DIRECTORY_EXPAND_SUCCESS = 'GROUP_DIRECTORY_EXPAND_SUCCESS';
 export const GROUP_DIRECTORY_EXPAND_FAIL    = 'GROUP_DIRECTORY_EXPAND_FAIL';
 
-export const fetchGroupDirectory = params => (dispatch, getState) => {
-  dispatch(fetchGroupDirectoryRequest());
+export const GROUP_DIRECTORY_DISCARD = 'GROUP_DIRECTORY_DISCARD';
 
-  api(getState).get('/api/v1/group_directory', { params: { ...params, limit: 20 } }).then(({ data }) => {
-    dispatch(importFetchedAccounts(data));
-    dispatch(fetchGroupDirectorySuccess(data));
-    dispatch(fetchRelationships(data.map(x => x.id)));
-  }).catch(error => dispatch(fetchGroupDirectoryFail(error)));
+const requestIds = new Map();
+
+const beginRequest = (viewKey) => {
+  const requestId = (requestIds.get(viewKey) || 0) + 1;
+  requestIds.set(viewKey, requestId);
+
+  return requestId;
 };
 
-export const fetchGroupDirectoryRequest = () => ({
-  type: GROUP_DIRECTORY_FETCH_REQUEST,
+const stripDirectoryMetadata = (accounts) => accounts.map(account => {
+  const copy = { ...account };
+  delete copy.group_directory;
+
+  return copy;
 });
 
-export const fetchGroupDirectorySuccess = accounts => ({
-  type: GROUP_DIRECTORY_FETCH_SUCCESS,
-  accounts,
-});
+const finish = (dispatch, viewKey, filterKey, requestId, accounts, kind) => {
+  if (requestIds.get(viewKey) !== requestId) {
+    return;
+  }
 
-export const fetchGroupDirectoryFail = error => ({
-  type: GROUP_DIRECTORY_FETCH_FAIL,
-  error,
-});
+  const limit = groupDirectoryApiParams({}).limit;
 
-export const expandGroupDirectory = params => (dispatch, getState) => {
-  dispatch(expandGroupDirectoryRequest());
-
-  const loadedItems = getState().getIn(['user_lists', 'group_directory', 'items']).size;
-
-  api(getState).get('/api/v1/group_directory', { params: { ...params, offset: loadedItems, limit: 20 } }).then(({ data }) => {
-    dispatch(importFetchedAccounts(data));
-    dispatch(expandGroupDirectorySuccess(data));
-    dispatch(fetchRelationships(data.map(x => x.id)));
-  }).catch(error => dispatch(expandGroupDirectoryFail(error)));
+  dispatch(importFetchedAccounts(stripDirectoryMetadata(accounts)));
+  dispatch({
+    type: kind === 'expand' ? GROUP_DIRECTORY_EXPAND_SUCCESS : GROUP_DIRECTORY_FETCH_SUCCESS,
+    viewKey,
+    filterKey,
+    requestId,
+    accounts,
+    exhausted: accounts.length < limit,
+  });
+  dispatch(fetchRelationships(accounts.map(account => account.id)));
 };
 
-export const expandGroupDirectoryRequest = () => ({
-  type: GROUP_DIRECTORY_EXPAND_REQUEST,
-});
+export const fetchGroupDirectory = (viewKey, params) => (dispatch, getState) => {
+  const filterKey = groupDirectoryFilterKey(params);
+  const requestId = beginRequest(viewKey);
 
-export const expandGroupDirectorySuccess = accounts => ({
-  type: GROUP_DIRECTORY_EXPAND_SUCCESS,
-  accounts,
-});
+  dispatch({
+    type: GROUP_DIRECTORY_FETCH_REQUEST,
+    viewKey,
+    filterKey,
+    requestId,
+  });
 
-export const expandGroupDirectoryFail = error => ({
-  type: GROUP_DIRECTORY_EXPAND_FAIL,
-  error,
-});
+  return api(getState).get('/api/v1/group_directory', {
+    params: groupDirectoryApiParams(params),
+  }).then(({ data }) => {
+    finish(dispatch, viewKey, filterKey, requestId, data, 'fetch');
+  }).catch(error => {
+    if (requestIds.get(viewKey) !== requestId) {
+      return;
+    }
+
+    dispatch({
+      type: GROUP_DIRECTORY_FETCH_FAIL,
+      viewKey,
+      filterKey,
+      requestId,
+      error,
+    });
+  });
+};
+
+export const expandGroupDirectory = (viewKey, params) => (dispatch, getState) => {
+  const filterKey = groupDirectoryFilterKey(params);
+  const list = getState().getIn(['user_lists', 'group_directories', viewKey]);
+
+  if (!list || list.get('isLoading') || list.get('isExpanding') || list.get('exhausted')) {
+    return Promise.resolve();
+  }
+
+  // A failed first page has nothing to extend. A failed extra page can be
+  // requested again at the same consumed offset.
+  if (list.get('error') && list.get('failure') !== 'expand') {
+    return Promise.resolve();
+  }
+
+  if (list.get('filterKey') !== filterKey) {
+    return Promise.resolve();
+  }
+
+  const requestId = beginRequest(viewKey);
+  const offset = list.get('nextOffset');
+
+  dispatch({
+    type: GROUP_DIRECTORY_EXPAND_REQUEST,
+    viewKey,
+    filterKey,
+    requestId,
+  });
+
+  return api(getState).get('/api/v1/group_directory', {
+    params: { ...groupDirectoryApiParams(params), offset },
+  }).then(({ data }) => {
+    finish(dispatch, viewKey, filterKey, requestId, data, 'expand');
+  }).catch(error => {
+    if (requestIds.get(viewKey) !== requestId) {
+      return;
+    }
+
+    dispatch({
+      type: GROUP_DIRECTORY_EXPAND_FAIL,
+      viewKey,
+      filterKey,
+      requestId,
+      error,
+    });
+  });
+};
+
+export const discardGroupDirectory = (viewKey) => {
+  beginRequest(viewKey);
+
+  return {
+    type: GROUP_DIRECTORY_DISCARD,
+    viewKey,
+  };
+};
