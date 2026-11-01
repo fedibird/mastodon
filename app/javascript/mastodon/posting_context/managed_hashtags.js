@@ -5,6 +5,49 @@ const HASHTAG_TOKEN = /^[\p{L}\p{M}\p{N}\p{Pc}_][\p{L}\p{M}\p{N}\p{Pc}_·・\u20
 const TRAILING_SEPARATOR = /[·・\u200C]+$/u;
 const LETTER = /\p{L}/u;
 
+const HASHTAG_ONLY_TOKEN = /^[#＃]([\p{L}\p{M}\p{N}\p{Pc}_][\p{L}\p{M}\p{N}\p{Pc}_·・\u200C]*)$/u;
+
+// Only a final line made entirely of valid hashtag tokens can be moved into
+// the badge run. Inline tags and lines with prose, URLs, or punctuation stay
+// in the body, as required by the authored-spacing rule (#471).
+const isHashtagOnlyLine = line => {
+  const tokens = line.trim().split(/\s+/u);
+
+  return tokens.length > 0 && tokens.every(token => {
+    const match = token.match(HASHTAG_ONLY_TOKEN);
+
+    return match && LETTER.test(match[1]) && !TRAILING_SEPARATOR.test(match[1]);
+  });
+};
+
+// Collect consecutive terminal hashtag-only lines, allowing blank lines
+// between them. Retain the original body (including its internal newlines);
+// only the boundary and the tag run are canonicalized for submission.
+const trailingHashtagRun = text => {
+  const lines = text.replace(/(?:\r?\n[^\S\r\n]*)+$/u, '').split(/(\r?\n)/u);
+  const tags = [];
+  let index = lines.length - 1;
+
+  while (index >= 0) {
+    if (isHashtagOnlyLine(lines[index])) {
+      tags.unshift(lines[index].trim());
+    } else if (tags.length === 0 || lines[index].trim() !== '') {
+      break;
+    }
+
+    index -= 2;
+  }
+
+  if (tags.length === 0) {
+    return null;
+  }
+
+  return {
+    body: index >= 0 ? lines.slice(0, index + 1).join('') : '',
+    tags: tags.join(' '),
+  };
+};
+
 export function normalizeManagedHashtagName(name) {
   return String(name || '').replace(/^[#＃]+/u, '').normalize('NFKC').toLowerCase();
 }
@@ -46,26 +89,39 @@ export function textContainsHashtag(text, name) {
 
 export function materializeManagedHashtags(text, hashtags) {
   const raw = text || '';
-  const missing = (hashtags || []).filter(hashtag => {
+  const managed = hashtags || [];
+
+  if (managed.length === 0) {
+    return raw;
+  }
+
+  const missing = managed.filter(hashtag => {
     const name = hashtag && (hashtag.normalizedName || hashtag.name);
 
     return name && !textContainsHashtag(raw, name);
   });
-
-  if (missing.length === 0) {
-    return raw;
-  }
-
   const suffix = missing.map(hashtag => {
     const display = String((hashtag && (hashtag.name || hashtag.normalizedName)) || '').replace(/^[#＃]+/u, '');
 
     return `#${display}`;
   }).join(' ');
-  const base = raw.replace(/\n+$/u, '');
 
-  if (base === '') {
-    return suffix;
+  const authoredRun = trailingHashtagRun(raw);
+
+  if (authoredRun) {
+    // The formatter and badge extractor recognize only an explicitly
+    // separated final run. Use one paragraph for both authored and managed
+    // hashtags, even when the managed tag was already written by the user.
+    const tags = [authoredRun.tags, suffix].filter(Boolean).join(' ');
+
+    return authoredRun.body ? `${authoredRun.body}\n\n${tags}` : tags;
   }
 
-  return `${base}\n\n${suffix}`;
+  if (!suffix) {
+    return raw;
+  }
+
+  const base = raw.replace(/\n+$/u, '');
+
+  return base === '' ? suffix : `${base}\n\n${suffix}`;
 }
