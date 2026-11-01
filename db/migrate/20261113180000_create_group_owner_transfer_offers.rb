@@ -20,11 +20,12 @@ class CreateGroupOwnerTransferOffers < ActiveRecord::Migration[6.1]
               name: 'index_group_owner_transfer_offers_incoming'
     add_check_constraint :group_owner_transfer_offers, 'state IN (0, 1, 2)',
                          name: 'group_owner_transfer_offers_state_known'
-    add_check_constraint :group_owner_transfer_offers, <<~SQL.squish,
-                         name: 'group_owner_transfer_offers_response_shape'
+    response_shape = <<~SQL.squish
       (state = 0 AND responded_at IS NULL)
       OR (state IN (1, 2) AND responded_at IS NOT NULL)
     SQL
+    add_check_constraint :group_owner_transfer_offers, response_shape,
+                         name: 'group_owner_transfer_offers_response_shape'
     add_check_constraint :group_owner_transfer_offers, 'offered_by_account_id <> candidate_account_id',
                          name: 'group_owner_transfer_offers_distinct_people'
     add_check_constraint :group_owner_transfer_offers, 'candidate_account_id <> group_account_id',
