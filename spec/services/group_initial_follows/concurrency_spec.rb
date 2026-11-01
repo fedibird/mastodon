@@ -24,6 +24,31 @@ RSpec.describe 'Group initial follow concurrency' do
     user
   end
 
+  it 'locks the persisted row when an interrupted update left the in-memory record dirty' do
+    request = prepare_request('dirtyclaim')
+    record = request.initial_follow
+    performer = GroupInitialFollows::Perform.new(record, nil, nil)
+    token = performer.send(:claim!)
+    expect(token).to be_present
+
+    # An interrupted ActiveRecord update can leave unsaved attributes on the
+    # worker's own instance. The failure handler must reload a persisted
+    # record before with_lock, otherwise it masks the original exception.
+    worker_record = performer.instance_variable_get(:@record)
+    worker_record.last_error = 'interrupted_update'
+    expect(worker_record).to have_changes_to_save
+
+    expect do
+      performer.send(:mark_failure!, :rate_limited, token)
+    end.not_to raise_error
+
+    stored = GroupInitialFollow.find(record.id)
+    expect(stored).to be_retryable_failure
+    expect(stored.last_error).to eq 'rate_limited'
+    expect(stored.claim_token).to eq token
+    expect(Follow.where(target_account_id: request.group_account_id)).to be_empty
+  end
+
   it 'lets two workers create only one follow' do
     requester = track_user(Fabricate(:user))
     reviewer = track_user(user_with_role('Owner'))
