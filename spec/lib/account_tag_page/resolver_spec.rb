@@ -62,6 +62,23 @@ RSpec.describe AccountTagPage::Resolver do
       expect(described_class.call(account: account, tag: tag, software_name: 'fedibird', software_version: '0.1')).to eq('https://remote.example/@bob/tagged/rails')
     end
 
+    it 'accepts the Mastodon profile path and the actor path, and rejects other paths' do
+      tag = tag_named('rails')
+      at_user = account_for(username: 'erin', domain: 'remote.example', url: 'https://remote.example/@erin/')
+      actor = account_for(username: 'frank', domain: 'remote.example', url: 'https://remote.example/users/frank')
+      replies = account_for(username: 'gina', domain: 'remote.example', url: 'https://remote.example/@gina/with_replies')
+      followers = account_for(username: 'hana', domain: 'remote.example', url: 'https://remote.example/users/hana/followers')
+      other = account_for(username: 'ivan', domain: 'remote.example', url: 'https://remote.example/@someone')
+      prefixed = account_for(username: 'june', domain: 'remote.example', url: 'https://remote.example/web/@june')
+
+      expect(described_class.call(account: at_user, tag: tag, software_name: 'mastodon', software_version: '4.2.1')).to eq('https://remote.example/@erin/tagged/rails')
+      expect(described_class.call(account: actor, tag: tag, software_name: 'mastodon', software_version: '4.2.1')).to eq('https://remote.example/@frank/tagged/rails')
+      expect(described_class.call(account: replies, tag: tag, software_name: 'mastodon', software_version: '4.2.1')).to be_nil
+      expect(described_class.call(account: followers, tag: tag, software_name: 'mastodon', software_version: '4.2.1')).to be_nil
+      expect(described_class.call(account: other, tag: tag, software_name: 'mastodon', software_version: '4.2.1')).to be_nil
+      expect(described_class.call(account: prefixed, tag: tag, software_name: 'mastodon', software_version: '4.2.1')).to be_nil
+    end
+
     it 'omits the URL when the public profile host is not the Node host' do
       mismatched = account_for(username: 'cara', domain: 'remote.example', url: 'https://web.example/@cara')
       insecure = account_for(username: 'dino', domain: 'remote.example', url: 'http://remote.example/@dino')

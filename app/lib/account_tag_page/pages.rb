@@ -117,17 +117,30 @@ module AccountTagPage
         end
       end
 
+      # One query for every unloaded reblog or quote, at any depth. Loaded
+      # records are walked in memory and are not selected again. Cycles and
+      # ids already seen are skipped.
       def domains_for_nested(status_ids)
         ids = status_ids.compact.uniq
         return [] if ids.empty?
 
-        rows = Status.where(id: ids).pluck(:account_id, :reblog_of_id, :quote_id)
-        account_ids = rows.map(&:first)
-        extra_ids = rows.flat_map { |_, reblog_id, quote_id| [reblog_id, quote_id] }.compact.uniq - ids
-        account_ids.concat(Status.where(id: extra_ids).pluck(:account_id)) if extra_ids.any?
-        return [] if account_ids.empty?
-
-        Account.where(id: account_ids.compact.uniq).where.not(domain: nil).pluck(:domain)
+        sql = ActiveRecord::Base.sanitize_sql_array([<<~SQL.squish, ids])
+          WITH RECURSIVE nest AS (
+            SELECT id, account_id, reblog_of_id, quote_id, ARRAY[id] AS path
+            FROM statuses
+            WHERE id IN (?)
+            UNION ALL
+            SELECT child.id, child.account_id, child.reblog_of_id, child.quote_id, nest.path || child.id
+            FROM statuses child
+            INNER JOIN nest ON child.id = nest.reblog_of_id OR child.id = nest.quote_id
+            WHERE NOT child.id = ANY(nest.path)
+          )
+          SELECT DISTINCT accounts.domain
+          FROM nest
+          INNER JOIN accounts ON accounts.id = nest.account_id
+          WHERE accounts.domain IS NOT NULL
+        SQL
+        ActiveRecord::Base.connection.select_values(sql)
       end
     end
   end

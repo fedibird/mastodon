@@ -103,13 +103,24 @@ module AccountTagPage
       profile = Addressable::URI.parse(@account.url.to_s)
       return unless profile.scheme == 'https'
       return if profile.user.present? || profile.password.present? || profile.port
+      return if profile.query.present? || profile.fragment.present?
 
       host = profile.normalized_host.to_s.downcase
       node_host = normalized_domain(@account.domain)
       return unless host.present? && node_host.present? && host == node_host
       return unless HOST.match?(host)
+      return unless profile_path?(profile, @account.username.to_s)
 
       host
+    end
+
+    # Mastodon and Fedibird publish the profile as /@username. The actor URL
+    # /users/username is the same account (HTML redirects to /@username); the
+    # verified tagged page is still /@username/tagged/:tag, not a suffix of
+    # /users/username. Any other path is a different resource.
+    def profile_path?(profile, username)
+      path = profile.path.to_s.sub(%r{/+\z}, '')
+      ["/@#{username}", "/users/#{username}"].include?(path)
     end
 
     def normalized_domain(domain)
