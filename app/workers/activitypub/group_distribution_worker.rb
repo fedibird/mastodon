@@ -7,7 +7,7 @@ class ActivityPub::GroupDistributionWorker
 
   def perform(status_id)
     status = Status.find(status_id)
-    groups = Account.local.groups.where(id: status.mentions.select(:account_id))
+    groups = Account.local.groups.where(id: status.mentions.active.select(:account_id))
 
     groups.each do |group|
       next unless ActivityPub::GroupAnnounce.announce?(status, group)

@@ -80,6 +80,61 @@ RSpec.describe ActivityPub::GroupDistributionWorker do
     end
   end
 
+  it 'does not announce a silent group mention' do
+    group = Fabricate(:account, username: 'silentgroup', actor_type: 'Group')
+    person = Fabricate(:user).account
+    author.follow!(group)
+    %i(public unlisted).each do |visibility|
+      status = Fabricate(:status, account: author, visibility: visibility, text: 'audience only')
+      status.mentions.create!(account: group, silent: true)
+      status.mentions.create!(account: person, silent: false)
+
+      described_class.new.perform(status.id)
+
+      expect(Status.find_by(account: group, reblog_of_id: status.id)).to be_nil
+      expect(status.reload).not_to be_discarded
+    end
+  end
+
+  it 'does not announce after an explicit mention is silenced by an edit' do
+    group = Fabricate(:account, username: 'editedgroup', actor_type: 'Group')
+    person = Fabricate(:user, account: Fabricate(:account, username: 'keptperson')).account
+    author.follow!(group)
+    status = Fabricate(:status, account: author, visibility: :public, text: "hello @#{group.username} @keptperson")
+    service = ProcessMentionsService.new
+    service.prepare(status)
+    service.persist_mentions!(status)
+    expect(status.mentions.active.where(account: group)).to exist
+
+    status.update!(text: 'hello @keptperson')
+    ProcessMentionsService.new.call(status.reload, edit: true)
+
+    expect(status.mentions.find_by(account: group)).to be_silent
+    expect(status.mentions.active.find_by(account: person)).to be_present
+    described_class.new.perform(status.id)
+    expect(Status.find_by(account: group, reblog_of_id: status.id)).to be_nil
+    expect(status.reload).not_to be_discarded
+  end
+
+  it 'announces one active mention and leaves another silent group and a person alone' do
+    group = Fabricate(:account, username: 'activegroup', actor_type: 'Group')
+    other = Fabricate(:account, username: 'silentother', actor_type: 'Group')
+    person = Fabricate(:user).account
+    author.follow!(group)
+    author.follow!(other)
+    status = Fabricate(:status, account: author, visibility: :public, text: "hello @#{group.username}")
+    status.mentions.create!(account: group, silent: false)
+    status.mentions.create!(account: other, silent: true)
+    status.mentions.create!(account: person, silent: false)
+
+    described_class.new.perform(status.id)
+    described_class.new.perform(status.id)
+
+    expect(Status.where(account: group, reblog_of_id: status.id).count).to eq 1
+    expect(Status.find_by(account: other, reblog_of_id: status.id)).to be_nil
+    expect(Status.find_by(account: person, reblog_of_id: status.id)).to be_nil
+  end
+
   it 'does not announce a remote post while only a follow request exists' do
     group = Fabricate(:account, username: 'lockedremote', actor_type: 'Group', locked: true)
     remote = Fabricate(

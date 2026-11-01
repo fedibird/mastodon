@@ -92,6 +92,21 @@ RSpec.describe ProcessMentionsService do
     expect(status.reload).not_to be_discarded
   end
 
+  it 'notifies a person and does not announce a silent group mention' do
+    group = Fabricate(:account, username: 'quietgroup', actor_type: 'Group')
+    person = Fabricate(:user, account: Fabricate(:account, username: 'spokenperson')).account
+    author.follow!(group)
+    status = Fabricate(:status, account: author, visibility: :unlisted, text: 'hello @spokenperson')
+    status.mentions.create!(account: group, silent: true)
+
+    described_class.new.call(status)
+
+    expect(Status.find_by(account: group, reblog_of_id: status.id)).to be_nil
+    expect(LocalNotificationWorker).to have_received(:perform_async).with(person.id, kind_of(Integer), 'Mention', 'mention')
+    expect(status.mentions.find_by(account: group)).to be_silent
+    expect(status.reload).not_to be_discarded
+  end
+
   it 'does not turn a person mention into an announce' do
     person = Fabricate(:user).account
     status = Fabricate(:status, account: author, visibility: :public, text: "hi @#{person.username}")
