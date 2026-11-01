@@ -13,12 +13,14 @@ module ActivityPub
     module_function
 
     def announce?(status, group)
-      return false unless group&.local? && group.group?
-      return false unless status&.account
+      return false if group.nil? || status.nil?
+      return false unless group.local? && group.group?
       return false unless ANNOUNCEABLE_VISIBILITIES.include?(status.visibility.to_s)
-      return false unless status.account.following?(group)
 
-      true
+      author = status.account
+      return false if author.nil?
+
+      author.following?(group)
     end
 
     def visibility_for(status, _group)
