@@ -60,10 +60,23 @@ module GroupCreationIcons
       @service.put_object(@container, object_key(key), io.read, 'Content-Type' => content_type)
     end
 
+    def byte_size(key)
+      response = @service.head_object(@container, object_key(key))
+      Integer(response.headers['Content-Length'] || response.headers['content-length'])
+    rescue StandardError => e
+      raise NotFound, 'missing icon' if missing_object?(e)
+
+      raise
+    end
+
     def read(key)
+      raise Error, 'too_large' if byte_size(key) >= GroupCreationIcons::MAX_BYTES
+
       response = @service.get_object(@container, object_key(key))
       body = response.body
       body.respond_to?(:read) ? body.read : body.to_s
+    rescue NotFound, Error
+      raise
     rescue StandardError => e
       raise NotFound, 'missing icon' if missing_object?(e)
 

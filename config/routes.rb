@@ -390,6 +390,19 @@ Rails.application.routes.draw do
     end
     resource :action_review_settings, only: [:edit, :update]
 
+    resources :group_creation_requests, only: [:index, :show] do
+      member do
+        post :approve
+        post :reject
+        get :icon
+        post :retry_icon
+      end
+    end
+    resources :managed_groups, only: [:index, :show] do
+      resource :registration_invite_policy, only: [:update], controller: 'managed_groups/registration_invite_policies'
+    end
+    resource :group_registration_invite_defaults, only: [:edit, :update]
+
     resources :reports, only: [:index, :show] do
       member do
         post :assign_to_self

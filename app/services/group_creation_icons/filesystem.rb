@@ -38,11 +38,17 @@ module GroupCreationIcons
       path
     end
 
-    def read(key)
+    def byte_size(key)
       path = path_for(key)
       raise NotFound, 'missing icon' unless File.file?(path)
 
-      File.binread(path)
+      File.size(path)
+    end
+
+    def read(key)
+      raise Error, 'too_large' if byte_size(key) >= GroupCreationIcons::MAX_BYTES
+
+      File.binread(path_for(key))
     end
 
     def exist?(key)

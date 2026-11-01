@@ -93,6 +93,149 @@ ja:
     new:
       title: 新規アカウント購読を追加
   admin:
+    group_administration:
+      audit_action: 操作
+      audit_actor: 管理者
+      audit_code: 結果
+      audit_empty: この記録に対する管理ログはまだありません。
+      audit_heading: 管理ログ
+      audit_when: 日時
+      'no': いいえ
+      audit_failed: 管理ログを書けなかったため、成功としては記録していません。
+      none: なし
+      'yes': はい
+    group_creation_requests:
+      approve: 承認する
+      approve_confirm: この申請を承認してグループを作りますか？申請者が初代オーナーになります。グループのフォローは行いません。
+      back: 申請一覧へ戻る
+      decision_heading: 審査記録
+      decision_note: 審査メモ
+      display_name: 表示名
+      empty: この表示条件の申請はありません。
+      errors:
+        conflict: 審査中に申請の状態が変わりました。申請は保留のままです。最新の状態を表示しています。
+        decision_note_blank: 却下には理由が必要です。
+        feature_disabled: グループ作成申請は無効なため、この審査は拒否されました。申請は保留のままです。
+        icon_missing: 非公開のアイコンが無いため、承認しませんでした。申請は保留のままです。
+        invalid_icon: 非公開のアイコンが正しい画像ではないため、承認しませんでした。申請は保留のままです。
+        invalid_requester: 申請者が有効なローカルの個人ではないため、承認しませんでした。申請は保留のままです。
+        not_authorized: グループ申請を審査できません。
+        not_pending: この申請はもう保留ではありません。最新の状態を表示しています。
+        storage_unavailable: 非公開アイコンの保管先が使えないため、承認しませんでした。申請は保留のままです。
+        username_taken: そのユーザー名は既にローカルのアカウントです。承認しませんでした。申請は保留のままです。
+      feature_disabled_banner: グループ作成申請は無効です。Setting.group_creation_requests を別の場所で有効にするまで、承認と却下は拒否されます。この画面からは有効にしません。
+      group_account: グループアカウント
+      handoff: アイコンの引き継ぎ
+      handoff_attempts: "コピー試行 %{count} 回"
+      handoff_error: "直近のエラー: %{code}"
+      handoff_states:
+        absent: アイコンは提出されていません。
+        copied: グループのアバターへコピー済みです。非公開の元ファイルはまだ削除中です。
+        exhausted: 自動コピーは停止しました。管理者が再試行できます。
+        failed: 直近のコピーは失敗しており、再試行できます。
+        pending: コピーはまだ終わっていません。
+        purged: コピー成功後に非公開の元ファイルを削除しました。
+        staged: 非公開アイコンは審査待ちです。
+      icon: アイコン
+      icon_absent: アイコンは提出されていません。
+      icon_alt: この申請に提出された非公開アイコン
+      icon_failure_hint: 画像が表示されない場合、非公開ファイルを読めません。申請が保留の間、アバターとしては公開しません。
+      icon_purged: 非公開の元ファイルは削除済みです。
+      initial_owner: 初代オーナー
+      lead: 保留中の申請を先に表示します。承認は既存の審査サービスだけが行い、そのとき初めてグループを作ります。却下には理由が必要です。
+      no_display_name: 表示名なし
+      no_note: 説明なし
+      note: 説明
+      reject: 却下する
+      reject_confirm: この申請を却下しますか？グループは作られません。
+      reject_hint: 申請者は自分の申請画面でこの理由を読めます。ActivityPub では送りません。
+      requested_at: 申請日時
+      requester: 申請者
+      requester_not_ready: この人のアカウントが再び使えるようになるまで、オーナーにはできません。
+      requester_ready: この人は初代オーナーになれます。
+      results:
+        approved: 申請を承認し、グループを作りました。初代オーナーのフォローは自動では行っていません。
+        rejected: 申請を却下しました。グループは作っていません。
+      retry:
+        enqueue_failed: 再試行をキューに入れられませんでした。条件を満たすアイコンは、毎時の復旧が引き続き処理できます。
+        enqueued: アイコンの引き継ぎを再度キューに入れました。
+        not_retryable: このアイコンは再試行できません。
+        resumed: 止まったアイコンコピーを戻して、再度キューに入れました。
+      retry_button: アイコンの引き継ぎを再試行
+      retry_confirm: アイコンの引き継ぎを再度キューに入れますか？グループはもう一つ作りません。
+      reviewed_at: 審査日時
+      reviewer: 審査者
+      show: グループ申請 %{username}
+      state: 状態
+      states:
+        all: すべて
+        approved: 承認済み
+        cancelled: 取消済み
+        pending: 審査待ち
+        rejected: 却下
+      title: グループ申請
+      username: ユーザー名
+    group_registration_invite_defaults:
+      confirm: これから承認するグループの初期値を保存しますか？既にあるグループのポリシーは変わりません。
+      errors:
+        conflict: 別の管理者が先に初期値を保存しました。現在の値を表示しています。
+        per_link_lifetime_seconds: 有効期限は 1 秒以上にしてください。無期限のときだけ空にできます。
+        per_link_max_uses: リンクごとの上限は 1 以上にしてください。人数無制限のときだけ空にできます。
+        shared_quota: 共有の登録人数枠は 0 以上にしてください。
+        shared_quota_unlimited_mismatch: 共有枠を無制限にするときは、保存する人数を 0 にしてください。次の承認はその数字をコピーします。
+      fields:
+        issuance_enabled: 登録招待の発行を許可する
+        per_link_indefinite: 期限のないリンクを許可する
+        per_link_lifetime_seconds: リンクごとの有効期限（秒）
+        per_link_max_uses: リンクごとの最大利用人数
+        per_link_unlimited_uses: 利用人数が無制限のリンクを許可する
+        shared_quota_unlimited: 共有の登録人数枠を無制限にする
+        shared_registration_quota: 共有の登録人数枠
+      hints:
+        issuance_enabled: 招待リンクは作りません。発行と利用は後の段階です。
+        per_link_indefinite: オンの間、グループのポリシーには期限を保存しません。この初期値では、欄に残した秒数を、オフに戻した次の承認のために残します。
+        per_link_lifetime_seconds: 期限ありのとき、次の承認がコピーします。最短は 1 秒です。
+        per_link_max_uses: 人数制限ありのとき、次の承認がコピーします。最小は 1 です。
+        per_link_unlimited_uses: オンの間、グループのポリシーにはリンクごとの上限を保存しません。この初期値では、欄に残した人数を、オフに戻した次の承認のために残します。
+        shared_quota_unlimited: オンのときは、ここに保存する共有枠を 0 にしてください。新しいグループにはその 0 がコピーされます。
+        shared_registration_quota: 保存後に承認されたグループへコピーします。0 は、共有の登録枠なしで始まります。
+      lead: 申請を承認するとき、この値をそのグループへコピーします。ここで保存しても、既にポリシーを持つグループは変わらず、グループ作成申請も有効になりません。
+      nav: グループ招待の初期値
+      next_copy: 次の承認がコピーする値
+      not_copied: 無制限のあいだはコピーしない
+      saved: これから承認するグループの初期値を保存しました。既にあるグループはそのままです。
+      title: グループ招待の初期値
+    managed_groups:
+      back: グループ一覧へ戻る
+      created_at: 登録日時
+      display_name: 表示名
+      empty: 承認された申請から登録されたローカルグループはありません。
+      group: グループ
+      issuance: 招待を発行できる
+      lead: 承認された申請から作られたローカルグループです。ログインを持つ既存のグループは、ここへ自動では入りません。
+      login: ログイン
+      login_absent: このグループに専用のログインはありません。
+      login_present: このグループにはログインがあります。新しく承認したグループには作りません。
+      moderators: グループモデレーター
+      origin: 作成元
+      origins:
+        approved_request: 承認された申請
+        legacy_unassigned: 既存グループ
+      owner: オーナー
+      policy_confirm: このグループの招待ポリシーを保存しますか？サイトの初期値と他のグループは変わりません。
+      policy_errors:
+        audit_failed: 管理ログを書けなかったため、ポリシーは保存していません。
+        conflict: 別の管理者が先にこのポリシーを保存しました。最新の値を表示しています。
+        invalid: ポリシーは保存していません。下の制限を確認してください。
+      policy_heading: 登録招待ポリシー
+      policy_lead: このグループに保存されているコピーです。その後のサイト初期値の変更には追従せず、招待リンクも発行しません。
+      policy_missing: このグループには登録招待ポリシーがありません。この画面では新しく作りません。
+      policy_saved: このグループの招待ポリシーを保存しました。
+      show: グループ %{acct}
+      show_lead: オーナー役職、作成元の申請、アイコンの引き継ぎ、このグループに保存された招待ポリシーです。
+      show_link: グループの記録
+      source_request: 作成元の申請
+      title: 登録済みグループ
     account_actions:
       action: アクションを実行
       title: "%{acct}さんに対してアクションを実行"
@@ -449,6 +592,14 @@ ja:
         update_domain_block: ドメインブロックを更新
         update_status: 投稿を更新
         update_user_role: ロールを更新
+        approve_group_creation_request: グループ申請を承認
+        reject_group_creation_request: グループ申請を却下
+        fail_group_creation_request: グループ申請の審査に失敗
+        retry_icon_group_creation_request: グループアイコンの引き継ぎを再試行
+        update_group_registration_invite_policy: グループ招待ポリシーを更新
+        fail_group_registration_invite_policy: グループ招待ポリシーの更新に失敗
+        update_group_invite_defaults_setting: グループ招待の初期値を更新
+        fail_group_invite_defaults_account: グループ招待の初期値の更新に失敗
       actions:
         assigned_to_self_report_html: "%{name} さんが通報 %{target} を自身の担当に割り当てました"
         change_email_user_html: "%{name} さんが %{target} さんのメールアドレスを変更しました"
@@ -501,6 +652,15 @@ ja:
         update_domain_block_html: "%{name} が %{target} のドメインブロックを更新しました"
         update_status_html: "%{name} さんが %{target} さんの投稿を更新しました"
         update_user_role_html: "%{name}さんがロール『%{target}』を変更しました"
+        approve_group_creation_request_html: "%{name} さんがグループ申請 %{target} を承認しました"
+        reject_group_creation_request_html: "%{name} さんがグループ申請 %{target} を却下しました"
+        fail_group_creation_request_html: "%{name} さんはグループ申請 %{target} を確定できませんでした"
+        retry_icon_group_creation_request_html: "%{name} さんがグループ申請 %{target} のアイコン引き継ぎを再試行しました"
+        update_group_registration_invite_policy_html: "%{name} さんがグループ %{target} の招待ポリシーを更新しました"
+        update_invite_policy_group_registration_invite_policy_html: "%{name} さんがグループ %{target} の招待ポリシーを更新しました"
+        fail_group_registration_invite_policy_html: "%{name} さんはグループ %{target} の招待ポリシーを更新できませんでした"
+        update_group_invite_defaults_setting_html: "%{name} さんが新しいグループ招待の初期値を更新しました（%{target}）"
+        fail_group_invite_defaults_account_html: "%{name} さんは新しいグループ招待の初期値を更新できませんでした（%{target}）"
       deleted_status: "(削除済)"
       empty: ログが見つかりませんでした
       filter_by_action: アクションでフィルター
@@ -3207,6 +3367,14 @@ ja:
         display_name: 表示名
         note: 説明
         previous_request_id: 前回の申請
+      group_registration_invite_policy:
+        issuance_enabled: 登録招待の発行を許可する
+        per_link_indefinite: 期限のないリンクを許可する
+        per_link_lifetime_seconds: リンクごとの有効期限（秒）
+        per_link_max_uses: リンクごとの最大利用人数
+        per_link_unlimited_uses: 利用人数が無制限のリンクを許可する
+        shared_quota_unlimited: 共有の登録人数枠を無制限にする
+        shared_registration_quota: 共有の登録人数枠
     errors:
       models:
         user:

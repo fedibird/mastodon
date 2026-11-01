@@ -1,0 +1,18 @@
+- if audits.blank?
+  %p.muted-hint= t('admin.group_administration.audit_empty')
+- else
+  .table-wrapper
+    %table.table
+      %thead
+        %tr
+          %th= t('admin.group_administration.audit_when')
+          %th= t('admin.group_administration.audit_actor')
+          %th= t('admin.group_administration.audit_action')
+          %th= t('admin.group_administration.audit_code')
+      %tbody
+        - audits.each do |log|
+          %tr
+            %td= formatted_browser_local_time(log.created_at)
+            %td= admin_account_inline_link_to(log.account)
+            %td= log.action
+            %td= group_admin_audit_code(log) || t('admin.group_administration.none')

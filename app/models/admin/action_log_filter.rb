@@ -55,6 +55,14 @@ class Admin::ActionLogFilter
     update_announcement: { target_type: 'Announcement', action: 'update' }.freeze,
     update_custom_emoji: { target_type: 'CustomEmoji', action: 'update' }.freeze,
     update_status: { target_type: 'Status', action: 'update' }.freeze,
+    approve_group_creation_request: { target_type: 'GroupCreationRequest', action: 'approve' }.freeze,
+    reject_group_creation_request: { target_type: 'GroupCreationRequest', action: 'reject' }.freeze,
+    fail_group_creation_request: { target_type: 'GroupCreationRequest', action: 'fail' }.freeze,
+    retry_icon_group_creation_request: { target_type: 'GroupCreationRequest', action: 'retry_icon' }.freeze,
+    update_group_registration_invite_policy: { target_type: 'GroupRegistrationInvitePolicy', action: 'update_invite_policy' }.freeze,
+    fail_group_registration_invite_policy: { target_type: 'GroupRegistrationInvitePolicy', action: 'fail' }.freeze,
+    update_group_invite_defaults_setting: { target_type: 'Setting', action: 'update_group_invite_defaults' }.freeze,
+    fail_group_invite_defaults_account: { target_type: 'Account', action: 'fail_group_invite_defaults' }.freeze,
   }.freeze
 
   attr_reader :params

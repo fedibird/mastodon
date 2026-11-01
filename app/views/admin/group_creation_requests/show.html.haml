@@ -1,0 +1,115 @@
+- content_for :page_title do
+  = t('admin.group_creation_requests.show', username: @request.username)
+
+- content_for :heading_actions do
+  = link_to t('admin.group_creation_requests.back'), admin_group_creation_requests_path, class: 'button'
+
+- unless @feature_enabled
+  .flash-message.alert
+    = t('admin.group_creation_requests.feature_disabled_banner')
+
+.table-wrapper
+  %table.table.inline-table
+    %tbody
+      %tr
+        %th= t('admin.group_creation_requests.state')
+        %td= group_creation_state_label(@request.state)
+      %tr
+        %th= t('admin.group_creation_requests.username')
+        %td= @request.username
+      %tr
+        %th= t('admin.group_creation_requests.display_name')
+        %td= @request.display_name.presence || t('admin.group_creation_requests.no_display_name')
+      %tr
+        %th= t('admin.group_creation_requests.note')
+        %td= @request.note.presence || t('admin.group_creation_requests.no_note')
+      %tr
+        %th= t('admin.group_creation_requests.requester')
+        %td
+          = admin_account_inline_link_to(@request.requester_account)
+          - if @request.pending?
+            - if group_creation_requester_ready?(@request)
+              = t('admin.group_creation_requests.requester_ready')
+            - else
+              = t('admin.group_creation_requests.requester_not_ready')
+      %tr
+        %th= t('admin.group_creation_requests.requested_at')
+        %td= formatted_browser_local_time(@request.requested_at)
+      %tr
+        %th= t('admin.group_creation_requests.reviewer')
+        %td= @request.reviewer_account ? admin_account_inline_link_to(@request.reviewer_account) : t('admin.group_administration.none')
+      %tr
+        %th= t('admin.group_creation_requests.reviewed_at')
+        %td= formatted_browser_local_time(@request.reviewed_at) || t('admin.group_administration.none')
+      %tr
+        %th= t('admin.group_creation_requests.initial_owner')
+        %td= @request.initial_owner_account ? admin_account_inline_link_to(@request.initial_owner_account) : t('admin.group_administration.none')
+      %tr
+        %th= t('admin.group_creation_requests.group_account')
+        %td
+          - if @request.group_account
+            = link_to @request.group_account.acct, admin_account_path(@request.group_account_id)
+            - if @request.managed_group
+              = link_to t('admin.managed_groups.show_link'), admin_managed_group_path(@request.managed_group)
+          - else
+            = t('admin.group_administration.none')
+      %tr
+        %th= t('admin.group_creation_requests.decision_note')
+        %td= @request.decision_note.presence || t('admin.group_administration.none')
+      %tr
+        %th= t('admin.group_creation_requests.icon')
+        %td
+          - if @request.icon_previewable?
+            = image_tag icon_admin_group_creation_request_path(@request), alt: t('admin.group_creation_requests.icon_alt'), width: 240
+            %p.hint= t('admin.group_creation_requests.icon_failure_hint')
+          - elsif @request.icon_storage_key.present?
+            = t('admin.group_creation_requests.icon_purged')
+          - else
+            = t('admin.group_creation_requests.icon_absent')
+      %tr
+        %th= t('admin.group_creation_requests.handoff')
+        %td
+          = t("admin.group_creation_requests.handoff_states.#{group_creation_handoff_state(@request)}")
+          - if @request.icon_handoff_error.present?
+            %span= t('admin.group_creation_requests.handoff_error', code: @request.icon_handoff_error)
+          - if @request.icon_storage_key.present?
+            = t('admin.group_creation_requests.handoff_attempts', count: @request.icon_handoff_attempts.to_i)
+
+- if @request.decision
+  %h3= t('admin.group_creation_requests.decision_heading')
+  .table-wrapper
+    %table.table.inline-table
+      %tbody
+        %tr
+          %th= t('admin.group_creation_requests.state')
+          %td= group_creation_state_label(@request.decision.action)
+        %tr
+          %th= t('admin.group_creation_requests.reviewer')
+          %td= admin_account_inline_link_to(@request.decision.reviewer_account)
+        %tr
+          %th= t('admin.group_creation_requests.decision_note')
+          %td= @request.decision.decision_note.presence || t('admin.group_administration.none')
+        %tr
+          %th= t('admin.group_creation_requests.reviewed_at')
+          %td= formatted_browser_local_time(@request.decision.created_at)
+
+%h3= t('admin.group_administration.audit_heading')
+= render 'admin/group_administration/audits', audits: @audits
+
+- if @request.pending?
+  %hr.spacer/
+  = form_tag approve_admin_group_creation_request_path(@request), method: :post do
+    .actions
+      = button_tag t('admin.group_creation_requests.approve'), type: 'submit', class: 'button', data: { confirm: t('admin.group_creation_requests.approve_confirm') }
+  = form_tag reject_admin_group_creation_request_path(@request), method: :post do
+    .fields-group
+      = label_tag :decision_note, t('admin.group_creation_requests.decision_note')
+      = text_area_tag :decision_note, nil, rows: 4
+      %p.hint= t('admin.group_creation_requests.reject_hint')
+    .actions
+      = button_tag t('admin.group_creation_requests.reject'), type: 'submit', class: 'button button--destructive', data: { confirm: t('admin.group_creation_requests.reject_confirm') }
+
+- if group_creation_icon_retryable?(@request)
+  = form_tag retry_icon_admin_group_creation_request_path(@request), method: :post do
+    .actions
+      = button_tag t('admin.group_creation_requests.retry_button'), type: 'submit', class: 'button', data: { confirm: t('admin.group_creation_requests.retry_confirm') }
