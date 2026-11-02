@@ -235,6 +235,9 @@ const messages = defineMessages({
   mark_descendant: { id: 'thread_mark.descendant', defaultMessage: 'Has reply' },
   mark_both: { id: 'thread_mark.both', defaultMessage: 'Has reference and reply' },
   edited: { id: 'status.edited', defaultMessage: 'Edited {date}' },
+  revealMediaTile: { id: 'timeline.media.reveal', defaultMessage: 'Reveal media' },
+  openMediaTile: { id: 'timeline.media.open', defaultMessage: 'Open media' },
+  openMediaSource: { id: 'timeline.media.open_post', defaultMessage: 'Open original post' },
 });
 
 const dateFormatOptions = {
@@ -718,7 +721,19 @@ class Status extends ImmutablePureComponent {
       ? quote.get('spoiler_text') : plainHtmlText(quote.get('contentHtml')));
 
     const quoteBody = contentVisible && quote ? (
-      <div className='timeline-card__quote' onClick={event => { event.stopPropagation(); this.handleQuoteClick(); }} role='presentation'>
+      <div
+        className='timeline-card__quote'
+        onClick={event => { event.stopPropagation(); this.handleQuoteClick(); }}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            event.stopPropagation();
+            this.handleQuoteClick();
+          }
+        }}
+        role='button'
+        tabIndex='0'
+      >
         {hiddenQuote ? <FormattedMessage id='status.muted_quote' defaultMessage='Muted quote' /> :
           unlistedQuote ? <FormattedMessage id='status.unlisted_quote' defaultMessage='Unlisted quote' /> : (
             <>
@@ -835,13 +850,13 @@ class Status extends ImmutablePureComponent {
     return (
       <div className='status__wrapper status__wrapper--media-tile' data-id={status.get('id')} ref={this.handleRef}>
         <div className='timeline-media-tile'>
-          <button type='button' className='timeline-media-tile__open' onClick={this.handleMediaTileClick} aria-label={concealed ? 'Reveal media' : (alt || 'Open media')}>
+          <button type='button' className='timeline-media-tile__open' onClick={this.handleMediaTileClick} aria-label={concealed ? this.props.intl.formatMessage(messages.revealMediaTile) : (alt || this.props.intl.formatMessage(messages.openMediaTile))}>
             {canPreview ? <img src={preview} alt={alt} loading='lazy' /> : <span className='timeline-media-tile__placeholder'>
               <Icon id={concealed ? 'eye-slash' : attachment.get('type') === 'audio' ? 'music' : 'file-o'} />
             </span>}
             {!concealed && attachment.get('type') === 'video' && <span className='timeline-media-tile__play'><Icon id='play' /></span>}
           </button>
-          <button type='button' className='timeline-media-tile__source' onClick={this.handleClick} title='Open post'>
+          <button type='button' className='timeline-media-tile__source' onClick={this.handleClick} title={this.props.intl.formatMessage(messages.openMediaSource)}>
             {externalIdentity ? externalIdentityName(this.props.intl, externalIdentity) : (status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']))}
           </button>
         </div>

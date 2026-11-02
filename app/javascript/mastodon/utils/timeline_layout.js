@@ -63,7 +63,9 @@ export const mediaRowsForStatuses = (statusIds, statuses) => {
           kind: 'media',
           id,
           mediaIndex: index,
-          key: `media:${id}:${attachmentId === undefined || attachmentId === null ? index : attachmentId}`,
+          // An external feed may legitimately attach the same asset twice.
+          // Include the sequence position to keep sibling React keys unique.
+          key: `media:${id}:${index}:${attachmentId === undefined || attachmentId === null ? 'unknown' : attachmentId}`,
         });
       }
     });
