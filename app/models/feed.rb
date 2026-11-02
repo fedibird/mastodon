@@ -16,12 +16,12 @@ class Feed
   # can collapse, so one score read is the whole bucket.
   SCORE_BUCKET_LIMIT = 4096
 
-  def get(limit, max_id = nil, since_id = nil, min_id = nil, visibilities = [])
+  def get(limit, max_id = nil, since_id = nil, min_id = nil, visibilities = [], only_media: false)
     visibilities = [] if visibilities.nil?
-    scan = candidate_scan(limit, max_id, since_id, min_id, visibilities)
+    scan = candidate_scan(limit, max_id, since_id, min_id, visibilities, only_media: only_media)
     ids = scan.ids.dup
     ids.reverse! if scan.ascending
-    records_in_order(ids, visibilities)
+    records_in_order(ids, visibilities, only_media: only_media)
   end
 
   # Selectable ids in redis walk order. exhausted is true when this cursor
@@ -36,7 +36,7 @@ class Feed
   # belongs on this page. A score bucket is read in full before the limit cuts
   # it, so a refill that stops inside the bucket does not drop the unread
   # members. The next walk continues from the last integer id returned.
-  def candidate_scan(limit, max_id = nil, since_id = nil, min_id = nil, visibilities = [])
+  def candidate_scan(limit, max_id = nil, since_id = nil, min_id = nil, visibilities = [], only_media: false)
     limit    = limit.to_i
     max_id   = max_id.to_i if max_id.present?
     since_id = since_id.to_i if since_id.present?
@@ -68,7 +68,7 @@ class Feed
 
       scanned += ids.size
       frontier = ids.last
-      nearest.concat(selectable_ids(ids, visibilities))
+      nearest.concat(selectable_ids(ids, visibilities, only_media: only_media))
       width = [width * 2, 160].min
 
       if ascending
@@ -94,8 +94,8 @@ class Feed
     CandidateScan.new(ids: nearest.first(limit), exhausted: exhausted, ascending: ascending, frontier_id: frontier, scanned: scanned)
   end
 
-  def records_for(ids, visibilities = [])
-    records_in_order(Array(ids), visibilities || [])
+  def records_for(ids, visibilities = [], only_media: false)
+    records_in_order(Array(ids), visibilities || [], only_media: only_media)
   end
 
   protected
@@ -186,22 +186,27 @@ class Feed
     ids
   end
 
-  def selectable_ids(ids, visibilities)
-    present = filtered_scope(ids, visibilities).pluck(:id).to_set
+  def selectable_ids(ids, visibilities, only_media: false)
+    present = filtered_scope(ids, visibilities, only_media: only_media).pluck(:id).to_set
     ids.select { |id| present.include?(id) }
   end
 
-  def records_in_order(ids, visibilities)
+  def records_in_order(ids, visibilities, only_media: false)
     return [] if ids.empty?
 
-    records = filtered_scope(ids, visibilities).index_by(&:id)
+    records = filtered_scope(ids, visibilities, only_media: only_media).index_by(&:id)
     ids.filter_map { |id| records[id] }
   end
 
-  def filtered_scope(ids, visibilities)
+  def filtered_scope(ids, visibilities, only_media: false)
     scope = Status.where(id: ids).without_unreleased_pages.where(Arel.sql(ExternalBridge::ProjectionPrivacy::NOT_PROJECTION_SQL))
     scope = scope.joins(:account).merge(Account.without_suspended)
     scope = scope.where(visibility: visibilities) unless visibilities.empty?
+    # EXISTS preserves one Status row per id (also for boosts of media
+    # statuses) and permits candidate_scan to refill through text-only ids.
+    if only_media
+      scope = scope.where('EXISTS (SELECT 1 FROM media_attachments WHERE media_attachments.status_id = COALESCE(statuses.reblog_of_id, statuses.id))')
+    end
     scope
   end
 

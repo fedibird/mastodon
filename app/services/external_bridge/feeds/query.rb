@@ -21,7 +21,7 @@ module ExternalBridge
         @list = list
       end
 
-      def scope
+      def scope(only_media: false)
         return ExternalStatusProjection.none unless readable?
 
         relation = ExternalStatusProjection.joins(membership_joins)
@@ -32,28 +32,31 @@ module ExternalBridge
         relation = relation.where('statuses.reply IS NOT TRUE')
         relation = relation.where('statuses.deleted_at IS NULL')
         relation = relation.where('statuses.expired_at IS NULL')
+        if only_media
+          relation = relation.where('EXISTS (SELECT 1 FROM media_attachments WHERE media_attachments.status_id = statuses.id)')
+        end
         apply_destination(relation)
       end
 
-      def ids(limit:, ascending: false, lower_exclusive: nil, upper_exclusive: nil, lower_inclusive: nil, upper_inclusive: nil)
+      def ids(limit:, ascending: false, lower_exclusive: nil, upper_exclusive: nil, lower_inclusive: nil, upper_inclusive: nil, only_media: false)
         return [] unless readable?
 
         width = clamp(limit)
         return [] if width.zero?
 
-        bounded = apply_bounds(scope, lower_exclusive, upper_exclusive, lower_inclusive, upper_inclusive)
+        bounded = apply_bounds(scope(only_media: only_media), lower_exclusive, upper_exclusive, lower_inclusive, upper_inclusive)
         direction = ascending ? 'ASC' : 'DESC'
         relation = bounded.reselect('statuses.id').distinct.order(Arel.sql("statuses.id #{direction}")).limit(width)
         read_ids(relation)
       end
 
-      def eligible_ids(status_ids)
+      def eligible_ids(status_ids, only_media: false)
         return [] unless readable?
 
         wanted = Array(status_ids).filter_map { |value| integer_id(value) }.uniq
         return [] if wanted.empty?
 
-        relation = scope.where(statuses: { id: wanted }).reselect('statuses.id').distinct
+        relation = scope(only_media: only_media).where(statuses: { id: wanted }).reselect('statuses.id').distinct
         read_ids(relation)
       end
 

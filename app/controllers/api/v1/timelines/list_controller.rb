@@ -40,10 +40,12 @@ class Api::V1::Timelines::ListController < Api::BaseController
         limit,
         params[:max_id],
         params[:since_id],
-        params[:min_id]
+        params[:min_id],
+        [],
+        only_media: truthy_param?(:only_media)
       )
     else
-      feed.get(limit, params[:max_id], params[:since_id], params[:min_id])
+      feed.get(limit, params[:max_id], params[:since_id], params[:min_id], [], only_media: truthy_param?(:only_media))
     end
   end
 
@@ -60,7 +62,7 @@ class Api::V1::Timelines::ListController < Api::BaseController
   end
 
   def pagination_params(core_params)
-    permitted = params.slice(:limit).permit(:limit)
+    permitted = params.slice(:limit, :only_media).permit(:limit, :only_media)
     permitted[:compact] = params[:compact] if truthy_param?(:compact)
     permitted.merge(core_params)
   end
