@@ -84,6 +84,18 @@ RSpec.describe 'External feed routing on home and list REST' do
   end
 
   describe 'GET /api/v1/timelines/home' do
+    it 'does not leak text-only external projections into media-only pages' do
+      expect(home_rows(only_media: true).map { |row| row[:id] }).not_to include(bundle[:status].id.to_s)
+
+      Fabricate(:media_attachment, account: owner.account, status: bundle[:status])
+
+      expect(home_rows(only_media: true).map { |row| row[:id] }).to include(bundle[:status].id.to_s)
+
+      get '/api/v1/timelines/home', params: { only_media: true }, headers: auth_headers_for(stranger)
+
+      expect(response.body).not_to include(external_body)
+    end
+
     it 'returns direct plus external to the owner in json and compact, with the 64-bit id intact' do
       ordinary = plant_ordinary(owner.account, BASE + 9, 'ordinary-home-article')
 
