@@ -25,6 +25,24 @@ describe('materializeComposerText', () => {
     expect(materializeComposerText(composerWith('Hello'))).toEqual('@group Hello\n\n#foo');
   });
 
+  it('merges only explicitly separated authored tag runs without mutating the draft', () => {
+    const composer = composerWith('Hello\n\n#manual');
+
+    expect(materializeComposerText(composer)).toEqual('@group Hello\n\n#manual #foo');
+    expect(composer.get('text')).toEqual('Hello\n\n#manual');
+    expect(materializeComposerText(composerWith('Hello #inline\n\n#manual'))).toEqual('@group Hello #inline\n\n#manual #foo');
+    expect(materializeComposerText(composerWith('Hello\n#inline\n\n#manual'))).toEqual('@group Hello\n#inline\n\n#manual #foo');
+  });
+
+  it('keeps single-newline tags in the body even when a context tag is applied', () => {
+    const composer = composerWith('テスト\n#test');
+
+    expect(materializeComposerText(composer)).toEqual('@group テスト\n#test\n\n#foo');
+    expect(composer.get('text')).toEqual('テスト\n#test');
+    expect(materializeComposerText(composerWith('Hello\n#foo'))).toEqual('@group Hello\n#foo');
+    expect(materializeComposerText(composerWith('Hello #inline\n#manual'))).toEqual('@group Hello #inline\n#manual\n\n#foo');
+  });
+
   it('returns raw text while editing an existing or scheduled status', () => {
     expect(materializeComposerText(composerWith('Hello', { id: 'status-1' }))).toEqual('Hello');
     expect(materializeComposerText(composerWith('Hello', { scheduledStatusId: 'sched-1' }))).toEqual('Hello');

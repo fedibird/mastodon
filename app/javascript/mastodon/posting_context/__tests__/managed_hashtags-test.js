@@ -41,6 +41,58 @@ describe('materializeManagedHashtags', () => {
     expect(materializeManagedHashtags('', [foo, { name: 'bar', normalizedName: 'bar' }])).toEqual('#foo #bar');
   });
 
+  it('merges authored terminal tags only after an explicit blank line', () => {
+    expect(materializeManagedHashtags('Hello\n\n#manual', [foo])).toEqual('Hello\n\n#manual #foo');
+    expect(materializeManagedHashtags('Hello\n\n#manual #another', [foo])).toEqual('Hello\n\n#manual #another #foo');
+    expect(materializeManagedHashtags('Hello\n\n#manual\n#another', [foo])).toEqual('Hello\n\n#manual #another #foo');
+    expect(materializeManagedHashtags('Hello\n\n#manual\n\n#another', [foo])).toEqual('Hello\n\n#manual #another #foo');
+    expect(materializeManagedHashtags('Hello\r\n\r\n#manual', [foo])).toEqual('Hello\n\n#manual #foo');
+    expect(materializeManagedHashtags('Hello\n \n#manual', [foo])).toEqual('Hello\n\n#manual #foo');
+  });
+
+  it('preserves single-newline hashtags in the body rather than turning them into badges', () => {
+    expect(materializeManagedHashtags('テスト\n#test', [foo])).toEqual('テスト\n#test\n\n#foo');
+    expect(materializeManagedHashtags('Hello\n#manual', [foo])).toEqual('Hello\n#manual\n\n#foo');
+    expect(materializeManagedHashtags('Hello\n#manual\n#another', [foo])).toEqual('Hello\n#manual\n#another\n\n#foo');
+    expect(materializeManagedHashtags('Hello\r\n#manual', [foo])).toEqual('Hello\r\n#manual\n\n#foo');
+    expect(materializeManagedHashtags('#manual', [foo])).toEqual('#manual\n\n#foo');
+  });
+
+  it('does not absorb body hashtags that precede a separately delimited final run', () => {
+    expect(materializeManagedHashtags('Hello\n#inline\n\n#tail', [foo])).toEqual('Hello\n#inline\n\n#tail #foo');
+    expect(materializeManagedHashtags('Hello\n#inline\n\n#tail\n#another', [foo])).toEqual('Hello\n#inline\n\n#tail #another #foo');
+    expect(materializeManagedHashtags('Hello\n\n#first\nbody\n\n#tail', [foo])).toEqual('Hello\n\n#first\nbody\n\n#tail #foo');
+  });
+
+  it('recognizes Unicode and fullwidth separated tags without changing their spelling', () => {
+    expect(materializeManagedHashtags('本文\n\n＃日本語 #Fedibird', [foo])).toEqual('本文\n\n＃日本語 #Fedibird #foo');
+    expect(materializeManagedHashtags('Hello\n\n#one_two #one·two', [foo])).toEqual('Hello\n\n#one_two #one·two #foo');
+    expect(materializeManagedHashtags('本文\n＃日本語 #Fedibird', [foo])).toEqual('本文\n＃日本語 #Fedibird\n\n#foo');
+  });
+
+  it('does not insert a blank line when a managed tag is already present in a body line', () => {
+    expect(materializeManagedHashtags('Hello\n#Foo', [foo])).toEqual('Hello\n#Foo');
+    expect(materializeManagedHashtags('Hello\n＃ＦＯＯ', [foo])).toEqual('Hello\n＃ＦＯＯ');
+    expect(materializeManagedHashtags('Hello\n#other #FOO', [foo])).toEqual('Hello\n#other #FOO');
+    expect(materializeManagedHashtags('Hello\n\n#foo', [foo])).toEqual('Hello\n\n#foo');
+    expect(materializeManagedHashtags('Hello\n\n\n#foo', [foo])).toEqual('Hello\n\n\n#foo');
+    expect(materializeManagedHashtags('Hello\r\n\r\n#foo', [foo])).toEqual('Hello\r\n\r\n#foo');
+    expect(materializeManagedHashtags('Hello\n\n#other #FOO', [foo])).toEqual('Hello\n\n#other #FOO');
+  });
+
+  it('does not move inline or invalid trailing tokens out of the body', () => {
+    expect(materializeManagedHashtags('Hello #inline', [foo])).toEqual('Hello #inline\n\n#foo');
+    expect(materializeManagedHashtags('Hello\n#manual and more', [foo])).toEqual('Hello\n#manual and more\n\n#foo');
+    expect(materializeManagedHashtags('Hello\n#manual,', [foo])).toEqual('Hello\n#manual,\n\n#foo');
+    expect(materializeManagedHashtags('Hello\n#manual/next', [foo])).toEqual('Hello\n#manual/next\n\n#foo');
+    expect(materializeManagedHashtags('Hello\nhttps://example.com/#manual', [foo])).toEqual('Hello\nhttps://example.com/#manual\n\n#foo');
+  });
+
+  it('does not alter drafts when there are no active managed hashtags', () => {
+    expect(materializeManagedHashtags('Hello\n#manual', [])).toEqual('Hello\n#manual');
+    expect(materializeManagedHashtags('Hello\n#manual', null)).toEqual('Hello\n#manual');
+  });
+
   it('leaves text unchanged when the same hashtag is already present', () => {
     expect(materializeManagedHashtags('Hello #foo', [foo])).toEqual('Hello #foo');
     expect(materializeManagedHashtags('#Foo', [foo])).toEqual('#Foo');
