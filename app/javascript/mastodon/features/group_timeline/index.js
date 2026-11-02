@@ -20,6 +20,7 @@ import ColumnSettingsContainer from './containers/column_settings_container';
 import GroupDetail from './components/group_detail';
 import { connectGroupStream } from '../../actions/streaming';
 import { defaultColumnWidth } from 'mastodon/initial_state';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 import {
   groupPortableComposerMounted,
   groupPortableComposerToggleEligible,
@@ -63,8 +64,9 @@ const makeMapStateToProps = () => {
   const mapStateToProps = (state, { columnId, params: { id, tagged } }) => {
     const columns = state.getIn(['settings', 'columns']);
     const index = columns ? columns.findIndex(column => column.get('uuid') === columnId) : -1;
-    const onlyMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'group', 'other', 'onlyMedia']);
-    const withoutMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'group', 'other', 'withoutMedia']);
+    const mediaLayout = readTimelineLayout(state, columnId, 'group') === 'media';
+  const onlyMedia = mediaLayout || ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'group', 'other', 'onlyMedia']));
+    const withoutMedia = mediaLayout ? false : ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'group', 'other', 'withoutMedia']));
     const sourceTimelineId = groupTimelineId(id, { withoutMedia, onlyMedia, tagged });
     const timelineState = state.getIn(['timelines', sourceTimelineId]);
     const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'group', 'columnWidth']);

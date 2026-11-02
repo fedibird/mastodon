@@ -12,6 +12,7 @@ import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import ColumnSettingsContainer from './containers/column_settings_container';
 import { defaultColumnWidth } from 'mastodon/initial_state';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
@@ -27,8 +28,9 @@ const columnIndex = (columns, columnId) => columns ? columns.findIndex(column =>
 const mapStateToProps = (state, { columnId }) => {
   const columns = state.getIn(['settings', 'columns']);
   const index = columnIndex(columns, columnId);
-  const onlyMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'personal', 'other', 'onlyMedia']);
-  const withoutMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'personal', 'other', 'withoutMedia']);
+  const mediaLayout = readTimelineLayout(state, columnId, 'personal') === 'media';
+  const onlyMedia = mediaLayout || ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'personal', 'other', 'onlyMedia']));
+  const withoutMedia = mediaLayout ? false : ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'personal', 'other', 'withoutMedia']));
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'personal', 'columnWidth']);
   const sourceTimelineId = personalTimelineId({ onlyMedia, withoutMedia });
 
@@ -153,6 +155,9 @@ class PersonalTimeline extends React.PureComponent {
     if (!split.isSplit) {
       timeline = (
         <StatusListContainer
+          columnId={columnId}
+          layoutScope='personal'
+          disableLayout={split.isSplit}
           timelineId={sourceTimelineId}
           onLoadMore={this.handleLoadMore}
           trackScroll={!pinned}
@@ -167,6 +172,9 @@ class PersonalTimeline extends React.PureComponent {
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
             <StatusListContainer
+          columnId={columnId}
+          layoutScope='personal'
+          disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               includePendingItems
@@ -185,6 +193,9 @@ class PersonalTimeline extends React.PureComponent {
 
           <div className='timeline-split__pane timeline-split__pane--history'>
             <StatusListContainer
+          columnId={columnId}
+          layoutScope='personal'
+          disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`personal_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
@@ -204,6 +215,8 @@ class PersonalTimeline extends React.PureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
+          columnId={columnId}
+          layoutScope='personal'
           icon='lock'
           active={hasUnread}
           title={intl.formatMessage(messages.title)}

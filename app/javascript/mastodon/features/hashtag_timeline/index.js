@@ -347,6 +347,9 @@ class HashtagTimeline extends React.PureComponent {
     if (!split.isSplit) {
       timeline = (
         <StatusListContainer
+          columnId={columnId}
+          layoutScope='hashtag'
+          disableLayout={split.isSplit}
           trackScroll={!pinned}
           scrollKey={`hashtag_timeline-${columnId}`}
           timelineId={sourceTimelineId}
@@ -363,6 +366,9 @@ class HashtagTimeline extends React.PureComponent {
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
             <StatusListContainer
+          columnId={columnId}
+          layoutScope='hashtag'
+          disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               immediateViewKey={composerId}
@@ -383,6 +389,9 @@ class HashtagTimeline extends React.PureComponent {
 
           <div className='timeline-split__pane timeline-split__pane--history'>
             <StatusListContainer
+          columnId={columnId}
+          layoutScope='hashtag'
+          disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`hashtag_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
@@ -401,6 +410,8 @@ class HashtagTimeline extends React.PureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={`#${id}`} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
         <ColumnHeader
+          columnId={columnId}
+          layoutScope='hashtag'
           icon='hashtag'
           active={hasUnread}
           title={this.title()}
