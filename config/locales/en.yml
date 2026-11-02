@@ -397,6 +397,7 @@ en:
       search: Search
       search_same_email_domain: Other users with the same e-mail domain
       search_same_ip: Other users with the same IP
+      security: Security
       security_measures:
         only_password: Only password
         password_and_2fa: Password and 2FA
