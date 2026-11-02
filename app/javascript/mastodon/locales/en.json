@@ -1250,5 +1250,14 @@
   "visibility.match_message": "Do you want to match the visibility of the post to the reference?",
   "visibility.keep_message": "Do you want to keep the visibility of the post to the reference?",
   "visibility.change": "Change",
-  "visibility.keep": "Keep"
+  "visibility.keep": "Keep",
+  "column_header.layout.label": "Display mode",
+  "column_header.layout.normal": "Normal",
+  "column_header.layout.card_1": "Cards (1 column)",
+  "column_header.layout.card_2": "Cards (2 columns)",
+  "column_header.layout.card_3": "Cards (3 columns)",
+  "column_header.layout.media": "Media",
+  "timeline.media.reveal": "Reveal media",
+  "timeline.media.open": "Open media",
+  "timeline.media.open_post": "Open original post"
 }

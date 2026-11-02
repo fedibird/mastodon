@@ -139,6 +139,30 @@
       {
         "defaultMessage": "Back",
         "id": "column_back_button.label"
+      },
+      {
+        "id": "column_header.layout.label",
+        "defaultMessage": "Display mode"
+      },
+      {
+        "id": "column_header.layout.normal",
+        "defaultMessage": "Normal"
+      },
+      {
+        "id": "column_header.layout.card_1",
+        "defaultMessage": "Cards (1 column)"
+      },
+      {
+        "id": "column_header.layout.card_2",
+        "defaultMessage": "Cards (2 columns)"
+      },
+      {
+        "id": "column_header.layout.card_3",
+        "defaultMessage": "Cards (3 columns)"
+      },
+      {
+        "id": "column_header.layout.media",
+        "defaultMessage": "Media"
       }
     ],
     "path": "app/javascript/mastodon/components/column_header.json"
@@ -602,6 +626,18 @@
       {
         "defaultMessage": "{name} boosted",
         "id": "status.reblogged_by"
+      },
+      {
+        "id": "timeline.media.reveal",
+        "defaultMessage": "Reveal media"
+      },
+      {
+        "id": "timeline.media.open",
+        "defaultMessage": "Open media"
+      },
+      {
+        "id": "timeline.media.open_post",
+        "defaultMessage": "Open original post"
       }
     ],
     "path": "app/javascript/mastodon/components/status.json"

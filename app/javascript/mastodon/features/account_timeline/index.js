@@ -22,6 +22,7 @@ import { connectTimeline, disconnectTimeline } from 'mastodon/actions/timelines'
 import { fetchFeaturedTags } from '../../actions/featured_tags';
 import { changeSetting } from '../../actions/settings';
 import Icon from 'mastodon/components/icon';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 
 const emptyList = ImmutableList();
 
@@ -63,6 +64,8 @@ const mapStateToProps = (state, { params: { accountId, tagged }, about, withRepl
     showPostsInAbout,
     hideRelation,
     columnWidth: state.getIn(['settings', 'account', 'columnWidth'], defaultColumnWidth),
+    layoutMode: readTimelineLayout(state, null, 'account'),
+    mediaStatuses: state.get('statuses'),
   };
 };
 
@@ -102,6 +105,8 @@ class AccountTimeline extends ImmutablePureComponent {
     fetched: PropTypes.bool,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    layoutMode: PropTypes.string,
+    mediaStatuses: ImmutablePropTypes.map,
   };
 
   static defaultProps = {
@@ -196,7 +201,7 @@ class AccountTimeline extends ImmutablePureComponent {
   }
 
   render () {
-    const { params: { accountId, tagged }, intl, statusIds, featuredStatusIds, isLoading, hasMore, blockedBy, following, suspended, isAccount, multiColumn, remote, remoteUrl, fetched, about, withReplies, posts, advancedMode, hideFeaturedTags, showPostsInAbout, hideRelation, columnWidth } = this.props;
+    const { params: { accountId, tagged }, intl, statusIds, featuredStatusIds, isLoading, hasMore, blockedBy, following, suspended, isAccount, multiColumn, remote, remoteUrl, fetched, about, withReplies, posts, advancedMode, hideFeaturedTags, showPostsInAbout, hideRelation, columnWidth, layoutMode, mediaStatuses } = this.props;
 
     if (!isAccount) {
       return (
@@ -248,6 +253,7 @@ class AccountTimeline extends ImmutablePureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={this.setRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
+          layoutScope='account'
           icon='user'
           active={false}
           title={intl.formatMessage(messages.title)}
@@ -261,6 +267,8 @@ class AccountTimeline extends ImmutablePureComponent {
         </ColumnHeader>
 
         <StatusList
+          layoutMode={layoutMode}
+          mediaStatuses={layoutMode === 'media' ? mediaStatuses : null}
           prepend={<HeaderContainer accountId={accountId} tagged={tagged} hideProfile={withReplies || posts || !!tagged} hideRelation={hideRelation} hideFeaturedTags={hideFeaturedTags} />}
           alwaysPrepend
           append={remoteMessage}

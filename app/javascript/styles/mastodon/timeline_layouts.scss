@@ -49,7 +49,8 @@
   overflow: hidden;
   border: 1px solid $ui-base-lighter-color;
   border-radius: 12px;
-  background: $ui-base-color;
+  // No special card fill: show the same surface as a normal status.
+  background: transparent;
   min-width: 0;
 
   .status__content { margin: 0; padding: 0; }

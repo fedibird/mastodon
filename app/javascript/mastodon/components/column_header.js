@@ -239,7 +239,9 @@ class ColumnHeader extends React.PureComponent {
       collapsedContent.push(pinButton);
     }
 
-    if (children || (multiColumn && this.props.onPin)) {
+    // Standalone routes and pages without a dedicated settings component also
+    // need a toggle when a layout selector is available.
+    if (children || layoutScope || (multiColumn && this.props.onPin)) {
       collapseButton = (
         <button
           className={collapsibleButtonClassName}
