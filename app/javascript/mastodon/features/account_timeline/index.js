@@ -43,16 +43,18 @@ const mapStateToProps = (state, { params: { accountId, tagged }, about, withRepl
   const hideSubscribingCount = state.getIn(['settings', 'account', 'other', 'hideSubscribingCount'], false);
   const hideRelation = hidePostCount && hideFollowingCount && hideFollowerCount && (me !== accountId || hideSubscribingCount);
   const path = `${accountId}${withReplies ? ':with_replies' : ''}${withoutReblogs ? ':without_reblogs' : ''}${tagged ? `:${tagged}` : ''}`;
+  const onlyMedia = readTimelineLayout(state, null, 'account') === 'media';
+  const activePath = `${path}${onlyMedia ? ':view-media' : ''}`;
 
   return {
     remote: !!(state.getIn(['accounts', accountId, 'acct']) !== state.getIn(['accounts', accountId, 'username'])),
     remoteUrl: state.getIn(['accounts', accountId, 'url']),
     fetched: state.getIn(['accounts', accountId, 'fetched'], true),
     isAccount: !!state.getIn(['accounts', accountId]),
-    statusIds: advancedMode && about && !showPostsInAbout ? emptyList : state.getIn(['timelines', `account:${path}`, 'items'], emptyList),
+    statusIds: advancedMode && about && !showPostsInAbout ? emptyList : state.getIn(['timelines', `account:${activePath}`, 'items'], emptyList),
     featuredStatusIds: (withReplies || posts) ? emptyList : state.getIn(['timelines', `account:${accountId}:pinned${tagged ? `:${tagged}` : ''}`, 'items'], emptyList),
-    isLoading: state.getIn(['timelines', `account:${path}`, 'isLoading']),
-    hasMore: state.getIn(['timelines', `account:${path}`, 'hasMore']),
+    isLoading: state.getIn(['timelines', `account:${activePath}`, 'isLoading']),
+    hasMore: state.getIn(['timelines', `account:${activePath}`, 'hasMore']),
     suspended: state.getIn(['accounts', accountId, 'suspended'], false),
     blockedBy: state.getIn(['relationships', accountId, 'blocked_by'], false),
     following: state.getIn(['relationships', accountId, 'following'], false),
@@ -65,6 +67,7 @@ const mapStateToProps = (state, { params: { accountId, tagged }, about, withRepl
     hideRelation,
     columnWidth: state.getIn(['settings', 'account', 'columnWidth'], defaultColumnWidth),
     layoutMode: readTimelineLayout(state, null, 'account'),
+    onlyMedia,
     mediaStatuses: state.get('statuses'),
   };
 };
@@ -106,6 +109,7 @@ class AccountTimeline extends ImmutablePureComponent {
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
     layoutMode: PropTypes.string,
+    onlyMedia: PropTypes.bool,
     mediaStatuses: ImmutablePropTypes.map,
   };
 
@@ -126,7 +130,7 @@ class AccountTimeline extends ImmutablePureComponent {
     }
 
     if (!about || !advancedMode || showPostsInAbout) {
-      dispatch(expandAccountTimeline(accountId, { withReplies, tagged, withoutReblogs }));
+      dispatch(expandAccountTimeline(accountId, { withReplies, tagged, withoutReblogs, onlyMedia: this.props.onlyMedia }));
     }
 
     if (tagged || !hideFeaturedTags) {
@@ -146,6 +150,7 @@ class AccountTimeline extends ImmutablePureComponent {
       || nextProps.withReplies !== this.props.withReplies
       || nextProps.withoutReblogs !== this.props.withoutReblogs
       || nextProps.showPostsInAbout !== this.props.showPostsInAbout
+      || nextProps.onlyMedia !== this.props.onlyMedia
     ) {
       dispatch(fetchAccount(nextProps.params.accountId));
       dispatch(fetchAccountIdentityProofs(nextProps.params.accountId));
@@ -155,7 +160,7 @@ class AccountTimeline extends ImmutablePureComponent {
       }
 
       if (!nextProps.about || nextProps.showPostsInAbout) {
-        dispatch(expandAccountTimeline(nextProps.params.accountId, { withReplies: nextProps.withReplies, tagged: nextProps.params.tagged, withoutReblogs: nextProps.withoutReblogs }));
+        dispatch(expandAccountTimeline(nextProps.params.accountId, { withReplies: nextProps.withReplies, tagged: nextProps.params.tagged, withoutReblogs: nextProps.withoutReblogs, onlyMedia: nextProps.onlyMedia }));
       }
 
       if (nextProps.params.tagged || !nextProps.hideFeaturedTags) {
@@ -181,11 +186,11 @@ class AccountTimeline extends ImmutablePureComponent {
   handleFetchMore = () => {
     const { dispatch, params: { accountId, tagged }, withReplies, withoutReblogs } = this.props;
 
-    dispatch(fetchAccountTimeline(accountId, { withReplies, tagged, withoutReblogs }));
+    dispatch(fetchAccountTimeline(accountId, { withReplies, tagged, withoutReblogs, onlyMedia: this.props.onlyMedia }));
   }
 
   handleLoadMore = maxId => {
-    this.props.dispatch(expandAccountTimeline(this.props.params.accountId, { maxId, withReplies: this.props.withReplies, tagged: this.props.params.tagged, withoutReblogs: this.props.withoutReblogs }));
+    this.props.dispatch(expandAccountTimeline(this.props.params.accountId, { maxId, withReplies: this.props.withReplies, tagged: this.props.params.tagged, withoutReblogs: this.props.withoutReblogs, onlyMedia: this.props.onlyMedia }));
   }
 
   handleHeaderClick = () => {
