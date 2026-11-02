@@ -5,6 +5,7 @@ import {
   normalizeTimelineLayout,
   isCardTimelineLayout,
   timelineCardColumnsForWidth,
+  columnWidthForCardLayout,
   readTimelineLayout,
   mediaRowsForStatuses,
 } from '../timeline_layout';
@@ -26,6 +27,25 @@ describe('timeline layout modes', () => {
     expect(timelineCardColumnsForWidth('card-3', 375)).toBe(2);
     expect(timelineCardColumnsForWidth('card-3', 540)).toBe(3);
     expect(timelineCardColumnsForWidth('card-3', 330)).toBe(1);
+  });
+
+  it.each([
+    ['card-2', 'x080', 'x125'],
+    ['card-2', 'x100', 'x125'],
+    ['card-2', 'x125', 'x125'],
+    ['card-2', 'x150', 'x150'],
+    ['card-2', 'free', 'free'],
+    ['card-3', 'x100', 'x200'],
+    ['card-3', 'x125', 'x200'],
+    ['card-3', 'x150', 'x200'],
+    ['card-3', 'x200', 'x200'],
+    ['card-3', 'free', 'free'],
+    ['card-1', 'x100', 'x100'],
+    ['media', 'x080', 'x080'],
+    ['normal', 'x200', 'x200'],
+    ['card-3', 'custom', 'custom'],
+  ])('upgrades layout %s at width %s only when required', (mode, current, expected) => {
+    expect(columnWidthForCardLayout(mode, current)).toBe(expected);
   });
 
   it('uses UUID-specific settings in pinned columns and type settings in standalone columns', () => {

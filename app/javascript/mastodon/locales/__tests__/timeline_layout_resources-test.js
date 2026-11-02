@@ -3,6 +3,7 @@ import japanese from '../ja.json';
 import defaultMessages from '../defaultMessages.json';
 
 const layoutMessages = {
+  'column_width.x200': '200%',
   'column_header.layout.label': '表示方法',
   'column_header.layout.normal': '通常',
   'column_header.layout.card_1': 'カード（1列）',
