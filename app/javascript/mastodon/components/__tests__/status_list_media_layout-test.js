@@ -11,7 +11,10 @@ jest.mock('react-intl', () => ({
 }));
 
 jest.mock('../regeneration_indicator', () => () => null);
-jest.mock('../load_gap', () => () => <div data-gap='true' />);
+jest.mock('../load_gap', () => {
+  const ReactMock = require('react');
+  return () => ReactMock.createElement('div', { 'data-gap': 'true' });
+});
 jest.mock('../reload_zone', () => () => null);
 
 jest.mock('../scrollable_list', () => {
