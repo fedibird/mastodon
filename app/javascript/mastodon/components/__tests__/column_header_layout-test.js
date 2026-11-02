@@ -37,6 +37,8 @@ jest.mock('mastodon/actions/settings', () => ({
 
 import ColumnHeader from '../column_header';
 
+const noop = () => {};
+
 const makeStore = () => {
   const initialState = fromJS({
     settings: {
@@ -91,9 +93,9 @@ const HeaderHarness = ({ columnId, multiColumn = true }) => {
       multiColumn={multiColumn}
       pinned={!!columnId}
       columnWidth={columnWidth}
-      onPin={() => {}}
-      onMove={() => {}}
-      onClick={() => {}}
+      onPin={noop}
+      onMove={noop}
+      onClick={noop}
     />
   );
 };

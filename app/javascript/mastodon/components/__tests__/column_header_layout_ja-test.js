@@ -20,6 +20,8 @@ jest.mock('mastodon/components/icon', () => {
 
 import ColumnHeader from '../column_header';
 
+const noop = () => {};
+
 addLocaleData(japaneseLocaleData);
 
 describe('ColumnHeader Japanese display mode selector', () => {
@@ -36,9 +38,9 @@ describe('ColumnHeader Japanese display mode selector', () => {
             layoutScope='home'
             multiColumn
             columnWidth='x100'
-            onPin={() => {}}
-            onMove={() => {}}
-            onClick={() => {}}
+            onPin={noop}
+            onMove={noop}
+            onClick={noop}
           />
         </Provider>
       </IntlProvider>,
