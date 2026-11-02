@@ -75,6 +75,8 @@ describe('materializeManagedHashtags', () => {
     expect(materializeManagedHashtags('Hello\n＃ＦＯＯ', [foo])).toEqual('Hello\n＃ＦＯＯ');
     expect(materializeManagedHashtags('Hello\n#other #FOO', [foo])).toEqual('Hello\n#other #FOO');
     expect(materializeManagedHashtags('Hello\n\n#foo', [foo])).toEqual('Hello\n\n#foo');
+    expect(materializeManagedHashtags('Hello\n\n\n#foo', [foo])).toEqual('Hello\n\n\n#foo');
+    expect(materializeManagedHashtags('Hello\r\n\r\n#foo', [foo])).toEqual('Hello\r\n\r\n#foo');
     expect(materializeManagedHashtags('Hello\n\n#other #FOO', [foo])).toEqual('Hello\n\n#other #FOO');
   });
 
