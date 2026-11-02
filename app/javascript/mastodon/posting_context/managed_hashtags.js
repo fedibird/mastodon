@@ -20,32 +20,33 @@ const isHashtagOnlyLine = line => {
   });
 };
 
-// Collect consecutive terminal hashtag-only lines, allowing blank lines
-// between them. Retain the original body (including its internal newlines);
-// only the boundary and the tag run are canonicalized for submission.
+// A badge-eligible authored run must have an explicit blank line before it
+// (#471). Walking backwards lets us retain only the run following the
+// earliest valid separator, without accidentally moving a preceding tag line
+// that belongs to the body (e.g. "Hello\\n#inline\\n\\n#tail").
 const trailingHashtagRun = text => {
-  const lines = text.replace(/(?:\r?\n[^\S\r\n]*)+$/u, '').split(/(\r?\n)/u);
+  const parts = text.replace(/(?:\\r?\\n[^\\S\\r\\n]*)+$/u, '').split(/(\\r?\\n)/u);
   const tags = [];
-  let index = lines.length - 1;
+  let candidate = null;
 
-  while (index >= 0) {
-    if (isHashtagOnlyLine(lines[index])) {
-      tags.unshift(lines[index].trim());
-    } else if (tags.length === 0 || lines[index].trim() !== '') {
+  for (let index = parts.length - 1; index >= 0; index -= 2) {
+    const line = parts[index];
+
+    if (isHashtagOnlyLine(line)) {
+      tags.unshift(line.trim());
+    } else if (index >= 2 && line.trim() === '' && tags.length > 0) {
+      // Everything after this blank line is hashtag-only. A prior tag line
+      // without a blank-line boundary must not join this candidate.
+      candidate = {
+        body: parts.slice(0, index - 1).join(''),
+        tags: tags.join(' '),
+      };
+    } else {
       break;
     }
-
-    index -= 2;
   }
 
-  if (tags.length === 0) {
-    return null;
-  }
-
-  return {
-    body: index >= 0 ? lines.slice(0, index + 1).join('') : '',
-    tags: tags.join(' '),
-  };
+  return candidate;
 };
 
 export function normalizeManagedHashtagName(name) {
