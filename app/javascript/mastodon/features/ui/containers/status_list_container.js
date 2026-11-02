@@ -10,6 +10,7 @@ import { debounce } from 'lodash';
 import { me } from '../../../initial_state';
 import { uniqWithoutNull } from '../../../utils/uniq';
 import { makeGetImmediatePresentation } from 'mastodon/selectors/immediate_feed';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 
 const visibilitiesByType = (state, type) => {
   if (type === 'home') {
@@ -143,8 +144,15 @@ const makeMapStateToProps = () => {
   const getLiveStatusIds = makeGetLiveStatusIds();
   const getImmediatePresentation = makeGetImmediatePresentation();
 
-  const mapStateToProps = (state, { timelineId, dataTimelineId, includePendingItems, statusLimit, immediateViewKey }) => {
+  const mapStateToProps = (state, { timelineId, dataTimelineId, includePendingItems, statusLimit, immediateViewKey, layoutScope, columnId, disableLayout }) => {
     const dataId = dataTimelineId || timelineId;
+    // Keep the split live/history panes on their established position model.
+    const layoutMode = disableLayout || includePendingItems || (dataTimelineId && dataTimelineId.indexOf(':split:') !== -1)
+      ? 'normal' : readTimelineLayout(state, columnId, layoutScope);
+    const layoutProps = {
+      layoutMode,
+      mediaStatuses: layoutMode === 'media' ? state.get('statuses') : null,
+    };
     const selectorProps = { type: timelineId, dataTimelineId: dataId, statusLimit };
     const presentation = getImmediatePresentation(state, {
       timelineId,
@@ -158,6 +166,7 @@ const makeMapStateToProps = () => {
     if (includePendingItems) {
       return {
         statusIds: mergeImmediateStatusIds(getLiveStatusIds(state, selectorProps), prependIds),
+        ...layoutProps,
         immediateStatusIds,
         filterStatusIds: getLiveStatusIds(state, { ...selectorProps, statusLimit: undefined }),
         isLoading: state.getIn(['timelines', dataId, 'isLoading'], true),
@@ -172,6 +181,7 @@ const makeMapStateToProps = () => {
 
     return {
       statusIds: mergeImmediateStatusIds(getStatusIds(state, selectorProps), prependIds),
+      ...layoutProps,
       immediateStatusIds,
       filterStatusIds: getStatusIds(state, selectorProps).concat(getPendingStatusIds(state, selectorProps)),
       isLoading: state.getIn(['timelines', dataId, 'isLoading'], true),

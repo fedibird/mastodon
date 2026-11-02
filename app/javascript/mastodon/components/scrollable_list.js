@@ -11,6 +11,8 @@ import { List as ImmutableList } from 'immutable';
 import classNames from 'classnames';
 import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from '../features/ui/util/fullscreen';
 import LoadingIndicator from './loading_indicator';
+import TimelineMasonry from './timeline_masonry';
+import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { connect } from 'react-redux';
 import { FilterSurface } from '../filter_reconciliation/surface';
 import { isProgrammaticTopScroll, releaseProgrammaticTopScroll } from '../scroll';
@@ -73,6 +75,7 @@ class ScrollableList extends PureComponent {
     windowedHistory: PropTypes.bool,
     readingSurface: PropTypes.bool,
     anchorSourceKey: PropTypes.string,
+    layoutMode: PropTypes.string,
   };
 
   static defaultProps = {
@@ -924,7 +927,7 @@ class ScrollableList extends PureComponent {
   }
 
   render () {
-    const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex } = this.props;
+    const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex, layoutMode } = this.props;
     const { fullscreen } = this.state;
     const childrenCount = React.Children.count(children);
     const showOlder = onLoadMore && (hasMore || olderStatus === 'error' || olderStatus === 'unavailable' || olderStatus === 'paused');
@@ -947,6 +950,30 @@ class ScrollableList extends PureComponent {
     }
     const loadPending  = (numPending > 0) ? <LoadPending count={numPending} onClick={this.handleLoadPending} /> : null;
     let scrollableArea = null;
+    const renderedItems = React.Children.map(children, (child, index) => (
+      <IntersectionObserverArticleContainer
+        key={child.key}
+        id={child.key}
+        index={index}
+        listLength={childrenCount}
+        intersectionObserverWrapper={this.intersectionObserverWrapper}
+        // Cached heights from the old full-width list cannot be used for cards.
+        saveHeightKey={trackScroll && !isCardTimelineLayout(layoutMode) && layoutMode !== 'media' ? `${this.context.router.route.location.key}:${scrollKey}` : null}
+        tabIndex={tabIndex}
+        onIntersectionChange={this.handleIntersectionChange}
+        onBeforeLayoutChange={this.handleFilterLayout}
+      >
+        {React.cloneElement(child, {
+          getScrollPosition: this.getScrollPosition,
+          updateScrollBottom: this.updateScrollBottom,
+          cachedMediaWidth: this.state.cachedMediaWidth,
+          cacheMediaWidth: this.cacheMediaWidth,
+        })}
+      </IntersectionObserverArticleContainer>
+    ));
+    const itemLayout = isCardTimelineLayout(layoutMode)
+      ? <TimelineMasonry mode={layoutMode}>{renderedItems}</TimelineMasonry>
+      : layoutMode === 'media' ? <div className='timeline-media-grid'>{renderedItems}</div> : renderedItems;
 
     if (showLoading) {
       scrollableArea = (
@@ -970,26 +997,7 @@ class ScrollableList extends PureComponent {
 
             {loadPending}
 
-            {React.Children.map(this.props.children, (child, index) => (
-              <IntersectionObserverArticleContainer
-                key={child.key}
-                id={child.key}
-                index={index}
-                listLength={childrenCount}
-                intersectionObserverWrapper={this.intersectionObserverWrapper}
-                saveHeightKey={trackScroll ? `${this.context.router.route.location.key}:${scrollKey}` : null}
-                tabIndex={tabIndex}
-                onIntersectionChange={this.handleIntersectionChange}
-                onBeforeLayoutChange={this.handleFilterLayout}
-              >
-                {React.cloneElement(child, {
-                  getScrollPosition: this.getScrollPosition,
-                  updateScrollBottom: this.updateScrollBottom,
-                  cachedMediaWidth: this.state.cachedMediaWidth,
-                  cacheMediaWidth: this.cacheMediaWidth,
-                })}
-              </IntersectionObserverArticleContainer>
-            ))}
+            {itemLayout}
 
             {loadMore}
 
