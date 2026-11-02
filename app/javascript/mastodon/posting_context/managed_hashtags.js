@@ -23,9 +23,9 @@ const isHashtagOnlyLine = line => {
 // A badge-eligible authored run must have an explicit blank line before it
 // (#471). Walking backwards lets us retain only the run following the
 // earliest valid separator, without accidentally moving a preceding tag line
-// that belongs to the body (e.g. "Hello\\n#inline\\n\\n#tail").
+// that belongs to the body (e.g. "Hello\n#inline\n\n#tail").
 const trailingHashtagRun = text => {
-  const parts = text.replace(/(?:\\r?\\n[^\\S\\r\\n]*)+$/u, '').split(/(\\r?\\n)/u);
+  const parts = text.replace(/(?:\r?\n[^\S\r\n]*)+$/u, '').split(/(\r?\n)/u);
   const tags = [];
   let candidate = null;
 
