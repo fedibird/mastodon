@@ -12,6 +12,7 @@ import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { debounce } from 'lodash';
 import { defaultColumnWidth } from 'mastodon/initial_state';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 
@@ -23,8 +24,10 @@ const mapStateToProps = (state, { columnId }) => {
   const uuid = columnId;
   const columns = state.getIn(['settings', 'columns']);
   const index = columns.findIndex(c => c.get('uuid') === uuid);
-  const onlyMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'bookmarked_statuses', 'other', 'onlyMedia']);
-  const withoutMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'bookmarked_statuses', 'other', 'withoutMedia']);
+  const layoutMode = readTimelineLayout(state, columnId, 'bookmarked_statuses');
+  const mediaLayout = layoutMode === 'media';
+  const onlyMedia = mediaLayout || ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'bookmarked_statuses', 'other', 'onlyMedia']));
+  const withoutMedia = mediaLayout ? false : ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'bookmarked_statuses', 'other', 'withoutMedia']));
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'bookmarked_statuses', 'columnWidth']);
 
   return {
@@ -34,6 +37,8 @@ const mapStateToProps = (state, { columnId }) => {
     onlyMedia,
     withoutMedia,
     columnWidth: columnWidth ?? defaultColumnWidth,
+    layoutMode,
+    mediaStatuses: mediaLayout ? state.get('statuses') : null,
   };
 };
 
@@ -48,6 +53,8 @@ class Bookmarks extends ImmutablePureComponent {
     columnId: PropTypes.string,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    layoutMode: PropTypes.string,
+    mediaStatuses: ImmutablePropTypes.map,
     onlyMedia: PropTypes.bool,
     withoutMedia: PropTypes.bool,
     hasMore: PropTypes.bool,
@@ -111,7 +118,7 @@ class Bookmarks extends ImmutablePureComponent {
   }
 
   render () {
-    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia } = this.props;
+    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses } = this.props;
     const pinned = !!columnId;
 
     const emptyMessage = <FormattedMessage id='empty_column.bookmarked_statuses' defaultMessage="You don't have any bookmarked toots yet. When you bookmark one, it will show up here." />;
@@ -119,6 +126,8 @@ class Bookmarks extends ImmutablePureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={this.setRef} label={intl.formatMessage(messages.heading)} columnWidth={columnWidth}>
         <ColumnHeader
+          columnId={columnId}
+          layoutScope='bookmarked_statuses'
           icon='bookmark'
           title={intl.formatMessage(messages.heading)}
           onPin={this.handlePin}
@@ -134,6 +143,8 @@ class Bookmarks extends ImmutablePureComponent {
         </ColumnHeader>
 
         <StatusList
+          layoutMode={layoutMode}
+          mediaStatuses={mediaStatuses}
           trackScroll={!pinned}
           statusIds={statusIds}
           scrollKey={`bookmarked_statuses-${columnId}`}

@@ -13,6 +13,7 @@ import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { debounce } from 'lodash';
 import { defaultColumnWidth } from 'mastodon/initial_state';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { changeSetting } from '../../actions/settings';
 import { List as ImmutableList, is } from 'immutable';
 
@@ -36,8 +37,10 @@ const mapStateToProps = (state, { columnId }) => {
   const columns = state.getIn(['settings', 'columns']);
   const index = columns ? columns.findIndex(c => c.get('uuid') === uuid) : -1;
   const pinned = columnId && index >= 0;
-  const onlyMedia = pinned ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'onlyMedia']);
-  const withoutMedia = pinned ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'withoutMedia']);
+  const layoutMode = readTimelineLayout(state, columnId, 'emoji_reactioned_statuses');
+  const mediaLayout = layoutMode === 'media';
+  const onlyMedia = mediaLayout || (pinned ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'onlyMedia']));
+  const withoutMedia = mediaLayout ? false : (pinned ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'withoutMedia']));
   const columnWidth = pinned ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'columnWidth']);
   const emojis = emojiFilterList(pinned ? columns.get(index).getIn(['params', 'emojis']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'emojis']));
   const listKey = emojiReactionedStatusesListKey(columnId);
@@ -56,6 +59,8 @@ const mapStateToProps = (state, { columnId }) => {
     onlyMedia,
     withoutMedia,
     columnWidth: columnWidth ?? defaultColumnWidth,
+    layoutMode,
+    mediaStatuses: mediaLayout ? state.get('statuses') : null,
   };
 };
 
@@ -70,6 +75,8 @@ class EmojiReactions extends ImmutablePureComponent {
     columnId: PropTypes.string,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    layoutMode: PropTypes.string,
+    mediaStatuses: ImmutablePropTypes.map,
     onlyMedia: PropTypes.bool,
     withoutMedia: PropTypes.bool,
     hasMore: PropTypes.bool,
@@ -150,7 +157,7 @@ class EmojiReactions extends ImmutablePureComponent {
   }
 
   render () {
-    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia } = this.props;
+    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses } = this.props;
     const pinned = !!columnId;
 
     const emptyMessage = <FormattedMessage id='empty_column.emoji_reactioned_statuses' defaultMessage="You don't have any reaction posts yet. When you reaction one, it will show up here." />;
@@ -158,6 +165,8 @@ class EmojiReactions extends ImmutablePureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={this.setRef} label={intl.formatMessage(messages.heading)} columnWidth={columnWidth}>
         <ColumnHeader
+          columnId={columnId}
+          layoutScope='emoji_reactioned_statuses'
           icon='star'
           title={intl.formatMessage(messages.heading)}
           onPin={this.handlePin}
@@ -175,6 +184,8 @@ class EmojiReactions extends ImmutablePureComponent {
         <EmojiFilterDropdownContainer columnId={columnId} />
 
         <StatusList
+          layoutMode={layoutMode}
+          mediaStatuses={mediaStatuses}
           trackScroll={!pinned}
           statusIds={statusIds}
           scrollKey={`emoji_reactioned_statuses-${columnId}`}
