@@ -128,7 +128,7 @@ class ColumnHeader extends React.PureComponent {
     }
 
     if (columnId) {
-      dispatch(changeColumnParams(columnId, 'layoutMode', event.target.value));
+      dispatch(changeColumnParams(columnId, ['layoutMode'], event.target.value));
     } else {
       dispatch(changeSetting([layoutScope, 'layoutMode'], event.target.value));
     }
