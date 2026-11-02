@@ -77,6 +77,18 @@ export function updateTimeline(timeline, status, accept, options = {}) {
       });
     };
 
+    // The same streaming event feeds a separately paginated media view when
+    // that view is mounted. Keep text-only updates out of the media variant.
+    const source = status.reblog && typeof status.reblog === 'object' ? status.reblog : status;
+    const withMedia = Array.isArray(source.media_attachments) && source.media_attachments.length > 0;
+    const insertMediaVariant = timeline => {
+      const variant = `${timeline}:media`;
+
+      if (withMedia && getState().hasIn(['timelines', variant])) {
+        insertTimeline(variant);
+      }
+    };
+
     const visibility = status.visibility_ex || status.visibility;
     const homeVisibilities = getHomeVisibilities(getState());
     const limitedVisibilities = getLimitedVisibilities(getState());
@@ -84,11 +96,13 @@ export function updateTimeline(timeline, status, accept, options = {}) {
     if (timeline === 'home') {
       if (homeVisibilities.includes(visibility)) {
         insertTimeline('home');
+        insertMediaVariant('home');
         dispatch(submitMarkers());
       }
 
       if (limitedVisibilities.includes(visibility)) {
         insertTimeline('limited');
+        insertMediaVariant('limited');
       }
 
       if (visibility === 'personal') {
@@ -103,6 +117,9 @@ export function updateTimeline(timeline, status, accept, options = {}) {
       }
     } else {
       insertTimeline(timeline);
+      if (!timeline.endsWith(':media')) {
+        insertMediaVariant(timeline);
+      }
     }
 
     syncImmediateFeedFlights(getState);
@@ -441,8 +458,8 @@ export function expandTimeline(timelineId, path, params = {}, done = noOp, optio
   };
 };
 
-export const expandHomeTimeline            = ({ maxId, visibilities, timelineId = 'home', externalReconnect = false } = {}, done = noOp) => expandTimeline(timelineId, '/api/v1/timelines/home', { max_id: maxId, visibilities: visibilities }, done, { externalReconnect });
-export const expandLimitedTimeline         = ({ maxId, visibilities, timelineId = 'limited' } = {}, done = noOp) => expandTimeline(timelineId, '/api/v1/timelines/home', { max_id: maxId, visibilities: visibilities }, done);
+export const expandHomeTimeline            = ({ maxId, visibilities, onlyMedia = false, timelineId = onlyMedia ? 'home:media' : 'home', externalReconnect = false } = {}, done = noOp) => expandTimeline(timelineId, '/api/v1/timelines/home', { max_id: maxId, visibilities: visibilities, only_media: !!onlyMedia }, done, { externalReconnect });
+export const expandLimitedTimeline         = ({ maxId, visibilities, onlyMedia = false, timelineId = onlyMedia ? 'limited:media' : 'limited' } = {}, done = noOp) => expandTimeline(timelineId, '/api/v1/timelines/home', { max_id: maxId, visibilities: visibilities, only_media: !!onlyMedia }, done);
 export const expandPersonalTimeline        = ({ maxId, onlyMedia, withoutMedia, timelineId = personalTimelineId({ onlyMedia, withoutMedia }) } = {}, done = noOp) => expandTimeline(timelineId, '/api/v1/timelines/personal', { max_id: maxId, only_media: !!onlyMedia, without_media: !!withoutMedia }, done);
 export const expandPublicTimeline          = ({ maxId, onlyMedia, withoutMedia, withoutBot, onlyRemote, timelineId = publicTimelineId({ onlyRemote, withoutBot, withoutMedia, onlyMedia }) } = {}, done = noOp) => expandTimeline(timelineId, '/api/v1/timelines/public', { remote: !!onlyRemote, max_id: maxId, only_media: !!onlyMedia, without_media: !!withoutMedia, without_bot: !!withoutBot }, done);
 export const expandDomainTimeline          = (domain, { maxId, onlyMedia, withoutMedia, withoutBot, timelineId = domainTimelineId(domain, { withoutBot, withoutMedia, onlyMedia }) } = {}, done = noOp) => expandTimeline(timelineId, '/api/v1/timelines/public', { local: false, domain: domain, max_id: maxId, only_media: !!onlyMedia, without_media: !!withoutMedia, without_bot: !!withoutBot }, done);
@@ -452,10 +469,11 @@ export const expandAccountTimeline         = (accountId, { maxId, withReplies, w
 export const expandAccountCoversations     = (accountId, { maxId } = {}) => expandTimeline(`account:${accountId}:conversations`, `/api/v1/accounts/${accountId}/conversations`, { max_id: maxId });
 export const expandAccountFeaturedTimeline = (accountId, { tagged } = {}) => expandTimeline(`account:${accountId}:pinned${tagged ? `:${tagged}` : ''}`, `/api/v1/accounts/${accountId}/statuses`, { pinned: true, tagged });
 export const expandAccountMediaTimeline    = (accountId, { maxId } = {}) => expandTimeline(`account:${accountId}:media`, `/api/v1/accounts/${accountId}/statuses`, { max_id: maxId, only_media: true, limit: 40 });
-export const expandListTimeline            = (id, { maxId, timelineId = `list:${id}`, externalReconnect = false } = {}, done = noOp) => expandTimeline(timelineId, `/api/v1/timelines/list/${id}`, { max_id: maxId }, done, { externalReconnect });
-export const expandHashtagTimeline         = (hashtag, { maxId, tags, timelineId = hashtagTimelineId(hashtag) } = {}, done = noOp) => {
+export const expandListTimeline            = (id, { maxId, onlyMedia = false, timelineId = `list:${id}${onlyMedia ? ':media' : ''}`, externalReconnect = false } = {}, done = noOp) => expandTimeline(timelineId, `/api/v1/timelines/list/${id}`, { max_id: maxId, only_media: !!onlyMedia }, done, { externalReconnect });
+export const expandHashtagTimeline         = (hashtag, { maxId, tags, onlyMedia = false, timelineId = hashtagTimelineId(hashtag, { onlyMedia }) } = {}, done = noOp) => {
   return expandTimeline(timelineId, `/api/v1/timelines/tag/${hashtag}`, {
     max_id: maxId,
+    only_media: !!onlyMedia,
     any:    parseTags(tags, 'any'),
     all:    parseTags(tags, 'all'),
     none:   parseTags(tags, 'none'),
