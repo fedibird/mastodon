@@ -54,6 +54,29 @@ RSpec.describe HomeFeed, type: :model do
       end
     end
 
+    context 'when requesting only media' do
+      before do
+        first = Fabricate(:status, account: account, id: 201, media_attachments: [Fabricate.build(:media_attachment, account: account)])
+        Fabricate(:status, account: account, id: 202)
+        last = Fabricate(:status, account: account, id: 203, media_attachments: [Fabricate.build(:media_attachment, account: account)])
+        Fabricate(:status, account: account, id: 204)
+
+        redis.zadd(
+          FeedManager.instance.key(:home, account.id),
+          [[201, first.id], [202, 202], [203, last.id], [204, 204]]
+        )
+      end
+
+      it 'refills past text-only ids before limiting the page' do
+        expect(subject.get(1, nil, nil, nil, [], only_media: true).map(&:id)).to eq [203]
+        expect(subject.get(1, 203, nil, nil, [], only_media: true).map(&:id)).to eq [201]
+      end
+
+      it 'keeps ordinary retrieval unchanged' do
+        expect(subject.get(4).map(&:id)).to eq [204, 203, 202, 201]
+      end
+    end
+
     context 'when feed is being generated' do
       before do
         redis.set("account:#{account.id}:regeneration", true)
