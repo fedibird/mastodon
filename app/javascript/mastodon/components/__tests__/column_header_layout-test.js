@@ -103,11 +103,21 @@ HeaderHarness.propTypes = {
   multiColumn: require('prop-types').bool,
 };
 
-const renderHeader = (store, columnId, multiColumn) => render(
-  <Provider store={store}>
-    <HeaderHarness columnId={columnId} multiColumn={multiColumn} />
-  </Provider>,
-);
+const renderHeader = (store, columnId, multiColumn) => {
+  // Single-column headers portal into the tab bar, which must exist before
+  // the first render to avoid the component's deferred portal re-render.
+  if (multiColumn === false && !document.getElementById('tabs-bar__portal')) {
+    const portal = document.createElement('div');
+    portal.id = 'tabs-bar__portal';
+    document.body.appendChild(portal);
+  }
+
+  return render(
+    <Provider store={store}>
+      <HeaderHarness columnId={columnId} multiColumn={multiColumn} />
+    </Provider>,
+  );
+};
 
 describe('ColumnHeader layout selector', () => {
   it('renders and updates the standalone timeline setting when columnId is absent', () => {
