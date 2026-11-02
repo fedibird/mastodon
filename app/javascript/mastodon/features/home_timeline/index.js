@@ -247,6 +247,9 @@ class HomeTimeline extends React.PureComponent {
     if (!split.isSplit) {
       timeline = (
         <StatusListContainer
+          columnId={columnId}
+          layoutScope='home'
+          disableLayout={split.isSplit}
           trackScroll={!pinned}
           scrollKey={`home_timeline-${columnId}`}
           onLoadMore={this.handleLoadMore}
@@ -260,6 +263,9 @@ class HomeTimeline extends React.PureComponent {
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
             <StatusListContainer
+          columnId={columnId}
+          layoutScope='home'
+          disableLayout={split.isSplit}
               timelineId='home'
               dataTimelineId='home'
               includePendingItems
@@ -277,6 +283,9 @@ class HomeTimeline extends React.PureComponent {
 
           <div className='timeline-split__pane timeline-split__pane--history'>
             <StatusListContainer
+          columnId={columnId}
+          layoutScope='home'
+          disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`home_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
@@ -295,6 +304,8 @@ class HomeTimeline extends React.PureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
+          columnId={columnId}
+          layoutScope='home'
           icon='home'
           active={hasUnread}
           title={intl.formatMessage(messages.title)}

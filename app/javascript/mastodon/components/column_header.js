@@ -6,6 +6,9 @@ import classNames from 'classnames';
 import { FormattedMessage, injectIntl, defineMessages } from 'react-intl';
 import Icon from 'mastodon/components/icon';
 import { enableEmptyColumn, defaultColumnWidth } from 'mastodon/initial_state';
+import { changeColumnParams } from 'mastodon/actions/columns';
+import { changeSetting } from 'mastodon/actions/settings';
+import { readTimelineLayout, TIMELINE_LAYOUT_OPTIONS } from 'mastodon/utils/timeline_layout';
 
 const messages = defineMessages({
   show: { id: 'column_header.show_settings', defaultMessage: 'Show settings' },
@@ -22,8 +25,9 @@ const column_width_message = [
   { id: 'free', defaultMessage: <FormattedMessage id={'column_width.free'} defaultMessage='Free' /> },
 ];
 
-const mapStateToProps = (state, { columnWidth }) => ({
+const mapStateToProps = (state, { columnWidth, columnId, layoutScope }) => ({
   columnWidth: columnWidth ?? defaultColumnWidth,
+  layoutMode: readTimelineLayout(state, columnId, layoutScope),
 });
 
 export default @connect(mapStateToProps)
@@ -52,6 +56,10 @@ class ColumnHeader extends React.PureComponent {
     collapseIssues: PropTypes.bool,
     columnWidth: PropTypes.string,
     onWidthChange: PropTypes.func,
+    layoutScope: PropTypes.string,
+    columnId: PropTypes.string,
+    layoutMode: PropTypes.string,
+    dispatch: PropTypes.func,
   };
 
   state = {
@@ -111,8 +119,23 @@ class ColumnHeader extends React.PureComponent {
     }
   }
 
+  handleChangeLayout = (event) => {
+    event.stopPropagation();
+    const { columnId, layoutScope, dispatch } = this.props;
+
+    if (!layoutScope || !dispatch) {
+      return;
+    }
+
+    if (columnId) {
+      dispatch(changeColumnParams(columnId, 'layoutMode', event.target.value));
+    } else {
+      dispatch(changeSetting([layoutScope, 'layoutMode'], event.target.value));
+    }
+  }
+
   render () {
-    const { title, icon, active, children, pinned, multiColumn, extraButton, showBackButton, intl: { formatMessage }, placeholder, appendContent, collapseIssues, columnWidth } = this.props;
+    const { title, icon, active, children, pinned, multiColumn, extraButton, showBackButton, intl: { formatMessage }, placeholder, appendContent, collapseIssues, columnWidth, layoutScope, layoutMode } = this.props;
     const { collapsed, animating } = this.state;
 
     const wrapperClassName = classNames('column-header__wrapper', {
@@ -182,8 +205,32 @@ class ColumnHeader extends React.PureComponent {
       </div>
     );
 
+    const layoutLabels = {
+      normal: <FormattedMessage id='column_header.layout.normal' defaultMessage='Normal' />,
+      'card-1': <FormattedMessage id='column_header.layout.card_1' defaultMessage='Cards (1 column)' />,
+      'card-2': <FormattedMessage id='column_header.layout.card_2' defaultMessage='Cards (2 columns)' />,
+      'card-3': <FormattedMessage id='column_header.layout.card_3' defaultMessage='Cards (3 columns)' />,
+      media: <FormattedMessage id='column_header.layout.media' defaultMessage='Media' />,
+    };
+    const layoutButton = layoutScope && (
+      <div className='column-settings__row column-layout-settings' key='column-layout'>
+        <label htmlFor={`column-layout-${columnId || layoutScope}`}>
+          <FormattedMessage id='column_header.layout.label' defaultMessage='Display mode' />
+        </label>
+        <select
+          id={`column-layout-${columnId || layoutScope}`}
+          className='column-layout-settings__select'
+          value={layoutMode}
+          onChange={this.handleChangeLayout}
+        >
+          {TIMELINE_LAYOUT_OPTIONS.map(mode => <option value={mode} key={mode}>{layoutLabels[mode]}</option>)}
+        </select>
+      </div>
+    );
+
     const collapsedContent = [
       extraContent,
+      layoutButton,
     ];
 
     if (multiColumn) {

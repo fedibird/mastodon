@@ -314,6 +314,9 @@ class ListTimeline extends React.PureComponent {
     if (!split.isSplit) {
       timeline = (
         <StatusListContainer
+          columnId={columnId}
+          layoutScope='list'
+          disableLayout={split.isSplit}
           trackScroll={!pinned}
           scrollKey={`list_timeline-${columnId}`}
           timelineId={sourceTimelineId}
@@ -329,6 +332,9 @@ class ListTimeline extends React.PureComponent {
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
             <StatusListContainer
+          columnId={columnId}
+          layoutScope='list'
+          disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               includePendingItems
@@ -348,6 +354,9 @@ class ListTimeline extends React.PureComponent {
 
           <div className='timeline-split__pane timeline-split__pane--history'>
             <StatusListContainer
+          columnId={columnId}
+          layoutScope='list'
+          disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`list_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
@@ -366,6 +375,8 @@ class ListTimeline extends React.PureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
         <ColumnHeader
+          columnId={columnId}
+          layoutScope='list'
           icon='list-ul'
           active={hasUnread}
           title={title}

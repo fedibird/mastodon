@@ -179,6 +179,9 @@ class PublicTimeline extends React.PureComponent {
     if (!split.isSplit) {
       timeline = (
         <StatusListContainer
+          columnId={columnId}
+          layoutScope='public'
+          disableLayout={split.isSplit}
           timelineId={sourceTimelineId}
           onLoadMore={this.handleLoadMore}
           trackScroll={!pinned}
@@ -193,6 +196,9 @@ class PublicTimeline extends React.PureComponent {
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
             <StatusListContainer
+          columnId={columnId}
+          layoutScope='public'
+          disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               includePendingItems
@@ -211,6 +217,9 @@ class PublicTimeline extends React.PureComponent {
 
           <div className='timeline-split__pane timeline-split__pane--history'>
             <StatusListContainer
+          columnId={columnId}
+          layoutScope='public'
+          disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`public_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
@@ -230,6 +239,8 @@ class PublicTimeline extends React.PureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
+          columnId={columnId}
+          layoutScope='public'
           icon='globe'
           active={hasUnread}
           title={intl.formatMessage(messages.title)}
