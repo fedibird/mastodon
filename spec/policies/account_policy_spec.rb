@@ -140,4 +140,24 @@ RSpec.describe AccountPolicy do
       end
     end
   end
+
+  permissions :change_person_type?, :change_service_type? do
+    it 'rejects changing the actor type of a managed Group' do
+      request = GroupCreationRequest.create!(
+        requester_account: Fabricate(:user).account,
+        username: 'policymanagedgroup',
+        display_name: 'Managed group'
+      )
+      group = Fabricate(:account, username: request.username, actor_type: 'Group')
+      ManagedGroup.create!(account: group, creation_request: request, origin: :approved_request)
+
+      expect(subject).not_to permit(admin, group)
+    end
+
+    it 'keeps existing unmanaged Group actor type moderation available' do
+      group = Fabricate(:account, actor_type: 'Group')
+
+      expect(subject).to permit(admin, group)
+    end
+  end
 end

@@ -68,7 +68,7 @@
   %div
     = link_to admin_action_logs_path(target_account_id: @account.id) do
       .dashboard__counters__text
-        - if @account.local? && @account.user.nil?
+        - if admin_deleted_local_account?(@account)
           = t('admin.accounts.deleted')
         - elsif @account.memorial?
           = t('admin.accounts.memorialized')
@@ -80,17 +80,19 @@
           = t('admin.accounts.silenced')
         - elsif @account.local? && @account.user&.disabled?
           = t('admin.accounts.disabled')
-        - elsif @account.local? && !@account.user&.confirmed?
+        - elsif @account.local? && @account.user && !@account.user.confirmed?
           = t('admin.accounts.confirming')
-        - elsif @account.local? && !@account.user_approved?
+        - elsif @account.local? && @account.user && !@account.user_approved?
           = t('admin.accounts.pending')
         - elsif @account.sensitized?
           = t('admin.accounts.sensitive')
+        - elsif admin_managed_group_without_login?(@account)
+          = t('admin.accounts.group_without_login')
         - else
           = t('admin.accounts.no_limits_imposed')
       .dashboard__counters__label= t 'admin.accounts.login_status'
 
-- unless @account.local? && @account.user.nil?
+- unless admin_deleted_local_account?(@account)
   .table-wrapper
     %table.table.inline-table
       %tbody
@@ -107,15 +109,16 @@
               %td= table_link_to 'trash', t('admin.accounts.remove_header'), remove_header_admin_account_path(@account.id), method: :post, data: { confirm: t('admin.accounts.are_you_sure') } if can?(:remove_header, @account)
               %td
 
-          %tr
-            %th= t('admin.accounts.role')
-            %td
-              - if @account.role.nil? || @account.role.everyone?
-                = t('admin.accounts.change_role.no_role')
-              - else
-                = @account.role.name
-            %td
-              = table_link_to 'pencil', t('admin.accounts.change_role.label'), admin_user_role_path(@account.user) if @account.user && can?(:change_role, @account.user)
+          - if @account.user.present?
+            %tr
+              %th= t('admin.accounts.role')
+              %td
+                - if @account.role.nil? || @account.role.everyone?
+                  = t('admin.accounts.change_role.no_role')
+                - else
+                  = @account.role.name
+              %td
+                = table_link_to 'pencil', t('admin.accounts.change_role.label'), admin_user_role_path(@account.user) if @account.user && can?(:change_role, @account.user)
 
           %tr
             %th= t('admin.accounts.type')
@@ -133,58 +136,59 @@
               = table_link_to 'angle-double-right', t('admin.accounts.change_priorities.default'), default_admin_account_priority_path(@account.id), method: :post, data: { confirm: t('admin.accounts.are_you_sure') } if can?(:change_default_priority, @account)
               = table_link_to 'angle-double-down', t('admin.accounts.change_priorities.low'), low_admin_account_priority_path(@account.id), method: :post, data: { confirm: t('admin.accounts.are_you_sure') } if can?(:change_low_priority, @account)
 
-          %tr
-            %th{ rowspan: can?(:create, :email_domain_block) ? 3 : 2 }= t('admin.accounts.email')
-            %td{ rowspan: can?(:create, :email_domain_block) ? 3 : 2 }= @account.user_email
-            %td= table_link_to 'edit', t('admin.accounts.change_email.label'), admin_account_change_email_path(@account.id) if can?(:change_email, @account.user)
-
-          %tr
-            %td= table_link_to 'search', t('admin.accounts.search_same_email_domain'), admin_accounts_path(email: "%@#{@account.user_email.split('@').last}")
-
-          - if can?(:create, :email_domain_block)
+          - if @account.user.present?
             %tr
-              %td= table_link_to 'ban', t('admin.accounts.add_email_domain_block'), new_admin_email_domain_block_path(_domain: @account.user_email.split('@').last)
+              %th{ rowspan: can?(:create, :email_domain_block) ? 3 : 2 }= t('admin.accounts.email')
+              %td{ rowspan: can?(:create, :email_domain_block) ? 3 : 2 }= @account.user_email
+              %td= table_link_to 'edit', t('admin.accounts.change_email.label'), admin_account_change_email_path(@account.id) if can?(:change_email, @account.user)
 
-          - if @account.user_unconfirmed_email.present?
             %tr
-              %th= t('admin.accounts.unconfirmed_email')
-              %td= @account.user_unconfirmed_email
+              %td= table_link_to 'search', t('admin.accounts.search_same_email_domain'), admin_accounts_path(email: "%@#{@account.user_email.split('@').last}")
+
+            - if can?(:create, :email_domain_block)
+              %tr
+                %td= table_link_to 'ban', t('admin.accounts.add_email_domain_block'), new_admin_email_domain_block_path(_domain: @account.user_email.split('@').last)
+
+            - if @account.user_unconfirmed_email.present?
+              %tr
+                %th= t('admin.accounts.unconfirmed_email')
+                %td= @account.user_unconfirmed_email
+                %td
+
+            %tr
+              %th= t('admin.accounts.email_status')
               %td
-
-          %tr
-            %th= t('admin.accounts.email_status')
-            %td
-              - if @account.user&.confirmed?
-                = t('admin.accounts.confirmed')
-              - else
-                = t('admin.accounts.confirming')
-            %td= table_link_to 'refresh', t('admin.accounts.resend_confirmation.send'), resend_admin_account_confirmation_path(@account.id), method: :post if can?(:confirm, @account.user)
-          %tr
-            %th{ rowspan: can?(:reset_password, @account.user) ? 2 : 1 }= t('admin.accounts.security')
-            %td{ rowspan: can?(:reset_password, @account.user) ? 2 : 1 }
-              - if @account.user&.two_factor_enabled?
-                = t 'admin.accounts.security_measures.password_and_2fa'
-              - elsif @account.user&.skip_sign_in_token?
-                = t 'admin.accounts.security_measures.only_password'
-              - else
-                = t 'admin.accounts.security_measures.password_and_sign_in_token'
-            %td
-              - if @account.user&.two_factor_enabled?
-                = table_link_to 'unlock', t('admin.accounts.disable_two_factor_authentication'), admin_user_two_factor_authentication_path(@account.user.id), method: :delete if can?(:disable_2fa, @account.user)
-              - elsif @account.user&.skip_sign_in_token?
-                = table_link_to 'lock', t('admin.accounts.enable_sign_in_token_auth'), admin_user_sign_in_token_authentication_path(@account.user.id), method: :post if can?(:enable_sign_in_token_auth, @account.user)
-              - else
-                = table_link_to 'unlock', t('admin.accounts.disable_sign_in_token_auth'), admin_user_sign_in_token_authentication_path(@account.user.id), method: :delete if can?(:disable_sign_in_token_auth, @account.user)
-
-          - if can?(:reset_password, @account.user)
+                - if @account.user&.confirmed?
+                  = t('admin.accounts.confirmed')
+                - else
+                  = t('admin.accounts.confirming')
+              %td= table_link_to 'refresh', t('admin.accounts.resend_confirmation.send'), resend_admin_account_confirmation_path(@account.id), method: :post if can?(:confirm, @account.user)
             %tr
+              %th{ rowspan: can?(:reset_password, @account.user) ? 2 : 1 }= t('admin.accounts.security')
+              %td{ rowspan: can?(:reset_password, @account.user) ? 2 : 1 }
+                - if @account.user&.two_factor_enabled?
+                  = t 'admin.accounts.security_measures.password_and_2fa'
+                - elsif @account.user&.skip_sign_in_token?
+                  = t 'admin.accounts.security_measures.only_password'
+                - else
+                  = t 'admin.accounts.security_measures.password_and_sign_in_token'
               %td
-                = table_link_to 'key', t('admin.accounts.reset_password'), admin_account_reset_path(@account.id), method: :create, data: { confirm: t('admin.accounts.are_you_sure') }
+                - if @account.user&.two_factor_enabled?
+                  = table_link_to 'unlock', t('admin.accounts.disable_two_factor_authentication'), admin_user_two_factor_authentication_path(@account.user.id), method: :delete if can?(:disable_2fa, @account.user)
+                - elsif @account.user&.skip_sign_in_token?
+                  = table_link_to 'lock', t('admin.accounts.enable_sign_in_token_auth'), admin_user_sign_in_token_authentication_path(@account.user.id), method: :post if can?(:enable_sign_in_token_auth, @account.user)
+                - else
+                  = table_link_to 'unlock', t('admin.accounts.disable_sign_in_token_auth'), admin_user_sign_in_token_authentication_path(@account.user.id), method: :delete if can?(:disable_sign_in_token_auth, @account.user)
 
-          %tr
-            %th= t('simple_form.labels.defaults.locale')
-            %td= @account.user_locale
-            %td
+            - if can?(:reset_password, @account.user)
+              %tr
+                %td
+                  = table_link_to 'key', t('admin.accounts.reset_password'), admin_account_reset_path(@account.id), method: :create, data: { confirm: t('admin.accounts.are_you_sure') }
+
+            %tr
+              %th= t('simple_form.labels.defaults.locale')
+              %td= @account.user_locale
+              %td
 
           %tr
             %th= t('admin.accounts.joined')
@@ -192,25 +196,26 @@
               %time.formatted{ datetime: @account.created_at.iso8601, title: l(@account.created_at) }= l @account.created_at
             %td
 
-          - @account.user.recent_ips.each_with_index do |(_, ip), i|
-            %tr
-              - if i.zero?
-                %th{ rowspan: @account.user.recent_ips.size }= t('admin.accounts.most_recent_ip')
-              %td= ip
-              %td= table_link_to 'search', t('admin.accounts.search_same_ip'), admin_accounts_path(ip: ip)
+          - if @account.user.present?
+            - @account.user.recent_ips.each_with_index do |(_, ip), i|
+              %tr
+                - if i.zero?
+                  %th{ rowspan: @account.user.recent_ips.size }= t('admin.accounts.most_recent_ip')
+                %td= ip
+                %td= table_link_to 'search', t('admin.accounts.search_same_ip'), admin_accounts_path(ip: ip)
 
-          %tr
-            %th= t('admin.accounts.most_recent_activity')
-            %td
-              - if @account.user_current_sign_in_at
-                %time.formatted{ datetime: @account.user_current_sign_in_at.iso8601, title: l(@account.user_current_sign_in_at) }= l @account.user_current_sign_in_at
-            %td
-
-          - if @account.user&.invited?
             %tr
-              %th= t('admin.accounts.invited_by')
-              %td= admin_account_link_to @account.user.invite.user.account
+              %th= t('admin.accounts.most_recent_activity')
               %td
+                - if @account.user_current_sign_in_at
+                  %time.formatted{ datetime: @account.user_current_sign_in_at.iso8601, title: l(@account.user_current_sign_in_at) }= l @account.user_current_sign_in_at
+              %td
+
+            - if @account.user&.invited?
+              %tr
+                %th= t('admin.accounts.invited_by')
+                %td= admin_account_link_to @account.user.invite.user.account
+                %td
 
         - else
           %tr
@@ -268,7 +273,7 @@
           = link_to t('admin.accounts.silence'), new_admin_account_action_path(@account.id, type: 'silence'), class: 'button' if can?(:silence, @account)
           = link_to t('admin.accounts.hard_silence'), new_admin_account_action_path(@account.id, type: 'hard_silence'), class: 'button' if can?(:silence, @account)
 
-        - if @account.local?
+        - if @account.local? && @account.user.present?
           - if @account.user_pending?
             = link_to t('admin.accounts.approve'), approve_admin_account_path(@account.id), method: :post, data: { confirm: t('admin.accounts.are_you_sure') }, class: 'button' if can?(:approve, @account.user)
             = link_to t('admin.accounts.reject'), reject_admin_account_path(@account.id), method: :post, data: { confirm: t('admin.accounts.are_you_sure') }, class: 'button button--destructive' if can?(:reject, @account.user)
