@@ -1,0 +1,205 @@
+// Layout modes are scoped to timeline rows; normal statuses stay unchanged.
+.column-layout-settings {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+
+  label { color: $darker-text-color; }
+
+  &__select {
+    max-width: 65%;
+    min-width: 0;
+    padding: 6px 8px;
+    color: $primary-text-color;
+    border: 1px solid $ui-base-lighter-color;
+    border-radius: 5px;
+    background: $ui-base-color;
+  }
+}
+
+.timeline-masonry {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+
+  &__item {
+    box-sizing: border-box;
+    position: absolute;
+    top: 0;
+    left: 0;
+    min-width: 0;
+  }
+}
+
+.timeline-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
+  gap: 8px;
+  padding: 8px;
+  align-items: start;
+  min-width: 0;
+
+  > article { min-width: 0; }
+  > article:has(.load-gap) { grid-column: 1 / -1; }
+}
+
+.status__wrapper--compact {
+  margin: 4px;
+  overflow: hidden;
+  border: 1px solid $ui-base-lighter-color;
+  border-radius: 12px;
+  background: $ui-base-color;
+  min-width: 0;
+
+  .status__content { margin: 0; padding: 0; }
+}
+
+.timeline-card {
+  min-width: 0;
+
+  &__media {
+    overflow: hidden;
+    max-width: 100%;
+
+    .status-media-stack,
+    .media-gallery,
+    .video-player,
+    .audio-player { margin: 0; max-width: 100%; }
+  }
+
+  &__body {
+    padding: 9px 10px;
+    overflow-wrap: anywhere;
+  }
+
+  &__quote {
+    margin: 0 8px 8px;
+    padding: 7px;
+    border: 1px solid $ui-base-lighter-color;
+    border-radius: 7px;
+    color: $darker-text-color;
+    cursor: pointer;
+
+    &-author { display: flex; gap: 5px; align-items: center; min-width: 0; }
+    &-author .display-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    &-text {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin: 4px 0 0;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  &__preview {
+    margin: 0 8px 8px;
+    max-height: 115px;
+    overflow: hidden;
+    border-radius: 7px;
+  }
+
+  &__author {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+    padding: 6px 8px;
+    border-top: 1px solid lighten($ui-base-color, 5%);
+  }
+
+  &__author-link {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-decoration: none;
+
+    .display-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .display-name__account { display: none; }
+  }
+
+  &__favourite {
+    flex: 0 0 auto;
+    .status__action-bar-button { padding: 3px; }
+  }
+
+  &__reactions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 2px 7px 8px;
+    min-width: 0;
+
+    .reactions-bar { flex: 1; min-width: 0; }
+    .timeline-card__reaction-add { margin-inline-start: auto; }
+  }
+}
+
+.timeline-media-tile {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid $ui-base-lighter-color;
+  border-radius: 8px;
+  background: $ui-base-color;
+
+  &__open {
+    display: block;
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+    background: lighten($ui-base-color, 5%);
+    color: $darker-text-color;
+    cursor: pointer;
+
+    img { width: 100%; height: 100%; object-fit: cover; }
+  }
+
+  &__placeholder {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+    font-size: 26px;
+  }
+
+  &__play {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: white;
+    text-shadow: 0 1px 5px #000;
+    pointer-events: none;
+  }
+
+  &__source {
+    display: block;
+    width: 100%;
+    padding: 5px 7px;
+    border: 0;
+    background: transparent;
+    color: $darker-text-color;
+    font-size: 12px;
+    text-align: start;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    cursor: pointer;
+  }
+}

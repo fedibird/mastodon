@@ -32,6 +32,7 @@ import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { externalIdentityOf, externalIdentityName, externalIdentityReaderText } from 'mastodon/external_presentation';
 import ExternalStatusMedia from 'mastodon/components/external_status_media';
 import { assignRelease, spoilerConcealed } from 'mastodon/external_player/session';
+import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
 
 const domParser = new DOMParser();
 
@@ -302,6 +303,8 @@ class Status extends ImmutablePureComponent {
     reactionLimitReached: PropTypes.bool,
     sourceBadges: PropTypes.array,
     immediate: PropTypes.bool,
+    layoutMode: PropTypes.string,
+    mediaIndex: PropTypes.number,
   };
 
   static defaultProps = {
@@ -322,6 +325,8 @@ class Status extends ImmutablePureComponent {
     'quote_muted',
     'sourceBadges',
     'immediate',
+    'layoutMode',
+    'mediaIndex',
   ];
 
   state = {
@@ -673,11 +678,182 @@ class Status extends ImmutablePureComponent {
     this.emoji_node = c;
   }
 
+
+  handleTimelineCardClick = event => {
+    const target = event.target;
+    if (target && typeof target.closest === 'function' && target.closest('a, button, [role="button"], .quote-status')) {
+      return;
+    }
+
+    this.handleClick();
+  }
+
+  renderTimelineCard () {
+    const { status: original, intl, otherAccounts, account, contextType, scrollKey, quote_muted, reactionLimitReached, sourceBadges } = this.props;
+    const status = this._properStatus();
+    const externalIdentity = externalIdentityOf(status);
+    const hasSpoiler = !!status.get('spoiler_text');
+    const contentVisible = !hasSpoiler || !status.get('hidden');
+    const media = status.get('media_attachments', ImmutableList());
+    const firstMedia = contentVisible && media && media.size > 0
+      ? this.renderAttachmentMedia(status.set('media_attachments', media.take(1)), {
+        sensitive: status.get('sensitive'),
+        height: 160,
+        videoHeight: 160,
+        audioHeight: 100,
+        visible: this.state.showMedia,
+        onToggleVisibility: this.handleToggleMediaVisibility,
+        onOpenMedia: this.handleOpenMedia,
+        onOpenVideo: this.handleOpenVideo,
+        translationView: statusTranslationView(status),
+        posterFallback: status.getIn(['account', 'avatar_static']),
+      })
+      : null;
+
+    const quote = status.get('quote');
+    const hiddenQuote = quote && quote_muted;
+    const unlistedQuote = quote && quote.get('visibility') === 'unlisted' &&
+      !!contextType && ['public', 'community', 'hashtag'].includes(contextType.split(':', 2)[0]);
+    const quoteText = quote && (quote.get('hidden') && quote.get('spoiler_text')
+      ? quote.get('spoiler_text') : plainHtmlText(quote.get('contentHtml')));
+
+    const quoteBody = contentVisible && quote ? (
+      <div className='timeline-card__quote' onClick={event => { event.stopPropagation(); this.handleQuoteClick(); }} role='presentation'>
+        {hiddenQuote ? <FormattedMessage id='status.muted_quote' defaultMessage='Muted quote' /> :
+          unlistedQuote ? <FormattedMessage id='status.unlisted_quote' defaultMessage='Unlisted quote' /> : (
+            <>
+              {quote.get('account') && <div className='timeline-card__quote-author'>
+                <Avatar account={quote.get('account')} size={18} />
+                <DisplayName account={quote.get('account')} />
+              </div>}
+              <p className='timeline-card__quote-text'>{quoteText}</p>
+            </>
+          )}
+      </div>
+    ) : null;
+
+    const linkPreview = contentVisible && !quote && status.get('card') && !isHideCard(status.getIn(['card', 'type'])) ? (
+      <div className='timeline-card__preview'>
+        <Card
+          onOpenMedia={this.handleOpenMedia}
+          card={status.get('card')}
+          compact
+          maxDescription={50}
+          cacheWidth={this.props.cacheMediaWidth}
+          defaultWidth={this.props.cachedMediaWidth}
+          sensitive={status.get('sensitive')}
+        />
+      </div>
+    ) : null;
+
+    const expiresAt = status.get('expires_at');
+    const expired = expiresAt && new Date(expiresAt).getTime() < intl.now();
+
+    return (
+      <HotKeys handlers={{ open: this.handleHotkeyOpen, favourite: this.handleHotkeyFavourite, moveUp: this.handleHotkeyMoveUp, moveDown: this.handleHotkeyMoveDown }}>
+        <div className='status__wrapper status__wrapper--compact focusable' tabIndex='0' data-id={status.get('id')} aria-label={textForScreenReader(intl, status)} ref={this.handleRef} onClick={this.handleTimelineCardClick}>
+          <div className='timeline-card'>
+            {firstMedia && <div className='timeline-card__media'>{firstMedia}</div>}
+            <div className='timeline-card__body'>
+              <StatusContent status={status} translationWrapper={original} onClick={this.handleClick} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} compactCard />
+            </div>
+            {quoteBody}
+            {linkPreview}
+            <div className='timeline-card__author'>
+              {externalIdentity ? (
+                <ExternalSourceIdentity identity={externalIdentity} size={26} showLabel={false} />
+              ) : (
+                <a href={status.getIn(['account', 'url'])} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} onClick={this.handleAccountClick} className='timeline-card__author-link'>
+                  <Avatar account={status.get('account')} size={26} />
+                  <DisplayName account={status.get('account')} others={otherAccounts} />
+                </a>
+              )}
+              {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
+              <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='favourite' expired={expired} onFavourite={this.props.onFavourite} />
+            </div>
+            {enableReaction && <div className='timeline-card__reactions'>
+              <EmojiReactionsBar status={status} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} reactionLimitReached={reactionLimitReached} />
+              <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />
+            </div>}
+          </div>
+        </div>
+      </HotKeys>
+    );
+  }
+
+  handleMediaTileClick = event => {
+    event.stopPropagation();
+    const status = this._properStatus();
+    const media = status.get('media_attachments', ImmutableList());
+    const attachment = media.get(this.props.mediaIndex);
+
+    if (!attachment) {
+      return;
+    }
+
+    if (status.get('spoiler_text') && status.get('hidden')) {
+      this.handleExpandedToggle();
+      if (!this.state.showMedia) {
+        this.handleToggleMediaVisibility();
+      }
+      return;
+    }
+
+    if (!this.state.showMedia) {
+      this.handleToggleMediaVisibility();
+      return;
+    }
+
+    const type = attachment.get('type');
+    if (type === 'video') {
+      this.handleOpenVideo(attachment, { startTime: 0 });
+    } else if (type === 'image' || type === 'gifv') {
+      const gallery = media.filter(item => item && ['image', 'gifv'].includes(item.get('type')));
+      const index = gallery.findIndex(item => item === attachment || item.get('id') === attachment.get('id'));
+      this.handleOpenMedia(gallery, Math.max(0, index));
+    } else {
+      // Audio and unknown attachment types have controls on the full post.
+      this.handleClick();
+    }
+  }
+
+  renderMediaTile () {
+    const status = this._properStatus();
+    const media = status.get('media_attachments', ImmutableList());
+    const attachment = media.get(this.props.mediaIndex);
+
+    if (!attachment) {
+      return null;
+    }
+
+    const concealed = !!(status.get('spoiler_text') && status.get('hidden')) || !this.state.showMedia;
+    const preview = attachment.get('preview_url') || (attachment.get('type') === 'image' ? attachment.get('url') : null);
+    const canPreview = !concealed && preview && ['image', 'gifv', 'video'].includes(attachment.get('type'));
+    const alt = attachment.get('description') || status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || '';
+    const externalIdentity = externalIdentityOf(status);
+
+    return (
+      <div className='status__wrapper status__wrapper--media-tile' data-id={status.get('id')} ref={this.handleRef}>
+        <div className='timeline-media-tile'>
+          <button type='button' className='timeline-media-tile__open' onClick={this.handleMediaTileClick} aria-label={concealed ? 'Reveal media' : (alt || 'Open media')}>
+            {canPreview ? <img src={preview} alt={alt} loading='lazy' /> : <span className='timeline-media-tile__placeholder'>
+              <Icon id={concealed ? 'eye-slash' : attachment.get('type') === 'audio' ? 'music' : 'file-o'} />
+            </span>}
+            {!concealed && attachment.get('type') === 'video' && <span className='timeline-media-tile__play'><Icon id='play' /></span>}
+          </button>
+          <button type='button' className='timeline-media-tile__source' onClick={this.handleClick} title='Open post'>
+            {externalIdentity ? externalIdentityName(this.props.intl, externalIdentity) : (status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']))}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   render () {
     let media = null;
     let statusAvatar, prepend, rebloggedByText;
 
-    const { intl, hidden, featured, otherAccounts, unread, showThread, showCard, scrollKey, pictureInPicture, contextType, quote_muted, referenced, contextReferenced, reactionLimitReached } = this.props;
+    const { intl, hidden, featured, otherAccounts, unread, showThread, showCard, scrollKey, pictureInPicture, contextType, quote_muted, referenced, contextReferenced, reactionLimitReached, layoutMode } = this.props;
 
     let { status, account, sourceBadges, ...other } = this.props;
 
@@ -745,6 +921,14 @@ class Status extends ImmutablePureComponent {
           </div>
         </HotKeys>
       );
+    }
+
+    if (layoutMode === 'media') {
+      return this.renderMediaTile();
+    }
+
+    if (isCardTimelineLayout(layoutMode)) {
+      return this.renderTimelineCard();
     }
 
     if (featured) {
