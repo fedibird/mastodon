@@ -691,6 +691,19 @@ class Status extends ImmutablePureComponent {
     this.handleClick();
   }
 
+  handleTimelineQuoteClick = event => {
+    event.stopPropagation();
+    this.handleQuoteClick();
+  }
+
+  handleTimelineQuoteKeyDown = event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.handleQuoteClick();
+    }
+  }
+
   renderTimelineCard () {
     const { status: original, intl, otherAccounts, account, contextType, scrollKey, quote_muted, reactionLimitReached, sourceBadges } = this.props;
     const status = this._properStatus();
@@ -723,14 +736,8 @@ class Status extends ImmutablePureComponent {
     const quoteBody = contentVisible && quote ? (
       <div
         className='timeline-card__quote'
-        onClick={event => { event.stopPropagation(); this.handleQuoteClick(); }}
-        onKeyDown={event => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            event.stopPropagation();
-            this.handleQuoteClick();
-          }
-        }}
+        onClick={this.handleTimelineQuoteClick}
+        onKeyDown={this.handleTimelineQuoteKeyDown}
         role='button'
         tabIndex='0'
       >

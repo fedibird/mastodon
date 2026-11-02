@@ -22,8 +22,8 @@ export default class TimelineMasonry extends React.PureComponent {
   setRoot = node => { this.root = node; }
 
   componentDidMount () {
-    if (typeof ResizeObserver !== 'undefined') {
-      this.resizeObserver = new ResizeObserver(this.handleResize);
+    if (window.ResizeObserver) {
+      this.resizeObserver = new window.ResizeObserver(this.handleResize);
     }
 
     window.addEventListener('resize', this.measureFallback);
