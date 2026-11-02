@@ -33,7 +33,13 @@ module ExternalBridge
         relation = relation.where('statuses.deleted_at IS NULL')
         relation = relation.where('statuses.expired_at IS NULL')
         if only_media
-          relation = relation.where('EXISTS (SELECT 1 FROM media_attachments WHERE media_attachments.status_id = statuses.id)')
+          # Some RSS projections keep their saved media in the projection
+          # attachment join even when MediaAttachment.status_id is unset.
+          # Match the same media that the external REST presenter exposes.
+          relation = relation.where(<<~SQL.squish)
+            EXISTS (SELECT 1 FROM media_attachments WHERE media_attachments.status_id = statuses.id)
+            OR EXISTS (SELECT 1 FROM external_projection_attachments WHERE external_projection_attachments.external_status_projection_id = external_status_projections.id)
+          SQL
         end
         apply_destination(relation)
       end
