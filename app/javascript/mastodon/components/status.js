@@ -785,7 +785,7 @@ class Status extends ImmutablePureComponent {
               {externalIdentity ? (
                 <ExternalSourceIdentity identity={externalIdentity} size={26} showLabel={false} />
               ) : (
-                <a href={status.getIn(['account', 'url'])} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} onClick={this.handleAccountClick} className='timeline-card__author-link'>
+                <a href={status.getIn(['account', 'url'])} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} onClick={this.handleAccountClick} className='status__display-name timeline-card__author-link'>
                   <Avatar account={status.get('account')} size={26} />
                   <DisplayName account={status.get('account')} others={otherAccounts} />
                 </a>

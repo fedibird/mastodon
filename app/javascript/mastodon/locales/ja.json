@@ -1261,5 +1261,6 @@
   "visibility.match_message": "投稿の公開範囲を参照先に合わせますか？",
   "visibility.keep_message": "投稿の公開範囲を参照先に合わせず維持しますか？",
   "visibility.change": "変更",
-  "visibility.keep": "維持"
+  "visibility.keep": "維持",
+  "column_width.x200": "200%"
 }

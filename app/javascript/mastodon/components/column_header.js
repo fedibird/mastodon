@@ -6,15 +6,20 @@ import classNames from 'classnames';
 import { FormattedMessage, injectIntl, defineMessages } from 'react-intl';
 import Icon from 'mastodon/components/icon';
 import { enableEmptyColumn, defaultColumnWidth } from 'mastodon/initial_state';
-import { changeColumnParams } from 'mastodon/actions/columns';
-import { changeSetting } from 'mastodon/actions/settings';
-import { readTimelineLayout, TIMELINE_LAYOUT_OPTIONS } from 'mastodon/utils/timeline_layout';
+import { changeTimelineLayout } from 'mastodon/actions/columns';
+import { columnWidthForCardLayout, readTimelineLayout, TIMELINE_LAYOUT_OPTIONS } from 'mastodon/utils/timeline_layout';
 
 const messages = defineMessages({
   show: { id: 'column_header.show_settings', defaultMessage: 'Show settings' },
   hide: { id: 'column_header.hide_settings', defaultMessage: 'Hide settings' },
   moveLeft: { id: 'column_header.moveLeft_settings', defaultMessage: 'Move column to the left' },
   moveRight: { id: 'column_header.moveRight_settings', defaultMessage: 'Move column to the right' },
+  layoutLabel: { id: 'column_header.layout.label', defaultMessage: 'Display mode' },
+  layoutNormal: { id: 'column_header.layout.normal', defaultMessage: 'Normal' },
+  layoutCard1: { id: 'column_header.layout.card_1', defaultMessage: 'Cards (1 column)' },
+  layoutCard2: { id: 'column_header.layout.card_2', defaultMessage: 'Cards (2 columns)' },
+  layoutCard3: { id: 'column_header.layout.card_3', defaultMessage: 'Cards (3 columns)' },
+  layoutMedia: { id: 'column_header.layout.media', defaultMessage: 'Media' },
 });
 
 const column_width_message = [
@@ -22,6 +27,7 @@ const column_width_message = [
   { id: 'x100', defaultMessage: <FormattedMessage id={'column_width.x100'} defaultMessage='100%' /> },
   { id: 'x125', defaultMessage: <FormattedMessage id={'column_width.x125'} defaultMessage='125%' /> },
   { id: 'x150', defaultMessage: <FormattedMessage id={'column_width.x150'} defaultMessage='150%' /> },
+  { id: 'x200', defaultMessage: <FormattedMessage id={'column_width.x200'} defaultMessage='200%' /> },
   { id: 'free', defaultMessage: <FormattedMessage id={'column_width.free'} defaultMessage='Free' /> },
 ];
 
@@ -121,17 +127,24 @@ class ColumnHeader extends React.PureComponent {
 
   handleChangeLayout = (event) => {
     event.stopPropagation();
-    const { columnId, layoutScope, dispatch } = this.props;
+    const { columnId, layoutScope, dispatch, multiColumn, columnWidth } = this.props;
 
     if (!layoutScope || !dispatch) {
       return;
     }
 
-    if (columnId) {
-      dispatch(changeColumnParams(columnId, ['layoutMode'], event.target.value));
-    } else {
-      dispatch(changeSetting([layoutScope, 'layoutMode'], event.target.value));
-    }
+    const layoutMode = event.target.value;
+    const adjustedWidth = multiColumn ? columnWidthForCardLayout(layoutMode, columnWidth) : columnWidth;
+
+    // Preserve free / already-wide columns and make the optional width
+    // upgrade atomic with the layout change. Standalone settings are also
+    // handled by the same action.
+    dispatch(changeTimelineLayout({
+      columnId,
+      scope: layoutScope,
+      layoutMode,
+      columnWidth: adjustedWidth !== columnWidth ? adjustedWidth : undefined,
+    }));
   }
 
   render () {
@@ -205,17 +218,19 @@ class ColumnHeader extends React.PureComponent {
       </div>
     );
 
+    // <option> must contain plain text. FormattedMessage renders a <span>
+    // in react-intl v2, which is invalid inside a native select option.
     const layoutLabels = {
-      normal: <FormattedMessage id='column_header.layout.normal' defaultMessage='Normal' />,
-      'card-1': <FormattedMessage id='column_header.layout.card_1' defaultMessage='Cards (1 column)' />,
-      'card-2': <FormattedMessage id='column_header.layout.card_2' defaultMessage='Cards (2 columns)' />,
-      'card-3': <FormattedMessage id='column_header.layout.card_3' defaultMessage='Cards (3 columns)' />,
-      media: <FormattedMessage id='column_header.layout.media' defaultMessage='Media' />,
+      normal: formatMessage(messages.layoutNormal),
+      'card-1': formatMessage(messages.layoutCard1),
+      'card-2': formatMessage(messages.layoutCard2),
+      'card-3': formatMessage(messages.layoutCard3),
+      media: formatMessage(messages.layoutMedia),
     };
     const layoutButton = layoutScope && (
       <div className='column-settings__row column-layout-settings' key='column-layout'>
         <label htmlFor={`column-layout-${columnId || layoutScope}`}>
-          <FormattedMessage id='column_header.layout.label' defaultMessage='Display mode' />
+          {formatMessage(messages.layoutLabel)}
         </label>
         <select
           id={`column-layout-${columnId || layoutScope}`}

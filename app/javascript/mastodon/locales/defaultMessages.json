@@ -163,6 +163,10 @@
       {
         "id": "column_header.layout.media",
         "defaultMessage": "Media"
+      },
+      {
+        "id": "column_width.x200",
+        "defaultMessage": "200%"
       }
     ],
     "path": "app/javascript/mastodon/components/column_header.json"

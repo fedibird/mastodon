@@ -1259,5 +1259,6 @@
   "column_header.layout.media": "Media",
   "timeline.media.reveal": "Reveal media",
   "timeline.media.open": "Open media",
-  "timeline.media.open_post": "Open original post"
+  "timeline.media.open_post": "Open original post",
+  "column_width.x200": "200%"
 }

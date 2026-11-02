@@ -10,6 +10,39 @@ export const normalizeTimelineLayout = value => (
 
 export const isCardTimelineLayout = value => /^card-[123]$/.test(value);
 
+// Match the fixed column sizes in styles/mastodon/components.scss. Reserve
+// 16px for the native scrollbar when choosing a width for a card layout.
+const COLUMN_WIDTH_PRESETS = [
+  { id: 'x080', pixels: 280 },
+  { id: 'x100', pixels: 350 },
+  { id: 'x125', pixels: 437.5 },
+  { id: 'x150', pixels: 525 },
+  { id: 'x200', pixels: 700 },
+];
+const CARD_MIN_WIDTH = 172;
+const CARD_GAP = 8;
+const SCROLLBAR_ALLOWANCE = 16;
+
+export const columnWidthForCardLayout = (layoutMode, currentWidth) => {
+  const desiredColumns = layoutMode === 'card-2' ? 2 : layoutMode === 'card-3' ? 3 : 0;
+  if (!desiredColumns || currentWidth === 'free') {
+    return currentWidth;
+  }
+
+  const current = COLUMN_WIDTH_PRESETS.find(preset => preset.id === currentWidth);
+  if (!current) {
+    return currentWidth;
+  }
+
+  const minimumWidth = desiredColumns * CARD_MIN_WIDTH + (desiredColumns - 1) * CARD_GAP + SCROLLBAR_ALLOWANCE;
+  if (current.pixels >= minimumWidth) {
+    return currentWidth;
+  }
+
+  const minimumPreset = COLUMN_WIDTH_PRESETS.find(preset => preset.pixels >= minimumWidth);
+  return minimumPreset ? minimumPreset.id : currentWidth;
+};
+
 export const timelineCardColumnsForWidth = (mode, width) => {
   const requested = Number(normalizeTimelineLayout(mode).replace('card-', '')) || 1;
   // 375px iPhone: two 172px cards plus 8px gutter. A usual 330px

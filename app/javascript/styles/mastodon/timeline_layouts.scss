@@ -84,6 +84,7 @@
 
     &-author { display: flex; gap: 5px; align-items: center; min-width: 0; }
     &-author .display-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    &-author .display-name__html { color: $primary-text-color; }
 
     &-text {
       display: -webkit-box;
@@ -119,7 +120,23 @@
     flex: 1;
     min-width: 0;
     overflow: hidden;
+    color: $dark-text-color;
     text-decoration: none;
+
+    &:hover,
+    &:focus {
+      color: $dark-text-color;
+      text-decoration: none;
+    }
+
+    strong {
+      color: $primary-text-color;
+    }
+
+    &:hover strong,
+    &:focus strong {
+      text-decoration: underline;
+    }
 
     .display-name {
       min-width: 0;
