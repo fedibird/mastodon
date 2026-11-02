@@ -101,6 +101,12 @@ export function materializeManagedHashtags(text, hashtags) {
 
     return name && !textContainsHashtag(raw, name);
   });
+  // No missing tag means there is no reason to rewrite authored whitespace.
+  // In particular, never manufacture a blank line around a body hashtag.
+  if (missing.length === 0) {
+    return raw;
+  }
+
   const suffix = missing.map(hashtag => {
     const display = String((hashtag && (hashtag.name || hashtag.normalizedName)) || '').replace(/^[#＃]+/u, '');
 
