@@ -27,6 +27,8 @@
   - if @request.approved? && @request.group_account
     %dt= t('group_creation_requests.group')
     %dd= link_to group_creation_request_acct(@request.group_account.username), account_path(@request.group_account)
+    - if GroupRoleAssignment.active.owner.exists?(group_account_id: @request.group_account_id, member_account_id: current_account.id)
+      %dd= link_to t('group_role_management.open'), settings_managed_group_path(@request.group_account.managed_group)
   - if @request.approved?
     %dt= t('group_creation_requests.initial_owner')
     %dd= t('group_creation_requests.initial_owner_you')

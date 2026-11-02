@@ -2591,6 +2591,60 @@ ja:
     title: 外部サービス
     updated_at: '更新:'
     visibility: 現在、個人DeepLでは公開・未収載の投稿と、自分だけに公開したpersonal投稿を翻訳できます。
+  group_role_management:
+    title: "管理しているグループ"
+    lead: "自分がオーナーまたはモデレーターであるローカルグループを管理します。サーバー全体の管理権限にはなりません。"
+    empty: "管理するグループはありません。"
+    group: "グループ"
+    role: "役職"
+    open: "管理する"
+    incoming: "あなた宛の所有権移譲の申し出"
+    no_offers: "受諾できる申し出はありません。"
+    offer_for: "%{owner} さんが %{group} の所有権を申し出ています。有効期限: "
+    accept: "所有権を受諾する"
+    confirm_accept: "所有権を受諾しますか？現在のオーナーは役職を失います。"
+    show: "%{group} の管理"
+    back: "管理しているグループへ"
+    viewer_role: "あなたの役職: %{role}"
+    follow_independent: "グループ管理役職とフォローは独立しています。グループに投稿するには引き続き成立済みのフォローが必要です。"
+    owner: "オーナー"
+    moderators: "モデレーター"
+    no_moderators: "モデレーターはいません。"
+    revoke: "モデレーターを解任"
+    resign: "モデレーターを辞任"
+    confirm_revoke: "このモデレーターを解任しますか？"
+    confirm_resign: "モデレーターを辞任しますか？"
+    appoint: "モデレーターを任命"
+    username: "このサーバーのアカウント名"
+    appoint_button: "任命する"
+    transfer: "所有権の移譲"
+    transfer_hint: "後継者はこのサーバーの有効な個人アカウントである必要があります。本人の受諾後に確定し、申し出は7日で期限切れになります。"
+    pending_to: "%{account} さんに申し出ています。有効期限: "
+    cancel: "申し出を取り消す"
+    confirm_cancel: "この所有権移譲の申し出を取り消しますか？"
+    successor: "後継者のアカウント名"
+    offer_button: "所有権を申し出る"
+    confirm_offer: "この人に所有権を申し出ますか？以前の未確定の申し出は取り消されます。"
+    roles:
+      owner: "オーナー"
+      moderator: "モデレーター"
+    results:
+      appointed: "モデレーターを任命しました。"
+      revoked: "モデレーターを解任しました。"
+      resigned: "モデレーターを辞任しました。"
+      offered: "後継者が「管理しているグループ」から受諾できるようになりました。"
+      cancelled: "申し出を取り消しました。"
+      accepted: "グループのオーナーになりました。"
+      already_assigned: "このアカウントには既にグループ役職があります。"
+      already_pending: "同じ相手への申し出が既に保留中です。"
+      invalid_target: "このサーバーの有効な個人アカウントを指定してください。"
+      not_found: "有効なモデレーター役職が見つかりません。"
+      not_pending: "この申し出はもう保留中ではありません。"
+      expired: "申し出の期限が切れています。オーナーに再度申し出てもらってください。"
+      stale_owner: "申し出た人が現在のオーナーではありません。"
+      unmanaged: "このグループはここでは管理できません。"
+      audit_failed: "監査ログを保存できなかったため、変更を取り消しました。"
+      conflict: "変更を保存できませんでした。グループを読み直して再試行してください。"
   settings:
     account: アカウント
     account_settings: アカウント設定
@@ -2627,6 +2681,7 @@ ja:
     statuses_cleanup: 投稿の自動削除
     two_factor_authentication: 二段階認証
     group_creation_requests: グループを作成する
+    managed_groups: "管理しているグループ"
     user_posting_contexts: 投稿のスタイルと目的
     webauthn_authentication: セキュリティキー
   posting_identity_links:
