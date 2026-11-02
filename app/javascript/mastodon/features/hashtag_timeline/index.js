@@ -32,6 +32,7 @@ import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
 import StatusTimelineSplitController, { clampTimelineSplitRatio } from '../ui/components/status_timeline_split_controller';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 
 const messages = defineMessages({
   followHashtag: { id: 'hashtag.follow', defaultMessage: 'Follow hashtag' },
@@ -49,9 +50,11 @@ const mapStateToProps = (state, { columnId, params }) => {
   const columns = state.getIn(['settings', 'columns']);
   const index = columns ? columns.findIndex(column => column.get('uuid') === columnId) : -1;
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'hashtag', 'columnWidth']);
+  const onlyMedia = readTimelineLayout(state, columnId, 'hashtag') === 'media';
 
   return {
-    hasUnread: state.getIn(['timelines', hashtagTimelineId(params.id), 'unread']) > 0,
+    hasUnread: state.getIn(['timelines', hashtagTimelineId(params.id, { onlyMedia }), 'unread']) > 0,
+    onlyMedia,
     tag: state.getIn(['tags', params.id]),
     columnWidth: columnWidth ?? defaultColumnWidth,
     splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'hashtag', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
@@ -68,6 +71,7 @@ class HashtagTimeline extends React.PureComponent {
     columnId: PropTypes.string,
     dispatch: PropTypes.func.isRequired,
     hasUnread: PropTypes.bool,
+    onlyMedia: PropTypes.bool,
     tag: ImmutablePropTypes.map,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
@@ -152,7 +156,7 @@ class HashtagTimeline extends React.PureComponent {
     const { id, tags } = this.props.params;
 
     this._subscribe(dispatch, id, tags);
-    dispatch(expandHashtagTimeline(id, { tags }));
+    dispatch(expandHashtagTimeline(id, { tags, onlyMedia: this.props.onlyMedia }));
     dispatch(fetchHashtag(id));
   }
 
@@ -186,9 +190,12 @@ class HashtagTimeline extends React.PureComponent {
 
       if (!idChanged) {
         this.props.dispatch(clearTimeline(hashtagTimelineId(id)));
+        this.props.dispatch(clearTimeline(hashtagTimelineId(id, { onlyMedia: true })));
       }
 
       this._load();
+    } else if (prevProps.onlyMedia !== this.props.onlyMedia) {
+      this.props.dispatch(expandHashtagTimeline(id, { tags, onlyMedia: this.props.onlyMedia }));
     }
   }
 
@@ -235,7 +242,7 @@ class HashtagTimeline extends React.PureComponent {
     const { dispatch, params } = this.props;
     const { id, tags }  = params;
 
-    dispatch(expandHashtagTimeline(id, { maxId, tags }));
+    dispatch(expandHashtagTimeline(id, { maxId, tags, onlyMedia: this.props.onlyMedia }));
   }
 
   handleLoadMoreHistory = (maxId, anchorId) => {
@@ -313,7 +320,7 @@ class HashtagTimeline extends React.PureComponent {
   renderColumn = (split) => {
     this.forwardColumnRef = split.setColumnRef;
 
-    const { hasUnread, columnId, multiColumn, tag, columnWidth, intl, composerVisible } = this.props;
+    const { hasUnread, columnId, multiColumn, tag, columnWidth, intl, composerVisible, onlyMedia } = this.props;
     const { id } = this.props.params;
     const pinned = !!columnId;
     const sourceTimelineId = hashtagTimelineId(id);
@@ -351,9 +358,10 @@ class HashtagTimeline extends React.PureComponent {
           layoutScope='hashtag'
           disableLayout={split.isSplit}
           trackScroll={!pinned}
-          scrollKey={`hashtag_timeline-${columnId}`}
+          scrollKey={`hashtag_timeline-${columnId}${onlyMedia ? '-media' : ''}`}
           timelineId={sourceTimelineId}
-          immediateViewKey={composerId}
+          dataTimelineId={hashtagTimelineId(id, { onlyMedia })}
+          immediateViewKey={onlyMedia ? undefined : composerId}
           onLoadMore={this.handleLoadMore}
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
