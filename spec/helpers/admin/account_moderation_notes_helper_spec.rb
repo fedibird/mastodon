@@ -44,7 +44,7 @@ RSpec.describe Admin::AccountModerationNotesHelper, type: :helper do
       it 'calls #link_to' do
         expect(helper).to receive(:link_to).with(
           admin_account_path(account.id),
-          class: name_tag_classes(account, true),
+          class: name_tag_classes(account, inline: true),
           title: account.acct
         )
 
