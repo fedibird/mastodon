@@ -162,9 +162,9 @@ class LimitedTimeline extends React.PureComponent {
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
             <StatusListContainer
-          columnId={columnId}
-          layoutScope='limited'
-          disableLayout={split.isSplit}
+              columnId={columnId}
+              layoutScope='limited'
+              disableLayout={split.isSplit}
               timelineId='limited'
               dataTimelineId='limited'
               includePendingItems
@@ -182,9 +182,9 @@ class LimitedTimeline extends React.PureComponent {
 
           <div className='timeline-split__pane timeline-split__pane--history'>
             <StatusListContainer
-          columnId={columnId}
-          layoutScope='limited'
-          disableLayout={split.isSplit}
+              columnId={columnId}
+              layoutScope='limited'
+              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`limited_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
