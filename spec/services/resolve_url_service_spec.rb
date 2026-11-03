@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+# rubocop:disable Metrics/BlockLength
+# RSpec examples are intentionally grouped by the subject under test.
+
 require 'rails_helper'
 
 describe ResolveURLService, type: :service do
@@ -129,3 +132,5 @@ describe ResolveURLService, type: :service do
     end
   end
 end
+
+# rubocop:enable Metrics/BlockLength
