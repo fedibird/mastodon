@@ -45,4 +45,19 @@ describe('image navigation filter parity with status rows', () => {
 
     expect(mediaStatusFiltered(boost, reblog, 'boost', 'home', { filters })).toBe(true);
   });
+
+  it('accepts a manually unmasked warning, but never bypasses a hide action', () => {
+    const manual = { filters, revealedFilterStatusIds: new Set(['s1']) };
+    const warning = status.set('filtered', fromJS([{ filter: 'warn' }]));
+    expect(mediaStatusFiltered(warning, null, 's1', 'public', manual)).toBe(false);
+    expect(mediaStatusFiltered(warning, null, 's1', 'public', { filters })).toBe(true);
+    expect(mediaStatusFiltered(status, null, 's1', 'account', manual)).toBe(true);
+
+    const twoFilters = warning.set('filtered', fromJS([{ filter: 'warn' }, { filter: 'hide' }]));
+    const mixedFilters = filters.setIn(['hide', 'context'], fromJS(['public']));
+    expect(mediaStatusFiltered(twoFilters, null, 's1', 'public', {
+      filters: mixedFilters,
+      revealedFilterStatusIds: new Set(['s1']),
+    })).toBe(true);
+  });
 });
