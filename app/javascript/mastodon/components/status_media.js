@@ -446,6 +446,7 @@ export default class StatusMediaStack extends React.PureComponent {
     cacheWidth: PropTypes.func,
     standalone: PropTypes.bool,
     detailed: PropTypes.bool,
+    cropImages: PropTypes.bool,
     autoplay: PropTypes.bool,
     quote: PropTypes.bool,
     lang: PropTypes.string,
@@ -520,6 +521,7 @@ export default class StatusMediaStack extends React.PureComponent {
         visible={visibility.visible}
         onToggleVisibility={visibility.onToggleVisibility}
         standalone={this.props.standalone}
+        cropImages={this.props.cropImages}
         quote={this.props.quote}
         lang={this.props.lang}
         translationMode={this.props.translationMode}
