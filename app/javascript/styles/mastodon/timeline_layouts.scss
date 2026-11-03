@@ -351,8 +351,9 @@
     pointer-events: none;
   }
 
+  // The hidden placeholder must occupy the original media aspect ratio too.
   .timeline-media-tile__open--original .timeline-media-tile__placeholder {
-    height: auto;
+    height: 100%;
   }
 
   .media-gallery__item-gifv-thumbnail {
