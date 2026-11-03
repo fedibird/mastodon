@@ -29,7 +29,7 @@ const renderRoute = (routeBase, initialRoute) => {
     <Provider store={store}>
       <IntlProvider locale='ja' messages={japanese}>
         <MemoryRouter initialEntries={[initialRoute]}>
-          <Route render={({ location }) => <span data-testid='pathname'>{location.pathname}</span>} />
+          <Route component={({ location }) => <span data-testid='pathname'>{location.pathname}</span>} />
           <AccountHashtagFilter accountId='123' routeBase={routeBase} />
         </MemoryRouter>
       </IntlProvider>
@@ -71,8 +71,10 @@ describe('shared account hashtag input', () => {
     render(
       <Provider store={store}>
         <IntlProvider locale='ja' messages={japanese}>
-          <AccountHashtagFilter accountId='123' />
-          <ColumnSettingsContainer />
+          <div>
+            <AccountHashtagFilter accountId='123' />
+            <ColumnSettingsContainer />
+          </div>
         </IntlProvider>
       </Provider>,
     );
