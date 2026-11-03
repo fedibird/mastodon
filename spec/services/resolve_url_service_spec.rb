@@ -81,6 +81,21 @@ describe ResolveURLService, type: :service do
       end
     end
 
+    context 'when an aggregator claims a third-party public URL' do
+      let(:reader) { Fabricate(:account) }
+      let(:aggregator) { Fabricate(:account, domain: 'aggregator.test', username: 'relay') }
+      let(:url) { 'https://publisher.test/@writer/901' }
+
+      before do
+        Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/objects/901', url: url)
+        stub_request(:get, url).to_return(status: 404)
+      end
+
+      it 'does not mistake the article URL for an aggregator status' do
+        expect(subject.call(url, on_behalf_of: reader)).to be_nil
+      end
+    end
+
     context 'searching for a local private status' do
       let(:account) { Fabricate(:account) }
       let(:poster)  { Fabricate(:account) }
