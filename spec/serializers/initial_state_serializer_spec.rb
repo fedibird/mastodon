@@ -13,6 +13,28 @@ RSpec.describe InitialStateSerializer do
     )
   end
 
+  it 'exposes separately saved image crop preferences in WebUI meta' do
+    user = Fabricate(:user)
+
+    expect(serialize(user.account)[:meta][:crop_images]).to be true
+    expect(serialize(user.account)[:meta][:crop_card_images]).to be true
+
+    user.settings.crop_images = false
+    user.settings.crop_card_images = true
+    user.save!
+    expect(serialize(user.account)[:meta]).to include(crop_images: false, crop_card_images: true)
+
+    user.settings.crop_images = true
+    user.settings.crop_card_images = false
+    user.save!
+    expect(serialize(user.account)[:meta]).to include(crop_images: true, crop_card_images: false)
+
+    expect(serialize(nil)[:meta]).to include(
+      crop_images: Setting.crop_images,
+      crop_card_images: Setting.crop_card_images
+    )
+  end
+
   it 'includes language display names for the WebUI' do
     json = serialize(Fabricate(:user).account)
     english = json[:languages].find { |language| language[0] == 'en' }
