@@ -43,7 +43,16 @@ class EntityCache
     return if url.blank?
 
     cache_key = resource_url_cache_key(:holding_account_v2, url)
-    return Rails.cache.read(cache_key) if Rails.cache.exist?(cache_key)
+    if Rails.cache.exist?(cache_key)
+      cached_account = Rails.cache.read(cache_key)
+      return cached_account if cached_account&.uri == url
+
+      # A cached profile alias cannot override an exact actor id.
+      identity = Account.find_by(uri: url)
+      return identity unless identity.nil?
+
+      return cached_account
+    end
 
     account = begin
       if ActivityPub::TagManager.instance.local_uri?(url)
