@@ -6,6 +6,7 @@ import InnerHeaderCommon from '../../account/components/header_common';
 import InnerHeaderExtra from '../../account/components/header_extra';
 import InnerHeaderExtraLinks from '../../account/components/header_extra_links';
 import FeaturedTags from '../../account/components/featured_tags';
+import AccountHashtagFilter from '../../account/components/hashtag_filter';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { follow_button_to_list_adder } from 'mastodon/initial_state';
 import MovedNote from './moved_note';
@@ -37,6 +38,7 @@ export default class Header extends ImmutablePureComponent {
     hideProfile: PropTypes.bool,
     advancedMode: PropTypes.bool,
     tagged: PropTypes.string,
+    tagRouteBase: PropTypes.string,
     hideFeaturedTags: PropTypes.bool,
     domain: PropTypes.string.isRequired,
   };
@@ -166,7 +168,7 @@ export default class Header extends ImmutablePureComponent {
               <NavLink exact to={`/accounts/${account.get('id')}/about`}><Icon id='address-card-o' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.about' defaultMessage='About' children={msg=> <>{msg}</>} /></span></NavLink>
             </div>
 
-            {!hideFeaturedTags && <FeaturedTags account={account} tagged={tagged} />}
+            {!hideFeaturedTags && <FeaturedTags account={account} tagged={tagged} routeBase={this.props.tagRouteBase} />}
             {!hideRelation && <InnerHeaderExtraLinks account={account} />}
             {!hideProfile && <InnerHeaderExtra account={account} identity_proofs={identity_proofs} />}
           </Fragment>
@@ -201,6 +203,7 @@ export default class Header extends ImmutablePureComponent {
             </div>
           </Fragment>
         )}
+        <AccountHashtagFilter accountId={account.get('id')} tagged={tagged} routeBase={this.props.tagRouteBase} />
       </div>
     );
   }
