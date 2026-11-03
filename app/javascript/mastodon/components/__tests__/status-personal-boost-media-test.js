@@ -13,7 +13,8 @@ jest.mock('mastodon/initial_state', () => ({
   useBlurhash: false,
   useLowResolutionThumbnails: false,
   maxAttachments: 4,
-  enableReaction: false,
+  enableReaction: true,
+  cropCardImages: false,
   compactReaction: false,
   show_reply_tree_button: false,
   enableStatusReference: false,
@@ -70,7 +71,10 @@ jest.mock('react-hotkeys', () => ({
 }));
 
 jest.mock('../account_action_bar', () => () => null);
-jest.mock('../status_action_bar', () => () => null);
+jest.mock('../status_action_bar', () => {
+  const ReactMock = require('react');
+  return ({ compactCardMode }) => compactCardMode ? ReactMock.createElement('span', { 'data-compact-card-mode': compactCardMode }) : null;
+});
 jest.mock('../avatar', () => () => null);
 jest.mock('../avatar_overlay', () => () => null);
 jest.mock('../avatar_composite', () => () => null);
@@ -79,7 +83,10 @@ jest.mock('../absolute_timestamp', () => () => <span>time</span>);
 jest.mock('../relative_timestamp', () => () => <span>time</span>);
 jest.mock('../icon', () => () => null);
 jest.mock('mastodon/components/icon', () => () => null);
-jest.mock('mastodon/components/emoji_reactions_bar', () => () => null);
+jest.mock('mastodon/components/emoji_reactions_bar', () => {
+  const ReactMock = require('react');
+  return () => ReactMock.createElement('span', { 'data-testid': 'emoji-reaction-bar' });
+});
 jest.mock('mastodon/components/picture_in_picture_placeholder', () => () => null);
 jest.mock('mastodon/components/edited_timestamp', () => () => null);
 jest.mock('mastodon/components/animated_number', () => () => null);
@@ -335,5 +342,37 @@ describe('temporary media tile reveal', () => {
     expect(onOpenMedia.mock.calls[0][1]).toBe(sequence.media);
     expect(onOpenMedia.mock.calls[0][2]).toBe(0);
     expect(onOpenMedia.mock.calls[0][4]).toBe(sequence.statusIds);
+  });
+});
+
+describe('compact card reaction placement', () => {
+  it('renders star then plus at the end of the author row when no reactions exist', () => {
+    const { container } = renderTimeline(properStatus, { layoutMode: 'card-1' });
+    const author = container.querySelector('.timeline-card__author');
+    const actions = author.querySelector('.timeline-card__author-actions');
+
+    expect(actions).not.toBeNull();
+    expect(Array.from(actions.querySelectorAll('[data-compact-card-mode]')).map(item => item.dataset.compactCardMode)).toEqual(['favourite', 'reactions']);
+    expect(container.querySelector('.timeline-card__reactions')).toBeNull();
+  });
+
+  it('still collapses the empty row when reaction records all have count zero', () => {
+    const zero = properStatus.set('emoji_reactions', fromJS([{ name: ':test:', count: 0 }]));
+    const { container } = renderTimeline(zero, { layoutMode: 'card-2' });
+
+    expect(container.querySelector('.timeline-card__reactions')).toBeNull();
+    expect(container.querySelector('.timeline-card__author-actions [data-compact-card-mode="reactions"]')).not.toBeNull();
+  });
+
+  it('keeps an independent reactions row with plus when a visible reaction exists', () => {
+    const reacted = properStatus.set('emoji_reactions', fromJS([{ name: ':test:', count: 2 }]));
+    const { container } = renderTimeline(reacted, { layoutMode: 'card-3' });
+    const actions = container.querySelector('.timeline-card__author-actions');
+    const reactions = container.querySelector('.timeline-card__reactions');
+
+    expect(Array.from(actions.querySelectorAll('[data-compact-card-mode]')).map(item => item.dataset.compactCardMode)).toEqual(['favourite']);
+    expect(reactions).not.toBeNull();
+    expect(reactions.querySelector('[data-testid="emoji-reaction-bar"]')).not.toBeNull();
+    expect(reactions.querySelector('[data-compact-card-mode="reactions"]')).not.toBeNull();
   });
 });
