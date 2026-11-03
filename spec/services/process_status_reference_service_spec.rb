@@ -16,9 +16,7 @@ RSpec.describe ProcessStatusReferenceService do
       service = described_class.new
       allow(service).to receive(:redis).and_return(double('redis', sadd: true))
 
-      expect do
-        service.call(source)
-      end.not_to change(StatusReference, :count)
+      expect { service.call(source) }.not_to change(StatusReference, :count)
       expect(StatusReferenceResolveWorker).to have_received(:push_bulk)
     end
   end
