@@ -485,6 +485,12 @@ class StatusList extends ImmutablePureComponent {
     // status the filter context of its source instead of the mix id.
     const mediaMode = layoutMode === 'media';
     const rows = mediaMode ? ImmutableList(mediaRowsForStatuses(statusIds, mediaStatuses)) : statusIds;
+    const featuredMediaRows = mediaMode && featuredStatusIds
+      ? mediaRowsForStatuses(featuredStatusIds, mediaStatuses)
+        .filter(row => row.kind === 'media')
+        .map(row => ({ ...row, key: `f-${row.key}` }))
+      : [];
+    const timelineMediaRows = mediaMode ? featuredMediaRows.concat(rows.toArray().filter(row => row.kind === 'media')) : undefined;
     let scrollableContent = (isLoading || statusIds.size > 0) ? (
       rows.map((row, index) => (mediaMode ? row.kind === 'gap' : row === null) ? (
         <LoadGap
@@ -498,6 +504,7 @@ class StatusList extends ImmutablePureComponent {
           key={mediaMode ? row.key : row}
           id={mediaMode ? row.id : row}
           mediaIndex={mediaMode ? row.mediaIndex : undefined}
+          mediaRowKey={mediaMode ? row.key : undefined}
           layoutMode={layoutMode}
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
@@ -514,12 +521,13 @@ class StatusList extends ImmutablePureComponent {
     ) : ImmutableList();
 
     if (scrollableContent && featuredStatusIds) {
-      const featuredRows = mediaMode ? ImmutableList(mediaRowsForStatuses(featuredStatusIds, mediaStatuses)) : featuredStatusIds;
+      const featuredRows = mediaMode ? ImmutableList(featuredMediaRows) : featuredStatusIds;
       scrollableContent = featuredRows.map(row => (
         <StatusContainer
-          key={mediaMode ? `f-${row.key}` : `f-${row}`}
+          key={mediaMode ? row.key : `f-${row}`}
           id={mediaMode ? row.id : row}
           mediaIndex={mediaMode ? row.mediaIndex : undefined}
+          mediaRowKey={mediaMode ? row.key : undefined}
           layoutMode={layoutMode}
           featured
           onMoveUp={this.handleMoveUp}
@@ -549,7 +557,7 @@ class StatusList extends ImmutablePureComponent {
     }
 
     return (
-      <ScrollableList {...other} layoutMode={layoutMode} prepend={listPrepend} hasNewer={hasNewer} onLoadNewer={onLoadNewer && this.handleLoadNewer} newerLoading={newerLoading} newerStatus={newerStatus} olderStatus={windowedHistory ? olderStatus : undefined} windowedHistory={!!windowedHistory} readingSurface={!!readingSurface} anchorSourceKey={anchorSourceKey} filterStatusIds={statusIds.concat(filterStatusIds || ImmutableList(), featuredStatusIds || ImmutableList(), immediateStatusIds || ImmutableList())} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onUserScroll={historySurfaceId ? this.handleUserScroll : onUserScroll} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
+      <ScrollableList {...other} layoutMode={layoutMode} mediaRows={timelineMediaRows} mediaStatuses={mediaMode ? mediaStatuses : undefined} prepend={listPrepend} hasNewer={hasNewer} onLoadNewer={onLoadNewer && this.handleLoadNewer} newerLoading={newerLoading} newerStatus={newerStatus} olderStatus={windowedHistory ? olderStatus : undefined} windowedHistory={!!windowedHistory} readingSurface={!!readingSurface} anchorSourceKey={anchorSourceKey} filterStatusIds={statusIds.concat(filterStatusIds || ImmutableList(), featuredStatusIds || ImmutableList(), immediateStatusIds || ImmutableList())} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onUserScroll={historySurfaceId ? this.handleUserScroll : onUserScroll} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
         {scrollableContent}
       </ScrollableList>
     );
