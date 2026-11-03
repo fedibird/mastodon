@@ -253,6 +253,14 @@
     .display-name__account { display: none; }
   }
 
+  &__author-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+    margin-inline-start: auto;
+  }
+
   &__favourite {
     flex: 0 0 auto;
     .status__action-bar-button { padding: 3px; }
