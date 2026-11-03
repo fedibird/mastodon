@@ -16,7 +16,7 @@ import MediaItem from './components/media_item';
 import MediaDisplayControls from 'mastodon/components/media_display_controls';
 import MediaItemsLayout from 'mastodon/components/media_items_layout';
 import { defaultMediaVisibility } from 'mastodon/utils/media_display';
-import { accountMediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
+import { accountMediaRevealKey, accountMediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
 import HeaderContainer from '../account_timeline/containers/header_container';
 import ScrollContainer from 'mastodon/containers/scroll_container';
 import LoadMore from 'mastodon/components/load_more';
@@ -105,6 +105,7 @@ class AccountGallery extends ImmutablePureComponent {
     mediaSize: 'small',
     mediaVisibility: defaultMediaVisibility(),
     tagged: null,
+    revealedMediaIds: new Set(),
   };
 
   handleChooseTag = selected => {
@@ -114,7 +115,7 @@ class AccountGallery extends ImmutablePureComponent {
       return;
     }
 
-    this.setState({ tagged });
+    this.setState({ tagged, revealedMediaIds: new Set() });
     this.props.dispatch(expandAccountMediaTimeline(accountId, { tagged }));
   }
 
@@ -128,7 +129,12 @@ class AccountGallery extends ImmutablePureComponent {
 
   handleMediaVisibilityChange = mediaVisibility => {
     // Temporary override in this account media view. No settings write.
-    this.setState({ mediaVisibility });
+    this.setState({ mediaVisibility, revealedMediaIds: new Set() });
+  }
+
+  handleMediaReveal = attachment => {
+    const key = accountMediaRevealKey(attachment);
+    this.setState(({ revealedMediaIds }) => ({ revealedMediaIds: new Set([...revealedMediaIds, key]) }));
   }
 
   componentDidMount () {
@@ -139,7 +145,7 @@ class AccountGallery extends ImmutablePureComponent {
 
   componentWillReceiveProps (nextProps) {
     if (nextProps.params.accountId !== this.props.params.accountId && nextProps.params.accountId) {
-      this.setState({ tagged: null });
+      this.setState({ tagged: null, revealedMediaIds: new Set() });
       this.props.dispatch(fetchAccount(nextProps.params.accountId));
       this.props.dispatch(fetchFeaturedTags(nextProps.params.accountId));
       this.props.dispatch(expandAccountMediaTimeline(nextProps.params.accountId));
@@ -202,6 +208,7 @@ class AccountGallery extends ImmutablePureComponent {
         filters: this.props.mediaFilters,
         matches: this.props.mediaFilterMatches,
         generation: this.props.mediaFilterGeneration,
+        revealedMediaIds: this.state.revealedMediaIds,
       };
       const attachments = accountGalleryAttachments(statusIds, this.props.mediaStatuses, this.props.account, filterInfo);
       const sequence = accountMediaTimelineSequence(attachments, this.state.mediaVisibility, filterInfo);
@@ -255,6 +262,7 @@ class AccountGallery extends ImmutablePureComponent {
       filters: this.props.mediaFilters,
       matches: this.props.mediaFilterMatches,
       generation: this.props.mediaFilterGeneration,
+      revealedMediaIds: this.state.revealedMediaIds,
     };
     const attachments = accountGalleryAttachments(statusIds, mediaStatuses, account, filterInfo);
     const isLoading = !!mediaTimelines.getIn([timelineId, 'isLoading']);
@@ -330,7 +338,7 @@ class AccountGallery extends ImmutablePureComponent {
                   {attachments.map((attachment, index) => attachment === null ? (
                     <LoadMoreMedia key={'more:' + attachments.getIn(index + 1, 'id')} maxId={index > 0 ? attachments.getIn(index - 1, 'id') : null} onLoadMore={this.handleLoadMore} />
                   ) : (
-                    <MediaItem key={`${attachment.get('id')}:${mediaVisibility}`} attachment={attachment} shape={mediaShape} visibility={mediaVisibility} onOpenMedia={this.handleOpenMedia} />
+                    <MediaItem key={`${attachment.get('id')}:${mediaVisibility}`} attachment={attachment} shape={mediaShape} visibility={mediaVisibility} onOpenMedia={this.handleOpenMedia} onReveal={this.handleMediaReveal} />
                   ))}
 
                   {loadOlder && <div key='more:older' className='media-layout__more'>{loadOlder}</div>}
