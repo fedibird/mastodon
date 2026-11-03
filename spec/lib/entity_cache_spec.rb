@@ -16,4 +16,55 @@ RSpec.describe EntityCache do
       end
     end
   end
+  describe '#holding_status' do
+    let(:aggregator) { Fabricate(:account, domain: 'aggregator.test', username: 'relay') }
+
+    it 'does not resolve an article URL from an aggregator status.url claim' do
+      url = 'https://publisher.test/articles/entity-cache-1'
+      Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/objects/a1', url: url)
+
+      expect(described_class.instance.holding_status(url)).to be_nil
+    end
+
+    it 'ignores old cached URL aliases from before the identity policy changed' do
+      url = 'https://publisher.test/articles/legacy-alias'
+      status = Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/objects/old', url: url)
+      Rails.cache.write(described_class.instance.to_key(:holding_status, url), status)
+
+      expect(described_class.instance.holding_status(url)).to be_nil
+    end
+
+    it 'keeps distinct cache entries for case-sensitive URL paths' do
+      url = 'https://aggregator.test/@relay/AbC123'
+      status = Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/users/relay/statuses/AbC123', url: url)
+
+      expect(described_class.instance.holding_status(url)).to eq(status)
+      expect(described_class.instance.holding_status('https://aggregator.test/@relay/abc123')).to be_nil
+    end
+
+    it 'can cache an independently discovered AP alternate after a negative lookup' do
+      link = 'https://publisher.test/articles/with-alternate'
+      status = Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/objects/discovered', url: 'https://aggregator.test/@relay/discovered')
+
+      expect(described_class.instance.holding_status(link)).to be_nil
+      described_class.instance.update_holding_status(link, status)
+      expect(described_class.instance.holding_status(link)).to eq(status)
+    end
+
+    it 'resolves the canonical AP URI regardless of the remote display URL' do
+      status = Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/objects/direct', url: 'https://publisher.test/articles/direct')
+
+      expect(described_class.instance.holding_status(status.uri)).to eq(status)
+    end
+  end
+
+  describe '#holding_account' do
+    it 'does not resolve a third-party profile link claimed by a remote actor' do
+      account = Fabricate(:account, domain: 'aggregator.test', username: 'relay', uri: 'https://aggregator.test/users/relay', url: 'https://publisher.test/profiles/relay')
+
+      expect(described_class.instance.holding_account('https://publisher.test/profiles/relay')).to be_nil
+      expect(described_class.instance.holding_account(account.uri)).to eq(account)
+    end
+  end
+
 end
