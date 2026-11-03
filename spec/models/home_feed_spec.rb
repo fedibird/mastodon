@@ -56,10 +56,12 @@ RSpec.describe HomeFeed, type: :model do
 
     context 'when requesting only media' do
       before do
-        first = Fabricate(:status, account: account, id: 201, media_attachments: [Fabricate.build(:media_attachment, account: account)])
+        first = Fabricate(:status, account: account, id: 201)
         Fabricate(:status, account: account, id: 202)
-        last = Fabricate(:status, account: account, id: 203, media_attachments: [Fabricate.build(:media_attachment, account: account)])
+        last = Fabricate(:status, account: account, id: 203)
         Fabricate(:status, account: account, id: 204)
+        attach_remote_test_image(first)
+        attach_remote_test_image(last)
 
         redis.zadd(
           FeedManager.instance.key(:home, account.id),
