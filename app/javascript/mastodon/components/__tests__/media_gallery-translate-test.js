@@ -163,6 +163,7 @@ describe('gallery crop at first paint and after parent-only width changes', () =
     let view;
 
     window.ResizeObserver = class {
+
       constructor(callback) {
         notifyResize = callback;
         observer = this;
@@ -170,6 +171,7 @@ describe('gallery crop at first paint and after parent-only width changes', () =
 
       observe = jest.fn();
       disconnect = jest.fn();
+
     };
 
     try {
