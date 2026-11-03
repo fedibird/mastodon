@@ -60,4 +60,34 @@ describe('ColumnHeader Japanese display mode selector', () => {
     expect(container.querySelector('option[value="card-3"]')).toHaveTextContent('カード（3列）');
     expect(screen.getByText('200%')).toBeInTheDocument();
   });
+
+  it('hides the redundant media mode from account posts even if it was saved previously', () => {
+    const state = fromJS({ settings: { account: { layoutMode: 'media' }, columns: [] } });
+    const store = createStore((previous = state) => previous);
+
+    render(
+      <IntlProvider locale='ja' messages={japaneseMessages}>
+        <Provider store={store}>
+          <ColumnHeader
+            title='アカウント'
+            icon='user'
+            layoutScope='account'
+            multiColumn
+            columnWidth='x100'
+            onPin={noop}
+            onMove={noop}
+            onClick={noop}
+          />
+        </Provider>
+      </IntlProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '設定を表示' }));
+    const select = screen.getByRole('combobox', { name: '表示方法' });
+
+    expect(select).toHaveValue('normal');
+    expect(Array.from(select.options).map(option => option.value)).toEqual([
+      'normal', 'card-1', 'card-2', 'card-3',
+    ]);
+  });
 });
