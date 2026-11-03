@@ -23,13 +23,15 @@ const makeStore = () => createStore((state = fromJS({
   action.type === 'SETTING_CHANGE' ? state.setIn(['settings', ...action.path], action.value) : state
 ));
 
+const Pathname = ({ location }) => <span data-testid='pathname'>{location.pathname}</span>;
+
 const renderRoute = (routeBase, initialRoute) => {
   const store = makeStore();
   const output = render(
     <Provider store={store}>
       <IntlProvider locale='ja' messages={japanese}>
         <MemoryRouter initialEntries={[initialRoute]}>
-          <Route component={({ location }) => <span data-testid='pathname'>{location.pathname}</span>} />
+          <Route component={Pathname} />
           <AccountHashtagFilter accountId='123' routeBase={routeBase} />
         </MemoryRouter>
       </IntlProvider>
