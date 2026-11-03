@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import classNames from 'classnames';
 import { LoadingBar } from 'react-redux-loading-bar';
 import ZoomableImage from './zoomable_image';
+import { FormattedMessage } from 'react-intl';
 
 export default class ImageLoader extends React.PureComponent {
 
@@ -45,27 +46,43 @@ export default class ImageLoader extends React.PureComponent {
   }
 
   componentWillReceiveProps (nextProps) {
-    if (this.props.src !== nextProps.src) {
+    if (this.props.src !== nextProps.src || this.props.previewSrc !== nextProps.previewSrc) {
       this.loadImage(nextProps);
     }
   }
 
   componentWillUnmount () {
+    this.loadToken = (this.loadToken || 0) + 1;
     this.removeEventListeners();
+  }
+
+  handleDisplayError = () => {
+    this.setState({ loading: false, error: true });
   }
 
   loadImage (props) {
     this.removeEventListeners();
+    const token = this.loadToken = (this.loadToken || 0) + 1;
     this.setState({ loading: true, error: false });
-    Promise.all([
-      props.previewSrc && this.loadPreviewCanvas(props),
-      this.hasSize() && this.loadOriginalImage(props),
-    ].filter(Boolean))
+
+    // Always verify the actual image, even if the remote attachment does not
+    // specify original width and height. A broken preview must not fail the
+    // view when the original still loads successfully.
+    const hasSize = typeof props.width === 'number' && props.width > 0 &&
+      typeof props.height === 'number' && props.height > 0;
+    const preview = props.previewSrc && hasSize
+      ? this.loadPreviewCanvas(props).catch(() => undefined) : null;
+
+    Promise.all([this.loadOriginalImage(props), preview].filter(Boolean))
       .then(() => {
+        if (token !== this.loadToken) return;
         this.setState({ loading: false, error: false });
         this.clearPreviewCanvas();
       })
-      .catch(() => this.setState({ loading: false, error: true }));
+      .catch(() => {
+        if (token !== this.loadToken) return;
+        this.setState({ loading: false, error: true });
+      });
   }
 
   loadPreviewCanvas = ({ previewSrc, width, height }) => new Promise((resolve, reject) => {
@@ -80,8 +97,13 @@ export default class ImageLoader extends React.PureComponent {
     };
     const handleLoad = () => {
       removeEventListeners();
-      this.canvasContext.drawImage(image, 0, 0, width, height);
-      resolve();
+      try {
+        const ctx = this.canvasContext;
+        if (ctx) ctx.drawImage(image, 0, 0, width, height);
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
     };
     image.addEventListener('error', handleError);
     image.addEventListener('load', handleLoad);
@@ -90,11 +112,17 @@ export default class ImageLoader extends React.PureComponent {
   })
 
   clearPreviewCanvas () {
-    const { width, height } = this.canvas;
-    this.canvasContext.clearRect(0, 0, width, height);
+    const canvas = this.canvas;
+    const ctx = this.canvasContext;
+    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
 
   loadOriginalImage = ({ src }) => new Promise((resolve, reject) => {
+    if (!src) {
+      reject(new Error('Missing image URL'));
+      return;
+    }
+
     const image = new Image();
     const removeEventListeners = () => {
       image.removeEventListener('error', handleError);
@@ -125,13 +153,14 @@ export default class ImageLoader extends React.PureComponent {
   }
 
   setCanvasRef = c => {
+    if (this.canvas !== c) this._canvasContext = null;
     this.canvas = c;
-    if (c) this.setState({ width: c.offsetWidth });
+    if (c && this.state.width !== c.offsetWidth) this.setState({ width: c.offsetWidth });
   }
 
   render () {
-    const { alt, src, width, height, onClick } = this.props;
-    const { loading } = this.state;
+    const { alt, src, width, height, onClick, lang } = this.props;
+    const { loading, error } = this.state;
 
     const className = classNames('image-loader', {
       'image-loader--loading': loading,
@@ -141,7 +170,19 @@ export default class ImageLoader extends React.PureComponent {
     return (
       <div className={className}>
         <LoadingBar loading={loading ? 1 : 0} className='loading-bar' style={{ width: this.state.width || width }} />
-        {loading ? (
+        {error ? (
+          <div className='image-loader__error' role='status'>
+            <strong className='image-loader__error-title'>
+              <FormattedMessage id='lightbox.image_unavailable' defaultMessage='Could not load image' />
+            </strong>
+            {alt && (
+              <div className='image-loader__error-alt'>
+                <span>ALT</span>
+                <p lang={lang || undefined} dir='auto'>{alt}</p>
+              </div>
+            )}
+          </div>
+        ) : loading ? (
           <canvas
             className='image-loader__preview-canvas'
             ref={this.setCanvasRef}
@@ -151,9 +192,10 @@ export default class ImageLoader extends React.PureComponent {
         ) : (
           <ZoomableImage
             alt={alt}
-            lang={this.props.lang}
+            lang={lang}
             src={src}
             onClick={onClick}
+            onError={this.handleDisplayError}
             width={width}
             height={height}
             zoomButtonHidden={this.props.zoomButtonHidden}
