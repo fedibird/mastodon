@@ -442,20 +442,17 @@
   width: 100%;
   min-width: 0;
 
-  .account__header,
-  .account__header__extra {
-    flex: 0 0 auto;
-    min-height: max-content;
-  }
+}
 
+.account-timeline__header {
   .account__header__extra__hashtag-links {
     display: flex;
     flex-wrap: wrap;
     gap: 5px;
   }
 
-  // Reuse the featured-tag presentation for button-based, in-place filtering.
-  // Buttons have different browser defaults from the original Permalink tags.
+  // The media gallery uses in-place buttons instead of links, but its featured
+  // tags now share the same account-header position and presentation.
   button.account__hashtag-link {
     box-sizing: border-box;
     border: 1px solid $ui-base-lighter-color;
