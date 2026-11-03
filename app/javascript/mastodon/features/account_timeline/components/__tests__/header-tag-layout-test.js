@@ -75,12 +75,12 @@ describe('account header hashtag layout', () => {
   it('does not render a hashtag input in standard mode', () => {
     renderHeader({ advancedMode: false });
     expect(screen.queryByRole('searchbox', { name: 'ハッシュタグで絞り込み' })).toBeNull();
-    expect(screen.queryByRole('button', { name: /#cats/ })).toBeNull();
+    expect(screen.queryByRole('link', { name: /#cats/ })).toBeNull();
   });
 
   it('keeps the input when only featured tags are hidden', () => {
     renderHeader({ hideFeaturedTags: true });
-    expect(screen.queryByRole('button', { name: /#cats/ })).toBeNull();
+    expect(screen.queryByRole('link', { name: /#cats/ })).toBeNull();
     expect(screen.getByRole('searchbox', { name: 'ハッシュタグで絞り込み' })).toBeInTheDocument();
   });
 });
