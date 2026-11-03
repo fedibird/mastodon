@@ -13,6 +13,15 @@ RSpec.describe InitialStateSerializer do
     )
   end
 
+  # Direct ScopedSettings writes inside transactional specs do not advance
+  # UserPreferences revisions or run the normal after-commit invalidation.
+  # Expire both generations before asserting a later value of the same key.
+  def clear_direct_setting_cache(user, key)
+    Rails.cache.delete(Setting.cache_key(key, user))
+    revision = UserPreferences::Revision.current(user.id)
+    Rails.cache.delete(UserPreferences::CacheKey.for_revision(key, user, revision))
+  end
+
   it 'exposes separately saved image crop preferences in WebUI meta' do
     user = Fabricate(:user)
 
@@ -219,12 +228,14 @@ RSpec.describe InitialStateSerializer do
     user.settings.show_translation_bar = false
     user.settings.new_features_policy = 'tester'
     user.save!
+    clear_direct_setting_cache(user, 'show_translation_bar')
     expect(user.settings.show_translation_bar).to be false
     expect(serialize(user.account)[:meta][:translation_bar_visibility]).to eq 'never'
 
     user.settings.show_translation_bar = 'target'
     user.settings.new_features_policy = 'conservative'
     user.save!
+    clear_direct_setting_cache(user, 'show_translation_bar')
     expect(user.settings.show_translation_bar).to eq 'target'
     expect(serialize(user.account)[:meta][:translation_bar_visibility]).to eq 'target'
   end
@@ -253,11 +264,13 @@ RSpec.describe InitialStateSerializer do
 
     user.settings.translation_preferred_mode = 'both'
     user.save!
+    clear_direct_setting_cache(user, 'translation_preferred_mode')
     expect(user.setting_translation_preferred_mode).to eq 'both'
     expect(serialize(user.account)[:meta][:translation_preferred_mode]).to eq 'both'
 
     user.settings.translation_preferred_mode = 'nope'
     user.save!
+    clear_direct_setting_cache(user, 'translation_preferred_mode')
     expect(user.setting_translation_preferred_mode).to eq 'translated'
     expect(serialize(user.account)[:meta][:translation_preferred_mode]).to eq 'translated'
   end
