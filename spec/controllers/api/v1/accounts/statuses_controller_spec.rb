@@ -607,6 +607,28 @@ describe Api::V1::Accounts::StatusesController do
       expect(sql_text(statements)).not_to include('AS MATERIALIZED')
     end
 
+    it 'retains tagged and only_media in media-only account pagination links' do
+      older = tag_status(insert_status(100))
+      newer = tag_status(insert_status(200))
+      untagged = insert_status(300)
+      [older, newer, untagged].each do |status|
+        Fabricate(:media_attachment, account: author, status: status)
+      end
+
+      get :index, params: { account_id: author.id, tagged: tag.name, only_media: true, limit: 1 }
+
+      expect(response).to have_http_status(200)
+      expect(status_ids).to eq [newer.id]
+      expect(link_param('next', 'tagged')).to eq tag.name
+      expect(link_param('next', 'only_media')).to eq 'true'
+
+      get :index, params: { account_id: author.id, tagged: tag.name, only_media: true, max_id: newer.id, limit: 1 }
+
+      expect(status_ids).to eq [older.id]
+      expect(link_param('prev', 'tagged')).to eq tag.name
+      expect(link_param('prev', 'only_media')).to eq 'true'
+    end
+
     it 'keeps pinned on the existing relation path' do
       pinned = tag_status(insert_status(10))
       tag_status(insert_status(20))

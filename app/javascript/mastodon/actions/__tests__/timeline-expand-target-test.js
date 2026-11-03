@@ -37,6 +37,7 @@ jest.mock('../markers', () => ({
 
 import {
   expandDomainTimeline,
+  expandAccountMediaTimeline,
   expandHomeTimeline,
   expandListTimeline,
   expandGroupTimeline,
@@ -101,6 +102,22 @@ describe('expand timeline targets', () => {
   });
 
   it.each([
+    [
+      'account media without tag',
+      'account:alice:media',
+      {},
+      () => expandAccountMediaTimeline('alice', { maxId: '9' }),
+      '/api/v1/accounts/alice/statuses',
+      { max_id: '9', only_media: true, limit: 40 },
+    ],
+    [
+      'account media by tag',
+      'account:alice:media:cat',
+      {},
+      () => expandAccountMediaTimeline('alice', { maxId: '9', tagged: 'Cat' }),
+      '/api/v1/accounts/alice/statuses',
+      { max_id: '9', tagged: 'Cat', only_media: true, limit: 40 },
+    ],
     [
       'home media canonical',
       'home:media',
