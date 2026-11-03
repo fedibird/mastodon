@@ -3186,6 +3186,14 @@
       {
         "defaultMessage": "Next",
         "id": "lightbox.next"
+      },
+      {
+        "id": "lightbox.loading_next",
+        "defaultMessage": "Loading more images…"
+      },
+      {
+        "id": "lightbox.loading_failed",
+        "defaultMessage": "Could not load more images. Press Next to retry."
       }
     ],
     "path": "app/javascript/mastodon/features/ui/components/media_modal.json"

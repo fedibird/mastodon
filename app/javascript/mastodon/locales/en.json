@@ -1275,5 +1275,7 @@
   "media_display.show_all": "Always show media",
   "media_display.hide_all": "Always hide media",
   "account.media_tag_placeholder": "Filter by hashtag",
-  "account.media_tag_apply": "Filter"
+  "account.media_tag_apply": "Filter",
+  "lightbox.loading_next": "Loading more images…",
+  "lightbox.loading_failed": "Could not load more images. Press Next to retry."
 }

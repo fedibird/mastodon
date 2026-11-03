@@ -451,3 +451,23 @@
     cursor: pointer;
   }
 }
+
+.media-modal__loading-next {
+  position: absolute;
+  inset-inline-start: 50%;
+  bottom: 90px;
+  transform: translateX(-50%);
+  z-index: 10;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 10px 15px;
+  border: 1px solid rgba($primary-text-color, 0.18);
+  border-radius: 8px;
+  background: rgba($ui-base-color, 0.95);
+  color: $primary-text-color;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.45;
+  pointer-events: none;
+}
