@@ -144,6 +144,18 @@ export default class TimelineMasonry extends React.PureComponent {
     const keys = children.map(child => String(child.key));
     const existing = new Set(keys);
     const prependPlan = reconcileMasonryPrependRows(columns, this.previousKeys, keys, this.prependRows, this.prefixKeys);
+    const previousKeySet = new Set(this.previousKeys);
+    const survivingPrevious = this.previousKeys.filter(key => existing.has(key));
+    const survivingCurrent = keys.filter(key => previousKeySet.has(key));
+    const reordered = survivingPrevious.some((key, index) => key !== survivingCurrent[index]);
+    const prefixChanged = this.prefixKeys.length !== prependPlan.prefixKeys.length ||
+      this.prefixKeys.some((key, index) => key !== prependPlan.prefixKeys[index]);
+
+    if (reordered || prefixChanged || (this.previousKeys.length > 0 && survivingPrevious.length === 0)) {
+      // A changed timeline identity requires fresh original-column placement.
+      this.assignments.clear();
+    }
+
     this.prependRows = prependPlan.rows;
     this.prefixKeys = prependPlan.prefixKeys;
     this.previousKeys = keys;
