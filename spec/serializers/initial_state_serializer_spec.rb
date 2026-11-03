@@ -16,8 +16,8 @@ RSpec.describe InitialStateSerializer do
   it 'exposes separately saved image crop preferences in WebUI meta' do
     user = Fabricate(:user)
 
-    expect(serialize(user.account)[:meta][:crop_images]).to be true
-    expect(serialize(user.account)[:meta][:crop_card_images]).to be true
+    expect(serialize(user.account)[:meta][:crop_images]).to eq Setting.crop_images
+    expect(serialize(user.account)[:meta][:crop_card_images]).to eq Setting.crop_card_images
 
     user.settings.crop_images = false
     user.settings.crop_card_images = true
