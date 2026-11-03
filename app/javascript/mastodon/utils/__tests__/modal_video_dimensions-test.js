@@ -1,5 +1,5 @@
 import { fromJS } from 'immutable';
-import { modalVideoDimensions } from '../modal_video_dimensions';
+import { modalVideoDimensions, modalVideoFrameStyle } from '../modal_video_dimensions';
 
 describe('lightbox video dimensions', () => {
   it('uses original video dimensions instead of the top-level or preview dimensions', () => {
@@ -31,6 +31,23 @@ describe('lightbox video dimensions', () => {
     const attachment = fromJS({ meta: { small: { width: 128, height: 256 } } });
 
     expect(modalVideoDimensions(attachment)).toEqual({ width: 960, height: 1920 });
+  });
+
+  it('honors aspect-only metadata when no width/height is provided', () => {
+    const attachment = fromJS({ meta: { original: { aspect: 0.5625 } } });
+
+    expect(modalVideoDimensions(attachment)).toEqual({ width: 960, height: 1707 });
+  });
+
+  it('reserves a larger player independently of original pixel resolution', () => {
+    expect(modalVideoFrameStyle({ width: 160, height: 90 })).toEqual({
+      '--modal-video-aspect': '160 / 90',
+      '--modal-video-width-by-height': '142.222vh',
+    });
+    expect(modalVideoFrameStyle({ width: 720, height: 1280 })).toEqual({
+      '--modal-video-aspect': '720 / 1280',
+      '--modal-video-width-by-height': '45vh',
+    });
   });
 
   it('uses a usable fallback for missing or invalid dimensions', () => {
