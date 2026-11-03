@@ -4701,7 +4701,12 @@ body.app-body.layout-single-column.status-timeline-split {
 
 .column-width {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  row-gap: 4px;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
   padding-bottom: 8px;
   margin-bottom: 10px;
 
