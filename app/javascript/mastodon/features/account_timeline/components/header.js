@@ -40,6 +40,7 @@ export default class Header extends ImmutablePureComponent {
     tagged: PropTypes.string,
     tagRouteBase: PropTypes.string,
     showTagSearch: PropTypes.bool,
+    onSelectTag: PropTypes.func,
     hideFeaturedTags: PropTypes.bool,
     domain: PropTypes.string.isRequired,
   };
@@ -169,7 +170,8 @@ export default class Header extends ImmutablePureComponent {
               <NavLink exact to={`/accounts/${account.get('id')}/about`}><Icon id='address-card-o' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.about' defaultMessage='About' children={msg=> <>{msg}</>} /></span></NavLink>
             </div>
 
-            {!hideFeaturedTags && <FeaturedTags account={account} tagged={tagged} routeBase={this.props.tagRouteBase} />}
+            {!hideFeaturedTags && <FeaturedTags account={account} tagged={tagged} routeBase={this.props.tagRouteBase} onSelectTag={this.props.onSelectTag} />}
+            {this.props.showTagSearch && <AccountHashtagFilter accountId={account.get('id')} tagged={tagged} routeBase={this.props.tagRouteBase} onSelectTag={this.props.onSelectTag} />}
             {!hideRelation && <InnerHeaderExtraLinks account={account} />}
             {!hideProfile && <InnerHeaderExtra account={account} identity_proofs={identity_proofs} />}
           </Fragment>
@@ -204,7 +206,6 @@ export default class Header extends ImmutablePureComponent {
             </div>
           </Fragment>
         )}
-        {this.props.showTagSearch && <AccountHashtagFilter accountId={account.get('id')} tagged={tagged} routeBase={this.props.tagRouteBase} />}
       </div>
     );
   }
