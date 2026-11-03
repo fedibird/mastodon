@@ -49,7 +49,7 @@ class ActivityPub::KnownResourceResolver
     parsed = web_url(@url)
     return if parsed.nil? || parsed.query.present? || parsed.fragment.present?
 
-    match = MASTODON_STATUS_URL_RE.match(parsed.path)
+    match = MASTODON_STATUS_URL_RE.match(parsed.path.to_s)
     return if match.nil?
 
     parsed.path = "/users/#{match[:username]}/statuses/#{match[:status_id]}"
@@ -64,6 +64,8 @@ class ActivityPub::KnownResourceResolver
     first.scheme.casecmp(second.scheme).zero? &&
       first.normalized_host == second.normalized_host &&
       effective_port(first) == effective_port(second)
+  rescue ArgumentError, Addressable::URI::InvalidURIError, IDN::Idna::IdnaError
+    false
   end
 
   def effective_port(uri)
