@@ -135,6 +135,7 @@
   min-width: 0;
 
   &__media {
+    position: relative;
     overflow: hidden;
     max-width: 100%;
 
@@ -142,6 +143,26 @@
     .media-gallery,
     .video-player,
     .audio-player { margin: 0; max-width: 100%; }
+  }
+
+  // Only compact cards hide the remaining attachments. Keep this count
+  // above the preview (including its sensitive overlay), without consuming
+  // clicks or covering the ALT badge at the lower end of the image.
+  &__media-count {
+    position: absolute;
+    z-index: 101;
+    inset-block-start: 6px;
+    inset-inline-end: 6px;
+    padding: 3px 6px;
+    border-radius: 5px;
+    background: rgba($black, 0.65);
+    color: $white;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    line-height: 16px;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
   }
 
   &__body {
