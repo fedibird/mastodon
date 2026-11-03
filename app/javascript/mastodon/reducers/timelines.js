@@ -75,6 +75,7 @@ const initialTimeline = ImmutableMap({
   online: false,
   top: true,
   isLoading: false,
+  paginationError: false,
   hasMore: true,
   pendingItems: ImmutableList(),
   items: ImmutableList(),
@@ -83,6 +84,7 @@ const initialTimeline = ImmutableMap({
 const expandNormalizedTimeline = (state, timeline, statuses, next, isPartial, isLoadingRecent, usePendingItems) => {
   return state.update(timeline, initialTimeline, map => map.withMutations(mMap => {
     mMap.set('isLoading', false);
+    mMap.set('paginationError', false);
     mMap.set('isPartial', isPartial);
 
     if (!next && !isLoadingRecent) mMap.set('hasMore', false);
@@ -635,9 +637,9 @@ export default function timelines(state = initialState, action) {
     return state.update(action.timeline, initialTimeline, map =>
       map.update('items', list => map.get('pendingItems').concat(list.take(40))).set('pendingItems', ImmutableList()).set('unread', 0));
   case TIMELINE_EXPAND_REQUEST:
-    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, map => map.set('isLoading', true));
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, map => map.set('isLoading', true).set('paginationError', false));
   case TIMELINE_EXPAND_FAIL:
-    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, map => map.set('isLoading', false));
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, map => map.set('isLoading', false).set('paginationError', true));
   case TIMELINE_EXPAND_SUCCESS: {
     if (isStaleSplitTimeline(state, action.timeline)) {
       return state;
