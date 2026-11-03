@@ -7,16 +7,15 @@ RSpec.describe 'Media-only Home and List timelines' do
   let(:headers) { auth_headers_for(user, 'read:statuses read:lists') }
   let(:list) { Fabricate(:list, account: user.account) }
 
-  let!(:older_media) do
-    Fabricate(:status, account: user.account, media_attachments: [Fabricate.build(:media_attachment, account: user.account)])
-  end
+  let!(:older_media) { Fabricate(:status, account: user.account) }
   let!(:text_between) { Fabricate(:status, account: user.account) }
-  let!(:newer_media) do
-    Fabricate(:status, account: user.account, media_attachments: [Fabricate.build(:media_attachment, account: user.account)])
-  end
+  let!(:newer_media) { Fabricate(:status, account: user.account) }
   let!(:newest_text) { Fabricate(:status, account: user.account) }
 
   before do
+    attach_remote_test_image(older_media)
+    attach_remote_test_image(newer_media)
+
     members = [older_media, text_between, newer_media, newest_text].map { |status| [status.id, status.id] }
     redis.zadd(FeedManager.instance.key(:home, user.account.id), members)
     redis.zadd(FeedManager.instance.key(:list, list.id), members)
