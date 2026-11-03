@@ -19,12 +19,13 @@ const COLUMN_WIDTH_PRESETS = [
   { id: 'x150', pixels: 525 },
   { id: 'x200', pixels: 700 },
 ];
+const CARD_TARGET_COLUMNS = { 'card-2': 2, 'card-3': 3 };
 const CARD_MIN_WIDTH = 172;
 const CARD_GAP = 8;
 const SCROLLBAR_ALLOWANCE = 16;
 
 export const columnWidthForCardLayout = (layoutMode, currentWidth) => {
-  const desiredColumns = layoutMode === 'card-2' ? 2 : layoutMode === 'card-3' ? 3 : 0;
+  const desiredColumns = CARD_TARGET_COLUMNS[layoutMode] || 0;
   if (!desiredColumns || currentWidth === 'free') {
     return currentWidth;
   }
