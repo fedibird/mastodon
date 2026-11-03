@@ -83,8 +83,7 @@ class MediaItem extends ImmutablePureComponent {
     const status = this.props.attachment.get('status');
     const policy = this.props.visibility || defaultMediaVisibility();
     const sensitive = status && status.get('sensitive');
-    const cwHidden = status && status.get('spoiler_text') && status.get('hidden');
-    return mediaIsConcealed(policy, sensitive, cwHidden, this.state.revealed);
+    return mediaIsConcealed(policy, sensitive, this.state.revealed);
   }
 
   render () {
@@ -97,6 +96,7 @@ class MediaItem extends ImmutablePureComponent {
     const concealed = this.isConcealed();
     const aspect = original ? mediaAspectRatio(attachment) : null;
     const itemStyle = aspect ? { aspectRatio: String(aspect) } : undefined;
+    const blurred = concealed && useBlurhash && (attachment.get('blurhash') || attachment.get('thumbhash'));
 
     let content;
     if (!concealed) {
@@ -143,9 +143,10 @@ class MediaItem extends ImmutablePureComponent {
             {attachment.get('thumbhash') ?
               <Thumbhash hash={attachment.get('thumbhash')} className={classNames('media-gallery__preview', { 'media-gallery__preview--hidden': !concealed && loaded })} dummy={!useBlurhash} /> :
               <Blurhash hash={attachment.get('blurhash')} className={classNames('media-gallery__preview', { 'media-gallery__preview--hidden': !concealed && loaded })} dummy={!useBlurhash} />}
-            {content || <span className='timeline-media-tile__placeholder'>
+            {content || (!blurred && <span className='timeline-media-tile__placeholder'>
               <Icon id={concealed ? 'eye-slash' : type === 'audio' ? 'music' : 'file-o'} />
-            </span>}
+            </span>)}
+            {blurred && <span className='timeline-media-tile__concealed-icon'><Icon id='eye-slash' /></span>}
             {!concealed && ['audio', 'video'].includes(type) && <span className='timeline-media-tile__play'><Icon id={type === 'audio' ? 'music' : 'play'} /></span>}
           </a>
           {description && <div className='media-gallery__item__badges'><AltTextBadge description={description} /></div>}

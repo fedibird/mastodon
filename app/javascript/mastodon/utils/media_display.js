@@ -9,7 +9,7 @@ export const defaultMediaVisibility = () => (
 );
 
 // A view-only policy; never writes to the user's persistent media preferences.
-export const mediaIsConcealed = (visibility, sensitive, cwHidden, revealed = false) => {
+export const mediaIsConcealed = (visibility, sensitive, revealed = false) => {
   if (revealed) {
     return false;
   }
@@ -22,7 +22,9 @@ export const mediaIsConcealed = (visibility, sensitive, cwHidden, revealed = fal
     return true;
   }
 
-  return !!(sensitive || cwHidden);
+  // CW hides post text, not necessarily its media. Only the sensitive
+  // media flag controls blur/conceal in the gallery.
+  return !!sensitive;
 };
 
 // Tiles must still shrink on small columns, and maximum is always one tile.

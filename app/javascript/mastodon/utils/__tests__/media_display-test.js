@@ -24,16 +24,15 @@ describe('local media presentation', () => {
   });
 
   it.each([
-    ['hide_sensitive', false, false, false, false],
-    ['hide_sensitive', true, false, false, true],
-    ['hide_sensitive', false, true, false, true],
-    ['hide_sensitive', true, false, true, false],
-    ['show_all', true, true, false, false],
-    ['hide_all', false, false, false, true],
-    ['hide_all', true, false, true, false],
-  ])('visibility %s sensitive=%s cw=%s revealed=%s returns conceal=%s',
-    (policy, sensitive, cwHidden, revealed, expected) => {
-      expect(mediaIsConcealed(policy, sensitive, cwHidden, revealed)).toBe(expected);
+    ['hide_sensitive', false, false, false],
+    ['hide_sensitive', true, false, true],
+    ['hide_sensitive', true, true, false],
+    ['show_all', true, false, false],
+    ['hide_all', false, false, true],
+    ['hide_all', true, true, false],
+  ])('visibility %s sensitive=%s revealed=%s returns conceal=%s',
+    (policy, sensitive, revealed, expected) => {
+      expect(mediaIsConcealed(policy, sensitive, revealed)).toBe(expected);
     });
 
   it('shrinks to fit, with max always one column', () => {

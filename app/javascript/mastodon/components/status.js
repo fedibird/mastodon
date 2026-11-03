@@ -34,6 +34,9 @@ import ExternalStatusMedia from 'mastodon/components/external_status_media';
 import { assignRelease, spoilerConcealed } from 'mastodon/external_player/session';
 import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
 import AltTextBadge from 'mastodon/components/alt_text_badge';
+import Blurhash from 'mastodon/components/blurhash';
+import Thumbhash from 'mastodon/components/thumbhash';
+import { useBlurhash } from 'mastodon/initial_state';
 import { defaultMediaVisibility as defaultMediaTileVisibility, mediaAspectRatio, mediaIsConcealed } from 'mastodon/utils/media_display';
 
 const domParser = new DOMParser();
@@ -825,9 +828,7 @@ class Status extends ImmutablePureComponent {
   mediaTileConcealed = () => {
     const status = this._properStatus();
     const policy = this.props.mediaVisibility || defaultMediaTileVisibility();
-    const hasHiddenCW = !!(status.get('spoiler_text') && status.get('hidden'));
-
-    return mediaIsConcealed(policy, status.get('sensitive'), hasHiddenCW, this.state.tileRevealed);
+    return mediaIsConcealed(policy, status.get('sensitive'), this.state.tileRevealed);
   }
 
   handleMediaTileClick = event => {
@@ -877,6 +878,9 @@ class Status extends ImmutablePureComponent {
     const externalIdentity = externalIdentityOf(status);
     const aspect = original && mediaAspectRatio(attachment);
     const itemStyle = aspect ? { aspectRatio: String(aspect) } : undefined;
+    const hash = attachment.get('blurhash');
+    const thumbnailHash = attachment.get('thumbhash');
+    const blurred = concealed && useBlurhash && (hash || thumbnailHash);
 
     return (
       <div className='status__wrapper status__wrapper--media-tile' data-id={status.get('id')} ref={this.handleRef}>
@@ -889,9 +893,13 @@ class Status extends ImmutablePureComponent {
               onClick={this.handleMediaTileClick}
               aria-label={concealed ? this.props.intl.formatMessage(messages.revealMediaTile) : (alt || this.props.intl.formatMessage(messages.openMediaTile))}
             >
-              {canPreview ? <img src={preview} alt={alt} loading='lazy' /> : <span className='timeline-media-tile__placeholder'>
+              {canPreview ? <img src={preview} alt={alt} loading='lazy' /> : blurred ? (
+                hash ? <Blurhash className='timeline-media-tile__blurhash' hash={hash} /> :
+                  <Thumbhash className='timeline-media-tile__blurhash' hash={thumbnailHash} />
+              ) : <span className='timeline-media-tile__placeholder'>
                 <Icon id={concealed ? 'eye-slash' : attachment.get('type') === 'audio' ? 'music' : 'file-o'} />
               </span>}
+              {blurred && <span className='timeline-media-tile__concealed-icon'><Icon id='eye-slash' /></span>}
               {!concealed && attachment.get('type') === 'video' && <span className='timeline-media-tile__play'><Icon id='play' /></span>}
             </button>
             {description && <div className='media-gallery__item__badges'>
