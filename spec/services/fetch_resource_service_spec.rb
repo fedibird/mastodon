@@ -1,3 +1,8 @@
+# frozen_string_literal: true
+
+# rubocop:disable Metrics/BlockLength
+# RSpec examples are intentionally grouped by the subject under test.
+
 require 'rails_helper'
 
 RSpec.describe FetchResourceService, type: :service do
@@ -21,7 +26,7 @@ RSpec.describe FetchResourceService, type: :service do
 
     context 'when OpenSSL::SSL::SSLError is raised' do
       before do
-        request = double()
+        request = double
         allow(Request).to receive(:new).and_return(request)
         allow(request).to receive(:add_headers)
         allow(request).to receive(:on_behalf_of)
@@ -33,7 +38,7 @@ RSpec.describe FetchResourceService, type: :service do
 
     context 'when HTTP::ConnectionError is raised' do
       before do
-        request = double()
+        request = double
         allow(Request).to receive(:new).and_return(request)
         allow(request).to receive(:add_headers)
         allow(request).to receive(:on_behalf_of)
@@ -66,7 +71,8 @@ RSpec.describe FetchResourceService, type: :service do
 
       it 'signs request' do
         subject
-        expect(a_request(:get, url).with(headers: { 'Signature' => /keyId="#{Regexp.escape(ActivityPub::TagManager.instance.uri_for(Account.representative) + '#main-key')}"/ })).to have_been_made
+        key_id = "#{ActivityPub::TagManager.instance.uri_for(Account.representative)}#main-key"
+        expect(a_request(:get, url).with(headers: { 'Signature' => /keyId="#{Regexp.escape(key_id)}"/ })).to have_been_made
       end
 
       context 'when content type is application/atom+xml' do
@@ -95,7 +101,7 @@ RSpec.describe FetchResourceService, type: :service do
       end
 
       context 'when link header is present' do
-        let(:headers) { { 'Link' => '<http://example.com/foo>; rel="alternate"; type="application/activity+json"', } }
+        let(:headers) { { 'Link' => '<http://example.com/foo>; rel="alternate"; type="application/activity+json"' } }
 
         it { is_expected.to eq ['http://example.com/foo', { prefetched_body: json }] }
       end
@@ -129,3 +135,5 @@ RSpec.describe FetchResourceService, type: :service do
     end
   end
 end
+
+# rubocop:enable Metrics/BlockLength
