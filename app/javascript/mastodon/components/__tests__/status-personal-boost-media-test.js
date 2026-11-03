@@ -385,7 +385,49 @@ describe('card crop preference propagation', () => {
     await waitFor(() => {
       const gallery = container.querySelector('.timeline-card__media .media-gallery');
       expect(gallery).not.toBeNull();
-      expect(gallery.style.height).toBe('600px');
+      expect(Number(gallery.style.aspectRatio)).toBeCloseTo(0.5);
+      expect(gallery.style.height).toBe('');
     });
+  });
+});
+
+describe('compact card attachment count indicator', () => {
+  it('does not add an overlay to a single-attachment card or a regular status', () => {
+    const card = renderTimeline(properStatus, { layoutMode: 'card-1' });
+    expect(card.container.querySelector('.timeline-card__media-count')).toBeNull();
+    card.unmount();
+
+    const regular = renderTimeline(properStatus);
+    expect(regular.container.querySelector('.timeline-card__media-count')).toBeNull();
+  });
+
+  it('shows an accessible but non-interactive count for a multi-image card', async () => {
+    const multi = properStatus.set('media_attachments', fromJS([
+      attachment,
+      { ...attachment, id: 'm2', description: 'second' },
+      { ...attachment, id: 'm3', description: 'third' },
+    ]));
+    const { container } = renderTimeline(multi, { layoutMode: 'card-2' });
+    const count = container.querySelector('.timeline-card__media-count');
+
+    expect(count).not.toBeNull();
+    expect(count.getAttribute('aria-label')).toBe('3 media attachments');
+    expect(count.getAttribute('role')).toBe('img');
+    expect(count.textContent).toContain('3');
+    expect(count.querySelector('a, button')).toBeNull();
+
+    // The compact card still renders just the first attachment.
+    await waitFor(() => expect(container.querySelectorAll('.timeline-card__media .media-gallery__item')).toHaveLength(1));
+  });
+
+  it('does not expose the attachment indicator while the CW is collapsed', () => {
+    const multi = properStatus
+      .set('media_attachments', fromJS([attachment, { ...attachment, id: 'm2' }]))
+      .set('spoiler_text', 'Hidden')
+      .set('hidden', true);
+    const { container } = renderTimeline(multi, { layoutMode: 'card-1' });
+
+    expect(container.querySelector('.timeline-card__media')).toBeNull();
+    expect(container.querySelector('.timeline-card__media-count')).toBeNull();
   });
 });
