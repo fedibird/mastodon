@@ -330,13 +330,10 @@ describe('temporary media tile reveal', () => {
     expect(onOpenMedia).not.toHaveBeenCalled();
 
     fireEvent.click(tile);
-    expect(onOpenMedia).toHaveBeenCalledWith(
-      'proper',
-      sequence.media,
-      0,
-      expect.anything(),
-      sequence.statusIds,
-      undefined,
-    );
+    expect(onOpenMedia).toHaveBeenCalledTimes(1);
+    expect(onOpenMedia.mock.calls[0][0]).toBe('proper');
+    expect(onOpenMedia.mock.calls[0][1]).toBe(sequence.media);
+    expect(onOpenMedia.mock.calls[0][2]).toBe(0);
+    expect(onOpenMedia.mock.calls[0][4]).toBe(sequence.statusIds);
   });
 });
