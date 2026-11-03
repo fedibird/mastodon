@@ -33,6 +33,21 @@ export const modalVideoDimensions = attachment => {
     return { width, height: Math.round(width * preview.height / preview.width) };
   }
 
+  const aspect = Number(attachment.getIn(['meta', 'original', 'aspect']))
+    || Number(attachment.getIn(['meta', 'small', 'aspect']));
+  if (Number.isFinite(aspect) && aspect > 0) {
+    return { width: 960, height: Math.max(1, Math.round(960 / aspect)) };
+  }
+
   // A practical initial footprint until the browser reads video metadata.
   return { width: 960, height: 540 };
 };
+
+// Deliberately enlarge low-resolution poster images in the lightbox. The
+// modal frame is sized before video metadata loads and stays the same once
+// playback begins, so the thumbnail's intrinsic size cannot shrink it.
+// Limit the frame to 960px, the viewport width, and 80vh in both directions.
+export const modalVideoFrameStyle = ({ width, height }) => ({
+  '--modal-video-aspect': `${width} / ${height}`,
+  '--modal-video-width-by-height': `${Number((80 * width / height).toFixed(3))}vh`,
+});
