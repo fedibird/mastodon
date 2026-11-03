@@ -15,7 +15,7 @@ export const mediaStatusFiltered = (status, reblog, statusId, contextType, filte
   const shown = reblog || status;
   const owner = shown.get('account');
   const ownerId = owner && typeof owner.get === 'function' ? owner.get('id') : owner;
-  if (ownerId === me) {
+  if (ownerId != null && me != null && ownerId === me) {
     return false;
   }
 
