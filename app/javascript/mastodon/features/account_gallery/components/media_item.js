@@ -23,6 +23,7 @@ class MediaItem extends ImmutablePureComponent {
   static propTypes = {
     attachment: ImmutablePropTypes.map.isRequired,
     onOpenMedia: PropTypes.func.isRequired,
+    onReveal: PropTypes.func,
     shape: PropTypes.oneOf(['square', 'original']),
     visibility: PropTypes.oneOf(['hide_sensitive', 'show_all', 'hide_all']),
     intl: PropTypes.object.isRequired,
@@ -65,6 +66,7 @@ class MediaItem extends ImmutablePureComponent {
 
     if (this.isConcealed()) {
       this.setState({ revealedFor: this.revealKey() });
+      this.props.onReveal?.(this.props.attachment);
     } else {
       this.props.onOpenMedia(this.props.attachment);
     }
