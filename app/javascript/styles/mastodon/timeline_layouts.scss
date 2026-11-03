@@ -454,27 +454,6 @@
     gap: 5px;
   }
 
-  // The media gallery uses in-place buttons instead of links, but its featured
-  // tags now share the same account-header position and presentation.
-  button.account__hashtag-link {
-    box-sizing: border-box;
-    border: 1px solid $ui-base-lighter-color;
-    border-radius: 5px;
-    padding: 5px 8px;
-    background: $ui-base-color;
-    color: $primary-text-color;
-    font: inherit;
-    cursor: pointer;
-
-    &.active {
-      background: $ui-highlight-color;
-    }
-
-    &:focus-visible {
-      outline: 2px solid $highlight-text-color;
-      outline-offset: 1px;
-    }
-  }
 }
 
 .account-gallery__tag-search {
