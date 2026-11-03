@@ -165,7 +165,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
            :follow_modal, :unfollow_modal, :subscribe_modal, :unsubscribe_modal, :follow_tag_modal, :unfollow_tag_modal, :boost_modal, :delete_modal,
            :reduce_motion, :system_font_ui, :noindex, :theme, :display_media, :hide_network,
            :expand_spoilers, :default_language, :aggregate_reblogs, :show_application,
-           :advanced_layout, :use_blurhash, :use_pending_items, :trends, :crop_images,
+           :advanced_layout, :use_blurhash, :use_pending_items, :trends, :crop_images, :crop_card_images,
            :disable_swiping, :confirm_domain_block,
            :show_follow_button_on_timeline, :show_subscribe_button_on_timeline, :show_target,
            :show_follow_button_on_timeline, :show_subscribe_button_on_timeline, :show_followed_by, :show_target,
