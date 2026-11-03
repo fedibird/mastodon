@@ -60,6 +60,26 @@ describe('media modal append-only pagination', () => {
     expect(page.error).toBe(false);
   });
 
+  it('rechecks newly loaded images against live active filters and omits hidden results', () => {
+    const state = fromJS({
+      timelines: {
+        'home:media': { items: ['one', 'blocked', 'allowed'], isLoading: false, hasMore: false },
+      },
+      filters: {
+        skip: { context: ['home'], filter_action: 'hide', expires_at: null },
+      },
+      statuses: {
+        one: { id: 'one', account: 'someone', media_attachments: [image('first')] },
+        blocked: { id: 'blocked', account: 'someone', filtered: [{ filter: 'skip' }], media_attachments: [image('blocked')] },
+        allowed: { id: 'allowed', account: 'someone', media_attachments: [image('allowed')] },
+      },
+    });
+
+    const page = mediaModalPagination(state, props({ ...timeline, contextType: 'home' }));
+    expect(page.media.map(item => item.get('id')).toArray()).toEqual(['first', 'allowed']);
+    expect(page.statusIds.toArray()).toEqual(['one', 'allowed']);
+  });
+
   it('supports account media filtering as a distinct pagination key', () => {
     const state = fromJS({
       timelines: {

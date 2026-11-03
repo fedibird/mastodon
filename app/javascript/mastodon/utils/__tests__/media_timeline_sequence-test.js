@@ -46,6 +46,18 @@ describe('cross-post media navigation sequence', () => {
     expect(Object.keys(sequence.positions)).toHaveLength(0);
   });
 
+  it('skips warning/hidden filtered statuses even when their media is not sensitive', () => {
+    const filtered = statuses.setIn(['30', 'filtered'], fromJS([{ filter: 'hidden-filter' }]));
+    const contextRows = rows.map(row => ({ ...row, contextType: 'public' }));
+    const filterInfo = {
+      filters: fromJS({ 'hidden-filter': { context: ['public'], filter_action: 'hide', expires_at: null } }),
+    };
+
+    const sequence = mediaTimelineSequence(contextRows, filtered, 'show_all', filterInfo);
+    expect(sequence.media.map(item => item.get('id')).toArray()).toEqual(['a', 'b', 'hidden', 'a', 'b']);
+    expect(sequence.statusIds.includes('30')).toBe(false);
+  });
+
   it('handles missing Redux statuses and gap rows', () => {
     expect(mediaTimelineSequence(rows, null).media.size).toBe(0);
     const sequence = mediaTimelineSequence([{ kind: 'gap', position: 0 }], statuses);
@@ -67,6 +79,16 @@ describe('account media gallery cross-post navigation', () => {
     const sequence = accountMediaTimelineSequence(items, 'hide_sensitive');
     expect(sequence.media.map(item => item.get('id')).toArray()).toEqual(['photo-1', 'gif', 'cw-photo']);
     expect(sequence.statusIds.toArray()).toEqual(['101', '103', '105']);
+  });
+
+  it('omits filtered account media from cross-post navigation', () => {
+    const filteredItems = items.update(3, item => item.setIn(['status', 'filtered'], fromJS([{ filter: 'my-account-filter' }])));
+    const filterInfo = {
+      filters: fromJS({ 'my-account-filter': { context: ['account'], filter_action: 'warn', expires_at: null } }),
+    };
+
+    const sequence = accountMediaTimelineSequence(filteredItems, 'show_all', filterInfo);
+    expect(sequence.media.map(item => item.get('id')).toArray()).toEqual(['photo-1', 'private-photo', 'cw-photo']);
   });
 
   it('show all includes sensitive images, while hide all has no navigable images', () => {
