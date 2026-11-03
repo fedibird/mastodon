@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { fromJS } from 'immutable';
+import PropTypes from 'prop-types';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
 import React from 'react';
@@ -24,6 +25,8 @@ const makeStore = () => createStore((state = fromJS({
 ));
 
 const Pathname = ({ location }) => <span data-testid='pathname'>{location.pathname}</span>;
+
+Pathname.propTypes = { location: PropTypes.object.isRequired };
 
 const renderRoute = (routeBase, initialRoute) => {
   const store = makeStore();
