@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { fireEvent, render } from '@testing-library/react';
+import { fireEvent, render, waitFor } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -374,5 +374,18 @@ describe('compact card reaction placement', () => {
     expect(reactions).not.toBeNull();
     expect(reactions.querySelector('[data-testid="emoji-reaction-bar"]')).not.toBeNull();
     expect(reactions.querySelector('[data-compact-card-mode="reactions"]')).not.toBeNull();
+  });
+});
+
+describe('card crop preference propagation', () => {
+  it('uses its own uncropped aspect ratio instead of the standard timeline crop preference', async () => {
+    const portrait = properStatus.setIn(['media_attachments', 0, 'meta', 'small', 'aspect'], 0.5);
+    const { container } = renderTimeline(portrait, { layoutMode: 'card-1', cachedMediaWidth: 300 });
+
+    await waitFor(() => {
+      const gallery = container.querySelector('.timeline-card__media .media-gallery');
+      expect(gallery).not.toBeNull();
+      expect(gallery.style.height).toBe('600px');
+    });
   });
 });
