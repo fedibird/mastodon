@@ -320,7 +320,8 @@ ja:
         setting_confirm_follow_from_bot: Bot承認制アカウントにする
         setting_content_emoji_reaction_size: 投稿の絵文字リアクションのサイズ
         setting_content_font_size: 投稿のフォントサイズ
-        setting_crop_images: 投稿の詳細以外では画像を16:9に切り抜く
+        setting_crop_images: 通常の投稿表示では画像を16:9に切り抜く（投稿の詳細を除く）
+        setting_crop_card_images: カード表示では画像を16:9に切り抜く
         setting_default_column_width: デフォルトのカラム幅
         setting_default_expires_action: デフォルトの終了時アクション
         setting_default_expires_action_mark: 期限切れマーク
