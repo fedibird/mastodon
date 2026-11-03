@@ -27,7 +27,7 @@ RSpec.describe 'Media-only Home and List timelines' do
 
       expect(response).to have_http_status(200)
       expect(body_as_json.pluck(:id)).to eq([newer_media.id.to_s])
-      expect(response.headers.fetch('Link')).to include('only_media=true')
+      expect(response.headers.fetch('Link').links.map(&:href)).to all(include('only_media=true'))
 
       get path, headers: headers, params: { only_media: true, limit: 1, max_id: newer_media.id }
 
