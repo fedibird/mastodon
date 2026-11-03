@@ -449,6 +449,7 @@
 
 .account-gallery__tag-search {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: wrap;
   gap: 6px;
   padding: 6px 8px;
@@ -473,6 +474,25 @@
     border-radius: 4px;
     padding: 6px 10px;
     cursor: pointer;
+  }
+
+  button.account-gallery__tag-search__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    color: $darker-text-color;
+
+    &:hover,
+    &:focus-visible {
+      color: $primary-text-color;
+      background: $ui-base-lighter-color;
+    }
   }
 }
 

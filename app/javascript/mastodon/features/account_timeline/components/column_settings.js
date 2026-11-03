@@ -21,6 +21,7 @@ class ColumnSettings extends React.PureComponent {
       <div>
         <div className='column-settings__row'>
           <SettingToggle settings={settings} settingPath={['other', 'advancedMode']} onChange={onChange} label={<FormattedMessage id='account.column_settings.advanced_mode' defaultMessage='Advanced mode' />} />
+          <SettingToggle settings={settings} settingPath={['other', 'hideHashtagInput']} defaultValue={false} onChange={onChange} label={<FormattedMessage id='account.column_settings.hide_hashtag_input' defaultMessage='Hide hashtag input' />} />
           {advancedMode && (
             <Fragment>
               <span className='column-settings__section'><FormattedMessage id='account.column_settings.advanced_settings' defaultMessage='Advanced settings' /></span>

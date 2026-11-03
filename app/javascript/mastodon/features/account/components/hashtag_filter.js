@@ -1,15 +1,27 @@
 import React from 'react';
+import { connect } from 'react-redux';
+import { changeSetting } from 'mastodon/actions/settings';
+import Icon from 'mastodon/components/icon';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl } from 'react-intl';
 
 const messages = defineMessages({
   placeholder: { id: 'account.media_tag_placeholder', defaultMessage: 'Filter by hashtag' },
   apply: { id: 'account.media_tag_apply', defaultMessage: 'Filter' },
+  close: { id: 'account.hide_hashtag_input', defaultMessage: 'Hide hashtag input' },
 });
 
 // Shared by Posts, Posts & Replies, About and the standalone Media gallery.
 // Route-based views keep the chosen tag in the URL; Media keeps it local.
-class AccountHashtagFilter extends React.PureComponent {
+const mapStateToProps = state => ({
+  hidden: state.getIn(['settings', 'account', 'other', 'hideHashtagInput'], false),
+});
+
+const mapDispatchToProps = dispatch => ({
+  onHide: () => dispatch(changeSetting(['account', 'other', 'hideHashtagInput'], true)),
+});
+
+export class AccountHashtagFilter extends React.PureComponent {
 
   static contextTypes = {
     router: PropTypes.object,
@@ -21,6 +33,8 @@ class AccountHashtagFilter extends React.PureComponent {
     tagged: PropTypes.string,
     routeBase: PropTypes.string,
     onSelectTag: PropTypes.func,
+    hidden: PropTypes.bool,
+    onHide: PropTypes.func,
   };
 
   state = {
@@ -31,6 +45,10 @@ class AccountHashtagFilter extends React.PureComponent {
     if (prevProps.tagged !== this.props.tagged || prevProps.accountId !== this.props.accountId) {
       this.setState({ value: this.props.tagged || '' });
     }
+  }
+
+  handleHide = () => {
+    this.props.onHide?.();
   }
 
   handleChange = event => {
@@ -54,11 +72,24 @@ class AccountHashtagFilter extends React.PureComponent {
   }
 
   render () {
-    const { intl } = this.props;
+    const { intl, hidden } = this.props;
+    if (hidden) {
+      return null;
+    }
+
     const placeholder = intl.formatMessage(messages.placeholder);
 
     return (
       <form className='account-gallery__tag-search' onSubmit={this.handleSubmit} role='search'>
+        <button
+          type='button'
+          className='account-gallery__tag-search__close'
+          onClick={this.handleHide}
+          title={intl.formatMessage(messages.close)}
+          aria-label={intl.formatMessage(messages.close)}
+        >
+          <Icon id='times' />
+        </button>
         <input
           type='search'
           maxLength={100}
@@ -74,4 +105,4 @@ class AccountHashtagFilter extends React.PureComponent {
 
 }
 
-export default injectIntl(AccountHashtagFilter);
+export default injectIntl(connect(mapStateToProps, mapDispatchToProps)(AccountHashtagFilter));
