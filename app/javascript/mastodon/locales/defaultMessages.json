@@ -731,6 +731,14 @@
       {
         "defaultMessage": "Profile unavailable",
         "id": "empty_column.account_unavailable"
+      },
+      {
+        "id": "account.media_tag_placeholder",
+        "defaultMessage": "Filter by hashtag"
+      },
+      {
+        "id": "account.media_tag_apply",
+        "defaultMessage": "Filter"
       }
     ],
     "path": "app/javascript/mastodon/features/account_gallery/index.json"

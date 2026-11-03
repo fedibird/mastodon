@@ -192,7 +192,10 @@ class AccountGallery extends ImmutablePureComponent {
       // Account media mode is already one attachment per tile. Navigate
       // pictures across all currently loaded posts instead of stopping at
       // each post's media_attachments collection.
-      const sequence = accountMediaTimelineSequence(this.props.attachments, this.state.mediaVisibility);
+      const id = accountMediaTimelineId(this.props.params.accountId, this.state.tagged);
+      const statusIds = this.props.mediaTimelines.getIn([id, 'items'], ImmutableList());
+      const attachments = accountGalleryAttachments(statusIds, this.props.mediaStatuses, this.props.account);
+      const sequence = accountMediaTimelineSequence(attachments, this.state.mediaVisibility);
       const position = sequence.media.findIndex(item => item.get('id') === attachment.get('id'));
       if (position >= 0 && sequence.media.size > 1) {
         dispatch(openModal('MEDIA', {

@@ -1275,5 +1275,7 @@
   "media_display.visibility": "表示設定の一時上書き（このカラムのみ）",
   "media_display.hide_sensitive": "閲覧注意メディアを隠す",
   "media_display.show_all": "メディアを常に表示する",
-  "media_display.hide_all": "メディアを常に隠す"
+  "media_display.hide_all": "メディアを常に隠す",
+  "account.media_tag_placeholder": "ハッシュタグで絞り込み",
+  "account.media_tag_apply": "絞り込む"
 }
