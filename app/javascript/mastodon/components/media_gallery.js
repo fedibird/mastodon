@@ -307,6 +307,7 @@ class MediaGallery extends React.PureComponent {
     autoplay: PropTypes.bool,
     onToggleVisibility: PropTypes.func,
     quote: PropTypes.bool,
+    cropImages: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -404,8 +405,10 @@ class MediaGallery extends React.PureComponent {
     let children, spoilerButton;
 
     const style = {};
+    // Card previews can override the original non-expanded post setting.
+    const effectiveCropImages = this.props.cropImages ?? cropImages;
 
-    if (this.isFullSizeEligible() && (standalone || !cropImages)) {
+    if (this.isFullSizeEligible() && (standalone || !effectiveCropImages)) {
       if (width) {
         style.height = width / this.props.media.getIn([0, 'meta', 'small', 'aspect']);
       }
