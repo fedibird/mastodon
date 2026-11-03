@@ -180,6 +180,17 @@ class AccountGallery extends ImmutablePureComponent {
     this.handleScrollToBottom();
   }
 
+  handleModalLoadMore = (accountId, tagged) => {
+    const timelineId = accountMediaTimelineId(accountId, tagged);
+    const { mediaTimelines, dispatch } = this.props;
+    if (mediaTimelines.getIn([timelineId, 'isLoading']) || !mediaTimelines.getIn([timelineId, 'hasMore'])) {
+      return;
+    }
+
+    const ids = mediaTimelines.getIn([timelineId, 'items'], ImmutableList());
+    dispatch(expandAccountMediaTimeline(accountId, { maxId: ids.last(), tagged }));
+  }
+
   handleOpenMedia = attachment => {
     const { dispatch } = this.props;
     const statusId = attachment.getIn(['status', 'id']);
@@ -197,10 +208,20 @@ class AccountGallery extends ImmutablePureComponent {
       const attachments = accountGalleryAttachments(statusIds, this.props.mediaStatuses, this.props.account);
       const sequence = accountMediaTimelineSequence(attachments, this.state.mediaVisibility);
       const position = sequence.media.findIndex(item => item.get('id') === attachment.get('id'));
-      if (position >= 0 && sequence.media.size > 1) {
+      if (position >= 0 && sequence.media.size > 0) {
+        const accountId = this.props.params.accountId;
+        const tagged = this.state.tagged;
         dispatch(openModal('MEDIA', {
           media: sequence.media,
           timelineStatusIds: sequence.statusIds,
+          mediaSource: {
+            kind: 'account',
+            accountId,
+            timelineId: id,
+            afterStatusId: statusIds.last(),
+            visibility: this.state.mediaVisibility,
+            onLoadMore: () => this.handleModalLoadMore(accountId, tagged),
+          },
           index: position,
           statusId,
         }));

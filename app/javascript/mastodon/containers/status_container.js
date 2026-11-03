@@ -244,8 +244,8 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
     dispatch(mentionCompose(account, router));
   },
 
-  onOpenMedia (statusId, media, index, lang, timelineStatusIds) {
-    dispatch(openModal('MEDIA', { statusId, media, index, lang, timelineStatusIds }));
+  onOpenMedia (statusId, media, index, lang, timelineStatusIds, mediaSource) {
+    dispatch(openModal('MEDIA', { statusId, media, index, lang, timelineStatusIds, mediaSource }));
   },
 
   onOpenVideo (statusId, media, options, lang) {

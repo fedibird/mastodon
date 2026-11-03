@@ -317,6 +317,7 @@ class Status extends ImmutablePureComponent {
     mediaVisibility: PropTypes.oneOf(['hide_sensitive', 'show_all', 'hide_all']),
     mediaRowKey: PropTypes.string,
     mediaTimeline: PropTypes.object,
+    mediaSource: PropTypes.object,
   };
 
   static defaultProps = {
@@ -341,6 +342,7 @@ class Status extends ImmutablePureComponent {
     'mediaIndex',
     'mediaShape',
     'mediaVisibility',
+    'mediaSource',
   ];
 
   state = {
@@ -856,7 +858,7 @@ class Status extends ImmutablePureComponent {
       const sequence = this.props.mediaTimeline;
       const position = sequence && sequence.positions[this.props.mediaRowKey];
 
-      if (Number.isInteger(position) && this.props.onOpenMedia && sequence.media.size > 1) {
+      if (Number.isInteger(position) && this.props.onOpenMedia && sequence.media.size > 0) {
         // Sequence contains only currently loaded, view-visible image/GIF tiles.
         // Preserve per-post attribution as the viewer advances across posts.
         this.props.onOpenMedia(
@@ -865,6 +867,7 @@ class Status extends ImmutablePureComponent {
           position,
           statusTranslationView(status).mediaLang,
           sequence.statusIds,
+          this.props.mediaSource,
         );
       } else {
         // If the selected tile was revealed individually, do not let the

@@ -82,6 +82,8 @@ class ScrollableList extends PureComponent {
     layoutMode: PropTypes.string,
     mediaRows: PropTypes.array,
     mediaStatuses: PropTypes.object,
+    mediaTimelineId: PropTypes.string,
+    mediaLastStatusId: PropTypes.string,
   };
 
   static defaultProps = {
@@ -984,6 +986,13 @@ class ScrollableList extends PureComponent {
     const loadPending  = (numPending > 0) ? <LoadPending count={numPending} onClick={this.handleLoadPending} /> : null;
     let scrollableArea = null;
     const mediaTimeline = mediaMode ? mediaTimelineSequence(this.props.mediaRows, this.props.mediaStatuses, mediaVisibility) : null;
+    const mediaSource = mediaMode && onLoadMore && this.props.mediaTimelineId ? {
+      kind: 'timeline',
+      timelineId: this.props.mediaTimelineId,
+      afterStatusId: this.props.mediaLastStatusId,
+      visibility: mediaVisibility,
+      onLoadMore,
+    } : null;
     const renderedItems = React.Children.map(children, (child, index) => (
       <IntersectionObserverArticleContainer
         key={child.key}
@@ -1005,6 +1014,7 @@ class ScrollableList extends PureComponent {
           mediaShape: mediaMode ? mediaShape : undefined,
           mediaVisibility: mediaMode ? mediaVisibility : undefined,
           mediaTimeline,
+          mediaSource,
         })}
       </IntersectionObserverArticleContainer>
     ));
