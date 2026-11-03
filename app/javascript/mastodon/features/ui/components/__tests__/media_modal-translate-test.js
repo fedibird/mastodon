@@ -137,9 +137,11 @@ describe('MediaModal video dimensions', () => {
       meta: { original: { width: 1080, height: 1920 } },
     }]);
 
-    renderModal('original', video);
+    const { container } = renderModal('original', video);
     expect(screen.getByTestId('modal-video')).toHaveAttribute('data-width', '1080');
     expect(screen.getByTestId('modal-video')).toHaveAttribute('data-height', '1920');
+    expect(container.querySelector('.media-modal__video-container').style.getPropertyValue('--modal-video-aspect')).toBe('1080 / 1920');
+    expect(container.querySelector('.media-modal__video-container').style.getPropertyValue('--modal-video-width-by-height')).toBe('45vh');
   });
 });
 
