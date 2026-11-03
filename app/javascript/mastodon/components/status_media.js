@@ -6,7 +6,8 @@ import { FormattedMessage } from 'react-intl';
 import Bundle from '../features/ui/components/bundle';
 import { MediaGallery, Video, Audio } from '../features/ui/util/async-components';
 import { attachmentAccessibility } from 'mastodon/utils/translation_view';
-import { displayMedia } from '../initial_state';
+import { cropImages, displayMedia, maxAttachments } from '../initial_state';
+import { mediaGalleryAspectRatio } from 'mastodon/utils/media_gallery_layout';
 
 // image and gifv stay in one gallery. gifv is a muted looping video inside
 // that gallery, not a standalone player. video and audio keep their original
@@ -293,7 +294,22 @@ export const externalMediaBlocks = (status) => {
   return blocks.concat(players);
 };
 
-const LoadingGallery = () => <div className='media-gallery' style={{ height: '110px' }} />;
+// Keep the async skeleton's geometry identical to the eventual gallery, even
+// if the parent column has not been measured yet.
+const LoadingGallery = ({ media, cropOverride, standalone, quote }) => (
+  <div className='media-gallery' style={{
+    aspectRatio: String(mediaGalleryAspectRatio(media, {
+      crop: cropOverride ?? cropImages, standalone, quote, maxAttachments,
+    })),
+  }} />
+);
+
+LoadingGallery.propTypes = {
+  media: ImmutablePropTypes.list.isRequired,
+  cropOverride: PropTypes.bool,
+  standalone: PropTypes.bool,
+  quote: PropTypes.bool,
+};
 
 const LoadingVideo = () => <div className='video-player' style={{ height: '110px' }} />;
 
@@ -579,7 +595,14 @@ export default class StatusMediaStack extends React.PureComponent {
     }
 
     return (
-      <Bundle key={key} fetchComponent={MediaGallery} loading={LoadingGallery}>
+      <Bundle key={key} fetchComponent={MediaGallery} loading={() => (
+        <LoadingGallery
+          media={media}
+          cropOverride={this.props.cropImages}
+          standalone={this.props.standalone}
+          quote={this.props.quote}
+        />
+      )}>
         {Gallery => this.renderGallery(key, media, Gallery)}
       </Bundle>
     );
