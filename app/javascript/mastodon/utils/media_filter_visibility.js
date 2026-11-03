@@ -15,7 +15,7 @@ export const mediaStatusFiltered = (status, reblog, statusId, contextType, filte
   const shown = reblog || status;
   const owner = shown.get('account');
   const ownerId = owner && typeof owner.get === 'function' ? owner.get('id') : owner;
-  if (ownerId != null && me != null && ownerId === me) {
+  if (ownerId !== null && ownerId !== undefined && me !== null && me !== undefined && ownerId === me) {
     return false;
   }
 
@@ -24,7 +24,7 @@ export const mediaStatusFiltered = (status, reblog, statusId, contextType, filte
   const active = filters.filter(filter => {
     const contexts = filter.get('context');
     const expires = filter.get('expires_at');
-    return contexts && contexts.includes(filterContext) && (expires == null || expires > now);
+    return contexts && contexts.includes(filterContext) && (expires === null || expires === undefined || expires > now);
   });
   if (active.isEmpty()) {
     return false;
