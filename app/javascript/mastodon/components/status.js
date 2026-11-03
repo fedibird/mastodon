@@ -318,6 +318,10 @@ class Status extends ImmutablePureComponent {
     mediaRowKey: PropTypes.string,
     mediaTimeline: PropTypes.object,
     mediaSource: PropTypes.object,
+    onMediaTileReveal: PropTypes.func,
+    mediaTileRevealed: PropTypes.bool,
+    onMediaFilterReveal: PropTypes.func,
+    mediaFilterRevealed: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -494,6 +498,7 @@ class Status extends ImmutablePureComponent {
 
   handleUnfilterClick = e => {
     this.setState({ forceFilter: false });
+    this.props.onMediaFilterReveal?.(this.props.status.get('id'));
     e.preventDefault();
     e.stopPropagation();
   }
@@ -873,7 +878,7 @@ class Status extends ImmutablePureComponent {
   mediaTileConcealed = () => {
     const status = this._properStatus();
     const policy = this.props.mediaVisibility || defaultMediaTileVisibility();
-    return mediaIsConcealed(policy, status.get('sensitive'), this.state.tileRevealed);
+    return mediaIsConcealed(policy, status.get('sensitive'), this.state.tileRevealed || this.props.mediaTileRevealed);
   }
 
   handleMediaTileClick = event => {
@@ -889,6 +894,7 @@ class Status extends ImmutablePureComponent {
     if (this.mediaTileConcealed()) {
       // Reveal this one tile only, without changing the user's media policy.
       this.setState({ tileRevealed: true });
+      this.props.onMediaTileReveal?.(this.props.mediaRowKey);
       return;
     }
 
@@ -1027,7 +1033,7 @@ class Status extends ImmutablePureComponent {
 
     const matchedFilters = status.get('matched_filters');
     const hasMatchedFilters = ImmutableList.isList(matchedFilters) ? !matchedFilters.isEmpty() : !!matchedFilters;
-    const shouldFilter = hasMatchedFilters && this.state.forceFilter !== false;
+    const shouldFilter = hasMatchedFilters && this.state.forceFilter !== false && !this.props.mediaFilterRevealed;
 
     if (shouldFilter) {
       const minHandlers = this.props.muted ? {} : {
