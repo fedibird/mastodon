@@ -44,6 +44,7 @@ const attachment = fromJS({
   },
 });
 const onOpenMedia = jest.fn();
+const onReveal = jest.fn();
 
 const tile = (visibility, media = attachment) => (
   <IntlProvider locale='ja' messages={japanese}>
@@ -52,6 +53,7 @@ const tile = (visibility, media = attachment) => (
       shape='original'
       visibility={visibility}
       onOpenMedia={onOpenMedia}
+      onReveal={onReveal}
     />
   </IntlProvider>
 );
@@ -59,6 +61,7 @@ const tile = (visibility, media = attachment) => (
 describe('account media gallery tile', () => {
   beforeEach(() => {
     onOpenMedia.mockClear();
+    onReveal.mockClear();
   });
 
   it('shows ALT while the sensitive image is hidden, and reveals only this tile', () => {
@@ -71,6 +74,7 @@ describe('account media gallery tile', () => {
 
     fireEvent.click(link);
     expect(onOpenMedia).not.toHaveBeenCalled();
+    expect(onReveal).toHaveBeenCalledWith(attachment);
     expect(container.querySelector('img')).toHaveAttribute('src', '/preview.jpg');
     expect(screen.queryByTestId('blurhash-canvas')).toBeNull();
 
