@@ -1,18 +1,27 @@
 import '@testing-library/jest-dom/extend-expect';
+import IntlMessageFormat from 'intl-messageformat';
 import IntlRelativeFormat from 'intl-relativeformat';
 
-// react-intl v2 checks the old static locale registry, while the installed
-// intl-relativeformat v6 has neither the registry nor __addLocaleData.
-// Reconstruct only locale registration in Jest; runtime formatting is untouched.
-if (typeof IntlRelativeFormat.__addLocaleData !== 'function') {
-  IntlRelativeFormat.__localeData = Object.create(null);
-  IntlRelativeFormat.__addLocaleData = data => {
-    const entries = Array.isArray(data) ? data : [data];
+// react-intl v2 consults both legacy __localeData maps to decide whether an
+// IntlProvider can render a locale. Some installed formatter versions expose
+// neither that map nor __addLocaleData, even though formatting still works.
+// Restore the locale registration contract in Jest ONLY; production is untouched.
+[IntlMessageFormat, IntlRelativeFormat].forEach(Formatter => {
+  if (!Formatter.__localeData) {
+    Formatter.__localeData = Object.create(null);
+  }
 
+  const originalRegister = Formatter.__addLocaleData;
+  Formatter.__addLocaleData = localeData => {
+    if (typeof originalRegister === 'function') {
+      originalRegister.call(Formatter, localeData);
+    }
+
+    const entries = Array.isArray(localeData) ? localeData : [localeData];
     entries.forEach(entry => {
       if (entry && entry.locale) {
-        IntlRelativeFormat.__localeData[entry.locale] = entry;
+        Formatter.__localeData[entry.locale] = entry;
       }
     });
   };
-}
+});
