@@ -420,17 +420,64 @@ describe('compact card attachment count indicator', () => {
     await waitFor(() => expect(container.querySelectorAll('.timeline-card__media .media-gallery__item')).toHaveLength(1));
   });
 
+  it('opens all four attached images from the single card thumbnail', async () => {
+    const images = fromJS([
+      attachment,
+      { ...attachment, id: 'm2', description: 'second' },
+      { ...attachment, id: 'm3', description: 'third' },
+      { ...attachment, id: 'm4', description: 'fourth' },
+    ]);
+    const onOpenMedia = jest.fn();
+    const { container } = renderTimeline(properStatus.set('media_attachments', images), {
+      layoutMode: 'card-2',
+      onOpenMedia,
+    });
+
+    await waitFor(() => expect(container.querySelectorAll('.timeline-card__media .media-gallery__item')).toHaveLength(1));
+    expect(container.querySelector('.timeline-card__media-count').textContent).toContain('4');
+
+    fireEvent.click(container.querySelector('.timeline-card__media .media-gallery__item-thumbnail'));
+
+    expect(onOpenMedia).toHaveBeenCalledTimes(1);
+    const [statusId, modalMedia, index] = onOpenMedia.mock.calls[0];
+    expect(statusId).toBe('proper');
+    expect(modalMedia.map(item => item.get('id')).toArray()).toEqual(['m1', 'm2', 'm3', 'm4']);
+    expect(index).toBe(0);
+  });
+
+  it('opens all images on a boosted card using the original status id', async () => {
+    const media = fromJS([attachment, { ...attachment, id: 'm2', description: 'second' }]);
+    const status = personalBoost('original').setIn(['reblog', 'media_attachments'], media);
+    const onOpenMedia = jest.fn();
+    const { container } = renderTimeline(status, { layoutMode: 'card-1', onOpenMedia });
+
+    await waitFor(() => expect(container.querySelectorAll('.timeline-card__media .media-gallery__item')).toHaveLength(1));
+    fireEvent.click(container.querySelector('.timeline-card__media .media-gallery__item-thumbnail'));
+
+    const [statusId, modalMedia, index] = onOpenMedia.mock.calls[0];
+    expect(statusId).toBe('proper');
+    expect(modalMedia.map(item => item.get('id')).toArray()).toEqual(['m1', 'm2']);
+    expect(index).toBe(0);
+  });
+
   it('counts mixed image, GIF, and video attachments without displaying them all', async () => {
     const mixed = properStatus.set('media_attachments', fromJS([
       attachment,
       { ...attachment, id: 'gif', type: 'gifv' },
       { ...attachment, id: 'movie', type: 'video' },
     ]));
-    const { container } = renderTimeline(mixed, { layoutMode: 'card-3' });
+    const onOpenMedia = jest.fn();
+    const { container } = renderTimeline(mixed, { layoutMode: 'card-3', onOpenMedia });
 
     expect(container.querySelector('.timeline-card__media-count').getAttribute('aria-label')).toBe('3 media attachments');
     await waitFor(() => expect(container.querySelectorAll('.timeline-card__media .media-gallery__item')).toHaveLength(1));
     expect(container.querySelector('.timeline-card__media .video-player')).toBeNull();
+
+    fireEvent.click(container.querySelector('.timeline-card__media .media-gallery__item-thumbnail'));
+
+    expect(onOpenMedia).toHaveBeenCalledTimes(1);
+    expect(onOpenMedia.mock.calls[0][1].map(item => item.get('id')).toArray()).toEqual(['m1', 'gif']);
+    expect(onOpenMedia.mock.calls[0][2]).toBe(0);
   });
 
   it('does not expose the attachment indicator while the CW is collapsed', () => {
