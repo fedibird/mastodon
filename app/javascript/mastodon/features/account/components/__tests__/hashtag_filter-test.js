@@ -54,7 +54,8 @@ describe('shared account hashtag input', () => {
     fireEvent.change(screen.getByRole('searchbox', { name: 'ハッシュタグで絞り込み' }), { target: { value: '#猫' } });
     fireEvent.click(screen.getByRole('button', { name: '絞り込む' }));
 
-    expect(screen.getByTestId('pathname')).toHaveTextContent(`${base}/${encodeURIComponent('猫')}`);
+    // React Router exposes the decoded pathname in this version.
+    expect(screen.getByTestId('pathname')).toHaveTextContent(`${base}/猫`);
   });
 
   it('uses the media view callback without navigating away from it', () => {
