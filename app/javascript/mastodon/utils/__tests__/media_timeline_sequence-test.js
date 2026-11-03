@@ -58,6 +58,38 @@ describe('cross-post media navigation sequence', () => {
     expect(sequence.statusIds.includes('30')).toBe(false);
   });
 
+
+  it('navigates only manually revealed sensitive tiles and warning-filtered statuses', () => {
+    const sequence = mediaTimelineSequence(rows, statuses, 'hide_sensitive', {
+      revealedMediaKeys: new Set([rows.find(row => row.id === '20').key]),
+    });
+    expect(sequence.media.map(item => item.get('id')).toArray()).toEqual(['a', 'b', 'hidden', 'cw', 'a', 'b']);
+
+    const warned = statuses.setIn(['30', 'filtered'], fromJS([{ filter: 'warn' }]));
+    const publicRows = rows.map(row => ({ ...row, contextType: 'public' }));
+    const filterInfo = {
+      filters: fromJS({ warn: { context: ['public'], filter_action: 'warn', expires_at: null } }),
+    };
+    expect(mediaTimelineSequence(publicRows, warned, 'show_all', filterInfo).statusIds.includes('30')).toBe(false);
+    expect(mediaTimelineSequence(publicRows, warned, 'show_all', {
+      ...filterInfo,
+      revealedFilterStatusIds: new Set(['30']),
+    }).statusIds.includes('30')).toBe(true);
+  });
+
+  it('does not reveal sensitive siblings when only one attachment was unmasked', () => {
+    const multi = statuses.set('20', fromJS({
+      id: '20', sensitive: true,
+      media_attachments: [{ id: 'hidden-first', type: 'image' }, { id: 'hidden-second', type: 'image' }],
+    }));
+    const mediaRows = mediaRowsForStatuses(ImmutableList(['20']), multi);
+    const sequence = mediaTimelineSequence(mediaRows, multi, 'hide_all', {
+      revealedMediaKeys: new Set([mediaRows[0].key]),
+    });
+    expect(sequence.media.map(item => item.get('id')).toArray()).toEqual(['hidden-first']);
+    expect(sequence.positions[mediaRows[1].key]).toBeUndefined();
+  });
+
   it('handles missing Redux statuses and gap rows', () => {
     expect(mediaTimelineSequence(rows, null).media.size).toBe(0);
     const sequence = mediaTimelineSequence([{ kind: 'gap', position: 0 }], statuses);
@@ -89,6 +121,15 @@ describe('account media gallery cross-post navigation', () => {
 
     const sequence = accountMediaTimelineSequence(filteredItems, 'show_all', filterInfo);
     expect(sequence.media.map(item => item.get('id')).toArray()).toEqual(['photo-1', 'private-photo', 'cw-photo']);
+  });
+
+
+  it('includes only an individually revealed sensitive attachment, including hide-all policy', () => {
+    const filterInfo = { revealedMediaIds: new Set(['102:private-photo']) };
+    const sequence = accountMediaTimelineSequence(items, 'hide_all', filterInfo);
+    expect(sequence.media.map(item => item.get('id')).toArray()).toEqual(['private-photo']);
+    expect(sequence.statusIds.toArray()).toEqual(['102']);
+    expect(accountMediaTimelineSequence(items, 'hide_all').media.isEmpty()).toBe(true);
   });
 
   it('show all includes sensitive images, while hide all has no navigable images', () => {
