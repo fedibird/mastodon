@@ -45,6 +45,8 @@ export default class Header extends ImmutablePureComponent {
     domain: PropTypes.string.isRequired,
   };
 
+  renderShortLabel = message => <>{message}</>;
+
   static defaultProps = {
     hideProfile: false,
   };
@@ -163,11 +165,11 @@ export default class Header extends ImmutablePureComponent {
             />
 
             <div className='account__section-headline with-short-label'>
-              <NavLink exact to={`/accounts/${account.get('id')}/posts`}><Icon id='home' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.posts' defaultMessage='Posts' children={msg=> <>{msg}</>} /></span></NavLink>
-              <NavLink exact to={`/accounts/${account.get('id')}/with_replies`}><Icon id='reply-all' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.with_replies' defaultMessage='Posts & Replies' children={msg=> <>{msg}</>} /></span></NavLink>
-              <NavLink exact to={`/accounts/${account.get('id')}/media`}><Icon id='picture-o' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.media' defaultMessage='Media' children={msg=> <>{msg}</>} /></span></NavLink>
-              <NavLink exact to={`/accounts/${account.get('id')}/conversations`}><Icon id='at' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.conversations' defaultMessage='Conversations' children={msg=> <>{msg}</>} /></span></NavLink>
-              <NavLink exact to={`/accounts/${account.get('id')}/about`}><Icon id='address-card-o' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.about' defaultMessage='About' children={msg=> <>{msg}</>} /></span></NavLink>
+              <NavLink exact to={`/accounts/${account.get('id')}/posts`}><Icon id='home' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.posts' defaultMessage='Posts' children={this.renderShortLabel} /></span></NavLink>
+              <NavLink exact to={`/accounts/${account.get('id')}/with_replies`}><Icon id='reply-all' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.with_replies' defaultMessage='Posts & Replies' children={this.renderShortLabel} /></span></NavLink>
+              <NavLink exact to={`/accounts/${account.get('id')}/media`}><Icon id='picture-o' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.media' defaultMessage='Media' children={this.renderShortLabel} /></span></NavLink>
+              <NavLink exact to={`/accounts/${account.get('id')}/conversations`}><Icon id='at' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.conversations' defaultMessage='Conversations' children={this.renderShortLabel} /></span></NavLink>
+              <NavLink exact to={`/accounts/${account.get('id')}/about`}><Icon id='address-card-o' fixedWidth /><span className='account__section-headline__short-label'><FormattedMessage id='account.short.about' defaultMessage='About' children={this.renderShortLabel} /></span></NavLink>
             </div>
 
             {!hideFeaturedTags && <FeaturedTags account={account} tagged={tagged} routeBase={this.props.tagRouteBase} onSelectTag={this.props.onSelectTag} />}
