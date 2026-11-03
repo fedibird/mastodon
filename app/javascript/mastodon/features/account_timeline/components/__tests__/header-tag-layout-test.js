@@ -68,7 +68,7 @@ describe('account header hashtag layout', () => {
     expect(featured).toBeInTheDocument();
     expect(featured.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(input.compareDocumentPosition(links) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /#cats/ }));
+    fireEvent.click(screen.getByRole('link', { name: /#cats/ }));
     expect(onSelectTag).toHaveBeenCalledWith('cats');
   });
 
