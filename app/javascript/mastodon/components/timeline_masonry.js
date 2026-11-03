@@ -25,6 +25,7 @@ export default class TimelineMasonry extends React.PureComponent {
   layoutVariant = null;
   previousKeys = [];
   prependRows = [];
+  prefixKeys = [];
 
   setRoot = node => { this.root = node; }
 
@@ -137,11 +138,14 @@ export default class TimelineMasonry extends React.PureComponent {
       this.assignments.clear();
       this.previousKeys = [];
       this.prependRows = [];
+      this.prefixKeys = [];
     }
 
     const keys = children.map(child => String(child.key));
     const existing = new Set(keys);
-    this.prependRows = reconcileMasonryPrependRows(columns, this.previousKeys, keys, this.prependRows);
+    const prependPlan = reconcileMasonryPrependRows(columns, this.previousKeys, keys, this.prependRows, this.prefixKeys);
+    this.prependRows = prependPlan.rows;
+    this.prefixKeys = prependPlan.prefixKeys;
     this.previousKeys = keys;
 
     this.assignments.forEach((_, key) => {
@@ -154,7 +158,36 @@ export default class TimelineMasonry extends React.PureComponent {
     const arrangements = new Map();
     const placeholders = [];
     const measuredHeight = key => this.state.heights[key] || ESTIMATED_HEIGHT;
-    let reservedTop = 0;
+    const prefixKeySet = new Set(this.prefixKeys);
+    const prefixBottoms = new Array(columns).fill(0);
+
+    // Featured/reload controls remain at the top. Build their positions once
+    // and reserve a full-width boundary underneath before streaming rows.
+    children.forEach(child => {
+      const key = String(child.key);
+      if (!prefixKeySet.has(key)) {
+        return;
+      }
+
+      const height = measuredHeight(key);
+      if (isFullWidthMasonryKey(key)) {
+        const top = Math.max(...prefixBottoms);
+        prefixBottoms.fill(top + height + GAP);
+        arrangements.set(key, { top, left: 0, width: availableWidth, fullWidth: true });
+        return;
+      }
+
+      let column = this.assignments.get(key);
+      if (column === undefined || column >= columns) {
+        column = prefixBottoms.indexOf(Math.min(...prefixBottoms));
+        this.assignments.set(key, column);
+      }
+      const top = prefixBottoms[column];
+      prefixBottoms[column] += height + GAP;
+      arrangements.set(key, { top, left: column * (cellWidth + GAP), width: cellWidth });
+    });
+
+    let reservedTop = Math.max(...prefixBottoms);
 
     this.prependRows.forEach((row, index) => {
       if (row.kind === 'full') {
