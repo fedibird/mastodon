@@ -304,7 +304,7 @@ class StatusContent extends React.PureComponent {
   onAccountUrlClick = (accountId, path, accountActorType, e) => {
     if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      this.context.router.history.push(`${accountActorType == 'Group' ? '/timelines/groups/' : '/accounts/'}${accountId}${path}`);
+      this.context.router.history.push(`${accountActorType === 'Group' ? '/timelines/groups/' : '/accounts/'}${accountId}${path}`);
     }
   }
 
