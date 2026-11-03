@@ -37,16 +37,10 @@ class ResolveURLService < BaseService
 
     # It may happen that the resource is a private toot, and thus not fetchable,
     # but we can return the toot if we already know about it.
-    scope = Status.where(uri: @url)
-
-    # We don't have an index on `url`, so try guessing the `uri` from `url`
-    parsed_url = Addressable::URI.parse(@url)
-    parsed_url.path.match(%r{/@(?<username>#{Account::USERNAME_RE})/(?<status_id>[0-9]+)\Z}) do |matched|
-      parsed_url.path = "/users/#{matched[:username]}/statuses/#{matched[:status_id]}"
-      scope = scope.or(Status.where(uri: parsed_url.to_s, url: @url))
-    end
-
-    status = scope.first
+    # Resolve via the indexed ActivityPub identifier, not a status.url scan.
+    # A Mastodon-style public URL can supply a candidate uri, which must also
+    # be checked against the stored public URL.
+    status = ActivityPub::KnownResourceResolver.new(@url).status
 
     authorize_with @on_behalf_of, status, :show? unless status.nil?
     status
