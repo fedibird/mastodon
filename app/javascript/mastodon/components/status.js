@@ -27,7 +27,7 @@ import { displayMedia, cropCardImages, enableReaction, compactReaction, show_rep
 import { List as ImmutableList } from 'immutable';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
-import StatusMediaStack, { hotkeyMediaRoot, openMediaFromHotkey } from 'mastodon/components/status_media';
+import StatusMediaStack, { firstOpenableMedia, hotkeyMediaRoot, openMediaFromHotkey } from 'mastodon/components/status_media';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { externalIdentityOf, externalIdentityName, externalIdentityReaderText } from 'mastodon/external_presentation';
 import ExternalStatusMedia from 'mastodon/components/external_status_media';
@@ -562,6 +562,16 @@ class Status extends ImmutablePureComponent {
     this.props.onOpenMedia(status.get('id'), media, index, lang);
   }
 
+  handleOpenCardMedia = () => {
+    // Only one thumbnail is rendered on a card; the modal must still receive
+    // every image/GIF from the post so its navigation is not limited to one.
+    const target = firstOpenableMedia(this._translationMediaStatus().get('media_attachments', ImmutableList()));
+
+    if (target && target.kind === 'gallery') {
+      this.handleOpenMedia(target.media, target.index);
+    }
+  }
+
   handleHotkeyOpenMedia = e => {
     const status = this._properStatus();
 
@@ -755,7 +765,7 @@ class Status extends ImmutablePureComponent {
         audioHeight: 100,
         visible: this.state.showMedia,
         onToggleVisibility: this.handleToggleMediaVisibility,
-        onOpenMedia: this.handleOpenMedia,
+        onOpenMedia: this.handleOpenCardMedia,
         onOpenVideo: this.handleOpenVideo,
         translationView: statusTranslationView(status),
         posterFallback: status.getIn(['account', 'avatar_static']),
