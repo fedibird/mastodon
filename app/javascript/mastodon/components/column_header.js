@@ -33,7 +33,8 @@ const column_width_message = [
 
 const mapStateToProps = (state, { columnWidth, columnId, layoutScope }) => ({
   columnWidth: columnWidth ?? defaultColumnWidth,
-  layoutMode: readTimelineLayout(state, columnId, layoutScope),
+  layoutMode: layoutScope === 'account' && readTimelineLayout(state, columnId, layoutScope) === 'media'
+    ? 'normal' : readTimelineLayout(state, columnId, layoutScope),
 });
 
 export default @connect(mapStateToProps)
@@ -238,7 +239,7 @@ class ColumnHeader extends React.PureComponent {
           value={layoutMode}
           onChange={this.handleChangeLayout}
         >
-          {TIMELINE_LAYOUT_OPTIONS.map(mode => <option value={mode} key={mode}>{layoutLabels[mode]}</option>)}
+          {TIMELINE_LAYOUT_OPTIONS.filter(mode => layoutScope !== 'account' || mode !== 'media').map(mode => <option value={mode} key={mode}>{layoutLabels[mode]}</option>)}
         </select>
       </div>
     );

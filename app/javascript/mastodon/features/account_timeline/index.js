@@ -43,7 +43,8 @@ const mapStateToProps = (state, { params: { accountId, tagged }, about, withRepl
   const hideSubscribingCount = state.getIn(['settings', 'account', 'other', 'hideSubscribingCount'], false);
   const hideRelation = hidePostCount && hideFollowingCount && hideFollowerCount && (me !== accountId || hideSubscribingCount);
   const path = `${accountId}${withReplies ? ':with_replies' : ''}${withoutReblogs ? ':without_reblogs' : ''}${tagged ? `:${tagged}` : ''}`;
-  const onlyMedia = readTimelineLayout(state, null, 'account') === 'media';
+  // Dedicated account media gallery already provides the media display mode.
+  const onlyMedia = false;
   const activePath = `${path}${onlyMedia ? ':view-media' : ''}`;
 
   return {
@@ -66,7 +67,7 @@ const mapStateToProps = (state, { params: { accountId, tagged }, about, withRepl
     showPostsInAbout,
     hideRelation,
     columnWidth: state.getIn(['settings', 'account', 'columnWidth'], defaultColumnWidth),
-    layoutMode: readTimelineLayout(state, null, 'account'),
+    layoutMode: readTimelineLayout(state, null, 'account') === 'media' ? 'normal' : readTimelineLayout(state, null, 'account'),
     onlyMedia,
     mediaStatuses: state.get('statuses'),
   };

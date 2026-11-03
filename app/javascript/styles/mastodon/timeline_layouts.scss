@@ -34,15 +34,15 @@
 
 .media-display-controls {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  row-gap: 6px;
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
   padding: 6px 8px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
+  overflow-x: hidden;
   border-bottom: 1px solid lighten($ui-base-color, 8%);
   background: $ui-base-color;
   position: sticky;
@@ -51,7 +51,9 @@
 
   &__group {
     display: inline-flex;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    min-width: 0;
     align-items: center;
     gap: 2px;
     border: 1px solid $ui-base-lighter-color;
@@ -366,4 +368,15 @@
 .media-layout__more {
   min-width: 0;
   clear: both;
+}
+
+// Keep the column movement controls visually separate from the layout picker.
+.column-layout-settings + .column-header__setting-arrows,
+.column-layout-settings + .column-header__setting-btn {
+  margin-top: 12px;
+}
+
+// The moves/pin controls are separate adjacent siblings after the layout row.
+.column-layout-settings {
+  margin-bottom: 12px;
 }
