@@ -138,7 +138,7 @@ export default class TimelineMasonry extends React.PureComponent {
 
     const arranged = children.map(child => {
       const key = String(child.key);
-      const fullWidth = key.includes('gap:');
+      const fullWidth = key.includes('gap:') || key.includes('more:');
       const height = this.state.heights[key] || ESTIMATED_HEIGHT;
 
       if (fullWidth) {
