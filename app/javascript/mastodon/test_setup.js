@@ -2,25 +2,23 @@ import '@testing-library/jest-dom/extend-expect';
 import IntlMessageFormat from 'intl-messageformat';
 import IntlRelativeFormat from 'intl-relativeformat';
 
-// react-intl v2 consults both legacy __localeData maps to decide whether an
-// IntlProvider can render a locale. Some installed formatter versions expose
-// neither that map nor __addLocaleData, even though formatting still works.
-// Restore the locale registration contract in Jest ONLY; production is untouched.
+// react-intl v2 checks BOTH formatters' __localeData__ registries (note the
+// TWO trailing underscores). intl-relativeformat v6 no longer exposes the
+// legacy API expected by react-intl v2. Restore it in Jest only.
+// Existing methods (including read-only __addLocaleData on the v2 message
+// formatter) must not be replaced. Production locale handling is unchanged.
 [IntlMessageFormat, IntlRelativeFormat].forEach(Formatter => {
-  if (!Formatter.__localeData) {
-    Formatter.__localeData = Object.create(null);
+  if (!Formatter.__localeData__) {
+    Formatter.__localeData__ = Object.create(null);
   }
 
-  // intl-messageformat v2 already provides a working (read-only)
-  // __addLocaleData. Never replace it. Only polyfill a missing method,
-  // which is the case for newer intl-relativeformat releases.
   if (typeof Formatter.__addLocaleData !== 'function') {
     Formatter.__addLocaleData = localeData => {
       const entries = Array.isArray(localeData) ? localeData : [localeData];
 
       entries.forEach(entry => {
         if (entry && entry.locale) {
-          Formatter.__localeData[entry.locale] = entry;
+          Formatter.__localeData__[entry.locale.toLowerCase()] = entry;
         }
       });
     };
