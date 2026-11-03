@@ -188,7 +188,6 @@ class DomainTimeline extends React.PureComponent {
         <StatusListContainer
           columnId={columnId}
           layoutScope='domain'
-          disableLayout={split.isSplit}
           trackScroll={!pinned}
           scrollKey={`domain_timeline-${columnId}`}
           timelineId={sourceTimelineId}
@@ -205,7 +204,6 @@ class DomainTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='domain'
-              disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               includePendingItems
@@ -226,7 +224,6 @@ class DomainTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='domain'
-              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`domain_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}

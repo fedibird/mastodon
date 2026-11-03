@@ -325,7 +325,6 @@ class ListTimeline extends React.PureComponent {
         <StatusListContainer
           columnId={columnId}
           layoutScope='list'
-          disableLayout={split.isSplit}
           trackScroll={!pinned}
           scrollKey={`list_timeline-${columnId}${onlyMedia ? '-media' : ''}`}
           timelineId={sourceTimelineId}
@@ -344,7 +343,6 @@ class ListTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='list'
-              disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               includePendingItems
@@ -366,7 +364,6 @@ class ListTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='list'
-              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`list_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}

@@ -265,7 +265,6 @@ class HomeTimeline extends React.PureComponent {
         <StatusListContainer
           columnId={columnId}
           layoutScope='home'
-          disableLayout={split.isSplit}
           trackScroll={!pinned}
           scrollKey={`home_timeline-${columnId}${onlyMedia ? '-media' : ''}`}
           onLoadMore={this.handleLoadMore}
@@ -282,7 +281,6 @@ class HomeTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='home'
-              disableLayout={split.isSplit}
               timelineId='home'
               dataTimelineId='home'
               includePendingItems
@@ -302,7 +300,6 @@ class HomeTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='home'
-              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`home_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}

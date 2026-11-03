@@ -147,7 +147,6 @@ class LimitedTimeline extends React.PureComponent {
         <StatusListContainer
           columnId={columnId}
           layoutScope='limited'
-          disableLayout={split.isSplit}
           trackScroll={!pinned}
           scrollKey={`limited_timeline-${columnId}${onlyMedia ? '-media' : ''}`}
           onLoadMore={this.handleLoadMore}
@@ -164,7 +163,6 @@ class LimitedTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='limited'
-              disableLayout={split.isSplit}
               timelineId='limited'
               dataTimelineId='limited'
               includePendingItems
@@ -184,7 +182,6 @@ class LimitedTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='limited'
-              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`limited_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}

@@ -10,7 +10,9 @@ import { debounce } from 'lodash';
 import { me } from '../../../initial_state';
 import { uniqWithoutNull } from '../../../utils/uniq';
 import { makeGetImmediatePresentation } from 'mastodon/selectors/immediate_feed';
-import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
+import { readTimelineLayout, statusHasTimelineMedia } from 'mastodon/utils/timeline_layout';
+
+const EMPTY_VISIBILITIES = [];
 
 const visibilitiesByType = (state, type) => {
   if (type === 'home') {
@@ -18,7 +20,8 @@ const visibilitiesByType = (state, type) => {
   } else if (type === 'limited') {
     return getLimitedVisibilities(state);
   } else {
-    return [];
+    // A stable empty array lets the memoized selectors retain their results.
+    return EMPTY_VISIBILITIES;
   }
 };
 
@@ -63,9 +66,16 @@ const makeGetLiveStatusIds = () => createSelector([
   (state, { dataTimelineId }) => state.getIn(['timelines', dataTimelineId, 'pendingItems'], ImmutableList()),
   (state, { dataTimelineId }) => state.getIn(['timelines', dataTimelineId, 'items'], ImmutableList()),
   (state) => state.get('statuses'),
+  (state, { layoutMode }) => layoutMode,
   (state, { statusLimit }) => statusLimit,
-], (columnSettings, visibilities, pendingItems, items, statuses, statusLimit) => {
+], (columnSettings, visibilities, pendingItems, items, statuses, layoutMode, statusLimit) => {
   let statusIds = filterStatusIds(columnSettings, visibilities, uniqWithoutNull(pendingItems.concat(items)), statuses);
+
+  // Count only attachment-bearing posts towards the short split Live cap.
+  // Otherwise 40 text posts could hide media further down the loaded feed.
+  if (layoutMode === 'media') {
+    statusIds = statusIds.filter(id => statusHasTimelineMedia(id, statuses));
+  }
 
   if (Number.isFinite(statusLimit)) {
     statusIds = statusIds.take(statusLimit);
@@ -138,22 +148,25 @@ const mergeImmediateStatusIds = (statusIds, prependIds) => {
   return uniqWithoutNull(prependIds.concat(statusIds));
 };
 
-const makeMapStateToProps = () => {
+export const makeMapStateToProps = () => {
   const getStatusIds = makeGetStatusIds();
   const getPendingStatusIds = makeGetStatusIds(true);
   const getLiveStatusIds = makeGetLiveStatusIds();
+  // Use a separate memoized selector for the unfiltered reconciliation set,
+  // so switching selector arguments does not reallocate Live rows each render.
+  const getReconciliationLiveIds = makeGetLiveStatusIds();
   const getImmediatePresentation = makeGetImmediatePresentation();
 
   const mapStateToProps = (state, { timelineId, dataTimelineId, includePendingItems, statusLimit, immediateViewKey, layoutScope, columnId, disableLayout }) => {
     const dataId = dataTimelineId || timelineId;
-    // Keep the split live/history panes on their established position model.
-    const layoutMode = disableLayout || includePendingItems || (dataTimelineId && dataTimelineId.indexOf(':split:') !== -1)
-      ? 'normal' : readTimelineLayout(state, columnId, layoutScope);
+    // Split panes use the saved column mode; an explicit opt-out keeps
+    // conventional status rows for other consumers.
+    const layoutMode = disableLayout ? 'normal' : readTimelineLayout(state, columnId, layoutScope);
     const layoutProps = {
       layoutMode,
       mediaStatuses: layoutMode === 'media' ? state.get('statuses') : null,
     };
-    const selectorProps = { type: timelineId, dataTimelineId: dataId, statusLimit };
+    const selectorProps = { type: timelineId, dataTimelineId: dataId, statusLimit, layoutMode };
     const presentation = getImmediatePresentation(state, {
       timelineId,
       dataTimelineId: dataId,
@@ -168,7 +181,8 @@ const makeMapStateToProps = () => {
         statusIds: mergeImmediateStatusIds(getLiveStatusIds(state, selectorProps), prependIds),
         ...layoutProps,
         immediateStatusIds,
-        filterStatusIds: getLiveStatusIds(state, { ...selectorProps, statusLimit: undefined }),
+        // Reconciliation still tracks text-only statuses hidden by the view.
+        filterStatusIds: getReconciliationLiveIds(state, { ...selectorProps, layoutMode: 'normal', statusLimit: undefined }),
         isLoading: state.getIn(['timelines', dataId, 'isLoading'], true),
         isPartial: state.getIn(['timelines', dataId, 'isPartial'], false),
         hasMore: state.getIn(['timelines', dataId, 'hasMore']),

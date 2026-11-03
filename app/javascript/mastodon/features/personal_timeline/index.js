@@ -157,7 +157,6 @@ class PersonalTimeline extends React.PureComponent {
         <StatusListContainer
           columnId={columnId}
           layoutScope='personal'
-          disableLayout={split.isSplit}
           timelineId={sourceTimelineId}
           onLoadMore={this.handleLoadMore}
           trackScroll={!pinned}
@@ -174,7 +173,6 @@ class PersonalTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='personal'
-              disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               includePendingItems
@@ -195,7 +193,6 @@ class PersonalTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='personal'
-              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`personal_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}

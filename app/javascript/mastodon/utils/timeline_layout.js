@@ -19,12 +19,13 @@ const COLUMN_WIDTH_PRESETS = [
   { id: 'x150', pixels: 525 },
   { id: 'x200', pixels: 700 },
 ];
+const CARD_TARGET_COLUMNS = { 'card-2': 2, 'card-3': 3 };
 const CARD_MIN_WIDTH = 172;
 const CARD_GAP = 8;
 const SCROLLBAR_ALLOWANCE = 16;
 
 export const columnWidthForCardLayout = (layoutMode, currentWidth) => {
-  const desiredColumns = layoutMode === 'card-2' ? 2 : layoutMode === 'card-3' ? 3 : 0;
+  const desiredColumns = CARD_TARGET_COLUMNS[layoutMode] || 0;
   if (!desiredColumns || currentWidth === 'free') {
     return currentWidth;
   }
@@ -67,6 +68,22 @@ export const readTimelineLayout = (state, columnId, scope) => {
 
 // Statuses in the Redux store are normalized; a boost's attachments belong
 // to the referenced status, not the boost object itself.
+const timelineMediaForStatus = (id, statuses) => {
+  const base = statuses && statuses.get(id);
+  if (!base) {
+    return null;
+  }
+
+  const reblogId = base.get('reblog');
+  const status = reblogId ? (statuses.get(reblogId) || base) : base;
+  return status.get('media_attachments');
+};
+
+export const statusHasTimelineMedia = (id, statuses) => {
+  const media = timelineMediaForStatus(id, statuses);
+  return !!(media && typeof media.some === 'function' && media.some(Boolean));
+};
+
 export const mediaRowsForStatuses = (statusIds, statuses) => {
   const rows = [];
 
@@ -76,14 +93,7 @@ export const mediaRowsForStatuses = (statusIds, statuses) => {
       return;
     }
 
-    const base = statuses && statuses.get(id);
-    if (!base) {
-      return;
-    }
-
-    const reblogId = base.get('reblog');
-    const status = reblogId ? (statuses.get(reblogId) || base) : base;
-    const media = status.get('media_attachments');
+    const media = timelineMediaForStatus(id, statuses);
 
     if (!media || typeof media.forEach !== 'function') {
       return;
