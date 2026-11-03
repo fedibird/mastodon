@@ -1,12 +1,28 @@
 // Every streaming prepend occupies a reserved row above the old masonry.
 // Its cells fill in logical end-to-start order; existing card columns remain
 // unchanged. React.Children.toArray escapes ':' as '=2' in child keys.
-export const isFullWidthMasonryKey = key => /(?:gap|more)(?::|=2)/.test(key);
+const decodedReactKey = key => {
+  // React.Children.map and Children.toArray can escape an already escaped
+  // key. Decode repeatedly so full-width gap and featured keys are recognized
+  // regardless of how many list wrappers have processed them.
+  let value = String(key);
+
+  for (let i = 0; i < 4; i += 1) {
+    const decoded = value.replace(/=0/g, '=').replace(/=2/g, ':');
+    if (decoded === value) {
+      break;
+    }
+    value = decoded;
+  }
+
+  return value;
+};
+
+export const isFullWidthMasonryKey = key => /(?:^|[.$/])(?:gap|more):/.test(decodedReactKey(key));
 
 // Featured statuses and the iOS reload control precede the live timeline.
-// Keep this stable prefix above reserved rows instead of accidentally treating
-// an insertion *after* it as a change of the timeline's identity.
-export const isMasonryPrefixKey = key => /(?:\$|^)(?:f-|reload(?:$|[.:=]))/.test(key);
+// Keep this stable prefix above reserved rows.
+export const isMasonryPrefixKey = key => /(?:^|[.$/])(?:f-|reload(?:$|[.:/]))/.test(decodedReactKey(key));
 
 export const leadingMasonryPrefixKeys = keys => {
   const prefix = [];
