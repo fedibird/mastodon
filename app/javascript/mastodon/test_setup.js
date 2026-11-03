@@ -11,17 +11,18 @@ import IntlRelativeFormat from 'intl-relativeformat';
     Formatter.__localeData = Object.create(null);
   }
 
-  const originalRegister = Formatter.__addLocaleData;
-  Formatter.__addLocaleData = localeData => {
-    if (typeof originalRegister === 'function') {
-      originalRegister.call(Formatter, localeData);
-    }
+  // intl-messageformat v2 already provides a working (read-only)
+  // __addLocaleData. Never replace it. Only polyfill a missing method,
+  // which is the case for newer intl-relativeformat releases.
+  if (typeof Formatter.__addLocaleData !== 'function') {
+    Formatter.__addLocaleData = localeData => {
+      const entries = Array.isArray(localeData) ? localeData : [localeData];
 
-    const entries = Array.isArray(localeData) ? localeData : [localeData];
-    entries.forEach(entry => {
-      if (entry && entry.locale) {
-        Formatter.__localeData[entry.locale] = entry;
-      }
-    });
-  };
+      entries.forEach(entry => {
+        if (entry && entry.locale) {
+          Formatter.__localeData[entry.locale] = entry;
+        }
+      });
+    };
+  }
 });
