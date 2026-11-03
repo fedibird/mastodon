@@ -16,6 +16,7 @@ RSpec.describe EntityCache do
       end
     end
   end
+
   describe '#holding_status' do
     let(:aggregator) { Fabricate(:account, domain: 'aggregator.test', username: 'relay') }
 
@@ -51,6 +52,17 @@ RSpec.describe EntityCache do
       expect(described_class.instance.holding_status(link)).to eq(status)
     end
 
+    it 'lets an imported canonical AP id supersede an older verified alternate cache' do
+      url = 'https://publisher.test/objects/newly-imported'
+      cached = Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/objects/cached', url: url)
+      described_class.instance.update_holding_status(url, cached)
+
+      publisher = Fabricate(:account, domain: 'publisher.test', username: 'author')
+      canonical = Fabricate(:status, account: publisher, uri: url, url: url)
+
+      expect(described_class.instance.holding_status(url)).to eq(canonical)
+    end
+
     it 'resolves the canonical AP URI regardless of the remote display URL' do
       status = Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/objects/direct', url: 'https://publisher.test/articles/direct')
 
@@ -66,5 +78,4 @@ RSpec.describe EntityCache do
       expect(described_class.instance.holding_account(account.uri)).to eq(account)
     end
   end
-
 end
