@@ -17,7 +17,7 @@ module Mastodon
     ].freeze
 
     option :concurrency, type: :numeric, default: 2, aliases: [:c], desc: 'Workload will be split between this number of threads'
-    option :only, type: :array, enum: %w(instances accounts tags statuses), desc: 'Only process these indices'
+    option :only, type: :array, enum: %w(instances accounts tags statuses group_directory), desc: 'Only process these indices'
     option :min, type: :string
     option :max, type: :string
     option :verbose, type: :boolean, default: false, aliases: [:v]
@@ -31,6 +31,12 @@ module Mastodon
 
       Even if creating or upgrading indices is not necessary, data from the
       database will be imported into the indices.
+
+      `group_directory` is not part of a full deploy. Create or rebuild only
+      that index with `--only group_directory`. A changed mapping purges and
+      reimports that index and leaves accounts, tags, and statuses alone.
+      Set GROUP_DIRECTORY_INDEX=true only after the index exists. Unset it
+      to stop live sync. The directory API keeps using PostgreSQL either way.
     LONG_DESC
     def deploy
       if options[:concurrency] < 1

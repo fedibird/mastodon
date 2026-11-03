@@ -151,6 +151,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   before_validation :sanitize_locale
   before_create :set_approved
   after_commit :send_pending_devise_notifications
+  after_commit :request_group_directory_index, on: [:create, :update, :destroy]
   after_create_commit :trigger_webhooks
 
   # This avoids a deprecation warning from Rails 5.1
@@ -684,5 +685,13 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
 
   def invite_text_required?
     Setting.require_invite_text && !invited? && !external? && !bypass_invite_request_check?
+  end
+
+  def request_group_directory_index
+    return unless GroupDirectory::Indexing.live_sync_enabled?
+    return unless account&.group?
+    return unless destroyed? || previous_changes.key?('approved') || previous_changes.key?('confirmed_at')
+
+    GroupDirectory::Indexing.enqueue(account_id)
   end
 end

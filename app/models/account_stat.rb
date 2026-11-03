@@ -22,4 +22,16 @@ class AccountStat < ApplicationRecord
   belongs_to :account, inverse_of: :account_stat
 
   update_index('accounts', :account)
+
+  after_commit :request_group_directory_index, on: [:create, :update, :destroy]
+
+  private
+
+  def request_group_directory_index
+    return unless GroupDirectory::Indexing.live_sync_enabled?
+    return unless destroyed? || previous_changes.key?('last_status_at')
+    return unless account&.group?
+
+    GroupDirectory::Indexing.enqueue(account_id)
+  end
 end

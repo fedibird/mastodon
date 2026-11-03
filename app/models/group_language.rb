@@ -10,7 +10,15 @@ class GroupLanguage < ApplicationRecord
   validates :account_id, uniqueness: { scope: :tag }
   validate :account_is_group
 
+  after_commit :request_group_directory_index, on: [:create, :update, :destroy]
+
   private
+
+  def request_group_directory_index
+    return unless GroupDirectory::Indexing.live_sync_enabled?
+
+    GroupDirectory::Indexing.enqueue(account_id)
+  end
 
   def account_is_group
     errors.add(:account, :invalid) unless account&.group?

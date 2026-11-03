@@ -38,8 +38,8 @@ class GroupDirectory::Query
   MAX_OFFSET = 10_000
   ORDERS = %w(active new).freeze
   SCOPES = %w(all local following).freeze
-  PEERTUBE = 'peertube'
-  KNOWN_SOFTWARE = %w(fedibird lemmy piefed nodebb mbin mitra).freeze
+  PEERTUBE = GroupDirectory::Eligibility::PEERTUBE
+  KNOWN_SOFTWARE = GroupDirectory::Eligibility::KNOWN_SOFTWARE
   SOFTWARE_PATTERN = /\A[a-z0-9][a-z0-9_.-]*\z/
   ACCT_WITH_DOMAIN = /\A@?(?<username>#{Account::USERNAME_RE})@(?<domain>[^@\s]+)\z/i
   ACCT_USERNAME = /\A@(?<username>#{Account::USERNAME_RE})\z/i
@@ -67,9 +67,8 @@ class GroupDirectory::Query
   # One domain predicate. Merging Account.not_domain_blocked_by_account
   # would replace this OR on Rails 7 and could drop the PeerTube exclusion.
   def domain_clause
-    nodes = Node.has_nodeinfo.where("#{software_sql} <> ?", PEERTUBE)
     table = Account.arel_table
-    remote = table[:domain].in(nodes.select(:domain).arel)
+    remote = table[:domain].in(GroupDirectory::Eligibility.remote_domains.select(:domain).arel)
     blocked = @viewer&.excluded_from_timeline_domains
     remote = remote.and(table[:domain].not_in(blocked)) if blocked.present?
     table[:domain].eq(nil).or(remote)
@@ -232,7 +231,7 @@ class GroupDirectory::Query
   end
 
   def software_sql
-    "LOWER(BTRIM(COALESCE(nodes.info->>'software_name', '')))"
+    GroupDirectory::Eligibility::SOFTWARE_NAME_SQL
   end
 
   def blank_software_sql

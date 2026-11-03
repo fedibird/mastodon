@@ -758,6 +758,7 @@ class Account < ApplicationRecord
   before_validation :prepare_username, on: :create
   before_destroy :clean_feed_manager
   after_update_commit :trigger_update_webhooks
+  after_commit :request_group_directory_index, on: [:create, :update, :destroy]
 
   private
 
@@ -811,5 +812,13 @@ class Account < ApplicationRecord
 
   def trigger_update_webhooks
     TriggerWebhookWorker.perform_async('account.updated', 'Account', id) if local?
+  end
+
+  def request_group_directory_index
+    return unless GroupDirectory::Indexing.live_sync_enabled?
+    return unless group? || previous_changes.fetch('actor_type', []).include?('Group')
+    return if previously_new_record? && !GroupDirectory::Eligibility.eligible?(self)
+
+    GroupDirectory::Indexing.enqueue(id)
   end
 end
