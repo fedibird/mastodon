@@ -57,6 +57,7 @@ describe('streaming masonry prepend rows', () => {
   it('treats gaps and more rows as full-width barriers instead of column slots', () => {
     expect(isFullWidthMasonryKey('.$gap:123')).toBe(true);
     expect(isFullWidthMasonryKey('.$gap=2123')).toBe(true);
+    expect(isFullWidthMasonryKey('.$gap=02123')).toBe(true);
     expect(isFullWidthMasonryKey('.$more:older')).toBe(true);
     expect(isFullWidthMasonryKey('.$more=2older')).toBe(true);
     expect(isFullWidthMasonryKey('.$media:123:0')).toBe(false);
