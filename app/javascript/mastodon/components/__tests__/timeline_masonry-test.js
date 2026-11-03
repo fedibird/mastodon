@@ -99,7 +99,9 @@ describe('TimelineMasonry streaming insertion', () => {
     expect(position(container, 'E').x).toBeLessThan(position(container, 'D').x);
 
     width = 350;
-    act(() => window.dispatchEvent(new Event('resize')));
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
     expect(container.querySelectorAll('.timeline-masonry__placeholder')).toHaveLength(0);
     expect(position(container, 'D').x).toBe(0);
     expect(position(container, 'E').x).toBe(0);
