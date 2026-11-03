@@ -4,8 +4,8 @@ import { toServerSideType } from './filters';
 
 // Keep the media viewer consistent with makeGetStatus: active filters are
 // context-aware and reconciled filterMatches override stale API "filtered"
-// results. Both hidden and warning-masked statuses are non-navigable; the
-// normal status row would not display their attached image.
+// results. Hidden statuses stay non-navigable; warning-masked statuses are
+// excluded until the reader explicitly chooses to show that post.
 export const mediaStatusFiltered = (status, reblog, statusId, contextType, filterInfo = {}) => {
   const { filters, matches, generation = 0, revealedFilterStatusIds } = filterInfo;
   if (!status || !filters || filters.isEmpty()) {
