@@ -1,22 +1,43 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fromJS } from 'immutable';
+import { Provider } from 'react-redux';
+import { createStore } from 'redux';
 import React from 'react';
 import { MemoryRouter, Route } from 'react-router-dom';
 import { addLocaleData, IntlProvider } from 'react-intl';
 import japaneseData from 'react-intl/locale-data/ja';
 import japanese from 'mastodon/locales/ja.json';
 
+jest.mock('mastodon/actions/settings', () => ({
+  changeSetting: (path, value) => ({ type: 'SETTING_CHANGE', path, value }),
+}));
+
 import AccountHashtagFilter from '../hashtag_filter';
+import ColumnSettingsContainer from 'mastodon/features/account_timeline/containers/column_settings_container';
 
 addLocaleData(japaneseData);
 
-const renderRoute = (routeBase, initialRoute) => render(
-  <IntlProvider locale='ja' messages={japanese}>
-    <MemoryRouter initialEntries={[initialRoute]}>
-      <Route render={({ location }) => <span data-testid='pathname'>{location.pathname}</span>} />
-      <AccountHashtagFilter accountId='123' routeBase={routeBase} />
-    </MemoryRouter>
-  </IntlProvider>,
-);
+const makeStore = () => createStore((state = fromJS({
+  settings: { account: { other: { advancedMode: false, hideHashtagInput: false } } },
+}), action) => (
+  action.type === 'SETTING_CHANGE' ? state.setIn(['settings', ...action.path], action.value) : state
+));
+
+const renderRoute = (routeBase, initialRoute) => {
+  const store = makeStore();
+  const output = render(
+    <Provider store={store}>
+      <IntlProvider locale='ja' messages={japanese}>
+        <MemoryRouter initialEntries={[initialRoute]}>
+          <Route render={({ location }) => <span data-testid='pathname'>{location.pathname}</span>} />
+          <AccountHashtagFilter accountId='123' routeBase={routeBase} />
+        </MemoryRouter>
+      </IntlProvider>
+    </Provider>,
+  );
+
+  return { store, ...output };
+};
 
 describe('shared account hashtag input', () => {
   it.each(['posts', 'with_replies', 'about'])('keeps the current %s tab after filtering', part => {
@@ -32,13 +53,46 @@ describe('shared account hashtag input', () => {
   it('uses the media view callback without navigating away from it', () => {
     const onSelectTag = jest.fn();
     render(
-      <IntlProvider locale='ja' messages={japanese}>
-        <AccountHashtagFilter accountId='123' onSelectTag={onSelectTag} />
-      </IntlProvider>,
+      <Provider store={makeStore()}>
+        <IntlProvider locale='ja' messages={japanese}>
+          <AccountHashtagFilter accountId='123' onSelectTag={onSelectTag} />
+        </IntlProvider>
+      </Provider>,
     );
 
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: '＃test' } });
     fireEvent.click(screen.getByRole('button', { name: '絞り込む' }));
     expect(onSelectTag).toHaveBeenCalledWith('test');
+  });
+
+  it('synchronizes the leading close button with the account column setting', () => {
+    const store = makeStore();
+
+    render(
+      <Provider store={store}>
+        <IntlProvider locale='ja' messages={japanese}>
+          <AccountHashtagFilter accountId='123' />
+          <ColumnSettingsContainer />
+        </IntlProvider>
+      </Provider>,
+    );
+
+    const toggle = screen.getByRole('checkbox', { name: 'ハッシュタグ入力欄を隠す' });
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByRole('searchbox', { name: 'ハッシュタグで絞り込み' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'ハッシュタグ入力欄を閉じる' }));
+    expect(store.getState().getIn(['settings', 'account', 'other', 'hideHashtagInput'])).toBe(true);
+    expect(screen.queryByRole('searchbox', { name: 'ハッシュタグで絞り込み' })).toBeNull();
+    expect(toggle).toBeChecked();
+
+    fireEvent.click(toggle);
+    expect(store.getState().getIn(['settings', 'account', 'other', 'hideHashtagInput'])).toBe(false);
+    expect(screen.getByRole('searchbox', { name: 'ハッシュタグで絞り込み' })).toBeInTheDocument();
+
+    act(() => {
+      store.dispatch({ type: 'SETTING_CHANGE', path: ['account', 'other', 'hideHashtagInput'], value: true });
+    });
+    expect(screen.queryByRole('searchbox')).toBeNull();
   });
 });

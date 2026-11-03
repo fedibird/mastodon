@@ -44,10 +44,10 @@ const attachment = fromJS({
 });
 const onOpenMedia = jest.fn();
 
-const tile = visibility => (
+const tile = (visibility, media = attachment) => (
   <IntlProvider locale='ja' messages={japanese}>
     <MediaItem
-      attachment={attachment}
+      attachment={media}
       shape='original'
       visibility={visibility}
       onOpenMedia={onOpenMedia}
@@ -71,6 +71,7 @@ describe('account media gallery tile', () => {
     fireEvent.click(link);
     expect(onOpenMedia).not.toHaveBeenCalled();
     expect(container.querySelector('img')).toHaveAttribute('src', '/preview.jpg');
+    expect(screen.queryByTestId('blurhash-canvas')).toBeNull();
 
     fireEvent.click(screen.getByRole('link', { name: '写真の説明' }));
     expect(onOpenMedia).toHaveBeenCalledWith(attachment);
@@ -86,5 +87,42 @@ describe('account media gallery tile', () => {
 
     rerender(tile('show_all'));
     expect(screen.getByRole('link', { name: '写真の説明' })).toBeInTheDocument();
+    expect(screen.queryByTestId('blurhash-canvas')).toBeNull();
+  });
+
+  it('shows clear previews when toggling from hide-all to sensitive-only and show-all', () => {
+    const ordinary = attachment.setIn(['status', 'sensitive'], false);
+    const { container, rerender } = render(tile('hide_all', ordinary));
+    expect(screen.getByTestId('blurhash-canvas')).toBeInTheDocument();
+    expect(container.querySelector('img')).toBeNull();
+
+    rerender(tile('hide_sensitive', ordinary));
+    expect(screen.queryByTestId('blurhash-canvas')).toBeNull();
+    expect(container.querySelector('img')).toHaveAttribute('src', '/preview.jpg');
+
+    rerender(tile('show_all', ordinary));
+    expect(screen.queryByTestId('blurhash-canvas')).toBeNull();
+    expect(container.querySelector('img')).toHaveAttribute('src', '/preview.jpg');
+
+    rerender(tile('hide_all', ordinary));
+    expect(screen.getByTestId('blurhash-canvas')).toBeInTheDocument();
+    expect(container.querySelector('img')).toBeNull();
+
+    rerender(tile('show_all', ordinary));
+    expect(screen.queryByTestId('blurhash-canvas')).toBeNull();
+    expect(container.querySelector('img')).toHaveAttribute('src', '/preview.jpg');
+  });
+
+  it('does not retain a stale blur overlay when switching sensitive media to show-all', () => {
+    const { container, rerender } = render(tile('hide_sensitive'));
+    expect(screen.getByTestId('blurhash-canvas')).toBeInTheDocument();
+
+    rerender(tile('show_all'));
+    expect(screen.queryByTestId('blurhash-canvas')).toBeNull();
+    expect(container.querySelector('img')).toHaveAttribute('src', '/preview.jpg');
+
+    rerender(tile('hide_sensitive'));
+    expect(screen.getByTestId('blurhash-canvas')).toBeInTheDocument();
+    expect(container.querySelector('img')).toBeNull();
   });
 });
