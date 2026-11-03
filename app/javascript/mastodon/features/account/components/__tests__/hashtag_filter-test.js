@@ -18,7 +18,7 @@ import ColumnSettingsContainer from 'mastodon/features/account_timeline/containe
 addLocaleData(japaneseData);
 
 const makeStore = () => createStore((state = fromJS({
-  settings: { account: { other: { advancedMode: false, hideHashtagInput: false } } },
+  settings: { account: { other: { advancedMode: true, hideHashtagInput: false } } },
 }), action) => (
   action.type === 'SETTING_CHANGE' ? state.setIn(['settings', ...action.path], action.value) : state
 ));
@@ -77,7 +77,9 @@ describe('shared account hashtag input', () => {
       </Provider>,
     );
 
+    const featuredToggle = screen.getByRole('checkbox', { name: '注目のタグの選択を隠す' });
     const toggle = screen.getByRole('checkbox', { name: 'ハッシュタグ入力欄を隠す' });
+    expect(featuredToggle.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(toggle).not.toBeChecked();
     expect(screen.getByRole('searchbox', { name: 'ハッシュタグで絞り込み' })).toBeInTheDocument();
 
@@ -94,5 +96,28 @@ describe('shared account hashtag input', () => {
       store.dispatch({ type: 'SETTING_CHANGE', path: ['account', 'other', 'hideHashtagInput'], value: true });
     });
     expect(screen.queryByRole('searchbox')).toBeNull();
+  });
+  it('shows the hashtag-input setting only in detailed mode', () => {
+    const store = makeStore();
+    const { rerender } = render(
+      <Provider store={store}>
+        <IntlProvider locale='ja' messages={japanese}>
+          <ColumnSettingsContainer />
+        </IntlProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByRole('checkbox', { name: 'ハッシュタグ入力欄を隠す' })).toBeInTheDocument();
+    act(() => {
+      store.dispatch({ type: 'SETTING_CHANGE', path: ['account', 'other', 'advancedMode'], value: false });
+    });
+
+    expect(screen.queryByRole('checkbox', { name: 'ハッシュタグ入力欄を隠す' })).toBeNull();
+    expect(screen.getByRole('checkbox', { name: '詳細モード' })).not.toBeChecked();
+
+    // The setting is retained when detailed mode is enabled again.
+    fireEvent.click(screen.getByRole('checkbox', { name: '詳細モード' }));
+    expect(screen.getByRole('checkbox', { name: 'ハッシュタグ入力欄を隠す' })).toBeInTheDocument();
+    void rerender;
   });
 });
