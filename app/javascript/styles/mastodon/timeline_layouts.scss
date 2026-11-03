@@ -441,10 +441,13 @@
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-
 }
 
 .account-timeline__header {
+  // This header is a direct child of the account media gallery's flex scroller.
+  // Never shrink or clip the featured tags and the input when they wrap.
+  flex: 0 0 auto;
+  min-height: max-content;
   .account__header__extra__hashtag-links {
     display: flex;
     flex-wrap: wrap;
