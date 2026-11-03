@@ -8,6 +8,7 @@
   "timeline.media.reveal": "メディアを表示",
   "timeline.media.open": "メディアを開く",
   "timeline.media.open_post": "元の投稿を開く",
+  "timeline.card.media_count": "添付メディア {count} 件",
   "embedded_settings.saving": "設定を保存中…このカラムを離れても、リクエストの完了後に変更を同期します。",
   "embedded_settings.filters": "フィルター設定",
   "embedded_settings.posting_styles": "投稿スタイル設定",
