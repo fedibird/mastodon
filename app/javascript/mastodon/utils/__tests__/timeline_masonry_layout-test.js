@@ -1,7 +1,7 @@
 import { isFullWidthMasonryKey, reconcileMasonryPrependRows } from '../timeline_masonry_layout';
 
 const reconcile = (previous, next, rows = [], columns = 3) => (
-  reconcileMasonryPrependRows(columns, previous, next, rows)
+  reconcileMasonryPrependRows(columns, previous, next, rows).rows
 );
 
 describe('streaming masonry prepend rows', () => {
@@ -56,7 +56,9 @@ describe('streaming masonry prepend rows', () => {
 
   it('treats gaps and more rows as full-width barriers instead of column slots', () => {
     expect(isFullWidthMasonryKey('.$gap:123')).toBe(true);
+    expect(isFullWidthMasonryKey('.$gap=2123')).toBe(true);
     expect(isFullWidthMasonryKey('.$more:older')).toBe(true);
+    expect(isFullWidthMasonryKey('.$more=2older')).toBe(true);
     expect(isFullWidthMasonryKey('.$media:123:0')).toBe(false);
 
     const rows = reconcile(['a'], ['latest', 'gap:123', 'media:12:0', 'a']);
@@ -72,4 +74,33 @@ describe('streaming masonry prepend rows', () => {
     expect(reconcile(['b', 'a'], ['x', 'y'], rows)).toEqual([]);
     expect(reconcile(['b', 'a'], ['a', 'b'], rows)).toEqual([]);
   });
+  it('keeps the featured/reload prefix above streaming rows', () => {
+    const previous = ['.$reload', '.$f-pinned', '.$a', '.$b'];
+    const first = reconcileMasonryPrependRows(3, [], previous, []);
+    expect(first).toEqual({ rows: [], prefixKeys: ['.$reload', '.$f-pinned'] });
+
+    const withNew = ['.$reload', '.$f-pinned', '.$new', '.$a', '.$b'];
+    const plan = reconcileMasonryPrependRows(3, previous, withNew, first.rows, first.prefixKeys);
+    expect(plan).toEqual({
+      rows: [{ kind: 'slots', slots: [null, null, '.$new'], nextColumn: 1 }],
+      prefixKeys: ['.$reload', '.$f-pinned'],
+    });
+
+    const next = reconcileMasonryPrependRows(3, withNew, ['.$reload', '.$f-pinned', '.$newer', '.$new', '.$a', '.$b'], plan.rows, plan.prefixKeys);
+    expect(next.rows[0].slots).toEqual([null, '.$newer', '.$new']);
+    expect(next.prefixKeys).toEqual(plan.prefixKeys);
+  });
+
+  it('ignores insertions in the middle of older timeline items', () => {
+    expect(reconcile(['a', 'b', 'c'], ['a', 'newer-loaded', 'b', 'c'])).toEqual([]);
+  });
+
+  it('resets reserved rows if the fixed prefix is removed or reorders', () => {
+    const start = ['.$f-one', 'a'];
+    const prefixPlan = reconcileMasonryPrependRows(3, [], start, []);
+    const state = reconcileMasonryPrependRows(3, start, ['.$f-one', 'b', 'a'], prefixPlan.rows, prefixPlan.prefixKeys);
+    const changed = reconcileMasonryPrependRows(3, ['.$f-one', 'b', 'a'], ['.$f-two', 'b', 'a'], state.rows, state.prefixKeys);
+    expect(changed).toEqual({ rows: [], prefixKeys: ['.$f-two'] });
+  });
+
 });
