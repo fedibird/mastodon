@@ -39,6 +39,14 @@ describe('lightbox video dimensions', () => {
     expect(modalVideoDimensions(attachment)).toEqual({ width: 960, height: 1707 });
   });
 
+  it('falls back to a usable preview ratio if the original aspect is invalid', () => {
+    const attachment = fromJS({ meta: {
+      original: { aspect: -1 },
+      small: { aspect: 2 },
+    } });
+    expect(modalVideoDimensions(attachment)).toEqual({ width: 960, height: 480 });
+  });
+
   it('reserves a larger player independently of original pixel resolution', () => {
     expect(modalVideoFrameStyle({ width: 160, height: 90 })).toEqual({
       '--modal-video-aspect': '160 / 90',
