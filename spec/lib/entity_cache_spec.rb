@@ -85,6 +85,15 @@ RSpec.describe EntityCache do
   end
 
   describe '#holding_account' do
+    it 'prefers an actor id imported after a same-origin profile alias was cached' do
+      url = 'https://aggregator.test/actors/new'
+      old_actor = Fabricate(:account, domain: 'aggregator.test', username: 'relay', uri: 'https://aggregator.test/users/relay', url: url)
+      expect(described_class.instance.holding_account(url)).to eq(old_actor)
+
+      canonical = Fabricate(:account, domain: 'aggregator.test', username: 'new', uri: url, url: url)
+      expect(described_class.instance.holding_account(url)).to eq(canonical)
+    end
+
     it 'does not resolve a third-party profile link claimed by a remote actor' do
       account = Fabricate(:account, domain: 'aggregator.test', username: 'relay', uri: 'https://aggregator.test/users/relay', url: 'https://publisher.test/profiles/relay')
 
