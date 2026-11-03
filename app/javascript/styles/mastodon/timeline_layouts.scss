@@ -389,13 +389,7 @@
   clear: both;
 }
 
-// Keep the column movement controls visually separate from the layout picker.
-.column-layout-settings + .column-header__setting-arrows,
-.column-layout-settings + .column-header__setting-btn {
-  margin-top: 12px;
-}
-
-// The moves/pin controls are separate adjacent siblings after the layout row.
+// The layout selector and the movement arrows are independent control rows.
 .column-layout-settings {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }

@@ -185,7 +185,7 @@ class MediaModal extends ImmutablePureComponent {
       // Large timelines may have many loaded pictures. Only mount nearby
       // image widgets while preserving the swipeable view's slide indices.
       if (timelineSequence && Math.abs(imageIndex - index) > 2) {
-        return <div key={image.get('id') || imageIndex} />;
+        return <div key={`${image.get('id') || 'media'}:${imageIndex}`} />;
       }
 
       const attributedId = this.statusIdForIndex(imageIndex);
@@ -213,7 +213,7 @@ class MediaModal extends ImmutablePureComponent {
             height={height}
             alt={description}
             lang={lang}
-            key={image.get('url')}
+            key={`${image.get('url')}:${imageIndex}`}
             onClick={this.toggleNavigation}
             zoomButtonHidden={this.state.zoomButtonHidden}
           />
@@ -237,7 +237,7 @@ class MediaModal extends ImmutablePureComponent {
             detailed
             alt={description}
             lang={lang}
-            key={image.get('url')}
+            key={`${image.get('url')}:${imageIndex}`}
           />
         );
       } else if (image.get('type') === 'gifv') {
@@ -246,7 +246,7 @@ class MediaModal extends ImmutablePureComponent {
             src={image.get('url')}
             width={width}
             height={height}
-            key={image.get('preview_url')}
+            key={`${image.get('preview_url')}:${imageIndex}`}
             alt={description}
             lang={lang}
             onClick={this.toggleNavigation}

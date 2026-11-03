@@ -10,14 +10,14 @@ import japanese from 'mastodon/locales/ja.json';
 jest.mock('mastodon/initial_state', () => ({
   autoPlayMedia: false,
   displayMedia: 'default',
-  useBlurhash: false,
+  useBlurhash: true,
 }));
 jest.mock('mastodon/is_mobile', () => ({ isIOS: () => false }));
 jest.mock('mastodon/components/alt_text_badge', () => {
   const ReactMock = require('react');
   return ({ description }) => ReactMock.createElement('button', { type: 'button', 'aria-label': `ALT: ${description}` }, 'ALT');
 });
-jest.mock('mastodon/components/blurhash', () => () => null);
+jest.mock('mastodon/components/blurhash', () => () => <canvas data-testid='blurhash-canvas' />);
 jest.mock('mastodon/components/thumbhash', () => () => null);
 jest.mock('mastodon/components/icon', () => {
   const ReactMock = require('react');
@@ -33,6 +33,7 @@ const attachment = fromJS({
   type: 'image',
   description: '写真の説明',
   preview_url: '/preview.jpg',
+  blurhash: 'LEHV6nWB2yk8pyo0adR*.7kCMdnj',
   meta: { original: { width: 200, height: 400 } },
   status: {
     id: '10',
@@ -64,6 +65,7 @@ describe('account media gallery tile', () => {
     expect(screen.getByRole('button', { name: 'ALT: 写真の説明' })).toBeInTheDocument();
     const link = screen.getByRole('link', { name: 'メディアを表示' });
     expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByTestId('blurhash-canvas')).toBeInTheDocument();
     expect(link.style.aspectRatio).toBe('0.5');
 
     fireEvent.click(link);
