@@ -33,6 +33,9 @@
 }
 
 .media-display-controls {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 38px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -45,8 +48,7 @@
   overflow-x: hidden;
   border-bottom: 1px solid lighten($ui-base-color, 8%);
   background: $ui-base-color;
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 4;
 
   &__group {
@@ -392,4 +394,60 @@
 // The layout selector and the movement arrows are independent control rows.
 .column-layout-settings {
   margin-bottom: 10px;
+}
+
+// The account gallery uses a flex-column scroll host. Every filter row must
+// retain its natural wrapped height, regardless of the number of tags/buttons.
+.account-gallery__filters,
+.account-gallery__filters > *,
+.account-gallery__container--media {
+  flex: 0 0 auto;
+  min-height: max-content;
+}
+
+.account-gallery__filters {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+
+  .account__header,
+  .account__header__extra {
+    flex: 0 0 auto;
+    min-height: max-content;
+  }
+
+  .account__header__extra__hashtag-links {
+    flex-wrap: wrap;
+  }
+}
+
+.account-gallery__tag-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  min-width: 0;
+
+  input {
+    box-sizing: border-box;
+    flex: 1 1 100px;
+    min-width: 0;
+    padding: 6px;
+    background: $ui-base-color;
+    color: $primary-text-color;
+    border: 1px solid $ui-base-lighter-color;
+    border-radius: 4px;
+  }
+
+  button {
+    flex: 0 0 auto;
+    color: $primary-text-color;
+    background: $ui-base-lighter-color;
+    border: 0;
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
 }

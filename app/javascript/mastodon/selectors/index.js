@@ -220,7 +220,7 @@ export const makeGetNotification = () => {
 };
 
 export const getAccountGallery = createSelector([
-  (state, id) => state.getIn(['timelines', `account:${id}:media`, 'items'], ImmutableList()),
+  (state, id, tagged) => state.getIn(['timelines', `account:${id}:media${tagged ? `:${tagged.toLocaleLowerCase()}` : ''}`, 'items'], ImmutableList()),
   state       => state.get('statuses'),
   (state, id) => state.getIn(['accounts', id]),
 ], (statusIds, statuses, account) => {
@@ -228,7 +228,9 @@ export const getAccountGallery = createSelector([
 
   statusIds.forEach(statusId => {
     const status = statuses.get(statusId);
-    medias = medias.concat(status.get('media_attachments').map(media => media.set('status', status).set('account', account)));
+    if (status && status.get('media_attachments')) {
+      medias = medias.concat(status.get('media_attachments').map(media => media.set('status', status).set('account', account)));
+    }
   });
 
   return medias;
