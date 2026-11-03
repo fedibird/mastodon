@@ -1,9 +1,10 @@
 import { List as ImmutableList } from 'immutable';
 import { mediaIsConcealed } from './media_display';
+import { mediaStatusFiltered } from './media_filter_visibility';
 
 // Navigation follows the timeline's loaded, rendered order across posts.
 // Do not silently reveal sensitive media via the next/previous controls.
-export const mediaTimelineSequence = (rows = [], statuses, visibility = 'hide_sensitive') => {
+export const mediaTimelineSequence = (rows = [], statuses, visibility = 'hide_sensitive', filterInfo = {}) => {
   const media = [];
   const statusIds = [];
   const positions = Object.create(null);
@@ -22,14 +23,11 @@ export const mediaTimelineSequence = (rows = [], statuses, visibility = 'hide_se
       return;
     }
 
-    const matchedFilters = base.get('matched_filters');
-    if (matchedFilters && (matchedFilters.size > 0 || Array.isArray(matchedFilters) && matchedFilters.length > 0)) {
-      return;
-    }
-
     const reblog = base.get('reblog');
     const shown = (reblog && (typeof reblog.get === 'function' ? reblog : statuses.get(reblog))) || base;
-    if (mediaIsConcealed(visibility, shown.get('sensitive'))) {
+    const context = row.contextType || filterInfo.contextType || 'public';
+    if (mediaStatusFiltered(base, shown === base ? null : shown, row.id, context, filterInfo) ||
+        mediaIsConcealed(visibility, shown.get('sensitive'))) {
       return;
     }
 
@@ -48,7 +46,7 @@ export const mediaTimelineSequence = (rows = [], statuses, visibility = 'hide_se
 
 // Account media gallery uses an attachment-per-tile selector rather than
 // normalized timeline status IDs, but it follows the same visibility policy.
-export const accountMediaTimelineSequence = (attachments, visibility = 'hide_sensitive') => {
+export const accountMediaTimelineSequence = (attachments, visibility = 'hide_sensitive', filterInfo = {}) => {
   if (!attachments || typeof attachments.filter !== 'function') {
     return { media: ImmutableList(), statusIds: ImmutableList() };
   }
@@ -56,7 +54,8 @@ export const accountMediaTimelineSequence = (attachments, visibility = 'hide_sen
   const media = attachments.filter(item =>
     item &&
     ['image', 'gifv'].includes(item.get('type')) &&
-    !mediaIsConcealed(visibility, item.getIn(['status', 'sensitive']))
+    !mediaIsConcealed(visibility, item.getIn(['status', 'sensitive'])) &&
+    !mediaStatusFiltered(item.get('status'), null, item.getIn(['status', 'id']), 'account', filterInfo)
   );
 
   return { media, statusIds: media.map(item => item.getIn(['status', 'id'])) };
