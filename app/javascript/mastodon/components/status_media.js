@@ -297,11 +297,14 @@ export const externalMediaBlocks = (status) => {
 // Keep the async skeleton's geometry identical to the eventual gallery, even
 // if the parent column has not been measured yet.
 const LoadingGallery = ({ media, cropOverride, standalone, quote }) => (
-  <div className='media-gallery' style={{
-    aspectRatio: String(mediaGalleryAspectRatio(media, {
-      crop: cropOverride ?? cropImages, standalone, quote, maxAttachments,
-    })),
-  }} />
+  <div
+    className='media-gallery'
+    style={{
+      aspectRatio: String(mediaGalleryAspectRatio(media, {
+        crop: cropOverride ?? cropImages, standalone, quote, maxAttachments,
+      })),
+    }}
+  />
 );
 
 LoadingGallery.propTypes = {
@@ -594,15 +597,21 @@ export default class StatusMediaStack extends React.PureComponent {
       return this.renderGallery(key, media, this.props.Gallery);
     }
 
+    const loadingGallery = () => (
+      <LoadingGallery
+        media={media}
+        cropOverride={this.props.cropImages}
+        standalone={this.props.standalone}
+        quote={this.props.quote}
+      />
+    );
+
     return (
-      <Bundle key={key} fetchComponent={MediaGallery} loading={() => (
-        <LoadingGallery
-          media={media}
-          cropOverride={this.props.cropImages}
-          standalone={this.props.standalone}
-          quote={this.props.quote}
-        />
-      )}>
+      <Bundle
+        key={key}
+        fetchComponent={MediaGallery}
+        loading={loadingGallery}
+      >
         {Gallery => this.renderGallery(key, media, Gallery)}
       </Bundle>
     );
