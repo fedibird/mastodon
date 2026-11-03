@@ -52,6 +52,7 @@ export const trendsEnabled = getMeta('trends_enabled') ?? getMeta('trends');
 export const showTrends = getMeta('show_trends') ?? getMeta('trends');
 export const title = getMeta('title');
 export const cropImages = getMeta('crop_images');
+export const cropCardImages = getMeta('crop_card_images') ?? true;
 export const disableSwiping = getMeta('disable_swiping');
 export const confirmDomainBlock = getMeta('confirm_domain_block');
 export const show_follow_button_on_timeline = getMeta('show_follow_button_on_timeline');
