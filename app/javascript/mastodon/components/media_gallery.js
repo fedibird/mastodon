@@ -12,6 +12,7 @@ import AltTextBadge from 'mastodon/components/alt_text_badge';
 import { attachmentAccessibility } from 'mastodon/utils/translation_view';
 import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
+import { mediaGalleryAspectRatio } from 'mastodon/utils/media_gallery_layout';
 
 const messages = defineMessages({
   toggle_visible: { id: 'media_gallery.toggle_visible', defaultMessage: '{number, plural, one {Hide image} other {Hide images}}' },
@@ -428,26 +429,15 @@ class MediaGallery extends React.PureComponent {
 
     let children, spoilerButton;
 
-    // CSS computes the height from the CURRENT layout width, even on the
-    // first paint before an async gallery or Masonry cell can be measured.
-    // A measured inline pixel height could otherwise survive a column resize.
+    // The browser computes height from the current width on the first paint.
+    // Reuse the same ratio as the lazy-loading placeholder to avoid jumps.
     const effectiveCropImages = this.props.cropImages ?? cropImages;
-    const originalAspect = Number(media.getIn([0, 'meta', 'small', 'aspect']));
-    let aspect = this.isFullSizeEligible() && (standalone || !effectiveCropImages) && Number.isFinite(originalAspect) && originalAspect > 0
-      ? originalAspect : 16 / 9;
+    const style = { aspectRatio: String(mediaGalleryAspectRatio(media, {
+      crop: effectiveCropImages, standalone, quote, maxAttachments,
+    })) };
 
     const size     = media.take(maxAttachments).size;
     const uncached = media.every(attachment => attachment.get('type') === 'unknown');
-
-    if (quote) {
-      aspect *= 2;
-    }
-
-    if (size > 4) {
-      aspect /= Math.trunc((size + 1) / 2) / 2;
-    }
-
-    const style = { aspectRatio: String(aspect) };
 
     if (standalone && this.isFullSizeEligible()) {
       children = <Item standalone autoplay={autoplay} onClick={this.handleClick} attachment={media.get(0)} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} displayWidth={width} visible={visible} />;
