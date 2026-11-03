@@ -1260,6 +1260,7 @@
   "timeline.media.reveal": "Reveal media",
   "timeline.media.open": "Open media",
   "timeline.media.open_post": "Open original post",
+  "timeline.card.media_count": "{count} media attachments",
   "column_width.x200": "200%",
   "media_display.toolbar": "Media display options",
   "media_display.shape": "Layout",
