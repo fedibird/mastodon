@@ -859,7 +859,6 @@ class Status extends ImmutablePureComponent {
                   className='timeline-card__media-count'
                   role='img'
                   aria-label={intl.formatMessage(messages.cardMediaCount, { count: media.size })}
-                  title={intl.formatMessage(messages.cardMediaCount, { count: media.size })}
                 >
                   <span aria-hidden='true'><Icon id='clone' fixedWidth /> {media.size}</span>
                 </span>
