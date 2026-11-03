@@ -12,6 +12,7 @@ import ColumnSettingsContainer from '../account_timeline/containers/column_setti
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { accountGalleryAttachments } from 'mastodon/selectors';
 import FeaturedTags from 'mastodon/features/account/components/featured_tags';
+import AccountHashtagFilter from 'mastodon/features/account/components/hashtag_filter';
 import { List as ImmutableList } from 'immutable';
 import MediaItem from './components/media_item';
 import MediaDisplayControls from 'mastodon/components/media_display_controls';
@@ -29,8 +30,6 @@ import { changeSetting } from '../../actions/settings';
 
 const messages = defineMessages({
   title: { id: 'column.account', defaultMessage: 'Account' },
-  filterTagPlaceholder: { id: 'account.media_tag_placeholder', defaultMessage: 'Filter by hashtag' },
-  filterTagApply: { id: 'account.media_tag_apply', defaultMessage: 'Filter' },
 });
 
 const mapStateToProps = (state, { params: { accountId } }) => {
@@ -108,12 +107,7 @@ class AccountGallery extends ImmutablePureComponent {
     mediaSize: 'small',
     mediaVisibility: defaultMediaVisibility(),
     tagged: null,
-    tagInput: '',
   };
-
-  handleTagInput = event => {
-    this.setState({ tagInput: event.target.value });
-  }
 
   handleChooseTag = selected => {
     const tagged = selected ? selected.replace(/^#/, '').trim().normalize('NFKC') : null;
@@ -122,13 +116,8 @@ class AccountGallery extends ImmutablePureComponent {
       return;
     }
 
-    this.setState({ tagged, tagInput: tagged || '' });
+    this.setState({ tagged });
     this.props.dispatch(expandAccountMediaTimeline(accountId, { tagged }));
-  }
-
-  handleSubmitTag = event => {
-    event.preventDefault();
-    this.handleChooseTag(this.state.tagInput);
   }
 
   handleMediaShapeChange = mediaShape => {
@@ -152,7 +141,7 @@ class AccountGallery extends ImmutablePureComponent {
 
   componentWillReceiveProps (nextProps) {
     if (nextProps.params.accountId !== this.props.params.accountId && nextProps.params.accountId) {
-      this.setState({ tagged: null, tagInput: '' });
+      this.setState({ tagged: null });
       this.props.dispatch(fetchAccount(nextProps.params.accountId));
       this.props.dispatch(fetchFeaturedTags(nextProps.params.accountId));
       this.props.dispatch(expandAccountMediaTimeline(nextProps.params.accountId));
@@ -261,7 +250,7 @@ class AccountGallery extends ImmutablePureComponent {
 
   render () {
     const { mediaTimelines, mediaStatuses, account, isAccount, multiColumn, blockedBy, suspended, hideRelation, columnWidth, intl } = this.props;
-    const { mediaShape, mediaSize, mediaVisibility, tagged, tagInput } = this.state;
+    const { mediaShape, mediaSize, mediaVisibility, tagged } = this.state;
     const timelineId = accountMediaTimelineId(this.props.params.accountId, tagged);
     const statusIds = mediaTimelines.getIn([timelineId, 'items'], ImmutableList());
     const filterInfo = {
@@ -324,10 +313,7 @@ class AccountGallery extends ImmutablePureComponent {
 
             <div className='account-gallery__filters'>
               <FeaturedTags account={account} tagged={tagged} onSelectTag={this.handleChooseTag} />
-              <form className='account-gallery__tag-search' onSubmit={this.handleSubmitTag}>
-                <input type='search' maxLength={100} value={tagInput} onChange={this.handleTagInput} placeholder={intl.formatMessage(messages.filterTagPlaceholder)} aria-label={intl.formatMessage(messages.filterTagPlaceholder)} />
-                <button type='submit'>{intl.formatMessage(messages.filterTagApply)}</button>
-              </form>
+              <AccountHashtagFilter accountId={this.props.params.accountId} tagged={tagged} onSelectTag={this.handleChooseTag} />
               <MediaDisplayControls
                 shape={mediaShape}
                 size={mediaSize}

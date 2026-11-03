@@ -43,6 +43,7 @@ class FeaturedTags extends ImmutablePureComponent {
     account: ImmutablePropTypes.map,
     featuredTags: ImmutablePropTypes.list,
     tagged: PropTypes.string,
+    routeBase: PropTypes.string,
     onSelectTag: PropTypes.func,
     intl: PropTypes.object.isRequired,
   };
@@ -67,6 +68,7 @@ class FeaturedTags extends ImmutablePureComponent {
 
     const suspended = account.get('suspended');
     const accountId = account.get('id');
+    const routeBase = this.props.routeBase || `/accounts/${accountId}/posts`;
 
     return (
       <div className={classNames('account__header', 'advanced', { inactive: !!account.get('moved') })}>
@@ -75,12 +77,12 @@ class FeaturedTags extends ImmutablePureComponent {
             {onSelectTag ? (
               <button type='button' key='all' value='' onClick={this.handleChooseTag} className={classNames('account__hashtag-link', { active: !tagged })} title={intl.formatMessage(messages.hashtag_all_description)}>{intl.formatMessage(messages.hashtag_all)}</button>
             ) : (
-              <Permalink key='all' className={classNames('account__hashtag-link', { active: !tagged })} title={intl.formatMessage(messages.hashtag_all_description)} href={account.get('url')} to={`/accounts/${accountId}/posts`}>{intl.formatMessage(messages.hashtag_all)}</Permalink>
+              <Permalink key='all' className={classNames('account__hashtag-link', { active: !tagged })} title={intl.formatMessage(messages.hashtag_all_description)} href={account.get('url')} to={routeBase}>{intl.formatMessage(messages.hashtag_all)}</Permalink>
             )}
             {!suspended && displayed.map(featuredTag => {
               const name  = featuredTag.get('name');
               const url   = featuredTag.get('url');
-              const to    = `/accounts/${accountId}/posts/${encodeURIComponent(name)}`;
+              const to    = `${routeBase}/${encodeURIComponent(name)}`;
               const desc  = intl.formatMessage(messages.hashtag_select_description, { name });
               const count = featuredTag.get('statuses_count');
               const temporary = !!featuredTag.get('temporary');

@@ -39,6 +39,7 @@ export default class Header extends ImmutablePureComponent {
     advancedMode: PropTypes.bool,
     tagged: PropTypes.string,
     tagRouteBase: PropTypes.string,
+    showTagSearch: PropTypes.bool,
     hideFeaturedTags: PropTypes.bool,
     domain: PropTypes.string.isRequired,
   };
@@ -203,7 +204,7 @@ export default class Header extends ImmutablePureComponent {
             </div>
           </Fragment>
         )}
-        <AccountHashtagFilter accountId={account.get('id')} tagged={tagged} routeBase={this.props.tagRouteBase} />
+        {this.props.showTagSearch && <AccountHashtagFilter accountId={account.get('id')} tagged={tagged} routeBase={this.props.tagRouteBase} />}
       </div>
     );
   }
