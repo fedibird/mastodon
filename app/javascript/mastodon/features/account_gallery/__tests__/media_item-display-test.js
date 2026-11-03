@@ -25,6 +25,7 @@ jest.mock('mastodon/components/icon', () => {
 });
 
 import MediaItem from '../components/media_item';
+import MediaDisplayControls from 'mastodon/components/media_display_controls';
 
 addLocaleData(japaneseData);
 
@@ -124,5 +125,65 @@ describe('account media gallery tile', () => {
     rerender(tile('hide_sensitive'));
     expect(screen.getByTestId('blurhash-canvas')).toBeInTheDocument();
     expect(container.querySelector('img')).toBeNull();
+  });
+});
+
+const IntegratedGallery = () => {
+  const [visibility, setVisibility] = React.useState('hide_all');
+  const ordinary = attachment
+    .set('id', 'm2')
+    .setIn(['status', 'id'], '11')
+    .setIn(['status', 'sensitive'], false);
+  return (
+    <IntlProvider locale='ja' messages={japanese}>
+      <MediaDisplayControls
+        shape='square'
+        size='small'
+        visibility={visibility}
+        onShapeChange={jest.fn()}
+        onSizeChange={jest.fn()}
+        onVisibilityChange={setVisibility}
+      />
+      {[attachment, ordinary].map(media => (
+        <MediaItem
+          key={`${media.get('id')}:${visibility}`}
+          attachment={media}
+          visibility={visibility}
+          shape='square'
+          onOpenMedia={onOpenMedia}
+        />
+      ))}
+    </IntlProvider>
+  );
+};
+
+describe('account media control transitions', () => {
+  it('shows only sensitive blurred media in hide-sensitive mode, and none in show-all mode', () => {
+    const { container } = render(<IntegratedGallery />);
+    const images = () => container.querySelectorAll('.timeline-media-tile img');
+    const blurred = () => container.querySelectorAll('[data-testid="blurhash-canvas"]');
+
+    expect(images()).toHaveLength(0);
+    expect(blurred()).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: '閲覧注意メディアを隠す' }));
+    expect(images()).toHaveLength(1);
+    expect(blurred()).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'メディアを常に表示する' }));
+    expect(images()).toHaveLength(2);
+    expect(blurred()).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '閲覧注意メディアを隠す' }));
+    expect(images()).toHaveLength(1);
+    expect(blurred()).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'メディアを常に隠す' }));
+    expect(images()).toHaveLength(0);
+    expect(blurred()).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'メディアを常に表示する' }));
+    expect(images()).toHaveLength(2);
+    expect(blurred()).toHaveLength(0);
   });
 });
