@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -24,7 +24,9 @@ jest.mock('mastodon/features/video', () => () => null);
 jest.mock('mastodon/components/gifv', () => () => null);
 jest.mock('mastodon/components/icon', () => () => null);
 jest.mock('mastodon/components/icon_button', () => () => null);
-jest.mock('mastodon/features/picture_in_picture/components/footer', () => () => null);
+jest.mock('mastodon/features/picture_in_picture/components/footer', () => ({ statusId }) => (
+  <div data-testid='media-status-footer' data-status-id={statusId} />
+));
 jest.mock('mastodon/initial_state', () => ({
   disableSwiping: true,
 }));
@@ -121,5 +123,42 @@ describe('MediaModal translation display modes', () => {
 
     expect(container.querySelector('img').getAttribute('alt')).toBe('a cat');
     expect(container.querySelector('img').getAttribute('lang')).toBe('en');
+  });
+});
+
+describe('MediaModal cross-post navigation', () => {
+  const sequence = fromJS([
+    { id: 'photo-one', type: 'image', url: 'https://example.test/1.jpg', description: 'First photo' },
+    { id: 'photo-two', type: 'image', url: 'https://example.test/2.jpg', description: 'Second photo' },
+  ]);
+
+  it('moves through loaded images across posts without wrapping, and changes the footer to the current status', () => {
+    const store = createStore(() => fromJS({
+      statuses: {
+        s1: { id: 's1', language: 'en' },
+        s2: { id: 's2', language: 'ja' },
+      },
+    }));
+
+    render(
+      <Provider store={store}>
+        <MediaModal
+          statusId='s1'
+          timelineStatusIds={fromJS(['s1', 's2'])}
+          media={sequence}
+          index={0}
+          onClose={jest.fn()}
+          onChangeBackgroundColor={jest.fn()}
+        />
+      </Provider>,
+    );
+
+    expect(screen.getByTestId('media-status-footer')).toHaveAttribute('data-status-id', 's1');
+    expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByTestId('media-status-footer')).toHaveAttribute('data-status-id', 's2');
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    expect(screen.getByTestId('media-status-footer')).toHaveAttribute('data-status-id', 's1');
   });
 });
