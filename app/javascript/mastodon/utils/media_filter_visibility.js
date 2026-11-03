@@ -7,7 +7,7 @@ import { toServerSideType } from './filters';
 // results. Both hidden and warning-masked statuses are non-navigable; the
 // normal status row would not display their attached image.
 export const mediaStatusFiltered = (status, reblog, statusId, contextType, filterInfo = {}) => {
-  const { filters, matches, generation = 0 } = filterInfo;
+  const { filters, matches, generation = 0, revealedFilterStatusIds } = filterInfo;
   if (!status || !filters || filters.isEmpty()) {
     return false;
   }
@@ -36,5 +36,12 @@ export const mediaStatusFiltered = (status, reblog, statusId, contextType, filte
     results = match.get('filterIds').map(id => ImmutableMap({ filter: id }));
   }
 
-  return results.some(result => active.has(String(result.get('filter'))));
+  // A manual "Show anyway" only overrides a warning. Hide actions must
+  // never become navigable, even with an old temporary reveal in this view.
+  const matching = results.filter(result => active.has(String(result.get('filter'))));
+  if (matching.some(result => active.getIn([String(result.get('filter')), 'filter_action']) === 'hide')) {
+    return true;
+  }
+
+  return !revealedFilterStatusIds?.has(statusId) && !matching.isEmpty();
 };
