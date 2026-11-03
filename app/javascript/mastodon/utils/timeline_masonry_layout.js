@@ -60,13 +60,17 @@ export const reconcileMasonryPrependRows = (columns, previousKeys, keys, previou
   const survivingPrevious = previousMainKeys.filter(key => currentKeys.has(key));
   const survivingCurrent = currentMainKeys.filter(key => previousKeySet.has(key));
 
-  // Reject an identity switch or a reorder of existing cards. Older pages can
-  // append without changing streaming reservations.
-  if (survivingPrevious.length === 0 || !sameKeys(survivingPrevious, survivingCurrent)) {
+  // A previously prefix-only view can receive its first live status.
+  // Otherwise, reject identity switches and reordered existing statuses.
+  if (previousMainKeys.length > 0 && (
+    survivingPrevious.length === 0 || !sameKeys(survivingPrevious, survivingCurrent)
+  )) {
     return emptyPlan(prefixKeys);
   }
 
-  const firstOldIndex = currentMainKeys.findIndex(key => previousKeySet.has(key));
+  const firstOldIndex = previousMainKeys.length === 0
+    ? currentMainKeys.length
+    : currentMainKeys.findIndex(key => previousKeySet.has(key));
 
   const rows = previousRows.map(row => {
     if (row.kind === 'full') {
