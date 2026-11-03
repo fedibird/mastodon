@@ -12,6 +12,15 @@ RSpec.describe ActivityPub::KnownResourceResolver do
       expect(described_class.new(status.uri).status).to eq(status)
     end
 
+    it 'chooses the canonical id even if another server claims the same URL' do
+      url = 'https://publisher.test/objects/canonical'
+      Fabricate(:status, account: account, uri: 'https://remote.test/objects/alias', url: url)
+      publisher = Fabricate(:account, domain: 'publisher.test', username: 'author')
+      canonical = Fabricate(:status, account: publisher, uri: url, url: url)
+
+      expect(described_class.new(url).status).to eq(canonical)
+    end
+
     it 'does not mistake an aggregator claim on a third-party article for the article itself' do
       Fabricate(:status, account: account, uri: 'https://remote.test/objects/a2', url: 'https://publisher.test/articles/2')
 
@@ -82,6 +91,14 @@ RSpec.describe ActivityPub::KnownResourceResolver do
       account = Fabricate(:account, domain: 'remote.test', username: 'alice', uri: 'https://remote.test/users/alice', url: 'https://publisher.test/alice')
 
       expect(described_class.new(account.uri).account).to eq(account)
+    end
+
+    it 'prefers an exact actor id over a competing account profile alias' do
+      url = 'https://remote.test/actors/author'
+      Fabricate(:account, domain: 'remote.test', username: 'relay', uri: 'https://remote.test/users/relay', url: url)
+      canonical = Fabricate(:account, domain: 'remote.test', username: 'author', uri: url, url: url)
+
+      expect(described_class.new(url).account).to eq(canonical)
     end
 
     it 'does not resolve a third-party profile URL claimed by an actor' do
