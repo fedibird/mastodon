@@ -796,6 +796,37 @@ class Status extends ImmutablePureComponent {
 
     const expiresAt = status.get('expires_at');
     const expired = expiresAt && new Date(expiresAt).getTime() < intl.now();
+    const reblog = original.get('reblog');
+    const booster = reblog && typeof reblog.get === 'function' ? original.get('account') : null;
+    let cardContext = null;
+
+    if (this.props.featured) {
+      cardContext = (
+        <div className='timeline-card__context'>
+          <Icon id='thumb-tack' fixedWidth />
+          <FormattedMessage id='status.pinned' defaultMessage='Pinned toot' />
+        </div>
+      );
+    } else if (booster && !hideRebloggedBy) {
+      const nameHtml = { __html: booster.get('display_name_html') || booster.get('display_name') || booster.get('username') };
+      const name = (
+        <a
+          href={booster.get('url')}
+          data-id={booster.get('id')}
+          data-group={booster.get('group')}
+          className='timeline-card__context-account status__display-name'
+          onClick={this.handleAccountClick}
+        >
+          <bdi><strong dangerouslySetInnerHTML={nameHtml} /></bdi>
+        </a>
+      );
+      cardContext = (
+        <div className='timeline-card__context'>
+          <Icon id='retweet' fixedWidth />
+          <FormattedMessage id='status.reblogged_by' defaultMessage='{name} boosted' values={{ name }} />
+        </div>
+      );
+    }
 
     return (
       <HotKeys handlers={{ open: this.handleHotkeyOpen, favourite: this.handleHotkeyFavourite, moveUp: this.handleHotkeyMoveUp, moveDown: this.handleHotkeyMoveDown }}>
@@ -807,6 +838,7 @@ class Status extends ImmutablePureComponent {
             </div>
             {quoteBody}
             {linkPreview}
+            {cardContext}
             <div className='timeline-card__author'>
               {externalIdentity ? (
                 <ExternalSourceIdentity identity={externalIdentity} size={26} showLabel={false} />

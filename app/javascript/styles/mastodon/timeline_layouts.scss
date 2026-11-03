@@ -179,6 +179,36 @@
     border-radius: 7px;
   }
 
+  &__context {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    margin: 0;
+    padding: 5px 8px 2px;
+    color: $darker-text-color;
+    font-size: 11px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+
+    .fa {
+      flex: 0 0 auto;
+      opacity: 0.8;
+    }
+
+    a,
+    a:visited {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    a:hover,
+    a:focus {
+      color: $primary-text-color;
+      text-decoration: underline;
+    }
+  }
+
   &__author {
     display: flex;
     gap: 6px;

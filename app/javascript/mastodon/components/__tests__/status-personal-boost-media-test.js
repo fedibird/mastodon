@@ -210,9 +210,10 @@ const renderDetailed = (status) => render(
   </Provider>,
 );
 
-const renderTimeline = (status) => render(
+const renderTimeline = (status, options = {}) => render(
   <Provider store={store}>
     <Status
+      {...options}
       status={status}
       pictureInPicture={pictureInPicture}
       addEmojiReaction={jest.fn()}
@@ -272,5 +273,32 @@ describe('personal boost translated media', () => {
 
     expect(image.getAttribute('alt')).toBe('ねこ');
     expect(container.innerHTML).toContain('data-shortcode="blob"');
+  });
+});
+
+describe('compact timeline card context', () => {
+  it('displays the booster attribution immediately above the card author row', () => {
+    const { container } = renderTimeline(personalBoost('original'), { layoutMode: 'card-2' });
+    const context = container.querySelector('.timeline-card__context');
+    const author = container.querySelector('.timeline-card__author');
+
+    expect(context).not.toBeNull();
+    expect(context.textContent).toContain('boosted');
+    expect(author).not.toBeNull();
+    expect(context.nextElementSibling).toBe(author);
+  });
+
+  it('displays the pinned context instead of boost attribution for featured cards', () => {
+    const { container } = renderTimeline(personalBoost('original'), { layoutMode: 'card-1', featured: true });
+    const context = container.querySelector('.timeline-card__context');
+
+    expect(context).not.toBeNull();
+    expect(context.textContent).toContain('Pinned toot');
+    expect(context.textContent).not.toContain('boosted');
+  });
+
+  it('does not add attribution to ordinary, non-pinned cards', () => {
+    const { container } = renderTimeline(properStatus, { layoutMode: 'card-3' });
+    expect(container.querySelector('.timeline-card__context')).toBeNull();
   });
 });
