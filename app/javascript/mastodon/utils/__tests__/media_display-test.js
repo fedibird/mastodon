@@ -36,13 +36,13 @@ describe('local media presentation', () => {
     });
 
   it('shrinks to fit, with max always one column', () => {
-    expect(mediaColumnsForWidth('small', 320)).toBe(2);
+    expect(mediaColumnsForWidth('small', 320)).toBe(3);
     expect(mediaColumnsForWidth('medium', 320)).toBe(1);
     expect(mediaColumnsForWidth('large', 600)).toBe(2);
     expect(mediaColumnsForWidth('max', 1200)).toBe(1);
     expect(mediaColumnsForWidth('large', 100)).toBe(1);
     expect(mediaGridColumns('max')).toBe('minmax(0, 1fr)');
-    expect(mediaGridColumns('small')).toContain('min(100%, 126px)');
+    expect(mediaGridColumns('small')).toContain('min(100%, 96px)');
   });
 
   it('uses original media aspect ratio for natural-height Masonry tiles', () => {
