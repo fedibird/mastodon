@@ -105,7 +105,14 @@ class MediaModal extends ImmutablePureComponent {
   )
 
   handleSwipe = index => {
-    this.setState({ index: this.clampIndex(index) });
+    if (this.isTimelineSequence() && index >= this.mediaItems().size) {
+      this.handleNextClick();
+      return;
+    }
+
+    if (!this.state.loadingNext) {
+      this.setState({ index: this.clampIndex(index) });
+    }
   }
 
   handleTransitionEnd = () => {
@@ -216,10 +223,7 @@ class MediaModal extends ImmutablePureComponent {
     const index = this.getIndex();
     const blurhash = media.getIn([index, 'blurhash']);
 
-    if (blurhash) {
-      const backgroundColor = getAverageFromBlurhash(blurhash);
-      onChangeBackgroundColor(backgroundColor);
-    }
+    onChangeBackgroundColor(blurhash ? getAverageFromBlurhash(blurhash) : null);
   }
 
   componentWillUnmount () {
@@ -332,6 +336,12 @@ class MediaModal extends ImmutablePureComponent {
 
       return null;
     }).toArray();
+
+    // A swipable placeholder beyond the last loaded image permits the same
+    // automatic paging gesture on mobile as the desktop Next button.
+    if (hasOlderImagePages) {
+      content.push(<div key='older-image-page' className='media-modal__load-sentinel' aria-label={intl.formatMessage(messages.loadingNext)} />);
+    }
 
     // you can't use 100vh, because the viewport height is taller
     // than the visible part of the document in some mobile
