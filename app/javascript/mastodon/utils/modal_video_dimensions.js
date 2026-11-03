@@ -33,9 +33,11 @@ export const modalVideoDimensions = attachment => {
     return { width, height: Math.round(width * preview.height / preview.width) };
   }
 
-  const aspect = Number(attachment.getIn(['meta', 'original', 'aspect']))
-    || Number(attachment.getIn(['meta', 'small', 'aspect']));
-  if (Number.isFinite(aspect) && aspect > 0) {
+  const aspect = [
+    Number(attachment.getIn(['meta', 'original', 'aspect'])),
+    Number(attachment.getIn(['meta', 'small', 'aspect'])),
+  ].find(value => Number.isFinite(value) && value > 0);
+  if (aspect) {
     return { width: 960, height: Math.max(1, Math.round(960 / aspect)) };
   }
 
