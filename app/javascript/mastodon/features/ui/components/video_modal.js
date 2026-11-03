@@ -7,7 +7,7 @@ import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { getAverageFromBlurhash } from 'mastodon/blurhash';
 import { connect } from 'react-redux';
 import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
-import { modalVideoDimensions } from 'mastodon/utils/modal_video_dimensions';
+import { modalVideoDimensions, modalVideoFrameStyle } from 'mastodon/utils/modal_video_dimensions';
 
 const mapStateToProps = (state, props) => {
   const status = props.statusId ? state.getIn(['statuses', props.statusId]) : null;
@@ -61,7 +61,7 @@ class VideoModal extends ImmutablePureComponent {
 
     return (
       <div className='modal-root__modal video-modal'>
-        <div className='video-modal__container'>
+        <div className='video-modal__container' style={modalVideoFrameStyle(dimensions)}>
           <Video
             preview={media.get('preview_url')}
             frameRate={media.getIn(['meta', 'original', 'frame_rate'])}
