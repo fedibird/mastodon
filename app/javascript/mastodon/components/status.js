@@ -867,11 +867,9 @@ class Status extends ImmutablePureComponent {
           sequence.statusIds,
         );
       } else {
-        // A sensitive image revealed individually must not unhide its
-        // neighbours via modal navigation.
-        const gallery = media.filter(item => item && ['image', 'gifv'].includes(item.get('type')));
-        const index = gallery.findIndex(item => item === attachment || item.get('id') === attachment.get('id'));
-        this.handleOpenMedia(gallery, Math.max(0, index));
+        // If the selected tile was revealed individually, do not let the
+        // modal disclose concealed siblings from the same post either.
+        this.handleOpenMedia(ImmutableList([attachment]), 0);
       }
     } else {
       // Audio and unknown attachment types have players on the full post.

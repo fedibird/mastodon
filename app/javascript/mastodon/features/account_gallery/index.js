@@ -172,11 +172,12 @@ class AccountGallery extends ImmutablePureComponent {
           statusId,
         }));
       } else {
-        // A manually revealed sensitive tile must not reveal unrelated
-        // sensitive media through next/previous modal navigation.
-        const media = attachment.getIn(['status', 'media_attachments']);
-        const index = media.findIndex(item => item.get('id') === attachment.get('id'));
-        dispatch(openModal('MEDIA', { media, index, statusId }));
+        // Restrict individually revealed tiles to that attachment. The
+        // default per-post gallery would bypass this column's concealment
+        // preference when moving to a sibling attachment.
+        const media = attachment.getIn(['status', 'media_attachments'])
+          .filter(item => item.get('id') === attachment.get('id'));
+        dispatch(openModal('MEDIA', { media, index: 0, statusId }));
       }
     }
   }
