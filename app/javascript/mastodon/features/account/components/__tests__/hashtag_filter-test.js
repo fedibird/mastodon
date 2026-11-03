@@ -34,8 +34,10 @@ const renderRoute = (routeBase, initialRoute) => {
     <Provider store={store}>
       <IntlProvider locale='ja' messages={japanese}>
         <MemoryRouter initialEntries={[initialRoute]}>
-          <Route component={Pathname} />
-          <AccountHashtagFilter accountId='123' routeBase={routeBase} />
+          <div>
+            <Route component={Pathname} />
+            <AccountHashtagFilter accountId='123' routeBase={routeBase} />
+          </div>
         </MemoryRouter>
       </IntlProvider>
     </Provider>,
