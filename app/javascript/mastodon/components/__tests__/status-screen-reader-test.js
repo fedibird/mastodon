@@ -39,7 +39,8 @@ jest.mock('mastodon/components/picture_in_picture_placeholder', () => () => null
 jest.mock('../../features/ui/components/bundle', () => () => null);
 jest.mock('../../features/status/components/card', () => () => null);
 
-import { textForScreenReader } from '../status';
+import { defaultMediaVisibility as statusMediaVisibility, textForScreenReader } from '../status';
+import { defaultMediaVisibility as defaultMediaTileVisibility } from 'mastodon/utils/media_display';
 
 const intl = {
   formatDate: () => 'Jan 1, 12:00 PM',
@@ -220,5 +221,14 @@ describe('textForScreenReader translation mode', () => {
       translationMode: 'bilingual',
       translation,
     }), 'Bob boosted')).toBe('Alice, Hello → こんにちは, Jan 1, 12:00 PM, alice@example.com, Bob boosted');
+  });
+});
+
+describe('status and tile visibility defaults', () => {
+  it('keeps the existing status-level boolean helper separate from the media-tile policy helper', () => {
+    expect(statusMediaVisibility(buildStatus({ sensitive: false }))).toBe(true);
+    expect(statusMediaVisibility(buildStatus({ sensitive: true }))).toBe(false);
+    expect(statusMediaVisibility(null)).toBeUndefined();
+    expect(defaultMediaTileVisibility()).toBe('hide_sensitive');
   });
 });
