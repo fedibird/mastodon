@@ -11,8 +11,6 @@ import ColumnHeader from '../../components/column_header';
 import ColumnSettingsContainer from '../account_timeline/containers/column_settings_container';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { accountGalleryAttachments } from 'mastodon/selectors';
-import FeaturedTags from 'mastodon/features/account/components/featured_tags';
-import AccountHashtagFilter from 'mastodon/features/account/components/hashtag_filter';
 import { List as ImmutableList } from 'immutable';
 import MediaItem from './components/media_item';
 import MediaDisplayControls from 'mastodon/components/media_display_controls';
@@ -24,7 +22,7 @@ import ScrollContainer from 'mastodon/containers/scroll_container';
 import LoadMore from 'mastodon/components/load_more';
 import MissingIndicator from 'mastodon/components/missing_indicator';
 import { openModal } from 'mastodon/actions/modal';
-import { me, new_features_policy, defaultColumnWidth } from 'mastodon/initial_state';
+import { me, defaultColumnWidth } from 'mastodon/initial_state';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import { changeSetting } from '../../actions/settings';
 
@@ -49,7 +47,7 @@ const mapStateToProps = (state, { params: { accountId } }) => {
     mediaFilterGeneration: state.getIn(['filterMatches', 'generation'], 0),
     suspended: state.getIn(['accounts', accountId, 'suspended'], false),
     blockedBy: state.getIn(['relationships', accountId, 'blocked_by'], false),
-    advancedMode: state.getIn(['settings', 'account', 'other', 'advancedMode'], new_features_policy === 'conservative' ? false : true),
+    hideFeaturedTags: state.getIn(['settings', 'account', 'other', 'hideFeaturedTags'], false),
     hideRelation,
     columnWidth: state.getIn(['settings', 'account', 'columnWidth'], defaultColumnWidth),
   };
@@ -94,7 +92,7 @@ class AccountGallery extends ImmutablePureComponent {
     mediaFilterMatches: ImmutablePropTypes.map,
     mediaFilterGeneration: PropTypes.number,
     isAccount: PropTypes.bool,
-    advancedMode: PropTypes.bool,
+    hideFeaturedTags: PropTypes.bool,
     hideRelation: PropTypes.bool,
     blockedBy: PropTypes.bool,
     suspended: PropTypes.bool,
@@ -249,7 +247,7 @@ class AccountGallery extends ImmutablePureComponent {
   }
 
   render () {
-    const { mediaTimelines, mediaStatuses, account, isAccount, multiColumn, blockedBy, suspended, hideRelation, columnWidth, intl } = this.props;
+    const { mediaTimelines, mediaStatuses, account, isAccount, multiColumn, blockedBy, suspended, hideRelation, hideFeaturedTags, columnWidth, intl } = this.props;
     const { mediaShape, mediaSize, mediaVisibility, tagged } = this.state;
     const timelineId = accountMediaTimelineId(this.props.params.accountId, tagged);
     const statusIds = mediaTimelines.getIn([timelineId, 'items'], ImmutableList());
@@ -309,11 +307,9 @@ class AccountGallery extends ImmutablePureComponent {
 
         <ScrollContainer scrollKey={`account_gallery:${this.props.params.accountId}:${tagged || 'all'}`}>
           <div className='scrollable scrollable--flex' onScroll={this.handleScroll}>
-            <HeaderContainer accountId={this.props.params.accountId} hideProfile hideRelation={hideRelation} hideFeaturedTags />
+            <HeaderContainer accountId={this.props.params.accountId} hideProfile hideRelation={hideRelation} hideFeaturedTags={hideFeaturedTags} tagged={tagged} showTagSearch onSelectTag={this.handleChooseTag} />
 
             <div className='account-gallery__filters'>
-              <FeaturedTags account={account} tagged={tagged} onSelectTag={this.handleChooseTag} />
-              <AccountHashtagFilter accountId={this.props.params.accountId} tagged={tagged} onSelectTag={this.handleChooseTag} />
               <MediaDisplayControls
                 shape={mediaShape}
                 size={mediaSize}
