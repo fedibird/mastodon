@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+# rubocop:disable Metrics/BlockLength
+# RSpec examples are intentionally grouped by the subject under test.
+
 require 'rails_helper'
 
 RSpec.describe ActivityPub::KnownResourceResolver do
@@ -130,3 +133,5 @@ RSpec.describe ActivityPub::KnownResourceResolver do
     end
   end
 end
+
+# rubocop:enable Metrics/BlockLength
