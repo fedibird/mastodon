@@ -67,6 +67,22 @@ export const readTimelineLayout = (state, columnId, scope) => {
 
 // Statuses in the Redux store are normalized; a boost's attachments belong
 // to the referenced status, not the boost object itself.
+const timelineMediaForStatus = (id, statuses) => {
+  const base = statuses && statuses.get(id);
+  if (!base) {
+    return null;
+  }
+
+  const reblogId = base.get('reblog');
+  const status = reblogId ? (statuses.get(reblogId) || base) : base;
+  return status.get('media_attachments');
+};
+
+export const statusHasTimelineMedia = (id, statuses) => {
+  const media = timelineMediaForStatus(id, statuses);
+  return !!(media && typeof media.some === 'function' && media.some(Boolean));
+};
+
 export const mediaRowsForStatuses = (statusIds, statuses) => {
   const rows = [];
 
@@ -76,14 +92,7 @@ export const mediaRowsForStatuses = (statusIds, statuses) => {
       return;
     }
 
-    const base = statuses && statuses.get(id);
-    if (!base) {
-      return;
-    }
-
-    const reblogId = base.get('reblog');
-    const status = reblogId ? (statuses.get(reblogId) || base) : base;
-    const media = status.get('media_attachments');
+    const media = timelineMediaForStatus(id, statuses);
 
     if (!media || typeof media.forEach !== 'function') {
       return;

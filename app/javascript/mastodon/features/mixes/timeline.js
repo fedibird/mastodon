@@ -594,7 +594,8 @@ export class MixTimelinePage extends React.PureComponent {
 
     const list = (ids, extra) => (
       <StatusList
-        layoutMode='normal'
+        layoutMode={layoutMode}
+        mediaStatuses={mediaStatuses}
         statusIds={ids}
         filterStatusIds={extra.view && extra.view.reconciliationIds}
         scrollKey={`mix-${this.props.columnKey}-${extra.key}`}

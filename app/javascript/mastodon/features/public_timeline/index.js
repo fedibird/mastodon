@@ -183,7 +183,6 @@ class PublicTimeline extends React.PureComponent {
         <StatusListContainer
           columnId={columnId}
           layoutScope='public'
-          disableLayout={split.isSplit}
           timelineId={sourceTimelineId}
           onLoadMore={this.handleLoadMore}
           trackScroll={!pinned}
@@ -200,7 +199,6 @@ class PublicTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='public'
-              disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               includePendingItems
@@ -221,7 +219,6 @@ class PublicTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='public'
-              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`public_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}

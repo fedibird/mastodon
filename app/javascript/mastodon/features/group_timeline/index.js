@@ -426,7 +426,6 @@ class GroupTimeline extends React.PureComponent {
         <StatusListContainer
           columnId={columnId}
           layoutScope='group'
-          disableLayout={split.isSplit}
           trackScroll={!pinned}
           scrollKey={`group_timeline-${columnId}`}
           timelineId={sourceTimelineId}
@@ -446,7 +445,6 @@ class GroupTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='group'
-              disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               immediateViewKey={composerId}
@@ -470,7 +468,6 @@ class GroupTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='group'
-              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`group_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}

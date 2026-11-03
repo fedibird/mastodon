@@ -8,6 +8,7 @@ import {
   columnWidthForCardLayout,
   readTimelineLayout,
   mediaRowsForStatuses,
+  statusHasTimelineMedia,
 } from '../timeline_layout';
 
 describe('timeline layout modes', () => {
@@ -82,6 +83,21 @@ describe('timeline layout modes', () => {
     expect(rows.filter(row => row.kind === 'media').map(row => row.mediaIndex)).toEqual([0, 1, 0, 1, 0, 1]);
     expect(new Set(rows.filter(row => row.kind === 'media').map(row => row.key)).size).toBe(6);
     expect(rows.find(row => row.kind === 'gap')).toEqual({ kind: 'gap', position: 3 });
+  });
+
+  it('detects attachment-bearing posts and boosts consistently for split Live', () => {
+    const statuses = fromJS({
+      '10': { media_attachments: [{ id: 'image' }] },
+      '20': { media_attachments: [] },
+      '30': { reblog: '10', media_attachments: [] },
+      '40': { media_attachments: [null] },
+    });
+
+    expect(statusHasTimelineMedia('10', statuses)).toBe(true);
+    expect(statusHasTimelineMedia('20', statuses)).toBe(false);
+    expect(statusHasTimelineMedia('30', statuses)).toBe(true);
+    expect(statusHasTimelineMedia('40', statuses)).toBe(false);
+    expect(statusHasTimelineMedia('missing', statuses)).toBe(false);
   });
 
   it('returns no tiles when all posts are without media', () => {

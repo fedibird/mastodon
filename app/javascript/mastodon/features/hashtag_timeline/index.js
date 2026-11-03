@@ -356,7 +356,6 @@ class HashtagTimeline extends React.PureComponent {
         <StatusListContainer
           columnId={columnId}
           layoutScope='hashtag'
-          disableLayout={split.isSplit}
           trackScroll={!pinned}
           scrollKey={`hashtag_timeline-${columnId}${onlyMedia ? '-media' : ''}`}
           timelineId={sourceTimelineId}
@@ -376,7 +375,6 @@ class HashtagTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='hashtag'
-              disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               immediateViewKey={composerId}
@@ -399,7 +397,6 @@ class HashtagTimeline extends React.PureComponent {
             <StatusListContainer
               columnId={columnId}
               layoutScope='hashtag'
-              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`hashtag_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
