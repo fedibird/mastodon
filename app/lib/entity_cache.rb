@@ -10,7 +10,10 @@ class EntityCache
   MIN_EXPIRATION = 60.seconds.freeze
 
   def status(url)
-    Rails.cache.fetch(to_key(:status, url), expires_in: MAX_EXPIRATION) { FetchRemoteStatusService.new.call(url) }
+    return if url.blank?
+
+    # Never fold URL path casing when caching fetched remote identities.
+    Rails.cache.fetch(resource_url_cache_key(:status_v2, url), expires_in: MAX_EXPIRATION) { FetchRemoteStatusService.new.call(url) }
   end
 
   def mention(username, domain)
@@ -39,7 +42,7 @@ class EntityCache
   def holding_account(url)
     return if url.blank?
 
-    cache_key = holding_resource_key(:holding_account_v2, url)
+    cache_key = resource_url_cache_key(:holding_account_v2, url)
     return Rails.cache.read(cache_key) if Rails.cache.exist?(cache_key)
 
     account = begin
@@ -64,7 +67,7 @@ class EntityCache
   def holding_status(url)
     return if url.blank?
 
-    cache_key = holding_resource_key(:holding_status_v2, url)
+    cache_key = resource_url_cache_key(:holding_status_v2, url)
     if Rails.cache.exist?(cache_key)
       cached_status = Rails.cache.read(cache_key)
       return cached_status if cached_status&.uri == url
@@ -98,10 +101,10 @@ class EntityCache
     # This method is also called after FetchResourceService has discovered
     # a verified HTML -> ActivityPub alternate in StatusReferenceResolveWorker.
     status = Status.find_by(id: status&.id)
-    Rails.cache.write(holding_resource_key(:holding_status_v2, url), status, expires_in: status.nil? ? MIN_EXPIRATION : MAX_EXPIRATION)
+    Rails.cache.write(resource_url_cache_key(:holding_status_v2, url), status, expires_in: status.nil? ? MIN_EXPIRATION : MAX_EXPIRATION)
   end
 
-  def holding_resource_key(type, url)
+  def resource_url_cache_key(type, url)
     # URL paths are case-sensitive. Do not use to_key's downcasing, and avoid
     # putting potentially very long remote URLs directly into cache keys.
     "#{type}:#{Digest::SHA256.hexdigest(url)}"
