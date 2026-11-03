@@ -12,6 +12,9 @@ import classNames from 'classnames';
 import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from '../features/ui/util/fullscreen';
 import LoadingIndicator from './loading_indicator';
 import TimelineMasonry from './timeline_masonry';
+import MediaDisplayControls from './media_display_controls';
+import MediaItemsLayout from './media_items_layout';
+import { defaultMediaVisibility } from 'mastodon/utils/media_display';
 import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { connect } from 'react-redux';
 import { FilterSurface } from '../filter_reconciliation/surface';
@@ -86,7 +89,23 @@ class ScrollableList extends PureComponent {
   state = {
     fullscreen: null,
     cachedMediaWidth: 250, // Default media/card width using default Mastodon theme
+    mediaShape: 'square',
+    mediaSize: 'small',
+    mediaVisibility: defaultMediaVisibility(),
   };
+
+  handleMediaShapeChange = mediaShape => {
+    this.setState({ mediaShape });
+  }
+
+  handleMediaSizeChange = mediaSize => {
+    this.setState({ mediaSize });
+  }
+
+  handleMediaVisibilityChange = mediaVisibility => {
+    // Only the instance of this column changes. User settings are untouched.
+    this.setState({ mediaVisibility });
+  }
 
   intersectionObserverWrapper = new IntersectionObserverWrapper();
 
@@ -928,7 +947,18 @@ class ScrollableList extends PureComponent {
 
   render () {
     const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex, layoutMode } = this.props;
-    const { fullscreen } = this.state;
+    const { fullscreen, mediaShape, mediaSize, mediaVisibility } = this.state;
+    const mediaMode = layoutMode === 'media';
+    const mediaControls = mediaMode ? (
+      <MediaDisplayControls
+        shape={mediaShape}
+        size={mediaSize}
+        visibility={mediaVisibility}
+        onShapeChange={this.handleMediaShapeChange}
+        onSizeChange={this.handleMediaSizeChange}
+        onVisibilityChange={this.handleMediaVisibilityChange}
+      />
+    ) : null;
     const childrenCount = React.Children.count(children);
     const showOlder = onLoadMore && (hasMore || olderStatus === 'error' || olderStatus === 'unavailable' || olderStatus === 'paused');
     const showNewer = onLoadNewer && (hasNewer || newerStatus === 'error' || newerStatus === 'unavailable' || newerStatus === 'paused');
@@ -968,18 +998,21 @@ class ScrollableList extends PureComponent {
           updateScrollBottom: this.updateScrollBottom,
           cachedMediaWidth: this.state.cachedMediaWidth,
           cacheMediaWidth: this.cacheMediaWidth,
+          mediaShape: mediaMode ? mediaShape : undefined,
+          mediaVisibility: mediaMode ? mediaVisibility : undefined,
         })}
       </IntersectionObserverArticleContainer>
     ));
     const itemLayout = isCardTimelineLayout(layoutMode)
       ? <TimelineMasonry mode={layoutMode}>{renderedItems}</TimelineMasonry>
-      : layoutMode === 'media' ? <div className='timeline-media-grid'>{renderedItems}</div> : renderedItems;
+      : mediaMode ? <MediaItemsLayout shape={mediaShape} size={mediaSize}>{renderedItems}</MediaItemsLayout> : renderedItems;
 
     if (showLoading) {
       scrollableArea = (
         <div className='scrollable scrollable--flex' ref={this.setRef}>
           <div role='feed' className='item-list'>
             {prepend}
+            {mediaControls}
           </div>
 
           <div className='scrollable__append'>
@@ -992,6 +1025,8 @@ class ScrollableList extends PureComponent {
         <div className={classNames('scrollable', { fullscreen })} ref={this.setRef} onMouseMove={this.handleMouseMove}>
           <div role='feed' className='item-list'>
             {prepend}
+
+            {mediaControls}
 
             {loadNewer}
 
@@ -1009,6 +1044,7 @@ class ScrollableList extends PureComponent {
       scrollableArea = (
         <div className={classNames('scrollable scrollable--flex', { fullscreen })} ref={this.setRef}>
           {alwaysPrepend && prepend}
+          {mediaControls}
 
           <div className='empty-column-indicator'>
             {emptyMessage}

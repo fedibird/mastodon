@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { timelineCardColumnsForWidth } from 'mastodon/utils/timeline_layout';
+import { mediaColumnsForWidth } from 'mastodon/utils/media_display';
 
 const GAP = 8;
 const ESTIMATED_HEIGHT = 190;
@@ -12,6 +13,7 @@ export default class TimelineMasonry extends React.PureComponent {
   static propTypes = {
     children: PropTypes.node,
     mode: PropTypes.string.isRequired,
+    mediaSize: PropTypes.string,
   };
 
   state = { width: 0, heights: {} };
@@ -115,7 +117,9 @@ export default class TimelineMasonry extends React.PureComponent {
     const children = React.Children.toArray(this.props.children);
     const width = this.state.width;
     const availableWidth = Math.max(1, width || 320);
-    const columns = width ? timelineCardColumnsForWidth(this.props.mode, width) : 1;
+    const columns = width ? (this.props.mode === 'media'
+      ? mediaColumnsForWidth(this.props.mediaSize, width)
+      : timelineCardColumnsForWidth(this.props.mode, width)) : 1;
 
     if (this.columns !== columns) {
       this.columns = columns;
