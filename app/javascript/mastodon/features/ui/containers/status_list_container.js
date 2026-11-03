@@ -12,13 +12,16 @@ import { uniqWithoutNull } from '../../../utils/uniq';
 import { makeGetImmediatePresentation } from 'mastodon/selectors/immediate_feed';
 import { readTimelineLayout, statusHasTimelineMedia } from 'mastodon/utils/timeline_layout';
 
+const EMPTY_VISIBILITIES = [];
+
 const visibilitiesByType = (state, type) => {
   if (type === 'home') {
     return getHomeVisibilities(state);
   } else if (type === 'limited') {
     return getLimitedVisibilities(state);
   } else {
-    return [];
+    // A stable empty array lets the memoized selectors retain their results.
+    return EMPTY_VISIBILITIES;
   }
 };
 
