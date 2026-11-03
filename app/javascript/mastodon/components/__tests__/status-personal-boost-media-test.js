@@ -420,6 +420,19 @@ describe('compact card attachment count indicator', () => {
     await waitFor(() => expect(container.querySelectorAll('.timeline-card__media .media-gallery__item')).toHaveLength(1));
   });
 
+  it('counts mixed image, GIF, and video attachments without displaying them all', async () => {
+    const mixed = properStatus.set('media_attachments', fromJS([
+      attachment,
+      { ...attachment, id: 'gif', type: 'gifv' },
+      { ...attachment, id: 'movie', type: 'video' },
+    ]));
+    const { container } = renderTimeline(mixed, { layoutMode: 'card-3' });
+
+    expect(container.querySelector('.timeline-card__media-count').getAttribute('aria-label')).toBe('3 media attachments');
+    await waitFor(() => expect(container.querySelectorAll('.timeline-card__media .media-gallery__item')).toHaveLength(1));
+    expect(container.querySelector('.timeline-card__media .video-player')).toBeNull();
+  });
+
   it('does not expose the attachment indicator while the CW is collapsed', () => {
     const multi = properStatus
       .set('media_attachments', fromJS([attachment, { ...attachment, id: 'm2' }]))
