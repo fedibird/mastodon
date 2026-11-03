@@ -322,10 +322,21 @@ class MediaGallery extends React.PureComponent {
 
   componentDidMount () {
     window.addEventListener('resize', this.handleResize, { passive: true });
+
+    // Masonry column widths settle after the first render and can change
+    // without a window resize. Observe this gallery instead of only the window.
+    if (this.node && window.ResizeObserver) {
+      this.resizeObserver = new window.ResizeObserver(this.handleElementResize);
+      this.resizeObserver.observe(this.node);
+    }
   }
 
   componentWillUnmount () {
     window.removeEventListener('resize', this.handleResize);
+    this.handleResize.cancel();
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+    }
   }
 
   componentWillReceiveProps (nextProps) {
@@ -343,6 +354,12 @@ class MediaGallery extends React.PureComponent {
   }, 250, {
     trailing: true,
   });
+
+  handleElementResize = entries => {
+    if (this.node && entries.some(entry => entry.target === this.node)) {
+      this._setDimensions();
+    }
+  }
 
   handleOpen = () => {
     if (this.props.onToggleVisibility) {
@@ -379,16 +396,23 @@ class MediaGallery extends React.PureComponent {
   }
 
   _setDimensions () {
+    if (!this.node) {
+      return;
+    }
+
     const width = this.node.offsetWidth;
 
-    // offsetWidth triggers a layout, so only calculate when we need to
+    // An initially detached or zero-width Masonry cell is not a useful
+    // measurement. Do not cache it or enter a resize feedback loop.
+    if (width <= 0 || width === this.state.width) {
+      return;
+    }
+
     if (this.props.cacheWidth) {
       this.props.cacheWidth(width);
     }
 
-    this.setState({
-      width: width,
-    });
+    this.setState({ width });
   }
 
   isFullSizeEligible() {
@@ -397,37 +421,33 @@ class MediaGallery extends React.PureComponent {
   }
 
   render () {
-    const { media, intl, sensitive, height, defaultWidth, standalone, autoplay, quote } = this.props;
+    const { media, intl, sensitive, defaultWidth, standalone, autoplay, quote } = this.props;
     const { visible } = this.state;
 
     const width = this.state.width || defaultWidth;
 
     let children, spoilerButton;
 
-    const style = {};
-    // Card previews can override the original non-expanded post setting.
+    // CSS computes the height from the CURRENT layout width, even on the
+    // first paint before an async gallery or Masonry cell can be measured.
+    // A measured inline pixel height could otherwise survive a column resize.
     const effectiveCropImages = this.props.cropImages ?? cropImages;
-
-    if (this.isFullSizeEligible() && (standalone || !effectiveCropImages)) {
-      if (width) {
-        style.height = width / this.props.media.getIn([0, 'meta', 'small', 'aspect']);
-      }
-    } else if (width) {
-      style.height = width / (16/9);
-    } else {
-      style.height = height;
-    }
+    const originalAspect = Number(media.getIn([0, 'meta', 'small', 'aspect']));
+    let aspect = this.isFullSizeEligible() && (standalone || !effectiveCropImages) && Number.isFinite(originalAspect) && originalAspect > 0
+      ? originalAspect : 16 / 9;
 
     const size     = media.take(maxAttachments).size;
     const uncached = media.every(attachment => attachment.get('type') === 'unknown');
 
-    if (quote && style.height) {
-      style.height /= 2;
+    if (quote) {
+      aspect *= 2;
     }
 
     if (size > 4) {
-      style.height = style.height * Math.trunc((size + 1) / 2) / 2;
+      aspect /= Math.trunc((size + 1) / 2) / 2;
     }
+
+    const style = { aspectRatio: String(aspect) };
 
     if (standalone && this.isFullSizeEligible()) {
       children = <Item standalone autoplay={autoplay} onClick={this.handleClick} attachment={media.get(0)} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} displayWidth={width} visible={visible} />;
