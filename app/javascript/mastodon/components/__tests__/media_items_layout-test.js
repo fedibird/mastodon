@@ -1,3 +1,5 @@
+/* eslint-disable react/prop-types */
+
 import { render } from '@testing-library/react';
 import React from 'react';
 
