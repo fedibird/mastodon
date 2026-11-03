@@ -23,14 +23,22 @@ export const mediaModalPagination = (state, props) => {
   const anchorIndex = ids.indexOf(source.afterStatusId);
   const tail = anchorIndex >= 0 ? ids.skip(anchorIndex + 1) : ImmutableList();
 
+  const filterInfo = {
+    filters: state.get('filters'),
+    matches: state.get('filterMatches'),
+    generation: state.getIn(['filterMatches', 'generation'], 0),
+  };
   let added;
   if (source.kind === 'account') {
     const account = state.getIn(['accounts', source.accountId]);
-    const attachments = accountGalleryAttachments(tail, statuses, account);
-    added = accountMediaTimelineSequence(attachments, source.visibility);
+    const attachments = accountGalleryAttachments(tail, statuses, account, filterInfo);
+    added = accountMediaTimelineSequence(attachments, source.visibility, filterInfo);
   } else {
-    const rows = mediaRowsForStatuses(tail, statuses);
-    added = mediaTimelineSequence(rows, statuses, source.visibility);
+    const rows = mediaRowsForStatuses(tail, statuses).map(row => ({
+      ...row,
+      contextType: source.contextTypeForId ? source.contextTypeForId(row.id) : (source.contextType || 'public'),
+    }));
+    added = mediaTimelineSequence(rows, statuses, source.visibility, filterInfo);
   }
 
   return {

@@ -3,6 +3,7 @@ import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { me, enableLimitedTimeline, hideDirectFromTimeline, hidePersonalFromTimeline, maxFrequentlyUsedEmojis } from '../initial_state';
 import { buildCustomEmojis, categoriesFromEmojis } from 'mastodon/features/emoji/emoji';
 import { toServerSideType } from 'mastodon/utils/filters';
+import { mediaStatusFiltered } from 'mastodon/utils/media_filter_visibility';
 
 const getAccountBase         = (state, id) => state.getIn(['accounts', id], null);
 const getAccountCounters     = (state, id) => state.getIn(['accounts_counters', id], null);
@@ -227,7 +228,7 @@ export const getAccountGallery = createSelector([
 
 // The account gallery chooses a tag locally, without modifying persisted
 // account settings. This helper works for either tagged timeline's Redux IDs.
-export const accountGalleryAttachments = (statusIds, statuses, account) => {
+export const accountGalleryAttachments = (statusIds, statuses, account, filterInfo = {}) => {
   let medias = ImmutableList();
 
   if (!account) {
@@ -241,7 +242,7 @@ export const accountGalleryAttachments = (statusIds, statuses, account) => {
     }
 
     const status = statuses.get(statusId);
-    if (status && status.get('media_attachments')) {
+    if (status && status.get('media_attachments') && !mediaStatusFiltered(status, null, statusId, 'account', filterInfo)) {
       medias = medias.concat(status.get('media_attachments').map(media => media.set('status', status).set('account', account)));
     }
   });

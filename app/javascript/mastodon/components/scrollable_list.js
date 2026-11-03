@@ -37,6 +37,9 @@ const MOUSE_IDLE_DELAY = 300;
 const mapStateToProps = (state, { scrollKey }) => {
   return {
     preventScroll: scrollKey === state.getIn(['dropdown_menu', 'scroll_key']),
+    mediaFilters: state.get('filters'),
+    mediaFilterMatches: state.get('filterMatches'),
+    mediaFilterGeneration: state.getIn(['filterMatches', 'generation'], 0),
   };
 };
 
@@ -83,6 +86,10 @@ class ScrollableList extends PureComponent {
     mediaRows: PropTypes.array,
     mediaStatuses: PropTypes.object,
     mediaTimelineId: PropTypes.string,
+    mediaContextForId: PropTypes.func,
+    mediaFilters: PropTypes.object,
+    mediaFilterMatches: PropTypes.object,
+    mediaFilterGeneration: PropTypes.number,
     mediaLastStatusId: PropTypes.string,
   };
 
@@ -985,12 +992,20 @@ class ScrollableList extends PureComponent {
     }
     const loadPending  = (numPending > 0) ? <LoadPending count={numPending} onClick={this.handleLoadPending} /> : null;
     let scrollableArea = null;
-    const mediaTimeline = mediaMode ? mediaTimelineSequence(this.props.mediaRows, this.props.mediaStatuses, mediaVisibility) : null;
+    const filterInfo = mediaMode ? {
+      filters: this.props.mediaFilters,
+      matches: this.props.mediaFilterMatches,
+      generation: this.props.mediaFilterGeneration,
+    } : null;
+    const mediaTimeline = mediaMode
+      ? mediaTimelineSequence(this.props.mediaRows, this.props.mediaStatuses, mediaVisibility, filterInfo)
+      : null;
     const mediaSource = mediaMode && onLoadMore && this.props.mediaTimelineId ? {
       kind: 'timeline',
       timelineId: this.props.mediaTimelineId,
       afterStatusId: this.props.mediaLastStatusId,
       visibility: mediaVisibility,
+      contextTypeForId: this.props.mediaContextForId,
       onLoadMore,
     } : null;
     const renderedItems = React.Children.map(children, (child, index) => (

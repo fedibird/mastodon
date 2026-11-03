@@ -45,6 +45,9 @@ const mapStateToProps = (state, { params: { accountId } }) => {
     account: state.getIn(['accounts', accountId]),
     mediaTimelines: state.get('timelines'),
     mediaStatuses: state.get('statuses'),
+    mediaFilters: state.get('filters'),
+    mediaFilterMatches: state.get('filterMatches'),
+    mediaFilterGeneration: state.getIn(['filterMatches', 'generation'], 0),
     suspended: state.getIn(['accounts', accountId, 'suspended'], false),
     blockedBy: state.getIn(['relationships', accountId, 'blocked_by'], false),
     advancedMode: state.getIn(['settings', 'account', 'other', 'advancedMode'], new_features_policy === 'conservative' ? false : true),
@@ -88,6 +91,9 @@ class AccountGallery extends ImmutablePureComponent {
     account: ImmutablePropTypes.map,
     mediaTimelines: ImmutablePropTypes.map.isRequired,
     mediaStatuses: ImmutablePropTypes.map.isRequired,
+    mediaFilters: ImmutablePropTypes.map,
+    mediaFilterMatches: ImmutablePropTypes.map,
+    mediaFilterGeneration: PropTypes.number,
     isAccount: PropTypes.bool,
     advancedMode: PropTypes.bool,
     hideRelation: PropTypes.bool,
@@ -205,8 +211,13 @@ class AccountGallery extends ImmutablePureComponent {
       // each post's media_attachments collection.
       const id = accountMediaTimelineId(this.props.params.accountId, this.state.tagged);
       const statusIds = this.props.mediaTimelines.getIn([id, 'items'], ImmutableList());
-      const attachments = accountGalleryAttachments(statusIds, this.props.mediaStatuses, this.props.account);
-      const sequence = accountMediaTimelineSequence(attachments, this.state.mediaVisibility);
+      const filterInfo = {
+        filters: this.props.mediaFilters,
+        matches: this.props.mediaFilterMatches,
+        generation: this.props.mediaFilterGeneration,
+      };
+      const attachments = accountGalleryAttachments(statusIds, this.props.mediaStatuses, this.props.account, filterInfo);
+      const sequence = accountMediaTimelineSequence(attachments, this.state.mediaVisibility, filterInfo);
       const position = sequence.media.findIndex(item => item.get('id') === attachment.get('id'));
       if (position >= 0 && sequence.media.size > 0) {
         const accountId = this.props.params.accountId;
@@ -253,7 +264,12 @@ class AccountGallery extends ImmutablePureComponent {
     const { mediaShape, mediaSize, mediaVisibility, tagged, tagInput } = this.state;
     const timelineId = accountMediaTimelineId(this.props.params.accountId, tagged);
     const statusIds = mediaTimelines.getIn([timelineId, 'items'], ImmutableList());
-    const attachments = accountGalleryAttachments(statusIds, mediaStatuses, account);
+    const filterInfo = {
+      filters: this.props.mediaFilters,
+      matches: this.props.mediaFilterMatches,
+      generation: this.props.mediaFilterGeneration,
+    };
+    const attachments = accountGalleryAttachments(statusIds, mediaStatuses, account, filterInfo);
     const isLoading = !!mediaTimelines.getIn([timelineId, 'isLoading']);
     const hasMore = !!mediaTimelines.getIn([timelineId, 'hasMore']);
 
