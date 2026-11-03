@@ -97,9 +97,10 @@ describe('shared account hashtag input', () => {
     });
     expect(screen.queryByRole('searchbox')).toBeNull();
   });
+
   it('shows the hashtag-input setting only in detailed mode', () => {
     const store = makeStore();
-    const { rerender } = render(
+    render(
       <Provider store={store}>
         <IntlProvider locale='ja' messages={japanese}>
           <ColumnSettingsContainer />
@@ -118,6 +119,5 @@ describe('shared account hashtag input', () => {
     // The setting is retained when detailed mode is enabled again.
     fireEvent.click(screen.getByRole('checkbox', { name: '詳細モード' }));
     expect(screen.getByRole('checkbox', { name: 'ハッシュタグ入力欄を隠す' })).toBeInTheDocument();
-    void rerender;
   });
 });
