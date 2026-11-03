@@ -3498,6 +3498,19 @@
       {
         "id": "account.media_tag_apply",
         "defaultMessage": "Filter"
+      },
+      {
+        "id": "account.hide_hashtag_input",
+        "defaultMessage": "Hide hashtag input"
+      }
+    ]
+  },
+  {
+    "path": "app/javascript/mastodon/features/account_timeline/components/column_settings.json",
+    "descriptors": [
+      {
+        "id": "account.column_settings.hide_hashtag_input",
+        "defaultMessage": "Hide hashtag input"
       }
     ]
   }

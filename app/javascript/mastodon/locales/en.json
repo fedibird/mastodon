@@ -1278,5 +1278,7 @@
   "account.media_tag_apply": "Filter",
   "lightbox.loading_next": "Loading more images…",
   "lightbox.loading_failed": "Could not load more images. Press Next to retry.",
-  "lightbox.image_unavailable": "Could not load image"
+  "lightbox.image_unavailable": "Could not load image",
+  "account.hide_hashtag_input": "ハッシュタグ入力欄を閉じる",
+  "account.column_settings.hide_hashtag_input": "ハッシュタグ入力欄を隠す"
 }
