@@ -104,7 +104,19 @@ class ScrollableList extends PureComponent {
     mediaShape: 'square',
     mediaSize: 'small',
     mediaVisibility: defaultMediaVisibility(),
+    mediaRevealSource: `${this.props.layoutMode}:${this.props.mediaTimelineId || this.props.scrollKey}`,
+    revealedMediaKeys: new Set(),
+    revealedFilterStatusIds: new Set(),
   };
+
+  static getDerivedStateFromProps (nextProps, prevState) {
+    const source = `${nextProps.layoutMode}:${nextProps.mediaTimelineId || nextProps.scrollKey}`;
+    return source === prevState.mediaRevealSource ? null : {
+      mediaRevealSource: source,
+      revealedMediaKeys: new Set(),
+      revealedFilterStatusIds: new Set(),
+    };
+  }
 
   handleMediaShapeChange = mediaShape => {
     this.setState({ mediaShape });
@@ -115,8 +127,19 @@ class ScrollableList extends PureComponent {
   }
 
   handleMediaVisibilityChange = mediaVisibility => {
-    // Only the instance of this column changes. User settings are untouched.
-    this.setState({ mediaVisibility });
+    // Clear individual image reveals when switching policy, without touching
+    // a separate manual override of a warning-filtered post.
+    this.setState({ mediaVisibility, revealedMediaKeys: new Set() });
+  }
+
+  handleMediaTileReveal = key => {
+    if (!key) return;
+    this.setState(({ revealedMediaKeys }) => ({ revealedMediaKeys: new Set([...revealedMediaKeys, key]) }));
+  }
+
+  handleMediaFilterReveal = statusId => {
+    if (!statusId) return;
+    this.setState(({ revealedFilterStatusIds }) => ({ revealedFilterStatusIds: new Set([...revealedFilterStatusIds, statusId]) }));
   }
 
   intersectionObserverWrapper = new IntersectionObserverWrapper();
@@ -996,6 +1019,8 @@ class ScrollableList extends PureComponent {
       filters: this.props.mediaFilters,
       matches: this.props.mediaFilterMatches,
       generation: this.props.mediaFilterGeneration,
+      revealedMediaKeys: this.state.revealedMediaKeys,
+      revealedFilterStatusIds: this.state.revealedFilterStatusIds,
     } : null;
     const mediaTimeline = mediaMode
       ? mediaTimelineSequence(this.props.mediaRows, this.props.mediaStatuses, mediaVisibility, filterInfo)
@@ -1030,6 +1055,10 @@ class ScrollableList extends PureComponent {
           mediaVisibility: mediaMode ? mediaVisibility : undefined,
           mediaTimeline,
           mediaSource,
+          onMediaTileReveal: mediaMode ? this.handleMediaTileReveal : undefined,
+          mediaTileRevealed: mediaMode && this.state.revealedMediaKeys.has(child.props.mediaRowKey),
+          onMediaFilterReveal: mediaMode ? this.handleMediaFilterReveal : undefined,
+          mediaFilterRevealed: mediaMode && this.state.revealedFilterStatusIds.has(child.props.id),
         })}
       </IntersectionObserverArticleContainer>
     ));
