@@ -62,6 +62,7 @@ class UserSettingsDecorator
     use_pending_items
     trends
     crop_images
+    crop_card_images
     confirm_domain_block
     show_follow_button_on_timeline
     show_subscribe_button_on_timeline
