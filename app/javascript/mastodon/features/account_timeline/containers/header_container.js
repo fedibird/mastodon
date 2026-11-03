@@ -22,7 +22,7 @@ import { initReport } from '../../../actions/reports';
 import { openModal } from '../../../actions/modal';
 import { blockDomain, unblockDomain } from '../../../actions/domain_blocks';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
-import { followModal, unfollowModal, subscribeModal, unsubscribeModal, confirmDomainBlock } from '../../../initial_state';
+import { followModal, unfollowModal, subscribeModal, unsubscribeModal, confirmDomainBlock, new_features_policy } from '../../../initial_state';
 import { List as ImmutableList } from 'immutable';
 
 const messages = defineMessages({
@@ -42,7 +42,7 @@ const makeMapStateToProps = () => {
     domain: state.getIn(['meta', 'domain']),
     identity_proofs: state.getIn(['identity_proofs', accountId], ImmutableList()),
     hideProfile: hideTabs || hideProfile,
-    advancedMode: state.getIn(['settings', 'account', 'other', 'advancedMode'], false),
+    advancedMode: state.getIn(['settings', 'account', 'other', 'advancedMode'], new_features_policy !== 'conservative'),
   });
 
   return mapStateToProps;
