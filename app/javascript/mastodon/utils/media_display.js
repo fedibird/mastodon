@@ -28,7 +28,7 @@ export const mediaIsConcealed = (visibility, sensitive, revealed = false) => {
 };
 
 // Tiles must still shrink on small columns, and maximum is always one tile.
-const MEDIA_WIDTHS = { small: 126, medium: 188, large: 254 };
+const MEDIA_WIDTHS = { small: 96, medium: 164, large: 254 };
 const GAP = 8;
 export const mediaMinWidth = size => MEDIA_WIDTHS[size] || MEDIA_WIDTHS.small;
 
