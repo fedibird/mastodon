@@ -969,6 +969,21 @@ class Status extends ImmutablePureComponent {
     const thumbnailHash = attachment.get('thumbhash');
     const blurred = concealed && useBlurhash && (hash || thumbnailHash);
 
+    let mediaTileContent;
+    if (canPreview) {
+      mediaTileContent = <img src={preview} alt={alt} loading='lazy' />;
+    } else if (blurred) {
+      mediaTileContent = hash
+        ? <Blurhash className='timeline-media-tile__blurhash' hash={hash} />
+        : <Thumbhash className='timeline-media-tile__blurhash' hash={thumbnailHash} />;
+    } else {
+      mediaTileContent = (
+        <span className='timeline-media-tile__placeholder'>
+          <Icon id={concealed ? 'eye-slash' : attachment.get('type') === 'audio' ? 'music' : 'file-o'} />
+        </span>
+      );
+    }
+
     return (
       <div className='status__wrapper status__wrapper--media-tile' data-id={status.get('id')} ref={this.handleRef}>
         <div className='timeline-media-tile'>
@@ -980,12 +995,7 @@ class Status extends ImmutablePureComponent {
               onClick={this.handleMediaTileClick}
               aria-label={concealed ? this.props.intl.formatMessage(messages.revealMediaTile) : (alt || this.props.intl.formatMessage(messages.openMediaTile))}
             >
-              {canPreview ? <img src={preview} alt={alt} loading='lazy' /> : blurred ? (
-                hash ? <Blurhash className='timeline-media-tile__blurhash' hash={hash} /> :
-                  <Thumbhash className='timeline-media-tile__blurhash' hash={thumbnailHash} />
-              ) : <span className='timeline-media-tile__placeholder'>
-                <Icon id={concealed ? 'eye-slash' : attachment.get('type') === 'audio' ? 'music' : 'file-o'} />
-              </span>}
+              {mediaTileContent}
               {blurred && <span className='timeline-media-tile__concealed-icon'><Icon id='eye-slash' /></span>}
               {!concealed && attachment.get('type') === 'video' && <span className='timeline-media-tile__play'><Icon id='play' /></span>}
             </button>
