@@ -47,7 +47,11 @@ class EntityCache
 
     account = begin
       if ActivityPub::TagManager.instance.local_uri?(url)
-        recognized_params = Rails.application.routes.recognize_path(url) rescue {}
+        recognized_params = begin
+          Rails.application.routes.recognize_path(url)
+        rescue StandardError
+          {}
+        end
 
         if recognized_params[:action] == 'show' && %w(accounts activitypub/accounts).include?(recognized_params[:controller])
           Account.find_local(recognized_params[:username])
