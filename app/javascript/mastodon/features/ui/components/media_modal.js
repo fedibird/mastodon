@@ -16,6 +16,7 @@ import { getAverageFromBlurhash } from 'mastodon/blurhash';
 import { connect } from 'react-redux';
 import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
 import { mediaModalPagination } from 'mastodon/utils/media_modal_pagination';
+import { modalVideoDimensions, modalVideoFrameStyle } from 'mastodon/utils/modal_video_dimensions';
 
 const messages = defineMessages({
   close: { id: 'lightbox.close', defaultMessage: 'Close' },
@@ -300,25 +301,27 @@ class MediaModal extends ImmutablePureComponent {
         );
       } else if (image.get('type') === 'video') {
         const { currentTime, autoPlay, volume } = this.props;
+        const dimensions = modalVideoDimensions(image);
 
         return (
-          <Video
-            preview={image.get('preview_url')}
-            thumbhash={image.get('thumbhash')}
-            blurhash={image.get('blurhash')}
-            src={image.get('url')}
-            width={image.get('width')}
-            height={image.get('height')}
-            frameRate={image.getIn(['meta', 'original', 'frame_rate'])}
-            currentTime={currentTime || 0}
-            autoPlay={autoPlay || false}
-            volume={volume || 1}
-            onCloseVideo={onClose}
-            detailed
-            alt={description}
-            lang={lang}
-            key={`${image.get('url')}:${imageIndex}`}
-          />
+          <div className='media-modal__video-container' style={modalVideoFrameStyle(dimensions)} key={`${image.get('url')}:${imageIndex}`}>
+            <Video
+              preview={image.get('preview_url')}
+              thumbhash={image.get('thumbhash')}
+              blurhash={image.get('blurhash')}
+              src={image.get('url')}
+              width={dimensions.width}
+              height={dimensions.height}
+              frameRate={image.getIn(['meta', 'original', 'frame_rate'])}
+              currentTime={currentTime || 0}
+              autoPlay={autoPlay || false}
+              volume={volume || 1}
+              onCloseVideo={onClose}
+              detailed
+              alt={description}
+              lang={lang}
+            />
+          </div>
         );
       } else if (image.get('type') === 'gifv') {
         return (

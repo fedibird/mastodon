@@ -20,7 +20,7 @@ jest.mock('react-intl', () => {
 
 jest.mock('react-swipeable-views', () => ({ children }) => <div>{children}</div>);
 jest.mock('../image_loader', () => ({ alt, lang }) => <img alt={alt} lang={lang} />);
-jest.mock('mastodon/features/video', () => () => null);
+jest.mock('mastodon/features/video', () => ({ width, height }) => <div data-testid='modal-video' data-width={width} data-height={height} />);
 jest.mock('mastodon/components/gifv', () => () => null);
 jest.mock('mastodon/components/icon', () => () => null);
 jest.mock('mastodon/components/icon_button', () => () => null);
@@ -43,7 +43,7 @@ const media = fromJS([{
   meta: { original: { width: 200, height: 100 } },
 }]);
 
-const renderModal = (mode) => {
+const renderModal = (mode, items = media) => {
   const store = createStore(() => fromJS({
     statuses: {
       s1: {
@@ -63,7 +63,7 @@ const renderModal = (mode) => {
     <Provider store={store}>
       <MediaModal
         statusId='s1'
-        media={media}
+        media={items}
         index={0}
         onClose={jest.fn()}
         onChangeBackgroundColor={jest.fn()}
@@ -123,6 +123,25 @@ describe('MediaModal translation display modes', () => {
 
     expect(container.querySelector('img').getAttribute('alt')).toBe('a cat');
     expect(container.querySelector('img').getAttribute('lang')).toBe('en');
+  });
+});
+
+describe('MediaModal video dimensions', () => {
+  it('uses original metadata rather than absent or thumbnail-sized top-level dimensions', () => {
+    const video = fromJS([{
+      id: 'video',
+      type: 'video',
+      url: 'https://example.test/clip.mp4',
+      width: 120,
+      height: 68,
+      meta: { original: { width: 1080, height: 1920 } },
+    }]);
+
+    const { container } = renderModal('original', video);
+    expect(screen.getByTestId('modal-video')).toHaveAttribute('data-width', '1080');
+    expect(screen.getByTestId('modal-video')).toHaveAttribute('data-height', '1920');
+    expect(container.querySelector('.media-modal__video-container').style.getPropertyValue('--modal-video-aspect')).toBe('1080 / 1920');
+    expect(container.querySelector('.media-modal__video-container').style.getPropertyValue('--modal-video-width-by-height')).toBe('45vh');
   });
 });
 
