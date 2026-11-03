@@ -34,7 +34,7 @@ import ExternalStatusMedia from 'mastodon/components/external_status_media';
 import { assignRelease, spoilerConcealed } from 'mastodon/external_player/session';
 import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
 import AltTextBadge from 'mastodon/components/alt_text_badge';
-import { defaultMediaVisibility, mediaAspectRatio, mediaIsConcealed } from 'mastodon/utils/media_display';
+import { defaultMediaVisibility as defaultMediaTileVisibility, mediaAspectRatio, mediaIsConcealed } from 'mastodon/utils/media_display';
 
 const domParser = new DOMParser();
 
@@ -824,7 +824,7 @@ class Status extends ImmutablePureComponent {
 
   mediaTileConcealed = () => {
     const status = this._properStatus();
-    const policy = this.props.mediaVisibility || defaultMediaVisibility();
+    const policy = this.props.mediaVisibility || defaultMediaTileVisibility();
     const hasHiddenCW = !!(status.get('spoiler_text') && status.get('hidden'));
 
     return mediaIsConcealed(policy, status.get('sensitive'), hasHiddenCW, this.state.tileRevealed);
