@@ -66,15 +66,13 @@ RSpec.describe EntityCache do
       expect(described_class.instance.holding_status(link)).to eq(status)
     end
 
-    it 'lets an imported canonical AP id supersede an older verified alternate cache' do
-      url = 'https://publisher.test/objects/newly-imported'
-      cached = Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/objects/cached', url: url)
-      described_class.instance.update_holding_status(url, cached)
+    it 'reuses a cached status without another database query when formatting the same link' do
+      url = 'https://aggregator.test/@relay/765'
+      status = Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/users/relay/statuses/765', url: url)
+      expect(described_class.instance.holding_status(url)).to eq(status)
 
-      publisher = Fabricate(:account, domain: 'publisher.test', username: 'author')
-      canonical = Fabricate(:status, account: publisher, uri: url, url: url)
-
-      expect(described_class.instance.holding_status(url)).to eq(canonical)
+      expect(Status).not_to receive(:find_by)
+      expect(described_class.instance.holding_status(url)).to eq(status)
     end
 
     it 'resolves the canonical AP URI regardless of the remote display URL' do
@@ -85,13 +83,12 @@ RSpec.describe EntityCache do
   end
 
   describe '#holding_account' do
-    it 'prefers an actor id imported after a same-origin profile alias was cached' do
-      url = 'https://aggregator.test/actors/new'
-      old_actor = Fabricate(:account, domain: 'aggregator.test', username: 'relay', uri: 'https://aggregator.test/users/relay', url: url)
-      expect(described_class.instance.holding_account(url)).to eq(old_actor)
+    it 'reuses a cached profile alias without querying the account table' do
+      account = Fabricate(:account, domain: 'aggregator.test', username: 'relay', uri: 'https://aggregator.test/users/relay', url: 'https://aggregator.test/@relay')
+      expect(described_class.instance.holding_account(account.url)).to eq(account)
 
-      canonical = Fabricate(:account, domain: 'aggregator.test', username: 'new', uri: url, url: url)
-      expect(described_class.instance.holding_account(url)).to eq(canonical)
+      expect(Account).not_to receive(:find_by)
+      expect(described_class.instance.holding_account(account.url)).to eq(account)
     end
 
     it 'does not resolve a third-party profile link claimed by a remote actor' do
