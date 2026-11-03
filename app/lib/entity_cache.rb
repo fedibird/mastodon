@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'digest'
 require 'singleton'
 
 class EntityCache
@@ -36,37 +37,41 @@ class EntityCache
   end
 
   def holding_account(url)
-    return Rails.cache.read(to_key(:holding_account, url)) if Rails.cache.exist?(to_key(:holding_account, url))
+    return if url.blank?
+
+    cache_key = holding_resource_key(:holding_account_v2, url)
+    return Rails.cache.read(cache_key) if Rails.cache.exist?(cache_key)
 
     account = begin
       if ActivityPub::TagManager.instance.local_uri?(url)
         recognized_params = Rails.application.routes.recognize_path(url) rescue {}
 
-        return nil unless recognized_params[:action] == 'show'
-
-        if %w(accounts activitypub/accounts).include?(recognized_params[:controller])
+        if recognized_params[:action] == 'show' && %w(accounts activitypub/accounts).include?(recognized_params[:controller])
           Account.find_local(recognized_params[:username])
         end
       else
-        Account.where(uri: url).or(Account.where(url: url)).first
+        ActivityPub::KnownResourceResolver.new(url).account
       end
     rescue ActiveRecord::RecordNotFound
       nil
     end
 
-    Rails.cache.write(to_key(:holding_account, url), account, expires_in: account.nil? ? MIN_EXPIRATION : MAX_EXPIRATION)
+    Rails.cache.write(cache_key, account, expires_in: account.nil? ? MIN_EXPIRATION : MAX_EXPIRATION)
 
     account
   end
 
   def holding_status(url)
-    return Rails.cache.read(to_key(:holding_status, url)) if Rails.cache.exist?(to_key(:holding_status, url))
+    return if url.blank?
+
+    cache_key = holding_resource_key(:holding_status_v2, url)
+    return Rails.cache.read(cache_key) if Rails.cache.exist?(cache_key)
 
     status = begin
       if ActivityPub::TagManager.instance.local_uri?(url)
         StatusFinder.new(url).status
       else
-        Status.where(uri: url).or(Status.where(url: url)).first
+        ActivityPub::KnownResourceResolver.new(url).status
       end
     rescue ActiveRecord::RecordNotFound
       nil
@@ -78,7 +83,18 @@ class EntityCache
   end
 
   def update_holding_status(url, status)
-    Rails.cache.write(to_key(:holding_status, url), Status.find_by(id: status&.id), expires_in: status&.account.nil? ? MIN_EXPIRATION : MAX_EXPIRATION)
+    return if url.blank?
+
+    # This method is also called after FetchResourceService has discovered
+    # a verified HTML -> ActivityPub alternate in StatusReferenceResolveWorker.
+    status = Status.find_by(id: status&.id)
+    Rails.cache.write(holding_resource_key(:holding_status_v2, url), status, expires_in: status.nil? ? MIN_EXPIRATION : MAX_EXPIRATION)
+  end
+
+  def holding_resource_key(type, url)
+    # URL paths are case-sensitive. Do not use to_key's downcasing, and avoid
+    # putting potentially very long remote URLs directly into cache keys.
+    "#{type}:#{Digest::SHA256.hexdigest(url)}"
   end
 
   def to_key(type, *ids)
