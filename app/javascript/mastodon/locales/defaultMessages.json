@@ -3486,5 +3486,14 @@
         "defaultMessage": "Always hide media"
       }
     ]
+  },
+  {
+    "path": "app/javascript/mastodon/features/ui/components/image_loader.json",
+    "descriptors": [
+      {
+        "id": "lightbox.image_unavailable",
+        "defaultMessage": "Could not load image"
+      }
+    ]
   }
 ]

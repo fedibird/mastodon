@@ -1277,5 +1277,6 @@
   "account.media_tag_placeholder": "Filter by hashtag",
   "account.media_tag_apply": "Filter",
   "lightbox.loading_next": "Loading more images…",
-  "lightbox.loading_failed": "Could not load more images. Press Next to retry."
+  "lightbox.loading_failed": "Could not load more images. Press Next to retry.",
+  "lightbox.image_unavailable": "Could not load image"
 }
