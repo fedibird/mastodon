@@ -1,5 +1,9 @@
 import { fromJS, List as ImmutableList } from 'immutable';
 
+// These tests exercise Redux selectors, not status rendering. Keep the JSX
+// import chain (including thumbhash's ESM-only package) out of Jest's scope.
+jest.mock('mastodon/components/status_list', () => function StatusListMock () { return null; });
+
 import { makeMapStateToProps } from '../status_list_container';
 
 const splitId = 'list:42:split:column-a:session';
