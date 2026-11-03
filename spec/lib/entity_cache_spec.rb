@@ -43,8 +43,10 @@ RSpec.describe EntityCache do
 
     it 'ignores old cached URL aliases from before the identity policy changed' do
       url = 'https://publisher.test/articles/legacy-alias'
-      status = Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/objects/old', url: url)
-      Rails.cache.write(described_class.instance.to_key(:holding_status, url), status)
+      Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/objects/old', url: url)
+      # ActiveRecord status objects can contain non-marshallable Proc state in
+      # this test environment; a simple sentinel tests the legacy-key fence.
+      Rails.cache.write(described_class.instance.to_key(:holding_status, url), 'legacy mapping')
 
       expect(described_class.instance.holding_status(url)).to be_nil
     end
