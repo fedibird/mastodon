@@ -86,7 +86,7 @@ class FeaturedTags extends ImmutablePureComponent {
               const count = featuredTag.get('statuses_count');
               const temporary = !!featuredTag.get('temporary');
               const active = !!tagged && tagged.toLocaleLowerCase() === name.toLocaleLowerCase();
-              const onChooseTag = onSelectTag ? () => this.handleChooseTag(name) : undefined;
+              const onChooseTag = onSelectTag ? this.handleChooseTag.bind(this, name) : undefined;
               const countBadge = !temporary && count !== null && count !== undefined && <span title={intl.formatMessage(messages.statuses_counter, { count, counter: intl.formatNumber(count) })}>({<ShortNumber value={count} />})</span>;
 
               return (
