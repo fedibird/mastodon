@@ -7,7 +7,9 @@ import { mediaGridColumns } from 'mastodon/utils/media_display';
 // Owns layout only; the parent owns view-local controls and reveal policy.
 const MediaItemsLayout = ({ shape, size, children }) => (
   shape === 'original' ? (
-    <TimelineMasonry mode='media' mediaSize={size}>{children}</TimelineMasonry>
+    <div className='timeline-media-masonry-wrap'>
+      <TimelineMasonry mode='media' mediaSize={size}>{children}</TimelineMasonry>
+    </div>
   ) : (
     <div className='timeline-media-grid' style={{ gridTemplateColumns: mediaGridColumns(size) }}>
       {children}
