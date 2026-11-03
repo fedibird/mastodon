@@ -1,49 +1,56 @@
-// Streaming statuses are assigned to reserved rows above the old masonry.
-// A stable prefix (pinned posts or reload controls) can precede the stream.
-export const isFullWidthMasonryKey = key => key.includes('gap:') || key.includes('more:');
+// Every streaming prepend occupies a reserved row above the old masonry.
+// Its cells fill in logical end-to-start order; existing card columns remain
+// unchanged. React.Children.toArray escapes ':' as '=2' in child keys.
+export const isFullWidthMasonryKey = key => /(?:gap|more)(?::|=2)/.test(key);
 
-const emptyPlan = () => ({ rows: [], prefixKeys: [] });
+// Featured statuses and the iOS reload control precede the live timeline.
+// Keep this stable prefix above reserved rows instead of accidentally treating
+// an insertion *after* it as a change of the timeline's identity.
+export const isMasonryPrefixKey = key => /(?:\$|^)(?:f-|reload(?:$|[.:=]))/.test(key);
+
+export const leadingMasonryPrefixKeys = keys => {
+  const prefix = [];
+
+  for (const key of keys) {
+    if (!isMasonryPrefixKey(key)) {
+      break;
+    }
+    prefix.push(key);
+  }
+
+  return prefix;
+};
+
+const emptyPlan = prefixKeys => ({ rows: [], prefixKeys });
+const sameKeys = (a, b) => a.length === b.length && a.every((key, index) => key === b[index]);
 
 export const reconcileMasonryPrependRows = (columns, previousKeys, keys, previousRows, previousPrefixKeys = []) => {
+  const prefixKeys = leadingMasonryPrefixKeys(keys);
+
   if (columns < 2 || previousKeys.length === 0 || keys.length === 0) {
-    return emptyPlan();
+    return emptyPlan(prefixKeys);
   }
 
-  const currentKeys = new Set(keys);
-  const previousKeySet = new Set(previousKeys);
-  const survivingPrevious = previousKeys.filter(key => currentKeys.has(key));
-  const survivingCurrent = keys.filter(key => previousKeySet.has(key));
-
-  // The timeline changed identity or reordered old items, rather than merely
-  // receiving new statuses. Do not reuse placements from another snapshot.
-  if (survivingPrevious.length === 0 || survivingPrevious.some((key, index) => key !== survivingCurrent[index])) {
-    return emptyPlan();
+  // A pinned or reload prefix changing is not a live prepend. The new prefix
+  // starts a fresh masonry layout at the next render.
+  if (!sameKeys(previousPrefixKeys, prefixKeys)) {
+    return emptyPlan(prefixKeys);
   }
 
-  let prefixKeys = previousRows.length > 0 ? previousPrefixKeys : [];
+  const previousMainKeys = previousKeys.slice(previousPrefixKeys.length);
+  const currentMainKeys = keys.slice(prefixKeys.length);
+  const currentKeys = new Set(currentMainKeys);
+  const previousKeySet = new Set(previousMainKeys);
+  const survivingPrevious = previousMainKeys.filter(key => currentKeys.has(key));
+  const survivingCurrent = currentMainKeys.filter(key => previousKeySet.has(key));
 
-  if (prefixKeys.some((key, index) => keys[index] !== key)) {
-    return emptyPlan();
+  // Reject an identity switch or a reorder of existing cards. Older pages can
+  // append without changing streaming reservations.
+  if (survivingPrevious.length === 0 || !sameKeys(survivingPrevious, survivingCurrent)) {
+    return emptyPlan(prefixKeys);
   }
 
-  let start = prefixKeys.length;
-
-  if (previousRows.length === 0) {
-    // The first new status may follow a stable group of featured posts or an
-    // iOS reload control. Its insertion still counts as a stream prepend.
-    start = keys.findIndex(key => !previousKeySet.has(key));
-    if (start < 0 || !keys.slice(start + 1).some(key => previousKeySet.has(key))) {
-      return emptyPlan();
-    }
-
-    prefixKeys = keys.slice(0, start);
-  }
-
-  const firstOldIndex = keys.findIndex((key, index) => index >= start && previousKeySet.has(key));
-
-  if (firstOldIndex < 0) {
-    return emptyPlan();
-  }
+  const firstOldIndex = currentMainKeys.findIndex(key => previousKeySet.has(key));
 
   const rows = previousRows.map(row => {
     if (row.kind === 'full') {
@@ -56,10 +63,10 @@ export const reconcileMasonryPrependRows = (columns, previousKeys, keys, previou
     };
   }).filter(row => row && (row.kind === 'full' || row.slots.some(Boolean)));
 
-  // New keys are in newest-first DOM order. Consume oldest-first, so a row
-  // fills from the logical end column toward the logical start column.
-  for (let index = firstOldIndex - 1; index >= start; index -= 1) {
-    const key = keys[index];
+  // New keys are newest-first. The oldest newly received card enters the end
+  // column first, and the newest takes the next available column toward start.
+  for (let index = firstOldIndex - 1; index >= 0; index -= 1) {
+    const key = currentMainKeys[index];
 
     if (isFullWidthMasonryKey(key)) {
       rows.unshift({ kind: 'full', key });
@@ -79,5 +86,5 @@ export const reconcileMasonryPrependRows = (columns, previousKeys, keys, previou
     currentRow.nextColumn -= 1;
   }
 
-  return rows.length > 0 ? { rows, prefixKeys } : emptyPlan();
+  return { rows, prefixKeys };
 };
