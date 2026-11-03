@@ -149,6 +149,9 @@ export const makeMapStateToProps = () => {
   const getStatusIds = makeGetStatusIds();
   const getPendingStatusIds = makeGetStatusIds(true);
   const getLiveStatusIds = makeGetLiveStatusIds();
+  // Use a separate memoized selector for the unfiltered reconciliation set,
+  // so switching selector arguments does not reallocate Live rows each render.
+  const getReconciliationLiveIds = makeGetLiveStatusIds();
   const getImmediatePresentation = makeGetImmediatePresentation();
 
   const mapStateToProps = (state, { timelineId, dataTimelineId, includePendingItems, statusLimit, immediateViewKey, layoutScope, columnId, disableLayout }) => {
@@ -176,7 +179,7 @@ export const makeMapStateToProps = () => {
         ...layoutProps,
         immediateStatusIds,
         // Reconciliation still tracks text-only statuses hidden by the view.
-        filterStatusIds: getLiveStatusIds(state, { ...selectorProps, layoutMode: 'normal', statusLimit: undefined }),
+        filterStatusIds: getReconciliationLiveIds(state, { ...selectorProps, layoutMode: 'normal', statusLimit: undefined }),
         isLoading: state.getIn(['timelines', dataId, 'isLoading'], true),
         isPartial: state.getIn(['timelines', dataId, 'isPartial'], false),
         hasMore: state.getIn(['timelines', dataId, 'hasMore']),

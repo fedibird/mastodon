@@ -101,6 +101,9 @@ describe('split timeline layout selection', () => {
     expect(live.statusIds.toArray()).toEqual(['20', '3', '2']);
     expect(live.filterStatusIds.size).toBe(65);
     expect(history.statusIds.size).toBe(65);
+
+    // The reconciliation selector must not evict the memoized Live result.
+    expect(select(state, liveProps).statusIds).toBe(live.statusIds);
   });
 
   it('does not change the conventional 40-post Live cap in normal mode', () => {
