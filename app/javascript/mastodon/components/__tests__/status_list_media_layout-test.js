@@ -19,7 +19,7 @@ jest.mock('../reload_zone', () => () => null);
 
 jest.mock('../scrollable_list', () => {
   const ReactMock = require('react');
-  return ({ children }) => ReactMock.createElement('div', { 'data-testid': 'media-list' }, children);
+  return ReactMock.forwardRef(({ children }, ref) => ReactMock.createElement('div', { 'data-testid': 'media-list', ref }, children));
 });
 
 jest.mock('../../containers/status_container', () => {
