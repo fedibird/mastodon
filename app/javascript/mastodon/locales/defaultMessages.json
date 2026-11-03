@@ -731,14 +731,6 @@
       {
         "defaultMessage": "Profile unavailable",
         "id": "empty_column.account_unavailable"
-      },
-      {
-        "id": "account.media_tag_placeholder",
-        "defaultMessage": "Filter by hashtag"
-      },
-      {
-        "id": "account.media_tag_apply",
-        "defaultMessage": "Filter"
       }
     ],
     "path": "app/javascript/mastodon/features/account_gallery/index.json"
@@ -3493,6 +3485,19 @@
       {
         "id": "lightbox.image_unavailable",
         "defaultMessage": "Could not load image"
+      }
+    ]
+  },
+  {
+    "path": "app/javascript/mastodon/features/account/components/hashtag_filter.json",
+    "descriptors": [
+      {
+        "id": "account.media_tag_placeholder",
+        "defaultMessage": "Filter by hashtag"
+      },
+      {
+        "id": "account.media_tag_apply",
+        "defaultMessage": "Filter"
       }
     ]
   }
