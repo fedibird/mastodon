@@ -314,6 +314,37 @@ LoadingGallery.propTypes = {
   quote: PropTypes.bool,
 };
 
+// Bundle invokes its loading prop as a component. Keep that callback stable
+// instead of closing over media inside StatusMediaStack.renderGalleryNode.
+class GalleryBundle extends React.PureComponent {
+
+  static propTypes = {
+    media: ImmutablePropTypes.list.isRequired,
+    cropOverride: PropTypes.bool,
+    standalone: PropTypes.bool,
+    quote: PropTypes.bool,
+    children: PropTypes.func.isRequired,
+  };
+
+  renderLoading = () => (
+    <LoadingGallery
+      media={this.props.media}
+      cropOverride={this.props.cropOverride}
+      standalone={this.props.standalone}
+      quote={this.props.quote}
+    />
+  );
+
+  render () {
+    return (
+      <Bundle fetchComponent={MediaGallery} loading={this.renderLoading}>
+        {this.props.children}
+      </Bundle>
+    );
+  }
+
+}
+
 const LoadingVideo = () => <div className='video-player' style={{ height: '110px' }} />;
 
 const LoadingAudio = () => <div className='audio-player' style={{ height: '110px' }} />;
@@ -597,23 +628,16 @@ export default class StatusMediaStack extends React.PureComponent {
       return this.renderGallery(key, media, this.props.Gallery);
     }
 
-    const loadingGallery = () => (
-      <LoadingGallery
+    return (
+      <GalleryBundle
+        key={key}
         media={media}
         cropOverride={this.props.cropImages}
         standalone={this.props.standalone}
         quote={this.props.quote}
-      />
-    );
-
-    return (
-      <Bundle
-        key={key}
-        fetchComponent={MediaGallery}
-        loading={loadingGallery}
       >
         {Gallery => this.renderGallery(key, media, Gallery)}
-      </Bundle>
+      </GalleryBundle>
     );
   }
 
