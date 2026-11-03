@@ -642,6 +642,10 @@
       {
         "id": "timeline.media.open_post",
         "defaultMessage": "Open original post"
+      },
+      {
+        "id": "timeline.card.media_count",
+        "defaultMessage": "{count} media attachments"
       }
     ],
     "path": "app/javascript/mastodon/components/status.json"
