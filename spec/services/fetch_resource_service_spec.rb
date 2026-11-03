@@ -100,6 +100,26 @@ RSpec.describe FetchResourceService, type: :service do
         it { is_expected.to eq ['http://example.com/foo', { prefetched_body: json }] }
       end
 
+      context 'when a different-origin HTML page advertises its AP alternate' do
+        let(:url) { 'https://publisher.test/articles/42' }
+        let(:ap_url) { 'https://aggregator.test/objects/42' }
+        let(:content_type) { 'text/html' }
+        let(:body) { "<html><head><link rel=\"alternate\" href=\"#{ap_url}\" type=\"application/activity+json\"/></head></html>" }
+        let(:json) do
+          {
+            id: ap_url,
+            '@context': ActivityPub::TagManager::CONTEXT,
+            type: 'Note',
+          }.to_json
+        end
+
+        before do
+          stub_request(:get, ap_url).to_return(status: 200, body: json, headers: { 'Content-Type' => 'application/activity+json' })
+        end
+
+        it { is_expected.to eq [ap_url, { prefetched_body: json }] }
+      end
+
       context 'when content type is text/html' do
         let(:content_type) { 'text/html' }
         let(:body) { '<html><head><link rel="alternate" href="http://example.com/foo" type="application/activity+json"/></head></html>' }
