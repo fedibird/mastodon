@@ -1,3 +1,8 @@
+# frozen_string_literal: true
+
+# rubocop:disable Metrics/BlockLength
+# RSpec examples are intentionally grouped by the subject under test.
+
 require 'rails_helper'
 
 RSpec.describe EntityCache do
@@ -101,3 +106,5 @@ RSpec.describe EntityCache do
     end
   end
 end
+
+# rubocop:enable Metrics/BlockLength
