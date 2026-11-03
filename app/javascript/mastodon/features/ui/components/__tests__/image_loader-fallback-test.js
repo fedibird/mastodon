@@ -26,6 +26,7 @@ const renderImage = props => render(
 );
 
 class MockPreloadImage {
+
   listeners = {};
 
   addEventListener (type, handler) {
@@ -37,11 +38,12 @@ class MockPreloadImage {
   }
 
   set src (value) {
-    Promise.resolve().then(() => {
+    setTimeout(() => {
       const handler = this.listeners[value.includes('missing') ? 'error' : 'load'];
       if (handler) handler();
-    });
+    }, 0);
   }
+
 }
 
 describe('image lightbox failure and ALT fallback', () => {
