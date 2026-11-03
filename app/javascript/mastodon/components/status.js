@@ -808,7 +808,12 @@ class Status extends ImmutablePureComponent {
         </div>
       );
     } else if (booster && !hideRebloggedBy) {
-      const nameHtml = { __html: booster.get('display_name_html') || booster.get('display_name') || booster.get('username') };
+      // Only the server-sanitized HTML field is safe for custom emoji markup;
+      // the plain display-name fallback must remain escaped React text.
+      const boosterNameHtml = booster.get('display_name_html');
+      const boosterName = boosterNameHtml
+        ? <strong dangerouslySetInnerHTML={{ __html: boosterNameHtml }} />
+        : <strong>{booster.get('display_name') || booster.get('username') || booster.get('acct')}</strong>;
       const name = (
         <a
           href={booster.get('url')}
@@ -817,7 +822,7 @@ class Status extends ImmutablePureComponent {
           className='timeline-card__context-account status__display-name'
           onClick={this.handleAccountClick}
         >
-          <bdi><strong dangerouslySetInnerHTML={nameHtml} /></bdi>
+          <bdi>{boosterName}</bdi>
         </a>
       );
       cardContext = (
@@ -828,9 +833,13 @@ class Status extends ImmutablePureComponent {
       );
     }
 
+    const boosterDescription = booster && !hideRebloggedBy
+      ? intl.formatMessage({ id: 'status.reblogged_by', defaultMessage: '{name} boosted' }, { name: booster.get('acct') })
+      : false;
+
     return (
       <HotKeys handlers={{ open: this.handleHotkeyOpen, favourite: this.handleHotkeyFavourite, moveUp: this.handleHotkeyMoveUp, moveDown: this.handleHotkeyMoveDown }}>
-        <div className='status__wrapper status__wrapper--compact focusable' tabIndex='0' data-id={status.get('id')} aria-label={textForScreenReader(intl, status)} ref={this.handleRef} onClick={this.handleTimelineCardClick}>
+        <div className='status__wrapper status__wrapper--compact focusable' tabIndex='0' data-id={status.get('id')} aria-label={textForScreenReader(intl, status, boosterDescription)} ref={this.handleRef} onClick={this.handleTimelineCardClick}>
           <div className='timeline-card'>
             {firstMedia && <div className='timeline-card__media'>{firstMedia}</div>}
             <div className='timeline-card__body'>
