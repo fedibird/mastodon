@@ -3,13 +3,16 @@ import { connect } from 'react-redux';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import { fetchAccount } from 'mastodon/actions/accounts';
-import { expandAccountMediaTimeline } from '../../actions/timelines';
+import { accountMediaTimelineId, expandAccountMediaTimeline } from '../../actions/timelines';
+import { fetchFeaturedTags } from '../../actions/featured_tags';
 import LoadingIndicator from 'mastodon/components/loading_indicator';
 import Column from '../../components/column';
 import ColumnHeader from '../../components/column_header';
 import ColumnSettingsContainer from '../account_timeline/containers/column_settings_container';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { getAccountGallery } from 'mastodon/selectors';
+import { accountGalleryAttachments } from 'mastodon/selectors';
+import FeaturedTags from 'mastodon/features/account/components/featured_tags';
+import { List as ImmutableList } from 'immutable';
 import MediaItem from './components/media_item';
 import MediaDisplayControls from 'mastodon/components/media_display_controls';
 import MediaItemsLayout from 'mastodon/components/media_items_layout';
@@ -26,6 +29,8 @@ import { changeSetting } from '../../actions/settings';
 
 const messages = defineMessages({
   title: { id: 'column.account', defaultMessage: 'Account' },
+  filterTagPlaceholder: { id: 'account.media_tag_placeholder', defaultMessage: 'Filter by hashtag' },
+  filterTagApply: { id: 'account.media_tag_apply', defaultMessage: 'Filter' },
 });
 
 const mapStateToProps = (state, { params: { accountId } }) => {
@@ -37,9 +42,9 @@ const mapStateToProps = (state, { params: { accountId } }) => {
 
   return {
     isAccount: !!state.getIn(['accounts', accountId]),
-    attachments: getAccountGallery(state, accountId),
-    isLoading: state.getIn(['timelines', `account:${accountId}:media`, 'isLoading']),
-    hasMore: state.getIn(['timelines', `account:${accountId}:media`, 'hasMore']),
+    account: state.getIn(['accounts', accountId]),
+    mediaTimelines: state.get('timelines'),
+    mediaStatuses: state.get('statuses'),
     suspended: state.getIn(['accounts', accountId, 'suspended'], false),
     blockedBy: state.getIn(['relationships', accountId, 'blocked_by'], false),
     advancedMode: state.getIn(['settings', 'account', 'other', 'advancedMode'], new_features_policy === 'conservative' ? false : true),
@@ -80,9 +85,9 @@ class AccountGallery extends ImmutablePureComponent {
   static propTypes = {
     params: PropTypes.object.isRequired,
     dispatch: PropTypes.func.isRequired,
-    attachments: ImmutablePropTypes.list.isRequired,
-    isLoading: PropTypes.bool,
-    hasMore: PropTypes.bool,
+    account: ImmutablePropTypes.map,
+    mediaTimelines: ImmutablePropTypes.map.isRequired,
+    mediaStatuses: ImmutablePropTypes.map.isRequired,
     isAccount: PropTypes.bool,
     advancedMode: PropTypes.bool,
     hideRelation: PropTypes.bool,
@@ -96,7 +101,29 @@ class AccountGallery extends ImmutablePureComponent {
     mediaShape: 'square',
     mediaSize: 'small',
     mediaVisibility: defaultMediaVisibility(),
+    tagged: null,
+    tagInput: '',
   };
+
+  handleTagInput = event => {
+    this.setState({ tagInput: event.target.value });
+  }
+
+  handleChooseTag = selected => {
+    const tagged = selected ? selected.replace(/^#/, '').trim().normalize('NFKC') : null;
+    const accountId = this.props.params.accountId;
+    if (tagged === this.state.tagged) {
+      return;
+    }
+
+    this.setState({ tagged, tagInput: tagged || '' });
+    this.props.dispatch(expandAccountMediaTimeline(accountId, { tagged }));
+  }
+
+  handleSubmitTag = event => {
+    event.preventDefault();
+    this.handleChooseTag(this.state.tagInput);
+  }
 
   handleMediaShapeChange = mediaShape => {
     this.setState({ mediaShape });
@@ -114,18 +141,23 @@ class AccountGallery extends ImmutablePureComponent {
   componentDidMount () {
     this.props.dispatch(fetchAccount(this.props.params.accountId));
     this.props.dispatch(expandAccountMediaTimeline(this.props.params.accountId));
+    this.props.dispatch(fetchFeaturedTags(this.props.params.accountId));
   }
 
   componentWillReceiveProps (nextProps) {
     if (nextProps.params.accountId !== this.props.params.accountId && nextProps.params.accountId) {
+      this.setState({ tagged: null, tagInput: '' });
       this.props.dispatch(fetchAccount(nextProps.params.accountId));
+      this.props.dispatch(fetchFeaturedTags(nextProps.params.accountId));
       this.props.dispatch(expandAccountMediaTimeline(nextProps.params.accountId));
     }
   }
 
   handleScrollToBottom = () => {
-    if (this.props.hasMore) {
-      this.handleLoadMore(this.props.attachments.size > 0 ? this.props.attachments.last().getIn(['status', 'id']) : undefined);
+    const id = accountMediaTimelineId(this.props.params.accountId, this.state.tagged);
+    if (this.props.mediaTimelines.getIn([id, 'hasMore'])) {
+      const ids = this.props.mediaTimelines.getIn([id, 'items'], ImmutableList());
+      this.handleLoadMore(ids.last());
     }
   }
 
@@ -133,13 +165,14 @@ class AccountGallery extends ImmutablePureComponent {
     const { scrollTop, scrollHeight, clientHeight } = e.target;
     const offset = scrollHeight - scrollTop - clientHeight;
 
-    if (150 > offset && !this.props.isLoading) {
+    const activeId = accountMediaTimelineId(this.props.params.accountId, this.state.tagged);
+    if (150 > offset && !this.props.mediaTimelines.getIn([activeId, 'isLoading'])) {
       this.handleScrollToBottom();
     }
   }
 
   handleLoadMore = maxId => {
-    this.props.dispatch(expandAccountMediaTimeline(this.props.params.accountId, { maxId }));
+    this.props.dispatch(expandAccountMediaTimeline(this.props.params.accountId, { maxId, tagged: this.state.tagged }));
   };
 
   handleLoadOlder = e => {
@@ -192,8 +225,13 @@ class AccountGallery extends ImmutablePureComponent {
   }
 
   render () {
-    const { attachments, isLoading, hasMore, isAccount, multiColumn, blockedBy, suspended, hideRelation, columnWidth, intl } = this.props;
-    const { mediaShape, mediaSize, mediaVisibility } = this.state;
+    const { mediaTimelines, mediaStatuses, account, isAccount, multiColumn, blockedBy, suspended, hideRelation, columnWidth, intl } = this.props;
+    const { mediaShape, mediaSize, mediaVisibility, tagged, tagInput } = this.state;
+    const timelineId = accountMediaTimelineId(this.props.params.accountId, tagged);
+    const statusIds = mediaTimelines.getIn([timelineId, 'items'], ImmutableList());
+    const attachments = accountGalleryAttachments(statusIds, mediaStatuses, account);
+    const isLoading = !!mediaTimelines.getIn([timelineId, 'isLoading']);
+    const hasMore = !!mediaTimelines.getIn([timelineId, 'hasMore']);
 
     if (!isAccount) {
       return (
@@ -240,18 +278,25 @@ class AccountGallery extends ImmutablePureComponent {
           <ColumnSettingsContainer />
         </ColumnHeader>
 
-        <ScrollContainer scrollKey='account_gallery'>
+        <ScrollContainer scrollKey={`account_gallery:${this.props.params.accountId}:${tagged || 'all'}`}>
           <div className='scrollable scrollable--flex' onScroll={this.handleScroll}>
             <HeaderContainer accountId={this.props.params.accountId} hideProfile hideRelation={hideRelation} hideFeaturedTags />
 
-            <MediaDisplayControls
-              shape={mediaShape}
-              size={mediaSize}
-              visibility={mediaVisibility}
-              onShapeChange={this.handleMediaShapeChange}
-              onSizeChange={this.handleMediaSizeChange}
-              onVisibilityChange={this.handleMediaVisibilityChange}
-            />
+            <div className='account-gallery__filters'>
+              <FeaturedTags account={account} tagged={tagged} onSelectTag={this.handleChooseTag} />
+              <form className='account-gallery__tag-search' onSubmit={this.handleSubmitTag}>
+                <input type='text' value={tagInput} onChange={this.handleTagInput} placeholder={intl.formatMessage(messages.filterTagPlaceholder)} aria-label={intl.formatMessage(messages.filterTagPlaceholder)} />
+                <button type='submit'>{intl.formatMessage(messages.filterTagApply)}</button>
+              </form>
+              <MediaDisplayControls
+                shape={mediaShape}
+                size={mediaSize}
+                visibility={mediaVisibility}
+                onShapeChange={this.handleMediaShapeChange}
+                onSizeChange={this.handleMediaSizeChange}
+                onVisibilityChange={this.handleMediaVisibilityChange}
+              />
+            </div>
 
             {(suspended || blockedBy) ? (
               <div className='empty-column-indicator'>
