@@ -29,18 +29,14 @@ class MediaItem extends ImmutablePureComponent {
   };
 
   state = {
-    revealed: false,
-    policy: this.props.visibility,
-    attachmentId: this.props.attachment.get('id'),
+    revealedFor: null,
   };
 
-  static getDerivedStateFromProps(nextProps, prevState) {
-    const id = nextProps.attachment.get('id');
-    if (id !== prevState.attachmentId || nextProps.visibility !== prevState.policy) {
-      return { attachmentId: id, policy: nextProps.visibility, revealed: false };
-    }
-
-    return null;
+  // Scope a one-time reveal to this attachment AND the active policy.
+  // Avoid retaining an image reveal when switching between media modes.
+  revealKey = () => {
+    const { attachment, visibility } = this.props;
+    return `${attachment.getIn(['status', 'id'])}:${attachment.get('id')}:${visibility || defaultMediaVisibility()}`;
   }
 
   handleMouseEnter = e => {
@@ -68,7 +64,7 @@ class MediaItem extends ImmutablePureComponent {
     e.preventDefault();
 
     if (this.isConcealed()) {
-      this.setState({ revealed: true });
+      this.setState({ revealedFor: this.revealKey() });
     } else {
       this.props.onOpenMedia(this.props.attachment);
     }
@@ -78,7 +74,7 @@ class MediaItem extends ImmutablePureComponent {
     const status = this.props.attachment.get('status');
     const policy = this.props.visibility || defaultMediaVisibility();
     const sensitive = status && status.get('sensitive');
-    return mediaIsConcealed(policy, sensitive, this.state.revealed);
+    return mediaIsConcealed(policy, sensitive, this.state.revealedFor === this.revealKey());
   }
 
   render () {

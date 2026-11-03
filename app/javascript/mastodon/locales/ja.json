@@ -1281,6 +1281,6 @@
   "lightbox.loading_next": "画像を追加読み込み中…",
   "lightbox.loading_failed": "画像を読み込めませんでした。次へを押すと再試行します。",
   "lightbox.image_unavailable": "取得できませんでした",
-  "account.hide_hashtag_input": "Hide hashtag input",
-  "account.column_settings.hide_hashtag_input": "Hide hashtag input"
+  "account.hide_hashtag_input": "ハッシュタグ入力欄を閉じる",
+  "account.column_settings.hide_hashtag_input": "ハッシュタグ入力欄を隠す"
 }
