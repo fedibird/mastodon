@@ -27,7 +27,9 @@ export default class TimelineMasonry extends React.PureComponent {
   prependRows = [];
   prefixKeys = [];
 
-  setRoot = node => { this.root = node; }
+  setRoot = node => {
+    this.root = node;
+  }
 
   componentDidMount () {
     if (window.ResizeObserver) {
@@ -125,9 +127,12 @@ export default class TimelineMasonry extends React.PureComponent {
     const children = React.Children.toArray(this.props.children);
     const width = this.state.width;
     const availableWidth = Math.max(1, width || 320);
-    const columns = width ? (this.props.mode === 'media'
-      ? mediaColumnsForWidth(this.props.mediaSize, width)
-      : timelineCardColumnsForWidth(this.props.mode, width)) : 1;
+    let columns = 1;
+    if (width) {
+      columns = this.props.mode === 'media'
+        ? mediaColumnsForWidth(this.props.mediaSize, width)
+        : timelineCardColumnsForWidth(this.props.mode, width);
+    }
     const variant = this.props.mode + ':' + (this.props.mediaSize || '');
 
     // Resize, mode and size changes are explicit re-layouts. A streaming
