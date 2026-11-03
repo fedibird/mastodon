@@ -87,7 +87,7 @@ RSpec.describe 'External feed routing on home and list REST' do
     it 'does not leak text-only external projections into media-only pages' do
       expect(home_rows(only_media: true).map { |row| row[:id] }).not_to include(bundle[:status].id.to_s)
 
-      Fabricate(:media_attachment, account: owner.account, status: bundle[:status])
+      attach_remote_test_image(bundle[:status])
 
       expect(home_rows(only_media: true).map { |row| row[:id] }).to include(bundle[:status].id.to_s)
 
