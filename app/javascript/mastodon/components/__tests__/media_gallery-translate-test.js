@@ -112,3 +112,27 @@ describe('MediaGallery translated descriptions', () => {
     expect(container.querySelector('img').getAttribute('lang')).toBe('en');
   });
 });
+
+describe('independent card gallery image cropping', () => {
+  const portrait = attachment(undefined).setIn(['meta', 'small', 'aspect'], 0.5);
+
+  it('keeps ordinary timeline galleries on the existing crop setting by default', () => {
+    const { container } = renderGallery(portrait);
+    expect(container.querySelector('.media-gallery').style.height).toBe('168.75px');
+  });
+
+  it('uses original aspect ratio for cards with cropping disabled, without changing standard posts', () => {
+    const { container, rerender } = renderGallery(portrait, { cropImages: false });
+    expect(container.querySelector('.media-gallery').style.height).toBe('600px');
+
+    rerender(
+      <MediaGallery media={fromJS([portrait])} height={110} visible defaultWidth={300} onOpenMedia={jest.fn()} cropImages />,
+    );
+    expect(container.querySelector('.media-gallery').style.height).toBe('168.75px');
+  });
+
+  it('keeps standalone post-detail images uncropped even with card cropping enabled', () => {
+    const { container } = renderGallery(portrait, { standalone: true, cropImages: true });
+    expect(container.querySelector('.media-gallery').style.height).toBe('600px');
+  });
+});
