@@ -23,7 +23,7 @@ import Icon from 'mastodon/components/icon';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
 import FilterReason from './filter_reason';
-import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
+import { displayMedia, cropCardImages, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
@@ -604,6 +604,7 @@ class Status extends ImmutablePureComponent {
         deployPictureInPicture={options.deployPictureInPicture}
         quote={options.quote}
         posterFallback={options.posterFallback}
+        cropImages={options.cropImages}
         lang={translation.lang}
         translationMode={translation.translationMode}
         sourceLang={translation.sourceLang}
@@ -742,6 +743,9 @@ class Status extends ImmutablePureComponent {
     const hasSpoiler = !!status.get('spoiler_text');
     const contentVisible = !hasSpoiler || !status.get('hidden');
     const media = status.get('media_attachments', ImmutableList());
+    // A reaction row has no content when every count is zero. Fold its picker
+    // into the author actions until at least one reaction is visible.
+    const hasVisibleEmojiReactions = status.get('emoji_reactions', ImmutableList()).some(reaction => reaction.get('count', 0) > 0);
     const firstMedia = contentVisible && media && media.size > 0
       ? this.renderAttachmentMedia(status.set('media_attachments', media.take(1)), {
         sensitive: status.get('sensitive'),
@@ -754,6 +758,7 @@ class Status extends ImmutablePureComponent {
         onOpenVideo: this.handleOpenVideo,
         translationView: statusTranslationView(status),
         posterFallback: status.getIn(['account', 'avatar_static']),
+        cropImages: cropCardImages,
       })
       : null;
 
@@ -863,9 +868,12 @@ class Status extends ImmutablePureComponent {
                 </a>
               )}
               {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
-              <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='favourite' expired={expired} onFavourite={this.props.onFavourite} />
+              <div className='timeline-card__author-actions'>
+                <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='favourite' expired={expired} onFavourite={this.props.onFavourite} />
+                {enableReaction && !hasVisibleEmojiReactions && <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />}
+              </div>
             </div>
-            {enableReaction && <div className='timeline-card__reactions'>
+            {enableReaction && hasVisibleEmojiReactions && <div className='timeline-card__reactions'>
               <EmojiReactionsBar status={status} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} reactionLimitReached={reactionLimitReached} />
               <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />
             </div>}
