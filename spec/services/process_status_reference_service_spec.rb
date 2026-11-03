@@ -10,7 +10,7 @@ RSpec.describe ProcessStatusReferenceService do
       Fabricate(:status, account: aggregator, uri: 'https://aggregator.test/objects/reference-only', url: url)
       source = Fabricate(:status, account: Fabricate(:account), text: "Read this: #{url}")
 
-      publisher_node = instance_double(Node, domain: 'publisher.test')
+      publisher_node = double('node', domain: 'publisher.test')
       allow(Node).to receive(:resolve_domain).with('publisher.test').and_return(publisher_node)
       allow(StatusReferenceResolveWorker).to receive(:push_bulk)
       service = described_class.new
