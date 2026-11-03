@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -300,5 +300,43 @@ describe('compact timeline card context', () => {
   it('does not add attribution to ordinary, non-pinned cards', () => {
     const { container } = renderTimeline(properStatus, { layoutMode: 'card-3' });
     expect(container.querySelector('.timeline-card__context')).toBeNull();
+  });
+});
+
+describe('temporary media tile reveal', () => {
+  it('adds an individually revealed sensitive tile to the cross-post viewer without opening it on first click', () => {
+    const onMediaTileReveal = jest.fn();
+    const onOpenMedia = jest.fn();
+    const sensitive = properStatus.set('sensitive', true);
+    const sequence = {
+      media: fromJS([attachment]),
+      statusIds: fromJS(['proper']),
+      positions: { 'proper:0': 0 },
+    };
+    const { container } = renderTimeline(sensitive, {
+      layoutMode: 'media',
+      mediaIndex: 0,
+      mediaRowKey: 'proper:0',
+      mediaVisibility: 'hide_sensitive',
+      mediaTimeline: sequence,
+      onMediaTileReveal,
+      onOpenMedia,
+    });
+    const tile = container.querySelector('.timeline-media-tile__open');
+
+    expect(tile).not.toBeNull();
+    fireEvent.click(tile);
+    expect(onMediaTileReveal).toHaveBeenCalledWith('proper:0');
+    expect(onOpenMedia).not.toHaveBeenCalled();
+
+    fireEvent.click(tile);
+    expect(onOpenMedia).toHaveBeenCalledWith(
+      'proper',
+      sequence.media,
+      0,
+      expect.anything(),
+      sequence.statusIds,
+      undefined,
+    );
   });
 });
