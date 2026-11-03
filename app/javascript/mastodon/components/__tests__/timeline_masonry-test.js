@@ -111,4 +111,23 @@ describe('TimelineMasonry streaming insertion', () => {
     expect(container.querySelectorAll('.timeline-masonry__placeholder')).toHaveLength(0);
     expect(position(container, 'C').x).toBe(0);
   });
+  it('keeps pinned posts above streaming rows and preserves the older cards', () => {
+    const pinned = 'f-Pinned';
+    const { container, rerender } = render(cards([pinned, 'A', 'B', 'C']));
+    const original = {
+      pinned: position(container, pinned),
+      A: position(container, 'A'),
+      B: position(container, 'B'),
+      C: position(container, 'C'),
+    };
+
+    rerender(cards([pinned, 'D', 'A', 'B', 'C']));
+    expect(position(container, pinned)).toEqual(original.pinned);
+    expect(position(container, 'D')).toEqual({ x: original.C.x, y: 108 });
+    ['A', 'B', 'C'].forEach(id => {
+      expect(position(container, id).x).toBe(original[id].x);
+      expect(position(container, id).y - original[id].y).toBe(188);
+    });
+  });
+
 });
