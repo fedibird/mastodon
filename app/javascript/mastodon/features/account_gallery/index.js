@@ -11,6 +11,9 @@ import ColumnSettingsContainer from '../account_timeline/containers/column_setti
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { getAccountGallery } from 'mastodon/selectors';
 import MediaItem from './components/media_item';
+import MediaDisplayControls from 'mastodon/components/media_display_controls';
+import MediaItemsLayout from 'mastodon/components/media_items_layout';
+import { defaultMediaVisibility } from 'mastodon/utils/media_display';
 import HeaderContainer from '../account_timeline/containers/header_container';
 import ScrollContainer from 'mastodon/containers/scroll_container';
 import LoadMore from 'mastodon/components/load_more';
@@ -49,6 +52,7 @@ class LoadMoreMedia extends ImmutablePureComponent {
   static propTypes = {
     maxId: PropTypes.string,
     onLoadMore: PropTypes.func.isRequired,
+    disabled: PropTypes.bool,
   };
 
   handleLoadMore = () => {
@@ -57,10 +61,12 @@ class LoadMoreMedia extends ImmutablePureComponent {
 
   render () {
     return (
-      <LoadMore
-        disabled={this.props.disabled}
-        onClick={this.handleLoadMore}
-      />
+      <div className='media-layout__more'>
+        <LoadMore
+          disabled={this.props.disabled}
+          onClick={this.handleLoadMore}
+        />
+      </div>
     );
   }
 
@@ -86,8 +92,23 @@ class AccountGallery extends ImmutablePureComponent {
   };
 
   state = {
-    width: 323,
+    mediaShape: 'square',
+    mediaSize: 'small',
+    mediaVisibility: defaultMediaVisibility(),
   };
+
+  handleMediaShapeChange = mediaShape => {
+    this.setState({ mediaShape });
+  }
+
+  handleMediaSizeChange = mediaSize => {
+    this.setState({ mediaSize });
+  }
+
+  handleMediaVisibilityChange = mediaVisibility => {
+    // Temporary override in this account media view. No settings write.
+    this.setState({ mediaVisibility });
+  }
 
   componentDidMount () {
     this.props.dispatch(fetchAccount(this.props.params.accountId));
@@ -97,7 +118,7 @@ class AccountGallery extends ImmutablePureComponent {
   componentWillReceiveProps (nextProps) {
     if (nextProps.params.accountId !== this.props.params.accountId && nextProps.params.accountId) {
       this.props.dispatch(fetchAccount(nextProps.params.accountId));
-      this.props.dispatch(expandAccountMediaTimeline(this.props.params.accountId));
+      this.props.dispatch(expandAccountMediaTimeline(nextProps.params.accountId));
     }
   }
 
@@ -141,12 +162,6 @@ class AccountGallery extends ImmutablePureComponent {
     }
   }
 
-  handleRef = c => {
-    if (c) {
-      this.setState({ width: c.offsetWidth });
-    }
-  }
-
   handleHeaderClick = () => {
     this.column.scrollTop();
   }
@@ -161,7 +176,7 @@ class AccountGallery extends ImmutablePureComponent {
 
   render () {
     const { attachments, isLoading, hasMore, isAccount, multiColumn, blockedBy, suspended, hideRelation, columnWidth, intl } = this.props;
-    const { width } = this.state;
+    const { mediaShape, mediaSize, mediaVisibility } = this.state;
 
     if (!isAccount) {
       return (
@@ -212,19 +227,30 @@ class AccountGallery extends ImmutablePureComponent {
           <div className='scrollable scrollable--flex' onScroll={this.handleScroll}>
             <HeaderContainer accountId={this.props.params.accountId} hideProfile hideRelation={hideRelation} hideFeaturedTags />
 
+            <MediaDisplayControls
+              shape={mediaShape}
+              size={mediaSize}
+              visibility={mediaVisibility}
+              onShapeChange={this.handleMediaShapeChange}
+              onSizeChange={this.handleMediaSizeChange}
+              onVisibilityChange={this.handleMediaVisibilityChange}
+            />
+
             {(suspended || blockedBy) ? (
               <div className='empty-column-indicator'>
                 {emptyMessage}
               </div>
             ) : (
-              <div role='feed' className='account-gallery__container' ref={this.handleRef}>
-                {attachments.map((attachment, index) => attachment === null ? (
-                  <LoadMoreMedia key={'more:' + attachments.getIn(index + 1, 'id')} maxId={index > 0 ? attachments.getIn(index - 1, 'id') : null} onLoadMore={this.handleLoadMore} />
-                ) : (
-                  <MediaItem key={attachment.get('id')} attachment={attachment} displayWidth={width} onOpenMedia={this.handleOpenMedia} />
-                ))}
+              <div role='feed' className='account-gallery__container account-gallery__container--media'>
+                <MediaItemsLayout shape={mediaShape} size={mediaSize}>
+                  {attachments.map((attachment, index) => attachment === null ? (
+                    <LoadMoreMedia key={'more:' + attachments.getIn(index + 1, 'id')} maxId={index > 0 ? attachments.getIn(index - 1, 'id') : null} onLoadMore={this.handleLoadMore} />
+                  ) : (
+                    <MediaItem key={attachment.get('id')} attachment={attachment} shape={mediaShape} visibility={mediaVisibility} onOpenMedia={this.handleOpenMedia} />
+                  ))}
 
-                {loadOlder}
+                  {loadOlder && <div key='more:older' className='media-layout__more'>{loadOlder}</div>}
+                </MediaItemsLayout>
               </div>
             )}
 
