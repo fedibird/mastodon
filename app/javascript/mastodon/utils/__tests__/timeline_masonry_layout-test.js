@@ -104,4 +104,13 @@ describe('streaming masonry prepend rows', () => {
     expect(changed).toEqual({ rows: [], prefixKeys: ['.$f-two'] });
   });
 
+  it('starts with the end column when only a fixed prefix existed', () => {
+    const before = ['.$f-pinned'];
+    const initial = reconcileMasonryPrependRows(3, [], before, []);
+    const next = reconcileMasonryPrependRows(3, before, ['.$f-pinned', '.$first'], initial.rows, initial.prefixKeys);
+    expect(next.rows).toEqual([
+      { kind: 'slots', slots: [null, null, '.$first'], nextColumn: 1 },
+    ]);
+  });
+
 });
