@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { render } from '@testing-library/react';
+import { fireEvent, render, waitFor } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -13,7 +13,8 @@ jest.mock('mastodon/initial_state', () => ({
   useBlurhash: false,
   useLowResolutionThumbnails: false,
   maxAttachments: 4,
-  enableReaction: false,
+  enableReaction: true,
+  cropCardImages: false,
   compactReaction: false,
   show_reply_tree_button: false,
   enableStatusReference: false,
@@ -70,7 +71,10 @@ jest.mock('react-hotkeys', () => ({
 }));
 
 jest.mock('../account_action_bar', () => () => null);
-jest.mock('../status_action_bar', () => () => null);
+jest.mock('../status_action_bar', () => {
+  const ReactMock = require('react');
+  return ({ compactCardMode }) => compactCardMode ? ReactMock.createElement('span', { 'data-compact-card-mode': compactCardMode }) : null;
+});
 jest.mock('../avatar', () => () => null);
 jest.mock('../avatar_overlay', () => () => null);
 jest.mock('../avatar_composite', () => () => null);
@@ -79,7 +83,10 @@ jest.mock('../absolute_timestamp', () => () => <span>time</span>);
 jest.mock('../relative_timestamp', () => () => <span>time</span>);
 jest.mock('../icon', () => () => null);
 jest.mock('mastodon/components/icon', () => () => null);
-jest.mock('mastodon/components/emoji_reactions_bar', () => () => null);
+jest.mock('mastodon/components/emoji_reactions_bar', () => {
+  const ReactMock = require('react');
+  return () => ReactMock.createElement('span', { 'data-testid': 'emoji-reaction-bar' });
+});
 jest.mock('mastodon/components/picture_in_picture_placeholder', () => () => null);
 jest.mock('mastodon/components/edited_timestamp', () => () => null);
 jest.mock('mastodon/components/animated_number', () => () => null);
@@ -210,9 +217,10 @@ const renderDetailed = (status) => render(
   </Provider>,
 );
 
-const renderTimeline = (status) => render(
+const renderTimeline = (status, options = {}) => render(
   <Provider store={store}>
     <Status
+      {...options}
       status={status}
       pictureInPicture={pictureInPicture}
       addEmojiReaction={jest.fn()}
@@ -272,5 +280,167 @@ describe('personal boost translated media', () => {
 
     expect(image.getAttribute('alt')).toBe('ねこ');
     expect(container.innerHTML).toContain('data-shortcode="blob"');
+  });
+});
+
+describe('compact timeline card context', () => {
+  it('displays the booster attribution immediately above the card author row', () => {
+    const { container } = renderTimeline(personalBoost('original'), { layoutMode: 'card-2' });
+    const context = container.querySelector('.timeline-card__context');
+    const author = container.querySelector('.timeline-card__author');
+
+    expect(context).not.toBeNull();
+    expect(context.textContent).toContain('boosted');
+    expect(author).not.toBeNull();
+    expect(context.nextElementSibling).toBe(author);
+  });
+
+  it('displays the pinned context instead of boost attribution for featured cards', () => {
+    const { container } = renderTimeline(personalBoost('original'), { layoutMode: 'card-1', featured: true });
+    const context = container.querySelector('.timeline-card__context');
+
+    expect(context).not.toBeNull();
+    expect(context.textContent).toContain('Pinned toot');
+    expect(context.textContent).not.toContain('boosted');
+  });
+
+  it('does not add attribution to ordinary, non-pinned cards', () => {
+    const { container } = renderTimeline(properStatus, { layoutMode: 'card-3' });
+    expect(container.querySelector('.timeline-card__context')).toBeNull();
+  });
+});
+
+describe('temporary media tile reveal', () => {
+  it('adds an individually revealed sensitive tile to the cross-post viewer without opening it on first click', () => {
+    const onMediaTileReveal = jest.fn();
+    const onOpenMedia = jest.fn();
+    const sensitive = properStatus.set('sensitive', true);
+    const sequence = {
+      media: fromJS([attachment]),
+      statusIds: fromJS(['proper']),
+      positions: { 'proper:0': 0 },
+    };
+    const { container } = renderTimeline(sensitive, {
+      layoutMode: 'media',
+      mediaIndex: 0,
+      mediaRowKey: 'proper:0',
+      mediaVisibility: 'hide_sensitive',
+      mediaTimeline: sequence,
+      onMediaTileReveal,
+      onOpenMedia,
+    });
+    const tile = container.querySelector('.timeline-media-tile__open');
+
+    expect(tile).not.toBeNull();
+    fireEvent.click(tile);
+    expect(onMediaTileReveal).toHaveBeenCalledWith('proper:0');
+    expect(onOpenMedia).not.toHaveBeenCalled();
+
+    fireEvent.click(tile);
+    expect(onOpenMedia).toHaveBeenCalledTimes(1);
+    expect(onOpenMedia.mock.calls[0][0]).toBe('proper');
+    expect(onOpenMedia.mock.calls[0][1]).toBe(sequence.media);
+    expect(onOpenMedia.mock.calls[0][2]).toBe(0);
+    expect(onOpenMedia.mock.calls[0][4]).toBe(sequence.statusIds);
+  });
+});
+
+describe('compact card reaction placement', () => {
+  it('renders star then plus at the end of the author row when no reactions exist', () => {
+    const { container } = renderTimeline(properStatus, { layoutMode: 'card-1' });
+    const author = container.querySelector('.timeline-card__author');
+    const actions = author.querySelector('.timeline-card__author-actions');
+
+    expect(actions).not.toBeNull();
+    expect(Array.from(actions.querySelectorAll('[data-compact-card-mode]')).map(item => item.dataset.compactCardMode)).toEqual(['favourite', 'reactions']);
+    expect(container.querySelector('.timeline-card__reactions')).toBeNull();
+  });
+
+  it('still collapses the empty row when reaction records all have count zero', () => {
+    const zero = properStatus.set('emoji_reactions', fromJS([{ name: ':test:', count: 0 }]));
+    const { container } = renderTimeline(zero, { layoutMode: 'card-2' });
+
+    expect(container.querySelector('.timeline-card__reactions')).toBeNull();
+    expect(container.querySelector('.timeline-card__author-actions [data-compact-card-mode="reactions"]')).not.toBeNull();
+  });
+
+  it('keeps an independent reactions row with plus when a visible reaction exists', () => {
+    const reacted = properStatus.set('emoji_reactions', fromJS([{ name: ':test:', count: 2 }]));
+    const { container } = renderTimeline(reacted, { layoutMode: 'card-3' });
+    const actions = container.querySelector('.timeline-card__author-actions');
+    const reactions = container.querySelector('.timeline-card__reactions');
+
+    expect(Array.from(actions.querySelectorAll('[data-compact-card-mode]')).map(item => item.dataset.compactCardMode)).toEqual(['favourite']);
+    expect(reactions).not.toBeNull();
+    expect(reactions.querySelector('[data-testid="emoji-reaction-bar"]')).not.toBeNull();
+    expect(reactions.querySelector('[data-compact-card-mode="reactions"]')).not.toBeNull();
+  });
+});
+
+describe('card crop preference propagation', () => {
+  it('uses its own uncropped aspect ratio instead of the standard timeline crop preference', async () => {
+    const portrait = properStatus.setIn(['media_attachments', 0, 'meta', 'small', 'aspect'], 0.5);
+    const { container } = renderTimeline(portrait, { layoutMode: 'card-1', cachedMediaWidth: 300 });
+
+    await waitFor(() => {
+      const gallery = container.querySelector('.timeline-card__media .media-gallery');
+      expect(gallery).not.toBeNull();
+      expect(Number(gallery.style.aspectRatio)).toBeCloseTo(0.5);
+      expect(gallery.style.height).toBe('');
+    });
+  });
+});
+
+describe('compact card attachment count indicator', () => {
+  it('does not add an overlay to a single-attachment card or a regular status', () => {
+    const card = renderTimeline(properStatus, { layoutMode: 'card-1' });
+    expect(card.container.querySelector('.timeline-card__media-count')).toBeNull();
+    card.unmount();
+
+    const regular = renderTimeline(properStatus);
+    expect(regular.container.querySelector('.timeline-card__media-count')).toBeNull();
+  });
+
+  it('shows an accessible but non-interactive count for a multi-image card', async () => {
+    const multi = properStatus.set('media_attachments', fromJS([
+      attachment,
+      { ...attachment, id: 'm2', description: 'second' },
+      { ...attachment, id: 'm3', description: 'third' },
+    ]));
+    const { container } = renderTimeline(multi, { layoutMode: 'card-2' });
+    const count = container.querySelector('.timeline-card__media-count');
+
+    expect(count).not.toBeNull();
+    expect(count.getAttribute('aria-label')).toBe('3 media attachments');
+    expect(count.getAttribute('role')).toBe('img');
+    expect(count.textContent).toContain('3');
+    expect(count.querySelector('a, button')).toBeNull();
+
+    // The compact card still renders just the first attachment.
+    await waitFor(() => expect(container.querySelectorAll('.timeline-card__media .media-gallery__item')).toHaveLength(1));
+  });
+
+  it('counts mixed image, GIF, and video attachments without displaying them all', async () => {
+    const mixed = properStatus.set('media_attachments', fromJS([
+      attachment,
+      { ...attachment, id: 'gif', type: 'gifv' },
+      { ...attachment, id: 'movie', type: 'video' },
+    ]));
+    const { container } = renderTimeline(mixed, { layoutMode: 'card-3' });
+
+    expect(container.querySelector('.timeline-card__media-count').getAttribute('aria-label')).toBe('3 media attachments');
+    await waitFor(() => expect(container.querySelectorAll('.timeline-card__media .media-gallery__item')).toHaveLength(1));
+    expect(container.querySelector('.timeline-card__media .video-player')).toBeNull();
+  });
+
+  it('does not expose the attachment indicator while the CW is collapsed', () => {
+    const multi = properStatus
+      .set('media_attachments', fromJS([attachment, { ...attachment, id: 'm2' }]))
+      .set('spoiler_text', 'Hidden')
+      .set('hidden', true);
+    const { container } = renderTimeline(multi, { layoutMode: 'card-1' });
+
+    expect(container.querySelector('.timeline-card__media')).toBeNull();
+    expect(container.querySelector('.timeline-card__media-count')).toBeNull();
   });
 });

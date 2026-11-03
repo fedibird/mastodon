@@ -176,6 +176,7 @@ class StatusActionBar extends ImmutablePureComponent {
     translationTarget: PropTypes.string,
     languages: ImmutablePropTypes.map,
     dispatch: PropTypes.func,
+    compactCardMode: PropTypes.string,
   };
 
   static defaultProps = {
@@ -196,6 +197,7 @@ class StatusActionBar extends ImmutablePureComponent {
     'translationAssumption',
     'translationTarget',
     'languages',
+    'compactCardMode',
   ]
 
   handleReplyClick = () => {
@@ -463,7 +465,43 @@ class StatusActionBar extends ImmutablePureComponent {
     const reblogsCount       = status.get('reblogs_count');
     const referredByCount    = status.get('status_referred_by_count');
     const favouritesCount    = status.get('favourites_count');
-    const [ _, domain ]      = account.get('acct').split('@');
+    const domain            = account.get('acct').split('@')[1];
+
+    if (this.props.compactCardMode === 'favourite') {
+      return (
+        <div className='timeline-card__favourite'>
+          <IconButton
+            className='status__action-bar-button star-icon'
+            animate
+            disabled={disableReactions || !favourited && expired}
+            active={favourited}
+            pressed={favourited}
+            title={intl.formatMessage(messages.favourite)}
+            icon='star'
+            onClick={this.handleFavouriteClick}
+          />
+        </div>
+      );
+    }
+
+    if (this.props.compactCardMode === 'reactions') {
+      return enableReaction ? (
+        <ReactionPickerDropdownContainer
+          scrollKey={scrollKey}
+          disabled={disableReactions || expired || anonymousAccess || externalContent || reactionLimitReached}
+          active={emojiReactioned}
+          className='timeline-card__reaction-add'
+          status={status}
+          title={intl.formatMessage(messages.emoji_reaction)}
+          icon='plus'
+          size={18}
+          direction='right'
+          onPickEmoji={this.handleEmojiPick}
+          onRemoveEmoji={this.handleEmojiRemove}
+          reactionLimitReached={reactionLimitReached}
+        />
+      ) : null;
+    }
 
     let menu = [];
 

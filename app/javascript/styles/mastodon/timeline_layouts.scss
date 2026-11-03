@@ -1,0 +1,605 @@
+// Layout modes are scoped to timeline rows; normal statuses stay unchanged.
+.column-layout-settings {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+
+  label { color: $darker-text-color; }
+
+  &__select {
+    max-width: 65%;
+    min-width: 0;
+    padding: 6px 8px;
+    color: $primary-text-color;
+    border: 1px solid $ui-base-lighter-color;
+    border-radius: 5px;
+    background: $ui-base-color;
+  }
+}
+
+.timeline-masonry {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+
+  &__item {
+    box-sizing: border-box;
+    position: absolute;
+    top: 0;
+    left: 0;
+    min-width: 0;
+  }
+}
+
+.media-display-controls {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 38px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  row-gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  overflow-x: hidden;
+  border-bottom: 1px solid lighten($ui-base-color, 8%);
+  background: $ui-base-color;
+  position: relative;
+  z-index: 4;
+
+  &__group {
+    display: inline-flex;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    min-width: 0;
+    align-items: center;
+    gap: 2px;
+    border: 1px solid $ui-base-lighter-color;
+    border-radius: 5px;
+    padding: 2px;
+  }
+
+  &__button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    flex: 0 0 auto;
+    min-height: 28px;
+    border: 0;
+    border-radius: 4px;
+    padding: 3px 6px;
+    background: transparent;
+    color: $darker-text-color;
+    white-space: nowrap;
+    font-size: 12px;
+    cursor: pointer;
+
+    &.active {
+      background: $ui-highlight-color;
+      color: $primary-text-color;
+    }
+
+    &:focus-visible {
+      outline: 2px solid $highlight-text-color;
+      outline-offset: 1px;
+    }
+  }
+}
+
+.timeline-media-masonry-wrap {
+  box-sizing: border-box;
+  padding: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.timeline-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 126px), 1fr));
+  gap: 8px;
+  padding: 8px;
+  align-items: start;
+  min-width: 0;
+
+  > article { min-width: 0; }
+  > article:has(.load-gap),
+  > .media-layout__more {
+    grid-column: 1 / -1;
+  }
+
+  > .account-gallery__item {
+    margin: 0;
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+.status__wrapper--compact {
+  margin: 4px;
+  overflow: hidden;
+  border: 1px solid $ui-base-lighter-color;
+  border-radius: 12px;
+  // No special card fill: show the same surface as a normal status.
+  background: transparent;
+  min-width: 0;
+
+  .status__content { margin: 0; padding: 0; }
+}
+
+.timeline-card {
+  min-width: 0;
+
+  &__media {
+    position: relative;
+    overflow: hidden;
+    max-width: 100%;
+
+    .status-media-stack,
+    .media-gallery,
+    .video-player,
+    .audio-player { margin: 0; max-width: 100%; }
+  }
+
+  // Only compact cards hide the remaining attachments. Keep this count
+  // above the preview (including its sensitive overlay), without consuming
+  // clicks or covering the ALT badge at the lower end of the image.
+  &__media-count {
+    position: absolute;
+    z-index: 101;
+    inset-block-start: 6px;
+    inset-inline-end: 6px;
+    padding: 3px 6px;
+    border-radius: 5px;
+    background: rgba($black, 0.65);
+    color: $white;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    line-height: 16px;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  &__body {
+    padding: 9px 10px;
+    overflow-wrap: anywhere;
+  }
+
+  &__quote {
+    margin: 0 8px 8px;
+    padding: 7px;
+    border: 1px solid $ui-base-lighter-color;
+    border-radius: 7px;
+    color: $darker-text-color;
+    cursor: pointer;
+
+    &-author { display: flex; gap: 5px; align-items: center; min-width: 0; }
+    &-author .display-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    &-author .display-name__html { color: $primary-text-color; }
+
+    &-text {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin: 4px 0 0;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  &__preview {
+    margin: 0 8px 8px;
+    max-height: 115px;
+    overflow: hidden;
+    border-radius: 7px;
+  }
+
+  &__context {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    margin: 0;
+    padding: 5px 8px 2px;
+    color: $darker-text-color;
+    font-size: 11px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+
+    .fa {
+      flex: 0 0 auto;
+      opacity: 0.8;
+    }
+
+    a,
+    a:visited {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    a:hover,
+    a:focus {
+      color: $primary-text-color;
+      text-decoration: underline;
+    }
+  }
+
+  &__author {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+    padding: 6px 8px;
+    border-top: 1px solid lighten($ui-base-color, 5%);
+  }
+
+  &__author-link {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: $dark-text-color;
+    text-decoration: none;
+
+    &:hover,
+    &:focus {
+      color: $dark-text-color;
+      text-decoration: none;
+    }
+
+    strong {
+      color: $primary-text-color;
+    }
+
+    &:hover strong,
+    &:focus strong {
+      text-decoration: underline;
+    }
+
+    .display-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .display-name__account { display: none; }
+  }
+
+  &__author-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+    margin-inline-start: auto;
+  }
+
+  &__favourite {
+    flex: 0 0 auto;
+    .status__action-bar-button { padding: 3px; }
+  }
+
+  &__reactions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 2px 7px 8px;
+    min-width: 0;
+
+    .reactions-bar { flex: 1; min-width: 0; }
+    .timeline-card__reaction-add { margin-inline-start: auto; }
+  }
+}
+
+.account-gallery__container--media {
+  display: block;
+  padding: 0;
+}
+
+.timeline-masonry__item {
+  > .account-gallery__item {
+    margin: 0;
+    width: 100%;
+    min-width: 0;
+  }
+
+  > .media-layout__more {
+    width: 100%;
+  }
+}
+
+.timeline-media-tile {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid $ui-base-lighter-color;
+  border-radius: 8px;
+  background: $ui-base-color;
+
+  &__preview {
+    position: relative;
+    min-width: 0;
+
+    .media-gallery__item__badges {
+      z-index: 3;
+    }
+  }
+
+  &__open {
+    display: block;
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+    background: lighten($ui-base-color, 5%);
+    color: $darker-text-color;
+    cursor: pointer;
+
+    img,
+    video {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    &--original {
+      aspect-ratio: auto;
+
+      img,
+      video {
+        height: auto;
+        object-fit: contain;
+      }
+    }
+  }
+
+  &__blurhash {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  &__concealed-icon {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: white;
+    font-size: 24px;
+    text-shadow: 0 1px 6px black;
+    pointer-events: none;
+  }
+
+  &__placeholder {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    min-height: 50px;
+    aspect-ratio: 1;
+    place-items: center;
+    font-size: 26px;
+  }
+
+  &__play {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: white;
+    text-shadow: 0 1px 5px #000;
+    pointer-events: none;
+  }
+
+  &__source {
+    display: block;
+    width: 100%;
+    padding: 5px 7px;
+    border: 0;
+    background: transparent;
+    color: $darker-text-color;
+    font-size: 12px;
+    text-align: start;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    cursor: pointer;
+  }
+}
+
+.timeline-media-tile--account {
+  .timeline-media-tile__open {
+    cursor: zoom-in;
+    text-decoration: none;
+
+    &:hover {
+      color: $darker-text-color;
+    }
+  }
+
+  .media-gallery__preview {
+    pointer-events: none;
+  }
+
+  // The hidden placeholder must occupy the original media aspect ratio too.
+  .timeline-media-tile__open--original .timeline-media-tile__placeholder {
+    height: 100%;
+  }
+
+  .media-gallery__item-gifv-thumbnail {
+    position: static;
+    transform: none;
+    object-fit: cover;
+  }
+}
+
+.media-layout__more {
+  min-width: 0;
+  clear: both;
+}
+
+// The layout selector and the movement arrows are independent control rows.
+.column-layout-settings {
+  margin-bottom: 10px;
+}
+
+// The account gallery uses a flex-column scroll host. Every filter row must
+// retain its natural wrapped height, regardless of the number of tags/buttons.
+.account-gallery__filters,
+.account-gallery__filters > *,
+.account-gallery__container--media {
+  flex: 0 0 auto;
+  min-height: max-content;
+}
+
+.account-gallery__filters {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
+.account-timeline__header {
+  // This header is a direct child of the account media gallery's flex scroller.
+  // Never shrink or clip the featured tags and the input when they wrap.
+  flex: 0 0 auto;
+  min-height: max-content;
+  .account__header__extra__hashtag-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+}
+
+.account-gallery__tag-search {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  min-width: 0;
+
+  input {
+    box-sizing: border-box;
+    flex: 1 1 100px;
+    min-width: 0;
+    padding: 6px;
+    background: $ui-base-color;
+    color: $primary-text-color;
+    border: 1px solid $ui-base-lighter-color;
+    border-radius: 4px;
+  }
+
+  button {
+    flex: 0 0 auto;
+    color: $primary-text-color;
+    background: $ui-base-lighter-color;
+    border: 0;
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+
+  button.account-gallery__tag-search__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    color: $darker-text-color;
+
+    &:hover,
+    &:focus-visible {
+      color: $primary-text-color;
+      background: $ui-base-lighter-color;
+    }
+  }
+}
+
+.media-modal__loading-next {
+  position: absolute;
+  inset-inline-start: 50%;
+  bottom: 90px;
+  transform: translateX(-50%);
+  z-index: 10;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 10px 15px;
+  border: 1px solid rgba($primary-text-color, 0.18);
+  border-radius: 8px;
+  background: rgba($ui-base-color, 0.95);
+  color: $primary-text-color;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.image-loader__error {
+  box-sizing: border-box;
+  width: min(420px, calc(100vw - 88px));
+  max-width: 100%;
+  max-height: min(65vh, 480px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 9px;
+  background: rgba($ui-base-color, 0.96);
+  border: 1px solid $ui-base-lighter-color;
+  color: $primary-text-color;
+  box-shadow: 0 2px 16px rgba($black, 0.22);
+  text-align: start;
+  overflow: hidden;
+
+  &-title {
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  &-alt {
+    min-height: 0;
+    max-width: 100%;
+    overflow-y: auto;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: lighten($ui-base-color, 6%);
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+
+    span {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: $darker-text-color;
+    }
+
+    p {
+      margin: 0;
+      color: $primary-text-color;
+      white-space: pre-wrap;
+      word-break: normal;
+    }
+  }
+}

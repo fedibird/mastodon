@@ -12,6 +12,7 @@ import AltTextBadge from 'mastodon/components/alt_text_badge';
 import { attachmentAccessibility } from 'mastodon/utils/translation_view';
 import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
+import { mediaGalleryAspectRatio } from 'mastodon/utils/media_gallery_layout';
 
 const messages = defineMessages({
   toggle_visible: { id: 'media_gallery.toggle_visible', defaultMessage: '{number, plural, one {Hide image} other {Hide images}}' },
@@ -177,12 +178,12 @@ class Item extends React.PureComponent {
                 dummy={!useBlurhash}
               />
               : attachment.get('blurhash') ?
-              <Blurhash
-                hash={attachment.get('blurhash')}
-                className='media-gallery__preview'
-                dummy={!useBlurhash}
-              />
-              : null
+                <Blurhash
+                  hash={attachment.get('blurhash')}
+                  className='media-gallery__preview'
+                  dummy={!useBlurhash}
+                />
+                : null
             }
           </a>
         </div>
@@ -227,11 +228,7 @@ class Item extends React.PureComponent {
     } else if (attachment.get('type') === 'gifv') {
       const autoPlay = !isIOS() && this.getAutoPlay();
 
-      if (attachment.get('type') === 'gifv') {
-        badges.push(<span key='gif' className='media-gallery__alt__label media-gallery__alt__label--non-interactive'>GIF</span>);
-      } else {
-        badges.push(<span key='video' className='media-gallery__alt__label media-gallery__alt__label--non-interactive'>{formatTime(Math.floor(duration))}</span>);
-      }
+      badges.push(<span key='gif' className='media-gallery__alt__label media-gallery__alt__label--non-interactive'>GIF</span>);
 
       thumbnail = (
         <div className={classNames('media-gallery__gifv', { autoplay: autoPlay })}>
@@ -264,14 +261,14 @@ class Item extends React.PureComponent {
             })}
           />
           : attachment.get('blurhash') ?
-          <Blurhash
-            hash={attachment.get('blurhash')}
-            dummy={!useBlurhash}
-            className={classNames('media-gallery__preview', {
-              'media-gallery__preview--hidden': visible && this.state.loaded,
-            })}
-          />
-          : null
+            <Blurhash
+              hash={attachment.get('blurhash')}
+              dummy={!useBlurhash}
+              className={classNames('media-gallery__preview', {
+                'media-gallery__preview--hidden': visible && this.state.loaded,
+              })}
+            />
+            : null
         }
 
         {visible && thumbnail}
@@ -307,6 +304,7 @@ class MediaGallery extends React.PureComponent {
     autoplay: PropTypes.bool,
     onToggleVisibility: PropTypes.func,
     quote: PropTypes.bool,
+    cropImages: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -321,10 +319,21 @@ class MediaGallery extends React.PureComponent {
 
   componentDidMount () {
     window.addEventListener('resize', this.handleResize, { passive: true });
+
+    // Masonry column widths settle after the first render and can change
+    // without a window resize. Observe this gallery instead of only the window.
+    if (this.node && window.ResizeObserver) {
+      this.resizeObserver = new window.ResizeObserver(this.handleElementResize);
+      this.resizeObserver.observe(this.node);
+    }
   }
 
   componentWillUnmount () {
     window.removeEventListener('resize', this.handleResize);
+    this.handleResize.cancel();
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+    }
   }
 
   componentWillReceiveProps (nextProps) {
@@ -342,6 +351,12 @@ class MediaGallery extends React.PureComponent {
   }, 250, {
     trailing: true,
   });
+
+  handleElementResize = entries => {
+    if (this.node && entries.some(entry => entry.target === this.node)) {
+      this._setDimensions();
+    }
+  }
 
   handleOpen = () => {
     if (this.props.onToggleVisibility) {
@@ -378,16 +393,23 @@ class MediaGallery extends React.PureComponent {
   }
 
   _setDimensions () {
+    if (!this.node) {
+      return;
+    }
+
     const width = this.node.offsetWidth;
 
-    // offsetWidth triggers a layout, so only calculate when we need to
+    // An initially detached or zero-width Masonry cell is not a useful
+    // measurement. Do not cache it or enter a resize feedback loop.
+    if (width <= 0 || width === this.state.width) {
+      return;
+    }
+
     if (this.props.cacheWidth) {
       this.props.cacheWidth(width);
     }
 
-    this.setState({
-      width: width,
-    });
+    this.setState({ width });
   }
 
   isFullSizeEligible() {
@@ -396,35 +418,22 @@ class MediaGallery extends React.PureComponent {
   }
 
   render () {
-    const { media, intl, sensitive, height, defaultWidth, standalone, autoplay, quote } = this.props;
+    const { media, intl, sensitive, defaultWidth, standalone, autoplay, quote } = this.props;
     const { visible } = this.state;
 
     const width = this.state.width || defaultWidth;
 
     let children, spoilerButton;
 
-    const style = {};
-
-    if (this.isFullSizeEligible() && (standalone || !cropImages)) {
-      if (width) {
-        style.height = width / this.props.media.getIn([0, 'meta', 'small', 'aspect']);
-      }
-    } else if (width) {
-      style.height = width / (16/9);
-    } else {
-      style.height = height;
-    }
+    // The browser computes height from the current width on the first paint.
+    // Reuse the same ratio as the lazy-loading placeholder to avoid jumps.
+    const effectiveCropImages = this.props.cropImages ?? cropImages;
+    const style = { aspectRatio: String(mediaGalleryAspectRatio(media, {
+      crop: effectiveCropImages, standalone, quote, maxAttachments,
+    })) };
 
     const size     = media.take(maxAttachments).size;
     const uncached = media.every(attachment => attachment.get('type') === 'unknown');
-
-    if (quote && style.height) {
-      style.height /= 2;
-    }
-
-    if (size > 4) {
-      style.height = style.height * Math.trunc((size + 1) / 2) / 2;
-    }
 
     if (standalone && this.isFullSizeEligible()) {
       children = <Item standalone autoplay={autoplay} onClick={this.handleClick} attachment={media.get(0)} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} displayWidth={width} visible={visible} />;

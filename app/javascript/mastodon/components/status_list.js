@@ -16,6 +16,7 @@ import { List as ImmutableList } from 'immutable';
 import { HistoryAnchorNotice } from './load_window_edge';
 import { planSeekScroll } from '../timeline_seek/window';
 import { completeSurfaceResume, emitHistorySurfaceScroll, emitHistorySurfaceUnmount, bindHistorySurface, peekSurfaceResume } from '../timeline_position/surface';
+import { mediaRowsForStatuses } from 'mastodon/utils/timeline_layout';
 
 export default @connect(null, null, null, { forwardRef: true })
 class StatusList extends ImmutablePureComponent {
@@ -58,6 +59,8 @@ class StatusList extends ImmutablePureComponent {
     contextTypeForId: PropTypes.func,
     warningTitlesForId: PropTypes.func,
     showCard: PropTypes.bool,
+    layoutMode: PropTypes.string,
+    mediaStatuses: ImmutablePropTypes.map,
     trackIntersection: PropTypes.bool,
     bindToDocument: PropTypes.bool,
     immediateStatusIds: ImmutablePropTypes.list,
@@ -452,7 +455,7 @@ class StatusList extends ImmutablePureComponent {
   )
 
   render () {
-    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, onLoadNewer, timelineId, dataTimelineId, contextHostId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, windowedHistory, readingSurface, anchorResolution, historyUnbounded, onCommitWindowAnchor, hasNewer, newerLoading, newerStatus, olderStatus, prepend, seekScrollPending, seekSessionId, seekAnchorId, seekScrollRevision, onSeekScroll, historySurfaceId, onUserScroll, ...other } = this.props;
+    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, onLoadNewer, timelineId, dataTimelineId, contextHostId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, layoutMode, mediaStatuses, trackIntersection, immediateStatusIds, windowedHistory, readingSurface, anchorResolution, historyUnbounded, onCommitWindowAnchor, hasNewer, newerLoading, newerStatus, olderStatus, prepend, seekScrollPending, seekSessionId, seekAnchorId, seekScrollRevision, onSeekScroll, historySurfaceId, onUserScroll, ...other } = this.props;
 
     void badgeRevision;
     void onCommitWindowAnchor;
@@ -480,43 +483,61 @@ class StatusList extends ImmutablePureComponent {
     // timelineId becomes the filter context. A mix column id is unknown to
     // toServerSideType and would be treated as public, so P2 must pass each
     // status the filter context of its source instead of the mix id.
+    const mediaMode = layoutMode === 'media';
+    const rows = mediaMode ? ImmutableList(mediaRowsForStatuses(statusIds, mediaStatuses)) : statusIds;
+    const featuredMediaRows = mediaMode && featuredStatusIds
+      ? mediaRowsForStatuses(featuredStatusIds, mediaStatuses)
+        .filter(row => row.kind === 'media')
+        .map(row => ({ ...row, key: `f-${row.key}` }))
+      : [];
+    const timelineMediaRows = mediaMode
+      ? featuredMediaRows.concat(rows.toArray().filter(row => row.kind === 'media'))
+        .map(row => ({ ...row, contextType: contextTypeFor(row.id) }))
+      : undefined;
     let scrollableContent = (isLoading || statusIds.size > 0) ? (
-      statusIds.map((statusId, index) => statusId === null ? (
+      rows.map((row, index) => (mediaMode ? row.kind === 'gap' : row === null) ? (
         <LoadGap
-          key={'gap:' + statusIds.get(index + 1)}
+          key={'gap:' + statusIds.get((mediaMode ? row.position : index) + 1)}
           disabled={isLoading}
-          maxId={index > 0 ? statusIds.get(index - 1) : null}
+          maxId={(mediaMode ? row.position : index) > 0 ? statusIds.get((mediaMode ? row.position : index) - 1) : null}
           onClick={this.handleLoadGap}
         />
       ) : (
         <StatusContainer
-          key={statusId}
-          id={statusId}
+          key={mediaMode ? row.key : row}
+          id={mediaMode ? row.id : row}
+          mediaIndex={mediaMode ? row.mediaIndex : undefined}
+          mediaRowKey={mediaMode ? row.key : undefined}
+          layoutMode={layoutMode}
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
           contextHostId={rowHostId}
-          contextType={contextTypeFor(statusId)}
-          warningTitles={warningTitlesFor(statusId)}
-          sourceBadges={sourceBadgesForId ? sourceBadgesForId(statusId) : undefined}
+          contextType={contextTypeFor(mediaMode ? row.id : row)}
+          warningTitles={warningTitlesFor(mediaMode ? row.id : row)}
+          sourceBadges={sourceBadgesForId ? sourceBadgesForId(mediaMode ? row.id : row) : undefined}
           scrollKey={this.props.scrollKey}
           showThread
           showCard={showCard}
-          immediate={!!(immediateStatusIds && immediateStatusIds.includes(statusId))}
+          immediate={!!(immediateStatusIds && immediateStatusIds.includes(mediaMode ? row.id : row))}
         />
       ))
     ) : ImmutableList();
 
     if (scrollableContent && featuredStatusIds) {
-      scrollableContent = featuredStatusIds.map(statusId => (
+      const featuredRows = mediaMode ? ImmutableList(featuredMediaRows) : featuredStatusIds;
+      scrollableContent = featuredRows.map(row => (
         <StatusContainer
-          key={`f-${statusId}`}
-          id={statusId}
+          key={mediaMode ? row.key : `f-${row}`}
+          id={mediaMode ? row.id : row}
+          mediaIndex={mediaMode ? row.mediaIndex : undefined}
+          mediaRowKey={mediaMode ? row.key : undefined}
+          layoutMode={layoutMode}
           featured
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
           contextHostId={rowHostId}
-          contextType={contextTypeFor(statusId)}
-          sourceBadges={sourceBadgesForId ? sourceBadgesForId(statusId) : undefined}
+          contextType={contextTypeFor(mediaMode ? row.id : row)}
+          sourceBadges={sourceBadgesForId ? sourceBadgesForId(mediaMode ? row.id : row) : undefined}
           showThread
           showCard={showCard}
         />
@@ -539,7 +560,7 @@ class StatusList extends ImmutablePureComponent {
     }
 
     return (
-      <ScrollableList {...other} prepend={listPrepend} hasNewer={hasNewer} onLoadNewer={onLoadNewer && this.handleLoadNewer} newerLoading={newerLoading} newerStatus={newerStatus} olderStatus={windowedHistory ? olderStatus : undefined} windowedHistory={!!windowedHistory} readingSurface={!!readingSurface} anchorSourceKey={anchorSourceKey} filterStatusIds={statusIds.concat(filterStatusIds || ImmutableList(), featuredStatusIds || ImmutableList(), immediateStatusIds || ImmutableList())} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onUserScroll={historySurfaceId ? this.handleUserScroll : onUserScroll} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
+      <ScrollableList {...other} layoutMode={layoutMode} mediaRows={timelineMediaRows} mediaStatuses={mediaMode ? mediaStatuses : undefined} mediaContextForId={mediaMode ? contextTypeFor : undefined} mediaTimelineId={mediaMode ? surfaceTimelineId : undefined} mediaLastStatusId={mediaMode ? statusIds.findLast(id => id !== null) : undefined} prepend={listPrepend} hasNewer={hasNewer} onLoadNewer={onLoadNewer && this.handleLoadNewer} newerLoading={newerLoading} newerStatus={newerStatus} olderStatus={windowedHistory ? olderStatus : undefined} windowedHistory={!!windowedHistory} readingSurface={!!readingSurface} anchorSourceKey={anchorSourceKey} filterStatusIds={statusIds.concat(filterStatusIds || ImmutableList(), featuredStatusIds || ImmutableList(), immediateStatusIds || ImmutableList())} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onUserScroll={historySurfaceId ? this.handleUserScroll : onUserScroll} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
         {scrollableContent}
       </ScrollableList>
     );

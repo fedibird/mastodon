@@ -78,6 +78,7 @@ class StatusContent extends React.PureComponent {
     collapsable: PropTypes.bool,
     onCollapsedToggle: PropTypes.func,
     quote: PropTypes.bool,
+    compactCard: PropTypes.bool,
     languages: ImmutablePropTypes.map,
     translationAssumption: PropTypes.oneOfType([PropTypes.string, ImmutablePropTypes.map]),
     translationTarget: PropTypes.string,
@@ -303,7 +304,7 @@ class StatusContent extends React.PureComponent {
   onAccountUrlClick = (accountId, path, accountActorType, e) => {
     if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      this.context.router.history.push(`${accountActorType == 'Group' ? '/timelines/groups/' : '/accounts/'}${accountId}${path}`);
+      this.context.router.history.push(`${accountActorType === 'Group' ? '/timelines/groups/' : '/accounts/'}${accountId}${path}`);
     }
   }
 
@@ -511,14 +512,14 @@ class StatusContent extends React.PureComponent {
   }
 
   render () {
-    const { status, quote, intl } = this.props;
+    const { status, quote, intl, compactCard } = this.props;
 
     const hidden = this.props.onExpandedToggle ? !this.props.expanded : this.state.hidden;
     const renderReadMore = this.props.onClick && status.get('collapsed');
     const renderViewThread = this.props.showThread && (
       status.get('in_reply_to_id') && status.get('in_reply_to_account_id') === status.getIn(['account', 'id'])
     );
-    const renderShowPoll = !!status.get('poll');
+    const renderShowPoll = !compactCard && !!status.get('poll');
     const translated = this.translationViewStatus();
     const viewerPair = this.viewerPair();
     const requestPair = translationRequestPair(translated, intl.locale);
@@ -577,7 +578,7 @@ class StatusContent extends React.PureComponent {
     const mainText = this.renderMainText(viewMode, sourceBodyHtml, targetBodyHtml, sourceLang, targetLang, contentVisible);
     const spoilerText = this.renderSpoilerText(viewMode, sourceSpoilerHtml, targetSpoilerHtml, sourceLang, targetLang);
 
-    const translateButton = translationBarEffectivelyVisible({
+    const translateButton = !compactCard && translationBarEffectivelyVisible({
       visibility: barVisibility,
       revealed: this.props.translationBarRevealed,
       source: viewerPair.source,

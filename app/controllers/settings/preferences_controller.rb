@@ -79,6 +79,7 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_use_pending_items,
       :setting_trends,
       :setting_crop_images,
+      :setting_crop_card_images,
       :setting_show_follow_button_on_timeline,
       :setting_show_subscribe_button_on_timeline,
       :setting_show_followed_by,

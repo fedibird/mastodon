@@ -16,6 +16,7 @@ import { closeExternalFeedView, openExternalFeedView, resumeExternalFeedViews } 
 import { closeMixStream, openMixStream, pinMixStream, reconcileMixSource, revealMixStream } from '../../actions/mix_streaming';
 import TimelineSplitControllerCore from '../ui/components/timeline_split_controller_core';
 import { defaultColumnWidth, me } from 'mastodon/initial_state';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { plainMix } from 'mastodon/mix/definition';
 import { sourceKey } from 'mastodon/mix/source';
 import { badgeRevisionToken, mixBadgeIdentity, paneBadgeToken, sourceBadges, storeBadge } from 'mastodon/mix/source_badges';
@@ -68,6 +69,7 @@ const mapStateToProps = (state, { columnId, params }) => {
   const columns = state.getIn(['settings', 'columns']);
   const index = columns && columnId ? columns.findIndex(column => column.get('uuid') === columnId) : -1;
   const columnWidth = index >= 0 ? columns.get(index).getIn(['params', 'columnWidth']) : null;
+  const layoutMode = readTimelineLayout(state, columnId, 'mixTimeline');
   const mix = findMix(state, mixId);
   const columnKey = mixColumnKey(columnId, mixId);
   const timeline = state.getIn(['mix_timelines', columnKey]);
@@ -84,6 +86,8 @@ const mapStateToProps = (state, { columnId, params }) => {
     splitReturnAnchor: state.getIn(['mix_timelines', '__anchors', columnKey]) || null,
     splitRatio: state.getIn(['settings', 'mixTimeline', 'splitRatio'], 35),
     columnWidth: columnWidth || defaultColumnWidth,
+    layoutMode,
+    mediaStatuses: layoutMode === 'media' ? state.get('statuses') : null,
     lists: state.get('lists'),
     accounts: state.get('accounts'),
   };
@@ -133,6 +137,8 @@ export class MixTimelinePage extends React.PureComponent {
     }),
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    layoutMode: PropTypes.string,
+    mediaStatuses: PropTypes.object,
     lists: PropTypes.object,
     accounts: PropTypes.object,
     history: PropTypes.shape({
@@ -551,7 +557,7 @@ export class MixTimelinePage extends React.PureComponent {
   };
 
   render () {
-    const { intl, columnId, mixId, mix, multiColumn, columnWidth, view, liveView, historyView } = this.props;
+    const { intl, columnId, mixId, mix, multiColumn, columnWidth, layoutMode, mediaStatuses, view, liveView, historyView } = this.props;
     const mode = mixTimelineMode({ mix });
     const plain = mode === 'ready' ? plainMix(mix) : null;
     const title = plain ? plain.title : intl.formatMessage(messages.heading);
@@ -565,6 +571,8 @@ export class MixTimelinePage extends React.PureComponent {
     } else {
       body = (
         <StatusList
+          layoutMode={layoutMode}
+          mediaStatuses={mediaStatuses}
           statusIds={statusIds}
           filterStatusIds={view && view.reconciliationIds}
           bindToDocument={!multiColumn}
@@ -586,6 +594,7 @@ export class MixTimelinePage extends React.PureComponent {
 
     const list = (ids, extra) => (
       <StatusList
+        layoutMode='normal'
         statusIds={ids}
         filterStatusIds={extra.view && extra.view.reconciliationIds}
         scrollKey={`mix-${this.props.columnKey}-${extra.key}`}
@@ -628,6 +637,8 @@ export class MixTimelinePage extends React.PureComponent {
         {split => (
           <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={title} columnWidth={columnWidth}>
             <ColumnHeader
+              layoutScope='mixTimeline'
+              columnId={columnId}
               icon='random'
               title={title}
               onPin={mode === 'ready' ? this.handlePin : undefined}

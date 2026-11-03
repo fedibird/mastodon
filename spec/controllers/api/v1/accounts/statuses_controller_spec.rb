@@ -110,7 +110,7 @@ describe Api::V1::Accounts::StatusesController do
 
       [kept, reply, plain, personal, boost].each { |status| status.tags << tag }
       [kept, untagged, reply, personal, boost, loose].each do |status|
-        Fabricate(:media_attachment, account: account, status: status)
+        attach_remote_test_image(status)
       end
       [kept, untagged, reply, plain, personal].each do |status|
         Fabricate(:status_pin, account: account, status: status)
@@ -276,7 +276,7 @@ describe Api::V1::Accounts::StatusesController do
 
     it 'does not use the tuple bound for an only_media min_id page' do
       media_status = insert_status(450)
-      Fabricate(:media_attachment, account: user.account, status: media_status)
+      attach_remote_test_image(media_status)
       statements = capture_statements do
         get :index, params: { account_id: user.account.id, min_id: 200, limit: 2, only_media: true }
       end
@@ -596,7 +596,7 @@ describe Api::V1::Accounts::StatusesController do
 
     it 'keeps only_media on the existing relation path' do
       media = tag_status(insert_status(20))
-      Fabricate(:media_attachment, account: author, status: media)
+      attach_remote_test_image(media)
       tag_status(insert_status(30))
 
       statements = capture_statements do
@@ -605,6 +605,28 @@ describe Api::V1::Accounts::StatusesController do
 
       expect(status_ids).to eq [media.id]
       expect(sql_text(statements)).not_to include('AS MATERIALIZED')
+    end
+
+    it 'retains tagged and only_media in media-only account pagination links' do
+      older = tag_status(insert_status(100))
+      newer = tag_status(insert_status(200))
+      untagged = insert_status(300)
+      [older, newer, untagged].each do |status|
+        attach_remote_test_image(status)
+      end
+
+      get :index, params: { account_id: author.id, tagged: tag.name, only_media: true, limit: 1 }
+
+      expect(response).to have_http_status(200)
+      expect(status_ids).to eq [newer.id]
+      expect(link_param('next', 'tagged')).to eq tag.name
+      expect(link_param('next', 'only_media')).to eq 'true'
+
+      get :index, params: { account_id: author.id, tagged: tag.name, only_media: true, max_id: newer.id, limit: 1 }
+
+      expect(status_ids).to eq [older.id]
+      expect(link_param('prev', 'tagged')).to eq tag.name
+      expect(link_param('prev', 'only_media')).to eq 'true'
     end
 
     it 'keeps pinned on the existing relation path' do

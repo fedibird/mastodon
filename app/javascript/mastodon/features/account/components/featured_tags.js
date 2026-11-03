@@ -7,7 +7,7 @@ import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
 import Permalink from 'mastodon/components/permalink';
 import ShortNumber from 'mastodon/components/short_number';
-import { List as ImmutableList } from 'immutable';
+import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 
 const messages = defineMessages({
   hashtag_all: { id: 'account.hashtag_all', defaultMessage: 'All' },
@@ -15,6 +15,43 @@ const messages = defineMessages({
   hashtag_select_description: { id: 'account.hashtag_select_description', defaultMessage: 'Select hashtag #{name}' },
   statuses_counter: { id: 'account.statuses_counter', defaultMessage: '{count, plural, one {{counter} Post} other {{counter} Posts}}' },
 });
+
+// Current account tag pages are valid even if the tag is not featured.
+// Append a display-only choice. Never mutate the account's featured tags.
+export const displayedFeaturedTags = (featuredTags, tagged) => {
+  const name = (tagged || '').replace(/^#/, '').trim();
+  if (!name || featuredTags.some(tag => String(tag.get('name')).toLocaleLowerCase() === name.toLocaleLowerCase())) {
+    return featuredTags;
+  }
+
+  return featuredTags.push(ImmutableMap({ name, temporary: true }));
+};
+
+// All featured tags share Permalink's markup. A small wrapper keeps a stable
+// click interceptor per item instead of allocating a JSX callback in render.
+class FeaturedTagPermalink extends React.PureComponent {
+
+  static propTypes = {
+    tagName: PropTypes.string,
+    onSelectTag: PropTypes.func,
+    children: PropTypes.node,
+  };
+
+  handleInterceptClick = () => {
+    this.props.onSelectTag?.(this.props.tagName || null);
+    return true;
+  }
+
+  render () {
+    const { tagName, onSelectTag, children, ...other } = this.props;
+    return (
+      <Permalink {...other} onInterceptClick={onSelectTag ? this.handleInterceptClick : undefined}>
+        {children}
+      </Permalink>
+    );
+  }
+
+}
 
 const mapStateToProps = (state, { account }) => ({
   featuredTags: state.getIn(['user_lists', 'featured_tags', account.get('id'), 'items'], ImmutableList()),
@@ -32,35 +69,46 @@ class FeaturedTags extends ImmutablePureComponent {
     account: ImmutablePropTypes.map,
     featuredTags: ImmutablePropTypes.list,
     tagged: PropTypes.string,
+    routeBase: PropTypes.string,
+    onSelectTag: PropTypes.func,
     intl: PropTypes.object.isRequired,
   };
 
   render () {
-    const { account, featuredTags, tagged, intl } = this.props;
+    const { account, featuredTags, tagged, intl, onSelectTag } = this.props;
 
-    if (!account || featuredTags.isEmpty()) {
+    if (!account) {
+      return null;
+    }
+
+    const displayed = displayedFeaturedTags(featuredTags, tagged);
+    if (displayed.isEmpty() && !onSelectTag) {
       return null;
     }
 
     const suspended = account.get('suspended');
     const accountId = account.get('id');
+    const routeBase = this.props.routeBase || `/accounts/${accountId}/posts`;
 
     return (
       <div className={classNames('account__header', 'advanced', { inactive: !!account.get('moved') })}>
         <div className='account__header__extra'>
           <div className='account__header__extra__hashtag-links'>
-            <Permalink key='all' className={classNames('account__hashtag-link', { active: !tagged })} title={intl.formatMessage(messages.hashtag_all_description)} href={account.get('url')} to={`/accounts/${accountId}/posts`}>{intl.formatMessage(messages.hashtag_all)}</Permalink>
-            {!suspended && featuredTags.map(featuredTag => {
+            <FeaturedTagPermalink key='all' tagName={null} onSelectTag={onSelectTag} className={classNames('account__hashtag-link', { active: !tagged })} title={intl.formatMessage(messages.hashtag_all_description)} href={account.get('url')} to={routeBase}>{intl.formatMessage(messages.hashtag_all)}</FeaturedTagPermalink>
+            {!suspended && displayed.map(featuredTag => {
               const name  = featuredTag.get('name');
               const url   = featuredTag.get('url');
-              const to    = `/accounts/${accountId}/posts/${name}`;
+              const to    = `${routeBase}/${encodeURIComponent(name)}`;
               const desc  = intl.formatMessage(messages.hashtag_select_description, { name });
               const count = featuredTag.get('statuses_count');
+              const temporary = !!featuredTag.get('temporary');
+              const active = !!tagged && tagged.toLocaleLowerCase() === name.toLocaleLowerCase();
+              const countBadge = !temporary && count !== null && count !== undefined && <span title={intl.formatMessage(messages.statuses_counter, { count, counter: intl.formatNumber(count) })}>({<ShortNumber value={count} />})</span>;
 
               return (
-                <Permalink key={`#${name}`} className={classNames('account__hashtag-link', { active: this.context.router.history.location.pathname === to })} title={desc} href={url} to={to}>
-                  #{name} <span title={intl.formatMessage(messages.statuses_counter, { count: count, counter: intl.formatNumber(count) })}>({<ShortNumber value={count} />})</span>
-                </Permalink>
+                <FeaturedTagPermalink key={`#${name}`} tagName={name} onSelectTag={onSelectTag} className={classNames('account__hashtag-link', { active, 'account__hashtag-link--temporary': temporary })} title={desc} href={url || account.get('url')} to={to}>
+                  #{name} {countBadge}
+                </FeaturedTagPermalink>
               );
             })}
           </div>

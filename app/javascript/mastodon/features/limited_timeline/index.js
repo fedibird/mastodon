@@ -16,6 +16,7 @@ import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
 import StatusTimelineSplitController, { clampTimelineSplitRatio } from '../ui/components/status_timeline_split_controller';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 
 const messages = defineMessages({
   title: { id: 'column.limited', defaultMessage: 'Limited' },
@@ -28,9 +29,11 @@ const mapStateToProps = (state, { columnId }) => {
   const columns = state.getIn(['settings', 'columns']);
   const index = columnIndex(columns, columnId);
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'limited', 'columnWidth']);
+  const onlyMedia = readTimelineLayout(state, columnId, 'limited') === 'media';
 
   return {
-    hasUnread: state.getIn(['timelines', 'limited', 'unread']) > 0,
+    hasUnread: state.getIn(['timelines', onlyMedia ? 'limited:media' : 'limited', 'unread']) > 0,
+    onlyMedia,
     visibilities: getLimitedVisibilities(state),
     columnWidth: columnWidth ?? defaultColumnWidth,
     splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'limited', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
@@ -45,6 +48,7 @@ class LimitedTimeline extends React.PureComponent {
     dispatch: PropTypes.func.isRequired,
     intl: PropTypes.object.isRequired,
     hasUnread: PropTypes.bool,
+    onlyMedia: PropTypes.bool,
     visibilities: PropTypes.arrayOf(PropTypes.string),
     columnId: PropTypes.string,
     multiColumn: PropTypes.bool,
@@ -85,9 +89,9 @@ class LimitedTimeline extends React.PureComponent {
   }
 
   handleLoadMore = maxId => {
-    const { dispatch, visibilities } = this.props;
+    const { dispatch, visibilities, onlyMedia } = this.props;
 
-    dispatch(expandLimitedTimeline({ maxId, visibilities }));
+    dispatch(expandLimitedTimeline({ maxId, visibilities, onlyMedia }));
   }
 
   handleLoadMoreHistory = (maxId, anchorId) => {
@@ -116,21 +120,21 @@ class LimitedTimeline extends React.PureComponent {
   }
 
   componentDidMount () {
-    const { dispatch, visibilities } = this.props;
+    const { dispatch, visibilities, onlyMedia } = this.props;
 
-    dispatch(expandLimitedTimeline({ visibilities }));
+    dispatch(expandLimitedTimeline({ visibilities, onlyMedia }));
   }
 
   componentDidUpdate (prevProps) {
-    const { dispatch, visibilities } = this.props;
+    const { dispatch, visibilities, onlyMedia } = this.props;
 
-    if (prevProps.visibilities.toString() !== visibilities.toString()) {
-      dispatch(expandLimitedTimeline({ visibilities }));
+    if (prevProps.visibilities.toString() !== visibilities.toString() || prevProps.onlyMedia !== onlyMedia) {
+      dispatch(expandLimitedTimeline({ visibilities, onlyMedia }));
     }
   }
 
   renderColumn = (split) => {
-    const { intl, hasUnread, columnId, multiColumn, columnWidth } = this.props;
+    const { intl, hasUnread, columnId, multiColumn, columnWidth, onlyMedia } = this.props;
     const pinned = !!columnId;
     const emptyMessage = <FormattedMessage id='empty_column.limited' defaultMessage='Your limited timeline is empty.' />;
 
@@ -141,10 +145,14 @@ class LimitedTimeline extends React.PureComponent {
     if (!split.isSplit) {
       timeline = (
         <StatusListContainer
+          columnId={columnId}
+          layoutScope='limited'
+          disableLayout={split.isSplit}
           trackScroll={!pinned}
-          scrollKey={`limited_timeline-${columnId}`}
+          scrollKey={`limited_timeline-${columnId}${onlyMedia ? '-media' : ''}`}
           onLoadMore={this.handleLoadMore}
           timelineId='limited'
+          dataTimelineId={onlyMedia ? 'limited:media' : 'limited'}
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
         />
@@ -154,6 +162,9 @@ class LimitedTimeline extends React.PureComponent {
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
             <StatusListContainer
+              columnId={columnId}
+              layoutScope='limited'
+              disableLayout={split.isSplit}
               timelineId='limited'
               dataTimelineId='limited'
               includePendingItems
@@ -171,6 +182,9 @@ class LimitedTimeline extends React.PureComponent {
 
           <div className='timeline-split__pane timeline-split__pane--history'>
             <StatusListContainer
+              columnId={columnId}
+              layoutScope='limited'
+              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`limited_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
@@ -189,6 +203,8 @@ class LimitedTimeline extends React.PureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
+          columnId={columnId}
+          layoutScope='limited'
           icon='lock'
           active={hasUnread}
           title={intl.formatMessage(messages.title)}

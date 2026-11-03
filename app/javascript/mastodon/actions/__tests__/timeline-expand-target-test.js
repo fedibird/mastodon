@@ -37,6 +37,9 @@ jest.mock('../markers', () => ({
 
 import {
   expandDomainTimeline,
+  expandAccountMediaTimeline,
+  expandHomeTimeline,
+  expandListTimeline,
   expandGroupTimeline,
   expandHashtagTimeline,
   expandLimitedTimeline,
@@ -81,6 +84,7 @@ describe('timeline canonical ids', () => {
     expect(groupTimelineId('7', { onlyMedia: true, tagged: 'news' })).toBe('group:7:media:news');
     expect(groupTimelineId('7', { withoutMedia: true })).toBe('group:7:nomedia');
     expect(hashtagTimelineId('ruby')).toBe('hashtag:ruby');
+    expect(hashtagTimelineId('ruby', { onlyMedia: true })).toBe('hashtag:ruby:media');
     expect(personalTimelineId()).toBe('personal');
     expect(personalTimelineId({ onlyMedia: true })).toBe('personal:media');
     expect(personalTimelineId({ withoutMedia: true })).toBe('personal:nomedia');
@@ -98,6 +102,70 @@ describe('expand timeline targets', () => {
   });
 
   it.each([
+    [
+      'account media without tag',
+      'account:alice:media',
+      {},
+      () => expandAccountMediaTimeline('alice', { maxId: '9' }),
+      '/api/v1/accounts/alice/statuses',
+      { max_id: '9', only_media: true, limit: 40 },
+    ],
+    [
+      'account media by tag',
+      'account:alice:media:cat',
+      {},
+      () => expandAccountMediaTimeline('alice', { maxId: '9', tagged: 'Cat' }),
+      '/api/v1/accounts/alice/statuses',
+      { max_id: '9', tagged: 'Cat', only_media: true, limit: 40 },
+    ],
+    [
+      'home media canonical',
+      'home:media',
+      {},
+      () => expandHomeTimeline({ maxId: '9', onlyMedia: true, visibilities: ['public'] }),
+      '/api/v1/timelines/home',
+      { max_id: '9', only_media: true, visibilities: ['public'] },
+    ],
+    [
+      'home normal canonical',
+      'home',
+      {},
+      () => expandHomeTimeline({ maxId: '9' }),
+      '/api/v1/timelines/home',
+      { max_id: '9', only_media: false },
+    ],
+    [
+      'limited media canonical',
+      'limited:media',
+      {},
+      () => expandLimitedTimeline({ maxId: '9', visibilities: ['limited'], onlyMedia: true }),
+      '/api/v1/timelines/home',
+      { max_id: '9', only_media: true, visibilities: ['limited'] },
+    ],
+    [
+      'list media canonical',
+      'list:7:media',
+      {},
+      () => expandListTimeline('7', { maxId: '9', onlyMedia: true }),
+      '/api/v1/timelines/list/7',
+      { max_id: '9', only_media: true },
+    ],
+    [
+      'list normal canonical',
+      'list:7',
+      {},
+      () => expandListTimeline('7', { maxId: '9' }),
+      '/api/v1/timelines/list/7',
+      { max_id: '9', only_media: false },
+    ],
+    [
+      'hashtag media canonical',
+      'hashtag:ruby:media',
+      {},
+      () => expandHashtagTimeline('ruby', { maxId: '9', onlyMedia: true }),
+      '/api/v1/timelines/tag/ruby',
+      { max_id: '9', only_media: true },
+    ],
     [
       'public',
       'public:remote:bot:split:col:uuid',

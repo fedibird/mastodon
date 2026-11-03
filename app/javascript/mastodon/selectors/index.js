@@ -3,6 +3,7 @@ import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { me, enableLimitedTimeline, hideDirectFromTimeline, hidePersonalFromTimeline, maxFrequentlyUsedEmojis } from '../initial_state';
 import { buildCustomEmojis, categoriesFromEmojis } from 'mastodon/features/emoji/emoji';
 import { toServerSideType } from 'mastodon/utils/filters';
+import { mediaStatusFiltered } from 'mastodon/utils/media_filter_visibility';
 
 const getAccountBase         = (state, id) => state.getIn(['accounts', id], null);
 const getAccountCounters     = (state, id) => state.getIn(['accounts_counters', id], null);
@@ -220,19 +221,34 @@ export const makeGetNotification = () => {
 };
 
 export const getAccountGallery = createSelector([
-  (state, id) => state.getIn(['timelines', `account:${id}:media`, 'items'], ImmutableList()),
+  (state, id, tagged) => state.getIn(['timelines', `account:${id}:media${tagged ? `:${tagged.toLocaleLowerCase()}` : ''}`, 'items'], ImmutableList()),
   state       => state.get('statuses'),
   (state, id) => state.getIn(['accounts', id]),
-], (statusIds, statuses, account) => {
+], (statusIds, statuses, account) => accountGalleryAttachments(statusIds, statuses, account));
+
+// The account gallery chooses a tag locally, without modifying persisted
+// account settings. This helper works for either tagged timeline's Redux IDs.
+export const accountGalleryAttachments = (statusIds, statuses, account, filterInfo = {}) => {
   let medias = ImmutableList();
 
+  if (!account) {
+    return medias;
+  }
+
   statusIds.forEach(statusId => {
+    if (statusId === null) {
+      medias = medias.push(null);
+      return;
+    }
+
     const status = statuses.get(statusId);
-    medias = medias.concat(status.get('media_attachments').map(media => media.set('status', status).set('account', account)));
+    if (status && status.get('media_attachments') && !mediaStatusFiltered(status, null, statusId, 'account', filterInfo)) {
+      medias = medias.concat(status.get('media_attachments').map(media => media.set('status', status).set('account', account)));
+    }
   });
 
   return medias;
-});
+};
 
 // Visibilities for the home column. They follow settings.home.shows and the
 // instance flags. A mix source keeps its own shows snapshot and must not use

@@ -102,6 +102,7 @@ class ZoomableImage extends React.PureComponent {
     height: PropTypes.number,
     onClick: PropTypes.func,
     zoomButtonHidden: PropTypes.bool,
+    onError: PropTypes.func,
     intl: PropTypes.object.isRequired,
   }
 
@@ -443,6 +444,7 @@ class ZoomableImage extends React.PureComponent {
             draggable={false}
             onClick={this.handleClick}
             onMouseDown={this.handleMouseDown}
+            onError={this.props.onError}
           />
         </div>
       </React.Fragment>

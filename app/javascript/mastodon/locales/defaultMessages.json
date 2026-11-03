@@ -139,6 +139,34 @@
       {
         "defaultMessage": "Back",
         "id": "column_back_button.label"
+      },
+      {
+        "id": "column_header.layout.label",
+        "defaultMessage": "Display mode"
+      },
+      {
+        "id": "column_header.layout.normal",
+        "defaultMessage": "Normal"
+      },
+      {
+        "id": "column_header.layout.card_1",
+        "defaultMessage": "Cards (1 column)"
+      },
+      {
+        "id": "column_header.layout.card_2",
+        "defaultMessage": "Cards (2 columns)"
+      },
+      {
+        "id": "column_header.layout.card_3",
+        "defaultMessage": "Cards (3 columns)"
+      },
+      {
+        "id": "column_header.layout.media",
+        "defaultMessage": "Media"
+      },
+      {
+        "id": "column_width.x200",
+        "defaultMessage": "200%"
       }
     ],
     "path": "app/javascript/mastodon/components/column_header.json"
@@ -602,6 +630,22 @@
       {
         "defaultMessage": "{name} boosted",
         "id": "status.reblogged_by"
+      },
+      {
+        "id": "timeline.media.reveal",
+        "defaultMessage": "Reveal media"
+      },
+      {
+        "id": "timeline.media.open",
+        "defaultMessage": "Open media"
+      },
+      {
+        "id": "timeline.media.open_post",
+        "defaultMessage": "Open original post"
+      },
+      {
+        "id": "timeline.card.media_count",
+        "defaultMessage": "{count} media attachments"
       }
     ],
     "path": "app/javascript/mastodon/components/status.json"
@@ -3138,6 +3182,14 @@
       {
         "defaultMessage": "Next",
         "id": "lightbox.next"
+      },
+      {
+        "id": "lightbox.loading_next",
+        "defaultMessage": "Loading more images…"
+      },
+      {
+        "id": "lightbox.loading_failed",
+        "defaultMessage": "Could not load more images. Press Next to retry."
       }
     ],
     "path": "app/javascript/mastodon/features/ui/components/media_modal.json"
@@ -3373,5 +3425,97 @@
       }
     ],
     "path": "app/javascript/mastodon/features/video/index.json"
+  },
+  {
+    "path": "app/javascript/mastodon/components/media_display_controls.json",
+    "descriptors": [
+      {
+        "id": "media_display.toolbar",
+        "defaultMessage": "Media display options"
+      },
+      {
+        "id": "media_display.shape",
+        "defaultMessage": "Layout"
+      },
+      {
+        "id": "media_display.square",
+        "defaultMessage": "Square"
+      },
+      {
+        "id": "media_display.original",
+        "defaultMessage": "Original"
+      },
+      {
+        "id": "media_display.size",
+        "defaultMessage": "Thumbnail size"
+      },
+      {
+        "id": "media_display.small",
+        "defaultMessage": "Small"
+      },
+      {
+        "id": "media_display.medium",
+        "defaultMessage": "Medium"
+      },
+      {
+        "id": "media_display.large",
+        "defaultMessage": "Large"
+      },
+      {
+        "id": "media_display.max",
+        "defaultMessage": "Maximum"
+      },
+      {
+        "id": "media_display.visibility",
+        "defaultMessage": "Media visibility (this column only)"
+      },
+      {
+        "id": "media_display.hide_sensitive",
+        "defaultMessage": "Hide sensitive media"
+      },
+      {
+        "id": "media_display.show_all",
+        "defaultMessage": "Always show media"
+      },
+      {
+        "id": "media_display.hide_all",
+        "defaultMessage": "Always hide media"
+      }
+    ]
+  },
+  {
+    "path": "app/javascript/mastodon/features/ui/components/image_loader.json",
+    "descriptors": [
+      {
+        "id": "lightbox.image_unavailable",
+        "defaultMessage": "Could not load image"
+      }
+    ]
+  },
+  {
+    "path": "app/javascript/mastodon/features/account/components/hashtag_filter.json",
+    "descriptors": [
+      {
+        "id": "account.media_tag_placeholder",
+        "defaultMessage": "Filter by hashtag"
+      },
+      {
+        "id": "account.media_tag_apply",
+        "defaultMessage": "Filter"
+      },
+      {
+        "id": "account.hide_hashtag_input",
+        "defaultMessage": "Hide hashtag input"
+      }
+    ]
+  },
+  {
+    "path": "app/javascript/mastodon/features/account_timeline/components/column_settings.json",
+    "descriptors": [
+      {
+        "id": "account.column_settings.hide_hashtag_input",
+        "defaultMessage": "Hide hashtag input"
+      }
+    ]
   }
 ]

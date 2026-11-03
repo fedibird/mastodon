@@ -22,6 +22,7 @@ import { defaultColumnWidth } from 'mastodon/initial_state';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 import StatusTimelineSplitController, { clampTimelineSplitRatio } from '../ui/components/status_timeline_split_controller';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 
 const messages = defineMessages({
   title: { id: 'column.home', defaultMessage: 'Home' },
@@ -34,10 +35,13 @@ const mapStateToProps = (state, { columnId }) => {
   const columns = state.getIn(['settings', 'columns']);
   const index = columns ? columns.findIndex(c => c.get('uuid') === columnId) : -1;
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'home', 'columnWidth']);
+  const onlyMedia = readTimelineLayout(state, columnId, 'home') === 'media';
+  const activeTimelineId = onlyMedia ? 'home:media' : 'home';
 
   return {
-    hasUnread: state.getIn(['timelines', 'home', 'unread']) > 0,
-    isPartial: state.getIn(['timelines', 'home', 'isPartial']),
+    hasUnread: state.getIn(['timelines', activeTimelineId, 'unread']) > 0,
+    isPartial: state.getIn(['timelines', activeTimelineId, 'isPartial']),
+    onlyMedia,
     hasAnnouncements: !state.getIn(['announcements', 'items']).isEmpty(),
     unreadAnnouncements: state.getIn(['announcements', 'items']).count(item => !item.get('read')),
     showAnnouncements: state.getIn(['announcements', 'show']),
@@ -56,6 +60,7 @@ class HomeTimeline extends React.PureComponent {
     intl: PropTypes.object.isRequired,
     hasUnread: PropTypes.bool,
     isPartial: PropTypes.bool,
+    onlyMedia: PropTypes.bool,
     columnId: PropTypes.string,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
@@ -89,9 +94,9 @@ class HomeTimeline extends React.PureComponent {
   }
 
   refreshColumn = () => {
-    const { dispatch, visibilities } = this.props;
+    const { dispatch, visibilities, onlyMedia } = this.props;
 
-    dispatch(expandHomeTimeline({ visibilities }));
+    dispatch(expandHomeTimeline({ visibilities, onlyMedia }));
     dispatch(resumeExternalFeedViews({ keys: ['home'], targets: [{ type: 'home' }] }));
   }
 
@@ -104,9 +109,9 @@ class HomeTimeline extends React.PureComponent {
   }
 
   handleLoadMore = maxId => {
-    const { visibilities } = this.props;
+    const { visibilities, onlyMedia } = this.props;
 
-    this.props.dispatch(expandHomeTimeline({ maxId, visibilities }));
+    this.props.dispatch(expandHomeTimeline({ maxId, visibilities, onlyMedia }));
   }
 
   handleLoadMoreHistory = (maxId, anchorId) => {
@@ -133,18 +138,29 @@ class HomeTimeline extends React.PureComponent {
   }
 
   componentDidMount () {
+    if (this.props.onlyMedia) {
+      this.props.dispatch(expandHomeTimeline({ visibilities: this.props.visibilities, onlyMedia: true }));
+    }
+
     this.externalFeedToken = this.props.dispatch(openExternalFeedView('home', { targets: [{ type: 'home' }] }));
     this.announcementsTimer = setTimeout(() => this.props.dispatch(fetchAnnouncements()), 700);
     this._checkIfReloadNeeded(false, this.props.isPartial);
   }
 
   componentDidUpdate (prevProps) {
-    const { dispatch, visibilities } = this.props;
+    const { dispatch, visibilities, onlyMedia } = this.props;
+    const visibilitiesChanged = prevProps.visibilities.toString() !== visibilities.toString();
 
-    if (prevProps.visibilities.toString() !== visibilities.toString()) {
-      dispatch(invalidateExternalFeedView('home'));
-      dispatch(expandHomeTimeline({ visibilities }));
-      dispatch(reconcileExternalFeedView('home'));
+    if (visibilitiesChanged || prevProps.onlyMedia !== onlyMedia) {
+      if (visibilitiesChanged) {
+        dispatch(invalidateExternalFeedView('home'));
+      }
+
+      dispatch(expandHomeTimeline({ visibilities, onlyMedia }));
+
+      if (visibilitiesChanged) {
+        dispatch(reconcileExternalFeedView('home'));
+      }
     }
 
     this._checkIfReloadNeeded(prevProps.isPartial, this.props.isPartial);
@@ -165,13 +181,13 @@ class HomeTimeline extends React.PureComponent {
   }
 
   _checkIfReloadNeeded (wasPartial, isPartial) {
-    const { dispatch, visibilities } = this.props;
+    const { dispatch, visibilities, onlyMedia } = this.props;
 
     if (wasPartial === isPartial) {
       return;
     } else if (!wasPartial && isPartial) {
       this.polling = setInterval(() => {
-        dispatch(expandHomeTimeline({ visibilities }));
+        dispatch(expandHomeTimeline({ visibilities, onlyMedia }));
       }, 3000);
     } else if (wasPartial && !isPartial) {
       this._stopPolling();
@@ -207,7 +223,7 @@ class HomeTimeline extends React.PureComponent {
   }
 
   renderColumn = (split) => {
-    const { intl, hasUnread, columnId, multiColumn, hasAnnouncements, unreadAnnouncements, showAnnouncements, columnWidth } = this.props;
+    const { intl, hasUnread, columnId, multiColumn, hasAnnouncements, unreadAnnouncements, showAnnouncements, columnWidth, onlyMedia } = this.props;
     const pinned = !!columnId;
     const emptyMessage = this.renderEmptyMessage();
 
@@ -247,10 +263,14 @@ class HomeTimeline extends React.PureComponent {
     if (!split.isSplit) {
       timeline = (
         <StatusListContainer
+          columnId={columnId}
+          layoutScope='home'
+          disableLayout={split.isSplit}
           trackScroll={!pinned}
-          scrollKey={`home_timeline-${columnId}`}
+          scrollKey={`home_timeline-${columnId}${onlyMedia ? '-media' : ''}`}
           onLoadMore={this.handleLoadMore}
           timelineId='home'
+          dataTimelineId={onlyMedia ? 'home:media' : 'home'}
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
         />
@@ -260,6 +280,9 @@ class HomeTimeline extends React.PureComponent {
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
             <StatusListContainer
+              columnId={columnId}
+              layoutScope='home'
+              disableLayout={split.isSplit}
               timelineId='home'
               dataTimelineId='home'
               includePendingItems
@@ -277,6 +300,9 @@ class HomeTimeline extends React.PureComponent {
 
           <div className='timeline-split__pane timeline-split__pane--history'>
             <StatusListContainer
+              columnId={columnId}
+              layoutScope='home'
+              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`home_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
@@ -295,6 +321,8 @@ class HomeTimeline extends React.PureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
+          columnId={columnId}
+          layoutScope='home'
           icon='home'
           active={hasUnread}
           title={intl.formatMessage(messages.title)}

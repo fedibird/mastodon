@@ -23,7 +23,7 @@ import Icon from 'mastodon/components/icon';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
 import FilterReason from './filter_reason';
-import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
+import { displayMedia, cropCardImages, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
@@ -32,6 +32,12 @@ import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { externalIdentityOf, externalIdentityName, externalIdentityReaderText } from 'mastodon/external_presentation';
 import ExternalStatusMedia from 'mastodon/components/external_status_media';
 import { assignRelease, spoilerConcealed } from 'mastodon/external_player/session';
+import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
+import AltTextBadge from 'mastodon/components/alt_text_badge';
+import Blurhash from 'mastodon/components/blurhash';
+import Thumbhash from 'mastodon/components/thumbhash';
+import { useBlurhash } from 'mastodon/initial_state';
+import { defaultMediaVisibility as defaultMediaTileVisibility, mediaAspectRatio, mediaIsConcealed } from 'mastodon/utils/media_display';
 
 const domParser = new DOMParser();
 
@@ -234,6 +240,10 @@ const messages = defineMessages({
   mark_descendant: { id: 'thread_mark.descendant', defaultMessage: 'Has reply' },
   mark_both: { id: 'thread_mark.both', defaultMessage: 'Has reference and reply' },
   edited: { id: 'status.edited', defaultMessage: 'Edited {date}' },
+  revealMediaTile: { id: 'timeline.media.reveal', defaultMessage: 'Reveal media' },
+  openMediaTile: { id: 'timeline.media.open', defaultMessage: 'Open media' },
+  openMediaSource: { id: 'timeline.media.open_post', defaultMessage: 'Open original post' },
+  cardMediaCount: { id: 'timeline.card.media_count', defaultMessage: '{count} media attachments' },
 });
 
 const dateFormatOptions = {
@@ -302,6 +312,17 @@ class Status extends ImmutablePureComponent {
     reactionLimitReached: PropTypes.bool,
     sourceBadges: PropTypes.array,
     immediate: PropTypes.bool,
+    layoutMode: PropTypes.string,
+    mediaIndex: PropTypes.number,
+    mediaShape: PropTypes.oneOf(['square', 'original']),
+    mediaVisibility: PropTypes.oneOf(['hide_sensitive', 'show_all', 'hide_all']),
+    mediaRowKey: PropTypes.string,
+    mediaTimeline: PropTypes.object,
+    mediaSource: PropTypes.object,
+    onMediaTileReveal: PropTypes.func,
+    mediaTileRevealed: PropTypes.bool,
+    onMediaFilterReveal: PropTypes.func,
+    mediaFilterRevealed: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -322,6 +343,11 @@ class Status extends ImmutablePureComponent {
     'quote_muted',
     'sourceBadges',
     'immediate',
+    'layoutMode',
+    'mediaIndex',
+    'mediaShape',
+    'mediaVisibility',
+    'mediaSource',
   ];
 
   state = {
@@ -329,10 +355,23 @@ class Status extends ImmutablePureComponent {
     showQuoteMedia: defaultMediaVisibility(this.props.status ? this.props.status.get('quote', null) : null),
     statusId: undefined,
     forceFilter: undefined,
+    tileRevealed: false,
+    tileVisibility: this.props.mediaVisibility,
+    tileIndex: this.props.mediaIndex,
   };
 
   static getDerivedStateFromProps(nextProps, prevState) {
-    return nextShownMediaState(prevState, nextProps.status, 'statusId');
+    const changes = nextShownMediaState(prevState, nextProps.status, 'statusId');
+    const statusId = nextProps.status && nextProps.status.get('id');
+    const resetTile = nextProps.mediaVisibility !== prevState.tileVisibility ||
+      nextProps.mediaIndex !== prevState.tileIndex || (statusId && statusId !== prevState.statusId);
+
+    return resetTile ? {
+      ...changes,
+      tileRevealed: false,
+      tileVisibility: nextProps.mediaVisibility,
+      tileIndex: nextProps.mediaIndex,
+    } : changes;
   }
 
   componentDidMount () {
@@ -460,6 +499,7 @@ class Status extends ImmutablePureComponent {
 
   handleUnfilterClick = e => {
     this.setState({ forceFilter: false });
+    this.props.onMediaFilterReveal?.(this.props.status.get('id'));
     e.preventDefault();
     e.stopPropagation();
   }
@@ -565,6 +605,7 @@ class Status extends ImmutablePureComponent {
         deployPictureInPicture={options.deployPictureInPicture}
         quote={options.quote}
         posterFallback={options.posterFallback}
+        cropImages={options.cropImages}
         lang={translation.lang}
         translationMode={translation.translationMode}
         sourceLang={translation.sourceLang}
@@ -673,11 +714,308 @@ class Status extends ImmutablePureComponent {
     this.emoji_node = c;
   }
 
+
+  handleTimelineCardClick = event => {
+    const target = event.target;
+    if (target && typeof target.closest === 'function' && target.closest('a, button, [role="button"], .quote-status')) {
+      return;
+    }
+
+    this.handleClick();
+  }
+
+  handleTimelineQuoteClick = event => {
+    event.stopPropagation();
+    this.handleQuoteClick();
+  }
+
+  handleTimelineQuoteKeyDown = event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.handleQuoteClick();
+    }
+  }
+
+  renderTimelineCard () {
+    const { status: original, intl, otherAccounts, account, contextType, scrollKey, quote_muted, reactionLimitReached, sourceBadges } = this.props;
+    const status = this._properStatus();
+    const externalIdentity = externalIdentityOf(status);
+    const hasSpoiler = !!status.get('spoiler_text');
+    const contentVisible = !hasSpoiler || !status.get('hidden');
+    const media = status.get('media_attachments', ImmutableList());
+    // A reaction row has no content when every count is zero. Fold its picker
+    // into the author actions until at least one reaction is visible.
+    const hasVisibleEmojiReactions = status.get('emoji_reactions', ImmutableList()).some(reaction => reaction.get('count', 0) > 0);
+    const firstMedia = contentVisible && media && media.size > 0
+      ? this.renderAttachmentMedia(status.set('media_attachments', media.take(1)), {
+        sensitive: status.get('sensitive'),
+        height: 160,
+        videoHeight: 160,
+        audioHeight: 100,
+        visible: this.state.showMedia,
+        onToggleVisibility: this.handleToggleMediaVisibility,
+        onOpenMedia: this.handleOpenMedia,
+        onOpenVideo: this.handleOpenVideo,
+        translationView: statusTranslationView(status),
+        posterFallback: status.getIn(['account', 'avatar_static']),
+        cropImages: cropCardImages,
+      })
+      : null;
+
+    const quote = status.get('quote');
+    const hiddenQuote = quote && quote_muted;
+    const unlistedQuote = quote && quote.get('visibility') === 'unlisted' &&
+      !!contextType && ['public', 'community', 'hashtag'].includes(contextType.split(':', 2)[0]);
+    const quoteText = quote && (quote.get('hidden') && quote.get('spoiler_text')
+      ? quote.get('spoiler_text') : plainHtmlText(quote.get('contentHtml')));
+
+    const quoteBody = contentVisible && quote ? (
+      <div
+        className='timeline-card__quote'
+        onClick={this.handleTimelineQuoteClick}
+        onKeyDown={this.handleTimelineQuoteKeyDown}
+        role='button'
+        tabIndex='0'
+      >
+        {hiddenQuote ? <FormattedMessage id='status.muted_quote' defaultMessage='Muted quote' /> :
+          unlistedQuote ? <FormattedMessage id='status.unlisted_quote' defaultMessage='Unlisted quote' /> : (
+            <>
+              {quote.get('account') && <div className='timeline-card__quote-author'>
+                <Avatar account={quote.get('account')} size={18} />
+                <DisplayName account={quote.get('account')} />
+              </div>}
+              <p className='timeline-card__quote-text'>{quoteText}</p>
+            </>
+          )}
+      </div>
+    ) : null;
+
+    const linkPreview = contentVisible && !quote && status.get('card') && !isHideCard(status.getIn(['card', 'type'])) ? (
+      <div className='timeline-card__preview'>
+        <Card
+          onOpenMedia={this.handleOpenMedia}
+          card={status.get('card')}
+          compact
+          maxDescription={50}
+          cacheWidth={this.props.cacheMediaWidth}
+          defaultWidth={this.props.cachedMediaWidth}
+          sensitive={status.get('sensitive')}
+        />
+      </div>
+    ) : null;
+
+    const expiresAt = status.get('expires_at');
+    const expired = expiresAt && new Date(expiresAt).getTime() < intl.now();
+    const reblog = original.get('reblog');
+    const booster = reblog && typeof reblog.get === 'function' ? original.get('account') : null;
+    let cardContext = null;
+
+    if (this.props.featured) {
+      cardContext = (
+        <div className='timeline-card__context'>
+          <Icon id='thumb-tack' fixedWidth />
+          <FormattedMessage id='status.pinned' defaultMessage='Pinned toot' />
+        </div>
+      );
+    } else if (booster && !hideRebloggedBy) {
+      // Only the server-sanitized HTML field is safe for custom emoji markup;
+      // the plain display-name fallback must remain escaped React text.
+      const boosterNameHtml = booster.get('display_name_html');
+      const boosterName = boosterNameHtml
+        ? <strong dangerouslySetInnerHTML={{ __html: boosterNameHtml }} />
+        : <strong>{booster.get('display_name') || booster.get('username') || booster.get('acct')}</strong>;
+      const name = (
+        <a
+          href={booster.get('url')}
+          data-id={booster.get('id')}
+          data-group={booster.get('group')}
+          className='timeline-card__context-account status__display-name'
+          onClick={this.handleAccountClick}
+        >
+          <bdi>{boosterName}</bdi>
+        </a>
+      );
+      cardContext = (
+        <div className='timeline-card__context'>
+          <Icon id='retweet' fixedWidth />
+          <FormattedMessage id='status.reblogged_by' defaultMessage='{name} boosted' values={{ name }} />
+        </div>
+      );
+    }
+
+    const boosterDescription = booster && !hideRebloggedBy
+      ? intl.formatMessage({ id: 'status.reblogged_by', defaultMessage: '{name} boosted' }, { name: booster.get('acct') })
+      : false;
+
+    return (
+      <HotKeys handlers={{ open: this.handleHotkeyOpen, favourite: this.handleHotkeyFavourite, moveUp: this.handleHotkeyMoveUp, moveDown: this.handleHotkeyMoveDown }}>
+        <div className='status__wrapper status__wrapper--compact focusable' tabIndex='0' data-id={status.get('id')} aria-label={textForScreenReader(intl, status, boosterDescription)} ref={this.handleRef} onClick={this.handleTimelineCardClick}>
+          <div className='timeline-card'>
+            {firstMedia && <div className='timeline-card__media'>
+              {firstMedia}
+              {media.size > 1 && (
+                <span
+                  className='timeline-card__media-count'
+                  role='img'
+                  aria-label={intl.formatMessage(messages.cardMediaCount, { count: media.size })}
+                >
+                  <span aria-hidden='true'><Icon id='clone' fixedWidth /> {media.size}</span>
+                </span>
+              )}
+            </div>}
+            <div className='timeline-card__body'>
+              <StatusContent status={status} translationWrapper={original} onClick={this.handleClick} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} compactCard />
+            </div>
+            {quoteBody}
+            {linkPreview}
+            {cardContext}
+            <div className='timeline-card__author'>
+              {externalIdentity ? (
+                <ExternalSourceIdentity identity={externalIdentity} size={26} showLabel={false} />
+              ) : (
+                <a href={status.getIn(['account', 'url'])} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} onClick={this.handleAccountClick} className='status__display-name timeline-card__author-link'>
+                  <Avatar account={status.get('account')} size={26} />
+                  <DisplayName account={status.get('account')} others={otherAccounts} />
+                </a>
+              )}
+              {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
+              <div className='timeline-card__author-actions'>
+                <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='favourite' expired={expired} onFavourite={this.props.onFavourite} />
+                {enableReaction && !hasVisibleEmojiReactions && <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />}
+              </div>
+            </div>
+            {enableReaction && hasVisibleEmojiReactions && <div className='timeline-card__reactions'>
+              <EmojiReactionsBar status={status} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} reactionLimitReached={reactionLimitReached} />
+              <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />
+            </div>}
+          </div>
+        </div>
+      </HotKeys>
+    );
+  }
+
+  mediaTileConcealed = () => {
+    const status = this._properStatus();
+    const policy = this.props.mediaVisibility || defaultMediaTileVisibility();
+    return mediaIsConcealed(policy, status.get('sensitive'), this.state.tileRevealed || this.props.mediaTileRevealed);
+  }
+
+  handleMediaTileClick = event => {
+    event.stopPropagation();
+    const status = this._properStatus();
+    const media = status.get('media_attachments', ImmutableList());
+    const attachment = media.get(this.props.mediaIndex);
+
+    if (!attachment) {
+      return;
+    }
+
+    if (this.mediaTileConcealed()) {
+      // Reveal this one tile only, without changing the user's media policy.
+      this.setState({ tileRevealed: true });
+      this.props.onMediaTileReveal?.(this.props.mediaRowKey);
+      return;
+    }
+
+    const type = attachment.get('type');
+    if (type === 'video') {
+      this.handleOpenVideo(attachment, { startTime: 0 });
+    } else if (type === 'image' || type === 'gifv') {
+      const sequence = this.props.mediaTimeline;
+      const position = sequence && sequence.positions[this.props.mediaRowKey];
+
+      if (Number.isInteger(position) && this.props.onOpenMedia && sequence.media.size > 0) {
+        // Sequence contains only currently loaded, view-visible image/GIF tiles.
+        // Preserve per-post attribution as the viewer advances across posts.
+        this.props.onOpenMedia(
+          status.get('id'),
+          sequence.media,
+          position,
+          statusTranslationView(status).mediaLang,
+          sequence.statusIds,
+          this.props.mediaSource,
+        );
+      } else {
+        // If the selected tile was revealed individually, do not let the
+        // modal disclose concealed siblings from the same post either.
+        this.handleOpenMedia(ImmutableList([attachment]), 0);
+      }
+    } else {
+      // Audio and unknown attachment types have players on the full post.
+      this.handleClick();
+    }
+  }
+
+  renderMediaTile () {
+    const status = this._properStatus();
+    const media = status.get('media_attachments', ImmutableList());
+    const attachment = media.get(this.props.mediaIndex);
+
+    if (!attachment) {
+      return null;
+    }
+
+    const original = this.props.mediaShape === 'original';
+    const concealed = this.mediaTileConcealed();
+    const preview = attachment.get('preview_url') || (attachment.get('type') === 'image' ? attachment.get('url') : null);
+    const canPreview = !concealed && preview && ['image', 'gifv', 'video'].includes(attachment.get('type'));
+    const description = attachment.get('description');
+    const alt = description || status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || '';
+    const externalIdentity = externalIdentityOf(status);
+    const aspect = original && mediaAspectRatio(attachment);
+    const itemStyle = aspect ? { aspectRatio: String(aspect) } : undefined;
+    const hash = attachment.get('blurhash');
+    const thumbnailHash = attachment.get('thumbhash');
+    const blurred = concealed && useBlurhash && (hash || thumbnailHash);
+
+    let mediaTileContent;
+    if (canPreview) {
+      mediaTileContent = <img src={preview} alt={alt} loading='lazy' />;
+    } else if (blurred) {
+      mediaTileContent = hash
+        ? <Blurhash className='timeline-media-tile__blurhash' hash={hash} />
+        : <Thumbhash className='timeline-media-tile__blurhash' hash={thumbnailHash} />;
+    } else {
+      mediaTileContent = (
+        <span className='timeline-media-tile__placeholder'>
+          <Icon id={concealed ? 'eye-slash' : attachment.get('type') === 'audio' ? 'music' : 'file-o'} />
+        </span>
+      );
+    }
+
+    return (
+      <div className='status__wrapper status__wrapper--media-tile' data-id={status.get('id')} ref={this.handleRef}>
+        <div className='timeline-media-tile'>
+          <div className='timeline-media-tile__preview'>
+            <button
+              type='button'
+              className={classNames('timeline-media-tile__open', { 'timeline-media-tile__open--original': original })}
+              style={itemStyle}
+              onClick={this.handleMediaTileClick}
+              aria-label={concealed ? this.props.intl.formatMessage(messages.revealMediaTile) : (alt || this.props.intl.formatMessage(messages.openMediaTile))}
+            >
+              {mediaTileContent}
+              {blurred && <span className='timeline-media-tile__concealed-icon'><Icon id='eye-slash' /></span>}
+              {!concealed && attachment.get('type') === 'video' && <span className='timeline-media-tile__play'><Icon id='play' /></span>}
+            </button>
+            {description && <div className='media-gallery__item__badges'>
+              <AltTextBadge description={description} />
+            </div>}
+          </div>
+          <button type='button' className='timeline-media-tile__source' onClick={this.handleClick} title={this.props.intl.formatMessage(messages.openMediaSource)}>
+            {externalIdentity ? externalIdentityName(this.props.intl, externalIdentity) : (status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']))}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   render () {
     let media = null;
     let statusAvatar, prepend, rebloggedByText;
 
-    const { intl, hidden, featured, otherAccounts, unread, showThread, showCard, scrollKey, pictureInPicture, contextType, quote_muted, referenced, contextReferenced, reactionLimitReached } = this.props;
+    const { intl, hidden, featured, otherAccounts, unread, showThread, showCard, scrollKey, pictureInPicture, contextType, quote_muted, referenced, contextReferenced, reactionLimitReached, layoutMode } = this.props;
 
     let { status, account, sourceBadges, ...other } = this.props;
 
@@ -725,7 +1063,7 @@ class Status extends ImmutablePureComponent {
 
     const matchedFilters = status.get('matched_filters');
     const hasMatchedFilters = ImmutableList.isList(matchedFilters) ? !matchedFilters.isEmpty() : !!matchedFilters;
-    const shouldFilter = hasMatchedFilters && this.state.forceFilter !== false;
+    const shouldFilter = hasMatchedFilters && this.state.forceFilter !== false && !this.props.mediaFilterRevealed;
 
     if (shouldFilter) {
       const minHandlers = this.props.muted ? {} : {
@@ -745,6 +1083,14 @@ class Status extends ImmutablePureComponent {
           </div>
         </HotKeys>
       );
+    }
+
+    if (layoutMode === 'media') {
+      return this.renderMediaTile();
+    }
+
+    if (isCardTimelineLayout(layoutMode)) {
+      return this.renderTimelineCard();
     }
 
     if (featured) {

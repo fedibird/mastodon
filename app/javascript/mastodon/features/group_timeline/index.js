@@ -20,6 +20,7 @@ import ColumnSettingsContainer from './containers/column_settings_container';
 import GroupDetail from './components/group_detail';
 import { connectGroupStream } from '../../actions/streaming';
 import { defaultColumnWidth } from 'mastodon/initial_state';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 import {
   groupPortableComposerMounted,
   groupPortableComposerToggleEligible,
@@ -63,8 +64,9 @@ const makeMapStateToProps = () => {
   const mapStateToProps = (state, { columnId, params: { id, tagged } }) => {
     const columns = state.getIn(['settings', 'columns']);
     const index = columns ? columns.findIndex(column => column.get('uuid') === columnId) : -1;
-    const onlyMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'group', 'other', 'onlyMedia']);
-    const withoutMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'group', 'other', 'withoutMedia']);
+    const mediaLayout = readTimelineLayout(state, columnId, 'group') === 'media';
+  const onlyMedia = mediaLayout || ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'group', 'other', 'onlyMedia']));
+    const withoutMedia = mediaLayout ? false : ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'group', 'other', 'withoutMedia']));
     const sourceTimelineId = groupTimelineId(id, { withoutMedia, onlyMedia, tagged });
     const timelineState = state.getIn(['timelines', sourceTimelineId]);
     const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'group', 'columnWidth']);
@@ -422,6 +424,9 @@ class GroupTimeline extends React.PureComponent {
     if (!split.isSplit) {
       timeline = (
         <StatusListContainer
+          columnId={columnId}
+          layoutScope='group'
+          disableLayout={split.isSplit}
           trackScroll={!pinned}
           scrollKey={`group_timeline-${columnId}`}
           timelineId={sourceTimelineId}
@@ -439,6 +444,9 @@ class GroupTimeline extends React.PureComponent {
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
             <StatusListContainer
+              columnId={columnId}
+              layoutScope='group'
+              disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               immediateViewKey={composerId}
@@ -460,6 +468,9 @@ class GroupTimeline extends React.PureComponent {
 
           <div className='timeline-split__pane timeline-split__pane--history'>
             <StatusListContainer
+              columnId={columnId}
+              layoutScope='group'
+              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`group_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
@@ -479,6 +490,8 @@ class GroupTimeline extends React.PureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
         <ColumnHeader
+          columnId={columnId}
+          layoutScope='group'
           icon='users'
           active={hasUnread}
           title={title}

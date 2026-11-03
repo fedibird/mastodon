@@ -14,18 +14,18 @@ module ExternalBridge
         @list = list
       end
 
-      def call(limit, max_id = nil, since_id = nil, min_id = nil, visibilities = [])
+      def call(limit, max_id = nil, since_id = nil, min_id = nil, visibilities = [], only_media: false)
         visibilities = Array(visibilities)
-        return @feed.get(limit, max_id, since_id, min_id, visibilities) unless merge?(visibilities)
+        return @feed.get(limit, max_id, since_id, min_id, visibilities, only_media: only_media) unless merge?(visibilities)
 
         limit = limit.to_i
         return [] if limit <= 0
 
-        scan = @feed.candidate_scan(limit, max_id, since_id, min_id, visibilities)
-        external_ids = external_ids_for(scan, limit, max_id, since_id, min_id)
+        scan = @feed.candidate_scan(limit, max_id, since_id, min_id, visibilities, only_media: only_media)
+        external_ids = external_ids_for(scan, limit, max_id, since_id, min_id, only_media: only_media)
         merged = merge_ids(scan.ids, external_ids, limit, scan.ascending)
         merged.reverse! if scan.ascending
-        hydrate(merged, scan.ids, visibilities)
+        hydrate(merged, scan.ids, visibilities, only_media: only_media)
       end
 
       private
@@ -56,13 +56,14 @@ module ExternalBridge
         values.empty? || values.include?('external')
       end
 
-      def external_ids_for(scan, limit, max_id, since_id, min_id)
+      def external_ids_for(scan, limit, max_id, since_id, min_id, only_media: false)
         return [] if !scan.exhausted && scan.frontier_id.nil?
 
         bounds = bounds_for(scan, max_id, since_id, min_id)
         Query.new(user: @user, destination: @destination, list: @list).ids(
           limit: limit,
           ascending: scan.ascending,
+          only_media: only_media,
           **bounds
         )
       end
@@ -125,16 +126,16 @@ module ExternalBridge
         prefer_first ? first : second
       end
 
-      def hydrate(ordered_ids, ordinary_scan_ids, visibilities)
+      def hydrate(ordered_ids, ordinary_scan_ids, visibilities, only_media: false)
         return [] if ordered_ids.empty?
 
         ordinary_ids = ordered_ids & ordinary_scan_ids
         external_ids = ordered_ids - ordinary_ids
         records = {}
-        @feed.records_for(ordinary_ids, visibilities).each { |status| records[status.id] = status } if ordinary_ids.any?
+        @feed.records_for(ordinary_ids, visibilities, only_media: only_media).each { |status| records[status.id] = status } if ordinary_ids.any?
 
         if external_ids.any?
-          visible = Query.new(user: @user, destination: @destination, list: @list).eligible_ids(external_ids)
+          visible = Query.new(user: @user, destination: @destination, list: @list).eligible_ids(external_ids, only_media: only_media)
           Status.where(id: visible).each { |status| records[status.id] = status } if visible.any?
         end
 

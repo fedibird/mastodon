@@ -30,6 +30,7 @@ import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 import StatusTimelineSplitController, { clampTimelineSplitRatio } from '../ui/components/status_timeline_split_controller';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 
 const messages = defineMessages({
   deleteMessage: { id: 'confirmations.delete_list.message', defaultMessage: 'Are you sure you want to permanently delete this list?' },
@@ -50,10 +51,13 @@ const mapStateToProps = (state, { columnId, params }) => {
   const index = columns ? columns.findIndex(c => c.get('uuid') === uuid) : -1;
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'list', 'columnWidth']);
   const composerId = listComposerId(params.id, columnId);
+  const onlyMedia = readTimelineLayout(state, columnId, 'list') === 'media';
+  const activeTimelineId = `list:${params.id}${onlyMedia ? ':media' : ''}`;
 
   return {
     list: state.getIn(['lists', params.id]),
-    hasUnread: state.getIn(['timelines', `list:${params.id}`, 'unread']) > 0,
+    hasUnread: state.getIn(['timelines', activeTimelineId, 'unread']) > 0,
+    onlyMedia,
     columnWidth: columnWidth ?? defaultColumnWidth,
     splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'list', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
     composerVisible: selectPortableComposerVisible(state, composerId),
@@ -73,6 +77,7 @@ class ListTimeline extends React.PureComponent {
     dispatch: PropTypes.func.isRequired,
     columnId: PropTypes.string,
     hasUnread: PropTypes.bool,
+    onlyMedia: PropTypes.bool,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
     splitRatio: PropTypes.number,
@@ -117,7 +122,7 @@ class ListTimeline extends React.PureComponent {
 
     this.bindExternalFeed(id);
     dispatch(fetchList(id));
-    dispatch(expandListTimeline(id));
+    dispatch(expandListTimeline(id, { onlyMedia: this.props.onlyMedia }));
 
     this.disconnect = dispatch(connectListStream(id));
   }
@@ -139,7 +144,7 @@ class ListTimeline extends React.PureComponent {
 
       this.bindExternalFeed(id);
       dispatch(fetchList(id));
-      dispatch(expandListTimeline(id));
+      dispatch(expandListTimeline(id, { onlyMedia: nextProps.onlyMedia }));
 
       this.disconnect = dispatch(connectListStream(id));
     }
@@ -147,6 +152,10 @@ class ListTimeline extends React.PureComponent {
 
   componentDidUpdate (prevProps) {
     this.restoreComposerScroll(prevProps);
+
+    if (prevProps.onlyMedia !== this.props.onlyMedia && prevProps.params.id === this.props.params.id) {
+      this.props.dispatch(expandListTimeline(this.props.params.id, { onlyMedia: this.props.onlyMedia }));
+    }
   }
 
   componentWillUnmount () {
@@ -199,7 +208,7 @@ class ListTimeline extends React.PureComponent {
     const { dispatch } = this.props;
     const { id } = this.props.params;
 
-    dispatch(expandListTimeline(id));
+    dispatch(expandListTimeline(id, { onlyMedia: this.props.onlyMedia }));
     dispatch(resumeExternalFeedViews({
       keys: [`list:${id}`],
       targets: [{ type: 'list', id: String(id) }],
@@ -216,7 +225,7 @@ class ListTimeline extends React.PureComponent {
 
   handleLoadMore = maxId => {
     const { id } = this.props.params;
-    this.props.dispatch(expandListTimeline(id, { maxId }));
+    this.props.dispatch(expandListTimeline(id, { maxId, onlyMedia: this.props.onlyMedia }));
   }
 
   handleLoadMoreHistory = (maxId, anchorId) => {
@@ -294,7 +303,7 @@ class ListTimeline extends React.PureComponent {
   renderTimeline = (split) => {
     this.forwardColumnRef = split.setColumnRef;
 
-    const { hasUnread, columnId, multiColumn, list, columnWidth, intl, composerVisible } = this.props;
+    const { hasUnread, columnId, multiColumn, list, columnWidth, intl, composerVisible, onlyMedia } = this.props;
     const { id } = this.props.params;
     const pinned = !!columnId;
     const title  = list ? list.get('title') : id;
@@ -314,9 +323,13 @@ class ListTimeline extends React.PureComponent {
     if (!split.isSplit) {
       timeline = (
         <StatusListContainer
+          columnId={columnId}
+          layoutScope='list'
+          disableLayout={split.isSplit}
           trackScroll={!pinned}
-          scrollKey={`list_timeline-${columnId}`}
+          scrollKey={`list_timeline-${columnId}${onlyMedia ? '-media' : ''}`}
           timelineId={sourceTimelineId}
+          dataTimelineId={onlyMedia ? `${sourceTimelineId}:media` : sourceTimelineId}
           onLoadMore={this.handleLoadMore}
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
@@ -329,6 +342,9 @@ class ListTimeline extends React.PureComponent {
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
             <StatusListContainer
+              columnId={columnId}
+              layoutScope='list'
+              disableLayout={split.isSplit}
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
               includePendingItems
@@ -348,6 +364,9 @@ class ListTimeline extends React.PureComponent {
 
           <div className='timeline-split__pane timeline-split__pane--history'>
             <StatusListContainer
+              columnId={columnId}
+              layoutScope='list'
+              disableLayout={split.isSplit}
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`list_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
@@ -366,6 +385,8 @@ class ListTimeline extends React.PureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
         <ColumnHeader
+          columnId={columnId}
+          layoutScope='list'
           icon='list-ul'
           active={hasUnread}
           title={title}

@@ -22,6 +22,7 @@ import { connectTimeline, disconnectTimeline } from 'mastodon/actions/timelines'
 import { fetchFeaturedTags } from '../../actions/featured_tags';
 import { changeSetting } from '../../actions/settings';
 import Icon from 'mastodon/components/icon';
+import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 
 const emptyList = ImmutableList();
 
@@ -30,8 +31,7 @@ const messages = defineMessages({
 });
 
 const mapStateToProps = (state, { params: { accountId, tagged }, about, withReplies, posts }) => {
-  posts = tagged ? false : posts;
-  withReplies = tagged ? true : withReplies;
+  // A hashtag keeps the currently selected Posts/Replies/About tab semantics.
   const advancedMode = state.getIn(['settings', 'account', 'other', 'advancedMode'], new_features_policy === 'conservative' ? false : true);
   const hideFeaturedTags = state.getIn(['settings', 'account', 'other', 'hideFeaturedTags'], false);
   const withoutReblogs = advancedMode && state.getIn(['settings', 'account', 'other', 'withoutReblogs'], false);
@@ -42,16 +42,19 @@ const mapStateToProps = (state, { params: { accountId, tagged }, about, withRepl
   const hideSubscribingCount = state.getIn(['settings', 'account', 'other', 'hideSubscribingCount'], false);
   const hideRelation = hidePostCount && hideFollowingCount && hideFollowerCount && (me !== accountId || hideSubscribingCount);
   const path = `${accountId}${withReplies ? ':with_replies' : ''}${withoutReblogs ? ':without_reblogs' : ''}${tagged ? `:${tagged}` : ''}`;
+  // Dedicated account media gallery already provides the media display mode.
+  const onlyMedia = false;
+  const activePath = `${path}${onlyMedia ? ':view-media' : ''}`;
 
   return {
     remote: !!(state.getIn(['accounts', accountId, 'acct']) !== state.getIn(['accounts', accountId, 'username'])),
     remoteUrl: state.getIn(['accounts', accountId, 'url']),
     fetched: state.getIn(['accounts', accountId, 'fetched'], true),
     isAccount: !!state.getIn(['accounts', accountId]),
-    statusIds: advancedMode && about && !showPostsInAbout ? emptyList : state.getIn(['timelines', `account:${path}`, 'items'], emptyList),
+    statusIds: advancedMode && about && !showPostsInAbout && !tagged ? emptyList : state.getIn(['timelines', `account:${activePath}`, 'items'], emptyList),
     featuredStatusIds: (withReplies || posts) ? emptyList : state.getIn(['timelines', `account:${accountId}:pinned${tagged ? `:${tagged}` : ''}`, 'items'], emptyList),
-    isLoading: state.getIn(['timelines', `account:${path}`, 'isLoading']),
-    hasMore: state.getIn(['timelines', `account:${path}`, 'hasMore']),
+    isLoading: state.getIn(['timelines', `account:${activePath}`, 'isLoading']),
+    hasMore: state.getIn(['timelines', `account:${activePath}`, 'hasMore']),
     suspended: state.getIn(['accounts', accountId, 'suspended'], false),
     blockedBy: state.getIn(['relationships', accountId, 'blocked_by'], false),
     following: state.getIn(['relationships', accountId, 'following'], false),
@@ -63,6 +66,9 @@ const mapStateToProps = (state, { params: { accountId, tagged }, about, withRepl
     showPostsInAbout,
     hideRelation,
     columnWidth: state.getIn(['settings', 'account', 'columnWidth'], defaultColumnWidth),
+    layoutMode: readTimelineLayout(state, null, 'account') === 'media' ? 'normal' : readTimelineLayout(state, null, 'account'),
+    onlyMedia,
+    mediaStatuses: state.get('statuses'),
   };
 };
 
@@ -102,6 +108,9 @@ class AccountTimeline extends ImmutablePureComponent {
     fetched: PropTypes.bool,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    layoutMode: PropTypes.string,
+    onlyMedia: PropTypes.bool,
+    mediaStatuses: ImmutablePropTypes.map,
   };
 
   static defaultProps = {
@@ -120,8 +129,8 @@ class AccountTimeline extends ImmutablePureComponent {
       dispatch(expandAccountFeaturedTimeline(accountId, { tagged }));
     }
 
-    if (!about || !advancedMode || showPostsInAbout) {
-      dispatch(expandAccountTimeline(accountId, { withReplies, tagged, withoutReblogs }));
+    if (!about || !advancedMode || showPostsInAbout || tagged) {
+      dispatch(expandAccountTimeline(accountId, { withReplies, tagged, withoutReblogs, onlyMedia: this.props.onlyMedia }));
     }
 
     if (tagged || !hideFeaturedTags) {
@@ -141,6 +150,7 @@ class AccountTimeline extends ImmutablePureComponent {
       || nextProps.withReplies !== this.props.withReplies
       || nextProps.withoutReblogs !== this.props.withoutReblogs
       || nextProps.showPostsInAbout !== this.props.showPostsInAbout
+      || nextProps.onlyMedia !== this.props.onlyMedia
     ) {
       dispatch(fetchAccount(nextProps.params.accountId));
       dispatch(fetchAccountIdentityProofs(nextProps.params.accountId));
@@ -149,8 +159,8 @@ class AccountTimeline extends ImmutablePureComponent {
         dispatch(expandAccountFeaturedTimeline(nextProps.params.accountId, { tagged: nextProps.params.tagged }));
       }
 
-      if (!nextProps.about || nextProps.showPostsInAbout) {
-        dispatch(expandAccountTimeline(nextProps.params.accountId, { withReplies: nextProps.withReplies, tagged: nextProps.params.tagged, withoutReblogs: nextProps.withoutReblogs }));
+      if (!nextProps.about || nextProps.showPostsInAbout || nextProps.params.tagged) {
+        dispatch(expandAccountTimeline(nextProps.params.accountId, { withReplies: nextProps.withReplies, tagged: nextProps.params.tagged, withoutReblogs: nextProps.withoutReblogs, onlyMedia: nextProps.onlyMedia }));
       }
 
       if (nextProps.params.tagged || !nextProps.hideFeaturedTags) {
@@ -176,11 +186,11 @@ class AccountTimeline extends ImmutablePureComponent {
   handleFetchMore = () => {
     const { dispatch, params: { accountId, tagged }, withReplies, withoutReblogs } = this.props;
 
-    dispatch(fetchAccountTimeline(accountId, { withReplies, tagged, withoutReblogs }));
+    dispatch(fetchAccountTimeline(accountId, { withReplies, tagged, withoutReblogs, onlyMedia: this.props.onlyMedia }));
   }
 
   handleLoadMore = maxId => {
-    this.props.dispatch(expandAccountTimeline(this.props.params.accountId, { maxId, withReplies: this.props.withReplies, tagged: this.props.params.tagged, withoutReblogs: this.props.withoutReblogs }));
+    this.props.dispatch(expandAccountTimeline(this.props.params.accountId, { maxId, withReplies: this.props.withReplies, tagged: this.props.params.tagged, withoutReblogs: this.props.withoutReblogs, onlyMedia: this.props.onlyMedia }));
   }
 
   handleHeaderClick = () => {
@@ -196,7 +206,7 @@ class AccountTimeline extends ImmutablePureComponent {
   }
 
   render () {
-    const { params: { accountId, tagged }, intl, statusIds, featuredStatusIds, isLoading, hasMore, blockedBy, following, suspended, isAccount, multiColumn, remote, remoteUrl, fetched, about, withReplies, posts, advancedMode, hideFeaturedTags, showPostsInAbout, hideRelation, columnWidth } = this.props;
+    const { params: { accountId, tagged }, intl, statusIds, featuredStatusIds, isLoading, hasMore, blockedBy, following, suspended, isAccount, multiColumn, remote, remoteUrl, fetched, about, withReplies, posts, advancedMode, hideFeaturedTags, showPostsInAbout, hideRelation, columnWidth, layoutMode, mediaStatuses } = this.props;
 
     if (!isAccount) {
       return (
@@ -235,7 +245,7 @@ class AccountTimeline extends ImmutablePureComponent {
       emptyMessage = <FormattedMessage id='empty_column.account_suspended' defaultMessage='Account suspended' />;
     } else if (blockedBy) {
       emptyMessage = <FormattedMessage id='empty_column.account_unavailable' defaultMessage='Profile unavailable' />;
-    } else if (about && advancedMode && featuredStatusIds.isEmpty()) {
+    } else if (about && advancedMode && !tagged && featuredStatusIds.isEmpty()) {
       emptyMessage = <FormattedMessage id='empty_column.pinned_unavailable' defaultMessage='Pinned posts unavailable' />;
     } else if (remote && !following && statusIds.isEmpty()) {
       emptyMessage = <RemoteHint url={remoteUrl} />;
@@ -245,9 +255,12 @@ class AccountTimeline extends ImmutablePureComponent {
       emptyMessage = <FormattedMessage id='empty_column.account_timeline' defaultMessage='No toots here!' />;
     }
 
+    const tagRouteBase = `/accounts/${accountId}/${about ? 'about' : withReplies ? 'with_replies' : 'posts'}`;
+
     return (
       <Column bindToDocument={!multiColumn} ref={this.setRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
+          layoutScope='account'
           icon='user'
           active={false}
           title={intl.formatMessage(messages.title)}
@@ -261,15 +274,17 @@ class AccountTimeline extends ImmutablePureComponent {
         </ColumnHeader>
 
         <StatusList
-          prepend={<HeaderContainer accountId={accountId} tagged={tagged} hideProfile={withReplies || posts || !!tagged} hideRelation={hideRelation} hideFeaturedTags={hideFeaturedTags} />}
+          layoutMode={layoutMode}
+          mediaStatuses={layoutMode === 'media' ? mediaStatuses : null}
+          prepend={<HeaderContainer accountId={accountId} tagged={tagged} tagRouteBase={tagRouteBase} showTagSearch hideProfile={withReplies || posts || !!tagged} hideRelation={hideRelation} hideFeaturedTags={hideFeaturedTags} />}
           alwaysPrepend
           append={remoteMessage}
           scrollKey='account_timeline'
           statusIds={(suspended || blockedBy) ? emptyList : statusIds}
           featuredStatusIds={featuredStatusIds}
           isLoading={isLoading}
-          hasMore={about && advancedMode && !showPostsInAbout ? null : hasMore}
-          onLoadMore={about && advancedMode && !showPostsInAbout ? null : this.handleLoadMore}
+          hasMore={about && advancedMode && !showPostsInAbout && !tagged ? null : hasMore}
+          onLoadMore={about && advancedMode && !showPostsInAbout && !tagged ? null : this.handleLoadMore}
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
           timelineId='account'

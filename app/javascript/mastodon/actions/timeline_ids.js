@@ -10,7 +10,7 @@ export const groupTimelineId = (id, { withoutMedia, onlyMedia, tagged } = {}) =>
   `group:${id}${withoutMedia ? ':nomedia' : ''}${onlyMedia ? ':media' : ''}${tagged ? `:${tagged}` : ''}`
 );
 
-export const hashtagTimelineId = (id) => `hashtag:${id}`;
+export const hashtagTimelineId = (id, { onlyMedia = false } = {}) => `hashtag:${id}${onlyMedia ? ':media' : ''}`;
 
 export const personalTimelineId = ({ withoutMedia, onlyMedia } = {}) => (
   `personal${withoutMedia ? ':nomedia' : ''}${onlyMedia ? ':media' : ''}`

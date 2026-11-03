@@ -11,6 +11,12 @@ import { List as ImmutableList } from 'immutable';
 import classNames from 'classnames';
 import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from '../features/ui/util/fullscreen';
 import LoadingIndicator from './loading_indicator';
+import TimelineMasonry from './timeline_masonry';
+import MediaDisplayControls from './media_display_controls';
+import MediaItemsLayout from './media_items_layout';
+import { defaultMediaVisibility } from 'mastodon/utils/media_display';
+import { mediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
+import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { connect } from 'react-redux';
 import { FilterSurface } from '../filter_reconciliation/surface';
 import { isProgrammaticTopScroll, releaseProgrammaticTopScroll } from '../scroll';
@@ -31,6 +37,9 @@ const MOUSE_IDLE_DELAY = 300;
 const mapStateToProps = (state, { scrollKey }) => {
   return {
     preventScroll: scrollKey === state.getIn(['dropdown_menu', 'scroll_key']),
+    mediaFilters: state.get('filters'),
+    mediaFilterMatches: state.get('filterMatches'),
+    mediaFilterGeneration: state.getIn(['filterMatches', 'generation'], 0),
   };
 };
 
@@ -73,6 +82,15 @@ class ScrollableList extends PureComponent {
     windowedHistory: PropTypes.bool,
     readingSurface: PropTypes.bool,
     anchorSourceKey: PropTypes.string,
+    layoutMode: PropTypes.string,
+    mediaRows: PropTypes.array,
+    mediaStatuses: PropTypes.object,
+    mediaTimelineId: PropTypes.string,
+    mediaContextForId: PropTypes.func,
+    mediaFilters: PropTypes.object,
+    mediaFilterMatches: PropTypes.object,
+    mediaFilterGeneration: PropTypes.number,
+    mediaLastStatusId: PropTypes.string,
   };
 
   static defaultProps = {
@@ -83,7 +101,46 @@ class ScrollableList extends PureComponent {
   state = {
     fullscreen: null,
     cachedMediaWidth: 250, // Default media/card width using default Mastodon theme
+    mediaShape: 'square',
+    mediaSize: 'small',
+    mediaVisibility: defaultMediaVisibility(),
+    mediaRevealSource: `${this.props.layoutMode}:${this.props.mediaTimelineId || this.props.scrollKey}`,
+    revealedMediaKeys: new Set(),
+    revealedFilterStatusIds: new Set(),
   };
+
+  static getDerivedStateFromProps (nextProps, prevState) {
+    const source = `${nextProps.layoutMode}:${nextProps.mediaTimelineId || nextProps.scrollKey}`;
+    return source === prevState.mediaRevealSource ? null : {
+      mediaRevealSource: source,
+      revealedMediaKeys: new Set(),
+      revealedFilterStatusIds: new Set(),
+    };
+  }
+
+  handleMediaShapeChange = mediaShape => {
+    this.setState({ mediaShape });
+  }
+
+  handleMediaSizeChange = mediaSize => {
+    this.setState({ mediaSize });
+  }
+
+  handleMediaVisibilityChange = mediaVisibility => {
+    // Clear individual image reveals when switching policy, without touching
+    // a separate manual override of a warning-filtered post.
+    this.setState({ mediaVisibility, revealedMediaKeys: new Set() });
+  }
+
+  handleMediaTileReveal = key => {
+    if (!key) return;
+    this.setState(({ revealedMediaKeys }) => ({ revealedMediaKeys: new Set([...revealedMediaKeys, key]) }));
+  }
+
+  handleMediaFilterReveal = statusId => {
+    if (!statusId) return;
+    this.setState(({ revealedFilterStatusIds }) => ({ revealedFilterStatusIds: new Set([...revealedFilterStatusIds, statusId]) }));
+  }
 
   intersectionObserverWrapper = new IntersectionObserverWrapper();
 
@@ -924,8 +981,19 @@ class ScrollableList extends PureComponent {
   }
 
   render () {
-    const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex } = this.props;
-    const { fullscreen } = this.state;
+    const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex, layoutMode } = this.props;
+    const { fullscreen, mediaShape, mediaSize, mediaVisibility } = this.state;
+    const mediaMode = layoutMode === 'media';
+    const mediaControls = mediaMode ? (
+      <MediaDisplayControls
+        shape={mediaShape}
+        size={mediaSize}
+        visibility={mediaVisibility}
+        onShapeChange={this.handleMediaShapeChange}
+        onSizeChange={this.handleMediaSizeChange}
+        onVisibilityChange={this.handleMediaVisibilityChange}
+      />
+    ) : null;
     const childrenCount = React.Children.count(children);
     const showOlder = onLoadMore && (hasMore || olderStatus === 'error' || olderStatus === 'unavailable' || olderStatus === 'paused');
     const showNewer = onLoadNewer && (hasNewer || newerStatus === 'error' || newerStatus === 'unavailable' || newerStatus === 'paused');
@@ -947,12 +1015,63 @@ class ScrollableList extends PureComponent {
     }
     const loadPending  = (numPending > 0) ? <LoadPending count={numPending} onClick={this.handleLoadPending} /> : null;
     let scrollableArea = null;
+    const filterInfo = mediaMode ? {
+      filters: this.props.mediaFilters,
+      matches: this.props.mediaFilterMatches,
+      generation: this.props.mediaFilterGeneration,
+      revealedMediaKeys: this.state.revealedMediaKeys,
+      revealedFilterStatusIds: this.state.revealedFilterStatusIds,
+    } : null;
+    const mediaTimeline = mediaMode
+      ? mediaTimelineSequence(this.props.mediaRows, this.props.mediaStatuses, mediaVisibility, filterInfo)
+      : null;
+    const mediaSource = mediaMode && onLoadMore && this.props.mediaTimelineId ? {
+      kind: 'timeline',
+      timelineId: this.props.mediaTimelineId,
+      afterStatusId: this.props.mediaLastStatusId,
+      visibility: mediaVisibility,
+      contextTypeForId: this.props.mediaContextForId,
+      onLoadMore,
+    } : null;
+    const renderedItems = React.Children.map(children, (child, index) => (
+      <IntersectionObserverArticleContainer
+        key={child.key}
+        id={child.key}
+        index={index}
+        listLength={childrenCount}
+        intersectionObserverWrapper={this.intersectionObserverWrapper}
+        // Cached heights from the old full-width list cannot be used for cards.
+        saveHeightKey={trackScroll && !isCardTimelineLayout(layoutMode) && layoutMode !== 'media' ? `${this.context.router.route.location.key}:${scrollKey}` : null}
+        tabIndex={tabIndex}
+        onIntersectionChange={this.handleIntersectionChange}
+        onBeforeLayoutChange={this.handleFilterLayout}
+      >
+        {React.cloneElement(child, {
+          getScrollPosition: this.getScrollPosition,
+          updateScrollBottom: this.updateScrollBottom,
+          cachedMediaWidth: this.state.cachedMediaWidth,
+          cacheMediaWidth: this.cacheMediaWidth,
+          mediaShape: mediaMode ? mediaShape : undefined,
+          mediaVisibility: mediaMode ? mediaVisibility : undefined,
+          mediaTimeline,
+          mediaSource,
+          onMediaTileReveal: mediaMode ? this.handleMediaTileReveal : undefined,
+          mediaTileRevealed: mediaMode && this.state.revealedMediaKeys.has(child.props.mediaRowKey),
+          onMediaFilterReveal: mediaMode ? this.handleMediaFilterReveal : undefined,
+          mediaFilterRevealed: mediaMode && this.state.revealedFilterStatusIds.has(child.props.id),
+        })}
+      </IntersectionObserverArticleContainer>
+    ));
+    const itemLayout = isCardTimelineLayout(layoutMode)
+      ? <TimelineMasonry mode={layoutMode}>{renderedItems}</TimelineMasonry>
+      : mediaMode ? <MediaItemsLayout shape={mediaShape} size={mediaSize}>{renderedItems}</MediaItemsLayout> : renderedItems;
 
     if (showLoading) {
       scrollableArea = (
         <div className='scrollable scrollable--flex' ref={this.setRef}>
           <div role='feed' className='item-list'>
             {prepend}
+            {mediaControls}
           </div>
 
           <div className='scrollable__append'>
@@ -966,30 +1085,13 @@ class ScrollableList extends PureComponent {
           <div role='feed' className='item-list'>
             {prepend}
 
+            {mediaControls}
+
             {loadNewer}
 
             {loadPending}
 
-            {React.Children.map(this.props.children, (child, index) => (
-              <IntersectionObserverArticleContainer
-                key={child.key}
-                id={child.key}
-                index={index}
-                listLength={childrenCount}
-                intersectionObserverWrapper={this.intersectionObserverWrapper}
-                saveHeightKey={trackScroll ? `${this.context.router.route.location.key}:${scrollKey}` : null}
-                tabIndex={tabIndex}
-                onIntersectionChange={this.handleIntersectionChange}
-                onBeforeLayoutChange={this.handleFilterLayout}
-              >
-                {React.cloneElement(child, {
-                  getScrollPosition: this.getScrollPosition,
-                  updateScrollBottom: this.updateScrollBottom,
-                  cachedMediaWidth: this.state.cachedMediaWidth,
-                  cacheMediaWidth: this.cacheMediaWidth,
-                })}
-              </IntersectionObserverArticleContainer>
-            ))}
+            {itemLayout}
 
             {loadMore}
 
@@ -1001,6 +1103,7 @@ class ScrollableList extends PureComponent {
       scrollableArea = (
         <div className={classNames('scrollable scrollable--flex', { fullscreen })} ref={this.setRef}>
           {alwaysPrepend && prepend}
+          {mediaControls}
 
           <div className='empty-column-indicator'>
             {emptyMessage}
