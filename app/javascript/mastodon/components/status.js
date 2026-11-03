@@ -243,6 +243,7 @@ const messages = defineMessages({
   revealMediaTile: { id: 'timeline.media.reveal', defaultMessage: 'Reveal media' },
   openMediaTile: { id: 'timeline.media.open', defaultMessage: 'Open media' },
   openMediaSource: { id: 'timeline.media.open_post', defaultMessage: 'Open original post' },
+  cardMediaCount: { id: 'timeline.card.media_count', defaultMessage: '{count} media attachments' },
 });
 
 const dateFormatOptions = {
@@ -851,7 +852,19 @@ class Status extends ImmutablePureComponent {
       <HotKeys handlers={{ open: this.handleHotkeyOpen, favourite: this.handleHotkeyFavourite, moveUp: this.handleHotkeyMoveUp, moveDown: this.handleHotkeyMoveDown }}>
         <div className='status__wrapper status__wrapper--compact focusable' tabIndex='0' data-id={status.get('id')} aria-label={textForScreenReader(intl, status, boosterDescription)} ref={this.handleRef} onClick={this.handleTimelineCardClick}>
           <div className='timeline-card'>
-            {firstMedia && <div className='timeline-card__media'>{firstMedia}</div>}
+            {firstMedia && <div className='timeline-card__media'>
+              {firstMedia}
+              {media.size > 1 && (
+                <span
+                  className='timeline-card__media-count'
+                  role='img'
+                  aria-label={intl.formatMessage(messages.cardMediaCount, { count: media.size })}
+                  title={intl.formatMessage(messages.cardMediaCount, { count: media.size })}
+                >
+                  <span aria-hidden='true'><Icon id='clone' fixedWidth /> {media.size}</span>
+                </span>
+              )}
+            </div>}
             <div className='timeline-card__body'>
               <StatusContent status={status} translationWrapper={original} onClick={this.handleClick} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} compactCard />
             </div>
