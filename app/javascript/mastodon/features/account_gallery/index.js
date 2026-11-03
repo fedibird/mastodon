@@ -157,7 +157,7 @@ class AccountGallery extends ImmutablePureComponent {
     const id = accountMediaTimelineId(this.props.params.accountId, this.state.tagged);
     if (this.props.mediaTimelines.getIn([id, 'hasMore'])) {
       const ids = this.props.mediaTimelines.getIn([id, 'items'], ImmutableList());
-      this.handleLoadMore(ids.last());
+      this.handleLoadMore(ids.findLast(statusId => statusId !== null));
     }
   }
 
@@ -188,7 +188,7 @@ class AccountGallery extends ImmutablePureComponent {
     }
 
     const ids = mediaTimelines.getIn([timelineId, 'items'], ImmutableList());
-    dispatch(expandAccountMediaTimeline(accountId, { maxId: ids.last(), tagged }));
+    dispatch(expandAccountMediaTimeline(accountId, { maxId: ids.findLast(statusId => statusId !== null), tagged }));
   }
 
   handleOpenMedia = attachment => {
@@ -218,7 +218,7 @@ class AccountGallery extends ImmutablePureComponent {
             kind: 'account',
             accountId,
             timelineId: id,
-            afterStatusId: statusIds.last(),
+            afterStatusId: statusIds.findLast(statusId => statusId !== null),
             visibility: this.state.mediaVisibility,
             onLoadMore: () => this.handleModalLoadMore(accountId, tagged),
           },
@@ -309,7 +309,7 @@ class AccountGallery extends ImmutablePureComponent {
             <div className='account-gallery__filters'>
               <FeaturedTags account={account} tagged={tagged} onSelectTag={this.handleChooseTag} />
               <form className='account-gallery__tag-search' onSubmit={this.handleSubmitTag}>
-                <input type='text' value={tagInput} onChange={this.handleTagInput} placeholder={intl.formatMessage(messages.filterTagPlaceholder)} aria-label={intl.formatMessage(messages.filterTagPlaceholder)} />
+                <input type='search' maxLength={100} value={tagInput} onChange={this.handleTagInput} placeholder={intl.formatMessage(messages.filterTagPlaceholder)} aria-label={intl.formatMessage(messages.filterTagPlaceholder)} />
                 <button type='submit'>{intl.formatMessage(messages.filterTagApply)}</button>
               </form>
               <MediaDisplayControls

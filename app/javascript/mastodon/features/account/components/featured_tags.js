@@ -20,7 +20,7 @@ const messages = defineMessages({
 // Append a display-only choice. Never mutate the account's featured tags.
 export const displayedFeaturedTags = (featuredTags, tagged) => {
   const name = (tagged || '').replace(/^#/, '').trim();
-  if (!name || featuredTags.some(tag => tag.get('name').toLocaleLowerCase() === name.toLocaleLowerCase())) {
+  if (!name || featuredTags.some(tag => String(tag.get('name')).toLocaleLowerCase() === name.toLocaleLowerCase())) {
     return featuredTags;
   }
 
