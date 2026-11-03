@@ -197,7 +197,7 @@ class MediaModal extends ImmutablePureComponent {
 
     const target = this.state.targetIndex;
     const paging = this.props.mediaPaging;
-    if (target != null && this.mediaItems().size > target) {
+    if (target !== null && target !== undefined && this.mediaItems().size > target) {
       this.setState({
         index: target,
         loadingNext: false,
