@@ -27,6 +27,32 @@ export const displayedFeaturedTags = (featuredTags, tagged) => {
   return featuredTags.push(ImmutableMap({ name, temporary: true }));
 };
 
+// All featured tags share Permalink's markup. A small wrapper keeps a stable
+// click interceptor per item instead of allocating a JSX callback in render.
+class FeaturedTagPermalink extends React.PureComponent {
+
+  static propTypes = {
+    tagName: PropTypes.string,
+    onSelectTag: PropTypes.func,
+    children: PropTypes.node,
+  };
+
+  handleInterceptClick = () => {
+    this.props.onSelectTag?.(this.props.tagName || null);
+    return true;
+  }
+
+  render () {
+    const { tagName, onSelectTag, children, ...other } = this.props;
+    return (
+      <Permalink {...other} onInterceptClick={onSelectTag ? this.handleInterceptClick : undefined}>
+        {children}
+      </Permalink>
+    );
+  }
+
+}
+
 const mapStateToProps = (state, { account }) => ({
   featuredTags: state.getIn(['user_lists', 'featured_tags', account.get('id'), 'items'], ImmutableList()),
 });
@@ -48,14 +74,6 @@ class FeaturedTags extends ImmutablePureComponent {
     intl: PropTypes.object.isRequired,
   };
 
-  handleChooseTag = tag => {
-    this.props.onSelectTag?.(tag || null);
-    // Permalink's interception avoids route changes in the media gallery.
-    return true;
-  }
-
-  handleChooseAll = () => this.handleChooseTag(null);
-
   render () {
     const { account, featuredTags, tagged, intl, onSelectTag } = this.props;
 
@@ -71,13 +89,12 @@ class FeaturedTags extends ImmutablePureComponent {
     const suspended = account.get('suspended');
     const accountId = account.get('id');
     const routeBase = this.props.routeBase || `/accounts/${accountId}/posts`;
-    const onChooseAll = onSelectTag ? this.handleChooseAll : undefined;
 
     return (
       <div className={classNames('account__header', 'advanced', { inactive: !!account.get('moved') })}>
         <div className='account__header__extra'>
           <div className='account__header__extra__hashtag-links'>
-            <Permalink key='all' className={classNames('account__hashtag-link', { active: !tagged })} title={intl.formatMessage(messages.hashtag_all_description)} href={account.get('url')} to={routeBase} onInterceptClick={onChooseAll}>{intl.formatMessage(messages.hashtag_all)}</Permalink>
+            <FeaturedTagPermalink key='all' tagName={null} onSelectTag={onSelectTag} className={classNames('account__hashtag-link', { active: !tagged })} title={intl.formatMessage(messages.hashtag_all_description)} href={account.get('url')} to={routeBase}>{intl.formatMessage(messages.hashtag_all)}</FeaturedTagPermalink>
             {!suspended && displayed.map(featuredTag => {
               const name  = featuredTag.get('name');
               const url   = featuredTag.get('url');
@@ -86,13 +103,12 @@ class FeaturedTags extends ImmutablePureComponent {
               const count = featuredTag.get('statuses_count');
               const temporary = !!featuredTag.get('temporary');
               const active = !!tagged && tagged.toLocaleLowerCase() === name.toLocaleLowerCase();
-              const onChooseTag = onSelectTag ? this.handleChooseTag.bind(this, name) : undefined;
               const countBadge = !temporary && count !== null && count !== undefined && <span title={intl.formatMessage(messages.statuses_counter, { count, counter: intl.formatNumber(count) })}>({<ShortNumber value={count} />})</span>;
 
               return (
-                <Permalink key={`#${name}`} className={classNames('account__hashtag-link', { active, 'account__hashtag-link--temporary': temporary })} title={desc} href={url || account.get('url')} to={to} onInterceptClick={onChooseTag}>
+                <FeaturedTagPermalink key={`#${name}`} tagName={name} onSelectTag={onSelectTag} className={classNames('account__hashtag-link', { active, 'account__hashtag-link--temporary': temporary })} title={desc} href={url || account.get('url')} to={to}>
                   #{name} {countBadge}
-                </Permalink>
+                </FeaturedTagPermalink>
               );
             })}
           </div>
