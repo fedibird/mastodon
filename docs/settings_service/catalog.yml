@@ -901,6 +901,57 @@ entries:
     sites. Redux meta also receives the value on hydrate, but scanned selectors do
     not read it from state.meta. Changing the stored value does not by itself update
     the open WebUI.'
+- key: user.crop_card_images
+  category: appearance
+  owner: user
+  disposition: candidate_general
+  storage: settings(thing_type=User,thing_id=users.id,var=crop_card_images) YAML text;
+    default from config/settings.yml via ScopedSettings
+  legacy_keys:
+    settings_var: crop_card_images
+    getter: setting_crop_card_images
+    form: setting_crop_card_images
+    initial_state_meta: crop_card_images
+  raw_type: boolean
+  effective_type: boolean
+  default_source: config/settings.yml defaults.crop_card_images=true (boolean)
+  read_sources:
+  - InitialState meta via setting_*
+  - static JS import cropCardImages for card timeline layout
+  - Rails preferences form getter
+  write_sources:
+  - rails preferences update (appearance)
+  normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1.
+    Read returns the stored YAML boolean or the YAML default.
+  availability: user preference
+  read_policy: general
+  write_policy: general
+  side_effects:
+  - settings row update and Rails.cache.write in ScopedSettings#[]=
+  apply_hint: reinitialize
+  client_reference:
+  - static_import
+  - redux_meta_hydrated_unread
+  - dynamic_update_possible_if_selectors_replace_static_imports
+  configured_vs_effective: effective_is_stored_or_yaml_default
+  form_status: active
+  source_refs:
+  - config/settings.yml:56
+  - app/lib/user_settings_decorator.rb:65
+  - app/models/user.rb:168
+  - app/controllers/settings/preferences_controller.rb:82
+  - app/views/settings/preferences/appearance/show.html.haml:107
+  - app/serializers/initial_state_serializer.rb:63
+  - app/javascript/mastodon/initial_state.js:55
+  - app/javascript/mastodon/components/status.js:761
+  - app/javascript/mastodon/components/media_gallery.js:409
+  audit_status: verified
+  notes: 'Recommendation only: read_policy and write_policy are not an approved API
+    contract. Independent of user.crop_images: the value applies only to compact
+    timeline cards. The per-card override flows from Status through StatusMediaStack
+    to MediaGallery, leaving the regular timeline crop setting unchanged.
+    New users and unset preferences use the independent true default. Changing
+    the stored value requires WebUI reinitialization for the static import.'
 - key: user.default_column_width
   category: appearance
   owner: user
