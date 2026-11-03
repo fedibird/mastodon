@@ -30,7 +30,6 @@ class MediaItem extends ImmutablePureComponent {
 
   state = {
     revealed: false,
-    loaded: false,
     policy: this.props.visibility,
     attachmentId: this.props.attachment.get('id'),
   };
@@ -38,14 +37,10 @@ class MediaItem extends ImmutablePureComponent {
   static getDerivedStateFromProps(nextProps, prevState) {
     const id = nextProps.attachment.get('id');
     if (id !== prevState.attachmentId || nextProps.visibility !== prevState.policy) {
-      return { attachmentId: id, policy: nextProps.visibility, revealed: false, loaded: false };
+      return { attachmentId: id, policy: nextProps.visibility, revealed: false };
     }
 
     return null;
-  }
-
-  handleImageLoad = () => {
-    this.setState({ loaded: true });
   }
 
   handleMouseEnter = e => {
@@ -88,7 +83,6 @@ class MediaItem extends ImmutablePureComponent {
 
   render () {
     const { attachment, shape, intl } = this.props;
-    const { loaded } = this.state;
     const status = attachment.get('status');
     const description = attachment.get('description');
     const type = attachment.get('type');
@@ -108,7 +102,7 @@ class MediaItem extends ImmutablePureComponent {
           const focusY = attachment.getIn(['meta', 'focus', 'y']) || 0;
           const x = ((focusX / 2) + 0.5) * 100;
           const y = ((focusY / -2) + 0.5) * 100;
-          content = <img src={preview} alt={description || ''} style={{ objectPosition: `${x}% ${y}%` }} onLoad={this.handleImageLoad} loading='lazy' />;
+          content = <img src={preview} alt={description || ''} style={{ objectPosition: `${x}% ${y}%` }} loading='lazy' />;
         }
       } else if (type === 'gifv') {
         content = (
@@ -119,7 +113,6 @@ class MediaItem extends ImmutablePureComponent {
             src={attachment.get('url')}
             onMouseEnter={this.handleMouseEnter}
             onMouseLeave={this.handleMouseLeave}
-            onLoadedMetadata={this.handleImageLoad}
             autoPlay={!isIOS() && autoPlayMedia}
             loop
             muted
@@ -140,9 +133,9 @@ class MediaItem extends ImmutablePureComponent {
             rel='noopener noreferrer'
             aria-label={concealed ? intl.formatMessage(messages.reveal) : (description || intl.formatMessage(messages.open))}
           >
-            {attachment.get('blurhash') ?
-              <Blurhash hash={attachment.get('blurhash')} className={classNames('media-gallery__preview', { 'media-gallery__preview--hidden': !concealed && loaded })} dummy={!useBlurhash} /> :
-              attachment.get('thumbhash') && <Thumbhash hash={attachment.get('thumbhash')} className={classNames('media-gallery__preview', { 'media-gallery__preview--hidden': !concealed && loaded })} dummy={!useBlurhash} />}
+            {blurred && (attachment.get('blurhash') ?
+              <Blurhash hash={attachment.get('blurhash')} className='media-gallery__preview' /> :
+              <Thumbhash hash={attachment.get('thumbhash')} className='media-gallery__preview' />)}
             {content || (!blurred && <span className='timeline-media-tile__placeholder'>
               <Icon id={concealed ? 'eye-slash' : type === 'audio' ? 'music' : 'file-o'} />
             </span>)}
