@@ -58,7 +58,7 @@ export const accountMediaTimelineSequence = (attachments, visibility = 'hide_sen
     item &&
     ['image', 'gifv'].includes(item.get('type')) &&
     !mediaIsConcealed(visibility, item.getIn(['status', 'sensitive']), filterInfo.revealedMediaIds?.has(accountMediaRevealKey(item))) &&
-    !mediaStatusFiltered(item.get('status'), null, item.getIn(['status', 'id']), 'account', filterInfo)
+    !mediaStatusFiltered(item.get('status'), null, item.getIn(['status', 'id']), 'account', filterInfo),
   );
 
   return { media, statusIds: media.map(item => item.getIn(['status', 'id'])) };
