@@ -140,23 +140,25 @@ const IntegratedGallery = () => {
     .setIn(['status', 'sensitive'], false);
   return (
     <IntlProvider locale='ja' messages={japanese}>
-      <MediaDisplayControls
-        shape='square'
-        size='small'
-        visibility={visibility}
-        onShapeChange={jest.fn()}
-        onSizeChange={jest.fn()}
-        onVisibilityChange={setVisibility}
-      />
-      {[attachment, ordinary].map(media => (
-        <MediaItem
-          key={`${media.get('id')}:${visibility}`}
-          attachment={media}
-          visibility={visibility}
+      <div>
+        <MediaDisplayControls
           shape='square'
-          onOpenMedia={onOpenMedia}
+          size='small'
+          visibility={visibility}
+          onShapeChange={jest.fn()}
+          onSizeChange={jest.fn()}
+          onVisibilityChange={setVisibility}
         />
-      ))}
+        {[attachment, ordinary].map(media => (
+          <MediaItem
+            key={`${media.get('id')}:${visibility}`}
+            attachment={media}
+            visibility={visibility}
+            shape='square'
+            onOpenMedia={onOpenMedia}
+          />
+        ))}
+      </div>
     </IntlProvider>
   );
 };
