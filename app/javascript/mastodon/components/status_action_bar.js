@@ -465,7 +465,7 @@ class StatusActionBar extends ImmutablePureComponent {
     const reblogsCount       = status.get('reblogs_count');
     const referredByCount    = status.get('status_referred_by_count');
     const favouritesCount    = status.get('favourites_count');
-    const [ _, domain ]      = account.get('acct').split('@');
+    const domain            = account.get('acct').split('@')[1];
 
     if (this.props.compactCardMode === 'favourite') {
       return (
