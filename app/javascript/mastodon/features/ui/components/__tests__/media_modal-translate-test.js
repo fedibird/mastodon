@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -160,5 +160,117 @@ describe('MediaModal cross-post navigation', () => {
     expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
     expect(screen.getByTestId('media-status-footer')).toHaveAttribute('data-status-id', 's1');
+  });
+});
+
+describe('MediaModal automatic paging at the loaded image boundary', () => {
+  it('shows loading while fetching older posts and advances to the next loaded image', async () => {
+    const first = { id: 'first', type: 'image', url: 'https://example.test/first.jpg' };
+    const second = { id: 'second', type: 'image', url: 'https://example.test/second.jpg' };
+    const timelineId = 'account:alice:media:cats';
+    const initial = fromJS({
+      timelines: { [timelineId]: { items: ['s1'], hasMore: true, isLoading: false } },
+      accounts: { alice: { id: 'alice' } },
+      statuses: { s1: { id: 's1', media_attachments: [first] } },
+    });
+
+    const reducer = (state = initial, action) => {
+      if (action.type === 'LOAD_OLDER') {
+        return state.setIn(['timelines', timelineId, 'isLoading'], true);
+      }
+      if (action.type === 'LOAD_DONE') {
+        return state
+          .setIn(['timelines', timelineId, 'isLoading'], false)
+          .setIn(['timelines', timelineId, 'hasMore'], false)
+          .setIn(['timelines', timelineId, 'items'], fromJS(['s1', 's2']))
+          .setIn(['statuses', 's2'], fromJS({ id: 's2', media_attachments: [second] }));
+      }
+
+      return state;
+    };
+    const store = createStore(reducer);
+    const loadMore = jest.fn(() => store.dispatch({ type: 'LOAD_OLDER' }));
+
+    render(
+      <Provider store={store}>
+        <MediaModal
+          statusId='s1'
+          timelineStatusIds={fromJS(['s1'])}
+          media={fromJS([first])}
+          mediaSource={{
+            kind: 'account',
+            accountId: 'alice',
+            timelineId,
+            afterStatusId: 's1',
+            visibility: 'show_all',
+            onLoadMore: loadMore,
+          }}
+          index={0}
+          onClose={jest.fn()}
+          onChangeBackgroundColor={jest.fn()}
+        />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(loadMore).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading more images');
+
+    act(() => {
+      store.dispatch({ type: 'LOAD_DONE' });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('media-status-footer')).toHaveAttribute('data-status-id', 's2');
+    });
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
+  });
+
+  it('stops the loading state after a pagination failure, exposing a retry', async () => {
+    const one = { id: 'one', type: 'image', url: 'https://example.test/one.jpg' };
+    const timelineId = 'home:media';
+    const initial = fromJS({
+      timelines: { [timelineId]: { items: ['s1'], hasMore: true, isLoading: false, paginationError: false } },
+      statuses: { s1: { id: 's1', media_attachments: [one] } },
+    });
+    const reducer = (state = initial, action) => {
+      if (action.type === 'LOAD') {
+        return state.setIn(['timelines', timelineId, 'isLoading'], true).setIn(['timelines', timelineId, 'paginationError'], false);
+      }
+      if (action.type === 'FAIL') {
+        return state.setIn(['timelines', timelineId, 'isLoading'], false).setIn(['timelines', timelineId, 'paginationError'], true);
+      }
+
+      return state;
+    };
+    const store = createStore(reducer);
+    const loadMore = jest.fn(() => store.dispatch({ type: 'LOAD' }));
+
+    render(
+      <Provider store={store}>
+        <MediaModal
+          statusId='s1'
+          timelineStatusIds={fromJS(['s1'])}
+          media={fromJS([one])}
+          mediaSource={{ kind: 'timeline', timelineId, afterStatusId: 's1', visibility: 'show_all', onLoadMore: loadMore }}
+          index={0}
+          onClose={jest.fn()}
+          onChangeBackgroundColor={jest.fn()}
+        />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Loading more images');
+    act(() => {
+      store.dispatch({ type: 'FAIL' });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('Could not load more images');
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(loadMore).toHaveBeenCalledTimes(2);
   });
 });
