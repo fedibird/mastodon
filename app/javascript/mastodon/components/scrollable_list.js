@@ -15,6 +15,7 @@ import TimelineMasonry from './timeline_masonry';
 import MediaDisplayControls from './media_display_controls';
 import MediaItemsLayout from './media_items_layout';
 import { defaultMediaVisibility } from 'mastodon/utils/media_display';
+import { mediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
 import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { connect } from 'react-redux';
 import { FilterSurface } from '../filter_reconciliation/surface';
@@ -79,6 +80,8 @@ class ScrollableList extends PureComponent {
     readingSurface: PropTypes.bool,
     anchorSourceKey: PropTypes.string,
     layoutMode: PropTypes.string,
+    mediaRows: PropTypes.array,
+    mediaStatuses: PropTypes.object,
   };
 
   static defaultProps = {
@@ -980,6 +983,7 @@ class ScrollableList extends PureComponent {
     }
     const loadPending  = (numPending > 0) ? <LoadPending count={numPending} onClick={this.handleLoadPending} /> : null;
     let scrollableArea = null;
+    const mediaTimeline = mediaMode ? mediaTimelineSequence(this.props.mediaRows, this.props.mediaStatuses, mediaVisibility) : null;
     const renderedItems = React.Children.map(children, (child, index) => (
       <IntersectionObserverArticleContainer
         key={child.key}
@@ -1000,6 +1004,7 @@ class ScrollableList extends PureComponent {
           cacheMediaWidth: this.cacheMediaWidth,
           mediaShape: mediaMode ? mediaShape : undefined,
           mediaVisibility: mediaMode ? mediaVisibility : undefined,
+          mediaTimeline,
         })}
       </IntersectionObserverArticleContainer>
     ));

@@ -315,6 +315,8 @@ class Status extends ImmutablePureComponent {
     mediaIndex: PropTypes.number,
     mediaShape: PropTypes.oneOf(['square', 'original']),
     mediaVisibility: PropTypes.oneOf(['hide_sensitive', 'show_all', 'hide_all']),
+    mediaRowKey: PropTypes.string,
+    mediaTimeline: PropTypes.object,
   };
 
   static defaultProps = {
@@ -851,9 +853,26 @@ class Status extends ImmutablePureComponent {
     if (type === 'video') {
       this.handleOpenVideo(attachment, { startTime: 0 });
     } else if (type === 'image' || type === 'gifv') {
-      const gallery = media.filter(item => item && ['image', 'gifv'].includes(item.get('type')));
-      const index = gallery.findIndex(item => item === attachment || item.get('id') === attachment.get('id'));
-      this.handleOpenMedia(gallery, Math.max(0, index));
+      const sequence = this.props.mediaTimeline;
+      const position = sequence && sequence.positions[this.props.mediaRowKey];
+
+      if (Number.isInteger(position) && this.props.onOpenMedia && sequence.media.size > 1) {
+        // Sequence contains only currently loaded, view-visible image/GIF tiles.
+        // Preserve per-post attribution as the viewer advances across posts.
+        this.props.onOpenMedia(
+          status.get('id'),
+          sequence.media,
+          position,
+          statusTranslationView(status).mediaLang,
+          sequence.statusIds,
+        );
+      } else {
+        // A sensitive image revealed individually must not unhide its
+        // neighbours via modal navigation.
+        const gallery = media.filter(item => item && ['image', 'gifv'].includes(item.get('type')));
+        const index = gallery.findIndex(item => item === attachment || item.get('id') === attachment.get('id'));
+        this.handleOpenMedia(gallery, Math.max(0, index));
+      }
     } else {
       // Audio and unknown attachment types have players on the full post.
       this.handleClick();
