@@ -33,6 +33,8 @@ import { externalIdentityOf, externalIdentityName, externalIdentityReaderText } 
 import ExternalStatusMedia from 'mastodon/components/external_status_media';
 import { assignRelease, spoilerConcealed } from 'mastodon/external_player/session';
 import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
+import AltTextBadge from 'mastodon/components/alt_text_badge';
+import { defaultMediaVisibility, mediaAspectRatio, mediaIsConcealed } from 'mastodon/utils/media_display';
 
 const domParser = new DOMParser();
 
@@ -308,6 +310,8 @@ class Status extends ImmutablePureComponent {
     immediate: PropTypes.bool,
     layoutMode: PropTypes.string,
     mediaIndex: PropTypes.number,
+    mediaShape: PropTypes.oneOf(['square', 'original']),
+    mediaVisibility: PropTypes.oneOf(['hide_sensitive', 'show_all', 'hide_all']),
   };
 
   static defaultProps = {
@@ -330,6 +334,8 @@ class Status extends ImmutablePureComponent {
     'immediate',
     'layoutMode',
     'mediaIndex',
+    'mediaShape',
+    'mediaVisibility',
   ];
 
   state = {
@@ -337,10 +343,23 @@ class Status extends ImmutablePureComponent {
     showQuoteMedia: defaultMediaVisibility(this.props.status ? this.props.status.get('quote', null) : null),
     statusId: undefined,
     forceFilter: undefined,
+    tileRevealed: false,
+    tileVisibility: this.props.mediaVisibility,
+    tileIndex: this.props.mediaIndex,
   };
 
   static getDerivedStateFromProps(nextProps, prevState) {
-    return nextShownMediaState(prevState, nextProps.status, 'statusId');
+    const changes = nextShownMediaState(prevState, nextProps.status, 'statusId');
+    const statusId = nextProps.status && nextProps.status.get('id');
+    const resetTile = nextProps.mediaVisibility !== prevState.tileVisibility ||
+      nextProps.mediaIndex !== prevState.tileIndex || (statusId && statusId !== prevState.statusId);
+
+    return resetTile ? {
+      ...changes,
+      tileRevealed: false,
+      tileVisibility: nextProps.mediaVisibility,
+      tileIndex: nextProps.mediaIndex,
+    } : changes;
   }
 
   componentDidMount () {
@@ -803,6 +822,14 @@ class Status extends ImmutablePureComponent {
     );
   }
 
+  mediaTileConcealed = () => {
+    const status = this._properStatus();
+    const policy = this.props.mediaVisibility || defaultMediaVisibility();
+    const hasHiddenCW = !!(status.get('spoiler_text') && status.get('hidden'));
+
+    return mediaIsConcealed(policy, status.get('sensitive'), hasHiddenCW, this.state.tileRevealed);
+  }
+
   handleMediaTileClick = event => {
     event.stopPropagation();
     const status = this._properStatus();
@@ -813,16 +840,9 @@ class Status extends ImmutablePureComponent {
       return;
     }
 
-    if (status.get('spoiler_text') && status.get('hidden')) {
-      this.handleExpandedToggle();
-      if (!this.state.showMedia) {
-        this.handleToggleMediaVisibility();
-      }
-      return;
-    }
-
-    if (!this.state.showMedia) {
-      this.handleToggleMediaVisibility();
+    if (this.mediaTileConcealed()) {
+      // Reveal this one tile only, without changing the user's media policy.
+      this.setState({ tileRevealed: true });
       return;
     }
 
@@ -834,7 +854,7 @@ class Status extends ImmutablePureComponent {
       const index = gallery.findIndex(item => item === attachment || item.get('id') === attachment.get('id'));
       this.handleOpenMedia(gallery, Math.max(0, index));
     } else {
-      // Audio and unknown attachment types have controls on the full post.
+      // Audio and unknown attachment types have players on the full post.
       this.handleClick();
     }
   }
@@ -848,21 +868,36 @@ class Status extends ImmutablePureComponent {
       return null;
     }
 
-    const concealed = !!(status.get('spoiler_text') && status.get('hidden')) || !this.state.showMedia;
+    const original = this.props.mediaShape === 'original';
+    const concealed = this.mediaTileConcealed();
     const preview = attachment.get('preview_url') || (attachment.get('type') === 'image' ? attachment.get('url') : null);
     const canPreview = !concealed && preview && ['image', 'gifv', 'video'].includes(attachment.get('type'));
-    const alt = attachment.get('description') || status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || '';
+    const description = attachment.get('description');
+    const alt = description || status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || '';
     const externalIdentity = externalIdentityOf(status);
+    const aspect = original && mediaAspectRatio(attachment);
+    const itemStyle = aspect ? { aspectRatio: String(aspect) } : undefined;
 
     return (
       <div className='status__wrapper status__wrapper--media-tile' data-id={status.get('id')} ref={this.handleRef}>
         <div className='timeline-media-tile'>
-          <button type='button' className='timeline-media-tile__open' onClick={this.handleMediaTileClick} aria-label={concealed ? this.props.intl.formatMessage(messages.revealMediaTile) : (alt || this.props.intl.formatMessage(messages.openMediaTile))}>
-            {canPreview ? <img src={preview} alt={alt} loading='lazy' /> : <span className='timeline-media-tile__placeholder'>
-              <Icon id={concealed ? 'eye-slash' : attachment.get('type') === 'audio' ? 'music' : 'file-o'} />
-            </span>}
-            {!concealed && attachment.get('type') === 'video' && <span className='timeline-media-tile__play'><Icon id='play' /></span>}
-          </button>
+          <div className='timeline-media-tile__preview'>
+            <button
+              type='button'
+              className={classNames('timeline-media-tile__open', { 'timeline-media-tile__open--original': original })}
+              style={itemStyle}
+              onClick={this.handleMediaTileClick}
+              aria-label={concealed ? this.props.intl.formatMessage(messages.revealMediaTile) : (alt || this.props.intl.formatMessage(messages.openMediaTile))}
+            >
+              {canPreview ? <img src={preview} alt={alt} loading='lazy' /> : <span className='timeline-media-tile__placeholder'>
+                <Icon id={concealed ? 'eye-slash' : attachment.get('type') === 'audio' ? 'music' : 'file-o'} />
+              </span>}
+              {!concealed && attachment.get('type') === 'video' && <span className='timeline-media-tile__play'><Icon id='play' /></span>}
+            </button>
+            {description && <div className='media-gallery__item__badges'>
+              <AltTextBadge description={description} />
+            </div>}
+          </div>
           <button type='button' className='timeline-media-tile__source' onClick={this.handleClick} title={this.props.intl.formatMessage(messages.openMediaSource)}>
             {externalIdentity ? externalIdentityName(this.props.intl, externalIdentity) : (status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']))}
           </button>
