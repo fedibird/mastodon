@@ -3413,5 +3413,62 @@
       }
     ],
     "path": "app/javascript/mastodon/features/video/index.json"
+  },
+  {
+    "path": "app/javascript/mastodon/components/media_display_controls.json",
+    "descriptors": [
+      {
+        "id": "media_display.toolbar",
+        "defaultMessage": "Media display options"
+      },
+      {
+        "id": "media_display.shape",
+        "defaultMessage": "Layout"
+      },
+      {
+        "id": "media_display.square",
+        "defaultMessage": "Square"
+      },
+      {
+        "id": "media_display.original",
+        "defaultMessage": "Original"
+      },
+      {
+        "id": "media_display.size",
+        "defaultMessage": "Thumbnail size"
+      },
+      {
+        "id": "media_display.small",
+        "defaultMessage": "Small"
+      },
+      {
+        "id": "media_display.medium",
+        "defaultMessage": "Medium"
+      },
+      {
+        "id": "media_display.large",
+        "defaultMessage": "Large"
+      },
+      {
+        "id": "media_display.max",
+        "defaultMessage": "Maximum"
+      },
+      {
+        "id": "media_display.visibility",
+        "defaultMessage": "Media visibility (this column only)"
+      },
+      {
+        "id": "media_display.hide_sensitive",
+        "defaultMessage": "Hide sensitive media"
+      },
+      {
+        "id": "media_display.show_all",
+        "defaultMessage": "Always show media"
+      },
+      {
+        "id": "media_display.hide_all",
+        "defaultMessage": "Always hide media"
+      }
+    ]
   }
 ]

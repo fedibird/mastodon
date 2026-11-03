@@ -1260,5 +1260,18 @@
   "timeline.media.reveal": "Reveal media",
   "timeline.media.open": "Open media",
   "timeline.media.open_post": "Open original post",
-  "column_width.x200": "200%"
+  "column_width.x200": "200%",
+  "media_display.toolbar": "メディアの表示設定",
+  "media_display.shape": "表示形式",
+  "media_display.square": "スクエア",
+  "media_display.original": "オリジナル",
+  "media_display.size": "メディアのサイズ",
+  "media_display.small": "小",
+  "media_display.medium": "中",
+  "media_display.large": "大",
+  "media_display.max": "最大",
+  "media_display.visibility": "表示設定の一時上書き（このカラムのみ）",
+  "media_display.hide_sensitive": "閲覧注意メディアを隠す",
+  "media_display.show_all": "メディアを常に表示する",
+  "media_display.hide_all": "メディアを常に隠す"
 }
