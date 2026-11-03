@@ -140,9 +140,9 @@ class MediaItem extends ImmutablePureComponent {
             rel='noopener noreferrer'
             aria-label={concealed ? intl.formatMessage(messages.reveal) : (description || intl.formatMessage(messages.open))}
           >
-            {attachment.get('thumbhash') ?
-              <Thumbhash hash={attachment.get('thumbhash')} className={classNames('media-gallery__preview', { 'media-gallery__preview--hidden': !concealed && loaded })} dummy={!useBlurhash} /> :
-              <Blurhash hash={attachment.get('blurhash')} className={classNames('media-gallery__preview', { 'media-gallery__preview--hidden': !concealed && loaded })} dummy={!useBlurhash} />}
+            {attachment.get('blurhash') ?
+              <Blurhash hash={attachment.get('blurhash')} className={classNames('media-gallery__preview', { 'media-gallery__preview--hidden': !concealed && loaded })} dummy={!useBlurhash} /> :
+              attachment.get('thumbhash') && <Thumbhash hash={attachment.get('thumbhash')} className={classNames('media-gallery__preview', { 'media-gallery__preview--hidden': !concealed && loaded })} dummy={!useBlurhash} />}
             {content || (!blurred && <span className='timeline-media-tile__placeholder'>
               <Icon id={concealed ? 'eye-slash' : type === 'audio' ? 'music' : 'file-o'} />
             </span>)}
