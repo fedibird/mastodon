@@ -17,6 +17,20 @@ RSpec.describe EntityCache do
     end
   end
 
+  describe '#status' do
+    it 'does not conflate fetched URLs differing only in the case of their paths' do
+      upper = 'https://remote.test/objects/AbC'
+      lower = 'https://remote.test/objects/abc'
+      remote = instance_double(FetchRemoteStatusService)
+      allow(FetchRemoteStatusService).to receive(:new).and_return(remote)
+      allow(remote).to receive(:call).with(upper).and_return(:upper)
+      allow(remote).to receive(:call).with(lower).and_return(:lower)
+
+      expect(described_class.instance.status(upper)).to eq(:upper)
+      expect(described_class.instance.status(lower)).to eq(:lower)
+    end
+  end
+
   describe '#holding_status' do
     let(:aggregator) { Fabricate(:account, domain: 'aggregator.test', username: 'relay') }
 
