@@ -15,11 +15,14 @@ import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { getAverageFromBlurhash } from 'mastodon/blurhash';
 import { connect } from 'react-redux';
 import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
+import { mediaModalPagination } from 'mastodon/utils/media_modal_pagination';
 
 const messages = defineMessages({
   close: { id: 'lightbox.close', defaultMessage: 'Close' },
   previous: { id: 'lightbox.previous', defaultMessage: 'Previous' },
   next: { id: 'lightbox.next', defaultMessage: 'Next' },
+  loadingNext: { id: 'lightbox.loading_next', defaultMessage: 'Loading more images…' },
+  loadingFailed: { id: 'lightbox.loading_failed', defaultMessage: 'Could not load more images. Press Next to retry.' },
 });
 
 const mapStateToProps = (state, props) => {
@@ -28,6 +31,7 @@ const mapStateToProps = (state, props) => {
   const translationView = status ? statusTranslationView(status) : null;
 
   return {
+    mediaPaging: mediaModalPagination(state, props),
     translationView,
     lang: translationView ? translationView.mediaLang : props.lang,
     timelineStatuses: props.timelineStatusIds ? state.get('statuses') : null,
@@ -41,6 +45,8 @@ class MediaModal extends ImmutablePureComponent {
     statusId: PropTypes.string,
     timelineStatusIds: ImmutablePropTypes.list,
     timelineStatuses: ImmutablePropTypes.map,
+    mediaSource: PropTypes.object,
+    mediaPaging: PropTypes.object,
     lang: PropTypes.string,
     translationView: PropTypes.shape({
       mode: PropTypes.string,
@@ -61,20 +67,41 @@ class MediaModal extends ImmutablePureComponent {
     index: null,
     navigationHidden: false,
     zoomButtonHidden: false,
+    loadingNext: false,
+    pagesRequested: 0,
+    loadError: false,
+    targetIndex: null,
   };
 
+  mediaItems = () => this.props.mediaPaging ? this.props.mediaPaging.media : this.props.media;
+
+  mediaStatusIds = () => this.props.mediaPaging ? this.props.mediaPaging.statusIds : this.props.timelineStatusIds;
+
+  requestMoreImages = () => {
+    const source = this.props.mediaSource;
+    if (source && source.onLoadMore) {
+      source.onLoadMore();
+    }
+  }
+
+  // A page can contain only videos, text, or concealed pictures. Read a
+  // bounded sequence of pages while displaying a loading state. A further
+  // Next press can resume if there are still older posts.
+  static MAX_PAGES_PER_NAVIGATION = 6;
+
+
   isTimelineSequence = () => (
-    this.props.timelineStatusIds && this.props.timelineStatusIds.size === this.props.media.size
+    this.mediaStatusIds() && this.mediaStatusIds().size === this.mediaItems().size
   )
 
   statusIdForIndex = index => (
-    this.isTimelineSequence() ? this.props.timelineStatusIds.get(index) : this.props.statusId
+    this.isTimelineSequence() ? this.mediaStatusIds().get(index) : this.props.statusId
   )
 
   clampIndex = index => (
     this.isTimelineSequence()
-      ? Math.max(0, Math.min(this.props.media.size - 1, index))
-      : (index + this.props.media.size) % this.props.media.size
+      ? Math.max(0, Math.min(this.mediaItems().size - 1, index))
+      : (index + this.mediaItems().size) % this.mediaItems().size
   )
 
   handleSwipe = index => {
@@ -88,10 +115,31 @@ class MediaModal extends ImmutablePureComponent {
   }
 
   handleNextClick = () => {
-    const next = this.clampIndex(this.getIndex() + 1);
-    if (next !== this.getIndex()) {
-      this.setState({ index: next, zoomButtonHidden: true });
+    if (this.state.loadingNext) {
+      return;
     }
+
+    const next = this.getIndex() + 1;
+    if (!this.isTimelineSequence()) {
+      this.setState({ index: this.clampIndex(next), zoomButtonHidden: true });
+      return;
+    }
+
+    if (next < this.mediaItems().size) {
+      this.setState({ index: next, zoomButtonHidden: true, loadError: false });
+      return;
+    }
+
+    if (!this.props.mediaPaging?.hasMore || !this.props.mediaSource?.onLoadMore) {
+      return;
+    }
+
+    this.setState({
+      loadingNext: true,
+      pagesRequested: 1,
+      targetIndex: next,
+      loadError: false,
+    }, this.requestMoreImages);
   }
 
   handlePrevClick = () => {
@@ -135,10 +183,36 @@ class MediaModal extends ImmutablePureComponent {
     if (prevState.index !== this.state.index) {
       this._sendBackgroundColor();
     }
+
+    if (!this.state.loadingNext) {
+      return;
+    }
+
+    const target = this.state.targetIndex;
+    const paging = this.props.mediaPaging;
+    if (target != null && this.mediaItems().size > target) {
+      this.setState({
+        index: target,
+        loadingNext: false,
+        targetIndex: null,
+        pagesRequested: 0,
+        zoomButtonHidden: true,
+      });
+      return;
+    }
+
+    if (prevProps.mediaPaging?.isLoading && paging && !paging.isLoading) {
+      if (paging.error || !paging.hasMore || this.state.pagesRequested >= MediaModal.MAX_PAGES_PER_NAVIGATION) {
+        this.setState({ loadingNext: false, loadError: paging.error, targetIndex: null, pagesRequested: 0 });
+      } else {
+        this.setState(state => ({ pagesRequested: state.pagesRequested + 1 }), this.requestMoreImages);
+      }
+    }
   }
 
   _sendBackgroundColor () {
-    const { media, onChangeBackgroundColor } = this.props;
+    const { onChangeBackgroundColor } = this.props;
+    const media = this.mediaItems();
     const index = this.getIndex();
     const blurhash = media.getIn([index, 'blurhash']);
 
@@ -172,14 +246,16 @@ class MediaModal extends ImmutablePureComponent {
   }
 
   render () {
-    const { media, intl, onClose } = this.props;
-    const { navigationHidden } = this.state;
+    const { intl, onClose } = this.props;
+    const media = this.mediaItems();
+    const { navigationHidden, loadingNext, loadError } = this.state;
 
     const index = this.getIndex();
     const timelineSequence = this.isTimelineSequence();
     const statusId = this.statusIdForIndex(index);
     const leftNav  = media.size > 1 && (!timelineSequence || index > 0) && <button tabIndex='0' className='media-modal__nav media-modal__nav--left' onClick={this.handlePrevClick} aria-label={intl.formatMessage(messages.previous)}><Icon id='chevron-left' fixedWidth /></button>;
-    const rightNav = media.size > 1 && (!timelineSequence || index < media.size - 1) && <button tabIndex='0' className='media-modal__nav  media-modal__nav--right' onClick={this.handleNextClick} aria-label={intl.formatMessage(messages.next)}><Icon id='chevron-right' fixedWidth /></button>;
+    const hasOlderImagePages = !!(timelineSequence && this.props.mediaPaging?.hasMore && this.props.mediaSource?.onLoadMore);
+    const rightNav = (media.size > 1 || hasOlderImagePages) && (!timelineSequence || index < media.size - 1 || hasOlderImagePages) && <button tabIndex='0' className='media-modal__nav  media-modal__nav--right' onClick={this.handleNextClick} disabled={loadingNext} aria-label={intl.formatMessage(messages.next)}><Icon id='chevron-right' fixedWidth /></button>;
 
     const content = media.map((image, imageIndex) => {
       // Large timelines may have many loaded pictures. Only mount nearby
@@ -306,6 +382,13 @@ class MediaModal extends ImmutablePureComponent {
 
           {leftNav}
           {rightNav}
+          {loadingNext && <div className='media-modal__loading-next' role='status' aria-live='polite'>
+            <Icon id='spinner' className='fa-spin' />
+            {' '}{intl.formatMessage(messages.loadingNext)}
+          </div>}
+          {!loadingNext && loadError && <div className='media-modal__loading-next' role='status'>
+            {intl.formatMessage(messages.loadingFailed)}
+          </div>}
 
           <div className='media-modal__overlay'>
             {pagination && <ul className='media-modal__pagination'>{pagination}</ul>}
