@@ -13,7 +13,8 @@ import { getAccountGallery } from 'mastodon/selectors';
 import MediaItem from './components/media_item';
 import MediaDisplayControls from 'mastodon/components/media_display_controls';
 import MediaItemsLayout from 'mastodon/components/media_items_layout';
-import { defaultMediaVisibility, mediaIsConcealed } from 'mastodon/utils/media_display';
+import { defaultMediaVisibility } from 'mastodon/utils/media_display';
+import { accountMediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
 import HeaderContainer from '../account_timeline/containers/header_container';
 import ScrollContainer from 'mastodon/containers/scroll_container';
 import LoadMore from 'mastodon/components/load_more';
@@ -158,16 +159,12 @@ class AccountGallery extends ImmutablePureComponent {
       // Account media mode is already one attachment per tile. Navigate
       // pictures across all currently loaded posts instead of stopping at
       // each post's media_attachments collection.
-      const images = this.props.attachments.filter(item =>
-        item &&
-        ['image', 'gifv'].includes(item.get('type')) &&
-        !mediaIsConcealed(this.state.mediaVisibility, item.getIn(['status', 'sensitive']))
-      );
-      const position = images.findIndex(item => item.get('id') === attachment.get('id'));
-      if (position >= 0 && images.size > 1) {
+      const sequence = accountMediaTimelineSequence(this.props.attachments, this.state.mediaVisibility);
+      const position = sequence.media.findIndex(item => item.get('id') === attachment.get('id'));
+      if (position >= 0 && sequence.media.size > 1) {
         dispatch(openModal('MEDIA', {
-          media: images,
-          timelineStatusIds: images.map(item => item.getIn(['status', 'id'])),
+          media: sequence.media,
+          timelineStatusIds: sequence.statusIds,
           index: position,
           statusId,
         }));

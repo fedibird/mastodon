@@ -3,7 +3,7 @@ import { fromJS, List as ImmutableList } from 'immutable';
 jest.mock('mastodon/initial_state', () => ({ displayMedia: 'default' }));
 
 import { mediaRowsForStatuses } from '../timeline_layout';
-import { mediaTimelineSequence } from '../media_timeline_sequence';
+import { accountMediaTimelineSequence, mediaTimelineSequence } from '../media_timeline_sequence';
 
 const statuses = fromJS({
   '10': {
@@ -50,5 +50,28 @@ describe('cross-post media navigation sequence', () => {
     expect(mediaTimelineSequence(rows, null).media.size).toBe(0);
     const sequence = mediaTimelineSequence([{ kind: 'gap', position: 0 }], statuses);
     expect(sequence.media.size).toBe(0);
+  });
+});
+
+describe('account media gallery cross-post navigation', () => {
+  const items = fromJS([
+    { id: 'photo-1', type: 'image', status: { id: '101', sensitive: false } },
+    { id: 'private-photo', type: 'image', status: { id: '102', sensitive: true } },
+    null,
+    { id: 'gif', type: 'gifv', status: { id: '103', sensitive: false } },
+    { id: 'movie', type: 'video', status: { id: '104', sensitive: false } },
+    { id: 'cw-photo', type: 'image', status: { id: '105', sensitive: false, hidden: true, spoiler_text: 'CW' } },
+  ]);
+
+  it('navigates account images across posts but keeps sensitive images hidden', () => {
+    const sequence = accountMediaTimelineSequence(items, 'hide_sensitive');
+    expect(sequence.media.map(item => item.get('id')).toArray()).toEqual(['photo-1', 'gif', 'cw-photo']);
+    expect(sequence.statusIds.toArray()).toEqual(['101', '103', '105']);
+  });
+
+  it('show all includes sensitive images, while hide all has no navigable images', () => {
+    expect(accountMediaTimelineSequence(items, 'show_all').media.map(item => item.get('id')).toArray())
+      .toEqual(['photo-1', 'private-photo', 'gif', 'cw-photo']);
+    expect(accountMediaTimelineSequence(items, 'hide_all').media.isEmpty()).toBe(true);
   });
 });

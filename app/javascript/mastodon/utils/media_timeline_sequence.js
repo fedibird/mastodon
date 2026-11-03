@@ -22,6 +22,11 @@ export const mediaTimelineSequence = (rows = [], statuses, visibility = 'hide_se
       return;
     }
 
+    const matchedFilters = base.get('matched_filters');
+    if (matchedFilters && (matchedFilters.size > 0 || Array.isArray(matchedFilters) && matchedFilters.length > 0)) {
+      return;
+    }
+
     const reblog = base.get('reblog');
     const shown = (reblog && (typeof reblog.get === 'function' ? reblog : statuses.get(reblog))) || base;
     if (mediaIsConcealed(visibility, shown.get('sensitive'))) {
@@ -39,4 +44,20 @@ export const mediaTimelineSequence = (rows = [], statuses, visibility = 'hide_se
   });
 
   return { media: ImmutableList(media), statusIds: ImmutableList(statusIds), positions };
+};
+
+// Account media gallery uses an attachment-per-tile selector rather than
+// normalized timeline status IDs, but it follows the same visibility policy.
+export const accountMediaTimelineSequence = (attachments, visibility = 'hide_sensitive') => {
+  if (!attachments || typeof attachments.filter !== 'function') {
+    return { media: ImmutableList(), statusIds: ImmutableList() };
+  }
+
+  const media = attachments.filter(item =>
+    item &&
+    ['image', 'gifv'].includes(item.get('type')) &&
+    !mediaIsConcealed(visibility, item.getIn(['status', 'sensitive']))
+  );
+
+  return { media, statusIds: media.map(item => item.getIn(['status', 'id'])) };
 };
