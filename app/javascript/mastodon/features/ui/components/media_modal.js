@@ -30,6 +30,7 @@ const mapStateToProps = (state, props) => {
   return {
     translationView,
     lang: translationView ? translationView.mediaLang : props.lang,
+    timelineStatuses: props.timelineStatusIds ? state.get('statuses') : null,
   };
 };
 
@@ -38,6 +39,8 @@ class MediaModal extends ImmutablePureComponent {
   static propTypes = {
     media: ImmutablePropTypes.list.isRequired,
     statusId: PropTypes.string,
+    timelineStatusIds: ImmutablePropTypes.list,
+    timelineStatuses: ImmutablePropTypes.map,
     lang: PropTypes.string,
     translationView: PropTypes.shape({
       mode: PropTypes.string,
@@ -60,8 +63,22 @@ class MediaModal extends ImmutablePureComponent {
     zoomButtonHidden: false,
   };
 
-  handleSwipe = (index) => {
-    this.setState({ index: index % this.props.media.size });
+  isTimelineSequence = () => (
+    this.props.timelineStatusIds && this.props.timelineStatusIds.size === this.props.media.size
+  )
+
+  statusIdForIndex = index => (
+    this.isTimelineSequence() ? this.props.timelineStatusIds.get(index) : this.props.statusId
+  )
+
+  clampIndex = index => (
+    this.isTimelineSequence()
+      ? Math.max(0, Math.min(this.props.media.size - 1, index))
+      : (index + this.props.media.size) % this.props.media.size
+  )
+
+  handleSwipe = index => {
+    this.setState({ index: this.clampIndex(index) });
   }
 
   handleTransitionEnd = () => {
@@ -71,24 +88,24 @@ class MediaModal extends ImmutablePureComponent {
   }
 
   handleNextClick = () => {
-    this.setState({
-      index: (this.getIndex() + 1) % this.props.media.size,
-      zoomButtonHidden: true,
-    });
+    const next = this.clampIndex(this.getIndex() + 1);
+    if (next !== this.getIndex()) {
+      this.setState({ index: next, zoomButtonHidden: true });
+    }
   }
 
   handlePrevClick = () => {
-    this.setState({
-      index: (this.props.media.size + this.getIndex() - 1) % this.props.media.size,
-      zoomButtonHidden: true,
-    });
+    const previous = this.clampIndex(this.getIndex() - 1);
+    if (previous !== this.getIndex()) {
+      this.setState({ index: previous, zoomButtonHidden: true });
+    }
   }
 
   handleChangeIndex = (e) => {
     const index = Number(e.currentTarget.getAttribute('data-index'));
 
     this.setState({
-      index: index % this.props.media.size,
+      index: this.clampIndex(index),
       zoomButtonHidden: true,
     });
   }
@@ -150,22 +167,33 @@ class MediaModal extends ImmutablePureComponent {
   handleStatusClick = e => {
     if (e.button === 0 && !(e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      this.context.router.history.push(`/statuses/${this.props.statusId}`);
+      this.context.router.history.push(`/statuses/${this.statusIdForIndex(this.getIndex())}`);
     }
   }
 
   render () {
-    const { media, statusId, intl, onClose } = this.props;
+    const { media, intl, onClose } = this.props;
     const { navigationHidden } = this.state;
 
     const index = this.getIndex();
+    const timelineSequence = this.isTimelineSequence();
+    const statusId = this.statusIdForIndex(index);
+    const leftNav  = media.size > 1 && (!timelineSequence || index > 0) && <button tabIndex='0' className='media-modal__nav media-modal__nav--left' onClick={this.handlePrevClick} aria-label={intl.formatMessage(messages.previous)}><Icon id='chevron-left' fixedWidth /></button>;
+    const rightNav = media.size > 1 && (!timelineSequence || index < media.size - 1) && <button tabIndex='0' className='media-modal__nav  media-modal__nav--right' onClick={this.handleNextClick} aria-label={intl.formatMessage(messages.next)}><Icon id='chevron-right' fixedWidth /></button>;
 
-    const leftNav  = media.size > 1 && <button tabIndex='0' className='media-modal__nav media-modal__nav--left' onClick={this.handlePrevClick} aria-label={intl.formatMessage(messages.previous)}><Icon id='chevron-left' fixedWidth /></button>;
-    const rightNav = media.size > 1 && <button tabIndex='0' className='media-modal__nav  media-modal__nav--right' onClick={this.handleNextClick} aria-label={intl.formatMessage(messages.next)}><Icon id='chevron-right' fixedWidth /></button>;
+    const content = media.map((image, imageIndex) => {
+      // Large timelines may have many loaded pictures. Only mount nearby
+      // image widgets while preserving the swipeable view's slide indices.
+      if (timelineSequence && Math.abs(imageIndex - index) > 2) {
+        return <div key={image.get('id') || imageIndex} />;
+      }
 
-    const { translationView } = this.props;
-
-    const content = media.map((image) => {
+      const attributedId = this.statusIdForIndex(imageIndex);
+      const fromTimeline = this.props.timelineStatuses && this.props.timelineStatuses.get(attributedId);
+      const reblog = fromTimeline && fromTimeline.get('reblog');
+      const displayed = reblog && this.props.timelineStatuses
+        ? (this.props.timelineStatuses.get(reblog) || fromTimeline) : fromTimeline;
+      const translationView = displayed ? statusTranslationView(displayed) : this.props.translationView;
       const width  = image.getIn(['meta', 'original', 'width']) || null;
       const height = image.getIn(['meta', 'original', 'height']) || null;
       const accessible = attachmentAccessibility(image, translationView || {
@@ -249,7 +277,9 @@ class MediaModal extends ImmutablePureComponent {
     let pagination;
 
     if (media.size > 1) {
-      pagination = media.map((item, i) => (
+      pagination = timelineSequence ? (
+        <li className='media-modal__timeline-counter'>{index + 1} / {media.size}</li>
+      ) : media.map((item, i) => (
         <button key={i} className={classNames('media-modal__page-dot', { active: i === index })} data-index={i} onClick={this.handleChangeIndex}>
           {i + 1}
         </button>
