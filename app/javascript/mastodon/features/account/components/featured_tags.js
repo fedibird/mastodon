@@ -54,6 +54,8 @@ class FeaturedTags extends ImmutablePureComponent {
     return true;
   }
 
+  handleChooseAll = () => this.handleChooseTag(null);
+
   render () {
     const { account, featuredTags, tagged, intl, onSelectTag } = this.props;
 
@@ -69,12 +71,13 @@ class FeaturedTags extends ImmutablePureComponent {
     const suspended = account.get('suspended');
     const accountId = account.get('id');
     const routeBase = this.props.routeBase || `/accounts/${accountId}/posts`;
+    const onChooseAll = onSelectTag ? this.handleChooseAll : undefined;
 
     return (
       <div className={classNames('account__header', 'advanced', { inactive: !!account.get('moved') })}>
         <div className='account__header__extra'>
           <div className='account__header__extra__hashtag-links'>
-            <Permalink key='all' className={classNames('account__hashtag-link', { active: !tagged })} title={intl.formatMessage(messages.hashtag_all_description)} href={account.get('url')} to={routeBase} onInterceptClick={onSelectTag ? () => this.handleChooseTag(null) : undefined}>{intl.formatMessage(messages.hashtag_all)}</Permalink>
+            <Permalink key='all' className={classNames('account__hashtag-link', { active: !tagged })} title={intl.formatMessage(messages.hashtag_all_description)} href={account.get('url')} to={routeBase} onInterceptClick={onChooseAll}>{intl.formatMessage(messages.hashtag_all)}</Permalink>
             {!suspended && displayed.map(featuredTag => {
               const name  = featuredTag.get('name');
               const url   = featuredTag.get('url');
@@ -83,10 +86,11 @@ class FeaturedTags extends ImmutablePureComponent {
               const count = featuredTag.get('statuses_count');
               const temporary = !!featuredTag.get('temporary');
               const active = !!tagged && tagged.toLocaleLowerCase() === name.toLocaleLowerCase();
-              const countBadge = !temporary && count != null && <span title={intl.formatMessage(messages.statuses_counter, { count, counter: intl.formatNumber(count) })}>({<ShortNumber value={count} />})</span>;
+              const onChooseTag = onSelectTag ? () => this.handleChooseTag(name) : undefined;
+              const countBadge = !temporary && count !== null && count !== undefined && <span title={intl.formatMessage(messages.statuses_counter, { count, counter: intl.formatNumber(count) })}>({<ShortNumber value={count} />})</span>;
 
               return (
-                <Permalink key={`#${name}`} className={classNames('account__hashtag-link', { active, 'account__hashtag-link--temporary': temporary })} title={desc} href={url || account.get('url')} to={to} onInterceptClick={onSelectTag ? () => this.handleChooseTag(name) : undefined}>
+                <Permalink key={`#${name}`} className={classNames('account__hashtag-link', { active, 'account__hashtag-link--temporary': temporary })} title={desc} href={url || account.get('url')} to={to} onInterceptClick={onChooseTag}>
                   #{name} {countBadge}
                 </Permalink>
               );
