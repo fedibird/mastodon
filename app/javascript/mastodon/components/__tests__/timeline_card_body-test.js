@@ -55,7 +55,7 @@ describe('TimelineCardBody', () => {
   it('scrolls only the text region and expands it fully without navigating the card', () => {
     const onNavigate = jest.fn();
     const { container, getByRole, queryByRole } = render(
-      <div onClick={onNavigate}>
+      <div role='button' tabIndex='0' onClick={onNavigate} onKeyDown={onNavigate}>
         <div data-testid='first-media'>first image</div>
         <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
           <p>Long text</p>
