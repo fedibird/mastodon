@@ -68,6 +68,62 @@ RSpec.describe GroupDirectory::Indexing do
       expect(redis.smembers(described_class::PENDING_KEY)).to be_empty
       expect(GroupDirectoryIndexWorker).not_to have_received(:perform_async)
     end
+
+    it 'keeps a claimed id, including one that must be deleted, until it is acked' do
+      described_class.push([42])
+      claimed = described_class.claim_batch
+
+      expect(claimed).to eq(['42'])
+      expect(redis.smembers(described_class::PENDING_KEY)).to be_empty
+      expect(redis.zrange(described_class::INFLIGHT_KEY, 0, -1)).to eq(['42'])
+
+      described_class.push([42])
+      described_class.ack(claimed)
+
+      expect(redis.zcard(described_class::INFLIGHT_KEY)).to eq(0)
+      expect(redis.smembers(described_class::PENDING_KEY)).to eq(['42'])
+    end
+
+    it 'returns an unacked id to pending after the inflight lease' do
+      described_class.push([30])
+      described_class.claim_batch
+      redis.zadd(described_class::INFLIGHT_KEY, 1, '30')
+
+      expect(described_class.reclaim_expired!).to eq(['30'])
+      expect(redis.smembers(described_class::PENDING_KEY)).to eq(['30'])
+      expect(redis.zcard(described_class::INFLIGHT_KEY)).to eq(0)
+    end
+
+    it 'drops the schedule flag when the job cannot be queued and does not raise' do
+      allow(GroupDirectoryIndexWorker).to receive(:perform_async).and_raise(Redis::BaseError, 'push failed')
+
+      expect { described_class.push([21]) }.not_to raise_error
+
+      expect(redis.smembers(described_class::PENDING_KEY)).to eq(['21'])
+      expect(redis.get(described_class::SCHEDULE_KEY)).to be_nil
+    end
+
+    it 'does not raise when Redis fails after the account row commits' do
+      group = directory_group('redis_down')
+      redis
+      allow(redis).to receive(:sadd).and_raise(Redis::BaseError, 'down')
+
+      expect { group.update!(display_name: 'still saved') }.not_to raise_error
+      expect(group.reload.display_name).to eq('still saved')
+    end
+
+    it 'queues another drain after the schedule flag expires' do
+      described_class.push([22])
+      redis.del(described_class::SCHEDULE_KEY)
+      RSpec::Mocks.space.proxy_for(GroupDirectoryIndexWorker).reset
+      allow(GroupDirectoryIndexWorker).to receive(:perform_async)
+      allow(described_class).to receive(:index_ready?).and_return(true)
+
+      described_class.recover!
+
+      expect(GroupDirectoryIndexWorker).to have_received(:perform_async)
+      expect(redis.smembers(described_class::PENDING_KEY)).to eq(['22'])
+    end
   end
 
   describe GroupDirectoryIndexWorker do
@@ -84,6 +140,7 @@ RSpec.describe GroupDirectory::Indexing do
       end
       expect(redis.get(GroupDirectory::Indexing::SCHEDULE_KEY)).to be_nil
       expect(redis.smembers(GroupDirectory::Indexing::PENDING_KEY)).to be_empty
+      expect(redis.zcard(GroupDirectory::Indexing::INFLIGHT_KEY)).to eq(0)
     end
 
     it 'drains more than one batch' do
@@ -119,6 +176,33 @@ RSpec.describe GroupDirectory::Indexing do
 
       expect { described_class.new.perform }.to raise_error(StandardError, 'bulk down')
       expect(redis.smembers(GroupDirectory::Indexing::PENDING_KEY)).to match_array(%w(8 9))
+      expect(redis.zcard(GroupDirectory::Indexing::INFLIGHT_KEY)).to eq(0)
+    end
+
+    it 'requeues a drained deletion id whose worker disappeared' do
+      allow(GroupDirectory::Indexing).to receive(:index_ready?).and_return(true)
+      redis.sadd(GroupDirectory::Indexing::PENDING_KEY, '41')
+      redis.set(GroupDirectory::Indexing::SCHEDULE_KEY, '1')
+      GroupDirectory::Indexing.claim_batch
+      redis.zadd(GroupDirectory::Indexing::INFLIGHT_KEY, 1, '41')
+      GroupDirectory::Indexing.reclaim_expired!
+      allow(GroupDirectoryIndex).to receive(:import!)
+
+      described_class.new.perform
+
+      expect(GroupDirectoryIndex).to have_received(:import!).with([41])
+    end
+
+    it 'schedules a drain when Sidekiq gives up and pending ids remain' do
+      redis.sadd(GroupDirectory::Indexing::PENDING_KEY, '55')
+      redis.set(GroupDirectory::Indexing::SCHEDULE_KEY, '1')
+      allow(GroupDirectory::Indexing).to receive(:index_ready?).and_return(true)
+      allow(described_class).to receive(:perform_async)
+
+      described_class.sidekiq_retries_exhausted_block.call({}, StandardError.new('dead'))
+
+      expect(described_class).to have_received(:perform_async)
+      expect(redis.smembers(GroupDirectory::Indexing::PENDING_KEY)).to eq(['55'])
     end
 
     it 'does not import when live sync is off' do
@@ -135,9 +219,35 @@ RSpec.describe GroupDirectory::Indexing do
   end
 
   describe 'sync hooks' do
+    # This example commits. The name has to match uses_transaction.
+    uses_transaction 'enqueues when creating a group stat with a null activity time'
+
     before do
       allow(described_class).to receive(:enqueue)
       allow(described_class).to receive(:enqueue_domain)
+    end
+
+    it 'enqueues when creating a group stat with a null activity time' do
+      user = Fabricate(:user, confirmed_at: 10.days.ago, approved: true)
+      reset_index_stubs
+      account = Fabricate(:account, username: 'nullactivity', actor_type: 'Group', discoverable: true, user: user)
+
+      expect(described_class).not_to have_received(:enqueue).with(account.id)
+
+      AccountStat.create!(account: account)
+      expect(account.reload.account_stat.last_status_at).to be_nil
+      expect(described_class).to have_received(:enqueue).with(account.id).once
+
+      reset_index_stubs
+      account.account_stat.update!(followers_count: 4)
+      expect(described_class).not_to have_received(:enqueue)
+    ensure
+      ids = []
+      ids << account.id if defined?(account) && account
+      ids << user.account_id if defined?(user) && user&.account_id
+      AccountStat.where(account_id: ids).delete_all if ids.any?
+      User.where(id: user.id).delete_all if defined?(user) && user
+      Account.where(id: ids).delete_all if ids.any?
     end
 
     it 'registers commit hooks and ignores accounts that are not groups' do
@@ -211,6 +321,14 @@ RSpec.describe GroupDirectory::Indexing do
       described_class.enqueue_domain('sync.example')
       expect(described_class).to have_received(:enqueue).with([group.id])
       expect(described_class).not_to have_received(:enqueue).with(a_collection_including(person.id))
+    end
+
+    it 'asks the minute scheduler to recover a stale queue' do
+      allow(described_class).to receive(:recover!)
+
+      Scheduler::GroupDirectoryIndexRecoveryScheduler.new.perform
+
+      expect(described_class).to have_received(:recover!)
     end
 
     it 'skips a brand new group that is not listable yet' do

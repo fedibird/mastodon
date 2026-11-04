@@ -29,8 +29,10 @@ class AccountStat < ApplicationRecord
 
   def request_group_directory_index
     return unless GroupDirectory::Indexing.live_sync_enabled?
-    return unless destroyed? || previous_changes.key?('last_status_at')
     return unless account&.group?
+    # A new row often has a null last_status_at, and Rails does not record
+    # that default as a change. The group still has to enter the index.
+    return unless destroyed? || previously_new_record? || previous_changes.key?('last_status_at')
 
     GroupDirectory::Indexing.enqueue(account_id)
   end

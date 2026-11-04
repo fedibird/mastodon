@@ -6,6 +6,10 @@
 #
 # Search text is capped so the bounded ngram cannot grow with a remote note.
 # Names are placed first, so a long note cannot push the name out of the cap.
+# plain_note keeps the first NOTE_LIMIT characters only. SQL ILIKE still
+# searches the whole accounts.note column, because the directory API does
+# not read this index yet. The tail of a longer remote note is absent from
+# the index on purpose; do not treat the index as a full-note search.
 class GroupDirectory::Document
   NOTE_LIMIT = 2_000
   SEARCH_TEXT_LIMIT = 2_500

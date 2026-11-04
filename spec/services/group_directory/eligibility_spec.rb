@@ -98,10 +98,12 @@ RSpec.describe GroupDirectory::Eligibility do
   it 'caps indexed text and does not copy NodeInfo languages or replace a null activity time' do
     directory_node('lemmy.example', nil, nodeinfo: { 'ok' => true })
     Node.find_by(domain: 'lemmy.example').update!(info: { 'software_name' => '', 'languages' => ['ja'] })
-    remote = directory_group('long_group', domain: 'lemmy.example', display_name: 'KeepName', note: 'n' * 3_000)
+    remote = directory_group('long_group', domain: 'lemmy.example', display_name: 'KeepName', note: "#{'n' * 3_000}TAILMARKER")
 
     expect(GroupDirectory::Document.plain_note(remote).length).to eq(GroupDirectory::Document::NOTE_LIMIT)
+    expect(GroupDirectory::Document.plain_note(remote)).not_to include('TAILMARKER')
     expect(GroupDirectory::Document.search_text(remote)).to start_with('KeepName')
+    expect(GroupDirectory::Document.search_text(remote)).not_to include('TAILMARKER')
     expect(GroupDirectory::Document.search_text(remote).length).to be <= GroupDirectory::Document::SEARCH_TEXT_LIMIT
     expect(GroupDirectory::Document.language_tags(remote)).to eq([])
     expect(GroupDirectory::Document.software_bucket(remote)).to eq('unknown')

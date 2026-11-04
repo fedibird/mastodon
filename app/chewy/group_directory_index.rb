@@ -20,6 +20,12 @@
 # to AND overlapping 20-character windows. One-character substrings are not
 # grams, matching the current two-character rule.
 #
+# A 2500-character text field produces at most 47_310 ngram windows, and a
+# 2000-character note produces at most 37_810. Do not set
+# GROUP_DIRECTORY_INDEX in production until index size, bulk throughput,
+# and search latency have been measured on the real cluster. The directory
+# API still searches the full note with SQL.
+#
 # `last_status_at` stays null when the column is null. It is not replaced
 # with created_at. Elasticsearch treats a null date as a missing value, so
 # sort it with missing: _last, then id desc, to match NULLS LAST plus the
@@ -38,7 +44,17 @@
 # deleted. A mapping change purges only this index, because deploy calls
 # purge when this index's specification changed.
 class GroupDirectoryIndex < Chewy::Index
-  settings index: { refresh_interval: '30s', max_ngram_diff: 18 }, analysis: {
+  INFIX_MIN_GRAM = 2
+  INFIX_MAX_GRAM = 20
+
+  def self.infix_window_upper_bound(length)
+    return 0 if length < INFIX_MIN_GRAM
+
+    max_gram = [INFIX_MAX_GRAM, length].min
+    (INFIX_MIN_GRAM..max_gram).sum { |gram| length - gram + 1 }
+  end
+
+  settings index: { refresh_interval: '30s', max_ngram_diff: INFIX_MAX_GRAM - INFIX_MIN_GRAM }, analysis: {
     filter: {
       english_stop: {
         type: 'stop',
@@ -68,8 +84,8 @@ class GroupDirectoryIndex < Chewy::Index
     tokenizer: {
       infix_ngram: {
         type: 'ngram',
-        min_gram: 2,
-        max_gram: 20,
+        min_gram: INFIX_MIN_GRAM,
+        max_gram: INFIX_MAX_GRAM,
       },
       sudachi_tokenizer: {
         type: 'sudachi_tokenizer',

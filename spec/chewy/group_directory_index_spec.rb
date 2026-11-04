@@ -25,6 +25,8 @@ RSpec.describe GroupDirectoryIndex do
     expect(infix).to include(type: 'ngram', min_gram: 2, max_gram: 20)
     expect(analysis[:tokenizer]).not_to have_key(:edge_ngram)
     expect(described_class.settings_hash.dig(:settings, :index, :max_ngram_diff)).to eq(18)
+    expect(described_class.infix_window_upper_bound(2_500)).to eq(47_310)
+    expect(described_class.infix_window_upper_bound(2_000)).to eq(37_810)
     expect(analysis.dig(:analyzer, :infix, :tokenizer)).to eq('infix_ngram')
     expect(analysis.dig(:analyzer, :infix, :filter)).to eq(%w(lowercase asciifolding cjk_width))
     expect(analysis.dig(:analyzer, :infix_query)).to include(tokenizer: 'keyword', filter: %w(lowercase asciifolding cjk_width))
