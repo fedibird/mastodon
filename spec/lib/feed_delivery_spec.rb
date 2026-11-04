@@ -209,5 +209,51 @@ RSpec.describe FeedDelivery do
       expect(described_class.flush_count).to eq 1
       expect(described_class.snapshot).to eq('job|reason=keyword' => 1000)
     end
+
+    it 'flushes a few idle events when flush! runs without another record' do
+      described_class.reset!
+      described_class.record('list|result=agree')
+
+      expect(described_class.pending_events).to eq 1
+      expect(described_class.flush_count).to eq 0
+      expect(described_class.flush!).to be true
+      expect(described_class.pending_events).to eq 0
+      expect(described_class.flush_count).to eq 1
+    end
+
+    it 'keeps pending counts when redis fails and retries them on the next flush' do
+      described_class.reset!
+      allow(described_class).to receive(:with_redis).and_raise(StandardError.new('redis down'))
+      expect(Rails.logger).to receive(:warn).with(/metrics persist failed error=StandardError/)
+
+      described_class.record('job|reason=keyword', 100)
+
+      expect(described_class.flush_count).to eq 0
+      expect(described_class.pending_events).to eq 100
+      expect(described_class.persist_failures).to eq 1
+
+      allow(described_class).to receive(:with_redis).and_call_original
+      expect(described_class.flush!).to be true
+      expect(described_class.pending_events).to eq 0
+      expect(described_class.flush_count).to eq 1
+      expect(described_class.persist_failures).to eq 0
+    end
+
+    it 'flushes idle events from the periodic thread' do
+      described_class.reset!
+      described_class.record('list|result=reuse')
+      described_class.start_flusher!(interval: 0.05)
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 1
+      loop do
+        break if described_class.flush_count >= 1 || Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+
+        sleep 0.02
+      end
+
+      expect(described_class.flush_count).to eq 1
+      expect(described_class.pending_events).to eq 0
+    ensure
+      described_class.stop_flusher!
+    end
   end
 end

@@ -46,8 +46,18 @@ RSpec.describe 'Feed delivery reason cost' do
       )
     end
     text = lines.join("\n")
-    File.write('/opt/cursor/artifacts/feed-delivery-cost.log', "#{text}\n")
     warn text
+    write_cost_log(text)
+  end
+
+  def write_cost_log(text)
+    path = ENV['FEED_DELIVERY_COST_LOG'].presence
+    return if path.nil?
+
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, "#{text}\n")
+  rescue SystemCallError => error
+    warn "feed delivery cost log skipped: #{error.class}"
   end
 
   it 'keeps Redis writes off the per-destination path' do
@@ -95,5 +105,27 @@ RSpec.describe 'Feed delivery reason cost' do
     end
 
     report(rows)
+  end
+
+  it 'reports when no log path is configured and when the directory is missing' do
+    row = { mode: 'off', size: 1, kind: 'keyword_fanout', seconds: 0.1, sql: 1, allocations: 1, redis: 0 }
+    previous = ENV['FEED_DELIVERY_COST_LOG']
+    missing = nil
+    ENV.delete('FEED_DELIVERY_COST_LOG')
+
+    expect { report([row]) }.not_to raise_error
+
+    missing = Rails.root.join('tmp', "feed-delivery-cost-#{SecureRandom.hex(4)}", 'nested', 'cost.log')
+    FileUtils.rm_rf(missing.dirname.dirname)
+    ENV['FEED_DELIVERY_COST_LOG'] = missing.to_s
+
+    expect { report([row]) }.not_to raise_error
+    expect(File.read(missing)).to include('keyword_fanout')
+
+    allow(FileUtils).to receive(:mkdir_p).and_raise(Errno::ENOENT)
+    expect { report([row]) }.not_to raise_error
+  ensure
+    FileUtils.rm_rf(missing.dirname.dirname) if missing
+    ENV['FEED_DELIVERY_COST_LOG'] = previous
   end
 end
