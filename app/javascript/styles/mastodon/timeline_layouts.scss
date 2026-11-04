@@ -177,6 +177,54 @@
     overflow-wrap: anywhere;
   }
 
+  &__body-scroll {
+    // The first attachment sits outside the body. Only post text (including
+    // its CW and trailing hashtag badges) is capped at ten normal text lines.
+    // Match .status__content's line-height plus its 2px top padding.
+    max-height: calc(var(--content-font-size, 15px) * 13.3 + 2px);
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+
+    &:focus-visible {
+      outline: 2px solid $ui-highlight-color;
+      outline-offset: -2px;
+    }
+  }
+
+  &__body--expanded &__body-scroll {
+    max-height: none;
+    overflow: visible;
+  }
+
+  &__expand {
+    display: block;
+    margin: 2px auto 0;
+    min-width: 40px;
+    min-height: 30px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: $darker-text-color;
+    font-size: 14px;
+    line-height: 1;
+    text-align: center;
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      background: lighten($ui-base-color, 8%);
+      color: $primary-text-color;
+    }
+
+    &:focus-visible {
+      outline: 2px solid $ui-highlight-color;
+      outline-offset: 2px;
+    }
+  }
+
   &__quote {
     margin: 0 8px 8px;
     padding: 7px;
