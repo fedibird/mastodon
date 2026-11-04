@@ -42,7 +42,8 @@ module Mastodon
       cannot replace a newer live document. A changed mapping still purges
       only the index whose specification changed. Set GROUP_DIRECTORY_INDEX
       only after the index exists and its size has been measured. Unset it
-      to stop live sync. The directory API keeps using PostgreSQL either way.
+      to stop live sync. The directory API keeps using PostgreSQL until
+      GROUP_DIRECTORY_ES_SEARCH is set. That flag is separate and defaults off.
     LONG_DESC
     # The importer predates the complexity cap. Group directory adds a fenced
     # path and a rebuild exit; splitting the loop would only move the same

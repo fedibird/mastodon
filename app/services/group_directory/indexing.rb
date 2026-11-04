@@ -4,7 +4,9 @@
 #
 # GROUP_DIRECTORY_INDEX=true and ES_ENABLED=true both have to be set. With
 # either one off, hooks return before they touch Redis or Elasticsearch.
-# The directory API does not read this index yet.
+# The directory API reads this index only when GROUP_DIRECTORY_ES_SEARCH
+# is also on. That flag defaults off. A version gap makes that read fail
+# closed instead of serving the SQL listing.
 #
 # Jobs carry no document. A worker claims ids atomically from the pending
 # set into an inflight sorted set, imports the current rows, then acks.
