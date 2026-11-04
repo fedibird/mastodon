@@ -10,6 +10,7 @@ import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
+import TimelineCardBody from './timeline_card_body';
 import StatusActionBar from './status_action_bar';
 import AccountContextActions from '../features/account_context/components/actions';
 import AccountActionBar from './account_action_bar';
@@ -244,6 +245,8 @@ const messages = defineMessages({
   openMediaTile: { id: 'timeline.media.open', defaultMessage: 'Open media' },
   openMediaSource: { id: 'timeline.media.open_post', defaultMessage: 'Open original post' },
   cardMediaCount: { id: 'timeline.card.media_count', defaultMessage: '{count} media attachments' },
+  cardExpandText: { id: 'timeline.card.expand_text', defaultMessage: 'Show full post text' },
+  cardScrollText: { id: 'timeline.card.scroll_text', defaultMessage: 'Scrollable post text' },
 });
 
 const dateFormatOptions = {
@@ -874,9 +877,13 @@ class Status extends ImmutablePureComponent {
                 </span>
               )}
             </div>}
-            <div className='timeline-card__body'>
+            <TimelineCardBody
+              key={status.get('id')}
+              expandLabel={intl.formatMessage(messages.cardExpandText)}
+              scrollLabel={intl.formatMessage(messages.cardScrollText)}
+            >
               <StatusContent status={status} translationWrapper={original} onClick={this.handleClick} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} compactCard />
-            </div>
+            </TimelineCardBody>
             {quoteBody}
             {linkPreview}
             {cardContext}
