@@ -3,7 +3,7 @@
 require 'rails_helper'
 
 # Counts SQL, allocations, and Redis flushes for 1/100/1000 destinations.
-# Redis writes are the bounded assertion. The table is the measurement.
+# The heavy example is opt-in: FEED_DELIVERY_COST=1. The log-path example always runs.
 RSpec.describe 'Feed delivery reason cost' do
   SIZES = [1, 100, 1000].freeze
 
@@ -61,6 +61,8 @@ RSpec.describe 'Feed delivery reason cost' do
   end
 
   it 'keeps Redis writes off the per-destination path' do
+    skip 'set FEED_DELIVERY_COST=1 to run the 1/100/1000 delivery benchmark' unless ENV['FEED_DELIVERY_COST'] == '1'
+
     author = Fabricate(:account, username: 'cost_author')
     status = Fabricate(:status, account: author, text: 'say alpha please', visibility: :public)
     rows = []

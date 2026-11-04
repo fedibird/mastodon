@@ -6,13 +6,20 @@ module FeedDelivery
   #
   # record never writes one Redis command per destination. Pending totals are
   # flushed in one pipeline at FLUSH_SIZE, from a 5 second thread, or from an
-  # explicit flush! (keyword fan-out and process exit). After a failed write
-  # the batch stays pending and record does not retry until the backoff ends.
-  # The periodic flusher and a forced flush are what check whether Redis is back.
+  # explicit flush! (keyword fan-out and process exit).
+  #
+  # After a failed write the batch stays pending. record will not try Redis
+  # again until the backoff ends. The 5 second thread still calls
+  # flush!(force: true), so each process retries about once per interval while
+  # Redis is down. That is the recovery check: total attempts are roughly
+  # process count divided by FLUSH_INTERVAL, not the delivery rate. Those
+  # forced attempts are counted and, on the next successful write, stored as
+  # meta|result=recovery_attempt. A successful write also clears the backoff.
   module Metrics
     KEY_PREFIX = 'feed_delivery_reason:v1'
     RETENTION = 8.days
     PERSIST_FAILURE_FIELD = 'meta|result=persist_failure'
+    RECOVERY_ATTEMPT_FIELD = 'meta|result=recovery_attempt'
     WARN_INTERVAL = 60
 
     FIELDS = %w(
@@ -73,6 +80,7 @@ module FeedDelivery
         @pending_events = 0
         @redis_flushes = 0
         @persist_failures = 0
+        @recovery_attempts = 0
         @last_persist_warn = nil
         @retry_after = nil
       end
@@ -80,28 +88,36 @@ module FeedDelivery
 
     # force is the periodic flusher and process exit. record never forces, so a
     # Redis outage cannot turn every later event into a synchronous retry.
+    # The flusher still retries about once per FLUSH_INTERVAL per process.
     def flush!(now: Time.now.utc, force: false)
-      pending, failures, events = synchronize do
+      pending, failures, events, recovery = synchronize do
         next if @pending_events.zero?
         next if !force && cooling_down?(now)
 
+        @recovery_attempts += 1 if force && cooling_down?(now)
         extracted = @pending
         count = @pending_events
         carried_failures = @persist_failures
+        carried_recovery = @recovery_attempts
         @pending = Hash.new(0)
         @pending_events = 0
         @persist_failures = 0
-        [extracted, carried_failures, count]
+        @recovery_attempts = 0
+        [extracted, carried_failures, count, carried_recovery]
       end
       return false if pending.nil?
 
       payload = pending.dup
       payload[PERSIST_FAILURE_FIELD] = failures if failures.positive?
+      payload[RECOVERY_ATTEMPT_FIELD] = recovery if recovery.positive?
       write_redis(payload, now)
-      synchronize { @redis_flushes += 1 }
+      synchronize do
+        @redis_flushes += 1
+        @retry_after = nil
+      end
       true
     rescue StandardError => e
-      restore_pending(pending, events, failures)
+      restore_pending(pending, events, failures, recovery)
       warn_persist_failure(e)
       false
     end
@@ -160,13 +176,14 @@ module FeedDelivery
       end
     end
 
-    def restore_pending(pending, events, failures)
+    def restore_pending(pending, events, failures, recovery)
       return if pending.nil?
 
       synchronize do
         pending.each { |field, count| @pending[field] = @pending.fetch(field, 0) + count }
         @pending_events += events.to_i
         @persist_failures += failures.to_i + 1
+        @recovery_attempts += recovery.to_i
         @retry_after = Time.now.utc + backoff_delay(@persist_failures)
       end
     end
@@ -201,6 +218,7 @@ module FeedDelivery
     @pending_events = 0
     @redis_flushes = 0
     @persist_failures = 0
+    @recovery_attempts = 0
     @last_persist_warn = nil
     @retry_after = nil
     @flusher = nil

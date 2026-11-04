@@ -237,6 +237,10 @@ RSpec.describe FeedDelivery do
       expect(described_class.pending_events).to eq 0
       expect(described_class.flush_count).to eq 1
       expect(described_class.persist_failures).to eq 0
+
+      described_class.record('job|reason=keyword', 100)
+      expect(described_class.flush_count).to eq 2
+      expect(described_class.pending_events).to eq 0
     end
 
     it 'does not retry redis on every later record after a failed flush' do
