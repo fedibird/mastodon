@@ -1,7 +1,7 @@
 /* eslint-disable react/prop-types */
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { fromJS } from 'immutable';
+import { fromJS, List as ImmutableList } from 'immutable';
 import React from 'react';
 import { addLocaleData, IntlProvider } from 'react-intl';
 import japaneseData from 'react-intl/locale-data/ja';
@@ -26,6 +26,7 @@ jest.mock('mastodon/components/icon', () => {
 
 import MediaItem from '../components/media_item';
 import MediaDisplayControls from 'mastodon/components/media_display_controls';
+import AccountMediaItems from '../components/media_items';
 
 addLocaleData(japaneseData);
 
@@ -95,6 +96,22 @@ describe('account media gallery tile', () => {
     expect(screen.queryByTestId('blurhash-canvas')).toBeNull();
   });
 
+  it('forgets an individual reveal even when returning to the same visibility policy', () => {
+    const { rerender } = render(tile('hide_all'));
+    fireEvent.click(screen.getByRole('link', { name: 'メディアを表示' }));
+    expect(screen.getByRole('link', { name: '写真の説明' })).toBeInTheDocument();
+
+    rerender(tile('show_all'));
+    rerender(tile('hide_all'));
+    expect(screen.getByRole('link', { name: 'メディアを表示' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '写真の説明' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('link', { name: 'メディアを表示' }));
+    rerender(tile('hide_sensitive'));
+    rerender(tile('hide_all'));
+    expect(screen.getByRole('link', { name: 'メディアを表示' })).toBeInTheDocument();
+  });
+
   it('shows clear previews when toggling from hide-all to sensitive-only and show-all', () => {
     const ordinary = attachment.setIn(['status', 'sensitive'], false);
     const { container, rerender } = render(tile('hide_all', ordinary));
@@ -132,32 +149,33 @@ describe('account media gallery tile', () => {
   });
 });
 
-const IntegratedGallery = () => {
+const IntegratedGallery = ({ shape = 'square', medias }) => {
   const [visibility, setVisibility] = React.useState('hide_all');
   const ordinary = attachment
     .set('id', 'm2')
     .setIn(['status', 'id'], '11')
     .setIn(['status', 'sensitive'], false);
+  const items = medias || [attachment, ordinary];
   return (
     <IntlProvider locale='ja' messages={japanese}>
       <div>
         <MediaDisplayControls
-          shape='square'
-          size='small'
+          shape={shape}
+          size='medium'
           visibility={visibility}
           onShapeChange={jest.fn()}
           onSizeChange={jest.fn()}
           onVisibilityChange={setVisibility}
         />
-        {[attachment, ordinary].map(media => (
-          <MediaItem
-            key={`${media.get('id')}:${visibility}`}
-            attachment={media}
-            visibility={visibility}
-            shape='square'
-            onOpenMedia={onOpenMedia}
-          />
-        ))}
+        <AccountMediaItems
+          attachments={ImmutableList(items)}
+          shape={shape}
+          size='medium'
+          visibility={visibility}
+          onOpenMedia={onOpenMedia}
+          onReveal={onReveal}
+          onLoadMore={jest.fn()}
+        />
       </div>
     </IntlProvider>
   );
@@ -191,5 +209,104 @@ describe('account media control transitions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'メディアを常に表示する' }));
     expect(images()).toHaveLength(2);
     expect(blurred()).toHaveLength(0);
+  });
+});
+
+describe('account media pagination controls', () => {
+  it('preserves gap and older-page loading after extracting the media list', () => {
+    const onLoadMore = jest.fn();
+    const onLoadOlder = jest.fn();
+    const ordinary = attachment
+      .set('id', 'm2')
+      .setIn(['status', 'id'], '11')
+      .setIn(['status', 'sensitive'], false);
+
+    const { container } = render(
+      <IntlProvider locale='ja' messages={japanese}>
+        <AccountMediaItems
+          attachments={ImmutableList([attachment, null, ordinary])}
+          shape='square'
+          size='small'
+          visibility='show_all'
+          onOpenMedia={onOpenMedia}
+          onLoadMore={onLoadMore}
+          loadOlder={<button type='button' onClick={onLoadOlder}>Older media</button>}
+        />
+      </IntlProvider>,
+    );
+
+    fireEvent.click(container.querySelector('.media-layout__more .load-more'));
+    expect(onLoadMore).toHaveBeenCalledWith('10');
+    fireEvent.click(screen.getByRole('button', { name: 'Older media' }));
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('account original-size masonry visibility transitions', () => {
+  it('keeps original-size masonry placements when all media visibility controls change', () => {
+    const resizeObserver = Object.getOwnPropertyDescriptor(window, 'ResizeObserver');
+    Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: undefined });
+
+    const itemHeights = { m1: 320, m2: 90, m3: 90, m4: 90 };
+    const rect = (width, height) => ({ width, height, x: 0, y: 0, top: 0, left: 0, right: width, bottom: height });
+
+    jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this.classList.contains('timeline-masonry')) {
+        return rect(350, 0); // Two medium-size columns.
+      }
+
+      const key = this.getAttribute('data-layout-key');
+      const mediaId = key && Object.keys(itemHeights).find(id => key.includes(id));
+      return rect(0, mediaId ? itemHeights[mediaId] : 0);
+    });
+
+    try {
+      const medias = [
+        attachment,
+        ...['m2', 'm3', 'm4'].map((id, index) => attachment
+          .set('id', id)
+          .setIn(['status', 'id'], String(index + 11))
+          .setIn(['status', 'sensitive'], false)),
+      ];
+      const { container } = render(<IntegratedGallery shape='original' medias={medias} />);
+      const findItem = id => Array.from(container.querySelectorAll('.timeline-masonry__item'))
+        .find(node => node.getAttribute('data-layout-key')?.includes(id));
+      const position = id => {
+        const node = findItem(id);
+        const match = node.style.transform.match(/translate3d\(0, ([\d.]+)px, 0\)/);
+        return { x: parseFloat(node.style.insetInlineStart), y: Number(match[1]) };
+      };
+      const ids = ['m1', 'm2', 'm3', 'm4'];
+      const initialNodes = ids.map(findItem);
+      const initialPositions = ids.map(position);
+
+      // A tall image occupies the first column, while shorter images
+      // stack tightly in the second, rather than forming uniform rows.
+      expect(initialPositions[1].x).toBeGreaterThan(initialPositions[0].x);
+      expect(initialPositions[2].x).toBe(initialPositions[1].x);
+      expect(initialPositions[3].x).toBe(initialPositions[1].x);
+      expect(initialPositions[2].y).toBe(initialPositions[1].y + 98);
+      expect(container.querySelectorAll('.timeline-media-tile__open--original')).toHaveLength(4);
+
+      [
+        { label: '閲覧注意メディアを隠す', images: 3, blurred: 1 },
+        { label: 'メディアを常に表示する', images: 4, blurred: 0 },
+        { label: 'メディアを常に隠す', images: 0, blurred: 4 },
+      ].forEach(({ label, images, blurred }) => {
+        fireEvent.click(screen.getByRole('button', { name: label }));
+        expect(ids.map(position)).toEqual(initialPositions);
+        expect(ids.map(findItem)).toEqual(initialNodes);
+        expect(container.querySelectorAll('.timeline-media-tile__open--original')).toHaveLength(4);
+        expect(container.querySelectorAll('.timeline-media-tile img')).toHaveLength(images);
+        expect(container.querySelectorAll('[data-testid="blurhash-canvas"]')).toHaveLength(blurred);
+      });
+    } finally {
+      jest.restoreAllMocks();
+      if (resizeObserver) {
+        Object.defineProperty(window, 'ResizeObserver', resizeObserver);
+      } else {
+        delete window.ResizeObserver;
+      }
+    }
   });
 });

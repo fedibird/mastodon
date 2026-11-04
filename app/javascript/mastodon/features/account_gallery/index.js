@@ -12,9 +12,8 @@ import ColumnSettingsContainer from '../account_timeline/containers/column_setti
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { accountGalleryAttachments } from 'mastodon/selectors';
 import { List as ImmutableList } from 'immutable';
-import MediaItem from './components/media_item';
+import AccountMediaItems from './components/media_items';
 import MediaDisplayControls from 'mastodon/components/media_display_controls';
-import MediaItemsLayout from 'mastodon/components/media_items_layout';
 import { defaultMediaVisibility } from 'mastodon/utils/media_display';
 import { accountMediaRevealKey, accountMediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
 import HeaderContainer from '../account_timeline/containers/header_container';
@@ -52,31 +51,6 @@ const mapStateToProps = (state, { params: { accountId } }) => {
     columnWidth: state.getIn(['settings', 'account', 'columnWidth'], defaultColumnWidth),
   };
 };
-
-class LoadMoreMedia extends ImmutablePureComponent {
-
-  static propTypes = {
-    maxId: PropTypes.string,
-    onLoadMore: PropTypes.func.isRequired,
-    disabled: PropTypes.bool,
-  };
-
-  handleLoadMore = () => {
-    this.props.onLoadMore(this.props.maxId);
-  }
-
-  render () {
-    return (
-      <div className='media-layout__more'>
-        <LoadMore
-          disabled={this.props.disabled}
-          onClick={this.handleLoadMore}
-        />
-      </div>
-    );
-  }
-
-}
 
 export default @connect(mapStateToProps)
 @injectIntl
@@ -334,15 +308,16 @@ class AccountGallery extends ImmutablePureComponent {
               </div>
             ) : (
               <div role='feed' className='account-gallery__container account-gallery__container--media'>
-                <MediaItemsLayout shape={mediaShape} size={mediaSize}>
-                  {attachments.map((attachment, index) => attachment === null ? (
-                    <LoadMoreMedia key={'more:' + attachments.getIn(index + 1, 'id')} maxId={index > 0 ? attachments.getIn(index - 1, 'id') : null} onLoadMore={this.handleLoadMore} />
-                  ) : (
-                    <MediaItem key={`${attachment.get('id')}:${mediaVisibility}`} attachment={attachment} shape={mediaShape} visibility={mediaVisibility} onOpenMedia={this.handleOpenMedia} onReveal={this.handleMediaReveal} />
-                  ))}
-
-                  {loadOlder && <div key='more:older' className='media-layout__more'>{loadOlder}</div>}
-                </MediaItemsLayout>
+                <AccountMediaItems
+                  attachments={attachments}
+                  shape={mediaShape}
+                  size={mediaSize}
+                  visibility={mediaVisibility}
+                  onOpenMedia={this.handleOpenMedia}
+                  onReveal={this.handleMediaReveal}
+                  onLoadMore={this.handleLoadMore}
+                  loadOlder={loadOlder}
+                />
               </div>
             )}
 

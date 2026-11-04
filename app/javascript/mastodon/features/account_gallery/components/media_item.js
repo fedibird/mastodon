@@ -31,7 +31,19 @@ class MediaItem extends ImmutablePureComponent {
 
   state = {
     revealedFor: null,
+    visibility: this.props.visibility,
   };
+
+  // Keep the same MediaItem mounted for Masonry's measurements. Reset a
+  // one-time reveal before rendering with a changed visibility policy, even
+  // when the user switches back to an earlier policy.
+  static getDerivedStateFromProps (props, state) {
+    if (props.visibility !== state.visibility) {
+      return { revealedFor: null, visibility: props.visibility };
+    }
+
+    return null;
+  }
 
   // Scope a one-time reveal to this attachment AND the active policy.
   // Avoid retaining an image reveal when switching between media modes.
