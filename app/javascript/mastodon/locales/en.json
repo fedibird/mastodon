@@ -1261,6 +1261,8 @@
   "timeline.media.open": "Open media",
   "timeline.media.open_post": "Open original post",
   "timeline.card.media_count": "{count} media attachments",
+  "timeline.card.expand_text": "Show full post text",
+  "timeline.card.scroll_text": "Scrollable post text",
   "column_width.x200": "200%",
   "media_display.toolbar": "Media display options",
   "media_display.shape": "Layout",
