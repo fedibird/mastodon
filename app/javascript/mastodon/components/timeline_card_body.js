@@ -55,6 +55,13 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel }
     };
   }, [expanded, measureOverflow]);
 
+  // Do not drop keyboard focus when the expand button unmounts.
+  React.useEffect(() => {
+    if (expanded && viewportRef.current) {
+      viewportRef.current.focus({ preventScroll: true });
+    }
+  }, [expanded]);
+
   const handleExpand = event => {
     // The card container itself navigates to the status on click.
     event.preventDefault();
@@ -69,9 +76,9 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel }
       <div
         ref={viewportRef}
         className='timeline-card__body-scroll'
-        role={scrollable ? 'group' : undefined}
+        role={scrollable || expanded ? 'group' : undefined}
         aria-label={scrollable ? scrollLabel : undefined}
-        tabIndex={scrollable ? 0 : undefined}
+        tabIndex={scrollable ? 0 : (expanded ? -1 : undefined)}
       >
         <div ref={contentRef}>{children}</div>
       </div>
