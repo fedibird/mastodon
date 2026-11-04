@@ -114,8 +114,12 @@ class FanOutOnWriteService < BaseService
     end
   end
 
-  def feed_insert_args(*args)
-    update? ? [*args, { 'update' => true }] : args
+  def feed_insert_args(*args, evidence: nil)
+    return update? ? [*args, { 'update' => true }] : args if evidence.nil?
+
+    options = evidence.to_options
+    options['update'] = true if update?
+    [*args, options]
   end
 
   def streaming_event
@@ -194,7 +198,12 @@ class FanOutOnWriteService < BaseService
 
   def deliver_to_keyword_subscribers_home(status, matching_text)
     keyword_subscribes = KeywordSubscribe.active.with_media(status).without_local_followed_home(status.account).order(:account_id).merge(visibility_scope(status, KeywordSubscribe))
-    match_ids          = keyword_subscribes.chunk(&:account_id).filter_map { |id, subscribes| id if subscribes.any? { |s| s.match?(matching_text) } }
+    if FeedDelivery.observe?
+      deliver_keyword_matches(keyword_subscribes, matching_text, status, :account_id, 'home')
+      return
+    end
+
+    match_ids = keyword_subscribes.chunk(&:account_id).filter_map { |id, subscribes| id if subscribes.any? { |s| s.match?(matching_text) } }
 
     @feedInsertWorker.push_bulk(match_ids) do |account_id|
       feed_insert_args(status.id, account_id, 'home')
@@ -203,10 +212,46 @@ class FanOutOnWriteService < BaseService
 
   def deliver_to_keyword_subscribers_list(status, matching_text)
     keyword_subscribes = KeywordSubscribe.active.with_media(status).without_local_followed_list(status.account).order(:list_id).merge(visibility_scope(status, KeywordSubscribe))
-    match_ids          = keyword_subscribes.chunk(&:list_id).filter_map { |id, subscribes| id if subscribes.any? { |s| s.match?(matching_text) } }
+    if FeedDelivery.observe?
+      deliver_keyword_matches(keyword_subscribes, matching_text, status, :list_id, 'list')
+      return
+    end
+
+    match_ids = keyword_subscribes.chunk(&:list_id).filter_map { |id, subscribes| id if subscribes.any? { |s| s.match?(matching_text) } }
 
     @feedInsertWorker.push_bulk(match_ids) do |list_id|
       feed_insert_args(status.id, list_id, 'list')
+    end
+  end
+
+  # Keyword jobs stay separate from follow, tag, domain, and mention jobs for
+  # the same destination. Followed home timelines and followed lists are already
+  # excluded above. One hash of every destination is not built just to drop the
+  # remaining overlaps. The hash here is only the keyword groups already loaded.
+  def deliver_keyword_matches(subscribes, matching_text, status, group_key, feed_type)
+    evidences = {}
+    destination_ids = []
+
+    subscribes.chunk(&group_key).each do |destination_id, group|
+      evidence = FeedDelivery::KeywordScan.collect(group, matching_text, status: status)
+      next unless evidence
+      next unless keyword_destination?(evidence, destination_id, feed_type)
+
+      evidences[destination_id] = evidence
+      destination_ids << destination_id
+    end
+
+    @feedInsertWorker.push_bulk(destination_ids) do |destination_id|
+      FeedDelivery::Metrics.record('job|reason=keyword')
+      feed_insert_args(status.id, destination_id, feed_type, evidence: evidences[destination_id])
+    end
+  end
+
+  def keyword_destination?(evidence, destination_id, feed_type)
+    if feed_type == 'home'
+      evidence.account_id == destination_id && evidence.list_id.nil?
+    else
+      evidence.list_id == destination_id
     end
   end
 
