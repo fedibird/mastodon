@@ -216,9 +216,12 @@ describe('account media pagination controls', () => {
   it('preserves gap and older-page loading after extracting the media list', () => {
     const onLoadMore = jest.fn();
     const onLoadOlder = jest.fn();
-    const ordinary = attachment.set('id', 'm2').setIn(['status', 'sensitive'], false);
+    const ordinary = attachment
+      .set('id', 'm2')
+      .setIn(['status', 'id'], '11')
+      .setIn(['status', 'sensitive'], false);
 
-    render(
+    const { container } = render(
       <IntlProvider locale='ja' messages={japanese}>
         <AccountMediaItems
           attachments={ImmutableList([attachment, null, ordinary])}
@@ -232,8 +235,8 @@ describe('account media pagination controls', () => {
       </IntlProvider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
-    expect(onLoadMore).toHaveBeenCalledWith('m1');
+    fireEvent.click(container.querySelector('.media-layout__more .load-more'));
+    expect(onLoadMore).toHaveBeenCalledWith('10');
     fireEvent.click(screen.getByRole('button', { name: 'Older media' }));
     expect(onLoadOlder).toHaveBeenCalledTimes(1);
   });
