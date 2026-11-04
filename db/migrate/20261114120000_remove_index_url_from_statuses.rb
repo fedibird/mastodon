@@ -5,7 +5,7 @@
 #
 # Keep the rollback explicit: recreating this index on a large statuses table
 # may require substantial time and free disk space.
-class RemoveIndexUrlFromStatuses < ActiveRecord::Migration[6.1]
+class RemoveIndexURLFromStatuses < ActiveRecord::Migration[6.1]
   disable_ddl_transaction!
 
   INDEX_NAME = :index_statuses_on_url
