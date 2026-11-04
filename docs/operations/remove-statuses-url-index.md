@@ -40,7 +40,7 @@ were not supplied. Observe a representative interval before approval.
    other branches; code-path review and grep are complementary:
 
    ```sh
-   rg -n 'index_statuses_on_url|statuses[.]url|statuses\[.url.|Status[.](where|find_by)|status_url|holding_status' app lib db config
+   rg -n 'index_statuses_on_url|statuses[.]url|Status[.](where|find_by)|status_url|holding_status' app lib db config
    ```
 
    In particular, inspect calls that filter only by `url`. A query with
