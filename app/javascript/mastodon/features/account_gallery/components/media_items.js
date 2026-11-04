@@ -36,7 +36,12 @@ class LoadMoreMedia extends React.PureComponent {
 const AccountMediaItems = ({ attachments, shape, size, visibility, onOpenMedia, onReveal, onLoadMore, loadOlder }) => (
   <MediaItemsLayout shape={shape} size={size}>
     {attachments.map((attachment, index) => attachment === null ? (
-      <LoadMoreMedia key={'more:' + attachments.getIn(index + 1, 'id')} maxId={index > 0 ? attachments.getIn(index - 1, 'id') : null} onLoadMore={onLoadMore} />
+      // Gap pagination must use the preceding status ID, not the media ID.
+      <LoadMoreMedia
+        key={'more:' + (attachments.getIn([index + 1, 'id']) || index)}
+        maxId={index > 0 ? attachments.getIn([index - 1, 'status', 'id']) : null}
+        onLoadMore={onLoadMore}
+      />
     ) : (
       <MediaItem key={attachment.get('id')} attachment={attachment} shape={shape} visibility={visibility} onOpenMedia={onOpenMedia} onReveal={onReveal} />
     ))}
