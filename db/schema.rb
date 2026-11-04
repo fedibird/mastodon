@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_13_180000) do
+ActiveRecord::Schema.define(version: 2026_11_14_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -2380,7 +2380,6 @@ create_table "managed_groups", force: :cascade do |t|
     t.index ["quote_id"], name: "index_statuses_on_quote_id"
     t.index ["reblog_of_id", "account_id"], name: "index_statuses_on_reblog_of_id_and_account_id"
     t.index ["uri"], name: "index_statuses_on_uri", unique: true
-    t.index ["url"], name: "index_statuses_on_url"
     t.check_constraint "((ap_object_type IS NULL) OR ((ap_object_type)::text = ANY ((ARRAY['note'::character varying, 'page'::character varying])::text[]))) AND ((post_title IS NULL) OR (((char_length(post_title) >= 1) AND (char_length(post_title) <= 100)) AND (post_title !~ '[[:cntrl:]]'::text) AND (btrim(post_title) <> ''::text))) AND (((ap_object_type)::text IS DISTINCT FROM 'page'::text) OR (post_title IS NOT NULL))", name: "statuses_post_title_shape"
   end
 
