@@ -36,23 +36,17 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel }
       return undefined;
     }
 
-    let resizeObserver;
     if (window.ResizeObserver) {
-      resizeObserver = new window.ResizeObserver(measureOverflow);
+      const resizeObserver = new window.ResizeObserver(measureOverflow);
       resizeObserver.observe(viewport);
       resizeObserver.observe(content);
+      return () => resizeObserver.disconnect();
     }
 
-    // Keep a fallback for browsers without ResizeObserver, as well as font
-    // and viewport changes that do not always alter the observed box size.
+    // Only old browsers need a global resize listener. The observer monitors
+    // both the capped viewport and the natural height of the inner content.
     window.addEventListener('resize', measureOverflow);
-
-    return () => {
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-      window.removeEventListener('resize', measureOverflow);
-    };
+    return () => window.removeEventListener('resize', measureOverflow);
   }, [expanded, measureOverflow]);
 
   // Do not drop keyboard focus when the expand button unmounts.
