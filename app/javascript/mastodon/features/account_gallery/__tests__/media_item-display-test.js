@@ -212,6 +212,33 @@ describe('account media control transitions', () => {
   });
 });
 
+describe('account media pagination controls', () => {
+  it('preserves gap and older-page loading after extracting the media list', () => {
+    const onLoadMore = jest.fn();
+    const onLoadOlder = jest.fn();
+    const ordinary = attachment.set('id', 'm2').setIn(['status', 'sensitive'], false);
+
+    render(
+      <IntlProvider locale='ja' messages={japanese}>
+        <AccountMediaItems
+          attachments={ImmutableList([attachment, null, ordinary])}
+          shape='square'
+          size='small'
+          visibility='show_all'
+          onOpenMedia={onOpenMedia}
+          onLoadMore={onLoadMore}
+          loadOlder={<button type='button' onClick={onLoadOlder}>Older media</button>}
+        />
+      </IntlProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    expect(onLoadMore).toHaveBeenCalledWith('m1');
+    fireEvent.click(screen.getByRole('button', { name: 'Older media' }));
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('account original-size masonry visibility transitions', () => {
   it('keeps original-size masonry placements when all media visibility controls change', () => {
     const resizeObserver = Object.getOwnPropertyDescriptor(window, 'ResizeObserver');
