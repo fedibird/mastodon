@@ -71,14 +71,31 @@ describe Mastodon::SearchCLI do
       allow(scope).to receive(:reorder).with(nil).and_return(scope)
       allow(scope).to receive(:find_in_batches).and_yield([record])
       allow(GroupDirectoryIndex.adapter).to receive(:default_scope).and_return(scope)
+      allow(GroupDirectory::Import).to receive(:call).and_return(GroupDirectory::Import::Result.new(indexed: 1, deleted: 0, rejected: 0))
       expect(AccountsIndex).not_to receive(:purge)
       expect(StatusesIndex).not_to receive(:purge)
 
       invoke(only: ['group_directory'])
 
-      expect(Chewy::Index::Import::BulkRequest).to have_received(:new).with(GroupDirectoryIndex)
+      expect(GroupDirectory::Import).to have_received(:call).with([15])
+      expect(Chewy::Index::Import::BulkRequest).not_to have_received(:new).with(GroupDirectoryIndex)
       expect(Chewy::Index::Import::BulkRequest).not_to have_received(:new).with(AccountsIndex)
       expect(Chewy::Index::Import::BulkRequest).not_to have_received(:new).with(StatusesIndex)
+    end
+
+    it 'rebuilds only the group directory index' do
+      allow(GroupDirectory::Import).to receive(:rebuild!)
+      expect(AccountsIndex).not_to receive(:purge)
+
+      invoke(only: ['group_directory'], rebuild: true)
+
+      expect(GroupDirectory::Import).to have_received(:rebuild!)
+    end
+
+    it 'refuses to rebuild any index other than group_directory' do
+      expect(GroupDirectory::Import).not_to receive(:rebuild!)
+
+      expect { invoke(only: ['accounts'], rebuild: true) }.to raise_error(SystemExit)
     end
 
     it 'purges only GroupDirectoryIndex when its mapping changed' do

@@ -13,6 +13,7 @@ class GroupDirectoryIndexWorker
 
   def perform
     ids = []
+    members = []
     acked = false
     return GroupDirectory::Indexing.release_schedule! unless GroupDirectory::Indexing.live_sync_enabled?
 
@@ -24,19 +25,20 @@ class GroupDirectoryIndexWorker
       return
     end
 
-    ids = GroupDirectory::Indexing.claim_batch.map(&:to_i)
-    if ids.empty?
+    members = GroupDirectory::Indexing.claim_batch
+    if members.empty?
       GroupDirectory::Indexing.release_if_idle!
       return
     end
 
-    GroupDirectoryIndex.import!(ids)
-    GroupDirectory::Indexing.ack(ids)
+    ids = members.map { |member| GroupDirectory::Indexing.account_id(member) }
+    GroupDirectory::Import.call(ids)
+    GroupDirectory::Indexing.ack(members)
     acked = true
     GroupDirectory::Indexing.continue!
   rescue StandardError => e
     begin
-      GroupDirectory::Indexing.return_to_pending(ids) unless acked
+      GroupDirectory::Indexing.return_to_pending(members) unless acked
     rescue StandardError => return_error
       Rails.logger.error("Group directory index return failed: #{return_error.class}: #{return_error.message}")
     end

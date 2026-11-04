@@ -35,8 +35,10 @@
 #   1. Deploy this code with GROUP_DIRECTORY_INDEX unset.
 #   2. bin/tootctl search deploy --only group_directory
 #   3. Set GROUP_DIRECTORY_INDEX=true and restart web and Sidekiq.
-#   4. Run the same deploy once more so rows that changed during the first
-#      import are included.
+#   4. Run `bin/tootctl search deploy --only group_directory` again so rows
+#      that changed during the first import are reloaded under the version
+#      fence. A normal deploy does not delete documents for groups that left
+#      the directory. Use `--rebuild` with that same `--only` for that.
 # Rollback: unset GROUP_DIRECTORY_INDEX and restart. The API is still SQL.
 # Optional: GroupDirectoryIndex.purge in a console. Do not purge the
 # accounts, tags, or statuses indexes. Redis keys

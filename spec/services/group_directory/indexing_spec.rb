@@ -73,9 +73,9 @@ RSpec.describe GroupDirectory::Indexing do
       described_class.push([42])
       claimed = described_class.claim_batch
 
-      expect(claimed).to eq(['42'])
+      expect(claimed).to contain_exactly(a_string_matching(/\A42:\d+\z/))
       expect(redis.smembers(described_class::PENDING_KEY)).to be_empty
-      expect(redis.zrange(described_class::INFLIGHT_KEY, 0, -1)).to eq(['42'])
+      expect(redis.zrange(described_class::INFLIGHT_KEY, 0, -1)).to eq(claimed)
 
       described_class.push([42])
       described_class.ack(claimed)
@@ -86,12 +86,37 @@ RSpec.describe GroupDirectory::Indexing do
 
     it 'returns an unacked id to pending after the inflight lease' do
       described_class.push([30])
-      described_class.claim_batch
-      redis.zadd(described_class::INFLIGHT_KEY, 1, '30')
+      claimed = described_class.claim_batch
+      redis.zadd(described_class::INFLIGHT_KEY, 1, claimed.first)
 
       expect(described_class.reclaim_expired!).to eq(['30'])
       expect(redis.smembers(described_class::PENDING_KEY)).to eq(['30'])
       expect(redis.zcard(described_class::INFLIGHT_KEY)).to eq(0)
+    end
+
+    it 'does not let an old ack delete a newer claim of the same id' do
+      described_class.push([7])
+      first = described_class.claim_batch
+      redis.zadd(described_class::INFLIGHT_KEY, 1, first.first)
+      described_class.reclaim_expired!
+      second = described_class.claim_batch
+
+      described_class.ack(first)
+
+      expect(redis.zrange(described_class::INFLIGHT_KEY, 0, -1)).to eq(second)
+      redis.zadd(described_class::INFLIGHT_KEY, 1, second.first)
+      expect(described_class.reclaim_expired!).to eq(['7'])
+      expect(redis.smembers(described_class::PENDING_KEY)).to eq(['7'])
+    end
+
+    it 'reclaims a bounded page of expired claims and leaves the rest' do
+      %w(1 2 3).each do |id|
+        redis.zadd(described_class::INFLIGHT_KEY, 1, "#{id}:#{id}")
+      end
+
+      expect(described_class.reclaim_expired!(Time.now.to_i, limit: 2).size).to eq(2)
+      expect(redis.zcard(described_class::INFLIGHT_KEY)).to eq(1)
+      expect(redis.scard(described_class::PENDING_KEY)).to eq(2)
     end
 
     it 'drops the schedule flag when the job cannot be queued and does not raise' do
@@ -131,12 +156,12 @@ RSpec.describe GroupDirectory::Indexing do
       allow(GroupDirectory::Indexing).to receive(:index_ready?).and_return(true)
       redis.sadd(GroupDirectory::Indexing::PENDING_KEY, %w(8 9))
       redis.set(GroupDirectory::Indexing::SCHEDULE_KEY, '1')
-      allow(GroupDirectoryIndex).to receive(:import!)
+      allow(GroupDirectory::Import).to receive(:call)
 
       described_class.new.perform
 
-      expect(GroupDirectoryIndex).to have_received(:import!) do |ids|
-        expect(ids).to contain_exactly(8, 9)
+      expect(GroupDirectory::Import).to have_received(:call) do |ids|
+        expect(ids).to contain_exactly('8', '9')
       end
       expect(redis.get(GroupDirectory::Indexing::SCHEDULE_KEY)).to be_nil
       expect(redis.smembers(GroupDirectory::Indexing::PENDING_KEY)).to be_empty
@@ -148,22 +173,22 @@ RSpec.describe GroupDirectory::Indexing do
       redis.sadd(GroupDirectory::Indexing::PENDING_KEY, (1..101).to_a)
       redis.set(GroupDirectory::Indexing::SCHEDULE_KEY, '1')
       imported = []
-      allow(GroupDirectoryIndex).to receive(:import!) { |batch| imported.concat(batch) }
+      allow(GroupDirectory::Import).to receive(:call) { |batch| imported.concat(batch) }
 
       described_class.new.perform
 
-      expect(imported).to match_array((1..101).to_a)
+      expect(imported.flatten.map(&:to_i)).to match_array((1..101).to_a)
     end
 
     it 'leaves pending ids in place when the index has not been created' do
       allow(GroupDirectory::Indexing).to receive(:index_ready?).and_return(false)
       redis.sadd(GroupDirectory::Indexing::PENDING_KEY, '4')
       redis.set(GroupDirectory::Indexing::SCHEDULE_KEY, '1')
-      allow(GroupDirectoryIndex).to receive(:import!)
+      allow(GroupDirectory::Import).to receive(:call)
 
       described_class.new.perform
 
-      expect(GroupDirectoryIndex).not_to have_received(:import!)
+      expect(GroupDirectory::Import).not_to have_received(:call)
       expect(redis.smembers(GroupDirectory::Indexing::PENDING_KEY)).to eq(['4'])
       expect(redis.get(GroupDirectory::Indexing::SCHEDULE_KEY)).to be_nil
     end
@@ -172,7 +197,7 @@ RSpec.describe GroupDirectory::Indexing do
       allow(GroupDirectory::Indexing).to receive(:index_ready?).and_return(true)
       redis.sadd(GroupDirectory::Indexing::PENDING_KEY, %w(8 9))
       redis.set(GroupDirectory::Indexing::SCHEDULE_KEY, '1')
-      allow(GroupDirectoryIndex).to receive(:import!).and_raise(StandardError, 'bulk down')
+      allow(GroupDirectory::Import).to receive(:call).and_raise(StandardError, 'bulk down')
 
       expect { described_class.new.perform }.to raise_error(StandardError, 'bulk down')
       expect(redis.smembers(GroupDirectory::Indexing::PENDING_KEY)).to match_array(%w(8 9))
@@ -183,14 +208,14 @@ RSpec.describe GroupDirectory::Indexing do
       allow(GroupDirectory::Indexing).to receive(:index_ready?).and_return(true)
       redis.sadd(GroupDirectory::Indexing::PENDING_KEY, '41')
       redis.set(GroupDirectory::Indexing::SCHEDULE_KEY, '1')
-      GroupDirectory::Indexing.claim_batch
-      redis.zadd(GroupDirectory::Indexing::INFLIGHT_KEY, 1, '41')
+      claimed = GroupDirectory::Indexing.claim_batch
+      redis.zadd(GroupDirectory::Indexing::INFLIGHT_KEY, 1, claimed.first)
       GroupDirectory::Indexing.reclaim_expired!
-      allow(GroupDirectoryIndex).to receive(:import!)
+      allow(GroupDirectory::Import).to receive(:call)
 
       described_class.new.perform
 
-      expect(GroupDirectoryIndex).to have_received(:import!).with([41])
+      expect(GroupDirectory::Import).to have_received(:call).with(['41'])
     end
 
     it 'schedules a drain when Sidekiq gives up and pending ids remain' do
@@ -209,11 +234,11 @@ RSpec.describe GroupDirectory::Indexing do
       ENV['GROUP_DIRECTORY_INDEX'] = nil
       redis.sadd(GroupDirectory::Indexing::PENDING_KEY, '4')
       redis.set(GroupDirectory::Indexing::SCHEDULE_KEY, '1')
-      allow(GroupDirectoryIndex).to receive(:import!)
+      allow(GroupDirectory::Import).to receive(:call)
 
       described_class.new.perform
 
-      expect(GroupDirectoryIndex).not_to have_received(:import!)
+      expect(GroupDirectory::Import).not_to have_received(:call)
       expect(redis.smembers(GroupDirectory::Indexing::PENDING_KEY)).to eq(['4'])
     end
   end

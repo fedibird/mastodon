@@ -11,30 +11,44 @@
 # Chewy deletes anything that is no longer listable. A kill before ack
 # leaves the ids inflight; the lease and the minute scheduler put them
 # back on pending. Redis errors while enqueueing are logged and do not
-# raise, so a committed request is not turned into a 500. Ids that never
-# reached Redis are recovered by `tootctl search deploy --only group_directory`.
+# raise, so a committed request is not turned into a 500. A normal
+# `tootctl search deploy` only adds rows. It does not delete a document
+# whose enqueue never reached Redis. That needs
+# `tootctl search deploy --only group_directory --rebuild`.
 class GroupDirectory::Indexing
   PENDING_KEY = 'group_directory:index:pending'
   INFLIGHT_KEY = 'group_directory:index:inflight'
+  CLAIM_SEQ_KEY = 'group_directory:index:claim_seq'
+  VERSIONS_KEY = 'group_directory:index:versions'
   SCHEDULE_KEY = 'group_directory:index:scheduled'
   BATCH_SIZE = 100
   DOMAIN_BATCH = 500
+  RECLAIM_LIMIT = 500
   SCHEDULE_TTL = 120
   INFLIGHT_LEASE = 300
 
+  # Members are "account_id:token". Ack and return name that member, so a
+  # late ack cannot delete a newer claim of the same account.
   CLAIM_SCRIPT = <<~LUA
+    local function empty(value)
+      return value == false or value == nil
+    end
     local ids = redis.call('SPOP', KEYS[1], tonumber(ARGV[1]))
-    if ids == false or ids == nil then
+    if empty(ids) then
       return {}
     end
     if type(ids) ~= 'table' then
       ids = { ids }
     end
     local now = tonumber(ARGV[2])
+    local members = {}
     for i = 1, #ids do
-      redis.call('ZADD', KEYS[2], now, ids[i])
+      local token = redis.call('INCR', KEYS[3])
+      local member = ids[i] .. ':' .. token
+      redis.call('ZADD', KEYS[2], now, member)
+      members[i] = member
     end
-    return ids
+    return members
   LUA
 
   ACK_SCRIPT = <<~LUA
@@ -45,20 +59,41 @@ class GroupDirectory::Indexing
   LUA
 
   RETURN_SCRIPT = <<~LUA
+    local function account_id(member)
+      return string.match(member, '^(%d+):%d+$')
+    end
     for i = 1, #ARGV do
-      redis.call('ZREM', KEYS[1], ARGV[i])
-      redis.call('SADD', KEYS[2], ARGV[i])
+      local id = account_id(ARGV[i])
+      if id then
+        redis.call('ZREM', KEYS[1], ARGV[i])
+        redis.call('SADD', KEYS[2], id)
+      end
     end
     return #ARGV
   LUA
 
   RECLAIM_SCRIPT = <<~LUA
-    local ids = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
-    for i = 1, #ids do
-      redis.call('ZREM', KEYS[1], ids[i])
-      redis.call('SADD', KEYS[2], ids[i])
+    local function account_id(member)
+      return string.match(member, '^(%d+):%d+$')
+    end
+    local members = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, tonumber(ARGV[2]))
+    local ids = {}
+    for i = 1, #members do
+      local id = account_id(members[i])
+      if id then
+        redis.call('ZREM', KEYS[1], members[i])
+        redis.call('SADD', KEYS[2], id)
+        ids[#ids + 1] = id
+      end
     end
     return ids
+  LUA
+
+  BUMP_SCRIPT = <<~LUA
+    for i = 1, #ARGV do
+      redis.call('HINCRBY', KEYS[1], ARGV[i], 1)
+    end
+    return #ARGV
   LUA
 
   class << self
@@ -98,38 +133,55 @@ class GroupDirectory::Indexing
       return unless live_sync_enabled?
 
       redis.sadd(PENDING_KEY, ids)
+      bump_versions(ids)
       schedule!
     rescue StandardError => e
       log_enqueue_failure(ids, e)
       nil
     end
 
-    # Pending id -> inflight, in one Redis script. A crash after this returns
-    # still has the ids in the inflight set.
+    # Pending id -> inflight member "id:token", in one Redis script.
     def claim_batch
-      claimed = redis.eval(CLAIM_SCRIPT, keys: [PENDING_KEY, INFLIGHT_KEY], argv: [BATCH_SIZE, Time.now.to_i])
+      claimed = redis.eval(CLAIM_SCRIPT, keys: [PENDING_KEY, INFLIGHT_KEY, CLAIM_SEQ_KEY], argv: [BATCH_SIZE, Time.now.to_i])
       Array(claimed).compact
     end
 
-    def ack(ids)
-      ids = normalize_ids(ids)
-      return if ids.empty?
-
-      redis.eval(ACK_SCRIPT, keys: [INFLIGHT_KEY], argv: ids)
+    def account_id(member)
+      member.to_s.split(':', 2).first
     end
 
-    # Failed attempt: inflight membership and pending membership move together.
-    def return_to_pending(ids)
-      ids = normalize_ids(ids)
-      return if ids.empty?
+    def ack(members)
+      members = normalize_members(members)
+      return if members.empty?
 
-      redis.eval(RETURN_SCRIPT, keys: [INFLIGHT_KEY, PENDING_KEY], argv: ids)
+      redis.eval(ACK_SCRIPT, keys: [INFLIGHT_KEY], argv: members)
     end
 
-    def reclaim_expired!(now = Time.now.to_i)
+    # Failed attempt. Only this claim is removed; a newer claim is left alone.
+    def return_to_pending(members)
+      members = normalize_members(members)
+      return if members.empty?
+
+      redis.eval(RETURN_SCRIPT, keys: [INFLIGHT_KEY, PENDING_KEY], argv: members)
+    end
+
+    def reclaim_expired!(now = Time.now.to_i, limit: RECLAIM_LIMIT)
       cutoff = now - INFLIGHT_LEASE
-      reclaimed = redis.eval(RECLAIM_SCRIPT, keys: [INFLIGHT_KEY, PENDING_KEY], argv: [cutoff])
+      reclaimed = redis.eval(RECLAIM_SCRIPT, keys: [INFLIGHT_KEY, PENDING_KEY], argv: [cutoff, limit])
       Array(reclaimed).compact
+    end
+
+    def bump_versions(ids)
+      ids = normalize_ids(ids)
+      return if ids.empty?
+
+      redis.eval(BUMP_SCRIPT, keys: [VERSIONS_KEY], argv: ids)
+    end
+
+    def outstanding_ids
+      pending = Array(redis.smembers(PENDING_KEY))
+      inflight = Array(redis.zrange(INFLIGHT_KEY, 0, -1)).map { |member| account_id(member) }
+      (pending + inflight).uniq
     end
 
     # Minute scheduler entry. Also used when Sidekiq gives up on a drain.
@@ -204,6 +256,10 @@ class GroupDirectory::Indexing
 
     def normalize_ids(account_ids)
       Array(account_ids).flatten.compact.map { |id| id.to_i.to_s }.select { |id| id.to_i.positive? }.uniq
+    end
+
+    def normalize_members(members)
+      Array(members).flatten.compact.map(&:to_s).select { |member| member.match?(/\A\d+:\d+\z/) }.uniq
     end
 
     def defer_until_commit?
