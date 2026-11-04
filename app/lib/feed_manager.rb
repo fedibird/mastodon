@@ -5,6 +5,7 @@ require 'singleton'
 class FeedManager
   include Singleton
   include Redisable
+  include FeedDelivery::Assessment
 
   # Maximum number of items stored in a single feed
   MAX_ITEMS = 2000
@@ -41,8 +42,18 @@ class FeedManager
   # @param [Symbol] timeline_type
   # @param [Status] status
   # @param [Account|List] receiver
+  # @param [FeedDelivery::Evidence] delivery optional in-process keyword evidence
   # @return [Boolean]
-  def filter?(timeline_type, status, receiver)
+  def filter?(timeline_type, status, receiver, delivery: nil)
+    if delivery
+      assess(timeline_type, status, receiver, delivery: delivery).filtered?
+    else
+      legacy_filter?(timeline_type, status, receiver)
+    end
+  end
+
+  # Flag-off path. No InsertDecision, no thread-local, no evidence parse.
+  def legacy_filter?(timeline_type, status, receiver)
     case timeline_type
     when :home
       filter_from_home?(status, receiver.id, build_crutches(receiver.id, [status]))
@@ -63,6 +74,23 @@ class FeedManager
       false
     end
   end
+
+  # Evidence is consulted only after fan-out attached it. Every other call uses
+  # KeywordSubscribe.match?, including flag-off and ordinary follower delivery.
+  def keyword_subscribed?(status, receiver_id, list_id, crutches, as_ignore_block: false)
+    if FeedDelivery.observe? && crutches[:delivery_evidence]
+      return FeedDelivery::Admission.keyword_match?(
+        status,
+        account_id: receiver_id,
+        list_id: list_id,
+        crutches: crutches,
+        as_ignore_block: as_ignore_block
+      )
+    end
+
+    KeywordSubscribe.match?(status, account_id: receiver_id, list_id: list_id, as_ignore_block: as_ignore_block)
+  end
+  private :legacy_filter?, :keyword_subscribed?
 
   # Add a status to a home feed and send a streaming API update
   # @param [Account] account
@@ -94,8 +122,10 @@ class FeedManager
   # @param [List] list
   # @param [Status] status
   # @return [Boolean]
-  def push_to_list(list, status, update: false)
-    return false if filter_from_list?(status, list, build_crutches(list.account_id, [status], list))
+  # decision is the InsertDecision just built by this worker. Any other value,
+  # including a hash from a job argument, keeps the list filter.
+  def push_to_list(list, status, update: false, decision: nil)
+    return false if reject_list_insert?(list, status, decision)
     return false unless list.account.user&.signed_in_recently?
 
     outcome = insert_into_feed(:list, list.id, status, list.account.user&.aggregates_reblogs?, update)
@@ -442,7 +472,7 @@ class FeedManager
         should_filter &&= receiver_id != status.in_reply_to_account_id                                                           # and it's not a reply to me
         should_filter &&= status.account_id != status.in_reply_to_account_id                                                     # and it's not a self-reply
         should_filter &&= !status.tags.any? { |tag| crutches[:following_tag_by][tag.id] }                                        # and It's not follow tag
-        should_filter &&= !KeywordSubscribe.match?(status, account_id: receiver_id, list_id: list_id)                            # and It's not subscribe keywords
+        should_filter &&= !keyword_subscribed?(status, receiver_id, list_id, crutches) # and It's not subscribe keywords
         should_filter &&= !crutches[:domain_subscribe][status.account.domain]                                                    # and It's not domain subscribes
         
         return true if should_filter
@@ -451,7 +481,7 @@ class FeedManager
       should_filter   = crutches[:domain_blocking][status.account.domain]
       should_filter &&= !crutches[:following][status.account_id]
       should_filter &&= !crutches[:account_subscribe][status.account_id]
-      should_filter &&= !KeywordSubscribe.match?(status, account_id: receiver_id, as_ignore_block: true, list_id: list_id)
+      should_filter &&= !keyword_subscribed?(status, receiver_id, list_id, crutches, as_ignore_block: true)
 
       return !!should_filter
     end
@@ -508,7 +538,7 @@ class FeedManager
       should_filter &&= !list.show_followed?
       should_filter &&= !(list.show_list? && ListAccount.where(list_id: list.id, account_id: status.in_reply_to_account_id).exists?)
       should_filter &&= !status.tags.any? { |tag| crutches[:following_tag_by][tag.id] }                                        # and It's not follow tag
-      should_filter &&= !KeywordSubscribe.match?(status, account_id: list.account_id, list_id: list.id)                       # and It's not subscribe keywords
+      should_filter &&= !keyword_subscribed?(status, list.account_id, list.id, crutches) # and It's not subscribe keywords
       should_filter &&= !crutches[:domain_subscribe][status.account.domain]                                                    # and It's not domain subscribes
 
       return !!should_filter
