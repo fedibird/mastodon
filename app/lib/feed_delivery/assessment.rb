@@ -40,14 +40,12 @@ module FeedDelivery
 
     def assess_home(status, receiver, delivery)
       crutches = build_crutches(receiver.id, [status])
-      note_crutches!
       FeedDelivery.attach!(crutches, delivery, account_id: receiver.id, list_id: nil)
       issue(filtered: filter_from_home?(status, receiver.id, crutches), timeline_type: :home, status_id: status.id)
     end
 
     def assess_status_notifications(status, receiver)
       crutches = build_crutches(receiver.id, [status])
-      note_crutches!
       # Displaying boosts and receiving notifications are independent choices.
       crutches[:hiding_reblogs] = {}
       filtered = filter_from_home?(status, receiver.id, crutches, language: status.reblog&.language)

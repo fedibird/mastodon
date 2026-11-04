@@ -29,8 +29,28 @@ module FeedDelivery
   module_function
 
   def mode
-    value = ENV.fetch(MODE_ENV, 'off').to_s.strip.downcase.to_sym
-    MODES.include?(value) ? value : :off
+    raw = ENV.fetch(MODE_ENV, nil)
+    return :off if raw.nil? || raw.strip.empty?
+
+    value = raw.to_s.strip.downcase
+    return value.to_sym if MODES.include?(value.to_sym)
+
+    warn_invalid_mode(value)
+    :off
+  end
+
+  def warn_invalid_mode(value)
+    return if @invalid_mode_warned
+
+    @invalid_mode_warned = true
+    label = value.to_s.gsub(/[^a-z0-9_-]/, '')[0, 32]
+    Rails.logger.warn("[FeedDelivery] #{MODE_ENV}=#{label.inspect} is not off, shadow, or enforce; using off")
+  rescue StandardError
+    nil
+  end
+
+  def reset_mode_warning!
+    @invalid_mode_warned = false
   end
 
   def observe?

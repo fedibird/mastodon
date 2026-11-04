@@ -7,9 +7,9 @@ class FeedInsertWorker
     @type    = type.to_sym
     @status  = Status.find(status_id)
     @options = options.symbolize_keys
-    # Ignored unless FEED_DELIVERY_REASON_MODE is shadow or enforce. Unknown
-    # reasons and malformed evidence parse to nil and keep the old checks.
-    @delivery = FeedDelivery::Evidence.from_job_options(@options)
+    # Off keeps the old arguments and does not parse evidence. A bad payload
+    # parses to nil and the old check runs.
+    @delivery = FeedDelivery.observe? ? FeedDelivery::Evidence.from_job_options(@options) : nil
 
     case @type
     when :home
@@ -36,7 +36,9 @@ class FeedInsertWorker
   end
 
   def feed_filtered?
-    if FeedDelivery.observe?
+    # Home deliveries without keyword evidence stay on the old filter. List
+    # deliveries and keyword evidence need the in-process decision.
+    if FeedDelivery.observe? && (@type == :list || @delivery)
       @decision = FeedManager.instance.assess(@type, @status, feed_target, delivery: @delivery)
       @decision.filtered?
     else

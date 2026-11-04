@@ -45,8 +45,52 @@ class FeedManager
   # @param [FeedDelivery::Evidence] delivery optional in-process keyword evidence
   # @return [Boolean]
   def filter?(timeline_type, status, receiver, delivery: nil)
-    assess(timeline_type, status, receiver, delivery: delivery).filtered?
+    if delivery
+      assess(timeline_type, status, receiver, delivery: delivery).filtered?
+    else
+      legacy_filter?(timeline_type, status, receiver)
+    end
   end
+
+  # Flag-off path. No InsertDecision, no thread-local, no evidence parse.
+  def legacy_filter?(timeline_type, status, receiver)
+    case timeline_type
+    when :home
+      filter_from_home?(status, receiver.id, build_crutches(receiver.id, [status]))
+    when :status_notifications
+      crutches = build_crutches(receiver.id, [status])
+      # Displaying boosts and receiving notifications are independent choices.
+      crutches[:hiding_reblogs] = {}
+      # A boost wrapper normally has no language; notify using the original.
+      filter_from_home?(status, receiver.id, crutches, language: status.reblog&.language)
+    when :list
+      crutches = build_crutches(receiver.account_id, [status], receiver)
+      filter_from_list?(status, receiver, crutches) || filter_from_home?(status, receiver.account_id, crutches, receiver)
+    when :mentions
+      filter_from_mentions?(status, receiver.id)
+    when :status_references
+      filter_from_status_references?(status, receiver.id)
+    else
+      false
+    end
+  end
+
+  # Evidence is consulted only after fan-out attached it. Every other call uses
+  # KeywordSubscribe.match?, including flag-off and ordinary follower delivery.
+  def keyword_subscribed?(status, receiver_id, list_id, crutches, as_ignore_block: false)
+    if FeedDelivery.observe? && crutches[:delivery_evidence]
+      return FeedDelivery::Admission.keyword_match?(
+        status,
+        account_id: receiver_id,
+        list_id: list_id,
+        crutches: crutches,
+        as_ignore_block: as_ignore_block
+      )
+    end
+
+    KeywordSubscribe.match?(status, account_id: receiver_id, list_id: list_id, as_ignore_block: as_ignore_block)
+  end
+  private :legacy_filter?, :keyword_subscribed?
 
   # Add a status to a home feed and send a streaming API update
   # @param [Account] account
@@ -428,7 +472,7 @@ class FeedManager
         should_filter &&= receiver_id != status.in_reply_to_account_id                                                           # and it's not a reply to me
         should_filter &&= status.account_id != status.in_reply_to_account_id                                                     # and it's not a self-reply
         should_filter &&= !status.tags.any? { |tag| crutches[:following_tag_by][tag.id] }                                        # and It's not follow tag
-        should_filter &&= !FeedDelivery::Admission.keyword_match?(status, account_id: receiver_id, list_id: list_id, crutches: crutches) # and It's not subscribe keywords
+        should_filter &&= !keyword_subscribed?(status, receiver_id, list_id, crutches) # and It's not subscribe keywords
         should_filter &&= !crutches[:domain_subscribe][status.account.domain]                                                    # and It's not domain subscribes
         
         return true if should_filter
@@ -437,7 +481,7 @@ class FeedManager
       should_filter   = crutches[:domain_blocking][status.account.domain]
       should_filter &&= !crutches[:following][status.account_id]
       should_filter &&= !crutches[:account_subscribe][status.account_id]
-      should_filter &&= !FeedDelivery::Admission.keyword_match?(status, account_id: receiver_id, list_id: list_id, crutches: crutches, as_ignore_block: true)
+      should_filter &&= !keyword_subscribed?(status, receiver_id, list_id, crutches, as_ignore_block: true)
 
       return !!should_filter
     end
@@ -494,7 +538,7 @@ class FeedManager
       should_filter &&= !list.show_followed?
       should_filter &&= !(list.show_list? && ListAccount.where(list_id: list.id, account_id: status.in_reply_to_account_id).exists?)
       should_filter &&= !status.tags.any? { |tag| crutches[:following_tag_by][tag.id] }                                        # and It's not follow tag
-      should_filter &&= !FeedDelivery::Admission.keyword_match?(status, account_id: list.account_id, list_id: list.id, crutches: crutches) # and It's not subscribe keywords
+      should_filter &&= !keyword_subscribed?(status, list.account_id, list.id, crutches) # and It's not subscribe keywords
       should_filter &&= !crutches[:domain_subscribe][status.account.domain]                                                    # and It's not domain subscribes
 
       return !!should_filter

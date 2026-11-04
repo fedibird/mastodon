@@ -23,11 +23,24 @@ module FeedDelivery
       crutches|event=build
     ).freeze
 
-    def record(field, now: Time.now.utc)
-      return unless FIELDS.include?(field)
+    FLUSH_SIZE = 100
+    FLUSH_INTERVAL = 5
 
-      synchronize { @counts[field] = @counts.fetch(field, 0) + 1 }
-      persist(field, now)
+    # count is the number of events to add. Redis is not touched on every call.
+    # Pending totals flush in one pipeline after FLUSH_SIZE events, after
+    # FLUSH_INTERVAL seconds, or when flush! is called.
+    def record(field, count = 1, now: Time.now.utc)
+      return unless FIELDS.include?(field)
+      return unless count.is_a?(Integer) && count.positive?
+
+      should_flush = false
+      synchronize do
+        @counts[field] = @counts.fetch(field, 0) + count
+        @pending[field] = @pending.fetch(field, 0) + count
+        @pending_events += count
+        should_flush = @pending_events >= FLUSH_SIZE || flush_interval_elapsed?(now)
+      end
+      flush!(now: now) if should_flush
     end
 
     def snapshot
@@ -39,7 +52,33 @@ module FeedDelivery
     end
 
     def reset!
-      synchronize { @counts = Hash.new(0) }
+      synchronize do
+        @counts = Hash.new(0)
+        @pending = Hash.new(0)
+        @pending_events = 0
+        @redis_flushes = 0
+        @last_flush = Time.now.utc
+      end
+    end
+
+    def flush!(now: Time.now.utc)
+      pending = synchronize do
+        next if @pending_events.zero?
+
+        extracted = @pending
+        @pending = Hash.new(0)
+        @pending_events = 0
+        @last_flush = now
+        extracted
+      end
+      return false if pending.nil?
+
+      persist(pending, now)
+      true
+    end
+
+    def flush_count
+      synchronize { @redis_flushes }
     end
 
     def key_for(time)
@@ -50,11 +89,12 @@ module FeedDelivery
       @mutex.synchronize(&block)
     end
 
-    def persist(field, now)
+    def persist(fields, now)
+      synchronize { @redis_flushes += 1 }
       key = key_for(now)
       with_redis do |connection|
         connection.pipelined do |pipeline|
-          pipeline.hincrby(key, field, 1)
+          fields.each { |field, count| pipeline.hincrby(key, field, count) }
           pipeline.expire(key, RETENTION.to_i)
         end
       end
@@ -62,9 +102,17 @@ module FeedDelivery
       nil
     end
 
+    def flush_interval_elapsed?(now)
+      !@last_flush.nil? && (now - @last_flush) >= FLUSH_INTERVAL
+    end
+
     @mutex = Mutex.new
     @counts = Hash.new(0)
+    @pending = Hash.new(0)
+    @pending_events = 0
+    @redis_flushes = 0
+    @last_flush = Time.now.utc
     extend Redisable
-    module_function :record, :snapshot, :reset!, :key_for, :synchronize, :persist
+    module_function :record, :snapshot, :reset!, :flush!, :flush_count, :key_for, :synchronize, :persist, :flush_interval_elapsed?
   end
 end

@@ -34,6 +34,15 @@ RSpec.describe FeedInsertWorker, 'delivery reason' do
     described_class.new.perform(status.id, receiver_account.id, 'home', options)
   end
 
+  it 'falls back to the current keyword rules when the job version is not an integer' do
+    ENV[FeedDelivery::MODE_ENV] = 'enforce'
+    expect(KeywordSubscribe).to receive(:match?).and_call_original
+
+    perform(reply, options_for(reply, subscription).merge('v' => '1garbage'))
+
+    expect(home_ids).to include(reply.id)
+  end
+
   it 'admits a legacy job from the current keyword rules when enforce is on' do
     ENV[FeedDelivery::MODE_ENV] = 'enforce'
 

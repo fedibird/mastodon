@@ -16,18 +16,28 @@ module FeedDelivery
 
     def self.from_job_options(options)
       return nil unless options.is_a?(Hash)
-
-      reason = value(options, :reason).to_s
-      return nil if reason.empty?
-      return nil unless reason == REASON
-      return nil unless value(options, :v).to_i == VERSION
+      return nil unless value(options, :reason) == REASON
+      return nil unless version?(value(options, :v))
 
       raw = value(options, :evidence)
       return nil unless raw.is_a?(Hash)
 
       from_hash(raw.symbolize_keys)
-    rescue ArgumentError, TypeError
+    rescue StandardError
       nil
+    end
+
+    # Integer 1, or the exact string "1". "1garbage", false, [], and {} are
+    # not versions; a bad payload falls back to the old check.
+    def self.version?(value)
+      case value
+      when Integer
+        value == VERSION
+      when String
+        value == VERSION.to_s
+      else
+        false
+      end
     end
 
     def self.build(subscription:, ignore_block_subscription:, status:)
@@ -139,7 +149,9 @@ module FeedDelivery
 
       subscription = loaded_subscription(as_ignore_block)
       return false if subscription.nil?
-      return false if subscription.disabled?
+      # active is `disabled = false`. NULL is outside that scope, and disabled?
+      # would treat NULL as enabled.
+      return false unless subscription.disabled == false
       return false unless subscription.account_id == self.account_id
       return false unless subscription.list_id == self.list_id
       return false unless FeedDelivery.usec(subscription.updated_at) == expected_updated_at(as_ignore_block)

@@ -6,8 +6,10 @@ RSpec.describe FeedDelivery do
   describe '.mode' do
     around do |example|
       previous = ENV.fetch(described_class::MODE_ENV, nil)
+      described_class.reset_mode_warning!
       example.run
       ENV[described_class::MODE_ENV] = previous
+      described_class.reset_mode_warning!
     end
 
     it 'stays off when the variable is unset or unknown' do
@@ -17,6 +19,15 @@ RSpec.describe FeedDelivery do
       ENV[described_class::MODE_ENV] = 'yes'
       expect(described_class.mode).to eq :off
       expect(described_class.observe?).to be false
+    end
+
+    it 'warns once for an unknown mode and keeps the safe off path' do
+      expect(Rails.logger).to receive(:warn).once
+
+      ENV[described_class::MODE_ENV] = 'enforced'
+
+      expect(described_class.mode).to eq :off
+      expect(described_class.mode).to eq :off
     end
 
     it 'accepts shadow and enforce' do
@@ -56,6 +67,25 @@ RSpec.describe FeedDelivery do
 
       parsed = described_class.from_job_options(JSON.parse(encoded))
       expect(parsed).to be_fresh_for(status: status, account_id: account.id, list_id: nil, as_ignore_block: false)
+    end
+
+    it 'rejects versions that are not the integer 1 or the exact string 1' do
+      payload = evidence_for(status, subscription).to_options
+
+      [false, [], {}, '1garbage', 2, '2', nil, 1.5].each do |version|
+        expect(described_class.from_job_options(payload.merge('v' => version))).to be_nil
+      end
+      expect(described_class.from_job_options(payload.merge('v' => 1))).to be_present
+      expect(described_class.from_job_options(payload.merge('v' => '1'))).to be_present
+    end
+
+    it 'rejects a NULL disabled flag even when updated_at is unchanged' do
+      evidence = evidence_for(status, subscription)
+      subscription.update_columns(disabled: nil)
+      reloaded = described_class.from_job_options(evidence.to_options)
+
+      expect(FeedDelivery.usec(subscription.reload.updated_at)).to eq evidence.subscription_updated_at
+      expect(reloaded).not_to be_fresh_for(status: status, account_id: account.id, list_id: nil, as_ignore_block: false)
     end
 
     it 'rejects unknown reasons, bad versions, and incomplete evidence' do
@@ -128,6 +158,18 @@ RSpec.describe FeedDelivery do
       expect(JSON.generate(evidence.to_options)).not_to include('beta')
     end
 
+    it 'does not run match? for later rules that cannot supply ignore_block' do
+      first = KeywordSubscribe.create!(account: account, keyword: 'alpha', name: 'first')
+      skipped = KeywordSubscribe.create!(account: account, keyword: 'nomatch', name: 'skipped', exclude_keyword: 'zzz')
+      blocked = KeywordSubscribe.create!(account: account, keyword: 'beta', name: 'blocked', ignore_block: true, exclude_keyword: 'yyy')
+      allow(skipped).to receive(:match?).and_raise('later non-ignore rule was matched')
+
+      evidence = described_class.collect([first, skipped, blocked], matching_text, status: status)
+
+      expect(evidence.subscription_id).to eq first.id
+      expect(evidence.ignore_block_subscription_id).to eq blocked.id
+    end
+
     it 'records one rule when that rule is both the reply match and the ignore-block match' do
       blocked = KeywordSubscribe.create!(account: account, keyword: 'alpha', name: 'blocked', ignore_block: true)
 
@@ -152,6 +194,20 @@ RSpec.describe FeedDelivery do
       described_class.record('kw|qual=reply|result=secret')
 
       expect(described_class.snapshot).to eq('job|reason=keyword' => 1)
+      expect(described_class.flush_count).to eq 0
+    end
+
+    it 'writes many events in batches instead of one Redis call each' do
+      described_class.reset!
+      1000.times { described_class.record('job|reason=keyword') }
+
+      expect(described_class.snapshot).to eq('job|reason=keyword' => 1000)
+      expect(described_class.flush_count).to eq 10
+
+      described_class.reset!
+      described_class.record('job|reason=keyword', 1000)
+      expect(described_class.flush_count).to eq 1
+      expect(described_class.snapshot).to eq('job|reason=keyword' => 1000)
     end
   end
 end

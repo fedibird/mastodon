@@ -194,6 +194,7 @@ class FanOutOnWriteService < BaseService
 
     deliver_to_keyword_subscribers_home(status, matching_text)
     deliver_to_keyword_subscribers_list(status, matching_text)
+    FeedDelivery::Metrics.flush! if FeedDelivery.observe?
   end
 
   def deliver_to_keyword_subscribers_home(status, matching_text)
@@ -242,9 +243,9 @@ class FanOutOnWriteService < BaseService
     end
 
     @feedInsertWorker.push_bulk(destination_ids) do |destination_id|
-      FeedDelivery::Metrics.record('job|reason=keyword')
       feed_insert_args(status.id, destination_id, feed_type, evidence: evidences[destination_id])
     end
+    FeedDelivery::Metrics.record('job|reason=keyword', destination_ids.size) if destination_ids.any?
   end
 
   def keyword_destination?(evidence, destination_id, feed_type)

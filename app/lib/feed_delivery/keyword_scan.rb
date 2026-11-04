@@ -15,6 +15,7 @@ module FeedDelivery
       ignore_block = nil
 
       subscribes.each do |subscribe|
+        next if reply && !subscribe.ignore_block?
         next unless subscribe.match?(matching_text)
 
         reply ||= subscribe
