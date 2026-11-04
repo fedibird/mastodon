@@ -20,6 +20,7 @@ class GroupDirectory::Indexing
   INFLIGHT_KEY = 'group_directory:index:inflight'
   CLAIM_SEQ_KEY = 'group_directory:index:claim_seq'
   VERSIONS_KEY = 'group_directory:index:versions'
+  VERSION_GAP_KEY = 'group_directory:index:version_gap'
   SCHEDULE_KEY = 'group_directory:index:scheduled'
   BATCH_SIZE = 100
   DOMAIN_BATCH = 500
@@ -89,9 +90,20 @@ class GroupDirectory::Indexing
     return ids
   LUA
 
-  # Pending membership and the version counter move together. A claim
-  # cannot observe the id while its version still names the previous document.
+  # Pending membership and the version counter are updated in one script
+  # so a claim cannot see the id at the previous version. Redis does not roll
+  # back a script that errors after a write. The type check runs first, so a
+  # wrong key type fails before either write. An error after SADD, such as
+  # the instance running out of memory, can still leave the id queued.
   ENQUEUE_SCRIPT = <<~LUA
+    local pending_type = redis.call('TYPE', KEYS[1])['ok']
+    if pending_type ~= 'none' and pending_type ~= 'set' then
+      return redis.error_reply('WRONGTYPE ' .. KEYS[1] .. ' is ' .. pending_type)
+    end
+    local version_type = redis.call('TYPE', KEYS[2])['ok']
+    if version_type ~= 'none' and version_type ~= 'hash' then
+      return redis.error_reply('WRONGTYPE ' .. KEYS[2] .. ' is ' .. version_type)
+    end
     for i = 1, #ARGV do
       redis.call('SADD', KEYS[1], ARGV[i])
       redis.call('HINCRBY', KEYS[2], ARGV[i], 1)
@@ -173,6 +185,33 @@ class GroupDirectory::Indexing
       Array(reclaimed).compact
     end
 
+    # A claim may be written only while its member is still inflight and
+    # younger than the lease. Reclaim does not stop a worker by itself.
+    def claims_writable?(members, now = Time.now.to_i)
+      members = normalize_members(members)
+      return false if members.empty?
+
+      members.all? do |member|
+        score = redis.zscore(INFLIGHT_KEY, member)
+        score && now.to_i - score.to_i < INFLIGHT_LEASE
+      end
+    end
+
+    def quarantine_version_gap(members)
+      members = normalize_members(members)
+      ids = members.map { |member| account_id(member) }.uniq
+      redis.sadd(VERSION_GAP_KEY, ids) if ids.any?
+      redis.eval(ACK_SCRIPT, keys: [INFLIGHT_KEY], argv: members) if members.any?
+    end
+
+    def clear_version_gap!
+      redis.del(VERSION_GAP_KEY)
+    end
+
+    def version_gap?
+      redis.scard(VERSION_GAP_KEY).to_i.positive?
+    end
+
     def each_outstanding_batch(limit: BATCH_SIZE, &block)
       scan_ids(PENDING_KEY, limit, &block)
       scan_inflight_ids(limit, &block)
@@ -183,6 +222,9 @@ class GroupDirectory::Indexing
       return unless live_sync_enabled?
 
       reclaim_expired!
+      if version_gap?
+        Rails.logger.error('Group directory index has a Redis/Elasticsearch version gap. Run tootctl search deploy --only group_directory --rebuild')
+      end
       return unless pending?
       return unless index_ready?
 

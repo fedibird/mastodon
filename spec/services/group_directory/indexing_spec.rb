@@ -45,6 +45,16 @@ RSpec.describe GroupDirectory::Indexing do
       expect(redis.hget(described_class::VERSIONS_KEY, '5').to_i).to eq(2)
     end
 
+    it 'does not queue an id when the version key has the wrong type' do
+      redis
+      redis.set(described_class::VERSIONS_KEY, 'oops')
+
+      expect { described_class.push([4]) }.not_to raise_error
+
+      expect(redis.smembers(described_class::PENDING_KEY)).to be_empty
+      expect(redis.type(described_class::VERSIONS_KEY)).to eq('string')
+    end
+
     it 'leaves the queue unchanged when the enqueue script fails' do
       redis
       allow(redis).to receive(:eval).and_raise(Redis::BaseError, 'down')
@@ -194,7 +204,7 @@ RSpec.describe GroupDirectory::Indexing do
 
       described_class.new.perform
 
-      expect(GroupDirectory::Import).to have_received(:call) do |ids|
+      expect(GroupDirectory::Import).to have_received(:call) do |ids, **|
         expect(ids).to contain_exactly('8', '9')
       end
       expect(redis.get(GroupDirectory::Indexing::SCHEDULE_KEY)).to be_nil
@@ -207,7 +217,7 @@ RSpec.describe GroupDirectory::Indexing do
       redis.sadd(GroupDirectory::Indexing::PENDING_KEY, (1..101).to_a)
       redis.set(GroupDirectory::Indexing::SCHEDULE_KEY, '1')
       imported = []
-      allow(GroupDirectory::Import).to receive(:call) { |batch| imported.concat(batch) }
+      allow(GroupDirectory::Import).to receive(:call) { |batch, **| imported.concat(batch) }
 
       described_class.new.perform
 
@@ -249,7 +259,19 @@ RSpec.describe GroupDirectory::Indexing do
 
       described_class.new.perform
 
-      expect(GroupDirectory::Import).to have_received(:call).with(['41'])
+      expect(GroupDirectory::Import).to have_received(:call).with(['41'], hash_including(:claims))
+    end
+
+    it 'does not ack an id whose Redis version is behind Elasticsearch' do
+      allow(GroupDirectory::Indexing).to receive(:index_ready?).and_return(true)
+      redis.sadd(GroupDirectory::Indexing::PENDING_KEY, '9')
+      redis.set(GroupDirectory::Indexing::SCHEDULE_KEY, '1')
+      allow(GroupDirectory::Import).to receive(:call).and_raise(GroupDirectory::Import::VersionGap.new(['9']))
+
+      expect { described_class.new.perform }.to raise_error(GroupDirectory::Import::VersionGap)
+      expect(redis.smembers(GroupDirectory::Indexing::VERSION_GAP_KEY)).to eq(['9'])
+      expect(redis.smembers(GroupDirectory::Indexing::PENDING_KEY)).not_to include('9')
+      expect(redis.zcard(GroupDirectory::Indexing::INFLIGHT_KEY)).to eq(0)
     end
 
     it 'schedules a drain when Sidekiq gives up and pending ids remain' do

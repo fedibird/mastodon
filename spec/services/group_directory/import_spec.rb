@@ -35,6 +35,41 @@ RSpec.describe GroupDirectory::Import do
     expect(index.document(group.id)['display_name']).to eq('fenced')
   end
 
+  it 'does not treat a Redis version reset as a successful stale write' do
+    index = described_class::MemoryIndex.new
+    index.apply(id: '4242', version: 100, document: { 'display_name' => 'public' })
+
+    expect { described_class.call(['4242'], index: index) }.to raise_error(described_class::VersionGap)
+    expect(index.document('4242')['display_name']).to eq('public')
+  end
+
+  it 'does not accept a bulk conflict when Elasticsearch is ahead of Redis' do
+    payload = {
+      'items' => [{
+        'delete' => {
+          'status' => 409,
+          'error' => {
+            'type' => 'version_conflict_engine_exception',
+            'reason' => '[4242]: version conflict, current version [100] is higher or equal to the one provided [1]',
+          },
+        },
+      }],
+    }
+    allow(Chewy.client).to receive(:bulk).and_return(payload)
+
+    expect { described_class.call(['4242']) }.to raise_error(described_class::VersionGap)
+  end
+
+  it 'does not write a claim that is older than the lease' do
+    group = directory_group('late_writer')
+    member = "#{group.id}:1"
+    redis.zadd(GroupDirectory::Indexing::INFLIGHT_KEY, Time.now.to_i - GroupDirectory::Indexing::INFLIGHT_LEASE - 1, member)
+    index = described_class::MemoryIndex.new
+
+    expect { described_class.call([group.id], index: index, claims: [member]) }.to raise_error(described_class::StaleClaim)
+    expect(index.document(group.id)).to be_nil
+  end
+
   it 'rebuild removes a group that became unlisted while live sync was off' do
     group = directory_group('hidden_later')
     index = described_class::MemoryIndex.new

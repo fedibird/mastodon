@@ -42,6 +42,10 @@ class GroupDirectory::Import
       @docs[id.to_s]
     end
 
+    def version(id)
+      @versions[id.to_s]
+    end
+
     def apply(id:, version:, document:)
       current = @versions[id.to_s]
       return :rejected if current && version.to_i <= current
@@ -56,13 +60,28 @@ class GroupDirectory::Import
     end
   end
 
+  class VersionGap < StandardError
+    attr_reader :ids
+
+    def initialize(ids)
+      @ids = Array(ids).map(&:to_s)
+      super("Redis document version is behind Elasticsearch for #{@ids.join(', ')}. Rebuild the group directory index.")
+    end
+  end
+
+  class StaleClaim < StandardError
+    def initialize
+      super('Group directory claim is no longer allowed to write')
+    end
+  end
+
   class << self
-    def call(ids, index: nil)
+    def call(ids, index: nil, claims: nil)
       ids = normalize(ids)
       return Result.new(indexed: 0, deleted: 0, rejected: 0) if ids.empty?
 
       snapshots = stable_snapshots(ids)
-      write(snapshots, index)
+      write(snapshots, index, claims)
     end
 
     def rebuild!(index: nil)
@@ -79,6 +98,7 @@ class GroupDirectory::Import
       GroupDirectory::Indexing.each_outstanding_batch do |ids|
         call(ids, index: index)
       end
+      GroupDirectory::Indexing.clear_version_gap!
     end
 
     private
@@ -129,13 +149,14 @@ class GroupDirectory::Import
       ids.zip(values).to_h { |id, value| [id, value.to_i] }
     end
 
-    def write(snapshots, index)
+    def write(snapshots, index, claims)
       result = Result.new(indexed: 0, deleted: 0, rejected: 0)
       return result if snapshots.empty?
 
       snapshots, skipped = fresh_snapshots(snapshots)
       result.rejected += skipped
       return result if snapshots.empty?
+      raise StaleClaim unless claims.nil? || GroupDirectory::Indexing.claims_writable?(claims)
 
       if index
         write_memory(snapshots, index, result)
@@ -156,6 +177,7 @@ class GroupDirectory::Import
     def write_memory(snapshots, index, result)
       snapshots.each do |snapshot|
         outcome = index.apply(id: snapshot.id, version: snapshot.version, document: document_for(snapshot))
+        raise_version_gap(snapshot, index.version(snapshot.id)) if outcome == :rejected
         count_outcome(result, snapshot, outcome)
       end
     end
@@ -168,6 +190,7 @@ class GroupDirectory::Import
         status = payload['status'].to_i
         snapshot = snapshots[index]
         if status == 409
+          classify_conflict(snapshot, payload)
           result.rejected += 1
         elsif status == 404 && action.to_s == 'delete'
           result.deleted += 1
@@ -179,6 +202,27 @@ class GroupDirectory::Import
           result.indexed += 1
         end
       end
+    end
+
+    def classify_conflict(snapshot, payload)
+      stored = es_version(payload)
+      redis_version = read_versions([snapshot.id])[snapshot.id]
+      return if stored && stored <= redis_version && redis_version > snapshot.version
+
+      raise VersionGap, [snapshot.id] if stored.nil? || stored > redis_version
+    end
+
+    def es_version(payload)
+      reason = payload.dig('error', 'reason').to_s
+      match = reason.match(/current version \[(\d+)\]/)
+      match && match[1].to_i
+    end
+
+    def raise_version_gap(snapshot, stored_version)
+      redis_version = read_versions([snapshot.id])[snapshot.id]
+      return if stored_version.nil? || stored_version.to_i <= redis_version && redis_version > snapshot.version
+
+      raise VersionGap, [snapshot.id] if stored_version.to_i > redis_version
     end
 
     def count_outcome(result, snapshot, outcome)

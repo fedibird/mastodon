@@ -32,10 +32,21 @@ class GroupDirectoryIndexWorker
     end
 
     ids = members.map { |member| GroupDirectory::Indexing.account_id(member) }
-    GroupDirectory::Import.call(ids)
+    GroupDirectory::Import.call(ids, claims: members)
     GroupDirectory::Indexing.ack(members)
     acked = true
     GroupDirectory::Indexing.continue!
+  rescue GroupDirectory::Import::VersionGap => e
+    begin
+      gap_members = members.select { |member| e.ids.include?(GroupDirectory::Indexing.account_id(member)) }
+      GroupDirectory::Indexing.quarantine_version_gap(gap_members)
+      GroupDirectory::Indexing.return_to_pending(members - gap_members)
+    rescue StandardError => return_error
+      Rails.logger.error("Group directory index version gap quarantine failed: #{return_error.class}: #{return_error.message}")
+    end
+    GroupDirectory::Indexing.release_schedule!
+    Rails.logger.error("Group directory index version gap for #{e.ids.join(', ')}")
+    raise
   rescue StandardError => e
     begin
       GroupDirectory::Indexing.return_to_pending(members) unless acked
