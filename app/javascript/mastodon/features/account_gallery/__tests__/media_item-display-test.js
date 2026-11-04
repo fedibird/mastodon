@@ -96,6 +96,22 @@ describe('account media gallery tile', () => {
     expect(screen.queryByTestId('blurhash-canvas')).toBeNull();
   });
 
+  it('forgets an individual reveal even when returning to the same visibility policy', () => {
+    const { rerender } = render(tile('hide_all'));
+    fireEvent.click(screen.getByRole('link', { name: 'メディアを表示' }));
+    expect(screen.getByRole('link', { name: '写真の説明' })).toBeInTheDocument();
+
+    rerender(tile('show_all'));
+    rerender(tile('hide_all'));
+    expect(screen.getByRole('link', { name: 'メディアを表示' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '写真の説明' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('link', { name: 'メディアを表示' }));
+    rerender(tile('hide_sensitive'));
+    rerender(tile('hide_all'));
+    expect(screen.getByRole('link', { name: 'メディアを表示' })).toBeInTheDocument();
+  });
+
   it('shows clear previews when toggling from hide-all to sensitive-only and show-all', () => {
     const ordinary = attachment.setIn(['status', 'sensitive'], false);
     const { container, rerender } = render(tile('hide_all', ordinary));
@@ -229,7 +245,7 @@ describe('account original-size masonry visibility transitions', () => {
         .find(node => node.getAttribute('data-layout-key')?.includes(id));
       const position = id => {
         const node = findItem(id);
-        const match = node.style.transform.match(/translate3d\\(0, ([\\d.]+)px, 0\\)/);
+        const match = node.style.transform.match(/translate3d\(0, ([\d.]+)px, 0\)/);
         return { x: parseFloat(node.style.insetInlineStart), y: Number(match[1]) };
       };
       const ids = ['m1', 'm2', 'm3', 'm4'];
