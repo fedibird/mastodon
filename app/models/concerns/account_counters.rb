@@ -73,6 +73,7 @@ module AccountCounters
 
     sql = AccountStat.sanitize_sql([sql, account_id: id, default_value: default_value, value: value])
     account_stat_id = AccountStat.connection.exec_query(sql)[0]['id']
+    request_group_directory_activity_index if key == :statuses_count && !value.negative?
 
     # Reload account_stat if it was loaded, taking into account newly-created unsaved records
     if association(:account_stat).loaded?
@@ -101,6 +102,7 @@ module AccountCounters
       account_stat.id = result.first['id'] if account_stat.new_record?
       account_stat.reload
     end
+    request_group_directory_activity_index
   end
 
   private
@@ -109,5 +111,13 @@ module AccountCounters
     return unless association(:account_stat).loaded? && account_stat&.changed?
 
     account_stat.save
+  end
+
+  # update_count! and recount write account_stats with SQL, so AccountStat
+  # callbacks do not see last_status_at move.
+  def request_group_directory_activity_index
+    return unless group?
+
+    GroupDirectory::Indexing.enqueue(id)
   end
 end

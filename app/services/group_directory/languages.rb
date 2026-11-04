@@ -68,6 +68,9 @@ class GroupDirectory::Languages
       end
     end
 
+    # delete_all skips GroupLanguage callbacks. Enqueue after the
+    # transaction so a nested caller still waits for the outer commit.
+    GroupDirectory::Indexing.enqueue(account.id)
     canonical
   end
 

@@ -18,7 +18,15 @@ class ManagedGroup < ApplicationRecord
   validate :account_is_local_group
   validate :request_matches_account
 
+  after_commit :request_group_directory_index, on: [:create, :update, :destroy]
+
   private
+
+  def request_group_directory_index
+    return unless GroupDirectory::Indexing.live_sync_enabled?
+
+    GroupDirectory::Indexing.enqueue(account_id)
+  end
 
   def legacy_origin_is_deferred
     errors.add(:origin, :invalid) if legacy_unassigned?

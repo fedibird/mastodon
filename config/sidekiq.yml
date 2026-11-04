@@ -123,6 +123,13 @@
       every: '1m'
       class: Scheduler::ExternalBridgeRSSSubscriptionDeletionScheduler
       queue: scheduler
+    # Moves expired group-directory inflight ids back to pending and queues
+    # one drain when the index exists. No-op unless GROUP_DIRECTORY_INDEX
+    # and ES_ENABLED are both on. Does not read the directory API.
+    group_directory_index_recovery_scheduler:
+      every: '1m'
+      class: Scheduler::GroupDirectoryIndexRecoveryScheduler
+      queue: scheduler
     # Recovers a refused or killed per-subscription display rewrite. One pass
     # queues at most 50 subscriptions. Not gated by the ExternalBridge flags.
     external_bridge_rss_presentation_scheduler:

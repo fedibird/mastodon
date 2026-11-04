@@ -17,7 +17,8 @@ module Mastodon
     ].freeze
 
     option :concurrency, type: :numeric, default: 2, aliases: [:c], desc: 'Workload will be split between this number of threads'
-    option :only, type: :array, enum: %w(instances accounts tags statuses), desc: 'Only process these indices'
+    option :only, type: :array, enum: %w(instances accounts tags statuses group_directory), desc: 'Only process these indices'
+    option :rebuild, type: :boolean, default: false, desc: 'Purge and refill group_directory only. This is the recovery that deletes documents for groups no longer listed. Refuses any other index.'
     option :min, type: :string
     option :max, type: :string
     option :verbose, type: :boolean, default: false, aliases: [:v]
@@ -31,7 +32,22 @@ module Mastodon
 
       Even if creating or upgrading indices is not necessary, data from the
       database will be imported into the indices.
+
+      `group_directory` is not part of a full deploy. Create or refill only
+      that index with `--only group_directory`. A normal deploy adds the
+      current eligible rows and does not delete a document for a group that
+      has since left the directory. `--rebuild` with that same `--only`
+      purges and refills this index alone. Do not combine `--rebuild` with
+      any other index. Writes carry the enqueue version, so a stale batch
+      cannot replace a newer live document. A changed mapping still purges
+      only the index whose specification changed. Set GROUP_DIRECTORY_INDEX
+      only after the index exists and its size has been measured. Unset it
+      to stop live sync. The directory API keeps using PostgreSQL either way.
     LONG_DESC
+    # The importer predates the complexity cap. Group directory adds a fenced
+    # path and a rebuild exit; splitting the loop would only move the same
+    # branches into another method.
+    # rubocop:disable Metrics/PerceivedComplexity
     def deploy
       if options[:concurrency] < 1
         say('Cannot run with this concurrency setting, must be at least 1', :red)
@@ -49,6 +65,7 @@ module Mastodon
       # Instance's primary key is domain and it has no id or created_at.
       # The generic importer below filters and logs by id, so instances use a separate path.
       id_indices = indices - [InstancesIndex]
+      return if rebuilt_group_directory(indices)
 
       progress = ProgressBar.create(total: nil, format: '%t%c/%u |%b%i| %e (%r docs/s)', autofinish: false)
 
@@ -67,6 +84,7 @@ module Mastodon
       pool    = Concurrent::FixedThreadPool.new(options[:concurrency])
       added   = Concurrent::AtomicFixnum.new(0)
       removed = Concurrent::AtomicFixnum.new(0)
+      failed  = Concurrent::AtomicFixnum.new(0)
 
       progress.title = 'Estimating workload '
 
@@ -97,6 +115,11 @@ module Mastodon
           batch.each_slice(slice_size) do |records|
             futures << Concurrent::Future.execute(executor: pool) do
               begin
+                if index == GroupDirectoryIndex
+                  import_group_directory_records(records, progress, added, removed, failed)
+                  next
+                end
+
                 if !progress.total.nil? && progress.progress + records.size > progress.total
                   # The number of items has changed between start and now,
                   # since there is no good way to predict the final count from
@@ -158,10 +181,41 @@ module Mastodon
       progress.title = ''
       progress.stop
 
+      if failed.value.positive?
+        say("Group directory import failed for #{failed.value} batches", :red, true)
+        exit(1)
+      end
+
       say("Indexed #{added.value} records, de-indexed #{removed.value}", :green, true)
     end
+    # rubocop:enable Metrics/PerceivedComplexity
 
     private
+
+    def rebuilt_group_directory(indices)
+      return false unless options[:rebuild]
+      unless indices == [GroupDirectoryIndex]
+        say('Rebuild is only supported with --only group_directory', :red)
+        exit(1)
+      end
+
+      GroupDirectory::Import.rebuild!
+      say('Rebuilt the group directory index', :green, true)
+      true
+    end
+
+    def import_group_directory_records(records, progress, added, removed, failed)
+      result = nil
+      ActiveRecord::Base.connection_pool.with_connection do
+        result = GroupDirectory::Import.call(records.map(&:id))
+      end
+      added.increment(result.indexed)
+      removed.increment(result.deleted)
+      progress.progress += records.size
+    rescue => e
+      failed.increment
+      progress.log pastel.red("Error importing GroupDirectoryIndex: #{e} #{records.first&.id}-#{records.last&.id}")
+    end
 
     def import_instances_index(progress, pool, added, removed)
       index      = InstancesIndex

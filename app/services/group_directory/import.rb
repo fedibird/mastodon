@@ -1,0 +1,289 @@
+# frozen_string_literal: true
+
+# Writes GroupDirectoryIndex documents with an external version.
+#
+# The version is the Redis counter bumped when an id is enqueued. A writer
+# reloads the row and records the version before and after that read. It
+# writes only when those versions match, and Elasticsearch rejects a write
+# whose version is not strictly newer than the stored one. A backfill that
+# still holds an older snapshot cannot replace a document a live worker has
+# already published.
+#
+# A plain `tootctl search deploy` adds eligible rows and does not delete a
+# document for a group that left the directory. The cutover after the first
+# fill is `--only group_directory --rebuild`: it purges this index, refills
+# the current eligible rows, and then applies ids still waiting in Redis in
+# bounded batches. A hide that happened while live sync was off is removed
+# by that purge, not by a second plain deploy.
+#
+# Elasticsearch keeps a delete tombstone only for index.gc_deletes (this
+# index sets 1h). That is longer than the 300s inflight lease, so a claim
+# that is still allowed to write cannot outlive the tombstone. A write is
+# also dropped when the version changed after the row was read. Real cluster
+# confirmation of a delayed write is still required before the flag is on.
+class GroupDirectory::Import
+  Result = Struct.new(:indexed, :deleted, :rejected, keyword_init: true)
+  Snapshot = Struct.new(:id, :version, :account, keyword_init: true)
+
+  # In-memory stand-in for the external-version rule. Tests use it so a
+  # stale write can be rejected without a cluster.
+  class MemoryIndex
+    def initialize
+      @docs = {}
+      @versions = {}
+    end
+
+    def clear
+      @docs.clear
+      @versions.clear
+    end
+
+    def document(id)
+      @docs[id.to_s]
+    end
+
+    def version(id)
+      @versions[id.to_s]
+    end
+
+    def apply(id:, version:, document:)
+      current = @versions[id.to_s]
+      return :rejected if current && version.to_i <= current
+
+      if document.nil?
+        @docs.delete(id.to_s)
+      else
+        @docs[id.to_s] = document
+      end
+      @versions[id.to_s] = version.to_i
+      :written
+    end
+  end
+
+  class VersionGap < StandardError
+    attr_reader :ids
+
+    def initialize(ids)
+      @ids = Array(ids).map(&:to_s)
+      super("Redis document version is behind Elasticsearch for #{@ids.join(', ')}. Rebuild the group directory index.")
+    end
+  end
+
+  class StaleClaim < StandardError
+    def initialize
+      super('Group directory claim is no longer allowed to write')
+    end
+  end
+
+  class << self
+    def call(ids, index: nil, claims: nil)
+      ids = normalize(ids)
+      return Result.new(indexed: 0, deleted: 0, rejected: 0) if ids.empty?
+
+      snapshots = stable_snapshots(ids)
+      write(snapshots, index, claims)
+    end
+
+    def rebuild!(index: nil)
+      if index
+        index.clear
+      else
+        GroupDirectoryIndex.purge
+        GroupDirectoryIndex.specification.lock!
+      end
+
+      GroupDirectory::Eligibility.scope.in_batches(of: GroupDirectory::Indexing::BATCH_SIZE) do |batch|
+        call(batch.pluck(:id), index: index)
+      end
+      GroupDirectory::Indexing.each_outstanding_batch do |ids|
+        call(ids, index: index)
+      end
+      GroupDirectory::Indexing.clear_version_gap!
+    end
+
+    private
+
+    def normalize(ids)
+      Array(ids).flatten.compact.map { |id| id.to_i.to_s }.select { |id| id.to_i.positive? }.uniq
+    end
+
+    def stable_snapshots(ids)
+      remaining = ids.dup
+      ready = []
+      5.times do
+        break if remaining.empty?
+
+        before = read_versions(remaining)
+        accounts = listed_accounts(remaining)
+        after = read_versions(remaining)
+        stable, remaining = remaining.partition { |id| before[id] == after[id] }
+        stable.each do |id|
+          version = before[id]
+          if version.zero?
+            unless claim_baseline_version(id)
+              remaining << id
+              next
+            end
+            version = 1
+            accounts = accounts.merge(listed_accounts([id]))
+          end
+          ready << Snapshot.new(id: id, version: version, account: accounts[id])
+        end
+      end
+      GroupDirectory::Indexing.push(remaining) if remaining.any?
+      ready
+    end
+
+    def listed_accounts(ids)
+      GroupDirectory::Eligibility.scope.where(id: ids).index_by { |account| account.id.to_s }
+    end
+
+    def claim_baseline_version(id)
+      return false unless redis.hsetnx(GroupDirectory::Indexing::VERSIONS_KEY, id, 1)
+
+      read_versions([id])[id] == 1
+    end
+
+    def read_versions(ids)
+      values = redis.hmget(GroupDirectory::Indexing::VERSIONS_KEY, ids)
+      ids.zip(values).to_h { |id, value| [id, value.to_i] }
+    end
+
+    def write(snapshots, index, claims)
+      result = Result.new(indexed: 0, deleted: 0, rejected: 0)
+      return result if snapshots.empty?
+
+      snapshots, skipped = fresh_snapshots(snapshots)
+      result.rejected += skipped
+      return result if snapshots.empty?
+      raise StaleClaim unless claims.nil? || GroupDirectory::Indexing.claims_writable?(claims)
+
+      if index
+        write_memory(snapshots, index, result)
+      else
+        write_elasticsearch(snapshots, result, claims)
+      end
+      result
+    end
+
+    # Drop a snapshot whose version moved after the row was read. The newer
+    # enqueue is already in the pending set, so this write must not land.
+    def fresh_snapshots(snapshots)
+      versions = read_versions(snapshots.map(&:id))
+      fresh, stale = snapshots.partition { |snapshot| versions[snapshot.id] == snapshot.version }
+      [fresh, stale.size]
+    end
+
+    def write_memory(snapshots, index, result)
+      snapshots.each do |snapshot|
+        outcome = index.apply(id: snapshot.id, version: snapshot.version, document: document_for(snapshot))
+        raise_version_gap(snapshot, index.version(snapshot.id), index.document(snapshot.id)) if outcome == :rejected
+        count_outcome(result, snapshot, outcome)
+      end
+    end
+
+    def write_elasticsearch(snapshots, result, claims)
+      # The lease check and the bulk request are not one atomic operation.
+      # A process that pauses after this check can still send a stale body.
+      # The check is repeated here to shrink that window. A pause inside the
+      # request itself is not covered. Recovery is --rebuild. Confirm that
+      # delayed resume on a real cluster before turning the flag on.
+      raise StaleClaim unless claims.nil? || GroupDirectory::Indexing.claims_writable?(claims)
+
+      body = snapshots.flat_map { |snapshot| bulk_entry(snapshot) }
+      response = Chewy.client.bulk(body: body)
+      Array(response['items']).each_with_index do |item, index|
+        action, payload = item.first
+        status = payload['status'].to_i
+        snapshot = snapshots[index]
+        if status == 409
+          classify_conflict(snapshot, payload)
+          result.rejected += 1
+        elsif status == 404 && action.to_s == 'delete'
+          result.deleted += 1
+        elsif status >= 300
+          raise "Group directory index bulk failed for #{snapshot.id}: #{status}"
+        elsif action.to_s == 'delete'
+          result.deleted += 1
+        else
+          result.indexed += 1
+        end
+      end
+    end
+
+    def classify_conflict(snapshot, payload)
+      stored = es_version(payload)
+      redis_version = read_versions([snapshot.id])[snapshot.id]
+      raise VersionGap, [snapshot.id] if stored.nil? || stored > redis_version
+      return if redis_version > snapshot.version && stored <= redis_version
+
+      raise VersionGap, [snapshot.id] unless intended_document?(snapshot, elasticsearch_source(snapshot.id))
+    end
+
+    def es_version(payload)
+      reason = payload.dig('error', 'reason').to_s
+      match = reason.match(/current version \[(\d+)\]/)
+      match && match[1].to_i
+    end
+
+    def raise_version_gap(snapshot, stored_version, stored_document)
+      raise VersionGap, [snapshot.id] if version_gap?(snapshot, stored_version, stored_document)
+    end
+
+    # An equal version conflict is not proof the document already matches.
+    # A delete at version 1 against a still-public version 1 document must
+    # not be acknowledged. A newer Redis version is a race the later write owns.
+    def version_gap?(snapshot, stored_version, stored_document)
+      return true if stored_version.nil?
+
+      redis_version = read_versions([snapshot.id])[snapshot.id]
+      return true if stored_version.to_i > redis_version
+      return false if redis_version > snapshot.version && stored_version.to_i <= redis_version
+
+      !intended_document?(snapshot, stored_document)
+    end
+
+    def intended_document?(snapshot, stored_document)
+      if snapshot.account.nil?
+        stored_document.nil?
+      else
+        stored_document == document_for(snapshot)
+      end
+    end
+
+    def elasticsearch_source(id)
+      Chewy.client.get(index: GroupDirectoryIndex.index_name, id: id.to_s)['_source']
+    rescue Elasticsearch::Transport::Transport::Errors::NotFound
+      nil
+    end
+
+    def count_outcome(result, snapshot, outcome)
+      if outcome == :rejected
+        result.rejected += 1
+      elsif snapshot.account
+        result.indexed += 1
+      else
+        result.deleted += 1
+      end
+    end
+
+    def bulk_entry(snapshot)
+      meta = { _index: GroupDirectoryIndex.index_name, _id: snapshot.id, version: snapshot.version, version_type: 'external' }
+      if snapshot.account
+        [{ index: meta }, document_for(snapshot)]
+      else
+        [{ delete: meta }]
+      end
+    end
+
+    def document_for(snapshot)
+      return if snapshot.account.nil?
+
+      GroupDirectoryIndex.compose(snapshot.account).deep_stringify_keys
+    end
+
+    def redis
+      GroupDirectory::Indexing.redis
+    end
+  end
+end

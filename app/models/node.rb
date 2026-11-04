@@ -41,6 +41,8 @@ class Node < ApplicationRecord
   has_many :accounts, primary_key: :domain, foreign_key: :domain, inverse_of: :node
   has_one :instance, primary_key: :domain, foreign_key: :domain, inverse_of: :node
 
+  after_commit :request_group_directory_index, on: [:create, :update, :destroy]
+
   scope :domain, ->(domain) { where(domain: Addressable::URI.parse(domain).normalize.to_s.downcase) if domain.present? }
   scope :software, ->(name) { where("info->>'software_name' = ?", name.downcase) if name.present? }
   scope :upstream, ->(name) { where("info->>'upstream_name' = ?", name.downcase) if name.present? }
@@ -199,6 +201,19 @@ class Node < ApplicationRecord
   
     def forks(upstream)
       FORKS[upstream&.downcase]
+    end
+  end
+
+  private
+
+  def request_group_directory_index
+    return unless GroupDirectory::Indexing.live_sync_enabled?
+    return unless GroupDirectory::Eligibility.node_directory_inputs_changed?(self)
+
+    domains = [domain]
+    domains << previous_changes.dig('domain', 0)
+    domains.compact.uniq.each do |name|
+      GroupDirectory::Indexing.enqueue_domain(name)
     end
   end
 end
