@@ -1,7 +1,7 @@
 /* eslint-disable react/prop-types */
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { fromJS } from 'immutable';
+import { fromJS, List as ImmutableList } from 'immutable';
 import React from 'react';
 import { addLocaleData, IntlProvider } from 'react-intl';
 import japaneseData from 'react-intl/locale-data/ja';
@@ -26,7 +26,7 @@ jest.mock('mastodon/components/icon', () => {
 
 import MediaItem from '../components/media_item';
 import MediaDisplayControls from 'mastodon/components/media_display_controls';
-import MediaItemsLayout from 'mastodon/components/media_items_layout';
+import AccountMediaItems from '../components/media_items';
 
 addLocaleData(japaneseData);
 
@@ -167,17 +167,15 @@ const IntegratedGallery = ({ shape = 'square', medias }) => {
           onSizeChange={jest.fn()}
           onVisibilityChange={setVisibility}
         />
-        <MediaItemsLayout shape={shape} size='medium'>
-          {items.map(media => (
-            <MediaItem
-              key={media.get('id')}
-              attachment={media}
-              visibility={visibility}
-              shape={shape}
-              onOpenMedia={onOpenMedia}
-            />
-          ))}
-        </MediaItemsLayout>
+        <AccountMediaItems
+          attachments={ImmutableList(items)}
+          shape={shape}
+          size='medium'
+          visibility={visibility}
+          onOpenMedia={onOpenMedia}
+          onReveal={onReveal}
+          onLoadMore={jest.fn()}
+        />
       </div>
     </IntlProvider>
   );
@@ -260,11 +258,17 @@ describe('account original-size masonry visibility transitions', () => {
       expect(initialPositions[2].y).toBe(initialPositions[1].y + 98);
       expect(container.querySelectorAll('.timeline-media-tile__open--original')).toHaveLength(4);
 
-      ['閲覧注意メディアを隠す', 'メディアを常に表示する', 'メディアを常に隠す'].forEach(label => {
+      [
+        { label: '閲覧注意メディアを隠す', images: 3, blurred: 1 },
+        { label: 'メディアを常に表示する', images: 4, blurred: 0 },
+        { label: 'メディアを常に隠す', images: 0, blurred: 4 },
+      ].forEach(({ label, images, blurred }) => {
         fireEvent.click(screen.getByRole('button', { name: label }));
         expect(ids.map(position)).toEqual(initialPositions);
         expect(ids.map(findItem)).toEqual(initialNodes);
         expect(container.querySelectorAll('.timeline-media-tile__open--original')).toHaveLength(4);
+        expect(container.querySelectorAll('.timeline-media-tile img')).toHaveLength(images);
+        expect(container.querySelectorAll('[data-testid="blurhash-canvas"]')).toHaveLength(blurred);
       });
     } finally {
       jest.restoreAllMocks();
