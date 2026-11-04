@@ -233,10 +233,55 @@ RSpec.describe FeedDelivery do
       expect(described_class.persist_failures).to eq 1
 
       allow(described_class).to receive(:with_redis).and_call_original
-      expect(described_class.flush!).to be true
+      expect(described_class.flush!(force: true)).to be true
       expect(described_class.pending_events).to eq 0
       expect(described_class.flush_count).to eq 1
       expect(described_class.persist_failures).to eq 0
+    end
+
+    it 'does not retry redis on every later record after a failed flush' do
+      described_class.reset!
+      attempts = 0
+      allow(described_class).to receive(:with_redis) do
+        attempts += 1
+        raise StandardError, 'redis down'
+      end
+      allow(Rails.logger).to receive(:warn)
+
+      200.times { described_class.record('job|reason=keyword') }
+
+      expect(attempts).to eq 1
+      expect(described_class.pending_events).to eq 200
+      expect(described_class.flush!).to be false
+      expect(attempts).to eq 1
+    end
+
+    it 'does not let a successful flush erase a failure from an overlapping flush' do
+      described_class.reset!
+      started = Queue.new
+      release = Queue.new
+      calls = 0
+      calls_mutex = Mutex.new
+      allow(described_class).to receive(:write_redis) do
+        call = calls_mutex.synchronize { calls += 1 }
+        if call == 1
+          started << true
+          release.pop
+        else
+          raise StandardError, 'redis down'
+        end
+      end
+      allow(Rails.logger).to receive(:warn)
+
+      worker = Thread.new { described_class.record('job|reason=keyword', 100) }
+      started.pop
+      described_class.record('list|result=agree', 100)
+      release << true
+      worker.join
+
+      expect(described_class.persist_failures).to eq 1
+      expect(described_class.pending_events).to eq 100
+      expect(described_class.flush_count).to eq 1
     end
 
     it 'flushes idle events from the periodic thread' do

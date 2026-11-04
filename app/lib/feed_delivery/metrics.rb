@@ -5,9 +5,10 @@ module FeedDelivery
   # cannot grow with accounts, statuses, keywords, or status text.
   #
   # record never writes one Redis command per destination. Pending totals are
-  # flushed in one pipeline at FLUSH_SIZE, from a 5 second thread, from an
-  # explicit flush! (keyword fan-out and process exit), or on the next retry
-  # after a failed write. A failed write keeps the pending totals.
+  # flushed in one pipeline at FLUSH_SIZE, from a 5 second thread, or from an
+  # explicit flush! (keyword fan-out and process exit). After a failed write
+  # the batch stays pending and record does not retry until the backoff ends.
+  # The periodic flusher and a forced flush are what check whether Redis is back.
   module Metrics
     KEY_PREFIX = 'feed_delivery_reason:v1'
     RETENTION = 8.days
@@ -32,6 +33,7 @@ module FeedDelivery
 
     FLUSH_SIZE = 100
     FLUSH_INTERVAL = 5
+    MAX_BACKOFF = 60
 
     def record(field, count = 1, now: Time.now.utc)
       return unless FIELDS.include?(field)
@@ -42,7 +44,7 @@ module FeedDelivery
         @counts[field] = @counts.fetch(field, 0) + count
         @pending[field] = @pending.fetch(field, 0) + count
         @pending_events += count
-        should_flush = @pending_events >= FLUSH_SIZE
+        should_flush = @pending_events >= FLUSH_SIZE && !cooling_down?(now)
       end
       flush!(now: now) if should_flush
       start_flusher! unless Rails.env.test?
@@ -72,31 +74,34 @@ module FeedDelivery
         @redis_flushes = 0
         @persist_failures = 0
         @last_persist_warn = nil
+        @retry_after = nil
       end
     end
 
-    def flush!(now: Time.now.utc)
+    # force is the periodic flusher and process exit. record never forces, so a
+    # Redis outage cannot turn every later event into a synchronous retry.
+    def flush!(now: Time.now.utc, force: false)
       pending, failures, events = synchronize do
         next if @pending_events.zero?
+        next if !force && cooling_down?(now)
 
         extracted = @pending
         count = @pending_events
+        carried_failures = @persist_failures
         @pending = Hash.new(0)
         @pending_events = 0
-        [extracted, @persist_failures, count]
+        @persist_failures = 0
+        [extracted, carried_failures, count]
       end
       return false if pending.nil?
 
       payload = pending.dup
       payload[PERSIST_FAILURE_FIELD] = failures if failures.positive?
       write_redis(payload, now)
-      synchronize do
-        @redis_flushes += 1
-        @persist_failures = 0
-      end
+      synchronize { @redis_flushes += 1 }
       true
     rescue StandardError => e
-      restore_pending(pending, events)
+      restore_pending(pending, events, failures)
       warn_persist_failure(e)
       false
     end
@@ -115,7 +120,7 @@ module FeedDelivery
             sleep pause
             break if @flusher_stop
 
-            flush!
+            flush!(force: true)
           end
         end
         @flusher
@@ -155,14 +160,24 @@ module FeedDelivery
       end
     end
 
-    def restore_pending(pending, events)
+    def restore_pending(pending, events, failures)
       return if pending.nil?
 
       synchronize do
         pending.each { |field, count| @pending[field] = @pending.fetch(field, 0) + count }
         @pending_events += events.to_i
-        @persist_failures += 1
+        @persist_failures += failures.to_i + 1
+        @retry_after = Time.now.utc + backoff_delay(@persist_failures)
       end
+    end
+
+    def cooling_down?(now)
+      @retry_after && now < @retry_after
+    end
+
+    def backoff_delay(failures)
+      exponent = [[failures.to_i - 1, 0].max, 4].min
+      [FLUSH_INTERVAL * (2**exponent), MAX_BACKOFF].min
     end
 
     def warn_persist_failure(error)
@@ -187,13 +202,14 @@ module FeedDelivery
     @redis_flushes = 0
     @persist_failures = 0
     @last_persist_warn = nil
+    @retry_after = nil
     @flusher = nil
     @flusher_stop = false
     extend Redisable
     module_function :record, :snapshot, :pending_events, :persist_failures, :reset!, :flush!, :flush_count,
                     :start_flusher!, :stop_flusher!, :key_for, :synchronize, :write_redis, :restore_pending,
-                    :warn_persist_failure
+                    :cooling_down?, :backoff_delay, :warn_persist_failure
 
-    at_exit { flush! } unless Rails.env.test?
+    at_exit { flush!(force: true) } unless Rails.env.test?
   end
 end
