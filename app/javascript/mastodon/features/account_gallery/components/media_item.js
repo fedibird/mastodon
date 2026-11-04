@@ -33,6 +33,15 @@ class MediaItem extends ImmutablePureComponent {
     revealedFor: null,
   };
 
+  // Stable keys are important for masonry measurements. Clear an individual
+  // reveal when the bulk visibility policy changes, including when returning
+  // to a previously used policy.
+  componentDidUpdate (prevProps) {
+    if (prevProps.visibility !== this.props.visibility && this.state.revealedFor !== null) {
+      this.setState({ revealedFor: null });
+    }
+  }
+
   // Scope a one-time reveal to this attachment AND the active policy.
   // Avoid retaining an image reveal when switching between media modes.
   revealKey = () => {
