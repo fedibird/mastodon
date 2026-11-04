@@ -283,6 +283,29 @@ describe('personal boost translated media', () => {
   });
 });
 
+describe('compact card text viewport', () => {
+  it.each(['card-1', 'card-2', 'card-3'])('scrolls only the status text in %s, not media or card details', (layoutMode) => {
+    const { container } = renderTimeline(properStatus, { layoutMode });
+    const card = container.querySelector('.timeline-card');
+    const media = card.querySelector('.timeline-card__media');
+    const viewport = card.querySelector('.timeline-card__body-scroll');
+    const text = card.querySelector('.status__content');
+    const author = card.querySelector('.timeline-card__author');
+
+    expect(media).not.toBeNull();
+    expect(viewport).not.toBeNull();
+    expect(viewport.contains(text)).toBe(true);
+    expect(viewport.contains(media)).toBe(false);
+    expect(viewport.contains(author)).toBe(false);
+    expect(media.nextElementSibling).toBe(viewport.parentElement);
+  });
+
+  it('leaves normal timeline statuses without a text scroll viewport', () => {
+    const { container } = renderTimeline(properStatus, { layoutMode: 'normal' });
+    expect(container.querySelector('.timeline-card__body-scroll')).toBeNull();
+  });
+});
+
 describe('compact timeline card context', () => {
   it('displays the booster attribution immediately above the card author row', () => {
     const { container } = renderTimeline(personalBoost('original'), { layoutMode: 'card-2' });
