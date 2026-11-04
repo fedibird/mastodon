@@ -56,14 +56,21 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel }
     }
   }, [expanded]);
 
-  const handleExpand = event => {
+  const handleExpand = React.useCallback(event => {
     // The card container itself navigates to the status on click.
     event.preventDefault();
     event.stopPropagation();
     setExpanded(true);
-  };
+  }, []);
 
   const scrollable = !expanded && overflowing;
+  let bodyTabIndex;
+  if (scrollable) {
+    bodyTabIndex = 0;
+  } else if (expanded) {
+    // Keep an explicit programmatic focus target after removing the button.
+    bodyTabIndex = -1;
+  }
 
   return (
     <div className={`timeline-card__body${expanded ? ' timeline-card__body--expanded' : ''}`}>
@@ -72,7 +79,7 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel }
         className='timeline-card__body-scroll'
         role={scrollable || expanded ? 'group' : undefined}
         aria-label={scrollable ? scrollLabel : undefined}
-        tabIndex={scrollable ? 0 : (expanded ? -1 : undefined)}
+        tabIndex={bodyTabIndex}
       >
         <div ref={contentRef}>{children}</div>
       </div>
