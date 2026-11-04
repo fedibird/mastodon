@@ -35,6 +35,43 @@ RSpec.describe GroupDirectory::Import do
     expect(index.document(group.id)['display_name']).to eq('fenced')
   end
 
+  it 'does not acknowledge a delete when Elasticsearch already has that same version' do
+    redis.hset(GroupDirectory::Indexing::VERSIONS_KEY, '4242', '1')
+    index = described_class::MemoryIndex.new
+    index.apply(id: '4242', version: 1, document: { 'display_name' => 'public' })
+
+    expect { described_class.call(['4242'], index: index) }.to raise_error(described_class::VersionGap)
+    expect(index.document('4242')['display_name']).to eq('public')
+  end
+
+  it 'does not acknowledge a bulk delete conflict at the same version' do
+    redis.hset(GroupDirectory::Indexing::VERSIONS_KEY, '4242', '1')
+    allow(Chewy.client).to receive(:bulk).and_return(
+      'items' => [{
+        'delete' => {
+          'status' => 409,
+          'error' => {
+            'type' => 'version_conflict_engine_exception',
+            'reason' => '[4242]: version conflict, current version [1] is higher or equal to the one provided [1]',
+          },
+        },
+      }]
+    )
+    allow(Chewy.client).to receive(:get).and_return('_source' => { 'display_name' => 'public' })
+
+    expect { described_class.call(['4242']) }.to raise_error(described_class::VersionGap)
+  end
+
+  it 'does not send a bulk write when the claim expires after the first check' do
+    group = directory_group('paused')
+    member = "#{group.id}:1"
+    redis.zadd(GroupDirectory::Indexing::INFLIGHT_KEY, Time.now.to_i, member)
+    allow(GroupDirectory::Indexing).to receive(:claims_writable?).and_return(true, false)
+    expect(Chewy.client).not_to receive(:bulk)
+
+    expect { described_class.call([group.id], claims: [member]) }.to raise_error(described_class::StaleClaim)
+  end
+
   it 'does not treat a Redis version reset as a successful stale write' do
     index = described_class::MemoryIndex.new
     index.apply(id: '4242', version: 100, document: { 'display_name' => 'public' })

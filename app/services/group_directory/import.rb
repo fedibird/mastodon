@@ -161,7 +161,7 @@ class GroupDirectory::Import
       if index
         write_memory(snapshots, index, result)
       else
-        write_elasticsearch(snapshots, result)
+        write_elasticsearch(snapshots, result, claims)
       end
       result
     end
@@ -177,12 +177,19 @@ class GroupDirectory::Import
     def write_memory(snapshots, index, result)
       snapshots.each do |snapshot|
         outcome = index.apply(id: snapshot.id, version: snapshot.version, document: document_for(snapshot))
-        raise_version_gap(snapshot, index.version(snapshot.id)) if outcome == :rejected
+        raise_version_gap(snapshot, index.version(snapshot.id), index.document(snapshot.id)) if outcome == :rejected
         count_outcome(result, snapshot, outcome)
       end
     end
 
-    def write_elasticsearch(snapshots, result)
+    def write_elasticsearch(snapshots, result, claims)
+      # The lease check and the bulk request are not one atomic operation.
+      # A process that pauses after this check can still send a stale body.
+      # The check is repeated here to shrink that window. A pause inside the
+      # request itself is not covered. Recovery is --rebuild. Confirm that
+      # delayed resume on a real cluster before turning the flag on.
+      raise StaleClaim unless claims.nil? || GroupDirectory::Indexing.claims_writable?(claims)
+
       body = snapshots.flat_map { |snapshot| bulk_entry(snapshot) }
       response = Chewy.client.bulk(body: body)
       Array(response['items']).each_with_index do |item, index|
@@ -207,9 +214,10 @@ class GroupDirectory::Import
     def classify_conflict(snapshot, payload)
       stored = es_version(payload)
       redis_version = read_versions([snapshot.id])[snapshot.id]
-      return if stored && stored <= redis_version && redis_version > snapshot.version
-
       raise VersionGap, [snapshot.id] if stored.nil? || stored > redis_version
+      return if redis_version > snapshot.version && stored <= redis_version
+
+      raise VersionGap, [snapshot.id] unless intended_document?(snapshot, elasticsearch_source(snapshot.id))
     end
 
     def es_version(payload)
@@ -218,11 +226,35 @@ class GroupDirectory::Import
       match && match[1].to_i
     end
 
-    def raise_version_gap(snapshot, stored_version)
-      redis_version = read_versions([snapshot.id])[snapshot.id]
-      return if stored_version.nil? || stored_version.to_i <= redis_version && redis_version > snapshot.version
+    def raise_version_gap(snapshot, stored_version, stored_document)
+      raise VersionGap, [snapshot.id] if version_gap?(snapshot, stored_version, stored_document)
+    end
 
-      raise VersionGap, [snapshot.id] if stored_version.to_i > redis_version
+    # An equal version conflict is not proof the document already matches.
+    # A delete at version 1 against a still-public version 1 document must
+    # not be acknowledged. A newer Redis version is a race the later write owns.
+    def version_gap?(snapshot, stored_version, stored_document)
+      return true if stored_version.nil?
+
+      redis_version = read_versions([snapshot.id])[snapshot.id]
+      return true if stored_version.to_i > redis_version
+      return false if redis_version > snapshot.version && stored_version.to_i <= redis_version
+
+      !intended_document?(snapshot, stored_document)
+    end
+
+    def intended_document?(snapshot, stored_document)
+      if snapshot.account.nil?
+        stored_document.nil?
+      else
+        stored_document == document_for(snapshot)
+      end
+    end
+
+    def elasticsearch_source(id)
+      Chewy.client.get(index: GroupDirectoryIndex.index_name, id: id.to_s)['_source']
+    rescue Elasticsearch::Transport::Transport::Errors::NotFound
+      nil
     end
 
     def count_outcome(result, snapshot, outcome)

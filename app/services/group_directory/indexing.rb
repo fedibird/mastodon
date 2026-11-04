@@ -104,6 +104,14 @@ class GroupDirectory::Indexing
     if version_type ~= 'none' and version_type ~= 'hash' then
       return redis.error_reply('WRONGTYPE ' .. KEYS[2] .. ' is ' .. version_type)
     end
+    -- Validate every field before any write. A non-integer field makes
+    -- HINCRBY fail, and Redis does not undo an earlier SADD in this script.
+    for i = 1, #ARGV do
+      local current = redis.call('HGET', KEYS[2], ARGV[i])
+      if current ~= false and string.match(tostring(current), '^-?%d+$') == nil then
+        return redis.error_reply('WRONGTYPE version field ' .. ARGV[i])
+      end
+    end
     for i = 1, #ARGV do
       redis.call('SADD', KEYS[1], ARGV[i])
       redis.call('HINCRBY', KEYS[2], ARGV[i], 1)

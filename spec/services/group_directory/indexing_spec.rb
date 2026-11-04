@@ -45,6 +45,16 @@ RSpec.describe GroupDirectory::Indexing do
       expect(redis.hget(described_class::VERSIONS_KEY, '5').to_i).to eq(2)
     end
 
+    it 'does not queue an id when its version field is not an integer' do
+      redis
+      redis.hset(described_class::VERSIONS_KEY, '4', 'nope')
+
+      expect { described_class.push([4]) }.not_to raise_error
+
+      expect(redis.smembers(described_class::PENDING_KEY)).to be_empty
+      expect(redis.hget(described_class::VERSIONS_KEY, '4')).to eq('nope')
+    end
+
     it 'does not queue an id when the version key has the wrong type' do
       redis
       redis.set(described_class::VERSIONS_KEY, 'oops')

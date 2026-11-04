@@ -42,13 +42,15 @@
 #      bin/tootctl search deploy --only group_directory --rebuild
 #      Rebuild purges this index and refills the groups that are eligible
 #      now. A second plain deploy does not delete the step-2 leftovers.
-# index.gc_deletes is 1h. The 300s inflight lease does not by itself stop a
-# worker from writing: the writer checks that its claim is still inside the
-# lease immediately before the bulk call. A claim older than the lease is
-# not written. Confirm a delayed write on the real cluster before the flag
-# is turned on. A 409 is a harmless race only when Redis already has a
-# newer version. If Elasticsearch is ahead of Redis, the id is quarantined
-# and the job fails until --rebuild.
+# index.gc_deletes is 1h. The 300s inflight lease does not stop a worker
+# by itself. The writer checks the claim again immediately before the bulk
+# request. That check and the request are not atomic: a process that pauses
+# inside the request, past gc_deletes, can still resurrect a deleted
+# document. Recovery is --rebuild. Confirm a delayed resume on a real
+# cluster before the flag is turned on. A 409 is harmless only when Redis
+# has a newer version, or the stored document is already the one we meant
+# to write. An equal version with a different document, including a delete
+# that leaves the public document in place, is a version gap.
 # Rollback: unset GROUP_DIRECTORY_INDEX and restart. The API is still SQL.
 # Optional: GroupDirectoryIndex.purge in a console. Do not purge the
 # accounts, tags, or statuses indexes. Redis keys
