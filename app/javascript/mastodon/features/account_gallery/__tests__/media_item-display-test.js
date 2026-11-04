@@ -26,6 +26,7 @@ jest.mock('mastodon/components/icon', () => {
 
 import MediaItem from '../components/media_item';
 import MediaDisplayControls from 'mastodon/components/media_display_controls';
+import MediaItemsLayout from 'mastodon/components/media_items_layout';
 
 addLocaleData(japaneseData);
 
@@ -132,32 +133,35 @@ describe('account media gallery tile', () => {
   });
 });
 
-const IntegratedGallery = () => {
+const IntegratedGallery = ({ shape = 'square', medias }) => {
   const [visibility, setVisibility] = React.useState('hide_all');
   const ordinary = attachment
     .set('id', 'm2')
     .setIn(['status', 'id'], '11')
     .setIn(['status', 'sensitive'], false);
+  const items = medias || [attachment, ordinary];
   return (
     <IntlProvider locale='ja' messages={japanese}>
       <div>
         <MediaDisplayControls
-          shape='square'
-          size='small'
+          shape={shape}
+          size='medium'
           visibility={visibility}
           onShapeChange={jest.fn()}
           onSizeChange={jest.fn()}
           onVisibilityChange={setVisibility}
         />
-        {[attachment, ordinary].map(media => (
-          <MediaItem
-            key={`${media.get('id')}:${visibility}`}
-            attachment={media}
-            visibility={visibility}
-            shape='square'
-            onOpenMedia={onOpenMedia}
-          />
-        ))}
+        <MediaItemsLayout shape={shape} size='medium'>
+          {items.map(media => (
+            <MediaItem
+              key={media.get('id')}
+              attachment={media}
+              visibility={visibility}
+              shape={shape}
+              onOpenMedia={onOpenMedia}
+            />
+          ))}
+        </MediaItemsLayout>
       </div>
     </IntlProvider>
   );
@@ -191,5 +195,68 @@ describe('account media control transitions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'メディアを常に表示する' }));
     expect(images()).toHaveLength(2);
     expect(blurred()).toHaveLength(0);
+  });
+});
+
+describe('account original-size masonry visibility transitions', () => {
+  it('keeps original-size masonry placements when all media visibility controls change', () => {
+    const resizeObserver = Object.getOwnPropertyDescriptor(window, 'ResizeObserver');
+    Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: undefined });
+
+    const itemHeights = { m1: 320, m2: 90, m3: 90, m4: 90 };
+    const rect = (width, height) => ({ width, height, x: 0, y: 0, top: 0, left: 0, right: width, bottom: height });
+
+    jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this.classList.contains('timeline-masonry')) {
+        return rect(350, 0); // Two medium-size columns.
+      }
+
+      const key = this.getAttribute('data-layout-key');
+      const mediaId = key && Object.keys(itemHeights).find(id => key.includes(id));
+      return rect(0, mediaId ? itemHeights[mediaId] : 0);
+    });
+
+    try {
+      const medias = [
+        attachment,
+        ...['m2', 'm3', 'm4'].map((id, index) => attachment
+          .set('id', id)
+          .setIn(['status', 'id'], String(index + 11))
+          .setIn(['status', 'sensitive'], false)),
+      ];
+      const { container } = render(<IntegratedGallery shape='original' medias={medias} />);
+      const findItem = id => Array.from(container.querySelectorAll('.timeline-masonry__item'))
+        .find(node => node.getAttribute('data-layout-key')?.includes(id));
+      const position = id => {
+        const node = findItem(id);
+        const match = node.style.transform.match(/translate3d\\(0, ([\\d.]+)px, 0\\)/);
+        return { x: parseFloat(node.style.insetInlineStart), y: Number(match[1]) };
+      };
+      const ids = ['m1', 'm2', 'm3', 'm4'];
+      const initialNodes = ids.map(findItem);
+      const initialPositions = ids.map(position);
+
+      // A tall image occupies the first column, while shorter images
+      // stack tightly in the second, rather than forming uniform rows.
+      expect(initialPositions[1].x).toBeGreaterThan(initialPositions[0].x);
+      expect(initialPositions[2].x).toBe(initialPositions[1].x);
+      expect(initialPositions[3].x).toBe(initialPositions[1].x);
+      expect(initialPositions[2].y).toBe(initialPositions[1].y + 98);
+      expect(container.querySelectorAll('.timeline-media-tile__open--original')).toHaveLength(4);
+
+      ['閲覧注意メディアを隠す', 'メディアを常に表示する', 'メディアを常に隠す'].forEach(label => {
+        fireEvent.click(screen.getByRole('button', { name: label }));
+        expect(ids.map(position)).toEqual(initialPositions);
+        expect(ids.map(findItem)).toEqual(initialNodes);
+        expect(container.querySelectorAll('.timeline-media-tile__open--original')).toHaveLength(4);
+      });
+    } finally {
+      jest.restoreAllMocks();
+      if (resizeObserver) {
+        Object.defineProperty(window, 'ResizeObserver', resizeObserver);
+      } else {
+        delete window.ResizeObserver;
+      }
+    }
   });
 });
