@@ -57,6 +57,14 @@ were not supplied. Observe a representative interval before approval.
    JOIN pg_class c ON c.oid = i.indexrelid
    WHERE i.indrelid = 'public.statuses'::regclass
      AND c.relname IN ('index_statuses_on_url', 'index_statuses_on_uri');
+
+   -- Must return zero rows: a constraint-backed index is not ours to drop.
+   SELECT conname, contype
+   FROM pg_constraint
+   WHERE conindid = 'public.index_statuses_on_url'::regclass;
+
+   -- Must be a regular, non-partitioned table for DROP INDEX CONCURRENTLY.
+   SELECT relkind FROM pg_class WHERE oid = 'public.statuses'::regclass;
    ```
 
 3. Measure index usage **twice** with a representative interval that covers
@@ -69,7 +77,8 @@ were not supplied. Observe a representative interval before approval.
           pg_size_pretty(pg_relation_size(s.indexrelid)) AS size
    FROM pg_stat_user_indexes s
    JOIN pg_stat_database d ON d.datname = current_database()
-   WHERE s.relname = 'statuses'
+   WHERE s.schemaname = 'public'
+     AND s.relname = 'statuses'
      AND s.indexrelname IN ('index_statuses_on_url', 'index_statuses_on_uri')
    ORDER BY s.indexrelname;
    ```
@@ -93,6 +102,20 @@ were not supplied. Observe a representative interval before approval.
    concurrent DDL/maintenance on `statuses`, and the deployer's migration
    automation. Have a recovery plan agreed by the DBA/operator.
 
+   ```sql
+   SELECT pid, state, now() - xact_start AS transaction_age,
+          wait_event_type, wait_event, left(query, 200) AS query
+   FROM pg_stat_activity
+   WHERE datname = current_database() AND xact_start IS NOT NULL
+   ORDER BY xact_start;
+   ```
+
+   Agree on a bounded-wait policy for migration sessions: an unbounded wait
+   can stall the deployment. Check the deployer's current `lock_timeout`
+   and `statement_timeout`; do not change global database settings merely
+   for this migration. If interruption occurs, inspect the catalogs and
+   migration tracking before any retry.
+
 ## Review and deployment gate
 
 - Run `bundle exec rubocop db/migrate/20261114120000_remove_index_url_from_statuses.rb`
@@ -114,6 +137,14 @@ were not supplied. Observe a representative interval before approval.
 If index-dependent code is discovered **before** the migration, stop and
 repair it rather than dropping the index. If errors or unexpected latency
 appear **after** the migration, investigate query plans and app versions first.
+
+If `DROP INDEX CONCURRENTLY` is cancelled, interrupted, or errors, **do not
+blindly retry the migration or invoke `db:migrate:down`**. Concurrent DROP
+involves more than one transaction and may leave the old index unusable or
+partially dropped. Check `pg_class`, `pg_index.indisvalid/indisready`,
+`schema_migrations`, PostgreSQL logs and active backend state. The DBA/operator
+must reconcile the actual database state with migration tracking before a
+manual retry or cleanup.
 
 Restore through the migration's `down` method in a deliberately scheduled
 maintenance window (do **not** automatically execute it as part of a general
