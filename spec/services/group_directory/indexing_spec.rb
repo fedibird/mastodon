@@ -33,6 +33,40 @@ RSpec.describe GroupDirectory::Indexing do
       allow(GroupDirectoryIndexWorker).to receive(:perform_async)
     end
 
+    it 'queues an id and bumps its version in one Redis script' do
+      redis
+      redis.hset(described_class::VERSIONS_KEY, '5', '1')
+      expect(redis).not_to receive(:sadd)
+
+      described_class.push(['5'])
+
+      expect(redis.hget(described_class::VERSIONS_KEY, '5').to_i).to eq(2)
+      expect(described_class.claim_batch.first).to match(/\A5:/)
+      expect(redis.hget(described_class::VERSIONS_KEY, '5').to_i).to eq(2)
+    end
+
+    it 'leaves the queue unchanged when the enqueue script fails' do
+      redis
+      allow(redis).to receive(:eval).and_raise(Redis::BaseError, 'down')
+
+      expect { described_class.push([8]) }.not_to raise_error
+
+      allow(redis).to receive(:eval).and_call_original
+      expect(redis.smembers(described_class::PENDING_KEY)).to be_empty
+      expect(redis.hget(described_class::VERSIONS_KEY, '8')).to be_nil
+    end
+
+    it 'yields waiting ids in bounded batches' do
+      ids = (1..150).map(&:to_s)
+      redis.sadd(described_class::PENDING_KEY, ids)
+      batches = []
+
+      described_class.each_outstanding_batch(limit: 100) { |slice| batches << slice }
+
+      expect(batches).to all(satisfy { |slice| slice.size <= 100 })
+      expect(batches.flatten.uniq).to match_array(ids)
+    end
+
     it 'deduplicates ids and schedules one drain' do
       described_class.push([3, 3, 4])
       described_class.push([4, 5])

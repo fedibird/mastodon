@@ -9,10 +9,18 @@
 # still holds an older snapshot cannot replace a document a live worker has
 # already published.
 #
-# `tootctl search deploy` never removes a document for a group that left the
-# directory. `rebuild!` purges this index only, refills it from the current
-# eligible rows, and then applies ids still waiting in Redis so a hide that
-# happened during the rebuild is deleted.
+# A plain `tootctl search deploy` adds eligible rows and does not delete a
+# document for a group that left the directory. The cutover after the first
+# fill is `--only group_directory --rebuild`: it purges this index, refills
+# the current eligible rows, and then applies ids still waiting in Redis in
+# bounded batches. A hide that happened while live sync was off is removed
+# by that purge, not by a second plain deploy.
+#
+# Elasticsearch keeps a delete tombstone only for index.gc_deletes (this
+# index sets 1h). That is longer than the 300s inflight lease, so a claim
+# that is still allowed to write cannot outlive the tombstone. A write is
+# also dropped when the version changed after the row was read. Real cluster
+# confirmation of a delayed write is still required before the flag is on.
 class GroupDirectory::Import
   Result = Struct.new(:indexed, :deleted, :rejected, keyword_init: true)
   Snapshot = Struct.new(:id, :version, :account, keyword_init: true)
@@ -68,8 +76,9 @@ class GroupDirectory::Import
       GroupDirectory::Eligibility.scope.in_batches(of: GroupDirectory::Indexing::BATCH_SIZE) do |batch|
         call(batch.pluck(:id), index: index)
       end
-      waiting = GroupDirectory::Indexing.outstanding_ids
-      call(waiting, index: index) if waiting.any?
+      GroupDirectory::Indexing.each_outstanding_batch do |ids|
+        call(ids, index: index)
+      end
     end
 
     private
@@ -124,12 +133,24 @@ class GroupDirectory::Import
       result = Result.new(indexed: 0, deleted: 0, rejected: 0)
       return result if snapshots.empty?
 
+      snapshots, skipped = fresh_snapshots(snapshots)
+      result.rejected += skipped
+      return result if snapshots.empty?
+
       if index
         write_memory(snapshots, index, result)
       else
         write_elasticsearch(snapshots, result)
       end
       result
+    end
+
+    # Drop a snapshot whose version moved after the row was read. The newer
+    # enqueue is already in the pending set, so this write must not land.
+    def fresh_snapshots(snapshots)
+      versions = read_versions(snapshots.map(&:id))
+      fresh, stale = snapshots.partition { |snapshot| versions[snapshot.id] == snapshot.version }
+      [fresh, stale.size]
     end
 
     def write_memory(snapshots, index, result)

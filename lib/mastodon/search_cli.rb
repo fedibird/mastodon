@@ -84,6 +84,7 @@ module Mastodon
       pool    = Concurrent::FixedThreadPool.new(options[:concurrency])
       added   = Concurrent::AtomicFixnum.new(0)
       removed = Concurrent::AtomicFixnum.new(0)
+      failed  = Concurrent::AtomicFixnum.new(0)
 
       progress.title = 'Estimating workload '
 
@@ -115,7 +116,7 @@ module Mastodon
             futures << Concurrent::Future.execute(executor: pool) do
               begin
                 if index == GroupDirectoryIndex
-                  import_group_directory_records(records, progress, added, removed)
+                  import_group_directory_records(records, progress, added, removed, failed)
                   next
                 end
 
@@ -180,6 +181,11 @@ module Mastodon
       progress.title = ''
       progress.stop
 
+      if failed.value.positive?
+        say("Group directory import failed for #{failed.value} batches", :red, true)
+        exit(1)
+      end
+
       say("Indexed #{added.value} records, de-indexed #{removed.value}", :green, true)
     end
     # rubocop:enable Metrics/PerceivedComplexity
@@ -198,7 +204,7 @@ module Mastodon
       true
     end
 
-    def import_group_directory_records(records, progress, added, removed)
+    def import_group_directory_records(records, progress, added, removed, failed)
       result = nil
       ActiveRecord::Base.connection_pool.with_connection do
         result = GroupDirectory::Import.call(records.map(&:id))
@@ -207,6 +213,7 @@ module Mastodon
       removed.increment(result.deleted)
       progress.progress += records.size
     rescue => e
+      failed.increment
       progress.log pastel.red("Error importing GroupDirectoryIndex: #{e} #{records.first&.id}-#{records.last&.id}")
     end
 

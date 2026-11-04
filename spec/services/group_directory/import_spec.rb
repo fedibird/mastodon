@@ -35,6 +35,18 @@ RSpec.describe GroupDirectory::Import do
     expect(index.document(group.id)['display_name']).to eq('fenced')
   end
 
+  it 'rebuild removes a group that became unlisted while live sync was off' do
+    group = directory_group('hidden_later')
+    index = described_class::MemoryIndex.new
+    index.apply(id: group.id, version: 1, document: { 'display_name' => 'hidden_later' })
+    ENV['GROUP_DIRECTORY_INDEX'] = nil
+    group.update!(discoverable: false)
+
+    described_class.rebuild!(index: index)
+
+    expect(index.document(group.id)).to be_nil
+  end
+
   it 'rebuilds away a document whose enqueue never reached Redis' do
     group = directory_group('kept')
     index = described_class::MemoryIndex.new

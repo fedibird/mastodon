@@ -34,11 +34,17 @@
 # Rollout:
 #   1. Deploy this code with GROUP_DIRECTORY_INDEX unset.
 #   2. bin/tootctl search deploy --only group_directory
-#   3. Set GROUP_DIRECTORY_INDEX=true and restart web and Sidekiq.
-#   4. Run `bin/tootctl search deploy --only group_directory` again so rows
-#      that changed during the first import are reloaded under the version
-#      fence. A normal deploy does not delete documents for groups that left
-#      the directory. Use `--rebuild` with that same `--only` for that.
+#      This add-only pass can leave a document for a group that becomes
+#      unlisted while the flag is still off. Nothing is enqueueing then.
+#   3. Set GROUP_DIRECTORY_INDEX=true and restart web and Sidekiq so later
+#      changes are captured.
+#   4. Before treating the index as caught up, run
+#      bin/tootctl search deploy --only group_directory --rebuild
+#      Rebuild purges this index and refills the groups that are eligible
+#      now. A second plain deploy does not delete the step-2 leftovers.
+# index.gc_deletes is 1h, longer than the 300s inflight lease, so a claim
+# that may still write cannot outlive a delete tombstone. Confirm a delayed
+# write on the real cluster before turning the flag on.
 # Rollback: unset GROUP_DIRECTORY_INDEX and restart. The API is still SQL.
 # Optional: GroupDirectoryIndex.purge in a console. Do not purge the
 # accounts, tags, or statuses indexes. Redis keys
@@ -56,7 +62,11 @@ class GroupDirectoryIndex < Chewy::Index
     (INFIX_MIN_GRAM..max_gram).sum { |gram| length - gram + 1 }
   end
 
-  settings index: { refresh_interval: '30s', max_ngram_diff: INFIX_MAX_GRAM - INFIX_MIN_GRAM }, analysis: {
+  settings index: {
+    refresh_interval: '30s',
+    max_ngram_diff: INFIX_MAX_GRAM - INFIX_MIN_GRAM,
+    gc_deletes: '1h',
+  }, analysis: {
     filter: {
       english_stop: {
         type: 'stop',

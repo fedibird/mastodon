@@ -83,6 +83,19 @@ describe Mastodon::SearchCLI do
       expect(Chewy::Index::Import::BulkRequest).not_to have_received(:new).with(StatusesIndex)
     end
 
+    it 'exits with a failure when a group directory batch raises' do
+      stub_index_specification(GroupDirectoryIndex)
+      record = Account.new(id: 15, username: 'directory', actor_type: 'Group', created_at: Time.now.utc, updated_at: Time.now.utc)
+      scope = double('group directory scope', count: 1)
+      allow(scope).to receive(:where).and_return(scope)
+      allow(scope).to receive(:reorder).with(nil).and_return(scope)
+      allow(scope).to receive(:find_in_batches).and_yield([record])
+      allow(GroupDirectoryIndex.adapter).to receive(:default_scope).and_return(scope)
+      allow(GroupDirectory::Import).to receive(:call).and_raise(StandardError, 'bulk down')
+
+      expect { invoke(only: ['group_directory']) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end
+
     it 'rebuilds only the group directory index' do
       allow(GroupDirectory::Import).to receive(:rebuild!)
       expect(AccountsIndex).not_to receive(:purge)

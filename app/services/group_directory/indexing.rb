@@ -89,9 +89,12 @@ class GroupDirectory::Indexing
     return ids
   LUA
 
-  BUMP_SCRIPT = <<~LUA
+  # Pending membership and the version counter move together. A claim
+  # cannot observe the id while its version still names the previous document.
+  ENQUEUE_SCRIPT = <<~LUA
     for i = 1, #ARGV do
-      redis.call('HINCRBY', KEYS[1], ARGV[i], 1)
+      redis.call('SADD', KEYS[1], ARGV[i])
+      redis.call('HINCRBY', KEYS[2], ARGV[i], 1)
     end
     return #ARGV
   LUA
@@ -132,8 +135,7 @@ class GroupDirectory::Indexing
       return if ids.empty?
       return unless live_sync_enabled?
 
-      redis.sadd(PENDING_KEY, ids)
-      bump_versions(ids)
+      redis.eval(ENQUEUE_SCRIPT, keys: [PENDING_KEY, VERSIONS_KEY], argv: ids)
       schedule!
     rescue StandardError => e
       log_enqueue_failure(ids, e)
@@ -171,17 +173,9 @@ class GroupDirectory::Indexing
       Array(reclaimed).compact
     end
 
-    def bump_versions(ids)
-      ids = normalize_ids(ids)
-      return if ids.empty?
-
-      redis.eval(BUMP_SCRIPT, keys: [VERSIONS_KEY], argv: ids)
-    end
-
-    def outstanding_ids
-      pending = Array(redis.smembers(PENDING_KEY))
-      inflight = Array(redis.zrange(INFLIGHT_KEY, 0, -1)).map { |member| account_id(member) }
-      (pending + inflight).uniq
+    def each_outstanding_batch(limit: BATCH_SIZE, &block)
+      scan_ids(PENDING_KEY, limit, &block)
+      scan_inflight_ids(limit, &block)
     end
 
     # Minute scheduler entry. Also used when Sidekiq gives up on a drain.
@@ -260,6 +254,25 @@ class GroupDirectory::Indexing
 
     def normalize_members(members)
       Array(members).flatten.compact.map(&:to_s).select { |member| member.match?(/\A\d+:\d+\z/) }.uniq
+    end
+
+    def scan_ids(key, limit, &block)
+      cursor = '0'
+      loop do
+        cursor, ids = redis.sscan(key, cursor, count: limit)
+        Array(ids).each_slice(limit, &block)
+        break if cursor.to_s == '0'
+      end
+    end
+
+    def scan_inflight_ids(limit, &block)
+      cursor = '0'
+      loop do
+        cursor, pairs = redis.zscan(INFLIGHT_KEY, cursor, count: limit)
+        ids = Array(pairs).map { |member, _score| account_id(member) }.uniq
+        ids.each_slice(limit, &block)
+        break if cursor.to_s == '0'
+      end
     end
 
     def defer_until_commit?
