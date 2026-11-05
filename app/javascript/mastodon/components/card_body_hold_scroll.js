@@ -22,6 +22,15 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
     let press = null;
     let holdTimer = null;
     let suppressClick = false;
+    let listeningForMouse = false;
+
+    const stopMouseTracking = () => {
+      if (listeningForMouse) {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp, true);
+        listeningForMouse = false;
+      }
+    };
 
     const stopTimer = () => {
       if (holdTimer !== null) {
@@ -33,6 +42,9 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
     const release = () => {
       stopTimer();
       const wasActive = Boolean(press && press.active);
+      if (press && press.type === 'mouse') {
+        stopMouseTracking();
+      }
       press = null;
       if (wasActive) {
         setHoldActive(false);
@@ -115,6 +127,13 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
     const onMouseDown = event => {
       if (event.button === 0) {
         start('mouse', 'primary', event.clientX, event.clientY, event.target);
+        if (press && press.type === 'mouse') {
+          // Avoid O(number of visible cards) document listeners on every
+          // mousemove. Only the card with a pending/active press needs them.
+          document.addEventListener('mousemove', onMouseMove);
+          document.addEventListener('mouseup', onMouseUp, true);
+          listeningForMouse = true;
+        }
       }
     };
 
@@ -165,9 +184,6 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
     viewport.addEventListener('mousedown', onMouseDown);
     viewport.addEventListener('click', onClickCapture, true);
     viewport.addEventListener('contextmenu', onContextMenu);
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp, true);
-
     return () => {
       release();
       viewport.removeEventListener('touchstart', onTouchStart);
@@ -177,8 +193,7 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
       viewport.removeEventListener('mousedown', onMouseDown);
       viewport.removeEventListener('click', onClickCapture, true);
       viewport.removeEventListener('contextmenu', onContextMenu);
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp, true);
+      stopMouseTracking();
     };
   }, [enabled, viewportRef, setHoldActive]);
 }
