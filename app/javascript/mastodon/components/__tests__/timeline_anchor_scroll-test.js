@@ -18,6 +18,8 @@ jest.mock('../regeneration_indicator', () => () => null);
 jest.mock('../load_gap', () => () => null);
 jest.mock('../reload_zone', () => () => null);
 jest.mock('../load_window_edge', () => () => null);
+// Anchor behavior is independent of the translated media controls toolbar.
+jest.mock('../media_display_controls', () => () => null);
 jest.mock('../../filter_reconciliation/surface', () => ({
   FilterSurface: class {
 
@@ -198,7 +200,9 @@ describe('ScrollableList timeline anchor', () => {
         </ScrollableList>
       </Provider>,
     );
-    act(() => { ref.current.handleMediaShapeChange('original'); });
+    act(() => {
+      ref.current.handleMediaShapeChange('original');
+    });
     const list = container.querySelector('.scrollable');
     const items = Array.from(container.querySelectorAll('.timeline-masonry__item[data-layout-key]'));
     expect(items).toHaveLength(3);
@@ -235,7 +239,9 @@ describe('ScrollableList timeline anchor', () => {
         </ScrollableList>
       </Provider>,
     );
-    act(() => { ref.current.handleMediaShapeChange('original'); });
+    act(() => {
+      ref.current.handleMediaShapeChange('original');
+    });
     const list = container.querySelector('.scrollable');
     const tile = container.querySelector('.timeline-masonry__item');
     Object.defineProperty(list, 'clientHeight', { configurable: true, value: 500 });
