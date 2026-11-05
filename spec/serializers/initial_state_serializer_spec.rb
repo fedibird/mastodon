@@ -50,28 +50,24 @@ RSpec.describe InitialStateSerializer do
     expect(serialize(user.account)[:meta]).to include(
       card_reactions_single_line: true,
       card_collapse_long_text: true,
-      card_timeline_scroll_zone: true,
       media_display_shape: 'square',
       media_display_size: 'small'
     )
     expect(serialize(nil)[:meta]).to include(
       card_reactions_single_line: true,
       card_collapse_long_text: true,
-      card_timeline_scroll_zone: true,
       media_display_shape: 'square',
       media_display_size: 'small'
     )
 
     user.settings.card_reactions_single_line = false
     user.settings.card_collapse_long_text = false
-    user.settings.card_timeline_scroll_zone = true
     user.settings.media_display_shape = 'original'
     user.settings.media_display_size = 'max'
     user.save!
     expect(serialize(user.account)[:meta]).to include(
       card_reactions_single_line: false,
       card_collapse_long_text: false,
-      card_timeline_scroll_zone: true,
       media_display_shape: 'original',
       media_display_size: 'max'
     )
@@ -85,6 +81,15 @@ RSpec.describe InitialStateSerializer do
       media_display_shape: 'square',
       media_display_size: 'small'
     )
+  end
+
+  it 'ignores previously saved scroll-zone preferences in initial state' do
+    user = Fabricate(:user)
+    user.settings.card_timeline_scroll_zone = false
+    user.save!
+
+    expect(serialize(user.account)[:meta]).not_to have_key(:card_timeline_scroll_zone)
+    expect(serialize(nil)[:meta]).not_to have_key(:card_timeline_scroll_zone)
   end
 
   it 'includes language display names for the WebUI' do

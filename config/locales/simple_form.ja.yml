@@ -62,8 +62,7 @@ ja:
         setting_aggregate_reblogs: 最近ブーストされた投稿が新たにブーストされても表示しません (設定後受信したものにのみ影響)
         setting_compact_reaction: 詳細表示以外の絵文字リアクション表示を件数のみにする
         setting_card_reactions_single_line: カードではリアクションを1行に収め、はみ出すときだけ▼で複数行に展開します。オフにすると従来の折り返し表示になり、▼は出ません。追加ボタンは常にアカウント行のお気に入りの直後です。
-        setting_card_collapse_long_text: オンのとき、カードの長い本文をおよそ10行の範囲でスクロールし、▼で全文を開きます。オフのときは初めから全文の高さで表示します。
-        setting_card_timeline_scroll_zone: 長い本文を畳んでいるとき、本文の終端側およそ3分の1ではタイムラインをスクロールします。始端側では本文をスクロールします。右書きでは終端が左になります。
+        setting_card_collapse_long_text: オンのとき、カードの長い本文はおよそ10行に畳まれます。本文を約400ミリ秒長押ししたまま上下に動かすと本文をスクロールし、離すとタイムラインのスクロールに戻ります。▼で全文表示できます。オフのときは初めから全文の高さで表示します。
         setting_media_display_shape: メディア表示とアカウントのメディアで最初に使う形状です。画面上の切り替えは、ここで保存した初期値を変えません。
         setting_media_display_size: メディア表示とアカウントのメディアで最初に使うサイズです。画面上の切り替えは、ここで保存した初期値を変えません。
         setting_media_display_shape_square: スクエア
@@ -335,7 +334,6 @@ ja:
         setting_crop_card_images: カード表示では画像を16:9に切り抜く
         setting_card_reactions_single_line: 絵文字リアクションを1行に畳む
         setting_card_collapse_long_text: 長い本文を畳む
-        setting_card_timeline_scroll_zone: 本文をスクロールしない、タイムラインスクロール用のゾーンを有効にする
         setting_media_display_shape: メディアの初期形状
         setting_media_display_size: メディアの初期サイズ
         setting_default_column_width: デフォルトのカラム幅

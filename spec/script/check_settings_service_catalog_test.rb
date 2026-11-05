@@ -14,7 +14,7 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
   def test_real_catalog_passes_without_booting_rails
     output, status = run_check(CATALOG)
     assert status.success?, output
-    assert_match(/entries: 259/, output)
+    assert_match(/entries: 258/, output)
     assert_match(/duplicate keys: 0/, output)
     assert_match(/unresolved_entries: 3/, output)
     assert_match(/unresolved_questions: 6/, output)
