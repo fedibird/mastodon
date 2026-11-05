@@ -191,6 +191,35 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
     assert crop['source_refs'].any? { |ref| ref.start_with?('app/javascript/mastodon/components/media_gallery.js:') }
   end
 
+  def test_important_source_refs_name_the_statement
+    catalog = YAML.safe_load(File.read(CATALOG), aliases: true)
+    catalog['entries'].each do |item|
+      key = item['key']
+      if key.start_with?('user.notification_emails.')
+        assert_source_anchor(item, 'app/services/notify_service.rb', 'settings.notification_emails')
+      elsif key.start_with?('user.interactions.')
+        child = key.split('.').last
+        assert_source_anchor(item, 'app/services/notify_service.rb', "settings.interactions['#{child}']")
+      end
+    end
+
+    derived = entry(catalog, 'derived.translation_private_content_allowed')
+    assert_source_anchor(derived, 'app/lib/translation_service.rb', 'def self.private_content_allowed_for')
+    assert_source_anchor(derived, 'app/serializers/initial_state_serializer.rb', 'store[:translation_private_content_allowed]')
+    assert_source_anchor(derived, 'app/javascript/mastodon/initial_state.js', 'export const translationPrivateContentAllowed')
+    assert_source_anchor(entry(catalog, 'site.site_title'), 'app/models/form/admin_settings.rb', 'KEYS = %i(')
+
+    shifted = entry(catalog, 'user.interactions.must_be_follower').dup
+    shifted['source_refs'] = ['app/services/notify_service.rb:78']
+    error = assert_raises(Minitest::Assertion) do
+      assert_source_anchor(shifted, 'app/services/notify_service.rb', "settings.interactions['must_be_follower']")
+    end
+    assert_match(/notify_service.rb:78/, error.message)
+    cited = File.readlines(File.join(ROOT, 'app/services/notify_service.rb'))[77]
+    refute_empty cited.strip
+    refute_includes cited, "settings.interactions['must_be_follower']"
+  end
+
   def test_inactive_write_policy_general_fails
     catalog = YAML.safe_load(File.read(CATALOG), aliases: true)
     item = entry(catalog, 'user.notification_emails.followed_message')
@@ -208,6 +237,14 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
 
   def entry(catalog, key)
     catalog['entries'].find { |item| item['key'] == key } || flunk("missing #{key}")
+  end
+
+  def assert_source_anchor(item, path, snippet)
+    ref = Array(item['source_refs']).find { |candidate| candidate.start_with?("#{path}:") }
+    flunk("#{item['key']} has no source_ref in #{path}") unless ref
+    line_number = ref.split(':').last.to_i
+    line = File.readlines(File.join(ROOT, path))[line_number - 1].to_s
+    assert_includes line, snippet, "#{item['key']} #{ref} does not contain #{snippet}"
   end
 
   def write_catalog(catalog)

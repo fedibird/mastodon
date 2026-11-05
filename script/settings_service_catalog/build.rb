@@ -449,7 +449,11 @@ module SettingsServiceCatalog
           'client_reference' => ['static_import'],
           'configured_vs_effective' => 'derived',
           'form_status' => 'absent',
-          'source_refs' => ['app/lib/translation_service.rb:70', 'app/serializers/initial_state_serializer.rb:96', 'app/javascript/mastodon/initial_state.js:17'],
+          'source_refs' => [
+            "app/lib/translation_service.rb:#{read_line('app/lib/translation_service.rb', 'def self.private_content_allowed_for')}",
+            "app/serializers/initial_state_serializer.rb:#{read_line('app/serializers/initial_state_serializer.rb', 'store[:translation_private_content_allowed]')}",
+            "app/javascript/mastodon/initial_state.js:#{read_line('app/javascript/mastodon/initial_state.js', 'export const translationPrivateContentAllowed')}",
+          ],
           'audit_status' => 'verified',
           'notes' => 'Capability flag, not a preference. Personal DeepL versus the instance backend can change it. Do not catalog it as translation_preferred_mode.',
         },
@@ -545,6 +549,7 @@ module SettingsServiceCatalog
         'JavaScript use is counted from static import { name } from an initial_state module. Re-exports, require, and string lookups are not followed. Import count zero means no such import was found, not that a runtime lookup is impossible.',
         'Redux meta hydrates the whole InitialState meta object, but preference keys are not read back from state.meta by the selectors found in this pass. dynamic_update_possible is therefore a structural observation.',
         'The checker does not boot Rails, connect to PostgreSQL, or connect to Redis.',
+        'A source_ref fails when the file is missing, the line is outside the file, or the line is blank. The checker does not compare that line to the statement it is supposed to name, so a different non-blank line still passes. The catalog test anchors NotifyService notification emails, each interactions key, translation_private_content_allowed, and Form::AdminSettings::KEYS.',
       ]
     end
 
@@ -988,10 +993,20 @@ module SettingsServiceCatalog
     end
 
     def nested_refs(group, child, forms)
-      refs = ["config/settings.yml:#{yaml_by_key[group]['line']}", "app/lib/user_settings_decorator.rb:#{read_line('app/lib/user_settings_decorator.rb', 'NESTED_KEYS = %w(')}", "app/controllers/settings/preferences_controller.rb:#{@facts[:permit]['line']}", 'app/services/notify_service.rb:78']
+      refs = ["config/settings.yml:#{yaml_by_key[group]['line']}", "app/lib/user_settings_decorator.rb:#{read_line('app/lib/user_settings_decorator.rb', 'NESTED_KEYS = %w(')}", "app/controllers/settings/preferences_controller.rb:#{@facts[:permit]['line']}", notify_source_ref(group, child)]
       forms.each { |field| refs << "#{field['path']}:#{field['line']}" }
       refs << "app/models/user.rb:#{read_line('app/models/user.rb', 'def allows_digest_emails?')}" if %w[digest report pending_account trends].include?(child)
       refs.uniq
+    end
+
+    def notify_source_ref(group, child)
+      path = 'app/services/notify_service.rb'
+      snippet = if group == 'notification_emails'
+                  'settings.notification_emails'
+                else
+                  "settings.interactions['#{child}']"
+                end
+      "#{path}:#{read_line(path, snippet)}"
     end
 
     def column_refs(column)
@@ -1038,10 +1053,11 @@ module SettingsServiceCatalog
     def site_writer_index
       @site_writer_index ||= begin
         index = {}
+        admin_settings_ref = "app/models/form/admin_settings.rb:#{read_line('app/models/form/admin_settings.rb', 'KEYS = %i(')}"
         percent_keys('app/models/form/admin_settings.rb', /KEYS = %i\(\s*(.*?)\s*\)\.freeze/m).each do |setting_key|
           index[setting_key] = {
             'label' => 'admin.settings Form::AdminSettings',
-            'ref' => 'app/models/form/admin_settings.rb:6',
+            'ref' => admin_settings_ref,
             'admin_form' => true,
           }
         end
@@ -1214,7 +1230,10 @@ module SettingsServiceCatalog
     end
 
     def read_line(path, snippet)
-      File.readlines(File.join(@root, path)).index { |line| line.include?(snippet) } + 1
+      index = File.readlines(File.join(@root, path)).index { |line| line.include?(snippet) }
+      raise "snippet not found in #{path}: #{snippet}" unless index
+
+      index + 1
     end
   end
 end
