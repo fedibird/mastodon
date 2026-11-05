@@ -1,9 +1,29 @@
 import { isProgrammaticTopScroll } from '../scroll';
+import { findVisibleMasonryTile } from '../utils/timeline_masonry_layout';
 
 // Geometry only. No status/filter interpretation, observers or perpetual rAF.
 
 export const captureFilterAnchor = (node, scroller, top) => {
   if (!node || !scroller) return null;
+
+  if (node.querySelector('.timeline-masonry')) {
+    // DOM order is newest-first, but the physical Masonry tile positions
+    // are per-column and not monotonic. The standard binary search of
+    // article bottoms can select an unrelated tile and fight the list's
+    // own prepend correction.
+    const visibleHeight = node === scroller ? scroller.clientHeight : window.innerHeight;
+    const tile = findVisibleMasonryTile(node, top, top + visibleHeight);
+    if (!tile) {
+      return null;
+    }
+
+    return {
+      offset: scroller.scrollTop,
+      rows: [{ node: tile.node, offset: tile.top - top }],
+      focused: node.contains(document.activeElement) ? document.activeElement : null,
+    };
+  }
+
   const rows = Array.from(node.querySelectorAll('article[data-id]'));
   // Articles are in vertical document order, including zero-height hidden
   // rows and virtual placeholders. Locate the reading edge with O(log n)
