@@ -526,6 +526,20 @@ class ScrollableList extends PureComponent {
       this.getFirstChildKey(prevProps) !== this.getFirstChildKey(this.props);
     const pendingChanged = (prevProps.numPending > 0) !== (this.props.numPending > 0);
 
+    // Masonry prepends only push down the column receiving a new item.
+    // The overall scrollHeight delta no longer describes the displacement
+    // of the card being read, so preserve an actual visible article instead.
+    const variableHeightMasonry = isCardTimelineLayout(this.props.layoutMode) ||
+      (this.props.layoutMode === 'media' && this.state.mediaShape === 'original');
+
+    if (!pendingChanged && someItemInserted && variableHeightMasonry &&
+        (this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll)) {
+      const anchor = this.captureVisibleArticle();
+      if (anchor) {
+        return { anchor: true, id: anchor.id, top: anchor.top };
+      }
+    }
+
     if (pendingChanged || someItemInserted && (this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll)) {
       return this.getScrollHeight() - this.getScrollTop();
     }
