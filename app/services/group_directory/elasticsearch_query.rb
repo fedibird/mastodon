@@ -5,10 +5,13 @@
 # Filters and sort live here. Visibility and paging live in CandidatePage.
 # The query is a bool filter: term filters for keywords, and match on
 # text.infix for a substring. User text is never passed to query_string,
-# wildcard, regexp, or a script. Follows, blocks, and mutes are not terms
-# in this request.
+# wildcard, regexp, or a script. Blocks and mutes stay out of the query.
+# FollowingSearch adds follow ids in bounded chunks. A point in time stays
+# open for the whole call so search_after does not drop a group whose
+# last_status_at moves between pages.
 class GroupDirectory::ElasticsearchQuery
   REQUEST_TIMEOUT = '2s'
+  PIT_KEEP_ALIVE = '2m'
 
   def initialize(viewer:, parsed:, limit:)
     @viewer = viewer
@@ -17,35 +20,79 @@ class GroupDirectory::ElasticsearchQuery
   end
 
   def results
-    GroupDirectory::CandidatePage.new(
+    if @parsed.following?
+      follow_ids = GroupDirectory::FollowingSearch.target_ids(@viewer)
+      return [] if follow_ids.empty?
+      raise GroupDirectory::SearchUnavailable, 'follow set too large' if follow_ids.size > GroupDirectory::FollowingSearch::MAX_FOLLOW_IDS
+    end
+
+    @pit_id = open_pit
+    page = if @parsed.following?
+             following_page(follow_ids)
+           else
+             GroupDirectory::CandidatePage.new(viewer: @viewer, parsed: @parsed, limit: @limit, search: method(:fetch)).results
+           end
+    page
+  ensure
+    close_pit(@pit_id) if defined?(@pit_id) && @pit_id
+  end
+
+  def following_page(follow_ids)
+    GroupDirectory::FollowingSearch.new(
       viewer: @viewer,
       parsed: @parsed,
       limit: @limit,
-      search: method(:fetch)
+      search: method(:fetch),
+      ids: follow_ids
     ).results
   end
 
-  def request_body(search_after:, size:)
+  def request_body(search_after:, size:, extra_filter: nil)
+    clauses = filters
+    clauses << extra_filter if extra_filter
     body = {
       size: size,
       track_total_hits: false,
       timeout: REQUEST_TIMEOUT,
       _source: false,
       sort: sort_clause,
-      query: { bool: { filter: filters } },
+      query: { bool: { filter: clauses } },
     }
+    body[:pit] = { id: @pit_id, keep_alive: PIT_KEEP_ALIVE } if @pit_id
     body[:search_after] = search_after if search_after
     body
   end
 
   private
 
-  def fetch(search_after:, size:)
-    parse_response(client_search(search_after, size))
+  def fetch(search_after:, size:, extra_filter: nil)
+    parse_response(client_search(search_after, size, extra_filter))
   end
 
-  def client_search(search_after, size)
-    Chewy.client.search(index: GroupDirectoryIndex.index_name, body: request_body(search_after: search_after, size: size))
+  def open_pit
+    response = Chewy.client.open_point_in_time(index: GroupDirectoryIndex.index_name, keep_alive: PIT_KEEP_ALIVE)
+    payload = response.respond_to?(:deep_stringify_keys) ? response.deep_stringify_keys : response
+    id = payload['id'] if payload.is_a?(Hash)
+    raise GroupDirectory::SearchUnavailable, 'point in time missing' if id.blank?
+
+    id
+  rescue GroupDirectory::SearchUnavailable
+    raise
+  rescue StandardError => e
+    Rails.logger.error("Group directory point in time failed: #{e.class}: #{e.message.to_s.truncate(200)}")
+    raise GroupDirectory::SearchUnavailable, "point in time failed: #{e.class}"
+  end
+
+  def close_pit(pit_id)
+    Chewy.client.close_point_in_time(body: { id: pit_id })
+  rescue StandardError => e
+    Rails.logger.error("Group directory point in time close failed: #{e.class}: #{e.message.to_s.truncate(200)}")
+  end
+
+  def client_search(search_after, size, extra_filter)
+    Chewy.client.search(body: request_body(search_after: search_after, size: size, extra_filter: extra_filter))
+  rescue GroupDirectory::SearchUnavailable
+    raise
   rescue StandardError => e
     Rails.logger.error("Group directory Elasticsearch query failed: #{e.class}: #{e.message.to_s.truncate(300)}")
     raise GroupDirectory::SearchUnavailable, "elasticsearch query failed: #{e.class}"

@@ -57,6 +57,8 @@ RSpec.describe GroupDirectory::ElasticsearchQuery do
   end
 
   it 'turns a timed out or broken response into an unavailable search' do
+    allow(Chewy.client).to receive(:open_point_in_time).and_return('id' => 'pit-1')
+    allow(Chewy.client).to receive(:close_point_in_time).and_return('succeeded' => true)
     query = described_class.new(viewer: nil, parsed: parsed({}), limit: 5)
     allow(Chewy.client).to receive(:search).and_return('timed_out' => true, 'hits' => { 'hits' => [] })
     expect { query.results }.to raise_error(GroupDirectory::SearchUnavailable) { |error|

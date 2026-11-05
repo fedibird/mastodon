@@ -46,9 +46,47 @@ class GroupDirectory::Visibility
     return if hidden.include?(account.id)
     return if account.domain.present? && blocked_domains.include?(account.domain)
     return if @parsed.following? && !followed.include?(account.id)
+    return unless classification_matches?(account)
     return unless text_matches?(account)
 
     account
+  end
+
+  # ES can still say lemmy/ja/local after NodeInfo, group_languages, or
+  # domain have changed. The candidate id is kept only when the current
+  # row matches the requested software, language, and scope.
+  def classification_matches?(account)
+    software_matches?(account) && language_matches?(account) && scope_matches?(account)
+  end
+
+  def scope_matches?(account)
+    return true unless @parsed.scope == 'local'
+
+    account.local?
+  end
+
+  def software_matches?(account)
+    name = @parsed.software
+    return true if name.nil?
+
+    case name
+    when 'fedibird', 'unknown', 'other'
+      GroupDirectory::Document.software_bucket(account) == name
+    else
+      GroupDirectory::Document.software_name(account) == name
+    end
+  end
+
+  def language_matches?(account)
+    tags = GroupDirectory::Document.language_tags(account)
+    case @parsed.language
+    when nil
+      true
+    when :unset
+      tags.empty?
+    else
+      tags.include?(@parsed.language)
+    end
   end
 
   def text_matches?(account)

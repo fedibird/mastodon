@@ -6,23 +6,45 @@
 # directory (missing last_status_at last, then id), and honors
 # search_after. It is not a real cluster. Request specs that use it say so.
 class GroupDirectoryEsIndex
-  attr_reader :requests
+  attr_reader :requests, :closed
+  attr_accessor :after_first_search
 
   def initialize(overrides: [])
     @overrides = overrides
     @requests = []
+    @closed = 0
+  end
+
+  def open_point_in_time(*)
+    @pit_id = "pit-#{object_id}-#{@closed}"
+    @snapshot = documents.map(&:dup)
+    @search_count = 0
+    { 'id' => @pit_id }
+  end
+
+  def close_point_in_time(*)
+    @closed += 1
+    @pit_id = nil
+    { 'succeeded' => true }
   end
 
   def search(request)
     body = symbolize(request[:body] || request['body'] || {})
     assert_safe_query!(body)
+    raise 'search without a point in time' if body.dig(:pit, :id) != @pit_id
+
+    if @after_first_search && @search_count.to_i.positive?
+      @after_first_search.call
+      @after_first_search = nil
+    end
+    @search_count = @search_count.to_i + 1
     specs = sort_specs(body[:sort])
-    matched = documents.select { |doc| filters_match?(doc, body.dig(:query, :bool, :filter)) }
+    matched = @snapshot.select { |doc| filters_match?(doc, body.dig(:query, :bool, :filter)) }
     ordered = matched.sort_by { |doc| sort_rank(doc, specs) }
     cursor = body[:search_after]
     if cursor
       cursor_rank = rank_of(cursor, specs)
-      ordered = ordered.drop_while { |doc| sort_rank(doc, specs) <= cursor_rank }
+      ordered = ordered.drop_while { |doc| (sort_rank(doc, specs) <=> cursor_rank) <= 0 }
     end
     hits = ordered.first(body[:size].to_i).map do |doc|
       { '_id' => doc.fetch('id').to_s, 'sort' => sort_key(doc, specs) }
@@ -65,6 +87,8 @@ class GroupDirectoryEsIndex
     clause = symbolize(clause)
     if clause.key?(:term)
       term_match?(doc, clause[:term])
+    elsif clause.key?(:terms)
+      terms_match?(doc, clause[:terms])
     elsif clause.key?(:match)
       infix_match?(doc, clause[:match])
     elsif clause.key?(:bool)
@@ -77,6 +101,11 @@ class GroupDirectoryEsIndex
   def bool_match?(doc, bool)
     Array(bool[:filter]).all? { |clause| clause_match?(doc, clause) } &&
       Array(bool[:must_not]).none? { |clause| clause_match?(doc, clause) }
+  end
+
+  def terms_match?(doc, terms)
+    field, expected = terms.first
+    Array(expected).map(&:to_s).include?(doc[field.to_s].to_s)
   end
 
   def term_match?(doc, term)

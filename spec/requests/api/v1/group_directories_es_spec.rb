@@ -53,6 +53,22 @@ describe 'Group Directory Elasticsearch API' do
     queries.reject { |sql| sql.match?(/\A(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/i) }
   end
 
+  def term_id_values(request)
+    found = []
+    walk = lambda do |node|
+      case node
+      when Hash
+        terms = node[:terms] || node['terms']
+        found.concat(Array(terms[:id] || terms['id'])) if terms.is_a?(Hash)
+        node.each_value { |child| walk.call(child) }
+      when Array
+        node.each { |child| walk.call(child) }
+      end
+    end
+    walk.call(request[:body])
+    found
+  end
+
   def stub_ordered_hits(accounts)
     hits = accounts.each_with_index.map { |account, index| { '_id' => account.id.to_s, 'sort' => [index] } }
     allow(Chewy.client).to receive(:search) do |request|
@@ -86,8 +102,11 @@ describe 'Group Directory Elasticsearch API' do
     before do
       allow(Chewy).to receive(:enabled?).and_return(true)
       allow(GroupDirectory::Indexing).to receive(:index_ready?).and_return(true)
+      allow(GroupDirectory::Indexing).to receive(:backfill_complete?).and_return(true)
       allow(GroupDirectory::Indexing).to receive(:version_gap?).and_return(false)
       allow(GroupDirectory::Indexing).to receive(:enqueue)
+      allow(Chewy.client).to receive(:open_point_in_time) { |*| index.open_point_in_time }
+      allow(Chewy.client).to receive(:close_point_in_time) { |*| index.close_point_in_time }
       allow(Chewy.client).to receive(:search) do |request|
         index.requests << request
         index.search(request)
@@ -224,22 +243,73 @@ describe 'Group Directory Elasticsearch API' do
       expect(es_ids({ q: 'visible words' })).to eq([tagged.id.to_s])
     end
 
-    it 'does not put follows into the Elasticsearch request and batches relationship reads' do
+    it 'chunks follow ids and still rechecks them in PostgreSQL' do
+      stub_const('GroupDirectory::FollowingSearch::CHUNK', 2)
       targets = Array.new(5) { |index| directory_group("followed_#{index}") }
       targets.each { |account| Fabricate(:follow, account: user.account, target_account: account) }
-      directory_group('stranger_group')
+      stranger = directory_group('stranger_group')
 
       expected = sql_ids({ scope: 'following' })
       queries = capture_sql { expect(es_ids({ scope: 'following' })).to eq(expected) }
-      body = index.requests.map { |request| request[:body][:query].to_s }.join
-      targets.each { |account| expect(body).not_to include(account.id.to_s) }
-      expect(body).not_to include('terms', 'query_string')
+      chunks = index.requests.map { |request| term_id_values(request) }
+      expect(chunks).to all(satisfy { |ids| ids.size.between?(1, 2) })
+      expect(chunks.flatten.map(&:to_i).sort).to eq(targets.map(&:id).sort)
+      expect(chunks.flatten.map(&:to_i)).not_to include(stranger.id)
+      expect(index.requests.map { |request| request[:body].to_s }.join).not_to include('query_string')
       expect(queries.grep(/ILIKE/i)).to be_empty
       follow_sql = queries.select { |sql| sql.include?('follows') }
       expect(follow_sql.grep(/ IN /).size).to eq(1), follow_sql.inspect
       expect(follow_sql.grep(/LIMIT/)).to be_empty
       expect(queries.count { |sql| sql.include?('"blocks"') }).to be <= 2
       expect(queries.count { |sql| sql.include?('"mutes"') }).to be <= 1
+    end
+
+    it 'fails closed instead of sending a huge follow set' do
+      stub_const('GroupDirectory::FollowingSearch::MAX_FOLLOW_IDS', 2)
+      3.times do |index|
+        account = directory_group("many_follow_#{index}")
+        Fabricate(:follow, account: user.account, target_account: account)
+      end
+      expect(Chewy.client).not_to receive(:search)
+      expect(Chewy.client).not_to receive(:open_point_in_time)
+
+      get '/api/v1/group_directory', headers: headers, params: { scope: 'following' }
+
+      expect(response).to have_http_status(503)
+      expect(body_as_json[:error]).to eq('Group directory search is temporarily unavailable')
+    end
+
+    it 'drops a group whose current software, language, or locality no longer matches' do
+      directory_node('shifted.example', 'lemmy')
+      remote = directory_group('shifted_group', domain: 'shifted.example', display_name: 'Shifted')
+      GroupLanguage.create!(account: remote, tag: 'en')
+      Node.find_by!(domain: 'shifted.example').update!(info: { 'software_name' => 'piefed' })
+      local = directory_group('local_kept', display_name: 'Local')
+      stub_ordered_hits([remote, local])
+
+      expect(es_ids({ software: 'lemmy' })).to eq([])
+      expect(es_ids({ software: 'piefed' })).to eq([remote.id.to_s])
+      expect(body_as_json.first.dig(:group_directory, :software)).to eq('piefed')
+      expect(es_ids({ language: 'ja' })).to eq([])
+      expect(es_ids({ language: 'en' })).to eq([remote.id.to_s])
+      expect(body_as_json.first.dig(:group_directory, :languages)).to eq(['en'])
+      expect(es_ids({ language: 'unset' })).to eq([local.id.to_s])
+      expect(es_ids({ scope: 'local' })).to eq([local.id.to_s])
+    end
+
+    it 'keeps a group whose activity moves after the point in time opens' do
+      older = directory_group('older_group')
+      newer = directory_group('newer_group')
+      older.account_stat.update!(last_status_at: 3.days.ago)
+      newer.account_stat.update!(last_status_at: 1.hour.ago)
+      stub_const('GroupDirectory::CandidatePage::BATCH', 1)
+      index.after_first_search = lambda do
+        older.account_stat.update!(last_status_at: Time.now.utc)
+      end
+
+      expect(es_ids({}, limit: 2)).to eq([newer.id.to_s, older.id.to_s])
+      expect(index.requests).to all(satisfy { |request| request.dig(:body, :pit, :id).present? })
+      expect(index.closed).to be >= 1
     end
 
     it 'does not repeat group, node, or block reads per row' do
@@ -314,6 +384,12 @@ describe 'Group Directory Elasticsearch API' do
       expect(response.body).not_to include('index is missing')
 
       allow(GroupDirectory::Indexing).to receive(:index_ready?).and_return(true)
+      allow(GroupDirectory::Indexing).to receive(:backfill_complete?).and_return(false)
+      get '/api/v1/group_directory', headers: headers
+      expect(response).to have_http_status(503)
+      expect(response.body).not_to include('backfill')
+
+      allow(GroupDirectory::Indexing).to receive(:backfill_complete?).and_return(true)
       allow(GroupDirectory::Indexing).to receive(:version_gap?).and_return(true)
       get '/api/v1/group_directory', headers: headers
       expect(response).to have_http_status(503)

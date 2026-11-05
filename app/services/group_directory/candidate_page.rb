@@ -3,7 +3,9 @@
 # Turns an Elasticsearch candidate stream into one directory page.
 #
 # Offset and limit apply after Visibility keeps a row, not to the raw
-# index page. search_after walks forward. The scan stops at MAX_SCAN.
+# index page. search_after walks forward inside the point in time opened
+# by ElasticsearchQuery, so a last_status_at change during the walk cannot
+# move an unseen group behind the cursor. The scan stops at MAX_SCAN.
 # Spending that budget before the page is filled, while the index still
 # has another hit, raises SearchUnavailable. A short page is returned
 # only when the index itself has no further hit. The response is never a

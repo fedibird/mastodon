@@ -19,6 +19,7 @@ Web と Sidekiq は別プロセスです。live sync を使うときは両方に
 1. `bin/tootctl search deploy --only group_directory`
 2. Web と Sidekiq に `GROUP_DIRECTORY_INDEX=true` を入れて再起動する
 3. `bin/tootctl search deploy --only group_directory --rebuild`
+   完了すると Redis の `group_directory:index:backfill_complete` が付く。索引が存在するだけでは足りない。この印が無い、または再構築の途中で消えている間は検索フラグをオンにしても **503**。
 4. Redis の `group_directory:index:version_gap` が空であること
 5. 索引サイズ、投入速度、検索の p95、DB の問い合わせ数を本番相当のデータで測る
 
@@ -44,13 +45,19 @@ SQL は `accounts.note` の全文を `ILIKE` します。索引は次だけを�
 - `ES_ENABLED` が true でない
 - `GROUP_DIRECTORY_INDEX` が true でない
 - 索引が無い、または存在確認に失敗した
+- 再構築が終わっていない（`group_directory:index:backfill_complete` が無い）
 - `version_gap` がある、またはその確認に失敗した
-- 検索のタイムアウト、接続失敗、壊れた応答
+- 検索のタイムアウト、接続失敗、壊れた応答、point in time を開けない
 - 候補の走査が `GroupDirectory::CandidatePage::MAX_SCAN`（offset 上限 10000 に 2000 を足した件数）に達し、索引にまだ続きがある
+- `scope=following` のフォローが `GroupDirectory::FollowingSearch::MAX_FOLLOW_IDS`（10000）を超える
 
 不正な `q` / `software` / `language` / `scope` / `order` / `offset` は、Elasticsearch に触る前に **400** です。1文字の非ハンドル、正規化できないハンドル、匿名の `scope=following` は索引を見ずに空配列です。
 
-候補 id は返す前に PostgreSQL で掲載条件、NodeInfo、PeerTube、停止、silence、移動、承認、ManagedGroup、Block、Blocked-by、Mute、ドメインブロック、following を現在の値で見ます。閲覧者のフォロー集合は Elasticsearch の terms にしません。フォローの有無は候補 id に対する1本の `IN` です。ログイン中のレスポンスでも、ディレクトリのシリアライザは `followed_message` が空ならフォローの存在確認をしません。メッセージがある行だけ、共通シリアライザと同じ確認をします。
+候補 id は返す前に PostgreSQL で掲載条件、NodeInfo、PeerTube、停止、silence、移動、承認、ManagedGroup、Block、Blocked-by、Mute、ドメインブロック、following、それにリクエスト中の software / language / `scope=local` を現在の値で見ます。ES に残った lemmy や ja では返しません。
+
+`scope=following` は、閲覧者のフォロー id を 500 件ずつ Elasticsearch の terms に分けて渡します。1リクエストに全件は入れません。返した id は PostgreSQL でフォロー成立を再度確認します。ログイン中のレスポンスでも、ディレクトリのシリアライザは `followed_message` が空ならフォローの存在確認をしません。
+
+検索の一連の `search_after` は同じ point in time の中で行います。ページの途中で `last_status_at` が変わっても、そのリクエストの候補順は開き始めたときのままです。
 
 offset と limit は、その確認で残った行に対して適用します。走査上限でページを埋められないときは、欠けた配列ではなく 503 です。
 

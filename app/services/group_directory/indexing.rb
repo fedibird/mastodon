@@ -23,6 +23,9 @@ class GroupDirectory::Indexing
   CLAIM_SEQ_KEY = 'group_directory:index:claim_seq'
   VERSIONS_KEY = 'group_directory:index:versions'
   VERSION_GAP_KEY = 'group_directory:index:version_gap'
+  # Set only after Import.rebuild! finishes. An index that merely exists
+  # can still be empty or half loaded. Search stays closed until this is set.
+  BACKFILL_KEY = 'group_directory:index:backfill_complete'
   SCHEDULE_KEY = 'group_directory:index:scheduled'
   BATCH_SIZE = 100
   DOMAIN_BATCH = 500
@@ -220,6 +223,18 @@ class GroupDirectory::Indexing
 
     def version_gap?
       redis.scard(VERSION_GAP_KEY).to_i.positive?
+    end
+
+    def mark_backfill_complete!
+      redis.set(BACKFILL_KEY, Time.now.to_i.to_s)
+    end
+
+    def clear_backfill_complete!
+      redis.del(BACKFILL_KEY)
+    end
+
+    def backfill_complete?
+      redis.exists?(BACKFILL_KEY)
     end
 
     def each_outstanding_batch(limit: BATCH_SIZE, &block)
