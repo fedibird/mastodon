@@ -282,6 +282,30 @@ describe('TimelineCardBody', () => {
       expect(onCard).toHaveBeenCalledTimes(1);
     });
 
+
+    it('preserves ordinary short card clicks when no hold has activated', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      const card = container.querySelector('.status__wrapper--compact');
+      fireEvent.mouseDown(viewport, { button: 0, clientX: 20, clientY: 90 });
+      fireEvent.mouseUp(viewport, { button: 0, clientX: 20, clientY: 90 });
+      fireEvent.click(card);
+      expect(onCard).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps guarding touch clicks through compatibility mouse events', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      const card = container.querySelector('.status__wrapper--compact');
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 90 }] });
+      hold();
+      fireEvent.touchEnd(viewport, { touches: [] });
+      fireEvent.mouseDown(viewport, { button: 0, clientX: 30, clientY: 90 });
+      fireEvent.mouseUp(viewport, { button: 0, clientX: 30, clientY: 90 });
+      fireEvent.click(card);
+      expect(onCard).not.toHaveBeenCalled();
+    });
+
     it('releases an active hold if the window loses focus', () => {
       const { container, viewport } = collapsedBody();
       fireEvent.mouseDown(viewport, { button: 0, clientX: 20, clientY: 100 });

@@ -175,7 +175,9 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
     };
 
     const onMouseDown = event => {
-      if (event.button === 0) {
+      // Touch browsers may synthesize mousedown/mouseup before the delayed
+      // click. Do not replace the pending touch click guard with a mouse press.
+      if (event.button === 0 && clickGuardTimer === null) {
         start('mouse', 'primary', event.clientX, event.clientY, event.target);
         if (press && press.type === 'mouse') {
           // Avoid O(number of visible cards) document listeners on every
