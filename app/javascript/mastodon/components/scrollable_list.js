@@ -532,8 +532,11 @@ class ScrollableList extends PureComponent {
     const variableHeightMasonry = isCardTimelineLayout(this.props.layoutMode) ||
       (this.props.layoutMode === 'media' && this.state.mediaShape === 'original');
 
+    // Split History and other reading surfaces preserve their top row even
+    // at scrollTop=0; only a live feed following the newest post stays at 0.
     if (someItemInserted && variableHeightMasonry &&
-        (this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll)) {
+        (this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll ||
+         this.props.windowedHistory || this.props.readingSurface)) {
       const anchor = this.captureVisibleMasonryItem();
       if (anchor) {
         return { masonryAnchor: true, ...anchor };
