@@ -23,6 +23,12 @@
   width: 100%;
   box-sizing: border-box;
 
+  // Only timeline lists have explicit tile-anchor management.
+  // Account galleries without callbacks retain native scroll anchoring.
+  &--managed-anchor {
+    overflow-anchor: none;
+  }
+
   &__item,
   &__placeholder {
     box-sizing: border-box;
@@ -32,8 +38,8 @@
     min-width: 0;
   }
 
-  // Empty space is reserved for the next stream arrival, not an interactive
-  // loading skeleton. Keep it out of hit-testing and accessibility navigation.
+  // Headroom is structural, not a loading skeleton or hit target. New tiles
+  // consume it on the shortest column without moving unrelated older tiles.
   &__placeholder {
     pointer-events: none;
   }

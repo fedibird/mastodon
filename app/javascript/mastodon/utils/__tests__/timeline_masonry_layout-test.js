@@ -1,116 +1,198 @@
-import { isFullWidthMasonryKey, reconcileMasonryPrependRows } from '../timeline_masonry_layout';
+import {
+  isFullWidthMasonryKey,
+  leadingMasonryPrefixKeys,
+  planMasonryPrependFrontier,
+  reconcileMasonryPrepends,
+} from '../timeline_masonry_layout';
 
-const reconcile = (previous, next, rows = [], columns = 3) => (
-  reconcileMasonryPrependRows(columns, previous, next, rows).rows
+const heights = { A: 90, B: 130, C: 70, D: 180, E: 100, F: 140, G: 120, 'gap:123': 40, 'media:1:0': 80, latest: 90 };
+const height = key => heights[key] || 100;
+const plan = (keys, assignments = new Map(), columns = 3) => (
+  planMasonryPrependFrontier(columns, keys, assignments, height)
 );
 
-describe('streaming masonry prepend rows', () => {
-  it('does not reserve rows on initial load or for one-column layouts', () => {
-    expect(reconcile([], ['a', 'b'])).toEqual([]);
-    expect(reconcile(['a', 'b'], ['c', 'a', 'b'], [], 1)).toEqual([]);
-  });
-
-  it('fills three columns end to start, then starts a new upper row', () => {
-    let keys = ['a', 'b', 'c'];
-    let rows = [];
-
-    for (const nextId of ['d', 'e', 'f', 'g']) {
-      const next = [nextId, ...keys];
-      rows = reconcile(keys, next, rows);
-      keys = next;
-    }
-
-    expect(rows).toEqual([
-      { kind: 'slots', slots: [null, null, 'g'], nextColumn: 1 },
-      { kind: 'slots', slots: ['f', 'e', 'd'], nextColumn: -1 },
-    ]);
-  });
-
-  it('handles multiple statuses delivered at once in chronological order', () => {
-    const rows = reconcile(['a', 'b'], ['e', 'd', 'c', 'a', 'b']);
-    expect(rows).toEqual([
-      { kind: 'slots', slots: ['e', 'd', 'c'], nextColumn: -1 },
-    ]);
-  });
-
-  it('fills two-column masonry and does not treat older appended statuses as prepends', () => {
-    const first = reconcile(['a'], ['b', 'a'], [], 2);
-    expect(first[0].slots).toEqual([null, 'b']);
-    const second = reconcile(['b', 'a'], ['c', 'b', 'a'], first, 2);
-    expect(second[0].slots).toEqual(['c', 'b']);
-    expect(reconcile(['c', 'b', 'a'], ['c', 'b', 'a', 'older'], second, 2)).toEqual(second);
-  });
-
-  it('retains empty slots when an already placed status is removed', () => {
-    const filled = reconcile(['a'], ['d', 'c', 'b', 'a']);
-    const removed = reconcile(['d', 'c', 'b', 'a'], ['d', 'b', 'a'], filled);
-    expect(removed[0]).toEqual({
-      kind: 'slots',
-      slots: ['d', null, 'b'],
-      nextColumn: -1,
+describe('streaming masonry upward-frontier placement', () => {
+  it('distinguishes prepends from initial loads, older-page appends, and middle insertions', () => {
+    expect(reconcileMasonryPrepends([], ['A', 'B'])).toEqual({
+      prefixKeys: [], prependedKeys: [], reset: false,
     });
-    const subsequent = reconcile(['d', 'b', 'a'], ['e', 'd', 'b', 'a'], removed);
-    expect(subsequent[0].slots).toEqual([null, null, 'e']);
-    expect(subsequent[1].slots).toEqual(['d', null, 'b']);
+    expect(reconcileMasonryPrepends(['A', 'B'], ['D', 'A', 'B'])).toEqual({
+      prefixKeys: [], prependedKeys: ['D'], reset: false,
+    });
+    expect(reconcileMasonryPrepends(['A', 'B'], ['E', 'D', 'A', 'B', 'older'])).toEqual({
+      prefixKeys: [], prependedKeys: ['E', 'D'], reset: false,
+    });
+    expect(reconcileMasonryPrepends(['A', 'B'], ['A', 'inserted', 'B'])).toEqual({
+      prefixKeys: [], prependedKeys: [], reset: false,
+    });
+    expect(reconcileMasonryPrepends(['A', 'B'], ['A', 'B', 'older'])).toEqual({
+      prefixKeys: [], prependedKeys: [], reset: false,
+    });
   });
 
-  it('treats gaps and more rows as full-width barriers instead of column slots', () => {
+  it('preserves the pinned/reload prefix and resets only when the prefix changes', () => {
+    const previous = ['.$reload', '.$f-pinned', '.$A', '.$B'];
+    const prefix = ['.$reload', '.$f-pinned'];
+
+    expect(leadingMasonryPrefixKeys(previous)).toEqual(prefix);
+    expect(reconcileMasonryPrepends(previous, [
+      '.$reload', '.$f-pinned', '.$D', '.$A', '.$B',
+    ], prefix)).toEqual({
+      prefixKeys: prefix, prependedKeys: ['.$D'], reset: false,
+    });
+    expect(reconcileMasonryPrepends(prefix, [
+      '.$reload', '.$f-pinned', '.$A', '.$B',
+    ], prefix).prependedKeys).toEqual(['.$A', '.$B']);
+    expect(reconcileMasonryPrepends(previous, [
+      '.$f-other', '.$A', '.$B',
+    ], prefix).reset).toBe(true);
+  });
+
+  it('resets when the timeline identity changes or existing items reorder', () => {
+    expect(reconcileMasonryPrepends(['A', 'B'], ['A', 'C']).reset).toBe(false);
+    expect(reconcileMasonryPrepends(['A', 'B'], ['X', 'Y']).reset).toBe(true);
+    expect(reconcileMasonryPrepends(['A', 'B'], ['B', 'A']).reset).toBe(true);
+    expect(reconcileMasonryPrepends(['A', 'B'], []).reset).toBe(true);
+  });
+
+  it('recognizes full-width barriers after React key escaping', () => {
     expect(isFullWidthMasonryKey('.$gap:123')).toBe(true);
     expect(isFullWidthMasonryKey('.$gap=2123')).toBe(true);
     expect(isFullWidthMasonryKey('.$gap=02123')).toBe(true);
     expect(isFullWidthMasonryKey('.$more:older')).toBe(true);
     expect(isFullWidthMasonryKey('.$more=2older')).toBe(true);
     expect(isFullWidthMasonryKey('.$media:123:0')).toBe(false);
+  });
 
-    const rows = reconcile(['a'], ['latest', 'gap:123', 'media:12:0', 'a']);
-    expect(rows).toEqual([
-      { kind: 'slots', slots: [null, null, 'latest'], nextColumn: 1 },
-      { kind: 'full', key: 'gap:123' },
-      { kind: 'slots', slots: [null, null, 'media:12:0'], nextColumn: 1 },
+  it('reserves the same upward overflow across all columns after one end-column arrival', () => {
+    const assigned = new Map();
+    const first = plan(['D'], assigned);
+
+    expect(assigned.get('D')).toBe(2);
+    expect(first.height).toBe(188);
+    expect(first.positions.get('D').top).toBe(0);
+    expect(first.placeholders).toEqual([
+      { key: 'leading:0', top: 0, column: 0, height: 188 },
+      { key: 'leading:1', top: 0, column: 1, height: 188 },
     ]);
   });
 
-  it('resets when the feed changes entirely or existing statuses reorder', () => {
-    const rows = reconcile(['a'], ['b', 'a']);
-    expect(reconcile(['b', 'a'], ['x', 'y'], rows)).toEqual([]);
-    expect(reconcile(['b', 'a'], ['a', 'b'], rows)).toEqual([]);
-  });
-  it('keeps the featured/reload prefix above streaming rows', () => {
-    const previous = ['.$reload', '.$f-pinned', '.$a', '.$b'];
-    const first = reconcileMasonryPrependRows(3, [], previous, []);
-    expect(first).toEqual({ rows: [], prefixKeys: ['.$reload', '.$f-pinned'] });
+  it('replaces existing headroom, only extending the shared top when needed', () => {
+    const assigned = new Map();
+    const first = plan(['D'], assigned);
+    const second = plan(['E', 'D'], assigned);
+    const third = plan(['F', 'E', 'D'], assigned);
+    const fourth = plan(['G', 'F', 'E', 'D'], assigned);
 
-    const withNew = ['.$reload', '.$f-pinned', '.$new', '.$a', '.$b'];
-    const plan = reconcileMasonryPrependRows(3, previous, withNew, first.rows, first.prefixKeys);
-    expect(plan).toEqual({
-      rows: [{ kind: 'slots', slots: [null, null, '.$new'], nextColumn: 1 }],
-      prefixKeys: ['.$reload', '.$f-pinned'],
-    });
-
-    const next = reconcileMasonryPrependRows(3, withNew, ['.$reload', '.$f-pinned', '.$newer', '.$new', '.$a', '.$b'], plan.rows, plan.prefixKeys);
-    expect(next.rows[0].slots).toEqual([null, '.$newer', '.$new']);
-    expect(next.prefixKeys).toEqual(plan.prefixKeys);
-  });
-
-  it('ignores insertions in the middle of older timeline items', () => {
-    expect(reconcile(['a', 'b', 'c'], ['a', 'newer-loaded', 'b', 'c'])).toEqual([]);
-  });
-
-  it('resets reserved rows if the fixed prefix is removed or reorders', () => {
-    const start = ['.$f-one', 'a'];
-    const prefixPlan = reconcileMasonryPrependRows(3, [], start, []);
-    const state = reconcileMasonryPrependRows(3, start, ['.$f-one', 'b', 'a'], prefixPlan.rows, prefixPlan.prefixKeys);
-    const changed = reconcileMasonryPrependRows(3, ['.$f-one', 'b', 'a'], ['.$f-two', 'b', 'a'], state.rows, state.prefixKeys);
-    expect(changed).toEqual({ rows: [], prefixKeys: ['.$f-two'] });
-  });
-
-  it('starts with the end column when only a fixed prefix existed', () => {
-    const before = ['.$f-pinned'];
-    const initial = reconcileMasonryPrependRows(3, [], before, []);
-    const next = reconcileMasonryPrependRows(3, before, ['.$f-pinned', '.$first'], initial.rows, initial.prefixKeys);
-    expect(next.rows).toEqual([
-      { kind: 'slots', slots: [null, null, '.$first'], nextColumn: 1 },
+    expect([first.height, second.height, third.height, fourth.height]).toEqual([188, 188, 188, 236]);
+    expect(['D', 'E', 'F', 'G'].map(key => assigned.get(key))).toEqual([2, 1, 0, 1]);
+    expect(second.positions.get('E').top).toBe(80);
+    expect(third.positions.get('F').top).toBe(40);
+    expect(['D', 'E', 'F', 'G'].map(key => fourth.positions.get(key).top)).toEqual([48, 128, 88, 0]);
+    expect(fourth.placeholders).toEqual([
+      { key: 'leading:0', top: 0, column: 0, height: 88 },
+      { key: 'leading:2', top: 0, column: 2, height: 48 },
     ]);
   });
 
+  it('selects logical end on height ties for three and two columns', () => {
+    const assigned3 = new Map();
+    planMasonryPrependFrontier(3, ['F', 'E', 'D'], assigned3, () => 100);
+    expect(['D', 'E', 'F'].map(key => assigned3.get(key))).toEqual([2, 1, 0]);
+
+    const assigned2 = new Map();
+    planMasonryPrependFrontier(2, ['E', 'D'], assigned2, () => 100);
+    expect(['D', 'E'].map(key => assigned2.get(key))).toEqual([1, 0]);
+  });
+
+  it('produces the same positions for individual and batched deliveries at the same heights', () => {
+    const batch = new Map();
+    const individual = new Map();
+    const combined = plan(['G', 'F', 'E', 'D'], batch);
+    let current = [];
+
+    for (const key of ['D', 'E', 'F', 'G']) {
+      current = [key, ...current];
+      plan(current, individual);
+    }
+
+    const after = plan(current, individual);
+    expect(Array.from(batch.entries())).toEqual(Array.from(individual.entries()));
+    expect(Array.from(combined.positions.entries())).toEqual(Array.from(after.positions.entries()));
+    expect(combined.placeholders).toEqual(after.placeholders);
+  });
+
+  it('continues filling all columns over many arrivals instead of sticking to end-bottom', () => {
+    const assigned = new Map();
+    let newestFirst = [];
+    let lastOverflow = 0;
+    const used = [0, 0, 0];
+
+    for (let i = 0; i < 90; i += 1) {
+      const key = 'arrival-' + i;
+      newestFirst = [key, ...newestFirst];
+      const planned = planMasonryPrependFrontier(
+        3, newestFirst, assigned,
+        id => id.startsWith('arrival-') ? 65 + (Number(id.slice(8)) * 71) % 301 : 100,
+      );
+
+      expect(planned.height).toBeGreaterThanOrEqual(lastOverflow);
+      lastOverflow = planned.height;
+      used[assigned.get(key)] += 1;
+    }
+
+    // The selected columns should keep changing even after the initial
+    // shared headroom has been used. With fixed heights, older assignments
+    // remain stable while new headroom is shared among all three columns.
+    expect(used.every(count => count > 0)).toBe(true);
+    expect(Math.max(...used) - Math.min(...used)).toBeLessThan(5);
+  });
+
+  it('uses independent headroom around a full-width gap barrier', () => {
+    const assigned = new Map();
+    const result = plan(['latest', 'gap:123', 'media:1:0'], assigned);
+
+    expect(result.positions.get('gap:123')).toEqual({ top: 98, fullWidth: true });
+    expect(result.positions.get('latest').top).toBe(0);
+    expect(result.positions.get('media:1:0').top).toBe(146);
+    expect(result.placeholders).toEqual([
+      { key: 'gap:123:0', top: 146, column: 0, height: 88 },
+      { key: 'gap:123:1', top: 146, column: 1, height: 88 },
+      { key: 'leading:0', top: 0, column: 0, height: 98 },
+      { key: 'leading:1', top: 0, column: 1, height: 98 },
+    ]);
+  });
+
+  it('retains surviving assignments after deletion and reflows headroom without gaps', () => {
+    const assigned = new Map();
+    plan(['G', 'F', 'E', 'D'], assigned);
+    assigned.delete('E');
+
+    const after = plan(['G', 'F', 'D'], assigned);
+    expect(['D', 'F', 'G'].map(key => assigned.get(key))).toEqual([2, 0, 1]);
+    expect(after.height).toBe(188);
+    expect(after.positions.get('D').top).toBe(0);
+    expect(after.placeholders.map(blank => blank.height)).toEqual([40, 60]);
+  });
+
+  it('does not reassign an item after measurement changes', () => {
+    const assigned = new Map();
+    const first = planMasonryPrependFrontier(3, ['D'], assigned, () => 190);
+    const snapshot = Array.from(assigned.entries());
+    const measured = planMasonryPrependFrontier(3, ['D'], assigned, () => 330);
+
+    expect(Array.from(assigned.entries())).toEqual(snapshot);
+    expect(first.height).toBe(198);
+    expect(measured.height).toBe(338);
+    expect(measured.placeholders.map(blank => blank.height)).toEqual([338, 338]);
+  });
+
+  it('has no headroom placeholders for a single column', () => {
+    const assigned = new Map();
+    const single = planMasonryPrependFrontier(1, ['E', 'D'], assigned, height);
+
+    expect(single.placeholders).toEqual([]);
+    expect(single.positions.get('E').top).toBe(0);
+    expect(single.height).toBe(296);
+  });
 });

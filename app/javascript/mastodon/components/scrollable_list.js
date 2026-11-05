@@ -12,6 +12,7 @@ import classNames from 'classnames';
 import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from '../features/ui/util/fullscreen';
 import LoadingIndicator from './loading_indicator';
 import TimelineMasonry from './timeline_masonry';
+import { findVisibleMasonryTile, leadingMasonryPrefixKeys, reconcileMasonryPrepends } from 'mastodon/utils/timeline_masonry_layout';
 import MediaDisplayControls from './media_display_controls';
 import MediaItemsLayout from './media_items_layout';
 import { defaultMediaShape, defaultMediaSize, defaultMediaVisibility } from 'mastodon/utils/media_display';
@@ -526,6 +527,38 @@ class ScrollableList extends PureComponent {
       this.getFirstChildKey(prevProps) !== this.getFirstChildKey(this.props);
     const pendingChanged = (prevProps.numPending > 0) !== (this.props.numPending > 0);
 
+    // Masonry prepends only push down the column receiving a new item.
+    // The overall scrollHeight delta no longer describes the displacement
+    // of the card being read, so preserve an actual visible article instead.
+    const variableHeightMasonry = isCardTimelineLayout(this.props.layoutMode) ||
+      (this.props.layoutMode === 'media' && this.state.mediaShape === 'original');
+
+    // A bounded Live window may replace the oldest post with a new one,
+    // keeping the item count unchanged. Pinned posts also keep the first
+    // child key unchanged. Use the same prepend identity rule as Masonry.
+    let masonryPrepend = false;
+    if (variableHeightMasonry) {
+      const before = React.Children.toArray(prevProps.children).map(child => String(child.key));
+      const after = React.Children.toArray(this.props.children).map(child => String(child.key));
+      const plan = reconcileMasonryPrepends(before, after, leadingMasonryPrefixKeys(before));
+      masonryPrepend = !plan.reset && plan.prependedKeys.length > 0;
+    }
+
+    // Split History and other reading surfaces preserve their top row even
+    // at scrollTop=0; only a live feed following the newest post stays at 0.
+    if (masonryPrepend &&
+        (this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll ||
+         this.props.windowedHistory || this.props.readingSurface)) {
+      const anchor = this.captureVisibleMasonryItem();
+      if (anchor) {
+        return { masonryAnchor: true, ...anchor };
+      }
+
+      // A height-delta fallback would be incorrect for independently moving
+      // columns. If nothing in the masonry is visible, leave the scroller as is.
+      return null;
+    }
+
     if (pendingChanged || someItemInserted && (this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll)) {
       return this.getScrollHeight() - this.getScrollTop();
     }
@@ -544,6 +577,92 @@ class ScrollableList extends PureComponent {
     }
 
     return null;
+  }
+
+  // The visual top of a masonry tile does not follow article DOM order.
+  // Tile keys also distinguish multiple attachments belonging to one status.
+  captureVisibleMasonryItem () {
+    if (!this.node || typeof this.node.querySelectorAll !== 'function') {
+      return null;
+    }
+
+    const host = this.getTimelineScrollHost();
+    const visibleTop = this.getTimelineVisibleTop(host);
+    const viewportHeight = host.kind === 'document'
+      ? (window.innerHeight || this.getClientHeight())
+      : this.getClientHeight();
+    const visibleBottom = visibleTop + viewportHeight;
+    const tile = findVisibleMasonryTile(this.node, visibleTop, visibleBottom);
+    return tile ? { key: tile.key, top: tile.top } : null;
+  }
+
+  restoreMasonryItemAnchor (snapshot) {
+    if (!this.node || !snapshot || !snapshot.key) {
+      return;
+    }
+
+    // Never interpolate React keys into a CSS selector. They may contain
+    // escaped characters and status/attachment IDs share prefixes.
+    const items = this.node.querySelectorAll('.timeline-masonry > .timeline-masonry__item[data-layout-key]');
+    const item = Array.from(items).find(node => node.getAttribute('data-layout-key') === snapshot.key);
+    if (!item) {
+      return;
+    }
+
+    const delta = item.getBoundingClientRect().top - snapshot.top;
+    if (Math.abs(delta) > 0.5) {
+      this.setScrollTop(this.getScrollTop() + delta);
+    }
+  }
+
+  // The initial prepend snapshot is owned by ScrollableList, but a late
+  // ResizeObserver update only re-renders TimelineMasonry. Use the exact same
+  // viewport-relative tile anchor for those child-only layout changes.
+  captureMasonryLayoutAnchor = () => {
+    if (!this.node || this._anchorUnmounted ||
+        isProgrammaticTopScroll(this._getScrollingElement()) ||
+        (this.isFollowingLatest() && !this.mouseMovedRecently && !this.props.preventScroll)) {
+      return null;
+    }
+
+    return this.captureVisibleMasonryItem();
+  }
+
+  restoreMasonryLayoutAnchor = snapshot => {
+    if (!snapshot || !snapshot.key || this._anchorUnmounted ||
+        isProgrammaticTopScroll(this._getScrollingElement())) {
+      return;
+    }
+
+    const before = this._beginSyntheticAnchorScroll();
+    this.restoreMasonryItemAnchor(snapshot);
+    this._finishSyntheticAnchorScroll(before);
+    this._scheduleMasonryAnchorCorrection(snapshot);
+  }
+
+  _scheduleMasonryAnchorCorrection = (snapshot) => {
+    this._anchorGeneration = (this._anchorGeneration || 0) + 1;
+    const generation = this._anchorGeneration;
+    this._cancelAnchorCorrection();
+
+    const cursor = { top: this.getScrollTop() };
+    const locationKey = this._currentLocationKey();
+    this._anchorCancel = scheduleTimelineAnchorFrames({
+      frames: 2,
+      shouldAbort: () => (
+        this._anchorUnmounted ||
+        this._anchorGeneration !== generation ||
+        this._currentLocationKey() !== locationKey ||
+        isProgrammaticTopScroll(this._getScrollingElement()) ||
+        Math.abs(this.getScrollTop() - cursor.top) > 1
+      ),
+      apply: () => {
+        const before = this._beginSyntheticAnchorScroll();
+        this.restoreMasonryItemAnchor(snapshot);
+        cursor.top = this.getScrollTop();
+        this._finishSyntheticAnchorScroll(before);
+      },
+    });
   }
 
   captureVisibleArticle () {
@@ -610,7 +729,9 @@ class ScrollableList extends PureComponent {
     }
     // Reset the scroll position when a new child comes in in order not to
     // jerk the scrollbar around if you're already scrolled down the page.
-    if (snapshot && snapshot.anchor) {
+    if (snapshot && snapshot.masonryAnchor) {
+      this.restoreMasonryLayoutAnchor(snapshot);
+    } else if (snapshot && snapshot.anchor) {
       this.restoreArticleAnchor(snapshot);
     } else if (snapshot !== null) {
       this.setScrollTop(this.getScrollHeight() - snapshot);
@@ -1063,9 +1184,29 @@ class ScrollableList extends PureComponent {
         })}
       </IntersectionObserverArticleContainer>
     ));
-    const itemLayout = isCardTimelineLayout(layoutMode)
-      ? <TimelineMasonry mode={layoutMode}>{renderedItems}</TimelineMasonry>
-      : mediaMode ? <MediaItemsLayout shape={mediaShape} size={mediaSize}>{renderedItems}</MediaItemsLayout> : renderedItems;
+    let itemLayout = renderedItems;
+    if (isCardTimelineLayout(layoutMode)) {
+      itemLayout = (
+        <TimelineMasonry
+          mode={layoutMode}
+          onCaptureLayoutAnchor={this.captureMasonryLayoutAnchor}
+          onRestoreLayoutAnchor={this.restoreMasonryLayoutAnchor}
+        >
+          {renderedItems}
+        </TimelineMasonry>
+      );
+    } else if (mediaMode) {
+      itemLayout = (
+        <MediaItemsLayout
+          shape={mediaShape}
+          size={mediaSize}
+          onCaptureLayoutAnchor={this.captureMasonryLayoutAnchor}
+          onRestoreLayoutAnchor={this.restoreMasonryLayoutAnchor}
+        >
+          {renderedItems}
+        </MediaItemsLayout>
+      );
+    }
 
     if (showLoading) {
       scrollableArea = (

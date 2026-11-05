@@ -18,6 +18,8 @@ jest.mock('../regeneration_indicator', () => () => null);
 jest.mock('../load_gap', () => () => null);
 jest.mock('../reload_zone', () => () => null);
 jest.mock('../load_window_edge', () => () => null);
+// Anchor behavior is independent of the translated media controls toolbar.
+jest.mock('../media_display_controls', () => () => null);
 jest.mock('../../filter_reconciliation/surface', () => ({
   FilterSurface: class {
 
@@ -83,8 +85,10 @@ const layoutArticles = (list, heights, { origin = 0, viewport = 500, scroller = 
 
 describe('ScrollableList timeline anchor', () => {
   let frames;
+  let resizeObserverDescriptor;
 
   beforeEach(() => {
+    resizeObserverDescriptor = Object.getOwnPropertyDescriptor(window, 'ResizeObserver');
     frames = [];
     global.IntersectionObserver = class {
 
@@ -109,6 +113,11 @@ describe('ScrollableList timeline anchor', () => {
   });
 
   afterEach(() => {
+    if (resizeObserverDescriptor) {
+      Object.defineProperty(window, 'ResizeObserver', resizeObserverDescriptor);
+    } else {
+      delete window.ResizeObserver;
+    }
     document.body.innerHTML = '';
     jest.restoreAllMocks();
   });
@@ -122,6 +131,237 @@ describe('ScrollableList timeline anchor', () => {
   };
 
   const rows = (ids) => ids.map(id => <Row key={id} />);
+
+  it('anchors a visible card instead of using the total scrollHeight delta for a masonry prepend', () => {
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'card-feed',
+      layoutMode: 'card-3',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 120;
+
+    const capture = jest.spyOn(ref.current, 'captureVisibleMasonryItem').mockReturnValue({ key: '.$90', top: 80 });
+    const restore = jest.spyOn(ref.current, 'restoreMasonryItemAnchor').mockImplementation(() => {});
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+
+    // Parent prepends capture once; a subsequent Masonry height measurement
+    // may capture again in its own layout commit.
+    expect(capture).toHaveBeenCalled();
+    expect(restore).toHaveBeenCalledWith({ masonryAnchor: true, key: '.$90', top: 80 });
+  });
+
+  it('keeps a split reading surface anchored at local zero when a bounded window replaces its oldest item', () => {
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'split-history',
+      layoutMode: 'card-3',
+      readingSurface: true,
+      windowedHistory: true,
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['f-pinned', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 0;
+
+    const capture = jest.spyOn(ref.current, 'captureVisibleMasonryItem').mockReturnValue({ key: '.$100', top: 60 });
+    const restore = jest.spyOn(ref.current, 'restoreMasonryItemAnchor').mockImplementation(() => {});
+
+    // Count and first child key stay the same. The new row is behind
+    // the fixed prefix while an old row falls off the bounded window.
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['f-pinned', '110', '100'])}</ScrollableList>
+      </Provider>,
+    );
+
+    // Parent prepends capture once; a subsequent Masonry height measurement
+    // may capture again in its own layout commit.
+    expect(capture).toHaveBeenCalled();
+    expect(restore).toHaveBeenCalledWith({ masonryAnchor: true, key: '.$100', top: 60 });
+  });
+
+  it('selects the visual reading-edge tile, even with nonnumeric media keys and a different DOM order', () => {
+    const ref = React.createRef();
+    const { container } = render(
+      <Provider store={store()}>
+        <ScrollableList ref={ref} scrollKey='media' layoutMode='media' trackScroll={false} hasMore={false}>
+          {rows(['media:100:0', 'media:100:1', 'media:90:0'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    act(() => {
+      ref.current.handleMediaShapeChange('original');
+    });
+    const list = container.querySelector('.scrollable');
+    const items = Array.from(container.querySelectorAll('.timeline-masonry__item[data-layout-key]'));
+    expect(items).toHaveLength(3);
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 500 });
+    list.getBoundingClientRect = () => rect(0, 500);
+
+    // The first DOM tile is far above the reading edge. The second one
+    // covers the edge and must win over the third, which begins below it.
+    list.scrollTop = 120;
+    const docTops = [-300, 90, 170];
+    const tileHeights = [100, 230, 170];
+    items.forEach((tile, index) => {
+      tile.getBoundingClientRect = () => rect(docTops[index] - list.scrollTop, tileHeights[index]);
+    });
+
+    const captured = ref.current.captureVisibleMasonryItem();
+    expect(captured).toEqual({ key: items[1].getAttribute('data-layout-key'), top: -30 });
+    expect(ref.current.captureVisibleArticle()).toBeNull();
+
+    // A unique tile key restores the correct attachment even if multiple
+    // tiles belong to the same status and their keys contain escaped ':'.
+    docTops[1] += 60;
+    ref.current.restoreMasonryItemAnchor(captured);
+    expect(list.scrollTop).toBe(180);
+    // Restoration must preserve the selected attachment at its captured
+    // screen coordinate. A subsequent *new* capture may select another
+    // column's tile if that tile is now closer to the reading edge.
+    expect(items[1].getBoundingClientRect().top).toBe(captured.top);
+    expect(ref.current.captureVisibleMasonryItem()).toEqual({
+      key: items[2].getAttribute('data-layout-key'), top: -10,
+    });
+  });
+
+  it('corrects a late masonry height measurement for two frames but cancels on user intent', () => {
+    const ref = React.createRef();
+    const { container } = render(
+      <Provider store={store()}>
+        <ScrollableList ref={ref} scrollKey='media' layoutMode='media' trackScroll={false} hasMore={false}>
+          {rows(['media:100:0'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    act(() => {
+      ref.current.handleMediaShapeChange('original');
+    });
+    const list = container.querySelector('.scrollable');
+    const tile = container.querySelector('.timeline-masonry__item');
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 500 });
+    list.getBoundingClientRect = () => rect(0, 500);
+
+    let docTop = 100;
+    list.scrollTop = 120;
+    tile.getBoundingClientRect = () => rect(docTop - list.scrollTop, 240);
+    const anchor = ref.current.captureVisibleMasonryItem();
+    expect(anchor).toEqual({ key: tile.getAttribute('data-layout-key'), top: -20 });
+
+    ref.current._scheduleMasonryAnchorCorrection(anchor);
+    docTop += 50;
+    flushFrames(1);
+    expect(list.scrollTop).toBe(170);
+
+    fireEvent.wheel(list, { deltaY: 20 });
+    docTop += 30;
+    flushFrames();
+    expect(list.scrollTop).toBe(170);
+  });
+
+  it('preserves the reading tile when a new post gains its real height after two frames', () => {
+    Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: undefined });
+
+    const heights = {
+      '110': 100, '100': 100, '90': 100, '80': 100, '70': 100,
+      '60': 100, '50': 100, '40': 100, '30': 100, '20': 100,
+    };
+
+    // Unlike mocked handler tests, this measures the actual Masonry layout
+    // and scrollTop as its height state changes in a later React commit.
+    jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this.classList.contains('scrollable')) {
+        return rect(0, 240);
+      }
+      if (this.classList.contains('timeline-masonry')) {
+        return { ...rect(0, 0), width: 590, right: 590 };
+      }
+      if (this.classList.contains('timeline-masonry__item')) {
+        const match = this.style.transform.match(/translate3d\(0, ([\d.]+)px, 0\)/);
+        const y = match ? Number(match[1]) : 0;
+        const scroller = this.closest('.scrollable');
+        const id = this.querySelector('article[data-id]')?.getAttribute('data-id');
+        return rect(y - (scroller?.scrollTop || 0), heights[id] || 100);
+      }
+      return rect(0, 0);
+    });
+
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = { ref, scrollKey: 'late-media-height', layoutMode: 'card-3', trackScroll: false, hasMore: false };
+    const original = ['100', '90', '80', '70', '60', '50', '40', '30', '20'];
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(original)}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 240 });
+    list.scrollTop = 150;
+
+    const before = ref.current.captureVisibleMasonryItem();
+    expect(before).not.toBeNull();
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', ...original])}</ScrollableList>
+      </Provider>,
+    );
+    flushFrames();
+    flushFrames();
+
+    const stable = ref.current.captureVisibleMasonryItem();
+    expect(stable).not.toBeNull();
+    const target = Array.from(view.container.querySelectorAll('.timeline-masonry__item'))
+      .find(node => node.getAttribute('data-layout-key') === before.key);
+    expect(target).toBeDefined();
+    expect(target.getBoundingClientRect().top).toBe(before.top);
+    const settledScrollTop = list.scrollTop;
+
+    // The network image arrives after the original two correction frames.
+    // Its measured height grows by 300px, shifting all original columns.
+    heights['110'] = 400;
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(list.scrollTop).toBe(settledScrollTop + 300);
+    expect(target.getBoundingClientRect().top).toBe(before.top);
+
+    flushFrames();
+    flushFrames();
+    expect(target.getBoundingClientRect().top).toBe(before.top);
+
+    // Following the live feed's absolute top is a different mode: do not
+    // pin the old card against the reader when the image height changes.
+    list.scrollTop = 0;
+    heights['110'] = 450;
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(list.scrollTop).toBe(0);
+  });
 
   it('scrolls one inner list to a loaded id and leaves the sibling list alone', () => {
     const left = React.createRef();

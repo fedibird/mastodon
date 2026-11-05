@@ -33,6 +33,50 @@ afterEach(() => {
   jest.clearAllTimers(); jest.useRealTimers();
 });
 
+it('anchors the visual Masonry reading tile instead of the DOM-order first article', () => {
+  const node = document.createElement('div');
+  node.className = 'scrollable';
+  node.scrollTop = 120;
+  Object.defineProperty(node, 'clientHeight', { configurable: true, value: 260 });
+  node.getBoundingClientRect = () => ({ top: 10, bottom: 270, left: 0, right: 590, width: 590, height: 260 });
+
+  const masonry = document.createElement('div');
+  masonry.className = 'timeline-masonry';
+  node.appendChild(masonry);
+
+  // The first DOM article is below the viewport. The second covers its
+  // reading edge, while the third is physically lower despite DOM order.
+  const bases = [400, 90, 185];
+  const sizes = [80, 140, 100];
+  const tiles = bases.map((_, index) => {
+    const tile = document.createElement('div');
+    tile.className = 'timeline-masonry__item';
+    tile.setAttribute('data-layout-key', 'media:100:' + index);
+    tile.getBoundingClientRect = () => {
+      const top = bases[index] - node.scrollTop;
+      return { top, bottom: top + sizes[index], height: sizes[index] };
+    };
+    const article = document.createElement('article');
+    article.dataset.id = String(index + 1);
+    article.getBoundingClientRect = tile.getBoundingClientRect;
+    tile.appendChild(article);
+    masonry.appendChild(tile);
+    return tile;
+  });
+  document.body.appendChild(node);
+
+  const snapshot = captureFilterAnchor(node, node, 10);
+  expect(snapshot.rows).toHaveLength(1);
+  expect(snapshot.rows[0].node).toBe(tiles[1]);
+  expect(snapshot.rows[0].offset).toBe(-40);
+  const before = tiles[1].getBoundingClientRect().top;
+
+  bases[1] += 60;
+  restoreFilterAnchor(snapshot, node, node, 10);
+  expect(node.scrollTop).toBe(180);
+  expect(tiles[1].getBoundingClientRect().top).toBe(before);
+});
+
 it('preserves the same pixel offset through hide and restoration above a reading row', () => {
   const { node, rows, heights } = setup();
   const before = rows[3].getBoundingClientRect().top;
