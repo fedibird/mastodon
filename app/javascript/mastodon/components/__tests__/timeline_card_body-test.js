@@ -306,6 +306,28 @@ describe('TimelineCardBody', () => {
       expect(onCard).not.toHaveBeenCalled();
     });
 
+
+    it('does not swallow a new tap on a link after a held gesture', () => {
+      const onLink = jest.fn(event => event.preventDefault());
+      const { container, viewport } = collapsedBody(<p>Long text</p>);
+      const card = container.querySelector('.status__wrapper--compact');
+      const link = document.createElement('a');
+      link.href = '/post/1';
+      link.textContent = 'Author link';
+      link.addEventListener('click', onLink);
+      card.appendChild(link);
+
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 90 }] });
+      hold();
+      fireEvent.touchEnd(viewport, { touches: [] });
+
+      // New touch/pointer contact belongs to a separate click, and must
+      // clear the one-shot guard before the subsequent link click.
+      fireEvent.pointerDown(link, { pointerType: 'touch' });
+      fireEvent.click(link);
+      expect(onLink).toHaveBeenCalledTimes(1);
+    });
+
     it('releases an active hold if the window loses focus', () => {
       const { container, viewport } = collapsedBody();
       fireEvent.mouseDown(viewport, { button: 0, clientX: 20, clientY: 100 });
