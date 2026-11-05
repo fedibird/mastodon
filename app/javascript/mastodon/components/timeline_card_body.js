@@ -31,8 +31,10 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel, 
     // The guide has the height of a capped body INCLUDING its expand button.
     // It remains measurable even when the body is showing its natural height,
     // so a slight overflow never causes a collapse/expand measurement loop.
-    const foldedHeight = foldedHeightRef.current?.getBoundingClientRect().height || 
-      viewport.clientHeight + EXPAND_BUTTON_FOOTPRINT;
+    const measuredFoldedHeight = foldedHeightRef.current?.getBoundingClientRect().height;
+    const foldedHeight = measuredFoldedHeight > 0
+      ? measuredFoldedHeight
+      : viewport.clientHeight + EXPAND_BUTTON_FOOTPRINT;
     const shouldCollapse = viewport.scrollHeight - foldedHeight > EXPANSION_EPSILON;
     setNeedsCollapse(previous => previous === shouldCollapse ? previous : shouldCollapse);
   }, [collapseLongText, expanded]);
@@ -62,7 +64,7 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel, 
     }
 
     // Only old browsers need a global resize listener. The observer monitors
-    // both the capped viewport and the natural height of the inner content.
+    // the content and capped viewport (the height guide is covered by resize).
     window.addEventListener('resize', measureCollapse);
     return () => window.removeEventListener('resize', measureCollapse);
   }, [collapseLongText, expanded, measureCollapse]);
