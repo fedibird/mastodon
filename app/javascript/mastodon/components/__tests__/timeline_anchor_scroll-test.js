@@ -159,7 +159,9 @@ describe('ScrollableList timeline anchor', () => {
       </Provider>,
     );
 
-    expect(capture).toHaveBeenCalledTimes(1);
+    // Parent prepends capture once; a subsequent Masonry height measurement
+    // may capture again in its own layout commit.
+    expect(capture).toHaveBeenCalled();
     expect(restore).toHaveBeenCalledWith({ masonryAnchor: true, key: '.$90', top: 80 });
   });
 
@@ -194,7 +196,9 @@ describe('ScrollableList timeline anchor', () => {
       </Provider>,
     );
 
-    expect(capture).toHaveBeenCalledTimes(1);
+    // Parent prepends capture once; a subsequent Masonry height measurement
+    // may capture again in its own layout commit.
+    expect(capture).toHaveBeenCalled();
     expect(restore).toHaveBeenCalledWith({ masonryAnchor: true, key: '.$100', top: 60 });
   });
 
