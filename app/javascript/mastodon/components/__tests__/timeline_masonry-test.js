@@ -63,6 +63,7 @@ describe('TimelineMasonry streaming upward-frontier insertion', () => {
     Object.defineProperty(window, 'ResizeObserver', {
       configurable: true,
       value: class {
+
         constructor (callback) {
           this.callback = callback;
           observer = this;
@@ -73,6 +74,7 @@ describe('TimelineMasonry streaming upward-frontier insertion', () => {
         unobserve () {}
 
         disconnect () {}
+
       },
     });
 
