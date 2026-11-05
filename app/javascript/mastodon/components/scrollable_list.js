@@ -1178,9 +1178,12 @@ class ScrollableList extends PureComponent {
         })}
       </IntersectionObserverArticleContainer>
     ));
-    const itemLayout = isCardTimelineLayout(layoutMode)
-      ? <TimelineMasonry mode={layoutMode}>{renderedItems}</TimelineMasonry>
-      : mediaMode ? <MediaItemsLayout shape={mediaShape} size={mediaSize}>{renderedItems}</MediaItemsLayout> : renderedItems;
+    let itemLayout = renderedItems;
+    if (isCardTimelineLayout(layoutMode)) {
+      itemLayout = <TimelineMasonry mode={layoutMode}>{renderedItems}</TimelineMasonry>;
+    } else if (mediaMode) {
+      itemLayout = <MediaItemsLayout shape={mediaShape} size={mediaSize}>{renderedItems}</MediaItemsLayout>;
+    }
 
     if (showLoading) {
       scrollableArea = (
