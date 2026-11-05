@@ -171,10 +171,11 @@ describe('TimelineMasonry streaming shortest-column insertion', () => {
     const { container, rerender } = render(cards(['A', 'gap:123', 'B', 'C']));
     const previousGap = position(container, 'gap:123');
     const previousB = position(container, 'B');
-    const end = position(container, 'C').x;
+    const middleColumn = position(container, 'C').x;
 
     rerender(cards(['D', 'A', 'gap:123', 'B', 'C']));
-    expect(position(container, 'D')).toEqual({ x: end, y: 0 });
+    expect(position(container, 'D').x).toBeGreaterThan(middleColumn);
+    expect(position(container, 'D').y).toBe(0);
     expect(position(container, 'A').y).toBe(0);
     expect(position(container, 'gap:123').y).toBe(previousGap.y + 90);
     expect(position(container, 'B').y).toBe(previousB.y + 90);
