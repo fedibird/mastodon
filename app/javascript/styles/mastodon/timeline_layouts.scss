@@ -173,16 +173,27 @@
   }
 
   &__body {
+    // Ten lines of text plus its 2px top padding; both the height guide and
+    // the actual scroll viewport use this same limit.
+    --timeline-card-body-max-height: calc(var(--content-font-size, 15px) * 13.3 + 2px);
+
+    position: relative;
     padding: 9px 10px;
     overflow-wrap: anywhere;
   }
 
-  &__body-scroll {
-    // The first attachment sits outside the body. Only post text (including
-    // its CW and trailing hashtag badges) is capped at ten normal text lines.
-    // Match .status__content's line-height plus its 2px top padding.
-    max-height: calc(var(--content-font-size, 15px) * 13.3 + 2px);
+  // Absolute positioning prevents the size guide from taking any card space.
+  // The 32px addition matches the expand button's 30px minimum height and
+  // 2px top margin. No button or scrolling CSS is added for minor overflows.
+  &__body-folded-height {
+    position: absolute;
+    width: 0;
+    height: calc(var(--timeline-card-body-max-height) + 32px);
+    visibility: hidden;
+    pointer-events: none;
+  }
 
+  &__body-scroll {
     &:focus-visible {
       outline: 2px solid $ui-highlight-color;
       outline-offset: -2px;
@@ -192,6 +203,7 @@
   // The viewport only becomes a nested scrolling container when its content
   // exceeds the ten-line cap. Short posts must let wheel/touch scroll the feed.
   &__body--scrollable &__body-scroll {
+    max-height: var(--timeline-card-body-max-height);
     overflow-y: auto;
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;

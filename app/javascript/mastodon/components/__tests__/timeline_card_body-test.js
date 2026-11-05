@@ -44,7 +44,7 @@ describe('TimelineCardBody', () => {
     const viewport = container.querySelector('.timeline-card__body-scroll');
 
     expect(observers).toHaveLength(1);
-    expect(observers[0].observe).toHaveBeenCalledTimes(2);
+    expect(observers[0].observe).toHaveBeenCalledTimes(3);
 
     setScrollMetrics(viewport, 200, 200);
     expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
@@ -327,6 +327,66 @@ describe('TimelineCardBody', () => {
       window.requestAnimationFrame = originalRequest;
       window.cancelAnimationFrame = originalCancel;
     }
+  });
+
+  it('shows a minor overflow at natural height because expanding would shrink the card', () => {
+    const { container, queryByRole } = renderBody('Just over ten lines');
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+    const foldedGuide = container.querySelector('.timeline-card__body-folded-height');
+    expect(foldedGuide).not.toBeNull();
+
+    foldedGuide.getBoundingClientRect = () => ({ height: 232 });
+    setScrollMetrics(viewport, 220, 200);
+
+    expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
+    expect(viewport.getAttribute('tabindex')).toBeNull();
+    expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
+
+    // Equal height to the capped body plus the expander is also not useful.
+    setScrollMetrics(viewport, 232, 200);
+    expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
+  });
+
+  it('shows ▼ only if the full body is taller than the capped body plus its button', () => {
+    const { container, getByRole, queryByRole } = renderBody();
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+    const foldedGuide = container.querySelector('.timeline-card__body-folded-height');
+    foldedGuide.getBoundingClientRect = () => ({ height: 232 });
+
+    setScrollMetrics(viewport, 233, 200);
+    expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
+
+    setScrollMetrics(viewport, 300, 200);
+    expect(getByRole('button', { name: 'Show full post text' })).not.toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
+
+    fireEvent.click(getByRole('button', { name: 'Show full post text' }));
+    expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
+    expect(container.querySelector('.timeline-card__body--expanded')).not.toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
+  });
+
+  it('recomputes the threshold when the line height or card width changes', () => {
+    const { container, queryByRole } = renderBody();
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+    const foldedGuide = container.querySelector('.timeline-card__body-folded-height');
+    let foldedHeight = 232;
+    foldedGuide.getBoundingClientRect = () => ({ height: foldedHeight });
+
+    setScrollMetrics(viewport, 260, 200);
+    expect(queryByRole('button', { name: 'Show full post text' })).not.toBeNull();
+
+    // Enlarged font/cap makes the same text no longer worth folding.
+    foldedHeight = 270;
+    act(() => observers[0].callback([]));
+    expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
+
+    // A narrower column makes the text long enough to benefit again.
+    setScrollMetrics(viewport, 330, 200);
+    expect(queryByRole('button', { name: 'Show full post text' })).not.toBeNull();
   });
 
 });

@@ -3,20 +3,23 @@ import PropTypes from 'prop-types';
 
 import { elementDirection, findTimelineScroller, isInlineEndZone, wheelDeltaY } from './timeline_scroll_zone';
 
-// Small rounding differences in scroll metrics must not create an expand button
-// for text that fits entirely inside the ten-line viewport.
-const OVERFLOW_EPSILON = 1;
+// The toggle takes 30px of height plus 2px top margin. Showing it for
+// a smaller overflow can make the card *shrink* when the toggle disappears.
+// The CSS height guide tracks the ten-line viewport plus that toggle footprint.
+const EXPAND_BUTTON_FOOTPRINT = 32;
+const EXPANSION_EPSILON = 1;
 const TOUCH_SLOP = 8;
 
 export default function TimelineCardBody ({ children, expandLabel, scrollLabel, collapseLongText = true, timelineScrollZone = true, scrollZoneLabel }) {
   const [expanded, setExpanded] = React.useState(false);
-  const [overflowing, setOverflowing] = React.useState(false);
+  const [needsCollapse, setNeedsCollapse] = React.useState(false);
   const viewportRef = React.useRef(null);
   const contentRef = React.useRef(null);
+  const foldedHeightRef = React.useRef(null);
 
-  const measureOverflow = React.useCallback(() => {
+  const measureCollapse = React.useCallback(() => {
     if (!collapseLongText) {
-      setOverflowing(previous => previous ? false : previous);
+      setNeedsCollapse(previous => previous ? false : previous);
       return;
     }
 
@@ -25,13 +28,20 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel, 
     }
 
     const viewport = viewportRef.current;
-    const hasHiddenText = viewport.scrollHeight - viewport.clientHeight > OVERFLOW_EPSILON;
-    setOverflowing(previous => previous === hasHiddenText ? previous : hasHiddenText);
+    // The guide has the height of a capped body INCLUDING its expand button.
+    // It remains measurable even when the body is showing its natural height,
+    // so a slight overflow never causes a collapse/expand measurement loop.
+    const measuredFoldedHeight = foldedHeightRef.current?.getBoundingClientRect().height;
+    const foldedHeight = measuredFoldedHeight > 0
+      ? measuredFoldedHeight
+      : viewport.clientHeight + EXPAND_BUTTON_FOOTPRINT;
+    const shouldCollapse = viewport.scrollHeight - foldedHeight > EXPANSION_EPSILON;
+    setNeedsCollapse(previous => previous === shouldCollapse ? previous : shouldCollapse);
   }, [collapseLongText, expanded]);
 
   // Recheck after status/CW/translation changes, including a rerender that does
   // not resize the outer card while its body is capped.
-  React.useLayoutEffect(measureOverflow);
+  React.useLayoutEffect(measureCollapse);
 
   React.useEffect(() => {
     if (!collapseLongText || expanded) {
@@ -40,22 +50,24 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel, 
 
     const viewport = viewportRef.current;
     const content = contentRef.current;
-    if (!viewport || !content) {
+    const foldedHeight = foldedHeightRef.current;
+    if (!viewport || !content || !foldedHeight) {
       return undefined;
     }
 
     if (window.ResizeObserver) {
-      const resizeObserver = new window.ResizeObserver(measureOverflow);
+      const resizeObserver = new window.ResizeObserver(measureCollapse);
       resizeObserver.observe(viewport);
       resizeObserver.observe(content);
+      resizeObserver.observe(foldedHeight);
       return () => resizeObserver.disconnect();
     }
 
     // Only old browsers need a global resize listener. The observer monitors
-    // both the capped viewport and the natural height of the inner content.
-    window.addEventListener('resize', measureOverflow);
-    return () => window.removeEventListener('resize', measureOverflow);
-  }, [collapseLongText, expanded, measureOverflow]);
+    // the content and capped viewport (the height guide is covered by resize).
+    window.addEventListener('resize', measureCollapse);
+    return () => window.removeEventListener('resize', measureCollapse);
+  }, [collapseLongText, expanded, measureCollapse]);
 
   // Do not drop keyboard focus when the expand button unmounts.
   React.useEffect(() => {
@@ -64,7 +76,7 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel, 
     }
   }, [expanded]);
 
-  const scrollable = collapseLongText && !expanded && overflowing;
+  const scrollable = collapseLongText && !expanded && needsCollapse;
   const showScrollZone = scrollable && timelineScrollZone;
 
   React.useEffect(() => {
@@ -252,6 +264,7 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel, 
 
   return (
     <div className={bodyClass}>
+      <div ref={foldedHeightRef} className='timeline-card__body-folded-height' aria-hidden='true' />
       <div
         ref={viewportRef}
         className='timeline-card__body-scroll'
