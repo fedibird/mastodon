@@ -137,3 +137,31 @@ export const planMasonryPrependFrontier = (columns, keys, assignments, measuredH
     height: overflow,
   };
 };
+
+// Masonry keeps logical newest-first DOM order, while the tiles' actual
+// viewport positions are independent in each column. A generic binary search
+// over article DOM order therefore cannot choose a stable reading anchor.
+// Share this visual selection between streaming and filter reconciliation.
+export const findVisibleMasonryTile = (root, visibleTop, visibleBottom) => {
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return null;
+  }
+
+  let best = null;
+  root.querySelectorAll('.timeline-masonry > .timeline-masonry__item[data-layout-key]').forEach(node => {
+    const key = node.getAttribute('data-layout-key');
+    const box = node.getBoundingClientRect();
+    if (!key || box.bottom <= visibleTop || box.top >= visibleBottom || box.height <= 0) {
+      return;
+    }
+
+    const coversEdge = box.top <= visibleTop;
+    const distance = coversEdge ? visibleTop - box.top : box.top - visibleTop;
+    if (!best || (coversEdge && !best.coversEdge) ||
+        (coversEdge === best.coversEdge && distance < best.distance)) {
+      best = { node, key, top: box.top, coversEdge, distance };
+    }
+  });
+
+  return best ? { node: best.node, key: best.key, top: best.top } : null;
+};
