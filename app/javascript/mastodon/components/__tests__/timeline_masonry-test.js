@@ -58,6 +58,60 @@ describe('TimelineMasonry streaming upward-frontier insertion', () => {
     }
   });
 
+  it('captures and restores a tile on a delayed ResizeObserver measurement', () => {
+    let observer;
+    Object.defineProperty(window, 'ResizeObserver', {
+      configurable: true,
+      value: class {
+        constructor (callback) {
+          this.callback = callback;
+          observer = this;
+        }
+
+        observe () {}
+
+        unobserve () {}
+
+        disconnect () {}
+      },
+    });
+
+    const snapshot = { key: '.$A', top: -35 };
+    const onCaptureLayoutAnchor = jest.fn(() => snapshot);
+    const onRestoreLayoutAnchor = jest.fn();
+    const { container } = render(
+      <TimelineMasonry
+        mode='card-3'
+        onCaptureLayoutAnchor={onCaptureLayoutAnchor}
+        onRestoreLayoutAnchor={onRestoreLayoutAnchor}
+      >
+        <article key='A'>A</article>
+      </TimelineMasonry>,
+    );
+    const root = container.querySelector('.timeline-masonry');
+    const tile = container.querySelector('.timeline-masonry__item');
+
+    act(() => {
+      observer.callback([{ target: root, contentRect: { width: 590, height: 0 } }]);
+    });
+    onCaptureLayoutAnchor.mockClear();
+    onRestoreLayoutAnchor.mockClear();
+
+    // The parent has not re-rendered; only Masonry's measured height changes.
+    act(() => {
+      observer.callback([{ target: tile, contentRect: { width: 190, height: 310 } }]);
+    });
+    expect(onCaptureLayoutAnchor).toHaveBeenCalledTimes(1);
+    expect(onRestoreLayoutAnchor).toHaveBeenCalledWith(snapshot);
+
+    // A duplicate measurement is ignored and must not adjust scroll again.
+    act(() => {
+      observer.callback([{ target: tile, contentRect: { width: 190, height: 310 } }]);
+    });
+    expect(onCaptureLayoutAnchor).toHaveBeenCalledTimes(1);
+    expect(onRestoreLayoutAnchor).toHaveBeenCalledTimes(1);
+  });
+
   it('extends all old columns once, then consumes headroom end-to-start without old-card reflow', () => {
     const { container, rerender } = render(cards(['A', 'B', 'C']));
     const original = ['A', 'B', 'C'].map(id => position(container, id));
