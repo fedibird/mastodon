@@ -63,7 +63,6 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:crop_card_images]                      = object.current_account.user.setting_crop_card_images
       store[:card_reactions_single_line]            = object.current_account.user.setting_card_reactions_single_line
       store[:card_collapse_long_text]               = object.current_account.user.setting_card_collapse_long_text
-      store[:card_timeline_scroll_zone]             = object.current_account.user.setting_card_timeline_scroll_zone
       store[:media_display_shape]                   = MediaDisplayPreference.shape(object.current_account.user.setting_media_display_shape)
       store[:media_display_size]                    = MediaDisplayPreference.size(object.current_account.user.setting_media_display_size)
       store[:confirm_domain_block]                  = object.current_account.user.setting_confirm_domain_block
@@ -168,7 +167,6 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:crop_card_images] = Setting.crop_card_images
       store[:card_reactions_single_line] = Setting.card_reactions_single_line
       store[:card_collapse_long_text]    = Setting.card_collapse_long_text
-      store[:card_timeline_scroll_zone]  = Setting.card_timeline_scroll_zone
       store[:media_display_shape]        = MediaDisplayPreference.shape(Setting.media_display_shape)
       store[:media_display_size]         = MediaDisplayPreference.size(Setting.media_display_size)
     end

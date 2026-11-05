@@ -65,7 +65,6 @@ class UserSettingsDecorator
     crop_card_images
     card_reactions_single_line
     card_collapse_long_text
-    card_timeline_scroll_zone
     confirm_domain_block
     show_follow_button_on_timeline
     show_subscribe_button_on_timeline

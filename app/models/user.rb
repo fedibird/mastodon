@@ -167,7 +167,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
            :reduce_motion, :system_font_ui, :noindex, :theme, :display_media, :hide_network,
            :expand_spoilers, :default_language, :aggregate_reblogs, :show_application,
            :advanced_layout, :use_blurhash, :use_pending_items, :trends, :crop_images, :crop_card_images,
-           :card_reactions_single_line, :card_collapse_long_text, :card_timeline_scroll_zone,
+           :card_reactions_single_line, :card_collapse_long_text,
            :media_display_shape, :media_display_size,
            :disable_swiping, :confirm_domain_block,
            :show_follow_button_on_timeline, :show_subscribe_button_on_timeline, :show_target,

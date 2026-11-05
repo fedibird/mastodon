@@ -55,7 +55,6 @@ export const cropImages = getMeta('crop_images');
 export const cropCardImages = getMeta('crop_card_images') ?? true;
 export const cardReactionsSingleLine = getMeta('card_reactions_single_line') !== false;
 export const cardCollapseLongText = getMeta('card_collapse_long_text') !== false;
-export const cardTimelineScrollZone = getMeta('card_timeline_scroll_zone') !== false;
 export const mediaDisplayShape = getMeta('media_display_shape');
 export const mediaDisplaySize = getMeta('media_display_size');
 export const disableSwiping = getMeta('disable_swiping');

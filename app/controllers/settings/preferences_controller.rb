@@ -82,7 +82,6 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_crop_card_images,
       :setting_card_reactions_single_line,
       :setting_card_collapse_long_text,
-      :setting_card_timeline_scroll_zone,
       :setting_media_display_shape,
       :setting_media_display_size,
       :setting_show_follow_button_on_timeline,
