@@ -73,44 +73,67 @@ export const reconcileMasonryPrepends = (previousKeys, keys, previousPrefixKeys 
   return { prefixKeys, prependedKeys: currentMainKeys.slice(0, firstOldIndex), reset: false };
 };
 
-// Place newly arrived items oldest first, repeatedly taking the column with
-// the least occupied height. On a tie use logical inline-end (the last index).
-// The caller supplies measurements when known, or estimated tile heights.
-// Assignments are never reconsidered when a later ResizeObserver event arrives.
-export const assignMasonryPrependedColumns = (columns, olderKeys, prependedKeys, assignments, measuredHeight, gap = 8) => {
-  const bottoms = new Array(columns).fill(0);
+// Streaming cards grow *upward* from the original live-feed boundary.
+// Each column has a frontier ("head"): the top of the oldest reserved space.
+// A newly received card occupies the lowest available frontier, with logical
+// inline-end winning ties. Frontiers are independent, but the outer Masonry
+// reserves the maximum upward overflow for *every* column. Blank intervals
+// become inert placeholders, to be consumed by subsequent arrivals.
+//
+// Coordinates returned here are relative to the top of that shared reserved
+// area. Columns assigned to existing keys never change after measurements.
+export const planMasonryPrependFrontier = (columns, keys, assignments, measuredHeight, gap = 8) => {
+  const heads = new Array(columns).fill(0);
+  const positions = new Map();
+  const blanks = [];
 
-  // A full-width gap/more row separates independent masonry segments. Items
-  // below the first barrier cannot bias a new item placed above that barrier.
-  for (const key of olderKeys) {
+  const reserveBlankCells = (top, barrier) => {
+    heads.forEach((bottom, column) => {
+      if (bottom - top > 1) {
+        blanks.push({ key: barrier + ':' + column, top, column, height: bottom - top });
+      }
+    });
+  };
+
+  // The older card is inserted first: this fills available placeholders
+  // before allocating additional common headroom above the whole feed.
+  for (let index = keys.length - 1; index >= 0; index -= 1) {
+    const key = keys[index];
+    const height = measuredHeight(key) + gap;
+
     if (isFullWidthMasonryKey(key)) {
-      break;
-    }
-
-    const column = assignments.get(key);
-    if (column !== undefined && column >= 0 && column < columns) {
-      bottoms[column] += measuredHeight(key) + gap;
-    }
-  }
-
-  for (let index = prependedKeys.length - 1; index >= 0; index -= 1) {
-    const key = prependedKeys[index];
-
-    if (isFullWidthMasonryKey(key)) {
-      bottoms.fill(0);
+      const top = Math.min(...heads);
+      reserveBlankCells(top, key);
+      heads.fill(top - height);
+      positions.set(key, { top: top - height, fullWidth: true });
       continue;
     }
 
-    let column = columns - 1;
-    for (let candidate = columns - 2; candidate >= 0; candidate -= 1) {
-      if (bottoms[candidate] < bottoms[column]) {
-        column = candidate;
+    let column = assignments.get(key);
+    if (column === undefined || column < 0 || column >= columns) {
+      column = columns - 1;
+      for (let candidate = columns - 2; candidate >= 0; candidate -= 1) {
+        // Largest Y is the lowest available position for a new item.
+        if (heads[candidate] > heads[column]) {
+          column = candidate;
+        }
       }
+      assignments.set(key, column);
     }
 
-    assignments.set(key, column);
-    bottoms[column] += measuredHeight(key) + gap;
+    heads[column] -= height;
+    positions.set(key, { top: heads[column], column });
   }
 
-  return assignments;
+  const highestTop = Math.min(...heads);
+  reserveBlankCells(highestTop, 'leading');
+  const overflow = -highestTop;
+
+  return {
+    positions: new Map(Array.from(positions, ([key, place]) => [
+      key, { ...place, top: place.top + overflow },
+    ])),
+    placeholders: blanks.map(blank => ({ ...blank, top: blank.top + overflow })),
+    height: overflow,
+  };
 };
