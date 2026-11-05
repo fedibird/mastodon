@@ -12,6 +12,7 @@ import classNames from 'classnames';
 import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from '../features/ui/util/fullscreen';
 import LoadingIndicator from './loading_indicator';
 import TimelineMasonry from './timeline_masonry';
+import { leadingMasonryPrefixKeys, reconcileMasonryPrepends } from 'mastodon/utils/timeline_masonry_layout';
 import MediaDisplayControls from './media_display_controls';
 import MediaItemsLayout from './media_items_layout';
 import { defaultMediaShape, defaultMediaSize, defaultMediaVisibility } from 'mastodon/utils/media_display';
@@ -532,9 +533,20 @@ class ScrollableList extends PureComponent {
     const variableHeightMasonry = isCardTimelineLayout(this.props.layoutMode) ||
       (this.props.layoutMode === 'media' && this.state.mediaShape === 'original');
 
+    // A bounded Live window may replace the oldest post with a new one,
+    // keeping the item count unchanged. Pinned posts also keep the first
+    // child key unchanged. Use the same prepend identity rule as Masonry.
+    let masonryPrepend = false;
+    if (variableHeightMasonry) {
+      const before = React.Children.toArray(prevProps.children).map(child => String(child.key));
+      const after = React.Children.toArray(this.props.children).map(child => String(child.key));
+      const plan = reconcileMasonryPrepends(before, after, leadingMasonryPrefixKeys(before));
+      masonryPrepend = !plan.reset && plan.prependedKeys.length > 0;
+    }
+
     // Split History and other reading surfaces preserve their top row even
     // at scrollTop=0; only a live feed following the newest post stays at 0.
-    if (someItemInserted && variableHeightMasonry &&
+    if (masonryPrepend &&
         (this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll ||
          this.props.windowedHistory || this.props.readingSurface)) {
       const anchor = this.captureVisibleMasonryItem();
