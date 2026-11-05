@@ -11,6 +11,7 @@ import DisplayName from './display_name';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
 import TimelineCardBody from './timeline_card_body';
+import TimelineCardReactions, { showCardEmojiReactions } from './timeline_card_reactions';
 import StatusActionBar from './status_action_bar';
 import AccountContextActions from '../features/account_context/components/actions';
 import AccountActionBar from './account_action_bar';
@@ -24,7 +25,7 @@ import Icon from 'mastodon/components/icon';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
 import FilterReason from './filter_reason';
-import { displayMedia, cropCardImages, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
+import { displayMedia, cropCardImages, enableReaction, compactReaction, cardReactionsSingleLine, cardCollapseLongText, cardTimelineScrollZone, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
@@ -247,6 +248,9 @@ const messages = defineMessages({
   cardMediaCount: { id: 'timeline.card.media_count', defaultMessage: '{count} media attachments' },
   cardExpandText: { id: 'timeline.card.expand_text', defaultMessage: 'Show full post text' },
   cardScrollText: { id: 'timeline.card.scroll_text', defaultMessage: 'Scrollable post text' },
+  cardExpandReactions: { id: 'timeline.card.expand_reactions', defaultMessage: 'Show all emoji reactions' },
+  cardScrollReactions: { id: 'timeline.card.scroll_reactions', defaultMessage: 'Scrollable emoji reactions' },
+  cardScrollZone: { id: 'timeline.card.scroll_zone', defaultMessage: 'Scrolling here moves the timeline' },
 });
 
 const dateFormatOptions = {
@@ -757,9 +761,10 @@ class Status extends ImmutablePureComponent {
     const hasSpoiler = !!status.get('spoiler_text');
     const contentVisible = !hasSpoiler || !status.get('hidden');
     const media = status.get('media_attachments', ImmutableList());
-    // A reaction row has no content when every count is zero. Fold its picker
-    // into the author actions until at least one reaction is visible.
+    // The add-reaction control always stays beside favourite. Counts stay off
+    // the card when compact reactions are on, including a zero-count row.
     const hasVisibleEmojiReactions = status.get('emoji_reactions', ImmutableList()).some(reaction => reaction.get('count', 0) > 0);
+    const showReactions = showCardEmojiReactions(enableReaction, hasVisibleEmojiReactions, compactReaction);
     const firstMedia = contentVisible && media && media.size > 0
       ? this.renderAttachmentMedia(status.set('media_attachments', media.take(1)), {
         sensitive: status.get('sensitive'),
@@ -881,6 +886,9 @@ class Status extends ImmutablePureComponent {
               key={status.get('id')}
               expandLabel={intl.formatMessage(messages.cardExpandText)}
               scrollLabel={intl.formatMessage(messages.cardScrollText)}
+              collapseLongText={cardCollapseLongText !== false}
+              timelineScrollZone={cardTimelineScrollZone !== false}
+              scrollZoneLabel={intl.formatMessage(messages.cardScrollZone)}
             >
               <StatusContent status={status} translationWrapper={original} onClick={this.handleClick} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} compactCard />
             </TimelineCardBody>
@@ -899,13 +907,18 @@ class Status extends ImmutablePureComponent {
               {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
               <div className='timeline-card__author-actions'>
                 <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='favourite' expired={expired} onFavourite={this.props.onFavourite} />
-                {enableReaction && !hasVisibleEmojiReactions && <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />}
+                {enableReaction && <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />}
               </div>
             </div>
-            {enableReaction && hasVisibleEmojiReactions && <div className='timeline-card__reactions'>
-              <EmojiReactionsBar status={status} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} reactionLimitReached={reactionLimitReached} />
-              <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />
-            </div>}
+            {showReactions && (
+              <TimelineCardReactions
+                singleLine={cardReactionsSingleLine !== false}
+                expandLabel={intl.formatMessage(messages.cardExpandReactions)}
+                scrollLabel={intl.formatMessage(messages.cardScrollReactions)}
+              >
+                <EmojiReactionsBar status={status} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} reactionLimitReached={reactionLimitReached} />
+              </TimelineCardReactions>
+            )}
           </div>
         </div>
       </HotKeys>

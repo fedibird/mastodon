@@ -49,6 +49,7 @@ describe('TimelineCardBody', () => {
     setScrollMetrics(viewport, 200, 200);
     expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
     expect(viewport.getAttribute('tabindex')).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
     expect(viewport.textContent).toBe('Short post');
   });
 
@@ -69,6 +70,7 @@ describe('TimelineCardBody', () => {
 
     expect(getByRole('button', { name: 'Show full post text' }).textContent).toBe('▼');
     expect(viewport.getAttribute('tabindex')).toBe('0');
+    expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
     expect(viewport.getAttribute('aria-label')).toBe('Scrollable post text');
     expect(viewport.textContent).toBe('Long text');
     expect(container.querySelector('[data-testid="first-media"]').closest('.timeline-card__body')).toBeNull();
@@ -78,6 +80,7 @@ describe('TimelineCardBody', () => {
 
     expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
     expect(container.querySelector('.timeline-card__body--expanded')).not.toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
     expect(viewport.getAttribute('tabindex')).toBe('-1');
     expect(document.activeElement).toBe(viewport);
     expect(onNavigate).not.toHaveBeenCalled();
@@ -97,9 +100,11 @@ describe('TimelineCardBody', () => {
     );
     setScrollMetrics(viewport, 310, 200);
     expect(queryByRole('button', { name: 'Show full post text' })).not.toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
 
     setScrollMetrics(viewport, 195, 200);
     expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
     expect(viewport.getAttribute('tabindex')).toBeNull();
   });
 
@@ -114,4 +119,214 @@ describe('TimelineCardBody', () => {
 
     expect(getByRole('button', { name: 'Show full post text' })).not.toBeNull();
   });
+
+  it('shows the full text with no scroller or timeline zone when collapse is off', () => {
+    const { container, queryByRole } = render(
+      <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text' collapseLongText={false} timelineScrollZone>
+        <p>Long text</p>
+      </TimelineCardBody>,
+    );
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 800 });
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 100 });
+
+    expect(container.querySelector('.timeline-card__body--natural')).not.toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
+    expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
+    expect(viewport.getAttribute('tabindex')).toBeNull();
+  });
+
+  it('scrolls the timeline from the inline-end third and leaves links clickable', () => {
+    const onLink = jest.fn(event => event.preventDefault());
+    const onCard = jest.fn();
+    const { container, getByRole } = render(
+      <div className='scrollable' data-testid='timeline' role='button' tabIndex='0' onClick={onCard}>
+        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text' scrollZoneLabel='Scrolling here moves the timeline'>
+          <a href='/posts/1' onClick={onLink}>read more</a>
+        </TimelineCardBody>
+      </div>,
+    );
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+    const timeline = container.querySelector('.scrollable');
+    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
+    setScrollMetrics(viewport, 400, 120);
+
+    // The end-third remains interactive without a decorative overlay.
+    expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
+    expect(viewport.getAttribute('aria-label')).toBe('Scrollable post text. Scrolling here moves the timeline');
+
+    expect(fireEvent.wheel(viewport, { deltaY: 48, deltaX: 0, clientX: 40, clientY: 10 })).toBe(true);
+    expect(timeline.scrollTop).toBe(0);
+
+    expect(fireEvent.wheel(viewport, { deltaY: 48, deltaX: 0, clientX: 260, clientY: 10 })).toBe(false);
+    expect(timeline.scrollTop).toBe(48);
+    expect(onCard).not.toHaveBeenCalled();
+
+    fireEvent.click(container.querySelector('a'));
+    expect(onLink).toHaveBeenCalled();
+    expect(getByRole('button', { name: 'Show full post text' })).not.toBeNull();
+  });
+
+  it('hands a vertical touch in the inline-end third to the timeline', () => {
+    const { container } = render(
+      <div className='scrollable'>
+        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
+          <p>Long text</p>
+        </TimelineCardBody>
+      </div>,
+    );
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+    const timeline = container.querySelector('.scrollable');
+    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
+    setScrollMetrics(viewport, 400, 120);
+
+    fireEvent.touchStart(viewport, { touches: [{ clientX: 40, clientY: 80 }] });
+    fireEvent.touchMove(viewport, { touches: [{ clientX: 36, clientY: 30 }] });
+    expect(timeline.scrollTop).toBe(0);
+
+    fireEvent.touchStart(viewport, { touches: [{ clientX: 270, clientY: 80 }] });
+    fireEvent.touchMove(viewport, { touches: [{ clientX: 240, clientY: 72 }] });
+    expect(timeline.scrollTop).toBe(0);
+
+    fireEvent.touchMove(viewport, { touches: [{ clientX: 268, clientY: 40 }] });
+    expect(timeline.scrollTop).toBe(40);
+  });
+
+  it('uses the inline-start edge as the timeline zone in RTL', () => {
+    const original = window.getComputedStyle;
+    window.getComputedStyle = element => ({
+      direction: element.getAttribute('dir') === 'rtl' ? 'rtl' : 'ltr',
+    });
+
+    const { container } = render(
+      <div className='scrollable'>
+        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text' />
+      </div>,
+    );
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+    const timeline = container.querySelector('.scrollable');
+    viewport.setAttribute('dir', 'rtl');
+    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
+    setScrollMetrics(viewport, 400, 120);
+
+    expect(fireEvent.wheel(viewport, { deltaY: 20, deltaX: 0, clientX: 250, clientY: 10 })).toBe(true);
+    expect(timeline.scrollTop).toBe(0);
+    expect(fireEvent.wheel(viewport, { deltaY: 20, deltaX: 0, clientX: 30, clientY: 10 })).toBe(false);
+    expect(timeline.scrollTop).toBe(20);
+
+    window.getComputedStyle = original;
+  });
+
+  it('does not install a timeline zone when the preference or the overflow is off', () => {
+    const { container, rerender } = render(
+      <div className='scrollable'>
+        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text' timelineScrollZone={false} />
+      </div>,
+    );
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+    const timeline = container.querySelector('.scrollable');
+    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
+    setScrollMetrics(viewport, 400, 120);
+
+    expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
+    expect(viewport.getAttribute('aria-label')).toBe('Scrollable post text');
+    expect(fireEvent.wheel(viewport, { deltaY: 30, deltaX: 0, clientX: 280, clientY: 8 })).toBe(true);
+    expect(timeline.scrollTop).toBe(0);
+
+    rerender(
+      <div className='scrollable'>
+        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text' />
+      </div>,
+    );
+    setScrollMetrics(viewport, 120, 120);
+    expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
+    expect(viewport.getAttribute('aria-label')).toBeNull();
+  });
+  it('does not steal multi-touch gestures from browser zoom', () => {
+    const { container } = render(
+      <div className='scrollable'>
+        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
+          <p>Long text</p>
+        </TimelineCardBody>
+      </div>,
+    );
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+    const timeline = container.querySelector('.scrollable');
+    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
+    setScrollMetrics(viewport, 400, 120);
+
+    fireEvent.touchStart(viewport, { touches: [{ clientX: 270, clientY: 100 }] });
+    fireEvent.touchStart(viewport, { touches: [
+      { clientX: 270, clientY: 100 }, { clientX: 100, clientY: 100 },
+    ] });
+    fireEvent.touchMove(viewport, { touches: [
+      { clientX: 270, clientY: 20 }, { clientX: 100, clientY: 100 },
+    ] });
+    fireEvent.touchMove(viewport, { touches: [{ clientX: 270, clientY: 10 }] });
+    expect(timeline.scrollTop).toBe(0);
+  });
+
+  it('forwards a wheel to the document scroller when the timeline is document-bound', () => {
+    const { container } = render(
+      <div className='scrollable scrollable--document'>
+        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
+          <p>Long text</p>
+        </TimelineCardBody>
+      </div>,
+    );
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
+    setScrollMetrics(viewport, 400, 120);
+
+    const host = document.scrollingElement || document.body;
+    const before = host.scrollTop;
+    expect(fireEvent.wheel(viewport, { deltaY: 33, deltaX: 0, clientX: 250, clientY: 10 })).toBe(false);
+    expect(host.scrollTop).toBe(before + 33);
+    host.scrollTop = before;
+  });
+
+  it('continues a vertical fling after the touch ends and cancels on new contact', () => {
+    const originalRequest = window.requestAnimationFrame;
+    const originalCancel = window.cancelAnimationFrame;
+    let pending;
+    window.requestAnimationFrame = callback => {
+      pending = callback;
+      return 1;
+    };
+    window.cancelAnimationFrame = jest.fn();
+
+    try {
+      const { container, unmount } = render(
+        <div className='scrollable'>
+          <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
+            <p>Long text</p>
+          </TimelineCardBody>
+        </div>,
+      );
+      const viewport = container.querySelector('.timeline-card__body-scroll');
+      const timeline = container.querySelector('.scrollable');
+      viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
+      setScrollMetrics(viewport, 400, 120);
+
+      fireEvent.touchStart(viewport, { touches: [{ clientX: 270, clientY: 100 }] });
+      fireEvent.touchMove(viewport, { touches: [{ clientX: 270, clientY: 40 }] });
+      const before = timeline.scrollTop;
+      fireEvent.touchEnd(viewport, { touches: [] });
+      expect(typeof pending).toBe('function');
+      act(() => pending(performance.now() + 16));
+      expect(timeline.scrollTop).toBeGreaterThan(before);
+
+      fireEvent.touchStart(viewport, { touches: [{ clientX: 270, clientY: 100 }] });
+      expect(window.cancelAnimationFrame).toHaveBeenCalledWith(1);
+      unmount();
+    } finally {
+      window.requestAnimationFrame = originalRequest;
+      window.cancelAnimationFrame = originalCancel;
+    }
+  });
+
 });

@@ -9,6 +9,10 @@ import {
   MEDIA_SIZES,
   MEDIA_VISIBILITY,
   defaultMediaVisibility,
+  defaultMediaShape,
+  defaultMediaSize,
+  normalizeMediaShape,
+  normalizeMediaSize,
   mediaIsConcealed,
   mediaAspectRatio,
   mediaColumnsForWidth,
@@ -21,6 +25,17 @@ describe('local media presentation', () => {
     expect(MEDIA_SIZES).toEqual(['small', 'medium', 'large', 'max']);
     expect(MEDIA_VISIBILITY).toEqual(['hide_sensitive', 'show_all', 'hide_all']);
     expect(defaultMediaVisibility()).toBe('hide_sensitive');
+  });
+
+  it('falls back to square and small for missing or unknown saved defaults', () => {
+    expect(defaultMediaShape()).toBe('square');
+    expect(defaultMediaSize()).toBe('small');
+    expect(normalizeMediaShape('original')).toBe('original');
+    expect(normalizeMediaShape('circle')).toBe('square');
+    expect(normalizeMediaShape(undefined)).toBe('square');
+    expect(normalizeMediaSize('max')).toBe('max');
+    expect(normalizeMediaSize('huge')).toBe('small');
+    expect(normalizeMediaSize(null)).toBe('small');
   });
 
   it.each([

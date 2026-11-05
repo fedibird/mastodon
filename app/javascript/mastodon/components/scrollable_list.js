@@ -14,7 +14,7 @@ import LoadingIndicator from './loading_indicator';
 import TimelineMasonry from './timeline_masonry';
 import MediaDisplayControls from './media_display_controls';
 import MediaItemsLayout from './media_items_layout';
-import { defaultMediaVisibility } from 'mastodon/utils/media_display';
+import { defaultMediaShape, defaultMediaSize, defaultMediaVisibility } from 'mastodon/utils/media_display';
 import { mediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
 import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { connect } from 'react-redux';
@@ -101,8 +101,9 @@ class ScrollableList extends PureComponent {
   state = {
     fullscreen: null,
     cachedMediaWidth: 250, // Default media/card width using default Mastodon theme
-    mediaShape: 'square',
-    mediaSize: 'small',
+    // Saved appearance defaults. Toolbar changes stay on this screen.
+    mediaShape: defaultMediaShape(),
+    mediaSize: defaultMediaSize(),
     mediaVisibility: defaultMediaVisibility(),
     mediaRevealSource: `${this.props.layoutMode}:${this.props.mediaTimelineId || this.props.scrollKey}`,
     revealedMediaKeys: new Set(),
@@ -1068,7 +1069,7 @@ class ScrollableList extends PureComponent {
 
     if (showLoading) {
       scrollableArea = (
-        <div className='scrollable scrollable--flex' ref={this.setRef}>
+        <div className={classNames('scrollable scrollable--flex', { 'scrollable--document': this.props.bindToDocument })} ref={this.setRef}>
           <div role='feed' className='item-list'>
             {prepend}
             {mediaControls}
@@ -1081,7 +1082,7 @@ class ScrollableList extends PureComponent {
       );
     } else if (isLoading || childrenCount > 0 || numPending > 0 || hasMore || showNewer || !emptyMessage) {
       scrollableArea = (
-        <div className={classNames('scrollable', { fullscreen })} ref={this.setRef} onMouseMove={this.handleMouseMove}>
+        <div className={classNames('scrollable', { fullscreen, 'scrollable--document': this.props.bindToDocument })} ref={this.setRef} onMouseMove={this.handleMouseMove}>
           <div role='feed' className='item-list'>
             {prepend}
 
@@ -1101,7 +1102,7 @@ class ScrollableList extends PureComponent {
       );
     } else {
       scrollableArea = (
-        <div className={classNames('scrollable scrollable--flex', { fullscreen })} ref={this.setRef}>
+        <div className={classNames('scrollable scrollable--flex', { fullscreen, 'scrollable--document': this.props.bindToDocument })} ref={this.setRef}>
           {alwaysPrepend && prepend}
           {mediaControls}
 

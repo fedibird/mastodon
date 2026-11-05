@@ -387,16 +387,16 @@ describe('compact card reaction placement', () => {
     expect(container.querySelector('.timeline-card__author-actions [data-compact-card-mode="reactions"]')).not.toBeNull();
   });
 
-  it('keeps an independent reactions row with plus when a visible reaction exists', () => {
+  it('keeps plus next to favourite and the reaction list in its own row', () => {
     const reacted = properStatus.set('emoji_reactions', fromJS([{ name: ':test:', count: 2 }]));
     const { container } = renderTimeline(reacted, { layoutMode: 'card-3' });
     const actions = container.querySelector('.timeline-card__author-actions');
     const reactions = container.querySelector('.timeline-card__reactions');
 
-    expect(Array.from(actions.querySelectorAll('[data-compact-card-mode]')).map(item => item.dataset.compactCardMode)).toEqual(['favourite']);
+    expect(Array.from(actions.querySelectorAll('[data-compact-card-mode]')).map(item => item.dataset.compactCardMode)).toEqual(['favourite', 'reactions']);
     expect(reactions).not.toBeNull();
     expect(reactions.querySelector('[data-testid="emoji-reaction-bar"]')).not.toBeNull();
-    expect(reactions.querySelector('[data-compact-card-mode="reactions"]')).not.toBeNull();
+    expect(reactions.querySelector('[data-compact-card-mode="reactions"]')).toBeNull();
   });
 });
 

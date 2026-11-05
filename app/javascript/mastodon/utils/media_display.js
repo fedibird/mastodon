@@ -1,4 +1,4 @@
-import { displayMedia } from 'mastodon/initial_state';
+import { displayMedia, mediaDisplayShape, mediaDisplaySize } from 'mastodon/initial_state';
 
 export const MEDIA_SHAPES = ['square', 'original'];
 export const MEDIA_SIZES = ['small', 'medium', 'large', 'max'];
@@ -7,6 +7,18 @@ export const MEDIA_VISIBILITY = ['hide_sensitive', 'show_all', 'hide_all'];
 export const defaultMediaVisibility = () => (
   displayMedia === 'show_all' || displayMedia === 'hide_all' ? displayMedia : 'hide_sensitive'
 );
+
+export const normalizeMediaShape = value => (
+  MEDIA_SHAPES.includes(value) ? value : 'square'
+);
+
+export const normalizeMediaSize = value => (
+  MEDIA_SIZES.includes(value) ? value : 'small'
+);
+
+// Appearance defaults. A screen toolbar may override them locally.
+export const defaultMediaShape = () => normalizeMediaShape(mediaDisplayShape);
+export const defaultMediaSize = () => normalizeMediaSize(mediaDisplaySize);
 
 // A view-only policy; never writes to the user's persistent media preferences.
 export const mediaIsConcealed = (visibility, sensitive, revealed = false) => {

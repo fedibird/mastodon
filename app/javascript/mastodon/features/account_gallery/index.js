@@ -14,7 +14,7 @@ import { accountGalleryAttachments } from 'mastodon/selectors';
 import { List as ImmutableList } from 'immutable';
 import AccountMediaItems from './components/media_items';
 import MediaDisplayControls from 'mastodon/components/media_display_controls';
-import { defaultMediaVisibility } from 'mastodon/utils/media_display';
+import { defaultMediaShape, defaultMediaSize, defaultMediaVisibility } from 'mastodon/utils/media_display';
 import { accountMediaRevealKey, accountMediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
 import HeaderContainer from '../account_timeline/containers/header_container';
 import ScrollContainer from 'mastodon/containers/scroll_container';
@@ -75,8 +75,9 @@ class AccountGallery extends ImmutablePureComponent {
   };
 
   state = {
-    mediaShape: 'square',
-    mediaSize: 'small',
+    // Saved appearance defaults. Toolbar changes stay on this screen.
+    mediaShape: defaultMediaShape(),
+    mediaSize: defaultMediaSize(),
     mediaVisibility: defaultMediaVisibility(),
     tagged: null,
     revealedMediaIds: new Set(),

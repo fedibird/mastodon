@@ -63,6 +63,9 @@ class UserSettingsDecorator
     trends
     crop_images
     crop_card_images
+    card_reactions_single_line
+    card_collapse_long_text
+    card_timeline_scroll_zone
     confirm_domain_block
     show_follow_button_on_timeline
     show_subscribe_button_on_timeline
@@ -164,6 +167,8 @@ class UserSettingsDecorator
     default_column_width
     default_expires_in
     default_expires_action
+    media_display_shape
+    media_display_size
     prohibited_visibilities
     prohibited_words
     max_frequently_used_emojis
@@ -227,6 +232,10 @@ class UserSettingsDecorator
       TranslationPreferences.normalize_preferred_mode(value)
     when 'show_translation_bar'
       TranslationPreferences.normalize_visibility(value, user.setting_new_features_policy)
+    when 'media_display_shape'
+      MediaDisplayPreference.shape(value)
+    when 'media_display_size'
+      MediaDisplayPreference.size(value)
     else
       value
     end

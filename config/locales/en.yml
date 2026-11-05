@@ -1649,6 +1649,9 @@ en:
       guide_link_text: Everyone can contribute.
     preview_card: Preview Card
     sensitive_content: Sensitive content
+    standard_status_display: Standard posts
+    card_display: Cards
+    media_display: Media
     themes: Themes
     toot_layout: Post layout
     translation: Translation

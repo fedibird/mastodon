@@ -44,6 +44,49 @@ RSpec.describe InitialStateSerializer do
     )
   end
 
+  it 'exposes card text, reaction, and media display defaults, including invalid fallbacks' do
+    user = Fabricate(:user)
+
+    expect(serialize(user.account)[:meta]).to include(
+      card_reactions_single_line: true,
+      card_collapse_long_text: true,
+      card_timeline_scroll_zone: true,
+      media_display_shape: 'square',
+      media_display_size: 'small'
+    )
+    expect(serialize(nil)[:meta]).to include(
+      card_reactions_single_line: true,
+      card_collapse_long_text: true,
+      card_timeline_scroll_zone: true,
+      media_display_shape: 'square',
+      media_display_size: 'small'
+    )
+
+    user.settings.card_reactions_single_line = false
+    user.settings.card_collapse_long_text = false
+    user.settings.card_timeline_scroll_zone = true
+    user.settings.media_display_shape = 'original'
+    user.settings.media_display_size = 'max'
+    user.save!
+    expect(serialize(user.account)[:meta]).to include(
+      card_reactions_single_line: false,
+      card_collapse_long_text: false,
+      card_timeline_scroll_zone: true,
+      media_display_shape: 'original',
+      media_display_size: 'max'
+    )
+
+    user.settings.media_display_shape = 'circle'
+    user.settings.media_display_size = 'huge'
+    user.save!
+    clear_direct_setting_cache(user, 'media_display_shape')
+    clear_direct_setting_cache(user, 'media_display_size')
+    expect(serialize(user.account)[:meta]).to include(
+      media_display_shape: 'square',
+      media_display_size: 'small'
+    )
+  end
+
   it 'includes language display names for the WebUI' do
     json = serialize(Fabricate(:user).account)
     english = json[:languages].find { |language| language[0] == 'en' }

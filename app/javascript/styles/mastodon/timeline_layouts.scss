@@ -182,10 +182,6 @@
     // its CW and trailing hashtag badges) is capped at ten normal text lines.
     // Match .status__content's line-height plus its 2px top padding.
     max-height: calc(var(--content-font-size, 15px) * 13.3 + 2px);
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
 
     &:focus-visible {
       outline: 2px solid $ui-highlight-color;
@@ -193,10 +189,23 @@
     }
   }
 
-  &__body--expanded &__body-scroll {
+  // The viewport only becomes a nested scrolling container when its content
+  // exceeds the ten-line cap. Short posts must let wheel/touch scroll the feed.
+  &__body--scrollable &__body-scroll {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  &__body--expanded &__body-scroll,
+  &__body--natural &__body-scroll {
     max-height: none;
     overflow: visible;
   }
+
+  // The inline-end third is handled through wheel/touch hit testing in
+  // TimelineCardBody. It has no visible divider or overlay to intercept links.
 
   &__expand {
     display: block;
@@ -344,14 +353,59 @@
 
   &__reactions {
     display: flex;
-    gap: 4px;
-    align-items: center;
-    flex-wrap: wrap;
+    gap: 2px;
+    align-items: flex-start;
     padding: 2px 7px 8px;
     min-width: 0;
 
-    .reactions-bar { flex: 1; min-width: 0; }
-    .timeline-card__reaction-add { margin-inline-start: auto; }
+    .reactions-bar {
+      flex: 1 1 auto;
+      min-width: 0;
+      margin-top: 0;
+    }
+  }
+
+  &__reactions-scroll {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  &__reactions--single &__reactions-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+    touch-action: auto;
+
+    &:focus-visible {
+      outline: 2px solid $ui-highlight-color;
+      outline-offset: -2px;
+    }
+  }
+
+  &__reactions--single &__reactions-track {
+    width: max-content;
+  }
+
+  &__reactions--single .emoji-reactions-bar.reactions-bar {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    width: max-content;
+    max-width: none;
+    margin-top: 0;
+  }
+
+  &__reactions--wrapped .emoji-reactions-bar.reactions-bar {
+    flex-wrap: wrap;
+    width: auto;
+    margin-top: 0;
+  }
+
+  &__reactions-expand {
+    flex: 0 0 auto;
+    align-self: center;
+    margin: 0;
   }
 }
 

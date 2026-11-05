@@ -100,11 +100,24 @@
     = f.input :setting_heart_avatar, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
     = f.input :setting_burst_avatar, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
 
-  %h4= t 'appearance.toot_layout'
+  %h4= t 'appearance.standard_status_display'
 
   .fields-group
     = f.input :setting_crop_images, as: :boolean, wrapper: :with_label
+
+  %h4= t 'appearance.card_display'
+
+  .fields-group
     = f.input :setting_crop_card_images, as: :boolean, wrapper: :with_label
+    = f.input :setting_card_reactions_single_line, as: :boolean, wrapper: :with_label, hint: true
+    = f.input :setting_card_collapse_long_text, as: :boolean, wrapper: :with_label, hint: true
+    = f.input :setting_card_timeline_scroll_zone, as: :boolean, wrapper: :with_label, hint: true
+
+  %h4= t 'appearance.media_display'
+
+  .fields-group
+    = f.input :setting_media_display_shape, collection: %w(square original), label_method: lambda { |item| t("simple_form.hints.defaults.setting_media_display_shape_#{item}") }, wrapper: :with_label, include_blank: false, hint: true
+    = f.input :setting_media_display_size, collection: %w(small medium large max), label_method: lambda { |item| t("simple_form.hints.defaults.setting_media_display_size_#{item}") }, wrapper: :with_label, include_blank: false, hint: true
 
   %h4= t 'appearance.discovery'
 
