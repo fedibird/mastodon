@@ -251,7 +251,6 @@ describe('TimelineCardBody', () => {
       expect(viewport.scrollTop).toBe(0);
     });
 
-
     it('ignores interactive ancestors outside the body but not buttons inside it', () => {
       const { container, viewport } = collapsedBody(
         <div>
