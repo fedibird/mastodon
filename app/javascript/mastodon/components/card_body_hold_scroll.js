@@ -193,6 +193,7 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
     const onContextMenu = event => {
       if (press && press.active) {
         event.preventDefault();
+        event.stopPropagation();
       }
     };
 
