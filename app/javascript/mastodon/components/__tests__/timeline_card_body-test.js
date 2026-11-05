@@ -193,9 +193,9 @@ describe('TimelineCardBody', () => {
 
 
     it('does not attach document-wide mouse listeners until a press starts', () => {
+      const { viewport } = collapsedBody();
       const addListener = jest.spyOn(document, 'addEventListener');
       try {
-        const { viewport } = collapsedBody();
         expect(addListener.mock.calls.filter(([name]) => name === 'mousemove')).toHaveLength(0);
         expect(addListener.mock.calls.filter(([name]) => name === 'mouseup')).toHaveLength(0);
 
@@ -221,6 +221,30 @@ describe('TimelineCardBody', () => {
       expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
       fireEvent.click(viewport);
       expect(onCard).not.toHaveBeenCalled();
+    });
+
+    it('releases an active hold if the window loses focus', () => {
+      const { container, viewport } = collapsedBody();
+      fireEvent.mouseDown(viewport, { button: 0, clientX: 20, clientY: 100 });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
+
+      fireEvent(window, new Event('blur'));
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+    });
+
+    it('yields when the browser marks a touchmove noncancelable', () => {
+      const { container, viewport } = collapsedBody();
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 20, clientY: 100 }] });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
+
+      const event = new Event('touchmove', { bubbles: true, cancelable: false });
+      Object.defineProperty(event, 'touches', { value: [{ identifier: 1, clientX: 20, clientY: 60 }] });
+      viewport.dispatchEvent(event);
+
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+      expect(viewport.scrollTop).toBe(0);
     });
 
     it('leaves link clicks intact and does not arm from interactive descendants', () => {
