@@ -122,6 +122,32 @@ describe('streaming masonry upward-frontier placement', () => {
     expect(combined.placeholders).toEqual(after.placeholders);
   });
 
+  it('continues filling all columns over many arrivals instead of sticking to end-bottom', () => {
+    const assigned = new Map();
+    let newestFirst = [];
+    let lastOverflow = 0;
+    const used = [0, 0, 0];
+
+    for (let i = 0; i < 90; i += 1) {
+      const key = 'arrival-' + i;
+      newestFirst = [key, ...newestFirst];
+      const planned = planMasonryPrependFrontier(
+        3, newestFirst, assigned,
+        id => id.startsWith('arrival-') ? 65 + (Number(id.slice(8)) * 71) % 301 : 100,
+      );
+
+      expect(planned.height).toBeGreaterThanOrEqual(lastOverflow);
+      lastOverflow = planned.height;
+      used[assigned.get(key)] += 1;
+    }
+
+    // The selected columns should keep changing even after the initial
+    // shared headroom has been used. With fixed heights, older assignments
+    // remain stable while new headroom is shared among all three columns.
+    expect(used.every(count => count > 0)).toBe(true);
+    expect(Math.max(...used) - Math.min(...used)).toBeLessThan(5);
+  });
+
   it('uses independent headroom around a full-width gap barrier', () => {
     const assigned = new Map();
     const result = plan(['latest', 'gap:123', 'media:1:0'], assigned);
