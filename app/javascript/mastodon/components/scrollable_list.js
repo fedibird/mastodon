@@ -12,7 +12,7 @@ import classNames from 'classnames';
 import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from '../features/ui/util/fullscreen';
 import LoadingIndicator from './loading_indicator';
 import TimelineMasonry from './timeline_masonry';
-import { leadingMasonryPrefixKeys, reconcileMasonryPrepends } from 'mastodon/utils/timeline_masonry_layout';
+import { findVisibleMasonryTile, leadingMasonryPrefixKeys, reconcileMasonryPrepends } from 'mastodon/utils/timeline_masonry_layout';
 import MediaDisplayControls from './media_display_controls';
 import MediaItemsLayout from './media_items_layout';
 import { defaultMediaShape, defaultMediaSize, defaultMediaVisibility } from 'mastodon/utils/media_display';
@@ -592,26 +592,8 @@ class ScrollableList extends PureComponent {
       ? (window.innerHeight || this.getClientHeight())
       : this.getClientHeight();
     const visibleBottom = visibleTop + viewportHeight;
-    let best = null;
-
-    this.node.querySelectorAll('.timeline-masonry > .timeline-masonry__item[data-layout-key]').forEach(node => {
-      const key = node.getAttribute('data-layout-key');
-      const box = node.getBoundingClientRect();
-      if (!key || box.bottom <= visibleTop || box.top >= visibleBottom || box.height <= 0) {
-        return;
-      }
-
-      // Prefer an item covering the reading edge, then the nearest item
-      // below it. Do not select the first matching item in DOM order.
-      const coversEdge = box.top <= visibleTop;
-      const distance = coversEdge ? visibleTop - box.top : box.top - visibleTop;
-      if (!best || (coversEdge && !best.coversEdge) ||
-          (coversEdge === best.coversEdge && distance < best.distance)) {
-        best = { key, top: box.top, coversEdge, distance };
-      }
-    });
-
-    return best ? { key: best.key, top: best.top } : null;
+    const tile = findVisibleMasonryTile(this.node, visibleTop, visibleBottom);
+    return tile ? { key: tile.key, top: tile.top } : null;
   }
 
   restoreMasonryItemAnchor (snapshot) {
