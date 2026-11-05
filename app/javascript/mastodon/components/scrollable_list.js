@@ -553,6 +553,10 @@ class ScrollableList extends PureComponent {
       if (anchor) {
         return { masonryAnchor: true, ...anchor };
       }
+
+      // A height-delta fallback would be incorrect for independently moving
+      // columns. If nothing in the masonry is visible, leave the scroller as is.
+      return null;
     }
 
     if (pendingChanged || someItemInserted && (this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll)) {
