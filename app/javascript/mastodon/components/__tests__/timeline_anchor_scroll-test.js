@@ -295,7 +295,7 @@ describe('ScrollableList timeline anchor', () => {
         return { ...rect(0, 0), width: 590, right: 590 };
       }
       if (this.classList.contains('timeline-masonry__item')) {
-        const match = this.style.transform.match(/translate3d\\(0, ([\\d.]+)px, 0\\)/);
+        const match = this.style.transform.match(/translate3d\(0, ([\d.]+)px, 0\)/);
         const y = match ? Number(match[1]) : 0;
         const scroller = this.closest('.scrollable');
         const id = this.querySelector('article[data-id]')?.getAttribute('data-id');
@@ -357,7 +357,6 @@ describe('ScrollableList timeline anchor', () => {
       window.dispatchEvent(new Event('resize'));
     });
     expect(list.scrollTop).toBe(0);
-
   });
 
   it('scrolls one inner list to a loaded id and leaves the sibling list alone', () => {
