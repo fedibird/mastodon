@@ -154,6 +154,41 @@ describe('ScrollableList timeline anchor', () => {
     expect(restore).toHaveBeenCalledWith({ masonryAnchor: true, key: '.$90', top: 80 });
   });
 
+  it('keeps a split reading surface anchored at local zero when a bounded window replaces its oldest item', () => {
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'split-history',
+      layoutMode: 'card-3',
+      readingSurface: true,
+      windowedHistory: true,
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['f-pinned', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 0;
+
+    const capture = jest.spyOn(ref.current, 'captureVisibleMasonryItem').mockReturnValue({ key: '.$100', top: 60 });
+    const restore = jest.spyOn(ref.current, 'restoreMasonryItemAnchor').mockImplementation(() => {});
+
+    // Count and first child key stay the same. The new row is behind
+    // the fixed prefix while an old row falls off the bounded window.
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['f-pinned', '110', '100'])}</ScrollableList>
+      </Provider>,
+    );
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(restore).toHaveBeenCalledWith({ masonryAnchor: true, key: '.$100', top: 60 });
+  });
+
   it('selects the visual reading-edge tile, even with nonnumeric media keys and a different DOM order', () => {
     const ref = React.createRef();
     const { container } = render(
