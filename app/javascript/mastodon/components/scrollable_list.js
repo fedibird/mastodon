@@ -14,7 +14,7 @@ import LoadingIndicator from './loading_indicator';
 import TimelineMasonry from './timeline_masonry';
 import MediaDisplayControls from './media_display_controls';
 import MediaItemsLayout from './media_items_layout';
-import { defaultMediaVisibility } from 'mastodon/utils/media_display';
+import { defaultMediaShape, defaultMediaSize, defaultMediaVisibility } from 'mastodon/utils/media_display';
 import { mediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
 import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { connect } from 'react-redux';
@@ -101,8 +101,9 @@ class ScrollableList extends PureComponent {
   state = {
     fullscreen: null,
     cachedMediaWidth: 250, // Default media/card width using default Mastodon theme
-    mediaShape: 'square',
-    mediaSize: 'small',
+    // Saved appearance defaults. Toolbar changes stay on this screen.
+    mediaShape: defaultMediaShape(),
+    mediaSize: defaultMediaSize(),
     mediaVisibility: defaultMediaVisibility(),
     mediaRevealSource: `${this.props.layoutMode}:${this.props.mediaTimelineId || this.props.scrollKey}`,
     revealedMediaKeys: new Set(),

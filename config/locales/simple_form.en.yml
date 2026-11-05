@@ -61,6 +61,17 @@ en:
         searchability: This specification currently works as expected only in Fedibird. Regardless of what you specify, Mastodon uses "Reacted-users-only" behavior, external search sites often search only collected public posts, and Misskey searches all posts.
         setting_aggregate_reblogs: Do not show new boosts for posts that have been recently boosted (only affects newly-received boosts)
         setting_compact_reaction: Emoji reaction display to be only the number of cases, except for the detail display
+        setting_card_reactions_single_line: On cards, keep reactions on one line and show ▼ only when they overflow. Off uses the previous wrapped rows and no ▼. The add button stays next to favourite.
+        setting_card_collapse_long_text: When on, long card text scrolls within about ten lines and ▼ shows the rest. When off, the text uses its natural height.
+        setting_card_timeline_scroll_zone: While long card text is collapsed, the inline-end third scrolls the timeline. The inline-start two thirds scroll the text. In right-to-left layout the end is on the left.
+        setting_media_display_shape: Initial shape for media timelines and account media. Changing it on a screen does not save over this default.
+        setting_media_display_size: Initial size for media timelines and account media. Changing it on a screen does not save over this default.
+        setting_media_display_shape_square: Square
+        setting_media_display_shape_original: Original
+        setting_media_display_size_small: Small
+        setting_media_display_size_medium: Medium
+        setting_media_display_size_large: Large
+        setting_media_display_size_max: Maximum
         setting_confirm_follow_from_bot: Manually approve followers from bot accounts 
         setting_default_column_width_free: Free - Column width changes according to screen
         setting_default_column_width_x080: 80% - Fix to 80% of standard width
@@ -326,6 +337,11 @@ en:
         setting_content_font_size: Content font size
         setting_crop_images: Crop images in standard timeline posts (not post details) to 16:9
         setting_crop_card_images: Crop images in card views to 16:9
+        setting_card_reactions_single_line: Keep emoji reactions on one line
+        setting_card_collapse_long_text: Collapse long post text
+        setting_card_timeline_scroll_zone: Use a timeline-scroll zone instead of scrolling the post text
+        setting_media_display_shape: Default media shape
+        setting_media_display_size: Default media size
         setting_default_column_width: Default column width
         setting_default_expires_action: Default expiry action
         setting_default_expires_action_mark: Mark as expired

@@ -559,6 +559,7 @@ module SettingsServiceCatalog
       return 'translation' if TRANSLATION.include?(var) || var == 'new_features_policy'
       return 'privacy' if PRIVACY.include?(var)
       return 'safety' if %w[disable_post disable_reactions emoji_reaction_fallback_policy disable_follow disable_unfollow disable_block disable_domain_block disable_report disable_clear_all_notifications disable_account_delete prohibited_visibilities prohibited_words confirm_domain_block confirm_follow_from_bot unlocked_for_official_app].include?(var)
+      return 'appearance' if var.start_with?('card_') || var.start_with?('media_display_') || var == 'crop_card_images'
       return 'timelines' if var.include?('timeline') || var == 'aggregate_reblogs' || var == 'hide_bot_on_public_timeline'
       return 'reactions' if var.include?('reaction') || var.include?('emoji')
       return 'notifications' if var.end_with?('_modal')
@@ -740,6 +741,10 @@ module SettingsServiceCatalog
         'Stored as submitted, including nil for the language-detection option. The getter does not cascade. preferred_posting_language does.'
       when 'emoji_reaction_fallback_policy'
         'The safety form stores allow or deny only, and stores ask only when the reaction picker can confirm it. Any other submitted value is rejected and not coerced. A missing row, nil, and a stored value other than allow, ask, or deny read as allow and are not rewritten. GET /api/v1/fedibird/preferences publishes the effective value. PATCH and reset reject the key because it is not in UserPreferences::WriteContract::KEYS. write_policy read_only on the definition does not itself block a write.'
+      when 'media_display_shape'
+        'MediaDisplayPreference.shape keeps square and original. Any other submitted value is stored as square, and InitialState applies the same fallback when a row already holds another value.'
+      when 'media_display_size'
+        'MediaDisplayPreference.size keeps small, medium, large, and max. Any other submitted value is stored as small, and InitialState applies the same fallback when a row already holds another value.'
       when 'prohibited_words'
         'Stored as a string. InitialState and post services split on comma, strip, and drop blanks. The split array is not what is stored.'
       when 'prohibited_visibilities'
@@ -933,6 +938,9 @@ module SettingsServiceCatalog
       end
       if var == 'default_search_searchability'
         parts << 'InitialState search.default_searchability uses this user setting. InitialState compose.default_searchability uses accounts.searchability. The composer reducer default before hydrate is private. These are different values.'
+      end
+      if var.start_with?('card_') || var.start_with?('media_display_')
+        parts << 'Outside UserPreferences::Reader. The appearance form writes ScopedSettings through UserSettingsDecorator, and the WebUI reads InitialState after reload. Invalid media shape or size falls back to square or small. Toolbar changes on a media screen do not write these defaults.'
       end
       if var == 'emoji_reaction_fallback_policy'
         parts << 'High-risk because it can change an ActivityPub Like to the post server. It does not change follower fan-out, Undo, or a native EmojiReact. The safety form warns that enforcement is off until the server flag is on, and it does not offer ask while the picker dialog is absent. InitialState meta is the effective value.'

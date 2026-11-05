@@ -173,6 +173,7 @@
   }
 
   &__body {
+    position: relative;
     padding: 9px 10px;
     overflow-wrap: anywhere;
   }
@@ -193,9 +194,23 @@
     }
   }
 
-  &__body--expanded &__body-scroll {
+  &__body--expanded &__body-scroll,
+  &__body--natural &__body-scroll {
     max-height: none;
     overflow: visible;
+  }
+
+  // Visual only. Pointer events stay on the text so links, CW, and selection
+  // are unchanged. Wheel and touch in this third are handled on the scroller.
+  &__scroll-zone {
+    position: absolute;
+    z-index: 1;
+    inset-block: 0;
+    inset-inline-end: 0;
+    width: calc(100% / 3);
+    pointer-events: none;
+    border-inline-start: 1px dashed rgba($darker-text-color, 0.35);
+    background: linear-gradient(to inline-start, rgba($darker-text-color, 0.07), transparent 72%);
   }
 
   &__expand {
@@ -344,14 +359,59 @@
 
   &__reactions {
     display: flex;
-    gap: 4px;
-    align-items: center;
-    flex-wrap: wrap;
+    gap: 2px;
+    align-items: flex-start;
     padding: 2px 7px 8px;
     min-width: 0;
 
-    .reactions-bar { flex: 1; min-width: 0; }
-    .timeline-card__reaction-add { margin-inline-start: auto; }
+    .reactions-bar {
+      flex: 1 1 auto;
+      min-width: 0;
+      margin-top: 0;
+    }
+  }
+
+  &__reactions-scroll {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  &__reactions--single &__reactions-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+
+    &:focus-visible {
+      outline: 2px solid $ui-highlight-color;
+      outline-offset: -2px;
+    }
+  }
+
+  &__reactions--single &__reactions-track {
+    width: max-content;
+  }
+
+  &__reactions--single .emoji-reactions-bar.reactions-bar {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    width: max-content;
+    max-width: none;
+    margin-top: 0;
+  }
+
+  &__reactions--wrapped .emoji-reactions-bar.reactions-bar {
+    flex-wrap: wrap;
+    width: auto;
+    margin-top: 0;
+  }
+
+  &__reactions-expand {
+    flex: 0 0 auto;
+    align-self: center;
+    margin: 0;
   }
 }
 
