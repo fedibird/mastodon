@@ -189,6 +189,8 @@ module SettingsServiceCatalog
       end
     end
 
+    # A non-blank line can still be the wrong statement. The catalog test
+    # anchors the NotifyService, translation, and AdminSettings refs.
     def validate_source_refs(entries)
       entries.each do |entry|
         Array(entry['source_refs']).each do |ref|

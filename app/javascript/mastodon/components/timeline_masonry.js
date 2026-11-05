@@ -2,20 +2,97 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { timelineCardColumnsForWidth } from 'mastodon/utils/timeline_layout';
 import { mediaColumnsForWidth } from 'mastodon/utils/media_display';
-import { isFullWidthMasonryKey, reconcileMasonryPrependRows } from 'mastodon/utils/timeline_masonry_layout';
+import {
+  planMasonryPrependFrontier,
+  isFullWidthMasonryKey,
+  reconcileMasonryPrepends,
+} from 'mastodon/utils/timeline_masonry_layout';
 
 const GAP = 8;
 const ESTIMATED_HEIGHT = 190;
 
-// DOM order stays newest-first, independently of the physical columns.
-// Streaming prepends fill reserved rows end-to-start; existing card positions
-// only move together when the height of the reserved area changes.
+// A prepend is laid out above the existing feed instead of packing onto
+// the bottom of whichever old column happens to be shortest. The tallest
+// upward protrusion shifts ALL old columns down by the same amount; shorter
+// new columns reserve the remainder as placeholders that future arrivals use.
+const arrangeMasonry = (keys, prefixCount, prependCount, columns, availableWidth, measuredHeight, assignments) => {
+  const cellWidth = (availableWidth - GAP * (columns - 1)) / columns;
+  const bottoms = new Array(columns).fill(0);
+  const positions = new Map();
+
+  const place = key => {
+    const height = measuredHeight(key);
+
+    if (isFullWidthMasonryKey(key)) {
+      const top = Math.max(...bottoms);
+      bottoms.fill(top + height + GAP);
+      positions.set(key, { top, left: 0, width: availableWidth, fullWidth: true });
+      return;
+    }
+
+    let column = assignments.get(key);
+    if (column === undefined || column < 0 || column >= columns) {
+      // Initial loads and old-page appends retain the original Masonry rule.
+      column = bottoms.indexOf(Math.min(...bottoms));
+      assignments.set(key, column);
+    }
+
+    const top = bottoms[column];
+    bottoms[column] += height + GAP;
+    positions.set(key, { top, left: column * (cellWidth + GAP), width: cellWidth });
+  };
+
+  keys.slice(0, prefixCount).forEach(place);
+
+  // Pinned statuses/reload controls always stay above incoming live content.
+  const liveTop = Math.max(...bottoms);
+  const prependedKeys = keys.slice(prefixCount, prefixCount + prependCount);
+  const prepend = planMasonryPrependFrontier(columns, prependedKeys, assignments, measuredHeight, GAP);
+
+  // A common boundary protects the original cards and their column offsets.
+  // Adding a tile inside an existing placeholder does not move older cards.
+  bottoms.fill(liveTop + prepend.height);
+  keys.slice(prefixCount + prependCount).forEach(place);
+
+  prependedKeys.forEach(key => {
+    const item = prepend.positions.get(key);
+    if (item.fullWidth) {
+      positions.set(key, {
+        top: liveTop + item.top, left: 0, width: availableWidth, fullWidth: true,
+      });
+    } else {
+      positions.set(key, {
+        top: liveTop + item.top,
+        left: item.column * (cellWidth + GAP),
+        width: cellWidth,
+      });
+    }
+  });
+
+  const placeholders = prepend.placeholders.map(blank => ({
+    ...blank,
+    top: liveTop + blank.top,
+    left: blank.column * (cellWidth + GAP),
+    width: cellWidth,
+  }));
+
+  return {
+    positions,
+    placeholders,
+    height: keys.length ? Math.max(...bottoms) - GAP : 0,
+  };
+};
+
+// Keep DOM/keyboard order newest-first; only new item positions and headroom
+// placeholders change on a streaming prepend.
 export default class TimelineMasonry extends React.PureComponent {
 
   static propTypes = {
     children: PropTypes.node,
     mode: PropTypes.string.isRequired,
     mediaSize: PropTypes.string,
+    onCaptureLayoutAnchor: PropTypes.func,
+    onRestoreLayoutAnchor: PropTypes.func,
   };
 
   state = { width: 0, heights: {} };
@@ -24,8 +101,8 @@ export default class TimelineMasonry extends React.PureComponent {
   columns = 0;
   layoutVariant = null;
   previousKeys = [];
-  prependRows = [];
   prefixKeys = [];
+  prependKeys = [];
 
   setRoot = node => {
     this.root = node;
@@ -40,8 +117,28 @@ export default class TimelineMasonry extends React.PureComponent {
     this.observe();
   }
 
-  componentDidUpdate () {
+  // A late image load, CW expansion, or ResizeObserver measurement changes
+  // this component's own state, without updating ScrollableList's props.
+  // Capture its visible tile *before* the new transforms are committed.
+  getSnapshotBeforeUpdate (prevProps, prevState) {
+    const sizeChanged = prevState.width !== this.state.width ||
+      prevState.heights !== this.state.heights ||
+      prevProps.mode !== this.props.mode ||
+      prevProps.mediaSize !== this.props.mediaSize;
+
+    return sizeChanged && this.props.onCaptureLayoutAnchor
+      ? this.props.onCaptureLayoutAnchor()
+      : null;
+  }
+
+  componentDidUpdate (prevProps, prevState, snapshot) {
     this.observe();
+
+    // Parent list prepends use their own snapshot; this path complements them
+    // for measurements arriving *after* that short correction window.
+    if (snapshot && this.props.onRestoreLayoutAnchor) {
+      this.props.onRestoreLayoutAnchor(snapshot);
+    }
   }
 
   componentWillUnmount () {
@@ -106,8 +203,6 @@ export default class TimelineMasonry extends React.PureComponent {
       return;
     }
 
-    // Empty placeholders reserve space, but only actual cards have heights
-    // to measure. Do not observe the placeholders as stream events arrive.
     const nodes = new Set([this.root, ...Array.from(this.root.children).filter(node => node.hasAttribute('data-layout-key'))]);
     this.observed.forEach(node => {
       if (!nodes.has(node)) {
@@ -135,151 +230,62 @@ export default class TimelineMasonry extends React.PureComponent {
     }
     const variant = this.props.mode + ':' + (this.props.mediaSize || '');
 
-    // Resize, mode and size changes are explicit re-layouts. A streaming
-    // prepend within the same layout is not: keep existing columns intact.
+    // Explicit resizing and layout changes may start fresh; streaming new
+    // items must never move previously assigned items horizontally.
     if (this.columns !== columns || this.layoutVariant !== variant) {
       this.columns = columns;
       this.layoutVariant = variant;
       this.assignments.clear();
       this.previousKeys = [];
-      this.prependRows = [];
       this.prefixKeys = [];
+      this.prependKeys = [];
     }
 
     const keys = children.map(child => String(child.key));
-    const existing = new Set(keys);
-    const prependPlan = reconcileMasonryPrependRows(columns, this.previousKeys, keys, this.prependRows, this.prefixKeys);
-    const previousKeySet = new Set(this.previousKeys);
-    const survivingPrevious = this.previousKeys.filter(key => existing.has(key));
-    const survivingCurrent = keys.filter(key => previousKeySet.has(key));
-    const reordered = survivingPrevious.some((key, index) => key !== survivingCurrent[index]);
-    const prefixChanged = this.prefixKeys.length !== prependPlan.prefixKeys.length ||
-      this.prefixKeys.some((key, index) => key !== prependPlan.prefixKeys[index]);
+    const plan = reconcileMasonryPrepends(this.previousKeys, keys, this.prefixKeys);
 
-    if (reordered || prefixChanged || (this.previousKeys.length > 0 && survivingPrevious.length === 0)) {
-      // A changed timeline identity requires fresh original-column placement.
+    if (plan.reset) {
       this.assignments.clear();
+      this.prependKeys = [];
     }
 
-    this.prependRows = prependPlan.rows;
-    this.prefixKeys = prependPlan.prefixKeys;
-    this.previousKeys = keys;
-
+    const existing = new Set(keys);
     this.assignments.forEach((_, key) => {
       if (!existing.has(key)) {
         this.assignments.delete(key);
       }
     });
 
-    const cellWidth = (availableWidth - GAP * (columns - 1)) / columns;
-    const arrangements = new Map();
-    const placeholders = [];
+    // Only the contiguous portion immediately below the fixed prefix is
+    // part of the upward-growing area. A middle insertion is an old-page
+    // change, not another streaming prepend.
+    const prepended = new Set([...this.prependKeys, ...plan.prependedKeys]);
+    this.prependKeys = [];
+    for (const key of keys.slice(plan.prefixKeys.length)) {
+      if (!prepended.has(key)) {
+        break;
+      }
+      this.prependKeys.push(key);
+    }
+
     const measuredHeight = key => this.state.heights[key] || ESTIMATED_HEIGHT;
-    const prefixKeySet = new Set(this.prefixKeys);
-    const prefixBottoms = new Array(columns).fill(0);
+    const { positions, placeholders, height } = arrangeMasonry(
+      keys, plan.prefixKeys.length, this.prependKeys.length,
+      columns, availableWidth, measuredHeight, this.assignments,
+    );
 
-    // Featured/reload controls remain at the top. Build their positions once
-    // and reserve a full-width boundary underneath before streaming rows.
-    children.forEach(child => {
-      const key = String(child.key);
-      if (!prefixKeySet.has(key)) {
-        return;
-      }
-
-      const height = measuredHeight(key);
-      if (isFullWidthMasonryKey(key)) {
-        const top = Math.max(...prefixBottoms);
-        prefixBottoms.fill(top + height + GAP);
-        arrangements.set(key, { top, left: 0, width: availableWidth, fullWidth: true });
-        return;
-      }
-
-      let column = this.assignments.get(key);
-      if (column === undefined || column >= columns) {
-        column = prefixBottoms.indexOf(Math.min(...prefixBottoms));
-        this.assignments.set(key, column);
-      }
-      const top = prefixBottoms[column];
-      prefixBottoms[column] += height + GAP;
-      arrangements.set(key, { top, left: column * (cellWidth + GAP), width: cellWidth });
-    });
-
-    let reservedTop = Math.max(...prefixBottoms);
-
-    this.prependRows.forEach((row, index) => {
-      if (row.kind === 'full') {
-        arrangements.set(row.key, {
-          top: reservedTop,
-          left: 0,
-          width: availableWidth,
-          fullWidth: true,
-        });
-        reservedTop += measuredHeight(row.key) + GAP;
-        return;
-      }
-
-      const rowHeight = Math.max(1, ...row.slots.filter(Boolean).map(measuredHeight));
-
-      row.slots.forEach((key, column) => {
-        const left = column * (cellWidth + GAP);
-        const itemHeight = key ? measuredHeight(key) : 0;
-
-        if (key) {
-          arrangements.set(key, { top: reservedTop, left, width: cellWidth });
-        }
-
-        // Blank cells and the space below short tiles are real, inert
-        // placeholders. No existing card needs to be rebalanced to fill them.
-        if (rowHeight - itemHeight > 1) {
-          placeholders.push({
-            key: index + ':' + column,
-            top: reservedTop + itemHeight,
-            left,
-            width: cellWidth,
-            height: rowHeight - itemHeight,
-          });
-        }
-      });
-
-      reservedTop += rowHeight + GAP;
-    });
-
-    const bottoms = new Array(columns).fill(reservedTop);
-
-    children.forEach(child => {
-      const key = String(child.key);
-      if (arrangements.has(key)) {
-        return;
-      }
-
-      const fullWidth = isFullWidthMasonryKey(key);
-      const height = measuredHeight(key);
-
-      if (fullWidth) {
-        const top = Math.max(...bottoms);
-        bottoms.fill(top + height + GAP);
-        arrangements.set(key, { top, left: 0, width: availableWidth, fullWidth });
-        return;
-      }
-
-      let column = this.assignments.get(key);
-      if (column === undefined || column >= columns) {
-        column = bottoms.indexOf(Math.min(...bottoms));
-        this.assignments.set(key, column);
-      }
-
-      const top = bottoms[column];
-      bottoms[column] += height + GAP;
-      arrangements.set(key, { top, left: column * (cellWidth + GAP), width: cellWidth });
-    });
-
-    const height = Math.max(0, ...bottoms) - (children.length ? GAP : 0);
+    this.previousKeys = keys;
+    this.prefixKeys = plan.prefixKeys;
 
     return (
-      <div ref={this.setRoot} className='timeline-masonry' style={{ height: Math.max(0, height) }}>
+      <div
+        ref={this.setRoot}
+        className={this.props.onCaptureLayoutAnchor ? 'timeline-masonry timeline-masonry--managed-anchor' : 'timeline-masonry'}
+        style={{ height: Math.max(0, height) }}
+      >
         {children.map(child => {
           const key = String(child.key);
-          const { top, left, width: itemWidth, fullWidth } = arrangements.get(key);
+          const { top, left, width: itemWidth, fullWidth } = positions.get(key);
 
           return (
             <div
