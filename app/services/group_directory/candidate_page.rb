@@ -47,12 +47,14 @@ class GroupDirectory::CandidatePage
 
       scanned += hits.size
       visible.concat(GroupDirectory::Visibility.keep(viewer: @viewer, ids: fresh.map { |hit| hit[:id] }, parsed: @parsed))
+      GroupDirectory::SearchBudget.checkpoint!
       cursor = hits.last[:sort]
       exhausted = hits.size < size
     end
 
     raise_cap!(scanned) if visible.size < needed && !exhausted && more_after?(cursor)
 
+    GroupDirectory::SearchBudget.checkpoint!
     page = visible.drop(@parsed.offset).first(@limit)
     ActiveSupport::Notifications.instrument('group_directory.elasticsearch_search', scanned: scanned, returned: page.size)
     page

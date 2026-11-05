@@ -190,7 +190,11 @@ module Mastodon
         exit(1)
       end
 
-      GroupDirectory::Indexing.complete_index_upgrade!(upgraded_group_directory)
+      bounded_ids = options[:min].present? || options[:max].present?
+      GroupDirectory::Indexing.complete_index_upgrade!(upgraded_group_directory, bounded: bounded_ids)
+      if upgraded_group_directory && bounded_ids
+        say('Group directory was upgraded with --min or --max, so search stays disabled until tootctl search deploy --only group_directory --rebuild', :yellow, true)
+      end
       say("Indexed #{added.value} records, de-indexed #{removed.value}", :green, true)
     end
     # rubocop:enable Metrics/PerceivedComplexity

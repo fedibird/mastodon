@@ -20,22 +20,36 @@ class GroupDirectory::ElasticsearchQuery
   end
 
   def results
+    GroupDirectory::SearchBudget.current = GroupDirectory::SearchBudget.new
+    page = search_page
+    GroupDirectory::SearchBudget.checkpoint!
+    page
+  ensure
+    GroupDirectory::SearchBudget.current = nil
+    close_pit(@pit_id) if defined?(@pit_id) && @pit_id
+  end
+
+  def search_page
     if @parsed.following?
       follow_ids = GroupDirectory::FollowingSearch.target_ids(@viewer)
+      GroupDirectory::SearchBudget.checkpoint!
       return [] if follow_ids.empty?
       raise GroupDirectory::SearchUnavailable, 'follow set too large' if follow_ids.size > GroupDirectory::FollowingSearch::MAX_FOLLOW_IDS
     end
 
+    GroupDirectory::SearchBudget.checkpoint!
     @pit_id = open_pit
-    @budget = GroupDirectory::SearchBudget.new
-    page = if @parsed.following?
-             following_page(follow_ids)
-           else
-             GroupDirectory::CandidatePage.new(viewer: @viewer, parsed: @parsed, limit: @limit, search: method(:fetch)).results
-           end
-    page
-  ensure
-    close_pit(@pit_id) if defined?(@pit_id) && @pit_id
+    GroupDirectory::SearchBudget.checkpoint!
+    if @parsed.following?
+      following_page(follow_ids)
+    else
+      GroupDirectory::CandidatePage.new(
+        viewer: @viewer,
+        parsed: @parsed,
+        limit: @limit,
+        search: method(:fetch)
+      ).results
+    end
   end
 
   def following_page(follow_ids)
@@ -67,7 +81,7 @@ class GroupDirectory::ElasticsearchQuery
   private
 
   def fetch(search_after:, size:, extra_filter: nil)
-    @budget.track!
+    GroupDirectory::SearchBudget.current.track!
     parse_response(client_search(search_after, size, extra_filter))
   end
 

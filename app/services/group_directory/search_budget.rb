@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
-# Bound for one directory HTTP request.
+# Bound for one directory HTTP request, from before the point in time
+# opens until the page is about to be returned.
 #
-# Each Elasticsearch call has its own timeout. This stops the request when
-# the calls add up: too many round trips, or too much wall time. The next
-# search is not sent. The caller raises SearchUnavailable and does not
-# return a partial page.
+# track! counts an Elasticsearch call. check! applies the same deadline
+# after follow lookup, after a database visibility check, and before the
+# response is returned. A late database check does not turn into a 200.
 class GroupDirectory::SearchBudget
   MAX_CALLS = 25
   MAX_ELAPSED = 5.0
@@ -16,8 +16,24 @@ class GroupDirectory::SearchBudget
     @calls = 0
   end
 
+  def self.checkpoint!
+    current&.check!
+  end
+
+  def self.current
+    Thread.current[:group_directory_search_budget]
+  end
+
+  def self.current=(budget)
+    Thread.current[:group_directory_search_budget] = budget
+  end
+
   def track!
     @calls += 1
+    check!
+  end
+
+  def check!
     return unless @calls > MAX_CALLS || elapsed > MAX_ELAPSED
 
     raise GroupDirectory::SearchUnavailable, 'search budget'

@@ -146,6 +146,24 @@ describe Mastodon::SearchCLI do
       expect(GroupDirectory::Indexing.backfill_complete?).to be true
     end
 
+    it 'does not mark the directory ready when a mapping upgrade is limited by id' do
+      specification = instance_double(Chewy::Index::Specification, changed?: true)
+      allow(GroupDirectoryIndex).to receive(:specification).and_return(specification)
+      allow(GroupDirectoryIndex).to receive(:purge)
+      allow(specification).to receive(:lock!)
+      scope = double('bounded group directory scope', count: 0)
+      allow(scope).to receive(:where).and_return(scope)
+      allow(scope).to receive(:reorder).with(nil).and_return(scope)
+      allow(scope).to receive(:find_in_batches)
+      allow(GroupDirectoryIndex.adapter).to receive(:default_scope).and_return(scope)
+      GroupDirectory::Indexing.mark_backfill_complete!
+
+      invoke(only: ['group_directory'], min: '0', max: '0')
+
+      expect(GroupDirectoryIndex).to have_received(:purge)
+      expect(GroupDirectory::Indexing.backfill_complete?).to be false
+    end
+
     it 'leaves the backfill marker clear when a purged directory import fails' do
       specification = instance_double(Chewy::Index::Specification, changed?: true)
       allow(GroupDirectoryIndex).to receive(:specification).and_return(specification)

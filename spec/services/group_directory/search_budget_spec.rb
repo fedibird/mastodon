@@ -18,5 +18,12 @@ RSpec.describe GroupDirectory::SearchBudget do
     elapsed.track!
     now = 2
     expect { elapsed.track! }.to raise_error(GroupDirectory::SearchUnavailable)
+
+    later = described_class.new(clock: -> { now })
+    later.track!
+    now = 10
+    expect { later.check! }.to raise_error(GroupDirectory::SearchUnavailable) { |error|
+      expect(error.reason).to eq('search budget')
+    }
   end
 end

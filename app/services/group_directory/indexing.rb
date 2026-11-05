@@ -246,8 +246,11 @@ class GroupDirectory::Indexing
       true
     end
 
-    def complete_index_upgrade!(upgraded)
+    # A --min/--max import does not see every group. Leave the marker clear
+    # so a bounded upgrade cannot turn search on over a partial index.
+    def complete_index_upgrade!(upgraded, bounded:)
       return unless upgraded
+      return if bounded
 
       mark_backfill_complete!
     end
