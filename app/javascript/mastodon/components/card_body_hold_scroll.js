@@ -23,6 +23,17 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
     let holdTimer = null;
     let suppressClick = false;
     let listeningForMouse = false;
+    let listeningForInterruption = false;
+
+    // Subscribe only during an ongoing press; cards must not accumulate
+    // global listeners while idle in a long timeline.
+    const stopInterruptionTracking = () => {
+      if (listeningForInterruption) {
+        window.removeEventListener('blur', onWindowBlur);
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+        listeningForInterruption = false;
+      }
+    };
 
     const stopMouseTracking = () => {
       if (listeningForMouse) {
@@ -41,6 +52,7 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
 
     const release = () => {
       stopTimer();
+      stopInterruptionTracking();
       const wasActive = Boolean(press && press.active);
       if (press && press.type === 'mouse') {
         stopMouseTracking();
@@ -60,6 +72,9 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
       }
 
       press = { type, identifier, x, y, lastY: y, active: false };
+      window.addEventListener('blur', onWindowBlur);
+      document.addEventListener('visibilitychange', onVisibilityChange);
+      listeningForInterruption = true;
       holdTimer = window.setTimeout(() => {
         holdTimer = null;
         if (press && press.type === type && press.identifier === identifier) {
@@ -81,9 +96,13 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
         return;
       }
 
-      if (event.cancelable) {
-        event.preventDefault();
+      // Once native panning owns a touch gesture, do not move both the
+      // timeline and the inner body. Yield to the browser instead.
+      if (type === 'touch' && !event.cancelable) {
+        release();
+        return;
       }
+      event.preventDefault();
 
       const dy = y - press.lastY;
       viewport.scrollTop -= dy;
@@ -176,6 +195,16 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
         event.preventDefault();
       }
     };
+
+    function onWindowBlur () {
+      release();
+    }
+
+    function onVisibilityChange () {
+      if (document.hidden) {
+        release();
+      }
+    }
 
     viewport.addEventListener('touchstart', onTouchStart, { passive: true });
     viewport.addEventListener('touchmove', onTouchMove, { passive: false });
