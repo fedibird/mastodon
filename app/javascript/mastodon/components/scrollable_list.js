@@ -633,6 +633,31 @@ class ScrollableList extends PureComponent {
     }
   }
 
+  // The initial prepend snapshot is owned by ScrollableList, but a late
+  // ResizeObserver update only re-renders TimelineMasonry. Use the exact same
+  // viewport-relative tile anchor for those child-only layout changes.
+  captureMasonryLayoutAnchor = () => {
+    if (!this.node || this._anchorUnmounted ||
+        isProgrammaticTopScroll(this._getScrollingElement()) ||
+        (this.isFollowingLatest() && !this.mouseMovedRecently && !this.props.preventScroll)) {
+      return null;
+    }
+
+    return this.captureVisibleMasonryItem();
+  }
+
+  restoreMasonryLayoutAnchor = snapshot => {
+    if (!snapshot || !snapshot.key || this._anchorUnmounted ||
+        isProgrammaticTopScroll(this._getScrollingElement())) {
+      return;
+    }
+
+    const before = this._beginSyntheticAnchorScroll();
+    this.restoreMasonryItemAnchor(snapshot);
+    this._finishSyntheticAnchorScroll(before);
+    this._scheduleMasonryAnchorCorrection(snapshot);
+  }
+
   _scheduleMasonryAnchorCorrection = (snapshot) => {
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     const generation = this._anchorGeneration;
@@ -723,8 +748,7 @@ class ScrollableList extends PureComponent {
     // Reset the scroll position when a new child comes in in order not to
     // jerk the scrollbar around if you're already scrolled down the page.
     if (snapshot && snapshot.masonryAnchor) {
-      this.restoreMasonryItemAnchor(snapshot);
-      this._scheduleMasonryAnchorCorrection(snapshot);
+      this.restoreMasonryLayoutAnchor(snapshot);
     } else if (snapshot && snapshot.anchor) {
       this.restoreArticleAnchor(snapshot);
     } else if (snapshot !== null) {
@@ -1180,9 +1204,26 @@ class ScrollableList extends PureComponent {
     ));
     let itemLayout = renderedItems;
     if (isCardTimelineLayout(layoutMode)) {
-      itemLayout = <TimelineMasonry mode={layoutMode}>{renderedItems}</TimelineMasonry>;
+      itemLayout = (
+        <TimelineMasonry
+          mode={layoutMode}
+          onCaptureLayoutAnchor={this.captureMasonryLayoutAnchor}
+          onRestoreLayoutAnchor={this.restoreMasonryLayoutAnchor}
+        >
+          {renderedItems}
+        </TimelineMasonry>
+      );
     } else if (mediaMode) {
-      itemLayout = <MediaItemsLayout shape={mediaShape} size={mediaSize}>{renderedItems}</MediaItemsLayout>;
+      itemLayout = (
+        <MediaItemsLayout
+          shape={mediaShape}
+          size={mediaSize}
+          onCaptureLayoutAnchor={this.captureMasonryLayoutAnchor}
+          onRestoreLayoutAnchor={this.restoreMasonryLayoutAnchor}
+        >
+          {renderedItems}
+        </MediaItemsLayout>
+      );
     }
 
     if (showLoading) {
