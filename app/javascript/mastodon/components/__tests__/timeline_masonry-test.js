@@ -125,6 +125,22 @@ describe('TimelineMasonry streaming shortest-column insertion', () => {
     expect(container.querySelectorAll('.timeline-masonry__placeholder')).toHaveLength(0);
   });
 
+  it('removes a tile without leaving a hole, while preserving surviving columns', () => {
+    const { container, rerender } = render(cards(['A', 'B', 'C']));
+    const original = ['A', 'B', 'C'].map(id => position(container, id));
+
+    rerender(cards(['D', 'A', 'B', 'C']));
+    rerender(cards(['D', 'A', 'B']));
+    expect(position(container, 'D')).toEqual({ x: original[2].x, y: 0 });
+    expect(position(container, 'A')).toEqual(original[0]);
+    expect(position(container, 'B')).toEqual(original[1]);
+
+    rerender(cards(['E', 'D', 'A', 'B']));
+    expect(position(container, 'E')).toEqual({ x: original[0].x, y: 0 });
+    expect(position(container, 'A').y).toBe(108);
+    expect(container.querySelectorAll('.timeline-masonry__placeholder')).toHaveLength(0);
+  });
+
   it('keeps a single column free of placeholders', () => {
     const { container, rerender } = render(cards(['A', 'B'], 'card-1'));
     rerender(cards(['C', 'A', 'B'], 'card-1'));
