@@ -23,9 +23,11 @@
   width: 100%;
   box-sizing: border-box;
 
-  // ScrollableList restores a specific visible tile after relayout.
-  // Do not let the browser anchor a different absolute-positioned tile.
-  overflow-anchor: none;
+  // Only timeline lists have explicit tile-anchor management.
+  // Account galleries without callbacks retain native scroll anchoring.
+  &--managed-anchor {
+    overflow-anchor: none;
+  }
 
   &__item,
   &__placeholder {
