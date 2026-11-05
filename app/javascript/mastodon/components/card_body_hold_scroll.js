@@ -24,7 +24,11 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
 
     let press = null;
     let holdTimer = null;
-    let suppressClick = false;
+    // A browser may dispatch click at the common ancestor of mousedown and
+    // mouseup. That can be outside this viewport but inside the same card.
+    // Capture only the post-release click, then remove the guard.
+    const cardClickHost = viewport.closest('.status__wrapper--compact') || viewport;
+    let clickGuardTimer = null;
     let listeningForMouse = false;
     let listeningForInterruption = false;
 
@@ -67,9 +71,32 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
       return wasActive;
     };
 
+    const onClickCapture = event => {
+      clearClickGuard();
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    const clearClickGuard = () => {
+      if (clickGuardTimer !== null) {
+        window.clearTimeout(clickGuardTimer);
+        clickGuardTimer = null;
+      }
+      cardClickHost.removeEventListener('click', onClickCapture, true);
+    };
+
+    const suppressGestureClick = type => {
+      clearClickGuard();
+      cardClickHost.addEventListener('click', onClickCapture, true);
+      // The mouse click is usually dispatched in the same task as mouseup.
+      // Touch browsers may synthesize it later. Do not trap future clicks if
+      // the gesture produces no click.
+      clickGuardTimer = window.setTimeout(clearClickGuard, type === 'touch' ? 750 : 100);
+    };
+
     const start = (type, identifier, x, y, target) => {
       release();
-      suppressClick = false;
+      clearClickGuard();
       if (!canStartCardBodyHold(target, viewport)) {
         return;
       }
@@ -137,13 +164,14 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
     };
 
     const onTouchEnd = () => {
-      if (press && press.type === 'touch') {
-        suppressClick = release() || suppressClick;
+      if (press && press.type === 'touch' && release()) {
+        suppressGestureClick('touch');
       }
     };
 
     const onTouchCancel = () => {
       release();
+      clearClickGuard();
     };
 
     const onMouseDown = event => {
@@ -178,18 +206,10 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
       if (press && press.type === 'mouse') {
         const wasActive = release();
         if (wasActive) {
-          suppressClick = true;
+          suppressGestureClick('mouse');
           event.preventDefault();
           event.stopPropagation();
         }
-      }
-    };
-
-    const onClickCapture = event => {
-      if (suppressClick) {
-        suppressClick = false;
-        event.preventDefault();
-        event.stopPropagation();
       }
     };
 
@@ -202,11 +222,13 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
 
     function onWindowBlur () {
       release();
+      clearClickGuard();
     }
 
     function onVisibilityChange () {
       if (document.hidden) {
         release();
+        clearClickGuard();
       }
     }
 
@@ -215,7 +237,6 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
     viewport.addEventListener('touchend', onTouchEnd);
     viewport.addEventListener('touchcancel', onTouchCancel);
     viewport.addEventListener('mousedown', onMouseDown);
-    viewport.addEventListener('click', onClickCapture, true);
     viewport.addEventListener('contextmenu', onContextMenu);
     return () => {
       release();
@@ -224,9 +245,9 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
       viewport.removeEventListener('touchend', onTouchEnd);
       viewport.removeEventListener('touchcancel', onTouchCancel);
       viewport.removeEventListener('mousedown', onMouseDown);
-      viewport.removeEventListener('click', onClickCapture, true);
       viewport.removeEventListener('contextmenu', onContextMenu);
       stopMouseTracking();
+      clearClickGuard();
     };
   }, [enabled, viewportRef, setHoldActive]);
 }

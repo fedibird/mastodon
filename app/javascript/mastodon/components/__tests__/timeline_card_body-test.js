@@ -147,7 +147,7 @@ describe('TimelineCardBody', () => {
 
     const collapsedBody = (children = <p>Long text</p>, onClick = () => {}) => {
       const view = render(
-        <div className='scrollable' role='button' tabIndex='0' onClick={onClick} onKeyDown={onClick}>
+        <div className='status__wrapper--compact scrollable' role='button' tabIndex='0' onClick={onClick} onKeyDown={onClick}>
           <TimelineCardBody expandLabel='Show full post text' scrollLabel='Long-press to scroll the post text'>
             {children}
           </TimelineCardBody>
@@ -223,6 +223,63 @@ describe('TimelineCardBody', () => {
       expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
       fireEvent.click(viewport);
       expect(onCard).not.toHaveBeenCalled();
+    });
+
+
+    it('does not open the card when a mouse hold ends on a sibling outside the text', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      const card = container.querySelector('.status__wrapper--compact');
+      const sibling = document.createElement('div');
+      sibling.setAttribute('data-testid', 'card-author');
+      card.appendChild(sibling);
+
+      fireEvent.mouseDown(viewport, { button: 0, clientX: 35, clientY: 100 });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
+
+      fireEvent.mouseMove(document, { buttons: 1, clientX: 35, clientY: 60 });
+      expect(viewport.scrollTop).toBe(40);
+      fireEvent.mouseUp(sibling, { button: 0, clientX: 35, clientY: 60 });
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+
+      // Chrome can target the common ancestor rather than the text viewport.
+      fireEvent.click(card);
+      expect(onCard).not.toHaveBeenCalled();
+
+      // The guard is one-shot. A subsequent intentional click must still open.
+      fireEvent.click(card);
+      expect(onCard).toHaveBeenCalledTimes(1);
+    });
+
+    it('expires the post-hold click guard if Chrome emits no click', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      const card = container.querySelector('.status__wrapper--compact');
+      fireEvent.mouseDown(viewport, { button: 0, clientX: 30, clientY: 100 });
+      hold();
+      fireEvent.mouseUp(card, { button: 0, clientX: 30, clientY: 65 });
+
+      act(() => {
+        jest.advanceTimersByTime(101);
+      });
+      fireEvent.click(card);
+      expect(onCard).toHaveBeenCalledTimes(1);
+    });
+
+    it('ignores a touch-generated click that bubbles from outside the text', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      const card = container.querySelector('.status__wrapper--compact');
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 90 }] });
+      hold();
+      fireEvent.touchMove(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 55 }] });
+      fireEvent.touchEnd(viewport, { touches: [] });
+
+      fireEvent.click(card);
+      expect(onCard).not.toHaveBeenCalled();
+      fireEvent.click(card);
+      expect(onCard).toHaveBeenCalledTimes(1);
     });
 
     it('releases an active hold if the window loses focus', () => {
