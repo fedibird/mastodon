@@ -7,8 +7,11 @@ const HOLD_DELAY_MS = 400;
 const MOVE_SLOP_PX = 8;
 const INTERACTIVE = 'a, button, input, textarea, select, label, summary, [role="button"], [contenteditable]';
 
-export function canStartCardBodyHold (target) {
-  return !(target && target.closest && target.closest(INTERACTIVE));
+export function canStartCardBodyHold (target, viewport) {
+  // The timeline/card container may itself have role="button". Only
+  // interactive descendants INSIDE the text viewport should block a hold.
+  const interactive = target && target.closest && target.closest(INTERACTIVE);
+  return !interactive || !viewport.contains(interactive);
 }
 
 export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActive) {
@@ -67,7 +70,7 @@ export default function useCardBodyHoldScroll (viewportRef, enabled, setHoldActi
     const start = (type, identifier, x, y, target) => {
       release();
       suppressClick = false;
-      if (!canStartCardBodyHold(target)) {
+      if (!canStartCardBodyHold(target, viewport)) {
         return;
       }
 

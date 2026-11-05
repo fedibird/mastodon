@@ -251,6 +251,33 @@ describe('TimelineCardBody', () => {
       expect(viewport.scrollTop).toBe(0);
     });
 
+
+    it('ignores interactive ancestors outside the body but not buttons inside it', () => {
+      const { container, viewport } = collapsedBody(
+        <div>
+          <span data-testid='plain-text'>Plain text</span>
+          <span role='button' tabIndex='0' data-testid='inner-control'>Control</span>
+        </div>,
+      );
+
+      const plainText = container.querySelector('[data-testid="plain-text"]');
+      const control = container.querySelector('[data-testid="inner-control"]');
+
+      // The test wrapper itself is role=button; it must not disable holding
+      // anywhere inside the body where there is no interactive descendant.
+      fireEvent.touchStart(plainText, { touches: [{ identifier: 1, clientX: 25, clientY: 80 }] });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
+      fireEvent.touchEnd(plainText, { touches: [] });
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+
+      fireEvent.touchStart(control, { touches: [{ identifier: 1, clientX: 25, clientY: 80 }] });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+      fireEvent.touchEnd(control, { touches: [] });
+      expect(viewport.scrollTop).toBe(0);
+    });
+
     it('leaves link clicks intact and does not arm from interactive descendants', () => {
       const onLink = jest.fn(event => event.preventDefault());
       const { container, viewport } = collapsedBody(<a href='/post/1' onClick={onLink}>Read more</a>);
