@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { timelineCardColumnsForWidth } from 'mastodon/utils/timeline_layout';
 import { mediaColumnsForWidth } from 'mastodon/utils/media_display';
 import {
-  assignMasonryPrependedColumns,
+  planMasonryPrependFrontier,
   isFullWidthMasonryKey,
   reconcileMasonryPrepends,
 } from 'mastodon/utils/timeline_masonry_layout';
@@ -11,9 +11,11 @@ import {
 const GAP = 8;
 const ESTIMATED_HEIGHT = 190;
 
-// Preserve each item's column while positioning items newest-first within
-// that column. A full-width row synchronizes the columns at its boundary.
-const arrangeMasonry = (keys, prefixCount, columns, availableWidth, measuredHeight, assignments) => {
+// A prepend is laid out above the existing feed instead of packing onto
+// the bottom of whichever old column happens to be shortest. The tallest
+// upward protrusion shifts ALL old columns down by the same amount; shorter
+// new columns reserve the remainder as placeholders that future arrivals use.
+const arrangeMasonry = (keys, prefixCount, prependCount, columns, availableWidth, measuredHeight, assignments) => {
   const cellWidth = (availableWidth - GAP * (columns - 1)) / columns;
   const bottoms = new Array(columns).fill(0);
   const positions = new Map();
@@ -42,20 +44,47 @@ const arrangeMasonry = (keys, prefixCount, columns, availableWidth, measuredHeig
 
   keys.slice(0, prefixCount).forEach(place);
 
-  // Pinned statuses/reload controls stay above all live statuses even when
-  // the final pinned row has different heights in different columns.
-  bottoms.fill(Math.max(...bottoms));
-  keys.slice(prefixCount).forEach(place);
+  // Pinned statuses/reload controls always stay above incoming live content.
+  const liveTop = Math.max(...bottoms);
+  const prependedKeys = keys.slice(prefixCount, prefixCount + prependCount);
+  const prepend = planMasonryPrependFrontier(columns, prependedKeys, assignments, measuredHeight, GAP);
+
+  // A common boundary protects the original cards and their column offsets.
+  // Adding a tile inside an existing placeholder does not move older cards.
+  bottoms.fill(liveTop + prepend.height);
+  keys.slice(prefixCount + prependCount).forEach(place);
+
+  prependedKeys.forEach(key => {
+    const item = prepend.positions.get(key);
+    if (item.fullWidth) {
+      positions.set(key, {
+        top: liveTop + item.top, left: 0, width: availableWidth, fullWidth: true,
+      });
+    } else {
+      positions.set(key, {
+        top: liveTop + item.top,
+        left: item.column * (cellWidth + GAP),
+        width: cellWidth,
+      });
+    }
+  });
+
+  const placeholders = prepend.placeholders.map(blank => ({
+    ...blank,
+    top: liveTop + blank.top,
+    left: blank.column * (cellWidth + GAP),
+    width: cellWidth,
+  }));
 
   return {
     positions,
+    placeholders,
     height: keys.length ? Math.max(...bottoms) - GAP : 0,
   };
 };
 
-// Keep logical (DOM/keyboard) newest-first order independent from columns.
-// Incoming items are assigned to the currently shortest column, with
-// inline-end winning ties. Unlike reserved rows, no empty cells are added.
+// Keep DOM/keyboard order newest-first; only new item positions and headroom
+// placeholders change on a streaming prepend.
 export default class TimelineMasonry extends React.PureComponent {
 
   static propTypes = {
@@ -71,6 +100,7 @@ export default class TimelineMasonry extends React.PureComponent {
   layoutVariant = null;
   previousKeys = [];
   prefixKeys = [];
+  prependKeys = [];
 
   setRoot = node => {
     this.root = node;
@@ -186,6 +216,7 @@ export default class TimelineMasonry extends React.PureComponent {
       this.assignments.clear();
       this.previousKeys = [];
       this.prefixKeys = [];
+      this.prependKeys = [];
     }
 
     const keys = children.map(child => String(child.key));
@@ -193,6 +224,7 @@ export default class TimelineMasonry extends React.PureComponent {
 
     if (plan.reset) {
       this.assignments.clear();
+      this.prependKeys = [];
     }
 
     const existing = new Set(keys);
@@ -202,25 +234,22 @@ export default class TimelineMasonry extends React.PureComponent {
       }
     });
 
-    const measuredHeight = key => this.state.heights[key] || ESTIMATED_HEIGHT;
-
-    if (columns > 1 && plan.prependedKeys.length > 0) {
-      // First give any newly paged older keys their normal column assignment.
-      // Then place the received batch oldest-to-newest, adjusting column
-      // heights after *each* addition; unlike reserved bands there is no
-      // row maximum that forces whitespace into shorter columns.
-      const prepended = new Set(plan.prependedKeys);
-      const baseKeys = keys.filter(key => !prepended.has(key));
-      arrangeMasonry(baseKeys, plan.prefixKeys.length, columns, availableWidth, measuredHeight, this.assignments);
-
-      const olderMainKeys = keys.slice(plan.prefixKeys.length + plan.prependedKeys.length);
-      assignMasonryPrependedColumns(
-        columns, olderMainKeys, plan.prependedKeys, this.assignments, measuredHeight, GAP,
-      );
+    // Only the contiguous portion immediately below the fixed prefix is
+    // part of the upward-growing area. A middle insertion is an old-page
+    // change, not another streaming prepend.
+    const prepended = new Set([...this.prependKeys, ...plan.prependedKeys]);
+    this.prependKeys = [];
+    for (const key of keys.slice(plan.prefixKeys.length)) {
+      if (!prepended.has(key)) {
+        break;
+      }
+      this.prependKeys.push(key);
     }
 
-    const { positions, height } = arrangeMasonry(
-      keys, plan.prefixKeys.length, columns, availableWidth, measuredHeight, this.assignments,
+    const measuredHeight = key => this.state.heights[key] || ESTIMATED_HEIGHT;
+    const { positions, placeholders, height } = arrangeMasonry(
+      keys, plan.prefixKeys.length, this.prependKeys.length,
+      columns, availableWidth, measuredHeight, this.assignments,
     );
 
     this.previousKeys = keys;
@@ -243,6 +272,19 @@ export default class TimelineMasonry extends React.PureComponent {
             </div>
           );
         })}
+        {placeholders.map(placeholder => (
+          <div
+            key={'placeholder:' + placeholder.key}
+            aria-hidden='true'
+            className='timeline-masonry__placeholder'
+            style={{
+              width: placeholder.width + 'px',
+              height: placeholder.height + 'px',
+              insetInlineStart: placeholder.left + 'px',
+              transform: 'translate3d(0, ' + placeholder.top + 'px, 0)',
+            }}
+          />
+        ))}
       </div>
     );
   }
