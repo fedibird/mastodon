@@ -237,6 +237,21 @@ class GroupDirectory::Indexing
       redis.exists?(BACKFILL_KEY)
     end
 
+    # A mapping upgrade purges the index. Drop the ready marker first so a
+    # failed refill cannot keep serving the old "complete" flag.
+    def before_index_purge!(index)
+      return false unless index == GroupDirectoryIndex
+
+      clear_backfill_complete!
+      true
+    end
+
+    def complete_index_upgrade!(upgraded)
+      return unless upgraded
+
+      mark_backfill_complete!
+    end
+
     def each_outstanding_batch(limit: BATCH_SIZE, &block)
       scan_ids(PENDING_KEY, limit, &block)
       scan_inflight_ids(limit, &block)

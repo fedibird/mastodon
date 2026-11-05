@@ -6,13 +6,14 @@
 # directory (missing last_status_at last, then id), and honors
 # search_after. It is not a real cluster. Request specs that use it say so.
 class GroupDirectoryEsIndex
-  attr_reader :requests, :closed
+  attr_reader :requests, :closed, :closed_id, :issued_pit_ids
   attr_accessor :after_first_search
 
   def initialize(overrides: [])
     @overrides = overrides
     @requests = []
     @closed = 0
+    @issued_pit_ids = []
   end
 
   def open_point_in_time(*)
@@ -22,7 +23,9 @@ class GroupDirectoryEsIndex
     { 'id' => @pit_id }
   end
 
-  def close_point_in_time(*)
+  def close_point_in_time(arguments = nil)
+    body = arguments.is_a?(Hash) ? (arguments[:body] || arguments['body']) : nil
+    @closed_id = body[:id] || body['id'] if body.is_a?(Hash)
     @closed += 1
     @pit_id = nil
     { 'succeeded' => true }
@@ -49,7 +52,9 @@ class GroupDirectoryEsIndex
     hits = ordered.first(body[:size].to_i).map do |doc|
       { '_id' => doc.fetch('id').to_s, 'sort' => sort_key(doc, specs) }
     end
-    { 'hits' => { 'hits' => hits } }
+    @pit_id = "#{body.dig(:pit, :id)}-r#{@search_count}"
+    @issued_pit_ids << @pit_id
+    { 'pit_id' => @pit_id, 'hits' => { 'hits' => hits } }
   end
 
   private

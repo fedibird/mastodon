@@ -106,7 +106,7 @@ describe 'Group Directory Elasticsearch API' do
       allow(GroupDirectory::Indexing).to receive(:version_gap?).and_return(false)
       allow(GroupDirectory::Indexing).to receive(:enqueue)
       allow(Chewy.client).to receive(:open_point_in_time) { |*| index.open_point_in_time }
-      allow(Chewy.client).to receive(:close_point_in_time) { |*| index.close_point_in_time }
+      allow(Chewy.client).to receive(:close_point_in_time) { |args| index.close_point_in_time(args) }
       allow(Chewy.client).to receive(:search) do |request|
         index.requests << request
         index.search(request)
@@ -259,7 +259,8 @@ describe 'Group Directory Elasticsearch API' do
       expect(queries.grep(/ILIKE/i)).to be_empty
       follow_sql = queries.select { |sql| sql.include?('follows') }
       expect(follow_sql.grep(/ IN /).size).to eq(1), follow_sql.inspect
-      expect(follow_sql.grep(/LIMIT/)).to be_empty
+      expect(follow_sql.grep(/SELECT 1 AS one/)).to be_empty
+      expect(follow_sql.count { |sql| sql.match?(/\bLIMIT\b/) }).to eq(1)
       expect(queries.count { |sql| sql.include?('"blocks"') }).to be <= 2
       expect(queries.count { |sql| sql.include?('"mutes"') }).to be <= 1
     end
@@ -277,6 +278,23 @@ describe 'Group Directory Elasticsearch API' do
 
       expect(response).to have_http_status(503)
       expect(body_as_json[:error]).to eq('Group directory search is temporarily unavailable')
+    end
+
+    it 'does not count person follows toward the group follow limit' do
+      stub_const('GroupDirectory::FollowingSearch::MAX_FOLLOW_IDS', 2)
+      group = directory_group('followed_group')
+      Fabricate(:follow, account: user.account, target_account: group)
+      people = Array.new(3) do |index|
+        person = Fabricate(:account, username: "person_#{index}", actor_type: 'Person')
+        Fabricate(:follow, account: user.account, target_account: person)
+        person
+      end
+
+      queries = capture_sql { expect(es_ids({ scope: 'following' })).to eq([group.id.to_s]) }
+      sent = index.requests.flat_map { |request| term_id_values(request) }.map(&:to_i)
+      expect(sent).to eq([group.id])
+      expect(sent).not_to include(*people.map(&:id))
+      expect(queries.any? { |sql| sql.include?('actor_type') && sql.match?(/\bLIMIT\b/i) }).to be true
     end
 
     it 'drops a group whose current software, language, or locality no longer matches' do
@@ -308,8 +326,9 @@ describe 'Group Directory Elasticsearch API' do
       end
 
       expect(es_ids({}, limit: 2)).to eq([newer.id.to_s, older.id.to_s])
-      expect(index.requests).to all(satisfy { |request| request.dig(:body, :pit, :id).present? })
-      expect(index.closed).to be >= 1
+      pit_ids = index.requests.map { |request| request.dig(:body, :pit, :id) }
+      expect(pit_ids[1]).to eq(index.issued_pit_ids.first)
+      expect(index.closed_id).to eq(index.issued_pit_ids.last)
     end
 
     it 'does not repeat group, node, or block reads per row' do

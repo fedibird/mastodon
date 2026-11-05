@@ -5,13 +5,16 @@
 # Offset and limit apply after Visibility keeps a row, not to the raw
 # index page. search_after walks forward inside the point in time opened
 # by ElasticsearchQuery, so a last_status_at change during the walk cannot
-# move an unseen group behind the cursor. The scan stops at MAX_SCAN.
+# move an unseen group behind the cursor. The scan stops at MAX_SCAN, and
+# ElasticsearchQuery also stops after SearchBudget::MAX_CALLS searches or
+# SearchBudget::MAX_ELAPSED seconds. Either limit raises instead of
+# returning a short page.
 # Spending that budget before the page is filled, while the index still
 # has another hit, raises SearchUnavailable. A short page is returned
 # only when the index itself has no further hit. The response is never a
 # quietly truncated page.
 class GroupDirectory::CandidatePage
-  BATCH = 200
+  BATCH = 500
   # MAX_OFFSET + the API's largest limit (40 * 2) still fits, with room
   # for candidates the database then drops. Past this, fail closed.
   MAX_SCAN = GroupDirectory::Query::MAX_OFFSET + 2_000

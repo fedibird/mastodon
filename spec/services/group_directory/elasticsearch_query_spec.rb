@@ -73,4 +73,20 @@ RSpec.describe GroupDirectory::ElasticsearchQuery do
       expect(error.reason).to include('Faraday::ConnectionFailed')
     }
   end
+
+  it 'rejects a partial shard result and asks Elasticsearch not to allow one' do
+    allow(Chewy.client).to receive(:open_point_in_time).and_return('id' => 'pit-1')
+    allow(Chewy.client).to receive(:close_point_in_time).and_return('succeeded' => true)
+    allow(Chewy.client).to receive(:search).and_return(
+      'timed_out' => false,
+      '_shards' => { 'total' => 2, 'successful' => 1, 'failed' => 1 },
+      'hits' => { 'hits' => [{ '_id' => '15', 'sort' => [1] }] }
+    )
+    query = described_class.new(viewer: nil, parsed: parsed({}), limit: 5)
+
+    expect { query.results }.to raise_error(GroupDirectory::SearchUnavailable) { |error|
+      expect(error.reason).to eq('elasticsearch shard failure')
+    }
+    expect(Chewy.client).to have_received(:search).with(hash_including(allow_partial_search_results: false))
+  end
 end

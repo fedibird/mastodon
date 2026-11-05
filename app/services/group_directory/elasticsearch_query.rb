@@ -27,6 +27,7 @@ class GroupDirectory::ElasticsearchQuery
     end
 
     @pit_id = open_pit
+    @budget = GroupDirectory::SearchBudget.new
     page = if @parsed.following?
              following_page(follow_ids)
            else
@@ -66,6 +67,7 @@ class GroupDirectory::ElasticsearchQuery
   private
 
   def fetch(search_after:, size:, extra_filter: nil)
+    @budget.track!
     parse_response(client_search(search_after, size, extra_filter))
   end
 
@@ -90,7 +92,10 @@ class GroupDirectory::ElasticsearchQuery
   end
 
   def client_search(search_after, size, extra_filter)
-    Chewy.client.search(body: request_body(search_after: search_after, size: size, extra_filter: extra_filter))
+    Chewy.client.search(
+      body: request_body(search_after: search_after, size: size, extra_filter: extra_filter),
+      allow_partial_search_results: false
+    )
   rescue GroupDirectory::SearchUnavailable
     raise
   rescue StandardError => e
@@ -101,12 +106,19 @@ class GroupDirectory::ElasticsearchQuery
   def parse_response(response)
     payload = response.respond_to?(:deep_stringify_keys) ? response.deep_stringify_keys : response
     raise GroupDirectory::SearchUnavailable, 'malformed elasticsearch response' unless payload.is_a?(Hash)
+    rotate_pit(payload)
     raise GroupDirectory::SearchUnavailable, 'elasticsearch timed out' if payload['timed_out']
+    raise GroupDirectory::SearchUnavailable, 'elasticsearch shard failure' if payload.dig('_shards', 'failed').to_i.positive?
 
     hits = payload.dig('hits', 'hits')
     raise GroupDirectory::SearchUnavailable, 'malformed elasticsearch response' unless hits.is_a?(Array)
 
     hits.map { |hit| parse_hit(hit) }
+  end
+
+  def rotate_pit(payload)
+    rotated = payload['pit_id']
+    @pit_id = rotated if rotated.present?
   end
 
   def parse_hit(hit)

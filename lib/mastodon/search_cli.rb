@@ -73,8 +73,10 @@ module Mastodon
 
       # First, ensure all indices are created and have the correct
       # structure, so that live data can already be written
+      upgraded_group_directory = false
       indices.select { |index| index.specification.changed? }.each do |index|
         progress.title = "Upgrading #{index} "
+        upgraded_group_directory = true if GroupDirectory::Indexing.before_index_purge!(index)
         index.purge
         index.specification.lock!
       end
@@ -188,6 +190,7 @@ module Mastodon
         exit(1)
       end
 
+      GroupDirectory::Indexing.complete_index_upgrade!(upgraded_group_directory)
       say("Indexed #{added.value} records, de-indexed #{removed.value}", :green, true)
     end
     # rubocop:enable Metrics/PerceivedComplexity

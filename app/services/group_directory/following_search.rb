@@ -14,7 +14,10 @@ class GroupDirectory::FollowingSearch
   def self.target_ids(viewer)
     return [] if viewer.nil?
 
-    Follow.where(account_id: viewer.id).pluck(:target_account_id)
+    Follow.joins(:target_account)
+          .where(account_id: viewer.id, accounts: { actor_type: 'Group' })
+          .limit(MAX_FOLLOW_IDS + 1)
+          .pluck('follows.target_account_id')
   end
 
   def initialize(viewer:, parsed:, limit:, search:, ids:)
@@ -44,14 +47,15 @@ class GroupDirectory::FollowingSearch
     cursor = nil
     collected = []
     loop do
-      hits = @search.call(search_after: cursor, size: GroupDirectory::CandidatePage::BATCH, extra_filter: { terms: { id: chunk } })
+      size = [chunk.size, GroupDirectory::CandidatePage::BATCH].min
+      hits = @search.call(search_after: cursor, size: size, extra_filter: { terms: { id: chunk } })
       break if hits.empty?
 
       collected.concat(hits)
       raise GroupDirectory::SearchUnavailable, 'follow chunk exceeded its ids' if collected.size > chunk.size
 
       cursor = hits.last[:sort]
-      break if hits.size < GroupDirectory::CandidatePage::BATCH
+      break if hits.size < size || collected.size >= chunk.size
     end
     collected
   end

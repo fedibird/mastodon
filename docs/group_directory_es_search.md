@@ -48,16 +48,22 @@ SQL は `accounts.note` の全文を `ILIKE` します。索引は次だけを�
 - 再構築が終わっていない（`group_directory:index:backfill_complete` が無い）
 - `version_gap` がある、またはその確認に失敗した
 - 検索のタイムアウト、接続失敗、壊れた応答、point in time を開けない
-- 候補の走査が `GroupDirectory::CandidatePage::MAX_SCAN`（offset 上限 10000 に 2000 を足した件数）に達し、索引にまだ続きがある
-- `scope=following` のフォローが `GroupDirectory::FollowingSearch::MAX_FOLLOW_IDS`（10000）を超える
+- シャードの一部だけが応答した（`_shards.failed > 0`）。部分結果は返さない
+- 候補の走査が `GroupDirectory::CandidatePage::MAX_SCAN` に達し、索引にまだ続きがある
+- Elasticsearch 呼び出しが `GroupDirectory::SearchBudget::MAX_CALLS`（25）を超える、または開始から `MAX_ELAPSED`（5秒）を超える
+- `scope=following` のグループフォローが `GroupDirectory::FollowingSearch::MAX_FOLLOW_IDS`（10000）を超える。Person のフォローはこの数に入れない
 
 不正な `q` / `software` / `language` / `scope` / `order` / `offset` は、Elasticsearch に触る前に **400** です。1文字の非ハンドル、正規化できないハンドル、匿名の `scope=following` は索引を見ずに空配列です。
 
 候補 id は返す前に PostgreSQL で掲載条件、NodeInfo、PeerTube、停止、silence、移動、承認、ManagedGroup、Block、Blocked-by、Mute、ドメインブロック、following、それにリクエスト中の software / language / `scope=local` を現在の値で見ます。ES に残った lemmy や ja では返しません。
 
-`scope=following` は、閲覧者のフォロー id を 500 件ずつ Elasticsearch の terms に分けて渡します。1リクエストに全件は入れません。返した id は PostgreSQL でフォロー成立を再度確認します。ログイン中のレスポンスでも、ディレクトリのシリアライザは `followed_message` が空ならフォローの存在確認をしません。
+`scope=following` は、閲覧者がフォローしている **Group** の id だけを、上限+1件まで PostgreSQL から読み、500件ずつ Elasticsearch の terms に分けて渡します。Person のフォローは数に入れません。1リクエストに全件は入れません。返した id は PostgreSQL でフォロー成立を再度確認します。
 
-検索の一連の `search_after` は同じ point in time の中で行います。ページの途中で `last_status_at` が変わっても、そのリクエストの候補順は開き始めたときのままです。
+1回の API リクエストは Elasticsearch を最大 25 回、または開始から 5 秒までです。それを超えると欠けた配列ではなく 503 です。各検索は部分シャード結果を禁止し、`_shards.failed` が 1 以上なら 503 です。
+
+検索の一連の `search_after` は同じ point in time の中で行います。応答が新しい pit id を返したら、次の検索と close はその id を使います。ページの途中で `last_status_at` が変わっても、そのリクエストの候補順は開き始めたときのままです。
+
+mapping 変更で通常の `tootctl search deploy` がこの索引を purge するときは、purge の前に完了印を消します。再投入が成功したときだけ印を戻します。途中で失敗した索引は検索フラグがオンでも 503 です。
 
 offset と limit は、その確認で残った行に対して適用します。走査上限でページを埋められないときは、欠けた配列ではなく 503 です。
 
