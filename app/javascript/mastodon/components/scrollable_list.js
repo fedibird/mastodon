@@ -532,11 +532,11 @@ class ScrollableList extends PureComponent {
     const variableHeightMasonry = isCardTimelineLayout(this.props.layoutMode) ||
       (this.props.layoutMode === 'media' && this.state.mediaShape === 'original');
 
-    if (!pendingChanged && someItemInserted && variableHeightMasonry &&
+    if (someItemInserted && variableHeightMasonry &&
         (this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll)) {
-      const anchor = this.captureVisibleArticle();
+      const anchor = this.captureVisibleMasonryItem();
       if (anchor) {
-        return { anchor: true, id: anchor.id, top: anchor.top };
+        return { masonryAnchor: true, ...anchor };
       }
     }
 
@@ -558,6 +558,85 @@ class ScrollableList extends PureComponent {
     }
 
     return null;
+  }
+
+  // The visual top of a masonry tile does not follow article DOM order.
+  // Tile keys also distinguish multiple attachments belonging to one status.
+  captureVisibleMasonryItem () {
+    if (!this.node || typeof this.node.querySelectorAll !== 'function') {
+      return null;
+    }
+
+    const host = this.getTimelineScrollHost();
+    const visibleTop = this.getTimelineVisibleTop(host);
+    const viewportHeight = host.kind === 'document'
+      ? (window.innerHeight || this.getClientHeight())
+      : this.getClientHeight();
+    const visibleBottom = visibleTop + viewportHeight;
+    let best = null;
+
+    this.node.querySelectorAll('.timeline-masonry > .timeline-masonry__item[data-layout-key]').forEach(node => {
+      const key = node.getAttribute('data-layout-key');
+      const box = node.getBoundingClientRect();
+      if (!key || box.bottom <= visibleTop || box.top >= visibleBottom || box.height <= 0) {
+        return;
+      }
+
+      // Prefer an item covering the reading edge, then the nearest item
+      // below it. Do not select the first matching item in DOM order.
+      const coversEdge = box.top <= visibleTop;
+      const distance = coversEdge ? visibleTop - box.top : box.top - visibleTop;
+      if (!best || (coversEdge && !best.coversEdge) ||
+          (coversEdge === best.coversEdge && distance < best.distance)) {
+        best = { key, top: box.top, coversEdge, distance };
+      }
+    });
+
+    return best ? { key: best.key, top: best.top } : null;
+  }
+
+  restoreMasonryItemAnchor (snapshot) {
+    if (!this.node || !snapshot || !snapshot.key) {
+      return;
+    }
+
+    // Never interpolate React keys into a CSS selector. They may contain
+    // escaped characters and status/attachment IDs share prefixes.
+    const items = this.node.querySelectorAll('.timeline-masonry > .timeline-masonry__item[data-layout-key]');
+    const item = Array.from(items).find(node => node.getAttribute('data-layout-key') === snapshot.key);
+    if (!item) {
+      return;
+    }
+
+    const delta = item.getBoundingClientRect().top - snapshot.top;
+    if (Math.abs(delta) > 0.5) {
+      this.setScrollTop(this.getScrollTop() + delta);
+    }
+  }
+
+  _scheduleMasonryAnchorCorrection = (snapshot) => {
+    this._anchorGeneration = (this._anchorGeneration || 0) + 1;
+    const generation = this._anchorGeneration;
+    this._cancelAnchorCorrection();
+
+    const cursor = { top: this.getScrollTop() };
+    const locationKey = this._currentLocationKey();
+    this._anchorCancel = scheduleTimelineAnchorFrames({
+      frames: 2,
+      shouldAbort: () => (
+        this._anchorUnmounted ||
+        this._anchorGeneration !== generation ||
+        this._currentLocationKey() !== locationKey ||
+        isProgrammaticTopScroll(this._getScrollingElement()) ||
+        Math.abs(this.getScrollTop() - cursor.top) > 1
+      ),
+      apply: () => {
+        const before = this._beginSyntheticAnchorScroll();
+        this.restoreMasonryItemAnchor(snapshot);
+        cursor.top = this.getScrollTop();
+        this._finishSyntheticAnchorScroll(before);
+      },
+    });
   }
 
   captureVisibleArticle () {
@@ -624,7 +703,10 @@ class ScrollableList extends PureComponent {
     }
     // Reset the scroll position when a new child comes in in order not to
     // jerk the scrollbar around if you're already scrolled down the page.
-    if (snapshot && snapshot.anchor) {
+    if (snapshot && snapshot.masonryAnchor) {
+      this.restoreMasonryItemAnchor(snapshot);
+      this._scheduleMasonryAnchorCorrection(snapshot);
+    } else if (snapshot && snapshot.anchor) {
       this.restoreArticleAnchor(snapshot);
     } else if (snapshot !== null) {
       this.setScrollTop(this.getScrollHeight() - snapshot);
