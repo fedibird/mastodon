@@ -141,8 +141,8 @@ describe('ScrollableList timeline anchor', () => {
     const list = view.container.querySelector('.scrollable');
     list.scrollTop = 120;
 
-    const capture = jest.spyOn(ref.current, 'captureVisibleArticle').mockReturnValue({ id: '90', top: 80 });
-    const restore = jest.spyOn(ref.current, 'restoreArticleAnchor').mockImplementation(() => {});
+    const capture = jest.spyOn(ref.current, 'captureVisibleMasonryItem').mockReturnValue({ key: '.$90', top: 80 });
+    const restore = jest.spyOn(ref.current, 'restoreMasonryItemAnchor').mockImplementation(() => {});
 
     view.rerender(
       <Provider store={reduxStore}>
@@ -151,9 +151,75 @@ describe('ScrollableList timeline anchor', () => {
     );
 
     expect(capture).toHaveBeenCalledTimes(1);
-    expect(restore).toHaveBeenCalledWith({ anchor: true, id: '90', top: 80 });
+    expect(restore).toHaveBeenCalledWith({ masonryAnchor: true, key: '.$90', top: 80 });
   });
 
+  it('selects the visual reading-edge tile, even with nonnumeric media keys and a different DOM order', () => {
+    const ref = React.createRef();
+    const { container } = render(
+      <Provider store={store()}>
+        <ScrollableList ref={ref} scrollKey='media' layoutMode='media' trackScroll={false} hasMore={false}>
+          {rows(['media:100:0', 'media:100:1', 'media:90:0'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    const list = container.querySelector('.scrollable');
+    const items = Array.from(container.querySelectorAll('.timeline-masonry__item[data-layout-key]'));
+    expect(items).toHaveLength(3);
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 500 });
+    list.getBoundingClientRect = () => rect(0, 500);
+
+    // The first DOM tile is far above the reading edge. The second one
+    // covers the edge and must win over the third, which begins below it.
+    list.scrollTop = 120;
+    const docTops = [-300, 90, 170];
+    const tileHeights = [100, 230, 170];
+    items.forEach((tile, index) => {
+      tile.getBoundingClientRect = () => rect(docTops[index] - list.scrollTop, tileHeights[index]);
+    });
+
+    const captured = ref.current.captureVisibleMasonryItem();
+    expect(captured).toEqual({ key: items[1].getAttribute('data-layout-key'), top: -30 });
+    expect(ref.current.captureVisibleArticle()).toBeNull();
+
+    // A unique tile key restores the correct attachment even if multiple
+    // tiles belong to the same status and their keys contain escaped ':'.
+    docTops[1] += 60;
+    ref.current.restoreMasonryItemAnchor(captured);
+    expect(list.scrollTop).toBe(180);
+    expect(ref.current.captureVisibleMasonryItem()).toEqual({ key: captured.key, top: -30 });
+  });
+
+  it('corrects a late masonry height measurement for two frames but cancels on user intent', () => {
+    const ref = React.createRef();
+    const { container } = render(
+      <Provider store={store()}>
+        <ScrollableList ref={ref} scrollKey='media' layoutMode='media' trackScroll={false} hasMore={false}>
+          {rows(['media:100:0'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    const list = container.querySelector('.scrollable');
+    const tile = container.querySelector('.timeline-masonry__item');
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 500 });
+    list.getBoundingClientRect = () => rect(0, 500);
+
+    let docTop = 100;
+    list.scrollTop = 120;
+    tile.getBoundingClientRect = () => rect(docTop - list.scrollTop, 240);
+    const anchor = ref.current.captureVisibleMasonryItem();
+    expect(anchor).toEqual({ key: tile.getAttribute('data-layout-key'), top: -20 });
+
+    ref.current._scheduleMasonryAnchorCorrection(anchor);
+    docTop += 50;
+    flushFrames(1);
+    expect(list.scrollTop).toBe(170);
+
+    fireEvent.wheel(list, { deltaY: 20 });
+    docTop += 30;
+    flushFrames();
+    expect(list.scrollTop).toBe(170);
+  });
 
   it('scrolls one inner list to a loaded id and leaves the sibling list alone', () => {
     const left = React.createRef();
