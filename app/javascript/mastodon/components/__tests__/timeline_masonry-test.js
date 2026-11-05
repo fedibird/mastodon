@@ -21,15 +21,20 @@ const position = (container, id) => {
     y: Number(match[1]),
   };
 };
+const placeholderHeights = container => (
+  Array.from(container.querySelectorAll('.timeline-masonry__placeholder'))
+    .map(node => parseFloat(node.style.height))
+    .sort((a, b) => a - b)
+);
 
-describe('TimelineMasonry streaming shortest-column insertion', () => {
+describe('TimelineMasonry streaming upward-frontier insertion', () => {
   let width;
   let heights;
   let resizeObserverDescriptor;
 
   beforeEach(() => {
     width = 590;
-    heights = { A: 90, B: 130, C: 70, D: 180, E: 100, F: 140, G: 120 };
+    heights = { A: 90, B: 130, C: 70, D: 180, E: 100, F: 140, G: 120, latest: 90, 'media:1:0': 80 };
     resizeObserverDescriptor = Object.getOwnPropertyDescriptor(window, 'ResizeObserver');
     Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: undefined });
 
@@ -53,7 +58,7 @@ describe('TimelineMasonry streaming shortest-column insertion', () => {
     }
   });
 
-  it('prepends into the shortest column, breaking ties toward inline-end, with no reserved-row gaps', () => {
+  it('extends all old columns once, then consumes headroom end-to-start without old-card reflow', () => {
     const { container, rerender } = render(cards(['A', 'B', 'C']));
     const original = ['A', 'B', 'C'].map(id => position(container, id));
     expect(original.map(place => place.y)).toEqual([0, 0, 0]);
@@ -62,62 +67,68 @@ describe('TimelineMasonry streaming shortest-column insertion', () => {
 
     rerender(cards(['D', 'A', 'B', 'C']));
     expect(position(container, 'D')).toEqual({ x: original[2].x, y: 0 });
-    expect(position(container, 'C')).toEqual({ x: original[2].x, y: 188 });
-    expect(position(container, 'A')).toEqual(original[0]);
-    expect(position(container, 'B')).toEqual(original[1]);
+    expect(placeholderHeights(container)).toEqual([188, 188]);
+    ['A', 'B', 'C'].forEach((id, index) => {
+      expect(position(container, id)).toEqual({ x: original[index].x, y: 188 });
+    });
 
     rerender(cards(['E', 'D', 'A', 'B', 'C']));
-    expect(position(container, 'E')).toEqual({ x: original[0].x, y: 0 });
-    expect(position(container, 'A')).toEqual({ x: original[0].x, y: 108 });
-    expect(position(container, 'C').y).toBe(188);
+    expect(position(container, 'E')).toEqual({ x: original[1].x, y: 80 });
+    expect(position(container, 'D').y).toBe(0);
+    expect(placeholderHeights(container)).toEqual([80, 188]);
+    expect(position(container, 'A').y).toBe(188);
 
     rerender(cards(['F', 'E', 'D', 'A', 'B', 'C']));
-    expect(position(container, 'F')).toEqual({ x: original[1].x, y: 0 });
-    expect(position(container, 'B')).toEqual({ x: original[1].x, y: 148 });
+    expect(position(container, 'F')).toEqual({ x: original[0].x, y: 40 });
+    expect(placeholderHeights(container)).toEqual([40, 80]);
+    expect(position(container, 'A').y).toBe(188);
 
     rerender(cards(['G', 'F', 'E', 'D', 'A', 'B', 'C']));
-    expect(position(container, 'G')).toEqual({ x: original[0].x, y: 0 });
-    expect(position(container, 'E').y).toBe(128);
-    expect(position(container, 'A').y).toBe(236);
-    expect(position(container, 'B').y).toBe(148);
-    expect(position(container, 'C').y).toBe(188);
-    expect(container.querySelectorAll('.timeline-masonry__placeholder')).toHaveLength(0);
+    expect(position(container, 'G')).toEqual({ x: original[1].x, y: 0 });
+    expect(position(container, 'F')).toEqual({ x: original[0].x, y: 88 });
+    expect(position(container, 'E')).toEqual({ x: original[1].x, y: 128 });
+    expect(position(container, 'D')).toEqual({ x: original[2].x, y: 48 });
+    expect(placeholderHeights(container)).toEqual([48, 88]);
+    ['A', 'B', 'C'].forEach((id, index) => {
+      expect(position(container, id)).toEqual({ x: original[index].x, y: 236 });
+    });
     expect(Array.from(container.querySelectorAll('.timeline-masonry__item article')).map(node => node.textContent)).toEqual([
       'G', 'F', 'E', 'D', 'A', 'B', 'C',
     ]);
+    expect(Array.from(container.querySelectorAll('.timeline-masonry__placeholder')).every(node => node.getAttribute('aria-hidden') === 'true')).toBe(true);
   });
 
-  it('places a batch oldest-first rather than making a separate top row', () => {
+  it('matches sequential arrival when several cards are prepended in one batch', () => {
     const { container, rerender } = render(cards(['A', 'B', 'C']));
     const [start, middle, end] = ['A', 'B', 'C'].map(id => position(container, id).x);
 
     rerender(cards(['F', 'E', 'D', 'A', 'B', 'C']));
     expect(position(container, 'D')).toEqual({ x: end, y: 0 });
-    expect(position(container, 'E')).toEqual({ x: start, y: 0 });
-    expect(position(container, 'F')).toEqual({ x: middle, y: 0 });
-    expect(position(container, 'A').y).toBe(108);
-    expect(position(container, 'B').y).toBe(148);
-    expect(position(container, 'C').y).toBe(188);
-    expect(container.querySelectorAll('.timeline-masonry__placeholder')).toHaveLength(0);
+    expect(position(container, 'E')).toEqual({ x: middle, y: 80 });
+    expect(position(container, 'F')).toEqual({ x: start, y: 40 });
+    ['A', 'B', 'C'].forEach(id => expect(position(container, id).y).toBe(188));
+    expect(placeholderHeights(container)).toEqual([40, 80]);
   });
 
-  it('keeps the assigned column when media heights change, and resets on column count changes', () => {
+  it('retains assigned columns across a later height change, resizing and a column-count reset', () => {
     const { container, rerender } = render(cards(['A', 'B', 'C'], 'media', 'medium'));
     const first = ['A', 'B', 'C'].map(id => position(container, id));
 
     rerender(cards(['D', 'A', 'B', 'C'], 'media', 'medium'));
     rerender(cards(['E', 'D', 'A', 'B', 'C'], 'media', 'medium'));
     expect(position(container, 'D').x).toBe(first[2].x);
-    expect(position(container, 'E').x).toBe(first[0].x);
+    expect(position(container, 'E').x).toBe(first[1].x);
 
     heights.D = 330;
     act(() => {
       window.dispatchEvent(new Event('resize'));
     });
     expect(position(container, 'D').x).toBe(first[2].x);
-    expect(position(container, 'C').y).toBe(338);
-    expect(position(container, 'A').y).toBe(108);
-    expect(position(container, 'B').y).toBe(0);
+    expect(position(container, 'E')).toEqual({ x: first[1].x, y: 230 });
+    ['A', 'B', 'C'].forEach(id => {
+      expect(position(container, id).y).toBe(338);
+    });
+    expect(placeholderHeights(container)).toEqual([230, 338]);
 
     width = 160;
     act(() => {
@@ -126,34 +137,34 @@ describe('TimelineMasonry streaming shortest-column insertion', () => {
     ['A', 'B', 'C', 'D', 'E'].forEach(id => {
       expect(position(container, id).x).toBe(0);
     });
-    expect(container.querySelectorAll('.timeline-masonry__placeholder')).toHaveLength(0);
+    expect(placeholderHeights(container)).toEqual([]);
   });
 
-  it('removes a tile without leaving a hole, while preserving surviving columns', () => {
+  it('removes a tile without losing the cross-column reservation or reassigning survivors', () => {
     const { container, rerender } = render(cards(['A', 'B', 'C']));
     const original = ['A', 'B', 'C'].map(id => position(container, id));
 
     rerender(cards(['D', 'A', 'B', 'C']));
     rerender(cards(['D', 'A', 'B']));
     expect(position(container, 'D')).toEqual({ x: original[2].x, y: 0 });
-    expect(position(container, 'A')).toEqual(original[0]);
-    expect(position(container, 'B')).toEqual(original[1]);
+    expect(position(container, 'A').y).toBe(188);
+    expect(position(container, 'B').y).toBe(188);
 
     rerender(cards(['E', 'D', 'A', 'B']));
-    expect(position(container, 'E')).toEqual({ x: original[0].x, y: 0 });
-    expect(position(container, 'A').y).toBe(108);
-    expect(container.querySelectorAll('.timeline-masonry__placeholder')).toHaveLength(0);
+    expect(position(container, 'E')).toEqual({ x: original[1].x, y: 80 });
+    expect(position(container, 'A').y).toBe(188);
+    expect(placeholderHeights(container)).toEqual([80, 188]);
   });
 
   it('keeps a single column free of placeholders', () => {
     const { container, rerender } = render(cards(['A', 'B'], 'card-1'));
     rerender(cards(['C', 'A', 'B'], 'card-1'));
-    expect(container.querySelectorAll('.timeline-masonry__placeholder')).toHaveLength(0);
+    expect(placeholderHeights(container)).toEqual([]);
     expect(position(container, 'C')).toEqual({ x: 0, y: 0 });
     expect(position(container, 'A').y).toBe(78);
   });
 
-  it('keeps pinned posts above live columns and preserves unrelated older positions', () => {
+  it('keeps pinned posts above the shared prepend reservation', () => {
     const pinned = 'f-Pinned';
     const { container, rerender } = render(cards([pinned, 'A', 'B', 'C']));
     const original = {
@@ -166,12 +177,13 @@ describe('TimelineMasonry streaming shortest-column insertion', () => {
     rerender(cards([pinned, 'D', 'A', 'B', 'C']));
     expect(position(container, pinned)).toEqual(original.pinned);
     expect(position(container, 'D')).toEqual({ x: original.C.x, y: 108 });
-    expect(position(container, 'A')).toEqual(original.A);
-    expect(position(container, 'B')).toEqual(original.B);
-    expect(position(container, 'C').y).toBe(original.C.y + 188);
+    ['A', 'B', 'C'].forEach(id => {
+      expect(position(container, id).y).toBe(original[id].y + 188);
+    });
+    expect(placeholderHeights(container)).toEqual([188, 188]);
   });
 
-  it('uses the heights above a full-width gap, not older columns below it', () => {
+  it('preserves full-width gaps in the old feed when reserving space above them', () => {
     const { container, rerender } = render(cards(['A', 'gap:123', 'B', 'C']));
     const previousGap = position(container, 'gap:123');
     const previousB = position(container, 'B');
@@ -180,12 +192,23 @@ describe('TimelineMasonry streaming shortest-column insertion', () => {
     rerender(cards(['D', 'A', 'gap:123', 'B', 'C']));
     expect(position(container, 'D').x).toBeGreaterThan(middleColumn);
     expect(position(container, 'D').y).toBe(0);
-    expect(position(container, 'A').y).toBe(0);
-    expect(position(container, 'gap:123').y).toBe(previousGap.y + 90);
-    expect(position(container, 'B').y).toBe(previousB.y + 90);
+    expect(position(container, 'A').y).toBe(188);
+    expect(position(container, 'gap:123').y).toBe(previousGap.y + 188);
+    expect(position(container, 'B').y).toBe(previousB.y + 188);
   });
 
-  it('discards column assignments after switching to a disjoint timeline', () => {
+  it('aligns full-width gap boundaries inside the new reserved region', () => {
+    const { container, rerender } = render(cards(['A', 'B', 'C']));
+    rerender(cards(['latest', 'gap:123', 'media:1:0', 'A', 'B', 'C']));
+
+    expect(position(container, 'latest').y).toBe(0);
+    expect(position(container, 'gap:123')).toEqual({ x: 0, y: 98 });
+    expect(position(container, 'media:1:0').y).toBe(206);
+    ['A', 'B', 'C'].forEach(id => expect(position(container, id).y).toBe(294));
+    expect(placeholderHeights(container)).toEqual([88, 88, 98, 98]);
+  });
+
+  it('resets column allocations for a disjoint timeline', () => {
     const { container, rerender } = render(cards(['A', 'B', 'C']));
     rerender(cards(['D', 'A', 'B', 'C']));
     rerender(cards(['X', 'Y', 'Z']));
@@ -195,5 +218,6 @@ describe('TimelineMasonry streaming shortest-column insertion', () => {
     expect(position(container, 'Z').y).toBe(0);
     expect(position(container, 'Y').x).toBeGreaterThan(position(container, 'X').x);
     expect(position(container, 'Z').x).toBeGreaterThan(position(container, 'Y').x);
+    expect(placeholderHeights(container)).toEqual([]);
   });
 });
