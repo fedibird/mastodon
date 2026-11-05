@@ -184,6 +184,7 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel, 
   const ariaLabel = scrollable ? [scrollLabel, zoneNote].filter(Boolean).join('. ') : undefined;
   const bodyClass = [
     'timeline-card__body',
+    scrollable ? 'timeline-card__body--scrollable' : null,
     expanded ? 'timeline-card__body--expanded' : null,
     collapseLongText ? null : 'timeline-card__body--natural',
   ].filter(Boolean).join(' ');
@@ -199,9 +200,6 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel, 
       >
         <div ref={contentRef}>{children}</div>
       </div>
-      {showScrollZone && (
-        <div className='timeline-card__scroll-zone' style={{ pointerEvents: 'none' }} data-timeline-scroll-zone='true' aria-hidden='true' />
-      )}
       {scrollable && (
         <button type='button' className='timeline-card__expand' onClick={handleExpand} aria-label={expandLabel} title={expandLabel}>
           <span aria-hidden='true'>▼</span>

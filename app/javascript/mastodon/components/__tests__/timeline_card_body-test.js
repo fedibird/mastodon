@@ -49,6 +49,7 @@ describe('TimelineCardBody', () => {
     setScrollMetrics(viewport, 200, 200);
     expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
     expect(viewport.getAttribute('tabindex')).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
     expect(viewport.textContent).toBe('Short post');
   });
 
@@ -69,6 +70,7 @@ describe('TimelineCardBody', () => {
 
     expect(getByRole('button', { name: 'Show full post text' }).textContent).toBe('▼');
     expect(viewport.getAttribute('tabindex')).toBe('0');
+    expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
     expect(viewport.getAttribute('aria-label')).toBe('Scrollable post text');
     expect(viewport.textContent).toBe('Long text');
     expect(container.querySelector('[data-testid="first-media"]').closest('.timeline-card__body')).toBeNull();
@@ -78,6 +80,7 @@ describe('TimelineCardBody', () => {
 
     expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
     expect(container.querySelector('.timeline-card__body--expanded')).not.toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
     expect(viewport.getAttribute('tabindex')).toBe('-1');
     expect(document.activeElement).toBe(viewport);
     expect(onNavigate).not.toHaveBeenCalled();
@@ -97,9 +100,11 @@ describe('TimelineCardBody', () => {
     );
     setScrollMetrics(viewport, 310, 200);
     expect(queryByRole('button', { name: 'Show full post text' })).not.toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
 
     setScrollMetrics(viewport, 195, 200);
     expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
     expect(viewport.getAttribute('tabindex')).toBeNull();
   });
 
@@ -127,8 +132,8 @@ describe('TimelineCardBody', () => {
     Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 100 });
 
     expect(container.querySelector('.timeline-card__body--natural')).not.toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
     expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
-    expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
     expect(viewport.getAttribute('tabindex')).toBeNull();
   });
 
@@ -147,9 +152,9 @@ describe('TimelineCardBody', () => {
     viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
     setScrollMetrics(viewport, 400, 120);
 
-    const zone = container.querySelector('[data-timeline-scroll-zone]');
-    expect(zone).not.toBeNull();
-    expect(zone.style.pointerEvents).toBe('none');
+    // The end-third remains interactive without a decorative overlay.
+    expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
     expect(viewport.getAttribute('aria-label')).toBe('Scrollable post text. Scrolling here moves the timeline');
 
     expect(fireEvent.wheel(viewport, { deltaY: 48, deltaX: 0, clientX: 40, clientY: 10 })).toBe(true);
@@ -226,6 +231,8 @@ describe('TimelineCardBody', () => {
     setScrollMetrics(viewport, 400, 120);
 
     expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
+    expect(viewport.getAttribute('aria-label')).toBe('Scrollable post text');
     expect(fireEvent.wheel(viewport, { deltaY: 30, deltaX: 0, clientX: 280, clientY: 8 })).toBe(true);
     expect(timeline.scrollTop).toBe(0);
 
@@ -236,5 +243,7 @@ describe('TimelineCardBody', () => {
     );
     setScrollMetrics(viewport, 120, 120);
     expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
+    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
+    expect(viewport.getAttribute('aria-label')).toBeNull();
   });
 });

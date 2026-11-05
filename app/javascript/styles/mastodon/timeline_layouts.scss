@@ -173,7 +173,6 @@
   }
 
   &__body {
-    position: relative;
     padding: 9px 10px;
     overflow-wrap: anywhere;
   }
@@ -183,15 +182,20 @@
     // its CW and trailing hashtag badges) is capped at ten normal text lines.
     // Match .status__content's line-height plus its 2px top padding.
     max-height: calc(var(--content-font-size, 15px) * 13.3 + 2px);
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
 
     &:focus-visible {
       outline: 2px solid $ui-highlight-color;
       outline-offset: -2px;
     }
+  }
+
+  // The viewport only becomes a nested scrolling container when its content
+  // exceeds the ten-line cap. Short posts must let wheel/touch scroll the feed.
+  &__body--scrollable &__body-scroll {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
   }
 
   &__body--expanded &__body-scroll,
@@ -200,18 +204,8 @@
     overflow: visible;
   }
 
-  // Visual only. Pointer events stay on the text so links, CW, and selection
-  // are unchanged. Wheel and touch in this third are handled on the scroller.
-  &__scroll-zone {
-    position: absolute;
-    z-index: 1;
-    inset-block: 0;
-    inset-inline-end: 0;
-    width: calc(100% / 3);
-    pointer-events: none;
-    border-inline-start: 1px dashed rgba($darker-text-color, 0.35);
-    background: linear-gradient(to inline-start, rgba($darker-text-color, 0.07), transparent 72%);
-  }
+  // The inline-end third is handled through wheel/touch hit testing in
+  // TimelineCardBody. It has no visible divider or overlay to intercept links.
 
   &__expand {
     display: block;
