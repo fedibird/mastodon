@@ -14,8 +14,11 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
   def test_real_catalog_passes_without_booting_rails
     output, status = run_check(CATALOG)
     assert status.success?, output
-    assert_match(/entries: 259/, output)
+    assert_match(/entries: 270/, output)
     assert_match(/duplicate keys: 0/, output)
+    assert_match(/"site"=>54/, output)
+    assert_match(/"inferred"=>23/, output)
+    assert_match(/"verified"=>244/, output)
     assert_match(/unresolved_entries: 3/, output)
     assert_match(/unresolved_questions: 6/, output)
     assert_match(/not treated as successes|unresolved/, output)
@@ -128,6 +131,95 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
     assert_match(/catalog drift user\.default_privacy/, output)
   end
 
+  def test_reviewed_rss_and_group_site_settings
+    catalog = YAML.safe_load(File.read(CATALOG), aliases: true)
+    discovery = entry(catalog, 'site.external_bridge_rss_activitypub_discovery')
+    policy = entry(catalog, 'site.external_bridge_rss_video_policy')
+    limit = entry(catalog, 'site.external_bridge_rss_video_max_download_mib')
+    creation = entry(catalog, 'site.group_creation_requests')
+
+    assert_equal 'not_writable', discovery['write_policy']
+    assert_equal 'admin', discovery['read_policy']
+    assert_equal 'verified', discovery['audit_status']
+    assert_includes discovery['notes'], 'Schedule.enabled?'
+    assert_includes discovery['notes'], 'scanned absence'
+    assert_includes discovery['write_sources'].join, 'Form::AdminExternalContentSettings'
+
+    assert_equal 'admin', policy['write_policy']
+    assert_equal 'unknown_stored_string_reads_as_remote', policy['configured_vs_effective']
+    assert_includes policy['write_sources'].join, 'Form::AdminExternalContentSettings'
+    assert_includes policy['write_sources'].join, ':settings, :update?'
+    assert_includes policy['notes'], 'does not backfill'
+    refute_includes policy['notes'], 'Form::AdminSettings::KEYS'
+
+    assert_equal 'admin', limit['write_policy']
+    assert_equal 'out_of_range_reads_as_default_20', limit['configured_vs_effective']
+    assert_includes limit['notes'], 'YAML default 20'
+    assert_includes limit['normalization'], 'does not write that fallback back'
+
+    assert_equal 'not_writable', creation['write_policy']
+    assert_equal 'verified', creation['audit_status']
+    assert_includes creation['notes'], 'not on the admin settings form'
+    assert_includes creation['notes'], 'feature_disabled'
+    assert_includes creation['notes'], 'not_found'
+    assert creation['source_refs'].any? { |ref| ref.start_with?('app/services/group_creation_requests/approve_service.rb:') }
+
+    %w[
+      enabled shared_quota shared_quota_unlimited per_link_max_uses
+      per_link_unlimited_uses per_link_lifetime_seconds per_link_indefinite
+    ].each do |suffix|
+      item = entry(catalog, "site.group_registration_invites_#{suffix}")
+      assert_equal 'admin', item['write_policy'], item['key']
+      assert_equal 'site', item['disposition'], item['key']
+      assert_equal 'verified', item['audit_status'], item['key']
+      assert_includes item['write_sources'].join, 'UpdateSiteDefaults'
+      assert_includes item['write_sources'].join, 'authorize_group_admin!'
+      assert_includes item['notes'], 'not Form::AdminSettings'
+      assert_includes item['notes'], 'server_administrator?'
+    end
+
+    uses = entry(catalog, 'site.group_registration_invites_per_link_max_uses')
+    lifetime = entry(catalog, 'site.group_registration_invites_per_link_lifetime_seconds')
+    assert_equal 'nil_on_read_when_unlimited_uses', uses['configured_vs_effective']
+    assert_equal 'nil_on_read_when_indefinite', lifetime['configured_vs_effective']
+    assert_includes uses['notes'], 'returns nil when per_link_unlimited_uses is true'
+
+    crop = entry(catalog, 'user.crop_card_images')
+    assert_includes crop['notes'], 'Independent of user.crop_images'
+    assert_includes crop['read_sources'].join, 'compact timeline cards only'
+    assert crop['source_refs'].any? { |ref| ref.start_with?('app/javascript/mastodon/components/status.js:') }
+    assert crop['source_refs'].any? { |ref| ref.start_with?('app/javascript/mastodon/components/media_gallery.js:') }
+  end
+
+  def test_important_source_refs_name_the_statement
+    catalog = YAML.safe_load(File.read(CATALOG), aliases: true)
+    catalog['entries'].each do |item|
+      key = item['key']
+      if key.start_with?('user.notification_emails.')
+        assert_source_anchor(item, 'app/services/notify_service.rb', 'settings.notification_emails')
+      elsif key.start_with?('user.interactions.')
+        child = key.split('.').last
+        assert_source_anchor(item, 'app/services/notify_service.rb', "settings.interactions['#{child}']")
+      end
+    end
+
+    derived = entry(catalog, 'derived.translation_private_content_allowed')
+    assert_source_anchor(derived, 'app/lib/translation_service.rb', 'def self.private_content_allowed_for')
+    assert_source_anchor(derived, 'app/serializers/initial_state_serializer.rb', 'store[:translation_private_content_allowed]')
+    assert_source_anchor(derived, 'app/javascript/mastodon/initial_state.js', 'export const translationPrivateContentAllowed')
+    assert_source_anchor(entry(catalog, 'site.site_title'), 'app/models/form/admin_settings.rb', 'KEYS = %i(')
+
+    shifted = entry(catalog, 'user.interactions.must_be_follower').dup
+    shifted['source_refs'] = ['app/services/notify_service.rb:78']
+    error = assert_raises(Minitest::Assertion) do
+      assert_source_anchor(shifted, 'app/services/notify_service.rb', "settings.interactions['must_be_follower']")
+    end
+    assert_match(/notify_service.rb:78/, error.message)
+    cited = File.readlines(File.join(ROOT, 'app/services/notify_service.rb'))[77]
+    refute_empty cited.strip
+    refute_includes cited, "settings.interactions['must_be_follower']"
+  end
+
   def test_inactive_write_policy_general_fails
     catalog = YAML.safe_load(File.read(CATALOG), aliases: true)
     item = entry(catalog, 'user.notification_emails.followed_message')
@@ -145,6 +237,14 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
 
   def entry(catalog, key)
     catalog['entries'].find { |item| item['key'] == key } || flunk("missing #{key}")
+  end
+
+  def assert_source_anchor(item, path, snippet)
+    ref = Array(item['source_refs']).find { |candidate| candidate.start_with?("#{path}:") }
+    flunk("#{item['key']} has no source_ref in #{path}") unless ref
+    line_number = ref.split(':').last.to_i
+    line = File.readlines(File.join(ROOT, path))[line_number - 1].to_s
+    assert_includes line, snippet, "#{item['key']} #{ref} does not contain #{snippet}"
   end
 
   def write_catalog(catalog)

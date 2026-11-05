@@ -275,42 +275,36 @@ module SettingsServiceCatalog
     end
 
     def site_entries
-      admin = admin_keys
       consumed = user_vars + %w[notification_emails interactions]
       yaml_by_key.keys.reject { |key| consumed.include?(key) }.sort.map do |key|
         row = yaml_by_key[key]
         readers = site_reader_files(key)
-        admin_key = admin.include?(key) || readers.any? { |path| path.include?('admin') || path.include?('action_review') }
+        writer = site_writer_for(key, readers)
+        reviewed = reviewed_site(key)
         {
           'key' => "site.#{key}",
           'category' => 'site',
           'owner' => 'site',
-          'disposition' => readers.empty? && !admin_key ? 'retained_inactive' : 'site',
+          'disposition' => readers.empty? && writer.nil? ? 'retained_inactive' : 'site',
           'storage' => "unscoped settings row var=#{key}, default config/settings.yml. The same defaults hash is also the ScopedSettings fallback, so user.settings.#{key} would return this default if called.",
-          'legacy_keys' => { 'settings_var' => key, 'admin_form' => admin.include?(key) ? key : nil, 'readers' => readers }.compact,
+          'legacy_keys' => { 'settings_var' => key, 'admin_form' => writer && writer['admin_form'] ? key : nil, 'readers' => readers }.compact,
           'raw_type' => row['yaml_type'],
           'effective_type' => row['yaml_type'],
           'default_source' => "config/settings.yml defaults.#{key}",
           'read_sources' => readers.empty? ? ['no Setting.key or Setting["key"] reader found under app/'] : readers,
-          'write_sources' => if admin.include?(key)
-                               ['admin.settings Form::AdminSettings']
-                             elsif readers.any? { |path| path.include?('action_review_settings') }
-                               ['admin action review settings form']
-                             else
-                               ['no admin form in Form::AdminSettings::KEYS']
-                             end,
-          'normalization' => 'RailsSettings YAML column. Hash defaults are merged on unscoped read the same way as scoped reads.',
+          'write_sources' => [site_write_source(key, writer)],
+          'normalization' => reviewed['normalization'] || 'RailsSettings YAML column. Hash defaults are merged on unscoped read the same way as scoped reads.',
           'availability' => 'instance',
           'read_policy' => 'admin',
-          'write_policy' => admin_key ? 'admin' : 'not_writable',
-          'side_effects' => ['unscoped settings cache'],
+          'write_policy' => writer ? 'admin' : 'not_writable',
+          'side_effects' => reviewed['side_effects'] || ['unscoped settings cache'],
           'apply_hint' => readers.empty? ? 'unknown' : 'live',
           'client_reference' => ['none'],
-          'configured_vs_effective' => 'site_default_shared_with_scoped_fallback',
+          'configured_vs_effective' => reviewed['configured_vs_effective'] || 'site_default_shared_with_scoped_fallback',
           'form_status' => 'absent',
-          'source_refs' => ["config/settings.yml:#{row['line']}", admin.include?(key) ? 'app/models/form/admin_settings.rb:6' : nil].compact,
-          'audit_status' => readers.empty? && !admin.include?(key) ? 'inferred' : 'verified',
-          'notes' => site_note(key, admin.include?(key), readers),
+          'source_refs' => site_source_refs(key, row, writer),
+          'audit_status' => readers.empty? && (writer.nil? || !writer['admin_form']) ? 'inferred' : 'verified',
+          'notes' => site_note(key, writer, readers),
         }
       end
     end
@@ -455,7 +449,11 @@ module SettingsServiceCatalog
           'client_reference' => ['static_import'],
           'configured_vs_effective' => 'derived',
           'form_status' => 'absent',
-          'source_refs' => ['app/lib/translation_service.rb:70', 'app/serializers/initial_state_serializer.rb:96', 'app/javascript/mastodon/initial_state.js:17'],
+          'source_refs' => [
+            "app/lib/translation_service.rb:#{read_line('app/lib/translation_service.rb', 'def self.private_content_allowed_for')}",
+            "app/serializers/initial_state_serializer.rb:#{read_line('app/serializers/initial_state_serializer.rb', 'store[:translation_private_content_allowed]')}",
+            "app/javascript/mastodon/initial_state.js:#{read_line('app/javascript/mastodon/initial_state.js', 'export const translationPrivateContentAllowed')}",
+          ],
           'audit_status' => 'verified',
           'notes' => 'Capability flag, not a preference. Personal DeepL versus the instance backend can change it. Do not catalog it as translation_preferred_mode.',
         },
@@ -551,6 +549,7 @@ module SettingsServiceCatalog
         'JavaScript use is counted from static import { name } from an initial_state module. Re-exports, require, and string lookups are not followed. Import count zero means no such import was found, not that a runtime lookup is impossible.',
         'Redux meta hydrates the whole InitialState meta object, but preference keys are not read back from state.meta by the selectors found in this pass. dynamic_update_possible is therefore a structural observation.',
         'The checker does not boot Rails, connect to PostgreSQL, or connect to Redis.',
+        'A source_ref fails when the file is missing, the line is outside the file, or the line is blank. The checker does not compare that line to the statement it is supposed to name, so a different non-blank line still passes. The catalog test anchors NotifyService notification emails, each interactions key, translation_private_content_allowed, and Form::AdminSettings::KEYS.',
       ]
     end
 
@@ -687,7 +686,13 @@ module SettingsServiceCatalog
       sources << 'GET /api/v1/preferences' if preferences_alias(var) && !var.start_with?('auto_play_')
       sources << 'GET /api/v1/preferences as part of reading:autoplay:gifs' if var.start_with?('auto_play_')
       sources << 'GET /api/v1/accounts/verify_credentials source' if credentials_alias(var)
-      sources << "static JS import #{js['export']} (#{js['importers']} importers)" if js && js['importers'].positive?
+      if js && js['importers'].positive?
+        sources << if var == 'crop_card_images'
+                     "static JS import cropCardImages (#{js['importers']} importers) for compact timeline cards only"
+                   else
+                     "static JS import #{js['export']} (#{js['importers']} importers)"
+                   end
+      end
       sources << 'static JS export with no import found' if js && js['importers'].zero?
       sources << 'server CSS variables in account_theme_valiables' if css
       sources << 'server HTML body class or theme stylesheet' if html.any? || var == 'theme'
@@ -917,6 +922,10 @@ module SettingsServiceCatalog
       refs << "app/controllers/application_controller.rb:#{@facts[:html_classes]['theme_line']}" if var == 'theme'
       refs << 'app/lib/translation_preferences.rb:11' if var == 'show_translation_bar'
       refs << 'app/lib/translation_preferences.rb:36' if var == 'translation_preferred_mode'
+      if var == 'crop_card_images'
+        refs << "app/javascript/mastodon/components/status.js:#{read_line('app/javascript/mastodon/components/status.js', 'cropImages: cropCardImages')}"
+        refs << "app/javascript/mastodon/components/media_gallery.js:#{read_line('app/javascript/mastodon/components/media_gallery.js', 'this.props.cropImages ?? cropImages')}"
+      end
       refs.compact.uniq
     end
 
@@ -938,6 +947,9 @@ module SettingsServiceCatalog
       end
       if var == 'default_search_searchability'
         parts << 'InitialState search.default_searchability uses this user setting. InitialState compose.default_searchability uses accounts.searchability. The composer reducer default before hydrate is private. These are different values.'
+      end
+      if var == 'crop_card_images'
+        parts << 'Independent of user.crop_images. Status passes cropCardImages as the cropImages prop for a compact timeline card. MediaGallery uses that prop before its own cropImages import, so the regular timeline crop setting stays unchanged. initial_state.js falls back to true when the meta value is missing, and the YAML default is true.'
       end
       if var.start_with?('card_') || var.start_with?('media_display_')
         parts << 'Outside UserPreferences::Reader. The appearance form writes ScopedSettings through UserSettingsDecorator, and the WebUI reads InitialState after reload. Invalid media shape or size falls back to square or small. Toolbar changes on a media screen do not write these defaults.'
@@ -981,10 +993,20 @@ module SettingsServiceCatalog
     end
 
     def nested_refs(group, child, forms)
-      refs = ["config/settings.yml:#{yaml_by_key[group]['line']}", "app/lib/user_settings_decorator.rb:#{read_line('app/lib/user_settings_decorator.rb', 'NESTED_KEYS = %w(')}", "app/controllers/settings/preferences_controller.rb:#{@facts[:permit]['line']}", 'app/services/notify_service.rb:78']
+      refs = ["config/settings.yml:#{yaml_by_key[group]['line']}", "app/lib/user_settings_decorator.rb:#{read_line('app/lib/user_settings_decorator.rb', 'NESTED_KEYS = %w(')}", "app/controllers/settings/preferences_controller.rb:#{@facts[:permit]['line']}", notify_source_ref(group, child)]
       forms.each { |field| refs << "#{field['path']}:#{field['line']}" }
       refs << "app/models/user.rb:#{read_line('app/models/user.rb', 'def allows_digest_emails?')}" if %w[digest report pending_account trends].include?(child)
       refs.uniq
+    end
+
+    def notify_source_ref(group, child)
+      path = 'app/services/notify_service.rb'
+      snippet = if group == 'notification_emails'
+                  'settings.notification_emails'
+                else
+                  "settings.interactions['#{child}']"
+                end
+      "#{path}:#{read_line(path, snippet)}"
     end
 
     def column_refs(column)
@@ -1017,10 +1039,118 @@ module SettingsServiceCatalog
       source.include?(":#{name}")
     end
 
-    def admin_keys
-      source = File.read(File.join(@root, 'app/models/form/admin_settings.rb'))
-      body = source[/KEYS = %i\(\s*(.*?)\s*\)\.freeze/m, 1]
+    def site_writer_for(key, readers)
+      return site_writer_index[key] if site_writer_index[key]
+      return nil unless readers.any? { |path| path.include?('action_review_settings') }
+
+      {
+        'label' => 'admin action review settings form',
+        'ref' => nil,
+        'admin_form' => false,
+      }
+    end
+
+    def site_writer_index
+      @site_writer_index ||= begin
+        index = {}
+        admin_settings_ref = "app/models/form/admin_settings.rb:#{read_line('app/models/form/admin_settings.rb', 'KEYS = %i(')}"
+        percent_keys('app/models/form/admin_settings.rb', /KEYS = %i\(\s*(.*?)\s*\)\.freeze/m).each do |setting_key|
+          index[setting_key] = {
+            'label' => 'admin.settings Form::AdminSettings',
+            'ref' => admin_settings_ref,
+            'admin_form' => true,
+          }
+        end
+        percent_keys('app/models/form/admin_external_content_settings.rb', /KEYS = %i\((.*?)\)\.freeze/m).each do |setting_key|
+          index[setting_key] = {
+            'label' => 'admin external content settings Form::AdminExternalContentSettings; Admin::ExternalContentSettingsController authorizes :settings, :update?',
+            'ref' => "app/models/form/admin_external_content_settings.rb:#{read_line('app/models/form/admin_external_content_settings.rb', 'KEYS = %i(')}",
+            'admin_form' => false,
+          }
+        end
+        percent_keys('app/services/group_registration_invites/update_site_defaults.rb', /KEYS = %w\(\s*(.*?)\s*\)\.freeze/m).each do |setting_key|
+          index[setting_key] = {
+            'label' => 'admin group registration invite defaults via GroupRegistrationInvites::UpdateSiteDefaults; authorize_group_admin! :group_registration_invite_defaults',
+            'ref' => "app/services/group_registration_invites/update_site_defaults.rb:#{read_line('app/services/group_registration_invites/update_site_defaults.rb', 'KEYS = %w(')}",
+            'admin_form' => false,
+          }
+        end
+        index
+      end
+    end
+
+    def percent_keys(path, pattern)
+      source = File.read(File.join(@root, path))
+      body = source[pattern, 1]
+      raise "missing keys in #{path}" unless body
+
       body.scan(/[A-Za-z0-9_]+/)
+    end
+
+    def site_write_source(key, writer)
+      return writer['label'] if writer
+      return 'no KEYS entry in Form::AdminSettings, Form::AdminExternalContentSettings, or GroupRegistrationInvites::UpdateSiteDefaults' if %w[external_bridge_rss_activitypub_discovery group_creation_requests].include?(key)
+
+      'no admin form in Form::AdminSettings::KEYS'
+    end
+
+    def site_source_refs(key, row, writer)
+      refs = ["config/settings.yml:#{row['line']}"]
+      refs << writer['ref'] if writer && writer['ref']
+      case key
+      when 'external_bridge_rss_activitypub_discovery'
+        refs << "app/services/external_bridge/rss/activity_pub/schedule.rb:#{read_line('app/services/external_bridge/rss/activity_pub/schedule.rb', 'Setting.external_bridge_rss_activitypub_discovery')}"
+      when 'external_bridge_rss_video_policy', 'external_bridge_rss_video_max_download_mib'
+        refs << "app/services/external_bridge/rss/media/policy.rb:#{read_line('app/services/external_bridge/rss/media/policy.rb', "Setting.#{key}")}"
+        refs << "app/controllers/admin/external_content_settings_controller.rb:#{read_line('app/controllers/admin/external_content_settings_controller.rb', 'authorize :settings, :update?')}"
+      when 'group_creation_requests'
+        refs << "app/services/group_creation_requests/feature.rb:#{read_line('app/services/group_creation_requests/feature.rb', 'Setting.group_creation_requests')}"
+        refs << "app/services/group_creation_requests/approve_service.rb:#{read_line('app/services/group_creation_requests/approve_service.rb', 'raise DecisionError, :feature_disabled unless Feature.enabled?')}"
+        refs << "app/controllers/settings/group_creation_requests_controller.rb:#{read_line('app/controllers/settings/group_creation_requests_controller.rb', 'not_found unless GroupCreationRequests::Feature.enabled?')}"
+      when /\Agroup_registration_invites_/
+        refs << "app/services/group_registration_invites/site_defaults.rb:#{read_line('app/services/group_registration_invites/site_defaults.rb', "Setting.#{key}")}"
+        refs << "app/controllers/admin/group_registration_invite_defaults_controller.rb:#{read_line('app/controllers/admin/group_registration_invite_defaults_controller.rb', 'authorize_group_admin!(:group_registration_invite_defaults, :update?)')}"
+      end
+      refs.compact.uniq
+    end
+
+    def reviewed_site(key)
+      case key
+      when 'external_bridge_rss_video_policy'
+        {
+          'configured_vs_effective' => 'unknown_stored_string_reads_as_remote',
+          'normalization' => 'Form::AdminExternalContentSettings stores remote or hybrid. Policy.mode returns remote for any other stored string and does not write that fallback back.',
+          'side_effects' => [
+            'unscoped settings cache',
+            'read at execution time; a flip to remote during a download does not keep copying',
+            'a flip to hybrid does not backfill videos already judged under remote',
+          ],
+        }
+      when 'external_bridge_rss_video_max_download_mib'
+        {
+          'configured_vs_effective' => 'out_of_range_reads_as_default_20',
+          'normalization' => 'Form::AdminExternalContentSettings stores an integer in 1..Policy.max_mib. Policy.max_bytes uses 20 when the stored integer is outside that range and does not write that fallback back. max_mib is (MediaAttachment::VIDEO_LIMIT - 1) / 1.megabyte.',
+          'side_effects' => ['unscoped settings cache', 'read at execution time by Policy.max_bytes'],
+        }
+      when 'group_registration_invites_per_link_max_uses'
+        {
+          'configured_vs_effective' => 'nil_on_read_when_unlimited_uses',
+          'normalization' => 'UpdateSiteDefaults stores a positive integer. SiteDefaults.snapshot returns nil when per_link_unlimited_uses is true, and returns 0 when the stored value is not an integer.',
+          'side_effects' => group_registration_invite_side_effects,
+        }
+      when 'group_registration_invites_per_link_lifetime_seconds'
+        {
+          'configured_vs_effective' => 'nil_on_read_when_indefinite',
+          'normalization' => 'UpdateSiteDefaults stores a positive integer. SiteDefaults.snapshot returns nil when per_link_indefinite is true, and returns 0 when the stored value is not an integer.',
+          'side_effects' => group_registration_invite_side_effects,
+        }
+      when /\Agroup_registration_invites_/
+        {
+          'side_effects' => group_registration_invite_side_effects,
+        }
+      else
+        {}
+      end
     end
 
     def nested_disposition(group, in_yaml, forms)
@@ -1036,20 +1166,60 @@ module SettingsServiceCatalog
       @ruby_sources.filter_map { |path, text| path if text.match?(pattern) }
     end
 
-    def site_note(key, admin_key, readers)
+    def site_note(key, writer, readers)
       if key == 'min_invite_role'
         'Legacy instance setting. Form::AdminSettings::KEYS no longer includes it; db/legacy_role_setting_sync.rb still reads the stored value when migrating invite permissions onto UserRole. No current admin field. Retained. audit_status inferred because the migration is historical and this pass did not execute it.'
       elsif key == 'disallowed_hashtags'
         'config/settings.yml still has disallowed_hashtags. DisallowedHashtagsValidator does not read Setting.disallowed_hashtags; it rejects tags Tag#usable? is false for. No Setting.disallowed_hashtags reader was found under app/. Retained so the key is not deleted on name similarity alone.'
       elsif key == 'enable_personal_account'
         'Present only in config/settings.yml. No Setting.enable_personal_account reader was found under app/. This is not enable_personal_timeline. Retained as an inactive key. audit_status inferred because a dynamic send could still reference it.'
-      elsif admin_key
+      elsif key == 'external_bridge_rss_activitypub_discovery'
+        'Read by ExternalBridge::RSS::ActivityPub::Schedule.enabled?, and only when ExternalBridge::Feature is also enabled. YAML default false. The key is absent from Form::AdminSettings::KEYS, Form::AdminExternalContentSettings::KEYS, and GroupRegistrationInvites::UpdateSiteDefaults::KEYS. write_policy not_writable records that scanned absence. It does not prove a console write of the unscoped row is impossible. Not a user preference candidate.'
+      elsif key == 'external_bridge_rss_video_policy'
+        'Server setting for article videos, not a user preference. Admin::ExternalContentSettingsController authorizes :settings, :update?, and Form::AdminExternalContentSettings saves remote or hybrid. Policy.mode returns remote for any other stored string and does not write that fallback back. A flip to remote during a download does not keep copying. A flip to hybrid does not backfill videos already judged under remote. YAML default remote. read_policy admin is the audit recommendation, not a new runtime check.'
+      elsif key == 'external_bridge_rss_video_max_download_mib'
+        'Server MiB cap for article videos, not a user preference. The same admin form and :settings authorization save it. Policy.max_bytes uses 20 when the stored integer is outside 1..max_mib and does not write that fallback back. max_mib is (MediaAttachment::VIDEO_LIMIT - 1) / 1.megabyte. YAML default 20. read_policy admin is the audit recommendation, not a new runtime check.'
+      elsif key == 'group_creation_requests'
+        'Read by GroupCreationRequests::Feature.enabled?. YAML default false. config/settings.yml and Feature say this is not on the admin settings form; operators turn it on from a console. ApproveService returns feature_disabled while it is off, before it can enqueue the one-time founding follow. The settings UI returns not_found while it is off. write_policy not_writable records the absence from the scanned admin KEYS lists, not a proof that a console write is impossible. Not a user preference candidate.'
+      elsif key.start_with?('group_registration_invites_')
+        group_registration_invite_note(key, readers)
+      elsif writer && writer['admin_form']
         'Instance setting. It shares config/settings.yml with user defaults. Listed so it is not mistaken for a per-user preference and is not dropped from the audit. Not a Settings Service user-API candidate.'
       elsif readers.empty?
         'In config/settings.yml but not in the user decorator and no Setting.key reader was found under app/. Retained. audit_status inferred because this is a negative search.'
       else
         "Read as an unscoped Setting. Readers: #{readers.join(', ')}. Not a user preference candidate."
       end
+    end
+
+    def group_registration_invite_side_effects
+      [
+        'unscoped row save without Setting.[]=',
+        'cache refresh after commit under the writer advisory lock',
+        'does not rewrite an existing GroupRegistrationInvitePolicy',
+      ]
+    end
+
+    def group_registration_invite_note(key, _readers)
+      detail = case key
+               when 'group_registration_invites_enabled'
+                 'SiteDefaults.snapshot copies this boolean as issuance_enabled.'
+               when 'group_registration_invites_shared_quota'
+                 'SiteDefaults.snapshot copies the integer, or 0 when the stored value is not an integer. The unlimited flag does not nil this value.'
+               when 'group_registration_invites_shared_quota_unlimited'
+                 'SiteDefaults.snapshot copies this boolean as shared_quota_unlimited.'
+               when 'group_registration_invites_per_link_max_uses'
+                 'SiteDefaults.snapshot returns nil when per_link_unlimited_uses is true. Otherwise it returns the integer, or 0 when the stored value is not an integer.'
+               when 'group_registration_invites_per_link_unlimited_uses'
+                 'When true, SiteDefaults.snapshot nils per_link_max_uses.'
+               when 'group_registration_invites_per_link_lifetime_seconds'
+                 'SiteDefaults.snapshot returns nil when per_link_indefinite is true. Otherwise it returns the integer, or 0 when the stored value is not an integer. YAML default 604800.'
+               when 'group_registration_invites_per_link_indefinite'
+                 'When true, SiteDefaults.snapshot nils per_link_lifetime_seconds.'
+               else
+                 raise "unreviewed group registration invite key #{key}"
+               end
+      "Site default copied onto a new GroupRegistrationInvitePolicy at approval. Existing policies are not rewritten. Admin::GroupRegistrationInviteDefaultsController authorizes group_registration_invite_defaults through authorize_group_admin!, which also requires GroupManagement.server_administrator?. GroupRegistrationInvites::UpdateSiteDefaults saves the unscoped row without Setting.[]= and refreshes cache after commit. This is not Form::AdminSettings. #{detail} read_policy admin is the audit recommendation, not a new runtime check. Not a user preference candidate."
     end
 
     def nested_write_policy(group, in_yaml, forms)
@@ -1060,7 +1230,10 @@ module SettingsServiceCatalog
     end
 
     def read_line(path, snippet)
-      File.readlines(File.join(@root, path)).index { |line| line.include?(snippet) } + 1
+      index = File.readlines(File.join(@root, path)).index { |line| line.include?(snippet) }
+      raise "snippet not found in #{path}: #{snippet}" unless index
+
+      index + 1
     end
   end
 end
