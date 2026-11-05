@@ -23,12 +23,19 @@
   width: 100%;
   box-sizing: border-box;
 
-  &__item {
+  &__item,
+  &__placeholder {
     box-sizing: border-box;
     position: absolute;
     top: 0;
     inset-inline-start: 0;
     min-width: 0;
+  }
+
+  // Headroom is structural, not a loading skeleton or hit target. New tiles
+  // consume it on the shortest column without moving unrelated older tiles.
+  &__placeholder {
+    pointer-events: none;
   }
 }
 
