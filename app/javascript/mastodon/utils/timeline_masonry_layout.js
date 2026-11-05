@@ -1,6 +1,4 @@
-// Every streaming prepend occupies a reserved row above the old masonry.
-// Its cells fill in logical end-to-start order; existing card columns remain
-// unchanged. React.Children.toArray escapes ':' as '=2' in child keys.
+// React.Children.toArray escapes ':' as '=2' in child keys.
 const decodedReactKey = key => {
   // React.Children.map and Children.toArray can escape an already escaped
   // key. Decode repeatedly so full-width gap and featured keys are recognized
@@ -21,7 +19,6 @@ const decodedReactKey = key => {
 export const isFullWidthMasonryKey = key => /(?:^|[.$/])(?:gap|more):/.test(decodedReactKey(key));
 
 // Featured statuses and the iOS reload control precede the live timeline.
-// Keep this stable prefix above reserved rows.
 export const isMasonryPrefixKey = key => /(?:^|[.$/])(?:f-|reload(?:$|[.:/]))/.test(decodedReactKey(key));
 
 export const leadingMasonryPrefixKeys = keys => {
@@ -37,74 +34,83 @@ export const leadingMasonryPrefixKeys = keys => {
   return prefix;
 };
 
-const emptyPlan = prefixKeys => ({ rows: [], prefixKeys });
 const sameKeys = (a, b) => a.length === b.length && a.every((key, index) => key === b[index]);
 
-export const reconcileMasonryPrependRows = (columns, previousKeys, keys, previousRows, previousPrefixKeys = []) => {
+// Only a contiguous run before the first surviving old item counts as a
+// streaming prepend. Older page loads, removals, and middle insertions do not.
+export const reconcileMasonryPrepends = (previousKeys, keys, previousPrefixKeys = []) => {
   const prefixKeys = leadingMasonryPrefixKeys(keys);
+  const empty = reset => ({ prefixKeys, prependedKeys: [], reset });
 
-  if (columns < 2 || previousKeys.length === 0 || keys.length === 0) {
-    return emptyPlan(prefixKeys);
+  if (previousKeys.length === 0) {
+    return empty(false);
   }
 
-  // A pinned or reload prefix changing is not a live prepend. The new prefix
-  // starts a fresh masonry layout at the next render.
   if (!sameKeys(previousPrefixKeys, prefixKeys)) {
-    return emptyPlan(prefixKeys);
+    return empty(true);
   }
 
   const previousMainKeys = previousKeys.slice(previousPrefixKeys.length);
   const currentMainKeys = keys.slice(prefixKeys.length);
+
+  if (previousMainKeys.length === 0) {
+    // A previously prefix-only timeline has received its first live items.
+    return { prefixKeys, prependedKeys: currentMainKeys, reset: false };
+  }
+
   const currentKeys = new Set(currentMainKeys);
   const previousKeySet = new Set(previousMainKeys);
   const survivingPrevious = previousMainKeys.filter(key => currentKeys.has(key));
   const survivingCurrent = currentMainKeys.filter(key => previousKeySet.has(key));
 
-  // A previously prefix-only view can receive its first live status.
-  // Otherwise, reject identity switches and reordered existing statuses.
-  if (previousMainKeys.length > 0 && (
-    survivingPrevious.length === 0 || !sameKeys(survivingPrevious, survivingCurrent)
-  )) {
-    return emptyPlan(prefixKeys);
+  // A different feed, or one in which existing items were reordered, must
+  // discard the old per-key columns.
+  if (survivingPrevious.length === 0 || !sameKeys(survivingPrevious, survivingCurrent)) {
+    return empty(true);
   }
 
-  const firstOldIndex = previousMainKeys.length === 0
-    ? currentMainKeys.length
-    : currentMainKeys.findIndex(key => previousKeySet.has(key));
+  const firstOldIndex = currentMainKeys.findIndex(key => previousKeySet.has(key));
+  return { prefixKeys, prependedKeys: currentMainKeys.slice(0, firstOldIndex), reset: false };
+};
 
-  const rows = previousRows.map(row => {
-    if (row.kind === 'full') {
-      return currentKeys.has(row.key) ? row : null;
+// Place newly arrived items oldest first, repeatedly taking the column with
+// the least occupied height. On a tie use logical inline-end (the last index).
+// The caller supplies measurements when known, or estimated tile heights.
+// Assignments are never reconsidered when a later ResizeObserver event arrives.
+export const assignMasonryPrependedColumns = (columns, olderKeys, prependedKeys, assignments, measuredHeight, gap = 8) => {
+  const bottoms = new Array(columns).fill(0);
+
+  // A full-width gap/more row separates independent masonry segments. Items
+  // below the first barrier cannot bias a new item placed above that barrier.
+  for (const key of olderKeys) {
+    if (isFullWidthMasonryKey(key)) {
+      break;
     }
 
-    return {
-      ...row,
-      slots: row.slots.map(key => currentKeys.has(key) ? key : null),
-    };
-  }).filter(row => row && (row.kind === 'full' || row.slots.some(Boolean)));
+    const column = assignments.get(key);
+    if (column !== undefined && column >= 0 && column < columns) {
+      bottoms[column] += measuredHeight(key) + gap;
+    }
+  }
 
-  // New keys are newest-first. The oldest newly received card enters the end
-  // column first, and the newest takes the next available column toward start.
-  for (let index = firstOldIndex - 1; index >= 0; index -= 1) {
-    const key = currentMainKeys[index];
+  for (let index = prependedKeys.length - 1; index >= 0; index -= 1) {
+    const key = prependedKeys[index];
 
     if (isFullWidthMasonryKey(key)) {
-      rows.unshift({ kind: 'full', key });
+      bottoms.fill(0);
       continue;
     }
 
-    if (rows.length === 0 || rows[0].kind !== 'slots' || rows[0].nextColumn < 0) {
-      rows.unshift({
-        kind: 'slots',
-        slots: new Array(columns).fill(null),
-        nextColumn: columns - 1,
-      });
+    let column = columns - 1;
+    for (let candidate = columns - 2; candidate >= 0; candidate -= 1) {
+      if (bottoms[candidate] < bottoms[column]) {
+        column = candidate;
+      }
     }
 
-    const currentRow = rows[0];
-    currentRow.slots[currentRow.nextColumn] = key;
-    currentRow.nextColumn -= 1;
+    assignments.set(key, column);
+    bottoms[column] += measuredHeight(key) + gap;
   }
 
-  return { rows, prefixKeys };
+  return assignments;
 };
