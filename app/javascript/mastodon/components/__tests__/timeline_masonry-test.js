@@ -111,14 +111,18 @@ describe('TimelineMasonry streaming shortest-column insertion', () => {
     expect(position(container, 'E').x).toBe(first[0].x);
 
     heights.D = 330;
-    act(() => { window.dispatchEvent(new Event('resize')); });
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
     expect(position(container, 'D').x).toBe(first[2].x);
     expect(position(container, 'C').y).toBe(338);
     expect(position(container, 'A').y).toBe(108);
     expect(position(container, 'B').y).toBe(0);
 
     width = 160;
-    act(() => { window.dispatchEvent(new Event('resize')); });
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
     ['A', 'B', 'C', 'D', 'E'].forEach(id => {
       expect(position(container, id).x).toBe(0);
     });
