@@ -227,7 +227,13 @@ describe('ScrollableList timeline anchor', () => {
     docTops[1] += 60;
     ref.current.restoreMasonryItemAnchor(captured);
     expect(list.scrollTop).toBe(180);
-    expect(ref.current.captureVisibleMasonryItem()).toEqual({ key: captured.key, top: -30 });
+    // Restoration must preserve the selected attachment at its captured
+    // screen coordinate. A subsequent *new* capture may select another
+    // column's tile if that tile is now closer to the reading edge.
+    expect(items[1].getBoundingClientRect().top).toBe(captured.top);
+    expect(ref.current.captureVisibleMasonryItem()).toEqual({
+      key: items[2].getAttribute('data-layout-key'), top: -10,
+    });
   });
 
   it('corrects a late masonry height measurement for two frames but cancels on user intent', () => {
