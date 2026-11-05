@@ -85,8 +85,10 @@ const layoutArticles = (list, heights, { origin = 0, viewport = 500, scroller = 
 
 describe('ScrollableList timeline anchor', () => {
   let frames;
+  let resizeObserverDescriptor;
 
   beforeEach(() => {
+    resizeObserverDescriptor = Object.getOwnPropertyDescriptor(window, 'ResizeObserver');
     frames = [];
     global.IntersectionObserver = class {
 
@@ -111,6 +113,11 @@ describe('ScrollableList timeline anchor', () => {
   });
 
   afterEach(() => {
+    if (resizeObserverDescriptor) {
+      Object.defineProperty(window, 'ResizeObserver', resizeObserverDescriptor);
+    } else {
+      delete window.ResizeObserver;
+    }
     document.body.innerHTML = '';
     jest.restoreAllMocks();
   });
@@ -271,7 +278,6 @@ describe('ScrollableList timeline anchor', () => {
   });
 
   it('preserves the reading tile when a new post gains its real height after two frames', () => {
-    const resizeObserverDescriptor = Object.getOwnPropertyDescriptor(window, 'ResizeObserver');
     Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: undefined });
 
     const heights = {
@@ -352,11 +358,6 @@ describe('ScrollableList timeline anchor', () => {
     });
     expect(list.scrollTop).toBe(0);
 
-    if (resizeObserverDescriptor) {
-      Object.defineProperty(window, 'ResizeObserver', resizeObserverDescriptor);
-    } else {
-      delete window.ResizeObserver;
-    }
   });
 
   it('scrolls one inner list to a loaded id and leaves the sibling list alone', () => {
