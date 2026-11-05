@@ -171,9 +171,9 @@ describe('TimelineCardBody', () => {
       fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 100 }] });
       act(() => jest.advanceTimersByTime(399));
       expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
-      hold();
+      act(() => jest.advanceTimersByTime(1));
       expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
-      fireEvent.touchMove(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 65 }] });
+      expect(fireEvent.touchMove(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 65 }] })).toBe(false);
       expect(viewport.scrollTop).toBe(35);
       fireEvent.touchEnd(viewport, { touches: [] });
       expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
@@ -185,10 +185,28 @@ describe('TimelineCardBody', () => {
     it('lets an ordinary swipe pass through and never arms after early movement', () => {
       const { container, viewport } = collapsedBody();
       fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 100 }] });
-      fireEvent.touchMove(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 80 }] });
+      expect(fireEvent.touchMove(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 80 }] })).toBe(true);
       hold();
       expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
       expect(viewport.scrollTop).toBe(0);
+    });
+
+
+    it('does not attach document-wide mouse listeners until a press starts', () => {
+      const addListener = jest.spyOn(document, 'addEventListener');
+      try {
+        const { viewport } = collapsedBody();
+        expect(addListener.mock.calls.filter(([name]) => name === 'mousemove')).toHaveLength(0);
+        expect(addListener.mock.calls.filter(([name]) => name === 'mouseup')).toHaveLength(0);
+
+        fireEvent.mouseDown(viewport, { button: 0, clientX: 20, clientY: 100 });
+        expect(addListener.mock.calls.filter(([name]) => name === 'mousemove')).toHaveLength(1);
+        expect(addListener.mock.calls.filter(([name]) => name === 'mouseup')).toHaveLength(1);
+
+        fireEvent.mouseUp(document, { button: 0, clientX: 20, clientY: 100 });
+      } finally {
+        addListener.mockRestore();
+      }
     });
 
     it('supports a mouse hold and drag without opening the card on mouseup/click', () => {
