@@ -123,6 +123,38 @@ describe('ScrollableList timeline anchor', () => {
 
   const rows = (ids) => ids.map(id => <Row key={id} />);
 
+  it('anchors a visible card instead of using the total scrollHeight delta for a masonry prepend', () => {
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'card-feed',
+      layoutMode: 'card-3',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 120;
+
+    const capture = jest.spyOn(ref.current, 'captureVisibleArticle').mockReturnValue({ id: '90', top: 80 });
+    const restore = jest.spyOn(ref.current, 'restoreArticleAnchor').mockImplementation(() => {});
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(restore).toHaveBeenCalledWith({ anchor: true, id: '90', top: 80 });
+  });
+
+
   it('scrolls one inner list to a loaded id and leaves the sibling list alone', () => {
     const left = React.createRef();
     const right = React.createRef();
