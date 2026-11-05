@@ -246,4 +246,87 @@ describe('TimelineCardBody', () => {
     expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
     expect(viewport.getAttribute('aria-label')).toBeNull();
   });
+  it('does not steal multi-touch gestures from browser zoom', () => {
+    const { container } = render(
+      <div className='scrollable'>
+        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
+          <p>Long text</p>
+        </TimelineCardBody>
+      </div>,
+    );
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+    const timeline = container.querySelector('.scrollable');
+    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
+    setScrollMetrics(viewport, 400, 120);
+
+    fireEvent.touchStart(viewport, { touches: [{ clientX: 270, clientY: 100 }] });
+    fireEvent.touchStart(viewport, { touches: [
+      { clientX: 270, clientY: 100 }, { clientX: 100, clientY: 100 },
+    ] });
+    fireEvent.touchMove(viewport, { touches: [
+      { clientX: 270, clientY: 20 }, { clientX: 100, clientY: 100 },
+    ] });
+    fireEvent.touchMove(viewport, { touches: [{ clientX: 270, clientY: 10 }] });
+    expect(timeline.scrollTop).toBe(0);
+  });
+
+  it('forwards a wheel to the document scroller when the timeline is document-bound', () => {
+    const { container } = render(
+      <div className='scrollable scrollable--document'>
+        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
+          <p>Long text</p>
+        </TimelineCardBody>
+      </div>,
+    );
+    const viewport = container.querySelector('.timeline-card__body-scroll');
+    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
+    setScrollMetrics(viewport, 400, 120);
+
+    const host = document.scrollingElement || document.body;
+    const before = host.scrollTop;
+    expect(fireEvent.wheel(viewport, { deltaY: 33, deltaX: 0, clientX: 250, clientY: 10 })).toBe(false);
+    expect(host.scrollTop).toBe(before + 33);
+    host.scrollTop = before;
+  });
+
+  it('continues a vertical fling after the touch ends and cancels on new contact', () => {
+    const originalRequest = window.requestAnimationFrame;
+    const originalCancel = window.cancelAnimationFrame;
+    let pending;
+    window.requestAnimationFrame = callback => {
+      pending = callback;
+      return 1;
+    };
+    window.cancelAnimationFrame = jest.fn();
+
+    try {
+      const { container, unmount } = render(
+        <div className='scrollable'>
+          <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
+            <p>Long text</p>
+          </TimelineCardBody>
+        </div>,
+      );
+      const viewport = container.querySelector('.timeline-card__body-scroll');
+      const timeline = container.querySelector('.scrollable');
+      viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
+      setScrollMetrics(viewport, 400, 120);
+
+      fireEvent.touchStart(viewport, { touches: [{ clientX: 270, clientY: 100 }] });
+      fireEvent.touchMove(viewport, { touches: [{ clientX: 270, clientY: 40 }] });
+      const before = timeline.scrollTop;
+      fireEvent.touchEnd(viewport, { touches: [] });
+      expect(typeof pending).toBe('function');
+      act(() => pending(performance.now() + 16));
+      expect(timeline.scrollTop).toBeGreaterThan(before);
+
+      fireEvent.touchStart(viewport, { touches: [{ clientX: 270, clientY: 100 }] });
+      expect(window.cancelAnimationFrame).toHaveBeenCalledWith(1);
+      unmount();
+    } finally {
+      window.requestAnimationFrame = originalRequest;
+      window.cancelAnimationFrame = originalCancel;
+    }
+  });
+
 });

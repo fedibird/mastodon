@@ -94,21 +94,61 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel, 
       }
 
       event.preventDefault();
+      stopMomentum();
       scroller.scrollTop += wheelDeltaY(event);
     };
 
     // A tap still clicks the text underneath. Only a vertical drag in the
     // inline-end third is handed to the timeline.
     let gesture = null;
+    let momentumFrame = null;
+    const stopMomentum = () => {
+      if (momentumFrame !== null && window.cancelAnimationFrame) {
+        window.cancelAnimationFrame(momentumFrame);
+      }
+      momentumFrame = null;
+    };
+
+    const startMomentum = (scroller, initialVelocity) => {
+      if (!window.requestAnimationFrame) {
+        return;
+      }
+
+      let velocity = initialVelocity;
+      let previousFrame = performance.now();
+      const step = now => {
+        momentumFrame = null;
+        const elapsed = Math.max(0, Math.min(32, now - previousFrame));
+        previousFrame = now;
+        const before = scroller.scrollTop;
+        scroller.scrollTop += velocity * elapsed;
+        // The scroll host clamps at either end; stop instead of spinning.
+        if (Math.abs(scroller.scrollTop - before) < 0.5) {
+          return;
+        }
+
+        velocity *= Math.pow(0.92, elapsed / 16);
+        if (Math.abs(velocity) >= 0.08) {
+          momentumFrame = window.requestAnimationFrame(step);
+        }
+      };
+      momentumFrame = window.requestAnimationFrame(step);
+    };
 
     const onTouchStart = event => {
-      const touch = event.touches && event.touches[0];
-      if (!touch || !inZone(touch.clientX)) {
+      stopMomentum();
+      if (!event.touches || event.touches.length !== 1) {
         gesture = null;
         return;
       }
 
-      gesture = { x: touch.clientX, y: touch.clientY, handedOff: false };
+      const touch = event.touches[0];
+      if (!inZone(touch.clientX)) {
+        gesture = null;
+        return;
+      }
+
+      gesture = { x: touch.clientX, y: touch.clientY, handedOff: false, lastMoveAt: performance.now(), velocity: 0, scroller: null };
     };
 
     const onTouchMove = event => {
@@ -116,11 +156,14 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel, 
         return;
       }
 
-      const touch = event.touches && event.touches[0];
-      if (!touch) {
+      // A second finger belongs to the browser (pinch/zoom), never to this
+      // timeline handoff. Discard the tracked gesture until the next start.
+      if (!event.touches || event.touches.length !== 1) {
+        gesture = null;
         return;
       }
 
+      const touch = event.touches[0];
       const dx = touch.clientX - gesture.x;
       const dy = touch.clientY - gesture.y;
 
@@ -141,27 +184,45 @@ export default function TimelineCardBody ({ children, expandLabel, scrollLabel, 
         event.preventDefault();
       }
 
+      // Preserve a modest fling after touchend. Programmatic scrollTop writes
+      // do not inherit native momentum on iOS; cancel on new input or unmount.
+      const now = performance.now();
+      const elapsed = Math.max(8, Math.min(50, now - gesture.lastMoveAt));
+      const instantaneousVelocity = Math.max(-3, Math.min(3, -dy / elapsed));
+      gesture.velocity = gesture.velocity * 0.3 + instantaneousVelocity * 0.7;
+      gesture.lastMoveAt = now;
+      gesture.scroller = scroller;
       scroller.scrollTop -= dy;
       gesture.x = touch.clientX;
       gesture.y = touch.clientY;
     };
 
     const onTouchEnd = () => {
+      if (gesture && gesture.handedOff && gesture.scroller &&
+          performance.now() - gesture.lastMoveAt < 100 && Math.abs(gesture.velocity) > 0.1) {
+        startMomentum(gesture.scroller, gesture.velocity);
+      }
       gesture = null;
+    };
+
+    const onTouchCancel = () => {
+      gesture = null;
+      stopMomentum();
     };
 
     viewport.addEventListener('wheel', onWheel, { passive: false });
     viewport.addEventListener('touchstart', onTouchStart, { passive: true });
     viewport.addEventListener('touchmove', onTouchMove, { passive: false });
     viewport.addEventListener('touchend', onTouchEnd);
-    viewport.addEventListener('touchcancel', onTouchEnd);
+    viewport.addEventListener('touchcancel', onTouchCancel);
 
     return () => {
       viewport.removeEventListener('wheel', onWheel);
       viewport.removeEventListener('touchstart', onTouchStart);
       viewport.removeEventListener('touchmove', onTouchMove);
       viewport.removeEventListener('touchend', onTouchEnd);
-      viewport.removeEventListener('touchcancel', onTouchEnd);
+      viewport.removeEventListener('touchcancel', onTouchCancel);
+      stopMomentum();
     };
   }, [showScrollZone]);
 

@@ -376,7 +376,7 @@
     overscroll-behavior-x: contain;
     scrollbar-width: thin;
     -webkit-overflow-scrolling: touch;
-    touch-action: pan-x;
+    touch-action: auto;
 
     &:focus-visible {
       outline: 2px solid $ui-highlight-color;

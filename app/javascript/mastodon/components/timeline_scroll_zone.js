@@ -31,7 +31,9 @@ export function findTimelineScroller (node) {
 
   while (current) {
     if (current.classList && current.classList.contains('scrollable')) {
-      return current;
+      return current.classList.contains('scrollable--document')
+        ? (document.scrollingElement || document.body)
+        : current;
     }
 
     current = current.parentElement;
