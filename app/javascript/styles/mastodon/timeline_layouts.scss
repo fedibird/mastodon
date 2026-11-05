@@ -23,19 +23,12 @@
   width: 100%;
   box-sizing: border-box;
 
-  &__item,
-  &__placeholder {
+  &__item {
     box-sizing: border-box;
     position: absolute;
     top: 0;
     inset-inline-start: 0;
     min-width: 0;
-  }
-
-  // Empty space is reserved for the next stream arrival, not an interactive
-  // loading skeleton. Keep it out of hit-testing and accessibility navigation.
-  &__placeholder {
-    pointer-events: none;
   }
 }
 
