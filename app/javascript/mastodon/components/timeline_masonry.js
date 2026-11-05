@@ -278,7 +278,11 @@ export default class TimelineMasonry extends React.PureComponent {
     this.prefixKeys = plan.prefixKeys;
 
     return (
-      <div ref={this.setRoot} className='timeline-masonry' style={{ height: Math.max(0, height) }}>
+      <div
+        ref={this.setRoot}
+        className={this.props.onCaptureLayoutAnchor ? 'timeline-masonry timeline-masonry--managed-anchor' : 'timeline-masonry'}
+        style={{ height: Math.max(0, height) }}
+      >
         {children.map(child => {
           const key = String(child.key);
           const { top, left, width: itemWidth, fullWidth } = positions.get(key);
