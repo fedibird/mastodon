@@ -14,11 +14,11 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
   def test_real_catalog_passes_without_booting_rails
     output, status = run_check(CATALOG)
     assert status.success?, output
-    assert_match(/entries: 270/, output)
+    assert_match(/entries: 269/, output)
     assert_match(/duplicate keys: 0/, output)
     assert_match(/"site"=>54/, output)
     assert_match(/"inferred"=>23/, output)
-    assert_match(/"verified"=>244/, output)
+    assert_match(/"verified"=>243/, output)
     assert_match(/unresolved_entries: 3/, output)
     assert_match(/unresolved_questions: 6/, output)
     assert_match(/not treated as successes|unresolved/, output)
@@ -54,6 +54,7 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
     assert_includes keys, 'excluded.external_credentials'
     assert_includes keys, 'account.followed_message'
     assert_includes keys, 'site.enable_personal_account'
+    refute_includes keys, 'user.card_timeline_scroll_zone'
     assert_includes keys, 'user.notification_emails.followed'
     assert_includes keys, 'user.notification_emails.followed_message'
     assert_equal 'unresolved', entry(catalog, 'user.notification_emails.followed')['audit_status']

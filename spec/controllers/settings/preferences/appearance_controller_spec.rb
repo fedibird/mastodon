@@ -59,12 +59,11 @@ describe Settings::Preferences::AppearanceController do
       expect(body.index(I18n.t('appearance.card_display', locale: :ja))).to be < body.index(I18n.t('appearance.preview_card', locale: :ja))
       expect(body).to include('user_setting_card_reactions_single_line')
       expect(body).to include('user_setting_card_collapse_long_text')
-      expect(body).to include('user_setting_card_timeline_scroll_zone')
+      expect(body).not_to include('user_setting_card_timeline_scroll_zone')
       expect(body).to include('user_setting_media_display_shape')
       expect(body).to include('user_setting_media_display_size')
       expect(body).to include(I18n.t('simple_form.labels.defaults.setting_card_reactions_single_line', locale: :ja))
       expect(body).to include(I18n.t('simple_form.labels.defaults.setting_card_collapse_long_text', locale: :ja))
-      expect(body).to include(I18n.t('simple_form.labels.defaults.setting_card_timeline_scroll_zone', locale: :ja))
     end
   end
 
@@ -94,17 +93,24 @@ describe Settings::Preferences::AppearanceController do
     it 'uses the historical defaults before a user saves anything' do
       expect(user.setting_card_reactions_single_line).to be true
       expect(user.setting_card_collapse_long_text).to be true
-      expect(user.setting_card_timeline_scroll_zone).to be true
       expect(user.setting_media_display_shape).to eq 'square'
       expect(user.setting_media_display_size).to eq 'small'
     end
 
-    it 'persists the three card flags and safe media defaults' do
+    it 'ignores submissions of the retired scroll-zone setting' do
+      put :update, params: {
+        user: { setting_card_timeline_scroll_zone: '0' },
+      }
+
+      expect(response).to redirect_to(settings_preferences_appearance_path)
+      expect(Setting.unscoped.where(thing_type: 'User', thing_id: user.id, var: 'card_timeline_scroll_zone').exists?).to be false
+    end
+
+    it 'persists the two card flags and safe media defaults' do
       put :update, params: {
         user: {
           setting_card_reactions_single_line: '0',
           setting_card_collapse_long_text: '0',
-          setting_card_timeline_scroll_zone: '1',
           setting_media_display_shape: 'original',
           setting_media_display_size: 'large',
         },
@@ -114,7 +120,6 @@ describe Settings::Preferences::AppearanceController do
       user.reload
       expect(user.setting_card_reactions_single_line).to be false
       expect(user.setting_card_collapse_long_text).to be false
-      expect(user.setting_card_timeline_scroll_zone).to be true
       expect(user.setting_media_display_shape).to eq 'original'
       expect(user.setting_media_display_size).to eq 'large'
 

@@ -122,7 +122,7 @@ describe('TimelineCardBody', () => {
 
   it('shows the full text with no scroller or timeline zone when collapse is off', () => {
     const { container, queryByRole } = render(
-      <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text' collapseLongText={false} timelineScrollZone>
+      <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text' collapseLongText={false}>
         <p>Long text</p>
       </TimelineCardBody>,
     );
@@ -137,196 +137,285 @@ describe('TimelineCardBody', () => {
     expect(viewport.getAttribute('tabindex')).toBeNull();
   });
 
-  it('scrolls the timeline from the inline-end third and leaves links clickable', () => {
-    const onLink = jest.fn(event => event.preventDefault());
-    const onCard = jest.fn();
-    const { container, getByRole } = render(
-      <div className='scrollable' data-testid='timeline' role='button' tabIndex='0' onClick={onCard}>
-        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text' scrollZoneLabel='Scrolling here moves the timeline'>
-          <a href='/posts/1' onClick={onLink}>read more</a>
-        </TimelineCardBody>
-      </div>,
-    );
-    const viewport = container.querySelector('.timeline-card__body-scroll');
-    const timeline = container.querySelector('.scrollable');
-    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
-    setScrollMetrics(viewport, 400, 120);
+  describe('hold-to-scroll interaction', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
 
-    // The end-third remains interactive without a decorative overlay.
-    expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
-    expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
-    expect(viewport.getAttribute('aria-label')).toBe('Scrollable post text. Scrolling here moves the timeline');
-
-    expect(fireEvent.wheel(viewport, { deltaY: 48, deltaX: 0, clientX: 40, clientY: 10 })).toBe(true);
-    expect(timeline.scrollTop).toBe(0);
-
-    expect(fireEvent.wheel(viewport, { deltaY: 48, deltaX: 0, clientX: 260, clientY: 10 })).toBe(false);
-    expect(timeline.scrollTop).toBe(48);
-    expect(onCard).not.toHaveBeenCalled();
-
-    fireEvent.click(container.querySelector('a'));
-    expect(onLink).toHaveBeenCalled();
-    expect(getByRole('button', { name: 'Show full post text' })).not.toBeNull();
-  });
-
-  it('hands a vertical touch in the inline-end third to the timeline', () => {
-    const { container } = render(
-      <div className='scrollable'>
-        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
-          <p>Long text</p>
-        </TimelineCardBody>
-      </div>,
-    );
-    const viewport = container.querySelector('.timeline-card__body-scroll');
-    const timeline = container.querySelector('.scrollable');
-    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
-    setScrollMetrics(viewport, 400, 120);
-
-    fireEvent.touchStart(viewport, { touches: [{ clientX: 40, clientY: 80 }] });
-    fireEvent.touchMove(viewport, { touches: [{ clientX: 36, clientY: 30 }] });
-    expect(timeline.scrollTop).toBe(0);
-
-    fireEvent.touchStart(viewport, { touches: [{ clientX: 270, clientY: 80 }] });
-    fireEvent.touchMove(viewport, { touches: [{ clientX: 240, clientY: 72 }] });
-    expect(timeline.scrollTop).toBe(0);
-
-    fireEvent.touchMove(viewport, { touches: [{ clientX: 268, clientY: 40 }] });
-    expect(timeline.scrollTop).toBe(40);
-  });
-
-  it('uses the inline-start edge as the timeline zone in RTL', () => {
-    const original = window.getComputedStyle;
-    window.getComputedStyle = element => ({
-      direction: element.getAttribute('dir') === 'rtl' ? 'rtl' : 'ltr',
+    const hold = () => act(() => {
+      jest.advanceTimersByTime(400);
     });
 
-    const { container } = render(
-      <div className='scrollable'>
-        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text' />
-      </div>,
-    );
-    const viewport = container.querySelector('.timeline-card__body-scroll');
-    const timeline = container.querySelector('.scrollable');
-    viewport.setAttribute('dir', 'rtl');
-    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
-    setScrollMetrics(viewport, 400, 120);
-
-    expect(fireEvent.wheel(viewport, { deltaY: 20, deltaX: 0, clientX: 250, clientY: 10 })).toBe(true);
-    expect(timeline.scrollTop).toBe(0);
-    expect(fireEvent.wheel(viewport, { deltaY: 20, deltaX: 0, clientX: 30, clientY: 10 })).toBe(false);
-    expect(timeline.scrollTop).toBe(20);
-
-    window.getComputedStyle = original;
-  });
-
-  it('does not install a timeline zone when the preference or the overflow is off', () => {
-    const { container, rerender } = render(
-      <div className='scrollable'>
-        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text' timelineScrollZone={false} />
-      </div>,
-    );
-    const viewport = container.querySelector('.timeline-card__body-scroll');
-    const timeline = container.querySelector('.scrollable');
-    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
-    setScrollMetrics(viewport, 400, 120);
-
-    expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
-    expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
-    expect(viewport.getAttribute('aria-label')).toBe('Scrollable post text');
-    expect(fireEvent.wheel(viewport, { deltaY: 30, deltaX: 0, clientX: 280, clientY: 8 })).toBe(true);
-    expect(timeline.scrollTop).toBe(0);
-
-    rerender(
-      <div className='scrollable'>
-        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text' />
-      </div>,
-    );
-    setScrollMetrics(viewport, 120, 120);
-    expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
-    expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
-    expect(viewport.getAttribute('aria-label')).toBeNull();
-  });
-  it('does not steal multi-touch gestures from browser zoom', () => {
-    const { container } = render(
-      <div className='scrollable'>
-        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
-          <p>Long text</p>
-        </TimelineCardBody>
-      </div>,
-    );
-    const viewport = container.querySelector('.timeline-card__body-scroll');
-    const timeline = container.querySelector('.scrollable');
-    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
-    setScrollMetrics(viewport, 400, 120);
-
-    fireEvent.touchStart(viewport, { touches: [{ clientX: 270, clientY: 100 }] });
-    fireEvent.touchStart(viewport, { touches: [
-      { clientX: 270, clientY: 100 }, { clientX: 100, clientY: 100 },
-    ] });
-    fireEvent.touchMove(viewport, { touches: [
-      { clientX: 270, clientY: 20 }, { clientX: 100, clientY: 100 },
-    ] });
-    fireEvent.touchMove(viewport, { touches: [{ clientX: 270, clientY: 10 }] });
-    expect(timeline.scrollTop).toBe(0);
-  });
-
-  it('forwards a wheel to the document scroller when the timeline is document-bound', () => {
-    const { container } = render(
-      <div className='scrollable scrollable--document'>
-        <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
-          <p>Long text</p>
-        </TimelineCardBody>
-      </div>,
-    );
-    const viewport = container.querySelector('.timeline-card__body-scroll');
-    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
-    setScrollMetrics(viewport, 400, 120);
-
-    const host = document.scrollingElement || document.body;
-    const before = host.scrollTop;
-    expect(fireEvent.wheel(viewport, { deltaY: 33, deltaX: 0, clientX: 250, clientY: 10 })).toBe(false);
-    expect(host.scrollTop).toBe(before + 33);
-    host.scrollTop = before;
-  });
-
-  it('continues a vertical fling after the touch ends and cancels on new contact', () => {
-    const originalRequest = window.requestAnimationFrame;
-    const originalCancel = window.cancelAnimationFrame;
-    let pending;
-    window.requestAnimationFrame = callback => {
-      pending = callback;
-      return 1;
-    };
-    window.cancelAnimationFrame = jest.fn();
-
-    try {
-      const { container, unmount } = render(
-        <div className='scrollable'>
-          <TimelineCardBody expandLabel='Show full post text' scrollLabel='Scrollable post text'>
-            <p>Long text</p>
+    const collapsedBody = (children = <p>Long text</p>, onClick = () => {}) => {
+      const view = render(
+        <div className='status__wrapper--compact scrollable' role='button' tabIndex='0' onClick={onClick} onKeyDown={onClick}>
+          <TimelineCardBody expandLabel='Show full post text' scrollLabel='Long-press to scroll the post text'>
+            {children}
           </TimelineCardBody>
         </div>,
       );
-      const viewport = container.querySelector('.timeline-card__body-scroll');
-      const timeline = container.querySelector('.scrollable');
-      viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 120, right: 300, bottom: 120 });
-      setScrollMetrics(viewport, 400, 120);
+      const viewport = view.container.querySelector('.timeline-card__body-scroll');
+      setScrollMetrics(viewport, 400, 200);
+      return { ...view, viewport };
+    };
 
-      fireEvent.touchStart(viewport, { touches: [{ clientX: 270, clientY: 100 }] });
-      fireEvent.touchMove(viewport, { touches: [{ clientX: 270, clientY: 40 }] });
-      const before = timeline.scrollTop;
+    it('leaves wheel scrolling to the timeline until a hold is active', () => {
+      const { container, viewport } = collapsedBody();
+      expect(container.querySelector('.timeline-card__body--scrollable')).not.toBeNull();
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+      expect(fireEvent.wheel(viewport, { deltaY: 40 })).toBe(true);
+      expect(viewport.scrollTop).toBe(0);
+      expect(viewport.tabIndex).toBe(0);
+    });
+
+    it('activates after 400ms, scrolls from the same touch, and releases without navigation', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 100 }] });
+      act(() => jest.advanceTimersByTime(399));
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+      act(() => jest.advanceTimersByTime(1));
+      expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
+      expect(fireEvent.touchMove(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 65 }] })).toBe(false);
+      expect(viewport.scrollTop).toBe(35);
       fireEvent.touchEnd(viewport, { touches: [] });
-      expect(typeof pending).toBe('function');
-      act(() => pending(performance.now() + 16));
-      expect(timeline.scrollTop).toBeGreaterThan(before);
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+      expect(viewport.scrollTop).toBe(35);
+      fireEvent.click(viewport);
+      expect(onCard).not.toHaveBeenCalled();
+    });
 
-      fireEvent.touchStart(viewport, { touches: [{ clientX: 270, clientY: 100 }] });
-      expect(window.cancelAnimationFrame).toHaveBeenCalledWith(1);
+    it('lets an ordinary swipe pass through and never arms after early movement', () => {
+      const { container, viewport } = collapsedBody();
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 100 }] });
+      expect(fireEvent.touchMove(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 80 }] })).toBe(true);
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+      expect(viewport.scrollTop).toBe(0);
+    });
+
+
+    it('does not attach document-wide mouse listeners until a press starts', () => {
+      const { viewport } = collapsedBody();
+      const addListener = jest.spyOn(document, 'addEventListener');
+      try {
+        expect(addListener.mock.calls.filter(([name]) => name === 'mousemove')).toHaveLength(0);
+        expect(addListener.mock.calls.filter(([name]) => name === 'mouseup')).toHaveLength(0);
+
+        fireEvent.mouseDown(viewport, { button: 0, clientX: 20, clientY: 100 });
+        expect(addListener.mock.calls.filter(([name]) => name === 'mousemove')).toHaveLength(1);
+        expect(addListener.mock.calls.filter(([name]) => name === 'mouseup')).toHaveLength(1);
+
+        fireEvent.mouseUp(document, { button: 0, clientX: 20, clientY: 100 });
+      } finally {
+        addListener.mockRestore();
+      }
+    });
+
+    it('supports a mouse hold and drag without opening the card on mouseup/click', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      fireEvent.mouseDown(viewport, { button: 0, clientX: 30, clientY: 100 });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
+      fireEvent.mouseMove(document, { buttons: 1, clientX: 30, clientY: 65 });
+      expect(viewport.scrollTop).toBe(35);
+      fireEvent.mouseUp(viewport, { button: 0, clientX: 30, clientY: 65 });
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+      fireEvent.click(viewport);
+      expect(onCard).not.toHaveBeenCalled();
+    });
+
+
+    it('does not open the card when a mouse hold ends on a sibling outside the text', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      const card = container.querySelector('.status__wrapper--compact');
+      const sibling = document.createElement('div');
+      sibling.setAttribute('data-testid', 'card-author');
+      card.appendChild(sibling);
+
+      fireEvent.mouseDown(viewport, { button: 0, clientX: 35, clientY: 100 });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
+
+      fireEvent.mouseMove(document, { buttons: 1, clientX: 35, clientY: 60 });
+      expect(viewport.scrollTop).toBe(40);
+      fireEvent.mouseUp(sibling, { button: 0, clientX: 35, clientY: 60 });
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+
+      // Chrome can target the common ancestor rather than the text viewport.
+      fireEvent.click(card);
+      expect(onCard).not.toHaveBeenCalled();
+
+      // The guard is one-shot. A subsequent intentional click must still open.
+      fireEvent.click(card);
+      expect(onCard).toHaveBeenCalledTimes(1);
+    });
+
+    it('expires the post-hold click guard if Chrome emits no click', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      const card = container.querySelector('.status__wrapper--compact');
+      fireEvent.mouseDown(viewport, { button: 0, clientX: 30, clientY: 100 });
+      hold();
+      fireEvent.mouseUp(card, { button: 0, clientX: 30, clientY: 65 });
+
+      act(() => {
+        jest.advanceTimersByTime(101);
+      });
+      fireEvent.click(card);
+      expect(onCard).toHaveBeenCalledTimes(1);
+    });
+
+    it('ignores a touch-generated click that bubbles from outside the text', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      const card = container.querySelector('.status__wrapper--compact');
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 90 }] });
+      hold();
+      fireEvent.touchMove(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 55 }] });
+      fireEvent.touchEnd(viewport, { touches: [] });
+
+      fireEvent.click(card);
+      expect(onCard).not.toHaveBeenCalled();
+      fireEvent.click(card);
+      expect(onCard).toHaveBeenCalledTimes(1);
+    });
+
+
+    it('preserves ordinary short card clicks when no hold has activated', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      const card = container.querySelector('.status__wrapper--compact');
+      fireEvent.mouseDown(viewport, { button: 0, clientX: 20, clientY: 90 });
+      fireEvent.mouseUp(viewport, { button: 0, clientX: 20, clientY: 90 });
+      fireEvent.click(card);
+      expect(onCard).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps guarding touch clicks through compatibility mouse events', () => {
+      const onCard = jest.fn();
+      const { container, viewport } = collapsedBody(<p>Long text</p>, onCard);
+      const card = container.querySelector('.status__wrapper--compact');
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 90 }] });
+      hold();
+      fireEvent.touchEnd(viewport, { touches: [] });
+      fireEvent.mouseDown(viewport, { button: 0, clientX: 30, clientY: 90 });
+      fireEvent.mouseUp(viewport, { button: 0, clientX: 30, clientY: 90 });
+      fireEvent.click(card);
+      expect(onCard).not.toHaveBeenCalled();
+    });
+
+
+    it('does not swallow a new tap on a link after a held gesture', () => {
+      const onLink = jest.fn(event => event.preventDefault());
+      const { container, viewport } = collapsedBody(<p>Long text</p>);
+      const card = container.querySelector('.status__wrapper--compact');
+      const link = document.createElement('a');
+      link.href = '/post/1';
+      link.textContent = 'Author link';
+      link.addEventListener('click', onLink);
+      card.appendChild(link);
+
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 30, clientY: 90 }] });
+      hold();
+      fireEvent.touchEnd(viewport, { touches: [] });
+
+      // New touch/pointer contact belongs to a separate click, and must
+      // clear the one-shot guard before the subsequent link click.
+      fireEvent.pointerDown(link, { pointerType: 'touch' });
+      fireEvent.click(link);
+      expect(onLink).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases an active hold if the window loses focus', () => {
+      const { container, viewport } = collapsedBody();
+      fireEvent.mouseDown(viewport, { button: 0, clientX: 20, clientY: 100 });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
+
+      fireEvent(window, new Event('blur'));
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+    });
+
+    it('yields when the browser marks a touchmove noncancelable', () => {
+      const { container, viewport } = collapsedBody();
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 20, clientY: 100 }] });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
+
+      const event = new Event('touchmove', { bubbles: true, cancelable: false });
+      Object.defineProperty(event, 'touches', { value: [{ identifier: 1, clientX: 20, clientY: 60 }] });
+      act(() => {
+        viewport.dispatchEvent(event);
+      });
+
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+      expect(viewport.scrollTop).toBe(0);
+    });
+
+    it('ignores interactive ancestors outside the body but not buttons inside it', () => {
+      const { container, viewport } = collapsedBody(
+        <div>
+          <span data-testid='plain-text'>Plain text</span>
+          <span role='button' tabIndex='0' data-testid='inner-control'>Control</span>
+        </div>,
+      );
+
+      const plainText = container.querySelector('[data-testid="plain-text"]');
+      const control = container.querySelector('[data-testid="inner-control"]');
+
+      // The test wrapper itself is role=button; it must not disable holding
+      // anywhere inside the body where there is no interactive descendant.
+      fireEvent.touchStart(plainText, { touches: [{ identifier: 1, clientX: 25, clientY: 80 }] });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
+      fireEvent.touchEnd(plainText, { touches: [] });
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+
+      fireEvent.touchStart(control, { touches: [{ identifier: 1, clientX: 25, clientY: 80 }] });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+      fireEvent.touchEnd(control, { touches: [] });
+      expect(viewport.scrollTop).toBe(0);
+    });
+
+    it('leaves link clicks intact and does not arm from interactive descendants', () => {
+      const onLink = jest.fn(event => event.preventDefault());
+      const { container, viewport } = collapsedBody(<a href='/post/1' onClick={onLink}>Read more</a>);
+      const link = container.querySelector('a');
+      fireEvent.touchStart(link, { touches: [{ identifier: 1, clientX: 30, clientY: 100 }] });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+      fireEvent.touchEnd(link, { touches: [] });
+      fireEvent.click(link);
+      expect(onLink).toHaveBeenCalledTimes(1);
+      expect(viewport.scrollTop).toBe(0);
+    });
+
+    it('ignores multiple fingers and stops on touchcancel', () => {
+      const { container, viewport } = collapsedBody();
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 20, clientY: 100 }] });
+      fireEvent.touchStart(viewport, { touches: [
+        { identifier: 1, clientX: 20, clientY: 100 },
+        { identifier: 2, clientX: 50, clientY: 100 },
+      ] });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 20, clientY: 100 }] });
+      hold();
+      expect(container.querySelector('.timeline-card__body--hold-active')).not.toBeNull();
+      fireEvent.touchCancel(viewport, { touches: [] });
+      expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
+    });
+
+    it('cleans up pending timers after unmount', () => {
+      const { viewport, unmount } = collapsedBody();
+      fireEvent.touchStart(viewport, { touches: [{ identifier: 1, clientX: 20, clientY: 100 }] });
       unmount();
-    } finally {
-      window.requestAnimationFrame = originalRequest;
-      window.cancelAnimationFrame = originalCancel;
-    }
+      expect(() => hold()).not.toThrow();
+    });
   });
 
   it('shows a minor overflow at natural height because expanding would shrink the card', () => {
@@ -341,7 +430,6 @@ describe('TimelineCardBody', () => {
     expect(queryByRole('button', { name: 'Show full post text' })).toBeNull();
     expect(container.querySelector('.timeline-card__body--scrollable')).toBeNull();
     expect(viewport.getAttribute('tabindex')).toBeNull();
-    expect(container.querySelector('[data-timeline-scroll-zone]')).toBeNull();
 
     // Equal height to the capped body plus the expander is also not useful.
     setScrollMetrics(viewport, 232, 200);

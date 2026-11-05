@@ -206,14 +206,32 @@
     }
   }
 
-  // The viewport only becomes a nested scrolling container when its content
-  // exceeds the ten-line cap. Short posts must let wheel/touch scroll the feed.
+  // Preserve the clipped body's scrollTop between presses. overflow:hidden
+  // does not accept wheel/touch scrolling, so normal gestures scroll the feed.
+  // Unlike overflow:clip, it preserves a programmatically updated scrollTop.
   &__body--scrollable &__body-scroll {
     max-height: var(--timeline-card-body-max-height);
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  // Long-press/drag is handled by a non-passive touchmove listener. The CSS
+  // switch alone cannot retarget a touch gesture already in progress.
+  &__body--hold-active &__body-scroll,
+  &__body--scrollable &__body-scroll:focus-visible {
     overflow-y: auto;
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
+    outline: 2px solid $ui-highlight-color;
+    outline-offset: -2px;
+    box-shadow: inset 0 0 0 2px rgba($ui-highlight-color, 0.2);
+  }
+
+  &__body--hold-active &__body-scroll {
+    cursor: grabbing;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   &__body--expanded &__body-scroll,
@@ -221,9 +239,6 @@
     max-height: none;
     overflow: visible;
   }
-
-  // The inline-end third is handled through wheel/touch hit testing in
-  // TimelineCardBody. It has no visible divider or overlay to intercept links.
 
   &__expand {
     display: block;

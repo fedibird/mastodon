@@ -56,7 +56,6 @@ defaults: &defaults
   crop_card_images: true
   card_reactions_single_line: true
   card_collapse_long_text: true
-  card_timeline_scroll_zone: true
   media_display_shape: 'square'
   media_display_size: 'small'
   confirm_domain_block: true

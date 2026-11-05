@@ -25,7 +25,7 @@ import Icon from 'mastodon/components/icon';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
 import FilterReason from './filter_reason';
-import { displayMedia, cropCardImages, enableReaction, compactReaction, cardReactionsSingleLine, cardCollapseLongText, cardTimelineScrollZone, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
+import { displayMedia, cropCardImages, enableReaction, compactReaction, cardReactionsSingleLine, cardCollapseLongText, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
@@ -247,10 +247,9 @@ const messages = defineMessages({
   openMediaSource: { id: 'timeline.media.open_post', defaultMessage: 'Open original post' },
   cardMediaCount: { id: 'timeline.card.media_count', defaultMessage: '{count} media attachments' },
   cardExpandText: { id: 'timeline.card.expand_text', defaultMessage: 'Show full post text' },
-  cardScrollText: { id: 'timeline.card.scroll_text', defaultMessage: 'Scrollable post text' },
+  cardScrollText: { id: 'timeline.card.scroll_text', defaultMessage: 'Hold to scroll post text' },
   cardExpandReactions: { id: 'timeline.card.expand_reactions', defaultMessage: 'Show all emoji reactions' },
   cardScrollReactions: { id: 'timeline.card.scroll_reactions', defaultMessage: 'Scrollable emoji reactions' },
-  cardScrollZone: { id: 'timeline.card.scroll_zone', defaultMessage: 'Scrolling here moves the timeline' },
 });
 
 const dateFormatOptions = {
@@ -887,8 +886,6 @@ class Status extends ImmutablePureComponent {
               expandLabel={intl.formatMessage(messages.cardExpandText)}
               scrollLabel={intl.formatMessage(messages.cardScrollText)}
               collapseLongText={cardCollapseLongText !== false}
-              timelineScrollZone={cardTimelineScrollZone !== false}
-              scrollZoneLabel={intl.formatMessage(messages.cardScrollZone)}
             >
               <StatusContent status={status} translationWrapper={original} onClick={this.handleClick} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} compactCard />
             </TimelineCardBody>
