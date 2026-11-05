@@ -8,7 +8,6 @@ import useCardBodyHoldScroll from './card_body_hold_scroll';
 // The CSS height guide tracks the ten-line viewport plus that toggle footprint.
 const EXPAND_BUTTON_FOOTPRINT = 32;
 const EXPANSION_EPSILON = 1;
-const TOUCH_SLOP = 8;
 
 export default function TimelineCardBody ({ children, expandLabel, scrollLabel, collapseLongText = true }) {
   const [expanded, setExpanded] = React.useState(false);

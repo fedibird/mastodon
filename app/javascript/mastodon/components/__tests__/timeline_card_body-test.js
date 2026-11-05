@@ -141,11 +141,13 @@ describe('TimelineCardBody', () => {
     beforeEach(() => jest.useFakeTimers());
     afterEach(() => jest.useRealTimers());
 
-    const hold = () => act(() => { jest.advanceTimersByTime(400); });
+    const hold = () => act(() => {
+      jest.advanceTimersByTime(400);
+    });
 
     const collapsedBody = (children = <p>Long text</p>, onClick = () => {}) => {
       const view = render(
-        <div className='scrollable' onClick={onClick}>
+        <div className='scrollable' role='button' tabIndex='0' onClick={onClick}>
           <TimelineCardBody expandLabel='Show full post text' scrollLabel='Long-press to scroll the post text'>
             {children}
           </TimelineCardBody>
@@ -241,7 +243,9 @@ describe('TimelineCardBody', () => {
 
       const event = new Event('touchmove', { bubbles: true, cancelable: false });
       Object.defineProperty(event, 'touches', { value: [{ identifier: 1, clientX: 20, clientY: 60 }] });
-      viewport.dispatchEvent(event);
+      act(() => {
+        viewport.dispatchEvent(event);
+      });
 
       expect(container.querySelector('.timeline-card__body--hold-active')).toBeNull();
       expect(viewport.scrollTop).toBe(0);
