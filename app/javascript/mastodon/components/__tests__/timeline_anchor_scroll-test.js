@@ -163,6 +163,7 @@ describe('ScrollableList timeline anchor', () => {
         </ScrollableList>
       </Provider>,
     );
+    act(() => { ref.current.handleMediaShapeChange('original'); });
     const list = container.querySelector('.scrollable');
     const items = Array.from(container.querySelectorAll('.timeline-masonry__item[data-layout-key]'));
     expect(items).toHaveLength(3);
@@ -199,6 +200,7 @@ describe('ScrollableList timeline anchor', () => {
         </ScrollableList>
       </Provider>,
     );
+    act(() => { ref.current.handleMediaShapeChange('original'); });
     const list = container.querySelector('.scrollable');
     const tile = container.querySelector('.timeline-masonry__item');
     Object.defineProperty(list, 'clientHeight', { configurable: true, value: 500 });
