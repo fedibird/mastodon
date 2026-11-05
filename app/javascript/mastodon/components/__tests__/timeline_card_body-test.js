@@ -147,7 +147,7 @@ describe('TimelineCardBody', () => {
 
     const collapsedBody = (children = <p>Long text</p>, onClick = () => {}) => {
       const view = render(
-        <div className='scrollable' role='button' tabIndex='0' onClick={onClick}>
+        <div className='scrollable' role='button' tabIndex='0' onClick={onClick} onKeyDown={onClick}>
           <TimelineCardBody expandLabel='Show full post text' scrollLabel='Long-press to scroll the post text'>
             {children}
           </TimelineCardBody>
