@@ -91,6 +91,8 @@ export default class TimelineMasonry extends React.PureComponent {
     children: PropTypes.node,
     mode: PropTypes.string.isRequired,
     mediaSize: PropTypes.string,
+    onCaptureLayoutAnchor: PropTypes.func,
+    onRestoreLayoutAnchor: PropTypes.func,
   };
 
   state = { width: 0, heights: {} };
@@ -115,8 +117,28 @@ export default class TimelineMasonry extends React.PureComponent {
     this.observe();
   }
 
-  componentDidUpdate () {
+  // A late image load, CW expansion, or ResizeObserver measurement changes
+  // this component's own state, without updating ScrollableList's props.
+  // Capture its visible tile *before* the new transforms are committed.
+  getSnapshotBeforeUpdate (prevProps, prevState) {
+    const sizeChanged = prevState.width !== this.state.width ||
+      prevState.heights !== this.state.heights ||
+      prevProps.mode !== this.props.mode ||
+      prevProps.mediaSize !== this.props.mediaSize;
+
+    return sizeChanged && this.props.onCaptureLayoutAnchor
+      ? this.props.onCaptureLayoutAnchor()
+      : null;
+  }
+
+  componentDidUpdate (prevProps, prevState, snapshot) {
     this.observe();
+
+    // Parent list prepends use their own snapshot; this path complements them
+    // for measurements arriving *after* that short correction window.
+    if (snapshot && this.props.onRestoreLayoutAnchor) {
+      this.props.onRestoreLayoutAnchor(snapshot);
+    }
   }
 
   componentWillUnmount () {
