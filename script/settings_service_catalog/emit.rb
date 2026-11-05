@@ -12,6 +12,8 @@ module SettingsServiceCatalog
         # This file is not a public API contract and is not loaded by production code.
         # Regenerate with: ruby script/build_settings_service_catalog.rb
         # Check with: ruby script/check_settings_service_catalog.rb
+        # source_refs cite file:line from this worktree. Re-run the builder in the
+        # same change that moves a cited line. CI runs the check on pull requests.
       YAML
       header + YAML.dump(document)
     end

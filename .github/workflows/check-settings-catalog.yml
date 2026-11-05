@@ -1,0 +1,19 @@
+name: Check settings catalog
+
+on:
+  push:
+    branches: [fedibird, main]
+  pull_request:
+
+jobs:
+  catalog:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+      - name: Check the catalog matches the generator
+        run: ruby script/check_settings_service_catalog.rb
+      - name: Check the catalog audit invariants
+        run: ruby -Itest spec/script/check_settings_service_catalog_test.rb

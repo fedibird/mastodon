@@ -14,8 +14,11 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
   def test_real_catalog_passes_without_booting_rails
     output, status = run_check(CATALOG)
     assert status.success?, output
-    assert_match(/entries: 259/, output)
+    assert_match(/entries: 270/, output)
     assert_match(/duplicate keys: 0/, output)
+    assert_match(/"site"=>54/, output)
+    assert_match(/"inferred"=>23/, output)
+    assert_match(/"verified"=>244/, output)
     assert_match(/unresolved_entries: 3/, output)
     assert_match(/unresolved_questions: 6/, output)
     assert_match(/not treated as successes|unresolved/, output)
@@ -126,6 +129,66 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
     output, status = run_check(write_catalog(catalog))
     refute status.success?, output
     assert_match(/catalog drift user\.default_privacy/, output)
+  end
+
+  def test_reviewed_rss_and_group_site_settings
+    catalog = YAML.safe_load(File.read(CATALOG), aliases: true)
+    discovery = entry(catalog, 'site.external_bridge_rss_activitypub_discovery')
+    policy = entry(catalog, 'site.external_bridge_rss_video_policy')
+    limit = entry(catalog, 'site.external_bridge_rss_video_max_download_mib')
+    creation = entry(catalog, 'site.group_creation_requests')
+
+    assert_equal 'not_writable', discovery['write_policy']
+    assert_equal 'admin', discovery['read_policy']
+    assert_equal 'verified', discovery['audit_status']
+    assert_includes discovery['notes'], 'Schedule.enabled?'
+    assert_includes discovery['notes'], 'scanned absence'
+    assert_includes discovery['write_sources'].join, 'Form::AdminExternalContentSettings'
+
+    assert_equal 'admin', policy['write_policy']
+    assert_equal 'unknown_stored_string_reads_as_remote', policy['configured_vs_effective']
+    assert_includes policy['write_sources'].join, 'Form::AdminExternalContentSettings'
+    assert_includes policy['write_sources'].join, ':settings, :update?'
+    assert_includes policy['notes'], 'does not backfill'
+    refute_includes policy['notes'], 'Form::AdminSettings::KEYS'
+
+    assert_equal 'admin', limit['write_policy']
+    assert_equal 'out_of_range_reads_as_default_20', limit['configured_vs_effective']
+    assert_includes limit['notes'], 'YAML default 20'
+    assert_includes limit['normalization'], 'does not write that fallback back'
+
+    assert_equal 'not_writable', creation['write_policy']
+    assert_equal 'verified', creation['audit_status']
+    assert_includes creation['notes'], 'not on the admin settings form'
+    assert_includes creation['notes'], 'feature_disabled'
+    assert_includes creation['notes'], 'not_found'
+    assert creation['source_refs'].any? { |ref| ref.start_with?('app/services/group_creation_requests/approve_service.rb:') }
+
+    %w[
+      enabled shared_quota shared_quota_unlimited per_link_max_uses
+      per_link_unlimited_uses per_link_lifetime_seconds per_link_indefinite
+    ].each do |suffix|
+      item = entry(catalog, "site.group_registration_invites_#{suffix}")
+      assert_equal 'admin', item['write_policy'], item['key']
+      assert_equal 'site', item['disposition'], item['key']
+      assert_equal 'verified', item['audit_status'], item['key']
+      assert_includes item['write_sources'].join, 'UpdateSiteDefaults'
+      assert_includes item['write_sources'].join, 'authorize_group_admin!'
+      assert_includes item['notes'], 'not Form::AdminSettings'
+      assert_includes item['notes'], 'server_administrator?'
+    end
+
+    uses = entry(catalog, 'site.group_registration_invites_per_link_max_uses')
+    lifetime = entry(catalog, 'site.group_registration_invites_per_link_lifetime_seconds')
+    assert_equal 'nil_on_read_when_unlimited_uses', uses['configured_vs_effective']
+    assert_equal 'nil_on_read_when_indefinite', lifetime['configured_vs_effective']
+    assert_includes uses['notes'], 'returns nil when per_link_unlimited_uses is true'
+
+    crop = entry(catalog, 'user.crop_card_images')
+    assert_includes crop['notes'], 'Independent of user.crop_images'
+    assert_includes crop['read_sources'].join, 'compact timeline cards only'
+    assert crop['source_refs'].any? { |ref| ref.start_with?('app/javascript/mastodon/components/status.js:') }
+    assert crop['source_refs'].any? { |ref| ref.start_with?('app/javascript/mastodon/components/media_gallery.js:') }
   end
 
   def test_inactive_write_policy_general_fails
