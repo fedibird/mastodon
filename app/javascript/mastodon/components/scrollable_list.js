@@ -219,7 +219,8 @@ class ScrollableList extends PureComponent {
   _syntheticScrollTop = null;
   _lastNativeScrollAt = -Infinity;
 
-  _hasActiveMasonryScroll = () => Date.now() - this._lastNativeScrollAt < MASONRY_SCROLL_IDLE_DELAY;
+  _hasActiveMasonryScroll = () => isCardTimelineLayout(this.props.layoutMode) &&
+    Date.now() - this._lastNativeScrollAt < MASONRY_SCROLL_IDLE_DELAY;
 
   _isAnchorJumpScroll = (scrollTop) => {
     if (this._syntheticScrollDepth > 0) {
