@@ -26,6 +26,12 @@ RSpec.describe Api::V1::InstancesController, type: :controller do
       expect(JSON.parse(response.body)['fedibird_capabilities']).to include('filter_v2')
     end
 
+    it 'does not add the v2-only catalog to the legacy endpoint' do
+      get :show
+
+      expect(JSON.parse(response.body)).not_to have_key('fedibird')
+    end
+
     it 'advertises Mastodon 4.2.13 compatibility' do
       get :show
 

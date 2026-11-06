@@ -112,47 +112,6 @@ class InstancePresenter < ActiveModelSerializers::Model
   end
 
   def fedibird_capabilities
-    capabilities = [
-      :favourite_hashtag,
-      :favourite_domain,
-      :favourite_list,
-      :status_expire,
-      :follow_no_delivery,
-      :follow_hashtag,
-      :subscribe_account,
-      :subscribe_domain,
-      :subscribe_keyword,
-      :timeline_home_visibility,
-      :timeline_no_local,
-      :timeline_domain,
-      :timeline_group,
-      :timeline_group_directory,
-      :visibility_mutual,
-      :visibility_limited,
-      :visibility_personal,
-      :emoji_reaction,
-      :misskey_birthday,
-      :misskey_location,
-      :status_reference,
-      :searchability,
-      :status_compact_mode,
-      :account_conversations,
-      :enable_wide_emoji,
-      :enable_wide_emoji_reaction,
-      :timeline_bookmark_media_option,
-      :timeline_favourite_media_option,
-      :timeline_emoji_reaction_media_option,
-      :timeline_personal_media_option,
-      :bulk_get_api_for_accounts,
-      :bulk_get_api_for_statuses,
-      :filter_v2,
-      :sorted_custom_emojis,
-      :ordered_media_attachment,
-      :followed_message,
-    ]
-
-    capabilities << :profile_search unless Chewy.enabled?
-
-    capabilities
+    Fedibird::CapabilityCatalog.legacy
   end
 end

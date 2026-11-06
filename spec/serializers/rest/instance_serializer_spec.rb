@@ -27,9 +27,8 @@ RSpec.describe REST::InstanceSerializer do
 
   describe 'configuration' do
     it 'returns the VAPID public key' do
-      expect(serialization['configuration']['vapid']).to eq({
-        'public_key' => Rails.configuration.x.vapid_public_key,
-      })
+      expected = { 'public_key' => Rails.configuration.x.vapid_public_key }
+      expect(serialization['configuration']['vapid']).to eq(expected)
     end
 
     it 'returns the max pinned statuses limit' do

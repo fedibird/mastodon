@@ -43,6 +43,8 @@ class NodeInfo::Serializer < ActiveModel::Serializer
         name: 'mastodon',
         version: Mastodon::Version.to_s,
       },
+      # NodeInfo reports software-level AP support, never actor permissions.
+      fedibird: Fedibird::CapabilityCatalog.nodeinfo,
     }
   end
 
