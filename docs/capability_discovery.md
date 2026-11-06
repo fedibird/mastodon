@@ -186,11 +186,12 @@ authenticated actions remain authoritative.
 
 The validator for local polls computes its effective maximum as
 `[PollOptionsValidator::MAX_OPTIONS, Setting.poll_max_options].max`.
-As of P2, the v1 instance serializer reports this value but the v2
-instance serializer still reports only `MAX_OPTIONS`. This is a
-separate backwards-compatible limit correction (not part of the
-feature-discovery catalog). Emoji reaction limits already use the
-effective `max` in both versions. See #727 for follow-up.
+The P2-A audit found that v1 advertised this effective limit while v2
+advertised only `MAX_OPTIONS`. The independent correction is tracked
+in [#734](https://github.com/fedibird/mastodon/issues/734) and
+[PR #735](https://github.com/fedibird/mastodon/pull/735); the limit
+fix can be merged independently of this discovery change. Emoji
+reaction limits already use the effective `max` in both versions.
 
 ## Extension lifecycle and safety
 
