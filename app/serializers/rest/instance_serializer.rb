@@ -13,10 +13,15 @@ class REST::InstanceSerializer < ActiveModel::Serializer
   attributes :domain, :title, :version, :source_url, :description,
              :usage, :thumbnail, :icon, :languages, :configuration,
              :registrations,
-             :feature_quote, :fedibird_capabilities
+             :feature_quote, :fedibird_capabilities, :fedibird
 
   has_one :contact, serializer: ContactSerializer
   has_many :rules, serializer: REST::RuleSerializer
+
+  # Instance-wide discovery, independent of the authenticated viewer.
+  def fedibird
+    Fedibird::CapabilityCatalog.instance
+  end
 
   def thumbnail
     if object.thumbnail
