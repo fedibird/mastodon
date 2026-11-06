@@ -57,6 +57,10 @@ module Fedibird
       reading_bookmarks
       preferences_schema
       status_translation
+      external_rss_subscriptions
+      external_feed_delivery
+      posting_context_discovery
+      timeline_media_filters
     ).freeze
 
     # Software-level AP serializer behavior, not FEP conformance or
@@ -99,7 +103,82 @@ module Fedibird
           instance_enabled: TranslationService.configured?,
           viewer_scoped: true,
         },
+        availability: availability,
+        contextual: contextual,
+        timeline_filters: timeline_filters,
       }
+    end
+
+    # Server-side settings, not permission decisions or health checks.
+    # Fields are deliberately named "server_enabled" for allowlisted features:
+    # an enabled deployment can still admit zero users.
+    def availability
+      {
+        search: { scope: 'instance', enabled: Chewy.enabled? },
+        poll_images: { scope: 'instance', enabled: Setting.allow_poll_image },
+        rss_subscriptions: {
+          scope: 'allowlisted_user',
+          server_enabled: ExternalBridge::Feature.enabled?,
+        },
+        external_feed_delivery: {
+          scope: 'allowlisted_user',
+          server_enabled: ExternalBridge::Feeds::Feature.enabled?,
+          viewer_check_path: '/api/v1/timelines/external_feed_capability',
+        },
+        emoji_reaction_fallback_policy: {
+          scope: 'viewer_and_status',
+          # Matches effective? without logging incomplete rollout flags from
+          # a public metadata endpoint.
+          enforcement_enabled: EmojiReactionCapability::FallbackPolicyConfig.requested? &&
+            EmojiReactionCapability::FallbackPolicyConfig.prerequisites_met?,
+        },
+      }
+    end
+
+    # Discovery paths require their own authorization and can return
+    # narrower answers. Publishing the route does not grant access to it.
+    def contextual
+      {
+        timeline_seek: {
+          scope: 'source_and_kind',
+          version: TimelineSeek::Capability::VERSION,
+          sources: timeline_seek_sources,
+        },
+        reading_bookmarks: {
+          scope: 'viewer_and_source',
+          capability_path: '/api/v1/fedibird/reading_bookmarks/capabilities',
+        },
+        group_posting: {
+          scope: 'viewer_and_actor',
+          discovery_path: '/api/v1/fedibird/accounts/:account_id/posting_context',
+        },
+        emoji_reactions: { scope: 'viewer_and_status' },
+        posting_styles: {
+          scope: 'administrator',
+          collection_path: '/api/v1/fedibird/user_posting_contexts',
+        },
+      }
+    end
+
+    # These are server-handled REST query parameters, not card/Masonry views.
+    # Source identifiers use TimelineSeek names (hashtag instead of "tag").
+    def timeline_filters
+      {
+        only_media: %w(home public hashtag group list personal account),
+        without_media: %w(public hashtag group personal),
+        compact: %w(home public hashtag group list personal account),
+      }
+    end
+
+    # Static source/kind bounds; a request may still be downgraded by the
+    # resolver due to permissions, remote Groups, or missing retained data.
+    def timeline_seek_sources
+      (TimelineSeek::Capability::MATRIX.keys + TimelineSeek::Capability::CLOSED_SOURCES).index_with do |source|
+        TimelineSeek::Capability::KINDS.index_with do |kind|
+          entry = TimelineSeek::Capability.lookup(source, kind)
+          { level: entry.level, reason: entry.reason }
+        end
+      end
     end
 
     def activitypub
