@@ -114,25 +114,30 @@ module Fedibird
     # an enabled deployment can still admit zero users.
     def availability
       {
-        search: { scope: 'instance', enabled: Chewy.enabled? },
-        poll_images: { scope: 'instance', enabled: Setting.allow_poll_image },
+        search: { scope: 'instance', enabled: Chewy.enabled? == true },
+        poll_images: { scope: 'instance', enabled: Setting.allow_poll_image == true },
         rss_subscriptions: {
           scope: 'allowlisted_user',
-          server_enabled: ExternalBridge::Feature.enabled?,
+          server_enabled: ExternalBridge::Feature.enabled? == true,
         },
         external_feed_delivery: {
           scope: 'allowlisted_user',
-          server_enabled: ExternalBridge::Feeds::Feature.enabled?,
+          server_enabled: ExternalBridge::Feeds::Feature.enabled? == true,
           viewer_check_path: '/api/v1/timelines/external_feed_capability',
         },
         emoji_reaction_fallback_policy: {
           scope: 'viewer_and_status',
           # Matches effective? without logging incomplete rollout flags from
           # a public metadata endpoint.
-          enforcement_enabled: EmojiReactionCapability::FallbackPolicyConfig.requested? &&
-            EmojiReactionCapability::FallbackPolicyConfig.prerequisites_met?,
+          enforcement_enabled: emoji_reaction_fallback_enforced?,
         },
       }
+    end
+
+    def emoji_reaction_fallback_enforced?
+      return false unless EmojiReactionCapability::FallbackPolicyConfig.requested?
+
+      EmojiReactionCapability::FallbackPolicyConfig.prerequisites_met?
     end
 
     # Discovery paths require their own authorization and can return
