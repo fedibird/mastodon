@@ -281,6 +281,128 @@ describe('ScrollableList timeline anchor', () => {
     expect(list.scrollTop).toBe(170);
   });
 
+  it('never rewinds a 0.6-1px native momentum step during Masonry correction frames', () => {
+    const ref = React.createRef();
+    const { container } = render(
+      <Provider store={store()}>
+        <ScrollableList ref={ref} scrollKey='momentum-fractional' layoutMode='card-3' trackScroll={false} hasMore={false}>
+          {rows(['100', '90'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    const list = container.querySelector('.scrollable');
+    const tile = container.querySelector('.timeline-masonry__item');
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 500 });
+    list.getBoundingClientRect = () => rect(0, 500);
+
+    let docTop = 100;
+    list.scrollTop = 120;
+    tile.getBoundingClientRect = () => rect(docTop - list.scrollTop, 240);
+
+    // A momentum frame may arrive without a wheel/touchmove event.
+    // The old 1px stale threshold let the correction overwrite these steps.
+    [0.6, 0.75, 1].forEach(step => {
+      const snapshot = ref.current.captureVisibleMasonryItem();
+      const before = list.scrollTop;
+      expect(snapshot).not.toBeNull();
+
+      ref.current._scheduleMasonryAnchorCorrection(snapshot);
+      docTop += 30;
+      list.scrollTop += step;
+      flushFrames(1);
+      expect(list.scrollTop).toBeCloseTo(before + step, 8);
+      flushFrames();
+    });
+  });
+
+  it('does not restore Masonry layout anchors while native scrolling is active', () => {
+    let now = 1000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const ref = React.createRef();
+    const { container } = render(
+      <Provider store={store()}>
+        <ScrollableList ref={ref} scrollKey='momentum-layout' layoutMode='card-3' trackScroll={false} hasMore={false}>
+          {rows(['100', '90'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    const list = container.querySelector('.scrollable');
+    const tile = container.querySelector('.timeline-masonry__item');
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 500 });
+    list.getBoundingClientRect = () => rect(0, 500);
+
+    let docTop = 100;
+    list.scrollTop = 120;
+    tile.getBoundingClientRect = () => rect(docTop - list.scrollTop, 240);
+
+    const stale = ref.current.captureMasonryLayoutAnchor();
+    expect(stale).toMatchObject({ scrollTop: 120 });
+
+    // Layout captured before a momentum tick must not overwrite that tick,
+    // even if the browser did not dispatch its scroll event yet.
+    list.scrollTop = 120.75;
+    docTop += 40;
+    ref.current.restoreMasonryLayoutAnchor(stale);
+    flushFrames();
+    expect(list.scrollTop).toBe(120.75);
+
+    // Touch release is followed by native momentum scroll events, not moves.
+    fireEvent.touchMove(list);
+    expect(ref.current.captureMasonryLayoutAnchor()).toBeNull();
+    now += 100;
+    list.scrollTop += 20;
+    fireEvent.scroll(list);
+    expect(ref.current.captureMasonryLayoutAnchor()).toBeNull();
+
+    const activeTop = list.scrollTop;
+    docTop += 30;
+    ref.current.restoreMasonryLayoutAnchor({ ...stale, scrollTop: activeTop });
+    flushFrames();
+    expect(list.scrollTop).toBe(activeTop);
+
+    // A new, post-idle measurement keeps the reading tile stable.
+    now += 501;
+    const quiet = ref.current.captureMasonryLayoutAnchor();
+    expect(quiet).toMatchObject({ scrollTop: activeTop });
+    docTop += 50;
+    ref.current.restoreMasonryLayoutAnchor(quiet);
+    expect(list.scrollTop).toBe(activeTop + 50);
+    flushFrames();
+  });
+
+  it('leaves native card momentum alone when a parent prepend arrives', () => {
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'momentum-prepend',
+      layoutMode: 'card-3',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 150;
+
+    fireEvent.wheel(list, { deltaY: 50 });
+    const setter = jest.spyOn(ref.current, 'setScrollTop');
+    const capture = jest.spyOn(ref.current, 'captureVisibleMasonryItem');
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+
+    expect(capture).not.toHaveBeenCalled();
+    expect(setter).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(150);
+  });
+
   it('preserves the reading tile when a new post gains its real height after two frames', () => {
     Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: undefined });
 
