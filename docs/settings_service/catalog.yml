@@ -9979,6 +9979,7 @@ entries:
     admin_form: poll_max_options
     readers: &30
     - app/serializers/initial_state_serializer.rb
+    - app/serializers/rest/instance_serializer.rb
     - app/serializers/rest/v1/instance_serializer.rb
     - app/validators/poll_options_validator.rb
   raw_type: integer
