@@ -8776,6 +8776,7 @@ entries:
     settings_var: allow_poll_image
     admin_form: allow_poll_image
     readers: &3
+    - app/lib/fedibird/capability_catalog.rb
     - app/serializers/initial_state_serializer.rb
     - app/serializers/rest/instance_serializer.rb
     - app/serializers/rest/v1/instance_serializer.rb
