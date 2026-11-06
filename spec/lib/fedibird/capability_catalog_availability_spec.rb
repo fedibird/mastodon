@@ -28,6 +28,19 @@ RSpec.describe Fedibird::CapabilityCatalog do
       expect(result.dig(:external_feed_delivery, :viewer_check_path)).to eq('/api/v1/timelines/external_feed_capability')
     end
 
+    it 'normalizes missing server switches to false' do
+      allow(Chewy).to receive(:enabled?).and_return(nil)
+      allow(Setting).to receive(:allow_poll_image).and_return(nil)
+      allow(ExternalBridge::Feature).to receive(:enabled?).and_return(nil)
+      allow(ExternalBridge::Feeds::Feature).to receive(:enabled?).and_return(nil)
+
+      values = described_class.availability
+      expect(values.dig(:search, :enabled)).to be(false)
+      expect(values.dig(:poll_images, :enabled)).to be(false)
+      expect(values.dig(:rss_subscriptions, :server_enabled)).to be(false)
+      expect(values.dig(:external_feed_delivery, :server_enabled)).to be(false)
+    end
+
     it 'reports only effective emoji fallback enforcement, without warnings' do
       allow(EmojiReactionCapability::FallbackPolicyConfig).to receive(:requested?).and_return(true)
       allow(EmojiReactionCapability::FallbackPolicyConfig).to receive(:prerequisites_met?).and_return(false)
