@@ -43,7 +43,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
   def icon
     {
       src: full_pack_url('media/images/logo.svg'),
-      size: "192x192",
+      size: '192x192',
     }
   end
 
@@ -81,7 +81,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
         characters_reserved_per_url: StatusLengthValidator::URL_PLACEHOLDER_CHARS,
         min_expiration: TimeLimit::VALID_DURATION.min,
         max_expiration: TimeLimit::VALID_DURATION.max,
-        supported_expires_actions: StatusExpire::actions.keys,
+        supported_expires_actions: StatusExpire.actions.keys,
       },
 
       media_attachments: {
