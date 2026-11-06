@@ -24,6 +24,15 @@ RSpec.describe REST::InstanceSerializer do
       expect(info.dig('rest', 'translation', 'viewer_scoped')).to be(true)
     end
 
+    it 'serializes scoped feature discovery without user permissions' do
+      rest = instance_json.dig('fedibird', 'rest')
+
+      expect(rest.dig('availability', 'rss_subscriptions', 'scope')).to eq('allowlisted_user')
+      expect(rest.dig('contextual', 'timeline_seek', 'sources', 'mix', 'status', 'level')).to eq('unsupported')
+      expect(rest.dig('contextual', 'reading_bookmarks', 'scope')).to eq('viewer_and_source')
+      expect(rest.dig('timeline_filters', 'only_media')).to include('account', 'home')
+    end
+
     it 'distinguishes instance translation configuration from per-user support' do
       allow(TranslationService).to receive(:configured?).and_return(false)
       expect(instance_json.dig('fedibird', 'rest', 'translation', 'instance_enabled')).to be(false)
