@@ -80,26 +80,30 @@ module Fedibird
     def instance
       {
         schema_version: 1,
-        rest: {
-          supported: REST_SUPPORTED.dup,
-          translation: {
-            instance_enabled: TranslationService.configured?,
-            viewer_scoped: true,
-          },
-        },
-        activitypub: {
-          supported: ACTIVITYPUB_SUPPORTED.dup,
-        },
+        rest: rest,
+        activitypub: activitypub,
       }
     end
 
     def nodeinfo
       {
         schema_version: 1,
-        activitypub: {
-          supported: ACTIVITYPUB_SUPPORTED.dup,
+        activitypub: activitypub,
+      }
+    end
+
+    def rest
+      {
+        supported: REST_SUPPORTED.dup,
+        translation: {
+          instance_enabled: TranslationService.configured?,
+          viewer_scoped: true,
         },
       }
+    end
+
+    def activitypub
+      { supported: ACTIVITYPUB_SUPPORTED.dup }
     end
   end
 end
