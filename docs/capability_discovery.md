@@ -113,6 +113,85 @@ affiliations. See [group_protocol_profile.md](group_protocol_profile.md)
 and [#662](https://github.com/fedibird/mastodon/issues/662).
 Actor-level claims require a separate, validated implementation.
 
+## P2: instance setting vs. viewer/target authorization
+
+The versioned `rest` object is extended *additively* in schema version 1
+with `availability`, `contextual`, and `timeline_filters`. Existing
+`fedibird_capabilities` strings and the AP-only NodeInfo metadata do not
+change.
+
+`availability` contains server-owned settings. It does not reveal user IDs,
+tester allowlists, personal credentials, or per-status permission results:
+
+| Feature | Response | Source of truth |
+| --- | --- | --- |
+| `search` | `{scope: "instance", enabled: boolean}` | `Chewy.enabled?`; this is not an Elasticsearch health probe |
+| `poll_images` | `{scope: "instance", enabled: boolean}` | `Setting.allow_poll_image` |
+| `rss_subscriptions` | `{scope: "allowlisted_user", server_enabled: boolean}` | `ExternalBridge::Feature.enabled?` |
+| `external_feed_delivery` | `{scope: "allowlisted_user", server_enabled: boolean, viewer_check_path: "..."}` | `ExternalBridge::Feeds::Feature.enabled?` |
+| `emoji_reaction_fallback_policy` | `{scope: "viewer_and_status", enforcement_enabled: boolean}` | All three rollout flags must be effective; action still depends on the author node, status, and viewer policy |
+
+For both external bridges, `server_enabled: true` does **not** mean
+the current user is enrolled. An empty tester list means nobody can
+activate the feature. `external_feed_delivery` applies to private
+home/list projections and is distinct from RSS fetching. Signed-in
+clients can call `GET /api/v1/timelines/external_feed_capability` to
+obtain `permitted` for that user. RSS create/resume/restore operations
+perform their own per-user check. Read-only subscription endpoints may
+have different gates.
+
+`emoji_reaction_fallback_policy.enforcement_enabled` expresses the
+effective global rollout preconditions without invoking the logging
+`effective?` helper. A client must still handle confirmation-related
+4xx responses and policy errors on the actual reaction request.
+
+`contextual` advertises where or how the caller obtains a *narrower*
+capability judgment, without calling those APIs from the public
+instance serializer:
+
+- `timeline_seek`: `version` and a `sources[source][kind]` map
+  produced from `TimelineSeek::Capability.lookup`, including
+  `level` and `reason`. `supported` is only the static upper
+  bound; the resolver may downgrade it due to membership, missing
+  data or a remote Group. `mix`, `direct` and `notifications` are
+  explicitly `unsupported` seek sources.
+- `reading_bookmarks`: `viewer_and_source`; authenticated
+  `GET /api/v1/fedibird/reading_bookmarks/capabilities` has the
+  dedicated versioned source/retention contract. It does not grant
+  read/write access to bookmarks belonging to other users.
+- `group_posting`: `viewer_and_actor`; authenticated
+  `GET /api/v1/fedibird/accounts/:account_id/posting_context` is
+  **discovery**, never final posting authorization. NodeInfo software
+  identity is not permission to post to a remote Group.
+- `emoji_reactions`: `viewer_and_status`, with final policy checked
+  when writing a reaction.
+- `posting_styles`: `administrator`; the
+  `/api/v1/fedibird/user_posting_contexts` collection is deliberately
+  not advertised as available to all authenticated users.
+
+`timeline_filters` lists REST sources implementing the `only_media`,
+`without_media`, and `compact` query parameters. Source name
+`hashtag` maps to `/api/v1/timelines/tag/:id`, while `account`
+maps to `/api/v1/accounts/:id/statuses`. These are API-level filters:
+they do not advertise Masonry, card, multi-column or other WebUI-only
+layouts. Mix is a client-side composite and is not itself a standalone
+`/api/v1/timelines/mix` REST resource.
+
+The public instance endpoints use `render_with_cache` with a
+three-minute Rails cache by default; clients must treat these flags as
+cached snapshots, not synchronous authorization. Responses from
+authenticated actions remain authoritative.
+
+### Limit consistency audit
+
+The validator for local polls computes its effective maximum as
+`[PollOptionsValidator::MAX_OPTIONS, Setting.poll_max_options].max`.
+As of P2, the v1 instance serializer reports this value but the v2
+instance serializer still reports only `MAX_OPTIONS`. This is a
+separate backwards-compatible limit correction (not part of the
+feature-discovery catalog). Emoji reaction limits already use the
+effective `max` in both versions. See #727 for follow-up.
+
 ## Extension lifecycle and safety
 
 - Do not mutate the legacy array or alter Mastodon version negotiation.
