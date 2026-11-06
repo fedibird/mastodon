@@ -22,6 +22,15 @@ RSpec.describe Api::V2::InstancesController, type: :controller do
       expect(JSON.parse(response.body)['fedibird_capabilities']).to include('filter_v2')
     end
 
+    it 'exposes the v2-only Fedibird catalog alongside legacy capabilities' do
+      get :show
+
+      body = JSON.parse(response.body)
+      expect(body['fedibird_capabilities']).to include('filter_v2')
+      expect(body.dig('fedibird', 'rest', 'supported')).to include('status_expiration', 'group_directory')
+      expect(body.dig('fedibird', 'activitypub', 'supported')).to include('group_actor')
+    end
+
     it 'advertises Mastodon 4.2.13 without api_versions' do
       get :show
 
