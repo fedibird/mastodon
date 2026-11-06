@@ -33,6 +33,9 @@ describe WellKnown::NodeInfoController, type: :controller do
       expect(json[:software][:name]).to eq 'fedibird'
       expect(json[:software][:version]).to eq '0.1'
       expect(json[:metadata][:upstream]).to eq(name: 'mastodon', version: '4.2.13')
+      features = json.dig(:metadata, :fedibird, :activitypub, :supported)
+      expect(features).to include('emoji_react', 'note_references', 'legacy_quote_uri', 'searchable_by', 'group_actor')
+      expect(json[:metadata][:fedibird]).not_to have_key(:rest)
       expect(json[:protocols]).to be_an Array
       expect(json[:services]).to eq(outbound: [], inbound: [])
     end
