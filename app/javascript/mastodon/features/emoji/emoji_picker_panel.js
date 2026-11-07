@@ -381,6 +381,16 @@ class EmojiPickerPanel extends React.PureComponent {
           onModeChange={this.handleMode}
           onStandardModule={this.handleStandardModule}
           deferStandardPicker={this.state.catalogHold}
+          standardAccessory={mode === 'standard' ? (
+            <ModifierPicker
+              Emoji={Emoji}
+              active={modifierOpen}
+              modifier={skinTone}
+              onOpen={this.handleModifierOpen}
+              onClose={this.handleModifierClose}
+              onChange={this.handleModifierChange}
+            />
+          ) : null}
           standardPickerProps={{
             pickerRevision: this.customRevision(custom),
             custom,
@@ -409,16 +419,6 @@ class EmojiPickerPanel extends React.PureComponent {
             emojiTooltip: true,
           }}
         />
-        {mode === 'standard' && (
-          <ModifierPicker
-            Emoji={Emoji}
-            active={modifierOpen}
-            modifier={skinTone}
-            onOpen={this.handleModifierOpen}
-            onClose={this.handleModifierClose}
-            onChange={this.handleModifierChange}
-          />
-        )}
       </div>
     );
   }

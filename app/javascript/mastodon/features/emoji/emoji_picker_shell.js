@@ -68,6 +68,7 @@ class EmojiPickerShell extends React.PureComponent {
     stockSource: PropTypes.func,
     loadStandardEmojiPicker: PropTypes.func,
     standardPickerProps: PropTypes.object,
+    standardAccessory: PropTypes.node,
     emojiSize: PropTypes.number,
     perLine: PropTypes.number,
     autoFocus: PropTypes.bool,
@@ -657,7 +658,12 @@ class EmojiPickerShell extends React.PureComponent {
     return (
       <div className='emoji-picker-shell' ref={this.setNode} onKeyDown={this.handleKeyDown}>
         {this.renderModeSwitch()}
-        {mode === 'standard' ? this.renderStandard() : this.renderPersonal()}
+        {mode === 'standard' ? (
+          <div className='emoji-picker-shell__standard'>
+            {this.renderStandard()}
+            {this.props.standardAccessory}
+          </div>
+        ) : this.renderPersonal()}
       </div>
     );
   }
