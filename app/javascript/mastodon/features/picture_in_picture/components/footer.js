@@ -7,7 +7,10 @@ import IconButton from 'mastodon/components/icon_button';
 import classNames from 'classnames';
 import { me, boostModal, show_quote_button, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal } from 'mastodon/initial_state';
 import { defineMessages, injectIntl } from 'react-intl';
-import { replyCompose, quoteCompose, addReference, removeReference } from 'mastodon/actions/compose';
+import { replyCompose, quoteCompose, addReference, addReferenceToComposer, removeReference } from 'mastodon/actions/compose';
+import { dismissFullscreenModals, dispatchFullscreenCompose, pushFullscreenPath, setFullscreenComposerOpen } from 'mastodon/actions/fullscreen_column';
+import { createComposer, targetComposerAction } from 'mastodon/actions/composer';
+import { selectComposer, selectPortableComposerSeed } from 'mastodon/selectors/composer';
 import { reblog, favourite, bookmark, unreblog, unfavourite, unbookmark } from 'mastodon/actions/interactions';
 import { makeGetStatus } from 'mastodon/selectors';
 import { initBoostModal } from 'mastodon/actions/boosts';
@@ -40,17 +43,20 @@ const makeMapStateToProps = () => {
   const getStatus = makeGetStatus();
   const getProper = (status) => status.get('reblog', null) !== null && typeof status.get('reblog') === 'object' ? status.get('reblog') : status;
 
-  const mapStateToProps = (state, { statusId }) => {
+  const mapStateToProps = (state, { statusId, fullscreenScope }) => {
     const status         = getStatus(state, { id: statusId });
     const id             = status ? getProper(status).get('id') : null;
+    const composerId = fullscreenScope && fullscreenScope.composerId;
+    const compose = composerId ? selectComposer(state, composerId) : state.get('compose');
+    const references = compose ? compose.get('references') : null;
 
     return {
       status,
-      askReplyConfirmation: state.getIn(['compose', 'text']).trim().length !== 0,
-      referenceCountLimit: state.getIn(['compose', 'references']).size >= maxReferences,
-      referenced: state.getIn(['compose', 'references']).has(id),
-      contextReferenced: state.getIn(['compose', 'context_references']).has(id),
-      composePrivacy: state.getIn(['compose', 'privacy']),
+      askReplyConfirmation: !!(compose && compose.get('text') && compose.get('text').trim().length !== 0 && (!composerId || compose.get('dirty'))),
+      referenceCountLimit: !!(references && references.size >= maxReferences),
+      referenced: !!(references && references.has(id)),
+      contextReferenced: !!(compose && compose.get('context_references') && compose.get('context_references').has(id)),
+      composePrivacy: compose ? compose.get('privacy') : state.getIn(['compose', 'privacy']),
     };
   };
 
@@ -77,14 +83,26 @@ class Footer extends ImmutablePureComponent {
     askReplyConfirmation: PropTypes.bool,
     withOpenButton: PropTypes.bool,
     onClose: PropTypes.func,
+    fullscreenScope: PropTypes.shape({
+      viewId: PropTypes.string,
+      composerId: PropTypes.string,
+    }),
   };
 
+  scopedComposerId = () => this.props.fullscreenScope && this.props.fullscreenScope.composerId;
+
   _performReply = () => {
-    const { dispatch, status, onClose } = this.props;
+    const { dispatch, status, onClose, intl } = this.props;
     const { router } = this.context;
+    const composerId = this.scopedComposerId();
 
     if (onClose) {
       onClose();
+    }
+
+    if (composerId) {
+      dispatch(dispatchFullscreenCompose('reply', status, intl, composerId));
+      return;
     }
 
     dispatch(replyCompose(status, router.history));
@@ -92,6 +110,11 @@ class Footer extends ImmutablePureComponent {
 
   handleReplyClick = () => {
     const { dispatch, askReplyConfirmation, intl } = this.props;
+
+    if (this.scopedComposerId()) {
+      this._performReply();
+      return;
+    }
 
     if (askReplyConfirmation) {
       dispatch(openModal('CONFIRM', {
@@ -130,11 +153,36 @@ class Footer extends ImmutablePureComponent {
   }
 
   handleAddReference = (id, change) => {
-    this.props.dispatch(addReference(id, change));
+    const composerId = this.scopedComposerId();
+
+    if (!composerId) {
+      this.props.dispatch(addReference(id, change));
+      return;
+    }
+
+    this.props.dispatch((dispatch, getState) => {
+      if (!selectComposer(getState(), composerId)) {
+        dispatch(createComposer(composerId, selectPortableComposerSeed(getState())));
+      }
+
+      if (getState().getIn(['fullscreenColumn', 'composerId']) === composerId) {
+        dispatch(dismissFullscreenModals());
+        dispatch(setFullscreenComposerOpen(true));
+      }
+
+      dispatch(addReferenceToComposer(composerId, id, change));
+    });
   }
 
   handleRemoveReference = (id) => {
-    this.props.dispatch(removeReference(id));
+    const composerId = this.scopedComposerId();
+
+    if (!composerId) {
+      this.props.dispatch(removeReference(id));
+      return;
+    }
+
+    this.props.dispatch(targetComposerAction(removeReference(id), composerId));
   }
 
   handleFavouriteClick = () => {
@@ -171,10 +219,15 @@ class Footer extends ImmutablePureComponent {
       return;
     }
 
-    const { status, onClose } = this.props;
+    const { status, onClose, dispatch } = this.props;
 
     if (onClose) {
       onClose();
+    }
+
+    if (this.scopedComposerId()) {
+      dispatch(pushFullscreenPath(`/statuses/${status.get('id')}`));
+      return;
     }
 
     router.history.push(`/statuses/${status.get('id')}`);
@@ -191,11 +244,17 @@ class Footer extends ImmutablePureComponent {
   }
 
   _performQuote = () => {
-    const { dispatch, status, onClose } = this.props;
+    const { dispatch, status, onClose, intl } = this.props;
     const { router } = this.context;
+    const composerId = this.scopedComposerId();
 
     if (onClose) {
       onClose();
+    }
+
+    if (composerId) {
+      dispatch(dispatchFullscreenCompose('quote', status, intl, composerId));
+      return;
     }
 
     dispatch(quoteCompose(status, router.history));
@@ -203,6 +262,11 @@ class Footer extends ImmutablePureComponent {
 
   handleQuoteClick = () => {
     const { dispatch, askReplyConfirmation, intl } = this.props;
+
+    if (this.scopedComposerId()) {
+      this._performQuote();
+      return;
+    }
 
     if (askReplyConfirmation) {
       dispatch(openModal('CONFIRM', {

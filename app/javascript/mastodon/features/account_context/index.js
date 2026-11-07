@@ -5,6 +5,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { defineMessages, FormattedMessage, injectIntl } from 'react-intl';
 
 import { closeAccountContext } from '../../actions/account_context_view';
+import { registerOverlayLayer } from 'mastodon/utils/overlay_layers';
 import { accountContextOrder } from '../../reducers/account_context_views';
 import AccountContextTimeline from './components/timeline';
 
@@ -77,7 +78,7 @@ class AccountContextLayer extends React.PureComponent {
 
   componentDidMount () {
     this.setState({ narrow: narrowViewport() });
-    window.addEventListener('keydown', this.handleKeyDown);
+    this.syncLayer();
 
     if (typeof window.matchMedia === 'function') {
       this.media = window.matchMedia(NARROW_QUERY);
@@ -85,25 +86,41 @@ class AccountContextLayer extends React.PureComponent {
     }
   }
 
+  componentDidUpdate (prevProps) {
+    if (prevProps.order !== this.props.order) {
+      this.syncLayer();
+    }
+  }
+
   componentWillUnmount () {
-    window.removeEventListener('keydown', this.handleKeyDown);
+    if (this.unregisterLayer) {
+      this.unregisterLayer();
+    }
 
     if (this.media) {
       this.media.removeEventListener('change', this.handleMedia);
     }
   }
 
-  handleMedia = () => {
-    this.setState({ narrow: narrowViewport() });
-  };
+  syncLayer = () => {
+    if (this.unregisterLayer) {
+      this.unregisterLayer();
+      this.unregisterLayer = null;
+    }
 
-  handleKeyDown = (event) => {
-    if (event.key !== 'Escape' || this.props.order.size === 0) {
+    if (!this.props.order || this.props.order.size === 0) {
       return;
     }
 
-    event.preventDefault();
-    this.props.dispatch(closeAccountContext(this.props.order.last()));
+    this.unregisterLayer = registerOverlayLayer({
+      id: 'account-context',
+      priority: 70,
+      onEscape: () => this.props.dispatch(closeAccountContext(this.props.order.last())),
+    });
+  };
+
+  handleMedia = () => {
+    this.setState({ narrow: narrowViewport() });
   };
 
   handleClose = (hostKey) => {

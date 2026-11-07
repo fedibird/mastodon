@@ -331,7 +331,11 @@ export function closeMixTimeline(columnKey) {
   };
 }
 
-export function loadMixTimeline(columnKey, mix, { extend = false, scope = null, splitId = null } = {}) {
+export const mixExtendSwitchesToHistory = (displayMode, preserveDisplayMode) => (
+  displayMode === 'live' && !preserveDisplayMode
+);
+
+export function loadMixTimeline(columnKey, mix, { extend = false, scope = null, splitId = null, preserveDisplayMode = false } = {}) {
   return (dispatch, getState) => {
     const plain = plainMix(mix);
 
@@ -393,7 +397,7 @@ export function loadMixTimeline(columnKey, mix, { extend = false, scope = null, 
       return Promise.resolve();
     } else if (current.get('running')) {
       return Promise.resolve();
-    } else if (current.get('displayMode') === 'live') {
+    } else if (mixExtendSwitchesToHistory(current.get('displayMode'), preserveDisplayMode)) {
       dispatch({
         type: MIX_DISPLAY_HISTORY,
         columnKey,

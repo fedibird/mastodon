@@ -102,15 +102,17 @@ const translationBarRevealed = (state, status) => {
 
 const translationStateStatus = (status, translationStatus) => translationStatus || status;
 
-const mapStateToProps = (state, { status, translationStatus }) => {
+const mapStateToProps = (state, { status, translationStatus, composerId }) => {
   const subject = translationStateStatus(status, translationStatus);
+  const compose = composerId ? state.getIn(['composers', 'byId', composerId]) : state.get('compose');
+  const references = compose ? compose.get('references') : null;
 
   return {
     relationship: state.getIn(['relationships', status.getIn(['account', 'id'])]),
-    referenceCountLimit: state.getIn(['compose', 'references']).size >= maxReferences,
-    selected: state.getIn(['compose', 'references']).has(status.get('id')),
-    composePrivacy: state.getIn(['compose', 'privacy']),
-    editing: !!state.getIn(['compose', 'id']),
+    referenceCountLimit: !!(references && references.size >= maxReferences),
+    selected: !!(references && references.has(status.get('id'))),
+    composePrivacy: compose ? compose.get('privacy') : undefined,
+    editing: !!(compose && compose.get('id')),
     translationBarRevealed: translationBarRevealed(state, subject),
     acceptedTranslationBarVisibility: selectAcceptedTranslationPreferences(state).visibility,
     translationAssumption: state.getIn(['translation_assumptions', subject.get('id')]),

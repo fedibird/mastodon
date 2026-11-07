@@ -105,6 +105,9 @@ class Notifications extends React.PureComponent {
     lastReadId: PropTypes.string,
     canMarkAsRead: PropTypes.bool,
     needsNotificationPermission: PropTypes.bool,
+    passive: PropTypes.bool,
+    scrollKey: PropTypes.string,
+    composerId: PropTypes.string,
   };
 
   static defaultProps = {
@@ -112,6 +115,10 @@ class Notifications extends React.PureComponent {
   };
 
   componentWillMount() {
+    if (this.props.passive) {
+      return;
+    }
+
     this.props.dispatch(mountNotifications());
   }
 
@@ -119,6 +126,11 @@ class Notifications extends React.PureComponent {
     this.handleLoadOlder.cancel();
     this.handleScrollToTop.cancel();
     this.handleScroll.cancel();
+
+    if (this.props.passive) {
+      return;
+    }
+
     this.props.dispatch(scrollTopNotifications(false));
     this.props.dispatch(unmountNotifications());
   }
@@ -242,6 +254,7 @@ class Notifications extends React.PureComponent {
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
           unread={lastReadId !== '0' && compareId(item.get('id'), lastReadId) > 0}
+          composerId={this.props.composerId}
         />
       ));
     } else {
@@ -261,24 +274,29 @@ class Notifications extends React.PureComponent {
       <ScrollableList
         filterStatusIds={notificationStatusIds(this.props.filterNotifications || notifications)}
         filterIdForRow={this.filterIdForRow}
-        scrollKey={`notifications-${columnId}`}
-        trackScroll={!pinned}
+        scrollKey={this.props.passive ? this.props.scrollKey : `notifications-${columnId}`}
+        trackScroll={this.props.passive ? false : !pinned}
+        disableHeightCache={!!this.props.passive}
         isLoading={isLoading}
         showLoading={isLoading && notifications.size === 0}
         hasMore={hasMore}
-        numPending={numPending}
+        numPending={this.props.passive ? 0 : numPending}
         prepend={prepend}
         alwaysPrepend
         emptyMessage={emptyMessage}
         onLoadMore={this.handleLoadOlder}
-        onLoadPending={this.handleLoadPending}
-        onScrollToTop={this.handleScrollToTop}
-        onScroll={this.handleScroll}
-        bindToDocument={!multiColumn}
+        onLoadPending={this.props.passive ? undefined : this.handleLoadPending}
+        onScrollToTop={this.props.passive ? undefined : this.handleScrollToTop}
+        onScroll={this.props.passive ? undefined : this.handleScroll}
+        bindToDocument={this.props.passive ? false : !multiColumn}
       >
         {scrollableContent}
       </ScrollableList>
     );
+
+    if (this.props.passive) {
+      return scrollContainer;
+    }
 
     let extraButton = null;
 
@@ -298,6 +316,7 @@ class Notifications extends React.PureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={this.setColumnRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
+          fullscreenKind='notifications'
           icon='bell'
           active={isUnread}
           title={intl.formatMessage(messages.title)}

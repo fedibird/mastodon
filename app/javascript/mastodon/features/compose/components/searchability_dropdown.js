@@ -8,6 +8,7 @@ import Overlay from 'react-overlays/Overlay';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
+import { fullscreenOverlayContainer } from 'mastodon/utils/overlay_portal';
 
 const messages = defineMessages({
   public_short: { id: 'searchability.public.short', defaultMessage: 'Public' },
@@ -287,6 +288,10 @@ class SearchabilityDropdown extends React.PureComponent {
     this.target = c;
   }
 
+  overlayContainer = () => (
+    this.props.container ? this.props.container() : fullscreenOverlayContainer(this.findTarget())
+  );
+
   findTarget = () => {
     return this.target;
   }
@@ -313,7 +318,7 @@ class SearchabilityDropdown extends React.PureComponent {
   };
 
   render () {
-    const { value, container, intl, presentation } = this.props;
+    const { value, intl, presentation } = this.props;
     const { open, placement } = this.state;
 
     if (presentation === 'menu') {
@@ -330,7 +335,7 @@ class SearchabilityDropdown extends React.PureComponent {
 
       return (
         <div className='compose-form__searchability-anchor' ref={this.setTargetRef}>
-          <Overlay show={Boolean(this.props.open) && !touching} placement='bottom' flip target={this.findTarget} container={container} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
+          <Overlay show={Boolean(this.props.open) && !touching} placement='bottom' flip target={this.findTarget} container={this.overlayContainer} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
             {({ props, placement }) => (
               <SearchabilityDropdownMenu
                 style={props.style}
@@ -369,7 +374,7 @@ class SearchabilityDropdown extends React.PureComponent {
           />
         </div>
 
-        <Overlay show={open} placement={'bottom'} flip target={this.findTarget} container={container} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
+        <Overlay show={open} placement={'bottom'} flip target={this.findTarget} container={this.overlayContainer} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
           {({ props, placement }) => (
             <div {...props} style={{ ...props.style, width: 350, maxWidth: '100vw' }}>
               <div className={`dropdown-animation privacy-dropdown__dropdown ${placement}`}>

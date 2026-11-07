@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import 'wicg-inert';
 import { createBrowserHistory } from 'history';
 import { multiply } from 'color-blend';
+import { isTopOverlayLayer, registerOverlayLayer } from 'mastodon/utils/overlay_layers';
 
 export default class ModalRoot extends React.PureComponent {
 
@@ -22,15 +23,35 @@ export default class ModalRoot extends React.PureComponent {
 
   activeElement = this.props.children ? document.activeElement : null;
 
-  handleKeyUp = (e) => {
-    if ((e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27)
-         && !!this.props.children) {
-      this.props.onClose();
+  handleKeyUp = () => {
+    // Escape is owned by the shared overlay stack. This listener stays so a
+    // modal opened before registration still has a keyup subscriber, but it
+    // must not close together with a higher or lower surface.
+  }
+
+  unregisterLayer = () => {
+    if (this.unregisterOverlay) {
+      this.unregisterOverlay();
+      this.unregisterOverlay = null;
     }
   }
 
+  registerLayer = () => {
+    this.unregisterLayer();
+
+    if (!this.props.children) {
+      return;
+    }
+
+    this.unregisterOverlay = registerOverlayLayer({
+      id: 'modal-root',
+      priority: 80,
+      onEscape: () => this.props.onClose(),
+    });
+  }
+
   handleKeyDown = (e) => {
-    if (e.key === 'Tab') {
+    if (e.key === 'Tab' && isTopOverlayLayer('modal-root')) {
       const focusable = Array.from(this.node.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter((x) => window.getComputedStyle(x).display !== 'none');
       const index = focusable.indexOf(e.target);
 
@@ -54,6 +75,7 @@ export default class ModalRoot extends React.PureComponent {
     window.addEventListener('keyup', this.handleKeyUp, false);
     window.addEventListener('keydown', this.handleKeyDown, false);
     this.history = this.context.router ? this.context.router.history : createBrowserHistory();
+    this.registerLayer();
   }
 
   componentWillReceiveProps (nextProps) {
@@ -65,8 +87,20 @@ export default class ModalRoot extends React.PureComponent {
   }
 
   componentDidUpdate (prevProps) {
+    if (!!this.props.children !== !!prevProps.children) {
+      this.registerLayer();
+    }
+
     if (!this.props.children && !!prevProps.children) {
-      this.getSiblings().forEach(sibling => sibling.removeAttribute('inert'));
+      this.getSiblings().forEach(sibling => {
+        if (sibling.nodeType === 1 && sibling.getAttribute('data-keep-inert') === 'true') {
+          return;
+        }
+
+        if (sibling.removeAttribute) {
+          sibling.removeAttribute('inert');
+        }
+      });
 
       // Because of the wicg-inert polyfill, the activeElement may not be
       // immediately selectable, we have to wait for observers to run, as
@@ -89,6 +123,7 @@ export default class ModalRoot extends React.PureComponent {
   componentWillUnmount () {
     window.removeEventListener('keyup', this.handleKeyUp);
     window.removeEventListener('keydown', this.handleKeyDown);
+    this.unregisterLayer();
   }
 
   _handleModalOpen () {

@@ -8,8 +8,12 @@ import {
   mentionCompose,
   directCompose,
   addReference,
+  addReferenceToComposer,
   removeReference,
 } from '../actions/compose';
+import { dispatchFullscreenCompose, fullscreenModalScope, setFullscreenComposerOpen } from '../actions/fullscreen_column';
+import { createComposer, targetComposerAction } from '../actions/composer';
+import { selectComposer, selectPortableComposerSeed } from '../selectors/composer';
 import {
   reblog,
   favourite,
@@ -88,13 +92,16 @@ const makeMapStateToProps = () => {
   const mapStateToProps = (state, props) => {
     const status = getStatus(state, props);
     const id = !!status ? getProper(status).get('id') : null;
+    const compose = props.composerId ? selectComposer(state, props.composerId) : state.get('compose');
+    const references = compose ? compose.get('references') : null;
+    const contextReferences = compose ? compose.get('context_references') : null;
 
     return {
       status,
       pictureInPicture: getPictureInPicture(state, props),
       id,
-      referenced: state.getIn(['compose', 'references']).has(id),
-      contextReferenced: state.getIn(['compose', 'context_references']).has(id),
+      referenced: !!(references && references.has(id)),
+      contextReferenced: !!(contextReferences && contextReferences.has(id)),
       emojiReactions: !!status ? status.get('emoji_reactions', ImmutableList()) : ImmutableList(),
     };
   };
@@ -123,10 +130,14 @@ const mergeProps = ({ status, pictureInPicture, referenced, contextReferenced, e
   };
 };
 
-const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
+const mapDispatchToProps = (dispatch, { intl, contextType, composerId }) => ({
 
   onReply (status, router) {
-    dispatch((_, getState) => {
+    dispatch((innerDispatch, getState) => {
+      if (composerId && innerDispatch(dispatchFullscreenCompose('reply', status, intl, composerId))) {
+        return;
+      }
+
       let state = getState();
 
       if (state.getIn(['compose', 'text']).trim().length !== 0 && state.getIn(['compose', 'dirty'])) {
@@ -158,7 +169,11 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
   },
 
   onQuote (status, router) {
-    dispatch((_, getState) => {
+    dispatch((innerDispatch, getState) => {
+      if (composerId && innerDispatch(dispatchFullscreenCompose('quote', status, intl, composerId))) {
+        return;
+      }
+
       let state = getState();
 
       if (state.getIn(['compose', 'text']).trim().length !== 0 && state.getIn(['compose', 'dirty'])) {
@@ -233,7 +248,13 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
   },
 
   onDirect (account, router) {
-    dispatch(directCompose(account, router));
+    dispatch((innerDispatch) => {
+      if (composerId && innerDispatch(dispatchFullscreenCompose('direct', account, intl, composerId))) {
+        return;
+      }
+
+      dispatch(directCompose(account, router));
+    });
   },
 
   onMemberList (status, history) {
@@ -241,15 +262,39 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
   },
 
   onMention (account, router) {
-    dispatch(mentionCompose(account, router));
+    dispatch((innerDispatch) => {
+      if (composerId && innerDispatch(dispatchFullscreenCompose('mention', account, intl, composerId))) {
+        return;
+      }
+
+      dispatch(mentionCompose(account, router));
+    });
   },
 
   onOpenMedia (statusId, media, index, lang, timelineStatusIds, mediaSource) {
-    dispatch(openModal('MEDIA', { statusId, media, index, lang, timelineStatusIds, mediaSource }));
+    dispatch((_, getState) => {
+      dispatch(openModal('MEDIA', {
+        statusId,
+        media,
+        index,
+        lang,
+        timelineStatusIds,
+        mediaSource,
+        fullscreenScope: fullscreenModalScope(getState()),
+      }));
+    });
   },
 
   onOpenVideo (statusId, media, options, lang) {
-    dispatch(openModal('VIDEO', { statusId, media, options, lang }));
+    dispatch((_, getState) => {
+      dispatch(openModal('VIDEO', {
+        statusId,
+        media,
+        options,
+        lang,
+        fullscreenScope: fullscreenModalScope(getState()),
+      }));
+    });
   },
 
   onTranslate (status, mode) {
@@ -382,11 +427,33 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
   },
 
   onAddReference (id, change) {
-    dispatch(addReference(id, change));
+    if (!composerId) {
+      dispatch(addReference(id, change));
+      return;
+    }
+
+    dispatch((innerDispatch, getState) => {
+      if (!selectComposer(getState(), composerId)) {
+        innerDispatch(createComposer(composerId, selectPortableComposerSeed(getState())));
+      }
+
+      if (getState().getIn(['fullscreenColumn', 'composerId']) === composerId) {
+        innerDispatch(setFullscreenComposerOpen(true));
+      }
+
+      innerDispatch(addReferenceToComposer(composerId, id, change));
+    });
   },
 
   onRemoveReference (id) {
-    dispatch(removeReference(id));
+    if (!composerId) {
+      dispatch(removeReference(id));
+      return;
+    }
+
+    dispatch((innerDispatch) => {
+      innerDispatch(targetComposerAction(removeReference(id), composerId));
+    });
   },
 
   onAddFilter (status) {

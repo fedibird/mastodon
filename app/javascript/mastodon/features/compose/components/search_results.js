@@ -25,18 +25,23 @@ class SearchResults extends ImmutablePureComponent {
     dismissSuggestion: PropTypes.func.isRequired,
     searchTerm: PropTypes.string,
     intl: PropTypes.object.isRequired,
+    composerId: PropTypes.string,
   };
 
   componentDidMount () {
-    if (this.props.searchTerm === '') {
-      this.props.fetchSuggestions();
+    if (this.props.passive || this.props.searchTerm !== '') {
+      return;
     }
+
+    this.props.fetchSuggestions();
   }
 
   componentDidUpdate () {
-    if (this.props.searchTerm === '') {
-      this.props.fetchSuggestions();
+    if (this.props.passive || this.props.searchTerm !== '') {
+      return;
     }
+
+    this.props.fetchSuggestions();
   }
 
   handleLoadMoreAccounts = () => this.props.expandSearch('accounts');
@@ -108,7 +113,7 @@ class SearchResults extends ImmutablePureComponent {
         <div className='search-results__section'>
           <h5><Icon id='quote-right' fixedWidth /><FormattedMessage id='search_results.statuses' defaultMessage='Toots' /></h5>
 
-          {results.get('statuses').map(statusId => <StatusContainer key={statusId} id={statusId} />)}
+          {results.get('statuses').map(statusId => <StatusContainer key={statusId} id={statusId} composerId={this.props.composerId} />)}
 
           {results.get('statuses').size >= 5 && <LoadMore visible onClick={this.handleLoadMoreStatuses} />}
         </div>

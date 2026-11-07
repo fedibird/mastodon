@@ -9,6 +9,8 @@ import Overlay from 'react-overlays/Overlay';
 import CustomEmojiText from 'mastodon/components/custom_emoji_text';
 import Icon from 'mastodon/components/icon';
 import { createOverlayRefBridge } from '../overlay_ref';
+import { claimEscape } from 'mastodon/utils/overlay_layers';
+import { fullscreenOverlayContainer } from 'mastodon/utils/overlay_portal';
 
 const messages = defineMessages({
   label: { id: 'compose_form.posting_style.label', defaultMessage: 'Posting style' },
@@ -193,6 +195,8 @@ class UserPostingStylePicker extends React.PureComponent {
 
   findTrigger = () => this.trigger;
 
+  overlayContainer = () => fullscreenOverlayContainer(this.findTrigger());
+
   componentDidUpdate (_prevProps, prevState) {
     const menu = this.menuNode();
 
@@ -298,7 +302,7 @@ class UserPostingStylePicker extends React.PureComponent {
 
   handleDocumentKey = event => {
     if (event.key === 'Escape' && this.state.open) {
-      event.preventDefault();
+      claimEscape(event);
       this.closeMenu({ focusTrigger: true });
     }
   };
@@ -844,7 +848,7 @@ class UserPostingStylePicker extends React.PureComponent {
     );
 
     return (
-      <Overlay show placement='bottom' flip target={this.findTrigger} popperConfig={{ strategy: 'fixed' }}>
+      <Overlay show placement='bottom' flip target={this.findTrigger} container={this.overlayContainer} popperConfig={{ strategy: 'fixed' }}>
         {this.renderStylePanel}
       </Overlay>
     );

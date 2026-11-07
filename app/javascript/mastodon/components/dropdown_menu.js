@@ -6,6 +6,8 @@ import Overlay from 'react-overlays/Overlay';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import classNames from 'classnames';
 import { CircularProgress } from 'mastodon/components/loading_indicator';
+import { claimEscape } from 'mastodon/utils/overlay_layers';
+import { fullscreenOverlayContainer } from 'mastodon/utils/overlay_portal';
 
 const listenerOptions = supportsPassiveEvents ? { passive: true } : false;
 let id = 0;
@@ -90,6 +92,7 @@ export class DropdownMenu extends React.PureComponent {
       element = items[items.length-1];
       break;
     case 'Escape':
+      claimEscape(e);
       this.props.onClose();
       break;
     }
@@ -263,6 +266,8 @@ class Dropdown extends React.PureComponent {
     return this.target;
   }
 
+  overlayContainer = () => fullscreenOverlayContainer(this.findTarget());
+
   componentWillUnmount = () => {
     if (this.state.id === this.props.openDropdownId) {
       this.handleClose();
@@ -341,7 +346,7 @@ class Dropdown extends React.PureComponent {
           {button}
         </span>
 
-        <Overlay show={open} offset={[5, 5]} placement='bottom' flip target={this.findTarget} popperConfig={popperConfig}>
+        <Overlay show={open} offset={[5, 5]} placement='bottom' flip target={this.findTarget} container={this.overlayContainer} popperConfig={popperConfig}>
           {({ props, arrowProps, placement }) => (
             <div {...props}>
               <div className={`dropdown-animation dropdown-menu ${placement}`}>

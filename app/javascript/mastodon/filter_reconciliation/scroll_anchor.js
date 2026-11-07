@@ -1,5 +1,6 @@
 import { isProgrammaticTopScroll } from '../scroll';
 import { findVisibleMasonryTile } from '../utils/timeline_masonry_layout';
+import { scrollTopDeltaForVisualDelta, usedCssZoom } from '../utils/css_zoom';
 
 // Geometry only. No status/filter interpretation, observers or perpetual rAF.
 
@@ -75,7 +76,8 @@ export const restoreFilterAnchor = (snapshot, node, scroller, top, options = {})
   // Following the latest edge skips the scroll write. Focus still moves
   // when a filtered row held it. History at local 0 is not following.
   if (anchor && options.allowScroll !== false) {
-    const delta = anchor.node.getBoundingClientRect().top - top - anchor.offset;
+    const visualDelta = anchor.node.getBoundingClientRect().top - top - anchor.offset;
+    const delta = scrollTopDeltaForVisualDelta(visualDelta, usedCssZoom(scroller));
     if (Math.abs(delta) > POSITION_EPSILON) {
       // Tell the list before the write so a synchronous scroll event is
       // still marked as this correction. The list adopts it only when the

@@ -104,6 +104,20 @@
   }
 }
 
+.media-display-controls.media-display-controls--compact {
+  flex-wrap: nowrap;
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  overflow-x: auto;
+  border: 0;
+  background: transparent;
+
+  .media-display-controls__group {
+    flex-wrap: nowrap;
+  }
+}
+
 .timeline-media-masonry-wrap {
   box-sizing: border-box;
   padding: 8px;

@@ -63,6 +63,7 @@ class Notification extends ImmutablePureComponent {
     cacheMediaWidth: PropTypes.func,
     cachedMediaWidth: PropTypes.number,
     unread: PropTypes.bool,
+    composerId: PropTypes.string,
   };
 
   componentDidMount () {
@@ -251,6 +252,7 @@ class Notification extends ImmutablePureComponent {
   renderMention (notification) {
     return (
       <StatusContainer
+        composerId={this.props.composerId}
         id={notification.get('status')}
         withDismiss
         hidden={this.props.hidden}
@@ -283,6 +285,7 @@ class Notification extends ImmutablePureComponent {
           </div>
 
           <StatusContainer
+            composerId={this.props.composerId}
             id={notification.get('status')}
             contextType='notifications'
             account={notification.get('account')}
@@ -316,6 +319,7 @@ class Notification extends ImmutablePureComponent {
           </div>
 
           <StatusContainer
+            composerId={this.props.composerId}
             id={notification.get('status')}
             contextType='notifications'
             account={notification.get('account')}
@@ -351,6 +355,7 @@ class Notification extends ImmutablePureComponent {
           </div>
 
           <StatusContainer
+            composerId={this.props.composerId}
             id={notification.get('status')}
             contextType='notifications'
             account={notification.get('account')}
@@ -384,6 +389,7 @@ class Notification extends ImmutablePureComponent {
           </div>
 
           <StatusContainer
+            composerId={this.props.composerId}
             id={notification.get('status')}
             contextType='notifications'
             account={notification.get('account')}
@@ -423,6 +429,7 @@ class Notification extends ImmutablePureComponent {
           </div>
 
           <StatusContainer
+            composerId={this.props.composerId}
             id={notification.get('status')}
             contextType='notifications'
             account={account}
@@ -467,6 +474,7 @@ class Notification extends ImmutablePureComponent {
           </div>
 
           <StatusContainer
+            composerId={this.props.composerId}
             id={notification.get('status')}
             contextType='notifications'
             account={notification.get('account')}
@@ -500,6 +508,7 @@ class Notification extends ImmutablePureComponent {
           </div>
 
           <StatusContainer
+            composerId={this.props.composerId}
             id={notification.get('status')}
             contextType='notifications'
             account={notification.get('account')}
@@ -533,6 +542,7 @@ class Notification extends ImmutablePureComponent {
           </div>
 
           <StatusContainer
+            composerId={this.props.composerId}
             id={notification.get('status')}
             contextType='notifications'
             account={notification.get('account')}

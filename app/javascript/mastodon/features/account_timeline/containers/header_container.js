@@ -16,6 +16,7 @@ import {
   mentionCompose,
   directCompose,
 } from '../../../actions/compose';
+import { dispatchFullscreenCompose } from '../../../actions/fullscreen_column';
 import { initMuteModal } from '../../../actions/mutes';
 import { initBlockModal } from '../../../actions/blocks';
 import { initReport } from '../../../actions/reports';
@@ -113,11 +114,23 @@ const mapDispatchToProps = (dispatch, { intl }) => ({
   },
 
   onMention (account, router) {
-    dispatch(mentionCompose(account, router));
+    dispatch((innerDispatch) => {
+      if (innerDispatch(dispatchFullscreenCompose('mention', account, intl))) {
+        return;
+      }
+
+      dispatch(mentionCompose(account, router));
+    });
   },
 
   onDirect (account, router) {
-    dispatch(directCompose(account, router));
+    dispatch((innerDispatch) => {
+      if (innerDispatch(dispatchFullscreenCompose('direct', account, intl))) {
+        return;
+      }
+
+      dispatch(directCompose(account, router));
+    });
   },
 
   onConversations (account, router) {

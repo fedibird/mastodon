@@ -18,6 +18,7 @@ import MediaItemsLayout from './media_items_layout';
 import { defaultMediaShape, defaultMediaSize, defaultMediaVisibility } from 'mastodon/utils/media_display';
 import { mediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
 import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
+import { scrollTopDeltaForVisualDelta, usedCssZoom } from 'mastodon/utils/css_zoom';
 import { connect } from 'react-redux';
 import { FilterSurface } from '../filter_reconciliation/surface';
 import { isProgrammaticTopScroll, releaseProgrammaticTopScroll } from '../scroll';
@@ -92,6 +93,16 @@ class ScrollableList extends PureComponent {
     mediaFilterMatches: PropTypes.object,
     mediaFilterGeneration: PropTypes.number,
     mediaLastStatusId: PropTypes.string,
+    mediaShape: PropTypes.string,
+    mediaSize: PropTypes.string,
+    mediaVisibility: PropTypes.string,
+    onMediaShapeChange: PropTypes.func,
+    onMediaSizeChange: PropTypes.func,
+    onMediaVisibilityChange: PropTypes.func,
+    flowColumns: PropTypes.number,
+    contentScale: PropTypes.number,
+    disableHeightCache: PropTypes.bool,
+    suppressMediaControls: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -121,14 +132,29 @@ class ScrollableList extends PureComponent {
   }
 
   handleMediaShapeChange = mediaShape => {
+    if (this.props.onMediaShapeChange) {
+      this.props.onMediaShapeChange(mediaShape);
+      return;
+    }
+
     this.setState({ mediaShape });
   }
 
   handleMediaSizeChange = mediaSize => {
+    if (this.props.onMediaSizeChange) {
+      this.props.onMediaSizeChange(mediaSize);
+      return;
+    }
+
     this.setState({ mediaSize });
   }
 
   handleMediaVisibilityChange = mediaVisibility => {
+    if (this.props.onMediaVisibilityChange) {
+      this.props.onMediaVisibilityChange(mediaVisibility);
+      return;
+    }
+
     // Clear individual image reveals when switching policy, without touching
     // a separate manual override of a warning-filtered post.
     this.setState({ mediaVisibility, revealedMediaKeys: new Set() });
@@ -531,7 +557,8 @@ class ScrollableList extends PureComponent {
     // The overall scrollHeight delta no longer describes the displacement
     // of the card being read, so preserve an actual visible article instead.
     const variableHeightMasonry = isCardTimelineLayout(this.props.layoutMode) ||
-      (this.props.layoutMode === 'media' && this.state.mediaShape === 'original');
+      Number(this.props.flowColumns) > 1 ||
+      (this.props.layoutMode === 'media' && (this.props.mediaShape || this.state.mediaShape) === 'original');
 
     // A bounded Live window may replace the oldest post with a new one,
     // keeping the item count unchanged. Pinned posts also keep the first
@@ -609,7 +636,7 @@ class ScrollableList extends PureComponent {
       return;
     }
 
-    const delta = item.getBoundingClientRect().top - snapshot.top;
+    const delta = scrollTopDeltaForVisualDelta(item.getBoundingClientRect().top - snapshot.top, usedCssZoom(this._getScrollingElement()));
     if (Math.abs(delta) > 0.5) {
       this.setScrollTop(this.getScrollTop() + delta);
     }
@@ -714,7 +741,7 @@ class ScrollableList extends PureComponent {
       return;
     }
 
-    const delta = article.getBoundingClientRect().top - snapshot.top;
+    const delta = scrollTopDeltaForVisualDelta(article.getBoundingClientRect().top - snapshot.top, usedCssZoom(this._getScrollingElement()));
 
     if (Math.abs(delta) > 0.5) {
       this.setScrollTop(this.getScrollTop() + delta);
@@ -1104,9 +1131,14 @@ class ScrollableList extends PureComponent {
 
   render () {
     const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex, layoutMode } = this.props;
-    const { fullscreen, mediaShape, mediaSize, mediaVisibility } = this.state;
+    const { fullscreen } = this.state;
+    const mediaShape = this.props.mediaShape || this.state.mediaShape;
+    const mediaSize = this.props.mediaSize || this.state.mediaSize;
+    const mediaVisibility = this.props.mediaVisibility || this.state.mediaVisibility;
     const mediaMode = layoutMode === 'media';
-    const mediaControls = mediaMode ? (
+    const flowColumns = Number(this.props.flowColumns) > 1 && !isCardTimelineLayout(layoutMode) && !mediaMode ? Number(this.props.flowColumns) : 0;
+    const cacheHeights = trackScroll && !this.props.disableHeightCache && !flowColumns && !(Number(this.props.contentScale) > 1) && !isCardTimelineLayout(layoutMode) && layoutMode !== 'media';
+    const mediaControls = mediaMode && !this.props.suppressMediaControls ? (
       <MediaDisplayControls
         shape={mediaShape}
         size={mediaSize}
@@ -1163,7 +1195,7 @@ class ScrollableList extends PureComponent {
         listLength={childrenCount}
         intersectionObserverWrapper={this.intersectionObserverWrapper}
         // Cached heights from the old full-width list cannot be used for cards.
-        saveHeightKey={trackScroll && !isCardTimelineLayout(layoutMode) && layoutMode !== 'media' ? `${this.context.router.route.location.key}:${scrollKey}` : null}
+        saveHeightKey={cacheHeights ? `${this.context.router.route.location.key}:${scrollKey}` : null}
         tabIndex={tabIndex}
         onIntersectionChange={this.handleIntersectionChange}
         onBeforeLayoutChange={this.handleFilterLayout}
@@ -1185,10 +1217,11 @@ class ScrollableList extends PureComponent {
       </IntersectionObserverArticleContainer>
     ));
     let itemLayout = renderedItems;
-    if (isCardTimelineLayout(layoutMode)) {
+    if (isCardTimelineLayout(layoutMode) || flowColumns > 1) {
       itemLayout = (
         <TimelineMasonry
           mode={layoutMode}
+          requestedColumns={flowColumns > 1 ? flowColumns : undefined}
           onCaptureLayoutAnchor={this.captureMasonryLayoutAnchor}
           onRestoreLayoutAnchor={this.restoreMasonryLayoutAnchor}
         >

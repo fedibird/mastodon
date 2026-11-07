@@ -101,6 +101,8 @@ import {
 import { me, enableEmptyColumn, maxAttachments } from '../../initial_state';
 import { closeOnboarding, INTRODUCTION_VERSION } from 'mastodon/actions/onboarding';
 import AccountContextLayer from '../account_context';
+import FullscreenColumnHost from '../fullscreen_column';
+import { setFullscreenComposerOpen } from '../../actions/fullscreen_column';
 
 // Dummy import, to make sure that <Status /> ends up in the application bundle.
 // Without this it ends up in ~8 very commonly used bundles.
@@ -112,6 +114,9 @@ const messages = defineMessages({
 
 const mapStateToProps = state => ({
   layout: state.getIn(['meta', 'layout']),
+  fullscreenOpen: !!state.getIn(['fullscreenColumn', 'open']),
+  fullscreenComposerOpen: !!state.getIn(['fullscreenColumn', 'composerOpen']),
+  modalOpen: state.get('modal').size > 0,
   isComposing: state.getIn(['compose', 'is_composing']),
   hasComposingText: state.getIn(['compose', 'text']).trim().length !== 0,
   hasMediaAttachments: state.getIn(['compose', 'media_attachments']).size > 0,
@@ -312,6 +317,9 @@ class UI extends React.PureComponent {
     intl: PropTypes.object.isRequired,
     dropdownMenuIsOpen: PropTypes.bool,
     layout: PropTypes.string.isRequired,
+    fullscreenOpen: PropTypes.bool,
+    fullscreenComposerOpen: PropTypes.bool,
+    modalOpen: PropTypes.bool,
     firstLaunch: PropTypes.bool,
     visibilities: PropTypes.arrayOf(PropTypes.string),
     advancedMode: PropTypes.bool,
@@ -591,8 +599,19 @@ class UI extends React.PureComponent {
     this.node = c;
   }
 
+  hotkeysBlocked = () => this.props.fullscreenOpen || this.props.modalOpen || this.props.dropdownMenuIsOpen;
+
   handleHotkeyNew = e => {
     e.preventDefault();
+
+    if (this.props.fullscreenOpen && !this.props.modalOpen && !this.props.fullscreenComposerOpen && !this.props.dropdownMenuIsOpen) {
+      this.props.dispatch(setFullscreenComposerOpen(true));
+      return;
+    }
+
+    if (this.hotkeysBlocked()) {
+      return;
+    }
 
     const element = this.node.querySelector('.compose-form__autosuggest-wrapper textarea');
 
@@ -604,6 +623,10 @@ class UI extends React.PureComponent {
   handleHotkeySearch = e => {
     e.preventDefault();
 
+    if (this.hotkeysBlocked()) {
+      return;
+    }
+
     const element = this.node.querySelector('.search__input');
 
     if (element) {
@@ -612,17 +635,32 @@ class UI extends React.PureComponent {
   }
 
   handleHotkeyForceNew = e => {
+    if (this.hotkeysBlocked()) {
+      e.preventDefault();
+      return;
+    }
+
     this.handleHotkeyNew(e);
     this.props.dispatch(resetCompose());
   }
 
   handleHotkeyToggleComposeSpoilers = e => {
     e.preventDefault();
+
+    if (this.hotkeysBlocked()) {
+      return;
+    }
+
     this.props.dispatch(changeComposeSpoilerness());
     this.props.dispatch(scheduleComposerInteractionCheck(PRIMARY_COMPOSER_ID));
   }
 
   handleHotkeyFocusColumn = e => {
+    if (this.hotkeysBlocked()) {
+      e.preventDefault();
+      return;
+    }
+
     const index  = (e.key * 1) + 1; // First child is drawer, skip that
     const column = this.node.querySelector(`.column:nth-child(${index})`);
     if (!column) return;
@@ -661,6 +699,10 @@ class UI extends React.PureComponent {
   }
 
   handleHotkeyGoToHome = () => {
+    if (this.hotkeysBlocked()) {
+      return;
+    }
+
     this.context.router.history.push('/timelines/home');
   }
 
@@ -712,41 +754,55 @@ class UI extends React.PureComponent {
     const { draggingOver } = this.state;
     const { children, isComposing, location, dropdownMenuIsOpen, layout, advancedMode, openPostsFirst } = this.props;
 
+    const guardNavigation = (handler) => (event) => {
+      if (this.hotkeysBlocked()) {
+        if (event && event.preventDefault) {
+          event.preventDefault();
+        }
+
+        return;
+      }
+
+      handler(event);
+    };
     const handlers = {
-      help: this.handleHotkeyToggleHelp,
+      help: guardNavigation(this.handleHotkeyToggleHelp),
       new: this.handleHotkeyNew,
       search: this.handleHotkeySearch,
       forceNew: this.handleHotkeyForceNew,
       toggleComposeSpoilers: this.handleHotkeyToggleComposeSpoilers,
       focusColumn: this.handleHotkeyFocusColumn,
-      back: this.handleHotkeyBack,
-      goToHome: this.handleHotkeyGoToHome,
-      goToNotifications: this.handleHotkeyGoToNotifications,
-      goToFederated: this.handleHotkeyGoToFederated,
-      goToDirect: this.handleHotkeyGoToDirect,
-      goToStart: this.handleHotkeyGoToStart,
-      goToFavourites: this.handleHotkeyGoToFavourites,
-      goToEmojiReactions: this.handleHotkeyGoToEmojiReactions,
-      goToPinned: this.handleHotkeyGoToPinned,
-      goToProfile: this.handleHotkeyGoToProfile,
-      goToBlocked: this.handleHotkeyGoToBlocked,
-      goToMuted: this.handleHotkeyGoToMuted,
-      goToRequests: this.handleHotkeyGoToRequests,
+      back: guardNavigation(this.handleHotkeyBack),
+      goToHome: guardNavigation(this.handleHotkeyGoToHome),
+      goToNotifications: guardNavigation(this.handleHotkeyGoToNotifications),
+      goToFederated: guardNavigation(this.handleHotkeyGoToFederated),
+      goToDirect: guardNavigation(this.handleHotkeyGoToDirect),
+      goToStart: guardNavigation(this.handleHotkeyGoToStart),
+      goToFavourites: guardNavigation(this.handleHotkeyGoToFavourites),
+      goToEmojiReactions: guardNavigation(this.handleHotkeyGoToEmojiReactions),
+      goToPinned: guardNavigation(this.handleHotkeyGoToPinned),
+      goToProfile: guardNavigation(this.handleHotkeyGoToProfile),
+      goToBlocked: guardNavigation(this.handleHotkeyGoToBlocked),
+      goToMuted: guardNavigation(this.handleHotkeyGoToMuted),
+      goToRequests: guardNavigation(this.handleHotkeyGoToRequests),
     };
 
     return (
       <HotKeys keyMap={keyMap} handlers={handlers} ref={this.setHotkeysRef} attach={window} focused>
         <div className={classNames('ui', { 'is-composing': isComposing })} ref={this.setRef} style={{ pointerEvents: dropdownMenuIsOpen ? 'none' : null }}>
-          <AppearancePreferences />
-          <SwitchingColumnsArea navigationAction={this.props.history.action} location={location} mobile={layout === 'mobile' || layout === 'single-column'} advancedMode={advancedMode} openPostsFirst={openPostsFirst}>
-            {children}
-          </SwitchingColumnsArea>
+          <div className='ui__background' data-fullscreen-background='true'>
+            <AppearancePreferences />
+            <SwitchingColumnsArea navigationAction={this.props.history.action} location={location} mobile={layout === 'mobile' || layout === 'single-column'} advancedMode={advancedMode} openPostsFirst={openPostsFirst}>
+              {children}
+            </SwitchingColumnsArea>
 
-          {layout !== 'mobile' && <PictureInPicture />}
-          <ExternalPlayerDock />
+            {layout !== 'mobile' && <PictureInPicture />}
+            <ExternalPlayerDock />
+          </div>
           <NotificationsContainer />
           <LoadingBarContainer className='loading-bar' />
           <AccountContextLayer />
+          <FullscreenColumnHost />
           <ModalContainer />
           <HashtagMenuController />
           <UploadArea active={draggingOver} onClose={this.closeUploadModal} />

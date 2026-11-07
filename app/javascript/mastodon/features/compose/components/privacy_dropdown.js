@@ -8,6 +8,7 @@ import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
 import IconButton from '../../../components/icon_button';
 import { hidePrivacyMeta } from '../../../initial_state';
+import { fullscreenOverlayContainer } from 'mastodon/utils/overlay_portal';
 
 const messages = defineMessages({
   public_short: { id: 'privacy.public.short', defaultMessage: 'Public' },
@@ -272,6 +273,10 @@ class PrivacyDropdown extends React.PureComponent {
     this.target = c;
   }
 
+  overlayContainer = () => (
+    this.props.container ? this.props.container() : fullscreenOverlayContainer(this.findTarget())
+  );
+
   findTarget = () => {
     return this.target;
   }
@@ -281,7 +286,7 @@ class PrivacyDropdown extends React.PureComponent {
   }
 
   render () {
-    const { value, container, intl, prohibitedVisibilities } = this.props;
+    const { value, intl, prohibitedVisibilities } = this.props;
     const { open, placement } = this.state;
     const stored = (this.catalog || []).find(item => item.value === value);
     const hiddenByUser = prohibitedVisibilities && prohibitedVisibilities.includes(value);
@@ -324,7 +329,7 @@ class PrivacyDropdown extends React.PureComponent {
           )}
         </div>
 
-        <Overlay show={open} placement={'bottom'} flip target={this.findTarget} container={container} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
+        <Overlay show={open} placement={'bottom'} flip target={this.findTarget} container={this.overlayContainer} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
           {({ props, placement }) => (
             <div {...props} style={{ ...props.style, width: 350, maxWidth: '100vw' }}>
               <div className={`dropdown-animation privacy-dropdown__dropdown ${placement}`}>

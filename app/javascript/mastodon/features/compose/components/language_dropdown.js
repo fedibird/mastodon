@@ -4,6 +4,7 @@ import { injectIntl, defineMessages } from 'react-intl';
 import classNames from 'classnames';
 import Overlay from 'react-overlays/Overlay';
 import LanguageDropdownMenu from 'mastodon/components/language_dropdown_menu';
+import { fullscreenOverlayContainer } from 'mastodon/utils/overlay_portal';
 
 const messages = defineMessages({
   changeLanguage: { id: 'compose.language.change', defaultMessage: 'Change language' },
@@ -86,6 +87,8 @@ class LanguageDropdown extends React.PureComponent {
     return this.target;
   };
 
+  overlayContainer = () => fullscreenOverlayContainer(this.findTarget());
+
   handleOverlayEnter = (state) => {
     this.setState({ placement: state.placement });
   };
@@ -95,7 +98,7 @@ class LanguageDropdown extends React.PureComponent {
 
     return (
       <div className='compose-form__language-anchor' ref={this.setTargetRef}>
-        <Overlay show={Boolean(open)} placement='bottom' flip target={this.findTarget} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
+        <Overlay show={Boolean(open)} placement='bottom' flip target={this.findTarget} container={this.overlayContainer} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
           {({ props, placement }) => (
             <div {...props}>
               <div className={`dropdown-animation language-dropdown__dropdown ${placement}`}>
@@ -138,7 +141,7 @@ class LanguageDropdown extends React.PureComponent {
           </button>
         </div>
 
-        <Overlay show={open} placement={'bottom'} flip target={this.findTarget} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
+        <Overlay show={open} placement={'bottom'} flip target={this.findTarget} container={this.overlayContainer} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
           {({ props, placement }) => (
             <div {...props}>
               <div className={`dropdown-animation language-dropdown__dropdown ${placement}`}>

@@ -7,7 +7,11 @@ import { FormattedMessage, injectIntl, defineMessages } from 'react-intl';
 import Icon from 'mastodon/components/icon';
 import { enableEmptyColumn, defaultColumnWidth } from 'mastodon/initial_state';
 import { changeTimelineLayout } from 'mastodon/actions/columns';
+import { openFullscreenColumn } from 'mastodon/actions/fullscreen_column';
 import { columnWidthForCardLayout, readTimelineLayout, TIMELINE_LAYOUT_OPTIONS } from 'mastodon/utils/timeline_layout';
+import { captureVisibleStatusId, rememberFullscreenOpener } from 'mastodon/utils/fullscreen_column';
+import { fullscreenScopeSupported } from 'mastodon/features/fullscreen_column/sources';
+import { FullscreenColumnContext } from 'mastodon/features/fullscreen_column/context';
 
 const messages = defineMessages({
   show: { id: 'column_header.show_settings', defaultMessage: 'Show settings' },
@@ -20,6 +24,7 @@ const messages = defineMessages({
   layoutCard2: { id: 'column_header.layout.card_2', defaultMessage: 'Cards (2 columns)' },
   layoutCard3: { id: 'column_header.layout.card_3', defaultMessage: 'Cards (3 columns)' },
   layoutMedia: { id: 'column_header.layout.media', defaultMessage: 'Media' },
+  openFullscreen: { id: 'fullscreen_column.open', defaultMessage: 'Open fullscreen' },
 });
 
 const column_width_message = [
@@ -35,6 +40,7 @@ const mapStateToProps = (state, { columnWidth, columnId, layoutScope }) => ({
   columnWidth: columnWidth ?? defaultColumnWidth,
   layoutMode: layoutScope === 'account' && readTimelineLayout(state, columnId, layoutScope) === 'media'
     ? 'normal' : readTimelineLayout(state, columnId, layoutScope),
+  appLayout: state.getIn(['meta', 'layout']),
 });
 
 export default @connect(mapStateToProps)
@@ -67,6 +73,9 @@ class ColumnHeader extends React.PureComponent {
     columnId: PropTypes.string,
     layoutMode: PropTypes.string,
     dispatch: PropTypes.func,
+    appLayout: PropTypes.string,
+    fullscreenKind: PropTypes.string,
+    fullscreenParams: PropTypes.object,
   };
 
   state = {
@@ -126,6 +135,27 @@ class ColumnHeader extends React.PureComponent {
     }
   }
 
+  handleOpenFullscreen = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const { columnId, layoutScope, fullscreenKind, fullscreenParams, dispatch, title, icon } = this.props;
+
+    const router = this.context.router;
+    const pathname = router && router.history ? router.history.location.pathname : undefined;
+
+    rememberFullscreenOpener(event.currentTarget);
+    dispatch(openFullscreenColumn({
+      columnId,
+      layoutScope,
+      fullscreenKind,
+      params: fullscreenParams,
+      pathname,
+      title: typeof title === 'string' ? title : '',
+      icon,
+      anchorStatusId: captureVisibleStatusId(event.currentTarget),
+    }));
+  }
+
   handleChangeLayout = (event) => {
     event.stopPropagation();
     const { columnId, layoutScope, dispatch, multiColumn, columnWidth } = this.props;
@@ -149,7 +179,15 @@ class ColumnHeader extends React.PureComponent {
   }
 
   render () {
-    const { title, icon, active, children, pinned, multiColumn, extraButton, showBackButton, intl: { formatMessage }, placeholder, appendContent, collapseIssues, columnWidth, columnId, layoutScope, layoutMode } = this.props;
+    return (
+      <FullscreenColumnContext.Consumer>
+        {fullscreenColumn => this.renderHeader(fullscreenColumn)}
+      </FullscreenColumnContext.Consumer>
+    );
+  }
+
+  renderHeader (fullscreenColumn) {
+    const { title, icon, active, children, pinned, multiColumn, extraButton, showBackButton, intl: { formatMessage }, placeholder, appendContent, collapseIssues, columnWidth, columnId, layoutScope, layoutMode, appLayout, fullscreenKind } = this.props;
     const { collapsed, animating } = this.state;
 
     const wrapperClassName = classNames('column-header__wrapper', {
@@ -291,6 +329,17 @@ class ColumnHeader extends React.PureComponent {
           <div className='column-header__buttons'>
             {hasTitle && backButton}
             {extraButton}
+            {!fullscreenColumn && appLayout && appLayout !== 'mobile' && fullscreenScopeSupported(layoutScope, fullscreenKind) && (
+              <button
+                type='button'
+                className='column-header__button'
+                title={formatMessage(messages.openFullscreen)}
+                aria-label={formatMessage(messages.openFullscreen)}
+                onClick={this.handleOpenFullscreen}
+              >
+                <Icon id='expand' />
+              </button>
+            )}
             {collapseButton}
           </div>
         </h1>
@@ -305,7 +354,7 @@ class ColumnHeader extends React.PureComponent {
       </div>
     );
 
-    if (multiColumn || placeholder) {
+    if (multiColumn || placeholder || fullscreenColumn) {
       return component;
     } else {
       // The portal container and the component may be rendered to the DOM in

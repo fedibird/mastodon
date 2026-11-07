@@ -17,6 +17,10 @@ import { ensureComposeIsVisible, getContextReference, setComposeToStatus } from 
 import { openModal } from './modal';
 import { showAlert, showAlertForError } from './alerts';
 import { prepareRedraftMedia } from './redraft_media';
+import { createComposer, targetComposerAction } from './composer';
+import { selectComposer, selectPortableComposerSeed } from '../selectors/composer';
+import { getActiveFullscreenComposerId } from '../utils/fullscreen_column';
+import { capturedComposerDestination } from './fullscreen_column';
 
 export const STATUS_FETCH_REQUEST = 'STATUS_FETCH_REQUEST';
 export const STATUS_FETCH_SUCCESS = 'STATUS_FETCH_SUCCESS';
@@ -269,11 +273,30 @@ export function editStatus(id, routerHistory) {
     }
 
     dispatch(fetchStatusSourceRequest());
+    const capturedComposerId = getActiveFullscreenComposerId();
 
     api(getState).get(`/api/v1/statuses/${id}/source`).then(response => {
       dispatch(fetchStatusSourceSuccess());
-      ensureComposeIsVisible(getState, routerHistory);
-      dispatch(setComposeToStatus(status, response.data.text, response.data.spoiler_text));
+      const composeAction = setComposeToStatus(status, response.data.text, response.data.spoiler_text);
+      const destination = capturedComposerDestination(
+        capturedComposerId,
+        getState().getIn(['fullscreenColumn', 'composerId']),
+      );
+
+      if (destination.composerId) {
+        if (!selectComposer(getState(), destination.composerId)) {
+          dispatch(createComposer(destination.composerId, selectPortableComposerSeed(getState())));
+        }
+
+        dispatch(targetComposerAction(composeAction, destination.composerId));
+
+        if (destination.reveal) {
+          dispatch({ type: 'FULLSCREEN_COLUMN_PATCH', patch: { composerOpen: true } });
+        }
+      } else {
+        ensureComposeIsVisible(getState, routerHistory);
+        dispatch(composeAction);
+      }
     }).catch(error => {
       dispatch(fetchStatusSourceFail(error));
     });
@@ -327,7 +350,8 @@ const composeHasDraft = compose => {
 
 export function requestEditStatus(status, routerHistory, intl) {
   return (dispatch, getState) => {
-    const compose = getState().get('compose');
+    const composerId = getActiveFullscreenComposerId();
+    const compose = composerId ? (selectComposer(getState(), composerId) || getState().get('compose')) : getState().get('compose');
     const sameStatus = compose.get('id') === status.get('id');
 
     if (!sameStatus && composeHasDraft(compose)) {
@@ -418,6 +442,7 @@ export function deleteStatus(id, routerHistory, withRedraft = false) {
     const status = statusForDelete(getState, id);
     const replyStatus = replyStatusForDelete(getState, status);
     const redraftRequested = withRedraft === true && !!status && !isExternalProjectionStatus(status);
+    const capturedComposerId = getActiveFullscreenComposerId();
 
     dispatch(deleteStatusRequest(id));
 
@@ -467,17 +492,37 @@ export function deleteStatus(id, routerHistory, withRedraft = false) {
         ? status.set('media_attachments', responseMedia)
         : status;
 
-      dispatch(redraft(getState, redraftStatus, replyStatus, data && data.text, {
+      const destination = capturedComposerDestination(
+        capturedComposerId,
+        getState().getIn(['fullscreenColumn', 'composerId']),
+      );
+      const redraftAction = redraft(getState, redraftStatus, replyStatus, data && data.text, {
         reuseMedia: true,
         ownerIdentityId: sessionPostingIdentityId(),
         mediaUnconfirmed,
-      }));
+      });
 
-      if (!mediaUnconfirmed) {
-        dispatch(prepareRedraftMedia(PRIMARY_COMPOSER_ID));
+      if (destination.composerId) {
+        if (!selectComposer(getState(), destination.composerId)) {
+          dispatch(createComposer(destination.composerId, selectPortableComposerSeed(getState())));
+        }
+
+        dispatch(targetComposerAction(redraftAction, destination.composerId));
+
+        if (destination.reveal) {
+          dispatch({ type: 'FULLSCREEN_COLUMN_PATCH', patch: { composerOpen: true } });
+        }
+      } else {
+        dispatch(redraftAction);
       }
 
-      ensureComposeIsVisible(getState, routerHistory);
+      if (!mediaUnconfirmed) {
+        dispatch(prepareRedraftMedia(destination.composerId || PRIMARY_COMPOSER_ID));
+      }
+
+      if (!destination.composerId) {
+        ensureComposeIsVisible(getState, routerHistory);
+      }
     }).catch(error => {
       const reportedRedraft = redraftRequested && error.response && error.response.status === 409;
 

@@ -29,6 +29,7 @@ class MediaDisplayControls extends React.PureComponent {
     onShapeChange: PropTypes.func.isRequired,
     onSizeChange: PropTypes.func.isRequired,
     onVisibilityChange: PropTypes.func.isRequired,
+    compact: PropTypes.bool,
   };
 
   handleShapeClick = event => {
@@ -64,7 +65,7 @@ class MediaDisplayControls extends React.PureComponent {
     const label = intl.formatMessage;
 
     return (
-      <div className='media-display-controls' role='toolbar' aria-label={label(messages.toolbar)}>
+      <div className={`media-display-controls${this.props.compact ? ' media-display-controls--compact' : ''}`} role='toolbar' aria-label={label(messages.toolbar)}>
         <div className='media-display-controls__group' role='group' aria-label={label(messages.shape)}>
           {this.renderButton('square', label(messages.square), shape === 'square', this.handleShapeClick)}
           {this.renderButton('original', label(messages.original), shape === 'original', this.handleShapeClick)}

@@ -157,11 +157,16 @@ export const makeMapStateToProps = () => {
   const getReconciliationLiveIds = makeGetLiveStatusIds();
   const getImmediatePresentation = makeGetImmediatePresentation();
 
-  const mapStateToProps = (state, { timelineId, dataTimelineId, includePendingItems, statusLimit, immediateViewKey, layoutScope, columnId, disableLayout }) => {
+  const mapStateToProps = (state, { timelineId, dataTimelineId, includePendingItems, statusLimit, immediateViewKey, layoutScope, columnId, disableLayout, presentationOverride, layoutMode: layoutModeOverride, passiveView }) => {
     const dataId = dataTimelineId || timelineId;
     // Split panes use the saved column mode; an explicit opt-out keeps
-    // conventional status rows for other consumers.
-    const layoutMode = disableLayout ? 'normal' : readTimelineLayout(state, columnId, layoutScope);
+    // conventional status rows for other consumers. A fullscreen view passes
+    // its own mode and must not read or write the saved column setting.
+    let layoutMode = 'normal';
+
+    if (!disableLayout) {
+      layoutMode = presentationOverride ? (layoutModeOverride || 'normal') : readTimelineLayout(state, columnId, layoutScope);
+    }
     const layoutProps = {
       layoutMode,
       mediaStatuses: layoutMode === 'media' ? state.get('statuses') : null,
@@ -175,6 +180,18 @@ export const makeMapStateToProps = () => {
     });
     const prependIds = presentation.get('prependIds');
     const immediateStatusIds = presentation.get('fadeIds');
+
+    const passive = passiveView ? {
+      historySurfaceId: null,
+      seekScrollPending: false,
+      seekSessionId: null,
+      seekAnchorId: null,
+      seekScrollRevision: 0,
+      windowedHistory: false,
+      hasNewer: false,
+      newerLoading: false,
+      readingSurface: false,
+    } : null;
 
     if (includePendingItems) {
       return {
@@ -190,6 +207,7 @@ export const makeMapStateToProps = () => {
         ...windowHistoryProps(state, dataId),
         ...seekScrollProps(state, dataId),
         historySurfaceId: state.getIn(['timelines', dataId, 'window']) ? dataId : null,
+        ...passive,
       };
     }
 
@@ -205,6 +223,7 @@ export const makeMapStateToProps = () => {
       ...windowHistoryProps(state, dataId),
       ...seekScrollProps(state, dataId),
       historySurfaceId: state.getIn(['timelines', dataId, 'window']) ? dataId : null,
+      ...passive,
     };
   };
 

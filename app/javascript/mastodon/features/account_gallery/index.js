@@ -276,6 +276,8 @@ class AccountGallery extends ImmutablePureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={this.setRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
+          fullscreenKind='account_media'
+          fullscreenParams={{ accountId: this.props.params.accountId, tagged: this.state && this.state.tagged }}
           icon='user'
           active={false}
           title={intl.formatMessage(messages.title)}
