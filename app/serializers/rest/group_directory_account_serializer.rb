@@ -12,6 +12,13 @@
 class REST::GroupDirectoryAccountSerializer < REST::AccountSerializer
   attribute :group_directory
 
+  # The shared account serializer checks following? before it looks at
+  # followed_message, which queries follows once per row. A blank message
+  # cannot be rendered, so skip that query. The JSON is unchanged.
+  def following?
+    object.followed_message.present? && super
+  end
+
   def group_directory
     {
       software: directory_software,
