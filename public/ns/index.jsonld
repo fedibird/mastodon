@@ -1,0 +1,64 @@
+{
+  "@context": {
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "label": "rdfs:label",
+    "comment": "rdfs:comment"
+  },
+  "@graph": [
+    {
+      "@id": "http://fedibird.com/ns#quoteUri",
+      "@type": "rdf:Property",
+      "label": "Quoted status URI",
+      "comment": "Fedibird's legacy reference to a quoted status; does not imply a modern quote-authorization protocol."
+    },
+    {
+      "@id": "http://fedibird.com/ns#expiry",
+      "@type": "rdf:Property",
+      "label": "Expiry",
+      "comment": "Fedibird's legacy expiry property for an ActivityPub object."
+    },
+    {
+      "@id": "http://fedibird.com/ns#otherSetting",
+      "@type": "rdf:Property",
+      "label": "Other setting",
+      "comment": "Fedibird-specific account setting carried in ActivityPub Actor data."
+    },
+    {
+      "@id": "http://fedibird.com/ns#references",
+      "@type": "rdf:Property",
+      "label": "References",
+      "comment": "URI of a collection of related status references; the existing JSON-LD context treats values as IRIs."
+    },
+    {
+      "@id": "http://fedibird.com/ns#emojiReactions",
+      "@type": "rdf:Property",
+      "label": "Emoji reactions",
+      "comment": "URI of an emoji reaction collection; the existing JSON-LD context treats values as IRIs."
+    },
+    {
+      "@id": "http://fedibird.com/ns#searchableBy",
+      "@type": "rdf:Property",
+      "label": "Searchable by",
+      "comment": "Fedibird-specific declaration of the audience allowed to search an object or Actor; the existing JSON-LD context treats values as IRIs."
+    },
+    {
+      "@id": "http://fedibird.com/ns#thumbhash",
+      "@type": "rdf:Property",
+      "label": "Thumbhash",
+      "comment": "Fedibird-specific property carrying a media preview thumbhash."
+    },
+    {
+      "@id": "http://fedibird.com/ns#ruby",
+      "@type": "rdf:Property",
+      "label": "Ruby",
+      "comment": "Fedibird-specific ruby text annotation property."
+    },
+    {
+      "@id": "http://fedibird.com/ns#copyPermission",
+      "@type": "rdf:Property",
+      "label": "Copy permission",
+      "comment": "Fedibird-specific copy-permission property; not an authorization grant to arbitrary viewers."
+    }
+  ]
+}
