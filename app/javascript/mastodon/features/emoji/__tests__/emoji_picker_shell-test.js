@@ -568,6 +568,40 @@ describe('emoji picker shell and personal stock', () => {
     expect(onPick).toHaveBeenCalledTimes(1);
   });
 
+  it('leaves horizontal arrows in the search field and repeats ArrowDown onto the same result', async () => {
+    renderShell();
+
+    const search = await screen.findByRole('searchbox');
+
+    search.focus();
+    fireEvent.change(search, { target: { value: 'thumb' } });
+    search.setSelectionRange(2, 2);
+
+    const left = new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true });
+    const right = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    const up = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+
+    search.dispatchEvent(left);
+    search.dispatchEvent(right);
+    search.dispatchEvent(up);
+
+    expect(left.defaultPrevented).toBe(false);
+    expect(right.defaultPrevented).toBe(false);
+    expect(up.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(search);
+    expect(search.selectionStart).toBe(2);
+
+    fireEvent.change(search, { target: { value: 'hash' } });
+    search.focus();
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    expect(document.activeElement).toHaveAttribute('data-stock-key', 'place-hash');
+
+    search.focus();
+    expect(document.activeElement).toBe(search);
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    expect(document.activeElement).toHaveAttribute('data-stock-key', 'place-hash');
+  });
+
   it('keeps the same search field focused when the result list becomes empty', async () => {
     renderShell();
 

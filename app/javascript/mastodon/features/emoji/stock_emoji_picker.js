@@ -87,15 +87,6 @@ class StockEmojiPicker extends React.PureComponent {
       this.focusSearch();
     }
 
-    if (this.pendingFocusKey) {
-      const node = this.buttonRefs[this.pendingFocusKey];
-
-      this.pendingFocusKey = null;
-
-      if (node && node.isConnected !== false && typeof node.focus === 'function') {
-        node.focus();
-      }
-    }
   }
 
   setSearchRef = node => {
@@ -244,14 +235,41 @@ class StockEmojiPicker extends React.PureComponent {
     this.handleEmojiClick(event);
   };
 
-  moveActive(keyName) {
+  focusButton(key) {
+    const node = this.buttonRefs[key];
+
+    if (node && node.isConnected !== false && typeof node.focus === 'function') {
+      node.focus();
+    }
+
+    // Focus is separate from state. The same activeKey must still move focus
+    // after the caret returns to the search field. PureComponent would skip
+    // an update that only repeats the current key.
+    if (key !== this.state.activeKey) {
+      this.setState({ activeKey: key });
+    }
+  }
+
+  enterResults() {
     const items = this.flatItems(this.visibleStock());
 
     if (items.length === 0) {
       return;
     }
 
-    let index = items.findIndex(item => item.key === this.state.activeKey);
+    const current = items.find(item => item.key === this.state.activeKey);
+
+    this.focusButton(current ? current.key : items[0].key);
+  }
+
+  moveActive(keyName, fromKey) {
+    const items = this.flatItems(this.visibleStock());
+
+    if (items.length === 0) {
+      return;
+    }
+
+    let index = items.findIndex(item => item.key === (fromKey || this.state.activeKey));
     const perLine = this.props.perLine;
 
     if (index < 0) {
@@ -266,8 +284,7 @@ class StockEmojiPicker extends React.PureComponent {
       index = Math.max(0, index - perLine);
     }
 
-    this.pendingFocusKey = items[index].key;
-    this.setState({ activeKey: items[index].key });
+    this.focusButton(items[index].key);
   }
 
   handleKeyDown = event => {
@@ -277,18 +294,34 @@ class StockEmojiPicker extends React.PureComponent {
       return;
     }
 
-    if (event.key === 'ArrowRight' || event.key === 'ArrowLeft' || event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    const onSearch = event.target === this.searchInput;
+    const focusedKey = event.target && event.target.getAttribute && event.target.getAttribute('data-stock-key');
+
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      // Left and right in the search field move the caret. ArrowDown is the
+      // step from the query into the result grid.
+      if (onSearch) {
+        if (event.key !== 'ArrowDown') {
+          return;
+        }
+
+        event.preventDefault();
+        this.enterResults();
+        return;
+      }
+
+      if (!focusedKey) {
+        return;
+      }
+
       event.preventDefault();
-      this.moveActive(event.key);
+      this.moveActive(event.key, focusedKey);
       return;
     }
 
     if (event.key !== 'Enter') {
       return;
     }
-
-    const onSearch = event.target === this.searchInput;
-    const focusedKey = event.target && event.target.getAttribute && event.target.getAttribute('data-stock-key');
 
     if (!onSearch && !focusedKey) {
       return;
