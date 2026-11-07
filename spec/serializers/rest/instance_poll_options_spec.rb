@@ -16,7 +16,8 @@ RSpec.describe 'Instance poll option limit compatibility' do
   end
 
   it 'reports the baseline maximum when the server setting is lower' do
-    allow(Setting).to receive(:poll_max_options).and_return(PollOptionsValidator::MAX_OPTIONS - 1)
+    allow(Setting).to receive(:[]).and_call_original
+    allow(Setting).to receive(:[]).with('poll_max_options').and_return(PollOptionsValidator::MAX_OPTIONS - 1)
 
     expect(max_options(REST::InstanceSerializer)).to eq(PollOptionsValidator::MAX_OPTIONS)
     expect(max_options(REST::V1::InstanceSerializer)).to eq(PollOptionsValidator::MAX_OPTIONS)
@@ -24,7 +25,8 @@ RSpec.describe 'Instance poll option limit compatibility' do
 
   it 'reports a raised effective maximum consistently in both API versions' do
     configured_limit = PollOptionsValidator::MAX_OPTIONS + 4
-    allow(Setting).to receive(:poll_max_options).and_return(configured_limit)
+    allow(Setting).to receive(:[]).and_call_original
+    allow(Setting).to receive(:[]).with('poll_max_options').and_return(configured_limit)
 
     expect(max_options(REST::InstanceSerializer)).to eq(configured_limit)
     expect(max_options(REST::V1::InstanceSerializer)).to eq(configured_limit)
