@@ -1,6 +1,6 @@
 # ActivityPub Actor capability discovery — P3-A design contract
 
-Status: **proposal for review; no on-wire additions in P3-A**.
+Status: **P3-A design contract merged; P3-B adds a default-OFF, allowlisted Actor emitter**. The P3-A PR itself made no on-wire changes.
 Tracking: [#725](https://github.com/fedibird/mastodon/issues/725),
 [#728](https://github.com/fedibird/mastodon/issues/728),
 [GroupProtocol #662](https://github.com/fedibird/mastodon/issues/662).
@@ -69,13 +69,16 @@ The FEP-5219 draft has evolved during 2026. A future FEP claim needs a
 **specific reviewed revision** and interop tests; do not hardcode a
 role or `Grant`/relationship mapping based on an old draft.
 
-## Wire format proposal (NOT implemented)
+## P3-B wire format (default OFF)
 
-**Decision required before P3-B:** choose one stable term and IRI,
-publish the vocabulary semantics at that URL, and test actual JSON-LD
-compaction/expansion. A Group-only, vendor-scoped, additive extension is
-preferred over pretending to implement an unrelated FEP. Candidate
-shape for review only:
+**2026-11-08 design decision:** use the Group-only, multi-valued
+`fedibirdGroupProtocols` property and the first vendor-specific profile
+`MentionFollowAnnounce`. The P3-B implementation places the new field
+behind a default-OFF flag and explicit Actor-ID allowlist. The `/v1`
+namespace avoids collisions with Fedibird's legacy HTTP vocabulary.
+See [Group protocol vocabulary v1](activitypub_group_protocol_v1.md)
+for the exact terms, security boundaries and publication prerequisites.
+The JSON-LD shape is:
 
 ```json
 {
@@ -83,7 +86,7 @@ shape for review only:
     "https://www.w3.org/ns/activitystreams",
     {
       "fedibirdGroupProtocols": {
-        "@id": "https://fedibird.com/ns#groupProtocols",
+        "@id": "https://fedibird.com/ns/group/v1#protocols",
         "@type": "@id",
         "@container": "@set"
       }
@@ -92,16 +95,16 @@ shape for review only:
   "type": "Group",
   "id": "https://server.example/users/group",
   "fedibirdGroupProtocols": [
-    "https://fedibird.com/ns#MentionFollowAnnounce"
+    "https://fedibird.com/ns/group/v1#MentionFollowAnnounce"
   ]
 }
 ```
 
-`https://fedibird.com/ns#groupProtocols` and
-`https://fedibird.com/ns#MentionFollowAnnounce` are **provisional
-identifiers**, not published/approved interoperability guarantees.
-They MUST NOT appear on the wire until a separate review accepts
-their stable meaning, resolution/documentation, and JSON-LD context.
+The v1 vocabulary is included in the repository; **public dereferencing
+of `https://fedibird.com/ns/group/v1` is not yet verified**. Operators
+MUST NOT enable the P3-B emission flag until the vocabulary is hosted,
+independent JSON-LD tests and staging checks succeed, and rollout is
+reviewed. Neither field nor term is emitted with the feature disabled.
 
 Semantics of the candidate: a **self-description by this local Group**
 of its concrete mention/Follow/original-URI-Announce profile. It is not
@@ -110,7 +113,7 @@ server use the profile, not FEP-1b12 or FEP-400e, and not a server-wide
 advertisement. Do not serialize `canPost`, ownership, role assignments,
 membership lists, Group viewer evidence, or any OAuth/session values.
 
-### Export decision table for P3-B (draft)
+### Export decision table for P3-B
 
 | Actor | Candidate exported field | Basis |
 | --- | --- | --- |
@@ -162,7 +165,7 @@ document must never inherit Fedibird's local capability flags.
 - Review the proposed IRI and shape before any subsequent PR writes
   on-wire capability metadata.
 
-### P3-B — after design approval
+### P3-B — default-OFF emitter and remaining rollout gates
 
 - Provide a versioned, published definition for every emitted vendor
   IRI and a stable, correctly expanded JSON-LD context. Validate
