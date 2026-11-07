@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import NimblePicker from 'emoji-mart/dist/components/picker/nimble-picker';
 import { Map as ImmutableMap } from 'immutable';
 import { EmojiPicker } from 'mastodon/features/ui/util/async-components';
 import { resetStandardEmojiPickerLoaderForTests } from '../standard_emoji_loader';
@@ -181,21 +182,60 @@ describe('EmojiPickerPanel', () => {
 
       constructor(props) {
         super(props);
-        this.state = { custom: props.custom || [] };
+        this.state = { custom: props.custom || [], query: '', ready: false };
+      }
+
+      componentDidMount() {
+        // Nimble's first paint is the first categories only. The rest mount
+        // on a later timer, and a search hides only the nodes that exist then.
+        this.timer = setTimeout(() => {
+          this.setState({ ready: true });
+        }, 60);
+      }
+
+      componentWillUnmount() {
+        clearTimeout(this.timer);
       }
 
       handleChange = () => {
         const value = this.input ? this.input.value : '';
 
         this.setState({ query: value });
+
+        if (!this.scroll) {
+          return;
+        }
+
+        const sections = this.scroll.querySelectorAll('.emoji-mart-category');
+
+        for (let i = 0; i < sections.length; i += 1) {
+          const label = sections[i].querySelector('.emoji-mart-category-label');
+          const name = label && label.getAttribute('data-name');
+
+          if (name && name !== 'Search') {
+            sections[i].style.display = value ? 'none' : '';
+          }
+        }
       };
 
       setInput = node => {
         this.input = node;
       };
 
+      setScroll = node => {
+        this.scroll = node;
+      };
+
       render() {
         const query = this.state.query || '';
+        const categories = [
+          { name: 'Search', text: 'results' },
+          { name: 'People', text: 'smile' },
+        ];
+
+        if (this.state.ready) {
+          categories.push({ name: 'Nature', text: 'dog' });
+        }
 
         return (
           <div>
@@ -211,7 +251,14 @@ describe('EmojiPickerPanel', () => {
             <div className='emoji-mart-search-results' hidden={query === ''}>
               {query === '' ? '0' : '20'} results
             </div>
-            <div className='emoji-mart-category' hidden={query !== ''}>People</div>
+            <div className='emoji-mart-scroll' ref={this.setScroll}>
+              {categories.map(category => (
+                <section key={category.name} className='emoji-mart-category'>
+                  <div className='emoji-mart-category-label' data-name={category.name}>{category.name}</div>
+                  <span>{category.text}</span>
+                </section>
+              ))}
+            </div>
             {this.state.custom.map(emoji => (
               <button key={emoji.id} type='button' className='emoji-mart-emoji-custom'>{emoji.id}</button>
             ))}
@@ -243,7 +290,7 @@ describe('EmojiPickerPanel', () => {
     fireEvent.change(search, { target: { value: 'smile' } });
     expect(screen.getByRole('button', { name: 'Clear' })).toBeEnabled();
     expect(screen.getByText('20 results')).not.toHaveAttribute('hidden');
-    expect(screen.getByText('People')).toHaveAttribute('hidden');
+    expect(screen.getByText('smile').closest('.emoji-mart-category').style.display).toBe('none');
     expect(view.container.querySelector('.emoji-mart-emoji-custom')).toBeNull();
 
     view.rerender(
@@ -264,8 +311,96 @@ describe('EmojiPickerPanel', () => {
     expect(document.activeElement).toBe(restored);
     expect(screen.getByRole('button', { name: 'Clear' })).toBeEnabled();
     expect(screen.getByText('20 results')).not.toHaveAttribute('hidden');
-    expect(screen.getByText('People')).toHaveAttribute('hidden');
+    expect(screen.getByText('smile').closest('.emoji-mart-category').style.display).toBe('none');
     expect(screen.getByRole('button', { name: 'fedibird' })).toHaveClass('emoji-mart-emoji-custom');
+
+    await waitFor(() => {
+      expect(screen.getByText('dog').closest('.emoji-mart-category').style.display).toBe('none');
+    });
+    expect(screen.getByText('results').closest('.emoji-mart-category').style.display).not.toBe('none');
+    expect(screen.getByText('20 results')).not.toHaveAttribute('hidden');
+  });
+
+  it('keeps later Nimble categories hidden after a restored search', async () => {
+    const emoji = (id, search) => ({
+      name: id,
+      unified: '1F600',
+      short_names: [id],
+      emoticons: [],
+      keywords: [search],
+      search,
+    });
+    const data = {
+      categories: [
+        { id: 'people', name: 'People', emojis: ['smile'] },
+        { id: 'nature', name: 'Nature', emojis: ['dog'] },
+        { id: 'foods', name: 'Foods', emojis: ['apple'] },
+        { id: 'activity', name: 'Activity', emojis: ['soccer'] },
+      ],
+      emojis: {
+        smile: emoji('smile', 'smile'),
+        dog: emoji('dog', 'dog'),
+        apple: emoji('apple', 'apple'),
+        soccer: emoji('soccer', 'soccer'),
+      },
+      aliases: {},
+    };
+
+    function RealNimble(props) {
+      return <NimblePicker {...props} data={data} />;
+    }
+
+    EmojiPicker.mockImplementation(() => Promise.resolve({
+      Picker: RealNimble,
+      Emoji: function StandardEmojiStub() {
+        return null;
+      },
+    }));
+
+    const view = render(
+      <EmojiPickerPanel
+        initialMode='standard'
+        pickersEmoji={ImmutableMap({ categories: new Set(), custom_emojis: [] })}
+        onPick={jest.fn()}
+        onRequestClose={jest.fn()}
+      />,
+    );
+    const search = await screen.findByRole('searchbox', { name: 'Search...' });
+
+    await new Promise(resolve => setTimeout(resolve, 150));
+    search.focus();
+    fireEvent.change(search, { target: { value: 'smile' } });
+    await waitFor(() => {
+      expect(document.querySelector('.emoji-mart-category[aria-label="Nature"]').style.display).toBe('none');
+    });
+
+    view.rerender(
+      <EmojiPickerPanel
+        initialMode='standard'
+        pickersEmoji={ImmutableMap({
+          categories: new Set(['custom']),
+          custom_emojis: [{ id: 'fedibird', name: 'fedibird', short_names: ['fedibird'], custom: true }],
+        })}
+        onPick={jest.fn()}
+        onRequestClose={jest.fn()}
+      />,
+    );
+
+    const restored = await screen.findByRole('searchbox', { name: 'Search...' });
+
+    expect(restored.value).toBe('smile');
+    await new Promise(resolve => setTimeout(resolve, 150));
+    expect(restored.value).toBe('smile');
+    expect(document.activeElement).toBe(restored);
+    expect(screen.getByRole('button', { name: 'Clear' })).toBeEnabled();
+    const searchCategory = document.querySelector('.emoji-mart-category[aria-label="Search results"]');
+    const nature = document.querySelector('.emoji-mart-category[aria-label="Nature"]');
+
+    expect(nature.style.display).toBe('none');
+    expect(document.querySelector('.emoji-mart-category[aria-label="People"]').style.display).toBe('none');
+    expect(searchCategory.style.display).not.toBe('none');
+    expect(searchCategory.querySelector('[aria-label="smile"], [title="smile"]')).not.toBeNull();
+    expect(nature.querySelector('[aria-label="dog"], [title="dog"]')).not.toBeNull();
   });
 
   it('preloads the standard module only when lazy load is explicitly off', async () => {

@@ -197,13 +197,10 @@ class EmojiPickerShell extends React.PureComponent {
 
     if (snapshot.value) {
       input.value = snapshot.value;
-      // React 16 records this assignment in the value tracker. A following
-      // input event with the same value never reaches Nimble's onChange, so
-      // the new picker would show the text without its search results.
-      if (input._valueTracker) {
-        input._valueTracker.setValue('');
-      }
-      input.dispatchEvent(new Event('input', { bubbles: true }));
+      this.dispatchSearchInput(input);
+      // Nimble paints the remaining categories after this search. A search
+      // only hides categories that already exist, so repeat it once they mount.
+      this.syncSearchCategories(input);
     }
 
     if (snapshot.focused) {
@@ -211,10 +208,81 @@ class EmojiPickerShell extends React.PureComponent {
     }
   }
 
+  // React 16 records a value assignment in the tracker. Repeating that value
+  // through an input event does not reach Nimble's onChange unless the
+  // tracker is cleared first.
+  dispatchSearchInput(input) {
+    if (input._valueTracker) {
+      input._valueTracker.setValue('');
+    }
+
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  stopSearchCategorySync() {
+    if (this.searchCategoryObserver) {
+      this.searchCategoryObserver.disconnect();
+      this.searchCategoryObserver = null;
+    }
+
+    clearTimeout(this.searchCategoryTimer);
+    this.searchCategoryTimer = null;
+    this.searchCategoryGeneration = (this.searchCategoryGeneration || 0) + 1;
+  }
+
+  hideCategoriesOutsideSearch(scroll) {
+    const sections = scroll.querySelectorAll('.emoji-mart-category');
+
+    for (let i = 0; i < sections.length; i += 1) {
+      const label = sections[i].querySelector('.emoji-mart-category-label');
+      const name = label && label.getAttribute('data-name');
+
+      if (name && name !== 'Search') {
+        sections[i].style.display = 'none';
+      }
+    }
+  }
+
+  syncSearchCategories(input) {
+    this.stopSearchCategorySync();
+
+    const scroll = this.node && this.node.querySelector('.emoji-mart-scroll');
+    const generation = this.searchCategoryGeneration;
+
+    if (!scroll) {
+      return;
+    }
+
+    const apply = () => {
+      if (generation !== this.searchCategoryGeneration || !input.isConnected || input.value === '') {
+        return;
+      }
+
+      this.hideCategoriesOutsideSearch(scroll);
+      this.dispatchSearchInput(input);
+    };
+
+    if (typeof MutationObserver === 'function') {
+      this.searchCategoryObserver = new MutationObserver(apply);
+      this.searchCategoryObserver.observe(scroll, { childList: true });
+    }
+
+    // The staged categories are added on a 60ms timer that started before
+    // this update. Apply once more after that wave, then stop watching.
+    this.searchCategoryTimer = setTimeout(() => {
+      apply();
+
+      if (generation === this.searchCategoryGeneration) {
+        this.stopSearchCategorySync();
+      }
+    }, 80);
+  }
+
   componentWillUnmount() {
     this.mounted = false;
     this.stockGeneration += 1;
     this.standardGeneration += 1;
+    this.stopSearchCategorySync();
     this.detachFocusListener();
 
     if (activeEmojiPickerShell === this.shellId) {
