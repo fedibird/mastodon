@@ -59,8 +59,24 @@ const mediaFlags = (state, scope, column) => {
   return { layoutMode, onlyMedia: !!onlyMedia, withoutMedia: !!withoutMedia };
 };
 
-export const parseFullscreenRoute = (pathname) => {
+// BrowserRouter uses basename `/web`, but window.location.pathname still
+// includes it. Router locations are already stripped; both forms must resolve.
+export const stripRouterBasename = (pathname) => {
   const path = pathname || '';
+
+  if (path === '/web') {
+    return '/';
+  }
+
+  if (path.startsWith('/web/')) {
+    return path.slice(4);
+  }
+
+  return path;
+};
+
+export const parseFullscreenRoute = (pathname) => {
+  const path = stripRouterBasename(pathname);
   const read = (expression) => {
     const match = path.match(expression);
     return match ? decodeURIComponent(match[1]) : null;
@@ -356,6 +372,7 @@ export const resolveFullscreenSource = (state, input = {}) => {
     }
 
     const dataTimelineId = hashtagTimelineId(id, { onlyMedia: flags.onlyMedia });
+    const tags = (input.params && input.params.tags) || columnParam(column, ['tags'], null);
 
     return base({
       kind: 'timeline',
@@ -365,7 +382,7 @@ export const resolveFullscreenSource = (state, input = {}) => {
       timelineId: dataTimelineId,
       dataTimelineId,
       expand: 'hashtag',
-      expandParams: { id: String(id), onlyMedia: flags.onlyMedia, timelineId: dataTimelineId },
+      expandParams: { id: String(id), onlyMedia: flags.onlyMedia, timelineId: dataTimelineId, tags: tags || null },
       surface: surfaceFor('hashtag', id),
       title,
       icon,

@@ -3,6 +3,7 @@ import Conversation from '../components/conversation';
 import { markConversationRead, deleteConversation } from 'mastodon/actions/conversations';
 import { makeGetStatus } from 'mastodon/selectors';
 import { replyCompose } from 'mastodon/actions/compose';
+import { dispatchFullscreenCompose } from 'mastodon/actions/fullscreen_column';
 import { openModal } from 'mastodon/actions/modal';
 import { muteStatus, unmuteStatus, hideStatus, revealStatus } from 'mastodon/actions/statuses';
 import { defineMessages, injectIntl } from 'react-intl';
@@ -34,7 +35,11 @@ const mapDispatchToProps = (dispatch, { intl, conversationId }) => ({
   },
 
   reply (status, router) {
-    dispatch((_, getState) => {
+    dispatch((innerDispatch, getState) => {
+      if (innerDispatch(dispatchFullscreenCompose('reply', status, intl))) {
+        return;
+      }
+
       let state = getState();
 
       if (state.getIn(['compose', 'text']).trim().length !== 0 && state.getIn(['compose', 'dirty'])) {

@@ -140,12 +140,16 @@ class ColumnHeader extends React.PureComponent {
     event.stopPropagation();
     const { columnId, layoutScope, fullscreenKind, fullscreenParams, dispatch, title, icon } = this.props;
 
+    const router = this.context.router;
+    const pathname = router && router.history ? router.history.location.pathname : undefined;
+
     rememberFullscreenOpener(event.currentTarget);
     dispatch(openFullscreenColumn({
       columnId,
       layoutScope,
       fullscreenKind,
       params: fullscreenParams,
+      pathname,
       title: typeof title === 'string' ? title : '',
       icon,
       anchorStatusId: captureVisibleStatusId(event.currentTarget),

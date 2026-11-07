@@ -417,6 +417,7 @@ class HashtagTimeline extends React.PureComponent {
         <ColumnHeader
           columnId={columnId}
           layoutScope='hashtag'
+          fullscreenParams={{ id, tags: this.props.params.tags }}
           icon='hashtag'
           active={hasUnread}
           title={this.title()}

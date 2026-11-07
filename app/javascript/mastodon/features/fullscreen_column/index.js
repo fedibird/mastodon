@@ -5,18 +5,40 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { closeFullscreenColumn, patchFullscreenColumn, popFullscreenPath, pushFullscreenPath, setFullscreenComposerOpen } from 'mastodon/actions/fullscreen_column';
 import { restoreFullscreenOpener, setActiveFullscreenComposerId } from 'mastodon/utils/fullscreen_column';
 import { isTopOverlayLayer, registerOverlayLayer } from 'mastodon/utils/overlay_layers';
+import { selectPostingContextForAccount } from 'mastodon/selectors/posting_contexts';
+import { buildHashtagTimelinePostingContext } from 'mastodon/posting_context/hashtag';
+import { stripRouterBasename } from './sources';
 import PortableComposer from 'mastodon/features/compose/portable_composer';
 import { FullscreenColumnContext } from './context';
 import FullscreenColumnBar from './components/bar';
 import FullscreenStream from './components/stream';
 import FullscreenDetail from './components/detail';
+import { FullscreenRouter, fullscreenLayerDepth } from './overlay_history';
 
 const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-const mapStateToProps = (state) => ({
-  session: state.get('fullscreenColumn'),
-  layout: state.getIn(['meta', 'layout']),
-});
+const mapStateToProps = (state) => {
+  const session = state.get('fullscreenColumn');
+  const surface = session && session.getIn(['source', 'surface']);
+  const kind = surface && surface.get('kind');
+  const key = surface && surface.get('key');
+  let postingContext = null;
+  let postingContextAccountId = null;
+
+  if (kind === 'group' && key) {
+    postingContext = selectPostingContextForAccount(state, key);
+    postingContextAccountId = key;
+  } else if (kind === 'hashtag' && key) {
+    postingContext = buildHashtagTimelinePostingContext(key);
+  }
+
+  return {
+    session,
+    layout: state.getIn(['meta', 'layout']),
+    postingContext,
+    postingContextAccountId,
+  };
+};
 
 class FullscreenColumnHost extends React.PureComponent {
 
@@ -28,6 +50,8 @@ class FullscreenColumnHost extends React.PureComponent {
     dispatch: PropTypes.func.isRequired,
     session: ImmutablePropTypes.map,
     layout: PropTypes.string,
+    postingContext: PropTypes.object,
+    postingContextAccountId: PropTypes.string,
   };
 
   componentDidMount () {
@@ -35,6 +59,7 @@ class FullscreenColumnHost extends React.PureComponent {
 
     if (this.props.session) {
       this.syncSession();
+      this.pushHistoryIfDeeper(null);
     }
   }
 
@@ -52,18 +77,15 @@ class FullscreenColumnHost extends React.PureComponent {
       this.teardownSession();
     } else {
       this.syncSession(prevProps.session);
+      if (!this.fromPop) {
+        this.pushHistoryIfDeeper(prevProps.session);
+      }
     }
   }
 
   componentWillUnmount () {
     document.removeEventListener('keydown', this.handleKeyDown, true);
-
-    if (this.clearInteraction) {
-      window.clearTimeout(this.clearInteraction);
-    }
-
     this.teardownSession();
-    this.unpatchHistory();
   }
 
   syncSession (previous) {
@@ -78,10 +100,10 @@ class FullscreenColumnHost extends React.PureComponent {
 
     if (viewChanged) {
       this.teardownHistory();
-      this.installHistory();
+      this.ensureHistoryListener();
     }
 
-    setActiveFullscreenComposerId(session.get('source').get('supportsComposer') ? session.get('composerId') : null);
+    setActiveFullscreenComposerId(session.get('composerId'));
     this.applyInert(true);
     this.registerLayers();
 
@@ -98,7 +120,6 @@ class FullscreenColumnHost extends React.PureComponent {
     this.teardownHistory();
     this.clearLayers();
     this.applyInert(false);
-    this.unpatchHistory();
     setActiveFullscreenComposerId(null);
     restoreFullscreenOpener();
   }
@@ -131,18 +152,18 @@ class FullscreenColumnHost extends React.PureComponent {
 
   registerLayers () {
     this.clearLayers();
-    const { session, dispatch } = this.props;
+    const { session } = this.props;
     const layers = [registerOverlayLayer({
       id: 'fullscreen-column',
       priority: 20,
-      onEscape: () => dispatch(closeFullscreenColumn()),
+      onEscape: () => this.requestLayerBack(),
     })];
 
     if (session.get('paths') && !session.get('paths').isEmpty()) {
       layers.push(registerOverlayLayer({
         id: 'fullscreen-detail',
         priority: 40,
-        onEscape: () => dispatch(popFullscreenPath()),
+        onEscape: () => this.requestLayerBack(),
       }));
     }
 
@@ -150,41 +171,111 @@ class FullscreenColumnHost extends React.PureComponent {
       layers.push(registerOverlayLayer({
         id: 'fullscreen-composer',
         priority: 60,
-        onEscape: () => dispatch(setFullscreenComposerOpen(false)),
+        onEscape: () => this.requestLayerBack(),
       }));
     }
 
     this.unregisterLayers = layers;
   }
 
-  installHistory () {
-    const history = this.context.router && this.context.router.history;
+  rootHistory () {
+    return this.context.router && this.context.router.history;
+  }
 
-    if (!history) {
+  ensureHistoryListener () {
+    const history = this.rootHistory();
+
+    if (!history || this.unlistenHistory) {
       return;
     }
 
     this.history = history;
-    this.historyKey = this.props.session.get('viewId');
-    const { pathname, search, hash, state } = history.location;
+    this.historyKey = this.props.session && this.props.session.get('viewId');
+    this.unlistenHistory = history.listen(this.onHistory);
+  }
 
-    if (!state || state.mastodonFullscreenKey !== this.historyKey) {
-      history.push(`${pathname}${search}${hash}`, { ...(state || {}), mastodonFullscreenKey: this.historyKey });
+  pushHistoryIfDeeper (previous) {
+    const history = this.rootHistory();
+    const session = this.props.session;
+
+    if (!history || !session || this.fromPop) {
+      return;
     }
 
-    this.unlistenHistory = history.listen((location, action) => {
-      if (action !== 'POP' || this.closingHistory) {
-        return;
-      }
+    const depth = fullscreenLayerDepth(session);
+    const previousDepth = fullscreenLayerDepth(previous);
 
-      const nextState = location.state || {};
+    if (depth <= previousDepth) {
+      return;
+    }
 
-      if (nextState.mastodonFullscreenKey === this.historyKey || nextState.mastodonModalKey) {
-        return;
-      }
+    const { pathname, search, hash, state } = history.location;
 
-      this.props.dispatch(closeFullscreenColumn());
+    history.push(`${pathname}${search}${hash}`, {
+      ...(state || {}),
+      mastodonFullscreenKey: session.get('viewId'),
+      mastodonFullscreenDepth: depth,
     });
+  }
+
+  onHistory = (location, action) => {
+    if (action !== 'POP' || !this.props.session) {
+      return;
+    }
+
+    const next = location.state || {};
+    const key = this.props.session.get('viewId');
+
+    if (this.closingAll || next.mastodonFullscreenKey !== key) {
+      this.closingAll = false;
+      this.fromPop = true;
+      this.props.dispatch(closeFullscreenColumn());
+      this.fromPop = false;
+      return;
+    }
+
+    const nextDepth = next.mastodonFullscreenDepth || 1;
+
+    if (nextDepth >= fullscreenLayerDepth(this.props.session)) {
+      return;
+    }
+
+    this.fromPop = true;
+    this.closeTopLayer();
+    this.fromPop = false;
+  }
+
+  closeTopLayer () {
+    const session = this.props.session;
+
+    if (!session) {
+      return;
+    }
+
+    if (session.get('composerOpen')) {
+      this.props.dispatch(setFullscreenComposerOpen(false));
+      return;
+    }
+
+    if (session.get('paths') && !session.get('paths').isEmpty()) {
+      this.props.dispatch(popFullscreenPath());
+      return;
+    }
+
+    this.props.dispatch(closeFullscreenColumn());
+  }
+
+  requestLayerBack = () => {
+    const history = this.rootHistory();
+    const state = history && history.location.state;
+    const session = this.props.session;
+
+    if (history && session && state && state.mastodonFullscreenKey === session.get('viewId') && !state.mastodonModalKey) {
+      history.goBack();
+      return;
+    }
+
+    this.closeTopLayer();
   }
 
   teardownHistory () {
@@ -193,16 +284,11 @@ class FullscreenColumnHost extends React.PureComponent {
       this.unlistenHistory = null;
     }
 
-    if (!this.history) {
-      return;
-    }
+    const history = this.history;
+    const state = history && history.location.state;
 
-    const state = this.history.location.state || {};
-
-    if (state.mastodonFullscreenKey === this.historyKey && !state.mastodonModalKey) {
-      this.closingHistory = true;
-      this.history.goBack();
-      this.closingHistory = false;
+    if (!this.fromPop && !this.closingAll && history && state && state.mastodonFullscreenKey === this.historyKey && !state.mastodonModalKey) {
+      history.go(-(state.mastodonFullscreenDepth || 1));
     }
 
     this.history = null;
@@ -250,88 +336,23 @@ class FullscreenColumnHost extends React.PureComponent {
     }
   };
 
-  captureNavigation = (path) => {
-    if (!this.props.session || !this.interactionInside) {
-      return false;
+  handleOverlayNavigate = (path, _state, replace) => {
+    const history = this.rootHistory();
+    const current = history ? `${history.location.pathname}${history.location.search || ''}` : '';
+    const next = stripRouterBasename(path || '');
+
+    if (!next || next === current || next === (history && history.location.pathname)) {
+      return;
     }
 
-    const next = typeof path === 'string' ? path : (path && (path.pathname || path.path));
-
-    if (!next || next === this.historyPath()) {
-      return false;
+    if (replace) {
+      const paths = this.props.session.get('paths');
+      const nextPaths = paths && !paths.isEmpty() ? paths.set(paths.size - 1, next) : paths.push(next);
+      this.props.dispatch(patchFullscreenColumn({ paths: nextPaths }));
+      return;
     }
 
     this.props.dispatch(pushFullscreenPath(next));
-    return true;
-  };
-
-  historyPath () {
-    if (!this.history) {
-      return null;
-    }
-
-    return this.history.location.pathname;
-  }
-
-  markInteraction = (event) => {
-    if (this.hostNode && this.hostNode.contains(event.target)) {
-      this.interactionInside = true;
-      this.clearInteraction = window.setTimeout(() => {
-        this.interactionInside = false;
-      }, 0);
-    }
-  };
-
-  setHost = (node) => {
-    if (this.hostNode) {
-      this.hostNode.removeEventListener('pointerdown', this.markInteraction, true);
-      this.hostNode.removeEventListener('keydown', this.markInteraction, true);
-    }
-
-    this.hostNode = node;
-
-    if (!node || !this.historyPatched) {
-      this.patchHistory(node);
-    }
-
-    if (node) {
-      node.addEventListener('pointerdown', this.markInteraction, true);
-      node.addEventListener('keydown', this.markInteraction, true);
-    }
-  };
-
-  patchHistory (node) {
-    const history = this.context.router && this.context.router.history;
-
-    if (!history || this.historyPatched) {
-      return;
-    }
-
-    this.originalPush = history.push;
-    this.originalReplace = history.replace;
-    history.push = (path, state) => {
-      if (!this.captureNavigation(path)) {
-        this.originalPush.call(history, path, state);
-      }
-    };
-    history.replace = (path, state) => {
-      if (!this.captureNavigation(path)) {
-        this.originalReplace.call(history, path, state);
-      }
-    };
-    this.historyPatched = true;
-    this.historyForPatch = history;
-    void node;
-  }
-
-  unpatchHistory () {
-    if (!this.historyPatched || !this.historyForPatch) {
-      return;
-    }
-
-    this.historyForPatch.push = this.originalPush;
-    this.historyForPatch.replace = this.originalReplace;
-    this.historyPatched = false;
   }
 
   setColumn = (node) => {
@@ -376,15 +397,26 @@ class FullscreenColumnHost extends React.PureComponent {
   }
 
   handleBack = () => {
-    this.props.dispatch(popFullscreenPath());
+    this.requestLayerBack();
   }
 
   handleClose = () => {
+    const history = this.rootHistory();
+    const session = this.props.session;
+    const state = history && history.location.state;
+    const depth = fullscreenLayerDepth(session);
+
+    if (history && session && state && state.mastodonFullscreenKey === session.get('viewId') && !state.mastodonModalKey) {
+      this.closingAll = true;
+      history.go(-depth);
+      return;
+    }
+
     this.props.dispatch(closeFullscreenColumn());
   }
 
   handleComposerClose = () => {
-    this.props.dispatch(setFullscreenComposerOpen(false));
+    this.requestLayerBack();
   }
 
   render () {
@@ -400,56 +432,69 @@ class FullscreenColumnHost extends React.PureComponent {
     const path = session.get('paths') && session.get('paths').last();
     const surface = source.get('surface');
 
+    const covered = !!path;
+
     return (
       <FullscreenColumnContext.Provider value={session.get('viewId')}>
-        <div className='fullscreen-column-host' ref={this.setHost}>
-          <div
-            className='fullscreen-column'
-            id='fullscreen-column'
-            role='dialog'
-            aria-modal='true'
-            aria-label={source.get('title') || ''}
-            data-fullscreen-column='true'
-            ref={this.setColumn}
-          >
-            <FullscreenColumnBar
-              title={source.get('title') || ''}
-              appearance={appearance}
-              columns={Number(presentation.get('columns')) || 1}
-              scale={presentation.get('scale')}
-              supportsStatusLayout={source.get('supportsStatusLayout')}
-              supportsComposer={source.get('supportsComposer')}
-              supportsMediaControls={source.get('supportsMediaControls')}
-              canGoBack={!!path}
-              mediaShape={presentation.get('mediaShape')}
-              mediaSize={presentation.get('mediaSize')}
-              mediaVisibility={presentation.get('mediaVisibility')}
-              onAppearance={this.handleAppearance}
-              onColumns={this.handleColumns}
-              onScale={this.handleScale}
-              onMediaShape={this.handleMediaShape}
-              onMediaSize={this.handleMediaSize}
-              onMediaVisibility={this.handleMediaVisibility}
-              onCompose={this.handleCompose}
-              onBack={this.handleBack}
-              onClose={this.handleClose}
-            />
-            <div className='fullscreen-column__body'>
-              {path ? <FullscreenDetail path={path} /> : <FullscreenStream session={session} />}
-            </div>
-          </div>
-          {session.get('composerOpen') && source.get('supportsComposer') && (
-            <div className='fullscreen-composer' role='dialog' aria-label='Composer' ref={this.setComposer}>
-              <button type='button' className='fullscreen-composer__close' onClick={this.handleComposerClose}>
-                ×
-              </button>
-              <PortableComposer
-                composerId={session.get('composerId')}
-                surface={surface ? surface.toJS() : undefined}
+        <FullscreenRouter onNavigate={this.handleOverlayNavigate} onBack={this.requestLayerBack}>
+          <div className='fullscreen-column-host'>
+            <div
+              className='fullscreen-column'
+              id='fullscreen-column'
+              role='dialog'
+              aria-modal='true'
+              aria-label={source.get('title') || ''}
+              data-fullscreen-column='true'
+              ref={this.setColumn}
+            >
+              <FullscreenColumnBar
+                title={source.get('title') || ''}
+                appearance={appearance}
+                columns={Number(presentation.get('columns')) || 1}
+                scale={presentation.get('scale')}
+                supportsStatusLayout={source.get('supportsStatusLayout')}
+                supportsComposer={source.get('supportsComposer')}
+                supportsMediaControls={source.get('supportsMediaControls')}
+                canGoBack={!!path}
+                mediaShape={presentation.get('mediaShape')}
+                mediaSize={presentation.get('mediaSize')}
+                mediaVisibility={presentation.get('mediaVisibility')}
+                onAppearance={this.handleAppearance}
+                onColumns={this.handleColumns}
+                onScale={this.handleScale}
+                onMediaShape={this.handleMediaShape}
+                onMediaSize={this.handleMediaSize}
+                onMediaVisibility={this.handleMediaVisibility}
+                onCompose={this.handleCompose}
+                onBack={this.handleBack}
+                onClose={this.handleClose}
               />
+              <div className='fullscreen-column__body'>
+                <div className={covered ? 'fullscreen-column__stream fullscreen-column__stream-hold--covered' : 'fullscreen-column__stream'}>
+                  <FullscreenStream session={session} />
+                </div>
+                {covered && (
+                  <div className='fullscreen-column__detail'>
+                    <FullscreenDetail path={path} />
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-        </div>
+            {session.get('composerOpen') && (
+              <div className='fullscreen-composer' role='dialog' aria-label='Composer' ref={this.setComposer}>
+                <button type='button' className='fullscreen-composer__close' onClick={this.handleComposerClose}>
+                  ×
+                </button>
+                <PortableComposer
+                  composerId={session.get('composerId')}
+                  surface={surface ? surface.toJS() : undefined}
+                  postingContext={this.props.postingContext || undefined}
+                  postingContextAccountId={this.props.postingContextAccountId || undefined}
+                />
+              </div>
+            )}
+          </div>
+        </FullscreenRouter>
       </FullscreenColumnContext.Provider>
     );
   }

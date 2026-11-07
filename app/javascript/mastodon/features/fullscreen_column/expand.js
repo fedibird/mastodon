@@ -78,7 +78,7 @@ export const expandFullscreenSource = (dispatch, getState, source, maxId) => {
     dispatch(expandEmojiReactionedStatuses(source.get('listKey')));
     return;
   case 'mix':
-    dispatch(loadMixTimeline(source.get('mixColumnKey'), findMix(getState(), source.get('mixId')), { extend: true }));
+    dispatch(loadMixTimeline(source.get('mixColumnKey'), findMix(getState(), source.get('mixId')), { extend: true, preserveDisplayMode: true }));
     return;
   default:
   }

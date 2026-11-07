@@ -15,7 +15,7 @@ import {
   initialFullscreenPresentation,
   setActiveFullscreenComposerId,
 } from '../utils/fullscreen_column';
-import { resolveFullscreenSource } from '../features/fullscreen_column/sources';
+import { resolveFullscreenSource, stripRouterBasename } from '../features/fullscreen_column/sources';
 
 export const FULLSCREEN_COLUMN_OPEN = 'FULLSCREEN_COLUMN_OPEN';
 export const FULLSCREEN_COLUMN_CLOSE = 'FULLSCREEN_COLUMN_CLOSE';
@@ -57,7 +57,7 @@ export function openFullscreenColumn (input = {}) {
 
     const source = resolveFullscreenSource(state, {
       ...input,
-      pathname: input.pathname || (typeof window !== 'undefined' ? window.location.pathname : ''),
+      pathname: stripRouterBasename(input.pathname || (typeof window !== 'undefined' ? window.location.pathname : '')),
     });
 
     if (!source) {

@@ -8,9 +8,12 @@ import {
   mentionCompose,
   directCompose,
   addReference,
+  addReferenceToComposer,
   removeReference,
 } from '../actions/compose';
-import { dispatchFullscreenCompose } from '../actions/fullscreen_column';
+import { dispatchFullscreenCompose, setFullscreenComposerOpen } from '../actions/fullscreen_column';
+import { createComposer, targetComposerAction } from '../actions/composer';
+import { selectComposer, selectPortableComposerSeed } from '../selectors/composer';
 import {
   reblog,
   favourite,
@@ -403,11 +406,35 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
   },
 
   onAddReference (id, change) {
-    dispatch(addReference(id, change));
+    dispatch((innerDispatch, getState) => {
+      const composerId = getState().getIn(['fullscreenColumn', 'composerId']);
+
+      if (getState().get('fullscreenColumn') && composerId) {
+        if (!selectComposer(getState(), composerId)) {
+          innerDispatch(createComposer(composerId, selectPortableComposerSeed(getState())));
+        }
+
+        innerDispatch(setFullscreenComposerOpen(true));
+        innerDispatch(addReferenceToComposer(composerId, id, change));
+        return;
+      }
+
+      dispatch(addReference(id, change));
+    });
   },
 
   onRemoveReference (id) {
-    dispatch(removeReference(id));
+    dispatch((innerDispatch, getState) => {
+      const composerId = getState().getIn(['fullscreenColumn', 'composerId']);
+
+      if (getState().get('fullscreenColumn') && composerId) {
+        innerDispatch(setFullscreenComposerOpen(true));
+        innerDispatch(targetComposerAction(removeReference(id), composerId));
+        return;
+      }
+
+      dispatch(removeReference(id));
+    });
   },
 
   onAddFilter (status) {

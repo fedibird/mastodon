@@ -18,6 +18,7 @@ import MediaItemsLayout from './media_items_layout';
 import { defaultMediaShape, defaultMediaSize, defaultMediaVisibility } from 'mastodon/utils/media_display';
 import { mediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
 import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
+import { scrollTopDeltaForVisualDelta, usedCssZoom } from 'mastodon/utils/css_zoom';
 import { connect } from 'react-redux';
 import { FilterSurface } from '../filter_reconciliation/surface';
 import { isProgrammaticTopScroll, releaseProgrammaticTopScroll } from '../scroll';
@@ -635,7 +636,7 @@ class ScrollableList extends PureComponent {
       return;
     }
 
-    const delta = item.getBoundingClientRect().top - snapshot.top;
+    const delta = scrollTopDeltaForVisualDelta(item.getBoundingClientRect().top - snapshot.top, usedCssZoom(this._getScrollingElement()));
     if (Math.abs(delta) > 0.5) {
       this.setScrollTop(this.getScrollTop() + delta);
     }
@@ -740,7 +741,7 @@ class ScrollableList extends PureComponent {
       return;
     }
 
-    const delta = article.getBoundingClientRect().top - snapshot.top;
+    const delta = scrollTopDeltaForVisualDelta(article.getBoundingClientRect().top - snapshot.top, usedCssZoom(this._getScrollingElement()));
 
     if (Math.abs(delta) > 0.5) {
       this.setScrollTop(this.getScrollTop() + delta);

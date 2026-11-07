@@ -6,7 +6,11 @@ import {
   layoutModeForPresentation,
   presentationFromLayoutMode,
 } from '../fullscreen_column';
-import { resolveFullscreenSource } from '../../features/fullscreen_column/sources';
+import { resolveFullscreenSource, stripRouterBasename } from '../../features/fullscreen_column/sources';
+import { createOverlayHistory, fullscreenLayerDepth } from '../../features/fullscreen_column/overlay_history';
+import { scrollTopDeltaForVisualDelta } from '../css_zoom';
+import { articleFocusTarget } from '../article_focus';
+import { mixExtendSwitchesToHistory } from '../../actions/mix_timelines';
 import fullscreenColumn from '../../reducers/fullscreen_column';
 import { closeFullscreenColumn, openFullscreenColumn, patchFullscreenColumn } from '../../actions/fullscreen_column';
 import { claimEscape, registerOverlayLayer, resetOverlayLayersForTests, topOverlayLayer } from '../overlay_layers';
@@ -43,6 +47,103 @@ describe('fullscreen presentation', () => {
     expect(layoutModeForPresentation({ appearance: 'normal', columns: 3 })).toBe('normal');
     expect(layoutModeForPresentation({ appearance: 'card', columns: 2 })).toBe('card-2');
     expect(initialFullscreenPresentation('media').appearance).toBe('media');
+  });
+});
+
+describe('fullscreen routes keep the /web basename out of ids', () => {
+  const state = settingsState();
+
+  it.each([
+    ['/web/timelines/list/42', 'list', 'list:42'],
+    ['/timelines/list/42', 'list', 'list:42'],
+    ['/web/timelines/tag/cat', 'hashtag', 'hashtag:cat'],
+    ['/web/timelines/groups/9', 'group', 'group:9'],
+    ['/web/accounts/7', 'account', 'account:7'],
+    ['/web/timelines/mixes/3', 'mixTimeline', 'route:3'],
+  ])('resolves %s', (pathname, layoutScope, expected) => {
+    const source = resolveFullscreenSource(state, { layoutScope, pathname });
+
+    expect(source).not.toBeNull();
+    expect(source.dataTimelineId || source.mixColumnKey || source.timelineId).toEqual(expect.stringContaining(expected.split(':')[0] === 'route' ? 'route:3' : expected));
+  });
+
+  it('keeps a pinned list id when the browser URL is only /web', () => {
+    const pinned = settingsState().setIn(['settings', 'columns'], fromJS([
+      { uuid: 'list-col', id: 'LIST', params: { id: '99', layoutMode: 'normal' } },
+    ]));
+    const source = resolveFullscreenSource(pinned, { layoutScope: 'list', columnId: 'list-col', pathname: '/web' });
+
+    expect(source.dataTimelineId).toBe('list:99');
+    expect(stripRouterBasename('/web/timelines/list/42')).toBe('/timelines/list/42');
+  });
+
+  it('keeps hashtag any/all/none on the frozen expand params', () => {
+    const tags = { any: [{ value: 'photo' }], all: [{ value: 'cat' }], none: [{ value: 'spoiler' }] };
+    const source = resolveFullscreenSource(state, {
+      layoutScope: 'hashtag',
+      pathname: '/web/timelines/tag/cat',
+      params: { id: 'cat', tags },
+    });
+
+    expect(source.expandParams.tags).toEqual(tags);
+    expect(fromJS(source).getIn(['expandParams', 'tags']).toJS()).toEqual(tags);
+  });
+});
+
+describe('fullscreen navigation and layers', () => {
+  it('sends subtree pushes to the overlay and not the root history', () => {
+    const root = [];
+    const overlay = [];
+    const history = createOverlayHistory({
+      location: { pathname: '/timelines/home', search: '', hash: '', state: null },
+      onNavigate: (path) => overlay.push(path),
+      onBack: () => overlay.push('back'),
+    });
+
+    window.setTimeout(() => {
+      history.push('/statuses/42');
+      history.push('/timelines/home');
+    }, 25);
+
+    return new Promise((resolve) => {
+      window.setTimeout(() => {
+        expect(overlay).toEqual(['/statuses/42', '/timelines/home']);
+        expect(root).toEqual([]);
+        resolve();
+      }, 40);
+    });
+  });
+
+  it('orders browser-back depth as column, detail, then composer', () => {
+    expect(fullscreenLayerDepth(null)).toBe(0);
+    expect(fullscreenLayerDepth({ get: (key) => ({ paths: { size: 0 }, composerOpen: false }[key]) })).toBe(1);
+    expect(fullscreenLayerDepth({ get: (key) => ({ paths: { size: 1 }, composerOpen: false }[key]) })).toBe(2);
+    expect(fullscreenLayerDepth({ get: (key) => ({ paths: { size: 1 }, composerOpen: true }[key]) })).toBe(3);
+  });
+});
+
+describe('fullscreen reading geometry', () => {
+  it('converts a zoomed visual delta into scrollTop units', () => {
+    expect(scrollTopDeltaForVisualDelta(100, 2)).toBe(50);
+    expect(scrollTopDeltaForVisualDelta(50, 1)).toBe(50);
+    expect(scrollTopDeltaForVisualDelta(75, 1.5)).toBe(50);
+  });
+
+  it('moves to the second article inside masonry wrappers', () => {
+    document.body.innerHTML = `
+      <div id="flat"><article><div class="focusable" id="a"></div></article><article><div class="focusable" id="b"></div></article></div>
+      <div id="masonry"><div class="timeline-masonry__item"><article><div class="focusable" id="c"></div></article></div><div class="timeline-masonry__item"><article><div class="focusable" id="d"></div></article></div></div>
+    `;
+
+    expect(articleFocusTarget(document.getElementById('flat'), 1).id).toBe('b');
+    expect(articleFocusTarget(document.getElementById('masonry'), 1).id).toBe('d');
+    document.body.innerHTML = '';
+  });
+
+  it('does not switch a live mix to history when fullscreen asks to preserve the view', () => {
+    expect(mixExtendSwitchesToHistory('live', false)).toBe(true);
+    expect(mixExtendSwitchesToHistory('live', true)).toBe(false);
+    expect(mixExtendSwitchesToHistory('history', false)).toBe(false);
   });
 });
 

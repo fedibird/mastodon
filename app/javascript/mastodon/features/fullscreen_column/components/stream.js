@@ -6,10 +6,14 @@ import { List as ImmutableList } from 'immutable';
 import StatusList from 'mastodon/components/status_list';
 import StatusListContainer from 'mastodon/features/ui/containers/status_list_container';
 import { layoutModeForPresentation, fullscreenScaleFactor } from 'mastodon/utils/fullscreen_column';
+import { scrollTopDeltaForVisualDelta, usedCssZoom } from 'mastodon/utils/css_zoom';
 import { mixTimelineView } from 'mastodon/mix/view';
 import { accountGalleryAttachments } from 'mastodon/selectors';
+import { accountMediaRevealKey, accountMediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
 import AccountMediaItems from 'mastodon/features/account_gallery/components/media_items';
+import LoadMore from 'mastodon/components/load_more';
 import { openModal } from 'mastodon/actions/modal';
+import { expandSearch } from 'mastodon/actions/search';
 import { me } from 'mastodon/initial_state';
 import Notifications from 'mastodon/features/notifications';
 import ConversationsListContainer from 'mastodon/features/direct_timeline/containers/conversations_list_container';
@@ -41,6 +45,9 @@ const mapStateToProps = (state, { session }) => {
     filterMatches: state.get('filterMatches'),
     mediaTimeline: kind === 'account_media' ? state.getIn(['timelines', source.get('dataTimelineId')]) : null,
     account: kind === 'account_media' ? state.getIn(['accounts', source.get('accountId')]) : null,
+    mediaFilters: state.get('filters'),
+    mediaFilterMatches: state.get('filterMatches'),
+    mediaFilterGeneration: state.getIn(['filterMatches', 'generation'], 0),
     searchResults: kind === 'search' ? state.getIn(['search', 'results']) : null,
     searchSuggestions: kind === 'search' ? state.getIn(['suggestions', 'items']) : null,
     searchTerm: kind === 'search' ? state.getIn(['search', 'searchTerm']) : '',
@@ -72,6 +79,14 @@ class FullscreenStream extends React.PureComponent {
     searchResults: PropTypes.object,
     searchSuggestions: PropTypes.object,
     searchTerm: PropTypes.string,
+    mediaFilters: PropTypes.object,
+    mediaFilterMatches: PropTypes.object,
+    mediaFilterGeneration: PropTypes.number,
+  };
+
+  state = {
+    revealedMediaIds: new Set(),
+    revealedFilterStatusIds: new Set(),
   };
 
   anchored = false;
@@ -102,14 +117,21 @@ class FullscreenStream extends React.PureComponent {
       return;
     }
 
-    const delta = node.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-    scroller.scrollTop += delta;
+    const visualDelta = node.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    scroller.scrollTop += scrollTopDeltaForVisualDelta(visualDelta, usedCssZoom(scroller));
     this.anchored = true;
   }
 
   handleLoadMore = (maxId) => {
+    let cursor = typeof maxId === 'string' ? maxId : undefined;
+
+    if (!cursor && this.props.source.get('expand') === 'account_media' && this.props.mediaTimeline) {
+      const ids = this.props.mediaTimeline.get('items');
+      cursor = ids && ids.findLast ? ids.findLast(id => id !== null) : undefined;
+    }
+
     this.props.dispatch((dispatch, getState) => {
-      expandFullscreenSource(dispatch, getState, this.props.source, maxId);
+      expandFullscreenSource(dispatch, getState, this.props.source, cursor);
     });
   };
 
@@ -201,12 +223,64 @@ class FullscreenStream extends React.PureComponent {
     return (view && view.warningsById && view.warningsById[id]) || [];
   }
 
-  handleOpenAccountMedia = (attachment) => {
-    this.props.dispatch(openModal('MEDIA', {
-      statusId: attachment.getIn(['status', 'id']),
-      media: attachment.getIn(['status', 'media_attachments']),
-      index: 0,
+  accountFilterInfo () {
+    return {
+      filters: this.props.mediaFilters,
+      matches: this.props.mediaFilterMatches,
+      generation: this.props.mediaFilterGeneration,
+      revealedMediaIds: this.state.revealedMediaIds,
+      revealedFilterStatusIds: this.state.revealedFilterStatusIds,
+    };
+  }
+
+  handleRevealAccountMedia = (attachment) => {
+    const key = accountMediaRevealKey(attachment);
+    const statusId = attachment && attachment.getIn(['status', 'id']);
+
+    this.setState(({ revealedMediaIds, revealedFilterStatusIds }) => ({
+      revealedMediaIds: new Set([...revealedMediaIds, key]),
+      revealedFilterStatusIds: statusId ? new Set([...revealedFilterStatusIds, statusId]) : revealedFilterStatusIds,
     }));
+  }
+
+  handleOpenAccountMedia = (attachment) => {
+    const { dispatch, mediaTimeline, statuses, account, presentation, source } = this.props;
+    const statusId = attachment.getIn(['status', 'id']);
+    const type = attachment.get('type');
+
+    if (type === 'video') {
+      dispatch(openModal('VIDEO', { media: attachment, statusId, options: { autoPlay: true } }));
+      return;
+    }
+
+    if (type === 'audio') {
+      dispatch(openModal('AUDIO', { media: attachment, statusId, options: { autoPlay: true } }));
+      return;
+    }
+
+    const statusIds = mediaTimeline ? mediaTimeline.get('items', empty) : empty;
+    const filterInfo = this.accountFilterInfo();
+    const attachments = accountGalleryAttachments(statusIds, statuses, account, filterInfo);
+    const sequence = accountMediaTimelineSequence(attachments, presentation.get('mediaVisibility'), filterInfo);
+    const position = sequence.media.findIndex(item => item.get('id') === attachment.get('id'));
+
+    dispatch(openModal('MEDIA', {
+      media: position >= 0 ? sequence.media : attachment.getIn(['status', 'media_attachments']),
+      index: position >= 0 ? position : 0,
+      statusId,
+      timelineStatusIds: position >= 0 ? sequence.statusIds : undefined,
+      mediaSource: position >= 0 ? {
+        kind: 'account',
+        accountId: source.get('accountId'),
+        timelineId: source.get('dataTimelineId'),
+        afterStatusId: statusIds.findLast(id => id !== null),
+        visibility: presentation.get('mediaVisibility'),
+      } : undefined,
+    }));
+  }
+
+  handleExpandSearch = (type) => {
+    this.props.dispatch(expandSearch(type));
   }
 
   noop = () => {}
@@ -234,21 +308,37 @@ class FullscreenStream extends React.PureComponent {
   renderAccountMedia () {
     const { mediaTimeline, statuses, account, presentation } = this.props;
     const statusIds = mediaTimeline ? mediaTimeline.get('items', empty) : empty;
-    const attachments = accountGalleryAttachments(statusIds, statuses, account, {});
+    const attachments = accountGalleryAttachments(statusIds, statuses, account, this.accountFilterInfo());
+    const isLoading = !!(mediaTimeline && mediaTimeline.get('isLoading'));
+    const hasMore = !!(mediaTimeline && mediaTimeline.get('hasMore'));
+    const loadOlder = hasMore ? (
+      <LoadMore visible={!isLoading} onClick={this.handleLoadMore} />
+    ) : null;
 
     return (
-      <div className='scrollable fullscreen-column__media'>
+      <div className='scrollable fullscreen-column__media' onScroll={this.handleAccountMediaScroll}>
         <AccountMediaItems
           attachments={attachments || empty}
           shape={presentation.get('mediaShape')}
           size={presentation.get('mediaSize')}
           visibility={presentation.get('mediaVisibility')}
           onOpenMedia={this.handleOpenAccountMedia}
-          onReveal={this.noop}
+          onReveal={this.handleRevealAccountMedia}
           onLoadMore={this.handleLoadMore}
+          loadOlder={loadOlder}
         />
       </div>
     );
+  }
+
+  handleAccountMediaScroll = (event) => {
+    const node = event.currentTarget;
+    const remaining = node.scrollHeight - node.scrollTop - node.clientHeight;
+    const timeline = this.props.mediaTimeline;
+
+    if (remaining < 150 && timeline && timeline.get('hasMore') && !timeline.get('isLoading')) {
+      this.handleLoadMore();
+    }
   }
 
   renderSearch () {
@@ -266,7 +356,7 @@ class FullscreenStream extends React.PureComponent {
           suggestions={searchSuggestions || empty}
           searchTerm={searchTerm || ''}
           fetchSuggestions={this.noop}
-          expandSearch={this.noop}
+          expandSearch={this.handleExpandSearch}
           dismissSuggestion={this.noop}
         />
       </div>

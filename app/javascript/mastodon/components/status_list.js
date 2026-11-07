@@ -17,6 +17,7 @@ import { HistoryAnchorNotice } from './load_window_edge';
 import { planSeekScroll } from '../timeline_seek/window';
 import { completeSurfaceResume, emitHistorySurfaceScroll, emitHistorySurfaceUnmount, bindHistorySurface, peekSurfaceResume } from '../timeline_position/surface';
 import { mediaRowsForStatuses } from 'mastodon/utils/timeline_layout';
+import { articleFocusTarget } from 'mastodon/utils/article_focus';
 
 export default @connect(null, null, null, { forwardRef: true })
 class StatusList extends ImmutablePureComponent {
@@ -422,7 +423,7 @@ class StatusList extends ImmutablePureComponent {
 
   _selectChild (index, align_top) {
     const container = this.node.node;
-    const element = container.querySelector(`article:nth-of-type(${index + 1}) .focusable`);
+    const element = articleFocusTarget(container, index);
 
     if (element) {
       if (align_top && container.scrollTop > element.offsetTop) {

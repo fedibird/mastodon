@@ -790,7 +790,7 @@ class UI extends React.PureComponent {
     return (
       <HotKeys keyMap={keyMap} handlers={handlers} ref={this.setHotkeysRef} attach={window} focused>
         <div className={classNames('ui', { 'is-composing': isComposing })} ref={this.setRef} style={{ pointerEvents: dropdownMenuIsOpen ? 'none' : null }}>
-          <div data-fullscreen-background='true'>
+          <div className='ui__background' data-fullscreen-background='true'>
             <AppearancePreferences />
             <SwitchingColumnsArea navigationAction={this.props.history.action} location={location} mobile={layout === 'mobile' || layout === 'single-column'} advancedMode={advancedMode} openPostsFirst={openPostsFirst}>
               {children}
