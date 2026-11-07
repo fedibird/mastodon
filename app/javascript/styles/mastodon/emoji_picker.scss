@@ -256,3 +256,14 @@
 .emoji-mart-preview {
   display: none;
 }
+
+.emoji-stock-picker .emoji-mart-emoji:focus {
+  outline: 2px solid $highlight-text-color;
+  outline-offset: -2px;
+}
+
+.emoji-picker-shell__modes {
+  border-bottom: 1px solid darken($ui-secondary-color, 8%);
+  border-radius: 5px 5px 0 0;
+  background: $ui-secondary-color;
+}

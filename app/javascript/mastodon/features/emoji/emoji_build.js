@@ -12,6 +12,9 @@
 // Bump every copy together when emoji inputs or this generator change.
 // babel-loader caches each preval wrapper by that wrapper's source, so a
 // builder-only edit is not picked up until those version comments change.
+// Also restart a dev server, webpack watch, or other build process that is
+// already running. A normal production build from a clean start does not
+// need a separate restart.
 const PREVAL_VERSION = 3;
 
 // This json file contains the names of the categories.
