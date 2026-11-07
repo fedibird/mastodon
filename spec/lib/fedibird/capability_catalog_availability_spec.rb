@@ -6,12 +6,13 @@ RSpec.describe Fedibird::CapabilityCatalog do
   describe '.availability' do
     it 'reflects instance search and poll-image switches' do
       allow(Chewy).to receive(:enabled?).and_return(false)
-      allow(Setting).to receive(:allow_poll_image).and_return(false)
+      allow(Setting).to receive(:[]).and_call_original
+      allow(Setting).to receive(:[]).with('allow_poll_image').and_return(false)
       expect(described_class.availability.dig(:search, :enabled)).to be(false)
       expect(described_class.availability.dig(:poll_images, :enabled)).to be(false)
 
       allow(Chewy).to receive(:enabled?).and_return(true)
-      allow(Setting).to receive(:allow_poll_image).and_return(true)
+      allow(Setting).to receive(:[]).with('allow_poll_image').and_return(true)
       expect(described_class.availability.dig(:search, :enabled)).to be(true)
       expect(described_class.availability.dig(:poll_images, :enabled)).to be(true)
     end
@@ -30,7 +31,7 @@ RSpec.describe Fedibird::CapabilityCatalog do
 
     it 'normalizes missing server switches to false' do
       allow(Chewy).to receive(:enabled?).and_return(nil)
-      allow(Setting).to receive(:allow_poll_image).and_return(nil)
+      allow(Setting).to receive(:[]).with('allow_poll_image').and_return(nil)
       allow(ExternalBridge::Feature).to receive(:enabled?).and_return(nil)
       allow(ExternalBridge::Feeds::Feature).to receive(:enabled?).and_return(nil)
 
