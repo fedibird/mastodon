@@ -1378,6 +1378,10 @@ export function selectComposerSuggestion(composerId, position, token, suggestion
       return;
     }
 
+    // A selected suggestion is finished. A catalog response still in flight
+    // must not publish that token again over the text that replaced it.
+    latestEmojiToken.set(composerId, null);
+
     let completion, startPosition;
 
     if (suggestion.type === 'emoji') {

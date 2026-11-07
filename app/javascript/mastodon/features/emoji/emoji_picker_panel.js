@@ -215,6 +215,7 @@ class EmojiPickerPanel extends React.PureComponent {
     modifierOpen: false,
     mode: this.props.initialMode || emojiPickerInitialMode(),
     Emoji: null,
+    catalogHold: false,
   };
 
   componentDidMount() {
@@ -246,10 +247,42 @@ class EmojiPickerPanel extends React.PureComponent {
   handleMode = mode => {
     this.setState({ mode, modifierOpen: mode === 'standard' ? this.state.modifierOpen : false });
 
-    if (mode === 'standard' && this.props.onStandardActive) {
-      this.props.onStandardActive();
+    if (mode === 'standard') {
+      this.holdForCatalog();
     }
   };
+
+  // The first standard paint waits for a catalog request that is still in
+  // flight, so Nimble's constructor sees the fetched custom list. A later
+  // change still remounts, and the shell keeps the search text and focus.
+  holdForCatalog() {
+    const start = this.props.onStandardActive;
+
+    if (!start) {
+      return null;
+    }
+
+    const request = start();
+
+    if (!request || typeof request.then !== 'function') {
+      return null;
+    }
+
+    const generation = (this.catalogGeneration || 0) + 1;
+
+    this.catalogGeneration = generation;
+    this.setState({ catalogHold: true });
+
+    const finish = () => {
+      if (!this.mounted || generation !== this.catalogGeneration) {
+        return;
+      }
+
+      this.setState({ catalogHold: false });
+    };
+
+    return Promise.resolve(request).then(finish, finish);
+  }
 
   handleStandardModule = loaded => {
     if (!this.mounted || !loaded) {
@@ -347,6 +380,7 @@ class EmojiPickerPanel extends React.PureComponent {
           onRequestClose={this.props.onRequestClose}
           onModeChange={this.handleMode}
           onStandardModule={this.handleStandardModule}
+          deferStandardPicker={this.state.catalogHold}
           standardPickerProps={{
             pickerRevision: this.customRevision(custom),
             custom,

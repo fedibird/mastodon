@@ -187,6 +187,9 @@ describe('EmojiPickerPanel', () => {
       render() {
         return (
           <div>
+            <div className='emoji-mart-search'>
+              <input type='search' aria-label='Standard search' />
+            </div>
             {this.state.custom.map(emoji => (
               <button key={emoji.id} type='button' className='emoji-mart-emoji-custom'>{emoji.id}</button>
             ))}
@@ -212,7 +215,10 @@ describe('EmojiPickerPanel', () => {
       />,
     );
 
-    await waitFor(() => expect(EmojiPicker).toHaveBeenCalled());
+    const search = await screen.findByRole('searchbox', { name: 'Standard search' });
+
+    search.focus();
+    fireEvent.change(search, { target: { value: 'smile' } });
     expect(view.container.querySelector('.emoji-mart-emoji-custom')).toBeNull();
 
     view.rerender(
@@ -227,7 +233,11 @@ describe('EmojiPickerPanel', () => {
       />,
     );
 
-    expect(await screen.findByRole('button', { name: 'fedibird' })).toHaveClass('emoji-mart-emoji-custom');
+    const restored = await screen.findByRole('searchbox', { name: 'Standard search' });
+
+    expect(restored.value).toBe('smile');
+    expect(document.activeElement).toBe(restored);
+    expect(screen.getByRole('button', { name: 'fedibird' })).toHaveClass('emoji-mart-emoji-custom');
   });
 
   it('preloads the standard module only when lazy load is explicitly off', async () => {

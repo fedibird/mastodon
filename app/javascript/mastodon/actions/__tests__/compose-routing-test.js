@@ -42,6 +42,7 @@ import {
   changeComposerUpload,
   directInComposer,
   fetchComposerSuggestions,
+  selectComposerSuggestion,
   initComposerMediaEditModal,
   mentionInComposer,
   quoteInComposer,
@@ -778,6 +779,31 @@ describe('composer async routing', () => {
       await Promise.resolve();
 
       expect(suggestionTokens(actions, 'composer-emoji')).toEqual([':wave', '#alice']);
+    });
+
+    it('does not republish emoji suggestions after one is selected', async () => {
+      let finishCatalog;
+      const catalog = new Promise(resolve => {
+        finishCatalog = resolve;
+      });
+
+      installApi(catalog);
+      const { store, actions } = makeStore();
+
+      store.dispatch(createComposer('composer-emoji'));
+      store.dispatch(fetchComposerSuggestions('composer-emoji', ':smile'));
+      store.dispatch(selectComposerSuggestion(
+        'composer-emoji',
+        1,
+        ':smile',
+        { type: 'hashtag', name: 'smile' },
+        ['text'],
+      ));
+      finishCatalog({ data: [] });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(suggestionTokens(actions, 'composer-emoji')).toEqual([':smile']);
     });
   });
 });

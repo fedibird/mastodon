@@ -75,6 +75,7 @@ class EmojiPickerShell extends React.PureComponent {
     theme: PropTypes.string,
     onModeChange: PropTypes.func,
     onStandardModule: PropTypes.func,
+    deferStandardPicker: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -153,11 +154,54 @@ class EmojiPickerShell extends React.PureComponent {
     }
   }
 
-  componentDidUpdate(prevProps) {
+  getSnapshotBeforeUpdate(prevProps) {
+    const previous = (prevProps.standardPickerProps || {}).pickerRevision || 'standard';
+    const next = (this.props.standardPickerProps || {}).pickerRevision || 'standard';
+
+    if (previous === next || !this.node) {
+      return null;
+    }
+
+    const input = this.node.querySelector('.emoji-mart-search input');
+
+    if (!input) {
+      return null;
+    }
+
+    return {
+      value: input.value,
+      focused: document.activeElement === input,
+    };
+  }
+
+  componentDidUpdate(prevProps, _prevState, snapshot) {
+    this.restoreStandardSearch(snapshot);
+
     if (this.props.open && !prevProps.open) {
       this.claimActive();
       this.ensureData();
       this.emitMode(this.state.mode);
+    }
+  }
+
+  restoreStandardSearch(snapshot) {
+    if (!snapshot || !this.node) {
+      return;
+    }
+
+    const input = this.node.querySelector('.emoji-mart-search input');
+
+    if (!input) {
+      return;
+    }
+
+    if (snapshot.value) {
+      input.value = snapshot.value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    if (snapshot.focused) {
+      input.focus();
     }
   }
 
@@ -466,7 +510,7 @@ class EmojiPickerShell extends React.PureComponent {
       );
     }
 
-    if (standardStatus !== 'ready' || !standardModule) {
+    if (this.props.deferStandardPicker || standardStatus !== 'ready' || !standardModule) {
       return (
         <div className='emoji-picker-shell__loading' style={{ width: 299 }} role='status'>
           {intl.formatMessage(messages.loadingStandard)}

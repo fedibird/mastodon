@@ -11,7 +11,7 @@ import DisplayName from '../../../components/display_name';
 import ExternalSourceIdentity, { TimeLink } from '../../../components/external_source_identity';
 import { externalIdentityOf } from 'mastodon/external_presentation';
 import { disableRelativeTime } from 'mastodon/initial_state';
-import { ensureCustomEmojis } from 'mastodon/actions/custom_emojis';
+import { ensureCustomEmojisForPicker } from 'mastodon/actions/custom_emojis';
 import { getFrequentlyUsedEmojis, getPickersEmoji } from 'mastodon/selectors';
 import EmojiPickerPanel from 'mastodon/features/emoji/emoji_picker_panel';
 
@@ -22,7 +22,7 @@ const mapStateToProps = state => ({
 });
 
 const mapDispatchToProps = dispatch => ({
-  onStandardActive: () => dispatch(ensureCustomEmojis()),
+  onStandardActive: () => dispatch(ensureCustomEmojisForPicker()),
 });
 
 class ReactionModal extends ImmutablePureComponent {

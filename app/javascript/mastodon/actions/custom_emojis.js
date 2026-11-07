@@ -66,6 +66,21 @@ export function fetchCustomEmojis() {
   return ensureCustomEmojis();
 }
 
+// Null when the picker can render immediately. A promise while the first
+// attempt is still running, so Nimble is constructed with that result.
+export function ensureCustomEmojisForPicker() {
+  return (dispatch, getState) => {
+    const status = getState().getIn(['custom_emoji_catalog', 'status']);
+    const pending = dispatch(ensureCustomEmojis());
+
+    if (status === 'ready' || status === 'error') {
+      return null;
+    }
+
+    return pending;
+  };
+}
+
 export function resetCustomEmojiCatalogForTests() {
   sharedRequest = null;
 }

@@ -9,8 +9,15 @@ export function noteComposeInsertionField(element) {
   notedComposeField = element && typeof element.focus === 'function' ? element : null;
 }
 
+export function beginComposeFieldNote() {
+  notedComposeField = null;
+}
+
 export function focusNotedComposeFieldAfterModalClose() {
-  fieldAfterClose = notedComposeField;
+  if (notedComposeField) {
+    fieldAfterClose = notedComposeField;
+  }
+
   notedComposeField = null;
 }
 
