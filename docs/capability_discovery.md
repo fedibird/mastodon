@@ -231,7 +231,7 @@ The `rest.contextual` object also includes:
 | Field | Published contract |
 | --- | --- |
 | `notifications` | `scope: viewer_and_client`, `collection_path: /api/v1/notifications`, `supported_types` derived from `Notification::TYPES`, `filters: [types, exclude_types, account_id]`, optional `reblog_visibility` and `emoji_reaction` fields |
-| `preferences` | `scope: authenticated_user`, document and schema URLs, required OAuth scopes `read:preferences` and `write:preferences` |
+| `preferences` | `scope: authenticated_user`, document and schema URLs, accepted read scopes `read` or `read:preferences`, write scope `write:preferences` |
 | `posting_identities` | `scope: administrator`, `collection_path: /api/v1/fedibird/posting_identities` |
 | `posting_styles` | Existing administrator-only collection plus assignments path and `UserPostingContext::MAX_PER_USER` limit |
 
@@ -244,8 +244,8 @@ notification attributes depends on the individual notification type.
 Clients must handle missing types and missing optional fields.
 
 `/api/v1/fedibird/preferences` and its schema are authenticated.
-Preference reads require `read:preferences` and writes require
-`write:preferences`; their responses use `Cache-Control: private,
+Preference reads accept either `read` or `read:preferences`, and writes
+require `write:preferences`; their responses use `Cache-Control: private,
 no-store`. The posting-style and posting-identity list endpoints
 currently enforce administrative rights. The listed URLs are discovery
 hints, **not** permissions or an invitation to enumerate other users.
