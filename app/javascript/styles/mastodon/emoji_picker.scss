@@ -269,6 +269,11 @@
   margin: 0;
 }
 
+// Anchor standard-only overlays below the mode bar, regardless of its height.
+.emoji-picker-shell__standard {
+  position: relative;
+}
+
 .emoji-picker-shell__modes {
   border-bottom: 1px solid darken($ui-secondary-color, 8%);
   border-radius: 5px 5px 0 0;
