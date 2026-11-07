@@ -28,15 +28,19 @@ class SearchResults extends ImmutablePureComponent {
   };
 
   componentDidMount () {
-    if (this.props.searchTerm === '') {
-      this.props.fetchSuggestions();
+    if (this.props.passive || this.props.searchTerm !== '') {
+      return;
     }
+
+    this.props.fetchSuggestions();
   }
 
   componentDidUpdate () {
-    if (this.props.searchTerm === '') {
-      this.props.fetchSuggestions();
+    if (this.props.passive || this.props.searchTerm !== '') {
+      return;
     }
+
+    this.props.fetchSuggestions();
   }
 
   handleLoadMoreAccounts = () => this.props.expandSearch('accounts');

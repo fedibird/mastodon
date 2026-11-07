@@ -515,6 +515,7 @@ class StatusList extends ImmutablePureComponent {
           contextType={contextTypeFor(mediaMode ? row.id : row)}
           warningTitles={warningTitlesFor(mediaMode ? row.id : row)}
           sourceBadges={sourceBadgesForId ? sourceBadgesForId(mediaMode ? row.id : row) : undefined}
+          composerId={this.props.composerId}
           scrollKey={this.props.scrollKey}
           showThread
           showCard={showCard}
@@ -538,6 +539,7 @@ class StatusList extends ImmutablePureComponent {
           contextHostId={rowHostId}
           contextType={contextTypeFor(mediaMode ? row.id : row)}
           sourceBadges={sourceBadgesForId ? sourceBadgesForId(mediaMode ? row.id : row) : undefined}
+          composerId={this.props.composerId}
           showThread
           showCard={showCard}
         />

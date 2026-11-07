@@ -10,6 +10,7 @@ import {
   addReference,
   removeReference,
 } from '../actions/compose';
+import { dispatchFullscreenCompose } from '../actions/fullscreen_column';
 import {
   reblog,
   favourite,
@@ -126,7 +127,11 @@ const mergeProps = ({ status, pictureInPicture, referenced, contextReferenced, e
 const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
 
   onReply (status, router) {
-    dispatch((_, getState) => {
+    dispatch((innerDispatch, getState) => {
+      if (innerDispatch(dispatchFullscreenCompose('reply', status, intl))) {
+        return;
+      }
+
       let state = getState();
 
       if (state.getIn(['compose', 'text']).trim().length !== 0 && state.getIn(['compose', 'dirty'])) {
@@ -158,7 +163,11 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
   },
 
   onQuote (status, router) {
-    dispatch((_, getState) => {
+    dispatch((innerDispatch, getState) => {
+      if (innerDispatch(dispatchFullscreenCompose('quote', status, intl))) {
+        return;
+      }
+
       let state = getState();
 
       if (state.getIn(['compose', 'text']).trim().length !== 0 && state.getIn(['compose', 'dirty'])) {
@@ -233,7 +242,13 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
   },
 
   onDirect (account, router) {
-    dispatch(directCompose(account, router));
+    dispatch((innerDispatch) => {
+      if (innerDispatch(dispatchFullscreenCompose('direct', account, intl))) {
+        return;
+      }
+
+      dispatch(directCompose(account, router));
+    });
   },
 
   onMemberList (status, history) {
@@ -241,7 +256,13 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
   },
 
   onMention (account, router) {
-    dispatch(mentionCompose(account, router));
+    dispatch((innerDispatch) => {
+      if (innerDispatch(dispatchFullscreenCompose('mention', account, intl))) {
+        return;
+      }
+
+      dispatch(mentionCompose(account, router));
+    });
   },
 
   onOpenMedia (statusId, media, index, lang, timelineStatusIds, mediaSource) {

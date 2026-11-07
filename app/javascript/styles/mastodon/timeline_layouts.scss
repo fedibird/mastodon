@@ -45,6 +45,20 @@
   }
 }
 
+.media-display-controls--compact {
+  flex-wrap: nowrap;
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+
+  .media-display-controls__group {
+    flex-wrap: nowrap;
+  }
+}
+
 .media-display-controls {
   flex: 0 0 auto;
   height: auto;

@@ -6,6 +6,7 @@ import Overlay from 'react-overlays/Overlay';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import classNames from 'classnames';
 import { CircularProgress } from 'mastodon/components/loading_indicator';
+import { claimEscape } from 'mastodon/utils/overlay_layers';
 
 const listenerOptions = supportsPassiveEvents ? { passive: true } : false;
 let id = 0;
@@ -90,6 +91,7 @@ export class DropdownMenu extends React.PureComponent {
       element = items[items.length-1];
       break;
     case 'Escape':
+      claimEscape(e);
       this.props.onClose();
       break;
     }

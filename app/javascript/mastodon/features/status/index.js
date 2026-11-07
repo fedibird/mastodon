@@ -31,6 +31,7 @@ import {
   addReference,
   removeReference,
 } from '../../actions/compose';
+import { dispatchFullscreenCompose } from '../../actions/fullscreen_column';
 import {
   muteStatus,
   unmuteStatus,
@@ -270,6 +271,11 @@ export class Status extends ImmutablePureComponent {
 
   handleReplyClick = (status) => {
     let { askReplyConfirmation, dispatch, intl } = this.props;
+
+    if (dispatch(dispatchFullscreenCompose('reply', status, intl))) {
+      return;
+    }
+
     if (askReplyConfirmation) {
       dispatch(openModal('CONFIRM', {
         message: intl.formatMessage(messages.replyMessage),
@@ -307,6 +313,11 @@ export class Status extends ImmutablePureComponent {
 
   handleQuoteClick = (status) => {
     let { askReplyConfirmation, dispatch, intl } = this.props;
+
+    if (dispatch(dispatchFullscreenCompose('quote', status, intl))) {
+      return;
+    }
+
     if (askReplyConfirmation) {
       dispatch(openModal('CONFIRM', {
         message: intl.formatMessage(messages.quoteMessage),
@@ -351,6 +362,10 @@ export class Status extends ImmutablePureComponent {
   }
 
   handleDirectClick = (account, router) => {
+    if (this.props.dispatch(dispatchFullscreenCompose('direct', account, this.props.intl))) {
+      return;
+    }
+
     this.props.dispatch(directCompose(account, router));
   }
 
@@ -359,6 +374,10 @@ export class Status extends ImmutablePureComponent {
   }
 
   handleMentionClick = (account, router) => {
+    if (this.props.dispatch(dispatchFullscreenCompose('mention', account, this.props.intl))) {
+      return;
+    }
+
     this.props.dispatch(mentionCompose(account, router));
   }
 

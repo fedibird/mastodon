@@ -51,6 +51,22 @@ export const timelineCardColumnsForWidth = (mode, width) => {
   return Math.min(requested, Math.max(1, Math.floor((width + 8) / 180)));
 };
 
+// Standard multi-column flow keeps the normal status appearance. Its minimum
+// is intentionally wider than a card tile.
+export const STANDARD_FLOW_MIN_WIDTH = 320;
+export const FLOW_GAP = 8;
+
+export const timelineFlowColumnsForWidth = (requested, width, minWidth = STANDARD_FLOW_MIN_WIDTH) => {
+  const count = Math.min(3, Math.max(1, Number(requested) || 1));
+
+  if (!width || width <= 0) {
+    return 1;
+  }
+
+  const fitted = Math.max(1, Math.floor((width + FLOW_GAP) / (minWidth + FLOW_GAP)));
+  return Math.min(count, fitted);
+};
+
 export const readTimelineLayout = (state, columnId, scope) => {
   if (!scope) {
     return TIMELINE_LAYOUT_NORMAL;

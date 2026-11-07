@@ -37,6 +37,7 @@ class DirectTimeline extends React.PureComponent {
     hasUnread: PropTypes.bool,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    passive: PropTypes.bool,
   };
 
   handlePin = () => {
@@ -59,6 +60,10 @@ class DirectTimeline extends React.PureComponent {
   }
 
   componentDidMount () {
+    if (this.props.passive) {
+      return;
+    }
+
     const { dispatch } = this.props;
 
     dispatch(mountConversations());
@@ -67,6 +72,10 @@ class DirectTimeline extends React.PureComponent {
   }
 
   componentWillUnmount () {
+    if (this.props.passive) {
+      return;
+    }
+
     this.props.dispatch(unmountConversations());
 
     if (this.disconnect) {
@@ -100,6 +109,7 @@ class DirectTimeline extends React.PureComponent {
     return (
       <Column bindToDocument={!multiColumn} ref={this.setRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
+          fullscreenKind='direct'
           icon='envelope'
           active={hasUnread}
           title={intl.formatMessage(messages.title)}

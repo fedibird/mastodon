@@ -5,6 +5,7 @@ import {
   normalizeTimelineLayout,
   isCardTimelineLayout,
   timelineCardColumnsForWidth,
+  timelineFlowColumnsForWidth,
   columnWidthForCardLayout,
   readTimelineLayout,
   mediaRowsForStatuses,
@@ -19,6 +20,14 @@ describe('timeline layout modes', () => {
     expect(normalizeTimelineLayout('media')).toBe('media');
     expect(isCardTimelineLayout('card-3')).toBe(true);
     expect(isCardTimelineLayout('media')).toBe(false);
+  });
+
+  it('shrinks standard flow columns from the requested count without using the card minimum', () => {
+    expect(timelineFlowColumnsForWidth(3, 2000)).toBe(3);
+    expect(timelineFlowColumnsForWidth(3, 700)).toBe(2);
+    expect(timelineFlowColumnsForWidth(3, 400)).toBe(1);
+    expect(timelineFlowColumnsForWidth(1, 2000)).toBe(1);
+    expect(timelineFlowColumnsForWidth(3, 0)).toBe(1);
   });
 
   it('keeps a normal advanced desktop column to one card, but uses two on iPhone', () => {

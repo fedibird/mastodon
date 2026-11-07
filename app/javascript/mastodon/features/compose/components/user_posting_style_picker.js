@@ -9,6 +9,7 @@ import Overlay from 'react-overlays/Overlay';
 import CustomEmojiText from 'mastodon/components/custom_emoji_text';
 import Icon from 'mastodon/components/icon';
 import { createOverlayRefBridge } from '../overlay_ref';
+import { claimEscape } from 'mastodon/utils/overlay_layers';
 
 const messages = defineMessages({
   label: { id: 'compose_form.posting_style.label', defaultMessage: 'Posting style' },
@@ -298,7 +299,7 @@ class UserPostingStylePicker extends React.PureComponent {
 
   handleDocumentKey = event => {
     if (event.key === 'Escape' && this.state.open) {
-      event.preventDefault();
+      claimEscape(event);
       this.closeMenu({ focusTrigger: true });
     }
   };

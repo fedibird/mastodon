@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import Overlay from 'react-overlays/Overlay';
 import IconButton from '../../../components/icon_button';
 import { createOverlayRefBridge } from '../overlay_ref';
+import { claimEscape } from 'mastodon/utils/overlay_layers';
 
 export default class ComposerOverflowMenu extends React.PureComponent {
 
@@ -82,7 +83,7 @@ export default class ComposerOverflowMenu extends React.PureComponent {
 
   handleDocumentKey = (event) => {
     if (event.key === 'Escape' && this.state.open) {
-      event.preventDefault();
+      claimEscape(event);
       this.setState({ open: false }, () => {
         const button = this.target && this.target.querySelector('button');
 

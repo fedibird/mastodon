@@ -1,6 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import { timelineCardColumnsForWidth } from 'mastodon/utils/timeline_layout';
+import { timelineCardColumnsForWidth, timelineFlowColumnsForWidth } from 'mastodon/utils/timeline_layout';
 import { mediaColumnsForWidth } from 'mastodon/utils/media_display';
 import {
   planMasonryPrependFrontier,
@@ -91,6 +91,8 @@ export default class TimelineMasonry extends React.PureComponent {
     children: PropTypes.node,
     mode: PropTypes.string.isRequired,
     mediaSize: PropTypes.string,
+    requestedColumns: PropTypes.number,
+    columnMinWidth: PropTypes.number,
     onCaptureLayoutAnchor: PropTypes.func,
     onRestoreLayoutAnchor: PropTypes.func,
   };
@@ -124,7 +126,8 @@ export default class TimelineMasonry extends React.PureComponent {
     const sizeChanged = prevState.width !== this.state.width ||
       prevState.heights !== this.state.heights ||
       prevProps.mode !== this.props.mode ||
-      prevProps.mediaSize !== this.props.mediaSize;
+      prevProps.mediaSize !== this.props.mediaSize ||
+      prevProps.requestedColumns !== this.props.requestedColumns;
 
     return sizeChanged && this.props.onCaptureLayoutAnchor
       ? this.props.onCaptureLayoutAnchor()
@@ -224,11 +227,15 @@ export default class TimelineMasonry extends React.PureComponent {
     const availableWidth = Math.max(1, width || 320);
     let columns = 1;
     if (width) {
-      columns = this.props.mode === 'media'
-        ? mediaColumnsForWidth(this.props.mediaSize, width)
-        : timelineCardColumnsForWidth(this.props.mode, width);
+      if (this.props.requestedColumns) {
+        columns = timelineFlowColumnsForWidth(this.props.requestedColumns, width, this.props.columnMinWidth);
+      } else if (this.props.mode === 'media') {
+        columns = mediaColumnsForWidth(this.props.mediaSize, width);
+      } else {
+        columns = timelineCardColumnsForWidth(this.props.mode, width);
+      }
     }
-    const variant = this.props.mode + ':' + (this.props.mediaSize || '');
+    const variant = this.props.mode + ':' + (this.props.mediaSize || '') + ':' + (this.props.requestedColumns || '');
 
     // Explicit resizing and layout changes may start fresh; streaming new
     // items must never move previously assigned items horizontally.

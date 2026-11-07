@@ -4,6 +4,7 @@ import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import Overlay from 'react-overlays/Overlay';
 import { searchEnabled } from '../../../initial_state';
 import Icon from 'mastodon/components/icon';
+import { claimEscape, hasOverlayLayers } from 'mastodon/utils/overlay_layers';
 
 const messages = defineMessages({
   placeholder: { id: 'search.placeholder', defaultMessage: 'Search' },
@@ -19,7 +20,7 @@ class SearchPopout extends React.PureComponent {
     const { style } = this.props;
     const extraInformation = searchEnabled ? <FormattedMessage id='search_popout.tips.full_text' defaultMessage='Simple text returns statuses you have written, favourited, boosted, or have been mentioned in, as well as matching usernames, display names, and hashtags.' /> : <FormattedMessage id='search_popout.tips.text' defaultMessage='Simple text returns matching display names, usernames and hashtags' />;
     return (
-      <div className='search-popout'>
+      <div className='search-popout' style={style}>
         <h4><FormattedMessage id='search_popout.search_format' defaultMessage='Advanced search format' /></h4>
 
         <ul>
@@ -85,7 +86,11 @@ class Search extends React.PureComponent {
         this.context.router.history.push('/search');
       }
     } else if (e.key === 'Escape') {
-      document.querySelector('.ui').parentElement.focus();
+      claimEscape(e);
+
+      if (!hasOverlayLayers()) {
+        document.querySelector('.ui').parentElement.focus();
+      }
     }
   }
 

@@ -69,6 +69,7 @@ import server from './server';
 import accountContextViews from './account_context_views';
 import externalFeeds from './external_feeds';
 import externalBoosts from './external_boosts';
+import fullscreenColumn from './fullscreen_column';
 
 const reducers = {
   announcements,
@@ -139,6 +140,7 @@ const reducers = {
   accountContextViews,
   externalFeeds,
   externalBoosts,
+  fullscreenColumn,
 };
 
 const combined = combineReducers(reducers);
