@@ -18,7 +18,7 @@ RSpec.describe Fedibird::CapabilityCatalog do
         interface: 'browser_oauth',
         server_enabled: true,
         oauth_client_configured: true,
-        settings_path: '/settings/external_services/bluesky'
+        settings_path: '/settings/external_services/bluesky',
       )
       expect(info.dig(:rest, :supported)).not_to include('bluesky_oauth')
       expect(info[:activitypub]).not_to have_key(:bluesky_oauth)
