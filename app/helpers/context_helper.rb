@@ -36,6 +36,13 @@ module ContextHelper
     quote_uri: { 'fedibird' => 'http://fedibird.com/ns#', 'quoteUri' => 'fedibird:quoteUri' },
     expiry: { 'fedibird' => 'http://fedibird.com/ns#', 'expiry' => 'fedibird:expiry' },
     other_setting: { 'fedibird' => 'http://fedibird.com/ns#', 'otherSetting' => 'fedibird:otherSetting' },
+    fedibird_group_protocols: {
+      'fedibirdGroupProtocols' => {
+        '@id' => ActivityPub::GroupProtocolAdvertisement::PROPERTY_IRI,
+        '@type' => '@id',
+        '@container' => '@set',
+      },
+    },
     references: { 'fedibird' => 'http://fedibird.com/ns#', 'references' => { '@id' => "fedibird:references", '@type' => '@id' } },
     emoji_reactions: { 'fedibird' => 'http://fedibird.com/ns#', 'emojiReactions' => { '@id' => "fedibird:emojiReactions", '@type' => '@id' } },
     searchable_by: { 'fedibird' => 'http://fedibird.com/ns#', 'searchableBy' => { '@id' => "fedibird:searchableBy", '@type' => '@id' } },
