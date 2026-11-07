@@ -276,6 +276,20 @@ class EmojiPickerPanel extends React.PureComponent {
     this.props.onSkinTone(modifier);
   };
 
+  customRevision(custom) {
+    if (!custom || typeof custom.length !== 'number' || custom.length === 0) {
+      return 'empty';
+    }
+
+    return custom.map(emoji => {
+      if (!emoji) {
+        return '';
+      }
+
+      return emoji.id || (emoji.short_names && emoji.short_names[0]) || '';
+    }).join('\n');
+  }
+
   categories() {
     const { pickersEmoji } = this.props;
     const categories = pickersEmoji && pickersEmoji.get ? pickersEmoji.get('categories') : null;
@@ -334,6 +348,7 @@ class EmojiPickerPanel extends React.PureComponent {
           onModeChange={this.handleMode}
           onStandardModule={this.handleStandardModule}
           standardPickerProps={{
+            pickerRevision: this.customRevision(custom),
             custom,
             i18n: {
               search: intl.formatMessage(messages.emoji_search),

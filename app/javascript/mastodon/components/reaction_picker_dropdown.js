@@ -64,11 +64,9 @@ class ReactionPickerDropdown extends React.PureComponent {
     this.props.onClose(this.state.id);
   };
 
-  handlePick = (emoji, event) => {
-    if (!(event && (event.ctrlKey || event.metaKey))) {
-      this.skipTriggerFocus = true;
-    }
-
+  handlePick = (emoji) => {
+    // A reaction has no separate text field. Closing returns to the trigger,
+    // including after a normal selection. Ctrl/Meta does not close.
     this.props.onPickEmoji(emoji);
   };
 

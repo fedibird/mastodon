@@ -476,9 +476,14 @@ class EmojiPickerShell extends React.PureComponent {
 
     const Picker = standardModule.Picker;
     const focus = Boolean(autoFocus && standardAutoFocus && this.canTakeFocus());
+    const { pickerRevision, ...pickerProps } = standardPickerProps;
 
+    // Nimble builds custom categories in its constructor and ignores later
+    // custom/include updates. A new revision remounts it so a catalog that
+    // arrives after the module is ready still appears.
     return (
       <Picker
+        key={pickerRevision || 'standard'}
         sheetColumns={62}
         sheetRows={62}
         sheetSize={32}
@@ -490,7 +495,7 @@ class EmojiPickerShell extends React.PureComponent {
         showPreview={false}
         showSkinTones={false}
         backgroundImageFn={standardBackgroundImage}
-        {...standardPickerProps}
+        {...pickerProps}
         perLine={perLine}
         emojiSize={emojiSize}
         theme={preferredTheme(theme)}

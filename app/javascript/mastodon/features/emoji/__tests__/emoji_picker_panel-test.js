@@ -172,6 +172,64 @@ describe('EmojiPickerPanel', () => {
     expect(modalClose).not.toHaveBeenCalled();
   });
 
+  it('rebuilds the standard picker when custom emoji arrive after it mounts', async () => {
+    class ConstructorPicker extends React.Component {
+
+      static propTypes = {
+        custom: PropTypes.array,
+      };
+
+      constructor(props) {
+        super(props);
+        this.state = { custom: props.custom || [] };
+      }
+
+      render() {
+        return (
+          <div>
+            {this.state.custom.map(emoji => (
+              <button key={emoji.id} type='button' className='emoji-mart-emoji-custom'>{emoji.id}</button>
+            ))}
+          </div>
+        );
+      }
+
+    }
+
+    EmojiPicker.mockImplementation(() => Promise.resolve({
+      Picker: ConstructorPicker,
+      Emoji: function StandardEmojiStub() {
+        return null;
+      },
+    }));
+
+    const view = render(
+      <EmojiPickerPanel
+        initialMode='standard'
+        pickersEmoji={ImmutableMap({ categories: new Set(), custom_emojis: [] })}
+        onPick={jest.fn()}
+        onRequestClose={jest.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(EmojiPicker).toHaveBeenCalled());
+    expect(view.container.querySelector('.emoji-mart-emoji-custom')).toBeNull();
+
+    view.rerender(
+      <EmojiPickerPanel
+        initialMode='standard'
+        pickersEmoji={ImmutableMap({
+          categories: new Set(['custom']),
+          custom_emojis: [{ id: 'fedibird', short_names: ['fedibird'], custom: true }],
+        })}
+        onPick={jest.fn()}
+        onRequestClose={jest.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole('button', { name: 'fedibird' })).toHaveClass('emoji-mart-emoji-custom');
+  });
+
   it('preloads the standard module only when lazy load is explicitly off', async () => {
     await preloadStandardEmojiPickerIfNeeded(true);
     await preloadStandardEmojiPickerIfNeeded(undefined);

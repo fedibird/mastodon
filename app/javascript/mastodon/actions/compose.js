@@ -1335,9 +1335,11 @@ export function fetchComposerSuggestions(composerId, token) {
       fetchComposeSuggestionsEmojis(dispatch, getState, token, composerId);
       break;
     case '#':
+      latestEmojiToken.set(composerId, null);
       getTagSuggestionFetcher(composerId)(dispatch, getState, token);
       break;
     default:
+      latestEmojiToken.set(composerId, null);
       getAccountSuggestionFetcher(composerId)(dispatch, getState, token);
       break;
     }

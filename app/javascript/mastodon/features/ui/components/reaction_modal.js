@@ -38,8 +38,8 @@ class ReactionModal extends ImmutablePureComponent {
     onStandardActive: PropTypes.func,
   };
 
-  handlePick = (emoji) => {
-    this.props.onPickEmoji(emoji);
+  handlePick = (emoji, event) => {
+    this.props.onPickEmoji(emoji, event);
   };
 
   render () {

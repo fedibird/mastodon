@@ -7,7 +7,7 @@ import { useEmoji } from 'mastodon/actions/emojis';
 import { ensureCustomEmojis } from 'mastodon/actions/custom_emojis';
 import { getPickersEmoji, getFrequentlyUsedEmojis } from 'mastodon/selectors';
 import { isUserTouching } from 'mastodon/is_mobile';
-import { keepFieldFocusAfterModalClose } from 'mastodon/features/emoji/emoji_picker_focus';
+import { focusNotedComposeFieldAfterModalClose } from 'mastodon/features/emoji/emoji_picker_focus';
 
 const mapStateToProps = state => ({
   pickersEmoji: getPickersEmoji(state),
@@ -34,11 +34,15 @@ const mapDispatchToProps = (dispatch, { onPickEmoji, scrollKey }) => ({
   onOpen(id, keyboard) {
     dispatch(() => {
       dispatch(isUserTouching() ? openModal('REACTION', {
-        onPickEmoji: emoji => {
-          keepFieldFocusAfterModalClose();
+        onPickEmoji: (emoji, event) => {
+          const keepOpen = Boolean(event && (event.ctrlKey || event.metaKey));
 
           if (onPickEmoji) {
             onPickEmoji(emoji);
+          }
+
+          if (!keepOpen) {
+            focusNotedComposeFieldAfterModalClose();
           }
         },
         onSkinTone: skinTone => {

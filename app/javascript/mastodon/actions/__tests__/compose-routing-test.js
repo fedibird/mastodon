@@ -23,6 +23,7 @@ jest.mock('../../selectors', () => ({
 }));
 
 import api from '../../api';
+import { resetCustomEmojiCatalogForTests } from '../custom_emojis';
 import {
   COMPOSE_REFERENCE_ADD,
   COMPOSE_REPLY,
@@ -703,6 +704,80 @@ describe('composer async routing', () => {
       expect(request.mock.calls[0][0].method).toEqual('post');
       expect(request.mock.calls[0][0].data.status).toEqual('Hello');
       expect(request.mock.calls[0][0].data.visibility).toEqual('private');
+    });
+  });
+
+  describe('emoji suggestions', () => {
+    const suggestionTokens = (actions, composerId) => actions
+      .filter(action => action.type === COMPOSE_SUGGESTIONS_READY && action.meta && action.meta.composerId === composerId)
+      .map(action => action.token);
+
+    const installApi = catalog => {
+      const get = jest.fn(url => {
+        if (url === '/api/v1/custom_emojis') {
+          return catalog;
+        }
+
+        if (url === '/api/v1/accounts/search') {
+          return Promise.resolve({ data: [{ id: '1', acct: 'alice' }] });
+        }
+
+        if (url === '/api/v2/search') {
+          return Promise.resolve({ data: { hashtags: [{ name: 'alice' }] } });
+        }
+
+        return Promise.resolve({ data: [] });
+      });
+
+      api.mockReturnValue({ get });
+      return get;
+    };
+
+    beforeEach(() => {
+      resetCustomEmojiCatalogForTests();
+    });
+
+    afterEach(() => {
+      resetCustomEmojiCatalogForTests();
+    });
+
+    it('does not republish emoji suggestions after the token becomes a mention or hashtag', async () => {
+      let finishCatalog;
+      const catalog = new Promise(resolve => {
+        finishCatalog = resolve;
+      });
+
+      installApi(catalog);
+      const { store, actions } = makeStore();
+
+      store.dispatch(createComposer('composer-emoji'));
+      store.dispatch(fetchComposerSuggestions('composer-emoji', ':smile'));
+      store.dispatch(fetchComposerSuggestions('composer-emoji', '@alice'));
+      await Promise.resolve();
+      await Promise.resolve();
+      finishCatalog({ data: [] });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(suggestionTokens(actions, 'composer-emoji')).toEqual([':smile', '@alice']);
+
+      actions.length = 0;
+      resetCustomEmojiCatalogForTests();
+      let finishSecond;
+      const second = new Promise(resolve => {
+        finishSecond = resolve;
+      });
+
+      installApi(second);
+      store.dispatch(fetchComposerSuggestions('composer-emoji', ':wave'));
+      store.dispatch(fetchComposerSuggestions('composer-emoji', '#alice'));
+      await Promise.resolve();
+      await Promise.resolve();
+      finishSecond({ data: [] });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(suggestionTokens(actions, 'composer-emoji')).toEqual([':wave', '#alice']);
     });
   });
 });

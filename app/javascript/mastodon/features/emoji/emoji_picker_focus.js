@@ -1,18 +1,30 @@
-// Compose insertion focuses the textarea. ModalRoot restores the trigger on
-// the next microtask. A pick sets this so that restore does not run. Cancel
-// leaves it unset and the trigger receives focus again.
-let suppressNextModalFocusRestore = false;
+// The compose field is recorded when an emoji is inserted. A touch-modal pick
+// that actually closes promotes that field to the post-inert focus target.
+// Ctrl/Meta keeps the modal open and does not promote it, so a later Escape
+// still returns to the trigger. Undefined means "use the trigger".
+let notedComposeField = null;
+let fieldAfterClose;
 
-export function keepFieldFocusAfterModalClose() {
-  suppressNextModalFocusRestore = true;
+export function noteComposeInsertionField(element) {
+  notedComposeField = element && typeof element.focus === 'function' ? element : null;
 }
 
-export function takeModalFocusRestore() {
-  const suppress = suppressNextModalFocusRestore;
-  suppressNextModalFocusRestore = false;
-  return suppress;
+export function focusNotedComposeFieldAfterModalClose() {
+  fieldAfterClose = notedComposeField;
+  notedComposeField = null;
+}
+
+export function takeModalFocusTarget() {
+  if (fieldAfterClose === undefined) {
+    return undefined;
+  }
+
+  const field = fieldAfterClose;
+  fieldAfterClose = undefined;
+  return field;
 }
 
 export function resetEmojiPickerFocusForTests() {
-  suppressNextModalFocusRestore = false;
+  notedComposeField = null;
+  fieldAfterClose = undefined;
 }
