@@ -40,7 +40,7 @@ module Fedibird
             scope: 'authenticated_user',
             document_path: '/api/v1/fedibird/preferences',
             schema_path: '/api/v1/fedibird/preferences/schema',
-            read_scope: 'read:preferences',
+            read_scopes_any: %w(read read:preferences),
             write_scope: 'write:preferences',
           },
           posting_identities: {
