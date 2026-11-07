@@ -120,6 +120,45 @@ describe('EmojiPickerPanel', () => {
     expect(await screen.findByRole('button', { name: 'Standard smile' })).toBeInTheDocument();
   });
 
+
+  it('anchors the skin-tone selector to the standard picker below the mode bar', async () => {
+    const onSkinTone = jest.fn();
+
+    EmojiPicker.mockImplementation(() => Promise.resolve({
+      Picker: StandardPickerStub,
+      Emoji: function ModifierEmojiStub({ onClick }) {
+        return onClick ? <button type='button' aria-label='Skin tone' onClick={onClick} /> : null;
+      },
+    }));
+
+    const { container } = render(
+      <EmojiPickerPanel
+        initialMode='standard'
+        pickersEmoji={pickerData}
+        onPick={jest.fn()}
+        onRequestClose={jest.fn()}
+        onSkinTone={onSkinTone}
+      />,
+    );
+
+    const smile = await screen.findByRole('button', { name: 'Standard smile' });
+    const standard = smile.closest('.emoji-picker-shell__standard');
+
+    expect(standard).not.toBeNull();
+    expect(standard.querySelector('.emoji-picker-dropdown__modifiers')).not.toBeNull();
+    expect(container.querySelector('.emoji-picker-dropdown__menu > .emoji-picker-dropdown__modifiers')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skin tone' }));
+    const option = standard.querySelector('.emoji-picker-dropdown__modifiers__menu button[data-index="3"]');
+
+    expect(option).not.toBeNull();
+    fireEvent.click(option);
+    expect(onSkinTone).toHaveBeenCalledWith(3);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personal set' }));
+    expect(container.querySelector('.emoji-picker-dropdown__modifiers')).toBeNull();
+  });
+
   it('loads the standard picker only after an explicit switch and keeps a copied native fallback', async () => {
     const seen = [];
     const onPick = jest.fn(emoji => {
