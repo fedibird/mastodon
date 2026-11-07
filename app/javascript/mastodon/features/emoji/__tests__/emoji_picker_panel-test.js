@@ -124,11 +124,21 @@ describe('EmojiPickerPanel', () => {
   it('anchors the skin-tone selector to the standard picker below the mode bar', async () => {
     const onSkinTone = jest.fn();
 
+    class ModifierEmojiStub extends React.PureComponent {
+
+      static propTypes = {
+        onClick: PropTypes.func,
+      };
+
+      render() {
+        return this.props.onClick ? <button type='button' aria-label='Skin tone' onClick={this.props.onClick} /> : null;
+      }
+
+    }
+
     EmojiPicker.mockImplementation(() => Promise.resolve({
       Picker: StandardPickerStub,
-      Emoji: function ModifierEmojiStub({ onClick }) {
-        return onClick ? <button type='button' aria-label='Skin tone' onClick={onClick} /> : null;
-      },
+      Emoji: ModifierEmojiStub,
     }));
 
     const { container } = render(
