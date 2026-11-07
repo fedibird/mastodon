@@ -33,11 +33,14 @@ const mapStateToProps = (state) => {
     postingContext = buildHashtagTimelinePostingContext(key);
   }
 
+  const modalStack = state.get('modal');
+
   return {
     session,
     layout: state.getIn(['meta', 'layout']),
     postingContext,
     postingContextAccountId,
+    modalOpen: !!(modalStack && modalStack.size),
   };
 };
 
@@ -53,6 +56,7 @@ class FullscreenColumnHost extends React.PureComponent {
     layout: PropTypes.string,
     postingContext: PropTypes.object,
     postingContextAccountId: PropTypes.string,
+    modalOpen: PropTypes.bool,
   };
 
   componentDidMount () {
@@ -212,12 +216,26 @@ class FullscreenColumnHost extends React.PureComponent {
     }
 
     const { pathname, search, hash, state } = history.location;
-
-    history.push(`${pathname}${search}${hash}`, {
+    const nextState = {
       ...(state || {}),
       mastodonFullscreenKey: session.get('viewId'),
       mastodonFullscreenDepth: depth,
-    });
+    };
+
+    delete nextState.mastodonModalKey;
+
+    const href = `${pathname}${search}${hash}`;
+    // The modal entry is the current history slot. Replacing it is one
+    // transition: the modal's later goBack must not pop the layer that just
+    // opened, and the modal entry must not stay underneath it.
+    const modalEntryClosing = !!(state && state.mastodonModalKey) && !this.props.modalOpen;
+
+    if (modalEntryClosing) {
+      history.replace(href, nextState);
+      return;
+    }
+
+    history.push(href, nextState);
   }
 
   onHistory = (location, action) => {

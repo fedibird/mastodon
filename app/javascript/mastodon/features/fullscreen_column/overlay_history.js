@@ -39,7 +39,7 @@ export const createOverlayHref = (loc) => {
   return `${loc.pathname || ''}${loc.search || ''}${loc.hash || ''}`;
 };
 
-export const createOverlayHistory = ({ location, onNavigate, onBack }) => {
+export const createOverlayHistory = ({ location, onNavigate, onBack, createHref }) => {
   const current = {
     pathname: '/',
     search: '',
@@ -103,7 +103,7 @@ export const createOverlayHistory = ({ location, onNavigate, onBack }) => {
     listen () {
       return () => {};
     },
-    createHref: createOverlayHref,
+    createHref: typeof createHref === 'function' ? createHref : createOverlayHref,
     get location () {
       return current;
     },
@@ -134,6 +134,7 @@ export class FullscreenRouter extends React.Component {
       location: root ? root.location : { pathname: '/', search: '', hash: '', state: null },
       onNavigate: props.onNavigate,
       onBack: props.onBack,
+      createHref: root && root.createHref ? (loc) => root.createHref(loc) : undefined,
     });
   }
 

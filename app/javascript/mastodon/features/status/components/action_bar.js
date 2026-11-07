@@ -95,15 +95,24 @@ const translationBarRevealed = (state, status) => {
   return !!(overrides && typeof overrides.has === 'function' && overrides.has(status.get('id')));
 };
 
-const mapStateToProps = (state, { status, translationStatus }) => {
+export const detailReferenceState = (state, status, composerId) => {
+  const compose = composerId ? state.getIn(['composers', 'byId', composerId]) : state.get('compose');
+  const references = compose ? compose.get('references') : null;
+
+  return {
+    referenceCountLimit: !!(references && references.size >= maxReferences),
+    selected: !!(references && status && references.has(status.get('id'))),
+    composePrivacy: compose ? compose.get('privacy') : undefined,
+    editing: !!(compose && compose.get('id')),
+  };
+};
+
+const mapStateToProps = (state, { status, translationStatus, composerId }) => {
   const subject = translationStatus || status;
 
   return {
     relationship: state.getIn(['relationships', status.getIn(['account', 'id'])]),
-    referenceCountLimit: state.getIn(['compose', 'references']).size >= maxReferences,
-    selected: state.getIn(['compose', 'references']).has(status.get('id')),
-    composePrivacy: state.getIn(['compose', 'privacy']),
-    editing: !!state.getIn(['compose', 'id']),
+    ...detailReferenceState(state, status, composerId),
     translationBarRevealed: translationBarRevealed(state, subject),
     acceptedTranslationBarVisibility: selectAcceptedTranslationPreferences(state).visibility,
     translationAssumption: state.getIn(['translation_assumptions', subject.get('id')]),
@@ -122,6 +131,7 @@ class ActionBar extends React.PureComponent {
 
   static propTypes = {
     status: ImmutablePropTypes.map.isRequired,
+    composerId: PropTypes.string,
     translationStatus: ImmutablePropTypes.map,
     dispatch: PropTypes.func.isRequired,
     referenced: PropTypes.bool,
@@ -130,6 +140,7 @@ class ActionBar extends React.PureComponent {
     referenceCountLimit: PropTypes.bool,
     selected: PropTypes.bool,
     composePrivacy: PropTypes.string,
+    editing: PropTypes.bool,
     onReply: PropTypes.func.isRequired,
     onReblog: PropTypes.func.isRequired,
     onQuote: PropTypes.func.isRequired,

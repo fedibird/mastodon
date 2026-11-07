@@ -141,6 +141,25 @@ describe('fullscreen navigation and layers', () => {
     expect(overlay).toEqual([]);
   });
 
+  it('keeps the /web basename on links opened from the fullscreen column', () => {
+    const root = createMemoryHistory({ initialEntries: ['/timelines/home'] });
+    const pathHref = root.createHref.bind(root);
+
+    root.createHref = (location) => `/web${pathHref(location)}`;
+    const remember = () => {};
+    const ignoreBack = () => {};
+    const { getByText } = render(React.createElement(Router, { history: root },
+      React.createElement(FullscreenRouter, { onNavigate: remember, onBack: ignoreBack },
+        React.createElement(Link, { to: '/statuses/42' }, 'Open status'),
+        React.createElement(NavLink, { to: '/accounts/7' }, 'Account'),
+      ),
+    ));
+
+    expect(getByText('Open status').getAttribute('href')).toBe('/web/statuses/42');
+    expect(getByText('Account').getAttribute('href')).toBe('/web/accounts/7');
+    expect(root.location.pathname).toBe('/timelines/home');
+  });
+
   it('keeps a frozen media-modal reply on its captured composer', () => {
     const actions = [];
     const state = fromJS({

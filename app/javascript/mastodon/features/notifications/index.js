@@ -107,6 +107,7 @@ class Notifications extends React.PureComponent {
     needsNotificationPermission: PropTypes.bool,
     passive: PropTypes.bool,
     scrollKey: PropTypes.string,
+    composerId: PropTypes.string,
   };
 
   static defaultProps = {
@@ -253,6 +254,7 @@ class Notifications extends React.PureComponent {
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
           unread={lastReadId !== '0' && compareId(item.get('id'), lastReadId) > 0}
+          composerId={this.props.composerId}
         />
       ));
     } else {

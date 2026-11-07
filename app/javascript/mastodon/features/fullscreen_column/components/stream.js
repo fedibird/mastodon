@@ -371,6 +371,7 @@ class FullscreenStream extends React.PureComponent {
       <div className='scrollable fullscreen-column__search'>
         <SearchResults
           passive
+          composerId={this.props.composerId}
           results={searchResults}
           suggestions={searchSuggestions || empty}
           searchTerm={searchTerm || ''}
@@ -402,7 +403,7 @@ class FullscreenStream extends React.PureComponent {
     } else if (kind === 'account_media') {
       body = this.renderAccountMedia();
     } else if (kind === 'notifications') {
-      body = <Notifications passive scrollKey={`fullscreen:${this.props.viewId}`} />;
+      body = <Notifications passive composerId={this.props.composerId} scrollKey={`fullscreen:${this.props.viewId}`} />;
     } else if (kind === 'direct') {
       body = (
         <ConversationsListContainer

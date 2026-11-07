@@ -782,6 +782,7 @@ export class Status extends ImmutablePureComponent {
                 <ActionBar
                   key={`action-bar-${status.get('id')}`}
                   status={status}
+                  composerId={this.props.composerId}
                   translationStatus={translationRequestStatus(status)}
                   referenced={referenced}
                   contextReferenced={contextReferenced}
