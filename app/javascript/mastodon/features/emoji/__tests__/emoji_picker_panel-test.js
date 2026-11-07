@@ -184,12 +184,34 @@ describe('EmojiPickerPanel', () => {
         this.state = { custom: props.custom || [] };
       }
 
+      handleChange = () => {
+        const value = this.input ? this.input.value : '';
+
+        this.setState({ query: value });
+      };
+
+      setInput = node => {
+        this.input = node;
+      };
+
       render() {
+        const query = this.state.query || '';
+
         return (
           <div>
             <div className='emoji-mart-search'>
-              <input type='search' aria-label='Standard search' />
+              <input
+                ref={this.setInput}
+                type='search'
+                aria-label='Standard search'
+                onChange={this.handleChange}
+              />
+              <button type='button' aria-label='Clear' disabled={query === ''}>Clear</button>
             </div>
+            <div className='emoji-mart-search-results' hidden={query === ''}>
+              {query === '' ? '0' : '20'} results
+            </div>
+            <div className='emoji-mart-category' hidden={query !== ''}>People</div>
             {this.state.custom.map(emoji => (
               <button key={emoji.id} type='button' className='emoji-mart-emoji-custom'>{emoji.id}</button>
             ))}
@@ -219,6 +241,9 @@ describe('EmojiPickerPanel', () => {
 
     search.focus();
     fireEvent.change(search, { target: { value: 'smile' } });
+    expect(screen.getByRole('button', { name: 'Clear' })).toBeEnabled();
+    expect(screen.getByText('20 results')).not.toHaveAttribute('hidden');
+    expect(screen.getByText('People')).toHaveAttribute('hidden');
     expect(view.container.querySelector('.emoji-mart-emoji-custom')).toBeNull();
 
     view.rerender(
@@ -237,6 +262,9 @@ describe('EmojiPickerPanel', () => {
 
     expect(restored.value).toBe('smile');
     expect(document.activeElement).toBe(restored);
+    expect(screen.getByRole('button', { name: 'Clear' })).toBeEnabled();
+    expect(screen.getByText('20 results')).not.toHaveAttribute('hidden');
+    expect(screen.getByText('People')).toHaveAttribute('hidden');
     expect(screen.getByRole('button', { name: 'fedibird' })).toHaveClass('emoji-mart-emoji-custom');
   });
 

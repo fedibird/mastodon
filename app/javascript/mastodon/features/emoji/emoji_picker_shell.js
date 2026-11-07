@@ -197,6 +197,12 @@ class EmojiPickerShell extends React.PureComponent {
 
     if (snapshot.value) {
       input.value = snapshot.value;
+      // React 16 records this assignment in the value tracker. A following
+      // input event with the same value never reaches Nimble's onChange, so
+      // the new picker would show the text without its search results.
+      if (input._valueTracker) {
+        input._valueTracker.setValue('');
+      }
       input.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
