@@ -120,7 +120,6 @@ describe('EmojiPickerPanel', () => {
     expect(await screen.findByRole('button', { name: 'Standard smile' })).toBeInTheDocument();
   });
 
-
   it('anchors the skin-tone selector to the standard picker below the mode bar', async () => {
     const onSkinTone = jest.fn();
 
