@@ -10,15 +10,12 @@ import RelativeTimestamp from '../../../components/relative_timestamp';
 import DisplayName from '../../../components/display_name';
 import ExternalSourceIdentity, { TimeLink } from '../../../components/external_source_identity';
 import { externalIdentityOf } from 'mastodon/external_presentation';
-import emojiCompressed from 'mastodon/features/emoji/emoji_compressed';
 import classNames from 'classnames';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { EmojiPicker as EmojiPickerAsync } from '../util/async-components';
 import { assetHost } from 'mastodon/utils/config';
 import { pickerEmojiSize, disableRelativeTime } from 'mastodon/initial_state';
-
-const nimblePickerData = emojiCompressed[5];
 
 const messages = defineMessages({
   emoji: { id: 'emoji_button.label', defaultMessage: 'Insert emoji' },
@@ -46,7 +43,6 @@ const backgroundImageFn = () => `${assetHost}/emoji/sheet_15.png`;
 const notFoundFn = () => (
   <div className='emoji-mart-no-results'>
     <Emoji
-      data={nimblePickerData}
       emoji='sleuth_or_spy'
       set='twitter'
       size={32}
@@ -111,12 +107,12 @@ class ModifierPickerMenu extends React.PureComponent {
 
     return (
       <div className='emoji-picker-dropdown__modifiers__menu' style={{ display: active ? 'block' : 'none' }} ref={this.setRef}>
-        <button onClick={this.handleClick} data-index={1}><Emoji data={nimblePickerData} sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={1} backgroundImageFn={backgroundImageFn} /></button>
-        <button onClick={this.handleClick} data-index={2}><Emoji data={nimblePickerData} sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={2} backgroundImageFn={backgroundImageFn} /></button>
-        <button onClick={this.handleClick} data-index={3}><Emoji data={nimblePickerData} sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={3} backgroundImageFn={backgroundImageFn} /></button>
-        <button onClick={this.handleClick} data-index={4}><Emoji data={nimblePickerData} sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={4} backgroundImageFn={backgroundImageFn} /></button>
-        <button onClick={this.handleClick} data-index={5}><Emoji data={nimblePickerData} sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={5} backgroundImageFn={backgroundImageFn} /></button>
-        <button onClick={this.handleClick} data-index={6}><Emoji data={nimblePickerData} sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={6} backgroundImageFn={backgroundImageFn} /></button>
+        <button onClick={this.handleClick} data-index={1}><Emoji sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={1} backgroundImageFn={backgroundImageFn} /></button>
+        <button onClick={this.handleClick} data-index={2}><Emoji sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={2} backgroundImageFn={backgroundImageFn} /></button>
+        <button onClick={this.handleClick} data-index={3}><Emoji sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={3} backgroundImageFn={backgroundImageFn} /></button>
+        <button onClick={this.handleClick} data-index={4}><Emoji sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={4} backgroundImageFn={backgroundImageFn} /></button>
+        <button onClick={this.handleClick} data-index={5}><Emoji sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={5} backgroundImageFn={backgroundImageFn} /></button>
+        <button onClick={this.handleClick} data-index={6}><Emoji sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={6} backgroundImageFn={backgroundImageFn} /></button>
       </div>
     );
   }
@@ -151,7 +147,7 @@ class ModifierPicker extends React.PureComponent {
 
     return (
       <div className='emoji-picker-dropdown__modifiers'>
-        <Emoji data={nimblePickerData} sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={modifier} onClick={this.handleClick} backgroundImageFn={backgroundImageFn} />
+        <Emoji sheetColumns={62} sheetRows={62} emoji='fist' set='twitter' size={22} sheetSize={32} skin={modifier} onClick={this.handleClick} backgroundImageFn={backgroundImageFn} />
         <ModifierPickerMenu active={active} onSelect={this.handleSelect} onClose={this.props.onClose} />
       </div>
     );
@@ -283,7 +279,6 @@ class ReactionPicker extends React.PureComponent {
     return (
       <div className={classNames('emoji-picker-dropdown__menu', { selecting: modifierOpen })} style={style} ref={this.setRef}>
         <EmojiPicker
-          data={nimblePickerData}
           sheetColumns={62}
           sheetRows={62}
           perLine={Math.floor(34 * 8 / (emojiSize + 12))}
