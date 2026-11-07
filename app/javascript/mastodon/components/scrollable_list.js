@@ -34,6 +34,8 @@ import {
 } from '../timeline_navigation';
 
 const MOUSE_IDLE_DELAY = 300;
+const MASONRY_SCROLL_IDLE_DELAY = 500;
+const MASONRY_ANCHOR_EPSILON = 0.5;
 
 const mapStateToProps = (state, { scrollKey }) => {
   return {
@@ -155,6 +157,12 @@ class ScrollableList extends PureComponent {
       const headerScroll = this._headerScrollActive();
       const anchorJump = headerScroll || this._isAnchorJumpScroll(scrollTop);
 
+      // Momentum scroll events continue after touch release. Record native
+      // movement before any throttled anchor correction can run.
+      if (!anchorJump && !this.lastScrollWasSynthetic && !this._suppressUserScroll) {
+        this._lastNativeScrollAt = Date.now();
+      }
+
       // A jump to an already loaded row must not page in more. A real user
       // scroll, including one that arrives before this throttled call runs,
       // still loads when it is within 400px of the end.
@@ -209,6 +217,10 @@ class ScrollableList extends PureComponent {
   _syntheticScrollDepth = 0;
   _anchorScrollSuppressedLoad = false;
   _syntheticScrollTop = null;
+  _lastNativeScrollAt = -Infinity;
+
+  _hasActiveMasonryScroll = () => isCardTimelineLayout(this.props.layoutMode) &&
+    Date.now() - this._lastNativeScrollAt < MASONRY_SCROLL_IDLE_DELAY;
 
   _isAnchorJumpScroll = (scrollTop) => {
     if (this._syntheticScrollDepth > 0) {
@@ -271,6 +283,7 @@ class ScrollableList extends PureComponent {
   }
 
   _markUserScrollIntent = () => {
+    this._lastNativeScrollAt = Date.now();
     this._disarmMouseIdle();
     this._programmaticTopScrollSeen = false;
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
@@ -320,6 +333,7 @@ class ScrollableList extends PureComponent {
   };
 
   _retireMouseIdle = () => {
+    this._lastNativeScrollAt = -Infinity;
     this._mouseIdleSession += 1;
     this._disarmMouseIdle();
     this.mouseMovedRecently = false;
@@ -533,6 +547,12 @@ class ScrollableList extends PureComponent {
     const variableHeightMasonry = isCardTimelineLayout(this.props.layoutMode) ||
       (this.props.layoutMode === 'media' && this.state.mediaShape === 'original');
 
+    // Native momentum is a user-driven animation, not a fixed reading anchor.
+    // A snapshot taken while it runs would write scrollTop during the swipe.
+    if (variableHeightMasonry && this._hasActiveMasonryScroll()) {
+      return null;
+    }
+
     // A bounded Live window may replace the oldest post with a new one,
     // keeping the item count unchanged. Pinned posts also keep the first
     // child key unchanged. Use the same prepend identity rule as Masonry.
@@ -619,18 +639,22 @@ class ScrollableList extends PureComponent {
   // ResizeObserver update only re-renders TimelineMasonry. Use the exact same
   // viewport-relative tile anchor for those child-only layout changes.
   captureMasonryLayoutAnchor = () => {
-    if (!this.node || this._anchorUnmounted ||
+    if (!this.node || this._anchorUnmounted || this._hasActiveMasonryScroll() ||
         isProgrammaticTopScroll(this._getScrollingElement()) ||
         (this.isFollowingLatest() && !this.mouseMovedRecently && !this.props.preventScroll)) {
       return null;
     }
 
-    return this.captureVisibleMasonryItem();
+    const anchor = this.captureVisibleMasonryItem();
+    return anchor ? { ...anchor, scrollTop: this.getScrollTop() } : null;
   }
 
   restoreMasonryLayoutAnchor = snapshot => {
     if (!snapshot || !snapshot.key || this._anchorUnmounted ||
-        isProgrammaticTopScroll(this._getScrollingElement())) {
+        this._hasActiveMasonryScroll() ||
+        isProgrammaticTopScroll(this._getScrollingElement()) ||
+        (typeof snapshot.scrollTop === 'number' &&
+         Math.abs(this.getScrollTop() - snapshot.scrollTop) > MASONRY_ANCHOR_EPSILON)) {
       return;
     }
 
@@ -641,6 +665,10 @@ class ScrollableList extends PureComponent {
   }
 
   _scheduleMasonryAnchorCorrection = (snapshot) => {
+    if (this._hasActiveMasonryScroll()) {
+      return;
+    }
+
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     const generation = this._anchorGeneration;
     this._cancelAnchorCorrection();
@@ -651,10 +679,11 @@ class ScrollableList extends PureComponent {
       frames: 2,
       shouldAbort: () => (
         this._anchorUnmounted ||
+        this._hasActiveMasonryScroll() ||
         this._anchorGeneration !== generation ||
         this._currentLocationKey() !== locationKey ||
         isProgrammaticTopScroll(this._getScrollingElement()) ||
-        Math.abs(this.getScrollTop() - cursor.top) > 1
+        Math.abs(this.getScrollTop() - cursor.top) > MASONRY_ANCHOR_EPSILON
       ),
       apply: () => {
         const before = this._beginSyntheticAnchorScroll();
@@ -727,14 +756,19 @@ class ScrollableList extends PureComponent {
       this.attachScrollListener();
       this.attachIntersectionObserver();
     }
-    // Reset the scroll position when a new child comes in in order not to
-    // jerk the scrollbar around if you're already scrolled down the page.
-    if (snapshot && snapshot.masonryAnchor) {
-      this.restoreMasonryLayoutAnchor(snapshot);
-    } else if (snapshot && snapshot.anchor) {
-      this.restoreArticleAnchor(snapshot);
-    } else if (snapshot !== null) {
-      this.setScrollTop(this.getScrollHeight() - snapshot);
+    // Preserve native momentum when a parent update inserts/reorders cards.
+    // Quiet periods still receive the usual reading-anchor correction.
+    const activeMasonryScroll = (isCardTimelineLayout(this.props.layoutMode) ||
+      (this.props.layoutMode === 'media' && this.state.mediaShape === 'original')) &&
+      this._hasActiveMasonryScroll();
+    if (!activeMasonryScroll) {
+      if (snapshot && snapshot.masonryAnchor) {
+        this.restoreMasonryLayoutAnchor(snapshot);
+      } else if (snapshot && snapshot.anchor) {
+        this.restoreArticleAnchor(snapshot);
+      } else if (snapshot !== null) {
+        this.setScrollTop(this.getScrollHeight() - snapshot);
+      }
     }
 
     if (prevProps.scrollKey !== this.props.scrollKey || prevProps.bindToDocument !== this.props.bindToDocument || prevProps.anchorSourceKey !== this.props.anchorSourceKey || !!prevProps.windowedHistory !== !!this.props.windowedHistory || !!prevProps.readingSurface !== !!this.props.readingSurface) {
