@@ -4,8 +4,10 @@ import { openModal, closeModal } from 'mastodon/actions/modal';
 import { openDropdownMenu, closeDropdownMenu } from 'mastodon/actions/dropdown_menu';
 import { changeSetting } from 'mastodon/actions/settings';
 import { useEmoji } from 'mastodon/actions/emojis';
+import { ensureCustomEmojis } from 'mastodon/actions/custom_emojis';
 import { getPickersEmoji, getFrequentlyUsedEmojis } from 'mastodon/selectors';
 import { isUserTouching } from 'mastodon/is_mobile';
+import { keepFieldFocusAfterModalClose } from 'mastodon/features/emoji/emoji_picker_focus';
 
 const mapStateToProps = state => ({
   pickersEmoji: getPickersEmoji(state),
@@ -27,17 +29,21 @@ const mapDispatchToProps = (dispatch, { onPickEmoji, scrollKey }) => ({
     }
   },
 
-  onOpen(id, keyboard) {
-    dispatch((_, getState) => {
-      let state = getState();
+  onStandardActive: () => dispatch(ensureCustomEmojis()),
 
+  onOpen(id, keyboard) {
+    dispatch(() => {
       dispatch(isUserTouching() ? openModal('REACTION', {
-        onPickEmoji: onPickEmoji,
+        onPickEmoji: emoji => {
+          keepFieldFocusAfterModalClose();
+
+          if (onPickEmoji) {
+            onPickEmoji(emoji);
+          }
+        },
         onSkinTone: skinTone => {
           dispatch(changeSetting(['skinTone'], skinTone));
         },
-        pickersEmoji: getPickersEmoji(state),
-        frequentlyUsedEmojis: getFrequentlyUsedEmojis(state),
       }) : openDropdownMenu(id, keyboard, scrollKey));
     });
   },

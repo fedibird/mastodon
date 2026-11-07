@@ -9,6 +9,8 @@ import { List as ImmutableList } from 'immutable';
 import * as emojiModule from 'mastodon/features/emoji/emoji';
 
 import Emoji from './emoji';
+import { ensureCustomEmojis } from 'mastodon/actions/custom_emojis';
+import { textNeedsCustomEmojiCatalog } from 'mastodon/features/emoji/custom_emoji_demand';
 
 const EMPTY_CUSTOM_EMOJIS = ImmutableList();
 const EMPTY_EMOJI_MAP = {};
@@ -100,8 +102,15 @@ const renderShortcodes = (text, emojiMap, titleIndex, nodes) => {
   }
 };
 
-export const FilterReason = ({ titles, customEmojis = EMPTY_CUSTOM_EMOJIS }) => {
+export const FilterReason = ({ titles, customEmojis = EMPTY_CUSTOM_EMOJIS, onNeedCustomEmojis }) => {
   const list = titleList(titles);
+  const signature = list ? list.map(title => titleToString(title)).join('\n') : '';
+
+  React.useEffect(() => {
+    if (onNeedCustomEmojis && textNeedsCustomEmojiCatalog(signature)) {
+      onNeedCustomEmojis();
+    }
+  }, [signature, onNeedCustomEmojis]);
 
   if (!list || list.isEmpty()) {
     return null;
@@ -131,10 +140,15 @@ FilterReason.propTypes = {
     ImmutablePropTypes.list,
   ]),
   customEmojis: ImmutablePropTypes.list,
+  onNeedCustomEmojis: PropTypes.func,
 };
 
 const mapStateToProps = state => ({
   customEmojis: (state && typeof state.get === 'function' && state.get('custom_emojis')) || EMPTY_CUSTOM_EMOJIS,
 });
 
-export default connect(mapStateToProps)(FilterReason);
+const mapDispatchToProps = dispatch => ({
+  onNeedCustomEmojis: () => dispatch(ensureCustomEmojis()),
+});
+
+export default connect(mapStateToProps, mapDispatchToProps)(FilterReason);

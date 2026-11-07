@@ -40,6 +40,10 @@ RSpec.describe InitialStateSerializer do
 
       expect(meta[:reduce_motion]).to eq user.setting_reduce_motion
       expect(meta[:reduce_motion]).to be false
+      expect(meta[:emoji_picker_prefer_personal]).to be false
+      expect(meta[:emoji_picker_prefer_personal]).to eq user.setting_emoji_picker_prefer_personal
+      expect(meta[:emoji_picker_lazy_load_standard]).to be true
+      expect(meta[:emoji_picker_lazy_load_standard]).to eq user.setting_emoji_picker_lazy_load_standard
       expect(meta[:new_features_policy]).to eq 'default'
       expect(meta[:new_features_policy]).to eq user.setting_new_features_policy
       expect(meta[:content_font_size]).to eq 15
@@ -84,6 +88,16 @@ RSpec.describe InitialStateSerializer do
       expect(json[:compose][:default_privacy]).to eq user.setting_default_privacy
       expect(json[:compose][:default_sensitive]).to be false
       expect(json[:compose][:default_sensitive]).to eq user.setting_default_sensitive
+    end
+
+    it 'keeps a stored false for both emoji picker settings' do
+      store_setting(user, 'emoji_picker_prefer_personal', false)
+      store_setting(user, 'emoji_picker_lazy_load_standard', false)
+      meta = serialize(user.account)[:meta]
+
+      expect(meta[:emoji_picker_prefer_personal]).to be false
+      expect(meta[:emoji_picker_lazy_load_standard]).to be false
+      expect(meta[:emoji_picker_lazy_load_standard]).to eq user.setting_emoji_picker_lazy_load_standard
     end
 
     it 'distinguishes a stored nil language from the derived compose language' do
@@ -143,6 +157,8 @@ RSpec.describe InitialStateSerializer do
       expect(json[:meta][:reduce_motion]).to eq Setting.reduce_motion
       expect(json[:meta]).not_to have_key(:content_font_size)
       expect(json[:meta]).not_to have_key(:emoji_reaction_fallback_policy)
+      expect(json[:meta]).not_to have_key(:emoji_picker_prefer_personal)
+      expect(json[:meta]).not_to have_key(:emoji_picker_lazy_load_standard)
       expect(json[:meta]).not_to have_key(:translation_bar_visibility)
       expect(json[:compose]).not_to have_key(:default_privacy)
       expect(json[:meta][:enable_local_timeline]).to be_nil

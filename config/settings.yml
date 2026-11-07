@@ -203,6 +203,13 @@ defaults: &defaults
   enable_status_polling: false
   enable_status_polling_intersection: false
   disable_auto_focus_to_emoji_search: false
+  # Personal set first. Off shows the standard picker when a picker opens.
+  emoji_picker_prefer_personal: false
+  # On skips the standard picker module until that mode is actually opened.
+  # Off may preload it at page load without changing the visible mode.
+  # A saved change applies on the next full page load and does not unload a
+  # module that has already been fetched.
+  emoji_picker_lazy_load_standard: true
   reject_pattern: ''
   reject_blurhash: ''
   max_frequently_used_emojis: 16

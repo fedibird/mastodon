@@ -5,6 +5,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import IconButton from 'mastodon/components/icon_button';
 import Icon from 'mastodon/components/icon';
+import { textNeedsCustomEmojiCatalog } from 'mastodon/features/emoji/custom_emoji_demand';
 import { defineMessages, injectIntl, FormattedMessage, FormattedDate } from 'react-intl';
 import { autoPlayEmoji, reduceMotion, disableSwiping } from 'mastodon/initial_state';
 import { reduceMotionNow, watchReduceMotion } from 'mastodon/utils/appearance_preferences';
@@ -402,6 +403,7 @@ class Announcements extends ImmutablePureComponent {
     dismissAnnouncement: PropTypes.func.isRequired,
     addReaction: PropTypes.func.isRequired,
     removeReaction: PropTypes.func.isRequired,
+    onNeedCustomEmojis: PropTypes.func,
     intl: PropTypes.object.isRequired,
   };
 
@@ -420,6 +422,7 @@ class Announcements extends ImmutablePureComponent {
   componentDidMount () {
     this.stopReduceMotion = watchReduceMotion(this, reduceMotion);
     this._markAnnouncementAsRead();
+    this.requestEmojiCatalog();
   }
 
   componentWillUnmount () {
@@ -430,6 +433,29 @@ class Announcements extends ImmutablePureComponent {
 
   componentDidUpdate () {
     this._markAnnouncementAsRead();
+    this.requestEmojiCatalog();
+  }
+
+  requestEmojiCatalog () {
+    const { announcements, onNeedCustomEmojis } = this.props;
+
+    if (!onNeedCustomEmojis || !announcements || announcements.isEmpty()) {
+      return;
+    }
+
+    const needs = announcements.some(item => {
+      const reactions = item.get('reactions');
+
+      if (reactions && reactions.size > 0) {
+        return true;
+      }
+
+      return textNeedsCustomEmojiCatalog(item.get('content'));
+    });
+
+    if (needs) {
+      onNeedCustomEmojis();
+    }
   }
 
   _markAnnouncementAsRead () {

@@ -21,7 +21,7 @@ class UserPreferences::Writer
   private
 
   # LegacyWriter is the only other caller. This is not a public bypass of
-  # WriteContract: the key is one of the nine, and the value is nil or a scalar.
+  # WriteContract: the key is one of KEYS, and the value is nil or a scalar.
   def commit_checked(key, value)
     refuse_open_transaction!
     raise ArgumentError, 'unsupported preference key' unless UserPreferences::WriteContract::KEYS.include?(key)

@@ -3,6 +3,8 @@ import PropTypes from 'prop-types';
 import 'wicg-inert';
 import { createBrowserHistory } from 'history';
 import { multiply } from 'color-blend';
+import { consumeEmojiPickerEscape } from 'mastodon/features/emoji/emoji_picker_escape';
+import { takeModalFocusRestore } from 'mastodon/features/emoji/emoji_picker_focus';
 
 export default class ModalRoot extends React.PureComponent {
 
@@ -23,6 +25,10 @@ export default class ModalRoot extends React.PureComponent {
   activeElement = this.props.children ? document.activeElement : null;
 
   handleKeyUp = (e) => {
+    if (consumeEmojiPickerEscape(e)) {
+      return;
+    }
+
     if ((e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27)
          && !!this.props.children) {
       this.props.onClose();
@@ -72,7 +78,15 @@ export default class ModalRoot extends React.PureComponent {
       // immediately selectable, we have to wait for observers to run, as
       // described in https://github.com/WICG/inert#performance-and-gotchas
       Promise.resolve().then(() => {
-        this.activeElement.focus({ preventScroll: true });
+        if (takeModalFocusRestore()) {
+          this.activeElement = null;
+          return;
+        }
+
+        if (this.activeElement && typeof this.activeElement.focus === 'function') {
+          this.activeElement.focus({ preventScroll: true });
+        }
+
         this.activeElement = null;
       }).catch(console.error);
 

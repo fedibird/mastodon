@@ -7,6 +7,7 @@ import StockEmojiPicker from './stock_emoji_picker';
 import { loadDisconnectedEmojiStock } from './emoji_stock_source';
 import { emptyEmojiStock, normalizeEmojiStockLoad } from './emoji_stock';
 import { loadStandardEmojiPicker } from './standard_emoji_loader';
+import { markEmojiPickerEscape } from './emoji_picker_escape';
 
 const messages = defineMessages({
   personal: { id: 'emoji_picker.mode.personal', defaultMessage: 'Personal set' },
@@ -72,6 +73,8 @@ class EmojiPickerShell extends React.PureComponent {
     autoFocus: PropTypes.bool,
     animate: PropTypes.bool,
     theme: PropTypes.string,
+    onModeChange: PropTypes.func,
+    onStandardModule: PropTypes.func,
   };
 
   static defaultProps = {
@@ -146,6 +149,7 @@ class EmojiPickerShell extends React.PureComponent {
 
     if (this.props.open) {
       this.ensureData();
+      this.emitMode(this.state.mode);
     }
   }
 
@@ -153,6 +157,7 @@ class EmojiPickerShell extends React.PureComponent {
     if (this.props.open && !prevProps.open) {
       this.claimActive();
       this.ensureData();
+      this.emitMode(this.state.mode);
     }
   }
 
@@ -199,8 +204,21 @@ class EmojiPickerShell extends React.PureComponent {
 
     event.preventDefault();
     event.stopPropagation();
+
+    if (event.nativeEvent && typeof event.nativeEvent.stopImmediatePropagation === 'function') {
+      event.nativeEvent.stopImmediatePropagation();
+    }
+
+    // keydown does not stop the later window keyup ModalRoot uses.
+    markEmojiPickerEscape();
     this.requestClose(event);
   };
+
+  emitMode(mode) {
+    if (this.props.onModeChange) {
+      this.props.onModeChange(mode);
+    }
+  }
 
   modeFromProps(props) {
     const requested = props.initialMode === 'standard' ? 'standard' : 'personal';
@@ -304,7 +322,15 @@ class EmojiPickerShell extends React.PureComponent {
     this.standardInFlight = true;
     this.setState({ standardStatus: 'loading', standardAutoFocus: false });
 
-    Promise.resolve().then(() => this.props.loadStandardEmojiPicker()).then(loaded => {
+    let loading;
+
+    try {
+      loading = this.props.loadStandardEmojiPicker();
+    } catch (error) {
+      loading = Promise.reject(error);
+    }
+
+    Promise.resolve(loading).then(loaded => {
       if (!this.mounted || generation !== this.standardGeneration) {
         return null;
       }
@@ -315,6 +341,11 @@ class EmojiPickerShell extends React.PureComponent {
         standardModule: loaded,
         standardAutoFocus: this.props.open && !prev.suppressFocus && activeEmojiPickerShell === this.shellId && prev.mode === 'standard',
       }));
+
+      if (this.props.onStandardModule) {
+        this.props.onStandardModule(loaded);
+      }
+
       return null;
     }).catch(() => {
       if (!this.mounted || generation !== this.standardGeneration) {
@@ -334,6 +365,7 @@ class EmojiPickerShell extends React.PureComponent {
     this.claimActive();
     this.setState({ mode: 'personal', suppressFocus: false, standardAutoFocus: false }, () => {
       this.beginStock(false);
+      this.emitMode('personal');
     });
   };
 
@@ -349,6 +381,7 @@ class EmojiPickerShell extends React.PureComponent {
       standardAutoFocus: this.state.standardStatus === 'ready',
     }, () => {
       this.beginStandard(false);
+      this.emitMode('standard');
     });
   };
 

@@ -6,8 +6,8 @@ import { BrowserRouter, Route } from 'react-router-dom';
 import { ScrollContext } from 'react-router-scroll-4';
 import UI from '../features/ui';
 import { settingsReturnScroll, settleSettingsReturnScroll } from '../features/embedded_rails_settings/navigation';
-import { fetchCustomEmojis } from '../actions/custom_emojis';
 import { fetchCircles } from '../actions/circles';
+import { preloadStandardEmojiPickerIfNeeded } from '../features/emoji/emoji_picker_preferences';
 import { hydrateStore } from '../actions/store';
 import { startMastodonSubscriptions } from './mastodon_subscriptions';
 import { IntlProvider, addLocaleData } from 'react-intl';
@@ -22,8 +22,8 @@ export const store = configureStore();
 const hydrateAction = hydrateStore(initialState);
 
 store.dispatch(hydrateAction);
-store.dispatch(fetchCustomEmojis());
 store.dispatch(fetchCircles());
+preloadStandardEmojiPickerIfNeeded();
 
 export default class Mastodon extends React.PureComponent {
 

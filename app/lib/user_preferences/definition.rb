@@ -77,6 +77,8 @@ class UserPreferences::Definition
       content_font,
       info_font,
       motion,
+      emoji_picker_prefer_personal,
+      emoji_picker_lazy_load_standard,
       fallback_policy,
       preferred_language,
     ]
@@ -269,6 +271,26 @@ class UserPreferences::Definition
       source_refs: ['config/settings.yml', 'app/lib/translation_preferences.rb', 'app/views/settings/preferences/other/show.html.haml'],
       api_key_candidate: 'user.new_features_policy',
       storage_constraint: nil
+    )
+  end
+
+  def self.emoji_picker_prefer_personal
+    boolean(
+      key: 'emoji_picker_prefer_personal',
+      category: :appearance,
+      default_source: 'config/settings.yml emoji_picker_prefer_personal false when no settings row exists. A stored false stays false and does not fall through to another mode.',
+      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/views/settings/preferences/other/show.html.haml'],
+      apply_hint: :reload
+    )
+  end
+
+  def self.emoji_picker_lazy_load_standard
+    boolean(
+      key: 'emoji_picker_lazy_load_standard',
+      category: :appearance,
+      default_source: 'config/settings.yml emoji_picker_lazy_load_standard true when no settings row exists. A stored false stays false. Saving does not unload a standard picker module that has already been fetched; the next full page load applies the preload decision.',
+      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/views/settings/preferences/other/show.html.haml'],
+      apply_hint: :reload
     )
   end
 
