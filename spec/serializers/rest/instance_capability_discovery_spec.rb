@@ -33,6 +33,15 @@ RSpec.describe REST::InstanceSerializer do
       expect(rest.dig('timeline_filters', 'only_media')).to include('account', 'home')
     end
 
+    it 'publishes browser-only integrations and scoped notifications' do
+      info = instance_json['fedibird']
+
+      expect(info.dig('integrations', 'bluesky_oauth', 'interface')).to eq('browser_oauth')
+      expect(info.dig('rest', 'contextual', 'notifications', 'scope')).to eq('viewer_and_client')
+      expect(info.dig('rest', 'contextual', 'notifications', 'supported_types')).to include('reblog', 'emoji_reaction')
+      expect(info.dig('rest', 'contextual', 'preferences', 'write_scope')).to eq('write:preferences')
+    end
+
     it 'distinguishes instance translation configuration from per-user support' do
       allow(TranslationService).to receive(:configured?).and_return(false)
       expect(instance_json.dig('fedibird', 'rest', 'translation', 'instance_enabled')).to be(false)
