@@ -21,7 +21,7 @@ RSpec.describe Fedibird::CapabilityCatalog do
       expect(preferences[:scope]).to eq('authenticated_user')
       expect(preferences[:document_path]).to eq('/api/v1/fedibird/preferences')
       expect(preferences[:schema_path]).to eq('/api/v1/fedibird/preferences/schema')
-      expect(preferences[:read_scope]).to eq('read:preferences')
+      expect(preferences[:read_scopes_any]).to eq(%w(read read:preferences))
       expect(preferences[:write_scope]).to eq('write:preferences')
     end
 
