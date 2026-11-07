@@ -86,6 +86,7 @@ module Fedibird
         schema_version: 1,
         rest: rest,
         activitypub: activitypub,
+        integrations: Extensions.integrations,
       }
     end
 
@@ -161,8 +162,10 @@ module Fedibird
         posting_styles: {
           scope: 'administrator',
           collection_path: '/api/v1/fedibird/user_posting_contexts',
+          assignments_path: '/api/v1/fedibird/user_posting_context_assignments',
+          max_per_user: UserPostingContext::MAX_PER_USER,
         },
-      }
+      }.merge(Extensions.contextual)
     end
 
     # These are server-handled REST query parameters, not card/Masonry views.
