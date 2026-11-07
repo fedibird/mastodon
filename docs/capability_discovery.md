@@ -193,6 +193,69 @@ in [#734](https://github.com/fedibird/mastodon/issues/734) and
 fix can be merged independently of this discovery change. Emoji
 reaction limits already use the effective `max` in both versions.
 
+## P2-C: browser integrations, notifications and private REST discovery
+
+The v2 Instance `fedibird` object also has an optional top-level
+`integrations` map. It is intentionally **outside** `rest`: connecting
+Bluesky identities is a protected browser OAuth flow, not a Fedibird
+REST endpoint for Bluesky posting or reading a Bluesky timeline.
+
+```json
+{
+  "integrations": {
+    "bluesky_oauth": {
+      "scope": "allowlisted_user",
+      "interface": "browser_oauth",
+      "server_enabled": false,
+      "oauth_client_configured": false,
+      "settings_path": "/settings/external_services/bluesky"
+    }
+  }
+}
+```
+
+The booleans are runtime examples, not recommended values. The server
+switch comes from `ExternalBridge::Atproto::Feature.enabled?` and the
+client-configuration check from
+`ExternalBridge::Atproto::ClientDocument.configured?`. Neither check
+reads the viewer or enumerates tester IDs, connected accounts, DIDs,
+personal credentials, OAuth tokens or vault content. Even **both true**
+do not guarantee that one user can connect: tester allowlisting,
+browser challenge, signing, vault availability and provider-side
+validation remain mandatory in the existing authorization flow.
+Do not advertise this as `rest.supported: bluesky_oauth`, or as
+ActivityPub interoperability.
+
+The `rest.contextual` object also includes:
+
+| Field | Published contract |
+| --- | --- |
+| `notifications` | `scope: viewer_and_client`, `collection_path: /api/v1/notifications`, `supported_types` derived from `Notification::TYPES`, `filters: [types, exclude_types, account_id]`, optional `reblog_visibility` and `emoji_reaction` fields |
+| `preferences` | `scope: authenticated_user`, document and schema URLs, accepted read scopes `read` or `read:preferences`, write scope `write:preferences` |
+| `posting_identities` | `scope: administrator`, `collection_path: /api/v1/fedibird/posting_identities` |
+| `posting_styles` | Existing administrator-only collection plus assignments path and `UserPostingContext::MAX_PER_USER` limit |
+
+`notifications.supported_types` means the server can store/serialize
+those types; it does **not** promise that every type will be delivered
+to every OAuth application. `Api::V1::NotificationsController` can
+exclude types based on the application name, the user's reaction/status
+reference preferences and request filters. The presence of optional
+notification attributes depends on the individual notification type.
+Clients must handle missing types and missing optional fields.
+
+`/api/v1/fedibird/preferences` and its schema are authenticated.
+Preference reads accept either `read` or `read:preferences`, and writes
+require `write:preferences`; their responses use `Cache-Control: private,
+no-store`. The posting-style and posting-identity list endpoints
+currently enforce administrative rights. The listed URLs are discovery
+hints, **not** permissions or an invitation to enumerate other users.
+No per-user preference value, connection status or identity is added to
+public instance data.
+
+`/api/v1/instance` and NodeInfo remain unchanged. NodeInfo does not
+describe REST APIs or the Bluesky OAuth browser flow; Actor/FEP
+discovery is separately tracked in [#728](https://github.com/fedibird/mastodon/issues/728).
+
 ## Extension lifecycle and safety
 
 - Do not mutate the legacy array or alter Mastodon version negotiation.
