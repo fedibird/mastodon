@@ -54,10 +54,12 @@ describe ActivityPub::NoteSerializer do
   end
 
   it 'serializes sensitive with media' do
-    Fabricate(:media_attachment, account: account, status: parent)
+    # This checks Note serialization, not local thumbnail generation.
+    attach_remote_test_image(parent)
     parent.update!(sensitive: true)
     json = JSON.parse(ActiveModelSerializers::SerializableResource.new(parent.reload, serializer: ActivityPub::NoteSerializer, adapter: ActivityPub::Adapter).to_json)
 
+    expect(json['attachment']).to be_present
     expect(json['sensitive']).to be true
   end
 
