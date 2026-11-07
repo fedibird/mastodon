@@ -3,8 +3,8 @@
 require 'rails_helper'
 
 RSpec.describe 'Published Fedibird JSON-LD vocabularies' do
-  LEGACY_NAMESPACE = 'http://fedibird.com/ns#'
-  GROUP_NAMESPACE = 'https://fedibird.com/ns/group/v1#'
+  let(:legacy_namespace) { 'http://fedibird.com/ns#' }
+  let(:group_namespace) { 'https://fedibird.com/ns/group/v1#' }
 
   def vocabulary(relative_path)
     JSON.parse(File.read(Rails.root.join('public', 'ns', relative_path)))
@@ -18,14 +18,14 @@ RSpec.describe 'Published Fedibird JSON-LD vocabularies' do
     published = vocabulary('index.jsonld')
     actual_ids = declared_ids(published)
     context_ids = ContextHelper::CONTEXT_EXTENSION_MAP.each_with_object([]) do |(_key, extension), ids|
-      next unless extension['fedibird'] == LEGACY_NAMESPACE
+      next unless extension['fedibird'] == legacy_namespace
 
       extension.each do |term, mapping|
         next if term == 'fedibird'
 
         compact = mapping.is_a?(Hash) ? mapping.fetch('@id') : mapping
         expect(compact).to start_with('fedibird:')
-        ids << compact.sub('fedibird:', LEGACY_NAMESPACE)
+        ids << compact.sub('fedibird:', legacy_namespace)
       end
     end
 
@@ -38,21 +38,21 @@ RSpec.describe 'Published Fedibird JSON-LD vocabularies' do
   it 'defines exactly the approved Group v1 property and profile with no FEP claim' do
     published = vocabulary('group/v1.jsonld')
     expect(declared_ids(published)).to contain_exactly(
-      "#{GROUP_NAMESPACE}protocols",
-      "#{GROUP_NAMESPACE}MentionFollowAnnounce"
+      "#{group_namespace}protocols",
+      "#{group_namespace}MentionFollowAnnounce"
     )
 
     terms = published.fetch('@graph').index_by { |term| term.fetch('@id') }
-    expect(terms.fetch("#{GROUP_NAMESPACE}protocols").fetch('@type')).to eq('rdf:Property')
-    expect(terms.fetch("#{GROUP_NAMESPACE}MentionFollowAnnounce").fetch('@type')).to eq('rdfs:Class')
-    expect(terms.fetch("#{GROUP_NAMESPACE}protocols").fetch('comment')).to include('not an authorization grant')
-    expect(terms.fetch("#{GROUP_NAMESPACE}MentionFollowAnnounce").fetch('comment')).to include('does not imply FEP-1b12')
+    expect(terms.fetch("#{group_namespace}protocols").fetch('@type')).to eq('rdf:Property')
+    expect(terms.fetch("#{group_namespace}MentionFollowAnnounce").fetch('@type')).to eq('rdfs:Class')
+    expect(terms.fetch("#{group_namespace}protocols").fetch('comment')).to include('not an authorization grant')
+    expect(terms.fetch("#{group_namespace}MentionFollowAnnounce").fetch('comment')).to include('does not imply FEP-1b12')
   end
 
   it 'expands locally without loading additional contexts' do
     {
       'index.jsonld' => 'http://fedibird.com/ns#quoteUri',
-      'group/v1.jsonld' => "#{GROUP_NAMESPACE}protocols",
+      'group/v1.jsonld' => "#{group_namespace}protocols",
     }.each do |file, expected_iri|
       expanded = JSON::LD::API.expand(vocabulary(file))
       expect(expanded.map { |node| node.fetch('@id') }).to include(expected_iri)
@@ -61,6 +61,6 @@ RSpec.describe 'Published Fedibird JSON-LD vocabularies' do
 
   it 'ships human-readable resources alongside canonical JSON-LD documents' do
     expect(File.read(Rails.root.join('public/ns/index.html'))).to include('http://fedibird.com/ns#')
-    expect(File.read(Rails.root.join('public/ns/group/v1.html'))).to include("#{GROUP_NAMESPACE}MentionFollowAnnounce")
+    expect(File.read(Rails.root.join('public/ns/group/v1.html'))).to include("#{group_namespace}MentionFollowAnnounce")
   end
 end
