@@ -57,7 +57,12 @@ module.exports = merge(sharedConfig, {
       safeToUseOptionalCaches: true,
       caches: {
         main: [':rest:'],
-        additional: [':externals:'],
+        // Externals are listed one by one. :externals: would precache the
+        // standard sprite with the additional cache. The service worker is
+        // shared by every user; lazy-off preload is an application request.
+        additional: [
+          '/emoji/1f602.svg',
+        ],
         optional: [
           '**/locale_*.js', // don't fetch every locale; the user only needs one
           '**/*_polyfills-*.js', // the user may not need polyfills
@@ -69,11 +74,15 @@ module.exports = merge(sharedConfig, {
           '**/*.svg',
           '**/*.mp3',
           '**/*.ogg',
+          // Standard picker chunk and the vendor split that belongs only to it.
+          '**/emoji_picker*.js',
+          '**/vendors~emoji_picker*.js',
+          '/emoji/sheet_15.png',
         ],
       },
       externals: [
         '/emoji/1f602.svg', // used for emoji picker dropdown
-        '/emoji/sheet_15.png', // used in emoji-mart
+        '/emoji/sheet_15.png', // standard picker sprite, fetched on demand
       ],
       excludes: [
         '**/*.gz',

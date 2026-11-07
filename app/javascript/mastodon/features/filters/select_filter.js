@@ -11,6 +11,8 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import Icon from 'mastodon/components/icon';
 import CustomEmojiText from 'mastodon/components/custom_emoji_text';
 import { toServerSideType } from 'mastodon/utils/filters';
+import { ensureCustomEmojis } from 'mastodon/actions/custom_emojis';
+import { valuesNeedCustomEmojiCatalog } from 'mastodon/features/emoji/custom_emoji_demand';
 
 const messages = defineMessages({
   search: { id: 'filter_modal.select_filter.search', defaultMessage: 'Search or create' },
@@ -36,11 +38,34 @@ class SelectFilter extends PureComponent {
     filters: PropTypes.array,
     customEmojis: ImmutablePropTypes.list.isRequired,
     intl: PropTypes.object.isRequired,
+    onNeedCustomEmojis: PropTypes.func,
   };
 
   state = {
     searchValue: '',
   };
+
+  componentDidMount() {
+    this.requestEmojiCatalog();
+  }
+
+  componentDidUpdate() {
+    this.requestEmojiCatalog();
+  }
+
+  requestEmojiCatalog() {
+    const { filters, onNeedCustomEmojis } = this.props;
+
+    if (!onNeedCustomEmojis || !filters) {
+      return;
+    }
+
+    const titles = filters.map(filter => filter[1]);
+
+    if (valuesNeedCustomEmojiCatalog(titles)) {
+      onNeedCustomEmojis();
+    }
+  }
 
   search () {
     const { filters } = this.props;
@@ -227,4 +252,8 @@ class SelectFilter extends PureComponent {
 
 }
 
-export default connect(mapStateToProps)(injectIntl(SelectFilter));
+const mapDispatchToProps = dispatch => ({
+  onNeedCustomEmojis: () => dispatch(ensureCustomEmojis()),
+});
+
+export default connect(mapStateToProps, mapDispatchToProps)(injectIntl(SelectFilter));

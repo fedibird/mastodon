@@ -10,7 +10,9 @@ const emojiMart = {
 };
 
 jest.mock('react-intl', () => {
-  const intl = { formatMessage: () => 'Insert emoji' };
+  const intl = {
+    formatMessage: descriptor => (descriptor && descriptor.defaultMessage) || 'Insert emoji',
+  };
 
   return {
     defineMessages: messages => messages,

@@ -25,13 +25,14 @@ module SettingsServiceCatalog
     LEGACY_FORM_KEYS = %w(
       default_privacy default_sensitive default_language show_translation_bar
       translation_preferred_mode new_features_policy content_font_size info_font_size
-      reduce_motion
+      reduce_motion emoji_picker_prefer_personal emoji_picker_lazy_load_standard
     ).freeze
     CREDENTIALS_KEYS = %w(
       default_privacy default_sensitive default_language
     ).freeze
     TRANSLATION = %w[show_translation_bar translation_preferred_mode].freeze
     LIVE_WEB_UI = %w[content_font_size info_font_size reduce_motion].freeze
+    RELOAD_ON_NEXT_PAGE = %w[emoji_picker_prefer_personal emoji_picker_lazy_load_standard].freeze
     PRIVACY = %w[
       noindex hide_network hide_statuses_count hide_following_count hide_followers_count
       hide_statuses_count_from_yourself hide_following_count_from_yourself hide_followers_count_from_yourself
@@ -757,6 +758,8 @@ module SettingsServiceCatalog
       else
         if NUMERIC_STRINGS.include?(var)
           'Listed in STRING_KEYS, so the decorator stores the form value without Integer() or Float(). YAML defaults are numeric. After a Rails save the stored YAML value can be a string. CSS interpolates either. max_frequently_used_emojis is also validated as a number on User and Number()-cast once in initial_state.js.'
+        elsif RELOAD_ON_NEXT_PAGE.include?(var)
+          'LegacyWriter casts Simple Form 0 and 1 with ActiveModel::Type::Boolean before Writer stores a boolean. The string 0 is not stored. A missing row uses the settings.yml default. A stored false stays false. The next full page load applies the value. Saving does not unload a standard picker module that has already been fetched.'
         elsif group == 'boolean'
           'ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS is empty.'
         elsif group == 'string'
@@ -803,6 +806,7 @@ module SettingsServiceCatalog
                     form_effects << 'Credentials LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not. ActivityPub distribution is enqueued after a successful save, including when every key is a no-op'
                   end
                   form_effects << 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
+                  form_effects << 'saving does not unload an already fetched standard emoji picker module; the next full page load applies the effective value' if RELOAD_ON_NEXT_PAGE.include?(var)
                   form_effects
                 else
                   ['settings row update and Rails.cache.write in ScopedSettings#[]=']
@@ -839,6 +843,7 @@ module SettingsServiceCatalog
 
     def apply_hint_for(var, js, css, html, initial)
       return 'unknown' if var == 'enable_local_timeline'
+      return 'reload' if RELOAD_ON_NEXT_PAGE.include?(var)
       return 'live' if LIVE_WEB_UI.include?(var)
       return 'reload' if css || html.any? || var == 'theme' || var == 'system_font_ui'
       return 'live' if var == 'hide_personal_from_account'
@@ -953,6 +958,9 @@ module SettingsServiceCatalog
       end
       if var.start_with?('card_') || var.start_with?('media_display_')
         parts << 'Outside UserPreferences::Reader. The appearance form writes ScopedSettings through UserSettingsDecorator, and the WebUI reads InitialState after reload. Invalid media shape or size falls back to square or small. Toolbar changes on a media screen do not write these defaults.'
+      end
+      if RELOAD_ON_NEXT_PAGE.include?(var)
+        parts << 'Reader distinguishes a missing row from a stored false. Form value 0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal defaults off and emoji_picker_lazy_load_standard defaults on. An empty personal set does not fall through to the standard picker. Turning lazy load off preloads on the next page load and does not change the visible mode.'
       end
       if var == 'emoji_reaction_fallback_policy'
         parts << 'High-risk because it can change an ActivityPub Like to the post server. It does not change follower fan-out, Undo, or a native EmojiReact. The safety form warns that enforcement is off until the server flag is on, and it does not offer ask while the picker dialog is absent. InitialState meta is the effective value.'

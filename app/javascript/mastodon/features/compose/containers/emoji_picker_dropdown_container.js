@@ -4,8 +4,10 @@ import { openModal, closeModal } from 'mastodon/actions/modal';
 import { openDropdownMenu, closeDropdownMenu } from 'mastodon/actions/dropdown_menu';
 import { changeSetting } from 'mastodon/actions/settings';
 import { useEmoji } from 'mastodon/actions/emojis';
+import { ensureCustomEmojisForPicker } from 'mastodon/actions/custom_emojis';
 import { getPickersEmoji, getFrequentlyUsedEmojis } from 'mastodon/selectors';
 import { isUserTouching } from 'mastodon/is_mobile';
+import { beginComposeFieldNote, focusNotedComposeFieldAfterModalClose } from 'mastodon/features/emoji/emoji_picker_focus';
 
 const mapStateToProps = state => ({
   pickersEmoji: getPickersEmoji(state),
@@ -27,17 +29,30 @@ const mapDispatchToProps = (dispatch, { onPickEmoji, scrollKey }) => ({
     }
   },
 
-  onOpen(id, keyboard) {
-    dispatch((_, getState) => {
-      let state = getState();
+  onStandardActive: () => dispatch(ensureCustomEmojisForPicker()),
 
+  onOpen(id, keyboard) {
+    dispatch(() => {
       dispatch(isUserTouching() ? openModal('REACTION', {
-        onPickEmoji: onPickEmoji,
+        onPickEmoji: (emoji, event) => {
+          const keepOpen = Boolean(event && (event.ctrlKey || event.metaKey));
+
+          // Only a field recorded by this callback can become the restore
+          // target. An announcement reaction does not record one, so an
+          // earlier compose field is not reused.
+          beginComposeFieldNote();
+
+          if (onPickEmoji) {
+            onPickEmoji(emoji);
+          }
+
+          if (!keepOpen) {
+            focusNotedComposeFieldAfterModalClose();
+          }
+        },
         onSkinTone: skinTone => {
           dispatch(changeSetting(['skinTone'], skinTone));
         },
-        pickersEmoji: getPickersEmoji(state),
-        frequentlyUsedEmojis: getFrequentlyUsedEmojis(state),
       }) : openDropdownMenu(id, keyboard, scrollKey));
     });
   },

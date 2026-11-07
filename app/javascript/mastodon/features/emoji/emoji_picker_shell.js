@@ -7,6 +7,7 @@ import StockEmojiPicker from './stock_emoji_picker';
 import { loadDisconnectedEmojiStock } from './emoji_stock_source';
 import { emptyEmojiStock, normalizeEmojiStockLoad } from './emoji_stock';
 import { loadStandardEmojiPicker } from './standard_emoji_loader';
+import { markEmojiPickerEscape } from './emoji_picker_escape';
 
 const messages = defineMessages({
   personal: { id: 'emoji_picker.mode.personal', defaultMessage: 'Personal set' },
@@ -72,6 +73,9 @@ class EmojiPickerShell extends React.PureComponent {
     autoFocus: PropTypes.bool,
     animate: PropTypes.bool,
     theme: PropTypes.string,
+    onModeChange: PropTypes.func,
+    onStandardModule: PropTypes.func,
+    deferStandardPicker: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -146,20 +150,139 @@ class EmojiPickerShell extends React.PureComponent {
 
     if (this.props.open) {
       this.ensureData();
+      this.emitMode(this.state.mode);
     }
   }
 
-  componentDidUpdate(prevProps) {
+  getSnapshotBeforeUpdate(prevProps) {
+    const previous = (prevProps.standardPickerProps || {}).pickerRevision || 'standard';
+    const next = (this.props.standardPickerProps || {}).pickerRevision || 'standard';
+
+    if (previous === next || !this.node) {
+      return null;
+    }
+
+    const input = this.node.querySelector('.emoji-mart-search input');
+
+    if (!input) {
+      return null;
+    }
+
+    return {
+      value: input.value,
+      focused: document.activeElement === input,
+    };
+  }
+
+  componentDidUpdate(prevProps, _prevState, snapshot) {
+    this.restoreStandardSearch(snapshot);
+
     if (this.props.open && !prevProps.open) {
       this.claimActive();
       this.ensureData();
+      this.emitMode(this.state.mode);
     }
+  }
+
+  restoreStandardSearch(snapshot) {
+    if (!snapshot || !this.node) {
+      return;
+    }
+
+    const input = this.node.querySelector('.emoji-mart-search input');
+
+    if (!input) {
+      return;
+    }
+
+    if (snapshot.value) {
+      input.value = snapshot.value;
+      this.dispatchSearchInput(input);
+      // Nimble paints the remaining categories after this search. A search
+      // only hides categories that already exist, so repeat it once they mount.
+      this.syncSearchCategories(input);
+    }
+
+    if (snapshot.focused) {
+      input.focus();
+    }
+  }
+
+  // React 16 records a value assignment in the tracker. Repeating that value
+  // through an input event does not reach Nimble's onChange unless the
+  // tracker is cleared first.
+  dispatchSearchInput(input) {
+    if (input._valueTracker) {
+      input._valueTracker.setValue('');
+    }
+
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  stopSearchCategorySync() {
+    if (this.searchCategoryObserver) {
+      this.searchCategoryObserver.disconnect();
+      this.searchCategoryObserver = null;
+    }
+
+    clearTimeout(this.searchCategoryTimer);
+    this.searchCategoryTimer = null;
+    this.searchCategoryGeneration = (this.searchCategoryGeneration || 0) + 1;
+  }
+
+  hideCategoriesOutsideSearch(scroll) {
+    const sections = scroll.querySelectorAll('.emoji-mart-category');
+
+    for (let i = 0; i < sections.length; i += 1) {
+      const label = sections[i].querySelector('.emoji-mart-category-label');
+      const name = label && label.getAttribute('data-name');
+
+      if (name && name !== 'Search') {
+        sections[i].style.display = 'none';
+      }
+    }
+  }
+
+  syncSearchCategories(input) {
+    this.stopSearchCategorySync();
+
+    const scroll = this.node && this.node.querySelector('.emoji-mart-scroll');
+    const generation = this.searchCategoryGeneration;
+
+    if (!scroll) {
+      return;
+    }
+
+    const apply = () => {
+      if (generation !== this.searchCategoryGeneration || !input.isConnected || input.value === '') {
+        return;
+      }
+
+      this.hideCategoriesOutsideSearch(scroll);
+      this.dispatchSearchInput(input);
+    };
+
+    if (typeof MutationObserver === 'function') {
+      this.searchCategoryObserver = new MutationObserver(apply);
+      this.searchCategoryObserver.observe(scroll, { childList: true });
+    }
+
+    // The staged categories are added on a 60ms timer that started before
+    // this update. Apply once more after that wave, then stop watching.
+    this.searchCategoryTimer = setTimeout(() => {
+      apply();
+
+      if (generation === this.searchCategoryGeneration) {
+        this.stopSearchCategorySync();
+      }
+    }, 80);
   }
 
   componentWillUnmount() {
     this.mounted = false;
     this.stockGeneration += 1;
     this.standardGeneration += 1;
+    this.stopSearchCategorySync();
     this.detachFocusListener();
 
     if (activeEmojiPickerShell === this.shellId) {
@@ -199,8 +322,21 @@ class EmojiPickerShell extends React.PureComponent {
 
     event.preventDefault();
     event.stopPropagation();
+
+    if (event.nativeEvent && typeof event.nativeEvent.stopImmediatePropagation === 'function') {
+      event.nativeEvent.stopImmediatePropagation();
+    }
+
+    // keydown does not stop the later window keyup ModalRoot uses.
+    markEmojiPickerEscape();
     this.requestClose(event);
   };
+
+  emitMode(mode) {
+    if (this.props.onModeChange) {
+      this.props.onModeChange(mode);
+    }
+  }
 
   modeFromProps(props) {
     const requested = props.initialMode === 'standard' ? 'standard' : 'personal';
@@ -304,7 +440,15 @@ class EmojiPickerShell extends React.PureComponent {
     this.standardInFlight = true;
     this.setState({ standardStatus: 'loading', standardAutoFocus: false });
 
-    Promise.resolve().then(() => this.props.loadStandardEmojiPicker()).then(loaded => {
+    let loading;
+
+    try {
+      loading = this.props.loadStandardEmojiPicker();
+    } catch (error) {
+      loading = Promise.reject(error);
+    }
+
+    Promise.resolve(loading).then(loaded => {
       if (!this.mounted || generation !== this.standardGeneration) {
         return null;
       }
@@ -315,6 +459,11 @@ class EmojiPickerShell extends React.PureComponent {
         standardModule: loaded,
         standardAutoFocus: this.props.open && !prev.suppressFocus && activeEmojiPickerShell === this.shellId && prev.mode === 'standard',
       }));
+
+      if (this.props.onStandardModule) {
+        this.props.onStandardModule(loaded);
+      }
+
       return null;
     }).catch(() => {
       if (!this.mounted || generation !== this.standardGeneration) {
@@ -334,6 +483,7 @@ class EmojiPickerShell extends React.PureComponent {
     this.claimActive();
     this.setState({ mode: 'personal', suppressFocus: false, standardAutoFocus: false }, () => {
       this.beginStock(false);
+      this.emitMode('personal');
     });
   };
 
@@ -349,6 +499,7 @@ class EmojiPickerShell extends React.PureComponent {
       standardAutoFocus: this.state.standardStatus === 'ready',
     }, () => {
       this.beginStandard(false);
+      this.emitMode('standard');
     });
   };
 
@@ -433,7 +584,7 @@ class EmojiPickerShell extends React.PureComponent {
       );
     }
 
-    if (standardStatus !== 'ready' || !standardModule) {
+    if (this.props.deferStandardPicker || standardStatus !== 'ready' || !standardModule) {
       return (
         <div className='emoji-picker-shell__loading' style={{ width: 299 }} role='status'>
           {intl.formatMessage(messages.loadingStandard)}
@@ -443,9 +594,14 @@ class EmojiPickerShell extends React.PureComponent {
 
     const Picker = standardModule.Picker;
     const focus = Boolean(autoFocus && standardAutoFocus && this.canTakeFocus());
+    const { pickerRevision, ...pickerProps } = standardPickerProps;
 
+    // Nimble builds custom categories in its constructor and ignores later
+    // custom/include updates. A new revision remounts it so a catalog that
+    // arrives after the module is ready still appears.
     return (
       <Picker
+        key={pickerRevision || 'standard'}
         sheetColumns={62}
         sheetRows={62}
         sheetSize={32}
@@ -457,7 +613,7 @@ class EmojiPickerShell extends React.PureComponent {
         showPreview={false}
         showSkinTones={false}
         backgroundImageFn={standardBackgroundImage}
-        {...standardPickerProps}
+        {...pickerProps}
         perLine={perLine}
         emojiSize={emojiSize}
         theme={preferredTheme(theme)}

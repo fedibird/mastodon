@@ -181,6 +181,8 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_enable_status_polling,
       :setting_enable_status_polling_intersection,
       :setting_disable_auto_focus_to_emoji_search,
+      :setting_emoji_picker_prefer_personal,
+      :setting_emoji_picker_lazy_load_standard,
       :setting_max_frequently_used_emojis,
       setting_prohibited_visibilities: [],
       notification_emails: %i(follow follow_request followed_message reblog favourite emoji_reaction status_reference mention digest report pending_account trends),

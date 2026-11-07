@@ -3,6 +3,8 @@ import PropTypes from 'prop-types';
 import 'wicg-inert';
 import { createBrowserHistory } from 'history';
 import { multiply } from 'color-blend';
+import { consumeEmojiPickerEscape } from 'mastodon/features/emoji/emoji_picker_escape';
+import { takeModalFocusTarget } from 'mastodon/features/emoji/emoji_picker_focus';
 
 export default class ModalRoot extends React.PureComponent {
 
@@ -23,6 +25,10 @@ export default class ModalRoot extends React.PureComponent {
   activeElement = this.props.children ? document.activeElement : null;
 
   handleKeyUp = (e) => {
+    if (consumeEmojiPickerEscape(e)) {
+      return;
+    }
+
     if ((e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27)
          && !!this.props.children) {
       this.props.onClose();
@@ -72,7 +78,16 @@ export default class ModalRoot extends React.PureComponent {
       // immediately selectable, we have to wait for observers to run, as
       // described in https://github.com/WICG/inert#performance-and-gotchas
       Promise.resolve().then(() => {
-        this.activeElement.focus({ preventScroll: true });
+        // inert is cleared above. A compose insertion that ran while the
+        // background was still inert needs this later focus. Anything else
+        // returns to the trigger captured when the modal opened.
+        const field = takeModalFocusTarget();
+        const target = field || this.activeElement;
+
+        if (target && typeof target.focus === 'function') {
+          target.focus({ preventScroll: true });
+        }
+
         this.activeElement = null;
       }).catch(console.error);
 

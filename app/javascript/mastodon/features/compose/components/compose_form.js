@@ -31,6 +31,7 @@ import { length } from 'stringz';
 import { countableText } from '../util/counter';
 import Icon from 'mastodon/components/icon';
 import { disablePost, maxChars } from '../../../initial_state';
+import { noteComposeInsertionField } from 'mastodon/features/emoji/emoji_picker_focus';
 import IconButton from '../../../components/icon_button';
 import classNames from 'classnames';
 import { PORTABLE_COMPOSER_MODE_FULL, PORTABLE_COMPOSER_MODE_SIMPLE } from '../../../selectors/composer';
@@ -979,9 +980,11 @@ class ComposeForm extends ImmutablePureComponent {
 
   handleEmojiPick = (data) => {
     const { text }     = this.props;
-    const position     = this.autosuggestTextarea.textarea.selectionStart;
+    const textarea     = this.autosuggestTextarea && this.autosuggestTextarea.textarea;
+    const position     = textarea ? textarea.selectionStart : 0;
     const needsSpace   = data.custom && position > 0 && !allowedAroundShortCode.includes(text[position - 1]);
 
+    noteComposeInsertionField(textarea);
     this.props.onPickEmoji(position, data, needsSpace);
   }
 

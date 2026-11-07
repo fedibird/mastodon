@@ -167,16 +167,28 @@ describe('personal picker dependency boundary', () => {
       'mastodon/features/compose/components/emoji_picker_dropdown.js',
       'mastodon/components/reaction_picker_dropdown.js',
       'mastodon/features/ui/components/reaction_modal.js',
-      'mastodon/features/emoji/form_emoji_picker.js',
-      'mastodon/initial_state.js',
     ].forEach(relative => {
       const source = read(relative);
 
+      expect(source).toContain('emoji_picker_panel');
       expect(source).not.toContain('emoji_picker_shell');
       expect(source).not.toContain('stock_emoji_picker');
       expect(source).not.toContain('loadDisconnectedEmojiStock');
-      expect(source).not.toContain('prefer_personal_emoji');
+      expect(source).not.toContain('EmojiPickerAsync');
+      expect(source).not.toContain('emoji-mart');
     });
+
+    const form = read('mastodon/features/emoji/form_emoji_picker.js');
+    const initialState = read('mastodon/initial_state.js');
+
+    expect(form).not.toContain('emoji_picker_shell');
+    expect(form).not.toContain('emoji-mart');
+    expect(form).toContain('preloadStandardEmojiPickerIfNeeded');
+    expect(initialState).not.toContain('emoji_picker_shell');
+    expect(initialState).toContain('emoji_picker_prefer_personal');
+    expect(initialState).toContain('emoji_picker_lazy_load_standard');
+    expect(read('mastodon/containers/mastodon.js')).not.toContain('fetchCustomEmojis');
+    expect(read('mastodon/containers/compose_container.js')).not.toContain('fetchCustomEmojis');
   });
 });
 

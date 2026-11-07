@@ -70,7 +70,7 @@ module SettingsServiceCatalog
     KEYS = %w(
       default_privacy default_sensitive default_language show_translation_bar
       translation_preferred_mode new_features_policy content_font_size info_font_size
-      reduce_motion
+      reduce_motion emoji_picker_prefer_personal emoji_picker_lazy_load_standard
     ).freeze
     ROOTS = %w(app lib config db script bin).freeze
     SETTER_SENDS = %w(public_send send __send__).freeze

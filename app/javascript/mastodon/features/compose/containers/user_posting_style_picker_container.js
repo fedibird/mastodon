@@ -4,6 +4,7 @@ import { connect } from 'react-redux';
 import { injectIntl, defineMessages } from 'react-intl';
 import { List as ImmutableList } from 'immutable';
 import { openModal } from '../../../actions/modal';
+import { ensureCustomEmojis } from '../../../actions/custom_emojis';
 import { fetchUserPostingContextAssignment, resetGuardedPlaceDefault, saveGuardedPlaceDefault } from '../../../actions/user_posting_context_assignments';
 import { commitUserPostingStyle, fetchUserPostingStyles, readUsualDecision, retryUsualResolution, retryUserPostingStyleDestination, returnToUsualSelection, saveCurrentStyleAsUsual, setPostingStyleUsage } from '../../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../../../posting_context/compliance';
@@ -154,6 +155,7 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
   };
 
   return {
+    onNeedCustomEmojis: () => dispatch(ensureCustomEmojis()),
     onSelect: applyStyle,
     onRetry () {
       dispatch(retryUserPostingStyleDestination(composerId));

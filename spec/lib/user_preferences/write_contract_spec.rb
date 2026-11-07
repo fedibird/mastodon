@@ -12,9 +12,9 @@ RSpec.describe UserPreferences::WriteContract do
     error.errors
   end
 
-  it 'accepts only the nine stored keys and leaves the fallback policy unread for writes' do
+  it 'accepts only the stored writable keys and leaves the fallback policy unread for writes' do
     expect(described_class::KEYS).to eq(UserPreferences::Reader::STORAGE_KEYS - ['emoji_reaction_fallback_policy'])
-    expect(described_class::KEYS.size).to eq 9
+    expect(described_class::KEYS.size).to eq 11
     expect(described_class::KEYS).not_to include('preferred_posting_language', 'emoji_reaction_fallback_policy')
     expect(UserPreferences::Schema.get('emoji_reaction_fallback_policy')).to have_attributes(
       write_policy: :read_only,
@@ -48,6 +48,8 @@ RSpec.describe UserPreferences::WriteContract do
         'content_font_size' => 10,
         'info_font_size' => 20,
         'reduce_motion' => true,
+        'emoji_picker_prefer_personal' => false,
+        'emoji_picker_lazy_load_standard' => true,
       },
       resets: []
     )
@@ -75,6 +77,8 @@ RSpec.describe UserPreferences::WriteContract do
       'content_font_size' => ['18', 9, 21, 18.0, nil],
       'info_font_size' => ['15', 0, nil],
       'reduce_motion' => ['true', nil],
+      'emoji_picker_prefer_personal' => ['false', '0', 0, nil],
+      'emoji_picker_lazy_load_standard' => ['true', '1', nil],
     }
 
     cases.each do |key, values|

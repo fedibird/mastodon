@@ -2,7 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { List as ImmutableList, Map as ImmutableMap, fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
-import { createStore } from 'redux';
+import { applyMiddleware, createStore } from 'redux';
+import thunk from 'redux-thunk';
 
 jest.mock('mastodon/initial_state', () => ({
   autoPlayEmoji: false,
@@ -221,7 +222,10 @@ describe('FilterReason', () => {
       }
 
       return state;
-    }, fromJS({ custom_emojis: [] }));
+    }, fromJS({
+      custom_emojis: [],
+      custom_emoji_catalog: { status: 'ready' },
+    }), applyMiddleware(thunk));
 
     render(
       <Provider store={store}>
