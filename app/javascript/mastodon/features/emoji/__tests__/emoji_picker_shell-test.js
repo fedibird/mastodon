@@ -124,12 +124,6 @@ class StandardProbe extends React.PureComponent {
     }
   }
 
-  componentDidUpdate(prevProps) {
-    if (this.props.autoFocus && !prevProps.autoFocus && this.node) {
-      this.node.focus();
-    }
-  }
-
   setRef = node => {
     this.node = node;
   };
@@ -540,5 +534,170 @@ describe('emoji picker shell and personal stock', () => {
     expect(onPick.mock.calls[1][0].native).toBe(SKIN);
     expect(useEmoji).not.toHaveBeenCalled();
     caller.remove();
+  });
+
+  it('ignores IME composition keys and selects the focused emoji after Tab', async () => {
+    const modifiers = [];
+    const onPick = jest.fn((emoji, event) => {
+      modifiers.push({ id: emoji.id, native: emoji.native, key: event.key });
+    });
+    const onRequestClose = jest.fn();
+
+    renderShell({ onPick, onRequestClose, perLine: 2 });
+
+    const search = await screen.findByRole('searchbox');
+
+    search.focus();
+    fireEvent.keyDown(search, { key: 'Enter', isComposing: true });
+    fireEvent.keyDown(search, { key: 'ArrowDown', isComposing: true });
+    fireEvent.keyDown(search, { key: 'Escape', isComposing: true, keyCode: 229 });
+
+    expect(onPick).not.toHaveBeenCalled();
+    expect(onRequestClose).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(search);
+
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    const first = document.activeElement;
+    const second = screen.getAllByRole('button').filter(button => button.getAttribute('data-stock-key'))[1];
+
+    second.focus();
+    fireEvent.keyDown(second, { key: 'Enter' });
+
+    expect(first.getAttribute('data-stock-key')).toBe('place-zwj');
+    expect(modifiers).toEqual([expect.objectContaining({ id: '+1', native: SKIN, key: 'Enter' })]);
+    expect(onPick).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the same search field focused when the result list becomes empty', async () => {
+    renderShell();
+
+    const search = await screen.findByRole('searchbox');
+
+    search.focus();
+    fireEvent.change(search, { target: { value: 'zzzz-none' } });
+
+    expect(await screen.findByText('No matching emojis found')).toBeInTheDocument();
+    expect(search.isConnected).toBe(true);
+    expect(document.activeElement).toBe(search);
+
+    fireEvent.change(search, { target: { value: 'zzzz-none-x' } });
+    expect(search.value).toBe('zzzz-none-x');
+    expect(document.activeElement).toBe(search);
+  });
+
+  it('closes once from Escape on the mode switch while the standard picker is loading', async () => {
+    const onRequestClose = jest.fn();
+
+    renderShell({
+      initialMode: 'standard',
+      onRequestClose,
+      loadStandardEmojiPicker: () => new Promise(() => {}),
+    });
+
+    const mode = await screen.findByRole('button', { name: 'Personal set' });
+
+    mode.focus();
+    fireEvent.keyDown(mode, { key: 'Escape' });
+    fireEvent.keyDown(mode, { key: 'Escape' });
+
+    expect(onRequestClose).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('button', { name: 'Family' })).not.toBeInTheDocument();
+  });
+
+  it('focuses a reopened standard picker from the mount autoFocus flag', async () => {
+    const caller = document.createElement('button');
+
+    caller.textContent = 'Caller';
+    document.body.appendChild(caller);
+
+    function loadStandardEmojiPicker() {
+      return Promise.resolve({ Picker: StandardProbe, Emoji: () => null });
+    }
+
+    const onPick = jest.fn();
+    const view = renderShell({
+      open: true,
+      initialMode: 'standard',
+      personalEnabled: false,
+      loadStandardEmojiPicker,
+      onPick,
+      returnFocusElement: caller,
+    });
+
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('aria-label', 'Standard search'));
+    view.rerender(
+      <EmojiPickerShell
+        open={false}
+        initialMode='standard'
+        personalEnabled={false}
+        loadStandardEmojiPicker={loadStandardEmojiPicker}
+        onPick={onPick}
+        returnFocusElement={caller}
+      />,
+    );
+    caller.focus();
+    expect(document.activeElement).toBe(caller);
+    view.rerender(
+      <EmojiPickerShell
+        open
+        initialMode='standard'
+        personalEnabled={false}
+        loadStandardEmojiPicker={loadStandardEmojiPicker}
+        onPick={onPick}
+        returnFocusElement={caller}
+      />,
+    );
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('aria-label', 'Standard search'));
+    caller.remove();
+  });
+
+  it('does not steal focus when a background standard load finishes', async () => {
+    renderShell();
+
+    const personalSearch = await screen.findByRole('searchbox');
+    const pending = deferred();
+
+    function loadLater() {
+      return pending.promise;
+    }
+
+    renderShell({
+      initialMode: 'standard',
+      personalEnabled: false,
+      loadStandardEmojiPicker: loadLater,
+    });
+    expect(await screen.findByText('Loading standard emoji')).toBeInTheDocument();
+    personalSearch.blur();
+    personalSearch.focus();
+    fireEvent.keyDown(personalSearch, { key: 'a' });
+
+    await act(async () => {
+      pending.resolve({ Picker: StandardProbe, Emoji: () => null });
+    });
+
+    expect(await screen.findByLabelText('Standard search')).toBeInTheDocument();
+    expect(document.activeElement).toBe(personalSearch);
+  });
+
+  it('sizes stock images from emojiSize instead of the 16px emoji rule', async () => {
+    const style = document.createElement('style');
+
+    style.textContent = `
+      .emojione { width: 16px; height: 16px; }
+      .emoji-stock-picker .emoji-mart-emoji img.emojione {
+        width: var(--emoji-stock-size, 22px);
+        height: var(--emoji-stock-size, 22px);
+      }
+    `;
+    document.head.appendChild(style);
+    renderShell({ emojiSize: 32 });
+
+    const img = (await screen.findByRole('button', { name: 'Family' })).querySelector('img');
+
+    expect(img.style.width).toBe('32px');
+    expect(img.style.height).toBe('32px');
+    expect(window.getComputedStyle(img).width).toBe('32px');
+    expect(window.getComputedStyle(img).height).toBe('32px');
+    style.remove();
   });
 });

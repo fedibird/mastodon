@@ -17,10 +17,20 @@ const messages = defineMessages({
   retry: { id: 'emoji_picker.stock_retry', defaultMessage: 'Try again' },
 });
 
-// Which open shell may move focus. A module that finishes late must not
-// pull focus into a picker the user has already left.
+// Which open shell may move focus. Updated when a shell opens and when focus
+// actually enters one, so a late standard load cannot steal the field the
+// user is typing in.
 let nextEmojiPickerShellId = 0;
 let activeEmojiPickerShell = 0;
+
+function isImeComposition(event) {
+  const native = event && event.nativeEvent;
+
+  return Boolean(
+    (event && (event.isComposing || event.keyCode === 229))
+    || (native && (native.isComposing || native.keyCode === 229)),
+  );
+}
 
 // Sprite used only by the standard Nimble picker, matching the existing
 // compose and reaction hosts. The personal picker never receives it.
@@ -41,6 +51,8 @@ function preferredTheme(theme) {
 // Shared frame for standard and personal modes. Dropdown placement, modal
 // focus traps, and compose/reaction follow-up stay on the host. This frame
 // asks the host to close and can restore a focus target the host passed in.
+// Escape is handled once here, including the mode switch and standard
+// loading state. The personal picker does not send a second close.
 class EmojiPickerShell extends React.PureComponent {
 
   static propTypes = {
@@ -92,6 +104,8 @@ class EmojiPickerShell extends React.PureComponent {
     }
 
     this.state = {
+      shellId: this.shellId,
+      wasOpen: props.open,
       mode: this.modeFromProps(props),
       personalQuery: '',
       stockStatus: 'idle',
@@ -101,6 +115,30 @@ class EmojiPickerShell extends React.PureComponent {
       standardAutoFocus: false,
       suppressFocus: false,
     };
+  }
+
+  // The standard picker reads autoFocus only when it mounts. Reopening has
+  // to set that flag before the first open render, not in componentDidUpdate.
+  static getDerivedStateFromProps(nextProps, state) {
+    if (nextProps.open && state.wasOpen === false) {
+      activeEmojiPickerShell = state.shellId;
+
+      return {
+        wasOpen: true,
+        suppressFocus: false,
+        standardAutoFocus: state.mode === 'standard',
+      };
+    }
+
+    if (!nextProps.open && state.wasOpen !== false) {
+      return {
+        wasOpen: false,
+        suppressFocus: true,
+        standardAutoFocus: false,
+      };
+    }
+
+    return null;
   }
 
   componentDidMount() {
@@ -115,15 +153,6 @@ class EmojiPickerShell extends React.PureComponent {
     if (this.props.open && !prevProps.open) {
       this.claimActive();
       this.ensureData();
-
-      if (this.state.suppressFocus || !this.state.standardAutoFocus) {
-        this.setState({
-          suppressFocus: false,
-          standardAutoFocus: this.state.mode === 'standard',
-        });
-      }
-    } else if (!this.props.open && prevProps.open && !this.state.suppressFocus) {
-      this.setState({ suppressFocus: true, standardAutoFocus: false });
     }
   }
 
@@ -131,11 +160,47 @@ class EmojiPickerShell extends React.PureComponent {
     this.mounted = false;
     this.stockGeneration += 1;
     this.standardGeneration += 1;
+    this.detachFocusListener();
 
     if (activeEmojiPickerShell === this.shellId) {
       activeEmojiPickerShell = 0;
     }
   }
+
+  setNode = node => {
+    this.detachFocusListener();
+    this.node = node;
+
+    if (node) {
+      node.addEventListener('focusin', this.handleFocusIn);
+    }
+  };
+
+  detachFocusListener() {
+    if (this.node) {
+      this.node.removeEventListener('focusin', this.handleFocusIn);
+    }
+  }
+
+  handleFocusIn = () => {
+    if (this.props.open) {
+      this.claimActive();
+    }
+  };
+
+  handleKeyDown = event => {
+    if (this.props.open) {
+      this.claimActive();
+    }
+
+    if (event.key !== 'Escape' || isImeComposition(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.requestClose(event);
+  };
 
   modeFromProps(props) {
     const requested = props.initialMode === 'standard' ? 'standard' : 'personal';
@@ -434,7 +499,7 @@ class EmojiPickerShell extends React.PureComponent {
     }
 
     return (
-      <div className='emoji-picker-shell'>
+      <div className='emoji-picker-shell' ref={this.setNode} onKeyDown={this.handleKeyDown}>
         {this.renderModeSwitch()}
         {mode === 'standard' ? this.renderStandard() : this.renderPersonal()}
       </div>

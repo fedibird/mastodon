@@ -262,6 +262,13 @@
   outline-offset: -2px;
 }
 
+// `.emojione` fixes every emoji at 16px. The personal grid follows emojiSize.
+.emoji-stock-picker .emoji-mart-emoji img.emojione {
+  width: var(--emoji-stock-size, 22px);
+  height: var(--emoji-stock-size, 22px);
+  margin: 0;
+}
+
 .emoji-picker-shell__modes {
   border-bottom: 1px solid darken($ui-secondary-color, 8%);
   border-radius: 5px 5px 0 0;

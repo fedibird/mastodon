@@ -2,7 +2,52 @@ import fs from 'fs';
 import path from 'path';
 
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+// Jest does not transform emoji-mart's ESM build. This stand-in matches the
+// real Nimble search field: autoFocus focuses on mount only, not on a later
+// prop change. The shell still renders the real Picker adapter.
+jest.mock('emoji-mart/dist-es/components/picker/nimble-picker', () => {
+  const ReactInsideMock = require('react');
+
+  class NimblePicker extends ReactInsideMock.Component {
+
+    componentDidMount() {
+      if (this.props.autoFocus && this.node) {
+        this.node.focus();
+      }
+    }
+
+    setRef = node => {
+      this.node = node;
+    };
+
+    render() {
+      return ReactInsideMock.createElement('input', {
+        placeholder: 'Search',
+        'aria-label': 'Standard search',
+        ref: this.setRef,
+      });
+    }
+
+  }
+
+  NimblePicker.propTypes = {
+    autoFocus: (props, propName) => {
+      const value = props[propName];
+
+      if (value === undefined || value === null || typeof value === 'boolean') {
+        return null;
+      }
+
+      return new Error('autoFocus');
+    },
+  };
+
+  return NimblePicker;
+});
+
+jest.mock('emoji-mart/dist-es/components/emoji/nimble-emoji', () => () => null);
 import * as asyncComponents from 'mastodon/features/ui/util/async-components';
 import EmojiPickerShell from '../emoji_picker_shell';
 import { loadStandardEmojiPicker, resetStandardEmojiPickerLoaderForTests } from '../standard_emoji_loader';
@@ -202,5 +247,123 @@ describe('shell connected to the standard entry', () => {
     expect(loaded.Picker).toBe(entry.Picker);
     expect(loaded.Emoji).toBe(entry.Emoji);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('focuses the real standard search again when the shell is reopened', async () => {
+    const entry = await import('../emoji_picker');
+    const caller = document.createElement('button');
+
+    caller.textContent = 'Caller';
+    document.body.appendChild(caller);
+
+    function loadReady() {
+      return Promise.resolve({ Picker: entry.Picker, Emoji: entry.Emoji });
+    }
+
+    function onPick() {}
+
+    const view = render(
+      <EmojiPickerShell
+        open
+        initialMode='standard'
+        personalEnabled={false}
+        loadStandardEmojiPicker={loadReady}
+        onPick={onPick}
+        returnFocusElement={caller}
+      />,
+    );
+
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('placeholder', 'Search'));
+    view.rerender(
+      <EmojiPickerShell
+        open={false}
+        initialMode='standard'
+        personalEnabled={false}
+        loadStandardEmojiPicker={loadReady}
+        onPick={onPick}
+        returnFocusElement={caller}
+      />,
+    );
+    caller.focus();
+    expect(document.activeElement).toBe(caller);
+    view.rerender(
+      <EmojiPickerShell
+        open
+        initialMode='standard'
+        personalEnabled={false}
+        loadStandardEmojiPicker={loadReady}
+        onPick={onPick}
+        returnFocusElement={caller}
+      />,
+    );
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('placeholder', 'Search'));
+    caller.remove();
+  });
+
+  it('does not move focus into a real standard picker that loads behind the active search', async () => {
+    const entry = await import('../emoji_picker');
+    const stock = {
+      categories: [
+        {
+          id: 'saved',
+          name: 'Saved',
+          items: [
+            {
+              key: 'saved-1',
+              label: 'Saved wave',
+              image: { src: 'https://assets.example/wave.svg', alt: '👋' },
+              search: ['Saved wave'],
+              selection: { id: 'wave', custom: false, native: '👋' },
+            },
+          ],
+        },
+      ],
+    };
+    let resolveStandard;
+
+    function stockSource() {
+      return Promise.resolve({ status: 'ready', stock });
+    }
+
+    function loadLater() {
+      return new Promise(resolve => {
+        resolveStandard = resolve;
+      });
+    }
+
+    function onPick() {}
+
+    render(
+      <EmojiPickerShell
+        initialMode='personal'
+        standardEnabled={false}
+        stockSource={stockSource}
+        loadStandardEmojiPicker={loadLater}
+        onPick={onPick}
+      />,
+    );
+
+    const personalSearch = await screen.findByRole('searchbox');
+
+    await waitFor(() => expect(document.activeElement).toBe(personalSearch));
+    render(
+      <EmojiPickerShell
+        initialMode='standard'
+        personalEnabled={false}
+        loadStandardEmojiPicker={loadLater}
+        onPick={onPick}
+      />,
+    );
+    expect(await screen.findByText('Loading standard emoji')).toBeInTheDocument();
+    personalSearch.blur();
+    personalSearch.focus();
+    fireEvent.keyDown(personalSearch, { key: 'a' });
+
+    await act(async () => {
+      resolveStandard({ Picker: entry.Picker, Emoji: entry.Emoji });
+    });
+
+    expect(await screen.findByPlaceholderText('Search')).toBeInTheDocument();
+    expect(document.activeElement).toBe(personalSearch);
   });
 });

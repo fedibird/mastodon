@@ -10,6 +10,17 @@ import {
   toEmojiPickerCallbackPayload,
 } from './emoji_stock';
 
+// Enter from an IME reports isComposing, or keyCode 229 on some browsers.
+// Those keys belong to the composition, not to emoji selection.
+function isImeComposition(event) {
+  const native = event && event.nativeEvent;
+
+  return Boolean(
+    (event && (event.isComposing || event.keyCode === 229))
+    || (native && (native.isComposing || native.keyCode === 229)),
+  );
+}
+
 const messages = defineMessages({
   label: { id: 'emoji_button.label', defaultMessage: 'Insert emoji' },
   search: { id: 'emoji_button.search', defaultMessage: 'Search...' },
@@ -205,6 +216,14 @@ class StockEmojiPicker extends React.PureComponent {
     event.preventDefault();
   };
 
+  handleEmojiFocus = event => {
+    const key = event.currentTarget.getAttribute('data-stock-key');
+
+    if (key && key !== this.state.activeKey) {
+      this.setState({ activeKey: key });
+    }
+  };
+
   handleEmojiClick = event => {
     const key = event.currentTarget.getAttribute('data-stock-key');
 
@@ -252,10 +271,9 @@ class StockEmojiPicker extends React.PureComponent {
   }
 
   handleKeyDown = event => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      this.props.onRequestClose(event);
+    // Escape closes from the shell, once, including the mode switch and the
+    // standard loading state. Handling it here as well would notify twice.
+    if (isImeComposition(event)) {
       return;
     }
 
@@ -270,20 +288,25 @@ class StockEmojiPicker extends React.PureComponent {
     }
 
     const onSearch = event.target === this.searchInput;
-    const onEmoji = event.target && event.target.getAttribute && event.target.getAttribute('data-stock-key');
+    const focusedKey = event.target && event.target.getAttribute && event.target.getAttribute('data-stock-key');
 
-    if (!onSearch && !onEmoji) {
+    if (!onSearch && !focusedKey) {
       return;
     }
 
     const items = this.flatItems(this.visibleStock());
-    const active = items.find(item => item.key === this.state.activeKey) || (onSearch ? items[0] : null);
+    const active = focusedKey
+      ? items.find(item => item.key === focusedKey)
+      : (items.find(item => item.key === this.state.activeKey) || items[0]);
 
     if (!active) {
       return;
     }
 
     event.preventDefault();
+    if (focusedKey && focusedKey !== this.state.activeKey) {
+      this.setState({ activeKey: focusedKey });
+    }
     this.selectItem(active, event);
   };
 
@@ -317,8 +340,9 @@ class StockEmojiPicker extends React.PureComponent {
   renderSearch() {
     const { intl } = this.props;
 
+    // Stable key so a zero-result swap does not recreate the input and drop focus.
     return (
-      <div className='emoji-mart-search'>
+      <div key='emoji-stock-search' className='emoji-mart-search'>
         <input
           ref={this.setSearchRef}
           type='search'
@@ -340,50 +364,53 @@ class StockEmojiPicker extends React.PureComponent {
     );
   }
 
-  renderCategories(stock) {
-    const { emojiSize, intl } = this.props;
+  renderAnchorBar(stock) {
+    const { intl } = this.props;
     const selected = this.state.selectedCategoryId || (stock.categories[0] && stock.categories[0].id);
 
-    // The anchor bar has to be the first child. The stylesheet hides a
-    // last-child bar because that slot is the standard preview.
+    // First child when results exist. A trailing bar is hidden as the preview slot.
     return (
-      <React.Fragment>
-        <div className='emoji-mart-bar'>
-          <div className='emoji-mart-anchors' role='toolbar' aria-label={intl.formatMessage(messages.categories)}>
-            {stock.categories.map(category => (
-              <button
-                key={category.id}
-                type='button'
-                className={classNames('emoji-mart-anchor', { 'emoji-mart-anchor-selected': category.id === selected })}
-                data-category-id={category.id}
-                aria-label={category.name}
-                onClick={this.handleCategoryClick}
-              >
-                <span>{category.name}</span>
-                <span className='emoji-mart-anchor-bar' />
-              </button>
-            ))}
-          </div>
-        </div>
-        {this.renderSearch()}
-        <div className='emoji-mart-scroll'>
+      <div key='emoji-stock-anchors' className='emoji-mart-bar'>
+        <div className='emoji-mart-anchors' role='toolbar' aria-label={intl.formatMessage(messages.categories)}>
           {stock.categories.map(category => (
-            <section
+            <button
               key={category.id}
-              className='emoji-mart-category'
+              type='button'
+              className={classNames('emoji-mart-anchor', { 'emoji-mart-anchor-selected': category.id === selected })}
               data-category-id={category.id}
-              ref={this.setCategoryRef}
+              aria-label={category.name}
+              onClick={this.handleCategoryClick}
             >
-              <div className='emoji-mart-category-label'>
-                <span>{category.name}</span>
-              </div>
-              <ul className='emoji-mart-category-list'>
-                {category.items.map(item => this.renderItem(item, emojiSize))}
-              </ul>
-            </section>
+              <span>{category.name}</span>
+              <span className='emoji-mart-anchor-bar' />
+            </button>
           ))}
         </div>
-      </React.Fragment>
+      </div>
+    );
+  }
+
+  renderScroll(stock) {
+    const { emojiSize } = this.props;
+
+    return (
+      <div key='emoji-stock-scroll' className='emoji-mart-scroll'>
+        {stock.categories.map(category => (
+          <section
+            key={category.id}
+            className='emoji-mart-category'
+            data-category-id={category.id}
+            ref={this.setCategoryRef}
+          >
+            <div className='emoji-mart-category-label'>
+              <span>{category.name}</span>
+            </div>
+            <ul className='emoji-mart-category-list'>
+              {category.items.map(item => this.renderItem(item, emojiSize))}
+            </ul>
+          </section>
+        ))}
+      </div>
     );
   }
 
@@ -402,6 +429,7 @@ class StockEmojiPicker extends React.PureComponent {
           title={image.title || item.label}
           aria-current={active ? 'true' : undefined}
           ref={this.setButtonRef}
+          onFocus={this.handleEmojiFocus}
           onMouseDown={this.handleEmojiMouseDown}
           onClick={this.handleEmojiClickFromPointer}
           onTouchEnd={this.handleEmojiTouchEnd}
@@ -414,6 +442,7 @@ class StockEmojiPicker extends React.PureComponent {
               src={src}
               width={emojiSize}
               height={emojiSize}
+              style={{ width: emojiSize, height: emojiSize }}
             />
           ) : (
             <span>{item.label}</span>
@@ -426,18 +455,23 @@ class StockEmojiPicker extends React.PureComponent {
   renderResults() {
     const { stock } = this.props;
     const query = this.currentQuery();
-
-    if (!normalizeSearchKey(query) && isEmptyEmojiStock(stock)) {
-      return this.renderStatus('emoji-stock-picker__empty', 'empty');
-    }
-
     const visible = this.visibleStock();
+    const hasVisible = this.flatItems(visible).length > 0;
+    let status = null;
 
-    if (this.flatItems(visible).length === 0) {
-      return this.renderStatus('emoji-stock-picker__none', 'notFound');
+    if (!hasVisible && !normalizeSearchKey(query) && isEmptyEmojiStock(stock)) {
+      status = this.renderStatus('emoji-stock-picker__empty', 'empty');
+    } else if (!hasVisible) {
+      status = this.renderStatus('emoji-stock-picker__none', 'notFound');
     }
 
-    return this.renderCategories(visible);
+    return (
+      <React.Fragment>
+        {hasVisible ? this.renderAnchorBar(visible) : null}
+        {this.renderSearch()}
+        {hasVisible ? this.renderScroll(visible) : status}
+      </React.Fragment>
+    );
   }
 
   renderBody() {
@@ -451,19 +485,6 @@ class StockEmojiPicker extends React.PureComponent {
       return this.renderStatus('emoji-stock-picker__error', 'error');
     }
 
-    const query = this.currentQuery();
-    const noMatches = this.flatItems(this.visibleStock()).length === 0;
-    const showSearchFirst = (!normalizeSearchKey(query) && isEmptyEmojiStock(this.props.stock)) || noMatches;
-
-    if (showSearchFirst) {
-      return (
-        <React.Fragment>
-          {this.renderSearch()}
-          {this.renderResults()}
-        </React.Fragment>
-      );
-    }
-
     return this.renderResults();
   }
 
@@ -475,7 +496,7 @@ class StockEmojiPicker extends React.PureComponent {
     return (
       <section
         className={`emoji-mart emoji-mart-${resolvedTheme} emoji-stock-picker`}
-        style={{ width }}
+        style={{ width, '--emoji-stock-size': `${emojiSize}px` }}
         aria-label={intl.formatMessage(messages.label)}
         onKeyDown={this.handleKeyDown}
       >
