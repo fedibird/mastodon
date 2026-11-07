@@ -37,5 +37,4 @@ RSpec.describe ActivityPub::NoteSerializer do
 
     expect(json['sensitive']).to be true
   end
-
 end
