@@ -24,7 +24,8 @@ module ActivityPub
     # IDs does not advertise the protocol on any Actor.
     def advertised?(account)
       return false unless enabled?
-      return false unless account&.local? && account.group? && !account.suspended? && !account.instance_actor?
+      return false if account.nil?
+      return false unless account.local? && account.group? && !account.suspended? && !account.instance_actor?
       return false unless allowed_actor_ids.include?(account.id.to_i)
 
       server_profile?(GroupProtocol::ProfileReader.new(account).call)
