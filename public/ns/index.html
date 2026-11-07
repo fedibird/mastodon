@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fedibird ActivityPub vocabulary (legacy)</title>
+  <style>body{font:16px/1.7 system-ui,sans-serif;max-width:68rem;margin:2rem auto;padding:0 1rem}h1,h2{line-height:1.35}table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:.45rem;text-align:left}code{overflow-wrap:anywhere}a{color:#175c96}pre{overflow:auto;background:#eee;padding:1rem}</style>
+</head>
+<body>
+  <h1>Fedibird ActivityPub vocabulary (legacy)</h1>
+  <p>Fedibirdの既存ActivityPub拡張プロパティです。公開済みIRIの識別子は <code>http://fedibird.com/ns#</code> のまま維持します。<strong>HTTPSで語彙文書を配信しても、IRIが <code>https://</code> に変更されるわけではありません。</strong></p>
+  <p>機械可読な語彙定義: <a href="/ns">/ns (application/ld+json)</a> / <a href="/ns/index.jsonld">/ns/index.jsonld</a>。発行済みContextの具体的な値型・コンテナ指定は <a href="https://github.com/fedibird/mastodon/blob/fedibird/app/helpers/context_helper.rb">Fedibird ContextHelper</a> に従います。</p>
+  <h2>公開用語</h2>
+  <table><thead><tr><th>Term</th><th>Identifier</th><th>説明</th></tr></thead><tbody>
+      <tr id="quoteUri"><th scope="row"><code>quoteUri</code></th><td><code>http://fedibird.com/ns#quoteUri</code></td><td>Quoted status URI</td></tr>
+      <tr id="expiry"><th scope="row"><code>expiry</code></th><td><code>http://fedibird.com/ns#expiry</code></td><td>Expiry</td></tr>
+      <tr id="otherSetting"><th scope="row"><code>otherSetting</code></th><td><code>http://fedibird.com/ns#otherSetting</code></td><td>Other setting</td></tr>
+      <tr id="references"><th scope="row"><code>references</code></th><td><code>http://fedibird.com/ns#references</code></td><td>References</td></tr>
+      <tr id="emojiReactions"><th scope="row"><code>emojiReactions</code></th><td><code>http://fedibird.com/ns#emojiReactions</code></td><td>Emoji reactions</td></tr>
+      <tr id="searchableBy"><th scope="row"><code>searchableBy</code></th><td><code>http://fedibird.com/ns#searchableBy</code></td><td>Searchable by</td></tr>
+      <tr id="thumbhash"><th scope="row"><code>thumbhash</code></th><td><code>http://fedibird.com/ns#thumbhash</code></td><td>Thumbhash</td></tr>
+      <tr id="ruby"><th scope="row"><code>ruby</code></th><td><code>http://fedibird.com/ns#ruby</code></td><td>Ruby</td></tr>
+      <tr id="copyPermission"><th scope="row"><code>copyPermission</code></th><td><code>http://fedibird.com/ns#copyPermission</code></td><td>Copy permission</td></tr>
+  </tbody></table>
+  <h2>Versioned vocabularies</h2>
+  <p>新しいグループ方式の語彙: <a href="/ns/group/v1.html">Group protocol v1</a> / <a href="/ns/group/v1">machine-readable vocabulary</a>。</p>
+  <p>互換性のため既存IRIは削除・再定義せず、破壊的変更には新しいIRIを使います。このページはプロパティの存在・識別子を記述するもので、未実装のFEP準拠や投稿権限を宣言するものではありません。</p>
+</body>
+</html>
