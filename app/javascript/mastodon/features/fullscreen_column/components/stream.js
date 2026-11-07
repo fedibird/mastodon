@@ -16,7 +16,10 @@ import { openModal } from 'mastodon/actions/modal';
 import { fullscreenModalScope } from 'mastodon/actions/fullscreen_column';
 import { expandSearch } from 'mastodon/actions/search';
 import { me } from 'mastodon/initial_state';
-import Notifications from 'mastodon/features/notifications';
+import BundleContainer from 'mastodon/features/ui/containers/bundle_container';
+import { Notifications as loadNotifications } from 'mastodon/features/ui/util/async-components';
+import ColumnLoading from 'mastodon/features/ui/components/column_loading';
+import BundleColumnError from 'mastodon/features/ui/components/bundle_column_error';
 import ConversationsListContainer from 'mastodon/features/direct_timeline/containers/conversations_list_container';
 import SearchResults from 'mastodon/features/compose/components/search_results';
 import { expandFullscreenSource } from '../expand';
@@ -360,6 +363,10 @@ class FullscreenStream extends React.PureComponent {
     }
   }
 
+  renderBundleLoading = () => <ColumnLoading />;
+
+  renderBundleError = (props) => <BundleColumnError {...props} />;
+
   renderSearch () {
     const { searchResults, searchSuggestions, searchTerm } = this.props;
 
@@ -403,7 +410,11 @@ class FullscreenStream extends React.PureComponent {
     } else if (kind === 'account_media') {
       body = this.renderAccountMedia();
     } else if (kind === 'notifications') {
-      body = <Notifications passive composerId={this.props.composerId} scrollKey={`fullscreen:${this.props.viewId}`} />;
+      body = (
+        <BundleContainer fetchComponent={loadNotifications} loading={this.renderBundleLoading} error={this.renderBundleError}>
+          {Notifications => <Notifications passive composerId={this.props.composerId} scrollKey={`fullscreen:${this.props.viewId}`} />}
+        </BundleContainer>
+      );
     } else if (kind === 'direct') {
       body = (
         <ConversationsListContainer
