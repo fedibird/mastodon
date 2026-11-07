@@ -14,6 +14,7 @@ import FullscreenColumnBar from './components/bar';
 import FullscreenStream from './components/stream';
 import FullscreenDetail from './components/detail';
 import { FullscreenRouter, fullscreenLayerDepth } from './overlay_history';
+import { nodesInActiveLayer, setFullscreenOverlayPortal } from 'mastodon/utils/overlay_portal';
 
 const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -85,6 +86,7 @@ class FullscreenColumnHost extends React.PureComponent {
 
   componentWillUnmount () {
     document.removeEventListener('keydown', this.handleKeyDown, true);
+    setFullscreenOverlayPortal(null);
     this.teardownSession();
   }
 
@@ -314,11 +316,13 @@ class FullscreenColumnHost extends React.PureComponent {
 
     const root = topId === 'fullscreen-composer' ? this.composerNode : this.columnNode;
 
-    if (!root) {
+    if (!root && !(this.portalNode && this.portalNode.contains(document.activeElement))) {
       return;
     }
 
-    const focusable = Array.from(root.querySelectorAll(focusableSelector)).filter(node => node.offsetParent !== null || node === document.activeElement);
+    const portalOwnsFocus = this.portalNode && this.portalNode.contains(document.activeElement);
+    const scopeRoot = portalOwnsFocus ? this.portalNode : root;
+    const focusable = nodesInActiveLayer(scopeRoot, document.activeElement, focusableSelector);
 
     if (focusable.length === 0) {
       return;
@@ -361,6 +365,11 @@ class FullscreenColumnHost extends React.PureComponent {
 
   setComposer = (node) => {
     this.composerNode = node;
+  };
+
+  setPortal = (node) => {
+    this.portalNode = node;
+    setFullscreenOverlayPortal(node);
   };
 
   updatePresentation (patch) {
@@ -470,7 +479,10 @@ class FullscreenColumnHost extends React.PureComponent {
                 onClose={this.handleClose}
               />
               <div className='fullscreen-column__body'>
-                <div className={covered ? 'fullscreen-column__stream fullscreen-column__stream-hold--covered' : 'fullscreen-column__stream'}>
+                <div
+                  className={covered ? 'fullscreen-column__stream fullscreen-column__stream-hold--covered' : 'fullscreen-column__stream'}
+                  inert={covered ? '' : null}
+                >
                   <FullscreenStream session={session} />
                 </div>
                 {covered && (
@@ -495,6 +507,7 @@ class FullscreenColumnHost extends React.PureComponent {
             )}
           </div>
         </FullscreenRouter>
+        <div className='fullscreen-column-portal' ref={this.setPortal} />
       </FullscreenColumnContext.Provider>
     );
   }

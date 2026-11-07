@@ -405,7 +405,7 @@ class MediaModal extends ImmutablePureComponent {
 
           <div className='media-modal__overlay'>
             {pagination && <ul className='media-modal__pagination'>{pagination}</ul>}
-            {statusId && <Footer statusId={statusId} withOpenButton onClose={onClose} />}
+            {statusId && <Footer statusId={statusId} withOpenButton onClose={onClose} fullscreenScope={this.props.fullscreenScope} />}
           </div>
         </div>
       </div>

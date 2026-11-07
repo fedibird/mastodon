@@ -124,6 +124,13 @@ describe('account media gallery cross-post navigation', () => {
   });
 
 
+  it('keeps a sensitive tile hidden when only its warn filter was dismissed', () => {
+    const filterInfo = { revealedFilterStatusIds: new Set(['102']) };
+    const sequence = accountMediaTimelineSequence(items, 'hide_sensitive', filterInfo);
+
+    expect(sequence.media.map(item => item.get('id')).toArray()).toEqual(['photo-1', 'gif', 'cw-photo']);
+  });
+
   it('includes only an individually revealed sensitive attachment, including hide-all policy', () => {
     const filterInfo = { revealedMediaIds: new Set(['102:private-photo']) };
     const sequence = accountMediaTimelineSequence(items, 'hide_all', filterInfo);

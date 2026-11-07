@@ -4,6 +4,7 @@ import Overlay from 'react-overlays/Overlay';
 import IconButton from '../../../components/icon_button';
 import { createOverlayRefBridge } from '../overlay_ref';
 import { claimEscape } from 'mastodon/utils/overlay_layers';
+import { fullscreenOverlayContainer } from 'mastodon/utils/overlay_portal';
 
 export default class ComposerOverflowMenu extends React.PureComponent {
 
@@ -26,6 +27,8 @@ export default class ComposerOverflowMenu extends React.PureComponent {
   };
 
   findTarget = () => this.target;
+
+  overlayContainer = () => fullscreenOverlayContainer(this.findTarget());
 
   renderPanel = ({ props, placement }) => {
     const { ref: popperRef, style, ...overlayProps } = props;
@@ -111,7 +114,7 @@ export default class ComposerOverflowMenu extends React.PureComponent {
           expanded={open}
           inverted
         />
-        <Overlay show={open} placement='top' flip target={this.findTarget} popperConfig={{ strategy: 'fixed' }}>
+        <Overlay show={open} placement='top' flip target={this.findTarget} container={this.overlayContainer} popperConfig={{ strategy: 'fixed' }}>
           {this.renderPanel}
         </Overlay>
       </div>

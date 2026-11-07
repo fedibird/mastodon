@@ -10,6 +10,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { assetHost } from 'mastodon/utils/config';
 import { pickerEmojiSize, disableAutoFocusToEmojiSearch } from 'mastodon/initial_state';
+import { fullscreenOverlayContainer } from 'mastodon/utils/overlay_portal';
 
 const nimblePickerData = emojiCompressed[5];
 
@@ -425,6 +426,8 @@ class EmojiPickerDropdown extends React.PureComponent {
     this.target = c;
   }
 
+  overlayContainer = () => fullscreenOverlayContainer(this.findTarget());
+
   findTarget = () => {
     return this.target;
   }
@@ -483,7 +486,7 @@ class EmojiPickerDropdown extends React.PureComponent {
           </div>
         )}
 
-        <Overlay show={open && !loading} offset={[5, 15]} placement={placement} target={this.findTarget} popperConfig={{ strategy: 'fixed' }}>
+        <Overlay show={open && !loading} offset={[5, 15]} placement={placement} target={this.findTarget} container={this.overlayContainer} popperConfig={{ strategy: 'fixed' }}>
           {({ props, arrowProps, placement }) => (
             <div {...props}>
               <div className={`dropdown-animation ${placement}`}>

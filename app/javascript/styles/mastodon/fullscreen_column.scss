@@ -11,6 +11,17 @@
   min-height: 0;
 }
 
+.fullscreen-column-portal {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  pointer-events: none;
+}
+
+.fullscreen-column-portal > * {
+  pointer-events: auto;
+}
+
 .fullscreen-column-host {
   position: fixed;
   z-index: 900;

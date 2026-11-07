@@ -85,7 +85,7 @@ class AudioModal extends ImmutablePureComponent {
         </div>
 
         <div className='media-modal__overlay'>
-          {statusId && <Footer statusId={statusId} withOpenButton onClose={onClose} />}
+          {statusId && <Footer statusId={statusId} withOpenButton onClose={onClose} fullscreenScope={this.props.fullscreenScope} />}
         </div>
       </div>
     );

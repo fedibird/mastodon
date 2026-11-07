@@ -108,27 +108,52 @@ export const popFullscreenPath = () => (dispatch, getState) => {
   dispatch(patchFullscreenColumn({ paths: current.pop() }));
 };
 
-const ensureFullscreenComposer = (dispatch, getState, composerId) => {
+export const fullscreenModalScope = (state) => {
+  const session = state.get('fullscreenColumn');
+
+  if (!session || !session.get('open')) {
+    return null;
+  }
+
+  return {
+    viewId: session.get('viewId'),
+    composerId: session.get('composerId'),
+  };
+};
+
+// The composer that should receive a result captured when the user started
+// the action. A later close or a different fullscreen must not retarget it,
+// and must not open that other composer's popup.
+export const capturedComposerDestination = (capturedComposerId, currentComposerId) => ({
+  composerId: capturedComposerId || null,
+  reveal: !!(capturedComposerId && capturedComposerId === currentComposerId),
+});
+
+const ensureFullscreenComposer = (dispatch, getState, composerId, reveal = true) => {
   if (!selectComposer(getState(), composerId)) {
     dispatch(createComposer(composerId, selectPortableComposerSeed(getState())));
   }
 
-  dispatch(setFullscreenComposerOpen(true));
+  if (reveal) {
+    dispatch(setFullscreenComposerOpen(true));
+  }
 };
 
-export function dispatchFullscreenCompose (kind, target, intl) {
+export function dispatchFullscreenCompose (kind, target, intl, composerIdOverride) {
   return (dispatch, getState) => {
     const state = getState();
-    const composerId = state.getIn(['fullscreenColumn', 'composerId']) || getActiveFullscreenComposerId();
+    const sessionComposerId = state.getIn(['fullscreenColumn', 'composerId']);
+    const composerId = composerIdOverride || sessionComposerId || getActiveFullscreenComposerId();
+    const destination = capturedComposerDestination(composerId, sessionComposerId);
 
-    if (!composerId || !state.get('fullscreenColumn')) {
+    if (!composerId || (!composerIdOverride && !state.get('fullscreenColumn'))) {
       return false;
     }
 
     const composer = selectComposer(state, composerId);
     const dirty = !!(composer && composer.get('dirty') && String(composer.get('text') || '').trim().length !== 0);
     const run = () => {
-      ensureFullscreenComposer(dispatch, getState, composerId);
+      ensureFullscreenComposer(dispatch, getState, composerId, !composerIdOverride || destination.reveal);
 
       if (kind === 'reply') {
         dispatch(replyInComposer(composerId, target, silentHistory));

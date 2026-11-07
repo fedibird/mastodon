@@ -13,6 +13,7 @@ import { accountMediaRevealKey, accountMediaTimelineSequence } from 'mastodon/ut
 import AccountMediaItems from 'mastodon/features/account_gallery/components/media_items';
 import LoadMore from 'mastodon/components/load_more';
 import { openModal } from 'mastodon/actions/modal';
+import { fullscreenModalScope } from 'mastodon/actions/fullscreen_column';
 import { expandSearch } from 'mastodon/actions/search';
 import { me } from 'mastodon/initial_state';
 import Notifications from 'mastodon/features/notifications';
@@ -99,7 +100,14 @@ class FullscreenStream extends React.PureComponent {
     this.scrollToAnchor();
   }
 
-  componentDidUpdate () {
+  componentDidUpdate (prevProps) {
+    const previous = prevProps.presentation && prevProps.presentation.get('mediaVisibility');
+    const next = this.props.presentation && this.props.presentation.get('mediaVisibility');
+
+    if (previous !== next) {
+      this.setState({ revealedMediaIds: new Set() });
+    }
+
     this.scrollToAnchor();
   }
 
@@ -136,7 +144,7 @@ class FullscreenStream extends React.PureComponent {
   };
 
   statusListProps () {
-    const { presentation, viewId, composerId, source } = this.props;
+    const { presentation, viewId, composerId } = this.props;
     const appearance = presentation.get('appearance');
     const scale = fullscreenScaleFactor(presentation.get('scale'));
 
@@ -149,7 +157,7 @@ class FullscreenStream extends React.PureComponent {
       trackScroll: false,
       scrollKey: `fullscreen:${viewId}`,
       contextHostId: viewId,
-      composerId: source.get('supportsComposer') ? composerId : undefined,
+      composerId,
       onLoadMore: this.handleLoadMore,
       suppressMediaControls: true,
       mediaShape: presentation.get('mediaShape'),
@@ -235,11 +243,9 @@ class FullscreenStream extends React.PureComponent {
 
   handleRevealAccountMedia = (attachment) => {
     const key = accountMediaRevealKey(attachment);
-    const statusId = attachment && attachment.getIn(['status', 'id']);
 
-    this.setState(({ revealedMediaIds, revealedFilterStatusIds }) => ({
+    this.setState(({ revealedMediaIds }) => ({
       revealedMediaIds: new Set([...revealedMediaIds, key]),
-      revealedFilterStatusIds: statusId ? new Set([...revealedFilterStatusIds, statusId]) : revealedFilterStatusIds,
     }));
   }
 
@@ -248,13 +254,22 @@ class FullscreenStream extends React.PureComponent {
     const statusId = attachment.getIn(['status', 'id']);
     const type = attachment.get('type');
 
+    const openScoped = (typeName, payload) => {
+      dispatch((_, getState) => {
+        dispatch(openModal(typeName, {
+          ...payload,
+          fullscreenScope: fullscreenModalScope(getState()),
+        }));
+      });
+    };
+
     if (type === 'video') {
-      dispatch(openModal('VIDEO', { media: attachment, statusId, options: { autoPlay: true } }));
+      openScoped('VIDEO', { media: attachment, statusId, options: { autoPlay: true } });
       return;
     }
 
     if (type === 'audio') {
-      dispatch(openModal('AUDIO', { media: attachment, statusId, options: { autoPlay: true } }));
+      openScoped('AUDIO', { media: attachment, statusId, options: { autoPlay: true } });
       return;
     }
 
@@ -264,7 +279,7 @@ class FullscreenStream extends React.PureComponent {
     const sequence = accountMediaTimelineSequence(attachments, presentation.get('mediaVisibility'), filterInfo);
     const position = sequence.media.findIndex(item => item.get('id') === attachment.get('id'));
 
-    dispatch(openModal('MEDIA', {
+    openScoped('MEDIA', {
       media: position >= 0 ? sequence.media : attachment.getIn(['status', 'media_attachments']),
       index: position >= 0 ? position : 0,
       statusId,
@@ -275,8 +290,12 @@ class FullscreenStream extends React.PureComponent {
         timelineId: source.get('dataTimelineId'),
         afterStatusId: statusIds.findLast(id => id !== null),
         visibility: presentation.get('mediaVisibility'),
+        onLoadMore: () => {
+          const ids = this.props.mediaTimeline && this.props.mediaTimeline.get('items');
+          this.handleLoadMore(ids && ids.findLast ? ids.findLast(item => item !== null) : undefined);
+        },
       } : undefined,
-    }));
+    });
   }
 
   handleExpandSearch = (type) => {

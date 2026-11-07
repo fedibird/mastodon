@@ -27,29 +27,88 @@ const locationPath = (path) => {
 
 // Calls from the fullscreen React tree never reach the root history, including
 // pushes that happen after the click that opened the composer.
-export const createOverlayHistory = ({ location, onNavigate, onBack }) => ({
-  push (path, state) {
-    onNavigate(locationPath(path), state, false);
-  },
+export const createOverlayHref = (loc) => {
+  if (!loc) {
+    return '/';
+  }
 
-  replace (path, state) {
-    onNavigate(locationPath(path), state, true);
-  },
+  if (typeof loc === 'string') {
+    return loc;
+  }
 
-  goBack () {
-    onBack();
-  },
+  return `${loc.pathname || ''}${loc.search || ''}${loc.hash || ''}`;
+};
 
-  go () {
-    onBack();
-  },
+export const createOverlayHistory = ({ location, onNavigate, onBack }) => {
+  const current = {
+    pathname: '/',
+    search: '',
+    hash: '',
+    state: null,
+    ...(location || {}),
+  };
 
-  listen () {
-    return () => {};
-  },
+  const remember = (path, state) => {
+    if (typeof path === 'string') {
+      const hashIndex = path.indexOf('#');
+      const searchIndex = path.indexOf('?');
+      let pathnameEnd = path.length;
 
-  location: location || { pathname: '/', search: '', hash: '', state: null },
-});
+      if (searchIndex >= 0) {
+        pathnameEnd = searchIndex;
+      } else if (hashIndex >= 0) {
+        pathnameEnd = hashIndex;
+      }
+
+      let search = '';
+
+      if (searchIndex >= 0) {
+        const searchEnd = hashIndex >= 0 ? hashIndex : path.length;
+        search = path.slice(searchIndex, searchEnd);
+      }
+
+      current.pathname = path.slice(0, pathnameEnd) || '/';
+      current.search = search;
+      current.hash = hashIndex >= 0 ? path.slice(hashIndex) : '';
+    } else if (path) {
+      current.pathname = path.pathname || current.pathname;
+      current.search = path.search || '';
+      current.hash = path.hash || '';
+    }
+
+    current.state = state === undefined ? current.state : state;
+  };
+
+  return {
+    action: 'PUSH',
+    length: 1,
+    push (path, state) {
+      remember(path, state);
+      onNavigate(locationPath(path), state, false);
+    },
+    replace (path, state) {
+      remember(path, state);
+      onNavigate(locationPath(path), state, true);
+    },
+    goBack () {
+      onBack();
+    },
+    goForward () {},
+    go () {
+      onBack();
+    },
+    block () {
+      return () => {};
+    },
+    listen () {
+      return () => {};
+    },
+    createHref: createOverlayHref,
+    get location () {
+      return current;
+    },
+  };
+};
 
 export class FullscreenRouter extends React.Component {
 

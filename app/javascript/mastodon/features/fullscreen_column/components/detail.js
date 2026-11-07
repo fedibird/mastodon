@@ -28,7 +28,7 @@ export default class FullscreenDetail extends React.PureComponent {
     const about = /^\/accounts\/[^/]+\/about(?:\/|$)/.test(path);
 
     if (statusId) {
-      return <Status params={{ statusId }} multiColumn />;
+      return <Status params={{ statusId }} multiColumn fullscreenComposer />;
     }
 
     if (accountId && !/\/media(?:\/|$)/.test(path)) {

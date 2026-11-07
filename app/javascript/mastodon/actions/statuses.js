@@ -20,6 +20,7 @@ import { prepareRedraftMedia } from './redraft_media';
 import { createComposer, targetComposerAction } from './composer';
 import { selectComposer, selectPortableComposerSeed } from '../selectors/composer';
 import { getActiveFullscreenComposerId } from '../utils/fullscreen_column';
+import { capturedComposerDestination } from './fullscreen_column';
 
 export const STATUS_FETCH_REQUEST = 'STATUS_FETCH_REQUEST';
 export const STATUS_FETCH_SUCCESS = 'STATUS_FETCH_SUCCESS';
@@ -272,19 +273,26 @@ export function editStatus(id, routerHistory) {
     }
 
     dispatch(fetchStatusSourceRequest());
+    const capturedComposerId = getActiveFullscreenComposerId();
 
     api(getState).get(`/api/v1/statuses/${id}/source`).then(response => {
       dispatch(fetchStatusSourceSuccess());
-      const composerId = getActiveFullscreenComposerId();
       const composeAction = setComposeToStatus(status, response.data.text, response.data.spoiler_text);
+      const destination = capturedComposerDestination(
+        capturedComposerId,
+        getState().getIn(['fullscreenColumn', 'composerId']),
+      );
 
-      if (composerId) {
-        if (!selectComposer(getState(), composerId)) {
-          dispatch(createComposer(composerId, selectPortableComposerSeed(getState())));
+      if (destination.composerId) {
+        if (!selectComposer(getState(), destination.composerId)) {
+          dispatch(createComposer(destination.composerId, selectPortableComposerSeed(getState())));
         }
 
-        dispatch({ type: 'FULLSCREEN_COLUMN_PATCH', patch: { composerOpen: true } });
-        dispatch(targetComposerAction(composeAction, composerId));
+        dispatch(targetComposerAction(composeAction, destination.composerId));
+
+        if (destination.reveal) {
+          dispatch({ type: 'FULLSCREEN_COLUMN_PATCH', patch: { composerOpen: true } });
+        }
       } else {
         ensureComposeIsVisible(getState, routerHistory);
         dispatch(composeAction);
@@ -434,6 +442,7 @@ export function deleteStatus(id, routerHistory, withRedraft = false) {
     const status = statusForDelete(getState, id);
     const replyStatus = replyStatusForDelete(getState, status);
     const redraftRequested = withRedraft === true && !!status && !isExternalProjectionStatus(status);
+    const capturedComposerId = getActiveFullscreenComposerId();
 
     dispatch(deleteStatusRequest(id));
 
@@ -483,29 +492,35 @@ export function deleteStatus(id, routerHistory, withRedraft = false) {
         ? status.set('media_attachments', responseMedia)
         : status;
 
-      const composerId = getActiveFullscreenComposerId();
+      const destination = capturedComposerDestination(
+        capturedComposerId,
+        getState().getIn(['fullscreenColumn', 'composerId']),
+      );
       const redraftAction = redraft(getState, redraftStatus, replyStatus, data && data.text, {
         reuseMedia: true,
         ownerIdentityId: sessionPostingIdentityId(),
         mediaUnconfirmed,
       });
 
-      if (composerId) {
-        if (!selectComposer(getState(), composerId)) {
-          dispatch(createComposer(composerId, selectPortableComposerSeed(getState())));
+      if (destination.composerId) {
+        if (!selectComposer(getState(), destination.composerId)) {
+          dispatch(createComposer(destination.composerId, selectPortableComposerSeed(getState())));
         }
 
-        dispatch({ type: 'FULLSCREEN_COLUMN_PATCH', patch: { composerOpen: true } });
-        dispatch(targetComposerAction(redraftAction, composerId));
+        dispatch(targetComposerAction(redraftAction, destination.composerId));
+
+        if (destination.reveal) {
+          dispatch({ type: 'FULLSCREEN_COLUMN_PATCH', patch: { composerOpen: true } });
+        }
       } else {
         dispatch(redraftAction);
       }
 
       if (!mediaUnconfirmed) {
-        dispatch(prepareRedraftMedia(composerId || PRIMARY_COMPOSER_ID));
+        dispatch(prepareRedraftMedia(destination.composerId || PRIMARY_COMPOSER_ID));
       }
 
-      if (!composerId) {
+      if (!destination.composerId) {
         ensureComposeIsVisible(getState, routerHistory);
       }
     }).catch(error => {

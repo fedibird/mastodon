@@ -29,9 +29,12 @@ import {
   mentionCompose,
   directCompose,
   addReference,
+  addReferenceToComposer,
   removeReference,
 } from '../../actions/compose';
-import { dispatchFullscreenCompose } from '../../actions/fullscreen_column';
+import { dispatchFullscreenCompose, fullscreenModalScope, setFullscreenComposerOpen } from '../../actions/fullscreen_column';
+import { createComposer, targetComposerAction } from '../../actions/composer';
+import { selectComposer, selectPortableComposerSeed } from '../../selectors/composer';
 import {
   muteStatus,
   unmuteStatus,
@@ -160,7 +163,7 @@ const makeMapStateToProps = () => {
     return ImmutableList(contextReference.get(statusId));
   });
 
-  const mapStateToProps = (state, { columnId, params }) => {
+  const mapStateToProps = (state, { columnId, params, fullscreenComposer }) => {
     const uuid = columnId;
     const columns = state.getIn(['settings', 'columns']);
     const index = columns.findIndex(c => c.get('uuid') === uuid);
@@ -172,16 +175,22 @@ const makeMapStateToProps = () => {
     const id             = status ? getProper(status).get('id') : null;
     const emojiReactions = status ? status.get('emoji_reactions', ImmutableList()) : ImmutableList();
     const myCount        = emojiReactions.count((emojiReaction) => emojiReaction.get('account_ids', ImmutableList()).includes(me));
+    const composerId = fullscreenComposer && state.getIn(['fullscreenColumn', 'open'])
+      ? state.getIn(['fullscreenColumn', 'composerId'])
+      : null;
+    const compose = composerId ? selectComposer(state, composerId) : state.get('compose');
+    const referenceSet = compose ? compose.get('references') : null;
 
     return {
       status,
       ancestorsIds: ancestorsIds.concat(referencesIds).sortBy(id => id),
       descendantsIds,
-      askReplyConfirmation: state.getIn(['compose', 'text']).trim().length !== 0,
+      askReplyConfirmation: !!(compose && String(compose.get('text') || '').trim().length !== 0),
       domain: state.getIn(['meta', 'domain']),
       pictureInPicture: getPictureInPicture(state, { id: params.statusId }),
-      referenced: state.getIn(['compose', 'references']).has(id),
-      contextReferenced: state.getIn(['compose', 'context_references']).has(id),
+      referenced: !!(referenceSet && referenceSet.has(id)),
+      contextReferenced: !!(compose && compose.get('context_references') && compose.get('context_references').has(id)),
+      composerId,
       columnWidth: columnWidth ?? defaultColumnWidth,
       emojiReactioned: myCount > 0,
       reactionLimitReached: myCount >= maxReactionsPerAccount,
@@ -216,6 +225,8 @@ export class Status extends ImmutablePureComponent {
     }),
     emojiReactioned: PropTypes.bool,
     reactionLimitReached: PropTypes.bool,
+    composerId: PropTypes.string,
+    fullscreenComposer: PropTypes.bool,
   };
 
   state = {
@@ -269,10 +280,22 @@ export class Status extends ImmutablePureComponent {
     }
   }
 
+  composeInFullscreen = (kind, target) => (
+    !!(this.props.fullscreenComposer && this.props.composerId && this.props.dispatch(dispatchFullscreenCompose(kind, target, this.props.intl, this.props.composerId)))
+  );
+
+  openScopedModal = (type, payload) => {
+    this.props.dispatch((_, getState) => {
+      const fullscreenScope = this.props.fullscreenComposer ? fullscreenModalScope(getState()) : null;
+
+      this.props.dispatch(openModal(type, fullscreenScope ? { ...payload, fullscreenScope } : payload));
+    });
+  };
+
   handleReplyClick = (status) => {
     let { askReplyConfirmation, dispatch, intl } = this.props;
 
-    if (dispatch(dispatchFullscreenCompose('reply', status, intl))) {
+    if (this.composeInFullscreen('reply', status)) {
       return;
     }
 
@@ -314,7 +337,7 @@ export class Status extends ImmutablePureComponent {
   handleQuoteClick = (status) => {
     let { askReplyConfirmation, dispatch, intl } = this.props;
 
-    if (dispatch(dispatchFullscreenCompose('quote', status, intl))) {
+    if (this.composeInFullscreen('quote', status)) {
       return;
     }
 
@@ -362,7 +385,7 @@ export class Status extends ImmutablePureComponent {
   }
 
   handleDirectClick = (account, router) => {
-    if (this.props.dispatch(dispatchFullscreenCompose('direct', account, this.props.intl))) {
+    if (this.composeInFullscreen('direct', account)) {
       return;
     }
 
@@ -374,7 +397,7 @@ export class Status extends ImmutablePureComponent {
   }
 
   handleMentionClick = (account, router) => {
-    if (this.props.dispatch(dispatchFullscreenCompose('mention', account, this.props.intl))) {
+    if (this.composeInFullscreen('mention', account)) {
       return;
     }
 
@@ -382,19 +405,19 @@ export class Status extends ImmutablePureComponent {
   }
 
   handleOpenMedia = (media, index, lang) => {
-    this.props.dispatch(openModal('MEDIA', { statusId: this.props.status.get('id'), media, index, lang }));
+    this.openScopedModal('MEDIA', { statusId: this.props.status.get('id'), media, index, lang });
   }
 
   handleOpenVideo = (media, options, lang) => {
-    this.props.dispatch(openModal('VIDEO', { statusId: this.props.status.get('id'), media, options, lang }));
+    this.openScopedModal('VIDEO', { statusId: this.props.status.get('id'), media, options, lang });
   }
 
   handleOpenMediaQuote = (media, index, lang) => {
-    this.props.dispatch(openModal('MEDIA', { statusId: this.props.status.getIn(['quote', 'id']), media, index, lang }));
+    this.openScopedModal('MEDIA', { statusId: this.props.status.getIn(['quote', 'id']), media, index, lang });
   }
 
   handleOpenVideoQuote = (media, options, lang) => {
-    this.props.dispatch(openModal('VIDEO', { statusId: this.props.status.getIn(['quote', 'id']), media, options, lang }));
+    this.openScopedModal('VIDEO', { statusId: this.props.status.getIn(['quote', 'id']), media, options, lang });
   }
 
   handleTranslate = (status, mode) => {
@@ -543,11 +566,35 @@ export class Status extends ImmutablePureComponent {
   }
 
   handleAddReference = (id, change) => {
-    this.props.dispatch(addReference(id, change));
+    const composerId = this.props.composerId;
+
+    if (!composerId) {
+      this.props.dispatch(addReference(id, change));
+      return;
+    }
+
+    this.props.dispatch((dispatch, getState) => {
+      if (!selectComposer(getState(), composerId)) {
+        dispatch(createComposer(composerId, selectPortableComposerSeed(getState())));
+      }
+
+      if (getState().getIn(['fullscreenColumn', 'composerId']) === composerId) {
+        dispatch(setFullscreenComposerOpen(true));
+      }
+
+      dispatch(addReferenceToComposer(composerId, id, change));
+    });
   }
 
   handleRemoveReference = (id) => {
-    this.props.dispatch(removeReference(id));
+    const composerId = this.props.composerId;
+
+    if (!composerId) {
+      this.props.dispatch(removeReference(id));
+      return;
+    }
+
+    this.props.dispatch(targetComposerAction(removeReference(id), composerId));
   }
 
   getCurrentStatusIndex = id => {
@@ -602,6 +649,7 @@ export class Status extends ImmutablePureComponent {
         onMoveDown={this.handleMoveDown}
         contextType='thread'
         contextHostId={this.contextHostId()}
+        composerId={this.props.composerId}
       />
     ));
   }

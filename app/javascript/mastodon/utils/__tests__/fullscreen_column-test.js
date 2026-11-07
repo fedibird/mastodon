@@ -1,3 +1,4 @@
+import React from 'react';
 import { fromJS } from 'immutable';
 import {
   fullscreenFlowColumns,
@@ -7,12 +8,17 @@ import {
   presentationFromLayoutMode,
 } from '../fullscreen_column';
 import { resolveFullscreenSource, stripRouterBasename } from '../../features/fullscreen_column/sources';
-import { createOverlayHistory, fullscreenLayerDepth } from '../../features/fullscreen_column/overlay_history';
+import { createOverlayHistory, createOverlayHref, FullscreenRouter, fullscreenLayerDepth } from '../../features/fullscreen_column/overlay_history';
+import { capturedComposerDestination, closeFullscreenColumn, dispatchFullscreenCompose, openFullscreenColumn, patchFullscreenColumn } from '../../actions/fullscreen_column';
+import { restoreFilterAnchor } from '../../filter_reconciliation/scroll_anchor';
+import { render } from '@testing-library/react';
+import { Link, NavLink, Router } from 'react-router-dom';
+import { createMemoryHistory } from 'history';
+import { nodesInActiveLayer } from '../overlay_portal';
 import { scrollTopDeltaForVisualDelta } from '../css_zoom';
 import { articleFocusTarget } from '../article_focus';
 import { mixExtendSwitchesToHistory } from '../../actions/mix_timelines';
 import fullscreenColumn from '../../reducers/fullscreen_column';
-import { closeFullscreenColumn, openFullscreenColumn, patchFullscreenColumn } from '../../actions/fullscreen_column';
 import { claimEscape, registerOverlayLayer, resetOverlayLayersForTests, topOverlayLayer } from '../overlay_layers';
 import { makeMapStateToProps } from '../../features/ui/containers/status_list_container';
 
@@ -114,6 +120,91 @@ describe('fullscreen navigation and layers', () => {
     });
   });
 
+  it('gives React Router Link a createHref without touching the root history', () => {
+    const root = createMemoryHistory({ initialEntries: ['/timelines/home'] });
+    const overlay = [];
+    const remember = (path) => {
+      overlay.push(path);
+    };
+    const ignoreBack = () => {};
+    const { getByText } = render(React.createElement(Router, { history: root },
+      React.createElement(FullscreenRouter, { onNavigate: remember, onBack: ignoreBack },
+        React.createElement(Link, { to: '/statuses/42' }, 'Open status'),
+        React.createElement(NavLink, { to: '/accounts/7' }, 'Account'),
+      ),
+    ));
+
+    expect(createOverlayHref({ pathname: '/statuses/42', search: '', hash: '' })).toBe('/statuses/42');
+    expect(getByText('Open status').getAttribute('href')).toBe('/statuses/42');
+    expect(getByText('Account').getAttribute('href')).toBe('/accounts/7');
+    expect(root.location.pathname).toBe('/timelines/home');
+    expect(overlay).toEqual([]);
+  });
+
+  it('keeps a frozen media-modal reply on its captured composer', () => {
+    const actions = [];
+    const state = fromJS({
+      fullscreenColumn: { open: true, composerId: 'fullscreen:b' },
+      compose: { text: 'primary draft', dirty: true, mounted: true },
+      composers: {
+        byId: {
+          'fullscreen:a': { text: '', dirty: false, mounted: true },
+          'fullscreen:b': { text: 'leave this draft', dirty: true, mounted: true },
+        },
+      },
+    });
+    const dispatch = (action) => {
+      if (typeof action === 'function') {
+        return action(dispatch, () => state);
+      }
+
+      actions.push(action);
+      return action;
+    };
+
+    dispatch(dispatchFullscreenCompose('reply', fromJS({ id: '9', visibility: 'public', status_reference_ids: [] }), null, 'fullscreen:a'));
+
+    const replies = actions.filter(action => action.type === 'COMPOSE_REPLY');
+
+    expect(replies).toHaveLength(1);
+    expect(replies[0].meta.composerId).toBe('fullscreen:a');
+    expect(actions.some(action => action.type === 'FULLSCREEN_COLUMN_PATCH')).toBe(false);
+    expect(state.getIn(['compose', 'text'])).toBe('primary draft');
+    expect(state.getIn(['composers', 'byId', 'fullscreen:b', 'text'])).toBe('leave this draft');
+  });
+
+  it('skips covered stream controls and keeps a focused portal menu in its own tab cycle', () => {
+    document.body.innerHTML = `
+      <div id="column">
+        <button id="bar">Bar</button>
+        <div class="fullscreen-column__stream-hold--covered" inert>
+          <button id="hidden-stream">Hidden</button>
+        </div>
+        <a id="detail" href="/statuses/1">Detail</a>
+      </div>
+      <div id="portal"><button id="emoji">Emoji</button><button id="tone">Tone</button></div>
+    `;
+
+    ['bar', 'hidden-stream', 'detail', 'emoji', 'tone'].forEach((id) => {
+      Object.defineProperty(document.getElementById(id), 'offsetParent', { get: () => document.body });
+    });
+
+    const column = document.getElementById('column');
+    const portal = document.getElementById('portal');
+    const selector = 'button, a';
+
+    expect(nodesInActiveLayer(column, document.getElementById('bar'), selector).map(node => node.id)).toEqual(['bar', 'detail']);
+    expect(nodesInActiveLayer(portal, document.getElementById('emoji'), selector).map(node => node.id)).toEqual(['emoji', 'tone']);
+    document.body.innerHTML = '';
+  });
+
+  it('keeps an edit result on the composer captured when the request started', () => {
+    expect(capturedComposerDestination('fullscreen:a', null)).toEqual({ composerId: 'fullscreen:a', reveal: false });
+    expect(capturedComposerDestination('fullscreen:a', 'fullscreen:b')).toEqual({ composerId: 'fullscreen:a', reveal: false });
+    expect(capturedComposerDestination('fullscreen:a', 'fullscreen:a')).toEqual({ composerId: 'fullscreen:a', reveal: true });
+    expect(capturedComposerDestination(null, 'fullscreen:a')).toEqual({ composerId: null, reveal: false });
+  });
+
   it('orders browser-back depth as column, detail, then composer', () => {
     expect(fullscreenLayerDepth(null)).toBe(0);
     expect(fullscreenLayerDepth({ get: (key) => ({ paths: { size: 0 }, composerOpen: false }[key]) })).toBe(1);
@@ -123,6 +214,29 @@ describe('fullscreen navigation and layers', () => {
 });
 
 describe('fullscreen reading geometry', () => {
+  it('applies the zoom conversion inside filter anchor restoration', () => {
+    const scroller = document.createElement('div');
+    document.body.appendChild(scroller);
+    scroller.scrollTop = 400;
+    const row = document.createElement('div');
+    row.getBoundingClientRect = () => ({ top: 200, height: 20, bottom: 220, left: 0, right: 0, width: 0 });
+    const node = document.createElement('div');
+    node.contains = () => true;
+    const snapshot = { offset: 400, abandoned: false, rows: [{ node: row, offset: 0 }], focused: null };
+    const original = window.getComputedStyle;
+    window.getComputedStyle = (element) => ({ zoom: element === scroller ? '2' : 'normal' });
+    const accepted = [];
+
+    restoreFilterAnchor(snapshot, node, scroller, 100, {
+      onAcceptedScroll: (value) => accepted.push(value),
+    });
+    window.getComputedStyle = original;
+    document.body.removeChild(scroller);
+
+    expect(accepted).toEqual([450]);
+    expect(scroller.scrollTop).toBe(450);
+  });
+
   it('converts a zoomed visual delta into scrollTop units', () => {
     expect(scrollTopDeltaForVisualDelta(100, 2)).toBe(50);
     expect(scrollTopDeltaForVisualDelta(50, 1)).toBe(50);
