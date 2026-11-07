@@ -10,7 +10,7 @@ import { List as ImmutableList, Map as ImmutableMap, fromJS } from 'immutable';
 import { unstable_batchedUpdates } from 'react-dom';
 import ModalRoot from 'mastodon/components/modal_root';
 import { closeModal, openModal } from 'mastodon/actions/modal';
-import { pushFullscreenPath, setFullscreenComposerOpen } from 'mastodon/actions/fullscreen_column';
+import { dismissFullscreenModals, pushFullscreenPath, setFullscreenComposerOpen } from 'mastodon/actions/fullscreen_column';
 import fullscreenColumn from 'mastodon/reducers/fullscreen_column';
 import modal from 'mastodon/reducers/modal';
 import { resetOverlayLayersForTests } from 'mastodon/utils/overlay_layers';
@@ -143,6 +143,45 @@ describe('fullscreen handoff from a media modal', () => {
 
     expect(store.getState().getIn(['fullscreenColumn', 'composerOpen'])).toBe(false);
     expect(store.getState().getIn(['fullscreenColumn', 'open'])).toBe(true);
+    view.unmount();
+  });
+
+  it('closes the media modal with a reference and returns to the first history entry', () => {
+    const { history, store, view } = mountColumn();
+
+    act(() => {
+      store.dispatch(openModal('CONFIRM', { message: 'match' }));
+    });
+    act(() => {
+      unstable_batchedUpdates(() => {
+        store.dispatch((dispatch) => {
+          dispatch(closeModal());
+          dispatch(dismissFullscreenModals());
+          dispatch(setFullscreenComposerOpen(true));
+        });
+      });
+    });
+
+    expect(store.getState().get('modal').size).toBe(0);
+    expect(store.getState().getIn(['fullscreenColumn', 'composerOpen'])).toBe(true);
+    expect(history.location.state.mastodonFullscreenDepth).toBe(2);
+    expect(history.location.state.mastodonModalKey).toBeUndefined();
+
+    act(() => {
+      history.goBack();
+    });
+
+    expect(store.getState().getIn(['fullscreenColumn', 'composerOpen'])).toBe(false);
+    expect(store.getState().getIn(['fullscreenColumn', 'open'])).toBe(true);
+    expect(history.location.state.mastodonModalKey).toBeUndefined();
+
+    act(() => {
+      history.go(-history.location.state.mastodonFullscreenDepth);
+    });
+
+    expect(history.location.pathname).toBe('/timelines/home');
+    expect(history.location.state && history.location.state.mastodonFullscreenKey).toBeUndefined();
+    expect(history.location.state && history.location.state.mastodonModalKey).toBeUndefined();
     view.unmount();
   });
 });

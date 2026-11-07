@@ -1,5 +1,5 @@
 import { defineMessages } from 'react-intl';
-import { openModal } from './modal';
+import { closeModal, openModal } from './modal';
 import {
   replyInComposer,
   quoteInComposer,
@@ -86,6 +86,20 @@ export function openFullscreenColumn (input = {}) {
 }
 
 export const setFullscreenComposerOpen = (composerOpen) => patchFullscreenColumn({ composerOpen: !!composerOpen });
+
+// A reference from a media modal opens the composer underneath that modal.
+// Drop every open modal in the same update so the existing history handoff
+// can replace the modal entry instead of stacking the composer above it.
+export function dismissFullscreenModals () {
+  return (dispatch, getState) => {
+    const stack = getState().get('modal');
+    const count = stack && typeof stack.size === 'number' ? stack.size : 0;
+
+    for (let index = 0; index < count; index += 1) {
+      dispatch(closeModal());
+    }
+  };
+}
 
 export const pushFullscreenPath = (path) => (dispatch, getState) => {
   const current = getState().getIn(['fullscreenColumn', 'paths']);

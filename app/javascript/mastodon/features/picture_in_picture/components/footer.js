@@ -8,7 +8,7 @@ import classNames from 'classnames';
 import { me, boostModal, show_quote_button, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal } from 'mastodon/initial_state';
 import { defineMessages, injectIntl } from 'react-intl';
 import { replyCompose, quoteCompose, addReference, addReferenceToComposer, removeReference } from 'mastodon/actions/compose';
-import { dispatchFullscreenCompose, pushFullscreenPath, setFullscreenComposerOpen } from 'mastodon/actions/fullscreen_column';
+import { dismissFullscreenModals, dispatchFullscreenCompose, pushFullscreenPath, setFullscreenComposerOpen } from 'mastodon/actions/fullscreen_column';
 import { createComposer, targetComposerAction } from 'mastodon/actions/composer';
 import { selectComposer, selectPortableComposerSeed } from 'mastodon/selectors/composer';
 import { reblog, favourite, bookmark, unreblog, unfavourite, unbookmark } from 'mastodon/actions/interactions';
@@ -166,6 +166,7 @@ class Footer extends ImmutablePureComponent {
       }
 
       if (getState().getIn(['fullscreenColumn', 'composerId']) === composerId) {
+        dispatch(dismissFullscreenModals());
         dispatch(setFullscreenComposerOpen(true));
       }
 

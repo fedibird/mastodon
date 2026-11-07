@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { defineMessages } from 'react-intl';
 import classNames from 'classnames';
+import { claimEscape } from 'mastodon/utils/overlay_layers';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { languages as preloadedLanguages } from 'mastodon/initial_state';
 import { languageMatches, languageOptionParts } from 'mastodon/utils/language_names';
@@ -131,6 +132,7 @@ export default class LanguageDropdownMenu extends React.PureComponent {
 
     switch(e.key) {
     case 'Escape':
+      claimEscape(e);
       onClose();
       break;
     case 'Enter':
@@ -193,7 +195,7 @@ export default class LanguageDropdownMenu extends React.PureComponent {
       }
       break;
     case 'Escape':
-      e.preventDefault();
+      claimEscape(e);
 
       if (searchValue !== '') {
         this.handleClear();

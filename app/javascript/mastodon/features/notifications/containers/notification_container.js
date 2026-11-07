@@ -3,6 +3,7 @@ import { makeGetNotification, makeGetStatus } from '../../../selectors';
 import Notification from '../components/notification';
 import { initBoostModal } from '../../../actions/boosts';
 import { mentionCompose } from '../../../actions/compose';
+import { dispatchFullscreenCompose } from '../../../actions/fullscreen_column';
 import {
   reblog,
   favourite,
@@ -30,8 +31,12 @@ const makeMapStateToProps = () => {
   return mapStateToProps;
 };
 
-const mapDispatchToProps = dispatch => ({
+const mapDispatchToProps = (dispatch, { composerId }) => ({
   onMention: (account, router) => {
+    if (composerId && dispatch(dispatchFullscreenCompose('mention', account, null, composerId))) {
+      return;
+    }
+
     dispatch(mentionCompose(account, router));
   },
 
