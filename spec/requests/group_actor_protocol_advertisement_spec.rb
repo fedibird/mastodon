@@ -28,6 +28,10 @@ RSpec.describe 'Local Group Actor protocol advertisement cache boundary' do
     expect(on[:fedibirdGroupProtocols]).to eq([advertisement::MENTION_FOLLOW_ANNOUNCE_IRI])
     expect(on[:type]).to eq('Group')
 
+    allow(ENV).to receive(:[]).with(advertisement::ACTOR_IDS_ENV).and_return('')
+    removed_from_allowlist = get_actor
+    expect(removed_from_allowlist).not_to have_key(:fedibirdGroupProtocols)
+
     allow(ENV).to receive(:[]).with(advertisement::EMIT_ENV).and_return('false')
     disabled_again = get_actor
     expect(disabled_again).not_to have_key(:fedibirdGroupProtocols)
