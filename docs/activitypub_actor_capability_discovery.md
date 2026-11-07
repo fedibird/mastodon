@@ -50,7 +50,7 @@ For a **remote Group**, NodeInfo `software_name = fedibird` can only
 yield a fresh, bound *self-declared implementation candidate*.
 `GroupProtocol` must continue to return `profile.kind = unknown`,
 `fedibird_posting = withheld`, and `authorizes_posting = false`.
-The remote Fedora/Fedibird name, `type: Group`, and a user's Follow
+The remote Fedibird software name, `type: Group`, and a user's Follow
 are not permission to choose a posting transport. Keep
 `PostingContext::DiscoveryService` and the local/remote allow rules
 unchanged in this P3 design.
