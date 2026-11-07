@@ -12,6 +12,7 @@ RSpec.describe ActivityPub::GroupProtocolAdvertisement do
   end
 
   it 'advertises only an explicitly allowlisted local Group with the server profile' do
+    group # Fabrication happens before the no-extra-lookup expectations.
     expect(GroupProtocol).not_to receive(:assess)
     expect(Node).not_to receive(:resolve_domain)
 
