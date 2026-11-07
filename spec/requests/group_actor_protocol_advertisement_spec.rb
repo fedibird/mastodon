@@ -11,7 +11,7 @@ RSpec.describe 'Local Group Actor protocol advertisement cache boundary' do
     allow(ENV).to receive(:[]).with(ActivityPub::GroupProtocolAdvertisement::ACTOR_IDS_ENV).and_return(group.id.to_s)
   end
 
-  def get_actor
+  def fetch_actor
     get "/users/#{group.username}", headers: { 'Accept' => 'application/activity+json' }
     expect(response).to have_http_status(200)
     body_as_json
@@ -20,20 +20,20 @@ RSpec.describe 'Local Group Actor protocol advertisement cache boundary' do
   it 'does not reuse the advertised JSON after the gate is disabled' do
     advertisement = ActivityPub::GroupProtocolAdvertisement
 
-    off = get_actor
+    off = fetch_actor
     expect(off).not_to have_key(:fedibirdGroupProtocols)
 
     allow(ENV).to receive(:[]).with(advertisement::EMIT_ENV).and_return('true')
-    on = get_actor
+    on = fetch_actor
     expect(on[:fedibirdGroupProtocols]).to eq([advertisement::MENTION_FOLLOW_ANNOUNCE_IRI])
     expect(on[:type]).to eq('Group')
 
     allow(ENV).to receive(:[]).with(advertisement::ACTOR_IDS_ENV).and_return('')
-    removed_from_allowlist = get_actor
+    removed_from_allowlist = fetch_actor
     expect(removed_from_allowlist).not_to have_key(:fedibirdGroupProtocols)
 
     allow(ENV).to receive(:[]).with(advertisement::EMIT_ENV).and_return('false')
-    disabled_again = get_actor
+    disabled_again = fetch_actor
     expect(disabled_again).not_to have_key(:fedibirdGroupProtocols)
     expect(disabled_again[:id]).to eq(off[:id])
     expect(disabled_again[:publicKey]).to eq(off[:publicKey])
