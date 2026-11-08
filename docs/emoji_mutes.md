@@ -211,19 +211,28 @@ newest `emoji_mutes_changed` value. `appliedRevision` is the document that
 was stored. Reaction events and anonymous `status.update` payloads wait
 until the applied revision has caught up with the observed one. A REST
 status whose `emoji_mutes_revision` is older than that applied revision is
-not shown as-is, even when the status was not cached yet. Its text is
-imported. Its reactions are projected with the applied rules, or omitted
-when that is not possible, and the stored revision is not moved backwards.
+not shown as-is, even when the status was not cached yet. The same is true
+while `observedRevision` is ahead of `appliedRevision`: a payload stamped
+with the older applied revision is not shown until the new document
+arrives. Its text is imported. Its reactions are projected with the applied
+rules, or omitted when that is not possible, and the stored revision is
+not moved backwards. Applying an older mute document does not lower a
+status revision that is already newer.
 A failed or older mute fetch does not mark the document current. The event
 is registered for both WebSocket and EventSource (`KNOWN_EVENT_TYPES`).
-After a successful fetch the client reloads every loaded column, the open
-thread, and other loaded statuses that still have reactions, 40 ids at a
-time, then the notification page and the unread count. Notification
-accounts and statuses are imported before the list is replaced. A failed
-notification request does not clear the list. A newer reload is not
-overwritten by an older one that finishes later. A group whose projected
-count is zero is removed. The representative image is taken from the
-remaining parts. Do not use `localStorage`.
+After a successful fetch the client does not request every loaded status.
+A document with no new hidden identity, including the first empty fetch and
+a reconnect of the same revision, issues no status request. Removing a
+hidden identity refetches at most 40 statuses that are behind that
+revision: the open thread and the head of each column, 20 ids per
+`GET /api/v1/statuses?ids[]=`. The notification page is requested at the
+same time, with the same `exclude_types` as the notification column, and
+is merged into the loaded pages. A failed notification request does not
+clear the list. A newer reload is not overwritten by an older one that
+finishes later. A status that scrolls into view later, or is opened in
+detail, is restored on its own if its revision is still behind. A group
+whose projected count is zero is removed. The representative image is
+taken from the remaining parts. Do not use `localStorage`.
 
 A status payload whose `emoji_mutes_revision` is older than the copy already
 stored keeps that copy's reactions. The rest of the payload, including

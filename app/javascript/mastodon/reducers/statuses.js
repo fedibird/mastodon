@@ -39,12 +39,12 @@ import { protectBoostState, revisionOfImmutable } from '../external_boosts/revis
 import { normalizeStatusTranslation } from '../actions/importer/normalizer';
 import { me } from '../initial_state';
 import { Map as ImmutableMap, List, fromJS } from 'immutable';
-import { guardImportedReactions, projectStatusReactions, projectStreamReaction, reactionTokenStale } from '../features/emoji/emoji_mute_projection';
-import { appliedEmojiMuteRevision, currentEmojiMutes, emojiReactionEventsAccepted } from '../features/emoji/emoji_mute_store';
+import { guardImportedReactions, projectStatusReactions, projectStreamReaction, reactionTokenStale, revisionStale } from '../features/emoji/emoji_mute_projection';
+import { appliedEmojiMuteRevision, currentEmojiMutes, emojiReactionEventsAccepted, observedEmojiMuteRevision } from '../features/emoji/emoji_mute_store';
 import { EMOJI_MUTES_APPLY } from '../actions/emoji_mutes';
 
 const protectEmojiReactionProjection = (previous, status) => (
-  guardImportedReactions(previous, status, currentEmojiMutes(), emojiReactionEventsAccepted(), appliedEmojiMuteRevision())
+  guardImportedReactions(previous, status, currentEmojiMutes(), emojiReactionEventsAccepted(), appliedEmojiMuteRevision(), observedEmojiMuteRevision())
 );
 
 const importStatus = (state, status) => {
@@ -338,9 +338,20 @@ export default function statuses(state = initialState, action) {
   case UNBOOKMARK_FAIL:
     return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'bookmarked'], true);
   case EMOJI_MUTES_APPLY:
+    if (action.sameDocument || action.hideShrunk) {
+      return state;
+    }
+
     return state.withMutations(map => {
       map.forEach((status, id) => {
         if (!status || typeof status.get !== 'function') {
+          return;
+        }
+
+        const currentRevision = status.get('emoji_mutes_revision');
+        const incomingRevision = action.revision === null || action.revision === undefined ? null : String(action.revision);
+
+        if (currentRevision !== null && currentRevision !== undefined && incomingRevision !== null && revisionStale(currentRevision, incomingRevision)) {
           return;
         }
 
@@ -359,8 +370,10 @@ export default function statuses(state = initialState, action) {
         map.setIn([id, 'emoji_reactions'], fromJS(projected));
         map.setIn([id, 'emoji_reactions_count'], projected.reduce((sum, group) => sum + Number(group.count || 0), 0));
 
-        if (action.revision !== null && action.revision !== undefined) {
-          map.setIn([id, 'emoji_mutes_revision'], String(action.revision));
+        if (incomingRevision !== null && (currentRevision === null || currentRevision === undefined || revisionStale(currentRevision, incomingRevision) || String(currentRevision) !== incomingRevision)) {
+          if (currentRevision === null || currentRevision === undefined || !revisionStale(currentRevision, incomingRevision)) {
+            map.setIn([id, 'emoji_mutes_revision'], incomingRevision);
+          }
         }
       });
     });

@@ -1,5 +1,6 @@
 import {
   NOTIFICATIONS_RELOAD_SUCCESS,
+  NOTIFICATIONS_FEED_MERGE,
   NOTIFICATIONS_UPDATE,
   NOTIFICATIONS_EXPAND_SUCCESS,
   NOTIFICATIONS_EXPAND_REQUEST,
@@ -31,6 +32,8 @@ import { DOMAIN_BLOCK_SUCCESS } from 'mastodon/actions/domain_blocks';
 import { TIMELINE_DELETE, TIMELINE_DISCONNECT } from '../actions/timelines';
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import compareId from '../compare_id';
+import { EMOJI_MUTES_APPLY } from '../actions/emoji_mutes';
+import { reactionNameHidden } from '../features/emoji/emoji_mute_projection';
 
 const initialState = ImmutableMap({
   pendingItems: ImmutableList(),
@@ -121,6 +124,18 @@ const expandNormalizedNotifications = (state, notifications, next, isLoadingRece
 
     mutable.set('isLoading', false);
   });
+};
+
+const emojiReactionHidden = (item, rules) => (
+  !!item
+  && item.get('type') === 'emoji_reaction'
+  && reactionNameHidden(item.getIn(['emoji_reaction', 'name']), item.getIn(['emoji_reaction', 'domain']) || null, rules)
+);
+
+const dropHiddenEmojiReactions = (state, rules) => {
+  const helper = list => list.filter(item => !emojiReactionHidden(item, rules));
+
+  return state.update('items', helper).update('pendingItems', helper);
 };
 
 const filterNotifications = (state, accountIds, type) => {
@@ -225,6 +240,20 @@ export default function notifications(state = initialState, action) {
     return state.set('items', ImmutableList()).set('pendingItems', ImmutableList()).set('hasMore', true);
   case NOTIFICATIONS_SCROLL_TOP:
     return updateTop(state, action.top);
+  case EMOJI_MUTES_APPLY:
+    return dropHiddenEmojiReactions(state, action.mutes);
+  case NOTIFICATIONS_FEED_MERGE: {
+    const hasMore = state.get('hasMore');
+    const pendingItems = state.get('pendingItems');
+    let next = expandNormalizedNotifications(state, action.notifications || [], 'keep', false, false);
+
+    next = next.set('hasMore', hasMore).set('pendingItems', pendingItems);
+    next = dropHiddenEmojiReactions(next, action.rules);
+    if (typeof action.unread === 'number') {
+      next = next.set('unread', action.unread);
+    }
+    return next;
+  }
   case NOTIFICATIONS_RELOAD_SUCCESS: {
     const items = ImmutableList((action.notifications || []).filter(item => item && item.account).map(notificationToMap));
     let next = state.set('items', items).set('pendingItems', ImmutableList()).set('isLoading', false);

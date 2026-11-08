@@ -13,16 +13,14 @@ jest.mock('mastodon/api', () => {
 import reducer from '../../../reducers/statuses';
 import emojiMutes from '../../../reducers/emoji_mutes';
 import { EMOJI_REACTION_UPDATE, EMOJI_REACTION_REQUEST } from '../../../actions/interactions';
-import { STATUS_IMPORT } from '../../../actions/importer';
-import { importEmojiMutes, importEmojiMutesRevision } from '../../../actions/emoji_mutes';
-import { projectStreamReaction, reactionNameHidden } from '../emoji_mute_projection';
-import { installEmojiMutesForTests, loadEmojiMutes, noteEmojiMutesChanged, appliedEmojiMuteRevision, observedEmojiMuteRevision, resetEmojiMuteStoreForTests } from '../emoji_mute_store';
+import { STATUS_IMPORT, importFetchedStatuses, ACCOUNTS_IMPORT, STATUSES_IMPORT } from '../../../actions/importer';
+import { importEmojiMutes, importEmojiMutesRevision, refreshEmojiMuteSurfaces, restoreVisibleEmojiMuteStatus, resetEmojiMuteSurfaceForTests, syncEmojiMutes, EMOJI_MUTES_APPLY } from '../../../actions/emoji_mutes';
+import { projectStreamReaction, reactionNameHidden, guardImportedReactions } from '../emoji_mute_projection';
+import { installEmojiMutesForTests, loadEmojiMutes, noteEmojiMutesChanged, appliedEmojiMuteRevision, observedEmojiMuteRevision, resetEmojiMuteStoreForTests, emojiReactionEventsAccepted } from '../emoji_mute_store';
 import api from 'mastodon/api';
 import { addEmojiReaction, updateEmojiReaction } from '../../../actions/interactions';
-import { refreshEmojiMuteSurfaces, syncEmojiMutes } from '../../../actions/emoji_mutes';
-import { ACCOUNTS_IMPORT, STATUSES_IMPORT } from '../../../actions/importer';
-import { guardImportedReactions } from '../emoji_mute_projection';
-import { NOTIFICATIONS_RELOAD_SUCCESS } from '../../../actions/notifications';
+import { NOTIFICATIONS_FEED_MERGE, NOTIFICATIONS_RELOAD_SUCCESS } from '../../../actions/notifications';
+import notificationsReducer from '../../../reducers/notifications';
 import { KNOWN_EVENT_TYPES } from '../../../stream';
 
 const rules = [{
@@ -32,6 +30,7 @@ const rules = [{
 
 describe('emoji mute projection', () => {
   afterEach(() => {
+    resetEmojiMuteSurfaceForTests();
     resetEmojiMuteStoreForTests();
   });
   it('drops only the muted identity and ignores an older stream token', () => {
@@ -215,12 +214,14 @@ describe('emoji mute projection', () => {
       emoji_reactions_count: 1,
     };
     const hide = [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '👍' } }];
-    [true, false].forEach(accepted => {
-      const next = guardImportedReactions(undefined, incoming, hide, accepted, '5');
-      expect(next.content).toBe('edited after the mute');
-      expect(next.emoji_reactions === undefined || next.emoji_reactions.length === 0).toBe(true);
-      expect(next.emoji_mutes_revision).toBe('5');
-    });
+    const accepted = guardImportedReactions(undefined, incoming, hide, true, '5');
+    expect(accepted.content).toBe('edited after the mute');
+    expect(accepted.emoji_reactions).toEqual([]);
+    expect(accepted.emoji_mutes_revision).toBe('5');
+    const waiting = guardImportedReactions(undefined, { ...incoming, emoji_mutes_revision: '4' }, hide, false, '4', '5');
+    expect(waiting.content).toBe('edited after the mute');
+    expect(waiting.emoji_reactions).toBeUndefined();
+    expect(waiting.emoji_mutes_revision).toBeUndefined();
 
     const kept = guardImportedReactions(fromJS({
       id: 'kept',
@@ -299,7 +300,7 @@ describe('emoji mute projection', () => {
       return action;
     };
     await syncEmojiMutes()(dispatch, () => fromJS({ contexts: {}, timelines: {}, statuses: {} }));
-    const reloadAt = actions.findIndex(action => action.type === NOTIFICATIONS_RELOAD_SUCCESS);
+    const reloadAt = actions.findIndex(action => action.type === NOTIFICATIONS_FEED_MERGE);
     const accountAt = actions.findIndex(action => action.type === ACCOUNTS_IMPORT && action.accounts.some(item => item.id === 'acct-1'));
     const targetAt = actions.findIndex(action => action.type === ACCOUNTS_IMPORT && action.accounts.some(item => item.id === 'acct-2'));
     const statusAt = actions.findIndex(action => action.type === STATUSES_IMPORT && action.statuses.some(item => item.id === 'st-1'));
@@ -310,6 +311,7 @@ describe('emoji mute projection', () => {
     expect(reloadAt).toBeGreaterThan(targetAt);
     expect(reloadAt).toBeGreaterThan(statusAt);
     expect(actions[reloadAt].notifications[0].status.id).toBe('st-1');
+    expect(actions.map(action => action.type)).not.toContain(NOTIFICATIONS_RELOAD_SUCCESS);
 
     actions.length = 0;
     api.mockImplementation(() => ({
@@ -319,6 +321,7 @@ describe('emoji mute projection', () => {
       put: jest.fn(),
     }));
     await refreshEmojiMuteSurfaces()(dispatch, () => fromJS({ contexts: {}, timelines: {}, statuses: {} }));
+    expect(actions.map(action => action.type)).not.toContain(NOTIFICATIONS_FEED_MERGE);
     expect(actions.map(action => action.type)).not.toContain(NOTIFICATIONS_RELOAD_SUCCESS);
 
     api.mockImplementation(() => ({
@@ -326,7 +329,7 @@ describe('emoji mute projection', () => {
       put: jest.fn(),
     }));
     await refreshEmojiMuteSurfaces()(dispatch, () => fromJS({ contexts: {}, timelines: {}, statuses: {} }));
-    expect(actions.filter(action => action.type === NOTIFICATIONS_RELOAD_SUCCESS)).toEqual([
+    expect(actions.filter(action => action.type === NOTIFICATIONS_FEED_MERGE)).toEqual([
       expect.objectContaining({ notifications: [], unread: 0 }),
     ]);
   });
@@ -372,16 +375,290 @@ describe('emoji mute projection', () => {
     await second;
     firstNotifications.resolve({ data: [{ id: 'old', type: 'mention', account: { id: 'acct-1', username: 'a', display_name: 'A', note: '', followed_message: '', url: 'https://example.test/a', emojis: [] } }] });
     await first;
-    const reloads = actions.filter(action => action.type === NOTIFICATIONS_RELOAD_SUCCESS);
+    const reloads = actions.filter(action => action.type === NOTIFICATIONS_FEED_MERGE);
     expect(reloads).toHaveLength(1);
     expect(reloads[0].notifications).toEqual([]);
     expect(reloads[0].unread).toBe(0);
-    expect(requested).toEqual(expect.arrayContaining([
-      '/api/v1/statuses/41',
-      '/api/v1/statuses/column-b',
-      '/api/v1/statuses/detail-status',
-      '/api/v1/statuses/open-detail',
-    ]));
+    expect(requested.filter(path => path.includes('/api/v1/statuses'))).toEqual([]);
+  });
+
+  it('keeps an in-flight mute document from adopting the previous revisioned rest payload', async () => {
+    installEmojiMutesForTests({ revision: '4', emoji_mutes: [] });
+    let release;
+    api.mockImplementation(() => ({
+      get: () => new Promise(resolve => {
+        release = resolve;
+      }),
+      put: jest.fn(),
+    }));
+    const pendingLoad = noteEmojiMutesChanged({ revision: '5' });
+    expect(observedEmojiMuteRevision()).toBe('5');
+    expect(appliedEmojiMuteRevision()).toBe('4');
+    expect(emojiReactionEventsAccepted()).toBe(false);
+    const thumb = {
+      id: 'late',
+      content: 'edited while the mute document loads',
+      emoji_mutes_revision: '4',
+      emoji_reactions: [{ name: '👍', count: 1, account_ids: ['9'] }],
+      emoji_reactions_count: 1,
+      emojis: [],
+      media_attachments: [],
+      mentions: [],
+      spoiler_text: '',
+    };
+    const state = reducer(undefined, { type: STATUS_IMPORT, status: thumb });
+    expect(state.getIn(['late', 'content'])).toBe('edited while the mute document loads');
+    expect(state.getIn(['late', 'emoji_reactions'])).toBeUndefined();
+    expect(state.getIn(['late', 'emoji_mutes_revision'])).toBeUndefined();
+    const actions = [];
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, () => fromJS({ statuses: {}, accounts: {}, polls: {} }));
+      }
+      actions.push(action);
+      return action;
+    };
+    importFetchedStatuses([{ ...thumb, id: 'fresh' }])(dispatch, () => fromJS({ statuses: {}, accounts: {}, polls: {} }));
+    const imported = actions.find(action => action.type === STATUSES_IMPORT).statuses[0];
+    expect(imported.content).toBe('edited while the mute document loads');
+    expect(imported.emoji_reactions).toBeUndefined();
+    release({ data: { revision: '5', emoji_mutes: [] } });
+    await pendingLoad;
+  });
+
+  it('does not lower a newer status revision when an older mute document is applied', () => {
+    installEmojiMutesForTests({ revision: '5', emoji_mutes: [] });
+    let state = reducer(undefined, {
+      type: STATUS_IMPORT,
+      status: { id: 's', content: 'kept', emoji_mutes_revision: '6', emoji_reactions: [], emoji_reactions_count: 0 },
+    });
+    state = reducer(state, { type: EMOJI_MUTES_APPLY, mutes: [], revision: '5', sameDocument: false, hideShrunk: false });
+    expect(state.getIn(['s', 'emoji_mutes_revision'])).toBe('6');
+    expect(state.getIn(['s', 'emoji_reactions']).size).toBe(0);
+    state = reducer(state, {
+      type: STATUS_IMPORT,
+      status: {
+        id: 's',
+        content: 'older body',
+        emoji_mutes_revision: '5',
+        emoji_reactions: [{ name: '👍', count: 1, account_ids: ['9'] }],
+        emoji_reactions_count: 1,
+      },
+    });
+    expect(state.getIn(['s', 'content'])).toBe('older body');
+    expect(state.getIn(['s', 'emoji_reactions']).size).toBe(0);
+    expect(state.getIn(['s', 'emoji_mutes_revision'])).toBe('6');
+  });
+
+  it('merges the filtered notification page and keeps loaded history', () => {
+    const account = {
+      id: 'acct-1',
+      acct: 'a',
+      username: 'a',
+      display_name: 'A',
+      note: '',
+      followed_message: '',
+      url: 'https://example.test/a',
+      emojis: [],
+      fields: [],
+    };
+    const mentions = Array.from({ length: 40 }, (_item, index) => ({
+      id: String(1000 + index),
+      type: 'mention',
+      account,
+    }));
+    const reaction = {
+      id: '900',
+      type: 'emoji_reaction',
+      account,
+      emoji_reaction: { name: '👍' },
+    };
+    const calls = [];
+    api.mockImplementation(() => ({
+      get: (url, config) => {
+        calls.push({ url: String(url), params: config && config.params });
+        if (String(url).includes('unread_count')) {
+          return Promise.resolve({ data: { count: 2 } });
+        }
+        const excluded = config && config.params && config.params.exclude_types;
+        if (Array.isArray(excluded) && excluded.includes('mention') && !excluded.includes('emoji_reaction')) {
+          return Promise.resolve({ data: [reaction] });
+        }
+        return Promise.resolve({ data: mentions });
+      },
+      put: jest.fn(),
+    }));
+    const stored = id => fromJS({ id, type: 'emoji_reaction', account: 'acct-1', emoji_reaction: { name: '🎉' } });
+    let notifications = fromJS({
+      items: [stored('300'), stored('200'), stored('100')],
+      pendingItems: [fromJS({ id: '400', type: 'mention', account: 'acct-1' })],
+      hasMore: false,
+      unread: 4,
+      lastReadId: '0',
+      top: false,
+      mounted: 1,
+      isLoading: false,
+      isTabVisible: true,
+      readMarkerId: '0',
+      browserSupport: false,
+      browserPermission: 'default',
+    });
+    const state = () => fromJS({
+      settings: { notifications: { quickFilter: { active: 'emoji_reaction' }, shows: { mention: true, emoji_reaction: true } } },
+      notifications,
+      relationships: {},
+      timelines: { home: { items: [] } },
+      markers: { home: '0', notifications: '0' },
+      statuses: {},
+      accounts: {},
+      polls: {},
+    });
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, state);
+      }
+      notifications = notificationsReducer(notifications, action);
+      return action;
+    };
+    return refreshEmojiMuteSurfaces()(dispatch, state).then(() => {
+      const request = calls.find(call => call.url === '/api/v1/notifications');
+      expect(request.params.exclude_types).toContain('mention');
+      expect(request.params.exclude_types).not.toContain('emoji_reaction');
+      expect(request.params.limit).toBeUndefined();
+      expect(notifications.get('hasMore')).toBe(false);
+      expect(notifications.get('pendingItems').map(item => item.get('id')).toJS()).toEqual(['400']);
+      expect(notifications.get('items').map(item => item.get('id')).toJS()).toEqual(expect.arrayContaining(['300', '200', '100', '900']));
+      expect(notifications.get('items').some(item => item.get('type') === 'mention')).toBe(false);
+      expect(notifications.get('unread')).toBe(2);
+    });
+  });
+
+  it('does not request every loaded status when the mute document does not restore reactions', async () => {
+    const calls = [];
+    api.mockImplementation(() => ({
+      get: url => {
+        calls.push(String(url));
+        if (String(url).includes('emoji_mutes')) {
+          return Promise.resolve({ data: { revision: '1', emoji_mutes: [] } });
+        }
+        if (String(url).includes('unread_count')) {
+          return Promise.resolve({ data: { count: 0 } });
+        }
+        return Promise.resolve({ data: [] });
+      },
+      put: jest.fn(),
+    }));
+    const statuses = {};
+    for (let index = 1; index <= 1000; index += 1) {
+      statuses[String(index)] = { emoji_reactions: [], emoji_reactions_count: 0 };
+    }
+    const state = () => fromJS({
+      timelines: { home: { items: Object.keys(statuses) } },
+      contexts: {},
+      statuses,
+      notifications: { items: [], pendingItems: [] },
+    });
+    const dispatch = action => (typeof action === 'function' ? action(dispatch, state) : action);
+    const started = Date.now();
+    await syncEmojiMutes()(dispatch, state);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(calls.filter(url => url.includes('/api/v1/statuses'))).toEqual([]);
+
+    calls.length = 0;
+    await syncEmojiMutes()(dispatch, state);
+    expect(calls.filter(url => url.includes('/api/v1/statuses'))).toEqual([]);
+  });
+
+  it('restores only the visible head after an unmute and fetches the rest on demand', async () => {
+    installEmojiMutesForTests({
+      revision: '4',
+      emoji_mutes: [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '👍' } }],
+    });
+    const calls = [];
+    api.mockImplementation(() => ({
+      get: url => {
+        calls.push(String(url));
+        if (String(url).includes('emoji_mutes')) {
+          return Promise.resolve({ data: { revision: '5', emoji_mutes: [] } });
+        }
+        if (String(url).includes('unread_count')) {
+          return Promise.resolve({ data: { count: 0 } });
+        }
+        if (String(url).includes('/api/v1/statuses?')) {
+          return Promise.resolve({ data: [] });
+        }
+        return Promise.resolve({ data: [] });
+      },
+      put: jest.fn(),
+    }));
+    const measure = async (size) => {
+      calls.length = 0;
+      resetEmojiMuteSurfaceForTests();
+      installEmojiMutesForTests({
+        revision: '4',
+        emoji_mutes: [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '👍' } }],
+      });
+      const statuses = {};
+      const home = [];
+      const local = [];
+      for (let index = 1; index <= size; index += 1) {
+        const id = String(index);
+        statuses[id] = { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0 };
+        if (index <= size / 2) {
+          home.push(id);
+        } else {
+          local.push(id);
+        }
+      }
+      statuses['detail-status'] = { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0 };
+      statuses['open-detail'] = { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0 };
+      const state = () => fromJS({
+        contexts: { references: { thread: ['detail-status'] } },
+        timelines: { home: { items: home }, local: { items: local } },
+        statuses,
+        notifications: { items: [], pendingItems: [] },
+      });
+      const dispatch = action => (typeof action === 'function' ? action(dispatch, state) : action);
+      const started = Date.now();
+      await syncEmojiMutes()(dispatch, state);
+      const elapsed = Date.now() - started;
+      const statusCalls = calls.filter(url => url.includes('/api/v1/statuses?'));
+      expect(statusCalls.length).toBeLessThanOrEqual(2);
+      expect(statusCalls.join(' ')).toEqual(expect.stringContaining('ids[]=detail-status'));
+      expect(statusCalls.join(' ')).toEqual(expect.stringContaining('ids[]=1'));
+      expect(statusCalls.join(' ')).toEqual(expect.stringContaining(`ids[]=${(size / 2) + 1}`));
+      expect(statusCalls.join(' ')).not.toEqual(expect.stringContaining('ids[]=41'));
+      expect(statusCalls.join(' ')).not.toEqual(expect.stringContaining('ids[]=open-detail'));
+      expect(calls.some(url => url.includes('/api/v1/notifications'))).toBe(true);
+      expect(elapsed).toBeLessThan(1000);
+      calls.length = 0;
+      restoreVisibleEmojiMuteStatus('open-detail')(dispatch, state);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(calls.filter(url => url.includes('/api/v1/statuses?')).join(' ')).toEqual(expect.stringContaining('ids[]=open-detail'));
+    };
+    await measure(500);
+    await measure(2000);
+  });
+
+  it('drops a hidden emoji reaction notification without clearing history', () => {
+    const state = notificationsReducer(fromJS({
+      items: [
+        { id: '2', type: 'emoji_reaction', account: 'acct-1', emoji_reaction: { name: '👍' } },
+        { id: '1', type: 'mention', account: 'acct-1' },
+      ],
+      pendingItems: [
+        { id: '3', type: 'emoji_reaction', account: 'acct-1', emoji_reaction: { name: '👍' } },
+      ],
+      hasMore: false,
+      unread: 4,
+    }), {
+      type: EMOJI_MUTES_APPLY,
+      mutes: [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '👍' } }],
+    });
+    expect(state.get('items').map(item => item.get('id')).toJS()).toEqual(['1']);
+    expect(state.get('pendingItems').size).toBe(0);
+    expect(state.get('hasMore')).toBe(false);
+    expect(state.get('unread')).toBe(4);
   });
 
   it('registers the mute change event for EventSource', () => {

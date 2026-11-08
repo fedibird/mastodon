@@ -53,6 +53,34 @@ const hidesIdentity = (rules, identity) => asArray(rules).some(rule => {
     && read(emoji, 'shortcode') === read(identity, 'shortcode');
 });
 
+const hideKey = rule => {
+  if (read(read(rule, 'effects'), 'hide_reactions') !== true) {
+    return null;
+  }
+
+  const emoji = read(rule, 'emoji') || {};
+
+  if (read(emoji, 'kind') === 'unicode') {
+    return `u:${read(emoji, 'native')}`;
+  }
+
+  if (read(emoji, 'scope') === 'local') {
+    return `l:${read(emoji, 'custom_emoji_id')}`;
+  }
+
+  return `r:${read(emoji, 'domain')}:${read(emoji, 'shortcode')}`;
+};
+
+// Identities with hide_reactions, in a stable order. Used to see whether a
+// newly applied document can still be projected from the reactions on screen.
+export const hideReactionSignature = rules => asArray(rules).map(hideKey).filter(key => key !== null).sort().join('\n');
+
+export const hideSignatureShrunk = (previous, next) => {
+  const after = new Set(String(next || '').split('\n').filter(Boolean));
+
+  return String(previous || '').split('\n').filter(Boolean).some(key => !after.has(key));
+};
+
 // Optimistic add/remove only knows the reaction name and domain. A local
 // custom mute is an id, so a shortcode alone is not enough to hide it.
 export const reactionNameHidden = (name, domain, rules) => asArray(rules).some(rule => {
@@ -204,6 +232,7 @@ const keepPreviousReactions = (previous, status) => {
     const next = { ...status };
     delete next.emoji_reactions;
     delete next.emoji_reactions_count;
+    delete next.emoji_mutes_revision;
     return next;
   }
 
@@ -237,18 +266,27 @@ const withRevision = (status, revision) => {
   return { ...status, emoji_mutes_revision: revision };
 };
 
-// A payload is safe to show when its revision is at least the mute document
-// already applied. An older revision, including one for a status that is not
-// cached yet, must not bring muted reactions back or lower the revision.
-export const guardImportedReactions = (previous, status, rules, reactionsAccepted, appliedRevision) => {
+// A payload is safe to show when the fetched mute document has caught up
+// with every observed change and the payload revision is at least that
+// document. Equality with the applied revision is not enough while a newer
+// change is still being fetched. An older revision must not bring reactions
+// back or lower the revision stored on the status.
+export const guardImportedReactions = (previous, status, rules, reactionsAccepted, appliedRevision, observedRevision) => {
   if (!status || typeof status !== 'object') {
     return status;
   }
 
   const incoming = status.emoji_mutes_revision;
   const current = previous && typeof previous.get === 'function' ? previous.get('emoji_mutes_revision') : null;
+  const waitingForDocument = observedRevision !== null && observedRevision !== undefined && (
+    appliedRevision === null || appliedRevision === undefined || revisionStale(observedRevision, appliedRevision)
+  );
 
   if (incoming !== null && incoming !== undefined && current !== null && current !== undefined && revisionStale(current, incoming)) {
+    return keepPreviousReactions(previous, status);
+  }
+
+  if (waitingForDocument) {
     return keepPreviousReactions(previous, status);
   }
 
@@ -259,7 +297,7 @@ export const guardImportedReactions = (previous, status, rules, reactionsAccepte
   }
 
   if (!reactionsAccepted) {
-    return withRevision(keepPreviousReactions(previous, status), appliedRevision);
+    return keepPreviousReactions(previous, status);
   }
 
   const projected = projectStatusReactions(status.emoji_reactions, rules);
