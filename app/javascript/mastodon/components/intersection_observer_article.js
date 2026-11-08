@@ -6,6 +6,14 @@ import getRectFromEntry from '../features/ui/util/get_rect_from_entry';
 // Diff these props in the "unrendered" state
 const updateOnPropsForUnrendered = ['id', 'index', 'listLength', 'cachedHeight'];
 
+// Compact cards keep their 4px vertical margins outside the article and
+// inside the masonry slot. Freezing only the article box drops those
+// margins when the row unrenders, so the slot shrinks by 8px and the
+// column below jumps until the row is rendered again.
+export const heightToPreserve = (articleHeight, slotHeight) => (
+  typeof slotHeight === 'number' && slotHeight > articleHeight ? slotHeight : articleHeight
+);
+
 export default class IntersectionObserverArticle extends React.Component {
 
   static propTypes = {
@@ -88,11 +96,27 @@ export default class IntersectionObserverArticle extends React.Component {
     };
   }
 
+  masonrySlotHeight = (articleHeight) => {
+    const layoutItem = this.node && this.node.closest && this.node.closest('[data-layout-key]');
+
+    if (!layoutItem || layoutItem === this.node) {
+      return articleHeight;
+    }
+
+    return heightToPreserve(articleHeight, layoutItem.getBoundingClientRect().height);
+  }
+
   calculateHeight = () => {
+    // A row that is already unrendered no longer has its natural box.
+    // Measuring it would freeze the collapsed placeholder instead.
+    if (!this.componentMounted || !this.entry || this.state.isHidden) {
+      return;
+    }
+
     const { onHeightChange, saveHeightKey, id } = this.props;
     // save the height of the fully-rendered element (this is expensive
     // on Chrome, where we need to fall back to getBoundingClientRect)
-    this.height = getRectFromEntry(this.entry).height;
+    this.height = this.masonrySlotHeight(getRectFromEntry(this.entry).height);
 
     if (onHeightChange && saveHeightKey) {
       onHeightChange(saveHeightKey, id, this.height);

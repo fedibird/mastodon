@@ -25,7 +25,12 @@
 
   // Only timeline lists have explicit tile-anchor management.
   // Account galleries without callbacks retain native scroll anchoring.
-  &--managed-anchor {
+  // overflow-anchor is not inherited, and every tile is position:absolute,
+  // so the browser will otherwise pick a tile and nudge scrollTop by a few
+  // pixels when that tile's box changes. The list restores the reading
+  // tile itself.
+  &--managed-anchor,
+  &--managed-anchor * {
     overflow-anchor: none;
   }
 
