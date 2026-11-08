@@ -14,8 +14,9 @@ import reducer from '../../../reducers/statuses';
 import emojiMutes from '../../../reducers/emoji_mutes';
 import { EMOJI_REACTION_UPDATE, EMOJI_REACTION_REQUEST } from '../../../actions/interactions';
 import { STATUS_IMPORT, importFetchedStatuses, ACCOUNTS_IMPORT, STATUSES_IMPORT } from '../../../actions/importer';
-import { importEmojiMutes, importEmojiMutesRevision, refreshEmojiMuteSurfaces, restoreVisibleEmojiMuteStatus, resetEmojiMuteSurfaceForTests, syncEmojiMutes, EMOJI_MUTES_APPLY } from '../../../actions/emoji_mutes';
-import { projectStreamReaction, reactionNameHidden, guardImportedReactions } from '../emoji_mute_projection';
+import { importEmojiMutes, importEmojiMutesRevision, refreshEmojiMuteSurfaces, restoreVisibleEmojiMuteStatus, resetEmojiMuteSurfaceForTests, syncEmojiMutes, EMOJI_MUTES_APPLY, noteStatusVisibility } from '../../../actions/emoji_mutes';
+import { addIntersectionStatusId } from '../../../actions/statuses';
+import { projectStreamReaction, reactionNameHidden, guardImportedReactions, projectStatusReactions } from '../emoji_mute_projection';
 import { installEmojiMutesForTests, loadEmojiMutes, noteEmojiMutesChanged, appliedEmojiMuteRevision, observedEmojiMuteRevision, resetEmojiMuteStoreForTests, emojiReactionEventsAccepted } from '../emoji_mute_store';
 import api from 'mastodon/api';
 import { addEmojiReaction, updateEmojiReaction } from '../../../actions/interactions';
@@ -659,6 +660,148 @@ describe('emoji mute projection', () => {
     expect(state.get('pendingItems').size).toBe(0);
     expect(state.get('hasMore')).toBe(false);
     expect(state.get('unread')).toBe(4);
+  });
+
+  it('refetches an open status whose legacy custom cache has no parts when the first mute is added', async () => {
+    installEmojiMutesForTests({ revision: '1', emoji_mutes: [] });
+    const legacy = [{ name: 'blob', count: 2, account_ids: ['1', '2'], domain: 'other.example', url: 'https://example.test/remote.png' }];
+    expect(projectStatusReactions(legacy, [{ effects: { hide_reactions: true }, emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '11' } }])).toBeNull();
+    const calls = [];
+    api.mockImplementation(() => ({
+      get: url => {
+        calls.push(String(url));
+        if (String(url).includes('emoji_mutes')) {
+          return Promise.resolve({ data: { revision: '2', emoji_mutes: [{ effects: { hide_reactions: true }, emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '11' } }] } });
+        }
+        if (String(url).includes('unread_count')) {
+          return Promise.resolve({ data: { count: 0 } });
+        }
+        return Promise.resolve({ data: [] });
+      },
+      put: jest.fn(),
+    }));
+    const statuses = { 'open-detail': { emoji_reactions: legacy, emoji_reactions_count: 2 } };
+    const home = Array.from({ length: 30 }, (_item, index) => String(index + 1));
+    home.forEach(id => {
+      statuses[id] = { emoji_reactions: [], emoji_reactions_count: 0 };
+    });
+    const state = () => fromJS({
+      timelines: { home: { items: home } },
+      contexts: {},
+      statuses,
+      notifications: { items: [], pendingItems: [] },
+    });
+    const dispatch = action => (typeof action === 'function' ? action(dispatch, state) : action);
+    addIntersectionStatusId('open-detail')(dispatch, state);
+    await syncEmojiMutes()(dispatch, state);
+    expect(calls.filter(url => url.includes('/api/v1/statuses?')).join(' ')).toEqual(expect.stringContaining('ids[]=open-detail'));
+    expect(calls.filter(url => url.includes('/api/v1/statuses?')).length).toBeLessThanOrEqual(2);
+  });
+
+  it('removes only the muted local custom notification and restores it when the mute is removed', () => {
+    const local = (id, notificationId) => fromJS({
+      id: notificationId,
+      type: 'emoji_reaction',
+      account: 'acct-1',
+      emoji_reaction: { name: 'blob', custom_emoji_id: id },
+    });
+    const mention = fromJS({ id: '50', type: 'mention', account: 'acct-1' });
+    let state = notificationsReducer(fromJS({
+      items: [local('11', '300'), local('22', '200'), mention],
+      pendingItems: [local('11', '400')],
+      hasMore: false,
+      unread: 4,
+    }), {
+      type: EMOJI_MUTES_APPLY,
+      mutes: [{ effects: { hide_reactions: true }, emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '11' } }],
+    });
+    expect(state.get('items').map(item => item.get('id')).toJS()).toEqual(['200', '50']);
+    expect(state.get('pendingItems').size).toBe(0);
+    expect(state.get('hasMore')).toBe(false);
+    expect(state.get('unread')).toBe(4);
+    state = notificationsReducer(state, { type: EMOJI_MUTES_APPLY, mutes: [] });
+    expect(state.get('items').map(item => item.get('id')).toJS()).toEqual(['300', '200', '50']);
+    expect(state.get('pendingItems').map(item => item.get('id')).toJS()).toEqual(['400']);
+    expect(state.get('hasMore')).toBe(false);
+  });
+
+  it('restores the status that is already visible instead of only the timeline head', async () => {
+    installEmojiMutesForTests({
+      revision: '4',
+      emoji_mutes: [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '👍' } }],
+    });
+    const calls = [];
+    api.mockImplementation(() => ({
+      get: url => {
+        calls.push(String(url));
+        if (String(url).includes('emoji_mutes')) {
+          return Promise.resolve({ data: { revision: '5', emoji_mutes: [] } });
+        }
+        if (String(url).includes('unread_count')) {
+          return Promise.resolve({ data: { count: 1 } });
+        }
+        return Promise.resolve({ data: [] });
+      },
+      put: jest.fn(),
+    }));
+    const statuses = {};
+    const home = [];
+    for (let index = 1; index <= 100; index += 1) {
+      home.push(String(index));
+      statuses[String(index)] = { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0 };
+    }
+    const state = () => fromJS({
+      timelines: { home: { items: home }, local: { items: ['column-b'] } },
+      contexts: {},
+      statuses: { ...statuses, 'column-b': { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0 } },
+      notifications: { items: [], pendingItems: [], hasMore: true, unread: 3 },
+    });
+    const dispatch = action => (typeof action === 'function' ? action(dispatch, state) : action);
+    noteStatusVisibility('50', true);
+    addIntersectionStatusId('50')(dispatch, state);
+    await syncEmojiMutes()(dispatch, state);
+    const statusCalls = calls.filter(url => url.includes('/api/v1/statuses?')).join(' ');
+    expect(statusCalls).toEqual(expect.stringContaining('ids[]=50'));
+    expect(calls.filter(url => url.includes('/api/v1/statuses?')).length).toBeLessThanOrEqual(2);
+  });
+
+  it('drains every queued visible status in batches of 20 and retries a failed batch', async () => {
+    installEmojiMutesForTests({ revision: '5', emoji_mutes: [] });
+    const calls = [];
+    let failOnce = true;
+    api.mockImplementation(() => ({
+      get: url => {
+        const path = String(url);
+        calls.push(path);
+        if (path.includes('/api/v1/statuses?') && failOnce) {
+          failOnce = false;
+          return Promise.reject(new Error('503'));
+        }
+        if (path.includes('unread_count')) {
+          return Promise.resolve({ data: { count: 0 } });
+        }
+        return Promise.resolve({ data: [] });
+      },
+      put: jest.fn(),
+    }));
+    const statuses = {};
+    for (let index = 1; index <= 60; index += 1) {
+      statuses[String(index)] = { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0 };
+    }
+    const state = () => fromJS({ statuses, timelines: {}, contexts: {}, notifications: { items: [], pendingItems: [] } });
+    const dispatch = action => (typeof action === 'function' ? action(dispatch, state) : action);
+    await refreshEmojiMuteSurfaces({ restoreStatuses: true })(dispatch, state);
+    for (let index = 1; index <= 60; index += 1) {
+      restoreVisibleEmojiMuteStatus(String(index))(dispatch, state);
+    }
+    for (let step = 0; step < 8; step += 1) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    const fetched = calls.filter(url => url.includes('/api/v1/statuses?')).join(' ');
+    [1, 25, 60].forEach(id => {
+      expect(fetched).toEqual(expect.stringContaining(`ids[]=${id}`));
+    });
+    expect(calls.filter(url => url.includes('ids[]=1')).length).toBeGreaterThan(1);
   });
 
   it('registers the mute change event for EventSource', () => {

@@ -45,6 +45,41 @@ RSpec.describe 'Emoji mute notification visibility' do
     expect(response).to have_http_status(:ok)
   end
 
+  it 'hides one local custom emoji notification and keeps another row with the same shortcode' do
+    image = File.open(Rails.root.join('spec', 'fixtures', 'files', 'emojo.png'))
+    first = Fabricate(:custom_emoji, shortcode: 'blob', image: image)
+    image.rewind
+    second = CustomEmoji.new(shortcode: 'blob', domain: nil, image: image)
+    second.save!(validate: false)
+    other_reactor = Fabricate(:account)
+    kept_reaction = EmojiReaction.create!(account: other_reactor, status: status, name: 'blob', custom_emoji: second)
+    kept = Fabricate(:notification, account: user.account, from_account: other_reactor, activity: kept_reaction, type: :emoji_reaction)
+    hidden_reaction = EmojiReaction.create!(account: reactor, status: status, name: 'blob', custom_emoji: first)
+    hidden = Fabricate(:notification, account: user.account, from_account: reactor, activity: hidden_reaction, type: :emoji_reaction)
+    EmojiMutes::Repository.new(user).create({
+      'emoji' => { 'kind' => 'custom', 'scope' => 'local', 'custom_emoji_id' => first.id.to_s },
+      'effects' => { 'hide_reactions' => true },
+    })
+
+    get '/api/v1/notifications', headers: headers
+    body = JSON.parse(response.body)
+    expect(response).to have_http_status(:ok)
+    expect(body.map { |row| row['id'] }).to include(kept.id.to_s)
+    expect(body.map { |row| row['id'] }).not_to include(hidden.id.to_s)
+    kept_row = body.find { |row| row['id'] == kept.id.to_s }
+    expect(kept_row.dig('emoji_reaction', 'custom_emoji_id')).to eq second.id.to_s
+    expect(kept_row.dig('emoji_reaction', 'name')).to eq 'blob'
+
+    get '/api/v1/notifications/unread_count', headers: headers
+    expect(JSON.parse(response.body)['count']).to eq 1
+
+    EmojiMute.where(user: user).delete_all
+    EmojiMutes::Store.rule_sets = nil
+    get '/api/v1/notifications', headers: headers
+    restored = JSON.parse(response.body).map { |row| row['id'] }
+    expect(restored).to include(kept.id.to_s, hidden.id.to_s)
+  end
+
   it 'skips push and mail that were queued before the mute' do
     notification = reaction_notification
     EmojiMutes::Repository.new(user).create({ 'emoji' => { 'kind' => 'unicode', 'native' => '👍' } })

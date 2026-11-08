@@ -1,6 +1,25 @@
 # frozen_string_literal: true
 
 class REST::NotificationSerializer < ActiveModel::Serializer
+  class EmojiReactionSerializer < REST::GroupedEmojiReactionSerializer
+    attributes :me
+
+    # Local identity is the database id. A remote cache id is not sent.
+    attribute :custom_emoji_id, if: :local_custom_emoji?
+
+    def me
+      false
+    end
+
+    def local_custom_emoji?
+      custom_emoji? && object.custom_emoji.domain.blank?
+    end
+
+    def custom_emoji_id
+      object.custom_emoji_id.to_s
+    end
+  end
+
   attributes :id, :type, :created_at
 
   attribute :filtered, if: :filtered?
@@ -8,7 +27,7 @@ class REST::NotificationSerializer < ActiveModel::Serializer
   belongs_to :from_account, key: :account, serializer: REST::AccountSerializer
   belongs_to :target_account, if: :follow_type?, serializer: REST::AccountSerializer
   attribute :target_status, key: :status, if: :status_type?
-  belongs_to :emoji_reaction, if: :emoji_reaction?
+  belongs_to :emoji_reaction, if: :emoji_reaction?, serializer: EmojiReactionSerializer
   attribute :reblog_visibility, if: :reblog?
   belongs_to :report, if: :report_type?, serializer: REST::ReportSerializer
 
@@ -43,13 +62,5 @@ class REST::NotificationSerializer < ActiveModel::Serializer
 
   def target_status
       REST::StatusSerializer.new(object.target_status, root: false, relationships: instance_options[:relationships], account_tag_pages: instance_options[:account_tag_pages] || instance_options[:relationships].try(:account_tag_pages), account_relationships: instance_options[:account_relationships], application_name: instance_options[:application_name], compact: false, scope: current_user, scope_name: :current_user)
-  end
-
-  class EmojiReactionSerializer < REST::GroupedEmojiReactionSerializer
-    attributes :me
-
-    def me
-       false
-    end
   end
 end

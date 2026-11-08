@@ -9,7 +9,7 @@ import {
   loadEmojiMutes,
   noteEmojiMutesChanged,
 } from '../features/emoji/emoji_mute_store';
-import { hideReactionSignature, hideSignatureShrunk, revisionStale } from '../features/emoji/emoji_mute_projection';
+import { hideReactionSignature, hideSignatureGrew, hideSignatureShrunk, revisionStale } from '../features/emoji/emoji_mute_projection';
 
 export const EMOJI_MUTES_IMPORT = 'EMOJI_MUTES_IMPORT';
 export const EMOJI_MUTES_REVISION = 'EMOJI_MUTES_REVISION';
@@ -35,15 +35,37 @@ const STATUS_BATCH = 20;
 const PER_SURFACE = 20;
 const MAX_IMMEDIATE = 40;
 
+const MAX_RESTORE_ATTEMPTS = 2;
+
 let surfaceGeneration = 0;
 let restoreArmed = false;
+let legacyRefreshArmed = false;
 let restoreQueue = [];
 let restoreTimer = null;
+let restoreAttempts = new Map();
+const visibleStatusIds = new Set();
+
+export function noteStatusVisibility(id, visible) {
+  if (id === null || id === undefined || id === '') {
+    return;
+  }
+
+  const key = String(id);
+
+  if (visible) {
+    visibleStatusIds.add(key);
+  } else {
+    visibleStatusIds.delete(key);
+  }
+}
 
 export function resetEmojiMuteSurfaceForTests() {
   surfaceGeneration += 1;
   restoreArmed = false;
+  legacyRefreshArmed = false;
   restoreQueue = [];
+  restoreAttempts = new Map();
+  visibleStatusIds.clear();
   if (restoreTimer !== null) {
     clearTimeout(restoreTimer);
     restoreTimer = null;
@@ -65,6 +87,43 @@ const needsRestore = (state, id) => {
   return revision !== null && revision !== undefined && revisionStale(applied, revision);
 };
 
+// A custom group from a cache written before parts has a domain or URL and
+// no identity list. Hiding it by the representative domain would drop a
+// different emoji that shares the name.
+const hasLegacyCustomGroup = status => {
+  const reactions = status && typeof status.get === 'function' ? status.get('emoji_reactions') : null;
+
+  if (!reactions || typeof reactions.some !== 'function') {
+    return false;
+  }
+
+  return reactions.some(group => {
+    if (!group || typeof group.get !== 'function') {
+      return false;
+    }
+
+    const parts = group.get('parts');
+
+    if (parts && typeof parts.size === 'number' && parts.size > 0) {
+      return false;
+    }
+
+    return !!(group.get('domain') || group.get('url') || group.get('static_url'));
+  });
+};
+
+const statusNeedsFetch = (state, id) => {
+  if (needsRestore(state, id)) {
+    return true;
+  }
+
+  if (!legacyRefreshArmed) {
+    return false;
+  }
+
+  return hasLegacyCustomGroup(state.getIn(['statuses', id]));
+};
+
 const consider = (ids, state, id) => {
   if (ids.length >= MAX_IMMEDIATE || id === null || id === undefined || id === '') {
     return;
@@ -72,7 +131,7 @@ const consider = (ids, state, id) => {
 
   const key = String(id);
 
-  if (ids.indexOf(key) !== -1 || !needsRestore(state, key)) {
+  if (ids.indexOf(key) !== -1 || !statusNeedsFetch(state, key)) {
     return;
   }
 
@@ -98,6 +157,9 @@ const headIds = list => {
 // not on screen are restored when they are shown, not in this pass.
 export const immediateStatusIdsForMuteRestore = state => {
   const ids = [];
+
+  visibleStatusIds.forEach(id => consider(ids, state, id));
+
   const contexts = state.get('contexts');
 
   if (contexts && typeof contexts.get === 'function') {
@@ -156,26 +218,27 @@ export const immediateStatusIdsForMuteRestore = state => {
 };
 
 const fetchStatusIds = (ids, generation, dispatch, getState) => {
-  let chain = Promise.resolve();
+  let chain = Promise.resolve([]);
 
   for (let index = 0; index < ids.length; index += STATUS_BATCH) {
     const batch = ids.slice(index, index + STATUS_BATCH);
 
-    chain = chain.then(() => {
+    chain = chain.then(failed => {
       if (!surfaceRefreshCurrent(generation) || batch.length === 0) {
-        return null;
+        return failed;
       }
 
       const query = batch.map(id => `ids[]=${encodeURIComponent(id)}`).join('&');
 
       return api(getState).get(`/api/v1/statuses?${query}`).then(response => {
         if (!surfaceRefreshCurrent(generation) || !Array.isArray(response.data)) {
-          return null;
+          return failed.concat(batch);
         }
 
         dispatch(importFetchedStatuses(response.data));
-        return response.data;
-      }).catch(() => null);
+        batch.forEach(id => restoreAttempts.delete(id));
+        return failed;
+      }).catch(() => failed.concat(batch));
     });
   }
 
@@ -216,14 +279,37 @@ export function refreshEmojiMuteSurfaces(options = {}) {
     const generation = surfaceGeneration + 1;
     surfaceGeneration = generation;
     restoreQueue = [];
+    restoreAttempts = new Map();
 
     if (options.restoreStatuses) {
       restoreArmed = true;
     }
 
-    const statusTask = options.restoreStatuses
-      ? fetchStatusIds(immediateStatusIdsForMuteRestore(getState()), generation, dispatch, getState)
-      : Promise.resolve();
+    if (options.refetchLegacy) {
+      legacyRefreshArmed = true;
+      restoreArmed = true;
+    }
+
+    const immediateIds = (options.restoreStatuses || options.refetchLegacy)
+      ? immediateStatusIdsForMuteRestore(getState())
+      : [];
+    const immediateSet = new Set(immediateIds);
+
+    if (options.restoreStatuses || options.refetchLegacy) {
+      visibleStatusIds.forEach(id => {
+        if (!immediateSet.has(id) && statusNeedsFetch(getState(), id)) {
+          restoreQueue.push(id);
+        }
+      });
+    }
+
+    const statusTask = immediateIds.length > 0
+      ? fetchStatusIds(immediateIds, generation, dispatch, getState)
+      : Promise.resolve([]);
+
+    if (restoreQueue.length > 0) {
+      scheduleRestore(dispatch, getState);
+    }
 
     const notificationTask = api(getState).get('/api/v1/notifications', {
       params: { exclude_types: notificationExcludeTypes(getState()) },
@@ -274,14 +360,51 @@ const scheduleRestore = (dispatch, getState) => {
 
   restoreTimer = setTimeout(() => {
     restoreTimer = null;
-    const ids = Array.from(new Set(restoreQueue)).slice(0, STATUS_BATCH);
-    restoreQueue = [];
 
-    if (!surfaceRefreshCurrent(generation) || ids.length === 0) {
+    if (!surfaceRefreshCurrent(generation)) {
+      restoreQueue = [];
       return;
     }
 
-    fetchStatusIds(ids, generation, dispatch, getState);
+    const pending = [];
+    const seen = new Set();
+
+    restoreQueue.forEach(id => {
+      if (!seen.has(id)) {
+        seen.add(id);
+        pending.push(id);
+      }
+    });
+
+    const batch = pending.slice(0, STATUS_BATCH);
+    restoreQueue = pending.slice(STATUS_BATCH);
+
+    if (batch.length === 0) {
+      return;
+    }
+
+    fetchStatusIds(batch, generation, dispatch, getState).then(failed => {
+      if (!surfaceRefreshCurrent(generation)) {
+        return;
+      }
+
+      (failed || []).forEach(id => {
+        const attempts = restoreAttempts.get(id) || 0;
+
+        if (attempts + 1 < MAX_RESTORE_ATTEMPTS) {
+          restoreAttempts.set(id, attempts + 1);
+          restoreQueue.push(id);
+        }
+      });
+
+      if (restoreQueue.length > 0) {
+        scheduleRestore(dispatch, getState);
+      }
+    }).catch(() => {});
+
+    if (restoreQueue.length > 0) {
+      scheduleRestore(dispatch, getState);
+    }
   }, 0);
 };
 
@@ -289,7 +412,7 @@ const scheduleRestore = (dispatch, getState) => {
 // refetches only itself. The refresh pass does not walk the whole cache.
 export function restoreVisibleEmojiMuteStatus(id) {
   return (dispatch, getState) => {
-    if (!restoreArmed || !needsRestore(getState(), id)) {
+    if ((!restoreArmed && !legacyRefreshArmed) || !statusNeedsFetch(getState(), id)) {
       return;
     }
 
@@ -309,6 +432,7 @@ export function syncEmojiMutes(options = {}) {
       const nextSignature = hideReactionSignature(mutes);
       const sameDocument = previousRevision !== null && previousRevision === nextRevision;
       const hideShrunk = hideSignatureShrunk(previousSignature, nextSignature);
+      const hideGrew = hideSignatureGrew(previousSignature, nextSignature);
 
       dispatch({
         type: EMOJI_MUTES_APPLY,
@@ -317,7 +441,10 @@ export function syncEmojiMutes(options = {}) {
         sameDocument,
         hideShrunk,
       });
-      return refreshEmojiMuteSurfaces({ restoreStatuses: hideShrunk && !sameDocument })(dispatch, getState);
+      return refreshEmojiMuteSurfaces({
+        restoreStatuses: hideShrunk && !sameDocument,
+        refetchLegacy: hideGrew && !sameDocument,
+      })(dispatch, getState);
     });
   };
 }

@@ -81,6 +81,33 @@ export const hideSignatureShrunk = (previous, next) => {
   return String(previous || '').split('\n').filter(Boolean).some(key => !after.has(key));
 };
 
+export const hideSignatureGrew = (previous, next) => {
+  const before = new Set(String(previous || '').split('\n').filter(Boolean));
+
+  return String(next || '').split('\n').filter(Boolean).some(key => !before.has(key));
+};
+
+// A notification reaction can name a local custom emoji by database id.
+// The shortcode is not an identity: another local row may use the same one.
+export const storedReactionHidden = (reaction, rules) => {
+  const id = read(reaction, 'custom_emoji_id');
+  const domain = read(reaction, 'domain');
+  const local = id !== undefined && id !== null && id !== '' && (domain === undefined || domain === null || domain === '');
+
+  if (local) {
+    return asArray(rules).some(rule => {
+      const emoji = read(rule, 'emoji') || {};
+
+      return read(read(rule, 'effects'), 'hide_reactions') === true
+        && read(emoji, 'kind') === 'custom'
+        && read(emoji, 'scope') === 'local'
+        && String(read(emoji, 'custom_emoji_id')) === String(id);
+    });
+  }
+
+  return reactionNameHidden(read(reaction, 'name'), domain || null, rules);
+};
+
 // Optimistic add/remove only knows the reaction name and domain. A local
 // custom mute is an id, so a shortcode alone is not enough to hide it.
 export const reactionNameHidden = (name, domain, rules) => asArray(rules).some(rule => {

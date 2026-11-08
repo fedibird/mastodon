@@ -28,6 +28,35 @@ RSpec.describe EmojiMutes::ReactionProjection do
     })
   end
 
+  it 'keeps a legacy custom cache until a hide exists, then removes only that identity' do
+    alice = Fabricate(:account)
+    bob = Fabricate(:account, domain: 'other.example')
+    EmojiReaction.create!(account: alice, status: status, name: 'blob', custom_emoji: local_emoji)
+    EmojiReaction.create!(account: bob, status: status, name: 'blob', custom_emoji: remote_emoji)
+    cache!([{
+      'name' => 'blob',
+      'count' => 2,
+      'account_ids' => [alice.id.to_s, bob.id.to_s],
+      'url' => 'https://example.test/local.png',
+      'static_url' => 'https://example.test/local-static.png',
+      'domain' => nil,
+    }])
+
+    open_status = REST::StatusSerializer.new(status, scope: viewer_user, scope_name: :current_user)
+    expect(open_status.emoji_reactions.first).not_to have_key('parts')
+    expect(open_status.emoji_reactions.first['account_ids']).to eq [alice.id.to_s, bob.id.to_s]
+    expect(open_status.emoji_reactions_count).to eq 2
+
+    mute(viewer_user, { 'kind' => 'custom', 'scope' => 'local', 'custom_emoji_id' => local_emoji.id.to_s })
+    EmojiMutes::Store.rule_sets = nil
+    EmojiMutes::Store.breakdowns = nil
+    muted = REST::StatusSerializer.new(status, scope: viewer_user, scope_name: :current_user)
+    expect(muted.emoji_reactions_count).to eq 1
+    expect(muted.emoji_reactions.first['account_ids']).to eq [bob.id.to_s]
+    expect(muted.emoji_reactions.first['domain']).to eq 'other.example'
+    expect(status.status_stat.reload.emoji_reactions_cache).not_to include('parts')
+  end
+
   it 'removes one identity from a mixed name and does not leak across viewers' do
     alice = Fabricate(:account)
     bob = Fabricate(:account)

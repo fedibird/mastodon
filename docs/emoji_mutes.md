@@ -224,10 +224,16 @@ After a successful fetch the client does not request every loaded status.
 A document with no new hidden identity, including the first empty fetch and
 a reconnect of the same revision, issues no status request. Removing a
 hidden identity refetches at most 40 statuses that are behind that
-revision: the open thread and the head of each column, 20 ids per
-`GET /api/v1/statuses?ids[]=`. The notification page is requested at the
-same time, with the same `exclude_types` as the notification column, and
-is merged into the loaded pages. A failed notification request does not
+revision. Statuses already intersecting the viewport come first, then the
+open thread and the head of each column, 20 ids per
+`GET /api/v1/statuses?ids[]=`. The ids that do not fit stay queued and are
+requested 20 at a time. A custom group loaded from a cache that has no
+`parts` is refetched when the first hide is added. It is not hidden by the
+representative domain. The notification page is requested at the same time,
+with the same `exclude_types` as the notification column, and is merged
+into the loaded pages. A local custom reaction notification carries
+`custom_emoji_id`. An existing page drops only that id and can restore it
+when the rule is removed. A remote cache id is not an identity. A failed notification request does not
 clear the list. A newer reload is not overwritten by an older one that
 finishes later. A status that scrolls into view later, or is opened in
 detail, is restored on its own if its revision is still behind. A group

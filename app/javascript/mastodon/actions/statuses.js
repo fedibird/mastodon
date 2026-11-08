@@ -12,7 +12,7 @@ import { SETTING_CHANGE, saveSettings } from './settings';
 import { deleteFromTimelines, expireFromTimelines } from './timelines';
 import { fetchRelationshipsFromStatus, fetchRelationshipsFromStatuses } from './accounts';
 import { importFetchedStatus, importFetchedStatuses, importFetchedAccount } from './importer';
-import { restoreVisibleEmojiMuteStatus } from './emoji_mutes';
+import { noteStatusVisibility, restoreVisibleEmojiMuteStatus } from './emoji_mutes';
 import { statusSourceSignature, translationSourceSignature } from './importer/normalizer';
 import { ensureComposeIsVisible, getContextReference, setComposeToStatus } from './compose';
 import { openModal } from './modal';
@@ -242,6 +242,7 @@ export function refreshIntersectionStatuses() {
 
 export function addIntersectionStatusId(id) {
   return (dispatch, getState) => {
+    noteStatusVisibility(id, true);
     const status = getState().getIn(['statuses', id]);
     if (status) {
       dispatch(addIntersectionStatus(status));
@@ -252,6 +253,7 @@ export function addIntersectionStatusId(id) {
 
 export function removeIntersectionStatusId(id) {
   return (dispatch, getState) => {
+    noteStatusVisibility(id, false);
     const status = getState().getIn(['statuses', id]);
     if (status) {
       dispatch(removeIntersectionStatus(status));

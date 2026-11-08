@@ -8,6 +8,9 @@ class REST::EmojiReactionSerializer < ActiveModel::Serializer
   attribute :url, if: :custom_emoji?
   attribute :static_url, if: :custom_emoji?
   attribute :domain, if: :custom_emoji?
+  # Local identity is the database id. A remote cache id is not an identity,
+  # so it is not sent. Two local rows can share a shortcode.
+  attribute :custom_emoji_id, if: :local_custom_emoji?
   attribute :width, if: :width?
   attribute :height, if: :height?
   attribute :thumbhash, if: :thumbhash?
@@ -18,6 +21,14 @@ class REST::EmojiReactionSerializer < ActiveModel::Serializer
 
   def custom_emoji?
     object.custom_emoji.present?
+  end
+
+  def local_custom_emoji?
+    custom_emoji? && object.custom_emoji.domain.blank?
+  end
+
+  def custom_emoji_id
+    object.custom_emoji_id.to_s
   end
 
   def url
