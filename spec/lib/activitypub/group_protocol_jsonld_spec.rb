@@ -22,7 +22,7 @@ RSpec.describe 'Group protocol JSON-LD vocabulary v1' do
 
   it 'keeps the packaged v1 vocabulary aligned with the advertised IRIs' do
     advertisement = ActivityPub::GroupProtocolAdvertisement
-    vocabulary = JSON.parse(File.read(Rails.root.join('docs', 'activitypub_group_protocol_v1.jsonld')))
+    vocabulary = JSON.parse(File.read(Rails.root.join('public', 'ns', 'group', 'v1.jsonld')))
     declared = vocabulary.fetch('@graph').map { |entry| entry.fetch('@id') }
 
     expect(declared).to contain_exactly(

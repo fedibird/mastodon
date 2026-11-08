@@ -40,12 +40,13 @@ profile's meaning.
   same protocol. Receiving servers must never promote a remote Group
   to `can_post` based on this field alone.
 
-The companion `docs/activitypub_group_protocol_v1.jsonld` contains
-the machine-readable property and protocol vocabulary. **At present,
-the repository document alone does not prove that the public URL
-`https://fedibird.com/ns/group/v1` serves that vocabulary.** The
-operator must publish and verify that URL before enabling the flag;
-its availability was not established during P3-B authoring.
+The canonical `public/ns/group/v1.jsonld` (merged in #753)
+contains the machine-readable property and protocol vocabulary. The
+repository file alone does **not** establish that the real public URL
+`https://fedibird.com/ns/group/v1` serves the vocabulary: deploy the
+static `public/ns/` files and the Nginx location rules from
+`dist/nginx.conf`, then verify the live endpoint before enabling the
+advertisement flag. No remote availability is assumed by these docs.
 
 ## JSON-LD representation
 
@@ -123,9 +124,9 @@ configuration must be reverted.
 
 ## Pre-activation verification checklist
 
-1. Publish `docs/activitypub_group_protocol_v1.jsonld` at
-   `https://fedibird.com/ns/group/v1` with suitable stable content
-   negotiation (JSON-LD where applicable) and documentation of the
+1. Deploy `public/ns/group/v1.jsonld` at
+   `https://fedibird.com/ns/group/v1` with the Nginx static mapping
+   from `dist/nginx.conf` (`application/ld+json`) and documentation of the
    `#protocols` and `#MentionFollowAnnounce` IRIs. Confirm HTTPS and
    redirects. A URL path without a fragment is what an HTTP client
    retrieves; fragment identifiers are not sent in the HTTP request.
