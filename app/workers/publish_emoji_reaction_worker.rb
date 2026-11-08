@@ -22,6 +22,8 @@ class PublishEmojiReactionWorker
 
   private
 
+  # The payload is the same for every recipient. It is not filtered by one
+  # viewer's mutes. `parts` lets a client apply hide_reactions locally.
   def payload_json
     return @payload_json if defined?(@payload_json)
 

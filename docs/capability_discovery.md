@@ -184,6 +184,11 @@ personal-set routes, with `read` / `read:accounts` and `write` /
 permission, mute targets, or registration requests. See
 [emoji_actions.md](emoji_actions.md).
 
+`emoji_mutes` is intentionally absent. Mute rules can be stored, and
+reaction rejection plus viewer hiding are enforced, but text replacement
+and picker exclusion are not. The token is not added to either capability
+array until those effects exist. See [emoji_mutes.md](emoji_mutes.md).
+
 `timeline_filters` lists REST sources implementing the `only_media`,
 `without_media`, and `compact` query parameters. Source name
 `hashtag` maps to `/api/v1/timelines/tag/:id`, while `account`

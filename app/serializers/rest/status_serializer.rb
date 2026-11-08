@@ -12,6 +12,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
              :status_references_count, :status_referred_by_count,
              :searchability
 
+  attribute :emoji_mutes_revision, if: :current_user?
   attribute :favourited, if: :current_user?
   attribute :reblogged, if: :current_user?
   attribute :muted, if: :current_user?
@@ -267,6 +268,12 @@ class REST::StatusSerializer < ActiveModel::Serializer
 
   def emoji_reactions
     object.grouped_emoji_reactions(current_user&.account)
+  end
+
+  # Viewer metadata for discarding a late status payload. Omitted for
+  # anonymous responses. Not a property of the status record.
+  def emoji_mutes_revision
+    EmojiMutes::RuleSet.revision_for(current_user.account_id)
   end
 
   def status_reference_ids

@@ -4,8 +4,9 @@ Tracking: [#761](https://github.com/fedibird/mastodon/issues/761) /
 [#762](https://github.com/fedibird/mastodon/issues/762).
 
 P1 adds a read-only typed reference API and a one-item personal-set append.
-Mute storage and registration requests are not implemented. Their actions are
-reported as unavailable and are not advertised.
+Mute storage, reaction rejection, and viewer reaction hiding are implemented
+separately. Registration requests are not implemented and are not advertised.
+The `emoji_mutes` capability token is not advertised yet.
 
 ## `POST /api/v1/fedibird/emojis/resolve`
 
@@ -65,8 +66,16 @@ image. `custom_emoji_id` together with a remote domain is
 an enabled local emoji, including `visible_in_picker: false`. It is false with
 `reason: "disabled"` or `"remote_emoji"` otherwise.
 
-`actions.mute` and `actions.request_registration` are always
+`actions.request_registration` is always
 `{allowed: false, reason: "not_implemented"}`.
+
+`actions.mute.allowed` is true. The `effects` map distinguishes what this
+server actually does. `reject_reactions_to_own_posts` and `hide_reactions`
+are `enforced`. `replace_in_text` and `hide_in_picker` are `stored`: the
+API keeps the flags and the replacement string, and clients apply them
+later. This is not the `emoji_mutes` capability advertisement. That token
+stays unpublished until all four effects are enforced. See
+[emoji_mutes.md](emoji_mutes.md).
 
 HTTP 422 uses `{error, errors: [{path, code}]}`. Unknown fields, non-JSON,
 and bodies over 512 KiB are rejected. No partial emoji write is possible

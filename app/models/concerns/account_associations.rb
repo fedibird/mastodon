@@ -16,6 +16,8 @@ module AccountAssociations
     has_many :favourites, inverse_of: :account, dependent: :destroy
     has_many :bookmarks, inverse_of: :account, dependent: :destroy
     has_many :emoji_reactions, inverse_of: :account, dependent: :destroy
+    has_many :emoji_mutes, inverse_of: :account, dependent: :delete_all
+    has_one :emoji_mute_revision, inverse_of: :account, dependent: :delete
     has_many :mentions, inverse_of: :account, dependent: :destroy
     has_many :notifications, inverse_of: :account, dependent: :destroy
     has_many :conversations, class_name: 'AccountConversation', dependent: :destroy, inverse_of: :account

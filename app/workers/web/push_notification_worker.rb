@@ -13,8 +13,10 @@ class Web::PushNotificationWorker
     @notification = Notification.find(notification_id)
 
     # Polymorphically associated activity could have been deleted
-    # in the meantime, so we have to double-check before proceeding
+    # in the meantime, so we have to double-check before proceeding.
+    # A hide_reactions change after enqueue must not send the push.
     return unless @notification.activity.present? && @subscription.pushable?(@notification)
+    return if EmojiMutes::RuleSet.for(@notification.account_id).hides_notification?(@notification)
 
     payload = @subscription.encrypt(push_notification_json)
 

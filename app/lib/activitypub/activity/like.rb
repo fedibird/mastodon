@@ -37,27 +37,13 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
   end
 
   def process_reaction
-    uri = value_or_id(emoji_tag)
+    existing = @original_status.emoji_reactions.find_by(account: @account, name: shortcode)
+    return if existing.nil? && incoming_reaction_rejected?
 
-    if uri.present?
-      image_url = emoji_tag.dig('icon', 'url')
-      name      = emoji_tag['name']
-      domain    = Addressable::URI.parse(uri).normalized_host
-      domain    = nil if domain == Rails.configuration.x.local_domain
+    emoji = resolve_reaction_emoji
+    return if emoji&.disabled?
 
-      if image_url.present? && name.present? && (domain.nil? || @account.domain == domain)
-        emoji = CustomEmoji.find_or_create_by!(shortcode: shortcode, domain: domain) do |emoji|
-          emoji.uri              = uri
-          emoji.image_remote_url = image_url
-        end
-      else
-        emoji = ResolveURLService.new.call(value_or_id(emoji_tag))
-      end
-
-      return if emoji&.disabled?
-    end
-
-    reaction = @original_status.emoji_reactions.find_by(account: @account, name: shortcode)
+    reaction = existing || @original_status.emoji_reactions.find_by(account: @account, name: shortcode)
 
     if reaction.nil?
       reaction = @original_status.emoji_reactions.create!(account: @account, name: shortcode, custom_emoji: emoji, uri: @json['id'])
@@ -76,6 +62,53 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
     end
   rescue Seahorse::Client::NetworkingError
     nil
+  end
+
+  def resolve_reaction_emoji
+    uri = value_or_id(emoji_tag)
+    return if uri.blank?
+
+    image_url = emoji_tag.dig('icon', 'url')
+    name      = emoji_tag['name']
+    domain    = reaction_emoji_domain
+
+    if image_url.present? && name.present? && (domain.nil? || @account.domain == domain)
+      CustomEmoji.find_or_create_by!(shortcode: shortcode, domain: domain) do |emoji|
+        emoji.uri              = uri
+        emoji.image_remote_url = image_url
+      end
+    else
+      ResolveURLService.new.call(value_or_id(emoji_tag))
+    end
+  end
+
+  # A new reaction is refused before emoji creation, notification, forward,
+  # and relay. An existing row is not refused here.
+  def incoming_reaction_rejected?
+    EmojiMutes::ReactionPolicy.rejected?(
+      @original_status,
+      name: shortcode,
+      custom_emoji: preview_custom_emoji,
+      remote_domain: reaction_emoji_domain,
+      shortcode: shortcode
+    )
+  end
+
+  def preview_custom_emoji
+    return if value_or_id(emoji_tag).blank?
+
+    CustomEmoji.find_by(shortcode: shortcode, domain: reaction_emoji_domain)
+  end
+
+  def reaction_emoji_domain
+    return @reaction_emoji_domain if defined?(@reaction_emoji_domain)
+
+    uri = value_or_id(emoji_tag)
+    domain = Addressable::URI.parse(uri).normalized_host if uri.present?
+    domain = nil if domain == Rails.configuration.x.local_domain
+    @reaction_emoji_domain = domain
+  rescue Addressable::URI::InvalidURIError
+    @reaction_emoji_domain = nil
   end
 
   def forward_for_emoji_reaction

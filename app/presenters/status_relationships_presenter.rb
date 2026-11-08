@@ -20,6 +20,7 @@ class StatusRelationshipsPresenter
     else
       statuses            = Status.where(id: statuses) if statuses.first.is_a?(Integer)
       statuses            = statuses.compact
+      EmojiMutes::Breakdown.prepare(statuses.flat_map { |status| [status, status.reblog] }.compact, current_account_id)
       status_ids          = statuses.flat_map { |s| [s.id, s.reblog_of_id] }.uniq.compact
       conversation_ids    = statuses.filter_map(&:conversation_id).uniq
       pinnable_status_ids = statuses.map(&:proper).filter_map { |s| s.id if s.account_id == current_account_id && %w(public unlisted private).include?(s.visibility) }

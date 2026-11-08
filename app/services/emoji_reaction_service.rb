@@ -17,6 +17,7 @@ class EmojiReactionService < BaseService
     @approved_activity_type = nil
     shortcode, domain = emoji.split('@')
     domain = nil if domain == Rails.configuration.x.local_domain
+    @reaction_domain = domain
 
     return if account.nil? || status.nil? || shortcode.nil?
 
@@ -56,6 +57,10 @@ class EmojiReactionService < BaseService
       attempts += 1
       existing = EmojiReaction.find_by(attrs)
       return [existing, false] if existing
+
+      # After the row check, so a repeat PUT is not a new rejection. A new row
+      # is refused before fallback, insert, and every side effect.
+      reject_muted_reaction!(write_status, shortcode, custom_emoji)
 
       # After the row check, so a repeat PUT stays the P1b-1a no-op even when
       # the user has since chosen deny or ask. No extra read when the gate is off.
@@ -107,11 +112,36 @@ class EmojiReactionService < BaseService
   end
 
   def apply_create_effects(emoji_reaction, newly_reacted)
+    # A repeat PUT of a row the author has since muted must not notify,
+    # deliver, or record friendship again, including when idempotent retry is off.
+    return if !newly_reacted && muted_existing_reaction?(emoji_reaction)
+
     if newly_reacted || !EmojiReactionCapability::WriteConfig.idempotent_retry?
       create_notification(emoji_reaction)
       bump_potential_friendship(@account, @requested_status)
     end
     record_moderation_reaction!(@requested_status, emoji_reaction) if newly_reacted
+  end
+
+  def reject_muted_reaction!(write_status, shortcode, custom_emoji)
+    return unless EmojiMutes::ReactionPolicy.rejected?(
+      write_status,
+      name: shortcode,
+      custom_emoji: custom_emoji,
+      remote_domain: @reaction_domain,
+      shortcode: shortcode
+    )
+
+    raise Mastodon::NotPermittedError
+  end
+
+  def muted_existing_reaction?(emoji_reaction)
+    EmojiMutes::ReactionPolicy.rejected?(
+      emoji_reaction.status,
+      name: emoji_reaction.name,
+      custom_emoji: emoji_reaction.custom_emoji,
+      shortcode: emoji_reaction.name
+    )
   end
 
   def record_moderation_reaction!(status, emoji_reaction)

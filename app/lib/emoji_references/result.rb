@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-# Read-only resolution. Mute and registration remain unavailable until
-# those features exist; this object must not report them as allowed.
+# Read-only resolution. Registration stays unavailable. Mute can be stored;
+# only reaction rejection and reaction hiding are enforced in this release.
 class EmojiReferences::Result
   attr_reader :reference, :detail
 
@@ -18,7 +18,15 @@ class EmojiReferences::Result
       detail: detail,
       actions: {
         add_to_personal_category: add_action,
-        mute: { allowed: false, reason: 'not_implemented' },
+        mute: {
+          allowed: true,
+          effects: {
+            replace_in_text: 'stored',
+            reject_reactions_to_own_posts: 'enforced',
+            hide_reactions: 'enforced',
+            hide_in_picker: 'stored',
+          },
+        },
         request_registration: { allowed: false, reason: 'not_implemented' },
       },
     }

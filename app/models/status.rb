@@ -621,32 +621,11 @@ class Status < ApplicationRecord
   end
 
   def grouped_emoji_reactions(account = nil)
-    cache = status_stat&.emoji_reactions_cache
-
-    (Oj.load(cache || '', mode: :strict) || []).then do |emoji_reactions|
-      @emoji_reactions_count = 0
-
-      emoji_reactions.filter do |emoji_reaction|
-        if account.present?
-          emoji_reaction['me'] = emoji_reaction['account_ids'].include?(account.id.to_s)
-          emoji_reaction['account_ids'] -= (account.excluded_from_timeline_account_ids + Account.where(id: emoji_reaction['account_ids'], domain: account.excluded_from_timeline_domains).pluck(:id) + (Account.excluded_silenced_account_ids - [account.id])).uniq.map(&:to_s)
-        else
-          emoji_reaction['me'] = false
-          emoji_reaction['account_ids'] -= Account.excluded_silenced_account_ids.map(&:to_s)
-        end
-
-        emoji_reaction['count'] = emoji_reaction['account_ids'].size
-        @emoji_reactions_count += emoji_reaction['count']
-
-        emoji_reaction['count'] > 0
-      end
-    end
+    EmojiMutes::Projection.apply(self, account)
   end
 
   def generate_grouped_emoji_reactions
-    records = emoji_reactions.group(:name).order(Arel.sql('MIN(created_at) ASC')).select('name, min(custom_emoji_id) as custom_emoji_id, count(*) as count, array_agg(account_id::text order by created_at) as account_ids').limit(EmojiReactionValidator::LIMIT)
-    ActiveRecord::Associations::Preloader.new.preload(records, :custom_emoji)
-    Oj.dump(ActiveModelSerializers::SerializableResource.new(records, each_serializer: REST::GroupedEmojiReactionSerializer, scope: nil, scope_name: :current_user))
+    EmojiMutes::CacheBuilder.new(self).dump
   end
 
   def mark_grouped_emoji_reactions_dirty!
@@ -657,7 +636,8 @@ class Status < ApplicationRecord
   # Authoritative rebuild. `force: false` is a no-op when the row is clean.
   # Generation, the count, and clearing dirty share one row lock so a mutation
   # that marks the row while this rebuild runs cannot be overwritten by a
-  # stale dirty=false.
+  # stale dirty=false. The generated JSON is built inside that lock, so an
+  # older writer cannot commit a lower cache version after a newer one.
   def refresh_grouped_emoji_reactions!(force: true)
     stat = emoji_reaction_status_stat_for_refresh(force)
     return if stat.nil?

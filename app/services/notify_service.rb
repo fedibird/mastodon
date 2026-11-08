@@ -254,7 +254,7 @@ class NotifyService < BaseService
   end
 
   def push_notification!
-    return if @notification.activity.nil?
+    return if @notification.activity.nil? || hidden_emoji_reaction_now?
 
     redis.publish("timeline:#{@recipient.id}", Oj.dump(event: :notification, payload: InlineRenderer.render(@notification, @recipient, :notification)))
     send_push_notifications!
@@ -276,8 +276,13 @@ class NotifyService < BaseService
   end
 
   def send_email!
-    return if @notification.activity.nil? || optional_non_direct_message?
+    return if @notification.activity.nil? || optional_non_direct_message? || hidden_emoji_reaction_now?
+
     NotificationMailer.public_send(@notification.type, @recipient, @notification).deliver_later(wait: 2.minutes)
+  end
+
+  def hidden_emoji_reaction_now?
+    EmojiMutes::RuleSet.for(@recipient&.id).hides_notification?(@notification)
   end
 
   def email_enabled?

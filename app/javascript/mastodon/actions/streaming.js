@@ -14,6 +14,13 @@ import { getHomeVisibilities } from 'mastodon/selectors';
 import { updateNotifications, expandNotifications } from './notifications';
 import { updateConversations } from './conversations';
 import { updateEmojiReaction } from './interactions';
+import { EMOJI_MUTES_APPLY, projectStreamPayload } from '../features/emoji/emoji_mute_projection';
+import {
+  currentEmojiMutes,
+  emojiReactionEventsAccepted,
+  loadEmojiMutes,
+  noteEmojiMutesChanged,
+} from '../features/emoji/emoji_mute_store';
 import {
   fetchAnnouncements,
   updateAnnouncements,
@@ -80,6 +87,9 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
         }
 
         if (channelName === 'user') {
+          loadEmojiMutes().then(mutes => {
+            dispatch({ type: EMOJI_MUTES_APPLY, mutes });
+          }).catch(() => {});
           dispatch(scheduleFiltersRefresh());
           dispatch(retryFilterReconciliation());
           dispatch(refreshExternalFeedCapability());
@@ -171,9 +181,21 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
         case 'conversation':
           dispatch(updateConversations(JSON.parse(data.payload)));
           break;
-        case 'emoji_reaction':
-          const emojiReaction = JSON.parse(data.payload);
-          dispatch(updateEmojiReaction(emojiReaction));
+        case 'emoji_reaction': {
+          if (!emojiReactionEventsAccepted()) {
+            break;
+          }
+
+          const emojiReaction = projectStreamPayload(JSON.parse(data.payload), currentEmojiMutes());
+          if (emojiReaction) {
+            dispatch(updateEmojiReaction(emojiReaction));
+          }
+          break;
+        }
+        case 'emoji_mutes_changed':
+          noteEmojiMutesChanged(JSON.parse(data.payload)).then(mutes => {
+            dispatch({ type: EMOJI_MUTES_APPLY, mutes });
+          }).catch(() => {});
           break;
         case 'announcement':
           dispatch(updateAnnouncements(JSON.parse(data.payload)));
