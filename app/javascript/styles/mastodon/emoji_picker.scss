@@ -316,6 +316,10 @@
   margin: 0;
   vertical-align: middle;
   object-fit: contain;
+
+  &.custom-emoji {
+    max-width: 100px;
+  }
 }
 
 // Nimble sets a square inline width even for wide custom images. Apply the

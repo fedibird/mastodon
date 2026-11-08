@@ -147,6 +147,15 @@ Stock entries contain `key`, `label`, individual `image`, `search`, and `selecti
 Every category supplies a resolved `heading: {text, image?}`. `text` is the first
 grapheme fallback; `initial` mode never includes an image.
 
+The personal picker uses the shared emoji size as its image frame height. Custom
+images keep their aspect ratio with a maximum width of 100 px, matching the
+standard picker. Very wide images can appear shorter within that frame when the
+width limit applies. Known positive image dimensions reserve the frame width
+before loading; older records without dimensions use the loaded image's intrinsic
+ratio. Unicode images remain square, and category headings stay in their fixed
+22 px frame. Vertical keyboard navigation follows the displayed rows, including
+wide images, category boundaries, and filtered results.
+
 The representative is resolved from the original saved order/reference before
 filtering unavailable items or performing a search. An unavailable representative
 uses the name fallback; it does not promote another available item. Image loading

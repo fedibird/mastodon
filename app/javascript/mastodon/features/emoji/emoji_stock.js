@@ -28,6 +28,8 @@ const graphemes = new Graphemer();
  * @property {string} [animatedSrc]
  * @property {string} alt
  * @property {string} [title]
+ * @property {number} [width] Original image dimensions, when available.
+ * @property {number} [height]
  */
 
 /**
