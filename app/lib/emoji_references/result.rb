@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-# Read-only resolution. Mute and registration remain unavailable until
-# those features exist; this object must not report them as allowed.
+# Read-only resolution. Registration stays unavailable. Mute storage exists,
+# but replace_in_text and hide_in_picker are stored only until P3 applies them.
 class EmojiReferences::Result
   attr_reader :reference, :detail
 
@@ -18,7 +18,11 @@ class EmojiReferences::Result
       detail: detail,
       actions: {
         add_to_personal_category: add_action,
-        mute: { allowed: false, reason: 'not_implemented' },
+        mute: {
+          allowed: true,
+          applied: EmojiMute::APPLIED_EFFECTS,
+          stored_only: EmojiMute::STORED_ONLY_EFFECTS,
+        },
         request_registration: { allowed: false, reason: 'not_implemented' },
       },
     }

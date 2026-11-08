@@ -50,7 +50,11 @@ RSpec.describe 'Emoji reference resolve API', type: :request do
     expect(parsed.dig('detail', 'image', 'src')).to end_with '/emoji/1f44d-1f3fd.svg'
     expect(parsed.dig('detail', 'image', 'alt')).to eq '👍🏽'
     expect(parsed.dig('actions', 'add_to_personal_category', 'allowed')).to be true
-    expect(parsed.dig('actions', 'mute')).to eq('allowed' => false, 'reason' => 'not_implemented')
+    expect(parsed.dig('actions', 'mute')).to eq(
+      'allowed' => true,
+      'applied' => %w(reject_reactions_to_own_posts hide_reactions),
+      'stored_only' => %w(replace_in_text hide_in_picker)
+    )
     expect(parsed.dig('actions', 'request_registration')).to eq('allowed' => false, 'reason' => 'not_implemented')
     expect(writes).to be_empty
   end

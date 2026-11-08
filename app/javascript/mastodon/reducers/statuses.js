@@ -39,6 +39,29 @@ import { protectBoostState, revisionOfImmutable } from '../external_boosts/revis
 import { normalizeStatusTranslation } from '../actions/importer/normalizer';
 import { me } from '../initial_state';
 import { Map as ImmutableMap, List, fromJS } from 'immutable';
+import { projectStreamReaction, reactionTokenStale, revisionStale } from '../features/emoji/emoji_mute_projection';
+
+const protectEmojiReactionProjection = (previous, status) => {
+  if (!previous || typeof previous.get !== 'function' || status.emoji_mutes_revision === null || status.emoji_mutes_revision === undefined) {
+    return status;
+  }
+
+  const current = previous.get('emoji_mutes_revision');
+
+  if (current === null || current === undefined || !revisionStale(current, status.emoji_mutes_revision)) {
+    return status;
+  }
+
+  const reactions = previous.get('emoji_reactions');
+
+  return {
+    ...status,
+    emoji_reactions: reactions && typeof reactions.toJS === 'function' ? reactions.toJS() : status.emoji_reactions,
+    emoji_reactions_count: previous.get('emoji_reactions_count'),
+    emoji_reactions_cache_token: previous.get('emoji_reactions_cache_token'),
+    emoji_mutes_revision: current,
+  };
+};
 
 const importStatus = (state, status) => {
   if (state.getIn([status.in_reply_to_id, 'replies_count'], null) === 0) {
@@ -47,7 +70,8 @@ const importStatus = (state, status) => {
   // A projection of the signed-in user carries a revision beside `reblogged`.
   // An older payload keeps the pair already applied; everything else in it is
   // imported as before. A status with no revision is not touched.
-  return state.set(status.id, fromJS(protectBoostState(state.get(status.id), status)));
+  const previous = state.get(status.id);
+  return state.set(status.id, fromJS(protectEmojiReactionProjection(previous, protectBoostState(previous, status))));
 };
 
 const importStatuses = (state, statuses) =>
@@ -309,11 +333,31 @@ export default function statuses(state = initialState, action) {
     return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'bookmarked'], false);
   case UNBOOKMARK_FAIL:
     return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'bookmarked'], true);
-  case EMOJI_REACTION_UPDATE:
-    return state.get(action.emojiReaction.status_id) === undefined ? state : updateEmojiReactionCount(state, action.emojiReaction);
+  case EMOJI_REACTION_UPDATE: {
+    const id = action.emojiReaction.status_id;
+
+    if (state.get(id) === undefined) {
+      return state;
+    }
+
+    if (reactionTokenStale(state.getIn([id, 'emoji_reactions_cache_token']), action.emojiReaction.cache_token)) {
+      return state;
+    }
+
+    const projected = projectStreamReaction(action.emojiReaction, action.emojiMuteRules);
+    let next = projected.hidden
+      ? state.update(id, status => status.update('emoji_reactions', emojiReactions => (emojiReactions || List()).filter(emojiReaction => emojiReaction.get('name') !== projected.payload.name)))
+      : updateEmojiReactionCount(state, projected.payload);
+
+    if (action.emojiReaction.cache_token) {
+      next = next.setIn([id, 'emoji_reactions_cache_token'], String(action.emojiReaction.cache_token));
+    }
+
+    return next;
+  }
   case EMOJI_REACTION_REQUEST:
   case UN_EMOJI_REACTION_FAIL:
-    if (state.get(action.status.get('id')) !== undefined) {
+    if (!action.emojiReactionHidden && state.get(action.status.get('id')) !== undefined) {
       state = addEmojiReaction(state, action.status.get('id'), action.name, action.domain, action.url, action.static_url);
     }
     return state;

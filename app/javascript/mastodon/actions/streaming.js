@@ -14,6 +14,7 @@ import { getHomeVisibilities } from 'mastodon/selectors';
 import { updateNotifications, expandNotifications } from './notifications';
 import { updateConversations } from './conversations';
 import { updateEmojiReaction } from './interactions';
+import { importEmojiMutesRevision } from './emoji_mutes';
 import {
   fetchAnnouncements,
   updateAnnouncements,
@@ -174,6 +175,9 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
         case 'emoji_reaction':
           const emojiReaction = JSON.parse(data.payload);
           dispatch(updateEmojiReaction(emojiReaction));
+          break;
+        case 'emoji_mutes_changed':
+          dispatch(importEmojiMutesRevision(JSON.parse(data.payload).revision));
           break;
         case 'announcement':
           dispatch(updateAnnouncements(JSON.parse(data.payload)));

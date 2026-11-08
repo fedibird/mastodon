@@ -17,6 +17,8 @@ class Api::V1::NotificationsController < Api::BaseController
 
   def show
     @notification = current_account.notifications.without_suspended.find(params[:id])
+    raise ActiveRecord::RecordNotFound if EmojiMutes::ReactionVisibility.hidden_notification?(@notification, current_user)
+
     render json: @notification, serializer: REST::NotificationSerializer, application_name: doorkeeper_token&.application&.name
   end
 
@@ -57,11 +59,12 @@ class Api::V1::NotificationsController < Api::BaseController
   end
 
   def browserable_account_notifications
-    current_account.notifications.without_suspended.browserable(
+    scope = current_account.notifications.without_suspended.browserable(
       types: Array(browserable_params[:types]),
       exclude_types: exclude_types,
       from_account_id: browserable_params[:account_id]
     )
+    EmojiMutes::ReactionVisibility.exclude_notifications(scope, current_user)
   end
 
   def target_statuses_from_notifications

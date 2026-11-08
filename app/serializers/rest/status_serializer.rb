@@ -8,6 +8,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
              :sensitive, :spoiler_text, :visibility, :language,
              :uri, :url, :replies_count, :reblogs_count,
              :favourites_count, :emoji_reactions, :emoji_reactions_count,
+             :emoji_reactions_cache_token,
              :status_reference_ids,
              :status_references_count, :status_referred_by_count,
              :searchability
@@ -17,6 +18,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
   attribute :muted, if: :current_user?
   attribute :bookmarked, if: :current_user?
   attribute :emoji_reactioned, if: :current_user?
+  attribute :emoji_mutes_revision, if: :current_user?
   attribute :pinned, if: :pinnable?
   has_many :filtered, serializer: REST::FilterResultSerializer, if: :current_user?
   attribute :circle_id, if: :limited_owned_parent_status?
@@ -266,7 +268,24 @@ class REST::StatusSerializer < ActiveModel::Serializer
   end
 
   def emoji_reactions
-    object.grouped_emoji_reactions(current_user&.account)
+    emoji_reaction_projection.groups
+  end
+
+  def emoji_reactions_count
+    emoji_reaction_projection.count
+  end
+
+  def emoji_reactions_cache_token
+    updated = object.status_stat&.updated_at
+    updated&.utc&.strftime('%Y%m%d%H%M%S%N')
+  end
+
+  def emoji_mutes_revision
+    EmojiMutes::RuleSet.for_user(current_user).revision.to_s
+  end
+
+  def emoji_reaction_projection
+    @emoji_reaction_projection ||= EmojiMutes::ReactionProjection.for(object, current_user&.account, user: current_user)
   end
 
   def status_reference_ids

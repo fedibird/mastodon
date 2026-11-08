@@ -46,6 +46,8 @@ module Fedibird
 
     # Appended after the historical array, including conditional
     # profile_search. Only features this release actually implements.
+    # emoji_mutes stays absent until replace_in_text and hide_in_picker are
+    # applied. See docs/emoji_mutes.md.
     IMPLEMENTED_EMOJI_CAPABILITIES = %i(
       emoji_details
       personal_emoji_sets

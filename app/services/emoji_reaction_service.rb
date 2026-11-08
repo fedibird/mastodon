@@ -17,6 +17,7 @@ class EmojiReactionService < BaseService
     @approved_activity_type = nil
     shortcode, domain = emoji.split('@')
     domain = nil if domain == Rails.configuration.x.local_domain
+    @request_domain = domain
 
     return if account.nil? || status.nil? || shortcode.nil?
 
@@ -26,6 +27,8 @@ class EmojiReactionService < BaseService
     ExternalBridge::Guards.reject_target!(write_status) if write_status.id != status.id
 
     custom_emoji = CustomEmoji.find_by(shortcode: shortcode, domain: domain)
+    @request_shortcode = shortcode
+    @request_custom_emoji = custom_emoji
 
     return if remote_custom_emoji_unavailable?(write_status, custom_emoji, domain)
 
@@ -56,6 +59,11 @@ class EmojiReactionService < BaseService
       attempts += 1
       existing = EmojiReaction.find_by(attrs)
       return [existing, false] if existing
+
+      # A boost lookup can miss a row that before_validation already stored on
+      # the original. Reject only a reaction that is not stored yet, so the
+      # legacy miss still raises RecordInvalid or RecordNotFound.
+      raise Mastodon::NotPermittedError if !stored_reaction_exists?(write_status, shortcode) && reject_new_reaction?(shortcode, custom_emoji)
 
       # After the row check, so a repeat PUT stays the P1b-1a no-op even when
       # the user has since chosen deny or ask. No extra read when the gate is off.
@@ -107,11 +115,44 @@ class EmojiReactionService < BaseService
   end
 
   def apply_create_effects(emoji_reaction, newly_reacted)
-    if newly_reacted || !EmojiReactionCapability::WriteConfig.idempotent_retry?
+    # A muted emoji must not revive notification, delivery, or friendship
+    # on a repeat PUT, including when idempotent retry is off.
+    if newly_reacted || (!EmojiReactionCapability::WriteConfig.idempotent_retry? && !EmojiMutes::ReactionPolicy.suppress_existing?(emoji_reaction, request_identity))
       create_notification(emoji_reaction)
       bump_potential_friendship(@account, @requested_status)
     end
     record_moderation_reaction!(@requested_status, emoji_reaction) if newly_reacted
+  end
+
+  def request_identity
+    return @request_identity if defined?(@request_identity)
+
+    @request_identity = if @request_domain.present?
+                          { 'kind' => 'custom', 'scope' => 'remote', 'domain' => EmojiMutes::Identity.normalize_domain(@request_domain), 'shortcode' => @request_shortcode }
+                        elsif @request_custom_emoji&.local?
+                          { 'kind' => 'custom', 'scope' => 'local', 'custom_emoji_id' => @request_custom_emoji.id.to_s }
+                        elsif @request_custom_emoji&.remote?
+                          { 'kind' => 'custom', 'scope' => 'remote', 'domain' => EmojiMutes::Identity.normalize_domain(@request_custom_emoji.domain), 'shortcode' => @request_custom_emoji.shortcode }
+                        else
+                          { 'kind' => 'unicode', 'native' => @request_shortcode }
+                        end
+  end
+
+  def reject_new_reaction?(_shortcode, _custom_emoji)
+    EmojiMutes::ReactionPolicy.reject_new?(stored_reaction_status, request_identity)
+  end
+
+  def stored_reaction_exists?(write_status, shortcode)
+    stored = stored_reaction_status
+    return false if stored.nil? || stored.id == write_status.id
+
+    EmojiReaction.exists?(account_id: @account.id, status_id: stored.id, name: shortcode)
+  end
+
+  def stored_reaction_status
+    return @stored_reaction_status if defined?(@stored_reaction_status)
+
+    @stored_reaction_status = EmojiMutes::ReactionTarget.stored_status(@requested_status)
   end
 
   def record_moderation_reaction!(status, emoji_reaction)

@@ -65,8 +65,9 @@ image. `custom_emoji_id` together with a remote domain is
 an enabled local emoji, including `visible_in_picker: false`. It is false with
 `reason: "disabled"` or `"remote_emoji"` otherwise.
 
-`actions.mute` and `actions.request_registration` are always
-`{allowed: false, reason: "not_implemented"}`.
+`actions.mute` is `{allowed: true, applied: ["reject_reactions_to_own_posts", "hide_reactions"], stored_only: ["replace_in_text", "hide_in_picker"]}` for every reference this route resolves, including a disabled local emoji and an unfetched remote emoji. `allowed` means a mute rule can be saved. It does not mean all four effects change what a person sees. Text replacement and picker exclusion are stored for P3 and are not applied yet. `emoji_mutes` is therefore not advertised. The mute API is specified in [emoji_mutes.md](emoji_mutes.md).
+
+`actions.request_registration` is always `{allowed: false, reason: "not_implemented"}`.
 
 HTTP 422 uses `{error, errors: [{path, code}]}`. Unknown fields, non-JSON,
 and bodies over 512 KiB are rejected. No partial emoji write is possible

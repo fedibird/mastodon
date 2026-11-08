@@ -11,6 +11,7 @@ class NotifyService < BaseService
     return if recipient.user.nil? || blocked?
 
     create_notification!
+    return if emoji_reaction_hidden?
     push_notification!
     push_to_conversation! if direct_message?
     send_email! if email_enabled?
@@ -30,6 +31,7 @@ class NotifyService < BaseService
     @recipient = notification.account
     @activity = notification.activity
     return if @recipient.nil? || @activity.nil? || @recipient.user.nil? || blocked?
+    return if emoji_reaction_hidden?
 
     push_notification!
     push_to_conversation! if direct_message?
@@ -76,6 +78,12 @@ class NotifyService < BaseService
 
   def blocked_emoji_reaction?
     @recipient.muting?(@notification.from_account)
+  end
+
+  # The row stays so unmuting can show it again. Live delivery is skipped
+  # while hide_reactions matches. Push and mail recheck at send time.
+  def emoji_reaction_hidden?
+    EmojiMutes::ReactionVisibility.hidden_notification?(@notification, @recipient.user)
   end
 
   def blocked_status_reference?

@@ -37,27 +37,20 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
   end
 
   def process_reaction
-    uri = value_or_id(emoji_tag)
-
-    if uri.present?
-      image_url = emoji_tag.dig('icon', 'url')
-      name      = emoji_tag['name']
-      domain    = Addressable::URI.parse(uri).normalized_host
-      domain    = nil if domain == Rails.configuration.x.local_domain
-
-      if image_url.present? && name.present? && (domain.nil? || @account.domain == domain)
-        emoji = CustomEmoji.find_or_create_by!(shortcode: shortcode, domain: domain) do |emoji|
-          emoji.uri              = uri
-          emoji.image_remote_url = image_url
-        end
-      else
-        emoji = ResolveURLService.new.call(value_or_id(emoji_tag))
-      end
-
-      return if emoji&.disabled?
-    end
-
     reaction = @original_status.emoji_reactions.find_by(account: @account, name: shortcode)
+    stored_status = EmojiMutes::ReactionTarget.stored_status(@original_status)
+    identity = incoming_reaction_identity
+
+    # A new muted reaction stops before emoji copy, the row, and every side
+    # effect. An existing row is not deleted. Its redelivery does not repair
+    # notifications or the moderation ledger while the mute still matches.
+    if reaction.nil? && EmojiMutes::ReactionPolicy.reject_new?(stored_status, identity)
+      return
+    end
+    return if reaction && EmojiMutes::ReactionPolicy.suppress_existing?(reaction, identity)
+
+    emoji = resolve_incoming_custom_emoji
+    return if emoji&.disabled?
 
     if reaction.nil?
       reaction = @original_status.emoji_reactions.create!(account: @account, name: shortcode, custom_emoji: emoji, uri: @json['id'])
@@ -76,6 +69,48 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
     end
   rescue Seahorse::Client::NetworkingError
     nil
+  end
+
+  def resolve_incoming_custom_emoji
+    uri = value_or_id(emoji_tag)
+    return if uri.blank?
+
+    image_url = emoji_tag.dig('icon', 'url')
+    name      = emoji_tag['name']
+    domain    = Addressable::URI.parse(uri).normalized_host
+    domain    = nil if domain == Rails.configuration.x.local_domain
+
+    if image_url.present? && name.present? && (domain.nil? || @account.domain == domain)
+      CustomEmoji.find_or_create_by!(shortcode: shortcode, domain: domain) do |emoji|
+        emoji.uri              = uri
+        emoji.image_remote_url = image_url
+      end
+    else
+      ResolveURLService.new.call(value_or_id(emoji_tag))
+    end
+  end
+
+  # Identity from the activity document. This does not fetch or copy an emoji.
+  def incoming_reaction_identity
+    code = shortcode
+    return nil if code.blank?
+
+    tag = emoji_tag
+    uri = value_or_id(tag) if tag.is_a?(Hash) || tag.is_a?(String)
+    if uri.present?
+      domain = Addressable::URI.parse(uri).normalized_host
+      domain = nil if domain.blank? || domain == Rails.configuration.x.local_domain
+      if domain.present?
+        return { 'kind' => 'custom', 'scope' => 'remote', 'domain' => EmojiMutes::Identity.normalize_domain(domain), 'shortcode' => code }
+      end
+
+      local = CustomEmoji.local.find_by(shortcode: code)
+      return { 'kind' => 'custom', 'scope' => 'local', 'custom_emoji_id' => local.id.to_s } if local
+    end
+
+    { 'kind' => 'unicode', 'native' => code }
+  rescue Addressable::URI::InvalidURIError, IDN::Idna::IdnaError, ArgumentError
+    { 'kind' => 'unicode', 'native' => code }
   end
 
   def forward_for_emoji_reaction

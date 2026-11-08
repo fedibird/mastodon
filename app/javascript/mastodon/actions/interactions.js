@@ -2,6 +2,7 @@ import api, { getLinks } from '../api';
 import { importFetchedAccounts, importFetchedStatus, importFetchedStatuses } from './importer';
 import { fetchRelationshipsSuccess, fetchRelationships, fetchRelationshipsFromStatuses } from './accounts';
 import { me } from '../initial_state';
+import { reactionNameHidden } from '../features/emoji/emoji_mute_projection';
 
 export const REBLOG_REQUEST = 'REBLOG_REQUEST';
 export const REBLOG_SUCCESS = 'REBLOG_SUCCESS';
@@ -831,13 +832,19 @@ export function unpinFail(status, error) {
 
 export function addEmojiReaction(status, name, domain, url, static_url) {
   return function (dispatch, getState) {
-    dispatch(emojiReactionRequest(status, name, domain, url, static_url));
+    const hidden = reactionNameHidden(name, domain, getState().getIn(['emojiMutes', 'rules']));
+
+    if (!hidden) {
+      dispatch(emojiReactionRequest(status, name, domain, url, static_url));
+    }
 
     api(getState).put(`/api/v1/statuses/${status.get('id')}/emoji_reactions/${name}${domain ? `@${domain}` : ''}`).then(function (response) {
       dispatch(importFetchedStatus(response.data));
       dispatch(emojiReactionSuccess(status, name, domain, url, static_url));
     }).catch(function (error) {
-      dispatch(emojiReactionFail(status, name, domain, url, static_url, error));
+      if (!hidden) {
+        dispatch(emojiReactionFail(status, name, domain, url, static_url, error));
+      }
     });
   };
 };
@@ -940,9 +947,12 @@ export function unEmojiReactionFail(status, name, domain, url, static_url, error
 };
 
 export const updateEmojiReaction = emoji_reaction => {
-  return {
-    type: EMOJI_REACTION_UPDATE,
-    emojiReaction: emoji_reaction,
-    skipLoading: true,
+  return (dispatch, getState) => {
+    dispatch({
+      type: EMOJI_REACTION_UPDATE,
+      emojiReaction: emoji_reaction,
+      emojiMuteRules: getState().getIn(['emojiMutes', 'rules']),
+      skipLoading: true,
+    });
   };
 };

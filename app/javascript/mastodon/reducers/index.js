@@ -70,6 +70,7 @@ import server from './server';
 import accountContextViews from './account_context_views';
 import externalFeeds from './external_feeds';
 import externalBoosts from './external_boosts';
+import emojiMutes from './emoji_mutes';
 
 const reducers = {
   announcements,
@@ -141,6 +142,7 @@ const reducers = {
   accountContextViews,
   externalFeeds,
   externalBoosts,
+  emojiMutes,
 };
 
 const combined = combineReducers(reducers);
