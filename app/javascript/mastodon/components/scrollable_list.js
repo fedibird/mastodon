@@ -225,7 +225,97 @@ class ScrollableList extends PureComponent {
     }
 
     this._lastNativeScrollAt = Date.now();
+    if (this._masonryPrependHeld || (this._masonry && this._masonry.hasHeldMeasurements())) {
+      this._armMasonryHoldFlush();
+    }
   }
+
+  _shownMasonryChildren = null;
+  _masonryPrependHeld = false;
+  _masonryHoldRelease = false;
+  _masonryHoldTimer = null;
+
+  _masonryPrependPlan = (beforeChildren, afterChildren) => {
+    const before = React.Children.toArray(beforeChildren).map(child => String(child.key));
+    const after = React.Children.toArray(afterChildren).map(child => String(child.key));
+    return reconcileMasonryPrepends(before, after, leadingMasonryPrefixKeys(before));
+  }
+
+  _masonryReadingPosition = () => (
+    this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll ||
+    this.props.windowedHistory || this.props.readingSurface
+  );
+
+  // Prepends during momentum shift every existing tile down by the shared
+  // frontier. Keep painting the previous children until the swipe is quiet,
+  // then let the normal anchor restore run. scrollTop stays untouched while
+  // the browser still owns the inertia.
+  _visibleMasonryChildren = (next) => {
+    const previous = this._shownMasonryChildren;
+
+    if (!isCardTimelineLayout(this.props.layoutMode) || !this.node || !previous) {
+      this._shownMasonryChildren = next;
+      this._masonryPrependHeld = false;
+      return next;
+    }
+
+    const plan = this._masonryPrependPlan(previous, next);
+
+    if (plan.reset) {
+      this._masonryPrependHeld = false;
+      this._shownMasonryChildren = next;
+      return next;
+    }
+
+    if (this._hasActiveMasonryScroll() && this._masonryReadingPosition() && plan.prependedKeys.length > 0) {
+      this._masonryPrependHeld = true;
+      return previous;
+    }
+
+    const release = this._masonryPrependHeld;
+    this._masonryPrependHeld = false;
+    this._shownMasonryChildren = next;
+    if (release) {
+      this._masonryHoldRelease = true;
+    }
+    return next;
+  }
+
+  _clearMasonryHoldTimer = () => {
+    if (this._masonryHoldTimer) {
+      clearTimeout(this._masonryHoldTimer);
+      this._masonryHoldTimer = null;
+    }
+  }
+
+  _armMasonryHoldFlush = () => {
+    this._clearMasonryHoldTimer();
+    const remaining = MASONRY_SCROLL_IDLE_DELAY - (Date.now() - this._lastNativeScrollAt);
+    this._masonryHoldTimer = setTimeout(this._flushMasonryHold, Math.max(16, remaining + 16));
+  }
+
+  _flushMasonryHold = () => {
+    this._masonryHoldTimer = null;
+    if (this._anchorUnmounted) {
+      return;
+    }
+    if (this._hasActiveMasonryScroll()) {
+      this._armMasonryHoldFlush();
+      return;
+    }
+    if (this._masonry && this._masonry.flushHeldMeasurements) {
+      this._masonry.flushHeldMeasurements();
+    }
+    if (this._masonryPrependHeld) {
+      this.forceUpdate();
+    }
+  }
+
+  _setMasonry = (node) => {
+    this._masonry = node;
+  }
+
+  _holdMasonryMeasurements = () => this._hasActiveMasonryScroll();
 
   _isAnchorJumpScroll = (scrollTop) => {
     if (this._syntheticScrollDepth > 0) {
@@ -552,6 +642,17 @@ class ScrollableList extends PureComponent {
     const variableHeightMasonry = isCardTimelineLayout(this.props.layoutMode) ||
       (this.props.layoutMode === 'media' && this.state.mediaShape === 'original');
 
+    // The held prepend is released on a quiet frame. The DOM still shows the
+    // previous cards here, so this anchor is the position to preserve.
+    if (this._masonryHoldRelease) {
+      this._masonryHoldRelease = false;
+      const released = this.captureVisibleMasonryItem();
+      if (released) {
+        return { masonryAnchor: true, ...released };
+      }
+      return null;
+    }
+
     // Native momentum is a user-driven animation, not a fixed reading anchor.
     // A snapshot taken while it runs would write scrollTop during the swipe.
     if (variableHeightMasonry && this._hasActiveMasonryScroll()) {
@@ -780,9 +881,15 @@ class ScrollableList extends PureComponent {
       this._cancelAnchorCorrection();
       this._cancelFilterAnchor();
       this._retireMouseIdle();
+      this._clearMasonryHoldTimer();
+      this._masonryPrependHeld = false;
     }
 
     this.updateFilterSurface();
+
+    if (this._masonryPrependHeld || (this._masonry && this._masonry.hasHeldMeasurements())) {
+      this._armMasonryHoldFlush();
+    }
   }
 
   _currentLocationKey = () => {
@@ -1039,6 +1146,7 @@ class ScrollableList extends PureComponent {
 
   componentWillUnmount () {
     this._anchorUnmounted = true;
+    this._clearMasonryHoldTimer();
     this._retireMouseIdle();
     this._cancelAnchorCorrection();
     this.filterHistoryUnlisten?.();
@@ -1144,7 +1252,8 @@ class ScrollableList extends PureComponent {
   }
 
   render () {
-    const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex, layoutMode } = this.props;
+    const { scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex, layoutMode } = this.props;
+    const children = this._visibleMasonryChildren(this.props.children);
     const { fullscreen, mediaShape, mediaSize, mediaVisibility } = this.state;
     const mediaMode = layoutMode === 'media';
     const mediaControls = mediaMode ? (
@@ -1229,9 +1338,12 @@ class ScrollableList extends PureComponent {
     if (isCardTimelineLayout(layoutMode)) {
       itemLayout = (
         <TimelineMasonry
+          ref={this._setMasonry}
           mode={layoutMode}
           onCaptureLayoutAnchor={this.captureMasonryLayoutAnchor}
           onRestoreLayoutAnchor={this.restoreMasonryLayoutAnchor}
+          holdMeasurements={this._holdMasonryMeasurements}
+          onMeasurementsHeld={this._armMasonryHoldFlush}
         >
           {renderedItems}
         </TimelineMasonry>

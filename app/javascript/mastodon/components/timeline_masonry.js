@@ -93,6 +93,8 @@ export default class TimelineMasonry extends React.PureComponent {
     mediaSize: PropTypes.string,
     onCaptureLayoutAnchor: PropTypes.func,
     onRestoreLayoutAnchor: PropTypes.func,
+    holdMeasurements: PropTypes.func,
+    onMeasurementsHeld: PropTypes.func,
   };
 
   state = { width: 0, heights: {} };
@@ -165,7 +167,7 @@ export default class TimelineMasonry extends React.PureComponent {
     });
 
     if (width !== this.state.width || Object.keys(heights).some(key => heights[key] !== this.state.heights[key])) {
-      this.setState({ width, heights });
+      this._commitMeasurements(width, heights);
     }
   }
 
@@ -184,6 +186,44 @@ export default class TimelineMasonry extends React.PureComponent {
       }
     });
 
+    this._commitMeasurements(width, heights);
+  }
+
+  // A height applied while the reader is still in momentum moves every tile
+  // below it. Keep the measurement and apply it once the list is idle, when
+  // the anchor restore can run without writing scrollTop into the swipe.
+  _commitMeasurements = (width, heights) => {
+    if (this.props.holdMeasurements && this.props.holdMeasurements()) {
+      this._heldWidth = width;
+      this._heldHeights = { ...(this._heldHeights || {}), ...heights };
+      if (this.props.onMeasurementsHeld) {
+        this.props.onMeasurementsHeld();
+      }
+      return;
+    }
+
+    const merged = this._heldHeights ? { ...this._heldHeights, ...heights } : heights;
+    const nextWidth = width === undefined ? this._heldWidth : width;
+    this._heldHeights = null;
+    this._heldWidth = undefined;
+    this._applyMeasurements(nextWidth === undefined ? this.state.width : nextWidth, merged);
+  }
+
+  hasHeldMeasurements = () => (this._heldHeights !== undefined && this._heldHeights !== null) || this._heldWidth !== undefined;
+
+  flushHeldMeasurements = () => {
+    if (!this.hasHeldMeasurements()) {
+      return;
+    }
+
+    const heights = this._heldHeights || {};
+    const width = this._heldWidth === undefined ? this.state.width : this._heldWidth;
+    this._heldHeights = null;
+    this._heldWidth = undefined;
+    this._applyMeasurements(width, heights);
+  }
+
+  _applyMeasurements = (width, heights) => {
     this.setState(state => {
       const changed = Object.keys(heights).some(key => Math.abs((state.heights[key] || 0) - heights[key]) > 1);
       if (!changed && width === state.width) {

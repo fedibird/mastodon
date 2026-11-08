@@ -114,6 +114,77 @@ describe('TimelineMasonry streaming upward-frontier insertion', () => {
     expect(onRestoreLayoutAnchor).toHaveBeenCalledTimes(1);
   });
 
+  it('does not move a lower tile while a height measurement is held for momentum', () => {
+    let observer;
+    let hold = false;
+    Object.defineProperty(window, 'ResizeObserver', {
+      configurable: true,
+      value: class {
+
+        constructor (callback) {
+          this.callback = callback;
+          observer = this;
+        }
+
+        observe () {}
+
+        unobserve () {}
+
+        disconnect () {}
+
+      },
+    });
+
+    const ref = React.createRef();
+    const onCaptureLayoutAnchor = jest.fn(() => ({ key: 'held', top: 12 }));
+    function holdMeasurements () {
+      return hold;
+    }
+    const onRestoreLayoutAnchor = jest.fn();
+    const { container } = render(
+      <TimelineMasonry
+        ref={ref}
+        mode='card-1'
+        holdMeasurements={holdMeasurements}
+        onCaptureLayoutAnchor={onCaptureLayoutAnchor}
+        onRestoreLayoutAnchor={onRestoreLayoutAnchor}
+      >
+        <article key='A'>A</article>
+        <article key='B'>B</article>
+      </TimelineMasonry>,
+    );
+    const root = container.querySelector('.timeline-masonry');
+    const tileA = item(container, 'A');
+    const tileB = item(container, 'B');
+
+    act(() => {
+      observer.callback([
+        { target: root, contentRect: { width: 320, height: 0 } },
+        { target: tileA, contentRect: { width: 300, height: 100 } },
+        { target: tileB, contentRect: { width: 300, height: 80 } },
+      ]);
+    });
+    const before = position(container, 'B');
+    onCaptureLayoutAnchor.mockClear();
+    hold = true;
+
+    act(() => {
+      observer.callback([{ target: tileA, contentRect: { width: 300, height: 240 } }]);
+    });
+
+    expect(position(container, 'B')).toEqual(before);
+    expect(onCaptureLayoutAnchor).not.toHaveBeenCalled();
+    expect(ref.current.hasHeldMeasurements()).toBe(true);
+
+    hold = false;
+    act(() => {
+      ref.current.flushHeldMeasurements();
+    });
+
+    expect(position(container, 'B').y).toBe(before.y + 140);
+    expect(onCaptureLayoutAnchor).toHaveBeenCalledTimes(1);
+  });
+
   it('extends all old columns once, then consumes headroom end-to-start without old-card reflow', () => {
     const { container, rerender } = render(cards(['A', 'B', 'C']));
     const original = ['A', 'B', 'C'].map(id => position(container, id));

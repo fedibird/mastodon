@@ -411,6 +411,95 @@ describe('ScrollableList timeline anchor', () => {
     expect(capture).not.toHaveBeenCalled();
     expect(setter).not.toHaveBeenCalled();
     expect(list.scrollTop).toBe(150);
+    expect(view.container.querySelector('[data-layout-key*="110"]')).toBeNull();
+  });
+
+  it('keeps the visible card still when a prepend or a late height arrives during momentum', () => {
+    let now = 20000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: undefined });
+
+    const measured = new Map();
+    const tileHeight = (node) => measured.get(node.getAttribute('data-layout-key')) || 180;
+    const tileY = (node) => {
+      const match = node.style.transform.match(/translate3d\(0, ([\d.]+)px, 0\)/);
+      return match ? Number(match[1]) : 0;
+    };
+    jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this.classList && this.classList.contains('scrollable')) {
+        return rect(0, 420);
+      }
+      if (this.classList && this.classList.contains('timeline-masonry')) {
+        return { ...rect(0, 0), width: 590, right: 590 };
+      }
+      if (this.classList && this.classList.contains('timeline-masonry__item')) {
+        const scroller = this.closest('.scrollable');
+        return rect(tileY(this) - (scroller?.scrollTop || 0), tileHeight(this));
+      }
+      return rect(0, 0);
+    });
+
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'momentum-viewport',
+      layoutMode: 'card-1',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90', '80'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 420 });
+    list.scrollTop = 250;
+
+    const before = ref.current.captureVisibleMasonryItem();
+    expect(before).not.toBeNull();
+    const beforeTop = before.top;
+    const scrollBefore = list.scrollTop;
+    const anchor = view.container.querySelector(`[data-layout-key="${before.key}"]`);
+    const anchorY = tileY(anchor);
+    const above = Array.from(view.container.querySelectorAll('.timeline-masonry__item'))
+      .find(node => tileY(node) < anchorY);
+    expect(above).toBeTruthy();
+
+    fireEvent.wheel(list, { deltaY: 40 });
+    const setter = jest.spyOn(ref.current, 'setScrollTop');
+    measured.set(above.getAttribute('data-layout-key'), 400);
+    act(() => {
+      ref.current._masonry.measureFallback();
+    });
+    expect(setter).not.toHaveBeenCalled();
+    expect(tileY(anchor)).toBe(anchorY);
+    expect(ref.current.captureVisibleMasonryItem().top).toBe(beforeTop);
+    expect(list.scrollTop).toBe(scrollBefore);
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', '100', '90', '80'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="110"]')).toBeNull();
+    expect(setter).not.toHaveBeenCalled();
+    expect(tileY(anchor)).toBe(anchorY);
+    expect(ref.current.captureVisibleMasonryItem().top).toBe(beforeTop);
+    expect(list.scrollTop).toBe(scrollBefore);
+
+    now += 600;
+    act(() => {
+      ref.current._flushMasonryHold();
+    });
+
+    expect(view.container.querySelector('[data-layout-key*="110"]')).not.toBeNull();
+    const kept = view.container.querySelector(`[data-layout-key="${before.key}"]`);
+    expect(tileY(kept)).toBeGreaterThan(anchorY);
+    expect(list.scrollTop).toBeGreaterThan(scrollBefore);
+    expect(kept.getBoundingClientRect().top).toBe(beforeTop);
+    expect(setter).toHaveBeenCalled();
   });
 
   it('preserves the reading tile when a new post gains its real height after two frames', () => {
