@@ -46,7 +46,10 @@
     ],
     "collectCoverageFrom": [
       "app/javascript/mastodon/**/*.js",
-      "!app/javascript/mastodon/features/emoji/emoji_compressed.js",
+      "!app/javascript/mastodon/features/emoji/emoji_build.js",
+      "!app/javascript/mastodon/features/emoji/emoji_unicode_mapping_data.js",
+      "!app/javascript/mastodon/features/emoji/emoji_mart_search_data.js",
+      "!app/javascript/mastodon/features/emoji/emoji_mart_nimble_data.js",
       "!app/javascript/mastodon/locales/locale-data/*.js",
       "!app/javascript/mastodon/service_worker/entry.js",
       "!app/javascript/mastodon/test_setup.js"

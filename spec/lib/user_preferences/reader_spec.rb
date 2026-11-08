@@ -403,4 +403,26 @@ RSpec.describe UserPreferences::Reader do
       expect(Setting.unscoped.find_by(thing_id: user.id, var: 'emoji_reaction_fallback_policy').value).to be true
     end
   end
+
+  describe 'emoji picker booleans' do
+    let(:user) { Fabricate(:user) }
+
+    it 'uses the yaml default when the row is missing and keeps a stored false' do
+      prefer = described_class.new(user).get(:emoji_picker_prefer_personal)
+      lazy = described_class.new(user).get(:emoji_picker_lazy_load_standard)
+
+      expect(prefer).to have_attributes(state: :absent, configured: nil, effective: false, public_value: false)
+      expect(lazy).to have_attributes(state: :absent, configured: nil, effective: true, public_value: true)
+      expect(Setting.where(thing_id: user.id, var: %w(emoji_picker_prefer_personal emoji_picker_lazy_load_standard))).to be_empty
+
+      store_setting(user, 'emoji_picker_prefer_personal', false)
+      store_setting(user, 'emoji_picker_lazy_load_standard', false)
+      stored_prefer = described_class.new(user).get(:emoji_picker_prefer_personal)
+      stored_lazy = described_class.new(user).get(:emoji_picker_lazy_load_standard)
+
+      expect(stored_prefer).to have_attributes(state: :present, configured: false, effective: false, public_value: false)
+      expect(stored_lazy).to have_attributes(state: :present, configured: false, effective: false, public_value: false)
+      expect(stored_lazy.effective).not_to eq lazy.effective
+    end
+  end
 end

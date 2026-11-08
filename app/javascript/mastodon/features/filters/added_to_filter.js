@@ -10,6 +10,8 @@ import { connect } from 'react-redux';
 import Button from 'mastodon/components/button';
 import CustomEmojiText from 'mastodon/components/custom_emoji_text';
 import { toServerSideType } from 'mastodon/utils/filters';
+import { ensureCustomEmojis } from 'mastodon/actions/custom_emojis';
+import { textNeedsCustomEmojiCatalog } from 'mastodon/features/emoji/custom_emoji_demand';
 
 const mapStateToProps = (state, { filterId }) => ({
   filter: state.getIn(['filters', filterId]),
@@ -25,6 +27,22 @@ class AddedToFilter extends PureComponent {
     customEmojis: ImmutablePropTypes.list.isRequired,
     dispatch: PropTypes.func.isRequired,
   };
+
+  componentDidMount() {
+    this.requestEmojiCatalog();
+  }
+
+  componentDidUpdate() {
+    this.requestEmojiCatalog();
+  }
+
+  requestEmojiCatalog() {
+    const { filter, dispatch } = this.props;
+
+    if (filter && textNeedsCustomEmojiCatalog(filter.get('title'))) {
+      dispatch(ensureCustomEmojis());
+    }
+  }
 
   handleCloseClick = () => {
     this.props.onClose();

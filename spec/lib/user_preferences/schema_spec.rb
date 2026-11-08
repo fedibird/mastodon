@@ -42,6 +42,8 @@ RSpec.describe UserPreferences::Schema do
         'content_font_size',
         'info_font_size',
         'reduce_motion',
+        'emoji_picker_prefer_personal',
+        'emoji_picker_lazy_load_standard',
         'emoji_reaction_fallback_policy'
       )
     end
@@ -61,6 +63,8 @@ RSpec.describe UserPreferences::Schema do
       expect(reinitialize.map { |key| described_class.get(key).apply_hint }).to all(eq(:reinitialize))
       expect(live_keys.map { |key| described_class.get(key).apply_hint }).to all(eq(:live))
       expect(described_class.get(:show_translation_bar).dependencies).to eq ['new_features_policy']
+      expect(described_class.get(:emoji_picker_prefer_personal).apply_hint).to eq :reload
+      expect(described_class.get(:emoji_picker_lazy_load_standard).apply_hint).to eq :reload
     end
 
     it 'rejects a key the reader does not support' do

@@ -10,7 +10,9 @@ const emojiMart = {
 };
 
 jest.mock('react-intl', () => {
-  const intl = { formatMessage: () => 'Insert emoji' };
+  const intl = {
+    formatMessage: descriptor => (descriptor && descriptor.defaultMessage) || 'Insert emoji',
+  };
 
   return {
     defineMessages: messages => messages,
@@ -117,6 +119,7 @@ describe('EmojiPickerDropdown with a native button trigger', () => {
 
     expect(screen.getByText('Emoji picker')).toBeInTheDocument();
     expect(emojiMart.props[0].recent).toBeUndefined();
+    expect(emojiMart.props[0].data).toBeUndefined();
   });
 
   it('passes a populated frequent list through to emoji mart', async () => {

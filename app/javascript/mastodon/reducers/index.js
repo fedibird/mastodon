@@ -41,6 +41,7 @@ import media_attachments from './media_attachments';
 import notifications from './notifications';
 import height_cache from './height_cache';
 import custom_emojis from './custom_emojis';
+import custom_emoji_catalog from './custom_emoji_catalog';
 import custom_emojis_detail from './custom_emojis_detail';
 import lists from './lists';
 import mix_timelines from './mix_timelines';
@@ -114,6 +115,7 @@ const reducers = {
   notifications,
   height_cache,
   custom_emojis,
+  custom_emoji_catalog,
   custom_emojis_detail,
   identity_proofs,
   lists,

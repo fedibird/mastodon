@@ -7,6 +7,7 @@ import { isUserTouching } from '../is_mobile';
 
 import { changeSetting } from '../actions/settings';
 import { useEmoji } from '../actions/emojis';
+import { ensureCustomEmojis } from '../actions/custom_emojis';
 import { getPickersEmoji, getFrequentlyUsedEmojis } from 'mastodon/selectors';
 
 const mapStateToProps = state => ({
@@ -29,22 +30,22 @@ const mapDispatchToProps = (dispatch, { status, onPickEmoji, scrollKey }) => ({
     }
   },
 
+  onStandardActive: () => dispatch(ensureCustomEmojis()),
+
   onOpen(id, keyboard) {
-    dispatch((_, getState) => {
-      let state = getState();
+    dispatch(() => {
       if (status) {
         dispatch(fetchRelationships([status.getIn(['account', 'id'])]));
       }
 
+      // Touch reactions keep the existing history owner: the desktop dropdown
+      // records useEmoji once, and this modal calls the status callback only.
       dispatch(isUserTouching() ? openModal('REACTION', {
         status: status,
         onPickEmoji: onPickEmoji,
         onSkinTone: skinTone => {
           dispatch(changeSetting(['skinTone'], skinTone));
         },
-        pickersEmoji: getPickersEmoji(state),
-        skinTone: state.getIn(['settings', 'skinTone']),
-        frequentlyUsedEmojis: getFrequentlyUsedEmojis(state),
       }) : openDropdownMenu(id, keyboard, scrollKey));
     });
   },

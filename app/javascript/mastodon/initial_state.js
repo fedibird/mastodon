@@ -133,6 +133,9 @@ export const hideRebloggedBy = getMeta('hide_reblogged_by');
 export const enableStatusPolling = getMeta('enable_status_polling');
 export const enableStatusPollingIntersection = getMeta('enable_status_polling_intersection');
 export const disableAutoFocusToEmojiSearch = getMeta('disable_auto_focus_to_emoji_search');
+// Missing meta uses the settings.yml defaults. Explicit false stays false.
+export const emojiPickerPreferPersonal = getMeta('emoji_picker_prefer_personal') === true;
+export const emojiPickerLazyLoadStandard = getMeta('emoji_picker_lazy_load_standard') !== false;
 
 export const languages = initialState?.languages;
 export const maxChars = initialState?.max_toot_chars ?? 500;

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fedibird Group protocol vocabulary v1</title>
+  <style>body{font:16px/1.7 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem}h1,h2{line-height:1.35}code{overflow-wrap:anywhere}a{color:#175c96}pre{overflow:auto;background:#eee;padding:1rem}</style>
+</head>
+<body>
+  <h1>Fedibird Group protocol vocabulary v1</h1>
+  <p>Machine-readable JSON-LD: <a href="/ns/group/v1">https://fedibird.com/ns/group/v1</a> (<code>application/ld+json</code>) / <a href="/ns/group/v1.jsonld">v1.jsonld</a>。この語彙のIRIは古い <code>http://fedibird.com/ns#</code> とは別の名前空間です。</p>
+  <h2 id="protocols">#protocols — protocol set property</h2>
+  <p><code>https://fedibird.com/ns/group/v1#protocols</code></p>
+  <p>Group Actorが自ら宣言する、対応するグループプロトコル方式IRIの集合です。JSON-LDの短縮キーは <code>fedibirdGroupProtocols</code>、型は <code>@id</code>、配列コンテナは <code>@set</code> です。<strong>特定ユーザーの投稿権限、所属、役職の証明にはなりません。</strong></p>
+  <h2 id="MentionFollowAnnounce">#MentionFollowAnnounce — Fedibird Group protocol v1</h2>
+  <p><code>https://fedibird.com/ns/group/v1#MentionFollowAnnounce</code></p>
+  <p>ローカルFedibird Groupの公開方式: 成立済みFollowによるメンバーシップ、Groupへのmention、公開または未収載の投稿を要件とし、グループは元投稿URIを通常のAnnounceで再配送します。<code>Announce(Create)</code>ではありません。</p>
+  <p>このIRIはFEP-1b12、FEP-400e、FEP-5219への準拠や、リモートGroup・特定の閲覧者による投稿の許可を意味しません。実際の投稿可否はサーバー側認可が判断します。</p>
+  <h2>ActivityPub Actorの例</h2>
+  <pre><code>{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    { "fedibirdGroupProtocols": {
+        "@id": "https://fedibird.com/ns/group/v1#protocols",
+        "@type": "@id",
+        "@container": "@set"
+    }}
+  ],
+  "type": "Group",
+  "fedibirdGroupProtocols": [
+    "https://fedibird.com/ns/group/v1#MentionFollowAnnounce"
+  ]
+}</code></pre>
+  <p>上記は最小例であり、実際のActorにはid、inbox等の他フィールドも必要です。Actor側では拡張Contextをインラインで出力します。語彙定義へのリモートGETを受信時に強制する仕様ではありません。</p>
+  <h2>変更方針</h2>
+  <p>v1のIRIと意味は安定して維持します。非互換の仕様変更には新しいIRI・v2名前空間を使います。実装・レビュー: <a href="https://github.com/fedibird/mastodon/issues/748">Issue #748</a> / <a href="https://github.com/fedibird/mastodon/pull/751">PR #751</a>。</p>
+  <p><a href="/ns/index.html">既存Fedibird語彙に戻る</a></p>
+</body>
+</html>

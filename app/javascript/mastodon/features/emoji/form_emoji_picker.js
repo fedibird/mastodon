@@ -15,6 +15,7 @@ import emojify, {
   categoriesFromEmojis,
 } from 'mastodon/features/emoji/emoji';
 import { getLocale } from 'mastodon/locales';
+import { preloadStandardEmojiPickerIfNeeded } from './emoji_picker_preferences';
 
 const messages = defineMessages({
   emoji: { id: 'emoji_button.label', defaultMessage: 'Insert emoji' },
@@ -56,6 +57,9 @@ const getCustomEmojiData = () => {
           categories: categoriesFromEmojis(visible),
         }),
       };
+    }).catch(error => {
+      customEmojiPromise = null;
+      throw error;
     });
   }
 
@@ -369,6 +373,8 @@ export const initializeFormEmojiPickers = ({
   textNodes = Array.from(document.querySelectorAll('[data-custom-emoji-text]')),
   locale = document.documentElement.lang,
 } = {}) => {
+  preloadStandardEmojiPickerIfNeeded();
+
   const undecoratedFields = fields.filter(field => field.dataset.emojiPickerMounted !== 'true');
   const unrenderedTextNodes = textNodes.filter(node => node.dataset.customEmojiRendered !== 'true');
 

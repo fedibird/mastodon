@@ -1,5 +1,6 @@
 import { connect } from 'react-redux';
 import { addReaction, removeReaction, dismissAnnouncement } from 'mastodon/actions/announcements';
+import { ensureCustomEmojis } from 'mastodon/actions/custom_emojis';
 import Announcements from '../components/announcements';
 import { createSelector } from 'reselect';
 import { Map as ImmutableMap } from 'immutable';
@@ -15,6 +16,7 @@ const mapDispatchToProps = dispatch => ({
   dismissAnnouncement: id => dispatch(dismissAnnouncement(id)),
   addReaction: (id, name) => dispatch(addReaction(id, name)),
   removeReaction: (id, name) => dispatch(removeReaction(id, name)),
+  onNeedCustomEmojis: () => dispatch(ensureCustomEmojis()),
 });
 
 export default connect(mapStateToProps, mapDispatchToProps)(Announcements);

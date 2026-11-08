@@ -109,6 +109,17 @@ RSpec.describe UserPreferences::LegacyWriter do
       expect(motion.after['reduce_motion']).to eq(state: :present, configured: true)
       expect(stored(user, 'reduce_motion').value).to be true
 
+      prefer = writer.update('emoji_picker_prefer_personal', '0')
+      lazy = writer.update('emoji_picker_lazy_load_standard', '0')
+
+      expect(prefer.after['emoji_picker_prefer_personal']).to eq(state: :present, configured: false)
+      expect(stored(user, 'emoji_picker_prefer_personal').value).to be false
+      expect(stored(user, 'emoji_picker_prefer_personal').value).not_to eq '0'
+      expect(lazy.after['emoji_picker_lazy_load_standard']).to eq(state: :present, configured: false)
+      expect(stored(user, 'emoji_picker_lazy_load_standard').value).to be false
+      expect(reader(user, 'emoji_picker_lazy_load_standard')).to have_attributes(state: :present, effective: false)
+      expect(reader(user, 'emoji_picker_prefer_personal').effective).to be false
+
       cleared = writer.update('default_sensitive', '')
 
       expect(stored(user, 'default_sensitive')).to be_present
@@ -118,7 +129,7 @@ RSpec.describe UserPreferences::LegacyWriter do
       expect(cleared.before['default_sensitive']).to eq(state: :present, configured: false)
       expect(cleared.changed_keys).to eq ['default_sensitive']
       expect(reader(user, 'default_sensitive').state).not_to eq :absent
-      expect(revision(user)).to eq 3
+      expect(revision(user)).to eq 5
     end
 
     it 'skips an actual nil without writing, and treats a repeated nil row as a no-op' do

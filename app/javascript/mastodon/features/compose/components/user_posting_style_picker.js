@@ -9,6 +9,7 @@ import Overlay from 'react-overlays/Overlay';
 import CustomEmojiText from 'mastodon/components/custom_emoji_text';
 import Icon from 'mastodon/components/icon';
 import { createOverlayRefBridge } from '../overlay_ref';
+import { textNeedsCustomEmojiCatalog } from 'mastodon/features/emoji/custom_emoji_demand';
 
 const messages = defineMessages({
   label: { id: 'compose_form.posting_style.label', defaultMessage: 'Posting style' },
@@ -154,6 +155,7 @@ class UserPostingStylePicker extends React.PureComponent {
     resolutionPhase: PropTypes.string,
     resolutionScope: PropTypes.string,
     returnStyleName: PropTypes.string,
+    onNeedCustomEmojis: PropTypes.func,
     onSetUsage: PropTypes.func,
     onReturnToUsual: PropTypes.func,
     onSaveUsual: PropTypes.func,
@@ -194,6 +196,7 @@ class UserPostingStylePicker extends React.PureComponent {
   findTrigger = () => this.trigger;
 
   componentDidUpdate (_prevProps, prevState) {
+    this.requestEmojiCatalog();
     const menu = this.menuNode();
 
     if (!this.state.open || prevState.open || !menu) {
@@ -271,6 +274,29 @@ class UserPostingStylePicker extends React.PureComponent {
   componentDidMount () {
     document.addEventListener('mousedown', this.handleDocumentClick);
     document.addEventListener('keydown', this.handleDocumentKey);
+    this.requestEmojiCatalog();
+  }
+
+  requestEmojiCatalog () {
+    const { onNeedCustomEmojis, showStyleControls, styles, returnStyleName } = this.props;
+
+    if (!onNeedCustomEmojis || showStyleControls === false) {
+      return;
+    }
+
+    const chunks = [returnStyleName];
+
+    if (styles && styles.forEach) {
+      styles.forEach(style => {
+        if (style && style.get) {
+          chunks.push(style.get('name'), style.get('icon'));
+        }
+      });
+    }
+
+    if (chunks.some(value => textNeedsCustomEmojiCatalog(value))) {
+      onNeedCustomEmojis();
+    }
   }
 
   componentWillUnmount () {

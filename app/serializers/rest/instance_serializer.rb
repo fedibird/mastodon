@@ -13,10 +13,15 @@ class REST::InstanceSerializer < ActiveModel::Serializer
   attributes :domain, :title, :version, :source_url, :description,
              :usage, :thumbnail, :icon, :languages, :configuration,
              :registrations,
-             :feature_quote, :fedibird_capabilities
+             :feature_quote, :fedibird_capabilities, :fedibird
 
   has_one :contact, serializer: ContactSerializer
   has_many :rules, serializer: REST::RuleSerializer
+
+  # Instance-wide discovery, independent of the authenticated viewer.
+  def fedibird
+    Fedibird::CapabilityCatalog.instance
+  end
 
   def thumbnail
     if object.thumbnail
@@ -38,7 +43,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
   def icon
     {
       src: full_pack_url('media/images/logo.svg'),
-      size: "192x192",
+      size: '192x192',
     }
   end
 
@@ -76,7 +81,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
         characters_reserved_per_url: StatusLengthValidator::URL_PLACEHOLDER_CHARS,
         min_expiration: TimeLimit::VALID_DURATION.min,
         max_expiration: TimeLimit::VALID_DURATION.max,
-        supported_expires_actions: StatusExpire::actions.keys,
+        supported_expires_actions: StatusExpire.actions.keys,
       },
 
       media_attachments: {
@@ -90,7 +95,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
       },
 
       polls: {
-        max_options: PollOptionsValidator::MAX_OPTIONS,
+        max_options: [PollOptionsValidator::MAX_OPTIONS, Setting.poll_max_options].max,
         max_characters_per_option: PollOptionsValidator::MAX_OPTION_CHARS,
         min_expiration: PollExpirationValidator::MIN_EXPIRATION,
         max_expiration: PollExpirationValidator::MAX_EXPIRATION,

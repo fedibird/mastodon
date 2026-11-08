@@ -5,6 +5,7 @@ import { throttle } from 'lodash';
 import { defineMessages } from 'react-intl';
 import api from 'mastodon/api';
 import { search as emojiSearch } from 'mastodon/features/emoji/emoji_mart_search_light';
+import { ensureCustomEmojis } from './custom_emojis';
 import { tagHistory } from 'mastodon/settings';
 import { showAlert, showAlertForError } from './alerts';
 import { useEmoji } from './emojis';
@@ -1206,8 +1207,11 @@ export function undoUploadCompose(media_id) {
   };
 };
 
+const latestEmojiToken = new Map();
+
 export function clearComposerSuggestions(composerId) {
   return (dispatch) => {
+    latestEmojiToken.set(composerId, null);
     const cancel = accountSuggestionCancels.get(composerId);
 
     if (cancel) {
@@ -1259,9 +1263,29 @@ const getAccountSuggestionFetcher = composerId => {
   return accountSuggestionFetchers.get(composerId);
 };
 
-const fetchComposeSuggestionsEmojis = (dispatch, token, composerId) => {
-  const results = emojiSearch(token.replace(':', ''), { maxResults: 5 });
-  dispatchToComposer(dispatch, composerId, readyComposeSuggestionsEmojis(token, results));
+const fetchComposeSuggestionsEmojis = (dispatch, getState, token, composerId) => {
+  latestEmojiToken.set(composerId, token);
+
+  const publish = () => {
+    if (latestEmojiToken.get(composerId) !== token || !selectComposer(getState(), composerId)) {
+      return;
+    }
+
+    const results = emojiSearch(token.replace(':', ''), { maxResults: 5 });
+    dispatchToComposer(dispatch, composerId, readyComposeSuggestionsEmojis(token, results));
+  };
+
+  // Unicode suggestions come from the light index already in the initial
+  // bundle. A custom-catalog failure leaves those results in place.
+  publish();
+
+  if (getState().getIn(['custom_emoji_catalog', 'status']) === 'ready') {
+    return;
+  }
+
+  dispatch(ensureCustomEmojis()).then(() => {
+    publish();
+  }).catch(() => {});
 };
 
 const getTagSuggestionFetcher = composerId => {
@@ -1308,12 +1332,14 @@ export function fetchComposerSuggestions(composerId, token) {
 
     switch (token[0]) {
     case ':':
-      fetchComposeSuggestionsEmojis(dispatch, token, composerId);
+      fetchComposeSuggestionsEmojis(dispatch, getState, token, composerId);
       break;
     case '#':
+      latestEmojiToken.set(composerId, null);
       getTagSuggestionFetcher(composerId)(dispatch, getState, token);
       break;
     default:
+      latestEmojiToken.set(composerId, null);
       getAccountSuggestionFetcher(composerId)(dispatch, getState, token);
       break;
     }
@@ -1351,6 +1377,10 @@ export function selectComposerSuggestion(composerId, position, token, suggestion
     if (!selectComposer(getState(), composerId)) {
       return;
     }
+
+    // A selected suggestion is finished. A catalog response still in flight
+    // must not publish that token again over the text that replaced it.
+    latestEmojiToken.set(composerId, null);
 
     let completion, startPosition;
 
