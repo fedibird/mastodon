@@ -360,13 +360,23 @@ describe('ScrollableList timeline anchor', () => {
     flushFrames();
     expect(list.scrollTop).toBe(activeTop);
 
+    // A momentum tick inside the 150ms scroll throttle must still refresh
+    // the quiet period. Otherwise the guard expires from the leading tick
+    // while native scrolling is continuing.
+    now += 100;
+    list.scrollTop += 12;
+    fireEvent.scroll(list);
+    now += 450;
+    expect(ref.current.captureMasonryLayoutAnchor()).toBeNull();
+
     // A new, post-idle measurement keeps the reading tile stable.
     now += 501;
+    const quietTop = list.scrollTop;
     const quiet = ref.current.captureMasonryLayoutAnchor();
-    expect(quiet).toMatchObject({ scrollTop: activeTop });
+    expect(quiet).toMatchObject({ scrollTop: quietTop });
     docTop += 50;
     ref.current.restoreMasonryLayoutAnchor(quiet);
-    expect(list.scrollTop).toBe(activeTop + 50);
+    expect(list.scrollTop).toBe(quietTop + 50);
     flushFrames();
   });
 

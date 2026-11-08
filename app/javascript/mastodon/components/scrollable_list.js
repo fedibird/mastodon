@@ -157,12 +157,6 @@ class ScrollableList extends PureComponent {
       const headerScroll = this._headerScrollActive();
       const anchorJump = headerScroll || this._isAnchorJumpScroll(scrollTop);
 
-      // Momentum scroll events continue after touch release. Record native
-      // movement before any throttled anchor correction can run.
-      if (!anchorJump && !this.lastScrollWasSynthetic && !this._suppressUserScroll) {
-        this._lastNativeScrollAt = Date.now();
-      }
-
       // A jump to an already loaded row must not page in more. A real user
       // scroll, including one that arrives before this throttled call runs,
       // still loads when it is within 400px of the end.
@@ -221,6 +215,17 @@ class ScrollableList extends PureComponent {
 
   _hasActiveMasonryScroll = () => isCardTimelineLayout(this.props.layoutMode) &&
     Date.now() - this._lastNativeScrollAt < MASONRY_SCROLL_IDLE_DELAY;
+
+  // handleScroll is throttled to 150ms, but momentum ticks keep arriving
+  // inside that window. Record the raw event so a swallowed tick still
+  // holds the masonry guard for the full quiet period.
+  _noteNativeMasonryScroll = () => {
+    if (this._suppressUserScroll || this._syntheticScrollDepth > 0 || this.lastScrollWasSynthetic) {
+      return;
+    }
+
+    this._lastNativeScrollAt = Date.now();
+  }
 
   _isAnchorJumpScroll = (scrollTop) => {
     if (this._syntheticScrollDepth > 0) {
@@ -1070,6 +1075,7 @@ class ScrollableList extends PureComponent {
   attachScrollListener () {
     const target = this.props.bindToDocument ? document : this.node;
 
+    target.addEventListener('scroll', this._noteNativeMasonryScroll, { passive: true });
     target.addEventListener('scroll', this.handleScroll);
     target.addEventListener('wheel', this.handleWheel);
     target.addEventListener('touchmove', this.handleTouchMove);
@@ -1085,6 +1091,7 @@ class ScrollableList extends PureComponent {
       return;
     }
 
+    target.removeEventListener('scroll', this._noteNativeMasonryScroll);
     target.removeEventListener('scroll', this.handleScroll);
     target.removeEventListener('wheel', this.handleWheel);
     target.removeEventListener('touchmove', this.handleTouchMove);
