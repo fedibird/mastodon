@@ -263,15 +263,34 @@ class ScrollableList extends PureComponent {
     return reconcileMasonryPrepends(before, after, leadingMasonryPrefixKeys(before));
   }
 
+  // toArray escapes keys ('.$N') while forEach reports the key the parent
+  // passed ('N'). Walk both in order and return the original elements, so
+  // the next prepend plan does not escape the stored children again.
+  _childrenExcluding = (children, keys) => {
+    const skip = new Set(keys);
+    const ordered = React.Children.toArray(children);
+    const visible = [];
+    let index = 0;
+    React.Children.forEach(children, child => {
+      const escaped = ordered[index] ? String(ordered[index].key) : '';
+      index += 1;
+      if (child && !skip.has(escaped)) {
+        visible.push(child);
+      }
+    });
+    return visible;
+  }
+
   _masonryReadingPosition = () => (
     this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll ||
     this.props.windowedHistory || this.props.readingSurface
   );
 
-  // Prepends during momentum shift every existing tile down by the shared
-  // frontier. Keep painting the previous children until the swipe is quiet,
-  // then let the normal anchor restore run. scrollTop stays untouched while
-  // the browser still owns the inertia.
+  // A pure prepend during momentum shifts every existing tile down by the
+  // shared frontier. Hide only those new keys until the swipe is quiet, then
+  // let the normal anchor restore run. A removal or filter exclusion in the
+  // same update is already absent from `next`, so it leaves the screen now.
+  // scrollTop stays untouched while the browser still owns the inertia.
   _visibleMasonryChildren = (next) => {
     const previous = this._shownMasonryChildren;
     const source = this._masonrySourceId();
@@ -293,7 +312,7 @@ class ScrollableList extends PureComponent {
 
     if (this._hasActiveMasonryScroll() && this._masonryReadingPosition() && plan.prependedKeys.length > 0) {
       this._masonryPrependHeld = true;
-      return previous;
+      return this._childrenExcluding(next, plan.prependedKeys);
     }
 
     const release = this._masonryPrependHeld;
@@ -1362,6 +1381,7 @@ class ScrollableList extends PureComponent {
     if (isCardTimelineLayout(layoutMode)) {
       itemLayout = (
         <TimelineMasonry
+          key={this._masonrySourceId()}
           ref={this._setMasonry}
           mode={layoutMode}
           onCaptureLayoutAnchor={this.captureMasonryLayoutAnchor}

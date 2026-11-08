@@ -414,6 +414,103 @@ describe('ScrollableList timeline anchor', () => {
     expect(view.container.querySelector('[data-layout-key*="110"]')).toBeNull();
   });
 
+  it('applies a removal immediately when a prepend arrives during momentum', () => {
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'bounded-live',
+      layoutMode: 'card-1',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const present = (container) => (
+      Array.from(container.querySelectorAll('.timeline-masonry__item'))
+        .map(node => node.getAttribute('data-layout-key'))
+        .join(' ')
+    );
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['A', 'B', 'C'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 180;
+    fireEvent.wheel(list, { deltaY: 40 });
+    const setter = jest.spyOn(ref.current, 'setScrollTop');
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['N', 'A', 'C'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(present(view.container)).not.toContain('N');
+    expect(present(view.container)).not.toContain('B');
+    expect(present(view.container)).toContain('A');
+    expect(present(view.container)).toContain('C');
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['A', 'B', 'C'])}</ScrollableList>
+      </Provider>,
+    );
+    fireEvent.scroll(list);
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['N', 'A', 'B'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(present(view.container)).not.toContain('N');
+    expect(present(view.container)).not.toContain('C');
+    expect(present(view.container)).toContain('A');
+    expect(present(view.container)).toContain('B');
+    expect(setter).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(180);
+  });
+
+  it('lays a switched feed out like a fresh mount of that feed', () => {
+    Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: undefined });
+    const box = (width, height) => ({
+      top: 0, left: 0, right: width, bottom: height, width, height, x: 0, y: 0, toJSON () {},
+    });
+    jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this.classList && this.classList.contains('timeline-masonry') && !this.classList.contains('timeline-masonry__item') && !this.classList.contains('timeline-masonry__content')) {
+        return box(590, 0);
+      }
+      if (this.classList && (this.classList.contains('timeline-masonry__content') || this.classList.contains('timeline-masonry__item'))) {
+        return box(180, 100);
+      }
+      return box(0, 0);
+    });
+
+    const places = (container) => (
+      Array.from(container.querySelectorAll('.timeline-masonry__item')).map(node => (
+        node.getAttribute('data-layout-key') + '@' + node.style.insetInlineStart + '/' + node.style.transform
+      ))
+    );
+    const reduxStore = store();
+    const props = { layoutMode: 'card-3', trackScroll: false, hasMore: false };
+    const switched = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props} scrollKey='home'>{rows(['A', 'B'])}</ScrollableList>
+      </Provider>,
+    );
+    switched.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props} scrollKey='local'>{rows(['N', 'A', 'B'])}</ScrollableList>
+      </Provider>,
+    );
+    const fresh = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props} scrollKey='local'>{rows(['N', 'A', 'B'])}</ScrollableList>
+      </Provider>,
+    );
+
+    expect(switched.container.querySelector('.scrollable')).toBeTruthy();
+    expect(places(switched.container)).toEqual(places(fresh.container));
+    expect(switched.container.querySelector('.timeline-masonry__placeholder')).toBeNull();
+  });
+
   it('paints the new feed at once when the surface changes during momentum', () => {
     const ref = React.createRef();
     const reduxStore = store();
