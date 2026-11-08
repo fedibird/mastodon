@@ -98,30 +98,36 @@ RSpec.describe EmojiMutes::ReactionProjection do
     mute(viewer_user, { 'kind' => 'custom', 'scope' => 'remote', 'domain' => 'other.example', 'shortcode' => 'blob' })
 
     EmojiMutes::Store.breakdowns = nil
-    EmojiMutes::Store.breakdown_loads = 0
-    stub_const('EmojiMutes::IdentityBreakdown::MAX_STATUSES', 0)
-    capped = described_class.for(status, viewer_user.account, user: viewer_user)
-    expect(capped.groups.first['account_ids']).to eq [reactor.id.to_s, other.id.to_s]
-
-    EmojiMutes::Store.breakdowns = nil
-    EmojiMutes::Store.breakdown_loads = 0
     EmojiMutes::Store.rule_sets = nil
-    stub_const('EmojiMutes::IdentityBreakdown::MAX_STATUSES', 80)
+    stub_const('EmojiMutes::IdentityBreakdown::QUERY_BATCH', 1)
+    extras = Array.new(2) do
+      extra = Fabricate(:status)
+      actor = Fabricate(:account)
+      EmojiReaction.create!(account: actor, status: extra, name: 'blob', custom_emoji: remote_emoji)
+      cache = [{ 'name' => 'blob', 'count' => 1, 'account_ids' => [actor.id.to_s], 'domain' => 'other.example', 'url' => 'https://example.test/remote.png' }]
+      stat = StatusStat.find_or_initialize_by(status: extra)
+      stat.update!(emoji_reactions_cache: Oj.dump(cache), emoji_reactions_count: 1, emoji_reactions_cache_dirty: false)
+      extra.association(:status_stat).reset
+      extra
+    end
     queries = []
     callback = lambda do |_name, _start, _finish, _id, payload|
       queries << payload[:sql] if payload[:sql].match?(/emoji_reactions|emoji_mutes/i)
     end
     ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
-      EmojiMutes::IdentityBreakdown.prepare([status, Fabricate(:status)], viewer_user)
+      EmojiMutes::IdentityBreakdown.prepare([status] + extras, viewer_user)
       3.times { described_class.for(status, viewer_user.account, user: viewer_user) }
     end
     projected = described_class.for(status, viewer_user.account, user: viewer_user)
     expect(projected.groups.first['account_ids']).to eq [reactor.id.to_s]
     expect(projected.count).to eq 1
+    extras.each do |extra|
+      expect(described_class.for(extra, viewer_user.account, user: viewer_user).count).to eq 0
+    end
     expect(status.status_stat.reload.emoji_reactions_cache).to eq original
     reaction_reads = queries.count { |sql| sql.match?(/from "?emoji_reactions"?/i) && !sql.match?(/emoji_reactions_cache/i) }
     mute_reads = queries.count { |sql| sql.match?(/from "?emoji_mutes"?/i) }
-    expect(reaction_reads).to eq 1
+    expect(reaction_reads).to eq 3
     expect(mute_reads).to eq 1
   end
 

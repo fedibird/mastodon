@@ -97,9 +97,9 @@ request has no hide rules.
 shared cache or a `Status` instance. Serializing the same status for viewer
 A, viewer B, then nobody reuses no viewer-specific count.
 
-Unicode rules keep the finished native. A reaction name matches when it is
-equal, or when both are equal after removing U+FE0E and U+FE0F, unless both
-are different catalog entries. Skin tone, ZWJ, flags, and keycaps remain.
+Unicode rules keep the finished native and match that string exactly in
+Ruby, SQL, and the WebUI. A variation selector is a different rule.
+`‼` does not match `‼️`, and `1⃣` does not match `1️⃣`.
 
 ## New reactions
 
@@ -154,10 +154,12 @@ a hide, the representative is the minimum remaining `custom_emoji_id`.
 Reads do not repair a dirty cache. A legacy group with no `parts` is not
 hidden from its representative. A Unicode-only legacy group (no `domain`,
 `url`, or `static_url`) can be matched by name. Any other legacy group is
-filled from `emoji_reactions` in one request-scoped query covering up to
-80 statuses (`EmojiMutes::IdentityBreakdown::MAX_STATUSES`), including
-reblogs already loaded with the page. Statuses past that cap are returned
-unfiltered rather than mis-hidden. The read does not write the cache.
+filled from `emoji_reactions` for every such status on the page, including
+reblogs already loaded with it. The read is chunked by
+`EmojiMutes::IdentityBreakdown::QUERY_BATCH` (200 ids) so a context of
+thousands of posts does not run one query per post or one unbounded `IN`.
+A chunk boundary never leaves a status unfiltered. The read does not write
+the cache.
 
 Refresh still holds the `status_stats` row lock, so a newer reaction cannot
 be overwritten by an older `dirty=false`. The locked row's previous cache
@@ -203,16 +205,26 @@ that send allows a message that was already queued.
 P3 applies `replace_in_text` and `hide_in_picker`, builds the settings
 screen, and only then advertises `emoji_mutes`.
 
-Before the first paint, `GET /api/v1/fedibird/emoji_mutes` and keep
-`revision` plus `emoji_mutes` in memory. Dispatch `importEmojiMutes`. Do not
-use `localStorage`. On `emoji_mutes_changed`, if `revision` is newer, refetch
-the collection and the visible statuses. Ignore a status payload whose
-`emoji_mutes_revision` is older than the status already on screen. Ignore a
-reaction event whose `cache_token` is older. Project `parts` with
-`hide_reactions` rules; the shared event is not pre-filtered. Optimistic
-Unicode and remote adds already skip when those rules are loaded. A local
-custom optimistic add cannot be matched by shortcode, because the identity
-is the database id; the authenticated status response is authoritative.
+The signed-in WebUI loads `GET /api/v1/fedibird/emoji_mutes` when the user
+stream connects and keeps the document in memory. `observedRevision` is the
+newest `emoji_mutes_changed` value. `appliedRevision` is the document that
+was stored. Reaction events and anonymous `status.update` payloads wait
+until the applied revision has caught up with the observed one. A failed or
+older fetch does not mark the document current and does not replace the
+reactions already on screen. The event is registered for both WebSocket and
+EventSource (`KNOWN_EVENT_TYPES`). After a successful fetch the client
+reloads the visible timeline statuses, the notification page, and the unread
+count, and drops a group whose projected count is zero. The representative
+image is taken from the remaining parts. Do not use `localStorage`.
+
+A status payload whose `emoji_mutes_revision` is older than the copy already
+stored keeps that copy's reactions. The rest of the payload, including
+edited text, is imported. An anonymous payload has no revision: it is
+projected with the applied rules when those rules are current, and otherwise
+keeps the previous reactions. Optimistic Unicode and remote adds skip when
+those rules are loaded. A local custom optimistic add cannot be matched by
+shortcode, because the identity is the database id. The authenticated status
+response is authoritative.
 
 Unmuting shows existing reactions and notifications. It does not invent a
 reaction the server refused. Personal sets, post source, and the shared

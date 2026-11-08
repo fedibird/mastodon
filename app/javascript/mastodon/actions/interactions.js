@@ -3,6 +3,7 @@ import { importFetchedAccounts, importFetchedStatus, importFetchedStatuses } fro
 import { fetchRelationshipsSuccess, fetchRelationships, fetchRelationshipsFromStatuses } from './accounts';
 import { me } from '../initial_state';
 import { reactionNameHidden } from '../features/emoji/emoji_mute_projection';
+import { currentEmojiMutes, emojiReactionEventsAccepted } from '../features/emoji/emoji_mute_store';
 
 export const REBLOG_REQUEST = 'REBLOG_REQUEST';
 export const REBLOG_SUCCESS = 'REBLOG_SUCCESS';
@@ -832,7 +833,7 @@ export function unpinFail(status, error) {
 
 export function addEmojiReaction(status, name, domain, url, static_url) {
   return function (dispatch, getState) {
-    const hidden = reactionNameHidden(name, domain, getState().getIn(['emojiMutes', 'rules']));
+    const hidden = !emojiReactionEventsAccepted() || reactionNameHidden(name, domain, currentEmojiMutes());
 
     if (!hidden) {
       dispatch(emojiReactionRequest(status, name, domain, url, static_url));
@@ -947,11 +948,15 @@ export function unEmojiReactionFail(status, name, domain, url, static_url, error
 };
 
 export const updateEmojiReaction = emoji_reaction => {
-  return (dispatch, getState) => {
+  return (dispatch) => {
+    if (!emojiReactionEventsAccepted()) {
+      return;
+    }
+
     dispatch({
       type: EMOJI_REACTION_UPDATE,
       emojiReaction: emoji_reaction,
-      emojiMuteRules: getState().getIn(['emojiMutes', 'rules']),
+      emojiMuteRules: currentEmojiMutes(),
       skipLoading: true,
     });
   };

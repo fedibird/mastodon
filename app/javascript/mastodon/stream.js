@@ -223,6 +223,7 @@ export const KNOWN_EVENT_TYPES = [
   'announcement.delete',
   'announcement.reaction',
   'preferences_changed',
+  'emoji_mutes_changed',
 ];
 
 /**

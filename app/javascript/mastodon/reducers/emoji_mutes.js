@@ -1,5 +1,5 @@
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
-import { EMOJI_MUTES_IMPORT, EMOJI_MUTES_REVISION } from '../actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_IMPORT, EMOJI_MUTES_REVISION } from '../actions/emoji_mutes';
 
 const initialState = ImmutableMap({
   revision: null,
@@ -35,6 +35,10 @@ export default function emojiMutes(state = initialState, action) {
     return state
       .set('revision', action.revision === null || action.revision === undefined ? state.get('revision') : String(action.revision))
       .set('rules', fromJS(action.rules || []));
+  case EMOJI_MUTES_APPLY:
+    return state
+      .set('revision', action.revision === null || action.revision === undefined ? state.get('revision') : String(action.revision))
+      .set('rules', fromJS(action.mutes || []));
   case EMOJI_MUTES_REVISION:
     if (!newer(action.revision, state.get('revision'))) {
       return state;

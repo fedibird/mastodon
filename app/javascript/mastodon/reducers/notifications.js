@@ -1,4 +1,5 @@
 import {
+  NOTIFICATIONS_RELOAD_SUCCESS,
   NOTIFICATIONS_UPDATE,
   NOTIFICATIONS_EXPAND_SUCCESS,
   NOTIFICATIONS_EXPAND_REQUEST,
@@ -27,7 +28,7 @@ import {
   APP_UNFOCUS,
 } from '../actions/app';
 import { DOMAIN_BLOCK_SUCCESS } from 'mastodon/actions/domain_blocks';
-import { TIMELINE_DELETE, TIMELINE_EXPIRE, TIMELINE_DISCONNECT } from '../actions/timelines';
+import { TIMELINE_DELETE, TIMELINE_DISCONNECT } from '../actions/timelines';
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import compareId from '../compare_id';
 
@@ -224,6 +225,14 @@ export default function notifications(state = initialState, action) {
     return state.set('items', ImmutableList()).set('pendingItems', ImmutableList()).set('hasMore', true);
   case NOTIFICATIONS_SCROLL_TOP:
     return updateTop(state, action.top);
+  case NOTIFICATIONS_RELOAD_SUCCESS: {
+    const items = ImmutableList((action.notifications || []).filter(item => item && item.account).map(notificationToMap));
+    let next = state.set('items', items).set('pendingItems', ImmutableList()).set('isLoading', false);
+    if (typeof action.unread === 'number') {
+      next = next.set('unread', action.unread);
+    }
+    return next;
+  }
   case NOTIFICATIONS_UPDATE:
     return normalizeNotification(state, action.notification, action.usePendingItems);
   case NOTIFICATIONS_EXPAND_SUCCESS:

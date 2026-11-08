@@ -39,20 +39,26 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
   def process_reaction
     reaction = @original_status.emoji_reactions.find_by(account: @account, name: shortcode)
     stored_status = EmojiMutes::ReactionTarget.stored_status(@original_status)
-    identity = incoming_reaction_identity
 
-    # A new muted reaction stops before emoji copy, the row, and every side
-    # effect. An existing row is not deleted. Its redelivery does not repair
-    # notifications or the moderation ledger while the mute still matches.
-    if reaction.nil? && EmojiMutes::ReactionPolicy.reject_new?(stored_status, identity)
+    # An existing row is judged by the emoji it actually stored. Redelivery
+    # must not repair notifications or the moderation ledger while that mute
+    # still matches.
+    return if reaction && EmojiMutes::ReactionPolicy.suppress_existing?(reaction)
+
+    # Reject from the activity document before any emoji copy when that
+    # identity is already enough. A tag that resolves to a different emoji
+    # is checked again after resolution and before insert.
+    if reaction.nil? && EmojiMutes::ReactionPolicy.reject_new?(stored_status, incoming_reaction_identity)
       return
     end
-    return if reaction && EmojiMutes::ReactionPolicy.suppress_existing?(reaction, identity)
 
     emoji = resolve_incoming_custom_emoji
     return if emoji&.disabled?
 
     if reaction.nil?
+      stored_identity = EmojiMutes::Identity.for_pair(shortcode, emoji)
+      return if EmojiMutes::ReactionPolicy.reject_new?(stored_status, stored_identity)
+
       reaction = @original_status.emoji_reactions.create!(account: @account, name: shortcode, custom_emoji: emoji, uri: @json['id'])
 
       if @original_status.account.local? && !@account.silenced? && !@original_status.account.excluded_from_timeline_account_ids.include?(@account.id) && !@original_status.account.excluded_from_timeline_domains.include?(@account.domain)

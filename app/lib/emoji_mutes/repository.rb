@@ -11,13 +11,32 @@ module EmojiMutes
     end
 
     def list
-      mutes = EmojiMute.where(user_id: @user.id).order(:id).to_a
-      revision = EmojiMuteCollection.where(user_id: @user.id).pick(:revision) || 0
+      mutes, revision = self.class.consistent_state(@user.id)
       Presenter.new(mutes).list(revision)
     end
 
     def revision
-      EmojiMuteCollection.where(user_id: @user.id).pick(:revision) || 0
+      self.class.consistent_state(@user.id).last
+    end
+
+    # User row lock, then both reads. A writer uses the same first lock, so
+    # it cannot commit a new revision between the two selects.
+    def self.consistent_state(user_id)
+      EmojiMute.transaction do
+        User.lock.find(user_id)
+        mutes = EmojiMute.where(user_id: user_id).order(:id).to_a
+        before_revision_read&.call
+        revision = EmojiMuteCollection.where(user_id: user_id).pick(:revision) || 0
+        [mutes, revision.to_i]
+      end
+    end
+
+    def self.before_revision_read
+      Thread.current[:emoji_mute_before_revision_read]
+    end
+
+    def self.before_revision_read=(callback)
+      Thread.current[:emoji_mute_before_revision_read] = callback
     end
 
     def create(body)
@@ -149,15 +168,9 @@ module EmojiMutes
     end
 
     def lock_collection!
-      collection = EmojiMuteCollection.find_by(user_id: @user.id)
-      if collection.nil?
-        begin
-          collection = EmojiMuteCollection.create!(user_id: @user.id, revision: 0)
-        rescue ActiveRecord::RecordNotUnique
-          collection = EmojiMuteCollection.find_by!(user_id: @user.id)
-        end
-      end
-      collection.lock!
+      User.lock.find(@user.id)
+      collection = EmojiMuteCollection.lock.find_by(user_id: @user.id)
+      collection ||= EmojiMuteCollection.create!(user_id: @user.id, revision: 0)
       collection
     end
 

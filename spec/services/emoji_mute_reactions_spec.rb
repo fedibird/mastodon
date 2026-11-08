@@ -164,9 +164,111 @@ RSpec.describe 'Emoji mute reaction policy' do
     expect(EmojiReaction.where(status: status, account: sender).count).to eq 1
   end
 
-  it 'matches a variation selector and not a different skin tone' do
-    stored = '👍🏽'
-    expect(EmojiMutes::UnicodeMatch.match?(stored, "👍🏽\uFE0F")).to be true
-    expect(EmojiMutes::UnicodeMatch.match?(stored, '👍')).to be false
+  it 'rejects a unicode reaction whether or not the request names a domain' do
+    status = Fabricate(:status, account: author)
+    EmojiMutes::Repository.new(author_user).create({
+      'emoji' => { 'kind' => 'unicode', 'native' => '😀' },
+      'effects' => {
+        'replace_in_text' => false,
+        'reject_reactions_to_own_posts' => true,
+        'hide_reactions' => false,
+        'hide_in_picker' => false,
+      },
+    })
+
+    with_flags(canonical: false, idempotent: false) do
+      expect { react(status, '😀') }.to raise_error(Mastodon::NotPermittedError)
+      expect { react(status, '😀@remote.example') }.to raise_error(Mastodon::NotPermittedError)
+    end
+
+    expect(EmojiReaction.count).to eq 0
+    expect(Notification.count).to eq 0
+    expect(ModerationInteractionEvent.count).to eq 0
+    expect(ActivityPub::CustomEmojiDistributionWorker.jobs).to be_empty
+    expect(PotentialFriendshipTracker).not_to have_received(:record)
+
+    EmojiReaction.create!(account: reactor, status: status, name: '😀')
+    EmojiMutes::Store.rule_sets = nil
+    ActivityPub::CustomEmojiDistributionWorker.jobs.clear
+    with_flags(canonical: false, idempotent: false) do
+      expect { react(status, '😀@remote.example') }.not_to change { Notification.where(activity_type: 'EmojiReaction').count }
+    end
+    expect(EmojiReaction.where(status: status, name: '😀').count).to eq 1
+    expect(ActivityPub::CustomEmojiDistributionWorker.jobs).to be_empty
+  end
+
+  it 'rejects an ActivityPub reaction whose resolved local emoji differs from the content shortcode' do
+    status = Fabricate(:status, account: author, visibility: :public)
+    bad = Fabricate(:custom_emoji, shortcode: 'bad')
+    EmojiMutes::Repository.new(author_user).create({
+      'emoji' => { 'kind' => 'custom', 'custom_emoji_id' => bad.id.to_s },
+      'effects' => {
+        'replace_in_text' => false,
+        'reject_reactions_to_own_posts' => true,
+        'hide_reactions' => false,
+        'hide_in_picker' => false,
+      },
+    })
+    local = Rails.configuration.x.local_domain
+    tag = [{
+      'type' => 'Emoji',
+      'name' => ':bad:',
+      'id' => "https://#{local}/emojis/bad",
+    }]
+    base = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      actor: ActivityPub::TagManager.instance.uri_for(sender),
+      object: ActivityPub::TagManager.instance.uri_for(status),
+      content: ':different:',
+      tag: tag,
+    }
+
+    %w(Like EmojiReact).each do |type|
+      json = base.merge(id: "https://remote.test/activities/#{type}", type: type).with_indifferent_access
+      expect { ActivityPub::Activity::Like.new(json, sender).perform }.not_to change {
+        [EmojiReaction.count, Notification.count, ModerationInteractionEvent.count, ActivityPub::DeliveryWorker.jobs.size]
+      }
+    end
+    expect(CustomEmoji.where(shortcode: 'bad').count).to eq 1
+
+    EmojiReaction.create!(account: sender, status: status, name: 'different', custom_emoji: bad, uri: 'https://remote.test/activities/stored')
+    EmojiMutes::Store.rule_sets = nil
+    again = base.merge(id: 'https://remote.test/activities/stored', type: 'EmojiReact').with_indifferent_access
+    expect { ActivityPub::Activity::Like.new(again, sender).perform }.not_to change(ModerationInteractionEvent, :count)
+    expect(EmojiReaction.where(account: sender, status: status).count).to eq 1
+  end
+
+  it 'matches a finished native exactly and keeps variation selectors distinct' do
+    expect(EmojiMutes::UnicodeMatch.match?('👍🏽', '👍🏽')).to be true
+    expect(EmojiMutes::UnicodeMatch.match?('👍🏽', "👍🏽\uFE0F")).to be false
+    expect(EmojiMutes::UnicodeMatch.match?('👍', '👍🏽')).to be false
+    expect(EmojiMutes::UnicodeMatch.match?('‼', '‼️')).to be false
+    expect(EmojiMutes::UnicodeMatch.match?('1⃣', '1️⃣')).to be false
+
+    EmojiMutes::Repository.new(author_user).create({
+      'emoji' => { 'kind' => 'unicode', 'native' => '‼' },
+      'effects' => {
+        'replace_in_text' => false,
+        'reject_reactions_to_own_posts' => false,
+        'hide_reactions' => false,
+        'hide_in_picker' => false,
+      },
+    })
+    EmojiMutes::Repository.new(author_user).create({
+      'emoji' => { 'kind' => 'unicode', 'native' => '‼️' },
+      'effects' => {
+        'replace_in_text' => true,
+        'reject_reactions_to_own_posts' => true,
+        'hide_reactions' => true,
+        'hide_in_picker' => true,
+      },
+    })
+    EmojiMutes::Store.rule_sets = nil
+    rules = EmojiMutes::RuleSet.for_user(author_user)
+    expect(rules.rejects_reaction?('kind' => 'unicode', 'native' => '‼')).to be false
+    expect(rules.rejects_reaction?('kind' => 'unicode', 'native' => '‼️')).to be true
+    expect(rules.hides_unicode_name?('‼️')).to be true
+    expect(rules.hides_unicode_name?('‼')).to be false
+    expect(rules.hide_unicode_variants).to contain_exactly('‼️')
   end
 end

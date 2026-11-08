@@ -2,12 +2,12 @@
 
 module EmojiMutes
   # Read-only identity breakdown for caches that predate parts. It does not
-  # write status_stats and does not refresh on read. One request loads the
-  # missing statuses together, up to MAX_STATUSES. Beyond that cap the extra
-  # statuses stay on the legacy group and are not hidden by a representative
-  # domain.
+  # write status_stats and does not refresh on read. Every status that still
+  # needs parts is loaded. SQL is chunked so one request does not issue one
+  # query per post or an unbounded IN list. Exceeding a chunk never skips a
+  # mute.
   class IdentityBreakdown
-    MAX_STATUSES = 80
+    QUERY_BATCH = 200
 
     class << self
       def prepare(statuses, user)
@@ -22,12 +22,6 @@ module EmojiMutes
         store = EmojiMutes::Store.breakdowns ||= {}
         return store[status_id] if store.key?(status_id)
 
-        loads = EmojiMutes::Store.breakdown_loads.to_i
-        if loads >= MAX_STATUSES
-          store[status_id] = nil
-          return nil
-        end
-
         load([status_id])
         store[status_id]
       end
@@ -40,18 +34,13 @@ module EmojiMutes
       def load(status_ids)
         store = EmojiMutes::Store.breakdowns ||= {}
         remaining = status_ids.map(&:to_i).uniq.reject { |id| store.key?(id) }
-        room = MAX_STATUSES - EmojiMutes::Store.breakdown_loads.to_i
-        chosen = remaining.first(room)
-        (remaining - chosen).each { |id| store[id] = nil }
-        return if chosen.empty?
+        return if remaining.empty?
 
-        EmojiMutes::Store.breakdown_loads = EmojiMutes::Store.breakdown_loads.to_i + chosen.size
-        rows = EmojiReaction.where(status_id: chosen).includes(:custom_emoji).order(:created_at).to_a
-        built = Hash.new { |hash, key| hash[key] = [] }
-        rows.group_by(&:status_id).each do |status_id, reactions|
-          built[status_id] = parts_by_name(reactions)
+        remaining.each_slice(QUERY_BATCH) do |slice|
+          rows = EmojiReaction.where(status_id: slice).includes(:custom_emoji).order(:created_at).to_a
+          grouped = rows.group_by(&:status_id)
+          slice.each { |id| store[id] = parts_by_name(grouped[id] || []) }
         end
-        chosen.each { |id| store[id] = built.key?(id) ? built[id] : {} }
       end
 
       def parts_by_name(reactions)

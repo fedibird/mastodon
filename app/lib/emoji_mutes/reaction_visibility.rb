@@ -44,7 +44,7 @@ module EmojiMutes
       end
 
       ids = rules.hide_local_ids
-      pieces << "emoji_reactions.custom_emoji_id IN (#{ids.join(', ')})" if ids.any?
+      pieces << "(emoji_reactions.custom_emoji_id IS NOT NULL AND emoji_reactions.custom_emoji_id IN (#{ids.join(', ')}))" if ids.any?
 
       pairs = rules.hide_remote_pairs
       if pairs.any?

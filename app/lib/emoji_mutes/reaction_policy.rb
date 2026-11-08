@@ -15,11 +15,10 @@ module EmojiMutes
       RuleSet.for_user(author.user).rejects_reaction?(identity)
     end
 
-    def suppress_existing?(reaction, request_identity = nil)
+    def suppress_existing?(reaction, _request_identity = nil)
       return false if reaction.nil?
 
-      status = reaction.status
-      reject_new?(status, request_identity) || reject_new?(status, Identity.for_reaction(reaction))
+      reject_new?(reaction.status, Identity.for_reaction(reaction))
     end
   end
 end

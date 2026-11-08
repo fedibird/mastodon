@@ -17,8 +17,7 @@ module EmojiMutes
       end
 
       def load(user_id)
-        rows = EmojiMute.where(user_id: user_id).to_a
-        revision = EmojiMuteCollection.where(user_id: user_id).pick(:revision) || 0
+        rows, revision = Repository.consistent_state(user_id)
         new(rows, revision)
       end
     end

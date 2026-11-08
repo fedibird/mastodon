@@ -210,15 +210,20 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
     assert_source_anchor(derived, 'app/javascript/mastodon/initial_state.js', 'export const translationPrivateContentAllowed')
     assert_source_anchor(entry(catalog, 'site.site_title'), 'app/models/form/admin_settings.rb', 'KEYS = %i(')
 
+    lines = File.readlines(File.join(ROOT, 'app/services/notify_service.rb'))
+    snippet = "settings.interactions['must_be_follower']"
+    wrong_index = lines.index { |line| line.strip != '' && !line.include?(snippet) }
+    flunk('notify_service.rb has no non-empty line that is not the follower interaction') unless wrong_index
+    wrong_line = wrong_index + 1
     shifted = entry(catalog, 'user.interactions.must_be_follower').dup
-    shifted['source_refs'] = ['app/services/notify_service.rb:78']
+    shifted['source_refs'] = ["app/services/notify_service.rb:#{wrong_line}"]
     error = assert_raises(Minitest::Assertion) do
-      assert_source_anchor(shifted, 'app/services/notify_service.rb', "settings.interactions['must_be_follower']")
+      assert_source_anchor(shifted, 'app/services/notify_service.rb', snippet)
     end
-    assert_match(/notify_service.rb:78/, error.message)
-    cited = File.readlines(File.join(ROOT, 'app/services/notify_service.rb'))[77]
+    assert_match(/notify_service.rb:#{wrong_line}/, error.message)
+    cited = lines[wrong_index]
     refute_empty cited.strip
-    refute_includes cited, "settings.interactions['must_be_follower']"
+    refute_includes cited, snippet
   end
 
   def test_inactive_write_policy_general_fails

@@ -127,15 +127,9 @@ class EmojiReactionService < BaseService
   def request_identity
     return @request_identity if defined?(@request_identity)
 
-    @request_identity = if @request_domain.present?
-                          { 'kind' => 'custom', 'scope' => 'remote', 'domain' => EmojiMutes::Identity.normalize_domain(@request_domain), 'shortcode' => @request_shortcode }
-                        elsif @request_custom_emoji&.local?
-                          { 'kind' => 'custom', 'scope' => 'local', 'custom_emoji_id' => @request_custom_emoji.id.to_s }
-                        elsif @request_custom_emoji&.remote?
-                          { 'kind' => 'custom', 'scope' => 'remote', 'domain' => EmojiMutes::Identity.normalize_domain(@request_custom_emoji.domain), 'shortcode' => @request_custom_emoji.shortcode }
-                        else
-                          { 'kind' => 'unicode', 'native' => @request_shortcode }
-                        end
+    # Domain on the request is only a lookup hint. A missing custom row is
+    # stored as Unicode under `name`, so the mute check uses that identity.
+    @request_identity = EmojiMutes::Identity.for_pair(@request_shortcode, @request_custom_emoji)
   end
 
   def reject_new_reaction?(_shortcode, _custom_emoji)

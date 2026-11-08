@@ -14,7 +14,7 @@ import { getHomeVisibilities } from 'mastodon/selectors';
 import { updateNotifications, expandNotifications } from './notifications';
 import { updateConversations } from './conversations';
 import { updateEmojiReaction } from './interactions';
-import { importEmojiMutesRevision } from './emoji_mutes';
+import { syncEmojiMutes } from './emoji_mutes';
 import {
   fetchAnnouncements,
   updateAnnouncements,
@@ -81,6 +81,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
         }
 
         if (channelName === 'user') {
+          dispatch(syncEmojiMutes());
           dispatch(scheduleFiltersRefresh());
           dispatch(retryFilterReconciliation());
           dispatch(refreshExternalFeedCapability());
@@ -177,7 +178,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
           dispatch(updateEmojiReaction(emojiReaction));
           break;
         case 'emoji_mutes_changed':
-          dispatch(importEmojiMutesRevision(JSON.parse(data.payload).revision));
+          dispatch(syncEmojiMutes({ changed: JSON.parse(data.payload) })).catch(() => {});
           break;
         case 'announcement':
           dispatch(updateAnnouncements(JSON.parse(data.payload)));

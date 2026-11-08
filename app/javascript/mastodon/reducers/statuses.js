@@ -39,29 +39,13 @@ import { protectBoostState, revisionOfImmutable } from '../external_boosts/revis
 import { normalizeStatusTranslation } from '../actions/importer/normalizer';
 import { me } from '../initial_state';
 import { Map as ImmutableMap, List, fromJS } from 'immutable';
-import { projectStreamReaction, reactionTokenStale, revisionStale } from '../features/emoji/emoji_mute_projection';
+import { guardImportedReactions, projectStatusReactions, projectStreamReaction, reactionTokenStale } from '../features/emoji/emoji_mute_projection';
+import { currentEmojiMutes, emojiReactionEventsAccepted } from '../features/emoji/emoji_mute_store';
+import { EMOJI_MUTES_APPLY } from '../actions/emoji_mutes';
 
-const protectEmojiReactionProjection = (previous, status) => {
-  if (!previous || typeof previous.get !== 'function' || status.emoji_mutes_revision === null || status.emoji_mutes_revision === undefined) {
-    return status;
-  }
-
-  const current = previous.get('emoji_mutes_revision');
-
-  if (current === null || current === undefined || !revisionStale(current, status.emoji_mutes_revision)) {
-    return status;
-  }
-
-  const reactions = previous.get('emoji_reactions');
-
-  return {
-    ...status,
-    emoji_reactions: reactions && typeof reactions.toJS === 'function' ? reactions.toJS() : status.emoji_reactions,
-    emoji_reactions_count: previous.get('emoji_reactions_count'),
-    emoji_reactions_cache_token: previous.get('emoji_reactions_cache_token'),
-    emoji_mutes_revision: current,
-  };
-};
+const protectEmojiReactionProjection = (previous, status) => (
+  guardImportedReactions(previous, status, currentEmojiMutes(), emojiReactionEventsAccepted())
+);
 
 const importStatus = (state, status) => {
   if (state.getIn([status.in_reply_to_id, 'replies_count'], null) === 0) {
@@ -153,17 +137,37 @@ const deleteStatus = (state, id, references, quotes) => {
 
 const updateEmojiReaction = (state, id, name, domain, url, static_url, updater) => state.update(id, status => {
   return status.update('emoji_reactions', emojiReactions => {
-    const idx = emojiReactions.findIndex(emojiReaction => emojiReaction.get('name') === name);
+    const list = emojiReactions || List();
+    const idx = list.findIndex(emojiReaction => emojiReaction.get('name') === name);
 
     if (idx > -1) {
-      return emojiReactions.update(idx, emojiReactions => updater(emojiReactions));
+      return list.update(idx, group => updater(group));
     }
 
-    return emojiReactions.push(updater(fromJS({ name, domain, url, static_url, count: 0, account_ids: [] })));
+    return list.push(updater(fromJS({ name, domain, url, static_url, count: 0, account_ids: [] })));
   });
 });
 
-const updateEmojiReactionCount = (state, emojiReaction) => updateEmojiReaction(state, emojiReaction.status_id, emojiReaction.name, emojiReaction.domain, emojiReaction.url, emojiReaction.static_url, x => x.set('count', emojiReaction.count).set('account_ids', new List(emojiReaction.account_ids)));
+const DISPLAY_KEYS = ['url', 'static_url', 'domain', 'width', 'height', 'alternate_name', 'ruby'];
+
+const applyProjectedGroup = (group, emojiReaction) => {
+  let next = group
+    .set('count', emojiReaction.count)
+    .set('account_ids', new List(emojiReaction.account_ids || []))
+    .set('parts', fromJS(emojiReaction.parts || []));
+
+  DISPLAY_KEYS.forEach(key => {
+    if (emojiReaction[key] === undefined || emojiReaction[key] === null) {
+      next = next.delete(key);
+    } else {
+      next = next.set(key, emojiReaction[key]);
+    }
+  });
+
+  return next;
+};
+
+const updateEmojiReactionCount = (state, emojiReaction) => updateEmojiReaction(state, emojiReaction.status_id, emojiReaction.name, emojiReaction.domain, emojiReaction.url, emojiReaction.static_url, group => applyProjectedGroup(group, emojiReaction));
 
 const addEmojiReaction = (state, id, name, domain, url, static_url) => updateEmojiReaction(state, id, name, domain, url, static_url, x => x.update('count', y => y + 1).update('account_ids', z => z.push(me)));
 
@@ -333,6 +337,33 @@ export default function statuses(state = initialState, action) {
     return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'bookmarked'], false);
   case UNBOOKMARK_FAIL:
     return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'bookmarked'], true);
+  case EMOJI_MUTES_APPLY:
+    return state.withMutations(map => {
+      map.forEach((status, id) => {
+        if (!status || typeof status.get !== 'function') {
+          return;
+        }
+
+        const reactions = status.get('emoji_reactions');
+
+        if (!reactions || typeof reactions.toJS !== 'function') {
+          return;
+        }
+
+        const projected = projectStatusReactions(reactions.toJS(), action.mutes || []);
+
+        if (!projected) {
+          return;
+        }
+
+        map.setIn([id, 'emoji_reactions'], fromJS(projected));
+        map.setIn([id, 'emoji_reactions_count'], projected.reduce((sum, group) => sum + Number(group.count || 0), 0));
+
+        if (action.revision !== null && action.revision !== undefined) {
+          map.setIn([id, 'emoji_mutes_revision'], String(action.revision));
+        }
+      });
+    });
   case EMOJI_REACTION_UPDATE: {
     const id = action.emojiReaction.status_id;
 

@@ -20,7 +20,7 @@ class Api::V1::Fedibird::EmojiMutesController < Api::BaseController
   end
 
   def index
-    revision = EmojiMutes::Repository.new(current_user).revision
+    mutes, revision = EmojiMutes::Repository.consistent_state(current_user.id)
     etag = collection_etag(revision)
     response.headers['ETag'] = etag
     if none_match?(etag)
@@ -28,7 +28,7 @@ class Api::V1::Fedibird::EmojiMutesController < Api::BaseController
       return
     end
 
-    render json: EmojiMutes::Repository.new(current_user).list
+    render json: EmojiMutes::Presenter.new(mutes).list(revision)
   end
 
   def create

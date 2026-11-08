@@ -17,6 +17,7 @@ import { usePendingItems as preferPendingItems, enableReaction, enableStatusRefe
 import compareId from 'mastodon/compare_id';
 import { requestNotificationPermission } from '../utils/notifications';
 
+export const NOTIFICATIONS_RELOAD_SUCCESS = 'NOTIFICATIONS_RELOAD_SUCCESS';
 export const NOTIFICATIONS_UPDATE      = 'NOTIFICATIONS_UPDATE';
 export const NOTIFICATIONS_UPDATE_NOOP = 'NOTIFICATIONS_UPDATE_NOOP';
 

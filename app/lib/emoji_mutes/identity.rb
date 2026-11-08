@@ -4,8 +4,20 @@ module EmojiMutes
   module Identity
     module_function
 
+    def for_pair(name, custom_emoji)
+      if custom_emoji&.local?
+        { 'kind' => 'custom', 'scope' => 'local', 'custom_emoji_id' => custom_emoji.id.to_s }
+      elsif custom_emoji&.remote?
+        { 'kind' => 'custom', 'scope' => 'remote', 'domain' => normalize_domain(custom_emoji.domain), 'shortcode' => custom_emoji.shortcode }
+      else
+        { 'kind' => 'unicode', 'native' => name }
+      end
+    end
+
     def for_reaction(reaction)
       return nil if reaction.nil?
+
+      return for_pair(reaction.name, nil) if reaction.custom_emoji_id.nil? && reaction.custom_emoji.nil?
 
       emoji = reaction.custom_emoji
       if emoji&.local?

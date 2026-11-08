@@ -22,24 +22,9 @@ const asArray = value => {
   return typeof value.toArray === 'function' ? value.toArray() : Array.from(value);
 };
 
-const variationSelectors = /[\uFE0E\uFE0F]/g;
-
-const stripVariation = value => (typeof value === 'string' ? value.replace(variationSelectors, '') : '');
-
-export const unicodeMatches = (stored, reactionName) => {
-  if (typeof stored !== 'string' || typeof reactionName !== 'string') {
-    return false;
-  }
-
-  if (stored === reactionName) {
-    return true;
-  }
-
-  const left = stripVariation(stored);
-  const right = stripVariation(reactionName);
-
-  return left.length > 0 && left === right;
-};
+export const unicodeMatches = (stored, reactionName) => (
+  typeof stored === 'string' && typeof reactionName === 'string' && stored === reactionName
+);
 
 const identityOf = part => read(part, 'identity') || {};
 
@@ -118,15 +103,79 @@ export const projectStreamReaction = (payload, rules) => {
   });
 
   const accountIds = (payload.account_ids || []).map(String).filter(id => !hiddenIds.has(id));
+  const next = { ...payload, parts: kept, count: accountIds.length, account_ids: accountIds };
+  const previousRepresentative = representativeId(parts);
+  const keptRepresentative = representativeId(kept);
+
+  if (previousRepresentative && previousRepresentative !== keptRepresentative) {
+    Object.assign(next, displayFromParts(kept));
+  }
 
   if (accountIds.length === 0) {
-    return { hidden: true, payload: { ...payload, parts: kept, count: 0, account_ids: [] } };
+    return { hidden: true, payload: next };
+  }
+
+  return { hidden: false, payload: next };
+};
+
+const partEmojiId = part => {
+  const id = read(part, 'custom_emoji_id') || read(identityOf(part), 'custom_emoji_id');
+  return id === undefined || id === null || id === '' ? null : String(id);
+};
+
+const representativeId = parts => {
+  const ids = parts.map(partEmojiId).filter(id => id !== null);
+  if (ids.length === 0) {
+    return null;
+  }
+
+  return ids.slice().sort((left, right) => {
+    if (left.length === right.length) {
+      return left < right ? -1 : 1;
+    }
+
+    return left.length < right.length ? -1 : 1;
+  })[0];
+};
+
+const displayFromParts = parts => {
+  const chosen = parts.find(part => partEmojiId(part) === representativeId(parts));
+  if (!chosen) {
+    return { url: null, static_url: null, domain: null, width: null, height: null, alternate_name: null, ruby: null };
   }
 
   return {
-    hidden: false,
-    payload: { ...payload, parts: kept, count: accountIds.length, account_ids: accountIds },
+    url: read(chosen, 'url') ?? null,
+    static_url: read(chosen, 'static_url') ?? null,
+    domain: read(chosen, 'domain') ?? null,
+    width: read(chosen, 'width') ?? null,
+    height: read(chosen, 'height') ?? null,
+    alternate_name: read(chosen, 'alternate_name') ?? null,
+    ruby: read(chosen, 'ruby') ?? null,
   };
+};
+
+const projectable = (group, rules) => {
+  if (!rules || asArray(rules).length === 0) {
+    return true;
+  }
+
+  if (Array.isArray(group.parts)) {
+    return true;
+  }
+
+  return !group.domain && !group.url && !group.static_url;
+};
+
+export const projectStatusReactions = (groups, rules) => {
+  if (!Array.isArray(groups) || groups.some(group => !projectable(group, rules))) {
+    return null;
+  }
+
+  return groups
+    .map(group => projectStreamReaction(group, rules))
+    .filter(result => !result.hidden && result.payload.count > 0)
+    .map(result => result.payload);
 };
 
 export const reactionTokenStale = (current, incoming) => {
@@ -149,3 +198,60 @@ export const reactionTokenStale = (current, incoming) => {
 };
 
 export const revisionStale = (current, incoming) => reactionTokenStale(current, incoming);
+
+const keepPreviousReactions = (previous, status) => {
+  if (!previous || typeof previous.get !== 'function') {
+    const next = { ...status };
+    delete next.emoji_reactions;
+    delete next.emoji_reactions_count;
+    return next;
+  }
+
+  const reactions = previous.get('emoji_reactions');
+
+  return {
+    ...status,
+    emoji_reactions: reactions && typeof reactions.toJS === 'function' ? reactions.toJS() : status.emoji_reactions,
+    emoji_reactions_count: previous.get('emoji_reactions_count'),
+    emoji_reactions_cache_token: previous.get('emoji_reactions_cache_token'),
+    emoji_mutes_revision: previous.get('emoji_mutes_revision'),
+  };
+};
+
+// Anonymous status updates have no viewer revision. Project them with the
+// rules already fetched. Until that fetch has caught up, keep the reactions
+// already on screen and still import the edited text.
+export const guardImportedReactions = (previous, status, rules, reactionsAccepted) => {
+  if (!status || typeof status !== 'object') {
+    return status;
+  }
+
+  const incoming = status.emoji_mutes_revision;
+  const current = previous && typeof previous.get === 'function' ? previous.get('emoji_mutes_revision') : null;
+
+  if (incoming !== null && incoming !== undefined && current !== null && current !== undefined && revisionStale(current, incoming)) {
+    return keepPreviousReactions(previous, status);
+  }
+
+  if (incoming !== null && incoming !== undefined) {
+    return status;
+  }
+
+  if (!reactionsAccepted) {
+    return keepPreviousReactions(previous, status);
+  }
+
+  const projected = projectStatusReactions(status.emoji_reactions, rules);
+  if (!projected) {
+    return keepPreviousReactions(previous, status);
+  }
+
+  const keptRevision = current !== null && current !== undefined ? current : status.emoji_mutes_revision;
+
+  return {
+    ...status,
+    emoji_reactions: projected,
+    emoji_reactions_count: projected.reduce((sum, group) => sum + Number(group.count || 0), 0),
+    emoji_mutes_revision: keptRevision,
+  };
+};
