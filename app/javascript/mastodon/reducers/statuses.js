@@ -40,11 +40,11 @@ import { normalizeStatusTranslation } from '../actions/importer/normalizer';
 import { me } from '../initial_state';
 import { Map as ImmutableMap, List, fromJS } from 'immutable';
 import { guardImportedReactions, projectStatusReactions, projectStreamReaction, reactionTokenStale } from '../features/emoji/emoji_mute_projection';
-import { currentEmojiMutes, emojiReactionEventsAccepted } from '../features/emoji/emoji_mute_store';
+import { appliedEmojiMuteRevision, currentEmojiMutes, emojiReactionEventsAccepted } from '../features/emoji/emoji_mute_store';
 import { EMOJI_MUTES_APPLY } from '../actions/emoji_mutes';
 
 const protectEmojiReactionProjection = (previous, status) => (
-  guardImportedReactions(previous, status, currentEmojiMutes(), emojiReactionEventsAccepted())
+  guardImportedReactions(previous, status, currentEmojiMutes(), emojiReactionEventsAccepted(), appliedEmojiMuteRevision())
 );
 
 const importStatus = (state, status) => {

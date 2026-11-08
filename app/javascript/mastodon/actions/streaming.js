@@ -81,7 +81,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
         }
 
         if (channelName === 'user') {
-          dispatch(syncEmojiMutes());
+          dispatch(syncEmojiMutes()).catch(() => {});
           dispatch(scheduleFiltersRefresh());
           dispatch(retryFilterReconciliation());
           dispatch(refreshExternalFeedCapability());

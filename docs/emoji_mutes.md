@@ -209,13 +209,21 @@ The signed-in WebUI loads `GET /api/v1/fedibird/emoji_mutes` when the user
 stream connects and keeps the document in memory. `observedRevision` is the
 newest `emoji_mutes_changed` value. `appliedRevision` is the document that
 was stored. Reaction events and anonymous `status.update` payloads wait
-until the applied revision has caught up with the observed one. A failed or
-older fetch does not mark the document current and does not replace the
-reactions already on screen. The event is registered for both WebSocket and
-EventSource (`KNOWN_EVENT_TYPES`). After a successful fetch the client
-reloads the visible timeline statuses, the notification page, and the unread
-count, and drops a group whose projected count is zero. The representative
-image is taken from the remaining parts. Do not use `localStorage`.
+until the applied revision has caught up with the observed one. A REST
+status whose `emoji_mutes_revision` is older than that applied revision is
+not shown as-is, even when the status was not cached yet. Its text is
+imported. Its reactions are projected with the applied rules, or omitted
+when that is not possible, and the stored revision is not moved backwards.
+A failed or older mute fetch does not mark the document current. The event
+is registered for both WebSocket and EventSource (`KNOWN_EVENT_TYPES`).
+After a successful fetch the client reloads every loaded column, the open
+thread, and other loaded statuses that still have reactions, 40 ids at a
+time, then the notification page and the unread count. Notification
+accounts and statuses are imported before the list is replaced. A failed
+notification request does not clear the list. A newer reload is not
+overwritten by an older one that finishes later. A group whose projected
+count is zero is removed. The representative image is taken from the
+remaining parts. Do not use `localStorage`.
 
 A status payload whose `emoji_mutes_revision` is older than the copy already
 stored keeps that copy's reactions. The rest of the payload, including

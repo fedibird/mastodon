@@ -15,7 +15,10 @@ RSpec.describe 'Emoji mute collection consistency' do
   after do
     EmojiMute.where(user_id: user.id).delete_all
     EmojiMuteCollection.where(user_id: user.id).delete_all
-    user.destroy!
+    Setting.unscoped.where(thing_type: 'User', thing_id: user.id).delete_all
+    account_id = user.account_id
+    User.where(id: user.id).delete_all
+    Account.where(id: account_id).delete_all
     ActiveRecord::Base.connection_pool.lock_thread = true
     EmojiMutes::Repository.before_revision_read = nil
   end

@@ -221,7 +221,26 @@ const keepPreviousReactions = (previous, status) => {
 // Anonymous status updates have no viewer revision. Project them with the
 // rules already fetched. Until that fetch has caught up, keep the reactions
 // already on screen and still import the edited text.
-export const guardImportedReactions = (previous, status, rules, reactionsAccepted) => {
+const withRevision = (status, revision) => {
+  if (revision === null || revision === undefined) {
+    return status;
+  }
+
+  const current = status.emoji_mutes_revision;
+
+  // Keep a revision that is already the same or newer. `revisionStale(stamp,
+  // current)` is true only when the copy we would write is older.
+  if (current !== null && current !== undefined && !revisionStale(revision, current)) {
+    return status;
+  }
+
+  return { ...status, emoji_mutes_revision: revision };
+};
+
+// A payload is safe to show when its revision is at least the mute document
+// already applied. An older revision, including one for a status that is not
+// cached yet, must not bring muted reactions back or lower the revision.
+export const guardImportedReactions = (previous, status, rules, reactionsAccepted, appliedRevision) => {
   if (!status || typeof status !== 'object') {
     return status;
   }
@@ -233,25 +252,27 @@ export const guardImportedReactions = (previous, status, rules, reactionsAccepte
     return keepPreviousReactions(previous, status);
   }
 
-  if (incoming !== null && incoming !== undefined) {
+  const globallyStale = incoming !== null && incoming !== undefined && appliedRevision !== null && appliedRevision !== undefined && revisionStale(appliedRevision, incoming);
+
+  if (!globallyStale && incoming !== null && incoming !== undefined) {
     return status;
   }
 
   if (!reactionsAccepted) {
-    return keepPreviousReactions(previous, status);
+    return withRevision(keepPreviousReactions(previous, status), appliedRevision);
   }
 
   const projected = projectStatusReactions(status.emoji_reactions, rules);
+
   if (!projected) {
-    return keepPreviousReactions(previous, status);
+    return withRevision(keepPreviousReactions(previous, status), globallyStale ? appliedRevision : null);
   }
 
-  const keptRevision = current !== null && current !== undefined ? current : status.emoji_mutes_revision;
+  const keptRevision = globallyStale || current === null || current === undefined ? appliedRevision : current;
 
-  return {
+  return withRevision({
     ...status,
     emoji_reactions: projected,
     emoji_reactions_count: projected.reduce((sum, group) => sum + Number(group.count || 0), 0),
-    emoji_mutes_revision: keptRevision,
-  };
+  }, keptRevision);
 };
