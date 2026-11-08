@@ -234,6 +234,28 @@ class ScrollableList extends PureComponent {
   _masonryPrependHeld = false;
   _masonryHoldRelease = false;
   _masonryHoldTimer = null;
+  _masonrySourceIdSeen = null;
+
+  // Home A,B and another feed N,A,B share status ids, so key order alone
+  // looks like a streaming prepend. The hold must not keep painting the
+  // previous feed after the reader switches surfaces.
+  _masonrySourceId = () => [
+    this.props.scrollKey,
+    this.props.anchorSourceKey || '',
+    this.props.bindToDocument ? '1' : '0',
+    this.props.layoutMode || '',
+    this.props.windowedHistory ? '1' : '0',
+    this.props.readingSurface ? '1' : '0',
+  ].join('\0');
+
+  _dropMasonryHold = () => {
+    this._masonryPrependHeld = false;
+    this._masonryHoldRelease = false;
+    this._clearMasonryHoldTimer();
+    if (this._masonry && this._masonry.discardHeldMeasurements) {
+      this._masonry.discardHeldMeasurements();
+    }
+  }
 
   _masonryPrependPlan = (beforeChildren, afterChildren) => {
     const before = React.Children.toArray(beforeChildren).map(child => String(child.key));
@@ -252,18 +274,20 @@ class ScrollableList extends PureComponent {
   // the browser still owns the inertia.
   _visibleMasonryChildren = (next) => {
     const previous = this._shownMasonryChildren;
+    const source = this._masonrySourceId();
 
-    if (!isCardTimelineLayout(this.props.layoutMode) || !this.node || !previous) {
+    if (!isCardTimelineLayout(this.props.layoutMode) || !this.node || !previous || source !== this._masonrySourceIdSeen) {
+      this._masonrySourceIdSeen = source;
       this._shownMasonryChildren = next;
-      this._masonryPrependHeld = false;
+      this._dropMasonryHold();
       return next;
     }
 
     const plan = this._masonryPrependPlan(previous, next);
 
     if (plan.reset) {
-      this._masonryPrependHeld = false;
       this._shownMasonryChildren = next;
+      this._dropMasonryHold();
       return next;
     }
 

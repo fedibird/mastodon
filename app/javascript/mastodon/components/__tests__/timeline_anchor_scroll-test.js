@@ -414,6 +414,60 @@ describe('ScrollableList timeline anchor', () => {
     expect(view.container.querySelector('[data-layout-key*="110"]')).toBeNull();
   });
 
+  it('paints the new feed at once when the surface changes during momentum', () => {
+    const ref = React.createRef();
+    const reduxStore = store();
+    const shared = ['100', '90'];
+    const props = {
+      ref,
+      scrollKey: 'home',
+      anchorSourceKey: 'home-live',
+      layoutMode: 'card-1',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(shared)}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 150;
+    fireEvent.wheel(list, { deltaY: 50 });
+    const setter = jest.spyOn(ref.current, 'setScrollTop');
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props} scrollKey='local' anchorSourceKey='local-live'>{rows(['110', ...shared])}</ScrollableList>
+      </Provider>,
+    );
+
+    expect(view.container.querySelector('[data-layout-key*="110"]')).not.toBeNull();
+    expect(setter).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(150);
+
+    // Changing feed retires the previous swipe. A later native scroll on the
+    // new feed still defers that feed's own prepend. wheel is throttled, so
+    // this uses the raw scroll listener.
+    fireEvent.scroll(list);
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props} scrollKey='local' anchorSourceKey='local-live'>{rows(['120', '110', ...shared])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="120"]')).toBeNull();
+    expect(view.container.querySelector('[data-layout-key*="110"]')).not.toBeNull();
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props} scrollKey='local' anchorSourceKey='local-history'>{rows(['130', '120', '110', ...shared])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="130"]')).not.toBeNull();
+    expect(setter).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(150);
+  });
+
   it('keeps the visible card still when a prepend or a late height arrives during momentum', () => {
     let now = 20000;
     jest.spyOn(Date, 'now').mockImplementation(() => now);
@@ -432,9 +486,15 @@ describe('ScrollableList timeline anchor', () => {
       if (this.classList && this.classList.contains('timeline-masonry')) {
         return { ...rect(0, 0), width: 590, right: 590 };
       }
+      if (this.classList && this.classList.contains('timeline-masonry__content')) {
+        const tile = this.closest('.timeline-masonry__item');
+        return rect(0, tile ? tileHeight(tile) : 180);
+      }
       if (this.classList && this.classList.contains('timeline-masonry__item')) {
         const scroller = this.closest('.scrollable');
-        return rect(tileY(this) - (scroller?.scrollTop || 0), tileHeight(this));
+        const locked = this.style.height ? parseFloat(this.style.height) : NaN;
+        const height = Number.isFinite(locked) ? locked : tileHeight(this);
+        return rect(tileY(this) - (scroller?.scrollTop || 0), height);
       }
       return rect(0, 0);
     });
@@ -475,6 +535,8 @@ describe('ScrollableList timeline anchor', () => {
     });
     expect(setter).not.toHaveBeenCalled();
     expect(tileY(anchor)).toBe(anchorY);
+    expect(above.style.height).not.toBe('');
+    expect(anchor.getBoundingClientRect().top - above.getBoundingClientRect().bottom).toBe(8);
     expect(ref.current.captureVisibleMasonryItem().top).toBe(beforeTop);
     expect(list.scrollTop).toBe(scrollBefore);
 
@@ -519,12 +581,24 @@ describe('ScrollableList timeline anchor', () => {
       if (this.classList.contains('timeline-masonry')) {
         return { ...rect(0, 0), width: 590, right: 590 };
       }
+      let tile = null;
       if (this.classList.contains('timeline-masonry__item')) {
-        const match = this.style.transform.match(/translate3d\(0, ([\d.]+)px, 0\)/);
+        tile = this;
+      } else if (this.classList.contains('timeline-masonry__content')) {
+        tile = this.parentElement;
+      }
+      if (tile) {
+        const match = tile.style.transform.match(/translate3d\(0, ([\d.]+)px, 0\)/);
         const y = match ? Number(match[1]) : 0;
-        const scroller = this.closest('.scrollable');
-        const id = this.querySelector('article[data-id]')?.getAttribute('data-id');
-        return rect(y - (scroller?.scrollTop || 0), heights[id] || 100);
+        const scroller = tile.closest('.scrollable');
+        const id = tile.querySelector('article[data-id]')?.getAttribute('data-id');
+        const plainId = id && id.replace(/^\.\$/, '');
+        const natural = heights[id] || heights[plainId] || 100;
+        if (this === tile) {
+          const locked = tile.style.height ? parseFloat(tile.style.height) : NaN;
+          return rect(y - (scroller?.scrollTop || 0), Number.isFinite(locked) ? locked : natural);
+        }
+        return rect(0, natural);
       }
       return rect(0, 0);
     });
