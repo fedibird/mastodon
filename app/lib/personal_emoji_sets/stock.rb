@@ -55,7 +55,7 @@ class PersonalEmojiSets::Stock
   def unicode_item(item)
     native = item.fetch('native')
     emoji = PersonalEmojiSets::UnicodeCatalog.find(native)
-    return unavailable(native) unless emoji
+    return unavailable(native, { kind: 'unicode', native: native }) unless emoji
 
     {
       available: true,
@@ -63,12 +63,14 @@ class PersonalEmojiSets::Stock
       image: { src: full_asset_url("/emoji/#{emoji.fetch(:filename)}.svg"), alt: native, title: emoji.fetch(:label), width: 36, height: 36 },
       search: emoji.fetch(:search),
       selection: { id: emoji.fetch(:id), custom: false, native: native },
+      reference: { kind: 'unicode', native: native },
     }
   end
 
   def custom_item(item)
     emoji = @custom_emojis[item.fetch('custom_emoji_id')]
-    return unavailable(":#{item.fetch('shortcode')}:") unless emoji && !emoji.disabled? && emoji.image_file_name.present?
+    reference = custom_reference(item, emoji)
+    return unavailable(":#{item.fetch('shortcode')}:", reference) unless emoji && !emoji.disabled? && emoji.image_file_name.present?
 
     label = emoji.alternate_name.presence || emoji.shortcode
     colons = ":#{emoji.shortcode}:"
@@ -85,10 +87,22 @@ class PersonalEmojiSets::Stock
       },
       search: [emoji.shortcode, emoji.alternate_name, emoji.reading, emoji.ruby, *emoji.aliases].compact_blank.uniq,
       selection: { id: emoji.shortcode, custom: true, native: colons, colons: colons },
+      reference: reference,
     }
   end
 
-  def unavailable(label)
-    { available: false, label: label, reason: 'unavailable' }
+  def custom_reference(item, emoji)
+    {
+      kind: 'custom',
+      scope: 'local',
+      custom_emoji_id: item.fetch('custom_emoji_id'),
+      shortcode: emoji&.shortcode || item.fetch('shortcode'),
+    }
+  end
+
+  def unavailable(label, reference = nil)
+    payload = { available: false, label: label, reason: 'unavailable' }
+    payload[:reference] = reference if reference
+    payload
   end
 end

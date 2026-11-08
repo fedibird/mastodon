@@ -4,19 +4,25 @@ require 'rails_helper'
 
 RSpec.describe Fedibird::CapabilityCatalog do
   describe '.legacy' do
-    it 'preserves the existing static values and order' do
+    it 'preserves the existing static values and order before the implemented emoji tokens' do
       allow(Chewy).to receive(:enabled?).and_return(true)
 
-      expect(described_class.legacy).to eq(described_class::LEGACY_CAPABILITIES)
+      expect(described_class.legacy).to eq(described_class::LEGACY_CAPABILITIES + described_class::IMPLEMENTED_EMOJI_CAPABILITIES)
       expect(described_class.legacy).to include(:filter_v2, :status_reference, :emoji_reaction)
     end
 
-    it 'preserves the conditional profile_search extension' do
+    it 'appends implemented emoji tokens after the conditional profile_search extension' do
       allow(Chewy).to receive(:enabled?).and_return(false)
-      expect(described_class.legacy.last).to eq(:profile_search)
+      legacy = described_class.legacy
+      profile_index = legacy.index(:profile_search)
+
+      expect(legacy[profile_index - 1]).to eq(described_class::LEGACY_CAPABILITIES.last)
+      expect(legacy[(profile_index + 1)..]).to eq(described_class::IMPLEMENTED_EMOJI_CAPABILITIES)
+      expect(legacy).not_to include(:emoji_mutes, :emoji_registration_requests)
 
       allow(Chewy).to receive(:enabled?).and_return(true)
       expect(described_class.legacy).not_to include(:profile_search)
+      expect(described_class.legacy.last(2)).to eq(described_class::IMPLEMENTED_EMOJI_CAPABILITIES)
     end
 
     it 'returns a fresh copy of the legacy array' do
@@ -50,7 +56,7 @@ RSpec.describe Fedibird::CapabilityCatalog do
 
       expect(info.keys).to contain_exactly(:schema_version, :activitypub)
       expect(info.dig(:activitypub, :supported)).to include('note_references', 'group_actor')
-      expect(info.dig(:activitypub, :supported)).not_to include('fep_1b12_audience', 'fep_400e_append')
+      expect(info.dig(:activitypub, :supported)).not_to include('fep_1b12_audience', 'fep_400e_append', 'emoji_details', 'personal_emoji_sets')
     end
   end
 end

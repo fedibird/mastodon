@@ -113,11 +113,27 @@ RSpec.describe PersonalEmojiSets::Definition do
       expect(validate(copy, previous: previous).last.fetch('items').first.fetch('custom_emoji_id')).to eq old_id
     end
 
-    it 'refuses newly supplied unavailable references and retains previously registered hidden ones' do
+    it 'accepts an explicit id for an enabled unlisted emoji and keeps shortcode-only adds listed' do
+      emoji.update!(visible_in_picker: false)
+      explicit = { 'id' => 'wide', 'kind' => 'custom', 'custom_emoji_id' => emoji.id.to_s }
+      item = validate([category([explicit])]).first.fetch('items').first
+
+      expect(item.fetch('custom_emoji_id')).to eq emoji.id.to_s
+      expect(item.fetch('shortcode')).to eq 'wide_emoji'
+      expect(invalid_code([category([{ 'id' => 'wide', 'kind' => 'custom', 'shortcode' => emoji.shortcode }])])).to eq 'unavailable_emoji'
+    end
+
+    it 'keeps a hidden emoji on a later save and still refuses a new disabled or remote id' do
       previous = validate([category([{ 'id' => 'wide', 'kind' => 'custom', 'shortcode' => emoji.shortcode }])])
       emoji.update!(visible_in_picker: false)
-      expect(invalid_code(previous)).to eq 'unavailable_emoji'
-      expect(validate(previous, previous: previous)).to eq previous
+      expect(validate(previous)).to eq previous
+
+      emoji.update!(disabled: true, visible_in_picker: true)
+      expect(invalid_code([category([{ 'id' => 'fresh', 'kind' => 'custom', 'custom_emoji_id' => emoji.id.to_s }])])).to eq 'unavailable_emoji'
+      expect(validate(previous, previous: previous).first.fetch('items').first.fetch('custom_emoji_id')).to eq emoji.id.to_s
+
+      remote = Fabricate(:custom_emoji, shortcode: 'remote_emoji', domain: 'remote.example')
+      expect(invalid_code([category([{ 'id' => 'remote', 'kind' => 'custom', 'custom_emoji_id' => remote.id.to_s }])])).to eq 'unavailable_emoji'
     end
 
     it 'deduplicates custom references by database identity within a category' do

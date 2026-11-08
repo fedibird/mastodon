@@ -115,7 +115,7 @@ class PersonalEmojiSets::Definition
     explicit_id = item['custom_emoji_id']
     record = explicit_id ? @custom_by_id[explicit_id] : @custom_by_shortcode[item['shortcode']]
     previous = explicit_id && @previous_custom[explicit_id]
-    invalid!(path, 'unavailable_emoji') unless previous || (record && !record.disabled? && record.visible_in_picker?)
+    invalid!(path, 'unavailable_emoji') unless kept_custom?(record, previous, explicit_id)
 
     {
       'id' => item['id'],
@@ -123,6 +123,16 @@ class PersonalEmojiSets::Definition
       'custom_emoji_id' => record ? record.id.to_s : explicit_id,
       'shortcode' => record ? record.shortcode : previous.fetch('shortcode'),
     }
+  end
+
+  # An explicit database id may name an enabled local emoji that is hidden
+  # from the standard picker. A shortcode, and any remote or disabled row,
+  # still cannot be newly added. Previously saved rows stay pinned by id.
+  def kept_custom?(record, previous, explicit_id)
+    return true if previous
+    return false unless record&.local? && !record.disabled?
+
+    explicit_id.present? || record.visible_in_picker?
   end
 
   def resolve_unicode(item, path)

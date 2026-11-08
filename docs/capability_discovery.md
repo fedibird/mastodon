@@ -19,8 +19,16 @@ features, or a promise that an action is currently allowed on a target.
 Mastodon compatibility remains **4.2.13**; do not add
 `api_versions.mastodon` until the promised upstream API version is
 actually implemented. [PR #255](https://github.com/fedibird/mastodon/pull/255)
-intentionally omitted that field. The older `feature_quote` and
-`fedibird_capabilities` fields are unchanged.
+intentionally omitted that field. The older `feature_quote` field is
+unchanged.
+
+`fedibird_capabilities` keeps every historical value and its relative order,
+including conditional `profile_search` when Chewy is disabled. [#761](https://github.com/fedibird/mastodon/issues/761)
+explicitly requires implemented tokens to be appended after that array.
+This release appends `emoji_details` and `personal_emoji_sets` only.
+`emoji_mutes` and `emoji_registration_requests` are not advertised.
+NodeInfo, ActivityPub hints, and the Mastodon compatibility version are
+unchanged.
 
 ## Example: v2 instance fragment
 
@@ -169,6 +177,13 @@ instance serializer:
   `/api/v1/fedibird/user_posting_contexts` collection is deliberately
   not advertised as available to all authenticated users.
 
+`emoji_details` and `personal_emoji_sets` are also `rest.supported` values.
+Their `contextual` entries name the read-only resolve route and the
+personal-set routes, with `read` / `read:accounts` and `write` /
+`write:accounts`. They do not include a viewer's categories, a per-emoji
+permission, mute targets, or registration requests. See
+[emoji_actions.md](emoji_actions.md).
+
 `timeline_filters` lists REST sources implementing the `only_media`,
 `without_media`, and `compact` query parameters. Source name
 `hashtag` maps to `/api/v1/timelines/tag/:id`, while `account`
@@ -258,7 +273,7 @@ discovery is separately tracked in [#728](https://github.com/fedibird/mastodon/i
 
 ## Extension lifecycle and safety
 
-- Do not mutate the legacy array or alter Mastodon version negotiation.
+- Append a legacy capability only when an issue explicitly requires it, after the historical values and conditional `profile_search`. Do not alter Mastodon version negotiation. The [#762](https://github.com/fedibird/mastodon/issues/762) append is `emoji_details` then `personal_emoji_sets`.
 - Do not advertise UI-only card/Masonry/split layouts as REST features.
 - Do not treat off-by-default write migrations (e.g. emoji fallback
   rollout), user-private RSS/Bluesky projections, or unknown remote

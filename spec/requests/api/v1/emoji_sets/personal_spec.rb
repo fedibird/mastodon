@@ -47,6 +47,7 @@ RSpec.describe 'Personal emoji sets API', type: :request do
     put path, params: payload.to_json, headers: headers
     expect(response).to have_http_status(:ok)
     expect(parsed).to include('revision' => 1, 'picker_emoji_size' => 32)
+    expect(parsed).not_to have_key('operation')
     expect(parsed.dig('resolved_items', 'thumb', 'available')).to be true
     expect(parsed.dig('stock', 'categories', 0, 'heading')).to eq('text' => '横')
     expect(parsed.dig('stock', 'categories', 0, 'items', 0, 'selection', 'native')).to eq '👍🏽'
@@ -82,6 +83,23 @@ RSpec.describe 'Personal emoji sets API', type: :request do
     expect(parsed.fetch('errors').first.fetch('code')).to eq 'unavailable_emoji'
     expect(PersonalEmojiSet.where(user: user)).to be_empty
     expect(replacement.id.to_s).not_to eq resolved.fetch('custom_emoji_id')
+  end
+
+  it 'resolves an enabled unlisted emoji by explicit id and still rejects its shortcode' do
+    emoji = Fabricate(:custom_emoji, shortcode: 'quiet_emoji', visible_in_picker: false)
+    post "#{path}/resolve", params: { kind: 'custom', custom_emoji_id: emoji.id.to_s }.to_json, headers: headers
+    expect(response).to have_http_status(:ok)
+    item = parsed.fetch('item')
+    expect(item.fetch('custom_emoji_id')).to eq emoji.id.to_s
+    expect(parsed.dig('resolved', 'selection')).to include('id' => 'quiet_emoji', 'custom' => true, 'colons' => ':quiet_emoji:')
+    expect(CustomEmoji.listed.where(id: emoji.id)).to be_empty
+
+    post "#{path}/resolve", params: { kind: 'custom', shortcode: emoji.shortcode }.to_json, headers: headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    category[:items] = [item.merge('id' => 'quiet')]
+    put path, params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(parsed.dig('categories', 0, 'items', 0, 'custom_emoji_id')).to eq emoji.id.to_s
   end
 
   it 'keeps unavailable saved definitions and representatives on subsequent saves' do

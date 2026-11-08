@@ -23,7 +23,10 @@ RSpec.describe Api::V1::InstancesController, type: :controller do
     it 'includes the filter_v2 capability' do
       get :show
 
-      expect(JSON.parse(response.body)['fedibird_capabilities']).to include('filter_v2')
+      capabilities = JSON.parse(response.body)['fedibird_capabilities']
+      expect(capabilities).to include('filter_v2')
+      expect(capabilities.last(2)).to eq %w(emoji_details personal_emoji_sets)
+      expect(capabilities).not_to include('emoji_mutes', 'emoji_registration_requests')
     end
 
     it 'does not add the v2-only catalog to the legacy endpoint' do

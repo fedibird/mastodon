@@ -55,6 +55,7 @@ parameter. Read routes accept `read` or `read:accounts`; the update route accept
 | `PUT /api/v1/emoji_sets/personal` | Atomic replacement of the definition and display size, with conflict guards |
 | `GET /api/v1/emoji_sets/personal/stock` | Only resolved stock, definition revision, and shared display size |
 | `POST /api/v1/emoji_sets/personal/resolve` | Resolve a candidate before adding it to an editor draft; does not persist anything |
+| `POST /api/v1/emoji_sets/personal/categories/:category_id/items` | Append one emoji to an existing category under the same user lock and revision |
 
 ### Definition
 
@@ -106,12 +107,19 @@ The editor supplies a placement ID after resolution. Unicode candidates can use
 the same endpoint with `kind: "unicode"` and `native`. The response is the same
 shape, with the canonical Unicode definition and resolved metadata.
 
-New custom references must currently be local, enabled and listed. A previously
-registered emoji stays usable if it is only hidden from the standard picker.
-Disabled/deleted references remain in the definition but are not selectable. A
-newly resolved emoji that disappears before the first save produces a validation
-error, keeping the user's draft for correction. A different emoji later registered
-under the same shortcode never replaces a stored database identity.
+A new shortcode reference must be local, enabled, and listed. An explicit
+`custom_emoji_id` may also name an enabled local emoji with
+`visible_in_picker: false`. The standard picker list and the shared custom
+catalog are unchanged. Disabled, deleted, and remote rows still cannot be
+added. A previously registered emoji stays in the definition when it is later
+hidden or disabled, but it is not selectable. A different emoji later
+registered under the same shortcode never replaces a stored database identity.
+
+`POST /api/v1/emoji_sets/personal/resolve` accepts `custom_emoji_id` in
+addition to `kind`, `shortcode`, and `native`. A shortcode on that route
+remains listed-only. The separate read-only reference API and the one-item
+append are specified in [emoji_actions.md](emoji_actions.md). An item added
+by explicit id can be saved again through the existing full `PUT`.
 
 ### Editor reads and saves
 

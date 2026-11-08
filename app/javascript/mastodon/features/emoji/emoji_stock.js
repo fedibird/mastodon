@@ -55,7 +55,22 @@ const graphemes = new Graphemer();
  * @property {string} label
  * @property {EmojiStockImage} image
  * @property {string[]} search Display name, shortcode, reading, and aliases.
- * @property {EmojiStockSelection} selection
+ * @property {EmojiStockSelection} selection Values for the insert callback.
+ * @property {EmojiStockReference} [reference] Stable management identity. Not an insert payload.
+ */
+
+/**
+ * Identity for a later management action. Separate from `selection`:
+ * Unicode keeps the finished native string, and a custom emoji keeps its
+ * database id. `selection.id` remains the canonical or shortcode value
+ * the composer already expects.
+ *
+ * @typedef {Object} EmojiStockReference
+ * @property {'unicode'|'custom'} kind
+ * @property {string} [native]
+ * @property {'local'} [scope]
+ * @property {string} [custom_emoji_id]
+ * @property {string} [shortcode]
  */
 
 /**
