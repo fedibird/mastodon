@@ -15,5 +15,5 @@
       = fa_icon 'home'
       = t 'lists.home'
   %td.nowrap
-    = table_link_to 'pencil', t('account_subscribes.edit.title'), edit_settings_account_subscribe_path(account_subscribe)
-    = table_link_to 'trash', t('filters.index.delete'), settings_account_subscribe_path(account_subscribe), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }
+    = table_link_to 'pencil', t('account_subscribes.edit.title'), edit_settings_account_subscribe_path(account_subscribe, page: params[:page])
+    = table_link_to 'trash', t('filters.index.delete'), settings_account_subscribe_path(account_subscribe, page: params[:page]), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 class Settings::AccountSubscribesController < Settings::BaseController
+  PER_PAGE = 40
+
   layout 'admin'
 
   before_action :authenticate_user!
@@ -7,8 +9,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
   before_action :set_account_subscribings, only: :index
   before_action :set_account_subscribing, only: [:edit, :update, :destroy]
 
-  def index
-  end
+  def index; end
 
   def new
     @form_account_subscribing = Form::AccountSubscribe.new
@@ -31,7 +32,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
 
   def update
     if @account_subscribing.update(account_subscribe_params.merge(account: current_account))
-      redirect_to settings_account_subscribes_path
+      redirect_to settings_account_subscribes_path(page: params[:page])
     else
       render action: :edit
     end
@@ -39,7 +40,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
 
   def destroy
     UnsubscribeAccountService.new.call(current_account, @account_subscribing.target_account, list_id: @account_subscribing.list_id)
-    redirect_to settings_account_subscribes_path
+    redirect_to settings_account_subscribes_path(page: page_after_destroy)
   end
 
   private
@@ -50,7 +51,16 @@ class Settings::AccountSubscribesController < Settings::BaseController
   end
 
   def set_account_subscribings
-    @account_subscribings = current_account.active_subscribes.eager_load(:target_account).order('list_id NULLS FIRST', :updated_at).page(params[:page]).per(40)
+    @account_subscribings = current_account.active_subscribes.eager_load(:target_account).order('list_id NULLS FIRST', :updated_at).page(params[:page]).per(PER_PAGE)
+  end
+
+  def page_after_destroy
+    requested_page = params[:page].to_i
+    return if requested_page <= 1
+
+    last_page = [(current_account.active_subscribes.count - 1) / PER_PAGE + 1, 1].max
+    page = [requested_page, last_page].min
+    page if page > 1
   end
 
   def set_lists
@@ -62,7 +72,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
 
     if resource_params[:list_id] == '-1'
       list = List.find_or_create_by!({ account: current_account, title: new_params[:acct] })
-      new_params.merge!({list_id: list.id})
+      new_params.merge!({ list_id: list.id })
     end
 
     new_params
