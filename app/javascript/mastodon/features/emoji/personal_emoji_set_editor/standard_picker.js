@@ -35,7 +35,7 @@ function loadCatalog() {
           custom: true,
           customCategory: emoji.category,
         })),
-        include: [...new Set(['custom', ...visible.map(emoji => emoji.category ? `custom-${emoji.category}` : 'custom')]), ...baseCategories],
+        include: Array.from(new Set(['custom', ...visible.map(emoji => emoji.category ? `custom-${emoji.category}` : 'custom')])).concat(baseCategories),
       };
     }).catch(error => {
       catalogPromise = null;
