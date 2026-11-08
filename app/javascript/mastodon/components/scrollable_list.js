@@ -1,4 +1,5 @@
 import React, { PureComponent } from 'react';
+import { unstable_batchedUpdates } from 'react-dom';
 import ScrollContainer from 'mastodon/containers/scroll_container';
 import PropTypes from 'prop-types';
 import IntersectionObserverArticleContainer from '../containers/intersection_observer_article_container';
@@ -34,6 +35,12 @@ import {
 } from '../timeline_navigation';
 
 const MOUSE_IDLE_DELAY = 300;
+const MASONRY_SCROLL_IDLE_DELAY = 500;
+const MASONRY_WHEEL_BURST_MS = 50;
+// A discrete wheel, key, or scrollbar keeps its own offset for one
+// throttle window. Layout still commits; scrollTop does not.
+const MASONRY_DIRECT_ANCHOR_GUARD = 150;
+const MASONRY_ANCHOR_EPSILON = 0.5;
 
 const mapStateToProps = (state, { scrollKey }) => {
   return {
@@ -209,6 +216,321 @@ class ScrollableList extends PureComponent {
   _syntheticScrollDepth = 0;
   _anchorScrollSuppressedLoad = false;
   _syntheticScrollTop = null;
+  _lastNativeScrollAt = -Infinity;
+  _lastWheelAt = -Infinity;
+  _masonryScrollPhase = 'idle';
+  _masonryWheelTentative = false;
+  _userScrollSerial = 0;
+
+  // Scroll and scrollend still belong to setScrollTop while this is set.
+  // Wheel and touch are a new gesture and must not wait for handleScroll.
+  _ignoreProgrammaticScroll = () => this._suppressUserScroll || this._syntheticScrollDepth > 0 || this.lastScrollWasSynthetic;
+
+  _ignoreUserGesture = () => this._suppressUserScroll || this._syntheticScrollDepth > 0;
+
+  _bumpUserScroll = () => {
+    this._lastNativeScrollAt = Date.now();
+    this._userScrollSerial += 1;
+  }
+
+  // Kinetic and unknown coasts keep the previous cards and measured slots,
+  // and they do not write scrollTop. A direct wheel, key, or scrollbar
+  // commits the measured height on the next render, but a short guard
+  // still refuses to write scrollTop over that gesture. A correction
+  // scheduled before the gesture aborts because every real scroll bumps
+  // _userScrollSerial. Unknown is a fast wheel burst on a browser that
+  // does not report WheelEvent.momentum, not a single notch.
+  _shouldDeferMasonryLayout = () => isCardTimelineLayout(this.props.layoutMode) &&
+    (this._masonryScrollPhase === 'kinetic' || this._masonryScrollPhase === 'unknown') &&
+    Date.now() - this._lastNativeScrollAt < MASONRY_SCROLL_IDLE_DELAY;
+
+  _directAnchorGuardActive = () => isCardTimelineLayout(this.props.layoutMode) &&
+    this._masonryScrollPhase === 'direct' &&
+    Date.now() - this._lastNativeScrollAt < MASONRY_DIRECT_ANCHOR_GUARD;
+
+  _shouldSuppressAnchorWrites = () => this._shouldDeferMasonryLayout() || this._directAnchorGuardActive();
+
+  _beginKineticMasonryScroll = (phase) => {
+    if (!isCardTimelineLayout(this.props.layoutMode)) {
+      this._bumpUserScroll();
+      return;
+    }
+
+    this._masonryWheelTentative = false;
+    this._masonryScrollPhase = phase;
+    this._bumpUserScroll();
+    this._armMasonryHoldFlush();
+  }
+
+  _beginDirectMasonryScroll = () => {
+    if (!isCardTimelineLayout(this.props.layoutMode)) {
+      this._bumpUserScroll();
+      return;
+    }
+
+    this._masonryWheelTentative = false;
+    this._masonryScrollPhase = 'direct';
+    this._bumpUserScroll();
+    if (this._masonryPrependHeld || (this._masonry && this._masonry.hasHeldMeasurements && this._masonry.hasHeldMeasurements())) {
+      this._flushMasonryHold();
+    }
+  }
+
+  // Safari and Firefox do not report momentum. One notch may be a mouse
+  // wheel or the first tick of a trackpad coast, so keep the old layout for
+  // one burst interval instead of writing scrollTop immediately.
+  _beginTentativeWheel = () => {
+    if (!isCardTimelineLayout(this.props.layoutMode)) {
+      this._bumpUserScroll();
+      return;
+    }
+
+    this._masonryWheelTentative = true;
+    this._masonryScrollPhase = 'unknown';
+    this._bumpUserScroll();
+    this._armMasonryHoldFlush(MASONRY_WHEEL_BURST_MS);
+  }
+
+  _noteWheel = (event) => {
+    if (this._ignoreUserGesture()) {
+      return;
+    }
+
+    const now = Date.now();
+    const burst = this._lastWheelAt !== -Infinity && now - this._lastWheelAt <= MASONRY_WHEEL_BURST_MS;
+    this._lastWheelAt = now;
+    const momentum = event ? event.momentum : undefined;
+
+    if (momentum === true) {
+      this._beginKineticMasonryScroll('kinetic');
+      return;
+    }
+
+    if (burst) {
+      // momentum:false can still be the finger-down phase before the coast.
+      // A burst with no momentum property is a trackpad on Safari or Firefox.
+      this._beginKineticMasonryScroll(momentum === false ? 'kinetic' : 'unknown');
+      return;
+    }
+
+    if (momentum === false) {
+      this._beginDirectMasonryScroll();
+      return;
+    }
+
+    this._beginTentativeWheel();
+  }
+
+  _noteTouchScroll = () => {
+    if (this._ignoreUserGesture()) {
+      return;
+    }
+
+    this._beginKineticMasonryScroll('kinetic');
+  }
+
+  _noteTouchEnd = () => {
+    if (this._ignoreUserGesture() || this._masonryScrollPhase !== 'kinetic') {
+      return;
+    }
+
+    // The finger is up. The coast continues until scrollend or the watchdog.
+    this._bumpUserScroll();
+    this._armMasonryHoldFlush();
+  }
+
+  _noteMasonryScrollEnd = () => {
+    if (this._ignoreProgrammaticScroll()) {
+      return;
+    }
+
+    this._masonryWheelTentative = false;
+    this._masonryScrollPhase = 'idle';
+    this._lastNativeScrollAt = -Infinity;
+    this._flushMasonryHold();
+  }
+
+  // handleScroll is throttled to 150ms, but momentum ticks keep arriving
+  // inside that window. Record the raw event so a swallowed tick still
+  // holds a kinetic coast for the full quiet period.
+  _noteNativeMasonryScroll = () => {
+    if (this._ignoreProgrammaticScroll()) {
+      return;
+    }
+
+    this._bumpUserScroll();
+    if (!isCardTimelineLayout(this.props.layoutMode)) {
+      return;
+    }
+
+    // A scroll that follows one unclassified wheel is the mouse notch, not
+    // a coast. Only a confirmed kinetic or unknown burst extends the hold.
+    if (this._masonryScrollPhase === 'kinetic' || (this._masonryScrollPhase === 'unknown' && !this._masonryWheelTentative)) {
+      this._armMasonryHoldFlush();
+      return;
+    }
+
+    if (this._masonryScrollPhase === 'unknown' && this._masonryWheelTentative) {
+      return;
+    }
+
+    // Scrollbar and other unclassified scrolls own the offset briefly.
+    // They still commit masonry layout on the next render.
+    this._masonryScrollPhase = 'direct';
+  }
+
+  _shownMasonryChildren = null;
+  _masonryPrependHeld = false;
+  _masonryHoldRelease = false;
+  _masonryHoldTimer = null;
+  _masonrySourceIdSeen = null;
+
+  // Home A,B and another feed N,A,B share status ids, so key order alone
+  // looks like a streaming prepend. The hold must not keep painting the
+  // previous feed after the reader switches surfaces.
+  _masonrySourceId = () => [
+    this.props.scrollKey,
+    this.props.anchorSourceKey || '',
+    this.props.bindToDocument ? '1' : '0',
+    this.props.layoutMode || '',
+    this.props.windowedHistory ? '1' : '0',
+    this.props.readingSurface ? '1' : '0',
+  ].join('\0');
+
+  _dropMasonryHold = () => {
+    this._masonryPrependHeld = false;
+    this._masonryHoldRelease = false;
+    this._clearMasonryHoldTimer();
+    if (this._masonry && this._masonry.discardHeldMeasurements) {
+      this._masonry.discardHeldMeasurements();
+    }
+  }
+
+  _masonryPrependPlan = (beforeChildren, afterChildren) => {
+    const before = React.Children.toArray(beforeChildren).map(child => String(child.key));
+    const after = React.Children.toArray(afterChildren).map(child => String(child.key));
+    return reconcileMasonryPrepends(before, after, leadingMasonryPrefixKeys(before));
+  }
+
+  // toArray escapes keys ('.$N') while forEach reports the key the parent
+  // passed ('N'). Both skip null and boolean children. If a future caller
+  // makes those walks diverge, show every real child instead of hiding the
+  // wrong card. The returned elements stay the original props so the next
+  // prepend plan does not escape the stored children again.
+  _childrenExcluding = (children, keys) => {
+    const skip = new Set(keys);
+    const ordered = React.Children.toArray(children);
+    const originals = [];
+    React.Children.forEach(children, child => {
+      originals.push(child);
+    });
+    if (originals.length !== ordered.length) {
+      return originals;
+    }
+    return originals.filter((child, index) => !skip.has(String(ordered[index].key)));
+  }
+
+  _masonryReadingPosition = () => (
+    this.getScrollTop() > 0 || this.mouseMovedRecently || this.props.preventScroll ||
+    this.props.windowedHistory || this.props.readingSurface
+  );
+
+  // A pure prepend during momentum shifts every existing tile down by the
+  // shared frontier. Hide only those new keys until the swipe is quiet, then
+  // let the normal anchor restore run. A removal or filter exclusion in the
+  // same update is already absent from `next`, so it leaves the screen now.
+  // scrollTop stays untouched while the browser still owns the inertia.
+  _visibleMasonryChildren = (next) => {
+    const previous = this._shownMasonryChildren;
+    const source = this._masonrySourceId();
+
+    if (!isCardTimelineLayout(this.props.layoutMode) || !this.node || !previous || source !== this._masonrySourceIdSeen) {
+      if (source !== this._masonrySourceIdSeen) {
+        // Drop the coast before the new masonry mounts, so its first
+        // measurement is committed instead of held against the old swipe.
+        this._masonryScrollPhase = 'idle';
+        this._masonryWheelTentative = false;
+        this._lastNativeScrollAt = -Infinity;
+      }
+      this._masonrySourceIdSeen = source;
+      this._shownMasonryChildren = next;
+      this._dropMasonryHold();
+      return next;
+    }
+
+    const plan = this._masonryPrependPlan(previous, next);
+
+    if (plan.reset) {
+      this._shownMasonryChildren = next;
+      this._dropMasonryHold();
+      return next;
+    }
+
+    if (this._shouldDeferMasonryLayout() && this._masonryReadingPosition() && plan.prependedKeys.length > 0) {
+      this._masonryPrependHeld = true;
+      return this._childrenExcluding(next, plan.prependedKeys);
+    }
+
+    const release = this._masonryPrependHeld;
+    this._masonryPrependHeld = false;
+    this._shownMasonryChildren = next;
+    if (release) {
+      this._masonryHoldRelease = true;
+    }
+    return next;
+  }
+
+  _clearMasonryHoldTimer = () => {
+    if (this._masonryHoldTimer) {
+      clearTimeout(this._masonryHoldTimer);
+      this._masonryHoldTimer = null;
+    }
+  }
+
+  _armMasonryHoldFlush = (delay) => {
+    this._clearMasonryHoldTimer();
+    const remaining = MASONRY_SCROLL_IDLE_DELAY - (Date.now() - this._lastNativeScrollAt);
+    const wait = delay === undefined ? Math.max(16, remaining + 16) : delay;
+    this._masonryHoldTimer = setTimeout(this._flushMasonryHold, wait);
+  }
+
+  _flushMasonryHold = () => {
+    this._clearMasonryHoldTimer();
+    if (this._anchorUnmounted) {
+      return;
+    }
+    if (this._masonryWheelTentative) {
+      this._masonryWheelTentative = false;
+      if (this._masonryScrollPhase === 'unknown') {
+        this._masonryScrollPhase = 'idle';
+      }
+    } else if (this._shouldDeferMasonryLayout()) {
+      this._armMasonryHoldFlush();
+      return;
+    }
+    if (this._masonryScrollPhase === 'kinetic' || this._masonryScrollPhase === 'unknown') {
+      this._masonryScrollPhase = 'idle';
+    }
+    const masonry = this._masonry;
+    const releasePrepend = this._masonryPrependHeld;
+    unstable_batchedUpdates(() => {
+      this._masonryCombinedFlush = Boolean(releasePrepend && masonry && masonry.hasHeldMeasurements && masonry.hasHeldMeasurements());
+      if (masonry && masonry.flushHeldMeasurements) {
+        masonry.flushHeldMeasurements();
+      }
+      if (releasePrepend) {
+        this.forceUpdate();
+      }
+    });
+    // The flag stays set through getSnapshotBeforeUpdate. act() and other
+    // outer batches can flush that commit after this function returns.
+  }
+
+  _setMasonry = (node) => {
+    this._masonry = node;
+  }
+
+  _holdMasonryMeasurements = () => this._shouldDeferMasonryLayout();
 
   _isAnchorJumpScroll = (scrollTop) => {
     if (this._syntheticScrollDepth > 0) {
@@ -271,6 +593,7 @@ class ScrollableList extends PureComponent {
   }
 
   _markUserScrollIntent = () => {
+    this._lastNativeScrollAt = Date.now();
     this._disarmMouseIdle();
     this._programmaticTopScrollSeen = false;
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
@@ -320,6 +643,9 @@ class ScrollableList extends PureComponent {
   };
 
   _retireMouseIdle = () => {
+    this._lastNativeScrollAt = -Infinity;
+    this._masonryScrollPhase = 'idle';
+    this._masonryWheelTentative = false;
     this._mouseIdleSession += 1;
     this._disarmMouseIdle();
     this.mouseMovedRecently = false;
@@ -391,6 +717,7 @@ class ScrollableList extends PureComponent {
   });
 
   handleTouchMove = () => {
+    this._noteTouchScroll();
     this._markUserScrollIntent();
   }
 
@@ -400,11 +727,15 @@ class ScrollableList extends PureComponent {
     }
 
     if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+      if (event.type === 'pointermove') {
+        this._noteTouchScroll();
+      }
       this._markUserScrollIntent();
       return;
     }
 
     if (event.type === 'pointermove' && event.buttons > 0) {
+      this._beginDirectMasonryScroll();
       this._markUserScrollIntent();
     }
   }
@@ -423,6 +754,7 @@ class ScrollableList extends PureComponent {
     const keys = ['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '];
 
     if (keys.indexOf(event.key) !== -1) {
+      this._beginDirectMasonryScroll();
       this._markUserScrollIntent();
     }
   }
@@ -533,6 +865,23 @@ class ScrollableList extends PureComponent {
     const variableHeightMasonry = isCardTimelineLayout(this.props.layoutMode) ||
       (this.props.layoutMode === 'media' && this.state.mediaShape === 'original');
 
+    // The held prepend is released on a quiet frame. The DOM still shows the
+    // previous cards here, so this anchor is the position to preserve.
+    if (this._masonryHoldRelease) {
+      this._masonryHoldRelease = false;
+      const released = this.captureVisibleMasonryItem();
+      if (released) {
+        return { masonryAnchor: true, ...released };
+      }
+      return null;
+    }
+
+    // Native momentum is a user-driven animation, not a fixed reading anchor.
+    // A snapshot taken while it runs would write scrollTop during the swipe.
+    if (variableHeightMasonry && this._shouldSuppressAnchorWrites()) {
+      return null;
+    }
+
     // A bounded Live window may replace the oldest post with a new one,
     // keeping the item count unchanged. Pinned posts also keep the first
     // child key unchanged. Use the same prepend identity rule as Masonry.
@@ -619,18 +968,22 @@ class ScrollableList extends PureComponent {
   // ResizeObserver update only re-renders TimelineMasonry. Use the exact same
   // viewport-relative tile anchor for those child-only layout changes.
   captureMasonryLayoutAnchor = () => {
-    if (!this.node || this._anchorUnmounted ||
+    if (!this.node || this._anchorUnmounted || this._masonryCombinedFlush || this._shouldSuppressAnchorWrites() ||
         isProgrammaticTopScroll(this._getScrollingElement()) ||
         (this.isFollowingLatest() && !this.mouseMovedRecently && !this.props.preventScroll)) {
       return null;
     }
 
-    return this.captureVisibleMasonryItem();
+    const anchor = this.captureVisibleMasonryItem();
+    return anchor ? { ...anchor, scrollTop: this.getScrollTop() } : null;
   }
 
   restoreMasonryLayoutAnchor = snapshot => {
     if (!snapshot || !snapshot.key || this._anchorUnmounted ||
-        isProgrammaticTopScroll(this._getScrollingElement())) {
+        this._shouldSuppressAnchorWrites() ||
+        isProgrammaticTopScroll(this._getScrollingElement()) ||
+        (typeof snapshot.scrollTop === 'number' &&
+         Math.abs(this.getScrollTop() - snapshot.scrollTop) > MASONRY_ANCHOR_EPSILON)) {
       return;
     }
 
@@ -641,8 +994,13 @@ class ScrollableList extends PureComponent {
   }
 
   _scheduleMasonryAnchorCorrection = (snapshot) => {
+    if (this._shouldSuppressAnchorWrites()) {
+      return;
+    }
+
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     const generation = this._anchorGeneration;
+    const scrollSerial = this._userScrollSerial;
     this._cancelAnchorCorrection();
 
     const cursor = { top: this.getScrollTop() };
@@ -651,10 +1009,12 @@ class ScrollableList extends PureComponent {
       frames: 2,
       shouldAbort: () => (
         this._anchorUnmounted ||
+        this._userScrollSerial !== scrollSerial ||
+        this._shouldSuppressAnchorWrites() ||
         this._anchorGeneration !== generation ||
         this._currentLocationKey() !== locationKey ||
         isProgrammaticTopScroll(this._getScrollingElement()) ||
-        Math.abs(this.getScrollTop() - cursor.top) > 1
+        Math.abs(this.getScrollTop() - cursor.top) > MASONRY_ANCHOR_EPSILON
       ),
       apply: () => {
         const before = this._beginSyntheticAnchorScroll();
@@ -722,28 +1082,40 @@ class ScrollableList extends PureComponent {
   }
 
   componentDidUpdate (prevProps, prevState, snapshot) {
+    this._masonryCombinedFlush = false;
     if (prevProps.bindToDocument !== this.props.bindToDocument) {
       this.detachScrollListener(prevProps.bindToDocument);
       this.attachScrollListener();
       this.attachIntersectionObserver();
     }
-    // Reset the scroll position when a new child comes in in order not to
-    // jerk the scrollbar around if you're already scrolled down the page.
-    if (snapshot && snapshot.masonryAnchor) {
-      this.restoreMasonryLayoutAnchor(snapshot);
-    } else if (snapshot && snapshot.anchor) {
-      this.restoreArticleAnchor(snapshot);
-    } else if (snapshot !== null) {
-      this.setScrollTop(this.getScrollHeight() - snapshot);
+    // Preserve native momentum when a parent update inserts/reorders cards.
+    // Quiet periods still receive the usual reading-anchor correction.
+    const activeMasonryScroll = (isCardTimelineLayout(this.props.layoutMode) ||
+      (this.props.layoutMode === 'media' && this.state.mediaShape === 'original')) &&
+      this._shouldSuppressAnchorWrites();
+    if (!activeMasonryScroll) {
+      if (snapshot && snapshot.masonryAnchor) {
+        this.restoreMasonryLayoutAnchor(snapshot);
+      } else if (snapshot && snapshot.anchor) {
+        this.restoreArticleAnchor(snapshot);
+      } else if (snapshot !== null) {
+        this.setScrollTop(this.getScrollHeight() - snapshot);
+      }
     }
 
     if (prevProps.scrollKey !== this.props.scrollKey || prevProps.bindToDocument !== this.props.bindToDocument || prevProps.anchorSourceKey !== this.props.anchorSourceKey || !!prevProps.windowedHistory !== !!this.props.windowedHistory || !!prevProps.readingSurface !== !!this.props.readingSurface) {
       this._cancelAnchorCorrection();
       this._cancelFilterAnchor();
       this._retireMouseIdle();
+      this._clearMasonryHoldTimer();
+      this._masonryPrependHeld = false;
     }
 
     this.updateFilterSurface();
+
+    if (this._masonryPrependHeld || (this._masonry && this._masonry.hasHeldMeasurements())) {
+      this._armMasonryHoldFlush();
+    }
   }
 
   _currentLocationKey = () => {
@@ -1000,6 +1372,7 @@ class ScrollableList extends PureComponent {
 
   componentWillUnmount () {
     this._anchorUnmounted = true;
+    this._clearMasonryHoldTimer();
     this._retireMouseIdle();
     this._cancelAnchorCorrection();
     this.filterHistoryUnlisten?.();
@@ -1036,9 +1409,13 @@ class ScrollableList extends PureComponent {
   attachScrollListener () {
     const target = this.props.bindToDocument ? document : this.node;
 
+    target.addEventListener('scroll', this._noteNativeMasonryScroll, { passive: true });
     target.addEventListener('scroll', this.handleScroll);
+    target.addEventListener('scrollend', this._noteMasonryScrollEnd);
+    target.addEventListener('wheel', this._noteWheel, { passive: true });
     target.addEventListener('wheel', this.handleWheel);
     target.addEventListener('touchmove', this.handleTouchMove);
+    target.addEventListener('touchend', this._noteTouchEnd, { passive: true });
     target.addEventListener('pointerdown', this.handlePointerScroll);
     target.addEventListener('pointermove', this.handlePointerScroll);
     target.addEventListener('keydown', this.handleKeyScroll);
@@ -1051,9 +1428,13 @@ class ScrollableList extends PureComponent {
       return;
     }
 
+    target.removeEventListener('scroll', this._noteNativeMasonryScroll);
     target.removeEventListener('scroll', this.handleScroll);
+    target.removeEventListener('scrollend', this._noteMasonryScrollEnd);
+    target.removeEventListener('wheel', this._noteWheel);
     target.removeEventListener('wheel', this.handleWheel);
     target.removeEventListener('touchmove', this.handleTouchMove);
+    target.removeEventListener('touchend', this._noteTouchEnd);
     target.removeEventListener('pointerdown', this.handlePointerScroll);
     target.removeEventListener('pointermove', this.handlePointerScroll);
     target.removeEventListener('keydown', this.handleKeyScroll);
@@ -1103,7 +1484,8 @@ class ScrollableList extends PureComponent {
   }
 
   render () {
-    const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex, layoutMode } = this.props;
+    const { scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex, layoutMode } = this.props;
+    const children = this._visibleMasonryChildren(this.props.children);
     const { fullscreen, mediaShape, mediaSize, mediaVisibility } = this.state;
     const mediaMode = layoutMode === 'media';
     const mediaControls = mediaMode ? (
@@ -1188,9 +1570,13 @@ class ScrollableList extends PureComponent {
     if (isCardTimelineLayout(layoutMode)) {
       itemLayout = (
         <TimelineMasonry
+          key={this._masonrySourceId()}
+          ref={this._setMasonry}
           mode={layoutMode}
           onCaptureLayoutAnchor={this.captureMasonryLayoutAnchor}
           onRestoreLayoutAnchor={this.restoreMasonryLayoutAnchor}
+          holdMeasurements={this._holdMasonryMeasurements}
+          onMeasurementsHeld={this._armMasonryHoldFlush}
         >
           {renderedItems}
         </TimelineMasonry>

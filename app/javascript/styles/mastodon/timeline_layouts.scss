@@ -25,6 +25,10 @@
 
   // Only timeline lists have explicit tile-anchor management.
   // Account galleries without callbacks retain native scroll anchoring.
+  // The property is not inherited. A none value on this element already
+  // excludes its descendants as candidates for the ancestor scroller, so
+  // tiles do not need their own declaration. Nested scrollers, such as a
+  // card body, keep anchoring inside themselves.
   &--managed-anchor {
     overflow-anchor: none;
   }
@@ -36,6 +40,13 @@
     top: 0;
     inset-inline-start: 0;
     min-width: 0;
+  }
+
+  // flow-root keeps the card's own margins inside the measured box. The item
+  // can then clip to its laid-out slot during momentum without the measurement
+  // collapsing to the article border box.
+  &__content {
+    display: flow-root;
   }
 
   // Headroom is structural, not a loading skeleton or hit target. New tiles
