@@ -56,6 +56,9 @@ jest.mock('emoji-mart/dist-es/components/picker/nimble-picker', () => {
 describe('standard emoji picker adapters', () => {
   let frames;
   let nextFrame;
+  let resizeObserver;
+  let notifyResize;
+  const originalResizeObserver = window.ResizeObserver;
 
   const paint = () => {
     const callbacks = Array.from(frames.values());
@@ -69,6 +72,11 @@ describe('standard emoji picker adapters', () => {
     mockCategoryTop = 100;
     frames = new Map();
     nextFrame = 0;
+    window.ResizeObserver = jest.fn().mockImplementation(callback => {
+      notifyResize = callback;
+      resizeObserver = { observe: jest.fn(), disconnect: jest.fn() };
+      return resizeObserver;
+    });
     jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
       nextFrame += 1;
       frames.set(nextFrame, callback);
@@ -79,6 +87,7 @@ describe('standard emoji picker adapters', () => {
 
   afterEach(() => {
     cleanup();
+    window.ResizeObserver = originalResizeObserver;
     jest.restoreAllMocks();
   });
 
@@ -131,6 +140,43 @@ describe('standard emoji picker adapters', () => {
     expect(picker.updateCategoriesSize).toHaveBeenCalledTimes(1);
   });
 
+  it('remeasures responsive picker dimensions once per frame together with image loads', () => {
+    render(<Picker />);
+    const picker = mockPickers[0];
+
+    expect(resizeObserver.observe).toHaveBeenCalledWith(picker.scroll.parentNode);
+    mockCategoryTop = 340;
+    notifyResize();
+    notifyResize();
+    fireEvent.load(screen.getByAltText('Wide custom'));
+
+    expect(frames.size).toBe(1);
+    expect(picker.updateCategoriesSize).not.toHaveBeenCalled();
+    act(paint);
+    expect(picker.cachedTop).toBe(340);
+    expect(picker.updateCategoriesSize).toHaveBeenCalledTimes(1);
+    expect(picker.handleScroll).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles window resizing without ResizeObserver and removes the fallback on unmount', () => {
+    window.ResizeObserver = undefined;
+    const view = render(<Picker />);
+    const picker = mockPickers[0];
+
+    mockCategoryTop = 420;
+    fireEvent(window, new Event('resize'));
+    act(paint);
+    expect(picker.cachedTop).toBe(420);
+    expect(picker.handleScroll).toHaveBeenCalledTimes(1);
+
+    fireEvent(window, new Event('resize'));
+    expect(frames.size).toBe(1);
+    view.unmount();
+    expect(frames.size).toBe(0);
+    fireEvent(window, new Event('resize'));
+    expect(frames.size).toBe(0);
+  });
+
   it('ignores other resources and preserves emoji selection without measuring', () => {
     const onClick = jest.fn();
     render(<Picker onClick={onClick} />);
@@ -144,15 +190,17 @@ describe('standard emoji picker adapters', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
-  it('removes image and anchor listeners and cancels scheduled work on unmount', () => {
+  it('disconnects resizing, removes listeners and cancels scheduled work on unmount', () => {
     const view = render(<Picker />);
     const picker = mockPickers[0];
     const image = screen.getByAltText('Wide custom');
     const anchor = screen.getByText('People');
 
     fireEvent.load(image);
+    notifyResize();
     expect(frames.size).toBe(1);
     view.unmount();
+    expect(resizeObserver.disconnect).toHaveBeenCalledTimes(1);
     expect(frames.size).toBe(0);
     fireEvent.load(image);
     fireEvent.click(anchor);

@@ -30,11 +30,17 @@ function Picker(props) {
       }
     };
 
+    const scheduleRefresh = () => {
+      if (frame === null) {
+        frame = requestAnimationFrame(refresh);
+      }
+    };
+
     // Wide lazy images can wrap onto another row after Nimble caches the
     // category positions. Measure once per frame after their dimensions settle.
     const handleImage = event => {
-      if (event.target.matches('.emoji-mart-emoji-custom > img') && frame === null) {
-        frame = requestAnimationFrame(refresh);
+      if (event.target.matches('.emoji-mart-emoji-custom > img')) {
+        scheduleRefresh();
       }
     };
 
@@ -52,7 +58,23 @@ function Picker(props) {
     scroll.addEventListener('error', handleImage, true);
     root.addEventListener('click', handleAnchor, true);
 
+    // Touch dialogs stretch to their container. Rotation can change both row
+    // wrapping and the vh-limited scroll height without a React props update.
+    const resizeObserver = window.ResizeObserver ? new window.ResizeObserver(scheduleRefresh) : null;
+
+    if (resizeObserver) {
+      resizeObserver.observe(root);
+    } else {
+      window.addEventListener('resize', scheduleRefresh);
+    }
+
     return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      } else {
+        window.removeEventListener('resize', scheduleRefresh);
+      }
+
       cancelRefresh();
       scroll.removeEventListener('load', handleImage, true);
       scroll.removeEventListener('error', handleImage, true);

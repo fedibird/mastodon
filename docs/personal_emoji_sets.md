@@ -156,6 +156,10 @@ ratio. Unicode images remain square, and category headings stay in their fixed
 22 px frame. Vertical keyboard navigation follows the displayed rows, including
 wide images, category boundaries, and filtered results.
 
+In touch dialogs, both picker modes and the standard loading placeholder fill
+the available dialog width. The standard picker remeasures its category positions
+and scroll viewport when its dimensions change, including device rotation.
+
 The representative is resolved from the original saved order/reference before
 filtering unavailable items or performing a search. An unavailable representative
 uses the name fallback; it does not promote another available item. Image loading
