@@ -736,6 +736,165 @@ describe('ScrollableList timeline anchor', () => {
     expect(ref.current._masonryScrollPhase).not.toBe('kinetic');
   });
 
+  it('does not write scrollTop over a direct wheel, then anchors again once that guard expires', () => {
+    let now = 8000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: undefined });
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'direct-guard',
+      layoutMode: 'card-2',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    const masonry = view.container.querySelector('.timeline-masonry');
+    list.scrollTop = 80;
+    masonry.getBoundingClientRect = () => ({ ...rect(0, 0), width: 320, right: 320 });
+    view.container.querySelectorAll('.timeline-masonry__content').forEach(node => {
+      node.getBoundingClientRect = () => rect(0, 240);
+    });
+    const itemCapture = jest.spyOn(ref.current, 'captureVisibleMasonryItem');
+    const setter = jest.spyOn(ref.current, 'setScrollTop');
+
+    wheel(list, { momentum: false, deltaY: 24 });
+    act(() => {
+      ref.current._masonry.measureFallback();
+    });
+    const key = view.container.querySelector('.timeline-masonry__item').getAttribute('data-layout-key');
+    expect(ref.current._masonry.state.heights[key]).toBe(240);
+    expect(ref.current._masonry._heldHeights).toBeNull();
+    expect(setter).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(80);
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="110"]')).not.toBeNull();
+    expect(itemCapture).not.toHaveBeenCalled();
+    expect(setter).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(80);
+
+    // MASONRY_DIRECT_ANCHOR_GUARD is 150. A later prepend uses the normal anchor.
+    now += 151;
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['120', '110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="120"]')).not.toBeNull();
+    expect(itemCapture).toHaveBeenCalled();
+  });
+
+  it('does not write scrollTop over a key or a scrollbar drag', () => {
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'direct-keys',
+      layoutMode: 'card-1',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 90;
+    const itemCapture = jest.spyOn(ref.current, 'captureVisibleMasonryItem');
+    const setter = jest.spyOn(ref.current, 'setScrollTop');
+
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="110"]')).not.toBeNull();
+    expect(itemCapture).not.toHaveBeenCalled();
+    expect(setter).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(90);
+
+    fireEvent.scroll(list);
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['120', '110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="120"]')).not.toBeNull();
+    expect(itemCapture).not.toHaveBeenCalled();
+    expect(setter).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(90);
+    expect(ref.current._masonryScrollPhase).toBe('direct');
+  });
+
+  it('accepts a wheel or touch that arrives while a programmatic scroll is still marked synthetic', () => {
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'after-synthetic',
+      layoutMode: 'card-3',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 40;
+    fireEvent.scroll(list);
+    ref.current.setScrollTop(180);
+    expect(ref.current.lastScrollWasSynthetic).toBe(true);
+
+    wheel(list, { momentum: true, deltaY: 36 });
+    expect(ref.current._masonryScrollPhase).toBe('kinetic');
+    const setter = jest.spyOn(ref.current, 'setScrollTop');
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="110"]')).toBeNull();
+    expect(setter).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(180);
+
+    const touchRef = React.createRef();
+    const touchProps = { ...props, ref: touchRef, scrollKey: 'after-synthetic-touch' };
+    const touchView = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...touchProps}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const touchList = touchView.container.querySelector('.scrollable');
+    touchList.scrollTop = 40;
+    fireEvent.scroll(touchList);
+    touchRef.current.setScrollTop(180);
+    expect(touchRef.current.lastScrollWasSynthetic).toBe(true);
+    fireEvent.touchMove(touchList);
+    expect(touchRef.current._masonryScrollPhase).toBe('kinetic');
+    touchView.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...touchProps}>{rows(['110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(touchView.container.querySelector('[data-layout-key*="110"]')).toBeNull();
+    expect(touchList.scrollTop).toBe(180);
+  });
+
   it('holds a Chromium coast from momentum false through momentum true until scrollend', () => {
     const ref = React.createRef();
     const reduxStore = store();

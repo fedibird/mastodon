@@ -37,6 +37,9 @@ import {
 const MOUSE_IDLE_DELAY = 300;
 const MASONRY_SCROLL_IDLE_DELAY = 500;
 const MASONRY_WHEEL_BURST_MS = 50;
+// A discrete wheel, key, or scrollbar keeps its own offset for one
+// throttle window. Layout still commits; scrollTop does not.
+const MASONRY_DIRECT_ANCHOR_GUARD = 150;
 const MASONRY_ANCHOR_EPSILON = 0.5;
 
 const mapStateToProps = (state, { scrollKey }) => {
@@ -219,7 +222,11 @@ class ScrollableList extends PureComponent {
   _masonryWheelTentative = false;
   _userScrollSerial = 0;
 
-  _ignoreMasonryInput = () => this._suppressUserScroll || this._syntheticScrollDepth > 0 || this.lastScrollWasSynthetic;
+  // Scroll and scrollend still belong to setScrollTop while this is set.
+  // Wheel and touch are a new gesture and must not wait for handleScroll.
+  _ignoreProgrammaticScroll = () => this._suppressUserScroll || this._syntheticScrollDepth > 0 || this.lastScrollWasSynthetic;
+
+  _ignoreUserGesture = () => this._suppressUserScroll || this._syntheticScrollDepth > 0;
 
   _bumpUserScroll = () => {
     this._lastNativeScrollAt = Date.now();
@@ -228,15 +235,20 @@ class ScrollableList extends PureComponent {
 
   // Kinetic and unknown coasts keep the previous cards and measured slots,
   // and they do not write scrollTop. A direct wheel, key, or scrollbar
-  // commits the measured height on the next render. A correction that was
-  // scheduled before that gesture still aborts, because every real scroll
-  // bumps _userScrollSerial. Unknown is a fast wheel burst on a browser
-  // that does not report WheelEvent.momentum, not a single notch.
+  // commits the measured height on the next render, but a short guard
+  // still refuses to write scrollTop over that gesture. A correction
+  // scheduled before the gesture aborts because every real scroll bumps
+  // _userScrollSerial. Unknown is a fast wheel burst on a browser that
+  // does not report WheelEvent.momentum, not a single notch.
   _shouldDeferMasonryLayout = () => isCardTimelineLayout(this.props.layoutMode) &&
     (this._masonryScrollPhase === 'kinetic' || this._masonryScrollPhase === 'unknown') &&
     Date.now() - this._lastNativeScrollAt < MASONRY_SCROLL_IDLE_DELAY;
 
-  _shouldSuppressAnchorWrites = () => this._shouldDeferMasonryLayout();
+  _directAnchorGuardActive = () => isCardTimelineLayout(this.props.layoutMode) &&
+    this._masonryScrollPhase === 'direct' &&
+    Date.now() - this._lastNativeScrollAt < MASONRY_DIRECT_ANCHOR_GUARD;
+
+  _shouldSuppressAnchorWrites = () => this._shouldDeferMasonryLayout() || this._directAnchorGuardActive();
 
   _beginKineticMasonryScroll = (phase) => {
     if (!isCardTimelineLayout(this.props.layoutMode)) {
@@ -280,7 +292,7 @@ class ScrollableList extends PureComponent {
   }
 
   _noteWheel = (event) => {
-    if (this._ignoreMasonryInput()) {
+    if (this._ignoreUserGesture()) {
       return;
     }
 
@@ -310,7 +322,7 @@ class ScrollableList extends PureComponent {
   }
 
   _noteTouchScroll = () => {
-    if (this._ignoreMasonryInput()) {
+    if (this._ignoreUserGesture()) {
       return;
     }
 
@@ -318,7 +330,7 @@ class ScrollableList extends PureComponent {
   }
 
   _noteTouchEnd = () => {
-    if (this._ignoreMasonryInput() || this._masonryScrollPhase !== 'kinetic') {
+    if (this._ignoreUserGesture() || this._masonryScrollPhase !== 'kinetic') {
       return;
     }
 
@@ -328,7 +340,7 @@ class ScrollableList extends PureComponent {
   }
 
   _noteMasonryScrollEnd = () => {
-    if (this._ignoreMasonryInput()) {
+    if (this._ignoreProgrammaticScroll()) {
       return;
     }
 
@@ -342,16 +354,29 @@ class ScrollableList extends PureComponent {
   // inside that window. Record the raw event so a swallowed tick still
   // holds a kinetic coast for the full quiet period.
   _noteNativeMasonryScroll = () => {
-    if (this._ignoreMasonryInput()) {
+    if (this._ignoreProgrammaticScroll()) {
       return;
     }
 
     this._bumpUserScroll();
+    if (!isCardTimelineLayout(this.props.layoutMode)) {
+      return;
+    }
+
     // A scroll that follows one unclassified wheel is the mouse notch, not
     // a coast. Only a confirmed kinetic or unknown burst extends the hold.
     if (this._masonryScrollPhase === 'kinetic' || (this._masonryScrollPhase === 'unknown' && !this._masonryWheelTentative)) {
       this._armMasonryHoldFlush();
+      return;
     }
+
+    if (this._masonryScrollPhase === 'unknown' && this._masonryWheelTentative) {
+      return;
+    }
+
+    // Scrollbar and other unclassified scrolls own the offset briefly.
+    // They still commit masonry layout on the next render.
+    this._masonryScrollPhase = 'direct';
   }
 
   _shownMasonryChildren = null;
