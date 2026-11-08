@@ -262,6 +262,11 @@
   outline-offset: -2px;
 }
 
+// Keep category offsets relative to the viewport, without scrolling ancestors.
+.emoji-stock-picker .emoji-mart-scroll {
+  position: relative;
+}
+
 // `.emojione` fixes every emoji at 16px. The personal grid follows emojiSize.
 .emoji-stock-picker .emoji-mart-emoji img.emojione {
   width: var(--emoji-stock-size, 22px);
@@ -278,4 +283,25 @@
   border-bottom: 1px solid darken($ui-secondary-color, 8%);
   border-radius: 5px 5px 0 0;
   background: $ui-secondary-color;
+}
+
+// NimblePicker caches category positions while mounting. Scaling the dropdown
+// during that measurement leaves the anchors pointing at shortened offsets.
+// Keep the common duration/easing and reduced-motion override, but only fade.
+.dropdown-animation.emoji-picker-dropdown__animation {
+  animation-name: emoji-picker-dropdown-fade;
+
+  .reduce-motion & {
+    animation: none;
+  }
+}
+
+@keyframes emoji-picker-dropdown-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }

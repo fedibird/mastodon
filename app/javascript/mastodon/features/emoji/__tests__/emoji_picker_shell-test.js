@@ -167,6 +167,25 @@ describe('emoji picker shell and personal stock', () => {
     global.fetch = jest.fn();
   });
 
+  it('scrolls a category within the personal picker without scrolling its ancestors', async () => {
+    renderShell();
+    await screen.findByRole('button', { name: 'Family' });
+
+    const scroll = document.querySelector('.emoji-stock-picker .emoji-mart-scroll');
+    const category = scroll.querySelector('[data-category-id="cat-a"]');
+    const scrollIntoView = jest.fn();
+
+    Object.defineProperty(category, 'offsetTop', { value: 726, configurable: true });
+    category.scrollIntoView = scrollIntoView;
+    scroll.scrollTop = 120;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apple' }));
+
+    expect(scroll.scrollTop).toBe(726);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Thumb' })).toHaveAttribute('aria-current', 'true');
+  });
+
   it('renders registered order only and returns fresh callback payloads', async () => {
     const stock = fixture();
     const modifiers = [];

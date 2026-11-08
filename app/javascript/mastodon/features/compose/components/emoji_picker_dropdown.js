@@ -198,7 +198,7 @@ class EmojiPickerDropdown extends React.PureComponent {
         <Overlay show={open} offset={[5, 15]} placement={placement} target={this.findTarget} popperConfig={{ strategy: 'fixed' }}>
           {({ props, arrowProps, placement: overlayPlacement }) => (
             <div {...props}>
-              <div className={`dropdown-animation ${overlayPlacement}`}>
+              <div className={`dropdown-animation emoji-picker-dropdown__animation ${overlayPlacement}`}>
                 <div className={`dropdown-menu__arrow ${overlayPlacement}`} {...arrowProps} />
                 <EmojiPickerPanel
                   pickersEmoji={pickersEmoji}

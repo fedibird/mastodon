@@ -93,6 +93,10 @@ class StockEmojiPicker extends React.PureComponent {
     this.searchInput = node;
   };
 
+  setScrollRef = node => {
+    this.scroll = node;
+  };
+
   setButtonRef = node => {
     if (!node) {
       return;
@@ -179,8 +183,10 @@ class StockEmojiPicker extends React.PureComponent {
     const category = stock.categories.find(entry => entry.id === id);
     const first = category && category.items[0];
 
-    if (node && typeof node.scrollIntoView === 'function') {
-      node.scrollIntoView({ block: 'start' });
+    if (node && this.scroll && this.scroll.contains(node)) {
+      // The scroll viewport is the category's offset parent. Layout coordinates
+      // stay stable during transforms, and only this viewport should scroll.
+      this.scroll.scrollTop = node.offsetTop;
     }
 
     this.setState({
@@ -427,7 +433,7 @@ class StockEmojiPicker extends React.PureComponent {
     const { emojiSize } = this.props;
 
     return (
-      <div key='emoji-stock-scroll' className='emoji-mart-scroll'>
+      <div key='emoji-stock-scroll' className='emoji-mart-scroll' ref={this.setScrollRef}>
         {stock.categories.map(category => (
           <section
             key={category.id}
