@@ -42,6 +42,13 @@
     min-width: 0;
   }
 
+  // flow-root keeps the card's own margins inside the measured box. The item
+  // can then clip to its laid-out slot during momentum without the measurement
+  // collapsing to the article border box.
+  &__content {
+    display: flow-root;
+  }
+
   // Headroom is structural, not a loading skeleton or hit target. New tiles
   // consume it on the shortest column without moving unrelated older tiles.
   &__placeholder {

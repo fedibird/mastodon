@@ -255,7 +255,8 @@ describe('account original-size masonry visibility transitions', () => {
         return rect(350, 0); // Two medium-size columns.
       }
 
-      const key = this.getAttribute('data-layout-key');
+      const host = this.closest ? this.closest('[data-layout-key]') : null;
+      const key = host && host.getAttribute('data-layout-key');
       const mediaId = key && Object.keys(itemHeights).find(id => key.includes(id));
       return rect(0, mediaId ? itemHeights[mediaId] : 0);
     });

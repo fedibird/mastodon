@@ -26,6 +26,24 @@ const placeholderHeights = container => (
     .map(node => parseFloat(node.style.height))
     .sort((a, b) => a - b)
 );
+const columnGaps = container => {
+  const columns = new Map();
+  Array.from(container.querySelectorAll('.timeline-masonry__item')).forEach(node => {
+    const box = node.getBoundingClientRect();
+    const x = Math.round(parseFloat(node.style.insetInlineStart));
+    const tiles = columns.get(x) || [];
+    tiles.push({ top: box.top, bottom: box.bottom });
+    columns.set(x, tiles);
+  });
+  const gaps = [];
+  columns.forEach(tiles => {
+    tiles.sort((a, b) => a.top - b.top);
+    for (let index = 1; index < tiles.length; index += 1) {
+      gaps.push(tiles[index].top - tiles[index - 1].bottom);
+    }
+  });
+  return gaps;
+};
 
 describe('TimelineMasonry streaming upward-frontier insertion', () => {
   let width;
@@ -42,8 +60,16 @@ describe('TimelineMasonry streaming upward-frontier insertion', () => {
       if (this.classList.contains('timeline-masonry')) {
         return rect(width, 0);
       }
-      if (this.hasAttribute('data-layout-key')) {
+      if (this.classList.contains('timeline-masonry__content')) {
         return rect(0, heights[this.textContent] || 100);
+      }
+      if (this.hasAttribute('data-layout-key')) {
+        const locked = this.style.height ? parseFloat(this.style.height) : NaN;
+        const natural = heights[this.textContent] || 100;
+        const boxHeight = Number.isFinite(locked) ? locked : natural;
+        const match = this.style.transform && this.style.transform.match(/translate3d\(0, ([\d.]+)px/);
+        const y = match ? Number(match[1]) : 0;
+        return { ...rect(0, boxHeight), y, top: y, bottom: y + boxHeight };
       }
       return rect(0, 0);
     });
@@ -183,6 +209,103 @@ describe('TimelineMasonry streaming upward-frontier insertion', () => {
 
     expect(position(container, 'B').y).toBe(before.y + 140);
     expect(onCaptureLayoutAnchor).toHaveBeenCalledTimes(1);
+    expect(tileA.style.height).toBe('');
+  });
+
+  it('keeps adjacent card rects on the layout gap while a late height is held', () => {
+    const cases = [
+      ['card-1', 320],
+      ['card-2', 375],
+      ['card-3', 540],
+    ];
+
+    cases.forEach(([mode, layoutWidth]) => {
+      let observer;
+      let hold = false;
+      Object.defineProperty(window, 'ResizeObserver', {
+        configurable: true,
+        value: class {
+
+          constructor (callback) {
+            this.callback = callback;
+            observer = this;
+          }
+
+          observe () {}
+
+          unobserve () {}
+
+          disconnect () {}
+
+        },
+      });
+
+      const ref = React.createRef();
+      function holdMeasurements () {
+        return hold;
+      }
+      const onCaptureLayoutAnchor = jest.fn(() => ({ key: 'held', top: 4 }));
+      const { container, unmount } = render(
+        <TimelineMasonry
+          ref={ref}
+          mode={mode}
+          holdMeasurements={holdMeasurements}
+          onCaptureLayoutAnchor={onCaptureLayoutAnchor}
+        >
+          <article key='A'>A</article>
+          <article key='B'>B</article>
+          <article key='C'>C</article>
+          <article key='D'>D</article>
+        </TimelineMasonry>,
+      );
+      const root = container.querySelector('.timeline-masonry');
+      ['A', 'B', 'C', 'D'].forEach(id => {
+        heights[id] = 100;
+      });
+      const tiles = ['A', 'B', 'C', 'D'].map(id => item(container, id));
+
+      act(() => {
+        observer.callback([
+          { target: root, contentRect: { width: layoutWidth, height: 0 } },
+          ...tiles.map(node => ({ target: node, contentRect: { width: 160, height: 100 } })),
+        ]);
+      });
+      hold = true;
+      onCaptureLayoutAnchor.mockClear();
+
+      // Late image / CW expansion. The content box grows; the slot must not.
+      heights.A = 420;
+      act(() => {
+        observer.callback([{ target: item(container, 'A'), contentRect: { width: 160, height: 420 } }]);
+      });
+      expect(onCaptureLayoutAnchor).not.toHaveBeenCalled();
+      expect(item(container, 'A').style.overflow).toBe('hidden');
+      expect(item(container, 'A').style.height).toBe('100px');
+      expect(item(container, 'A').getBoundingClientRect().height).toBe(100);
+      expect(item(container, 'A').querySelector('.timeline-masonry__content').getBoundingClientRect().height).toBe(420);
+      let gaps = columnGaps(container);
+      expect(gaps.length).toBeGreaterThan(0);
+      gaps.forEach(gap => expect(gap).toBe(8));
+
+      // A shorter measurement, such as a virtualized row returning, must not
+      // open a hole in front of the next card either.
+      heights.A = 40;
+      act(() => {
+        observer.callback([{ target: item(container, 'A'), contentRect: { width: 160, height: 40 } }]);
+      });
+      expect(item(container, 'A').style.height).toBe('100px');
+      gaps = columnGaps(container);
+      gaps.forEach(gap => expect(gap).toBe(8));
+
+      hold = false;
+      act(() => {
+        ref.current.flushHeldMeasurements();
+      });
+      expect(item(container, 'A').style.height).toBe('');
+      gaps = columnGaps(container);
+      gaps.forEach(gap => expect(gap).toBe(8));
+      unmount();
+    });
   });
 
   it('extends all old columns once, then consumes headroom end-to-start without old-card reflow', () => {

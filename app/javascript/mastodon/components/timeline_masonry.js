@@ -161,8 +161,9 @@ export default class TimelineMasonry extends React.PureComponent {
 
     Array.from(this.root.children).forEach(node => {
       const key = node.getAttribute('data-layout-key');
-      if (key) {
-        heights[key] = Math.max(1, Math.ceil(node.getBoundingClientRect().height));
+      const content = this._contentNode(node);
+      if (key && content) {
+        heights[key] = Math.max(1, Math.ceil(content.getBoundingClientRect().height));
       }
     });
 
@@ -179,7 +180,7 @@ export default class TimelineMasonry extends React.PureComponent {
       if (entry.target === this.root) {
         width = Math.round(entry.contentRect.width);
       } else {
-        const key = entry.target.getAttribute('data-layout-key');
+        const key = this._layoutKeyFromTarget(entry.target);
         if (key) {
           heights[key] = Math.max(1, Math.ceil(entry.contentRect.height));
         }
@@ -189,15 +190,61 @@ export default class TimelineMasonry extends React.PureComponent {
     this._commitMeasurements(width, heights);
   }
 
+  _contentNode = (item) => {
+    const content = item && item.firstElementChild;
+    return content && content.classList.contains('timeline-masonry__content') ? content : item;
+  }
+
+  _layoutKeyFromTarget = (target) => {
+    if (!target || target === this.root || !target.getAttribute) {
+      return null;
+    }
+    if (target.hasAttribute('data-layout-key')) {
+      return target.getAttribute('data-layout-key');
+    }
+    const item = target.closest && target.closest('[data-layout-key]');
+    return item ? item.getAttribute('data-layout-key') : null;
+  }
+
+  _slotHeight = (key) => this.state.heights[key] || ESTIMATED_HEIGHT;
+
+  // The absolute tile's transform stays put while momentum owns the scroll.
+  // Lock its border box to that slot so a late image or expanded CW cannot
+  // paint over the next card, and a shorter measurement cannot open a hole.
+  _slotLock = (key) => {
+    if (!this.props.holdMeasurements || !this.props.holdMeasurements() || !this._heldHeights) {
+      return null;
+    }
+    const pending = this._heldHeights[key];
+    const slot = this._slotHeight(key);
+    if (pending === undefined || Math.abs(pending - slot) <= 1) {
+      return null;
+    }
+    return slot;
+  }
+
+  _heldHeightsChanged = (previous, next) => {
+    if (!previous) {
+      return true;
+    }
+    const keys = Object.keys(next);
+    return keys.length !== Object.keys(previous).length || keys.some(key => previous[key] !== next[key]);
+  }
+
   // A height applied while the reader is still in momentum moves every tile
   // below it. Keep the measurement and apply it once the list is idle, when
   // the anchor restore can run without writing scrollTop into the swipe.
   _commitMeasurements = (width, heights) => {
     if (this.props.holdMeasurements && this.props.holdMeasurements()) {
+      const nextHeights = { ...(this._heldHeights || {}), ...heights };
+      const changed = this._heldHeightsChanged(this._heldHeights, nextHeights);
       this._heldWidth = width;
-      this._heldHeights = { ...(this._heldHeights || {}), ...heights };
-      if (this.props.onMeasurementsHeld) {
-        this.props.onMeasurementsHeld();
+      this._heldHeights = nextHeights;
+      if (changed) {
+        if (this.props.onMeasurementsHeld) {
+          this.props.onMeasurementsHeld();
+        }
+        this.forceUpdate();
       }
       return;
     }
@@ -210,6 +257,11 @@ export default class TimelineMasonry extends React.PureComponent {
   }
 
   hasHeldMeasurements = () => (this._heldHeights !== undefined && this._heldHeights !== null) || this._heldWidth !== undefined;
+
+  discardHeldMeasurements = () => {
+    this._heldHeights = null;
+    this._heldWidth = undefined;
+  }
 
   flushHeldMeasurements = () => {
     if (!this.hasHeldMeasurements()) {
@@ -243,7 +295,8 @@ export default class TimelineMasonry extends React.PureComponent {
       return;
     }
 
-    const nodes = new Set([this.root, ...Array.from(this.root.children).filter(node => node.hasAttribute('data-layout-key'))]);
+    const items = Array.from(this.root.children).filter(node => node.hasAttribute('data-layout-key'));
+    const nodes = new Set([this.root, ...items.map(item => this._contentNode(item))]);
     this.observed.forEach(node => {
       if (!nodes.has(node)) {
         this.resizeObserver.unobserve(node);
@@ -327,14 +380,27 @@ export default class TimelineMasonry extends React.PureComponent {
           const key = String(child.key);
           const { top, left, width: itemWidth, fullWidth } = positions.get(key);
 
+          const slotLock = this._slotLock(key);
+          const style = {
+            width: width ? itemWidth + 'px' : '100%',
+            insetInlineStart: left + 'px',
+            transform: 'translate3d(0, ' + top + 'px, 0)',
+          };
+          if (slotLock !== null) {
+            style.height = slotLock + 'px';
+            style.overflow = 'hidden';
+          }
+
           return (
             <div
               key={key}
               data-layout-key={key}
               className={fullWidth ? 'timeline-masonry__item timeline-masonry__item--full' : 'timeline-masonry__item'}
-              style={{ width: width ? itemWidth + 'px' : '100%', insetInlineStart: left + 'px', transform: 'translate3d(0, ' + top + 'px, 0)' }}
+              style={style}
             >
-              {child}
+              <div className='timeline-masonry__content'>
+                {child}
+              </div>
             </div>
           );
         })}
