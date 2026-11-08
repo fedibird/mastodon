@@ -15,7 +15,7 @@ class EmojiReferences::Resolver
     invalid!('emoji.native', 'invalid_unicode') unless emoji
 
     EmojiReferences::Result.new(
-      reference: { kind: 'unicode', native: parsed.native, emoji_id: emoji.fetch(:id) },
+      reference: { kind: 'unicode', native: parsed.native },
       detail: EmojiReferences::Detail.new.unicode(parsed.native, emoji),
       addable: true
     )

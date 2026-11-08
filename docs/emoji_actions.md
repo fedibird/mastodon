@@ -26,14 +26,15 @@ status and account visibility checks. A missing or hidden target is HTTP 404.
 The response never includes the status text or the account.
 
 This route does not fetch a remote URL, copy an emoji, or write the emoji
-tables. `ResolveURLService` is not used. An explicit copy remains
-`POST /api/v1/custom_emojis/:id/fetch`.
+tables. `ResolveURLService` is not used. An explicit fetch remains
+`POST /api/v1/custom_emojis/:id/fetch`. That route retrieves remote detail.
+It does not register a local copy.
 
 ### Reference
 
 | Kind | Accepted fields | Stable reference |
 | --- | --- | --- |
-| Unicode | `kind`, `native` | `{kind, native, emoji_id}` from `PersonalEmojiSets::UnicodeCatalog` |
+| Unicode | `kind`, `native` | `{kind, native}`. The catalog id is `detail.emoji_id` only, so this object can be sent back to resolve or appended to a category. |
 | Local custom | `kind`, optional `scope: "local"`, `custom_emoji_id` and/or `shortcode` | `{kind, scope: "local", custom_emoji_id, shortcode}` |
 | Remote custom | `kind`, `scope: "remote"` or a `domain`, plus `shortcode` | `{kind, scope: "remote", domain, shortcode}` |
 

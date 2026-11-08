@@ -44,7 +44,8 @@ RSpec.describe 'Emoji reference resolve API', type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(response.headers['Cache-Control']).to eq 'private, no-store'
-    expect(parsed.fetch('reference')).to include('kind' => 'unicode', 'native' => '👍🏽', 'emoji_id' => '+1')
+    expect(parsed.fetch('reference')).to eq('kind' => 'unicode', 'native' => '👍🏽')
+    expect(parsed.dig('detail', 'emoji_id')).to eq '+1'
     expect(parsed.dig('detail', 'state')).to eq 'resolved'
     expect(parsed.dig('detail', 'image', 'src')).to end_with '/emoji/1f44d-1f3fd.svg'
     expect(parsed.dig('detail', 'image', 'alt')).to eq '👍🏽'
@@ -52,6 +53,34 @@ RSpec.describe 'Emoji reference resolve API', type: :request do
     expect(parsed.dig('actions', 'mute')).to eq('allowed' => false, 'reason' => 'not_implemented')
     expect(parsed.dig('actions', 'request_registration')).to eq('allowed' => false, 'reason' => 'not_implemented')
     expect(writes).to be_empty
+  end
+
+  it 'sends the returned unicode reference back to resolve and to a category append' do
+    token.update!(scopes: 'read:accounts write:accounts')
+    post_emoji(kind: 'unicode', native: '👍🏽')
+    expect(response).to have_http_status(:ok)
+    reference = parsed.fetch('reference')
+    expect(reference).to eq('kind' => 'unicode', 'native' => '👍🏽')
+    expect(reference).not_to have_key('emoji_id')
+    expect(parsed.dig('detail', 'emoji_id')).to eq '+1'
+
+    post_emoji(reference)
+    expect(response).to have_http_status(:ok)
+    expect(parsed.fetch('reference')).to eq reference
+    expect(parsed.dig('detail', 'emoji_id')).to eq '+1'
+
+    put '/api/v1/emoji_sets/personal', params: {
+      expected_revision: 0,
+      expected_picker_emoji_size: 22,
+      picker_emoji_size: 22,
+      categories: [{ id: 'favorites', name: 'Favorites', items: [] }],
+    }.to_json, headers: headers
+    expect(response).to have_http_status(:ok)
+
+    post '/api/v1/emoji_sets/personal/categories/favorites/items', params: { expected_revision: 1, emoji: reference }.to_json, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(parsed.dig('operation', 'added')).to be true
+    expect(parsed.dig('categories', 0, 'items', 0)).to include('kind' => 'unicode', 'native' => '👍🏽', 'emoji_id' => '+1')
   end
 
   it 'keeps compound unicode sequences and rejects text that is not an emoji' do
