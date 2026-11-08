@@ -2,6 +2,7 @@ import { createSelector } from 'reselect';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { me, enableLimitedTimeline, hideDirectFromTimeline, hidePersonalFromTimeline, maxFrequentlyUsedEmojis } from '../initial_state';
 import { buildCustomEmojis, categoriesFromEmojis } from 'mastodon/features/emoji/emoji';
+import { getFrequentlyUsedEmojiIds } from 'mastodon/features/emoji/frequently_used_emojis';
 import { toServerSideType } from 'mastodon/utils/filters';
 import { mediaStatusFiltered } from 'mastodon/utils/media_filter_visibility';
 
@@ -295,25 +296,6 @@ export const getPersonalVisibilities = createSelector(
   state => state.getIn(['settings', 'personal', 'shows']),
 );
 
-const DEFAULTS = [
-  '+1',
-  'grinning',
-  'kissing_heart',
-  'heart_eyes',
-  'laughing',
-  'stuck_out_tongue_winking_eye',
-  'sweat_smile',
-  'joy',
-  'yum',
-  'disappointed',
-  'thinking_face',
-  'weary',
-  'sob',
-  'sunglasses',
-  'heart',
-  'ok_hand',
-];
-
 export const getPickersEmoji = createSelector(
   state => state.get('custom_emojis'),
   custom_emojis => {
@@ -328,19 +310,5 @@ export const getPickersEmoji = createSelector(
 
 export const getFrequentlyUsedEmojis = createSelector([
   state => state.getIn(['settings', 'frequentlyUsedEmojis'], ImmutableMap()),
-], emojiCounters => {
-  let emojis = emojiCounters
-    .keySeq()
-    .sort((a, b) => emojiCounters.get(a) - emojiCounters.get(b))
-    .reverse()
-    .slice(0, maxFrequentlyUsedEmojis)
-    .toArray();
-
-  if (emojis.length < maxFrequentlyUsedEmojis) {
-    let uniqueDefaults = DEFAULTS.filter(emoji => !emojis.includes(emoji));
-    emojis = emojis.concat(uniqueDefaults.slice(0, maxFrequentlyUsedEmojis - emojis.length));
-  }
-
-  return emojis;
-});
+], emojiCounters => getFrequentlyUsedEmojiIds(emojiCounters, maxFrequentlyUsedEmojis));
 

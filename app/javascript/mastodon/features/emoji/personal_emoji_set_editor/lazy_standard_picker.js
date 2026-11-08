@@ -13,6 +13,7 @@ class LazyStandardPicker extends React.PureComponent {
     onPick: PropTypes.func.isRequired,
     emojiSize: PropTypes.number,
     autoFocus: PropTypes.bool,
+    showFrequentlyUsed: PropTypes.bool,
   };
 
   static defaultProps = { load: loadEditorStandardPicker };

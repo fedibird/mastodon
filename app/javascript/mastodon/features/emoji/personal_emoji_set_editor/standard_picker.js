@@ -1,13 +1,19 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { injectIntl } from 'react-intl';
+import { Map as ImmutableMap } from 'immutable';
 import initialState from 'mastodon/initial_state_data';
 import EmojiPickerShell from '../emoji_picker_shell';
+import { getFrequentlyUsedEmojiIds } from '../frequently_used_emojis';
 import { personalEmojiRequest } from './api';
 import messages from './messages';
 
 const baseCategories = ['people', 'nature', 'foods', 'activity', 'places', 'objects', 'symbols', 'flags'];
 const autoPlayEmoji = initialState?.meta?.auto_play_emoji;
+const frequentlyUsedEmojis = getFrequentlyUsedEmojiIds(
+  ImmutableMap(initialState?.settings?.frequentlyUsedEmojis),
+  Number(initialState?.meta?.max_frequently_used_emojis ?? 16),
+);
 const tones = [
   ['toneDefault', '✋'], ['toneLight', '✋🏻'], ['toneMediumLight', '✋🏼'],
   ['toneMedium', '✋🏽'], ['toneMediumDark', '✋🏾'], ['toneDark', '✋🏿'],
@@ -58,9 +64,10 @@ class StandardPicker extends React.PureComponent {
     theme: PropTypes.string,
     skinTone: PropTypes.number.isRequired,
     onSkinToneChange: PropTypes.func.isRequired,
+    showFrequentlyUsed: PropTypes.bool,
   };
 
-  static defaultProps = { emojiSize: 22, autoFocus: false, theme: 'dark' };
+  static defaultProps = { emojiSize: 22, autoFocus: false, theme: 'dark', showFrequentlyUsed: false };
 
   state = { catalog: null, error: false };
 
@@ -89,7 +96,7 @@ class StandardPicker extends React.PureComponent {
   handleSkin = event => this.props.onSkinToneChange(Number(event.target.value));
 
   render() {
-    const { intl, onPick, emojiSize, autoFocus, theme, skinTone } = this.props;
+    const { intl, onPick, emojiSize, autoFocus, theme, skinTone, showFrequentlyUsed } = this.props;
     const { catalog, error } = this.state;
 
     if (error) {
@@ -121,6 +128,9 @@ class StandardPicker extends React.PureComponent {
           onPick={onPick}
           standardPickerProps={{
             ...catalog,
+            include: showFrequentlyUsed ? ['recent', ...catalog.include] : catalog.include,
+            // An explicit list also prevents Nimble from recording editor selections.
+            recent: showFrequentlyUsed ? frequentlyUsedEmojis : undefined,
             skin: skinTone,
             showPreview: false,
             showSkinTones: false,
