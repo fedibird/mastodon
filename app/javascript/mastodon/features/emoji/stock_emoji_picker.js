@@ -606,7 +606,7 @@ class StockEmojiPicker extends React.PureComponent {
           {src ? (
             <img
               draggable='false'
-              className={classNames('emojione', { 'custom-emoji': item.selection && item.selection.custom })}
+              className={classNames('emoji-stock-picker__image', { 'custom-emoji': item.selection && item.selection.custom })}
               alt=''
               src={src}
               width={emojiSize}

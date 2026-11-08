@@ -307,12 +307,22 @@
   }
 }
 
-// `.emojione` fixes every emoji at 16px. The personal grid follows emojiSize.
-.emoji-stock-picker .emoji-mart-emoji img.emojione {
+// Body emoji preferences use em-based width limits, which collapse inside the
+// picker's font-size: 0 buttons. Keep stock image sizing independent of them.
+.emoji-stock-picker__image {
+  display: inline-block;
   width: var(--emoji-stock-size, 22px);
   height: var(--emoji-stock-size, 22px);
   margin: 0;
+  vertical-align: middle;
   object-fit: contain;
+}
+
+// Nimble sets a square inline width even for wide custom images. Apply the
+// existing 100px wide-image limit to every category and picker host.
+.emoji-picker-shell__standard .emoji-mart-emoji-custom > img {
+  width: auto !important;
+  max-width: 100px;
 }
 
 // Anchor standard-only overlays below the mode bar, regardless of its height.

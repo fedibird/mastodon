@@ -825,25 +825,33 @@ describe('emoji picker shell and personal stock', () => {
     expect(second).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('sizes stock images from emojiSize instead of the 16px emoji rule', async () => {
+  it.each([22, 32, 48])('keeps stock images at %ipx independently of body emoji preferences', async emojiSize => {
     const style = document.createElement('style');
 
     style.textContent = `
-      .emojione { width: 16px; height: 16px; }
-      .emoji-stock-picker .emoji-mart-emoji img.emojione {
-        width: var(--emoji-stock-size, 22px);
-        height: var(--emoji-stock-size, 22px);
+      .emoji-mart-emoji { font-size: 0; }
+      .emojione { font-size: inherit; width: 16px; height: 16px; }
+      img.emojione:not(.reaction) {
+        width: unset !important;
+        max-width: min(100%, 10em);
       }
     `;
     document.head.appendChild(style);
-    renderShell({ emojiSize: 32 });
 
-    const img = (await screen.findByRole('button', { name: 'Family' })).querySelector('img');
+    try {
+      renderShell({ emojiSize });
+      await screen.findByRole('button', { name: 'Family' });
 
-    expect(img.style.width).toBe('32px');
-    expect(img.style.height).toBe('32px');
-    expect(window.getComputedStyle(img).width).toBe('32px');
-    expect(window.getComputedStyle(img).height).toBe('32px');
-    style.remove();
+      ['Family', 'Fedibird'].forEach(name => {
+        const img = screen.getByRole('button', { name }).querySelector('img');
+
+        // The body preference's 10em limit becomes zero in picker buttons.
+        expect(img.matches('img.emojione:not(.reaction)')).toBe(false);
+        expect(window.getComputedStyle(img).width).toBe(`${emojiSize}px`);
+        expect(window.getComputedStyle(img).height).toBe(`${emojiSize}px`);
+      });
+    } finally {
+      style.remove();
+    }
   });
 });
