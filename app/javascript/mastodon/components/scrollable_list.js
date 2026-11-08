@@ -1,4 +1,5 @@
 import React, { PureComponent } from 'react';
+import { unstable_batchedUpdates } from 'react-dom';
 import ScrollContainer from 'mastodon/containers/scroll_container';
 import PropTypes from 'prop-types';
 import IntersectionObserverArticleContainer from '../containers/intersection_observer_article_container';
@@ -35,6 +36,7 @@ import {
 
 const MOUSE_IDLE_DELAY = 300;
 const MASONRY_SCROLL_IDLE_DELAY = 500;
+const MASONRY_WHEEL_BURST_MS = 50;
 const MASONRY_ANCHOR_EPSILON = 0.5;
 
 const mapStateToProps = (state, { scrollKey }) => {
@@ -212,20 +214,142 @@ class ScrollableList extends PureComponent {
   _anchorScrollSuppressedLoad = false;
   _syntheticScrollTop = null;
   _lastNativeScrollAt = -Infinity;
+  _lastWheelAt = -Infinity;
+  _masonryScrollPhase = 'idle';
+  _masonryWheelTentative = false;
+  _userScrollSerial = 0;
 
-  _hasActiveMasonryScroll = () => isCardTimelineLayout(this.props.layoutMode) &&
+  _ignoreMasonryInput = () => this._suppressUserScroll || this._syntheticScrollDepth > 0 || this.lastScrollWasSynthetic;
+
+  _bumpUserScroll = () => {
+    this._lastNativeScrollAt = Date.now();
+    this._userScrollSerial += 1;
+  }
+
+  // Kinetic and unknown coasts keep the previous cards and measured slots,
+  // and they do not write scrollTop. A direct wheel, key, or scrollbar
+  // commits the measured height on the next render. A correction that was
+  // scheduled before that gesture still aborts, because every real scroll
+  // bumps _userScrollSerial. Unknown is a fast wheel burst on a browser
+  // that does not report WheelEvent.momentum, not a single notch.
+  _shouldDeferMasonryLayout = () => isCardTimelineLayout(this.props.layoutMode) &&
+    (this._masonryScrollPhase === 'kinetic' || this._masonryScrollPhase === 'unknown') &&
     Date.now() - this._lastNativeScrollAt < MASONRY_SCROLL_IDLE_DELAY;
 
-  // handleScroll is throttled to 150ms, but momentum ticks keep arriving
-  // inside that window. Record the raw event so a swallowed tick still
-  // holds the masonry guard for the full quiet period.
-  _noteNativeMasonryScroll = () => {
-    if (this._suppressUserScroll || this._syntheticScrollDepth > 0 || this.lastScrollWasSynthetic) {
+  _shouldSuppressAnchorWrites = () => this._shouldDeferMasonryLayout();
+
+  _beginKineticMasonryScroll = (phase) => {
+    if (!isCardTimelineLayout(this.props.layoutMode)) {
+      this._bumpUserScroll();
       return;
     }
 
-    this._lastNativeScrollAt = Date.now();
-    if (this._masonryPrependHeld || (this._masonry && this._masonry.hasHeldMeasurements())) {
+    this._masonryWheelTentative = false;
+    this._masonryScrollPhase = phase;
+    this._bumpUserScroll();
+    this._armMasonryHoldFlush();
+  }
+
+  _beginDirectMasonryScroll = () => {
+    if (!isCardTimelineLayout(this.props.layoutMode)) {
+      this._bumpUserScroll();
+      return;
+    }
+
+    this._masonryWheelTentative = false;
+    this._masonryScrollPhase = 'direct';
+    this._bumpUserScroll();
+    if (this._masonryPrependHeld || (this._masonry && this._masonry.hasHeldMeasurements && this._masonry.hasHeldMeasurements())) {
+      this._flushMasonryHold();
+    }
+  }
+
+  // Safari and Firefox do not report momentum. One notch may be a mouse
+  // wheel or the first tick of a trackpad coast, so keep the old layout for
+  // one burst interval instead of writing scrollTop immediately.
+  _beginTentativeWheel = () => {
+    if (!isCardTimelineLayout(this.props.layoutMode)) {
+      this._bumpUserScroll();
+      return;
+    }
+
+    this._masonryWheelTentative = true;
+    this._masonryScrollPhase = 'unknown';
+    this._bumpUserScroll();
+    this._armMasonryHoldFlush(MASONRY_WHEEL_BURST_MS);
+  }
+
+  _noteWheel = (event) => {
+    if (this._ignoreMasonryInput()) {
+      return;
+    }
+
+    const now = Date.now();
+    const burst = this._lastWheelAt !== -Infinity && now - this._lastWheelAt <= MASONRY_WHEEL_BURST_MS;
+    this._lastWheelAt = now;
+    const momentum = event ? event.momentum : undefined;
+
+    if (momentum === true) {
+      this._beginKineticMasonryScroll('kinetic');
+      return;
+    }
+
+    if (burst) {
+      // momentum:false can still be the finger-down phase before the coast.
+      // A burst with no momentum property is a trackpad on Safari or Firefox.
+      this._beginKineticMasonryScroll(momentum === false ? 'kinetic' : 'unknown');
+      return;
+    }
+
+    if (momentum === false) {
+      this._beginDirectMasonryScroll();
+      return;
+    }
+
+    this._beginTentativeWheel();
+  }
+
+  _noteTouchScroll = () => {
+    if (this._ignoreMasonryInput()) {
+      return;
+    }
+
+    this._beginKineticMasonryScroll('kinetic');
+  }
+
+  _noteTouchEnd = () => {
+    if (this._ignoreMasonryInput() || this._masonryScrollPhase !== 'kinetic') {
+      return;
+    }
+
+    // The finger is up. The coast continues until scrollend or the watchdog.
+    this._bumpUserScroll();
+    this._armMasonryHoldFlush();
+  }
+
+  _noteMasonryScrollEnd = () => {
+    if (this._ignoreMasonryInput()) {
+      return;
+    }
+
+    this._masonryWheelTentative = false;
+    this._masonryScrollPhase = 'idle';
+    this._lastNativeScrollAt = -Infinity;
+    this._flushMasonryHold();
+  }
+
+  // handleScroll is throttled to 150ms, but momentum ticks keep arriving
+  // inside that window. Record the raw event so a swallowed tick still
+  // holds a kinetic coast for the full quiet period.
+  _noteNativeMasonryScroll = () => {
+    if (this._ignoreMasonryInput()) {
+      return;
+    }
+
+    this._bumpUserScroll();
+    // A scroll that follows one unclassified wheel is the mouse notch, not
+    // a coast. Only a confirmed kinetic or unknown burst extends the hold.
+    if (this._masonryScrollPhase === 'kinetic' || (this._masonryScrollPhase === 'unknown' && !this._masonryWheelTentative)) {
       this._armMasonryHoldFlush();
     }
   }
@@ -264,21 +388,21 @@ class ScrollableList extends PureComponent {
   }
 
   // toArray escapes keys ('.$N') while forEach reports the key the parent
-  // passed ('N'). Walk both in order and return the original elements, so
-  // the next prepend plan does not escape the stored children again.
+  // passed ('N'). Both skip null and boolean children. If a future caller
+  // makes those walks diverge, show every real child instead of hiding the
+  // wrong card. The returned elements stay the original props so the next
+  // prepend plan does not escape the stored children again.
   _childrenExcluding = (children, keys) => {
     const skip = new Set(keys);
     const ordered = React.Children.toArray(children);
-    const visible = [];
-    let index = 0;
+    const originals = [];
     React.Children.forEach(children, child => {
-      const escaped = ordered[index] ? String(ordered[index].key) : '';
-      index += 1;
-      if (child && !skip.has(escaped)) {
-        visible.push(child);
-      }
+      originals.push(child);
     });
-    return visible;
+    if (originals.length !== ordered.length) {
+      return originals;
+    }
+    return originals.filter((child, index) => !skip.has(String(ordered[index].key)));
   }
 
   _masonryReadingPosition = () => (
@@ -296,6 +420,13 @@ class ScrollableList extends PureComponent {
     const source = this._masonrySourceId();
 
     if (!isCardTimelineLayout(this.props.layoutMode) || !this.node || !previous || source !== this._masonrySourceIdSeen) {
+      if (source !== this._masonrySourceIdSeen) {
+        // Drop the coast before the new masonry mounts, so its first
+        // measurement is committed instead of held against the old swipe.
+        this._masonryScrollPhase = 'idle';
+        this._masonryWheelTentative = false;
+        this._lastNativeScrollAt = -Infinity;
+      }
       this._masonrySourceIdSeen = source;
       this._shownMasonryChildren = next;
       this._dropMasonryHold();
@@ -310,7 +441,7 @@ class ScrollableList extends PureComponent {
       return next;
     }
 
-    if (this._hasActiveMasonryScroll() && this._masonryReadingPosition() && plan.prependedKeys.length > 0) {
+    if (this._shouldDeferMasonryLayout() && this._masonryReadingPosition() && plan.prependedKeys.length > 0) {
       this._masonryPrependHeld = true;
       return this._childrenExcluding(next, plan.prependedKeys);
     }
@@ -331,34 +462,50 @@ class ScrollableList extends PureComponent {
     }
   }
 
-  _armMasonryHoldFlush = () => {
+  _armMasonryHoldFlush = (delay) => {
     this._clearMasonryHoldTimer();
     const remaining = MASONRY_SCROLL_IDLE_DELAY - (Date.now() - this._lastNativeScrollAt);
-    this._masonryHoldTimer = setTimeout(this._flushMasonryHold, Math.max(16, remaining + 16));
+    const wait = delay === undefined ? Math.max(16, remaining + 16) : delay;
+    this._masonryHoldTimer = setTimeout(this._flushMasonryHold, wait);
   }
 
   _flushMasonryHold = () => {
-    this._masonryHoldTimer = null;
+    this._clearMasonryHoldTimer();
     if (this._anchorUnmounted) {
       return;
     }
-    if (this._hasActiveMasonryScroll()) {
+    if (this._masonryWheelTentative) {
+      this._masonryWheelTentative = false;
+      if (this._masonryScrollPhase === 'unknown') {
+        this._masonryScrollPhase = 'idle';
+      }
+    } else if (this._shouldDeferMasonryLayout()) {
       this._armMasonryHoldFlush();
       return;
     }
-    if (this._masonry && this._masonry.flushHeldMeasurements) {
-      this._masonry.flushHeldMeasurements();
+    if (this._masonryScrollPhase === 'kinetic' || this._masonryScrollPhase === 'unknown') {
+      this._masonryScrollPhase = 'idle';
     }
-    if (this._masonryPrependHeld) {
-      this.forceUpdate();
-    }
+    const masonry = this._masonry;
+    const releasePrepend = this._masonryPrependHeld;
+    unstable_batchedUpdates(() => {
+      this._masonryCombinedFlush = Boolean(releasePrepend && masonry && masonry.hasHeldMeasurements && masonry.hasHeldMeasurements());
+      if (masonry && masonry.flushHeldMeasurements) {
+        masonry.flushHeldMeasurements();
+      }
+      if (releasePrepend) {
+        this.forceUpdate();
+      }
+    });
+    // The flag stays set through getSnapshotBeforeUpdate. act() and other
+    // outer batches can flush that commit after this function returns.
   }
 
   _setMasonry = (node) => {
     this._masonry = node;
   }
 
-  _holdMasonryMeasurements = () => this._hasActiveMasonryScroll();
+  _holdMasonryMeasurements = () => this._shouldDeferMasonryLayout();
 
   _isAnchorJumpScroll = (scrollTop) => {
     if (this._syntheticScrollDepth > 0) {
@@ -472,6 +619,8 @@ class ScrollableList extends PureComponent {
 
   _retireMouseIdle = () => {
     this._lastNativeScrollAt = -Infinity;
+    this._masonryScrollPhase = 'idle';
+    this._masonryWheelTentative = false;
     this._mouseIdleSession += 1;
     this._disarmMouseIdle();
     this.mouseMovedRecently = false;
@@ -543,6 +692,7 @@ class ScrollableList extends PureComponent {
   });
 
   handleTouchMove = () => {
+    this._noteTouchScroll();
     this._markUserScrollIntent();
   }
 
@@ -552,11 +702,15 @@ class ScrollableList extends PureComponent {
     }
 
     if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+      if (event.type === 'pointermove') {
+        this._noteTouchScroll();
+      }
       this._markUserScrollIntent();
       return;
     }
 
     if (event.type === 'pointermove' && event.buttons > 0) {
+      this._beginDirectMasonryScroll();
       this._markUserScrollIntent();
     }
   }
@@ -575,6 +729,7 @@ class ScrollableList extends PureComponent {
     const keys = ['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '];
 
     if (keys.indexOf(event.key) !== -1) {
+      this._beginDirectMasonryScroll();
       this._markUserScrollIntent();
     }
   }
@@ -698,7 +853,7 @@ class ScrollableList extends PureComponent {
 
     // Native momentum is a user-driven animation, not a fixed reading anchor.
     // A snapshot taken while it runs would write scrollTop during the swipe.
-    if (variableHeightMasonry && this._hasActiveMasonryScroll()) {
+    if (variableHeightMasonry && this._shouldSuppressAnchorWrites()) {
       return null;
     }
 
@@ -788,7 +943,7 @@ class ScrollableList extends PureComponent {
   // ResizeObserver update only re-renders TimelineMasonry. Use the exact same
   // viewport-relative tile anchor for those child-only layout changes.
   captureMasonryLayoutAnchor = () => {
-    if (!this.node || this._anchorUnmounted || this._hasActiveMasonryScroll() ||
+    if (!this.node || this._anchorUnmounted || this._masonryCombinedFlush || this._shouldSuppressAnchorWrites() ||
         isProgrammaticTopScroll(this._getScrollingElement()) ||
         (this.isFollowingLatest() && !this.mouseMovedRecently && !this.props.preventScroll)) {
       return null;
@@ -800,7 +955,7 @@ class ScrollableList extends PureComponent {
 
   restoreMasonryLayoutAnchor = snapshot => {
     if (!snapshot || !snapshot.key || this._anchorUnmounted ||
-        this._hasActiveMasonryScroll() ||
+        this._shouldSuppressAnchorWrites() ||
         isProgrammaticTopScroll(this._getScrollingElement()) ||
         (typeof snapshot.scrollTop === 'number' &&
          Math.abs(this.getScrollTop() - snapshot.scrollTop) > MASONRY_ANCHOR_EPSILON)) {
@@ -814,12 +969,13 @@ class ScrollableList extends PureComponent {
   }
 
   _scheduleMasonryAnchorCorrection = (snapshot) => {
-    if (this._hasActiveMasonryScroll()) {
+    if (this._shouldSuppressAnchorWrites()) {
       return;
     }
 
     this._anchorGeneration = (this._anchorGeneration || 0) + 1;
     const generation = this._anchorGeneration;
+    const scrollSerial = this._userScrollSerial;
     this._cancelAnchorCorrection();
 
     const cursor = { top: this.getScrollTop() };
@@ -828,7 +984,8 @@ class ScrollableList extends PureComponent {
       frames: 2,
       shouldAbort: () => (
         this._anchorUnmounted ||
-        this._hasActiveMasonryScroll() ||
+        this._userScrollSerial !== scrollSerial ||
+        this._shouldSuppressAnchorWrites() ||
         this._anchorGeneration !== generation ||
         this._currentLocationKey() !== locationKey ||
         isProgrammaticTopScroll(this._getScrollingElement()) ||
@@ -900,6 +1057,7 @@ class ScrollableList extends PureComponent {
   }
 
   componentDidUpdate (prevProps, prevState, snapshot) {
+    this._masonryCombinedFlush = false;
     if (prevProps.bindToDocument !== this.props.bindToDocument) {
       this.detachScrollListener(prevProps.bindToDocument);
       this.attachScrollListener();
@@ -909,7 +1067,7 @@ class ScrollableList extends PureComponent {
     // Quiet periods still receive the usual reading-anchor correction.
     const activeMasonryScroll = (isCardTimelineLayout(this.props.layoutMode) ||
       (this.props.layoutMode === 'media' && this.state.mediaShape === 'original')) &&
-      this._hasActiveMasonryScroll();
+      this._shouldSuppressAnchorWrites();
     if (!activeMasonryScroll) {
       if (snapshot && snapshot.masonryAnchor) {
         this.restoreMasonryLayoutAnchor(snapshot);
@@ -1228,8 +1386,11 @@ class ScrollableList extends PureComponent {
 
     target.addEventListener('scroll', this._noteNativeMasonryScroll, { passive: true });
     target.addEventListener('scroll', this.handleScroll);
+    target.addEventListener('scrollend', this._noteMasonryScrollEnd);
+    target.addEventListener('wheel', this._noteWheel, { passive: true });
     target.addEventListener('wheel', this.handleWheel);
     target.addEventListener('touchmove', this.handleTouchMove);
+    target.addEventListener('touchend', this._noteTouchEnd, { passive: true });
     target.addEventListener('pointerdown', this.handlePointerScroll);
     target.addEventListener('pointermove', this.handlePointerScroll);
     target.addEventListener('keydown', this.handleKeyScroll);
@@ -1244,8 +1405,11 @@ class ScrollableList extends PureComponent {
 
     target.removeEventListener('scroll', this._noteNativeMasonryScroll);
     target.removeEventListener('scroll', this.handleScroll);
+    target.removeEventListener('scrollend', this._noteMasonryScrollEnd);
+    target.removeEventListener('wheel', this._noteWheel);
     target.removeEventListener('wheel', this.handleWheel);
     target.removeEventListener('touchmove', this.handleTouchMove);
+    target.removeEventListener('touchend', this._noteTouchEnd);
     target.removeEventListener('pointerdown', this.handlePointerScroll);
     target.removeEventListener('pointermove', this.handlePointerScroll);
     target.removeEventListener('keydown', this.handleKeyScroll);

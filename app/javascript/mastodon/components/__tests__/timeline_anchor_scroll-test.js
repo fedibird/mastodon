@@ -132,6 +132,22 @@ describe('ScrollableList timeline anchor', () => {
 
   const rows = (ids) => ids.map(id => <Row key={id} />);
 
+  const wheel = (node, { momentum, deltaY = 40 } = {}) => {
+    const event = new WheelEvent('wheel', { deltaY, bubbles: true, cancelable: true });
+    if (momentum !== undefined) {
+      Object.defineProperty(event, 'momentum', { value: momentum });
+    }
+    act(() => {
+      node.dispatchEvent(event);
+    });
+  };
+
+  const scrollEnd = (node) => {
+    act(() => {
+      node.dispatchEvent(new Event('scrollend', { bubbles: true }));
+    });
+  };
+
   it('anchors a visible card instead of using the total scrollHeight delta for a masonry prepend', () => {
     const ref = React.createRef();
     const reduxStore = store();
@@ -398,7 +414,7 @@ describe('ScrollableList timeline anchor', () => {
     const list = view.container.querySelector('.scrollable');
     list.scrollTop = 150;
 
-    fireEvent.wheel(list, { deltaY: 50 });
+    wheel(list, { momentum: true, deltaY: 50 });
     const setter = jest.spyOn(ref.current, 'setScrollTop');
     const capture = jest.spyOn(ref.current, 'captureVisibleMasonryItem');
 
@@ -436,7 +452,7 @@ describe('ScrollableList timeline anchor', () => {
     );
     const list = view.container.querySelector('.scrollable');
     list.scrollTop = 180;
-    fireEvent.wheel(list, { deltaY: 40 });
+    wheel(list, { momentum: true, deltaY: 40 });
     const setter = jest.spyOn(ref.current, 'setScrollTop');
 
     view.rerender(
@@ -530,7 +546,7 @@ describe('ScrollableList timeline anchor', () => {
     );
     const list = view.container.querySelector('.scrollable');
     list.scrollTop = 150;
-    fireEvent.wheel(list, { deltaY: 50 });
+    wheel(list, { momentum: true, deltaY: 50 });
     const setter = jest.spyOn(ref.current, 'setScrollTop');
 
     view.rerender(
@@ -543,10 +559,9 @@ describe('ScrollableList timeline anchor', () => {
     expect(setter).not.toHaveBeenCalled();
     expect(list.scrollTop).toBe(150);
 
-    // Changing feed retires the previous swipe. A later native scroll on the
-    // new feed still defers that feed's own prepend. wheel is throttled, so
-    // this uses the raw scroll listener.
-    fireEvent.scroll(list);
+    // Changing feed retires the previous swipe. A later coast on the new
+    // feed still defers that feed's own prepend. A bare scroll does not.
+    wheel(list, { momentum: true, deltaY: 20 });
     view.rerender(
       <Provider store={reduxStore}>
         <ScrollableList {...props} scrollKey='local' anchorSourceKey='local-live'>{rows(['120', '110', ...shared])}</ScrollableList>
@@ -624,7 +639,7 @@ describe('ScrollableList timeline anchor', () => {
       .find(node => tileY(node) < anchorY);
     expect(above).toBeTruthy();
 
-    fireEvent.wheel(list, { deltaY: 40 });
+    wheel(list, { momentum: true, deltaY: 40 });
     const setter = jest.spyOn(ref.current, 'setScrollTop');
     measured.set(above.getAttribute('data-layout-key'), 400);
     act(() => {
@@ -658,7 +673,244 @@ describe('ScrollableList timeline anchor', () => {
     expect(tileY(kept)).toBeGreaterThan(anchorY);
     expect(list.scrollTop).toBeGreaterThan(scrollBefore);
     expect(kept.getBoundingClientRect().top).toBe(beforeTop);
+    // The held height and the prepend share one restore. The card that was
+    // hidden can still be measured on the following commit.
+    expect(setter.mock.calls.length).toBeLessThanOrEqual(2);
     expect(setter).toHaveBeenCalled();
+  });
+
+  it('commits a prepend and a measured height on the next update for a discrete wheel, key, or scrollbar', () => {
+    Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: undefined });
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'direct-layout',
+      layoutMode: 'card-1',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    const masonry = view.container.querySelector('.timeline-masonry');
+    list.scrollTop = 80;
+    masonry.getBoundingClientRect = () => ({ ...rect(0, 0), width: 320, right: 320 });
+    view.container.querySelectorAll('.timeline-masonry__content').forEach(node => {
+      node.getBoundingClientRect = () => rect(0, 240);
+    });
+
+    wheel(list, { momentum: false, deltaY: 30 });
+    act(() => {
+      ref.current._masonry.measureFallback();
+    });
+    const key = view.container.querySelector('.timeline-masonry__item').getAttribute('data-layout-key');
+    expect(ref.current._masonry.state.heights[key]).toBe(240);
+    expect(ref.current._masonry._heldHeights).toBeNull();
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="110"]')).not.toBeNull();
+
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['120', '110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="120"]')).not.toBeNull();
+
+    fireEvent.scroll(list);
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['130', '120', '110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="130"]')).not.toBeNull();
+    expect(ref.current._masonryScrollPhase).not.toBe('kinetic');
+  });
+
+  it('holds a Chromium coast from momentum false through momentum true until scrollend', () => {
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'momentum-sequence',
+      layoutMode: 'card-2',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 140;
+
+    wheel(list, { momentum: false, deltaY: 16 });
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="110"]')).not.toBeNull();
+
+    wheel(list, { momentum: true, deltaY: 24 });
+    const setter = jest.spyOn(ref.current, 'setScrollTop');
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['120', '110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="120"]')).toBeNull();
+    expect(setter).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(140);
+
+    scrollEnd(list);
+    expect(view.container.querySelector('[data-layout-key*="120"]')).not.toBeNull();
+    expect(ref.current._masonryScrollPhase).toBe('idle');
+    expect(ref.current._masonryHoldTimer).toBeNull();
+  });
+
+  it('keeps an iOS-style flick held through touchend and flushes on scrollend', () => {
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'touch-coast',
+      layoutMode: 'card-1',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 160;
+
+    fireEvent.touchMove(list);
+    fireEvent.touchEnd(list);
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="110"]')).toBeNull();
+
+    list.scrollTop += 30;
+    fireEvent.scroll(list);
+    expect(view.container.querySelector('[data-layout-key*="110"]')).toBeNull();
+    expect(ref.current._masonryScrollPhase).toBe('kinetic');
+
+    scrollEnd(list);
+    expect(view.container.querySelector('[data-layout-key*="110"]')).not.toBeNull();
+    expect(ref.current._masonryScrollPhase).toBe('idle');
+  });
+
+  it('releases one unclassified wheel after the burst window and a trackpad burst only after the coast', () => {
+    let now = 5000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'unclassified-wheel',
+      layoutMode: 'card-3',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 90;
+
+    wheel(list, { deltaY: 12 });
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="110"]')).toBeNull();
+    expect(ref.current._masonryWheelTentative).toBe(true);
+
+    act(() => {
+      ref.current._flushMasonryHold();
+    });
+    expect(view.container.querySelector('[data-layout-key*="110"]')).not.toBeNull();
+    expect(ref.current._masonryScrollPhase).toBe('idle');
+
+    wheel(list, { deltaY: 12 });
+    now += 16;
+    wheel(list, { deltaY: 18 });
+    expect(ref.current._masonryScrollPhase).toBe('unknown');
+    expect(ref.current._masonryWheelTentative).toBe(false);
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['120', '110', '100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(view.container.querySelector('[data-layout-key*="120"]')).toBeNull();
+
+    act(() => {
+      ref.current._flushMasonryHold();
+    });
+    expect(view.container.querySelector('[data-layout-key*="120"]')).toBeNull();
+
+    now += 600;
+    act(() => {
+      ref.current._flushMasonryHold();
+    });
+    expect(view.container.querySelector('[data-layout-key*="120"]')).not.toBeNull();
+  });
+
+  it('drops the masonry scroll listener and watchdog when the surface changes or the list unmounts', () => {
+    const remove = jest.spyOn(Element.prototype, 'removeEventListener');
+    const ref = React.createRef();
+    const reduxStore = store();
+    const props = {
+      ref,
+      scrollKey: 'home',
+      layoutMode: 'card-1',
+      trackScroll: false,
+      hasMore: false,
+    };
+    const view = render(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props}>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    const list = view.container.querySelector('.scrollable');
+    list.scrollTop = 40;
+    wheel(list, { momentum: true });
+    expect(ref.current._masonryHoldTimer).not.toBeNull();
+
+    view.rerender(
+      <Provider store={reduxStore}>
+        <ScrollableList {...props} scrollKey='local'>{rows(['100', '90'])}</ScrollableList>
+      </Provider>,
+    );
+    expect(ref.current._masonryHoldTimer).toBeNull();
+    expect(ref.current._masonryScrollPhase).toBe('idle');
+
+    wheel(list, { momentum: true });
+    const timer = ref.current._masonryHoldTimer;
+    expect(timer).not.toBeNull();
+    const clear = jest.spyOn(global, 'clearTimeout');
+    view.unmount();
+    expect(clear).toHaveBeenCalledWith(timer);
+    expect(remove.mock.calls.some(call => call[0] === 'scrollend')).toBe(true);
   });
 
   it('preserves the reading tile when a new post gains its real height after two frames', () => {
