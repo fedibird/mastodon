@@ -6,7 +6,7 @@ RSpec.describe Settings::AccountSubscribesController, type: :controller do # rub
   render_views
 
   let(:user) { Fabricate(:user, account: Fabricate(:account, username: 'alice')) }
-  let(:subscription) { Fabricate(:account_subscribe, account: user.account) }
+  let(:subscription) { Fabricate(:account_subscribe, account: user.account, target_account: Fabricate(:account)) }
 
   before do
     sign_in user, scope: :user
@@ -57,8 +57,13 @@ RSpec.describe Settings::AccountSubscribesController, type: :controller do # rub
     let(:unsubscribe_service) { instance_double(UnsubscribeAccountService) }
 
     before do
-      allow(controller).to receive(:current_account).and_return(user.account)
-      allow(user.account.active_subscribes).to receive(:count).and_return(remaining_count)
+      subscription
+      account = user.account
+      active_subscribes = account.active_subscribes
+
+      allow(controller).to receive(:current_account).and_return(account)
+      allow(account).to receive(:active_subscribes).and_return(active_subscribes)
+      allow(active_subscribes).to receive(:count).and_return(remaining_count)
       allow(UnsubscribeAccountService).to receive(:new).and_return(unsubscribe_service)
       allow(unsubscribe_service).to receive(:call) { subscription.destroy! }
     end
