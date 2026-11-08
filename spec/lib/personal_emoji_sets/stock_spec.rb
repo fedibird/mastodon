@@ -11,6 +11,13 @@ RSpec.describe PersonalEmojiSets::Stock do
     { 'id' => id, 'kind' => 'unicode', 'native' => native }
   end
 
+  def expect_no_storage_probes
+    # Storage methods are mixed into each attachment during construction.
+    allow(Paperclip::Attachment).to receive(:new).and_wrap_original do |original, *args|
+      original.call(*args).tap { |attachment| expect(attachment).not_to receive(:exists?) }
+    end
+  end
+
   it 'uses the whole first grapheme, and initial mode never uses an image' do
     categories = definition(items: [unicode_item('thumb', '👍🏽')], name: '👩‍👩‍👦 家族', heading: { 'mode' => 'initial' })
     heading = described_class.new(categories).as_json.fetch(:categories).first.fetch(:heading)
@@ -67,7 +74,7 @@ RSpec.describe PersonalEmojiSets::Stock do
     it 'uses current metadata, dimensions and callbacks while retaining the saved identity' do
       categories = definition(items: items)
       emoji.update_columns(shortcode: 'renamed_emoji', alternate_name: '横長の絵文字', reading: 'よこなが', ruby: 'ヨコナガ', aliases: ['wide', 'long'], width: 320, height: 32, visible_in_picker: false)
-      expect_any_instance_of(Paperclip::Attachment).not_to receive(:exists?)
+      expect_no_storage_probes
       resolved = described_class.new(categories).resolved_items.fetch('wide')
 
       expect(resolved[:available]).to be true

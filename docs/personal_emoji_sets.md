@@ -157,11 +157,17 @@ does not probe remote image storage or fetch the full custom catalog. The browse
 handles a missing image. Unicode assets and searchable names are supplied only
 for registered placements.
 
-Stock responses use `Cache-Control: private, no-cache` and an ETag that includes
-the viewer, resolved response, Unicode catalog version, and referenced custom
-records' cache versions. A custom image/metadata/disabled-state change can
-invalidate this ETag without changing the definition revision. Editor and resolve
-responses are `private, no-store`.
+Stock responses use `Cache-Control: private, no-store`, matching the existing
+authenticated API policy. The client retains the current document and ETag only
+in page memory and explicitly sends `If-None-Match` on each opening; it does not
+depend on the browser's HTTP cache. An unchanged stock returns an empty 304 with
+the same private, no-store policy. This saves response bytes, not the database
+resolution needed to compute the current ETag.
+
+The ETag includes the viewer, resolved response, Unicode catalog version, and
+referenced custom records' cache versions. A custom image/metadata/disabled-state
+change can invalidate it without changing the definition revision. Editor and
+resolve responses are also `private, no-store`.
 
 ## Unicode catalog maintenance
 

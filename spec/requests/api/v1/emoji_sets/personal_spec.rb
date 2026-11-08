@@ -107,14 +107,19 @@ RSpec.describe 'Personal emoji sets API', type: :request do
     put path, params: payload.to_json, headers: headers
     get "#{path}/stock", headers: headers
     expect(response).to have_http_status(:ok)
-    expect(response.headers['Cache-Control']).to eq 'private, no-cache'
+    expect(response.headers['Cache-Control']).to eq 'private, no-store'
     etag = response.headers.fetch('ETag')
+    expect(etag).to be_present
     get "#{path}/stock", headers: headers.merge('If-None-Match' => etag)
     expect(response).to have_http_status(:not_modified)
+    expect(response.headers['Cache-Control']).to eq 'private, no-store'
+    expect(response.headers['ETag']).to eq etag
+    expect(response.body).to be_empty
 
     emoji.update!(disabled: true)
     get "#{path}/stock", headers: headers.merge('If-None-Match' => etag)
     expect(response).to have_http_status(:ok)
+    expect(response.headers['Cache-Control']).to eq 'private, no-store'
     expect(parsed.fetch('revision')).to eq 1
     expect(parsed.dig('stock', 'categories', 0, 'items').map { |item| item['key'] }).to eq ['thumb']
     expect(response.headers['ETag']).not_to eq etag

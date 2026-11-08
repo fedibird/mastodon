@@ -71,6 +71,8 @@ class Api::V1::EmojiSets::PersonalController < Api::BaseController
   end
 
   def private_cache_headers
-    response.headers['Cache-Control'] = action_name == 'stock' && [200, 304].include?(response.status) ? 'private, no-cache' : 'private, no-store'
+    # Match CacheConcern for authenticated responses. Stock revalidation uses
+    # the client's in-memory ETag, not the browser's HTTP cache.
+    response.cache_control.replace(private: true, no_store: true)
   end
 end
