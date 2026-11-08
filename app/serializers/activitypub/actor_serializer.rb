@@ -8,7 +8,7 @@ class ActivityPub::ActorSerializer < ActivityPub::Serializer
   context_extensions :manually_approves_followers, :featured, :also_known_as,
                      :moved_to, :property_value, :identity_proof,
                      :discoverable, :olm, :suspended, :other_setting,
-                     :vcard, :'_misskey_followedMessage',
+                     :vcard, :_misskey_followedMessage,
                      :indexable, :memorial,
                      :searchable_by
 
@@ -31,6 +31,7 @@ class ActivityPub::ActorSerializer < ActivityPub::Serializer
   attribute :bday, key: :'vcard:bday', if: :bday?
   attribute :address, key: :'vcard:Address'
   attribute :followed_message, key: :_misskey_followedMessage, if: -> { object.followed_message.present? }
+  attribute :fedibird_group_protocols, if: :advertise_fedibird_group_protocols?
 
   has_many :virtual_other_settings, key: :other_setting
 
@@ -48,6 +49,27 @@ class ActivityPub::ActorSerializer < ActivityPub::Serializer
 
   has_one :icon,  serializer: ActivityPub::ImageSerializer, if: :avatar_exists?
   has_one :image, serializer: ActivityPub::ImageSerializer, if: :header_exists?
+
+  # P3-B: include the JSON-LD term only when the matching Actor field is
+  # emitted. A static context_extensions declaration would change every
+  # Actor's @context even while the rollout flag is OFF.
+  def serializable_hash(adapter_options = nil, options = {}, adapter_instance = self.class.serialization_adapter_instance)
+    if adapter_options&.key?(:context_extensions) && advertise_fedibird_group_protocols?
+      adapter_options[:context_extensions][:fedibird_group_protocols] = true
+    end
+
+    super
+  end
+
+  def advertise_fedibird_group_protocols?
+    return @advertise_fedibird_group_protocols if defined?(@advertise_fedibird_group_protocols)
+
+    @advertise_fedibird_group_protocols = ActivityPub::GroupProtocolAdvertisement.advertised?(object)
+  end
+
+  def fedibird_group_protocols
+    ActivityPub::GroupProtocolAdvertisement.protocol_iris
+  end
 
   delegate :suspended?, :instance_actor?, to: :object
 
@@ -198,7 +220,7 @@ class ActivityPub::ActorSerializer < ActivityPub::Serializer
   end
 
   def virtual_other_settings
-    object.other_settings.reject {|keys, value| Account::HIDDEN_OTHER_SETTING_KEYS.include? keys}.map do |k, v|
+    object.other_settings.reject { |key, _value| Account::HIDDEN_OTHER_SETTING_KEYS.include?(key) }.map do |k, v|
       {
         type: 'PropertyValue',
         name: k,
