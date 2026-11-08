@@ -27,7 +27,10 @@ RSpec.describe Api::V2::InstancesController, type: :controller do
 
       body = JSON.parse(response.body)
       expect(body['fedibird_capabilities']).to include('filter_v2')
-      expect(body.dig('fedibird', 'rest', 'supported')).to include('status_expiration', 'group_directory')
+      expect(body['fedibird_capabilities'].last(2)).to eq %w(emoji_details personal_emoji_sets)
+      expect(body['fedibird_capabilities']).not_to include('emoji_mutes', 'emoji_registration_requests')
+      expect(body.dig('fedibird', 'rest', 'supported')).to include('status_expiration', 'group_directory', 'emoji_details', 'personal_emoji_sets')
+      expect(body.dig('fedibird', 'rest', 'contextual')).not_to have_key('emoji_mutes')
       expect(body.dig('fedibird', 'activitypub', 'supported')).to include('group_actor')
     end
 

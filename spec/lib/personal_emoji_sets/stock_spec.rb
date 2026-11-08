@@ -34,6 +34,7 @@ RSpec.describe PersonalEmojiSets::Stock do
 
     expect(items.first.fetch(:image).fetch(:src)).to end_with '/emoji/1f44d-1f3fd.svg'
     expect(items.first.fetch(:selection)).to eq(id: '+1', custom: false, native: '👍🏽')
+    expect(items.first.fetch(:reference)).to eq(kind: 'unicode', native: '👍🏽')
     expect(items.last.fetch(:selection).fetch(:native)).to eq '👨🏿‍⚕️'
     expect(items.first.fetch(:search)).to include('いいね')
   end
@@ -57,7 +58,12 @@ RSpec.describe PersonalEmojiSets::Stock do
 
       expect(stock.as_json[:categories].first[:heading]).to eq(text: '横')
       expect(stock.as_json[:categories].first[:items].map { |item| item[:key] }).to eq ['thumb']
-      expect(stock.resolved_items.fetch('wide')).to eq(available: false, label: ':wide_emoji:', reason: 'unavailable')
+      expect(stock.resolved_items.fetch('wide')).to eq(
+        available: false,
+        label: ':wide_emoji:',
+        reason: 'unavailable',
+        reference: { kind: 'custom', scope: 'local', custom_emoji_id: emoji.id.to_s, shortcode: 'wide_emoji' }
+      )
       expect(categories.first.fetch('items').first.fetch('custom_emoji_id')).to eq emoji.id.to_s
     end
 
@@ -82,6 +88,7 @@ RSpec.describe PersonalEmojiSets::Stock do
       expect(resolved[:image]).to include(width: 320, height: 32, alt: ':renamed_emoji:')
       expect(resolved[:search]).to include('よこなが', 'ヨコナガ', 'wide', 'long')
       expect(resolved[:selection]).to eq(id: 'renamed_emoji', custom: true, native: ':renamed_emoji:', colons: ':renamed_emoji:')
+      expect(resolved[:reference]).to eq(kind: 'custom', scope: 'local', custom_emoji_id: emoji.id.to_s, shortcode: 'renamed_emoji')
     end
 
     it 'loads all referenced custom emoji with one database query regardless of placements' do

@@ -47,6 +47,21 @@ module Fedibird
             scope: 'administrator',
             collection_path: '/api/v1/fedibird/posting_identities',
           },
+          emoji_details: {
+            scope: 'authenticated_user',
+            resolve_path: '/api/v1/fedibird/emojis/resolve',
+            read_scopes_any: %w(read read:accounts),
+            read_only: true,
+          },
+          personal_emoji_sets: {
+            scope: 'authenticated_user',
+            document_path: '/api/v1/emoji_sets/personal',
+            stock_path: '/api/v1/emoji_sets/personal/stock',
+            resolve_path: '/api/v1/emoji_sets/personal/resolve',
+            category_item_path: '/api/v1/emoji_sets/personal/categories/:category_id/items',
+            read_scopes_any: %w(read read:accounts),
+            write_scopes_any: %w(write write:accounts),
+          },
         }
       end
     end

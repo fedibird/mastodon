@@ -38,7 +38,7 @@ class Api::V1::EmojiSets::PersonalController < Api::BaseController
   # save when a deleted shortcode may have been registered again.
   def resolve
     body = json_body
-    allowed = %w(kind shortcode native)
+    allowed = %w(kind shortcode native custom_emoji_id)
     raise PersonalEmojiSets::Invalid.new('body', 'unknown_field') unless (body.keys - allowed).empty?
 
     category = {

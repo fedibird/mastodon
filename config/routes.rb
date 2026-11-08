@@ -633,6 +633,7 @@ Rails.application.routes.draw do
         resource :personal, only: [:show, :update], controller: :personal do
           get :stock
           post :resolve
+          post 'categories/:category_id/items', to: 'personal/items#create', constraints: { category_id: /[A-Za-z0-9_-]{1,64}/ }
         end
       end
 
@@ -708,6 +709,10 @@ Rails.application.routes.draw do
       end
 
       namespace :fedibird do
+        namespace :emojis do
+          resource :resolve, only: :create, controller: :resolve
+        end
+
         post 'filters/matches', to: 'filters/matches#create'
         resource :preferences, only: [:show]
         patch 'preferences', to: 'preferences#update'

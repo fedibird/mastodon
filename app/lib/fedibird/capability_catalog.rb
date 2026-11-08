@@ -44,6 +44,13 @@ module Fedibird
       followed_message
     ).freeze
 
+    # Appended after the historical array, including conditional
+    # profile_search. Only features this release actually implements.
+    IMPLEMENTED_EMOJI_CAPABILITIES = %i(
+      emoji_details
+      personal_emoji_sets
+    ).freeze
+
     # "supported" means implemented, not necessarily authorized or enabled.
     REST_SUPPORTED = %w(
       emoji_reactions
@@ -61,6 +68,8 @@ module Fedibird
       external_feed_delivery
       posting_context_discovery
       timeline_media_filters
+      emoji_details
+      personal_emoji_sets
     ).freeze
 
     # Software-level AP serializer behavior, not FEP conformance or
@@ -78,7 +87,7 @@ module Fedibird
     def legacy
       capabilities = LEGACY_CAPABILITIES.dup
       capabilities << :profile_search unless Chewy.enabled?
-      capabilities
+      capabilities.concat(IMPLEMENTED_EMOJI_CAPABILITIES)
     end
 
     def instance
