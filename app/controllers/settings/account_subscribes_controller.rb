@@ -9,8 +9,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
   before_action :set_account_subscribings, only: :index
   before_action :set_account_subscribing, only: [:edit, :update, :destroy]
 
-  def index
-  end
+  def index; end
 
   def new
     @form_account_subscribing = Form::AccountSubscribe.new
@@ -73,7 +72,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
 
     if resource_params[:list_id] == '-1'
       list = List.find_or_create_by!({ account: current_account, title: new_params[:acct] })
-      new_params.merge!({list_id: list.id})
+      new_params.merge!({ list_id: list.id })
     end
 
     new_params
