@@ -5,6 +5,21 @@ The settings editor is available at `/settings/custom_emojis/personal_set`, unde
 definition is separate from the resolved stock consumed by the lightweight
 picker. Empty categories and an empty set are valid.
 
+## Adding frequently used emoji
+
+The editor's **Add emoji** picker starts with **Frequently used**. It reads the
+saved WebUI usage counts and display limit already included in the settings
+page's initial state. Ordering, limits, and default candidates are shared with
+the standard WebUI picker. Both Unicode and currently listed custom emoji can
+be selected through the existing resolve-and-add flow. Unicode candidates use
+the tone currently selected in the add dialog.
+
+Selecting candidates does not record emoji usage or update Nimble's local
+history. This list reflects the saved history when the settings page was opened;
+reload the page to pick up later usage from another tab. The standard catalog
+still loads only when requested. The personal stock picker continues to show
+only registered entries, without a frequently-used category.
+
 ## Persistence and updates
 
 Migration `20261115120000_create_personal_emoji_sets` adds one JSONB definition

@@ -760,7 +760,7 @@ export class PersonalEmojiSetEditor extends React.PureComponent {
       <React.Fragment>
         <p className='pes-hint'>{this.text('emojiAddTo', { name: this.currentCategory().name })}</p>
         <p className='pes-hint pes-dialog-hint'>{this.text('selectionHint')}</p>
-        <LazyStandardPicker load={this.props.loadStandardPicker} onPick={this.handleCandidatePick} emojiSize={22} theme={this.theme()} skinTone={this.state.addSkinTone} onSkinToneChange={this.handleAddSkinTone} autoFocus={false} />
+        <LazyStandardPicker load={this.props.loadStandardPicker} onPick={this.handleCandidatePick} emojiSize={22} theme={this.theme()} skinTone={this.state.addSkinTone} onSkinToneChange={this.handleAddSkinTone} autoFocus={false} showFrequentlyUsed />
         <div className='pes-candidates' aria-label={this.text('selected')}>
           {candidates.map(candidate => <button type='button' key={candidate.item.id} data-action='candidate-remove' data-id={candidate.item.id} className='pes-candidate-chip' onClick={this.handleAction} aria-label={`${this.text('emojiRemove')}: ${candidate.resolved.label}`}><EmojiArt image={candidate.resolved.image} text={candidate.item.native} size={24} /><span>{candidate.resolved.label}</span><Icon id='times' aria-hidden='true' /></button>)}
         </div>
