@@ -4,6 +4,8 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useEmoji } from 'mastodon/actions/emojis';
 import EmojiPickerShell from '../emoji_picker_shell';
+import { notifySavedPersonalEmojiSet } from '../emoji_stock_source';
+import StockEmojiPicker from '../stock_emoji_picker';
 
 jest.mock('react-intl', () => {
   const intl = { formatMessage: descriptor => descriptor.defaultMessage };
@@ -547,8 +549,11 @@ describe('emoji picker shell and personal stock', () => {
 
     const skin = screen.getByRole('button', { name: 'Thumb light' });
 
-    fireEvent.touchEnd(skin);
-    fireEvent.click(skin);
+    const touch = { identifier: 1, clientX: 12, clientY: 20 };
+
+    fireEvent.touchStart(skin, { touches: [touch] });
+    fireEvent.touchEnd(skin, { changedTouches: [touch] });
+    fireEvent.click(skin, { detail: 1 });
     expect(onPick).toHaveBeenCalledTimes(2);
     expect(onPick.mock.calls[1][0].native).toBe(SKIN);
     expect(useEmoji).not.toHaveBeenCalled();
@@ -585,6 +590,78 @@ describe('emoji picker shell and personal stock', () => {
     expect(first.getAttribute('data-stock-key')).toBe('place-zwj');
     expect(modifiers).toEqual([expect.objectContaining({ id: '+1', native: SKIN, key: 'Enter' })]);
     expect(onPick).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves vertically by the displayed rows around wide images and category boundaries', async () => {
+    const stock = JSON.parse(JSON.stringify(fixture()));
+    const items = stock.categories.reduce((all, category) => all.concat(category.items), []);
+
+    stock.categories[0].items = items.slice(0, 4);
+    stock.categories[1].items = items.slice(4);
+    renderShell({ stockSource: ready(stock), perLine: 4 });
+    await screen.findByRole('button', { name: 'Family' });
+
+    const buttons = selected('[data-stock-key]');
+    const rectangles = [
+      { left: 0, top: 0, width: 34, height: 34 },
+      { left: 34, top: 0, width: 34, height: 34 },
+      { left: 68, top: 0, width: 34, height: 34 },
+      { left: 0, top: 34, width: 112, height: 34 },
+      { left: 0, top: 100, width: 34, height: 34 },
+      { left: 34, top: 100, width: 34, height: 34 },
+    ];
+
+    buttons.forEach((button, index) => {
+      button.getBoundingClientRect = () => rectangles[index];
+    });
+
+    buttons[1].focus();
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(buttons[3]);
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(buttons[1]);
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowDown' });
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(buttons[5]);
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(buttons[3]);
+
+    buttons[0].focus();
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(buttons[0]);
+    buttons[4].focus();
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(buttons[4]);
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(buttons[5]);
+
+    // A later reflow changes the nearest column without remounting the picker.
+    rectangles[4] = { left: 0, top: 100, width: 112, height: 34 };
+    rectangles[5] = { left: 112, top: 100, width: 34, height: 34 };
+    buttons[3].focus();
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(buttons[4]);
+  });
+
+  it('uses only the filtered rows for vertical navigation, even with old button refs', async () => {
+    renderShell();
+    const search = await screen.findByRole('searchbox');
+    const buttons = selected('[data-stock-key]');
+
+    buttons.forEach((button, index) => {
+      button.getBoundingClientRect = () => ({ left: 0, top: index * 40, width: 34, height: 34 });
+    });
+    fireEvent.change(search, { target: { value: 'family' } });
+    expect(buttons[1].isConnected).toBe(false);
+
+    const first = screen.getByRole('button', { name: 'Family' });
+    const second = screen.getByRole('button', { name: 'Family again' });
+
+    first.focus();
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(second);
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(first);
   });
 
   it('leaves horizontal arrows in the search field and repeats ArrowDown onto the same result', async () => {
@@ -732,25 +809,146 @@ describe('emoji picker shell and personal stock', () => {
     expect(document.activeElement).toBe(personalSearch);
   });
 
-  it('sizes stock images from emojiSize instead of the 16px emoji rule', async () => {
+  it('keeps the saved heading through search and falls back to the name if its image fails', async () => {
+    const stock = JSON.parse(JSON.stringify(fixture()));
+
+    stock.categories[0].heading = { text: 'Z', image: stock.categories[0].items[0].image };
+    renderShell({ stockSource: ready(stock) });
+
+    const search = await screen.findByRole('searchbox');
+    const anchor = screen.getByRole('button', { name: 'Zebra' });
+
+    expect(anchor).toHaveAttribute('title', 'Zebra');
+    expect(anchor.querySelector('img')).toHaveAttribute('src', 'https://assets.example/family.svg');
+    fireEvent.change(search, { target: { value: 'Thumb light' } });
+    expect(screen.queryByRole('button', { name: 'Family' })).not.toBeInTheDocument();
+    expect(anchor.querySelector('img')).toHaveAttribute('src', 'https://assets.example/family.svg');
+    fireEvent.error(anchor.querySelector('img'));
+    expect(anchor).toHaveTextContent('Z');
+    expect(anchor.querySelector('img')).toBeNull();
+  });
+
+  it('does not select after touch movement, scrolling, cancellation, or a second finger', async () => {
+    const { onPick } = renderShell();
+    const button = await screen.findByRole('button', { name: 'Family' });
+    const touch = { identifier: 1, clientX: 20, clientY: 20 };
+    const moved = { ...touch, clientY: 80 };
+
+    fireEvent.touchStart(button, { touches: [touch] });
+    fireEvent.touchMove(button, { touches: [moved] });
+    fireEvent.touchEnd(button, { changedTouches: [moved] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).not.toHaveBeenCalled();
+
+    fireEvent.touchStart(button, { touches: [touch] });
+    document.querySelector('.emoji-stock-picker .emoji-mart-scroll').scrollTop = 30;
+    fireEvent.touchEnd(button, { changedTouches: [touch] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).not.toHaveBeenCalled();
+
+    fireEvent.touchStart(button, { touches: [touch] });
+    fireEvent.touchCancel(button);
+    fireEvent.touchEnd(button, { changedTouches: [touch] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).not.toHaveBeenCalled();
+
+    fireEvent.touchStart(button, { touches: [touch, { ...touch, identifier: 2 }] });
+    fireEvent.touchEnd(button, { changedTouches: [touch] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).not.toHaveBeenCalled();
+
+    fireEvent.touchStart(button, { touches: [touch] });
+    fireEvent.touchStart(document.body, { touches: [touch, { ...touch, identifier: 2 }] });
+    fireEvent.touchEnd(document.body, { touches: [touch], changedTouches: [{ ...touch, identifier: 2 }] });
+    fireEvent.touchEnd(button, { touches: [], changedTouches: [touch] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).not.toHaveBeenCalled();
+
+    fireEvent.touchStart(button, { touches: [touch] });
+    fireEvent.touchEnd(button, { changedTouches: [touch] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).toHaveBeenCalledTimes(1);
+    // A keyboard/screen-reader click must not be mistaken for a ghost click.
+    fireEvent.click(button, { detail: 0 });
+    expect(onPick).toHaveBeenCalledTimes(2);
+  });
+
+  it('updates every mounted live personal picker immediately after a successful save', async () => {
+    const onPick = jest.fn();
+    const first = render(<EmojiPickerShell onPick={onPick} />);
+    const second = render(<EmojiPickerShell onPick={onPick} />);
+
+    await waitFor(() => expect(screen.getAllByText('No emoji in this set')).toHaveLength(2));
+    act(() => notifySavedPersonalEmojiSet({ revision: 1, picker_emoji_size: 32, stock: fixture() }));
+    expect(within(first.container).getByRole('button', { name: 'Family' })).toBeInTheDocument();
+    expect(within(second.container).getByRole('button', { name: 'Family' })).toBeInTheDocument();
+  });
+
+  it('keeps the preview anchor highlight aligned with programmatic category movement', () => {
+    const stock = JSON.parse(JSON.stringify(fixture()));
+    const view = render(<StockEmojiPicker stock={stock} selectedCategoryId='cat-z' />);
+    const first = screen.getByRole('button', { name: 'Zebra' });
+    const second = screen.getByRole('button', { name: 'Apple' });
+
+    fireEvent.click(second);
+    expect(second).toHaveAttribute('aria-pressed', 'true');
+    view.rerender(<StockEmojiPicker stock={{ categories: stock.categories.slice() }} selectedCategoryId='cat-z' />);
+    expect(first).toHaveAttribute('aria-pressed', 'true');
+    expect(second).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it.each([22, 32, 48])('keeps stock image heights at %ipx and preserves custom aspect ratios independently of body preferences', async emojiSize => {
     const style = document.createElement('style');
+    const stock = JSON.parse(JSON.stringify(fixture()));
+
+    Object.assign(stock.categories[1].items[1].image, { width: 120, height: 60 });
 
     style.textContent = `
-      .emojione { width: 16px; height: 16px; }
-      .emoji-stock-picker .emoji-mart-emoji img.emojione {
-        width: var(--emoji-stock-size, 22px);
-        height: var(--emoji-stock-size, 22px);
+      .emoji-mart-emoji { font-size: 0; }
+      .emojione { font-size: inherit; width: 16px; height: 16px; }
+      img.emojione:not(.reaction) {
+        width: unset !important;
+        max-width: min(100%, 10em);
       }
     `;
     document.head.appendChild(style);
-    renderShell({ emojiSize: 32 });
 
-    const img = (await screen.findByRole('button', { name: 'Family' })).querySelector('img');
+    try {
+      renderShell({ emojiSize, stockSource: ready(stock) });
+      await screen.findByRole('button', { name: 'Family' });
 
-    expect(img.style.width).toBe('32px');
-    expect(img.style.height).toBe('32px');
-    expect(window.getComputedStyle(img).width).toBe('32px');
-    expect(window.getComputedStyle(img).height).toBe('32px');
-    style.remove();
+      ['Family', 'Fedibird'].forEach(name => {
+        const img = screen.getByRole('button', { name }).querySelector('img');
+
+        // The body preference's 10em limit becomes zero in picker buttons.
+        expect(img.matches('img.emojione:not(.reaction)')).toBe(false);
+        const expectedWidth = name === 'Fedibird' ? emojiSize * 2 : emojiSize;
+
+        expect(window.getComputedStyle(img).width).toBe(`${expectedWidth}px`);
+        expect(window.getComputedStyle(img).height).toBe(`${emojiSize}px`);
+        expect(img).toHaveAttribute('width', String(expectedWidth));
+      });
+    } finally {
+      style.remove();
+    }
+  });
+
+  it.each([
+    {},
+    { width: 320, height: 0 },
+    { width: -1, height: 32 },
+    { width: NaN, height: 32 },
+    { width: 320, height: Infinity },
+  ])('uses intrinsic custom image width when dimensions are missing or invalid: %j', async dimensions => {
+    const stock = JSON.parse(JSON.stringify(fixture()));
+
+    Object.assign(stock.categories[1].items[1].image, dimensions);
+    renderShell({ emojiSize: 48, stockSource: ready(stock) });
+    const img = (await screen.findByRole('button', { name: 'Fedibird' })).querySelector('img');
+
+    expect(img.style.width).toBe('auto');
+    expect(img.style.height).toBe('48px');
+    expect(img).not.toHaveAttribute('width');
+    expect(img).not.toHaveClass('emojione');
   });
 });

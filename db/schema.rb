@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_14_120000) do
+ActiveRecord::Schema.define(version: 2026_11_15_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1976,6 +1976,15 @@ create_table "managed_groups", force: :cascade do |t|
     t.index ["key_id"], name: "index_one_time_keys_on_key_id"
   end
 
+  create_table "personal_emoji_sets", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.jsonb "categories", default: [], null: false
+    t.bigint "revision", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["user_id"], name: "index_personal_emoji_sets_on_user_id", unique: true
+  end
+
   create_table "pghero_space_stats", force: :cascade do |t|
     t.text "database"
     t.text "schema"
@@ -2827,6 +2836,7 @@ create_table "managed_groups", force: :cascade do |t|
   add_foreign_key "oauth_access_tokens", "users", column: "resource_owner_id", name: "fk_e84df68546", on_delete: :cascade
   add_foreign_key "oauth_applications", "users", column: "owner_id", name: "fk_b0988c7c0a", on_delete: :cascade
   add_foreign_key "one_time_keys", "devices", on_delete: :cascade
+  add_foreign_key "personal_emoji_sets", "users", on_delete: :cascade
   add_foreign_key "poll_votes", "accounts", on_delete: :cascade
   add_foreign_key "poll_votes", "polls", on_delete: :cascade
   add_foreign_key "polls", "accounts", on_delete: :cascade

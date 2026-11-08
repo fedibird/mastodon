@@ -29,6 +29,10 @@ SimpleNavigation::Configuration.run do |navigation|
       s.item :user_posting_contexts, safe_join([fa_icon('pencil fw'), t('settings.user_posting_contexts')]), settings_user_posting_contexts_url, highlights_on: %r{/settings/user_posting_contexts}, if: -> { current_user.can?(:administrator) }
     end
 
+    n.item :custom_emojis, safe_join([fa_icon('smile-o fw'), t('settings.custom_emojis')]), settings_custom_emojis_personal_set_url, highlights_on: %r{/settings/custom_emojis}, if: -> { current_user.functional? } do |s|
+      s.item :personal_set, safe_join([fa_icon('th fw'), t('settings.personal_emoji_set')]), settings_custom_emojis_personal_set_url
+    end
+
     n.item :follow_and_subscriptions, safe_join([fa_icon('users fw'), t('settings.follow_and_subscriptions')]), hide_relationships ? settings_follow_tags_url : relationships_url, if: -> { current_user.functional? } do |s|
       s.item :relationships, safe_join([fa_icon('users fw'), relationship_title]), relationships_url, highlights_on: %r{/relationships}, unless: -> { hide_relationships }
       s.item :follow_tags, safe_join([fa_icon('hashtag fw'), t('settings.follow_tags')]), settings_follow_tags_url, highlights_on: %r{/follow_tags}

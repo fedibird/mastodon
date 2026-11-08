@@ -42,14 +42,22 @@ module Settings
 
     def []=(key, value)
       key = key.to_s
-      record = thing_scoped.find_or_initialize_by(var: key)
-      record.update!(value: value)
+      if @object.is_a?(User) && key == PersonalEmojiSets::PickerSize::KEY
+        PersonalEmojiSets::PickerSize.write_legacy!(@object, value)
+      else
+        record = thing_scoped.find_or_initialize_by(var: key)
+        record.update!(value: value)
 
-      Rails.cache.write(Setting.cache_key(key, @object), value)
+        Rails.cache.write(Setting.cache_key(key, @object), value)
+      end
     end
 
     def [](key)
       name = key.to_s
+      # A cache miss can read the old size, then fill the cache after a newer
+      # personal-set save commits. This one shared editor setting is read from
+      # its row, retaining the legacy raw type without that stale-fill race.
+      return PersonalEmojiSets::PickerSize.read_raw(@object.id) if @object.is_a?(User) && name == PersonalEmojiSets::PickerSize::KEY
       return read_revision_value(name) if revision_scoped?(name)
 
       read_legacy_value(name)

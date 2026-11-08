@@ -4,6 +4,7 @@ import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
 import {
   emptyEmojiStock,
+  firstGrapheme,
   isEmptyEmojiStock,
   normalizeSearchKey,
   searchEmojiStock,
@@ -33,6 +34,42 @@ const messages = defineMessages({
   retry: { id: 'emoji_picker.stock_retry', defaultMessage: 'Try again' },
 });
 
+class CategoryHeading extends React.PureComponent {
+
+  static propTypes = {
+    heading: PropTypes.object,
+    name: PropTypes.string.isRequired,
+    animate: PropTypes.bool,
+  };
+
+  state = { failedSource: null };
+
+  source() {
+    const image = this.props.heading && this.props.heading.image;
+
+    return image && ((this.props.animate && image.animatedSrc) || image.src);
+  }
+
+  handleError = () => {
+    this.setState({ failedSource: this.source() });
+  };
+
+  render() {
+    const { heading, name } = this.props;
+    const source = this.source();
+    const text = (heading && heading.text) || firstGrapheme(name);
+
+    return (
+      <span className='emoji-stock-picker__heading' aria-hidden='true'>
+        {source && source !== this.state.failedSource ? (
+          <img src={source} alt='' draggable='false' onError={this.handleError} />
+        ) : text}
+      </span>
+    );
+  }
+
+}
+
 // Registered stock only. No frequent category, skin-tone bar, or standard
 // catalog fallback. History stays with the existing callback owner.
 class StockEmojiPicker extends React.PureComponent {
@@ -53,6 +90,7 @@ class StockEmojiPicker extends React.PureComponent {
     autoFocus: PropTypes.bool,
     animate: PropTypes.bool,
     theme: PropTypes.oneOf(['light', 'dark', 'auto']),
+    selectedCategoryId: PropTypes.string,
   };
 
   static defaultProps = {
@@ -77,9 +115,17 @@ class StockEmojiPicker extends React.PureComponent {
   buttonRefs = {};
 
   componentDidMount() {
+    document.addEventListener('touchstart', this.handleAdditionalTouch, true);
     if (this.props.autoFocus) {
       this.focusSearch();
     }
+
+    this.scrollToCategory(this.props.selectedCategoryId);
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener('touchstart', this.handleAdditionalTouch, true);
+    this.touch = null;
   }
 
   componentDidUpdate(prevProps) {
@@ -87,6 +133,18 @@ class StockEmojiPicker extends React.PureComponent {
       this.focusSearch();
     }
 
+    if (this.props.selectedCategoryId && (
+      prevProps.selectedCategoryId !== this.props.selectedCategoryId
+      || prevProps.stock !== this.props.stock
+      || prevProps.emojiSize !== this.props.emojiSize
+      || prevProps.query !== this.props.query
+    )) {
+      const moved = this.scrollToCategory(this.props.selectedCategoryId);
+
+      if (moved && this.state.selectedCategoryId !== this.props.selectedCategoryId) {
+        this.setState({ selectedCategoryId: this.props.selectedCategoryId });
+      }
+    }
   }
 
   setSearchRef = node => {
@@ -176,18 +234,25 @@ class StockEmojiPicker extends React.PureComponent {
     this.focusSearch();
   };
 
+  scrollToCategory(id) {
+    const node = this.categoryNodes && this.categoryNodes[id];
+
+    if (node && this.scroll && this.scroll.contains(node)) {
+      // Only the picker viewport moves, including in an embedded preview.
+      this.scroll.scrollTop = node.offsetTop;
+      return true;
+    }
+
+    return false;
+  }
+
   handleCategoryClick = event => {
     const id = event.currentTarget.getAttribute('data-category-id');
-    const node = this.categoryNodes && this.categoryNodes[id];
     const stock = this.visibleStock();
     const category = stock.categories.find(entry => entry.id === id);
     const first = category && category.items[0];
 
-    if (node && this.scroll && this.scroll.contains(node)) {
-      // The scroll viewport is the category's offset parent. Layout coordinates
-      // stay stable during transforms, and only this viewport should scroll.
-      this.scroll.scrollTop = node.offsetTop;
-    }
+    this.scrollToCategory(id);
 
     this.setState({
       selectedCategoryId: id,
@@ -227,14 +292,71 @@ class StockEmojiPicker extends React.PureComponent {
     this.selectItem(this.findItem(key), event);
   };
 
+  handleEmojiTouchStart = event => {
+    const touch = event.touches && event.touches[0];
+
+    this.touch = touch && event.touches.length === 1 ? {
+      identifier: touch.identifier,
+      target: event.currentTarget,
+      x: touch.clientX,
+      y: touch.clientY,
+      scrollTop: this.scroll && this.scroll.scrollTop,
+      moved: false,
+    } : null;
+  };
+
+  handleAdditionalTouch = event => {
+    // A second finger may land on the search field or outside the picker and
+    // lift again without delivering a touchmove to the original emoji button.
+    if (this.touch && event.touches && event.touches.length > 1) {
+      this.touch.moved = true;
+    }
+  };
+
+  handleEmojiTouchMove = event => {
+    if (!this.touch) {
+      return;
+    }
+
+    const touch = event.touches && Array.from(event.touches).find(point => point.identifier === this.touch.identifier);
+
+    if (!touch || event.touches.length !== 1 || Math.hypot(touch.clientX - this.touch.x, touch.clientY - this.touch.y) > 8) {
+      this.touch.moved = true;
+    }
+  };
+
+  suppressTouchClick(target) {
+    this.suppressedClick = { target, until: Date.now() + 1000 };
+  }
+
+  handleEmojiTouchCancel = event => {
+    this.suppressTouchClick(event.currentTarget);
+    this.touch = null;
+  };
+
   handleEmojiTouchEnd = event => {
-    this.suppressClickTarget = event.currentTarget;
+    const start = this.touch;
+    const end = start && event.changedTouches && Array.from(event.changedTouches).find(point => point.identifier === start.identifier);
+
+    this.touch = null;
+    this.suppressTouchClick(event.currentTarget);
+
+    if (!start || !end || start.moved || start.target !== event.currentTarget
+      || (event.touches && event.touches.length > 0)
+      || (this.scroll && start.scrollTop !== this.scroll.scrollTop)
+      || Math.hypot(end.clientX - start.x, end.clientY - start.y) > 8) {
+      return;
+    }
+
+    event.preventDefault();
     this.handleEmojiClick(event);
   };
 
   handleEmojiClickFromPointer = event => {
-    if (this.suppressClickTarget === event.currentTarget) {
-      this.suppressClickTarget = null;
+    const suppressed = this.suppressedClick;
+
+    if (event.detail !== 0 && suppressed && suppressed.target === event.currentTarget && Date.now() < suppressed.until) {
+      this.suppressedClick = null;
       return;
     }
 
@@ -268,6 +390,47 @@ class StockEmojiPicker extends React.PureComponent {
     this.focusButton(current ? current.key : items[0].key);
   }
 
+  verticalTargetIndex(items, index, direction) {
+    const current = this.buttonRefs[items[index].key];
+    const origin = current && current.getBoundingClientRect();
+
+    if (!origin || !origin.width || !origin.height) {
+      return Math.max(0, Math.min(items.length - 1, index + direction * this.props.perLine));
+    }
+
+    const center = origin.left + origin.width / 2;
+    let target = index;
+    let nearestRow = Infinity;
+    let nearestColumn = Infinity;
+
+    // Wide images and category boundaries change the number of items per row.
+    // Measure the current visible buttons so resizing and filtering also work.
+    items.forEach((item, candidate) => {
+      const button = this.buttonRefs[item.key];
+
+      if (!button || button.isConnected === false) {
+        return;
+      }
+
+      const rect = button.getBoundingClientRect();
+      const row = direction * (rect.top - origin.top);
+      const column = Math.abs(rect.left + rect.width / 2 - center);
+
+      // Ignore the current row, allowing for fractional-pixel alignment.
+      if (!rect.width || !rect.height || row <= 1) {
+        return;
+      }
+
+      if (row < nearestRow - 1 || (Math.abs(row - nearestRow) <= 1 && column < nearestColumn)) {
+        target = candidate;
+        nearestRow = row;
+        nearestColumn = column;
+      }
+    });
+
+    return target;
+  }
+
   moveActive(keyName, fromKey) {
     const items = this.flatItems(this.visibleStock());
 
@@ -276,7 +439,6 @@ class StockEmojiPicker extends React.PureComponent {
     }
 
     let index = items.findIndex(item => item.key === (fromKey || this.state.activeKey));
-    const perLine = this.props.perLine;
 
     if (index < 0) {
       index = 0;
@@ -284,10 +446,8 @@ class StockEmojiPicker extends React.PureComponent {
       index = Math.min(items.length - 1, index + 1);
     } else if (keyName === 'ArrowLeft') {
       index = Math.max(0, index - 1);
-    } else if (keyName === 'ArrowDown') {
-      index = Math.min(items.length - 1, index + perLine);
-    } else if (keyName === 'ArrowUp') {
-      index = Math.max(0, index - perLine);
+    } else if (keyName === 'ArrowDown' || keyName === 'ArrowUp') {
+      index = this.verticalTargetIndex(items, index, keyName === 'ArrowDown' ? 1 : -1);
     }
 
     this.focusButton(items[index].key);
@@ -405,7 +565,9 @@ class StockEmojiPicker extends React.PureComponent {
 
   renderAnchorBar(stock) {
     const { intl } = this.props;
-    const selected = this.state.selectedCategoryId || (stock.categories[0] && stock.categories[0].id);
+    const requested = this.state.selectedCategoryId || this.props.selectedCategoryId;
+    const selected = stock.categories.some(category => category.id === requested)
+      ? requested : (stock.categories[0] && stock.categories[0].id);
 
     // First child when results exist. A trailing bar is hidden as the preview slot.
     return (
@@ -418,9 +580,11 @@ class StockEmojiPicker extends React.PureComponent {
               className={classNames('emoji-mart-anchor', { 'emoji-mart-anchor-selected': category.id === selected })}
               data-category-id={category.id}
               aria-label={category.name}
+              title={category.name}
+              aria-pressed={category.id === selected}
               onClick={this.handleCategoryClick}
             >
-              <span>{category.name}</span>
+              <CategoryHeading heading={category.heading} name={category.name} animate={this.props.animate} />
               <span className='emoji-mart-anchor-bar' />
             </button>
           ))}
@@ -429,7 +593,7 @@ class StockEmojiPicker extends React.PureComponent {
     );
   }
 
-  renderScroll(stock) {
+  renderScroll(stock, status) {
     const { emojiSize } = this.props;
 
     return (
@@ -449,6 +613,7 @@ class StockEmojiPicker extends React.PureComponent {
             </ul>
           </section>
         ))}
+        {status}
       </div>
     );
   }
@@ -457,6 +622,16 @@ class StockEmojiPicker extends React.PureComponent {
     const image = item.image || {};
     const src = this.imageSource(item);
     const active = item.key === this.state.activeKey;
+    const custom = item.selection && item.selection.custom;
+    let imageWidth = emojiSize;
+
+    // Reserve known aspect ratios before loading; older stock without metadata
+    // uses the image's intrinsic width. CSS caps wide images in both cases.
+    if (custom) {
+      const hasDimensions = Number.isFinite(image.width) && image.width > 0 && Number.isFinite(image.height) && image.height > 0;
+
+      imageWidth = hasDimensions ? emojiSize * image.width / image.height : 'auto';
+    }
 
     return (
       <li key={item.key}>
@@ -471,17 +646,20 @@ class StockEmojiPicker extends React.PureComponent {
           onFocus={this.handleEmojiFocus}
           onMouseDown={this.handleEmojiMouseDown}
           onClick={this.handleEmojiClickFromPointer}
+          onTouchStart={this.handleEmojiTouchStart}
+          onTouchMove={this.handleEmojiTouchMove}
           onTouchEnd={this.handleEmojiTouchEnd}
+          onTouchCancel={this.handleEmojiTouchCancel}
         >
           {src ? (
             <img
               draggable='false'
-              className={classNames('emojione', { 'custom-emoji': item.selection && item.selection.custom })}
+              className={classNames('emoji-stock-picker__image', { 'custom-emoji': custom })}
               alt=''
               src={src}
-              width={emojiSize}
+              width={imageWidth === 'auto' ? undefined : imageWidth}
               height={emojiSize}
-              style={{ width: emojiSize, height: emojiSize }}
+              style={{ width: imageWidth, height: emojiSize }}
             />
           ) : (
             <span>{item.label}</span>
@@ -506,9 +684,9 @@ class StockEmojiPicker extends React.PureComponent {
 
     return (
       <React.Fragment>
-        {hasVisible ? this.renderAnchorBar(visible) : null}
+        {visible.categories.length > 0 ? this.renderAnchorBar(visible) : null}
         {this.renderSearch()}
-        {hasVisible ? this.renderScroll(visible) : status}
+        {visible.categories.length > 0 ? this.renderScroll(visible, status) : status}
       </React.Fragment>
     );
   }

@@ -1,3 +1,7 @@
+import Graphemer from 'graphemer';
+
+const graphemes = new Graphemer();
+
 // Resolved personal-emoji stock shared by the picker and its supply adapter.
 // This is an in-memory contract for the picker, not a persistence schema
 // or a public API. Suppliers fill every field the picker needs so rendering,
@@ -11,6 +15,7 @@
  * @typedef {Object} EmojiStockCategory
  * @property {string} id
  * @property {string} name
+ * @property {{text: string, image?: EmojiStockImage}} [heading] Resolved before filtering.
  * @property {EmojiStockItem[]} items
  */
 
@@ -23,6 +28,8 @@
  * @property {string} [animatedSrc]
  * @property {string} alt
  * @property {string} [title]
+ * @property {number} [width] Original image dimensions, when available.
+ * @property {number} [height]
  */
 
 /**
@@ -67,6 +74,22 @@
 
 export function emptyEmojiStock() {
   return { categories: [] };
+}
+
+// The persisted name stays unchanged. Modern engines use the Unicode grapheme
+// boundary algorithm; Graphemer supplies it on engines without Intl.Segmenter,
+// without loading the emoji catalog (including Japanese combining marks).
+export function firstGrapheme(value) {
+  const text = typeof value === 'string' ? value : '';
+
+  if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+    const iterator = new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)[Symbol.iterator]();
+    const first = iterator.next();
+
+    return first.done ? '' : first.value.segment;
+  }
+
+  return graphemes.iterateGraphemes(text).next().value || '';
 }
 
 export function isEmptyEmojiStock(stock) {
@@ -136,8 +159,7 @@ export function searchEmojiStock(stock, query) {
     }
 
     categories.push({
-      id: category && category.id,
-      name: category && category.name,
+      ...category,
       items: visible,
     });
   });

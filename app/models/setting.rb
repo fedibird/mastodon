@@ -19,13 +19,15 @@ class Setting < RailsSettings::Base
     var
   end
 
-  # Group invite defaults are the only rows that re-read under a lock.
-  # Every other setting keeps RailsSettings' own after_commit write.
+  # Group invite defaults and the personal-set editor's shared display size
+  # re-read under a lock. Other settings keep RailsSettings' after_commit write.
   # The lock is transaction-scoped: PgBouncer transaction pooling can send
   # a later unlock to a different backend, so there is no session lock.
   def rewrite_cache
     if GroupRegistrationInvites::UpdateSiteDefaults::KEYS.include?(var)
       refresh_group_invite_default_cache
+    elsif thing_type == 'User' && var == PersonalEmojiSets::PickerSize::KEY
+      PersonalEmojiSets::PickerSize.refresh_cache(self)
     else
       super
     end

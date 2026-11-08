@@ -8,6 +8,7 @@ import { resetStandardEmojiPickerLoaderForTests } from '../standard_emoji_loader
 import EmojiPickerPanel from '../emoji_picker_panel';
 import { preloadStandardEmojiPickerIfNeeded } from '../emoji_picker_preferences';
 import { consumeEmojiPickerEscape, resetEmojiPickerEscapeForTests } from '../emoji_picker_escape';
+import * as stockSource from '../emoji_stock_source';
 
 jest.mock('mastodon/features/ui/util/async-components', () => ({
   EmojiPicker: jest.fn(),
@@ -63,6 +64,26 @@ describe('EmojiPickerPanel', () => {
     resetEmojiPickerEscapeForTests();
     EmojiPicker.mockReset();
     resolvePicker();
+  });
+
+  it('revalidates the shared size on standard-only openings without a local tab change', async () => {
+    const load = jest.spyOn(stockSource, 'loadPersonalEmojiStock').mockResolvedValue({ status: 'ready', stock: { categories: [] } });
+    const props = { initialMode: 'standard', onPick: jest.fn(), onRequestClose: jest.fn() };
+
+    try {
+      const first = render(<EmojiPickerPanel {...props} />);
+
+      await screen.findByRole('button', { name: 'Standard smile' });
+      expect(load).toHaveBeenCalledTimes(1);
+      first.unmount();
+      const second = render(<EmojiPickerPanel {...props} />);
+
+      await screen.findByRole('button', { name: 'Standard smile' });
+      expect(load).toHaveBeenCalledTimes(2);
+      second.unmount();
+    } finally {
+      load.mockRestore();
+    }
   });
 
   it('does not load the standard picker from an empty personal set or a zero-result search', async () => {

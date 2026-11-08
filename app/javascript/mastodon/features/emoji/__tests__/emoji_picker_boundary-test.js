@@ -6,7 +6,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 // Jest does not transform emoji-mart's ESM build. This stand-in matches the
 // real Nimble search field: autoFocus focuses on mount only, not on a later
-// prop change. The shell still renders the real Picker adapter.
+// prop change. It also supplies the scroll ref and measurement methods used
+// by the real Picker adapter, which the shell still renders.
 jest.mock('emoji-mart/dist-es/components/picker/nimble-picker', () => {
   const ReactInsideMock = require('react');
 
@@ -22,12 +23,24 @@ jest.mock('emoji-mart/dist-es/components/picker/nimble-picker', () => {
       this.node = node;
     };
 
+    setScrollRef = node => {
+      this.scroll = node;
+    };
+
+    updateCategoriesSize = jest.fn();
+
+    handleScroll = jest.fn();
+
     render() {
-      return ReactInsideMock.createElement('input', {
-        placeholder: 'Search',
-        'aria-label': 'Standard search',
-        ref: this.setRef,
-      });
+      return ReactInsideMock.createElement('div', null,
+        ReactInsideMock.createElement('div', { className: 'emoji-mart-scroll', ref: this.setScrollRef },
+          ReactInsideMock.createElement('input', {
+            placeholder: 'Search',
+            'aria-label': 'Standard search',
+            ref: this.setRef,
+          }),
+        ),
+      );
     }
 
   }
@@ -158,7 +171,8 @@ describe('personal picker dependency boundary', () => {
     expect(ownDynamic).toEqual([]);
     expect(read('mastodon/features/emoji/stock_emoji_picker.js')).not.toContain('sheet_15');
     expect(read('mastodon/features/emoji/emoji_stock.js')).not.toContain('sheet_15');
-    expect(read('mastodon/features/emoji/emoji_stock_source.js')).not.toContain('fetch(');
+    expect(read('mastodon/features/emoji/emoji_stock_source.js')).toContain('/api/v1/emoji_sets/personal/stock');
+    expect(read('mastodon/features/emoji/emoji_stock_source.js')).not.toContain('/api/v1/custom_emojis');
     expect(read('mastodon/features/ui/util/async-components.js')).toContain('/* webpackChunkName: "emoji_picker" */\'../../emoji/emoji_picker\'');
     expect(read('mastodon/features/emoji/standard_emoji_loader.js')).toContain('asyncComponents.EmojiPicker');
     expect(read('mastodon/features/emoji/standard_emoji_loader.js')).not.toContain('emoji-mart');
