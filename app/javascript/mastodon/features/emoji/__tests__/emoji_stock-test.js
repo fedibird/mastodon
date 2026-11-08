@@ -1,5 +1,6 @@
 import {
   emptyEmojiStock,
+  firstGrapheme,
   isEmptyEmojiStock,
   normalizeEmojiStockLoad,
   normalizeSearchKey,
@@ -85,6 +86,41 @@ const stock = () => ({
 });
 
 describe('emoji stock contract', () => {
+  it('keeps the resolved heading when search hides its representative', () => {
+    const value = stock();
+
+    value.categories[0].heading = { text: 'Z', image: value.categories[0].items[0].image };
+    const frozen = deepFreeze(value);
+    const result = searchEmojiStock(frozen, 'Thumb light');
+
+    expect(result.categories[0].items.map(item => item.key)).toEqual(['place-skin']);
+    expect(result.categories[0].heading).toBe(frozen.categories[0].heading);
+    expect(result.categories[0].heading.image.src).toContain('family.svg');
+  });
+
+  it('takes a whole first grapheme for category names', () => {
+    expect(firstGrapheme('横長')).toBe('横');
+    expect(firstGrapheme('Long')).toBe('L');
+    expect(firstGrapheme(`${ZWJ} family`)).toBe(ZWJ);
+    expect(firstGrapheme(`${SKIN} thumbs`)).toBe(SKIN);
+    expect(firstGrapheme('e\u0301clair')).toBe('e\u0301');
+    expect(firstGrapheme('か\u3099く')).toBe('か\u3099');
+  });
+
+  it('keeps combining marks and emoji sequences without Intl.Segmenter', () => {
+    const segmenter = Intl.Segmenter;
+
+    try {
+      Intl.Segmenter = undefined;
+      expect(firstGrapheme('か\u3099く')).toBe('か\u3099');
+      expect(firstGrapheme(`${ZWJ} family`)).toBe(ZWJ);
+      expect(firstGrapheme(`${SKIN} thumbs`)).toBe(SKIN);
+      expect(firstGrapheme('')).toBe('');
+    } finally {
+      Intl.Segmenter = segmenter;
+    }
+  });
+
   it('keeps category order, item order, duplicate placements, and skin variants', () => {
     const frozen = deepFreeze(stock());
     const visible = searchEmojiStock(frozen, '');

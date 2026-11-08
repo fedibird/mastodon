@@ -154,6 +154,10 @@ Rails.application.routes.draw do
       resource :other, only: [:show, :update], controller: :other
     end
 
+    namespace :custom_emojis do
+      resource :personal_set, only: :show, controller: :personal_sets
+    end
+
     # Old settings paths. String redirects ignore the request query string,
     # and these actions do not read a submitted secret.
     get 'external_credentials', to: redirect('/settings/external_services', status: 302)
@@ -624,6 +628,13 @@ Rails.application.routes.draw do
       resources :suggestions, only: [:index, :destroy]
       resources :scheduled_statuses, only: [:index, :show, :update, :destroy]
       resources :preferences, only: [:index]
+
+      namespace :emoji_sets do
+        resource :personal, only: [:show, :update], controller: :personal do
+          get :stock
+          post :resolve
+        end
+      end
 
       resources :announcements, only: [:index] do
         scope module: :announcements do

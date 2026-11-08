@@ -4,7 +4,7 @@ import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
 import { assetHost } from 'mastodon/utils/config';
 import StockEmojiPicker from './stock_emoji_picker';
-import { loadDisconnectedEmojiStock } from './emoji_stock_source';
+import { loadPersonalEmojiStock, subscribePersonalEmojiStock } from './emoji_stock_source';
 import { emptyEmojiStock, normalizeEmojiStockLoad } from './emoji_stock';
 import { loadStandardEmojiPicker } from './standard_emoji_loader';
 import { markEmojiPickerEscape } from './emoji_picker_escape';
@@ -85,7 +85,7 @@ class EmojiPickerShell extends React.PureComponent {
     standardEnabled: true,
     personalEnabled: true,
     onRequestClose: () => {},
-    stockSource: loadDisconnectedEmojiStock,
+    stockSource: loadPersonalEmojiStock,
     loadStandardEmojiPicker,
     standardPickerProps: {},
     emojiSize: 22,
@@ -148,6 +148,7 @@ class EmojiPickerShell extends React.PureComponent {
 
   componentDidMount() {
     this.mounted = true;
+    this.bindStockSource();
 
     if (this.props.open) {
       this.ensureData();
@@ -159,7 +160,7 @@ class EmojiPickerShell extends React.PureComponent {
     const previous = (prevProps.standardPickerProps || {}).pickerRevision || 'standard';
     const next = (this.props.standardPickerProps || {}).pickerRevision || 'standard';
 
-    if (previous === next || !this.node) {
+    if ((previous === next && prevProps.emojiSize === this.props.emojiSize && prevProps.perLine === this.props.perLine) || !this.node) {
       return null;
     }
 
@@ -178,9 +179,14 @@ class EmojiPickerShell extends React.PureComponent {
   componentDidUpdate(prevProps, _prevState, snapshot) {
     this.restoreStandardSearch(snapshot);
 
+    if (prevProps.stockSource !== this.props.stockSource) {
+      this.bindStockSource();
+      this.handleStockChange(null);
+    }
+
     if (this.props.open && !prevProps.open) {
       this.claimActive();
-      this.ensureData();
+      this.ensureData(this.props.stockSource === loadPersonalEmojiStock);
       this.emitMode(this.state.mode);
     }
   }
@@ -285,11 +291,41 @@ class EmojiPickerShell extends React.PureComponent {
     this.standardGeneration += 1;
     this.stopSearchCategorySync();
     this.detachFocusListener();
+    if (this.unsubscribeStock) {
+      this.unsubscribeStock();
+    }
 
     if (activeEmojiPickerShell === this.shellId) {
       activeEmojiPickerShell = 0;
     }
   }
+
+  bindStockSource() {
+    if (this.unsubscribeStock) {
+      this.unsubscribeStock();
+    }
+
+    this.unsubscribeStock = this.props.stockSource === loadPersonalEmojiStock
+      ? subscribePersonalEmojiStock(this.handleStockChange)
+      : null;
+  }
+
+  handleStockChange = result => {
+    if (!this.mounted) {
+      return;
+    }
+
+    this.stockGeneration += 1;
+    this.stockInFlight = false;
+    this.setState({
+      stockStatus: result ? 'ready' : 'idle',
+      stock: result ? result.stock : emptyEmojiStock(),
+    }, () => {
+      if (!result && this.props.open && this.state.mode === 'personal') {
+        this.beginStock(true);
+      }
+    });
+  };
 
   setNode = node => {
     this.detachFocusListener();
@@ -365,13 +401,13 @@ class EmojiPickerShell extends React.PureComponent {
     return this.props.open && !this.state.suppressFocus && activeEmojiPickerShell === this.shellId;
   }
 
-  ensureData() {
+  ensureData(forceStock = false) {
     if (!this.props.open) {
       return;
     }
 
     if (this.state.mode === 'personal' && this.props.personalEnabled) {
-      this.beginStock(false);
+      this.beginStock(forceStock);
     }
 
     if (this.state.mode === 'standard' && this.props.standardEnabled) {
@@ -483,7 +519,7 @@ class EmojiPickerShell extends React.PureComponent {
 
     this.claimActive();
     this.setState({ mode: 'personal', suppressFocus: false, standardAutoFocus: false }, () => {
-      this.beginStock(false);
+      this.beginStock(this.props.stockSource === loadPersonalEmojiStock);
       this.emitMode('personal');
     });
   };
@@ -602,7 +638,7 @@ class EmojiPickerShell extends React.PureComponent {
     // arrives after the module is ready still appears.
     return (
       <Picker
-        key={pickerRevision || 'standard'}
+        key={`${pickerRevision || 'standard'}:${emojiSize}:${perLine}`}
         sheetColumns={62}
         sheetRows={62}
         sheetSize={32}
@@ -656,7 +692,7 @@ class EmojiPickerShell extends React.PureComponent {
     }
 
     return (
-      <div className='emoji-picker-shell' ref={this.setNode} onKeyDown={this.handleKeyDown}>
+      <div className={classNames('emoji-picker-shell', { 'emoji-picker-shell--dark': preferredTheme(this.props.theme) === 'dark' })} ref={this.setNode} onKeyDown={this.handleKeyDown}>
         {this.renderModeSwitch()}
         {mode === 'standard' ? (
           <div className='emoji-picker-shell__standard'>

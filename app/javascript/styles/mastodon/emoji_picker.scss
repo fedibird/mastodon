@@ -130,7 +130,12 @@
     &::-moz-focus-inner,
     &:focus,
     &:active {
-      outline: 0 !important;
+      outline: 0;
+    }
+
+    &:focus-visible {
+      outline: 2px solid $highlight-text-color;
+      outline-offset: 2px;
     }
   }
 }
@@ -267,11 +272,47 @@
   position: relative;
 }
 
+.emoji-stock-picker .emoji-mart-anchors {
+  justify-content: flex-start;
+  overflow-x: auto;
+}
+
+.emoji-stock-picker .emoji-mart-anchor {
+  flex: 0 0 36px;
+  color: inherit;
+
+  &.emoji-mart-anchor-selected {
+    color: $highlight-text-color;
+  }
+
+  &:focus-visible {
+    outline: 2px solid $highlight-text-color;
+    outline-offset: -2px;
+  }
+}
+
+.emoji-stock-picker__heading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 19px;
+  line-height: 1;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
 // `.emojione` fixes every emoji at 16px. The personal grid follows emojiSize.
 .emoji-stock-picker .emoji-mart-emoji img.emojione {
   width: var(--emoji-stock-size, 22px);
   height: var(--emoji-stock-size, 22px);
   margin: 0;
+  object-fit: contain;
 }
 
 // Anchor standard-only overlays below the mode bar, regardless of its height.
@@ -283,6 +324,59 @@
   border-bottom: 1px solid darken($ui-secondary-color, 8%);
   border-radius: 5px 5px 0 0;
   background: $ui-secondary-color;
+}
+
+// Use the same palette for the real picker and the editor's live preview.
+.emoji-mart-dark {
+  color: $primary-text-color;
+  background: $ui-base-color;
+
+  .emoji-mart-bar {
+    border-color: lighten($ui-base-color, 12%);
+    background: lighten($ui-base-color, 4%);
+  }
+
+  .emoji-mart-anchors,
+  .emoji-mart-no-results {
+    color: $darker-text-color;
+  }
+
+  .emoji-mart-scroll,
+  .emoji-mart-search,
+  .emoji-mart-category-label span {
+    background: $ui-base-color;
+  }
+
+  .emoji-mart-search input {
+    color: $primary-text-color;
+    border-color: lighten($ui-base-color, 12%);
+    background: lighten($ui-base-color, 4%);
+
+    &::placeholder {
+      color: $darker-text-color;
+    }
+  }
+
+  .emoji-mart-search-icon svg {
+    fill: $darker-text-color;
+  }
+
+  .emoji-mart-category .emoji-mart-emoji:hover::before {
+    background: lighten($ui-base-color, 12%);
+  }
+}
+
+.emoji-picker-shell--dark .emoji-picker-shell__modes {
+  border-color: lighten($ui-base-color, 12%);
+  background: lighten($ui-base-color, 4%);
+
+  .emoji-mart-anchor {
+    color: $darker-text-color;
+
+    &.emoji-mart-anchor-selected {
+      color: $highlight-text-color;
+    }
+  }
 }
 
 // NimblePicker caches category positions while mounting. Scaling the dropdown

@@ -90,6 +90,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   has_many :backups, inverse_of: :user
   has_many :invites, inverse_of: :user
   has_many :markers, inverse_of: :user, dependent: :destroy
+  has_one :personal_emoji_set, inverse_of: :user, dependent: :destroy
   # Named timeline reading places. Not status bookmarks and not P3's session
   # registry. ON DELETE CASCADE covers a SQL-level user delete.
   has_many :timeline_reading_bookmarks, inverse_of: :user, dependent: :destroy

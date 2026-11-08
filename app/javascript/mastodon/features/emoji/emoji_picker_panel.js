@@ -5,9 +5,11 @@ import classNames from 'classnames';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { assetHost } from 'mastodon/utils/config';
-import { disableAutoFocusToEmojiSearch, pickerEmojiSize } from 'mastodon/initial_state';
+import { autoPlayEmoji, disableAutoFocusToEmojiSearch } from 'mastodon/initial_state';
 import EmojiPickerShell from './emoji_picker_shell';
 import { emojiPickerInitialMode } from './emoji_picker_preferences';
+import { getPickerEmojiSize, loadPersonalEmojiStock, subscribePickerEmojiSize } from './emoji_stock_source';
+import { emojiPickerTheme } from './emoji_picker_theme';
 
 const messages = defineMessages({
   emoji_search: { id: 'emoji_button.search', defaultMessage: 'Search...' },
@@ -216,16 +218,22 @@ class EmojiPickerPanel extends React.PureComponent {
     mode: this.props.initialMode || emojiPickerInitialMode(),
     Emoji: null,
     catalogHold: false,
+    emojiSize: getPickerEmojiSize(),
   };
 
   componentDidMount() {
     this.mounted = true;
+    this.unsubscribeSize = subscribePickerEmojiSize(emojiSize => this.setState({ emojiSize }));
+    // Refresh the shared size on every opening, including standard mode after
+    // a save on another device. Personal mode shares this bounded stock read.
+    loadPersonalEmojiStock().catch(() => {});
     document.addEventListener('click', this.handleDocumentClick, false);
     document.addEventListener('touchend', this.handleDocumentClick, listenerOptions);
   }
 
   componentWillUnmount() {
     this.mounted = false;
+    this.unsubscribeSize();
     document.removeEventListener('click', this.handleDocumentClick, false);
     document.removeEventListener('touchend', this.handleDocumentClick, listenerOptions);
   }
@@ -362,8 +370,7 @@ class EmojiPickerPanel extends React.PureComponent {
 
   render() {
     const { intl, pickersEmoji, frequentlyUsedEmojis, skinTone, autoFocus, initialMode } = this.props;
-    const { modifierOpen, mode, Emoji } = this.state;
-    const emojiSize = Number(pickerEmojiSize) || 22;
+    const { modifierOpen, mode, Emoji, emojiSize } = this.state;
     const perLine = Math.floor(34 * 8 / (emojiSize + 12));
     const custom = pickersEmoji && pickersEmoji.get ? (pickersEmoji.get('custom_emojis') || []) : [];
     const recent = frequentlyUsedEmojis && frequentlyUsedEmojis.length > 0 ? frequentlyUsedEmojis : undefined;
@@ -375,6 +382,8 @@ class EmojiPickerPanel extends React.PureComponent {
           initialMode={initialMode || emojiPickerInitialMode()}
           autoFocus={autoFocus}
           emojiSize={emojiSize}
+          animate={autoPlayEmoji}
+          theme={emojiPickerTheme()}
           perLine={perLine}
           onPick={this.handlePick}
           onRequestClose={this.props.onRequestClose}

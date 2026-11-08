@@ -4,6 +4,8 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useEmoji } from 'mastodon/actions/emojis';
 import EmojiPickerShell from '../emoji_picker_shell';
+import { notifySavedPersonalEmojiSet } from '../emoji_stock_source';
+import StockEmojiPicker from '../stock_emoji_picker';
 
 jest.mock('react-intl', () => {
   const intl = { formatMessage: descriptor => descriptor.defaultMessage };
@@ -547,8 +549,11 @@ describe('emoji picker shell and personal stock', () => {
 
     const skin = screen.getByRole('button', { name: 'Thumb light' });
 
-    fireEvent.touchEnd(skin);
-    fireEvent.click(skin);
+    const touch = { identifier: 1, clientX: 12, clientY: 20 };
+
+    fireEvent.touchStart(skin, { touches: [touch] });
+    fireEvent.touchEnd(skin, { changedTouches: [touch] });
+    fireEvent.click(skin, { detail: 1 });
     expect(onPick).toHaveBeenCalledTimes(2);
     expect(onPick.mock.calls[1][0].native).toBe(SKIN);
     expect(useEmoji).not.toHaveBeenCalled();
@@ -730,6 +735,94 @@ describe('emoji picker shell and personal stock', () => {
 
     expect(await screen.findByLabelText('Standard search')).toBeInTheDocument();
     expect(document.activeElement).toBe(personalSearch);
+  });
+
+  it('keeps the saved heading through search and falls back to the name if its image fails', async () => {
+    const stock = JSON.parse(JSON.stringify(fixture()));
+
+    stock.categories[0].heading = { text: 'Z', image: stock.categories[0].items[0].image };
+    renderShell({ stockSource: ready(stock) });
+
+    const search = await screen.findByRole('searchbox');
+    const anchor = screen.getByRole('button', { name: 'Zebra' });
+
+    expect(anchor).toHaveAttribute('title', 'Zebra');
+    expect(anchor.querySelector('img')).toHaveAttribute('src', 'https://assets.example/family.svg');
+    fireEvent.change(search, { target: { value: 'Thumb light' } });
+    expect(screen.queryByRole('button', { name: 'Family' })).not.toBeInTheDocument();
+    expect(anchor.querySelector('img')).toHaveAttribute('src', 'https://assets.example/family.svg');
+    fireEvent.error(anchor.querySelector('img'));
+    expect(anchor).toHaveTextContent('Z');
+    expect(anchor.querySelector('img')).toBeNull();
+  });
+
+  it('does not select after touch movement, scrolling, cancellation, or a second finger', async () => {
+    const { onPick } = renderShell();
+    const button = await screen.findByRole('button', { name: 'Family' });
+    const touch = { identifier: 1, clientX: 20, clientY: 20 };
+    const moved = { ...touch, clientY: 80 };
+
+    fireEvent.touchStart(button, { touches: [touch] });
+    fireEvent.touchMove(button, { touches: [moved] });
+    fireEvent.touchEnd(button, { changedTouches: [moved] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).not.toHaveBeenCalled();
+
+    fireEvent.touchStart(button, { touches: [touch] });
+    document.querySelector('.emoji-stock-picker .emoji-mart-scroll').scrollTop = 30;
+    fireEvent.touchEnd(button, { changedTouches: [touch] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).not.toHaveBeenCalled();
+
+    fireEvent.touchStart(button, { touches: [touch] });
+    fireEvent.touchCancel(button);
+    fireEvent.touchEnd(button, { changedTouches: [touch] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).not.toHaveBeenCalled();
+
+    fireEvent.touchStart(button, { touches: [touch, { ...touch, identifier: 2 }] });
+    fireEvent.touchEnd(button, { changedTouches: [touch] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).not.toHaveBeenCalled();
+
+    fireEvent.touchStart(button, { touches: [touch] });
+    fireEvent.touchStart(document.body, { touches: [touch, { ...touch, identifier: 2 }] });
+    fireEvent.touchEnd(document.body, { touches: [touch], changedTouches: [{ ...touch, identifier: 2 }] });
+    fireEvent.touchEnd(button, { touches: [], changedTouches: [touch] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).not.toHaveBeenCalled();
+
+    fireEvent.touchStart(button, { touches: [touch] });
+    fireEvent.touchEnd(button, { changedTouches: [touch] });
+    fireEvent.click(button, { detail: 1 });
+    expect(onPick).toHaveBeenCalledTimes(1);
+    // A keyboard/screen-reader click must not be mistaken for a ghost click.
+    fireEvent.click(button, { detail: 0 });
+    expect(onPick).toHaveBeenCalledTimes(2);
+  });
+
+  it('updates every mounted live personal picker immediately after a successful save', async () => {
+    const onPick = jest.fn();
+    const first = render(<EmojiPickerShell onPick={onPick} />);
+    const second = render(<EmojiPickerShell onPick={onPick} />);
+
+    await waitFor(() => expect(screen.getAllByText('No emoji in this set')).toHaveLength(2));
+    act(() => notifySavedPersonalEmojiSet({ revision: 1, picker_emoji_size: 32, stock: fixture() }));
+    expect(within(first.container).getByRole('button', { name: 'Family' })).toBeInTheDocument();
+    expect(within(second.container).getByRole('button', { name: 'Family' })).toBeInTheDocument();
+  });
+
+  it('keeps the preview anchor highlight aligned with programmatic category movement', () => {
+    const stock = JSON.parse(JSON.stringify(fixture()));
+    const view = render(<StockEmojiPicker stock={stock} selectedCategoryId='cat-z' />);
+    const first = screen.getByRole('button', { name: 'Zebra' });
+    const second = screen.getByRole('button', { name: 'Apple' });
+
+    fireEvent.click(second);
+    expect(second).toHaveAttribute('aria-pressed', 'true');
+    view.rerender(<StockEmojiPicker stock={{ categories: stock.categories.slice() }} selectedCategoryId='cat-z' />);
+    expect(first).toHaveAttribute('aria-pressed', 'true');
+    expect(second).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('sizes stock images from emojiSize instead of the 16px emoji rule', async () => {

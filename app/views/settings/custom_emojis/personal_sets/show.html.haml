@@ -1,0 +1,11 @@
+- content_for :page_title do
+  = t('personal_emoji_sets.title')
+
+- content_for :header_tags do
+  = javascript_pack_tag 'personal_emoji_sets', defer: true, crossorigin: 'anonymous'
+
+#personal-emoji-sets
+  %p= t('personal_emoji_sets.loading')
+
+%noscript
+  %p= t('personal_emoji_sets.javascript_required')

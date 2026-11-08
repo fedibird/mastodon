@@ -158,7 +158,8 @@ describe('personal picker dependency boundary', () => {
     expect(ownDynamic).toEqual([]);
     expect(read('mastodon/features/emoji/stock_emoji_picker.js')).not.toContain('sheet_15');
     expect(read('mastodon/features/emoji/emoji_stock.js')).not.toContain('sheet_15');
-    expect(read('mastodon/features/emoji/emoji_stock_source.js')).not.toContain('fetch(');
+    expect(read('mastodon/features/emoji/emoji_stock_source.js')).toContain('/api/v1/emoji_sets/personal/stock');
+    expect(read('mastodon/features/emoji/emoji_stock_source.js')).not.toContain('/api/v1/custom_emojis');
     expect(read('mastodon/features/ui/util/async-components.js')).toContain('/* webpackChunkName: "emoji_picker" */\'../../emoji/emoji_picker\'');
     expect(read('mastodon/features/emoji/standard_emoji_loader.js')).toContain('asyncComponents.EmojiPicker');
     expect(read('mastodon/features/emoji/standard_emoji_loader.js')).not.toContain('emoji-mart');
