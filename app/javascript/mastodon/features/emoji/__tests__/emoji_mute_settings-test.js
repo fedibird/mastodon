@@ -43,7 +43,8 @@ const messages = {
   'emoji_mutes.preview_hidden': 'Preview hidden',
   'emoji_mutes.show_preview': 'Show preview',
   'emoji_mutes.hide_preview': 'Hide preview',
-  'emoji_mutes.preview_unavailable': 'No image URL in mute API — open emoji details to inspect the glyph.',
+  'emoji_mutes.preview_unavailable': 'Preview is unavailable for this emoji.',
+  'emoji_mutes.preview_loading': 'Loading preview…',
   'emoji_mutes.open_details': 'Open details',
   'emoji_mutes.count': '{count} muted emoji',
   'emoji_mutes.dirty': 'Unsaved changes',
@@ -91,6 +92,10 @@ function renderEditor(overrides = {}) {
     },
   }));
   const removeRule = jest.fn(() => Promise.resolve({ revision: '5' }));
+  const resolveEmoji = jest.fn(() => Promise.resolve({
+    reference: { kind: 'unicode', native: '😀' },
+    detail: { image: { src: '/emoji/1f600.svg', alt: '😀' } },
+  }));
   const onChanged = jest.fn();
 
   const utils = render(
@@ -99,13 +104,14 @@ function renderEditor(overrides = {}) {
         loadDocument={loadDocument}
         updateRule={updateRule}
         removeRule={removeRule}
+        resolveEmoji={resolveEmoji}
         onChanged={onChanged}
         {...overrides}
       />
     </IntlProvider>,
   );
 
-  return { ...utils, loadDocument, updateRule, removeRule, onChanged };
+  return { ...utils, loadDocument, updateRule, removeRule, resolveEmoji, onChanged };
 }
 
 describe('EmojiMuteSettings', () => {
@@ -119,23 +125,20 @@ describe('EmojiMuteSettings', () => {
     expect(container.innerHTML).not.toContain('grinning');
   });
 
-  it('reveals identity text without painting the unicode glyph and saves with expected revision', async () => {
-    const { updateRule, onChanged } = renderEditor();
+  it('reveals identity text without painting the unicode glyph until preview', async () => {
+    const { resolveEmoji } = renderEditor();
 
     await waitFor(() => expect(screen.getByText('Show muted emoji (1)')).toBeTruthy());
     fireEvent.click(screen.getByText('Show muted emoji (1)'));
 
     expect(screen.getByText(/Unicode · code points/)).toBeTruthy();
     expect(document.body.textContent).not.toContain('😀');
+    expect(document.querySelector('img')).toBeNull();
 
-    const replacement = screen.getByDisplayValue('［絵文字］');
-    fireEvent.change(replacement, { target: { value: 'x' } });
-    fireEvent.click(screen.getByText('Save changes'));
-
-    await waitFor(() => expect(updateRule).toHaveBeenCalled());
-    expect(updateRule.mock.calls[0][0]).toBe('10');
-    expect(updateRule.mock.calls[0][1].expectedRevision).toBe('3');
-    expect(onChanged).toHaveBeenCalledWith({ revision: '4' });
+    fireEvent.click(screen.getByText('Show preview'));
+    await waitFor(() => expect(resolveEmoji).toHaveBeenCalled());
+    await waitFor(() => expect(document.querySelector('img[src="/emoji/1f600.svg"]')).toBeTruthy());
+    expect(document.querySelector('img').getAttribute('alt')).toBe('');
   });
 
   it('keeps dirty edits on conflict', async () => {

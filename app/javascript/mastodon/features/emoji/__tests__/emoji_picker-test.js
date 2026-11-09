@@ -2,8 +2,10 @@
 
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { Emoji, Picker } from '../emoji_picker';
+import { IntlProvider } from 'react-intl';
+import { Emoji, Picker, referenceFromMartButton } from '../emoji_picker';
 import nimblePickerData from '../emoji_mart_nimble_data';
+import { openEmojiActions, resetEmojiActionsBusForTests, setEmojiActionsListener } from '../emoji_actions/bus';
 
 const mockPickers = [];
 const mockEmojiProps = [];
@@ -23,10 +25,12 @@ jest.mock('emoji-mart/dist-es/components/picker/nimble-picker', () => {
     constructor(props) {
       super(props);
       this.cachedTop = mockCategoryTop;
+      this.state = { skin: props.skin || 1 };
       this.updateCategoriesSize = jest.fn(() => {
         this.cachedTop = mockCategoryTop;
       });
       this.handleScroll = jest.fn();
+      this.handleEmojiOver = jest.fn();
       mockPickers.push(this);
     }
 
@@ -43,6 +47,7 @@ jest.mock('emoji-mart/dist-es/components/picker/nimble-picker', () => {
         <div>
           <button type='button' className='emoji-mart-anchor' onClick={this.handleAnchorClick}><span>People</span></button>
           <div className='emoji-mart-scroll' ref={this.setScrollRef}>
+            <button type='button' className='emoji-mart-emoji' title='thumbsup' aria-label='Thumbs Up Label, +1' onClick={this.props.onClick}><span role='img' aria-label='Thumbs Up Label'>{'\u{1F44D}'}</span></button>
             <button type='button' className='emoji-mart-emoji-custom' onClick={this.props.onClick}><img src='/wide.png' alt='Wide custom' /></button>
             <img src='/other.png' alt='Other resource' />
           </div>
@@ -52,6 +57,8 @@ jest.mock('emoji-mart/dist-es/components/picker/nimble-picker', () => {
 
   };
 });
+
+const renderPicker = (ui) => render(<IntlProvider locale='en'>{ui}</IntlProvider>);
 
 describe('standard emoji picker adapters', () => {
   let frames;
@@ -89,12 +96,13 @@ describe('standard emoji picker adapters', () => {
     cleanup();
     window.ResizeObserver = originalResizeObserver;
     jest.restoreAllMocks();
+    resetEmojiActionsBusForTests();
   });
 
   it('binds the standard Nimble dataset into both Picker and Emoji', () => {
     const callerData = { emojis: {} };
 
-    render(<Picker data={callerData} custom={[]} />);
+    renderPicker(<Picker data={callerData} custom={[]} />);
     render(<Emoji data={callerData} emoji='fist' set='twitter' skin={2} />);
 
     expect(mockPickers[0].props.data).toBe(nimblePickerData);
@@ -107,8 +115,46 @@ describe('standard emoji picker adapters', () => {
     expect(nimblePickerData.emojis.sleuth_or_spy).toBeDefined();
   });
 
+  it('opens actions from Nimble selection data, not aria-label display names', () => {
+    const listener = jest.fn();
+    setEmojiActionsListener(listener);
+
+    const button = document.createElement('button');
+    button.className = 'emoji-mart-emoji';
+    button.setAttribute('title', 'thumbsup');
+    button.setAttribute('aria-label', 'Thumbs Up Label, +1');
+
+    const reference = referenceFromMartButton(button, 1);
+    expect(reference).toEqual({ kind: 'unicode', native: expect.any(String) });
+    expect(reference.native).not.toBe('Thumbs Up Label');
+
+    openEmojiActions(reference, { anchor: button, source: 'standard_picker' });
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      reference: expect.objectContaining({ kind: 'unicode', native: reference.native }),
+      source: 'standard_picker',
+    }));
+  });
+
+  it('exposes a visible manage control driven by focused Nimble emoji data', () => {
+    const listener = jest.fn();
+    setEmojiActionsListener(listener);
+    renderPicker(<Picker />);
+
+    const picker = mockPickers[0];
+    const emoji = { id: 'thumbsup', native: '👍', colons: ':thumbsup:' };
+    act(() => {
+      picker.handleEmojiOver(emoji);
+    });
+
+    fireEvent.click(screen.getByLabelText('Emoji actions'));
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      reference: { kind: 'unicode', native: '👍' },
+      source: 'standard_picker',
+    }));
+  });
+
   it('refreshes category positions once per frame after custom image loads or errors', () => {
-    render(<Picker />);
+    renderPicker(<Picker />);
     const picker = mockPickers[0];
     const image = screen.getByAltText('Wide custom');
 
@@ -126,7 +172,7 @@ describe('standard emoji picker adapters', () => {
   });
 
   it('measures before an anchor click and cancels a pending image frame', () => {
-    render(<Picker />);
+    renderPicker(<Picker />);
     const picker = mockPickers[0];
 
     mockCategoryTop = 220;
@@ -141,7 +187,7 @@ describe('standard emoji picker adapters', () => {
   });
 
   it('remeasures responsive picker dimensions once per frame together with image loads', () => {
-    render(<Picker />);
+    renderPicker(<Picker />);
     const picker = mockPickers[0];
 
     expect(resizeObserver.observe).toHaveBeenCalledWith(picker.scroll.parentNode);
@@ -160,7 +206,7 @@ describe('standard emoji picker adapters', () => {
 
   it('handles window resizing without ResizeObserver and removes the fallback on unmount', () => {
     window.ResizeObserver = undefined;
-    const view = render(<Picker />);
+    const view = renderPicker(<Picker />);
     const picker = mockPickers[0];
 
     mockCategoryTop = 420;
@@ -179,7 +225,7 @@ describe('standard emoji picker adapters', () => {
 
   it('ignores other resources and preserves emoji selection without measuring', () => {
     const onClick = jest.fn();
-    render(<Picker onClick={onClick} />);
+    renderPicker(<Picker onClick={onClick} />);
     const picker = mockPickers[0];
 
     fireEvent.load(screen.getByAltText('Other resource'));
@@ -191,7 +237,7 @@ describe('standard emoji picker adapters', () => {
   });
 
   it('disconnects resizing, removes listeners and cancels scheduled work on unmount', () => {
-    const view = render(<Picker />);
+    const view = renderPicker(<Picker />);
     const picker = mockPickers[0];
     const image = screen.getByAltText('Wide custom');
     const anchor = screen.getByText('People');
