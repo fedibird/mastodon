@@ -1391,6 +1391,7 @@
   "emoji_actions.add_success": "Added to {name}",
   "emoji_actions.open_mute_settings": "Open mute settings",
   "emoji_actions.manage": "Emoji actions",
+  "emoji_actions.manage_cell": "Manage this emoji",
   "column.emoji_detail_unicode": "Emoji detail",
   "emoji_detail.native": "Completed string",
   "emoji_detail.code_points": "Code points",

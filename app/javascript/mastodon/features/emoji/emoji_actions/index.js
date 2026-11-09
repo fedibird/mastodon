@@ -29,3 +29,14 @@ export {
   deleteMuteAndSync,
   retryMuteSync,
 } from './mute_follow_up';
+export {
+  notePendingMuteSync,
+  clearPendingMuteSync,
+  getPendingMuteSync,
+  muteFromPendingOrStore,
+  resetPendingMuteSyncForTests,
+} from './pending_sync';
+export {
+  captureMenuSession,
+  isCurrentMenuSession,
+} from './menu_session';

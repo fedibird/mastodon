@@ -17,7 +17,7 @@ reference. Hosts must not duplicate resolve / mute / category logic.
 | --- | --- | --- |
 | Reaction chip | Add / remove reaction | `⋯` button, ContextMenu, Shift+F10 |
 | Personal stock picker | Insert / select | Visible `⋯` sibling (ContextMenu / Shift+F10 remain auxiliary) |
-| Standard Nimble picker | Insert / select | Visible actions bar `⋯` armed by hover, keyboard focus, or pointer on a cell (ContextMenu / Shift+F10 always use the event cell only; search chrome is a no-op; never `aria-label`) |
+| Standard Nimble picker | Insert / select | Per-cell `⋯` (touch-safe, no insert) plus bottom actions bar for keyboard/hover; ContextMenu / Shift+F10 use the event cell only (search chrome is a no-op; never `aria-label`) |
 | Emoji detail (custom + Unicode) | — | Explicit actions button |
 
 Reaction groups use the **display representative** part (group `url` /

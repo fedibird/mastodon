@@ -1393,6 +1393,7 @@
   "emoji_actions.add_success": "{name} に追加しました",
   "emoji_actions.open_mute_settings": "ミュート設定を開く",
   "emoji_actions.manage": "絵文字の操作",
+  "emoji_actions.manage_cell": "この絵文字を管理",
   "column.emoji_detail_unicode": "絵文字の詳細",
   "emoji_detail.native": "完成文字列",
   "emoji_detail.code_points": "コードポイント",

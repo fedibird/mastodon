@@ -246,6 +246,23 @@
   padding: 0 8px 6px;
 }
 
+.emoji-mart-emoji-cell {
+  position: relative;
+}
+
+.emoji-mart-emoji-actions {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  z-index: 2;
+  min-width: 18px;
+  min-height: 18px;
+  font-size: 12px;
+  line-height: 1;
+  background: var(--ems-surface, #{$ui-base-color});
+  opacity: .92;
+}
+
 .emoji-detail-actions {
   display: flex;
   flex-wrap: wrap;

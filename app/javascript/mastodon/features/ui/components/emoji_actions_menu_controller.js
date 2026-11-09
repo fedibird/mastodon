@@ -22,6 +22,16 @@ import {
   retryMuteSync,
 } from 'mastodon/features/emoji/emoji_actions/mute_follow_up';
 import {
+  captureMenuSession,
+  isCurrentMenuSession,
+} from 'mastodon/features/emoji/emoji_actions/menu_session';
+import {
+  clearPendingMuteSync,
+  getPendingMuteSync,
+  muteFromPendingOrStore,
+  notePendingMuteSync,
+} from 'mastodon/features/emoji/emoji_actions/pending_sync';
+import {
   datasetFromReference,
   detailPathForReference,
   findMuteForReference,
@@ -278,26 +288,41 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.loadGeneration = (this.loadGeneration || 0) + 1;
     const generation = this.loadGeneration;
     const element = detail.anchor || null;
+    const pending = getPendingMuteSync(detail.reference);
+    const storeMute = findMuteForReference(currentEmojiMutes(), detail.reference);
 
     this.setState({
       element,
       reference: detail.reference,
       resolved: null,
-      mute: findMuteForReference(currentEmojiMutes(), detail.reference),
+      mute: muteFromPendingOrStore(detail.reference, storeMute),
       categories: null,
       personalRevision: null,
       status: 'loading',
       notice: null,
       error: null,
-      syncError: null,
-      pendingSyncRevision: null,
+      syncError: pending ? (pending.syncError || new Error('sync pending')) : null,
+      pendingSyncRevision: pending ? pending.revision : null,
       busy: false,
       statusId: detail.status_id || null,
       accountId: detail.account_id || null,
-    }, () => this.loadMenuData(generation));
+    }, () => {
+      this.loadMenuData(generation);
+
+      if (pending) {
+        // Re-open retries sync only — never re-runs the saved POST/DELETE.
+        // Defer so the pending revision from this open is visible to retry.
+        Promise.resolve().then(() => {
+          if (this.loadGeneration === generation) {
+            this.handleRetrySync();
+          }
+        }).catch(() => {});
+      }
+    });
   };
 
   handleClose = () => {
+    // Keep module-level pending sync; only clear the visible menu chrome.
     this.setState({
       element: null,
       reference: null,
@@ -404,15 +429,19 @@ class EmojiActionsMenuController extends React.PureComponent {
       const categories = personal && Array.isArray(personal.categories) ? personal.categories : [];
       const failed = !resolved || resolved.error;
       const nextReference = !failed && resolved.reference ? resolved.reference : reference;
+      const pending = getPendingMuteSync(nextReference);
+      const storeMute = findMuteForReference(currentEmojiMutes(), nextReference);
 
       this.setState({
         resolved: failed ? null : resolved,
         reference: nextReference,
-        mute: findMuteForReference(currentEmojiMutes(), nextReference),
+        mute: muteFromPendingOrStore(nextReference, storeMute),
         categories,
         personalRevision: personal ? personal.revision : null,
         status: 'ready',
         error: failed ? (resolved && resolved.error) || new Error('Could not load emoji actions') : null,
+        syncError: pending ? (pending.syncError || this.state.syncError || new Error('sync pending')) : null,
+        pendingSyncRevision: pending ? pending.revision : null,
       });
     }).catch(() => {
       if (requestGeneration !== this.loadGeneration) {
@@ -475,6 +504,8 @@ class EmojiActionsMenuController extends React.PureComponent {
       return;
     }
 
+    const session = captureMenuSession(this.loadGeneration, reference);
+
     this.setState({ busy: true, error: null, notice: null, syncError: null });
 
     createMuteAndSync({
@@ -484,6 +515,22 @@ class EmojiActionsMenuController extends React.PureComponent {
     }).then(result => {
       const savedMute = result.response.emoji_mute
         || findMuteForReference(currentEmojiMutes(), reference);
+
+      if (result.synced) {
+        clearPendingMuteSync(reference);
+      } else {
+        notePendingMuteSync({
+          reference,
+          revision: result.response.revision,
+          mute: savedMute,
+          operation: 'mute',
+          syncError: result.syncError,
+        });
+      }
+
+      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+        return;
+      }
 
       if (result.synced) {
         this.setState({
@@ -496,7 +543,6 @@ class EmojiActionsMenuController extends React.PureComponent {
         return;
       }
 
-      // Server write succeeded; only the client document sync failed.
       this.setState({
         busy: false,
         mute: savedMute,
@@ -506,6 +552,10 @@ class EmojiActionsMenuController extends React.PureComponent {
         error: null,
       });
     }).catch(error => {
+      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+        return;
+      }
+
       this.setState({
         busy: false,
         error,
@@ -524,6 +574,8 @@ class EmojiActionsMenuController extends React.PureComponent {
       return;
     }
 
+    const session = captureMenuSession(this.loadGeneration, reference);
+
     this.setState({ busy: true, error: null, notice: null, syncError: null });
 
     deleteMuteAndSync({
@@ -531,6 +583,22 @@ class EmojiActionsMenuController extends React.PureComponent {
       syncMutes: onSyncMutes,
       mute,
     }).then(result => {
+      if (result.synced) {
+        clearPendingMuteSync(reference);
+      } else {
+        notePendingMuteSync({
+          reference,
+          revision: result.response.revision,
+          mute: null,
+          operation: 'unmute',
+          syncError: result.syncError,
+        });
+      }
+
+      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+        return;
+      }
+
       if (result.synced) {
         this.setState({
           busy: false,
@@ -551,6 +619,10 @@ class EmojiActionsMenuController extends React.PureComponent {
         error: null,
       });
     }).catch(error => {
+      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+        return;
+      }
+
       this.setState({
         busy: false,
         error,
@@ -563,20 +635,30 @@ class EmojiActionsMenuController extends React.PureComponent {
 
   handleRetrySync = () => {
     const { onSyncMutes } = this.props;
-    const { reference, pendingSyncRevision } = this.state;
+    const { reference } = this.state;
+    const pending = getPendingMuteSync(reference) || {
+      revision: this.state.pendingSyncRevision,
+      reference,
+    };
 
-    if (this.state.busy) {
+    if (this.state.busy || !pending.revision) {
       return;
     }
+
+    const session = captureMenuSession(this.loadGeneration, reference);
 
     this.setState({ busy: true, syncError: null });
 
     retryMuteSync({
       syncMutes: onSyncMutes,
-      revision: pendingSyncRevision,
+      revision: pending.revision,
     }).then(() => {
-      // Adopt the store document after sync (or a later stream write). Do not
-      // re-run create/delete — those already succeeded on the server.
+      clearPendingMuteSync(reference);
+
+      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+        return;
+      }
+
       this.setState({
         busy: false,
         syncError: null,
@@ -584,10 +666,22 @@ class EmojiActionsMenuController extends React.PureComponent {
         mute: findMuteForReference(currentEmojiMutes(), reference),
       });
     }).catch(syncError => {
+      notePendingMuteSync({
+        reference,
+        revision: pending.revision,
+        mute: pending.mute,
+        operation: pending.operation || (this.state.mute ? 'mute' : 'unmute'),
+        syncError,
+      });
+
+      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+        return;
+      }
+
       this.setState({
         busy: false,
         syncError,
-        pendingSyncRevision: pendingSyncRevision || null,
+        pendingSyncRevision: pending.revision || null,
       });
     });
   };
@@ -600,11 +694,17 @@ class EmojiActionsMenuController extends React.PureComponent {
       return;
     }
 
+    const session = captureMenuSession(this.loadGeneration, reference);
+
     this.setState({ busy: true, error: null, notice: null });
 
     appendPersonalCategoryItem(category.id, reference, personalRevision).then(document => {
       if (document && document.operation && document.operation.added) {
         notifySavedPersonalEmojiSet(document);
+      }
+
+      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+        return;
       }
 
       this.setState({
@@ -617,6 +717,10 @@ class EmojiActionsMenuController extends React.PureComponent {
         ),
       });
     }).catch(error => {
+      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+        return;
+      }
+
       const message = error && error.code === 'conflict'
         ? intl.formatMessage(messages.addConflict)
         : intl.formatMessage(messages.addFailed);
@@ -696,5 +800,5 @@ const mapDispatchToProps = dispatch => ({
   },
 });
 
-export { datasetFromReference, openEmojiActions };
+export { datasetFromReference, openEmojiActions, EmojiActionsMenuController, isCurrentMenuSession, captureMenuSession };
 export default injectIntl(connect(null, mapDispatchToProps)(EmojiActionsMenuController));

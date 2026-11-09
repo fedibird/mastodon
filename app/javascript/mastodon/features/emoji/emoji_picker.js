@@ -10,8 +10,11 @@ import { referenceFromPickerEmoji } from './emoji_actions/reference';
 
 const messages = defineMessages({
   manage: { id: 'emoji_actions.manage', defaultMessage: 'Emoji actions' },
+  manageCell: { id: 'emoji_actions.manage_cell', defaultMessage: 'Manage this emoji' },
   manageHint: { id: 'emoji_actions.manage_hint', defaultMessage: 'Select an emoji, then open actions' },
 });
+
+const CELL_ACTION_EVENTS = ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend'];
 
 // The full standard dataset stays in this async chunk. Skin-tone previews
 // and the empty-search emoji use the same bound data as the picker.
@@ -101,8 +104,8 @@ class Picker extends React.PureComponent {
   };
 
   state = {
-    // Manage-bar selection. Updated by hover, keyboard focus, and touch on a
-    // cell — never authoritative for contextmenu / Shift+F10 on another cell.
+    // Bottom-bar selection for keyboard / hover. Touch uses per-cell ⋯ so a
+    // normal tap can still insert without needing this arming step.
     selectedEmoji: null,
   };
 
@@ -112,6 +115,7 @@ class Picker extends React.PureComponent {
 
   componentDidUpdate() {
     this.attachPickerHooks();
+    this.ensureCellActionButtons();
   }
 
   componentWillUnmount() {
@@ -149,6 +153,68 @@ class Picker extends React.PureComponent {
     return emoji;
   };
 
+  openActionsForButton = (button, anchor, event) => {
+    const emoji = emojiFromMartButton(button, this.currentSkin(), this.currentCustom());
+
+    if (!emoji) {
+      return false;
+    }
+
+    this.selectEmoji(emoji);
+    return openFromEmojiObject(emoji, anchor || button, event);
+  };
+
+  ensureCellActionButtons = () => {
+    if (!this.scroll) {
+      return;
+    }
+
+    const { intl } = this.props;
+    const cells = this.scroll.querySelectorAll('button.emoji-mart-emoji');
+
+    cells.forEach(button => {
+      if (button.dataset.emojiCellActions === '1') {
+        return;
+      }
+
+      if (button.getAttribute('data-emoji-actions') === '1') {
+        return;
+      }
+
+      const host = button.parentElement;
+
+      if (!host) {
+        return;
+      }
+
+      host.classList.add('emoji-mart-emoji-cell');
+
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'emoji-actions-trigger emoji-mart-emoji-actions';
+      trigger.setAttribute('data-emoji-actions', '1');
+      trigger.setAttribute('aria-label', intl.formatMessage(messages.manageCell));
+      trigger.title = intl.formatMessage(messages.manageCell);
+      trigger.textContent = '⋯';
+
+      const stopAndMaybeOpen = event => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (event.type === 'click') {
+          this.openActionsForButton(button, trigger, event);
+        }
+      };
+
+      CELL_ACTION_EVENTS.forEach(type => {
+        trigger.addEventListener(type, stopAndMaybeOpen);
+      });
+
+      host.appendChild(trigger);
+      button.dataset.emojiCellActions = '1';
+    });
+  };
+
   attachPickerHooks = () => {
     const picker = this.picker;
 
@@ -176,6 +242,7 @@ class Picker extends React.PureComponent {
     const root = picker && picker.scroll && picker.scroll.parentNode;
 
     if (!root || this.root === root) {
+      this.ensureCellActionButtons();
       return;
     }
 
@@ -199,6 +266,8 @@ class Picker extends React.PureComponent {
         picker.updateCategoriesSize();
         picker.handleScroll();
       }
+
+      this.ensureCellActionButtons();
     };
 
     const scheduleRefresh = () => {
@@ -221,6 +290,10 @@ class Picker extends React.PureComponent {
     };
 
     const emojiButtonFromEvent = event => {
+      if (event.target && event.target.closest && event.target.closest('[data-emoji-actions="1"]')) {
+        return null;
+      }
+
       const origin = event.target && event.target.nodeType === Node.ELEMENT_NODE
         ? event.target
         : event.target && event.target.parentElement;
@@ -235,18 +308,7 @@ class Picker extends React.PureComponent {
         return false;
       }
 
-      const emoji = emojiFromMartButton(button, this.currentSkin(), this.currentCustom());
-      const reference = referenceFromPickerEmoji(emoji);
-
-      if (!reference) {
-        return false;
-      }
-
-      this.selectEmoji(emoji);
-      event.preventDefault();
-      event.stopPropagation();
-      openEmojiActions(reference, { anchor: button, source: 'standard_picker' });
-      return true;
+      return this.openActionsForButton(button, button, event);
     };
 
     const handleContextMenu = event => {
@@ -271,15 +333,13 @@ class Picker extends React.PureComponent {
       }
     };
 
-    // Touch / pointer without hover: arm the manage bar from the cell without
-    // changing insert-on-click / long-press preview behavior.
-    const handlePointerDown = event => {
-      const button = emojiButtonFromEvent(event);
-
-      if (button) {
-        this.selectEmojiFromButton(button);
-      }
+    const handleScroll = () => {
+      scheduleRefresh();
     };
+
+    this.mutationObserver = typeof MutationObserver !== 'undefined'
+      ? new MutationObserver(() => this.ensureCellActionButtons())
+      : null;
 
     this._cleanup = () => {
       if (this.resizeObserver) {
@@ -288,14 +348,19 @@ class Picker extends React.PureComponent {
         window.removeEventListener('resize', scheduleRefresh);
       }
 
+      if (this.mutationObserver) {
+        this.mutationObserver.disconnect();
+        this.mutationObserver = null;
+      }
+
       cancelRefresh();
       this.scroll.removeEventListener('load', handleImage, true);
       this.scroll.removeEventListener('error', handleImage, true);
+      this.scroll.removeEventListener('scroll', handleScroll);
       this.root.removeEventListener('click', handleAnchor, true);
       this.root.removeEventListener('contextmenu', handleContextMenu);
       this.root.removeEventListener('keydown', handleKeyDown);
       this.root.removeEventListener('focusin', handleFocusIn);
-      this.root.removeEventListener('pointerdown', handlePointerDown);
       this.root = null;
       this.scroll = null;
       this._cleanup = null;
@@ -303,11 +368,15 @@ class Picker extends React.PureComponent {
 
     this.scroll.addEventListener('load', handleImage, true);
     this.scroll.addEventListener('error', handleImage, true);
+    this.scroll.addEventListener('scroll', handleScroll, { passive: true });
     this.root.addEventListener('click', handleAnchor, true);
     this.root.addEventListener('contextmenu', handleContextMenu);
     this.root.addEventListener('keydown', handleKeyDown);
     this.root.addEventListener('focusin', handleFocusIn);
-    this.root.addEventListener('pointerdown', handlePointerDown);
+
+    if (this.mutationObserver) {
+      this.mutationObserver.observe(this.scroll, { childList: true, subtree: true });
+    }
 
     this.resizeObserver = window.ResizeObserver ? new window.ResizeObserver(scheduleRefresh) : null;
 
@@ -316,6 +385,8 @@ class Picker extends React.PureComponent {
     } else {
       window.addEventListener('resize', scheduleRefresh);
     }
+
+    this.ensureCellActionButtons();
   };
 
   detachRootListeners = () => {
