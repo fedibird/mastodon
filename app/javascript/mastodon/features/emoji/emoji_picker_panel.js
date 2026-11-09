@@ -35,10 +35,17 @@ const backgroundImageFn = () => `${assetHost}/emoji/sheet_15.png`;
 // on that menu must not count as "outside" or the picker closes before the
 // menu item action runs (observed on desktop Chrome).
 export function isEmojiActionsMenuTarget(target) {
+  let node = target;
+
+  // Some engines report the text node inside the <a> as event.target.
+  if (node && node.nodeType === Node.TEXT_NODE) {
+    node = node.parentElement;
+  }
+
   return Boolean(
-    target
-    && typeof target.closest === 'function'
-    && target.closest('[data-emoji-actions-menu="1"]'),
+    node
+    && typeof node.closest === 'function'
+    && node.closest('[data-emoji-actions-menu="1"]'),
   );
 }
 

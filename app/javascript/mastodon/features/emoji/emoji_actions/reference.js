@@ -64,6 +64,12 @@ export function normalizeReference(input) {
 
   const scope = read(input, 'scope') || (read(input, 'domain') ? 'remote' : 'local');
 
+  // Deleted custom rows keep scope "unresolved" in reaction parts. That is not
+  // a resolvable local id — do not rewrite it as local and POST it to resolve.
+  if (scope === 'unresolved') {
+    return null;
+  }
+
   if (scope === 'remote') {
     const domain = read(input, 'domain');
     const shortcode = read(input, 'shortcode');
@@ -73,6 +79,10 @@ export function normalizeReference(input) {
     }
 
     return { kind: 'custom', scope: 'remote', domain, shortcode };
+  }
+
+  if (scope !== 'local') {
+    return null;
   }
 
   const customEmojiId = read(input, 'custom_emoji_id');
@@ -238,7 +248,28 @@ export function referenceFromReaction(emojiReaction) {
   const identity = part ? read(part, 'identity') : null;
 
   if (identity) {
-    return normalizeReference(identity);
+    const fromIdentity = normalizeReference(identity);
+
+    if (fromIdentity) {
+      return fromIdentity;
+    }
+
+    // Unresolved / invalid identity: a remote display domain+shortcode on the
+    // part can still identify the emoji. Do not reuse the unresolved local id
+    // (that is the deleted row) or invent a local match from the shortcode.
+    const partDomain = read(part, 'domain');
+    const partShortcode = read(part, 'shortcode') || read(emojiReaction, 'name');
+
+    if (partDomain && partShortcode) {
+      return normalizeReference({
+        kind: 'custom',
+        scope: 'remote',
+        domain: partDomain,
+        shortcode: partShortcode,
+      });
+    }
+
+    return null;
   }
 
   const domain = read(emojiReaction, 'domain') || (part && read(part, 'domain'));
@@ -264,6 +295,31 @@ export function referenceFromReaction(emojiReaction) {
   }
 
   return null;
+}
+
+// Statuses from makeGetStatus expand `account` to a full account map. Resolve
+// context must send the database id string, never the map / "[object Object]".
+export function accountIdFromStatus(status) {
+  if (!status || typeof status.get !== 'function') {
+    return null;
+  }
+
+  const account = status.get('account');
+
+  if (account === null || account === undefined || account === '') {
+    return null;
+  }
+
+  if (typeof account === 'object' && typeof account.get === 'function') {
+    const id = account.get('id');
+    return id === null || id === undefined || id === '' ? null : String(id);
+  }
+
+  if (typeof account === 'object' && account.id !== null && account.id !== undefined && account.id !== '') {
+    return String(account.id);
+  }
+
+  return String(account);
 }
 
 export function referenceFromStockItem(item) {

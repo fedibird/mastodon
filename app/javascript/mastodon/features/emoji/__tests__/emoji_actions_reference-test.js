@@ -1,9 +1,11 @@
+import { fromJS } from 'immutable';
 import {
   DEFAULT_MUTE_REPLACEMENT,
   normalizeReference,
   referencesEqual,
   findMuteForReference,
   referenceFromReaction,
+  accountIdFromStatus,
   representativeReactionPart,
   referenceFromStockItem,
   referenceFromPickerEmoji,
@@ -59,6 +61,43 @@ describe('emoji actions references', () => {
     ], { kind: 'custom', scope: 'local', custom_emoji_id: '22', shortcode: 'blob' })).toBeNull();
 
     expect(DEFAULT_MUTE_REPLACEMENT).toBe('［絵文字］');
+  });
+
+  it('does not rewrite unresolved custom identity as a resolvable local id', () => {
+    expect(normalizeReference({
+      kind: 'custom',
+      scope: 'unresolved',
+      custom_emoji_id: '99',
+    })).toBeNull();
+
+    expect(referenceFromReaction({
+      name: 'gone',
+      parts: [{
+        identity: { kind: 'custom', scope: 'unresolved', custom_emoji_id: '99' },
+        custom_emoji_id: '99',
+      }],
+    })).toBeNull();
+
+    expect(referenceFromReaction({
+      name: 'blob',
+      parts: [{
+        identity: { kind: 'custom', scope: 'unresolved', custom_emoji_id: '99' },
+        custom_emoji_id: '99',
+        domain: 'other.example',
+        shortcode: 'blob',
+      }],
+    })).toEqual({
+      kind: 'custom',
+      scope: 'remote',
+      domain: 'other.example',
+      shortcode: 'blob',
+    });
+  });
+
+  it('reads account id from expanded status.account maps', () => {
+    expect(accountIdFromStatus(fromJS({ account: 'acct-1' }))).toBe('acct-1');
+    expect(accountIdFromStatus(fromJS({ account: { id: '42', acct: 'alice' } }))).toBe('42');
+    expect(accountIdFromStatus(fromJS({ account: null }))).toBeNull();
   });
 
   it('uses the display representative part, not created_at order', () => {

@@ -18,6 +18,7 @@ export {
   identityKey,
   representativeReactionPart,
   referenceFromReaction,
+  accountIdFromStatus,
   referenceFromStockItem,
   referenceFromPickerEmoji,
   detailPathForReference,
@@ -25,6 +26,11 @@ export {
   referenceFromDataset,
   datasetFromReference,
 } from './reference';
+export {
+  getEmojiActionsOverlayRoot,
+  resetEmojiActionsOverlayRootForTests,
+  EMOJI_ACTIONS_OVERLAY_ROOT_ID,
+} from './overlay_root';
 export {
   createMuteAndSync,
   deleteMuteAndSync,

@@ -14,7 +14,11 @@ import Overlay from 'react-overlays/Overlay';
 import { isUserTouching } from 'mastodon/is_mobile';
 import AccountPopup from 'mastodon/components/account_popup';
 import { openEmojiActions } from 'mastodon/features/emoji/emoji_actions/bus';
-import { datasetFromReference, referenceFromReaction } from 'mastodon/features/emoji/emoji_actions/reference';
+import {
+  accountIdFromStatus,
+  datasetFromReference,
+  referenceFromReaction,
+} from 'mastodon/features/emoji/emoji_actions/reference';
 import { attachLongPressGesture } from 'mastodon/features/emoji/long_press';
 
 const getFilteredEmojiReaction = (emojiReaction, relationships) => {
@@ -119,7 +123,7 @@ class EmojiReaction extends ImmutablePureComponent {
     openEmojiActions(reference, {
       anchor: anchor || null,
       status_id: status.get('id'),
-      account_id: status.get('account'),
+      account_id: accountIdFromStatus(status),
       source: 'reaction',
       reaction: this.reactionContext(),
     });
@@ -206,12 +210,16 @@ class EmojiReaction extends ImmutablePureComponent {
     const reference = referenceFromReaction(emojiReaction);
     const actionDataset = datasetFromReference(reference);
     const reaction = this.reactionContext();
+    const accountId = accountIdFromStatus(status);
     const actionProps = {
       'data-emoji-actions': '1',
       'data-emoji-source': 'reaction',
       'data-emoji-status-id': status.get('id'),
-      'data-emoji-account-id': status.get('account'),
     };
+
+    if (accountId) {
+      actionProps['data-emoji-account-id'] = accountId;
+    }
 
     if (reaction) {
       actionProps['data-emoji-reaction-name'] = reaction.name;

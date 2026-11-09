@@ -751,10 +751,11 @@ class UI extends React.PureComponent {
           <AccountContextLayer />
           <ModalContainer />
           <HashtagMenuController />
-          <EmojiActionsMenuController />
           <UploadArea active={draggingOver} onClose={this.closeUploadModal} />
           <DocumentTitle />
         </div>
+        {/* Outside `.ui`: desktop pickers set dropdownMenuIsOpen → pointer-events:none on `.ui`. */}
+        <EmojiActionsMenuController />
       </HotKeys>
     );
   }

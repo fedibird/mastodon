@@ -508,6 +508,12 @@ describe('EmojiPickerPanel', () => {
 
     expect(onRequestClose).not.toHaveBeenCalled();
 
+    // Text-node targets inside the menu must also count as inside.
+    const text = item.firstChild;
+    expect(text && text.nodeType).toBe(Node.TEXT_NODE);
+    fireEvent.click(item, { target: text });
+    expect(onRequestClose).not.toHaveBeenCalled();
+
     fireEvent.click(document.body);
     expect(onRequestClose).toHaveBeenCalled();
 

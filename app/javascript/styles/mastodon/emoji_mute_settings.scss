@@ -289,3 +289,18 @@
 .emoji-detail-actions .button {
   margin: 0;
 }
+
+// Dedicated body portal for the shared actions Overlay. Stacks above
+// `.modal-root` (9999) so mobile modal pickers can receive menu taps.
+// `pointer-events: auto` keeps items hittable while `.ui` is none for
+// desktop dropdownMenuIsOpen.
+#emoji-actions-overlay-root {
+  position: relative;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+#emoji-actions-overlay-root .emoji-actions-menu-portal,
+#emoji-actions-overlay-root .dropdown-menu {
+  pointer-events: auto;
+}

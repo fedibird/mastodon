@@ -224,4 +224,26 @@ describe('EmojiReaction manage entry without ⋯', () => {
       reaction: expect.objectContaining({ name: '😀', my_reaction: true }),
     }));
   });
+
+  it('sends the account database id when status.account is an expanded map', () => {
+    const listener = jest.fn();
+    setEmojiActionsListener(listener);
+
+    renderChip({
+      status: fromJS({
+        id: 'status-1',
+        account: { id: '42', acct: 'alice' },
+      }),
+    });
+
+    const chip = chipButton();
+    fireEvent.contextMenu(chip);
+
+    expect(chip.getAttribute('data-emoji-account-id')).toBe('42');
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      account_id: '42',
+      status_id: 'status-1',
+    }));
+    expect(JSON.stringify(listener.mock.calls[0][0].account_id)).not.toContain('object');
+  });
 });

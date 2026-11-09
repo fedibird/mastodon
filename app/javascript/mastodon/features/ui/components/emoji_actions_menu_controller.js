@@ -49,6 +49,7 @@ import {
   referenceLabel,
   referencesEqual,
 } from 'mastodon/features/emoji/emoji_actions/reference';
+import { getEmojiActionsOverlayRoot } from 'mastodon/features/emoji/emoji_actions/overlay_root';
 import { copyText } from 'mastodon/utils/clipboard';
 
 const messages = defineMessages({
@@ -76,9 +77,60 @@ const messages = defineMessages({
   openSettings: { id: 'emoji_actions.open_mute_settings', defaultMessage: 'Open mute settings' },
   retry: { id: 'emoji_actions.retry', defaultMessage: 'Try again' },
   resolveFailed: { id: 'emoji_actions.resolve_failed', defaultMessage: 'Could not load emoji actions' },
+  resolveUnavailable: { id: 'emoji_actions.resolve_unavailable', defaultMessage: 'This emoji is unavailable or was deleted' },
+  resolveInvalid: { id: 'emoji_actions.resolve_invalid', defaultMessage: 'Could not identify this emoji' },
   syncFailed: { id: 'emoji_actions.sync_failed', defaultMessage: 'Saved, but the mute list could not refresh' },
   retrySync: { id: 'emoji_actions.retry_sync', defaultMessage: 'Refresh mute list' },
 });
+
+const UNAVAILABLE_RESOLVE_CODES = {
+  unavailable_emoji: true,
+  invalid_unicode: true,
+  invalid_reference: true,
+  invalid_id: true,
+  invalid_domain: true,
+  invalid_shortcode: true,
+  invalid_kind: true,
+  invalid_scope: true,
+  contradictory_scope: true,
+  contradictory_field: true,
+};
+
+// Map resolve API failures to i18n. Never surface the server's English
+// `Invalid emoji reference` string in the menu.
+export function resolveErrorMessage(intl, error) {
+  if (!error) {
+    return intl.formatMessage(messages.resolveFailed);
+  }
+
+  if (error.status === 404) {
+    return intl.formatMessage(messages.resolveUnavailable);
+  }
+
+  const codes = [];
+
+  if (Array.isArray(error.errors)) {
+    error.errors.forEach(entry => {
+      if (entry && entry.code) {
+        codes.push(entry.code);
+      }
+    });
+  }
+
+  if (error.code) {
+    codes.push(error.code);
+  }
+
+  if (codes.some(code => UNAVAILABLE_RESOLVE_CODES[code])) {
+    return intl.formatMessage(messages.resolveUnavailable);
+  }
+
+  if (error.status === 422) {
+    return intl.formatMessage(messages.resolveInvalid);
+  }
+
+  return intl.formatMessage(messages.resolveFailed);
+}
 
 // Pure menu builder for tests. Mutating actions require an explicit resolve
 // payload — a missing actions object is not treated as allowed.
@@ -162,14 +214,23 @@ export function buildEmojiActionMenuItems({
 
   if (!actions) {
     if (error) {
-      items.push({ text: error.message || intl.formatMessage(messages.resolveFailed), disabled: true });
+      items.push({ text: resolveErrorMessage(intl, error), disabled: true });
     }
 
-    // Copy / detail / react may already be present; still offer retry + settings.
-    items.push({
-      text: intl.formatMessage(messages.retry),
-      action: onRetry,
-    });
+    const retryable = !(error && (
+      error.status === 404
+      || (Array.isArray(error.errors) && error.errors.some(entry => entry && UNAVAILABLE_RESOLVE_CODES[entry.code]))
+      || UNAVAILABLE_RESOLVE_CODES[error.code]
+    ));
+
+    // Copy / detail / react may already be present; retry only when useful.
+    if (retryable) {
+      items.push({
+        text: intl.formatMessage(messages.retry),
+        action: onRetry,
+      });
+    }
+
     items.push(null, {
       text: intl.formatMessage(messages.openSettings),
       href: '/settings/custom_emojis/mutes',
@@ -917,9 +978,22 @@ class EmojiActionsMenuController extends React.PureComponent {
     }
 
     return (
-      <Overlay show offset={[5, 5]} placement='bottom' flip target={this.findTarget} popperConfig={popperConfig}>
+      <Overlay
+        show
+        offset={[5, 5]}
+        placement='bottom'
+        flip
+        target={this.findTarget}
+        container={getEmojiActionsOverlayRoot}
+        popperConfig={popperConfig}
+      >
         {({ props, arrowProps, placement }) => (
-          <div {...props} data-emoji-actions-menu='1'>
+          <div
+            {...props}
+            data-emoji-actions-menu='1'
+            className='emoji-actions-menu-portal'
+            style={{ ...(props.style || {}), pointerEvents: 'auto' }}
+          >
             <div className={`dropdown-animation dropdown-menu ${placement}`}>
               <div className={`dropdown-menu__arrow ${placement}`} {...arrowProps} />
               <DropdownMenu
