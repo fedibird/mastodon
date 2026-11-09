@@ -24,3 +24,8 @@ export {
   referenceFromDataset,
   datasetFromReference,
 } from './reference';
+export {
+  createMuteAndSync,
+  deleteMuteAndSync,
+  retryMuteSync,
+} from './mute_follow_up';

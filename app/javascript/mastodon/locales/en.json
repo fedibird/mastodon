@@ -1439,5 +1439,7 @@
   "emoji_actions.retry": "Try again",
   "emoji_actions.resolve_failed": "Could not load emoji actions",
   "emoji_actions.manage_hint": "Select an emoji, then open actions",
+  "emoji_actions.sync_failed": "Saved, but the mute list could not refresh",
+  "emoji_actions.retry_sync": "Refresh mute list",
   "emoji_mutes.preview_loading": "Loading preview…"
 }
