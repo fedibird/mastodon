@@ -37,6 +37,13 @@ export {
   resetPendingMuteSyncForTests,
 } from './pending_sync';
 export {
+  beginMuteMutation,
+  endMuteMutation,
+  getMuteMutationFlight,
+  isMuteMutationInFlight,
+  resetMuteMutationFlightsForTests,
+} from './mutation_flight';
+export {
   captureMenuSession,
   isCurrentMenuSession,
 } from './menu_session';

@@ -26,6 +26,12 @@ import {
   isCurrentMenuSession,
 } from 'mastodon/features/emoji/emoji_actions/menu_session';
 import {
+  beginMuteMutation,
+  endMuteMutation,
+  getMuteMutationFlight,
+  isMuteMutationInFlight,
+} from 'mastodon/features/emoji/emoji_actions/mutation_flight';
+import {
   clearPendingMuteSync,
   getPendingMuteSync,
   muteFromPendingOrStore,
@@ -289,6 +295,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     const generation = this.loadGeneration;
     const element = detail.anchor || null;
     const pending = getPendingMuteSync(detail.reference);
+    const flight = getMuteMutationFlight(detail.reference);
     const storeMute = findMuteForReference(currentEmojiMutes(), detail.reference);
 
     this.setState({
@@ -303,13 +310,14 @@ class EmojiActionsMenuController extends React.PureComponent {
       error: null,
       syncError: pending ? (pending.syncError || new Error('sync pending')) : null,
       pendingSyncRevision: pending ? pending.revision : null,
-      busy: false,
+      // In-flight POST/DELETE survives close; keep busy so Mute cannot re-fire.
+      busy: Boolean(flight),
       statusId: detail.status_id || null,
       accountId: detail.account_id || null,
     }, () => {
       this.loadMenuData(generation);
 
-      if (pending) {
+      if (pending && !flight) {
         // Re-open retries sync only — never re-runs the saved POST/DELETE.
         // Defer so the pending revision from this open is visible to retry.
         Promise.resolve().then(() => {
@@ -500,7 +508,11 @@ class EmojiActionsMenuController extends React.PureComponent {
     const { intl, onSyncMutes } = this.props;
     const { reference } = this.state;
 
-    if (!reference || this.state.busy || this.state.pendingSyncRevision) {
+    if (!reference || this.state.busy || this.state.pendingSyncRevision || isMuteMutationInFlight(reference) || getPendingMuteSync(reference)) {
+      return;
+    }
+
+    if (!beginMuteMutation(reference, 'mute')) {
       return;
     }
 
@@ -528,6 +540,8 @@ class EmojiActionsMenuController extends React.PureComponent {
         });
       }
 
+      endMuteMutation(reference);
+
       if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
         return;
       }
@@ -552,6 +566,8 @@ class EmojiActionsMenuController extends React.PureComponent {
         error: null,
       });
     }).catch(error => {
+      endMuteMutation(reference);
+
       if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
         return;
       }
@@ -570,7 +586,11 @@ class EmojiActionsMenuController extends React.PureComponent {
     const { intl, onSyncMutes } = this.props;
     const { mute, reference } = this.state;
 
-    if (!mute || this.state.busy || this.state.pendingSyncRevision) {
+    if (!mute || this.state.busy || this.state.pendingSyncRevision || isMuteMutationInFlight(reference) || getPendingMuteSync(reference)) {
+      return;
+    }
+
+    if (!beginMuteMutation(reference, 'unmute')) {
       return;
     }
 
@@ -594,6 +614,8 @@ class EmojiActionsMenuController extends React.PureComponent {
           syncError: result.syncError,
         });
       }
+
+      endMuteMutation(reference);
 
       if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
         return;
@@ -619,6 +641,8 @@ class EmojiActionsMenuController extends React.PureComponent {
         error: null,
       });
     }).catch(error => {
+      endMuteMutation(reference);
+
       if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
         return;
       }

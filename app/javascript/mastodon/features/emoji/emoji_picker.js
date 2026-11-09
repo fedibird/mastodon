@@ -7,14 +7,13 @@ import { getSanitizedData } from 'emoji-mart/dist/utils';
 import nimblePickerData from './emoji_mart_nimble_data';
 import { openEmojiActions } from './emoji_actions/bus';
 import { referenceFromPickerEmoji } from './emoji_actions/reference';
+import { attachCellActionTriggerHandlers } from './cell_action_trigger';
 
 const messages = defineMessages({
   manage: { id: 'emoji_actions.manage', defaultMessage: 'Emoji actions' },
   manageCell: { id: 'emoji_actions.manage_cell', defaultMessage: 'Manage this emoji' },
   manageHint: { id: 'emoji_actions.manage_hint', defaultMessage: 'Select an emoji, then open actions' },
 });
-
-const CELL_ACTION_EVENTS = ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend'];
 
 // The full standard dataset stays in this async chunk. Skin-tone previews
 // and the empty-search emoji use the same bound data as the picker.
@@ -197,17 +196,10 @@ class Picker extends React.PureComponent {
       trigger.title = intl.formatMessage(messages.manageCell);
       trigger.textContent = '⋯';
 
-      const stopAndMaybeOpen = event => {
-        event.preventDefault();
-        event.stopPropagation();
-
-        if (event.type === 'click') {
+      attachCellActionTriggerHandlers(trigger, {
+        onOpen: event => {
           this.openActionsForButton(button, trigger, event);
-        }
-      };
-
-      CELL_ACTION_EVENTS.forEach(type => {
-        trigger.addEventListener(type, stopAndMaybeOpen);
+        },
       });
 
       host.appendChild(trigger);
