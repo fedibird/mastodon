@@ -951,4 +951,47 @@ describe('emoji picker shell and personal stock', () => {
     expect(img).not.toHaveAttribute('width');
     expect(img).not.toHaveClass('emojione');
   });
+
+  it('toggles edit mode with Edit/Done and resets when the shell reopens', async () => {
+    const stock = ready(fixture());
+    const loadStandardEmojiPicker = jest.fn(() => Promise.resolve({ Picker: () => null }));
+    const { rerender, onPick, onRequestClose } = renderShell({
+      stockSource: stock,
+      loadStandardEmojiPicker,
+    });
+    await screen.findByRole('button', { name: 'Family' });
+
+    expect(document.querySelector('.emoji-stock-picker__actions')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByRole('button', { name: 'Done' })).toBeTruthy();
+    expect(document.querySelector('.emoji-stock-picker__actions')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Standard' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Personal set' }));
+    expect(screen.getByRole('button', { name: 'Done' })).toBeTruthy();
+    expect(document.querySelector('.emoji-stock-picker__actions')).toBeTruthy();
+
+    rerender(
+      <EmojiPickerShell
+        open={false}
+        onPick={onPick}
+        onRequestClose={onRequestClose}
+        stockSource={stock}
+        loadStandardEmojiPicker={loadStandardEmojiPicker}
+      />,
+    );
+    rerender(
+      <EmojiPickerShell
+        open
+        onPick={onPick}
+        onRequestClose={onRequestClose}
+        stockSource={stock}
+        loadStandardEmojiPicker={loadStandardEmojiPicker}
+      />,
+    );
+    await screen.findByRole('button', { name: 'Family' });
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy();
+    expect(document.querySelector('.emoji-stock-picker__actions')).toBeNull();
+  });
 });

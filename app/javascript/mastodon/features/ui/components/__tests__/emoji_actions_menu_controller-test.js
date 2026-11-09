@@ -119,4 +119,78 @@ describe('buildEmojiActionMenuItems', () => {
     expect(unmute.disabled).toBe(true);
     expect(items.some(item => item && item.text === 'Mute emoji')).toBe(false);
   });
+
+  it('offers copy for unicode and omits it for remote custom', () => {
+    const onCopy = jest.fn();
+    const unicodeItems = buildEmojiActionMenuItems({
+      intl,
+      reference: { kind: 'unicode', native: '😀' },
+      resolved: {
+        reference: { kind: 'unicode', native: '😀' },
+        actions: { mute: { allowed: true }, add_to_personal_category: { allowed: false } },
+      },
+      mute: null,
+      categories: [],
+      status: 'ready',
+      busy: false,
+      onCopy,
+      onMute: jest.fn(),
+      onUnmute: jest.fn(),
+      onAddToCategory: jest.fn(),
+      onRetry: jest.fn(),
+    });
+    expect(unicodeItems.some(item => item && item.text === 'Copy emoji' && item.action === onCopy)).toBe(true);
+
+    const remoteItems = buildEmojiActionMenuItems({
+      intl,
+      reference,
+      resolved: {
+        reference,
+        actions: { mute: { allowed: true }, add_to_personal_category: { allowed: false } },
+      },
+      mute: null,
+      categories: [],
+      status: 'ready',
+      busy: false,
+      onCopy,
+      onMute: jest.fn(),
+      onUnmute: jest.fn(),
+      onAddToCategory: jest.fn(),
+      onRetry: jest.fn(),
+    });
+    expect(remoteItems.some(item => item && item.text === 'Copy emoji')).toBe(false);
+  });
+
+  it('puts same-reaction first and disables it at the reaction limit', () => {
+    const onReactSame = jest.fn();
+    const items = buildEmojiActionMenuItems({
+      intl,
+      reference: { kind: 'unicode', native: '😀' },
+      resolved: {
+        reference: { kind: 'unicode', native: '😀' },
+        actions: { mute: { allowed: true }, add_to_personal_category: { allowed: false } },
+      },
+      mute: null,
+      categories: [],
+      status: 'ready',
+      busy: false,
+      reaction: {
+        name: '😀',
+        my_reaction: false,
+        reaction_limit_reached: true,
+        disabled: false,
+      },
+      onReactSame,
+      onMute: jest.fn(),
+      onUnmute: jest.fn(),
+      onAddToCategory: jest.fn(),
+      onRetry: jest.fn(),
+    });
+
+    const actionable = items.filter(Boolean);
+    expect(actionable[0].text).toBe('React with this emoji');
+    expect(actionable[0].disabled).toBe(true);
+    expect(actionable[0].action).toBe(onReactSame);
+    expect(items.some(item => item && item.text === 'Mute emoji' && !item.disabled)).toBe(true);
+  });
 });

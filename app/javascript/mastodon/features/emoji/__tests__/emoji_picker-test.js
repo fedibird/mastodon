@@ -209,10 +209,17 @@ describe('standard emoji picker adapters', () => {
     expect(listener.mock.calls[0][0].reference).toEqual(referenceFromMartButton(heart, 1));
   });
 
-  it('enables the manage control from keyboard focus without hover', () => {
+  it('hides cell and bar manage controls outside edit mode', () => {
+    renderPicker(<Picker />);
+
+    expect(document.querySelector('.emoji-mart-emoji-actions')).toBeNull();
+    expect(screen.queryByLabelText('Emoji actions')).toBeNull();
+  });
+
+  it('enables the manage control from keyboard focus without hover in edit mode', () => {
     const listener = jest.fn();
     setEmojiActionsListener(listener);
-    renderPicker(<Picker />);
+    renderPicker(<Picker editMode />);
 
     expect(screen.getByLabelText('Emoji actions')).toBeDisabled();
 
@@ -232,7 +239,7 @@ describe('standard emoji picker adapters', () => {
     const listener = jest.fn();
     const onClick = jest.fn();
     setEmojiActionsListener(listener);
-    renderPicker(<Picker onClick={onClick} />);
+    renderPicker(<Picker editMode onClick={onClick} />);
 
     const heart = screen.getByTitle('heart');
     const cellActions = heart.parentElement.querySelector('[data-emoji-actions="1"]');
@@ -252,7 +259,7 @@ describe('standard emoji picker adapters', () => {
     const listener = jest.fn();
     const onClick = jest.fn();
     setEmojiActionsListener(listener);
-    renderPicker(<Picker onClick={onClick} />);
+    renderPicker(<Picker editMode onClick={onClick} />);
 
     const heart = screen.getByTitle('heart');
     const cellActions = heart.parentElement.querySelector('[data-emoji-actions="1"]');
@@ -268,7 +275,7 @@ describe('standard emoji picker adapters', () => {
   it('does not double-open when touchend is followed by a synthetic click', () => {
     const listener = jest.fn();
     setEmojiActionsListener(listener);
-    renderPicker(<Picker />);
+    renderPicker(<Picker editMode />);
 
     const heart = screen.getByTitle('heart');
     const cellActions = heart.parentElement.querySelector('[data-emoji-actions="1"]');
@@ -279,6 +286,27 @@ describe('standard emoji picker adapters', () => {
     fireEvent.click(cellActions);
 
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens manage from a long-press on the emoji cell without inserting', () => {
+    jest.useFakeTimers();
+    const listener = jest.fn();
+    const onClick = jest.fn();
+    setEmojiActionsListener(listener);
+    renderPicker(<Picker onClick={onClick} />);
+
+    const heart = screen.getByTitle('heart');
+    const touch = { identifier: 9, clientX: 1, clientY: 1 };
+    fireEvent.touchStart(heart, { touches: [touch] });
+    act(() => {
+      jest.advanceTimersByTime(520);
+    });
+    fireEvent.touchEnd(heart, { changedTouches: [touch] });
+    fireEvent.click(heart);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+    jest.useRealTimers();
   });
 
   it('keeps normal emoji tap insertion (pointerdown → click → onClick)', () => {

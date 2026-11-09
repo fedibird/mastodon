@@ -8,6 +8,7 @@ import {
   referenceFromStockItem,
   referenceFromPickerEmoji,
   detailPathForReference,
+  copyTextForReference,
   datasetFromReference,
   referenceFromDataset,
 } from '../emoji_actions/reference';
@@ -147,5 +148,16 @@ describe('emoji actions references', () => {
     const dataset = datasetFromReference(reference);
 
     expect(referenceFromDataset(dataset)).toEqual(reference);
+  });
+
+  it('builds clipboard text for unicode and local shortcodes only', () => {
+    expect(copyTextForReference({ kind: 'unicode', native: '👩‍👩‍👧‍👦' })).toBe('👩‍👩‍👧‍👦');
+    expect(copyTextForReference({ kind: 'custom', scope: 'local', custom_emoji_id: '9', shortcode: 'blob' })).toBe(':blob:');
+    expect(copyTextForReference({ kind: 'custom', scope: 'local', custom_emoji_id: '9' })).toBeNull();
+    expect(copyTextForReference(
+      { kind: 'custom', scope: 'local', custom_emoji_id: '9' },
+      { reference: { kind: 'custom', scope: 'local', custom_emoji_id: '9', shortcode: 'blob' } },
+    )).toBe(':blob:');
+    expect(copyTextForReference({ kind: 'custom', scope: 'remote', domain: 'a.example', shortcode: 'blob' })).toBeNull();
   });
 });
