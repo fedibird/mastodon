@@ -276,6 +276,11 @@ const rememberRelationships = (dispatch, getState, notifications) => {
 // is not an empty list, and an older page cannot overwrite a newer one.
 export function refreshEmojiMuteSurfaces(options = {}) {
   return (dispatch, getState) => {
+    if (restoreTimer !== null) {
+      clearTimeout(restoreTimer);
+      restoreTimer = null;
+    }
+
     const generation = surfaceGeneration + 1;
     surfaceGeneration = generation;
     restoreQueue = [];
@@ -304,7 +309,7 @@ export function refreshEmojiMuteSurfaces(options = {}) {
     }
 
     const statusTask = immediateIds.length > 0
-      ? fetchStatusIds(immediateIds, generation, dispatch, getState)
+      ? fetchStatusIds(immediateIds, generation, dispatch, getState).then(failed => enqueueRetry(failed, generation, dispatch, getState))
       : Promise.resolve([]);
 
     if (restoreQueue.length > 0) {
@@ -351,6 +356,25 @@ export function refreshEmojiMuteSurfaces(options = {}) {
   };
 }
 
+const enqueueRetry = (failed, generation, dispatch, getState) => {
+  if (!surfaceRefreshCurrent(generation)) {
+    return;
+  }
+
+  (failed || []).forEach(id => {
+    const attempts = restoreAttempts.get(id) || 0;
+
+    if (attempts + 1 < MAX_RESTORE_ATTEMPTS) {
+      restoreAttempts.set(id, attempts + 1);
+      restoreQueue.push(id);
+    }
+  });
+
+  if (restoreQueue.length > 0) {
+    scheduleRestore(dispatch, getState);
+  }
+};
+
 const scheduleRestore = (dispatch, getState) => {
   if (restoreTimer !== null) {
     return;
@@ -362,7 +386,6 @@ const scheduleRestore = (dispatch, getState) => {
     restoreTimer = null;
 
     if (!surfaceRefreshCurrent(generation)) {
-      restoreQueue = [];
       return;
     }
 
@@ -388,18 +411,7 @@ const scheduleRestore = (dispatch, getState) => {
         return;
       }
 
-      (failed || []).forEach(id => {
-        const attempts = restoreAttempts.get(id) || 0;
-
-        if (attempts + 1 < MAX_RESTORE_ATTEMPTS) {
-          restoreAttempts.set(id, attempts + 1);
-          restoreQueue.push(id);
-        }
-      });
-
-      if (restoreQueue.length > 0) {
-        scheduleRestore(dispatch, getState);
-      }
+      enqueueRetry(failed, generation, dispatch, getState);
     }).catch(() => {});
 
     if (restoreQueue.length > 0) {

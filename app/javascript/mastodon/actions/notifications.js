@@ -16,6 +16,8 @@ import { notificationFilterFlags } from './notification_filter';
 import { usePendingItems as preferPendingItems, enableReaction, enableStatusReference } from 'mastodon/initial_state';
 import compareId from 'mastodon/compare_id';
 import { requestNotificationPermission } from '../utils/notifications';
+import { storedReactionHidden } from '../features/emoji/emoji_mute_projection';
+import { currentEmojiMutes, emojiReactionEventsAccepted } from '../features/emoji/emoji_mute_store';
 
 export const NOTIFICATIONS_RELOAD_SUCCESS = 'NOTIFICATIONS_RELOAD_SUCCESS';
 export const NOTIFICATIONS_FEED_MERGE = 'NOTIFICATIONS_FEED_MERGE';
@@ -85,12 +87,20 @@ const notificationTitleValues = (notification) => {
   return values;
 };
 
+const emojiReactionSuppressed = notification => (
+  notification.type === 'emoji_reaction' && (
+    !emojiReactionEventsAccepted()
+    || storedReactionHidden(notification.emoji_reaction, currentEmojiMutes())
+  )
+);
+
 export function updateNotifications(notification, intlMessages, intlLocale) {
   return (dispatch, getState) => {
     const showInColumn = getState().getIn(['settings', 'notifications', 'shows', notification.type], true);
     const showAlert    = getState().getIn(['settings', 'notifications', 'alerts', notification.type], true);
     const playSound    = getState().getIn(['settings', 'notifications', 'sounds', notification.type], true);
     const { drop, filtered } = notificationFilterFlags(notification);
+    const reactionSuppressed = emojiReactionSuppressed(notification);
 
     if (drop) {
       return;
@@ -113,11 +123,11 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
         type: NOTIFICATIONS_UPDATE,
         notification,
         usePendingItems: preferPendingItems,
-        meta: (playSound && !filtered) ? { sound: 'boop' } : undefined,
+        meta: (playSound && !filtered && !reactionSuppressed) ? { sound: 'boop' } : undefined,
       });
 
       fetchRelatedRelationships(dispatch, [notification]);
-    } else if (playSound && !filtered) {
+    } else if (playSound && !filtered && !reactionSuppressed) {
       dispatch({
         type: NOTIFICATIONS_UPDATE_NOOP,
         meta: { sound: 'boop' },
@@ -125,7 +135,7 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
     }
 
     // Desktop notifications
-    if (typeof window.Notification !== 'undefined' && showAlert && !filtered) {
+    if (typeof window.Notification !== 'undefined' && showAlert && !filtered && !reactionSuppressed) {
       const isBoost = notification.type === 'status' && !!notification.status?.reblog;
       const titleMessage = isBoost ? intlMessages['notification.status_boost'] || messages.statusBoost.defaultMessage : intlMessages[`notification.${notification.type}`];
       const title = new IntlMessageFormat(titleMessage, intlLocale).format(notificationTitleValues(notification));

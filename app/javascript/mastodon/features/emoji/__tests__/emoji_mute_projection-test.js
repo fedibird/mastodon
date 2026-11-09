@@ -20,7 +20,10 @@ import { projectStreamReaction, reactionNameHidden, guardImportedReactions, proj
 import { installEmojiMutesForTests, loadEmojiMutes, noteEmojiMutesChanged, appliedEmojiMuteRevision, observedEmojiMuteRevision, resetEmojiMuteStoreForTests, emojiReactionEventsAccepted } from '../emoji_mute_store';
 import api from 'mastodon/api';
 import { addEmojiReaction, updateEmojiReaction } from '../../../actions/interactions';
-import { NOTIFICATIONS_FEED_MERGE, NOTIFICATIONS_RELOAD_SUCCESS } from '../../../actions/notifications';
+import { NOTIFICATIONS_FEED_MERGE, NOTIFICATIONS_RELOAD_SUCCESS, NOTIFICATIONS_CLEAR, NOTIFICATIONS_FILTER_SET, NOTIFICATIONS_EXPAND_SUCCESS, updateNotifications } from '../../../actions/notifications';
+import { ACCOUNT_BLOCK_SUCCESS } from '../../../actions/accounts';
+import { DOMAIN_BLOCK_SUCCESS } from '../../../actions/domain_blocks';
+import { TIMELINE_DELETE } from '../../../actions/timelines';
 import notificationsReducer from '../../../reducers/notifications';
 import { KNOWN_EVENT_TYPES } from '../../../stream';
 
@@ -452,6 +455,7 @@ describe('emoji mute projection', () => {
   });
 
   it('merges the filtered notification page and keeps loaded history', () => {
+    installEmojiMutesForTests({ revision: '1', emoji_mutes: [] });
     const account = {
       id: 'acct-1',
       acct: 'a',
@@ -699,6 +703,7 @@ describe('emoji mute projection', () => {
   });
 
   it('removes only the muted local custom notification and restores it when the mute is removed', () => {
+    installEmojiMutesForTests({ revision: '2', emoji_mutes: [] });
     const local = (id, notificationId) => fromJS({
       id: notificationId,
       type: 'emoji_reaction',
@@ -802,6 +807,245 @@ describe('emoji mute projection', () => {
       expect(fetched).toEqual(expect.stringContaining(`ids[]=${id}`));
     });
     expect(calls.filter(url => url.includes('ids[]=1')).length).toBeGreaterThan(1);
+  });
+
+  it('does not restore a withheld notification after clear, block, or a filter change', () => {
+    installEmojiMutesForTests({ revision: '2', emoji_mutes: [] });
+    const hidden = fromJS({ id: '11', type: 'emoji_reaction', account: 'acct-1', status: 'post-1', emoji_reaction: { name: 'blob', custom_emoji_id: '11' } });
+    const kept = fromJS({ id: '22', type: 'emoji_reaction', account: 'acct-2', status: 'post-2', emoji_reaction: { name: 'blob', custom_emoji_id: '22' } });
+    const hide = [{ effects: { hide_reactions: true }, emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '11' } }];
+    const muted = notificationsReducer(fromJS({
+      items: [hidden, kept],
+      pendingItems: [],
+      hasMore: false,
+      unread: 2,
+      lastReadId: '0',
+      top: true,
+      mounted: 1,
+      isTabVisible: true,
+    }), { type: EMOJI_MUTES_APPLY, mutes: hide });
+    expect(muted.get('emojiMuteWithheld').size).toBe(1);
+
+    const cleared = notificationsReducer(muted, { type: NOTIFICATIONS_CLEAR });
+    const afterClear = notificationsReducer(cleared, { type: EMOJI_MUTES_APPLY, mutes: [] });
+    expect(afterClear.get('items').size).toBe(0);
+    expect(afterClear.get('emojiMuteWithheld').size).toBe(0);
+
+    const blocked = notificationsReducer(muted, { type: ACCOUNT_BLOCK_SUCCESS, relationship: { id: 'acct-1' } });
+    const afterBlock = notificationsReducer(blocked, { type: EMOJI_MUTES_APPLY, mutes: [] });
+    expect(afterBlock.get('items').map(item => item.get('id')).toJS()).toEqual(['22']);
+    expect(afterBlock.get('emojiMuteWithheld').size).toBe(0);
+
+    const domainBlocked = notificationsReducer(muted, { type: DOMAIN_BLOCK_SUCCESS, accounts: ['acct-1'] });
+    expect(notificationsReducer(domainBlocked, { type: EMOJI_MUTES_APPLY, mutes: [] }).get('emojiMuteWithheld').size).toBe(0);
+
+    const filtered = notificationsReducer(muted, { type: NOTIFICATIONS_FILTER_SET });
+    expect(notificationsReducer(filtered, { type: EMOJI_MUTES_APPLY, mutes: [] }).get('items').size).toBe(0);
+
+    const deleted = notificationsReducer(muted, { type: TIMELINE_DELETE, id: 'post-1' });
+    expect(notificationsReducer(deleted, { type: EMOJI_MUTES_APPLY, mutes: [] }).get('emojiMuteWithheld').size).toBe(0);
+  });
+
+  it('applies hide rules to a late notification update and an older notification page', async () => {
+    installEmojiMutesForTests({
+      revision: '3',
+      emoji_mutes: [
+        { effects: { hide_reactions: true }, emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '11' } },
+        { effects: { hide_reactions: true }, emoji: { kind: 'custom', scope: 'remote', domain: 'other.example', shortcode: 'blob' } },
+        { effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '👍' } },
+      ],
+    });
+    const person = {
+      id: 'acct-1',
+      acct: 'a',
+      username: 'a',
+      display_name: 'A',
+      note: '',
+      followed_message: '',
+      url: 'https://example.test/a',
+      emojis: [],
+      fields: [],
+    };
+    const reaction = (id, emoji) => ({ id, type: 'emoji_reaction', account: { ...person, id: `acct-${id}` }, emoji_reaction: emoji });
+    let notifications = fromJS({
+      items: [],
+      pendingItems: [],
+      lastReadId: '0',
+      hasMore: true,
+      unread: 0,
+      top: true,
+      mounted: 1,
+      isLoading: false,
+      isTabVisible: true,
+      readMarkerId: '0',
+      browserSupport: false,
+      browserPermission: 'default',
+    });
+    const state = () => fromJS({
+      settings: { notifications: { shows: { emoji_reaction: true }, alerts: { emoji_reaction: true }, sounds: { emoji_reaction: true } } },
+      timelines: { home: { items: [] } },
+      markers: { home: '0', notifications: '0' },
+      relationships: {},
+      statuses: {},
+      accounts: {},
+      polls: {},
+    }).set('notifications', notifications);
+    const dispatched = [];
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, state);
+      }
+      dispatched.push(action);
+      notifications = notificationsReducer(notifications, action);
+      return action;
+    };
+    await updateNotifications(reaction('11', { name: 'blob', custom_emoji_id: '11' }), {}, 'en')(dispatch, state);
+    await updateNotifications(reaction('22', { name: 'blob', custom_emoji_id: '22' }), {}, 'en')(dispatch, state);
+    await updateNotifications(reaction('30', { name: 'blob', domain: 'other.example' }), {}, 'en')(dispatch, state);
+    await updateNotifications(reaction('40', { name: '👍' }), {}, 'en')(dispatch, state);
+    expect(notifications.get('items').map(item => item.get('id')).toJS()).toEqual(['22']);
+    expect(dispatched.filter(action => action.meta && action.meta.sound === 'boop').map(action => action.notification.id)).toEqual(['22']);
+
+    notifications = notificationsReducer(notifications, {
+      type: NOTIFICATIONS_EXPAND_SUCCESS,
+      notifications: [reaction('11', { name: 'blob', custom_emoji_id: '11' }), reaction('22', { name: 'blob', custom_emoji_id: '22' })],
+      next: 'next',
+      isLoadingRecent: false,
+      usePendingItems: false,
+    });
+    expect(notifications.get('items').map(item => item.get('id')).toJS()).toEqual(['22']);
+
+    resetEmojiMuteStoreForTests();
+    installEmojiMutesForTests({ revision: '4', emoji_mutes: [] });
+    let release;
+    api.mockImplementation(() => ({
+      get: url => (String(url).includes('emoji_mutes')
+        ? new Promise(resolve => {
+          release = resolve;
+        })
+        : Promise.resolve({ data: [] })),
+      put: jest.fn(),
+      post: jest.fn(() => Promise.resolve({ data: {} })),
+    }));
+    const pendingLoad = noteEmojiMutesChanged({ revision: '5' });
+    notifications = fromJS({
+      items: [],
+      pendingItems: [],
+      lastReadId: '0',
+      hasMore: true,
+      unread: 0,
+      top: true,
+      mounted: 1,
+      isLoading: false,
+      isTabVisible: true,
+      readMarkerId: '0',
+    });
+    await updateNotifications(reaction('50', { name: 'blob', custom_emoji_id: '22' }), {}, 'en')(dispatch, state);
+    expect(notifications.get('items').size).toBe(0);
+    expect(notifications.get('emojiMuteWithheld').size).toBe(1);
+    release({ data: { revision: '5', emoji_mutes: [] } });
+    await pendingLoad;
+    notifications = notificationsReducer(notifications, { type: EMOJI_MUTES_APPLY, mutes: [] });
+    expect(notifications.get('items').map(item => item.get('id')).toJS()).toEqual(['50']);
+  });
+
+  it('retries an immediate status restore after the first batch fails', async () => {
+    installEmojiMutesForTests({ revision: '5', emoji_mutes: [] });
+    const calls = [];
+    api.mockImplementation(() => ({
+      get: url => {
+        const path = String(url);
+        calls.push(path);
+        if (path.includes('/api/v1/statuses?')) {
+          if (calls.filter(item => item.includes('/api/v1/statuses?')).length === 1) {
+            return Promise.reject(new Error('503'));
+          }
+          return Promise.resolve({ data: [{ id: '50', content: '<p>back</p>', spoiler_text: '', emojis: [], media_attachments: [], mentions: [], emoji_reactions: [{ name: '👍', count: 1, account_ids: ['1'] }], emoji_reactions_count: 1, emoji_mutes_revision: '5' }] });
+        }
+        if (path.includes('unread_count')) {
+          return Promise.resolve({ data: { count: 0 } });
+        }
+        return Promise.resolve({ data: [] });
+      },
+      put: jest.fn(),
+    }));
+    const state = () => fromJS({
+      timelines: {},
+      contexts: {},
+      statuses: { '50': { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0 } },
+      accounts: {},
+      polls: {},
+      externalBoosts: {},
+      notifications: { items: [], pendingItems: [] },
+    });
+    const imported = [];
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, state);
+      }
+      if (action.type === STATUSES_IMPORT) {
+        imported.push(action);
+      }
+      return action;
+    };
+    noteStatusVisibility('50', true);
+    await refreshEmojiMuteSurfaces({ restoreStatuses: true })(dispatch, state);
+    for (let step = 0; step < 5; step += 1) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    expect(calls.filter(url => url.includes('ids[]=50')).length).toBeGreaterThan(1);
+    const restored = imported.map(action => action.statuses).find(list => list.length > 0);
+    expect(restored[0].id).toBe('50');
+    expect(restored[0].content).toBe('<p>back</p>');
+    expect(restored[0].emoji_reactions[0].count).toBe(1);
+  });
+
+  it('does not let an older restore timer erase the next generation queue', async () => {
+    jest.useFakeTimers();
+    try {
+      installEmojiMutesForTests({ revision: '5', emoji_mutes: [] });
+      const calls = [];
+      api.mockImplementation(() => ({
+        get: url => {
+          calls.push(String(url));
+          if (String(url).includes('unread_count')) {
+            return Promise.resolve({ data: { count: 0 } });
+          }
+          return Promise.resolve({ data: [] });
+        },
+        put: jest.fn(),
+      }));
+      const statuses = {};
+      for (let index = 1; index <= 60; index += 1) {
+        const id = String(index);
+        statuses[id] = { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0 };
+        noteStatusVisibility(id, true);
+      }
+      const state = () => fromJS({
+        timelines: {},
+        contexts: {},
+        statuses,
+        notifications: { items: [], pendingItems: [] },
+      });
+      const dispatch = action => (typeof action === 'function' ? action(dispatch, state) : action);
+      const flush = async () => {
+        for (let step = 0; step < 20; step += 1) {
+          await Promise.resolve();
+        }
+      };
+      const first = refreshEmojiMuteSurfaces({ restoreStatuses: true })(dispatch, state);
+      await flush();
+      expect(calls.join(' ')).not.toEqual(expect.stringContaining('ids[]=41'));
+      const second = refreshEmojiMuteSurfaces({ restoreStatuses: true })(dispatch, state);
+      await flush();
+      await Promise.all([first, second]);
+      jest.runOnlyPendingTimers();
+      await flush();
+      expect(calls.join(' ')).toEqual(expect.stringContaining('ids[]=41'));
+      expect(calls.join(' ')).toEqual(expect.stringContaining('ids[]=60'));
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('registers the mute change event for EventSource', () => {

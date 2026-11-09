@@ -233,7 +233,13 @@ representative domain. The notification page is requested at the same time,
 with the same `exclude_types` as the notification column, and is merged
 into the loaded pages. A local custom reaction notification carries
 `custom_emoji_id`. An existing page drops only that id and can restore it
-when the rule is removed. A remote cache id is not an identity. A failed notification request does not
+when the rule is removed. Clearing notifications, blocking an account or
+domain, deleting the status, or changing the notification filter also drops
+the withheld copy. A reaction notification that arrives while a newer mute
+document is still loading, or after the rule already hides it, is not shown
+and does not play a sound. A remote cache id is not an identity. A failed
+restore of a visible status is retried once. A newer restore does not let
+the previous timer clear its queue. A failed notification request does not
 clear the list. A newer reload is not overwritten by an older one that
 finishes later. A status that scrolls into view later, or is opened in
 detail, is restored on its own if its revision is still behind. A group
