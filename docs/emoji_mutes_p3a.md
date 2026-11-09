@@ -43,6 +43,20 @@ clicks (`detail === 0`) are never suppressed. Hosts must not keep a sticky
 “long-press opened” flag that depends on a React `touchend` the gesture
 already stopped.
 
+After the menu opens, the same press may slide onto a menu item. Release
+uses viewport coordinates (`changedTouches` / `clientX/Y`) with
+`elementFromPoint` hit-testing inside `[data-emoji-actions-menu]` — not
+`event.target` on the original cell. A valid enabled item activates once
+through the shared item-action path; outside / disabled / loading /
+separator leaves the menu open for a follow-up tap. Slide candidates can
+show a temporary highlight class. Re-tap after release still works.
+
+On **mobile** or **single-column** layout, choosing **Emoji details** from a
+`standard_picker` / `personal_picker` source closes the reaction modal and
+any open picker dropdown before navigating, so detail is not buried under
+the picker and back does not revive it. Reaction-source detail, desktop
+multi-column, copy, mute, and category actions do not take that close path.
+
 P3-A long-press hosts (picker cells, reaction chips, detail preview, and
 their images) set `-webkit-touch-callout: none` / `user-select: none` so
 iOS Safari does not show the system image callout instead of the shared

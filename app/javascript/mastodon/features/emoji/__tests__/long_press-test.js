@@ -3,6 +3,10 @@
  */
 
 import { fireEvent, act } from '@testing-library/react';
+import {
+  resetEmojiActionsBusForTests,
+  setEmojiActionsSlideListeners,
+} from '../emoji_actions/bus';
 import { attachLongPressGesture, LONG_PRESS_MS, LONG_PRESS_CLICK_SUPPRESS_MS } from '../long_press';
 
 function dispatchPointer(node, type, init = {}) {
@@ -26,6 +30,7 @@ describe('attachLongPressGesture', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
+    resetEmojiActionsBusForTests();
     node = document.createElement('button');
     document.body.appendChild(node);
     onLongPress = jest.fn();
@@ -36,6 +41,7 @@ describe('attachLongPressGesture', () => {
     if (detach) {
       detach();
     }
+    resetEmojiActionsBusForTests();
     document.body.innerHTML = '';
     jest.useRealTimers();
   });
@@ -279,5 +285,50 @@ describe('attachLongPressGesture', () => {
     expect(onLongPress).toHaveBeenCalledTimes(1);
     expect(click).not.toHaveBeenCalled();
     document.removeEventListener('click', click);
+  });
+
+  it('after fire, allows move onto a menu point and reports release coordinates', () => {
+    const onMove = jest.fn();
+    const onRelease = jest.fn();
+    setEmojiActionsSlideListeners({ onMove, onRelease });
+
+    dispatchPointer(node, 'pointerdown', { clientX: 10, clientY: 10 });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+
+    // Large move after fire must not cancel the gesture.
+    dispatchPointer(node, 'pointermove', { clientX: 80, clientY: 90 });
+    expect(onMove).toHaveBeenCalledWith({ clientX: 80, clientY: 90 });
+
+    dispatchPointer(node, 'pointerup', { clientX: 80, clientY: 90 });
+    expect(onRelease).toHaveBeenCalledWith({ clientX: 80, clientY: 90 });
+  });
+
+  it('reports touch release from changedTouches coordinates, not event.target', () => {
+    const onRelease = jest.fn();
+    setEmojiActionsSlideListeners({ onRelease });
+
+    const touch = { identifier: 44, clientX: 4, clientY: 4 };
+    fireEvent.touchStart(node, { touches: [touch] });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+
+    const endTouch = { identifier: 44, clientX: 120, clientY: 140 };
+    fireEvent.touchEnd(node, { changedTouches: [endTouch], touches: [] });
+
+    expect(onRelease).toHaveBeenCalledWith({ clientX: 120, clientY: 140 });
+  });
+
+  it('does not report slide release when the press never fired', () => {
+    const onRelease = jest.fn();
+    setEmojiActionsSlideListeners({ onRelease });
+
+    dispatchPointer(node, 'pointerdown');
+    dispatchPointer(node, 'pointerup');
+    expect(onLongPress).not.toHaveBeenCalled();
+    expect(onRelease).not.toHaveBeenCalled();
   });
 });

@@ -304,3 +304,9 @@
 #emoji-actions-overlay-root .dropdown-menu {
   pointer-events: auto;
 }
+
+// Long-press slide-to-select hover candidate (finger/pointer still down).
+#emoji-actions-overlay-root .emoji-actions-menu__slide-target {
+  background: var(--dropdown-border-color);
+  outline: 0;
+}

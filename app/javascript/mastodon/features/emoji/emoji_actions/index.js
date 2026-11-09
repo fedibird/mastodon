@@ -1,4 +1,16 @@
-export { openEmojiActions, setEmojiActionsListener, resetEmojiActionsBusForTests } from './bus';
+export {
+  openEmojiActions,
+  setEmojiActionsListener,
+  setEmojiActionsSlideListeners,
+  reportEmojiActionsSlideMove,
+  reportEmojiActionsSlideRelease,
+  resetEmojiActionsBusForTests,
+} from './bus';
+export {
+  hitTestEmojiActionsMenuItem,
+  setEmojiActionsSlideHighlight,
+  clearEmojiActionsSlideHighlight,
+} from './slide_select';
 export {
   resolveEmojiReference,
   loadEmojiMutesDocument,

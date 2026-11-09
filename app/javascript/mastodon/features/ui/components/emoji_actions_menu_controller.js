@@ -9,7 +9,15 @@ import { syncEmojiMutes } from 'mastodon/actions/emoji_mutes';
 import { addEmojiReaction, removeEmojiReaction } from 'mastodon/actions/interactions';
 import { currentEmojiMutes } from 'mastodon/features/emoji/emoji_mute_store';
 import { notifySavedPersonalEmojiSet } from 'mastodon/features/emoji/emoji_stock_source';
-import { openEmojiActions, setEmojiActionsListener, emojiActionsEventName, normalizeReactionContext } from 'mastodon/features/emoji/emoji_actions/bus';
+import { closeModal } from 'mastodon/actions/modal';
+import { closeDropdownMenu } from 'mastodon/actions/dropdown_menu';
+import {
+  openEmojiActions,
+  setEmojiActionsListener,
+  setEmojiActionsSlideListeners,
+  emojiActionsEventName,
+  normalizeReactionContext,
+} from 'mastodon/features/emoji/emoji_actions/bus';
 import {
   createEmojiMute,
   deleteEmojiMute,
@@ -17,6 +25,12 @@ import {
   loadPersonalEmojiSetDocument,
   appendPersonalCategoryItem,
 } from 'mastodon/features/emoji/emoji_actions/api';
+import {
+  clearEmojiActionsSlideHighlight,
+  hitTestEmojiActionsMenuItem,
+  setEmojiActionsSlideHighlight,
+} from 'mastodon/features/emoji/emoji_actions/slide_select';
+import { LONG_PRESS_CLICK_SUPPRESS_MS } from 'mastodon/features/emoji/long_press';
 import {
   createMuteAndSync,
   deleteMuteAndSync,
@@ -349,7 +363,11 @@ class EmojiActionsMenuController extends React.PureComponent {
   static propTypes = {
     intl: PropTypes.object.isRequired,
     signedIn: PropTypes.bool,
+    layout: PropTypes.string,
+    openDropdownId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     onSyncMutes: PropTypes.func.isRequired,
+    onCloseReactionModal: PropTypes.func,
+    onCloseDropdown: PropTypes.func,
     onAddEmojiReaction: PropTypes.func,
     onRemoveEmojiReaction: PropTypes.func,
     getStatus: PropTypes.func,
@@ -376,6 +394,10 @@ class EmojiActionsMenuController extends React.PureComponent {
 
   componentDidMount() {
     this.unlisten = setEmojiActionsListener(this.handleOpen);
+    this.unlistenSlide = setEmojiActionsSlideListeners({
+      onMove: this.handleSlideMove,
+      onRelease: this.handleSlideRelease,
+    });
     document.addEventListener(emojiActionsEventName(), this.handleDomEvent);
     document.addEventListener('contextmenu', this.handleContextMenu, true);
     document.addEventListener('keydown', this.handleKeyDown, true);
@@ -386,10 +408,41 @@ class EmojiActionsMenuController extends React.PureComponent {
       this.unlisten();
     }
 
+    if (this.unlistenSlide) {
+      this.unlistenSlide();
+    }
+
+    this.clearSlideHighlight();
+    this.clearSlideClickSwallow();
     document.removeEventListener(emojiActionsEventName(), this.handleDomEvent);
     document.removeEventListener('contextmenu', this.handleContextMenu, true);
     document.removeEventListener('keydown', this.handleKeyDown, true);
   }
+
+  clearSlideHighlight = () => {
+    clearEmojiActionsSlideHighlight(this.slideHighlightEl);
+    this.slideHighlightEl = null;
+  };
+
+  clearSlideClickSwallow = () => {
+    if (this.slideClickSwallow) {
+      document.removeEventListener('click', this.slideClickSwallow, true);
+      this.slideClickSwallow = null;
+    }
+  };
+
+  armSlideClickSwallow = () => {
+    this.clearSlideClickSwallow();
+    this.slideActivatedUntil = Date.now() + LONG_PRESS_CLICK_SUPPRESS_MS;
+
+    this.slideClickSwallow = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.clearSlideClickSwallow();
+    };
+
+    document.addEventListener('click', this.slideClickSwallow, true);
+  };
 
   isSignedIn() {
     if (typeof this.props.signedIn === 'boolean') {
@@ -416,6 +469,10 @@ class EmojiActionsMenuController extends React.PureComponent {
     const pending = getPendingMuteSync(detail.reference);
     const flight = getMuteMutationFlight(detail.reference);
     const storeMute = findMuteForReference(currentEmojiMutes(), detail.reference);
+
+    this.slideActivated = false;
+    this.clearSlideHighlight();
+    this.clearSlideClickSwallow();
 
     this.setState({
       element,
@@ -451,6 +508,8 @@ class EmojiActionsMenuController extends React.PureComponent {
   };
 
   handleClose = () => {
+    this.slideActivated = false;
+    this.clearSlideHighlight();
     // Keep module-level pending sync; only clear the visible menu chrome.
     this.setState({
       element: null,
@@ -470,6 +529,118 @@ class EmojiActionsMenuController extends React.PureComponent {
       source: null,
       reaction: null,
     });
+  };
+
+  handleSlideMove = ({ clientX, clientY } = {}) => {
+    if (!this.state.element || !this.state.reference) {
+      return;
+    }
+
+    if (this.state.status === 'loading') {
+      this.clearSlideHighlight();
+      return;
+    }
+
+    const item = hitTestEmojiActionsMenuItem(clientX, clientY);
+    this.slideHighlightEl = setEmojiActionsSlideHighlight(this.slideHighlightEl, item);
+  };
+
+  handleSlideRelease = ({ clientX, clientY } = {}) => {
+    if (!this.state.element || !this.state.reference || this.slideActivated) {
+      this.clearSlideHighlight();
+      return false;
+    }
+
+    if (this.state.status === 'loading' || this.state.busy) {
+      this.clearSlideHighlight();
+      return false;
+    }
+
+    const el = hitTestEmojiActionsMenuItem(clientX, clientY);
+    this.clearSlideHighlight();
+
+    if (!el) {
+      // Outside the menu: leave it open for a follow-up tap.
+      return false;
+    }
+
+    const index = Number(el.getAttribute('data-index'));
+    const item = this.menuItems()[index];
+
+    if (!item || item.disabled) {
+      return false;
+    }
+
+    this.slideActivated = true;
+    this.armSlideClickSwallow();
+    this.activateMenuItem(item);
+    return true;
+  };
+
+  shouldClosePickerForDetail = () => {
+    const { source } = this.state;
+    const { layout } = this.props;
+
+    if (source !== 'standard_picker' && source !== 'personal_picker') {
+      return false;
+    }
+
+    return layout === 'mobile' || layout === 'single-column';
+  };
+
+  closePickerSurfaces = () => {
+    const { openDropdownId, onCloseReactionModal, onCloseDropdown } = this.props;
+
+    if (typeof onCloseReactionModal === 'function') {
+      onCloseReactionModal();
+    }
+
+    if (openDropdownId && typeof onCloseDropdown === 'function') {
+      onCloseDropdown(openDropdownId);
+    }
+  };
+
+  navigateAfterPickerClose = path => {
+    const push = () => {
+      if (this.context.router && path) {
+        this.context.router.history.push(path);
+      }
+    };
+
+    // ModalRoot may history.goBack() when REACTION closes; push after that.
+    Promise.resolve().then(() => {
+      setTimeout(push, 0);
+    }).catch(() => {});
+  };
+
+  activateMenuItem = (item, event = null) => {
+    if (!item || item.disabled) {
+      return;
+    }
+
+    if (typeof item.action === 'function') {
+      item.action(event);
+      return;
+    }
+
+    const path = item.to;
+    const closePicker = Boolean(path) && this.shouldClosePickerForDetail();
+
+    this.handleClose();
+
+    if (path && this.context.router) {
+      if (closePicker) {
+        this.closePickerSurfaces();
+        this.navigateAfterPickerClose(path);
+      } else {
+        this.context.router.history.push(path);
+      }
+      return;
+    }
+
+    if (item.href) {
+      window.location.assign(item.href);
+    }
   };
 
   findTarget = () => this.state.element;
@@ -962,31 +1133,20 @@ class EmojiActionsMenuController extends React.PureComponent {
       return;
     }
 
+    // Swallow the synthetic click that follows a slide-to-select release.
+    if (this.slideActivatedUntil && Date.now() < this.slideActivatedUntil) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
     const index = Number(event.currentTarget.getAttribute('data-index'));
     const item = this.menuItems()[index];
 
     event.preventDefault();
     event.stopPropagation();
 
-    if (!item || item.disabled) {
-      return;
-    }
-
-    if (typeof item.action === 'function') {
-      item.action(event);
-      return;
-    }
-
-    this.handleClose();
-
-    if (item.to && this.context.router) {
-      this.context.router.history.push(item.to);
-      return;
-    }
-
-    if (item.href) {
-      window.location.assign(item.href);
-    }
+    this.activateMenuItem(item, event);
   };
 
   render() {
@@ -1029,11 +1189,19 @@ class EmojiActionsMenuController extends React.PureComponent {
 
 const mapStateToProps = state => ({
   getStatus: id => (id ? state.getIn(['statuses', id]) : null),
+  layout: state.getIn(['meta', 'layout']),
+  openDropdownId: state.getIn(['dropdown_menu', 'openId']),
 });
 
 const mapDispatchToProps = dispatch => ({
   onSyncMutes(options) {
     return dispatch(syncEmojiMutes(options));
+  },
+  onCloseReactionModal() {
+    dispatch(closeModal('REACTION'));
+  },
+  onCloseDropdown(id) {
+    dispatch(closeDropdownMenu(id));
   },
   onAddEmojiReaction(status, name, domain, url, staticUrl) {
     return dispatch(addEmojiReaction(status, name, domain, url, staticUrl));

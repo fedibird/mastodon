@@ -1,11 +1,32 @@
 // Long-press → open emoji actions without firing the host's short-press
 // (insert / react / navigate). Shared by picker cells and reaction chips.
+// After the menu opens, the same press may slide onto a menu item; release
+// coordinates are reported so the menu can activate that item once.
+
+import {
+  reportEmojiActionsSlideMove,
+  reportEmojiActionsSlideRelease,
+} from './emoji_actions/bus';
 
 export const LONG_PRESS_MS = 480;
 export const LONG_PRESS_MOVE_PX = 12;
 export const LONG_PRESS_CLICK_SUPPRESS_MS = 700;
 
-export function attachLongPressGesture(element, { onLongPress }) {
+const pointFromTouchList = (list, id) => {
+  if (!list || list.length === 0) {
+    return null;
+  }
+
+  const touch = Array.from(list).find(entry => entry.identifier === id) || list[0];
+
+  if (!touch) {
+    return null;
+  }
+
+  return { clientX: touch.clientX, clientY: touch.clientY };
+};
+
+export function attachLongPressGesture(element, { onLongPress, onLongPressMove, onLongPressRelease } = {}) {
   if (!element || typeof onLongPress !== 'function') {
     return () => {};
   }
@@ -74,6 +95,24 @@ export function attachLongPressGesture(element, { onLongPress }) {
     suppressClickUntil = Date.now() + LONG_PRESS_CLICK_SUPPRESS_MS;
   };
 
+  const emitSlideMove = (clientX, clientY) => {
+    const point = { clientX, clientY };
+    reportEmojiActionsSlideMove(point);
+
+    if (typeof onLongPressMove === 'function') {
+      onLongPressMove(point);
+    }
+  };
+
+  const emitSlideRelease = (clientX, clientY) => {
+    const point = { clientX, clientY };
+    reportEmojiActionsSlideRelease(point);
+
+    if (typeof onLongPressRelease === 'function') {
+      onLongPressRelease(point);
+    }
+  };
+
   const fire = event => {
     if (!tracking || tracking.cancelled || tracking.fired) {
       return;
@@ -129,7 +168,19 @@ export function attachLongPressGesture(element, { onLongPress }) {
     const touch = Array.from(event.touches || []).find(entry => entry.identifier === tracking.id)
       || Array.from(event.changedTouches || []).find(entry => entry.identifier === tracking.id);
 
-    if (!touch || movedBeyond(touch.clientX, touch.clientY)) {
+    if (!touch) {
+      tracking.cancelled = true;
+      clearTimer();
+      return;
+    }
+
+    // After the menu is open, allow sliding onto items (native context-menu style).
+    if (tracking.fired) {
+      emitSlideMove(touch.clientX, touch.clientY);
+      return;
+    }
+
+    if (movedBeyond(touch.clientX, touch.clientY)) {
       tracking.cancelled = true;
       clearTimer();
     }
@@ -141,6 +192,9 @@ export function attachLongPressGesture(element, { onLongPress }) {
     }
 
     const fired = tracking.fired;
+    const id = tracking.id;
+    const point = pointFromTouchList(event.changedTouches, id)
+      || pointFromTouchList(event.touches, id);
     clearTracking();
 
     if (fired) {
@@ -151,6 +205,10 @@ export function attachLongPressGesture(element, { onLongPress }) {
       }
       event.stopPropagation();
       armClickSuppress();
+
+      if (point) {
+        emitSlideRelease(point.clientX, point.clientY);
+      }
     }
   };
 
@@ -189,6 +247,11 @@ export function attachLongPressGesture(element, { onLongPress }) {
       return;
     }
 
+    if (tracking.fired) {
+      emitSlideMove(event.clientX, event.clientY);
+      return;
+    }
+
     if (movedBeyond(event.clientX, event.clientY)) {
       tracking.cancelled = true;
       clearTimer();
@@ -201,6 +264,8 @@ export function attachLongPressGesture(element, { onLongPress }) {
     }
 
     const fired = tracking.fired;
+    const clientX = event.clientX;
+    const clientY = event.clientY;
     clearTracking();
 
     if (fired) {
@@ -209,6 +274,7 @@ export function attachLongPressGesture(element, { onLongPress }) {
       }
       event.stopPropagation();
       armClickSuppress();
+      emitSlideRelease(clientX, clientY);
     }
   };
 

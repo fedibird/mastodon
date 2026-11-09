@@ -12,7 +12,12 @@ import {
   loadPersonalEmojiSetDocument,
   resolveEmojiReference,
 } from 'mastodon/features/emoji/emoji_actions/api';
-import { openEmojiActions, resetEmojiActionsBusForTests } from 'mastodon/features/emoji/emoji_actions/bus';
+import {
+  openEmojiActions,
+  reportEmojiActionsSlideRelease,
+  resetEmojiActionsBusForTests,
+} from 'mastodon/features/emoji/emoji_actions/bus';
+import { detailPathForReference } from 'mastodon/features/emoji/emoji_actions/reference';
 import { resetMuteMutationFlightsForTests } from 'mastodon/features/emoji/emoji_actions/mutation_flight';
 import {
   EMOJI_ACTIONS_OVERLAY_ROOT_ID,
@@ -343,6 +348,357 @@ describe('emoji actions menu portal host', () => {
     expect(screen.queryByText('Invalid emoji reference')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Mute emoji' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+
+    document.body.removeChild(anchor);
+  });
+
+  it('activates a menu item once on slide release over that item (coordinate hit-test)', async () => {
+    render(
+      <EmojiActionsMenuController
+        intl={intl}
+        signedIn
+        onSyncMutes={jest.fn(() => Promise.resolve())}
+      />,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+
+    act(() => {
+      openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+    });
+
+    const muteItem = await screen.findByRole('button', { name: 'Mute emoji' });
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => muteItem;
+
+    act(() => {
+      expect(reportEmojiActionsSlideRelease({ clientX: 40, clientY: 40 })).toBe(true);
+      // Second release in the same gesture session must not re-run.
+      expect(reportEmojiActionsSlideRelease({ clientX: 40, clientY: 40 })).toBe(false);
+    });
+
+    document.elementFromPoint = original;
+
+    await waitFor(() => expect(createEmojiMute).toHaveBeenCalledTimes(1));
+    document.body.removeChild(anchor);
+  });
+
+  it('leaves the menu open when slide release is outside any item', async () => {
+    render(
+      <EmojiActionsMenuController
+        intl={intl}
+        signedIn
+        onSyncMutes={jest.fn(() => Promise.resolve())}
+      />,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+
+    act(() => {
+      openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+    });
+
+    await screen.findByRole('button', { name: 'Mute emoji' });
+
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => document.body;
+
+    act(() => {
+      expect(reportEmojiActionsSlideRelease({ clientX: 1, clientY: 1 })).toBe(false);
+    });
+
+    document.elementFromPoint = original;
+
+    expect(screen.getByRole('button', { name: 'Mute emoji' })).toBeTruthy();
+    expect(createEmojiMute).not.toHaveBeenCalled();
+    document.body.removeChild(anchor);
+  });
+
+  it('does not activate disabled items via slide release', async () => {
+    currentEmojiMutes.mockReturnValue([{
+      id: 'm1',
+      emoji: { kind: 'unicode', native: '😀' },
+      revision: '1',
+    }]);
+
+    render(
+      <EmojiActionsMenuController
+        intl={intl}
+        signedIn
+        onSyncMutes={jest.fn(() => Promise.resolve())}
+      />,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+
+    act(() => {
+      openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+    });
+
+    const muted = await screen.findByRole('button', { name: 'Muted' });
+    expect(muted).toHaveAttribute('aria-disabled', 'true');
+
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => muted;
+
+    act(() => {
+      expect(reportEmojiActionsSlideRelease({ clientX: 12, clientY: 12 })).toBe(false);
+    });
+
+    document.elementFromPoint = original;
+    expect(createEmojiMute).not.toHaveBeenCalled();
+    document.body.removeChild(anchor);
+  });
+
+  it('closes mobile picker surfaces before navigating to emoji detail', async () => {
+    const history = { push: jest.fn() };
+    const onCloseReactionModal = jest.fn();
+    const onCloseDropdown = jest.fn();
+
+    class RouterHarness extends React.Component {
+
+      static childContextTypes = { router: PropTypes.object };
+
+      getChildContext() {
+        return { router: { history } };
+      }
+
+      render() {
+        return this.props.children;
+      }
+
+    }
+
+    render(
+      <RouterHarness>
+        <EmojiActionsMenuController
+          intl={intl}
+          signedIn
+          layout='mobile'
+          openDropdownId='picker-dd'
+          onCloseReactionModal={onCloseReactionModal}
+          onCloseDropdown={onCloseDropdown}
+          onSyncMutes={jest.fn(() => Promise.resolve())}
+        />
+      </RouterHarness>,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const reference = { kind: 'unicode', native: '😀' };
+
+    act(() => {
+      openEmojiActions(reference, { anchor, source: 'standard_picker' });
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Emoji details' }));
+
+    expect(onCloseReactionModal).toHaveBeenCalledTimes(1);
+    expect(onCloseDropdown).toHaveBeenCalledWith('picker-dd');
+    await waitFor(() => {
+      expect(history.push).toHaveBeenCalledWith(detailPathForReference(reference));
+    });
+
+    document.body.removeChild(anchor);
+  });
+
+  it('closes single-column picker on detail but not for mute/copy', async () => {
+    const history = { push: jest.fn() };
+    const onCloseReactionModal = jest.fn();
+
+    class RouterHarness extends React.Component {
+
+      static childContextTypes = { router: PropTypes.object };
+
+      getChildContext() {
+        return { router: { history } };
+      }
+
+      render() {
+        return this.props.children;
+      }
+
+    }
+
+    render(
+      <RouterHarness>
+        <EmojiActionsMenuController
+          intl={intl}
+          signedIn
+          layout='single-column'
+          onCloseReactionModal={onCloseReactionModal}
+          onSyncMutes={jest.fn(() => Promise.resolve())}
+        />
+      </RouterHarness>,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const reference = { kind: 'unicode', native: '😀' };
+
+    act(() => {
+      openEmojiActions(reference, { anchor, source: 'personal_picker' });
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy emoji' }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith('😀'));
+    expect(onCloseReactionModal).not.toHaveBeenCalled();
+
+    act(() => {
+      openEmojiActions(reference, { anchor, source: 'personal_picker' });
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mute emoji' }));
+    await waitFor(() => expect(createEmojiMute).toHaveBeenCalledTimes(1));
+    expect(onCloseReactionModal).not.toHaveBeenCalled();
+
+    act(() => {
+      openEmojiActions(reference, { anchor, source: 'personal_picker' });
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Emoji details' }));
+    expect(onCloseReactionModal).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(history.push).toHaveBeenCalledWith(detailPathForReference(reference));
+    });
+
+    document.body.removeChild(anchor);
+  });
+
+  it('does not close pickers for detail from reaction or desktop multi-column', async () => {
+    const history = { push: jest.fn() };
+    const onCloseReactionModal = jest.fn();
+
+    class RouterHarness extends React.Component {
+
+      static childContextTypes = { router: PropTypes.object };
+
+      getChildContext() {
+        return { router: { history } };
+      }
+
+      render() {
+        return this.props.children;
+      }
+
+    }
+
+    const { unmount } = render(
+      <RouterHarness>
+        <EmojiActionsMenuController
+          intl={intl}
+          signedIn
+          layout='multi-column'
+          onCloseReactionModal={onCloseReactionModal}
+          onSyncMutes={jest.fn(() => Promise.resolve())}
+        />
+      </RouterHarness>,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const reference = { kind: 'unicode', native: '😀' };
+
+    act(() => {
+      openEmojiActions(reference, { anchor, source: 'standard_picker' });
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Emoji details' }));
+    expect(onCloseReactionModal).not.toHaveBeenCalled();
+    expect(history.push).toHaveBeenCalledWith(detailPathForReference(reference));
+
+    unmount();
+    history.push.mockClear();
+    onCloseReactionModal.mockClear();
+
+    render(
+      <RouterHarness>
+        <EmojiActionsMenuController
+          intl={intl}
+          signedIn
+          layout='mobile'
+          onCloseReactionModal={onCloseReactionModal}
+          onSyncMutes={jest.fn(() => Promise.resolve())}
+          onAddEmojiReaction={jest.fn()}
+          onRemoveEmojiReaction={jest.fn()}
+          getStatus={() => fromJS({ id: 'status-1', account: '42' })}
+        />
+      </RouterHarness>,
+    );
+
+    act(() => {
+      openEmojiActions(reference, {
+        anchor,
+        source: 'reaction',
+        status_id: 'status-1',
+        account_id: '42',
+        reaction: { name: '😀', my_reaction: false },
+      });
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Emoji details' }));
+    expect(onCloseReactionModal).not.toHaveBeenCalled();
+    expect(history.push).toHaveBeenCalledWith(detailPathForReference(reference));
+
+    document.body.removeChild(anchor);
+  });
+
+  it('slide-release detail on mobile closes picker then navigates once', async () => {
+    const history = { push: jest.fn() };
+    const onCloseReactionModal = jest.fn();
+
+    class RouterHarness extends React.Component {
+
+      static childContextTypes = { router: PropTypes.object };
+
+      getChildContext() {
+        return { router: { history } };
+      }
+
+      render() {
+        return this.props.children;
+      }
+
+    }
+
+    render(
+      <RouterHarness>
+        <EmojiActionsMenuController
+          intl={intl}
+          signedIn
+          layout='mobile'
+          onCloseReactionModal={onCloseReactionModal}
+          onSyncMutes={jest.fn(() => Promise.resolve())}
+        />
+      </RouterHarness>,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const reference = { kind: 'unicode', native: '😀' };
+
+    act(() => {
+      openEmojiActions(reference, { anchor, source: 'standard_picker' });
+    });
+
+    const detailItem = await screen.findByRole('button', { name: 'Emoji details' });
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => detailItem;
+
+    act(() => {
+      expect(reportEmojiActionsSlideRelease({ clientX: 22, clientY: 22 })).toBe(true);
+    });
+
+    document.elementFromPoint = original;
+
+    expect(onCloseReactionModal).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(history.push).toHaveBeenCalledTimes(1);
+      expect(history.push).toHaveBeenCalledWith(detailPathForReference(reference));
+    });
 
     document.body.removeChild(anchor);
   });

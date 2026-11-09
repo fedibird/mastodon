@@ -6,6 +6,8 @@ import { normalizeReference } from './reference';
 const EVENT = 'mastodon:open-emoji-actions';
 
 let listener = null;
+let slideMoveListener = null;
+let slideReleaseListener = null;
 
 export function setEmojiActionsListener(next) {
   listener = typeof next === 'function' ? next : null;
@@ -15,6 +17,38 @@ export function setEmojiActionsListener(next) {
       listener = null;
     }
   };
+}
+
+// Long-press slide-to-select: after the menu opens, move/release coordinates
+// from the still-held press are reported here (not via permanent document
+// gesture listeners on unrelated media).
+export function setEmojiActionsSlideListeners({ onMove, onRelease } = {}) {
+  slideMoveListener = typeof onMove === 'function' ? onMove : null;
+  slideReleaseListener = typeof onRelease === 'function' ? onRelease : null;
+
+  return () => {
+    if (slideMoveListener === onMove) {
+      slideMoveListener = null;
+    }
+
+    if (slideReleaseListener === onRelease) {
+      slideReleaseListener = null;
+    }
+  };
+}
+
+export function reportEmojiActionsSlideMove(point) {
+  if (slideMoveListener && point) {
+    slideMoveListener(point);
+  }
+}
+
+export function reportEmojiActionsSlideRelease(point) {
+  if (slideReleaseListener && point) {
+    return slideReleaseListener(point);
+  }
+
+  return false;
 }
 
 function normalizeReactionContext(reaction) {
@@ -86,6 +120,8 @@ export function emojiActionsEventName() {
 
 export function resetEmojiActionsBusForTests() {
   listener = null;
+  slideMoveListener = null;
+  slideReleaseListener = null;
 }
 
 export { normalizeReactionContext };
