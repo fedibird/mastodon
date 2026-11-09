@@ -138,8 +138,12 @@ export function attachLongPressGesture(element, { onLongPress }) {
     const fired = tracking.fired;
     clearTracking();
 
-    if (fired && event.cancelable) {
-      event.preventDefault();
+    if (fired) {
+      // touchend cancelability varies (Touch Events L2). Always stop
+      // propagation so host React handlers cannot treat this as a short tap.
+      if (event.cancelable) {
+        event.preventDefault();
+      }
       event.stopPropagation();
     }
   };
@@ -193,8 +197,10 @@ export function attachLongPressGesture(element, { onLongPress }) {
     const fired = tracking.fired;
     clearTracking();
 
-    if (fired && event.cancelable) {
-      event.preventDefault();
+    if (fired) {
+      if (event.cancelable) {
+        event.preventDefault();
+      }
       event.stopPropagation();
     }
   };

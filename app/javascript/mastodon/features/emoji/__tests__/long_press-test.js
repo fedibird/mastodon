@@ -139,6 +139,52 @@ describe('attachLongPressGesture', () => {
     document.body.removeEventListener('touchend', hostTouchEnd);
   });
 
+  it('stops non-cancelable touchend after a long-press without requiring preventDefault', () => {
+    const hostTouchEnd = jest.fn();
+    document.body.addEventListener('touchend', hostTouchEnd);
+
+    const touch = { identifier: 8, clientX: 5, clientY: 5 };
+    fireEvent.touchStart(node, { touches: [touch] });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+
+    const touchEnd = new Event('touchend', { bubbles: true, cancelable: false });
+    Object.defineProperty(touchEnd, 'changedTouches', { value: [touch] });
+    Object.defineProperty(touchEnd, 'touches', { value: [] });
+    node.dispatchEvent(touchEnd);
+
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+    expect(hostTouchEnd).not.toHaveBeenCalled();
+    expect(touchEnd.cancelable).toBe(false);
+    document.body.removeEventListener('touchend', hostTouchEnd);
+  });
+
+  it('stops non-cancelable pointerup after a long-press', () => {
+    const hostPointerUp = jest.fn();
+    document.body.addEventListener('pointerup', hostPointerUp);
+
+    dispatchPointer(node, 'pointerdown');
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+
+    const pointerUp = new MouseEvent('pointerup', {
+      bubbles: true,
+      cancelable: false,
+      button: 0,
+      clientX: 0,
+      clientY: 0,
+    });
+    Object.defineProperty(pointerUp, 'pointerId', { value: 1 });
+    Object.defineProperty(pointerUp, 'pointerType', { value: 'mouse' });
+    node.dispatchEvent(pointerUp);
+
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+    expect(hostPointerUp).not.toHaveBeenCalled();
+    document.body.removeEventListener('pointerup', hostPointerUp);
+  });
+
   it('does not suppress keyboard activation (detail=0) after a long-press', () => {
     const click = jest.fn();
     node.addEventListener('click', click);

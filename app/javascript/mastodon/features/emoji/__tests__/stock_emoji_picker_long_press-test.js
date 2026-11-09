@@ -101,4 +101,34 @@ describe('StockEmojiPicker long-press vs short tap', () => {
     expect(onPick).toHaveBeenCalledTimes(1);
     expect(onPick.mock.calls[0][0].native).toBe('🅱️');
   });
+
+  it('does not insert when long-press ends with a non-cancelable touchend', () => {
+    const onPick = jest.fn();
+    render(<StockEmojiPicker stock={stock} onPick={onPick} />);
+
+    const alpha = screen.getByRole('button', { name: 'Alpha' });
+    const bravo = screen.getByRole('button', { name: 'Bravo' });
+    const longTouch = { identifier: 21, clientX: 3, clientY: 3 };
+
+    fireEvent.touchStart(alpha, { touches: [longTouch] });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+
+    const touchEnd = new Event('touchend', { bubbles: true, cancelable: false });
+    Object.defineProperty(touchEnd, 'changedTouches', { value: [longTouch] });
+    Object.defineProperty(touchEnd, 'touches', { value: [] });
+    alpha.dispatchEvent(touchEnd);
+
+    expect(openEmojiActions).toHaveBeenCalledTimes(1);
+    expect(onPick).not.toHaveBeenCalled();
+    expect(touchEnd.cancelable).toBe(false);
+
+    const shortTouch = { identifier: 22, clientX: 6, clientY: 6 };
+    fireEvent.touchStart(bravo, { touches: [shortTouch] });
+    fireEvent.touchEnd(bravo, { changedTouches: [shortTouch] });
+
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick.mock.calls[0][0]).toEqual({ id: 'b', custom: false, native: '🅱️' });
+  });
 });
