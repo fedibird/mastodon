@@ -480,4 +480,37 @@ describe('EmojiPickerPanel', () => {
     await preloadStandardEmojiPickerIfNeeded(false);
     expect(EmojiPicker).toHaveBeenCalledTimes(1);
   });
+
+  it('does not close when a click lands on the emoji actions portal menu', async () => {
+    const onRequestClose = jest.fn();
+
+    render(
+      <EmojiPickerPanel
+        initialMode='standard'
+        pickersEmoji={pickerData}
+        onPick={jest.fn()}
+        onRequestClose={onRequestClose}
+      />,
+    );
+
+    await screen.findByRole('button', { name: 'Standard smile' });
+
+    const portal = document.createElement('div');
+    portal.setAttribute('data-emoji-actions-menu', '1');
+    const item = document.createElement('a');
+    item.setAttribute('role', 'button');
+    item.textContent = 'Mute emoji';
+    portal.appendChild(item);
+    document.body.appendChild(portal);
+
+    fireEvent.click(item);
+    fireEvent.touchEnd(item);
+
+    expect(onRequestClose).not.toHaveBeenCalled();
+
+    fireEvent.click(document.body);
+    expect(onRequestClose).toHaveBeenCalled();
+
+    document.body.removeChild(portal);
+  });
 });

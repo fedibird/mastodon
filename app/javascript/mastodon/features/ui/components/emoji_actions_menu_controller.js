@@ -919,7 +919,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     return (
       <Overlay show offset={[5, 5]} placement='bottom' flip target={this.findTarget} popperConfig={popperConfig}>
         {({ props, arrowProps, placement }) => (
-          <div {...props}>
+          <div {...props} data-emoji-actions-menu='1'>
             <div className={`dropdown-animation dropdown-menu ${placement}`}>
               <div className={`dropdown-menu__arrow ${placement}`} {...arrowProps} />
               <DropdownMenu

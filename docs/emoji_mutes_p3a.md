@@ -43,6 +43,14 @@ clicks (`detail === 0`) are never suppressed. Hosts must not keep a sticky
 “long-press opened” flag that depends on a React `touchend` the gesture
 already stopped.
 
+P3-A long-press hosts (picker cells, reaction chips, detail preview, and
+their images) set `-webkit-touch-callout: none` / `user-select: none` so
+iOS Safari does not show the system image callout instead of the shared
+menu. Status media and other attachments are not covered. The actions
+menu portal is tagged `data-emoji-actions-menu` so
+`EmojiPickerPanel` outside-click does not close the picker before a menu
+item action runs.
+
 ### Copy
 
 Menu offers **Copy emoji** for Unicode (`native`) and local custom

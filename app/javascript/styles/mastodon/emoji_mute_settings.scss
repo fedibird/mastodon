@@ -212,6 +212,26 @@
   }
 }
 
+// P3-A long-press hosts only: suppress iOS/WebKit image callout menus.
+// Do not apply to status media, link previews, or other attachments.
+// Avoid touch-action: none here — that would break picker scrolling.
+.emoji-mart-emoji,
+.emoji-mart-emoji img,
+.emoji-mart-emoji span,
+.emoji-stock-picker .emoji-mart-emoji,
+.emoji-stock-picker__image,
+.emoji-mart-emoji-cell,
+.emoji-mart-emoji-actions,
+.reactions-bar__item,
+.reactions-bar__item__emoji,
+.reactions-bar__item__emoji img,
+.custom-emoji__image,
+.custom-emoji__image img {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 .emoji-stock-picker__item {
   position: relative;
   display: inline-flex;
