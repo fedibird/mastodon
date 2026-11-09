@@ -238,7 +238,7 @@ describe('standard emoji picker adapters', () => {
     const cellActions = heart.parentElement.querySelector('[data-emoji-actions="1"]');
     expect(cellActions).toBeTruthy();
 
-    // Touch/pointer series on the independent manage control must not insert.
+    // Mouse/pointer series on the independent manage control must not insert.
     fireEvent.pointerDown(cellActions);
     fireEvent.pointerUp(cellActions);
     fireEvent.click(cellActions);
@@ -246,6 +246,39 @@ describe('standard emoji picker adapters', () => {
     expect(onClick).not.toHaveBeenCalled();
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener.mock.calls[0][0].reference).toEqual(referenceFromMartButton(heart, 1));
+  });
+
+  it('opens per-cell manage on touchend when no synthetic click is delivered', () => {
+    const listener = jest.fn();
+    const onClick = jest.fn();
+    setEmojiActionsListener(listener);
+    renderPicker(<Picker onClick={onClick} />);
+
+    const heart = screen.getByTitle('heart');
+    const cellActions = heart.parentElement.querySelector('[data-emoji-actions="1"]');
+    const touch = { identifier: 1, clientX: 12, clientY: 12 };
+
+    fireEvent.touchStart(cellActions, { touches: [touch] });
+    fireEvent.touchEnd(cellActions, { changedTouches: [touch] });
+    // UA suppressed click — manage must already be open.
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('does not double-open when touchend is followed by a synthetic click', () => {
+    const listener = jest.fn();
+    setEmojiActionsListener(listener);
+    renderPicker(<Picker />);
+
+    const heart = screen.getByTitle('heart');
+    const cellActions = heart.parentElement.querySelector('[data-emoji-actions="1"]');
+    const touch = { identifier: 2, clientX: 4, clientY: 4 };
+
+    fireEvent.touchStart(cellActions, { touches: [touch] });
+    fireEvent.touchEnd(cellActions, { changedTouches: [touch] });
+    fireEvent.click(cellActions);
+
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it('keeps normal emoji tap insertion (pointerdown → click → onClick)', () => {
