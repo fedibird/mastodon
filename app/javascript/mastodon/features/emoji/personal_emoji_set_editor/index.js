@@ -6,6 +6,7 @@ import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
 import initialState from 'mastodon/initial_state_data';
 import StockEmojiPicker from '../stock_emoji_picker';
+import { emojiPickerTheme } from '../emoji_picker_theme';
 import { firstGrapheme } from '../emoji_stock';
 import { notifySavedPersonalEmojiSet } from '../emoji_stock_source';
 import { loadPersonalEmojiSet, savePersonalEmojiSet, resolvePersonalEmoji } from './api';
@@ -715,8 +716,7 @@ export class PersonalEmojiSetEditor extends React.PureComponent {
   }
 
   theme() {
-    // Match the legacy picker, including the standard picker in the add dialog.
-    return 'light';
+    return emojiPickerTheme();
   }
 
   renderAppearance() {
