@@ -156,6 +156,7 @@ Rails.application.routes.draw do
 
     namespace :custom_emojis do
       resource :personal_set, only: :show, controller: :personal_sets
+      resource :mutes, only: :show, controller: :mutes
     end
 
     # Old settings paths. String redirects ignore the request query string,

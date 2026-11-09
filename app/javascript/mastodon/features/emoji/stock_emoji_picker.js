@@ -10,6 +10,7 @@ import {
   searchEmojiStock,
   toEmojiPickerCallbackPayload,
 } from './emoji_stock';
+import { datasetFromReference, referenceFromStockItem } from './emoji_actions/reference';
 
 // Enter from an IME reports isComposing, or keyCode 229 on some browsers.
 // Those keys belong to the composition, not to emoji selection.
@@ -623,6 +624,20 @@ class StockEmojiPicker extends React.PureComponent {
     const src = this.imageSource(item);
     const active = item.key === this.state.activeKey;
     const custom = item.selection && item.selection.custom;
+    const reference = referenceFromStockItem(item);
+    const actionDataset = datasetFromReference(reference);
+    const actionProps = {
+      'data-emoji-actions': '1',
+      'data-emoji-source': 'personal_picker',
+    };
+
+    if (actionDataset.emojiKind) actionProps['data-emoji-kind'] = actionDataset.emojiKind;
+    if (actionDataset.emojiNative) actionProps['data-emoji-native'] = actionDataset.emojiNative;
+    if (actionDataset.emojiScope) actionProps['data-emoji-scope'] = actionDataset.emojiScope;
+    if (actionDataset.emojiCustomEmojiId) actionProps['data-emoji-custom-emoji-id'] = actionDataset.emojiCustomEmojiId;
+    if (actionDataset.emojiDomain) actionProps['data-emoji-domain'] = actionDataset.emojiDomain;
+    if (actionDataset.emojiShortcode) actionProps['data-emoji-shortcode'] = actionDataset.emojiShortcode;
+
     let imageWidth = emojiSize;
 
     // Reserve known aspect ratios before loading; older stock without metadata
@@ -639,6 +654,7 @@ class StockEmojiPicker extends React.PureComponent {
           type='button'
           className='emoji-mart-emoji'
           data-stock-key={item.key}
+          {...actionProps}
           aria-label={item.label}
           title={image.title || item.label}
           aria-current={active ? 'true' : undefined}

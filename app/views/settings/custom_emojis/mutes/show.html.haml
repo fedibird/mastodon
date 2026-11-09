@@ -1,0 +1,11 @@
+- content_for :page_title do
+  = t('emoji_mutes.title')
+
+- content_for :header_tags do
+  = javascript_pack_tag 'emoji_mutes', defer: true, crossorigin: 'anonymous'
+
+#emoji-mutes
+  %p= t('emoji_mutes.loading')
+
+%noscript
+  %p= t('emoji_mutes.javascript_required')
