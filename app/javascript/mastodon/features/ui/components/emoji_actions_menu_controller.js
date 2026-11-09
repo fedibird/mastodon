@@ -21,6 +21,7 @@ import {
   detailPathForReference,
   findMuteForReference,
   referenceFromDataset,
+  referenceFromStockItem,
   referenceLabel,
   referencesEqual,
 } from 'mastodon/features/emoji/emoji_actions/reference';
@@ -43,7 +44,136 @@ const messages = defineMessages({
   unmuteSuccess: { id: 'emoji_actions.unmute_success', defaultMessage: 'Unmuted {label}' },
   addSuccess: { id: 'emoji_actions.add_success', defaultMessage: 'Added to {name}' },
   openSettings: { id: 'emoji_actions.open_mute_settings', defaultMessage: 'Open mute settings' },
+  retry: { id: 'emoji_actions.retry', defaultMessage: 'Try again' },
+  resolveFailed: { id: 'emoji_actions.resolve_failed', defaultMessage: 'Could not load emoji actions' },
 });
+
+// Pure menu builder for tests. Mutating actions require an explicit resolve
+// payload — a missing actions object is not treated as allowed.
+export function buildEmojiActionMenuItems({
+  intl,
+  reference,
+  resolved,
+  mute,
+  categories,
+  status,
+  notice,
+  error,
+  busy,
+  onMute,
+  onUnmute,
+  onAddToCategory,
+  onRetry,
+}) {
+  const items = [];
+
+  if (notice) {
+    items.push({ text: notice, disabled: true });
+  }
+
+  if (status === 'loading') {
+    items.push({ text: intl.formatMessage(messages.loading), disabled: true });
+    return items;
+  }
+
+  const detailPath = detailPathForReference(reference);
+
+  if (detailPath) {
+    items.push({
+      text: intl.formatMessage(messages.detail),
+      to: detailPath,
+    });
+  }
+
+  const actions = resolved && resolved.actions ? resolved.actions : null;
+
+  if (!actions) {
+    if (error) {
+      items.push({ text: error.message || intl.formatMessage(messages.resolveFailed), disabled: true });
+    }
+
+    items.push({
+      text: intl.formatMessage(messages.retry),
+      action: onRetry,
+    });
+    items.push(null, {
+      text: intl.formatMessage(messages.openSettings),
+      href: '/settings/custom_emojis/mutes',
+      target: '_self',
+    });
+    return items;
+  }
+
+  const canAdd = Boolean(actions.add_to_personal_category && actions.add_to_personal_category.allowed);
+  const canMute = Boolean(actions.mute && actions.mute.allowed);
+
+  if (mute) {
+    items.push({
+      text: intl.formatMessage(messages.muted),
+      disabled: true,
+    });
+    items.push({
+      text: intl.formatMessage(messages.manageMute),
+      href: '/settings/custom_emojis/mutes',
+      to: null,
+      target: '_self',
+    });
+    items.push({
+      text: intl.formatMessage(messages.unmute),
+      action: onUnmute,
+      dangerous: true,
+      disabled: busy,
+    });
+  } else if (canMute) {
+    items.push({
+      text: intl.formatMessage(messages.mute),
+      action: onMute,
+      dangerous: true,
+      disabled: busy,
+    });
+  }
+
+  if (canAdd) {
+    items.push(null);
+
+    if (!categories || categories.length === 0) {
+      items.push({
+        text: intl.formatMessage(messages.noCategories),
+        disabled: true,
+      });
+    } else {
+      categories.forEach(category => {
+        const present = Array.isArray(category.items)
+          && category.items.some(item => {
+            let itemReference = item;
+
+            if (item && item.reference) {
+              itemReference = item.reference;
+            } else if (item && item.selection) {
+              itemReference = referenceFromStockItem(item);
+            }
+
+            return referencesEqual(itemReference, reference);
+          });
+        const name = category.name || category.id;
+
+        items.push({
+          text: intl.formatMessage(present ? messages.alreadyInCategory : messages.addToCategory, { name }),
+          action: present ? null : () => onAddToCategory(category),
+          disabled: present || busy,
+        });
+      });
+    }
+  }
+
+  items.push(null, {
+    text: intl.formatMessage(messages.openSettings),
+    href: '/settings/custom_emojis/mutes',
+    target: '_self',
+  });
+
+  return items;
+}
 
 const popperConfig = {
   strategy: 'fixed',
@@ -120,6 +250,8 @@ class EmojiActionsMenuController extends React.PureComponent {
       return;
     }
 
+    this.loadGeneration = (this.loadGeneration || 0) + 1;
+    const generation = this.loadGeneration;
     const element = detail.anchor || null;
 
     this.setState({
@@ -135,7 +267,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       busy: false,
       statusId: detail.status_id || null,
       accountId: detail.account_id || null,
-    }, this.loadMenuData);
+    }, () => this.loadMenuData(generation));
   };
 
   handleClose = () => {
@@ -214,8 +346,9 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.openFromElement(target, event);
   };
 
-  loadMenuData = () => {
+  loadMenuData = generation => {
     const { reference, statusId, accountId } = this.state;
+    const requestGeneration = generation || this.loadGeneration;
 
     if (!reference) {
       return;
@@ -235,121 +368,60 @@ class EmojiActionsMenuController extends React.PureComponent {
       resolveEmojiReference(reference, context).catch(error => ({ error })),
       loadPersonalEmojiSetDocument().catch(() => null),
     ]).then(([resolved, personal]) => {
-      if (!this.state.reference || !referencesEqual(this.state.reference, reference)) {
+      if (requestGeneration !== this.loadGeneration) {
         return;
       }
 
       const categories = personal && Array.isArray(personal.categories) ? personal.categories : [];
-      const nextReference = resolved && resolved.reference ? resolved.reference : reference;
+      const failed = !resolved || resolved.error;
+      const nextReference = !failed && resolved.reference ? resolved.reference : reference;
 
       this.setState({
-        resolved: resolved && !resolved.error ? resolved : null,
+        resolved: failed ? null : resolved,
         reference: nextReference,
         mute: findMuteForReference(currentEmojiMutes(), nextReference),
         categories,
         personalRevision: personal ? personal.revision : null,
         status: 'ready',
-        error: resolved && resolved.error ? resolved.error : null,
+        error: failed ? (resolved && resolved.error) || new Error('Could not load emoji actions') : null,
       });
     }).catch(() => {
-      if (!this.state.reference || !referencesEqual(this.state.reference, reference)) {
+      if (requestGeneration !== this.loadGeneration) {
         return;
       }
 
-      this.setState({ status: 'ready', error: new Error('Could not load emoji actions') });
+      this.setState({ status: 'ready', resolved: null, error: new Error('Could not load emoji actions') });
     });
   };
 
-  categoryContains(category, reference) {
-    if (!category || !Array.isArray(category.items)) {
-      return false;
-    }
+  handleRetry = () => {
+    this.loadGeneration = (this.loadGeneration || 0) + 1;
+    const generation = this.loadGeneration;
 
-    return category.items.some(item => referencesEqual(item, reference));
-  }
+    this.setState({ status: 'loading', error: null, notice: null, resolved: null }, () => {
+      this.loadMenuData(generation);
+    });
+  };
 
   menuItems() {
     const { intl } = this.props;
-    const { reference, resolved, mute, categories, status, notice, error } = this.state;
-    const items = [];
+    const { reference, resolved, mute, categories, status, notice, error, busy } = this.state;
 
-    if (notice) {
-      items.push({ text: notice, disabled: true });
-    }
-
-    if (error && status === 'ready') {
-      items.push({ text: error.message || intl.formatMessage(messages.muteFailed), disabled: true });
-    }
-
-    if (status === 'loading') {
-      items.push({ text: intl.formatMessage(messages.loading), disabled: true });
-      return items;
-    }
-
-    const actions = resolved && resolved.actions ? resolved.actions : null;
-    const canAdd = !actions || (actions.add_to_personal_category && actions.add_to_personal_category.allowed);
-    const detailPath = detailPathForReference(reference);
-
-    if (detailPath) {
-      items.push({
-        text: intl.formatMessage(messages.detail),
-        to: detailPath,
-      });
-    }
-
-    if (mute) {
-      items.push({
-        text: intl.formatMessage(messages.muted),
-        disabled: true,
-      });
-      items.push({
-        text: intl.formatMessage(messages.manageMute),
-        href: '/settings/custom_emojis/mutes',
-        to: null,
-        target: '_self',
-      });
-      items.push({
-        text: intl.formatMessage(messages.unmute),
-        action: this.handleUnmute,
-        dangerous: true,
-      });
-    } else if (!actions || (actions.mute && actions.mute.allowed)) {
-      items.push({
-        text: intl.formatMessage(messages.mute),
-        action: this.handleMute,
-        dangerous: true,
-      });
-    }
-
-    if (canAdd) {
-      items.push(null);
-
-      if (!categories || categories.length === 0) {
-        items.push({
-          text: intl.formatMessage(messages.noCategories),
-          disabled: true,
-        });
-      } else {
-        categories.forEach(category => {
-          const present = this.categoryContains(category, reference);
-          const name = category.name || category.id;
-
-          items.push({
-            text: intl.formatMessage(present ? messages.alreadyInCategory : messages.addToCategory, { name }),
-            action: present ? null : () => this.handleAddToCategory(category),
-            disabled: present || this.state.busy,
-          });
-        });
-      }
-    }
-
-    items.push(null, {
-      text: intl.formatMessage(messages.openSettings),
-      href: '/settings/custom_emojis/mutes',
-      target: '_self',
+    return buildEmojiActionMenuItems({
+      intl,
+      reference,
+      resolved,
+      mute,
+      categories,
+      status,
+      notice,
+      error,
+      busy,
+      onMute: this.handleMute,
+      onUnmute: this.handleUnmute,
+      onAddToCategory: this.handleAddToCategory,
+      onRetry: this.handleRetry,
     });
-
-    return items;
   }
 
   handleMute = () => {

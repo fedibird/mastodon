@@ -8,6 +8,7 @@ import {
   loadEmojiMutesDocument,
   updateEmojiMute,
   deleteEmojiMute,
+  resolveEmojiReference,
 } from '../emoji_actions/api';
 import {
   DEFAULT_MUTE_EFFECTS,
@@ -32,6 +33,8 @@ const ruleDraft = rule => ({
   conflict: false,
   saving: false,
   removing: false,
+  preview: null,
+  previewStatus: 'idle',
 });
 
 const isDirty = draft => (
@@ -82,6 +85,7 @@ export class EmojiMuteSettings extends React.PureComponent {
     loadDocument: PropTypes.func,
     updateRule: PropTypes.func,
     removeRule: PropTypes.func,
+    resolveEmoji: PropTypes.func,
     onChanged: PropTypes.func,
   };
 
@@ -89,6 +93,7 @@ export class EmojiMuteSettings extends React.PureComponent {
     loadDocument: loadEmojiMutesDocument,
     updateRule: updateEmojiMute,
     removeRule: deleteEmojiMute,
+    resolveEmoji: resolveEmojiReference,
     onChanged: noteEmojiMutesChanged,
   };
 
@@ -314,12 +319,78 @@ export class EmojiMuteSettings extends React.PureComponent {
   };
 
   togglePreview = id => {
+    const opening = !this.state.previewIds[id];
+
     this.setState(previous => ({
       previewIds: {
         ...previous.previewIds,
-        [id]: !previous.previewIds[id],
+        [id]: opening,
       },
+      drafts: previous.drafts.map(draft => (
+        draft.id === id && !opening
+          ? { ...draft, preview: null, previewStatus: 'idle' }
+          : draft
+      )),
+    }), () => {
+      if (opening) {
+        this.loadPreview(id);
+      }
+    });
+  };
+
+  loadPreview = id => {
+    const draft = this.state.drafts.find(item => item.id === id);
+
+    if (!draft) {
+      return;
+    }
+
+    this.setState(previous => ({
+      drafts: previous.drafts.map(item => (
+        item.id === id ? { ...item, previewStatus: 'loading', preview: null } : item
+      )),
     }));
+
+    this.props.resolveEmoji(draft.emoji).then(resolved => {
+      if (!this.mounted || !this.state.previewIds[id]) {
+        return;
+      }
+
+      const detail = resolved && resolved.detail ? resolved.detail : {};
+      const image = detail.image || {};
+      let native = null;
+
+      if (resolved && resolved.reference && resolved.reference.kind === 'unicode') {
+        native = resolved.reference.native;
+      } else if (draft.emoji && draft.emoji.kind === 'unicode') {
+        native = draft.emoji.native;
+      }
+
+      const src = image.src || null;
+      const available = Boolean(src || native);
+
+      this.setState(previous => ({
+        drafts: previous.drafts.map(item => (
+          item.id === id
+            ? {
+              ...item,
+              previewStatus: available ? 'ready' : 'unavailable',
+              preview: available ? { src, native } : null,
+            }
+            : item
+        )),
+      }));
+    }).catch(() => {
+      if (!this.mounted || !this.state.previewIds[id]) {
+        return;
+      }
+
+      this.setState(previous => ({
+        drafts: previous.drafts.map(item => (
+          item.id === id ? { ...item, previewStatus: 'unavailable', preview: null } : item
+        )),
+      }));
+    });
   };
 
   kindLabel(draft) {
@@ -387,9 +458,14 @@ export class EmojiMuteSettings extends React.PureComponent {
 
         {previewOpen && (
           <div className='ems-preview' data-preview='open'>
-            <p>{this.text('previewUnavailable')}</p>
-            {/* Mute API intentionally omits image URLs. Do not invent a glyph
-                from the identity fields while the list is managing mutes. */}
+            {draft.previewStatus === 'loading' && <p>{this.text('previewLoading')}</p>}
+            {draft.previewStatus === 'unavailable' && <p>{this.text('previewUnavailable')}</p>}
+            {draft.previewStatus === 'ready' && draft.preview && draft.preview.src && (
+              <img src={draft.preview.src} alt='' draggable='false' />
+            )}
+            {draft.previewStatus === 'ready' && draft.preview && !draft.preview.src && draft.preview.native && (
+              <span className='ems-preview-native' aria-hidden='true'>{draft.preview.native}</span>
+            )}
           </div>
         )}
 

@@ -16,9 +16,14 @@ reference. Hosts must not duplicate resolve / mute / category logic.
 | Host in P3-A | Normal click | Management entry |
 | --- | --- | --- |
 | Reaction chip | Add / remove reaction | `⋯` button, ContextMenu, Shift+F10 |
-| Personal stock picker | Insert / select | ContextMenu, Shift+F10 on the cell |
-| Standard Nimble picker | Insert / select | ContextMenu, Shift+F10 on the cell |
+| Personal stock picker | Insert / select | Visible `⋯` sibling (ContextMenu / Shift+F10 remain auxiliary) |
+| Standard Nimble picker | Insert / select | Visible actions bar `⋯` from focused Nimble selection data (ContextMenu / Shift+F10 auxiliary; never `aria-label`) |
 | Emoji detail (custom + Unicode) | — | Explicit actions button |
+
+Reaction groups use the **display representative** part (group `url` /
+`domain`, else minimum `custom_emoji_id`), not `parts[0]` created_at order.
+Local identity equality requires both sides to have a stable
+`custom_emoji_id` — shortcode alone never matches.
 
 Deferred to P3-B/C wiring (listed so review can track coverage): status
 body/CW custom-emoji click (still opens custom detail only), display name,
@@ -27,7 +32,8 @@ candidates, compose portable / reaction dropdown beyond shell, touch modal
 extras, Rails form picker, personal-set editor standard picker preview,
 reaction filter picker, autocomplete.
 
-Menu items follow the resolve payload:
+Menu items follow the resolve payload. Missing `actions` (resolve failure)
+never implies allow — mutating items stay hidden and **Try again** is offered.
 
 - Detail (custom route or `/emoji_detail/unicode/:native`)
 - Mute / unmute / open mute settings (no registration request — P4)
@@ -48,7 +54,8 @@ personal set. Not embedded in the WebUI iframe registry in this step
 - List is collapsed until “Show muted emoji (N)”
 - Collapsed and list rows never paint Unicode glyphs, custom images, alt,
   title, or aria text that would reveal the glyph from the mute payload
-- Preview control only explains that the mute API omits image URLs
+- After an explicit “Show preview”, resolve (or the Unicode native) paints a
+  real preview when obtainable; missing/disabled images stay unavailable
 - Edits commit on “Save changes” with `expected_revision` + `If-Match`
 - 409 keeps dirty edits and offers reload of the saved baseline
 - Rules for deleted / disabled / unfetched targets remain editable

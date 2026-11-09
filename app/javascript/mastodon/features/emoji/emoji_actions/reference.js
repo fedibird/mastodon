@@ -19,6 +19,28 @@ const read = (value, key) => {
   return typeof value.get === 'function' ? value.get(key) : value[key];
 };
 
+const asArray = value => {
+  if (!value) {
+    return [];
+  }
+
+  if (typeof value.toArray === 'function') {
+    return value.toArray();
+  }
+
+  if (typeof value.size === 'number' && typeof value.get === 'function') {
+    const list = [];
+
+    for (let index = 0; index < value.size; index += 1) {
+      list.push(value.get(index));
+    }
+
+    return list;
+  }
+
+  return Array.from(value);
+};
+
 export function normalizeReference(input) {
   if (!input || typeof input !== 'object') {
     return null;
@@ -73,6 +95,8 @@ export function normalizeReference(input) {
   return reference;
 }
 
+// Local identity is the database id. A shortcode alone is not enough: deleting
+// a row and re-registering the same shortcode creates a different emoji.
 export function referencesEqual(left, right) {
   const a = normalizeReference(left);
   const b = normalizeReference(right);
@@ -90,11 +114,11 @@ export function referencesEqual(left, right) {
   }
 
   if (a.scope === 'local') {
-    if (a.custom_emoji_id && b.custom_emoji_id) {
-      return a.custom_emoji_id === b.custom_emoji_id;
+    if (!a.custom_emoji_id || !b.custom_emoji_id) {
+      return false;
     }
 
-    return Boolean(a.shortcode) && a.shortcode === b.shortcode;
+    return a.custom_emoji_id === b.custom_emoji_id;
   }
 
   return a.domain === b.domain && a.shortcode === b.shortcode;
@@ -138,31 +162,88 @@ export function identityKey(reference) {
   }
 
   if (normalized.scope === 'local') {
-    return `l:${normalized.custom_emoji_id || normalized.shortcode}`;
+    return normalized.custom_emoji_id ? `l:${normalized.custom_emoji_id}` : null;
   }
 
   return `r:${normalized.domain}:${normalized.shortcode}`;
 }
 
-// Build a reference from a reaction chip / cache group. Prefer part.identity
-// when present so same-name local and remote reactions stay distinct.
+const partCustomEmojiId = part => {
+  const direct = read(part, 'custom_emoji_id');
+
+  if (direct !== null && direct !== undefined && direct !== '') {
+    return String(direct);
+  }
+
+  const fromIdentity = read(read(part, 'identity'), 'custom_emoji_id');
+
+  return fromIdentity !== null && fromIdentity !== undefined && fromIdentity !== ''
+    ? String(fromIdentity)
+    : null;
+};
+
+// Public reaction groups use the minimum custom_emoji_id as the representative
+// image. parts stay in created_at order, so parts[0] is not the display identity.
+export function representativeReactionPart(emojiReaction) {
+  const parts = asArray(read(emojiReaction, 'parts'));
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  if (parts.length === 1) {
+    return parts[0];
+  }
+
+  const groupDomain = read(emojiReaction, 'domain');
+  const groupUrl = read(emojiReaction, 'url');
+
+  const byDisplay = parts.find(part => {
+    const url = read(part, 'url');
+    const domain = read(part, 'domain');
+
+    if (groupUrl && url && url === groupUrl) {
+      return true;
+    }
+
+    return Boolean(groupDomain && domain && domain === groupDomain);
+  });
+
+  if (byDisplay) {
+    return byDisplay;
+  }
+
+  const withIds = parts.filter(part => partCustomEmojiId(part));
+
+  if (withIds.length === 0) {
+    return parts[0];
+  }
+
+  return withIds.reduce((best, part) => {
+    const id = Number(partCustomEmojiId(part));
+    const bestId = Number(partCustomEmojiId(best));
+
+    return id < bestId ? part : best;
+  });
+}
+
+// Build a reference from a reaction chip / cache group. Prefer the display
+// representative so same-name local and remote reactions stay distinct.
 export function referenceFromReaction(emojiReaction) {
   if (!emojiReaction) {
     return null;
   }
 
-  const parts = read(emojiReaction, 'parts');
-  const firstPart = parts && (typeof parts.get === 'function' ? parts.get(0) : parts[0]);
-  const identity = firstPart ? read(firstPart, 'identity') : null;
+  const part = representativeReactionPart(emojiReaction);
+  const identity = part ? read(part, 'identity') : null;
 
   if (identity) {
     return normalizeReference(identity);
   }
 
-  const domain = read(emojiReaction, 'domain');
+  const domain = read(emojiReaction, 'domain') || (part && read(part, 'domain'));
   const name = read(emojiReaction, 'name');
-  const customEmojiId = read(emojiReaction, 'custom_emoji_id')
-    || (firstPart && read(firstPart, 'custom_emoji_id'));
+  const customEmojiId = read(emojiReaction, 'custom_emoji_id') || (part && partCustomEmojiId(part));
 
   if (domain) {
     return normalizeReference({ kind: 'custom', scope: 'remote', domain, shortcode: name });
@@ -173,10 +254,10 @@ export function referenceFromReaction(emojiReaction) {
   }
 
   if (typeof name === 'string' && name !== '') {
-    // Reaction names for Unicode are the native string; custom without a
-    // domain or id is treated as a local shortcode for resolve to pin.
+    // Without a part identity or id, a custom shortcode alone is unresolved.
+    // Only finished Unicode natives are safe to treat as identity here.
     if (/^[\w+-]+$/.test(name) && !/\p{Extended_Pictographic}/u.test(name)) {
-      return normalizeReference({ kind: 'custom', scope: 'local', shortcode: name });
+      return null;
     }
 
     return normalizeReference({ kind: 'unicode', native: name });
@@ -217,7 +298,7 @@ export function referenceFromPickerEmoji(emoji) {
     return null;
   }
 
-  if (emoji.custom || emoji.colons) {
+  if (emoji.custom) {
     const shortcode = (emoji.colons || '').replace(/^:|:$/g, '') || emoji.id;
     const domain = emoji.domain || null;
 
@@ -229,6 +310,7 @@ export function referenceFromPickerEmoji(emoji) {
       return normalizeReference({ kind: 'custom', scope: 'local', custom_emoji_id: emoji.custom_emoji_id, shortcode });
     }
 
+    // Custom without a stable id stays unresolved until resolve pins one.
     return normalizeReference({ kind: 'custom', scope: 'local', shortcode });
   }
 

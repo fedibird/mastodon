@@ -1430,10 +1430,14 @@
   "emoji_mutes.preview_hidden": "Preview hidden",
   "emoji_mutes.show_preview": "Show preview",
   "emoji_mutes.hide_preview": "Hide preview",
-  "emoji_mutes.preview_unavailable": "No image URL in mute API — open emoji details to inspect the glyph.",
+  "emoji_mutes.preview_unavailable": "Preview is unavailable for this emoji.",
   "emoji_mutes.open_details": "Open details",
   "emoji_mutes.count": "{count, plural, one {# muted emoji} other {# muted emoji}}",
   "emoji_mutes.dirty": "Unsaved changes",
   "emoji_mutes.applied_note": "Applied now: reject reactions on your posts, hide reactions. Stored for later: replace in text, hide in pickers.",
-  "emoji_mutes.javascript_required": "Enable JavaScript to manage muted emoji."
+  "emoji_mutes.javascript_required": "Enable JavaScript to manage muted emoji.",
+  "emoji_actions.retry": "Try again",
+  "emoji_actions.resolve_failed": "Could not load emoji actions",
+  "emoji_actions.manage_hint": "Select an emoji, then open actions",
+  "emoji_mutes.preview_loading": "Loading preview…"
 }

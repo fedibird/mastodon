@@ -16,6 +16,7 @@ export {
   findMuteForReference,
   referenceLabel,
   identityKey,
+  representativeReactionPart,
   referenceFromReaction,
   referenceFromStockItem,
   referenceFromPickerEmoji,

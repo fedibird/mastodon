@@ -10,7 +10,12 @@ import {
   searchEmojiStock,
   toEmojiPickerCallbackPayload,
 } from './emoji_stock';
+import { openEmojiActions } from './emoji_actions/bus';
 import { datasetFromReference, referenceFromStockItem } from './emoji_actions/reference';
+
+const actionMessages = defineMessages({
+  manage: { id: 'emoji_actions.manage', defaultMessage: 'Emoji actions' },
+});
 
 // Enter from an IME reports isComposing, or keyCode 229 on some browsers.
 // Those keys belong to the composition, not to emoji selection.
@@ -619,7 +624,39 @@ class StockEmojiPicker extends React.PureComponent {
     );
   }
 
+  handleItemActionsClick = event => {
+    const key = event.currentTarget.getAttribute('data-stock-key');
+    const item = this.flatItems(this.visibleStock()).find(entry => entry.key === key);
+
+    if (!item) {
+      return;
+    }
+
+    const reference = referenceFromStockItem(item);
+
+    if (!reference) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    openEmojiActions(reference, {
+      anchor: event.currentTarget,
+      source: 'personal_picker',
+    });
+  };
+
+  handleActionsMouseDown = event => {
+    event.preventDefault();
+  };
+
+  handleActionsTouchStart = event => {
+    event.stopPropagation();
+  };
+
   renderItem(item, emojiSize) {
+    const { intl } = this.props;
     const image = item.image || {};
     const src = this.imageSource(item);
     const active = item.key === this.state.activeKey;
@@ -649,7 +686,7 @@ class StockEmojiPicker extends React.PureComponent {
     }
 
     return (
-      <li key={item.key}>
+      <li key={item.key} className='emoji-stock-picker__item'>
         <button
           type='button'
           className='emoji-mart-emoji'
@@ -681,6 +718,20 @@ class StockEmojiPicker extends React.PureComponent {
             <span>{item.label}</span>
           )}
         </button>
+        {reference && (
+          <button
+            type='button'
+            className='emoji-actions-trigger emoji-stock-picker__actions'
+            data-stock-key={item.key}
+            aria-label={intl.formatMessage(actionMessages.manage)}
+            title={intl.formatMessage(actionMessages.manage)}
+            onClick={this.handleItemActionsClick}
+            onMouseDown={this.handleActionsMouseDown}
+            onTouchStart={this.handleActionsTouchStart}
+          >
+            ⋯
+          </button>
+        )}
       </li>
     );
   }

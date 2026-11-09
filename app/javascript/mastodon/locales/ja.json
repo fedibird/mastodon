@@ -1432,10 +1432,14 @@
   "emoji_mutes.preview_hidden": "プレビューは非表示です",
   "emoji_mutes.show_preview": "プレビュー案内を表示",
   "emoji_mutes.hide_preview": "プレビュー案内を隠す",
-  "emoji_mutes.preview_unavailable": "ミュートAPIは画像URLを返しません。字形の確認は詳細画面から行ってください。",
+  "emoji_mutes.preview_unavailable": "この絵文字のプレビューは利用できません。",
   "emoji_mutes.open_details": "詳細を開く",
   "emoji_mutes.count": "{count, plural, other {ミュート {count} 件}}",
   "emoji_mutes.dirty": "未保存の変更",
   "emoji_mutes.applied_note": "いま適用される効果: 自分の投稿へのリアクション拒否、リアクション非表示。後続で適用: 本文置換、ピッカー除外。",
-  "emoji_mutes.javascript_required": "ミュートした絵文字を管理するには JavaScript を有効にしてください。"
+  "emoji_mutes.javascript_required": "ミュートした絵文字を管理するには JavaScript を有効にしてください。",
+  "emoji_actions.retry": "再試行",
+  "emoji_actions.resolve_failed": "絵文字の操作を読み込めませんでした",
+  "emoji_actions.manage_hint": "絵文字を選んでから操作を開きます",
+  "emoji_mutes.preview_loading": "プレビューを読み込み中…"
 }
