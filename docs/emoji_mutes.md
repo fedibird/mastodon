@@ -235,9 +235,12 @@ into the loaded pages. A local custom reaction notification carries
 `custom_emoji_id`. An existing page drops only that id and can restore it
 when the rule is removed. Clearing notifications, blocking an account or
 domain, deleting the status, or changing the notification filter also drops
-the withheld copy. A reaction notification that arrives while a newer mute
-document is still loading, or after the rule already hides it, is not shown
-and does not play a sound. A remote cache id is not an identity. A failed
+the withheld copy and ignores a notification refresh that was already in
+flight. A reaction notification that arrives while a newer mute document is
+still loading, or after the rule already hides it, is not shown, does not
+play a sound, and does not change the unread count or the read marker.
+After the rule is removed, the unread count comes from the server. A status
+stays visible for restore while any column still shows it. A remote cache id is not an identity. A failed
 restore of a visible status is retried once. A newer restore does not let
 the previous timer clear its queue. A failed notification request does not
 clear the list. A newer reload is not overwritten by an older one that

@@ -13,6 +13,17 @@ let appliedRevision = null;
 let mutes = [];
 let request = null;
 let settled = false;
+let notificationFetchEpoch = 0;
+
+// A notification list that was cleared, blocked, or filtered must not be
+// filled again by a mute refresh that started before that action.
+export function invalidateEmojiMuteNotificationFetches() {
+  notificationFetchEpoch += 1;
+}
+
+export function emojiMuteNotificationFetchEpoch() {
+  return notificationFetchEpoch;
+}
 
 const me = initialState?.meta?.me;
 const accessToken = initialState?.meta?.access_token;
@@ -133,6 +144,7 @@ export function resetEmojiMuteStoreForTests() {
   mutes = [];
   request = null;
   settled = false;
+  notificationFetchEpoch = 0;
 }
 
 export function installEmojiMutesForTests(document) {

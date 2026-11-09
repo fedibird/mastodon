@@ -412,11 +412,12 @@ class StatusList extends ImmutablePureComponent {
 
   handleIntersectionChange = (id, isIntersecting) => {
     const { dispatch } = this.props;
+    const source = this.props.scrollKey || this.props.timelineId || 'timeline';
 
     if (isIntersecting) {
-      dispatch(addIntersectionStatusId(id));
+      dispatch(addIntersectionStatusId(id, source));
     } else {
-      dispatch(removeIntersectionStatusId(id));
+      dispatch(removeIntersectionStatusId(id, source));
     }
   }
 

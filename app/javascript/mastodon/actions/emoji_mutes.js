@@ -6,6 +6,7 @@ import { fetchRelationships } from './accounts';
 import {
   appliedEmojiMuteRevision,
   currentEmojiMutes,
+  emojiMuteNotificationFetchEpoch,
   loadEmojiMutes,
   noteEmojiMutesChanged,
 } from '../features/emoji/emoji_mute_store';
@@ -43,21 +44,35 @@ let legacyRefreshArmed = false;
 let restoreQueue = [];
 let restoreTimer = null;
 let restoreAttempts = new Map();
-const visibleStatusIds = new Set();
+const visibleSources = new Map();
 
-export function noteStatusVisibility(id, visible) {
+// One status can be on screen in more than one column. Leaving a single
+// column must not forget the copy that is still visible.
+export function noteStatusVisibility(id, visible, source = 'default') {
   if (id === null || id === undefined || id === '') {
     return;
   }
 
   const key = String(id);
+  const label = source === null || source === undefined || source === '' ? 'default' : String(source);
+  const sources = visibleSources.get(key) || new Set();
 
   if (visible) {
-    visibleStatusIds.add(key);
-  } else {
-    visibleStatusIds.delete(key);
+    sources.add(label);
+    visibleSources.set(key, sources);
+    return;
+  }
+
+  sources.delete(label);
+
+  if (sources.size === 0) {
+    visibleSources.delete(key);
   }
 }
+
+const eachVisibleId = callback => {
+  visibleSources.forEach((_sources, id) => callback(id));
+};
 
 export function resetEmojiMuteSurfaceForTests() {
   surfaceGeneration += 1;
@@ -65,7 +80,7 @@ export function resetEmojiMuteSurfaceForTests() {
   legacyRefreshArmed = false;
   restoreQueue = [];
   restoreAttempts = new Map();
-  visibleStatusIds.clear();
+  visibleSources.clear();
   if (restoreTimer !== null) {
     clearTimeout(restoreTimer);
     restoreTimer = null;
@@ -158,7 +173,7 @@ const headIds = list => {
 export const immediateStatusIdsForMuteRestore = state => {
   const ids = [];
 
-  visibleStatusIds.forEach(id => consider(ids, state, id));
+  eachVisibleId(id => consider(ids, state, id));
 
   const contexts = state.get('contexts');
 
@@ -282,6 +297,7 @@ export function refreshEmojiMuteSurfaces(options = {}) {
     }
 
     const generation = surfaceGeneration + 1;
+    const notificationEpoch = emojiMuteNotificationFetchEpoch();
     surfaceGeneration = generation;
     restoreQueue = [];
     restoreAttempts = new Map();
@@ -301,7 +317,7 @@ export function refreshEmojiMuteSurfaces(options = {}) {
     const immediateSet = new Set(immediateIds);
 
     if (options.restoreStatuses || options.refetchLegacy) {
-      visibleStatusIds.forEach(id => {
+      eachVisibleId(id => {
         if (!immediateSet.has(id) && statusNeedsFetch(getState(), id)) {
           restoreQueue.push(id);
         }
@@ -319,7 +335,7 @@ export function refreshEmojiMuteSurfaces(options = {}) {
     const notificationTask = api(getState).get('/api/v1/notifications', {
       params: { exclude_types: notificationExcludeTypes(getState()) },
     }).then(response => {
-      if (!surfaceRefreshCurrent(generation) || !Array.isArray(response.data)) {
+      if (!surfaceRefreshCurrent(generation) || notificationEpoch !== emojiMuteNotificationFetchEpoch() || !Array.isArray(response.data)) {
         return null;
       }
 
@@ -330,7 +346,7 @@ export function refreshEmojiMuteSurfaces(options = {}) {
       dispatch(importFetchedStatuses(notifications.map(item => item && item.status).filter(Boolean)));
 
       const deliver = unread => {
-        if (!surfaceRefreshCurrent(generation)) {
+        if (!surfaceRefreshCurrent(generation) || notificationEpoch !== emojiMuteNotificationFetchEpoch()) {
           return null;
         }
 

@@ -240,9 +240,9 @@ export function refreshIntersectionStatuses() {
   };
 }
 
-export function addIntersectionStatusId(id) {
+export function addIntersectionStatusId(id, source = 'default') {
   return (dispatch, getState) => {
-    noteStatusVisibility(id, true);
+    noteStatusVisibility(id, true, source);
     const status = getState().getIn(['statuses', id]);
     if (status) {
       dispatch(addIntersectionStatus(status));
@@ -251,9 +251,9 @@ export function addIntersectionStatusId(id) {
   };
 }
 
-export function removeIntersectionStatusId(id) {
+export function removeIntersectionStatusId(id, source = 'default') {
   return (dispatch, getState) => {
-    noteStatusVisibility(id, false);
+    noteStatusVisibility(id, false, source);
     const status = getState().getIn(['statuses', id]);
     if (status) {
       dispatch(removeIntersectionStatus(status));
