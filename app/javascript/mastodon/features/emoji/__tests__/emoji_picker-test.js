@@ -48,15 +48,23 @@ jest.mock('emoji-mart/dist-es/components/picker/nimble-picker', () => {
           <input type='search' aria-label='Search' className='emoji-mart-search' />
           <button type='button' className='emoji-mart-anchor' onClick={this.handleAnchorClick}><span>People</span></button>
           <div className='emoji-mart-scroll' ref={this.setScrollRef}>
-            <button type='button' className='emoji-mart-emoji' title='thumbsup' aria-label='Thumbs Up Label, +1' onClick={this.props.onClick}>
-              <span role='img' aria-label='Thumbs Up Label'>{'\u{1F44D}'}</span>
-            </button>
-            <button type='button' className='emoji-mart-emoji' title='heart' aria-label='Red Heart Label' onClick={this.props.onClick}>
-              <span role='img' aria-label='Red Heart Label'>{'\u{2764}\u{FE0F}'}</span>
-            </button>
-            <button type='button' className='emoji-mart-emoji' title='blob' aria-label='Blob Custom' onClick={this.props.onClick}>
-              <span className='emoji-mart-emoji-custom'><img src='/wide.png' alt='Wide custom' /></span>
-            </button>
+            <ul className='emoji-mart-category-list'>
+              <li>
+                <button type='button' className='emoji-mart-emoji' title='thumbsup' aria-label='Thumbs Up Label, +1' onClick={this.props.onClick}>
+                  <span role='img' aria-label='Thumbs Up Label'>{'\u{1F44D}'}</span>
+                </button>
+              </li>
+              <li>
+                <button type='button' className='emoji-mart-emoji' title='heart' aria-label='Red Heart Label' onClick={this.props.onClick}>
+                  <span role='img' aria-label='Red Heart Label'>{'\u{2764}\u{FE0F}'}</span>
+                </button>
+              </li>
+              <li>
+                <button type='button' className='emoji-mart-emoji' title='blob' aria-label='Blob Custom' onClick={this.props.onClick}>
+                  <span className='emoji-mart-emoji-custom'><img src='/wide.png' alt='Wide custom' /></span>
+                </button>
+              </li>
+            </ul>
             <img src='/other.png' alt='Other resource' />
           </div>
         </div>
@@ -220,19 +228,39 @@ describe('standard emoji picker adapters', () => {
     }));
   });
 
-  it('enables the manage control from pointerdown without hover', () => {
+  it('opens per-cell manage without inserting through the normal click path', () => {
     const listener = jest.fn();
+    const onClick = jest.fn();
     setEmojiActionsListener(listener);
-    renderPicker(<Picker />);
+    renderPicker(<Picker onClick={onClick} />);
 
-    expect(screen.getByLabelText('Emoji actions')).toBeDisabled();
+    const heart = screen.getByTitle('heart');
+    const cellActions = heart.parentElement.querySelector('[data-emoji-actions="1"]');
+    expect(cellActions).toBeTruthy();
+
+    // Touch/pointer series on the independent manage control must not insert.
+    fireEvent.pointerDown(cellActions);
+    fireEvent.pointerUp(cellActions);
+    fireEvent.click(cellActions);
+
+    expect(onClick).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0][0].reference).toEqual(referenceFromMartButton(heart, 1));
+  });
+
+  it('keeps normal emoji tap insertion (pointerdown → click → onClick)', () => {
+    const listener = jest.fn();
+    const onClick = jest.fn();
+    setEmojiActionsListener(listener);
+    renderPicker(<Picker onClick={onClick} />);
 
     const heart = screen.getByTitle('heart');
     fireEvent.pointerDown(heart);
+    fireEvent.pointerUp(heart);
+    fireEvent.click(heart);
 
-    expect(screen.getByLabelText('Emoji actions')).not.toBeDisabled();
-    fireEvent.click(screen.getByLabelText('Emoji actions'));
-    expect(listener.mock.calls[0][0].reference).toEqual(referenceFromMartButton(heart, 1));
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it('resolves local custom rows from title + custom catalog, not aria-label', () => {
