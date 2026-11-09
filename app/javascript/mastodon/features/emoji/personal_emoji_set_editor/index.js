@@ -715,8 +715,8 @@ export class PersonalEmojiSetEditor extends React.PureComponent {
   }
 
   theme() {
-    const light = document.body.classList.contains('theme-mastodon-light') || document.body.classList.contains('theme-system') && typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches;
-    return light ? 'light' : 'dark';
+    // Match the legacy picker, including the standard picker in the add dialog.
+    return 'light';
   }
 
   renderAppearance() {
