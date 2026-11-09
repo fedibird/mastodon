@@ -1,6 +1,8 @@
 import { normalizeAccount, normalizeStatus, normalizePoll, normalizeCustomEmojiDetail, translationSourceSignature } from './normalizer';
 import { revalidateUnknownFilters } from '../filter_definitions';
 import { applyBoostFloor } from '../../external_boosts/revision';
+import { guardImportedReactions } from '../../features/emoji/emoji_mute_projection';
+import { appliedEmojiMuteRevision, currentEmojiMutes, emojiReactionEventsAccepted, observedEmojiMuteRevision } from '../../features/emoji/emoji_mute_store';
 
 export const ACCOUNT_IMPORT  = 'ACCOUNT_IMPORT';
 export const ACCOUNTS_IMPORT = 'ACCOUNTS_IMPORT';
@@ -167,6 +169,7 @@ export function importFetchedStatuses(statuses, options = {}) {
 
       const state = getState();
       const previousStatus = state.getIn(['statuses', status.id]);
+      status = guardImportedReactions(previousStatus, status, currentEmojiMutes(), emojiReactionEventsAccepted(), appliedEmojiMuteRevision(), observedEmojiMuteRevision());
       const previousPoll = status.poll && status.poll.id ? state.getIn(['polls', status.poll.id]) : null;
       const domain = (typeof status.account === 'object' ? status.account.acct : state.getIn(['accounts', status.account, 'acct']))?.split('@')[1] ?? '';
       const normalizedStatus = applyBoostFloor(boostFloorFor(state, status.id), normalizeStatus(status, previousStatus, domain, previousPoll, {

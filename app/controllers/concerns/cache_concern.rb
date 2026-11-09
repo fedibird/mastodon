@@ -57,6 +57,7 @@ module CacheConcern
     records = raw.to_a
 
     klass.preload_cacheable_associations(records)
+    EmojiMutes::IdentityBreakdown.prepare(records, current_user) if klass == Status && respond_to?(:current_user, true)
 
     records
   end

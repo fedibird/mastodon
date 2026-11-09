@@ -17,6 +17,7 @@ class Api::V1::Statuses::EmojiReactionedByController < Api::BaseController
   def load_emoji_reactions
     scope = default_emoji_reactions
     scope = scope.where.not(account_id: current_account.excluded_from_timeline_account_ids) unless current_account.nil?
+    scope = EmojiMutes::ReactionVisibility.exclude_reactions(scope, current_user)
     scope.merge(paginated_emoji_reactions).to_a
   end
 

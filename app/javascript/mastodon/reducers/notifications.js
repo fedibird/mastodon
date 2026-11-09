@@ -1,4 +1,6 @@
 import {
+  NOTIFICATIONS_RELOAD_SUCCESS,
+  NOTIFICATIONS_FEED_MERGE,
   NOTIFICATIONS_UPDATE,
   NOTIFICATIONS_EXPAND_SUCCESS,
   NOTIFICATIONS_EXPAND_REQUEST,
@@ -27,9 +29,12 @@ import {
   APP_UNFOCUS,
 } from '../actions/app';
 import { DOMAIN_BLOCK_SUCCESS } from 'mastodon/actions/domain_blocks';
-import { TIMELINE_DELETE, TIMELINE_EXPIRE, TIMELINE_DISCONNECT } from '../actions/timelines';
+import { TIMELINE_DELETE, TIMELINE_DISCONNECT } from '../actions/timelines';
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import compareId from '../compare_id';
+import { EMOJI_MUTES_APPLY } from '../actions/emoji_mutes';
+import { storedReactionHidden } from '../features/emoji/emoji_mute_projection';
+import { currentEmojiMutes, emojiReactionEventsAccepted, invalidateEmojiMuteNotificationFetches } from '../features/emoji/emoji_mute_store';
 
 const initialState = ImmutableMap({
   pendingItems: ImmutableList(),
@@ -122,9 +127,147 @@ const expandNormalizedNotifications = (state, notifications, next, isLoadingRece
   });
 };
 
+const emojiReactionHidden = (item, rules) => {
+  if (!item || item.get('type') !== 'emoji_reaction') {
+    return false;
+  }
+
+  // A newer mute document is still in flight. Hold every reaction notification
+  // until that document is applied, instead of flashing the old one.
+  if (!emojiReactionEventsAccepted()) {
+    return true;
+  }
+
+  return storedReactionHidden(item.get('emoji_reaction'), rules);
+};
+
+const rememberWithheld = (state, item, bucket) => {
+  const withheld = state.get('emojiMuteWithheld', ImmutableList());
+
+  if (withheld.some(entry => entry.get('notification') && entry.get('notification').get('id') === item.get('id'))) {
+    return state;
+  }
+
+  return state.set('emojiMuteWithheld', withheld.push(ImmutableMap({ bucket, notification: item })));
+};
+
+const withoutHiddenReactions = (notifications, rules) => {
+  const visible = [];
+  const hidden = [];
+
+  (notifications || []).forEach(notification => {
+    if (!notification || !notification.account) {
+      return;
+    }
+
+    const mapped = notificationToMap(notification);
+
+    if (emojiReactionHidden(mapped, rules)) {
+      hidden.push(mapped);
+    } else {
+      visible.push(notification);
+    }
+  });
+
+  return { visible, hidden };
+};
+
+const insertByNewestId = (list, item) => {
+  const id = item.get('id');
+
+  if (list.some(existing => existing && existing.get('id') === id)) {
+    return list;
+  }
+
+  const index = list.findIndex(existing => existing && compareId(existing.get('id'), id) < 0);
+
+  return index === -1 ? list.push(item) : list.insert(index, item);
+};
+
+// Hidden reactions leave the loaded pages but stay withheld, so removing the
+// rule can put the same row back without asking for every older page again.
+const reconcileEmojiReactionNotifications = (state, rules) => {
+  const withheld = [];
+
+  const keepBucket = bucket => {
+    let kept = ImmutableList();
+
+    state.get(bucket, ImmutableList()).forEach(item => {
+      if (!item) {
+        return;
+      }
+
+      if (emojiReactionHidden(item, rules)) {
+        withheld.push(ImmutableMap({ bucket, notification: item }));
+      } else {
+        kept = kept.push(item);
+      }
+    });
+
+    return kept;
+  };
+
+  const uniqueById = list => {
+    const seen = new Set();
+
+    return list.filter(item => {
+      const id = item && item.get('id');
+
+      if (seen.has(id)) {
+        return false;
+      }
+
+      seen.add(id);
+      return true;
+    });
+  };
+
+  let items = uniqueById(keepBucket('items'));
+  let pendingItems = uniqueById(keepBucket('pendingItems'));
+
+  state.get('emojiMuteWithheld', ImmutableList()).forEach(entry => {
+    const item = entry && entry.get('notification');
+    const bucket = entry && entry.get('bucket');
+
+    if (!item) {
+      return;
+    }
+
+    if (emojiReactionHidden(item, rules)) {
+      withheld.push(entry);
+    } else if (bucket === 'pendingItems') {
+      pendingItems = insertByNewestId(pendingItems, item);
+    } else {
+      items = insertByNewestId(items, item);
+    }
+  });
+
+  return state
+    .set('items', items)
+    .set('pendingItems', pendingItems)
+    .set('emojiMuteWithheld', ImmutableList(withheld));
+};
+
+const notificationMatches = (item, accountIds, type) => (
+  item !== null
+  && item !== undefined
+  && accountIds.includes(item.get('account'))
+  && (type === undefined || type === item.get('type'))
+);
+
+const forgetWithheld = (state, predicate) => state.update(
+  'emojiMuteWithheld',
+  ImmutableList(),
+  list => list.filter(entry => !predicate(entry && entry.get('notification'))),
+);
+
 const filterNotifications = (state, accountIds, type) => {
-  const helper = list => list.filterNot(item => item !== null && accountIds.includes(item.get('account')) && (type === undefined || type === item.get('type')));
-  return state.update('items', helper).update('pendingItems', helper);
+  const helper = list => list.filterNot(item => notificationMatches(item, accountIds, type));
+
+  return forgetWithheld(
+    state.update('items', helper).update('pendingItems', helper),
+    item => notificationMatches(item, accountIds, type),
+  );
 };
 
 const clearUnread = (state) => {
@@ -154,7 +297,10 @@ const deleteByStatus = (state, statusId) => {
   const helper = list => list.filterNot(item => item !== null && item.get('status') === statusId);
   const deletedUnread = state.get('pendingItems').filter(item => item !== null && item.get('status') === statusId && compareId(item.get('id'), lastReadId) > 0);
   state = state.update('unread', unread => unread - deletedUnread.size);
-  return state.update('items', helper).update('pendingItems', helper);
+  return forgetWithheld(
+    state.update('items', helper).update('pendingItems', helper),
+    item => item !== null && item !== undefined && item.get('status') === statusId,
+  );
 };
 
 const updateMounted = (state) => {
@@ -221,26 +367,75 @@ export default function notifications(state = initialState, action) {
   case NOTIFICATIONS_EXPAND_FAIL:
     return state.set('isLoading', false);
   case NOTIFICATIONS_FILTER_SET:
-    return state.set('items', ImmutableList()).set('pendingItems', ImmutableList()).set('hasMore', true);
+    invalidateEmojiMuteNotificationFetches();
+    return state.set('items', ImmutableList()).set('pendingItems', ImmutableList()).set('emojiMuteWithheld', ImmutableList()).set('hasMore', true);
   case NOTIFICATIONS_SCROLL_TOP:
     return updateTop(state, action.top);
-  case NOTIFICATIONS_UPDATE:
+  case EMOJI_MUTES_APPLY:
+    return reconcileEmojiReactionNotifications(state, action.mutes || currentEmojiMutes());
+  case NOTIFICATIONS_FEED_MERGE: {
+    const hasMore = state.get('hasMore');
+    const pendingItems = state.get('pendingItems');
+    const rules = action.rules || currentEmojiMutes();
+    const { visible, hidden } = withoutHiddenReactions(action.notifications, rules);
+    let next = expandNormalizedNotifications(state, visible, 'keep', false, false);
+
+    next = next.set('hasMore', hasMore).set('pendingItems', pendingItems);
+    hidden.forEach(item => {
+      next = rememberWithheld(next, item, 'items');
+    });
+    next = reconcileEmojiReactionNotifications(next, rules);
+    if (typeof action.unread === 'number') {
+      next = next.set('unread', action.unread);
+    }
+    return next;
+  }
+  case NOTIFICATIONS_RELOAD_SUCCESS: {
+    const items = ImmutableList((action.notifications || []).filter(item => item && item.account).map(notificationToMap));
+    let next = state.set('items', items).set('pendingItems', ImmutableList()).set('isLoading', false);
+    if (typeof action.unread === 'number') {
+      next = next.set('unread', action.unread);
+    }
+    return next;
+  }
+  case NOTIFICATIONS_UPDATE: {
+    const mapped = notificationToMap(action.notification);
+    const rules = currentEmojiMutes();
+
+    if (emojiReactionHidden(mapped, rules)) {
+      const bucket = action.usePendingItems || !state.get('pendingItems', ImmutableList()).isEmpty() ? 'pendingItems' : 'items';
+      return rememberWithheld(state, mapped, bucket);
+    }
+
     return normalizeNotification(state, action.notification, action.usePendingItems);
-  case NOTIFICATIONS_EXPAND_SUCCESS:
-    return expandNormalizedNotifications(state, action.notifications, action.next, action.isLoadingRecent, action.usePendingItems);
+  }
+  case NOTIFICATIONS_EXPAND_SUCCESS: {
+    const rules = currentEmojiMutes();
+    const { visible, hidden } = withoutHiddenReactions(action.notifications, rules);
+    let next = expandNormalizedNotifications(state, visible, action.next, action.isLoadingRecent, action.usePendingItems);
+
+    hidden.forEach(item => {
+      next = rememberWithheld(next, item, 'items');
+    });
+    return next;
+  }
   case ACCOUNT_BLOCK_SUCCESS:
+    invalidateEmojiMuteNotificationFetches();
     return filterNotifications(state, [action.relationship.id]);
   case ACCOUNT_MUTE_SUCCESS:
+    if (action.relationship.muting_notifications) {
+      invalidateEmojiMuteNotificationFetches();
+    }
     return action.relationship.muting_notifications ? filterNotifications(state, [action.relationship.id]) : state;
   case DOMAIN_BLOCK_SUCCESS:
+    invalidateEmojiMuteNotificationFetches();
     return filterNotifications(state, action.accounts);
   case FOLLOW_REQUEST_AUTHORIZE_SUCCESS:
   case FOLLOW_REQUEST_REJECT_SUCCESS:
     return filterNotifications(state, [action.id], 'follow_request');
-  case ACCOUNT_MUTE_SUCCESS:
-    return action.relationship.muting_notifications ? filterNotifications(state, [action.relationship.id]) : state;
   case NOTIFICATIONS_CLEAR:
-    return state.set('items', ImmutableList()).set('pendingItems', ImmutableList()).set('hasMore', false);
+    invalidateEmojiMuteNotificationFetches();
+    return state.set('items', ImmutableList()).set('pendingItems', ImmutableList()).set('emojiMuteWithheld', ImmutableList()).set('hasMore', false);
   case TIMELINE_DELETE:
     return deleteByStatus(state, action.id);
   case TIMELINE_DISCONNECT:

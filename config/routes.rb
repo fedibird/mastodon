@@ -712,6 +712,7 @@ Rails.application.routes.draw do
         namespace :emojis do
           resource :resolve, only: :create, controller: :resolve
         end
+        resources :emoji_mutes, only: [:index, :create, :update, :destroy]
 
         post 'filters/matches', to: 'filters/matches#create'
         resource :preferences, only: [:show]

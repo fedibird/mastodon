@@ -15,6 +15,7 @@ class Web::PushNotificationWorker
     # Polymorphically associated activity could have been deleted
     # in the meantime, so we have to double-check before proceeding
     return unless @notification.activity.present? && @subscription.pushable?(@notification)
+    return if EmojiMutes::ReactionVisibility.hidden_notification?(@notification, @notification.account&.user)
 
     payload = @subscription.encrypt(push_notification_json)
 

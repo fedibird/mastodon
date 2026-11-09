@@ -621,32 +621,19 @@ class Status < ApplicationRecord
   end
 
   def grouped_emoji_reactions(account = nil)
-    cache = status_stat&.emoji_reactions_cache
-
-    (Oj.load(cache || '', mode: :strict) || []).then do |emoji_reactions|
-      @emoji_reactions_count = 0
-
-      emoji_reactions.filter do |emoji_reaction|
-        if account.present?
-          emoji_reaction['me'] = emoji_reaction['account_ids'].include?(account.id.to_s)
-          emoji_reaction['account_ids'] -= (account.excluded_from_timeline_account_ids + Account.where(id: emoji_reaction['account_ids'], domain: account.excluded_from_timeline_domains).pluck(:id) + (Account.excluded_silenced_account_ids - [account.id])).uniq.map(&:to_s)
-        else
-          emoji_reaction['me'] = false
-          emoji_reaction['account_ids'] -= Account.excluded_silenced_account_ids.map(&:to_s)
-        end
-
-        emoji_reaction['count'] = emoji_reaction['account_ids'].size
-        @emoji_reactions_count += emoji_reaction['count']
-
-        emoji_reaction['count'] > 0
-      end
-    end
+    EmojiMutes::ReactionProjection.for(self, account).groups
   end
 
-  def generate_grouped_emoji_reactions
+  # Name groups stay the public shape. `parts` is the identity breakdown
+  # used to project a viewer. `previous_cache` preserves a remote identity
+  # after its cache row disappears. The caller holds the status_stats lock.
+  def generate_grouped_emoji_reactions(previous_cache: nil)
     records = emoji_reactions.group(:name).order(Arel.sql('MIN(created_at) ASC')).select('name, min(custom_emoji_id) as custom_emoji_id, count(*) as count, array_agg(account_id::text order by created_at) as account_ids').limit(EmojiReactionValidator::LIMIT)
     ActiveRecord::Associations::Preloader.new.preload(records, :custom_emoji)
-    Oj.dump(ActiveModelSerializers::SerializableResource.new(records, each_serializer: REST::GroupedEmojiReactionSerializer, scope: nil, scope_name: :current_user))
+    rendered = Oj.dump(ActiveModelSerializers::SerializableResource.new(records, each_serializer: REST::GroupedEmojiReactionSerializer, scope: nil, scope_name: :current_user))
+    groups = Oj.load(rendered, mode: :strict) || []
+    EmojiMutes::CacheParts.attach!(self, groups, previous_cache: previous_cache || status_stat&.emoji_reactions_cache)
+    Oj.dump(groups)
   end
 
   def mark_grouped_emoji_reactions_dirty!
@@ -666,7 +653,7 @@ class Status < ApplicationRecord
       next unless force || stat.emoji_reactions_cache_dirty?
 
       stat.update!(
-        emoji_reactions_cache: generate_grouped_emoji_reactions,
+        emoji_reactions_cache: generate_grouped_emoji_reactions(previous_cache: stat.emoji_reactions_cache),
         emoji_reactions_count: emoji_reactions.count,
         emoji_reactions_cache_dirty: false
       )

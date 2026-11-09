@@ -19,6 +19,7 @@ export default class IntersectionObserverArticle extends React.Component {
   static propTypes = {
     intersectionObserverWrapper: PropTypes.object.isRequired,
     id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    statusId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     index: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     listLength: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     saveHeightKey: PropTypes.string,
@@ -66,9 +67,14 @@ export default class IntersectionObserverArticle extends React.Component {
   }
 
   componentWillUnmount () {
-    const { intersectionObserverWrapper, id } = this.props;
-    intersectionObserverWrapper.unobserve(id, this.node);
+    const { intersectionObserverWrapper, id, statusId, onIntersectionChange } = this.props;
 
+    // unobserve removes the callback without reporting that the row left.
+    if (onIntersectionChange) {
+      onIntersectionChange(id, false, null, statusId);
+    }
+
+    intersectionObserverWrapper.unobserve(id, this.node);
     this.componentMounted = false;
   }
 
@@ -77,7 +83,7 @@ export default class IntersectionObserverArticle extends React.Component {
     if (entry.isIntersecting && !this.state.isIntersecting) this.props.onBeforeLayoutChange?.();
 
     if (onIntersectionChange) {
-      onIntersectionChange(id, entry.isIntersecting, entry);
+      onIntersectionChange(id, entry.isIntersecting, entry, this.props.statusId);
     }
 
     this.entry = entry;

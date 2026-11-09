@@ -18,7 +18,7 @@ import MediaDisplayControls from './media_display_controls';
 import MediaItemsLayout from './media_items_layout';
 import { defaultMediaShape, defaultMediaSize, defaultMediaVisibility } from 'mastodon/utils/media_display';
 import { mediaTimelineSequence } from 'mastodon/utils/media_timeline_sequence';
-import { isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
+import { intersectionIdentity, isCardTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { connect } from 'react-redux';
 import { FilterSurface } from '../filter_reconciliation/surface';
 import { isProgrammaticTopScroll, releaseProgrammaticTopScroll } from '../scroll';
@@ -820,9 +820,9 @@ class ScrollableList extends PureComponent {
     }
   }
 
-  handleIntersectionChange = (id, intersecting, entry) => {
+  handleIntersectionChange = (id, intersecting, entry, statusId) => {
     this.filterSurface?.intersection(id, intersecting, entry);
-    this.props.onIntersectionChange?.(id, intersecting);
+    this.props.onIntersectionChange?.(id, intersecting, statusId);
   }
 
   handleFilterLayout = () => this.filterSurface?.prepare();
@@ -1537,35 +1537,40 @@ class ScrollableList extends PureComponent {
       contextTypeForId: this.props.mediaContextForId,
       onLoadMore,
     } : null;
-    const renderedItems = React.Children.map(children, (child, index) => (
-      <IntersectionObserverArticleContainer
-        key={child.key}
-        id={child.key}
-        index={index}
-        listLength={childrenCount}
-        intersectionObserverWrapper={this.intersectionObserverWrapper}
-        // Cached heights from the old full-width list cannot be used for cards.
-        saveHeightKey={trackScroll && !isCardTimelineLayout(layoutMode) && layoutMode !== 'media' ? `${this.context.router.route.location.key}:${scrollKey}` : null}
-        tabIndex={tabIndex}
-        onIntersectionChange={this.handleIntersectionChange}
-        onBeforeLayoutChange={this.handleFilterLayout}
-      >
-        {React.cloneElement(child, {
-          getScrollPosition: this.getScrollPosition,
-          updateScrollBottom: this.updateScrollBottom,
-          cachedMediaWidth: this.state.cachedMediaWidth,
-          cacheMediaWidth: this.cacheMediaWidth,
-          mediaShape: mediaMode ? mediaShape : undefined,
-          mediaVisibility: mediaMode ? mediaVisibility : undefined,
-          mediaTimeline,
-          mediaSource,
-          onMediaTileReveal: mediaMode ? this.handleMediaTileReveal : undefined,
-          mediaTileRevealed: mediaMode && this.state.revealedMediaKeys.has(child.props.mediaRowKey),
-          onMediaFilterReveal: mediaMode ? this.handleMediaFilterReveal : undefined,
-          mediaFilterRevealed: mediaMode && this.state.revealedFilterStatusIds.has(child.props.id),
-        })}
-      </IntersectionObserverArticleContainer>
-    ));
+    const renderedItems = React.Children.map(children, (child, index) => {
+      const identity = intersectionIdentity(child);
+
+      return (
+        <IntersectionObserverArticleContainer
+          key={child.key}
+          id={identity.observerId}
+          statusId={identity.statusId}
+          index={index}
+          listLength={childrenCount}
+          intersectionObserverWrapper={this.intersectionObserverWrapper}
+          // Cached heights from the old full-width list cannot be used for cards.
+          saveHeightKey={trackScroll && !isCardTimelineLayout(layoutMode) && layoutMode !== 'media' ? `${this.context.router.route.location.key}:${scrollKey}` : null}
+          tabIndex={tabIndex}
+          onIntersectionChange={this.handleIntersectionChange}
+          onBeforeLayoutChange={this.handleFilterLayout}
+        >
+          {React.cloneElement(child, {
+            getScrollPosition: this.getScrollPosition,
+            updateScrollBottom: this.updateScrollBottom,
+            cachedMediaWidth: this.state.cachedMediaWidth,
+            cacheMediaWidth: this.cacheMediaWidth,
+            mediaShape: mediaMode ? mediaShape : undefined,
+            mediaVisibility: mediaMode ? mediaVisibility : undefined,
+            mediaTimeline,
+            mediaSource,
+            onMediaTileReveal: mediaMode ? this.handleMediaTileReveal : undefined,
+            mediaTileRevealed: mediaMode && this.state.revealedMediaKeys.has(child.props.mediaRowKey),
+            onMediaFilterReveal: mediaMode ? this.handleMediaFilterReveal : undefined,
+            mediaFilterRevealed: mediaMode && this.state.revealedFilterStatusIds.has(child.props.id),
+          })}
+        </IntersectionObserverArticleContainer>
+      );
+    });
     let itemLayout = renderedItems;
     if (isCardTimelineLayout(layoutMode)) {
       itemLayout = (

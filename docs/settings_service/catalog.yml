@@ -7235,7 +7235,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:33
   - app/models/user.rb:352
   audit_status: verified
@@ -7282,7 +7282,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:21
   audit_status: verified
   notes: Nested key of notification_emails. YAML present=true default=false. Permitted=true.
@@ -7328,7 +7328,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:20
   audit_status: verified
   notes: Nested key of notification_emails. YAML present=true default=false. Permitted=true.
@@ -7374,7 +7374,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:16
   audit_status: verified
   notes: Nested key of notification_emails. YAML present=true default=false. Permitted=true.
@@ -7420,7 +7420,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:17
   audit_status: verified
   notes: Nested key of notification_emails. YAML present=true default=true. Permitted=true.
@@ -7465,7 +7465,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:18
   audit_status: unresolved
   notes: Nested key of notification_emails. YAML present=true default=false. Permitted=false.
@@ -7512,7 +7512,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   audit_status: unresolved
   notes: Nested key of notification_emails. YAML present=false default=nil. Permitted=true.
     Form inputs=0. Email lookup uses notification.type, so the followed notification
@@ -7562,7 +7562,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:22
   audit_status: verified
   notes: Nested key of notification_emails. YAML present=true default=false. Permitted=true.
@@ -7608,7 +7608,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:27
   - app/models/user.rb:352
   audit_status: verified
@@ -7656,7 +7656,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:19
   audit_status: verified
   notes: Nested key of notification_emails. YAML present=true default=false. Permitted=true.
@@ -7702,7 +7702,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:26
   - app/models/user.rb:352
   audit_status: verified
@@ -7750,7 +7750,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:23
   audit_status: verified
   notes: Nested key of notification_emails. YAML present=true default=false. Permitted=true.
@@ -7796,7 +7796,7 @@ entries:
   - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:286
+  - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:29
   - app/models/user.rb:352
   audit_status: verified
@@ -7844,7 +7844,7 @@ entries:
   - config/settings.yml:117
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:120
+  - app/services/notify_service.rb:128
   - app/views/settings/preferences/notifications/show.html.haml:44
   audit_status: verified
   notes: 'Nested key of interactions. YAML present=true default=false. Permitted=true.
@@ -7893,7 +7893,7 @@ entries:
   - config/settings.yml:117
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:104
+  - app/services/notify_service.rb:112
   - app/views/settings/preferences/notifications/show.html.haml:39
   audit_status: verified
   notes: 'Nested key of interactions. YAML present=true default=false. Permitted=true.
@@ -7940,7 +7940,7 @@ entries:
   - config/settings.yml:117
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:108
+  - app/services/notify_service.rb:116
   - app/views/settings/preferences/notifications/show.html.haml:40
   audit_status: verified
   notes: 'Nested key of interactions. YAML present=true default=false. Permitted=true.
@@ -7987,7 +7987,7 @@ entries:
   - config/settings.yml:117
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:175
+  - app/services/notify_service.rb:183
   - app/views/settings/preferences/notifications/show.html.haml:41
   audit_status: verified
   notes: 'Nested key of interactions. YAML present=true default=false. Permitted=true.
@@ -8034,7 +8034,7 @@ entries:
   - config/settings.yml:117
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:112
+  - app/services/notify_service.rb:120
   - app/views/settings/preferences/notifications/show.html.haml:42
   audit_status: verified
   notes: 'Nested key of interactions. YAML present=true default=false. Permitted=true.
@@ -8081,7 +8081,7 @@ entries:
   - config/settings.yml:117
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:182
+  - app/services/notify_service.rb:190
   - app/views/settings/preferences/notifications/show.html.haml:43
   audit_status: verified
   notes: 'Nested key of interactions. YAML present=true default=false. Permitted=true.
@@ -8128,7 +8128,7 @@ entries:
   - config/settings.yml:117
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
-  - app/services/notify_service.rb:116
+  - app/services/notify_service.rb:124
   - app/views/settings/preferences/notifications/show.html.haml:45
   audit_status: verified
   notes: 'Nested key of interactions. YAML present=true default=true. Permitted=true.
@@ -11111,7 +11111,7 @@ entries:
   source_refs:
   - app/controllers/api/web/settings_controller.rb:7
   - app/javascript/mastodon/actions/settings.js:23
-  - config/routes.rb:977
+  - config/routes.rb:978
   - app/helpers/application_helper.rb:207
   - app/javascript/mastodon/reducers/settings.js:12
   audit_status: verified

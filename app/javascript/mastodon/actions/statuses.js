@@ -12,6 +12,7 @@ import { SETTING_CHANGE, saveSettings } from './settings';
 import { deleteFromTimelines, expireFromTimelines } from './timelines';
 import { fetchRelationshipsFromStatus, fetchRelationshipsFromStatuses } from './accounts';
 import { importFetchedStatus, importFetchedStatuses, importFetchedAccount } from './importer';
+import { noteStatusVisibility, restoreVisibleEmojiMuteStatus } from './emoji_mutes';
 import { statusSourceSignature, translationSourceSignature } from './importer/normalizer';
 import { ensureComposeIsVisible, getContextReference, setComposeToStatus } from './compose';
 import { openModal } from './modal';
@@ -96,6 +97,7 @@ export function fetchStatus(id, force = false) {
     dispatch(fetchContext(id));
 
     if (skipLoading) {
+      dispatch(restoreVisibleEmojiMuteStatus(id));
       return;
     }
 
@@ -222,38 +224,41 @@ export function addIntersectionStatus(status) {
   return {
     type: INTERSECTION_STATUS_ADD,
     status: status,
-  }
+  };
 }
 
 export function removeIntersectionStatus(status) {
   return {
     type: INTERSECTION_STATUS_REMOVE,
     status: status,
-  }
+  };
 }
 
 export function refreshIntersectionStatuses() {
   return {
     type: INTERSECTION_STATUS_REFRESH,
-  }
+  };
 }
 
-export function addIntersectionStatusId(id) {
+export function addIntersectionStatusId(id, source = 'default') {
   return (dispatch, getState) => {
+    noteStatusVisibility(id, true, source);
     const status = getState().getIn(['statuses', id]);
     if (status) {
       dispatch(addIntersectionStatus(status));
     }
-  }
+    dispatch(restoreVisibleEmojiMuteStatus(id));
+  };
 }
 
-export function removeIntersectionStatusId(id) {
+export function removeIntersectionStatusId(id, source = 'default') {
   return (dispatch, getState) => {
+    noteStatusVisibility(id, false, source);
     const status = getState().getIn(['statuses', id]);
     if (status) {
       dispatch(removeIntersectionStatus(status));
     }
-  }
+  };
 }
 
 export function editStatus(id, routerHistory) {
@@ -515,7 +520,7 @@ export function deleteStatusFail(id, error, skipAlert = false) {
 
 export function expireStatus(id) {
   return (dispatch, getState) => {
-    const status = getState().getIn(['statuses', id]).update('poll', poll => poll ? getState().getIn(['polls', poll]) : null);
+    getState().getIn(['statuses', id]).update('poll', poll => poll ? getState().getIn(['polls', poll]) : null);
 
     dispatch(expireStatusRequest(id));
 

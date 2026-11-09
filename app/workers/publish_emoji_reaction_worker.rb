@@ -26,9 +26,11 @@ class PublishEmojiReactionWorker
     return @payload_json if defined?(@payload_json)
 
     payload = @status.grouped_emoji_reactions.find { |emoji_reaction| emoji_reaction['name'] == @name }
-    payload ||= { name: @name, count: 0, account_ids: [] }
-
+    payload ||= { 'name' => @name, 'count' => 0, 'account_ids' => [] }
+    payload = payload.dup
     payload['status_id'] = @status.id.to_s
+    token = @status.status_stat&.updated_at&.utc&.strftime('%Y%m%d%H%M%S%N')
+    payload['cache_token'] = token if token
 
     @payload_json = Oj.dump(event: :'emoji_reaction', payload: payload)
   end

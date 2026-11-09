@@ -84,6 +84,7 @@ class NotificationMailer < ApplicationMailer
     @emoji_reaction = notification.emoji_reaction
 
     return unless @me.user.functional? && @status.present?
+    return if EmojiMutes::ReactionVisibility.hidden_notification?(notification, @me.user)
 
     locale_for_account(@me) do
       thread_by_conversation(@status.conversation)

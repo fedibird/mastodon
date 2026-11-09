@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_15_120000) do
+ActiveRecord::Schema.define(version: 2026_11_16_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -517,6 +517,37 @@ ActiveRecord::Schema.define(version: 2026_11_15_120000) do
     t.bigint "parent_id"
     t.boolean "allow_with_approval", default: false, null: false
     t.index ["domain"], name: "index_email_domain_blocks_on_domain", unique: true
+  end
+
+
+  create_table "emoji_mute_collections", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "revision", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["user_id"], name: "index_emoji_mute_collections_on_user_id", unique: true
+  end
+
+  create_table "emoji_mutes", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "kind", null: false
+    t.text "native"
+    t.bigint "custom_emoji_id"
+    t.string "domain"
+    t.string "shortcode"
+    t.boolean "replace_in_text", default: true, null: false
+    t.boolean "reject_reactions_to_own_posts", default: true, null: false
+    t.boolean "hide_reactions", default: true, null: false
+    t.boolean "hide_in_picker", default: true, null: false
+    t.string "replacement", default: "［絵文字］", null: false
+    t.bigint "revision", default: 1, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["user_id", "custom_emoji_id"], name: "index_emoji_mutes_local_identity", unique: true, where: "((kind)::text = 'local'::text)"
+    t.index ["user_id", "domain", "shortcode"], name: "index_emoji_mutes_remote_identity", unique: true, where: "((kind)::text = 'remote'::text)"
+    t.index ["user_id", "native"], name: "index_emoji_mutes_unicode_identity", unique: true, where: "((kind)::text = 'unicode'::text)"
+    t.index ["user_id"], name: "index_emoji_mutes_on_user_id"
+    t.check_constraint "(((kind)::text = 'unicode'::text) AND (native IS NOT NULL) AND (custom_emoji_id IS NULL) AND (domain IS NULL) AND (shortcode IS NULL)) OR (((kind)::text = 'local'::text) AND (native IS NULL) AND (custom_emoji_id IS NOT NULL) AND (domain IS NULL)) OR (((kind)::text = 'remote'::text) AND (native IS NULL) AND (custom_emoji_id IS NULL) AND (domain IS NOT NULL) AND (shortcode IS NOT NULL))", name: "emoji_mutes_identity_shape"
   end
 
   create_table "emoji_reactions", id: :bigint, default: -> { "timestamp_id('emoji_reactions'::text)" }, force: :cascade do |t|
@@ -2716,6 +2747,8 @@ create_table "managed_groups", force: :cascade do |t|
   add_foreign_key "domain_subscribes", "accounts", on_delete: :cascade
   add_foreign_key "domain_subscribes", "lists", on_delete: :cascade
   add_foreign_key "email_domain_blocks", "email_domain_blocks", column: "parent_id", on_delete: :cascade
+  add_foreign_key "emoji_mute_collections", "users", on_delete: :cascade
+  add_foreign_key "emoji_mutes", "users", on_delete: :cascade
   add_foreign_key "emoji_reactions", "accounts", on_delete: :cascade
   add_foreign_key "emoji_reactions", "custom_emojis", on_delete: :cascade
   add_foreign_key "emoji_reactions", "statuses", on_delete: :cascade

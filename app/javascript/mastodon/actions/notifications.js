@@ -16,7 +16,11 @@ import { notificationFilterFlags } from './notification_filter';
 import { usePendingItems as preferPendingItems, enableReaction, enableStatusReference } from 'mastodon/initial_state';
 import compareId from 'mastodon/compare_id';
 import { requestNotificationPermission } from '../utils/notifications';
+import { storedReactionHidden } from '../features/emoji/emoji_mute_projection';
+import { currentEmojiMutes, emojiReactionEventsAccepted } from '../features/emoji/emoji_mute_store';
 
+export const NOTIFICATIONS_RELOAD_SUCCESS = 'NOTIFICATIONS_RELOAD_SUCCESS';
+export const NOTIFICATIONS_FEED_MERGE = 'NOTIFICATIONS_FEED_MERGE';
 export const NOTIFICATIONS_UPDATE      = 'NOTIFICATIONS_UPDATE';
 export const NOTIFICATIONS_UPDATE_NOOP = 'NOTIFICATIONS_UPDATE_NOOP';
 
@@ -83,12 +87,20 @@ const notificationTitleValues = (notification) => {
   return values;
 };
 
+const emojiReactionSuppressed = notification => (
+  notification.type === 'emoji_reaction' && (
+    !emojiReactionEventsAccepted()
+    || storedReactionHidden(notification.emoji_reaction, currentEmojiMutes())
+  )
+);
+
 export function updateNotifications(notification, intlMessages, intlLocale) {
   return (dispatch, getState) => {
     const showInColumn = getState().getIn(['settings', 'notifications', 'shows', notification.type], true);
     const showAlert    = getState().getIn(['settings', 'notifications', 'alerts', notification.type], true);
     const playSound    = getState().getIn(['settings', 'notifications', 'sounds', notification.type], true);
     const { drop, filtered } = notificationFilterFlags(notification);
+    const reactionSuppressed = emojiReactionSuppressed(notification);
 
     if (drop) {
       return;
@@ -111,11 +123,11 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
         type: NOTIFICATIONS_UPDATE,
         notification,
         usePendingItems: preferPendingItems,
-        meta: (playSound && !filtered) ? { sound: 'boop' } : undefined,
+        meta: (playSound && !filtered && !reactionSuppressed) ? { sound: 'boop' } : undefined,
       });
 
       fetchRelatedRelationships(dispatch, [notification]);
-    } else if (playSound && !filtered) {
+    } else if (playSound && !filtered && !reactionSuppressed) {
       dispatch({
         type: NOTIFICATIONS_UPDATE_NOOP,
         meta: { sound: 'boop' },
@@ -123,7 +135,7 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
     }
 
     // Desktop notifications
-    if (typeof window.Notification !== 'undefined' && showAlert && !filtered) {
+    if (typeof window.Notification !== 'undefined' && showAlert && !filtered && !reactionSuppressed) {
       const isBoost = notification.type === 'status' && !!notification.status?.reblog;
       const titleMessage = isBoost ? intlMessages['notification.status_boost'] || messages.statusBoost.defaultMessage : intlMessages[`notification.${notification.type}`];
       const title = new IntlMessageFormat(titleMessage, intlLocale).format(notificationTitleValues(notification));
@@ -142,7 +154,15 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
   };
 };
 
-const excludeTypesFromSettings = state => state.getIn(['settings', 'notifications', 'shows']).filter(enabled => !enabled).keySeq().toJS();
+const excludeTypesFromSettings = state => {
+  const shows = state.getIn(['settings', 'notifications', 'shows']);
+
+  if (!shows || typeof shows.filter !== 'function') {
+    return [];
+  }
+
+  return shows.filter(enabled => !enabled).keySeq().toJS();
+};
 
 const allTypes = ImmutableList(['follow', 'follow_request', 'favourite', 'reblog', 'mention', 'poll', enableReaction ? 'emoji_reaction' : null, enableStatusReference ? 'status_reference' : null, 'followed', 'update', 'admin.sign_up', 'admin.report'].filter(x => !!x));
 
@@ -150,11 +170,22 @@ const excludeTypesFromFilter = filter => {
   return allTypes.filterNot(item => item === filter).toJS();
 };
 
+// The quick filter and the per-type settings. `expandNotifications` and the
+// mute refresh both use this so a mute reload cannot ask for every type.
+export function notificationExcludeTypes(state) {
+  const activeFilter = state.getIn(['settings', 'notifications', 'quickFilter', 'active']);
+
+  if (activeFilter === 'all') {
+    return excludeTypesFromSettings(state);
+  }
+
+  return excludeTypesFromFilter(activeFilter);
+}
+
 const noOp = () => {};
 
 export function expandNotifications({ maxId } = {}, done = noOp) {
   return (dispatch, getState) => {
-    const activeFilter = getState().getIn(['settings', 'notifications', 'quickFilter', 'active']);
     const notifications = getState().get('notifications');
     const isLoadingMore = !!maxId;
 
@@ -165,9 +196,7 @@ export function expandNotifications({ maxId } = {}, done = noOp) {
 
     const params = {
       max_id: maxId,
-      exclude_types: activeFilter === 'all'
-        ? excludeTypesFromSettings(getState())
-        : excludeTypesFromFilter(activeFilter),
+      exclude_types: notificationExcludeTypes(getState()),
     };
 
     if (!params.max_id && (notifications.get('items', ImmutableList()).size + notifications.get('pendingItems', ImmutableList()).size) > 0) {
