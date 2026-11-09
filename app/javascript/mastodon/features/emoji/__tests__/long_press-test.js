@@ -243,4 +243,41 @@ describe('attachLongPressGesture', () => {
     expect(click).toHaveBeenCalledTimes(1);
     document.removeEventListener('click', click);
   });
+
+  it('suppresses the click after a multi-second mouse hold (armed at pointerup)', () => {
+    const click = jest.fn();
+    document.addEventListener('click', click);
+
+    dispatchPointer(node, 'pointerdown');
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    dispatchPointer(node, 'pointerup');
+    fireEvent.click(node, { detail: 1 });
+
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+    expect(click).not.toHaveBeenCalled();
+    document.removeEventListener('click', click);
+  });
+
+  it('suppresses the click after a multi-second touch hold, including non-cancelable touchend', () => {
+    const click = jest.fn();
+    document.addEventListener('click', click);
+
+    const touch = { identifier: 31, clientX: 1, clientY: 1 };
+    fireEvent.touchStart(node, { touches: [touch] });
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+
+    const touchEnd = new Event('touchend', { bubbles: true, cancelable: false });
+    Object.defineProperty(touchEnd, 'changedTouches', { value: [touch] });
+    Object.defineProperty(touchEnd, 'touches', { value: [] });
+    node.dispatchEvent(touchEnd);
+    fireEvent.click(node, { detail: 1 });
+
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+    expect(click).not.toHaveBeenCalled();
+    document.removeEventListener('click', click);
+  });
 });

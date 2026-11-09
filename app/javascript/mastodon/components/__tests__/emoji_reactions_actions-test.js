@@ -128,11 +128,57 @@ describe('EmojiReaction manage entry without ⋯', () => {
       jest.advanceTimersByTime(LONG_PRESS_MS + 20);
     });
     fireEvent.touchEnd(chip, { changedTouches: [touch] });
-    fireEvent.click(chip);
+    fireEvent.click(chip, { detail: 1 });
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener.mock.calls[0][0].source).toBe('reaction');
     expect(addEmojiReaction).not.toHaveBeenCalled();
+  });
+
+  it('does not react after a multi-second mouse long-press when click follows pointerup', () => {
+    jest.useFakeTimers();
+    const listener = jest.fn();
+    setEmojiActionsListener(listener);
+    const { addEmojiReaction, removeEmojiReaction } = renderChip();
+    const chip = chipButton();
+
+    fireEvent.pointerDown(chip, { button: 0, pointerId: 1, pointerType: 'mouse', clientX: 0, clientY: 0 });
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    fireEvent.pointerUp(chip, { button: 0, pointerId: 1, pointerType: 'mouse', clientX: 0, clientY: 0 });
+    fireEvent.click(chip, { detail: 1 });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0][0].source).toBe('reaction');
+    expect(addEmojiReaction).not.toHaveBeenCalled();
+    expect(removeEmojiReaction).not.toHaveBeenCalled();
+  });
+
+  it('does not react after a multi-second touch long-press ending non-cancelable', () => {
+    jest.useFakeTimers();
+    const listener = jest.fn();
+    setEmojiActionsListener(listener);
+    const { addEmojiReaction } = renderChip();
+    const chip = chipButton();
+    const touch = { identifier: 9, clientX: 4, clientY: 4 };
+
+    fireEvent.touchStart(chip, { touches: [touch] });
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+
+    const touchEnd = new Event('touchend', { bubbles: true, cancelable: false });
+    Object.defineProperty(touchEnd, 'changedTouches', { value: [touch] });
+    Object.defineProperty(touchEnd, 'touches', { value: [] });
+    chip.dispatchEvent(touchEnd);
+    fireEvent.click(chip, { detail: 1 });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(addEmojiReaction).not.toHaveBeenCalled();
+
+    fireEvent.click(chip, { detail: 1 });
+    expect(addEmojiReaction).toHaveBeenCalledTimes(1);
   });
 
   it('still opens the menu when the reaction limit is reached', () => {

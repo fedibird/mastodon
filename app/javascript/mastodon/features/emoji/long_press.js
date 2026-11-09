@@ -68,13 +68,18 @@ export function attachLongPressGesture(element, { onLongPress }) {
     return (dx * dx) + (dy * dy) > LONG_PRESS_MOVE_PX * LONG_PRESS_MOVE_PX;
   };
 
+  const armClickSuppress = () => {
+    // Arm from press end, not from the 480ms fire moment. A multi-second hold
+    // must still suppress the synthetic click that follows pointerup/touchend.
+    suppressClickUntil = Date.now() + LONG_PRESS_CLICK_SUPPRESS_MS;
+  };
+
   const fire = event => {
     if (!tracking || tracking.cancelled || tracking.fired) {
       return;
     }
 
     tracking.fired = true;
-    suppressClickUntil = Date.now() + LONG_PRESS_CLICK_SUPPRESS_MS;
 
     if (event && event.cancelable) {
       event.preventDefault();
@@ -145,6 +150,7 @@ export function attachLongPressGesture(element, { onLongPress }) {
         event.preventDefault();
       }
       event.stopPropagation();
+      armClickSuppress();
     }
   };
 
@@ -202,6 +208,7 @@ export function attachLongPressGesture(element, { onLongPress }) {
         event.preventDefault();
       }
       event.stopPropagation();
+      armClickSuppress();
     }
   };
 
