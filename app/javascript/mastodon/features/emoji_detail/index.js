@@ -15,6 +15,7 @@ import { changeColumnParams } from 'mastodon/actions/columns';
 import { defaultColumnWidth } from 'mastodon/initial_state';
 import { openEmojiActions } from 'mastodon/features/emoji/emoji_actions/bus';
 import { resolveEmojiReference } from 'mastodon/features/emoji/emoji_actions/api';
+import { attachLongPressGesture } from 'mastodon/features/emoji/long_press';
 
 const messages = defineMessages({
   heading: { id: 'column.custom_emoji_detail', defaultMessage: 'Custom emoji detail' },
@@ -79,6 +80,55 @@ class EmojiActionsBar extends React.PureComponent {
 
 }
 
+class EmojiDetailPreview extends React.PureComponent {
+
+  static propTypes = {
+    reference: PropTypes.object.isRequired,
+    children: PropTypes.node,
+  };
+
+  setNode = node => {
+    if (this.detachLongPress) {
+      this.detachLongPress();
+      this.detachLongPress = null;
+    }
+
+    this.node = node;
+
+    if (node) {
+      this.detachLongPress = attachLongPressGesture(node, {
+        onLongPress: event => {
+          if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+
+          openEmojiActions(this.props.reference, {
+            anchor: node,
+            source: 'emoji_detail',
+          });
+        },
+      });
+    }
+  };
+
+  componentWillUnmount () {
+    if (this.detachLongPress) {
+      this.detachLongPress();
+      this.detachLongPress = null;
+    }
+  }
+
+  render () {
+    return (
+      <div className='custom-emoji__image' ref={this.setNode}>
+        {this.props.children}
+      </div>
+    );
+  }
+
+}
+
 class UnicodeEmojiDetailItem extends React.PureComponent {
 
   static propTypes = {
@@ -129,16 +179,18 @@ class UnicodeEmojiDetailItem extends React.PureComponent {
     const detail = resolved.detail || {};
     const image = detail.image || {};
 
+    const reference = resolved.reference || { kind: 'unicode', native };
+
     return (
       <div className='custom-emoji__detail'>
-        <div className='custom-emoji__image'>
+        <EmojiDetailPreview reference={reference}>
           {image.src ? (
             <img src={image.src} alt='' draggable='false' />
           ) : (
             <span aria-hidden='true'>{native}</span>
           )}
-        </div>
-        <EmojiActionsBar intl={intl} reference={resolved.reference || { kind: 'unicode', native }} />
+        </EmojiDetailPreview>
+        <EmojiActionsBar intl={intl} reference={reference} />
         <div className='custom-emoji__property'>
           <div className='custom-emoji__label'>{intl.formatMessage(messages.native)}</div>
           <div className='custom-emoji__shortcode'>{native}</div>
@@ -245,7 +297,32 @@ class EmojiDetailItem extends React.PureComponent {
   };
 
   setTargetRef = c => {
+    if (this.detachLongPress) {
+      this.detachLongPress();
+      this.detachLongPress = null;
+    }
+
     this.target = c;
+
+    if (c) {
+      const reference = this.customReference();
+
+      if (reference) {
+        this.detachLongPress = attachLongPressGesture(c, {
+          onLongPress: event => {
+            if (event) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+
+            openEmojiActions(reference, {
+              anchor: c,
+              source: 'emoji_detail',
+            });
+          },
+        });
+      }
+    }
   };
 
   setRef = (c) => {
@@ -267,6 +344,11 @@ class EmojiDetailItem extends React.PureComponent {
   componentWillUnmount () {
     this.target?.removeEventListener('mouseenter', this.handleMouseEnter, { capture: true });
     this.target?.removeEventListener('mouseleave', this.handleMouseLeave, false);
+
+    if (this.detachLongPress) {
+      this.detachLongPress();
+      this.detachLongPress = null;
+    }
   }
 
   onHashtagClick = (hashtag, e) => {

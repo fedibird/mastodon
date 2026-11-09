@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl } from 'react-intl';
+import classNames from 'classnames';
 import NimbleEmoji from 'emoji-mart/dist-es/components/emoji/nimble-emoji';
 import NimblePicker from 'emoji-mart/dist-es/components/picker/nimble-picker';
 import { getSanitizedData } from 'emoji-mart/dist/utils';
@@ -8,6 +9,7 @@ import nimblePickerData from './emoji_mart_nimble_data';
 import { openEmojiActions } from './emoji_actions/bus';
 import { referenceFromPickerEmoji } from './emoji_actions/reference';
 import { attachCellActionTriggerHandlers } from './cell_action_trigger';
+import { attachLongPressGesture } from './long_press';
 
 const messages = defineMessages({
   manage: { id: 'emoji_actions.manage', defaultMessage: 'Emoji actions' },
@@ -94,12 +96,14 @@ class Picker extends React.PureComponent {
     skin: PropTypes.number,
     set: PropTypes.string,
     custom: PropTypes.array,
+    editMode: PropTypes.bool,
   };
 
   static defaultProps = {
     set: 'twitter',
     skin: 1,
     custom: [],
+    editMode: false,
   };
 
   state = {
@@ -112,13 +116,19 @@ class Picker extends React.PureComponent {
     this.attachPickerHooks();
   }
 
-  componentDidUpdate() {
+  componentDidUpdate(prevProps) {
     this.attachPickerHooks();
     this.ensureCellActionButtons();
+    this.ensureCellLongPress();
+
+    if (prevProps.editMode !== this.props.editMode) {
+      this.ensureCellActionButtons();
+    }
   }
 
   componentWillUnmount() {
     this.detachRootListeners();
+    this.clearCellLongPress();
   }
 
   setPickerRef = picker => {
@@ -163,8 +173,31 @@ class Picker extends React.PureComponent {
     return openFromEmojiObject(emoji, anchor || button, event);
   };
 
+  removeCellActionButtons = () => {
+    if (!this.scroll) {
+      return;
+    }
+
+    this.scroll.querySelectorAll('.emoji-mart-emoji-actions').forEach(trigger => {
+      trigger.remove();
+    });
+
+    this.scroll.querySelectorAll('button.emoji-mart-emoji[data-emoji-cell-actions="1"]').forEach(button => {
+      delete button.dataset.emojiCellActions;
+
+      if (button.parentElement) {
+        button.parentElement.classList.remove('emoji-mart-emoji-cell');
+      }
+    });
+  };
+
   ensureCellActionButtons = () => {
     if (!this.scroll) {
+      return;
+    }
+
+    if (!this.props.editMode) {
+      this.removeCellActionButtons();
       return;
     }
 
@@ -205,6 +238,55 @@ class Picker extends React.PureComponent {
       host.appendChild(trigger);
       button.dataset.emojiCellActions = '1';
     });
+  };
+
+  ensureCellLongPress = () => {
+    if (!this.scroll) {
+      return;
+    }
+
+    if (!this.cellLongPressCleanups) {
+      this.cellLongPressCleanups = new Map();
+    }
+
+    const live = new Set();
+    const cells = this.scroll.querySelectorAll('button.emoji-mart-emoji');
+
+    cells.forEach(button => {
+      if (button.getAttribute('data-emoji-actions') === '1') {
+        return;
+      }
+
+      live.add(button);
+
+      if (this.cellLongPressCleanups.has(button)) {
+        return;
+      }
+
+      const detach = attachLongPressGesture(button, {
+        onLongPress: event => {
+          this.openActionsForButton(button, button, event);
+        },
+      });
+
+      this.cellLongPressCleanups.set(button, detach);
+    });
+
+    this.cellLongPressCleanups.forEach((detach, button) => {
+      if (!live.has(button)) {
+        detach();
+        this.cellLongPressCleanups.delete(button);
+      }
+    });
+  };
+
+  clearCellLongPress = () => {
+    if (!this.cellLongPressCleanups) {
+      return;
+    }
+
+    this.cellLongPressCleanups.forEach(detach => detach());
+    this.cellLongPressCleanups.clear();
   };
 
   attachPickerHooks = () => {
@@ -260,6 +342,7 @@ class Picker extends React.PureComponent {
       }
 
       this.ensureCellActionButtons();
+      this.ensureCellLongPress();
     };
 
     const scheduleRefresh = () => {
@@ -330,7 +413,10 @@ class Picker extends React.PureComponent {
     };
 
     this.mutationObserver = typeof MutationObserver !== 'undefined'
-      ? new MutationObserver(() => this.ensureCellActionButtons())
+      ? new MutationObserver(() => {
+        this.ensureCellActionButtons();
+        this.ensureCellLongPress();
+      })
       : null;
 
     this._cleanup = () => {
@@ -379,12 +465,15 @@ class Picker extends React.PureComponent {
     }
 
     this.ensureCellActionButtons();
+    this.ensureCellLongPress();
   };
 
   detachRootListeners = () => {
     if (this._cleanup) {
       this._cleanup();
     }
+
+    this.clearCellLongPress();
   };
 
   handleManage = event => {
@@ -398,31 +487,33 @@ class Picker extends React.PureComponent {
   };
 
   render() {
-    const { intl, ...props } = this.props;
+    const { intl, editMode, ...props } = this.props;
     const { selectedEmoji } = this.state;
     const canManage = Boolean(referenceFromPickerEmoji(selectedEmoji));
 
     return (
-      <div className='emoji-standard-picker-with-actions'>
+      <div className={classNames('emoji-standard-picker-with-actions', { 'emoji-standard-picker-with-actions--editing': editMode })}>
         <NimblePicker
           {...props}
           ref={this.setPickerRef}
           data={nimblePickerData}
           emojiTooltip
         />
-        <div className='emoji-picker-actions-bar'>
-          <button
-            type='button'
-            className='emoji-actions-trigger'
-            data-emoji-actions-bar='1'
-            disabled={!canManage}
-            aria-label={intl.formatMessage(messages.manage)}
-            title={intl.formatMessage(canManage ? messages.manage : messages.manageHint)}
-            onClick={this.handleManage}
-          >
-            ⋯
-          </button>
-        </div>
+        {editMode && (
+          <div className='emoji-picker-actions-bar'>
+            <button
+              type='button'
+              className='emoji-actions-trigger'
+              data-emoji-actions-bar='1'
+              disabled={!canManage}
+              aria-label={intl.formatMessage(messages.manage)}
+              title={intl.formatMessage(canManage ? messages.manage : messages.manageHint)}
+              onClick={this.handleManage}
+            >
+              ⋯
+            </button>
+          </div>
+        )}
       </div>
     );
   }

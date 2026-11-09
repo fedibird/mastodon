@@ -339,6 +339,35 @@ export function detailPathForReference(reference) {
   return `/emoji_detail/${encodeURIComponent(normalized.shortcode || normalized.custom_emoji_id)}`;
 }
 
+// Clipboard payload for the shared menu. Remote custom never copies.
+// Local needs a concrete shortcode (from the reference or a resolve payload).
+export function copyTextForReference(reference, resolved = null) {
+  const normalized = normalizeReference(reference);
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.kind === 'unicode') {
+    return normalized.native;
+  }
+
+  if (normalized.scope === 'remote') {
+    return null;
+  }
+
+  const resolvedReference = normalizeReference(resolved && (resolved.reference || resolved));
+  const shortcode = normalized.shortcode
+    || (resolvedReference && resolvedReference.scope === 'local' && resolvedReference.shortcode)
+    || null;
+
+  if (!shortcode) {
+    return null;
+  }
+
+  return `:${shortcode}:`;
+}
+
 export function referenceFromDataset(dataset) {
   if (!dataset) {
     return null;

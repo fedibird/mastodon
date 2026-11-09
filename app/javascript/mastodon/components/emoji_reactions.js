@@ -16,6 +16,7 @@ import { isUserTouching } from 'mastodon/is_mobile';
 import AccountPopup from 'mastodon/components/account_popup';
 import { openEmojiActions } from 'mastodon/features/emoji/emoji_actions/bus';
 import { datasetFromReference, referenceFromReaction } from 'mastodon/features/emoji/emoji_actions/reference';
+import { attachLongPressGesture } from 'mastodon/features/emoji/long_press';
 
 const messages = defineMessages({
   manage: { id: 'emoji_actions.manage', defaultMessage: 'Emoji actions' },
@@ -74,17 +75,41 @@ class EmojiReaction extends ImmutablePureComponent {
     fetched: false,
   };
 
+  reactionContext = () => {
+    const { emojiReaction, myReaction, reactionLimitReached } = this.props;
+
+    if (!emojiReaction) {
+      return null;
+    }
+
+    return {
+      name: emojiReaction.get('name'),
+      domain: emojiReaction.get('domain', null),
+      url: emojiReaction.get('url', null),
+      static_url: emojiReaction.get('static_url', null),
+      my_reaction: myReaction,
+      reaction_limit_reached: Boolean(reactionLimitReached),
+      disabled: Boolean(disableReactions),
+    };
+  };
+
   handleClick = () => {
-    const { emojiReaction, status, addEmojiReaction, removeEmojiReaction, myReaction } = this.props;
+    const { emojiReaction, status, addEmojiReaction, removeEmojiReaction, myReaction, reactionLimitReached } = this.props;
+
+    // Keep the chip pointer-enabled so long-press / context menu still open
+    // when reactions are at the limit or globally disabled.
+    if (disableReactions) {
+      return;
+    }
 
     if (myReaction) {
       removeEmojiReaction(status, emojiReaction.get('name'));
-    } else {
+    } else if (!reactionLimitReached) {
       addEmojiReaction(status, emojiReaction.get('name'), emojiReaction.get('domain', null), emojiReaction.get('url', null), emojiReaction.get('static_url', null));
     }
   };
 
-  handleOpenActions = event => {
+  openActions = (anchor, event) => {
     const { emojiReaction, status } = this.props;
     const reference = referenceFromReaction(emojiReaction);
 
@@ -92,15 +117,22 @@ class EmojiReaction extends ImmutablePureComponent {
       return;
     }
 
-    event.preventDefault();
-    event.stopPropagation();
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
 
     openEmojiActions(reference, {
-      anchor: event.currentTarget,
+      anchor: anchor || null,
       status_id: status.get('id'),
       account_id: status.get('account'),
       source: 'reaction',
+      reaction: this.reactionContext(),
     });
+  };
+
+  handleOpenActions = event => {
+    this.openActions(event.currentTarget, event);
   };
 
   handleMouseEnter = ({ target }) => {
@@ -128,6 +160,23 @@ class EmojiReaction extends ImmutablePureComponent {
     this.target = c;
   };
 
+  setChipRef = node => {
+    if (this.detachLongPress) {
+      this.detachLongPress();
+      this.detachLongPress = null;
+    }
+
+    this.chip = node;
+
+    if (node) {
+      this.detachLongPress = attachLongPressGesture(node, {
+        onLongPress: event => {
+          this.openActions(node, event);
+        },
+      });
+    }
+  };
+
   findTarget = () => {
     return this.target;
   };
@@ -140,6 +189,11 @@ class EmojiReaction extends ImmutablePureComponent {
   componentWillUnmount () {
     this.target?.removeEventListener('mouseenter', this.handleMouseEnter, { capture: true });
     this.target?.removeEventListener('mouseleave', this.handleMouseLeave, false);
+
+    if (this.detachLongPress) {
+      this.detachLongPress();
+      this.detachLongPress = null;
+    }
   }
 
   render () {
@@ -157,12 +211,21 @@ class EmojiReaction extends ImmutablePureComponent {
 
     const reference = referenceFromReaction(emojiReaction);
     const actionDataset = datasetFromReference(reference);
+    const reaction = this.reactionContext();
     const actionProps = {
       'data-emoji-actions': '1',
       'data-emoji-source': 'reaction',
       'data-emoji-status-id': status.get('id'),
       'data-emoji-account-id': status.get('account'),
+      'data-emoji-reaction-name': reaction.name,
     };
+
+    if (reaction.domain) actionProps['data-emoji-reaction-domain'] = reaction.domain;
+    if (reaction.url) actionProps['data-emoji-reaction-url'] = reaction.url;
+    if (reaction.static_url) actionProps['data-emoji-reaction-static-url'] = reaction.static_url;
+    if (reaction.my_reaction) actionProps['data-emoji-my-reaction'] = '1';
+    if (reaction.reaction_limit_reached) actionProps['data-emoji-reaction-limit-reached'] = '1';
+    if (reaction.disabled) actionProps['data-emoji-reaction-disabled'] = '1';
 
     if (actionDataset.emojiKind) actionProps['data-emoji-kind'] = actionDataset.emojiKind;
     if (actionDataset.emojiNative) actionProps['data-emoji-native'] = actionDataset.emojiNative;
@@ -174,7 +237,19 @@ class EmojiReaction extends ImmutablePureComponent {
     return (
       <Fragment>
         <div className='reactions-bar__item-wrapper' ref={this.setTargetRef}>
-          <button className={classNames('reactions-bar__item', { active: myReaction })} disabled={disableReactions || !myReaction && reactionLimitReached} onClick={this.handleClick} title={`:${shortCode}:`} style={style} {...actionProps}>
+          <button
+            ref={this.setChipRef}
+            type='button'
+            className={classNames('reactions-bar__item', {
+              active: myReaction,
+              disabled: disableReactions || (!myReaction && reactionLimitReached),
+            })}
+            aria-disabled={disableReactions || (!myReaction && reactionLimitReached) ? 'true' : undefined}
+            onClick={this.handleClick}
+            title={`:${shortCode}:`}
+            style={style}
+            {...actionProps}
+          >
             <span className='reactions-bar__item__emoji'><Emoji className='reaction' hovered={this.state.hovered} emoji={emojiReaction.get('name')} url={emojiReaction.get('url')} static_url={emojiReaction.get('static_url')} /></span>
             {!hideCount && <span className='reactions-bar__item__count'><AnimatedNumber value={emojiReaction.get('count')} /></span>}
           </button>
@@ -209,4 +284,3 @@ class EmojiReaction extends ImmutablePureComponent {
 }
 
 export default injectIntl(connect(mapStateToProps, null, mergeProps)(EmojiReaction));
-

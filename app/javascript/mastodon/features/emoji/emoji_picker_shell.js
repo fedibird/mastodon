@@ -13,6 +13,9 @@ const messages = defineMessages({
   personal: { id: 'emoji_picker.mode.personal', defaultMessage: 'Personal set' },
   standard: { id: 'emoji_picker.mode.standard', defaultMessage: 'Standard' },
   modes: { id: 'emoji_picker.mode_group', defaultMessage: 'Emoji picker mode' },
+  edit: { id: 'emoji_picker.edit', defaultMessage: 'Edit' },
+  done: { id: 'emoji_picker.done', defaultMessage: 'Done' },
+  editGroup: { id: 'emoji_picker.edit_group', defaultMessage: 'Emoji picker editing' },
   loadingStandard: { id: 'emoji_picker.standard_loading', defaultMessage: 'Loading standard emoji' },
   standardError: { id: 'emoji_picker.standard_error', defaultMessage: 'Could not load the standard emoji picker' },
   retry: { id: 'emoji_picker.stock_retry', defaultMessage: 'Try again' },
@@ -112,6 +115,8 @@ class EmojiPickerShell extends React.PureComponent {
       shellId: this.shellId,
       wasOpen: props.open,
       mode: this.modeFromProps(props),
+      // Shared across standard/personal; resets whenever the shell reopens.
+      editMode: false,
       personalQuery: '',
       stockStatus: 'idle',
       stock: emptyEmojiStock(),
@@ -132,6 +137,7 @@ class EmojiPickerShell extends React.PureComponent {
         wasOpen: true,
         suppressFocus: false,
         standardAutoFocus: state.mode === 'standard',
+        editMode: false,
       };
     }
 
@@ -140,6 +146,7 @@ class EmojiPickerShell extends React.PureComponent {
         wasOpen: false,
         suppressFocus: true,
         standardAutoFocus: false,
+        editMode: false,
       };
     }
 
@@ -544,6 +551,10 @@ class EmojiPickerShell extends React.PureComponent {
     this.setState({ personalQuery: query });
   };
 
+  handleToggleEditMode = () => {
+    this.setState(state => ({ editMode: !state.editMode }));
+  };
+
   handleRetryStock = () => {
     this.stockInFlight = false;
     this.beginStock(true);
@@ -606,9 +617,27 @@ class EmojiPickerShell extends React.PureComponent {
     );
   }
 
+  renderEditToggle() {
+    const { intl } = this.props;
+    const { editMode } = this.state;
+
+    return (
+      <div className='emoji-mart-bar emoji-picker-shell__edit' role='group' aria-label={intl.formatMessage(messages.editGroup)}>
+        <button
+          type='button'
+          className={classNames('emoji-picker-shell__edit-toggle', { 'emoji-picker-shell__edit-toggle--active': editMode })}
+          aria-pressed={editMode}
+          onClick={this.handleToggleEditMode}
+        >
+          {intl.formatMessage(editMode ? messages.done : messages.edit)}
+        </button>
+      </div>
+    );
+  }
+
   renderStandard() {
     const { intl, standardPickerProps, autoFocus, emojiSize, perLine, theme } = this.props;
-    const { standardStatus, standardModule, standardAutoFocus } = this.state;
+    const { standardStatus, standardModule, standardAutoFocus, editMode } = this.state;
 
     if (standardStatus === 'error') {
       return (
@@ -651,6 +680,7 @@ class EmojiPickerShell extends React.PureComponent {
         showSkinTones={false}
         backgroundImageFn={standardBackgroundImage}
         {...pickerProps}
+        editMode={editMode}
         perLine={perLine}
         emojiSize={emojiSize}
         theme={preferredTheme(theme)}
@@ -662,7 +692,7 @@ class EmojiPickerShell extends React.PureComponent {
 
   renderPersonal() {
     const { animate, autoFocus, emojiSize, perLine, theme } = this.props;
-    const { personalQuery, stock, stockStatus } = this.state;
+    const { personalQuery, stock, stockStatus, editMode } = this.state;
     const focus = Boolean(autoFocus && this.canTakeFocus() && stockStatus === 'ready');
 
     return (
@@ -679,6 +709,7 @@ class EmojiPickerShell extends React.PureComponent {
         autoFocus={focus}
         animate={animate}
         theme={preferredTheme(theme)}
+        editMode={editMode}
       />
     );
   }
@@ -693,7 +724,10 @@ class EmojiPickerShell extends React.PureComponent {
 
     return (
       <div className={classNames('emoji-picker-shell', { 'emoji-picker-shell--dark': preferredTheme(this.props.theme) === 'dark' })} ref={this.setNode} onKeyDown={this.handleKeyDown}>
-        {this.renderModeSwitch()}
+        <div className='emoji-picker-shell__chrome'>
+          {this.renderModeSwitch()}
+          {this.renderEditToggle()}
+        </div>
         {mode === 'standard' ? (
           <div className='emoji-picker-shell__standard'>
             {this.renderStandard()}

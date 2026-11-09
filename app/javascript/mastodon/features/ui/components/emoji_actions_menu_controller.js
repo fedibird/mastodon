@@ -6,9 +6,10 @@ import Overlay from 'react-overlays/Overlay';
 import { DropdownMenu } from 'mastodon/components/dropdown_menu';
 import { me } from 'mastodon/initial_state';
 import { syncEmojiMutes } from 'mastodon/actions/emoji_mutes';
+import { addEmojiReaction, removeEmojiReaction } from 'mastodon/actions/interactions';
 import { currentEmojiMutes } from 'mastodon/features/emoji/emoji_mute_store';
 import { notifySavedPersonalEmojiSet } from 'mastodon/features/emoji/emoji_stock_source';
-import { openEmojiActions, setEmojiActionsListener, emojiActionsEventName } from 'mastodon/features/emoji/emoji_actions/bus';
+import { openEmojiActions, setEmojiActionsListener, emojiActionsEventName, normalizeReactionContext } from 'mastodon/features/emoji/emoji_actions/bus';
 import {
   createEmojiMute,
   deleteEmojiMute,
@@ -39,6 +40,7 @@ import {
   notePendingMuteSync,
 } from 'mastodon/features/emoji/emoji_actions/pending_sync';
 import {
+  copyTextForReference,
   datasetFromReference,
   detailPathForReference,
   findMuteForReference,
@@ -47,9 +49,15 @@ import {
   referenceLabel,
   referencesEqual,
 } from 'mastodon/features/emoji/emoji_actions/reference';
+import { copyText } from 'mastodon/utils/clipboard';
 
 const messages = defineMessages({
   detail: { id: 'emoji_actions.detail', defaultMessage: 'Emoji details' },
+  copy: { id: 'emoji_actions.copy', defaultMessage: 'Copy emoji' },
+  copySuccess: { id: 'emoji_actions.copy_success', defaultMessage: 'Copied' },
+  copyFailed: { id: 'emoji_actions.copy_failed', defaultMessage: 'Could not copy' },
+  reactSame: { id: 'emoji_actions.react_same', defaultMessage: 'React with this emoji' },
+  reactRemove: { id: 'emoji_actions.react_remove', defaultMessage: 'Remove this reaction' },
   mute: { id: 'emoji_actions.mute', defaultMessage: 'Mute emoji' },
   unmute: { id: 'emoji_actions.unmute', defaultMessage: 'Unmute emoji' },
   manageMute: { id: 'emoji_actions.manage_mute', defaultMessage: 'Change mute settings' },
@@ -86,6 +94,9 @@ export function buildEmojiActionMenuItems({
   syncError,
   pendingSyncRevision,
   busy,
+  reaction,
+  onReactSame,
+  onCopy,
   onMute,
   onUnmute,
   onAddToCategory,
@@ -103,12 +114,35 @@ export function buildEmojiActionMenuItems({
     return items;
   }
 
+  if (reaction) {
+    const reactDisabled = Boolean(
+      reaction.disabled
+      || (!reaction.my_reaction && reaction.reaction_limit_reached),
+    );
+
+    items.push({
+      text: intl.formatMessage(reaction.my_reaction ? messages.reactRemove : messages.reactSame),
+      action: onReactSame,
+      disabled: reactDisabled || busy || typeof onReactSame !== 'function',
+    });
+  }
+
   const detailPath = detailPathForReference(reference);
 
   if (detailPath) {
     items.push({
       text: intl.formatMessage(messages.detail),
       to: detailPath,
+    });
+  }
+
+  const copyTextValue = copyTextForReference(reference, resolved);
+
+  if (copyTextValue) {
+    items.push({
+      text: intl.formatMessage(messages.copy),
+      action: onCopy,
+      disabled: busy || typeof onCopy !== 'function',
     });
   }
 
@@ -131,6 +165,7 @@ export function buildEmojiActionMenuItems({
       items.push({ text: error.message || intl.formatMessage(messages.resolveFailed), disabled: true });
     }
 
+    // Copy / detail / react may already be present; still offer retry + settings.
     items.push({
       text: intl.formatMessage(messages.retry),
       action: onRetry,
@@ -237,6 +272,9 @@ class EmojiActionsMenuController extends React.PureComponent {
     intl: PropTypes.object.isRequired,
     signedIn: PropTypes.bool,
     onSyncMutes: PropTypes.func.isRequired,
+    onAddEmojiReaction: PropTypes.func,
+    onRemoveEmojiReaction: PropTypes.func,
+    getStatus: PropTypes.func,
   };
 
   state = {
@@ -254,6 +292,8 @@ class EmojiActionsMenuController extends React.PureComponent {
     busy: false,
     statusId: null,
     accountId: null,
+    source: null,
+    reaction: null,
   };
 
   componentDidMount() {
@@ -315,6 +355,8 @@ class EmojiActionsMenuController extends React.PureComponent {
       busy: Boolean(flight),
       statusId: detail.status_id || null,
       accountId: detail.account_id || null,
+      source: detail.source || null,
+      reaction: detail.source === 'reaction' ? (detail.reaction || null) : null,
     }, () => {
       this.loadMenuData(generation);
 
@@ -347,6 +389,8 @@ class EmojiActionsMenuController extends React.PureComponent {
       busy: false,
       statusId: null,
       accountId: null,
+      source: null,
+      reaction: null,
     });
   };
 
@@ -364,11 +408,23 @@ class EmojiActionsMenuController extends React.PureComponent {
       event.stopPropagation();
     }
 
+    const source = element.dataset.emojiSource || 'dataset';
+    const reaction = source === 'reaction' ? normalizeReactionContext({
+      name: element.dataset.emojiReactionName,
+      domain: element.dataset.emojiReactionDomain || null,
+      url: element.dataset.emojiReactionUrl || null,
+      static_url: element.dataset.emojiReactionStaticUrl || null,
+      my_reaction: element.dataset.emojiMyReaction === '1',
+      reaction_limit_reached: element.dataset.emojiReactionLimitReached === '1',
+      disabled: element.dataset.emojiReactionDisabled === '1',
+    }) : null;
+
     openEmojiActions(reference, {
       anchor: element,
       status_id: element.dataset.emojiStatusId || null,
       account_id: element.dataset.emojiAccountId || null,
-      source: element.dataset.emojiSource || 'dataset',
+      source,
+      reaction,
     });
   };
 
@@ -483,6 +539,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       syncError,
       pendingSyncRevision,
       busy,
+      reaction,
     } = this.state;
 
     return buildEmojiActionMenuItems({
@@ -497,6 +554,9 @@ class EmojiActionsMenuController extends React.PureComponent {
       syncError,
       pendingSyncRevision,
       busy,
+      reaction,
+      onReactSame: this.handleReactSame,
+      onCopy: this.handleCopy,
       onMute: this.handleMute,
       onUnmute: this.handleUnmute,
       onAddToCategory: this.handleAddToCategory,
@@ -504,6 +564,61 @@ class EmojiActionsMenuController extends React.PureComponent {
       onRetrySync: this.handleRetrySync,
     });
   }
+
+  handleCopy = () => {
+    const { intl } = this.props;
+    const { reference, resolved } = this.state;
+    const text = copyTextForReference(reference, resolved);
+
+    if (!text) {
+      return;
+    }
+
+    copyText(text).then(() => {
+      if (!referencesEqual(reference, this.state.reference)) {
+        return;
+      }
+
+      this.setState({ notice: intl.formatMessage(messages.copySuccess), error: null });
+    }).catch(() => {
+      if (!referencesEqual(reference, this.state.reference)) {
+        return;
+      }
+
+      this.setState({ notice: intl.formatMessage(messages.copyFailed) });
+    });
+  };
+
+  handleReactSame = () => {
+    const { getStatus, onAddEmojiReaction, onRemoveEmojiReaction } = this.props;
+    const { reaction, statusId } = this.state;
+
+    if (!reaction || !statusId || typeof getStatus !== 'function') {
+      return;
+    }
+
+    const status = getStatus(statusId);
+
+    if (!status) {
+      return;
+    }
+
+    if (reaction.my_reaction) {
+      if (typeof onRemoveEmojiReaction === 'function') {
+        onRemoveEmojiReaction(status, reaction.name);
+      }
+    } else if (typeof onAddEmojiReaction === 'function') {
+      onAddEmojiReaction(
+        status,
+        reaction.name,
+        reaction.domain,
+        reaction.url,
+        reaction.static_url,
+      );
+    }
+
+    this.handleClose();
+  };
 
   handleMute = () => {
     const { intl, onSyncMutes } = this.props;
@@ -821,9 +936,19 @@ class EmojiActionsMenuController extends React.PureComponent {
 
 }
 
+const mapStateToProps = state => ({
+  getStatus: id => (id ? state.getIn(['statuses', id]) : null),
+});
+
 const mapDispatchToProps = dispatch => ({
   onSyncMutes(options) {
     return dispatch(syncEmojiMutes(options));
+  },
+  onAddEmojiReaction(status, name, domain, url, staticUrl) {
+    return dispatch(addEmojiReaction(status, name, domain, url, staticUrl));
+  },
+  onRemoveEmojiReaction(status, name) {
+    return dispatch(removeEmojiReaction(status, name));
   },
 });
 
@@ -835,4 +960,4 @@ export {
   canApplyMutationToOpenMenu,
   captureMenuSession,
 };
-export default injectIntl(connect(null, mapDispatchToProps)(EmojiActionsMenuController));
+export default injectIntl(connect(mapStateToProps, mapDispatchToProps)(EmojiActionsMenuController));

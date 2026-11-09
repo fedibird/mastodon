@@ -12,6 +12,7 @@ import {
 } from './emoji_stock';
 import { openEmojiActions } from './emoji_actions/bus';
 import { datasetFromReference, referenceFromStockItem } from './emoji_actions/reference';
+import { attachLongPressGesture } from './long_press';
 
 const actionMessages = defineMessages({
   manage: { id: 'emoji_actions.manage', defaultMessage: 'Emoji actions' },
@@ -97,6 +98,7 @@ class StockEmojiPicker extends React.PureComponent {
     animate: PropTypes.bool,
     theme: PropTypes.oneOf(['light', 'dark', 'auto']),
     selectedCategoryId: PropTypes.string,
+    editMode: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -110,6 +112,7 @@ class StockEmojiPicker extends React.PureComponent {
     autoFocus: false,
     animate: false,
     theme: 'light',
+    editMode: false,
   };
 
   state = {
@@ -119,6 +122,7 @@ class StockEmojiPicker extends React.PureComponent {
   };
 
   buttonRefs = {};
+  longPressCleanups = new Map();
 
   componentDidMount() {
     document.addEventListener('touchstart', this.handleAdditionalTouch, true);
@@ -132,6 +136,8 @@ class StockEmojiPicker extends React.PureComponent {
   componentWillUnmount() {
     document.removeEventListener('touchstart', this.handleAdditionalTouch, true);
     this.touch = null;
+    this.longPressCleanups.forEach(detach => detach());
+    this.longPressCleanups.clear();
   }
 
   componentDidUpdate(prevProps) {
@@ -151,6 +157,8 @@ class StockEmojiPicker extends React.PureComponent {
         this.setState({ selectedCategoryId: this.props.selectedCategoryId });
       }
     }
+
+    this.pruneLongPressHandlers();
   }
 
   setSearchRef = node => {
@@ -168,9 +176,40 @@ class StockEmojiPicker extends React.PureComponent {
 
     const key = node.getAttribute('data-stock-key');
 
-    if (key) {
-      this.buttonRefs[key] = node;
+    if (!key) {
+      return;
     }
+
+    const previous = this.buttonRefs[key];
+
+    if (previous && previous !== node && this.longPressCleanups.has(key)) {
+      this.longPressCleanups.get(key)();
+      this.longPressCleanups.delete(key);
+    }
+
+    this.buttonRefs[key] = node;
+
+    if (!this.longPressCleanups.has(key)) {
+      const detach = attachLongPressGesture(node, {
+        onLongPress: event => {
+          this.longPressOpened = true;
+          this.openActionsForStockKey(key, node, event);
+        },
+      });
+      this.longPressCleanups.set(key, detach);
+    }
+  };
+
+  pruneLongPressHandlers = () => {
+    this.longPressCleanups.forEach((detach, key) => {
+      const node = this.buttonRefs[key];
+
+      if (!node || node.isConnected === false) {
+        detach();
+        this.longPressCleanups.delete(key);
+        delete this.buttonRefs[key];
+      }
+    });
   };
 
   setCategoryRef = node => {
@@ -346,6 +385,11 @@ class StockEmojiPicker extends React.PureComponent {
 
     this.touch = null;
     this.suppressTouchClick(event.currentTarget);
+
+    if (this.longPressOpened) {
+      this.longPressOpened = false;
+      return;
+    }
 
     if (!start || !end || start.moved || start.target !== event.currentTarget
       || (event.touches && event.touches.length > 0)
@@ -624,8 +668,7 @@ class StockEmojiPicker extends React.PureComponent {
     );
   }
 
-  handleItemActionsClick = event => {
-    const key = event.currentTarget.getAttribute('data-stock-key');
+  openActionsForStockKey = (key, anchor, event) => {
     const item = this.flatItems(this.visibleStock()).find(entry => entry.key === key);
 
     if (!item) {
@@ -638,13 +681,23 @@ class StockEmojiPicker extends React.PureComponent {
       return;
     }
 
-    event.preventDefault();
-    event.stopPropagation();
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
 
     openEmojiActions(reference, {
-      anchor: event.currentTarget,
+      anchor: anchor || null,
       source: 'personal_picker',
     });
+  };
+
+  handleItemActionsClick = event => {
+    const key = event.currentTarget.getAttribute('data-stock-key');
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.openActionsForStockKey(key, event.currentTarget, event);
   };
 
   handleActionsMouseDown = event => {
@@ -656,7 +709,7 @@ class StockEmojiPicker extends React.PureComponent {
   };
 
   renderItem(item, emojiSize) {
-    const { intl } = this.props;
+    const { intl, editMode } = this.props;
     const image = item.image || {};
     const src = this.imageSource(item);
     const active = item.key === this.state.activeKey;
@@ -686,7 +739,7 @@ class StockEmojiPicker extends React.PureComponent {
     }
 
     return (
-      <li key={item.key} className='emoji-stock-picker__item'>
+      <li key={item.key} className={classNames('emoji-stock-picker__item', { 'emoji-stock-picker__item--editing': editMode })}>
         <button
           type='button'
           className='emoji-mart-emoji'
@@ -718,7 +771,7 @@ class StockEmojiPicker extends React.PureComponent {
             <span>{item.label}</span>
           )}
         </button>
-        {reference && (
+        {editMode && reference && (
           <button
             type='button'
             className='emoji-actions-trigger emoji-stock-picker__actions'

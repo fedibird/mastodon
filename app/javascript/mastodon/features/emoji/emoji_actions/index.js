@@ -21,6 +21,7 @@ export {
   referenceFromStockItem,
   referenceFromPickerEmoji,
   detailPathForReference,
+  copyTextForReference,
   referenceFromDataset,
   datasetFromReference,
 } from './reference';

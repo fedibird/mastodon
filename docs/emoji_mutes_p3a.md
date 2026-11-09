@@ -15,13 +15,32 @@ reference. Hosts must not duplicate resolve / mute / category logic.
 
 | Host in P3-A | Normal click | Management entry |
 | --- | --- | --- |
-| Reaction chip | Add / remove reaction | `⋯` button, ContextMenu, Shift+F10 |
-| Personal stock picker | Insert / select | Visible `⋯` sibling (ContextMenu / Shift+F10 remain auxiliary) |
-| Standard Nimble picker | Insert / select | Per-cell `⋯` opens on `touchend` (and click without double-fire) so touch works even when the UA omits synthetic click; bottom bar for keyboard/hover; ContextMenu / Shift+F10 use the event cell only (never `aria-label`) |
+| Reaction chip | Add / remove reaction | Long-press, `⋯`, ContextMenu, Shift+F10. Menu leads with “React with this emoji” / remove |
+| Personal stock picker | Insert / select | Long-press always; per-cell `⋯` only in **Edit** mode |
+| Standard Nimble picker | Insert / select | Long-press always; per-cell `⋯` + bottom bar only in **Edit** mode; ContextMenu / Shift+F10 use the event cell only |
+| Emoji detail (custom + Unicode) | — | Explicit actions button + long-press on preview |
+
+### Picker edit mode
+
+`EmojiPickerShell` owns `editMode` for standard and personal modes. Closed →
+reopen always starts in normal mode. **Edit** / **Done** is always shown
+(including single-mode hosts). Short-press insert works in both modes.
+Hidden `⋯` controls are not rendered (not `opacity: 0`).
+
+### Long-press
+
+`attachLongPressGesture` opens the shared menu without insert / react /
+navigate. Move, multi-touch, and cancel abort. A following synthetic click is
+suppressed for that gesture only.
+
+### Copy
+
+Menu offers **Copy emoji** for Unicode (`native`) and local custom
+(`:shortcode:`). Remote custom never shows the item. Local id-only refs need a
+resolved shortcode before copy is offered.
 
 Mute/unmute in-flight writes are locked by stable identity across menu
 close/reopen (separate from post-success sync retry).
-| Emoji detail (custom + Unicode) | — | Explicit actions button |
 
 Reaction groups use the **display representative** part (group `url` /
 `domain`, else minimum `custom_emoji_id`), not `parts[0]` created_at order.
@@ -32,17 +51,22 @@ Deferred to P3-B/C wiring (listed so review can track coverage): status
 body/CW custom-emoji click (still opens custom detail only), display name,
 profile fields, notifications, search results, frequently used / pinned
 candidates, compose portable / reaction dropdown beyond shell, touch modal
-extras, Rails form picker, personal-set editor standard picker preview,
-reaction filter picker, autocomplete.
+extras, Rails form picker, personal-set editor standard picker preview
+(shell already has Edit), reaction filter picker, autocomplete. Long-press and
+shared-menu wiring for those surfaces stay on #764 P3-B/C.
 
 Menu items follow the resolve payload. Missing `actions` (resolve failure)
 never implies allow — mutating items stay hidden and **Try again** is offered.
+Copy of a finished Unicode / known local shortcode may still be offered.
 
 - Detail (custom route or `/emoji_detail/unicode/:native`)
+- Copy emoji (Unicode / local only)
 - Mute / unmute / open mute settings (no registration request — P4)
 - Add to each personal category when `add_to_personal_category.allowed`
 - Duplicate category appends stay idempotent (200 `added: false`); 409/422
   are shown without wiping the personal set
+- Reaction source only: first item toggles the same reaction via existing
+  add/remove path (disabled when at limit / reactions disabled, other items stay usable)
 
 Mute create uses P2 defaults (all four effects on, replacement `［絵文字］`)
 and refreshes through `syncEmojiMutes` / `emoji_mutes_changed`.

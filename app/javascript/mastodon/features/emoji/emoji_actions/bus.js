@@ -17,6 +17,30 @@ export function setEmojiActionsListener(next) {
   };
 }
 
+function normalizeReactionContext(reaction) {
+  if (!reaction || typeof reaction !== 'object') {
+    return null;
+  }
+
+  const name = reaction.name;
+
+  if (typeof name !== 'string' || name === '') {
+    return null;
+  }
+
+  return {
+    name,
+    domain: reaction.domain || null,
+    url: reaction.url || null,
+    static_url: reaction.static_url || reaction.staticUrl || null,
+    my_reaction: Boolean(reaction.my_reaction || reaction.myReaction),
+    reaction_limit_reached: Boolean(
+      reaction.reaction_limit_reached || reaction.reactionLimitReached,
+    ),
+    disabled: Boolean(reaction.disabled),
+  };
+}
+
 /**
  * Open the shared emoji actions menu for a typed reference.
  *
@@ -26,6 +50,7 @@ export function setEmojiActionsListener(next) {
  * @param {string|number} [context.status_id]
  * @param {string|number} [context.account_id]
  * @param {string} [context.source] Host label for tests / diagnostics.
+ * @param {object} [context.reaction] Reaction chip payload when source is reaction.
  */
 export function openEmojiActions(reference, context = {}) {
   const normalized = normalizeReference(reference);
@@ -40,6 +65,7 @@ export function openEmojiActions(reference, context = {}) {
     status_id: context.status_id || null,
     account_id: context.account_id || null,
     source: context.source || null,
+    reaction: normalizeReactionContext(context.reaction),
   };
 
   if (listener) {
@@ -61,3 +87,5 @@ export function emojiActionsEventName() {
 export function resetEmojiActionsBusForTests() {
   listener = null;
 }
+
+export { normalizeReactionContext };

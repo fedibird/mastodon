@@ -1444,5 +1444,13 @@
   "emoji_actions.manage_hint": "絵文字を選んでから操作を開きます",
   "emoji_actions.sync_failed": "保存は完了しましたが、ミュート一覧を更新できませんでした",
   "emoji_actions.retry_sync": "ミュート一覧を再取得",
-  "emoji_mutes.preview_loading": "プレビューを読み込み中…"
+  "emoji_mutes.preview_loading": "プレビューを読み込み中…",
+  "emoji_picker.edit": "編集",
+  "emoji_picker.done": "完了",
+  "emoji_picker.edit_group": "絵文字ピッカーの編集",
+  "emoji_actions.copy": "絵文字をコピー",
+  "emoji_actions.copy_success": "コピーしました",
+  "emoji_actions.copy_failed": "コピーできませんでした",
+  "emoji_actions.react_same": "同一リアクションする",
+  "emoji_actions.react_remove": "このリアクションを取り消す"
 }

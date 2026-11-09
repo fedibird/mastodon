@@ -1442,5 +1442,13 @@
   "emoji_actions.manage_hint": "Select an emoji, then open actions",
   "emoji_actions.sync_failed": "Saved, but the mute list could not refresh",
   "emoji_actions.retry_sync": "Refresh mute list",
-  "emoji_mutes.preview_loading": "Loading preview…"
+  "emoji_mutes.preview_loading": "Loading preview…",
+  "emoji_picker.edit": "Edit",
+  "emoji_picker.done": "Done",
+  "emoji_picker.edit_group": "Emoji picker editing",
+  "emoji_actions.copy": "Copy emoji",
+  "emoji_actions.copy_success": "Copied",
+  "emoji_actions.copy_failed": "Could not copy",
+  "emoji_actions.react_same": "React with this emoji",
+  "emoji_actions.react_remove": "Remove this reaction"
 }

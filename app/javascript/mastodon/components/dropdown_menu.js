@@ -90,8 +90,10 @@ export class DropdownMenu extends React.PureComponent {
       element = items[items.length-1];
       break;
     case 'Escape':
+      e.preventDefault();
+      e.stopPropagation();
       this.props.onClose();
-      break;
+      return;
     }
 
     if (element) {
