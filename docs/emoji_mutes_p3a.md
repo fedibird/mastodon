@@ -15,10 +15,13 @@ reference. Hosts must not duplicate resolve / mute / category logic.
 
 | Host in P3-A | Normal click | Management entry |
 | --- | --- | --- |
-| Reaction chip | Add / remove reaction | Long-press, `⋯`, ContextMenu, Shift+F10. Menu leads with “React with this emoji” / remove |
+| Reaction chip | Add / remove reaction | Long-press / ContextMenu / Shift+F10 on the chip itself (no `⋯`). Menu leads with “React with this emoji” / remove |
 | Personal stock picker | Insert / select | Long-press always; per-cell `⋯` only in **Edit** mode |
 | Standard Nimble picker | Insert / select | Long-press always; per-cell `⋯` + bottom bar only in **Edit** mode; ContextMenu / Shift+F10 use the event cell only |
 | Emoji detail (custom + Unicode) | — | Explicit actions button + long-press on preview |
+
+Reaction chips never show a manage `⋯` (including while a picker is in edit
+mode). Remote→local copy inference is out of scope here; tracked in #772.
 
 ### Picker edit mode
 
