@@ -33,8 +33,11 @@ Hidden `⋯` controls are not rendered (not `opacity: 0`).
 ### Long-press
 
 `attachLongPressGesture` opens the shared menu without insert / react /
-navigate. Move, multi-touch, and cancel abort. A following synthetic click is
-suppressed for that gesture only.
+navigate. Move, multi-touch (including a second finger on another element),
+and cancel abort. A following synthetic pointer click (`detail >= 1`) is
+suppressed for that gesture only; keyboard/accessibility clicks (`detail === 0`)
+are never suppressed. Hosts must not keep a sticky “long-press opened” flag
+that depends on a React `touchend` the gesture already stopped.
 
 ### Copy
 

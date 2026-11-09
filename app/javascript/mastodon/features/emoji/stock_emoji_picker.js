@@ -192,7 +192,11 @@ class StockEmojiPicker extends React.PureComponent {
     if (!this.longPressCleanups.has(key)) {
       const detach = attachLongPressGesture(node, {
         onLongPress: event => {
-          this.longPressOpened = true;
+          // Do not set a sticky React flag here. Long-press stops the native
+          // touchend (so handleEmojiTouchEnd never runs for that gesture) and
+          // suppresses the following synthetic click. A sticky flag would
+          // survive when React never sees that touchend and would swallow the
+          // next short tap.
           this.openActionsForStockKey(key, node, event);
         },
       });
@@ -385,11 +389,6 @@ class StockEmojiPicker extends React.PureComponent {
 
     this.touch = null;
     this.suppressTouchClick(event.currentTarget);
-
-    if (this.longPressOpened) {
-      this.longPressOpened = false;
-      return;
-    }
 
     if (!start || !end || start.moved || start.target !== event.currentTarget
       || (event.touches && event.touches.length > 0)

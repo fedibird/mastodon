@@ -302,7 +302,8 @@ describe('standard emoji picker adapters', () => {
       jest.advanceTimersByTime(520);
     });
     fireEvent.touchEnd(heart, { changedTouches: [touch] });
-    fireEvent.click(heart);
+    // Synthetic follow-up click uses detail >= 1; detail 0 is a11y and must not be suppressed.
+    fireEvent.click(heart, { detail: 1 });
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(onClick).not.toHaveBeenCalled();
