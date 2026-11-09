@@ -5,7 +5,11 @@ import {
   muteFromPendingOrStore,
   resetPendingMuteSyncForTests,
 } from '../emoji_actions/pending_sync';
-import { captureMenuSession, isCurrentMenuSession } from '../emoji_actions/menu_session';
+import {
+  captureMenuSession,
+  canApplyMutationToOpenMenu,
+  isCurrentMenuSession,
+} from '../emoji_actions/menu_session';
 import { createMuteAndSync, deleteMuteAndSync, retryMuteSync } from '../emoji_actions/mute_follow_up';
 
 describe('pending mute sync across menu lifecycle', () => {
@@ -86,5 +90,15 @@ describe('pending mute sync across menu lifecycle', () => {
     expect(isCurrentMenuSession(sessionA, { loadGeneration: 1, reference: referenceA })).toBe(true);
     expect(isCurrentMenuSession(sessionA, { loadGeneration: 2, reference: referenceB })).toBe(false);
     expect(isCurrentMenuSession(sessionA, { loadGeneration: 1, reference: referenceB })).toBe(false);
+  });
+
+  it('applies A completion to a reopened A menu even when generation advanced', () => {
+    const sessionA = captureMenuSession(1, referenceA);
+    // Generation-strict check fails after close→reopen.
+    expect(isCurrentMenuSession(sessionA, { loadGeneration: 2, reference: referenceA })).toBe(false);
+    // Identity-based apply still allows the reopened A menu to clear busy.
+    expect(canApplyMutationToOpenMenu(sessionA, { reference: referenceA })).toBe(true);
+    expect(canApplyMutationToOpenMenu(sessionA, { reference: referenceB })).toBe(false);
+    expect(canApplyMutationToOpenMenu(sessionA, { reference: null })).toBe(false);
   });
 });
