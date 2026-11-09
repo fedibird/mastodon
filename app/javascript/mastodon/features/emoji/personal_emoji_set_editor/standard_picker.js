@@ -67,7 +67,7 @@ class StandardPicker extends React.PureComponent {
     showFrequentlyUsed: PropTypes.bool,
   };
 
-  static defaultProps = { emojiSize: 22, autoFocus: false, theme: 'dark', showFrequentlyUsed: false };
+  static defaultProps = { emojiSize: 22, autoFocus: false, theme: 'light', showFrequentlyUsed: false };
 
   state = { catalog: null, error: false };
 
