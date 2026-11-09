@@ -45,5 +45,6 @@ export {
 } from './mutation_flight';
 export {
   captureMenuSession,
+  canApplyMutationToOpenMenu,
   isCurrentMenuSession,
 } from './menu_session';

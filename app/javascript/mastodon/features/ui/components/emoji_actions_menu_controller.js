@@ -23,6 +23,7 @@ import {
 } from 'mastodon/features/emoji/emoji_actions/mute_follow_up';
 import {
   captureMenuSession,
+  canApplyMutationToOpenMenu,
   isCurrentMenuSession,
 } from 'mastodon/features/emoji/emoji_actions/menu_session';
 import {
@@ -542,7 +543,9 @@ class EmojiActionsMenuController extends React.PureComponent {
 
       endMuteMutation(reference);
 
-      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+      // Same identity may have been closed and reopened (new generation). Apply
+      // there; never paint into a different emoji's open menu.
+      if (!canApplyMutationToOpenMenu(session, { reference: this.state.reference })) {
         return;
       }
 
@@ -568,7 +571,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     }).catch(error => {
       endMuteMutation(reference);
 
-      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+      if (!canApplyMutationToOpenMenu(session, { reference: this.state.reference })) {
         return;
       }
 
@@ -617,7 +620,7 @@ class EmojiActionsMenuController extends React.PureComponent {
 
       endMuteMutation(reference);
 
-      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+      if (!canApplyMutationToOpenMenu(session, { reference: this.state.reference })) {
         return;
       }
 
@@ -643,7 +646,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     }).catch(error => {
       endMuteMutation(reference);
 
-      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+      if (!canApplyMutationToOpenMenu(session, { reference: this.state.reference })) {
         return;
       }
 
@@ -824,5 +827,12 @@ const mapDispatchToProps = dispatch => ({
   },
 });
 
-export { datasetFromReference, openEmojiActions, EmojiActionsMenuController, isCurrentMenuSession, captureMenuSession };
+export {
+  datasetFromReference,
+  openEmojiActions,
+  EmojiActionsMenuController,
+  isCurrentMenuSession,
+  canApplyMutationToOpenMenu,
+  captureMenuSession,
+};
 export default injectIntl(connect(null, mapDispatchToProps)(EmojiActionsMenuController));

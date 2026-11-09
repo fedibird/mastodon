@@ -2,15 +2,11 @@
 // browser suppresses the synthetic click after touchstart/touchend cancel.
 
 const TAP_MOVE_PX = 12;
+const SYNTHETIC_CLICK_WINDOW_MS = 700;
 
 export function attachCellActionTriggerHandlers(trigger, { onOpen }) {
   let touchTracking = null;
-  let suppressClick = false;
-
-  const openOnce = event => {
-    suppressClick = true;
-    onOpen(event);
-  };
+  let suppressClickUntil = 0;
 
   const clearTouch = () => {
     touchTracking = null;
@@ -74,26 +70,27 @@ export function attachCellActionTriggerHandlers(trigger, { onOpen }) {
       return;
     }
 
-    // Opening here keeps manage working when the UA omits the synthetic click
-    // after a cancelled touch. preventDefault suppresses a duplicate click when
-    // the UA would still synthesize one.
+    // Open on touchend so manage works when the UA omits the synthetic click.
+    // Only that following click (if any) is suppressed — never ordinary mouse clicks.
     if (event.cancelable) {
       event.preventDefault();
     }
 
-    openOnce(event);
+    suppressClickUntil = Date.now() + SYNTHETIC_CLICK_WINDOW_MS;
+    onOpen(event);
   };
 
   const onClick = event => {
     event.preventDefault();
     event.stopPropagation();
 
-    if (suppressClick) {
-      suppressClick = false;
+    if (Date.now() < suppressClickUntil) {
+      suppressClickUntil = 0;
       return;
     }
 
-    openOnce(event);
+    // Plain mouse / keyboard activation — do not arm suppressClick.
+    onOpen(event);
   };
 
   const stopBubble = event => {
