@@ -240,7 +240,10 @@ flight. A reaction notification that arrives while a newer mute document is
 still loading, or after the rule already hides it, is not shown, does not
 play a sound, and does not change the unread count or the read marker.
 After the rule is removed, the unread count comes from the server. A status
-stays visible for restore while any column still shows it. A remote cache id is not an identity. A failed
+stays visible for restore while any column or media row still shows it.
+The media row keeps its own observer and the status id from the row, so
+one tile leaving does not hide the post. Closing a column drops only that
+column's rows. A remote cache id is not an identity. A failed
 restore of a visible status is retried once. A newer restore does not let
 the previous timer clear its queue. A failed notification request does not
 clear the list. A newer reload is not overwritten by an older one that

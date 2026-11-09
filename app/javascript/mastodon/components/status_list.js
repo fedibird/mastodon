@@ -10,6 +10,7 @@ import LoadGap from './load_gap';
 import ScrollableList from './scrollable_list';
 import RegenerationIndicator from 'mastodon/components/regeneration_indicator';
 import { addIntersectionStatusId, removeIntersectionStatusId } from 'mastodon/actions/statuses';
+import { releaseVisibilitySource } from 'mastodon/actions/emoji_mutes';
 import { isIOS } from 'mastodon/is_mobile';
 import { showReloadButton } from '../initial_state';
 import { List as ImmutableList } from 'immutable';
@@ -116,6 +117,7 @@ class StatusList extends ImmutablePureComponent {
   componentWillUnmount () {
     this.seekScrollUnmounted = true;
     this.pendingWindowAnchor = null;
+    releaseVisibilitySource(this.visibilityColumn());
     this.releaseHistorySurface(true);
     this.stopAnchorCapture();
     this.cancelSeekScrollFrame();
@@ -410,14 +412,21 @@ class StatusList extends ImmutablePureComponent {
     location.reload();
   }
 
-  handleIntersectionChange = (id, isIntersecting) => {
+  visibilityColumn = () => this.props.scrollKey || this.props.timelineId || 'timeline';
+
+  handleIntersectionChange = (observerId, isIntersecting, statusId) => {
     const { dispatch } = this.props;
-    const source = this.props.scrollKey || this.props.timelineId || 'timeline';
+
+    if (statusId === null || statusId === undefined || statusId === '') {
+      return;
+    }
+
+    const source = `${this.visibilityColumn()}:${observerId}`;
 
     if (isIntersecting) {
-      dispatch(addIntersectionStatusId(id, source));
+      dispatch(addIntersectionStatusId(statusId, source));
     } else {
-      dispatch(removeIntersectionStatusId(id, source));
+      dispatch(removeIntersectionStatusId(statusId, source));
     }
   }
 
@@ -507,6 +516,7 @@ class StatusList extends ImmutablePureComponent {
         <StatusContainer
           key={mediaMode ? row.key : row}
           id={mediaMode ? row.id : row}
+          visibilityKey={mediaMode ? row.key : row}
           mediaIndex={mediaMode ? row.mediaIndex : undefined}
           mediaRowKey={mediaMode ? row.key : undefined}
           layoutMode={layoutMode}
@@ -530,6 +540,7 @@ class StatusList extends ImmutablePureComponent {
         <StatusContainer
           key={mediaMode ? row.key : `f-${row}`}
           id={mediaMode ? row.id : row}
+          visibilityKey={mediaMode ? row.key : `f-${row}`}
           mediaIndex={mediaMode ? row.mediaIndex : undefined}
           mediaRowKey={mediaMode ? row.key : undefined}
           layoutMode={layoutMode}

@@ -74,6 +74,25 @@ const eachVisibleId = callback => {
   visibleSources.forEach((_sources, id) => callback(id));
 };
 
+export function releaseVisibilitySource(source) {
+  if (source === null || source === undefined || source === '') {
+    return;
+  }
+
+  const prefix = String(source);
+  const stale = [];
+
+  visibleSources.forEach((sources, id) => {
+    sources.forEach(label => {
+      if (label === prefix || label.startsWith(`${prefix}:`)) {
+        stale.push([id, label]);
+      }
+    });
+  });
+
+  stale.forEach(([id, label]) => noteStatusVisibility(id, false, label));
+}
+
 export function resetEmojiMuteSurfaceForTests() {
   surfaceGeneration += 1;
   restoreArmed = false;

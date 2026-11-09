@@ -84,6 +84,16 @@ export const statusHasTimelineMedia = (id, statuses) => {
   return !!(media && typeof media.some === 'function' && media.some(Boolean));
 };
 
+// The observer watches one row. The status id is the row's own field.
+export const intersectionIdentity = child => {
+  const props = child && child.props ? child.props : {};
+
+  return {
+    observerId: props.visibilityKey || props.id || (child && child.key),
+    statusId: props.id,
+  };
+};
+
 export const mediaRowsForStatuses = (statusIds, statuses) => {
   const rows = [];
 

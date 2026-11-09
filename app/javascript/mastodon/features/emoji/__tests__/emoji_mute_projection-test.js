@@ -1,4 +1,4 @@
-import { fromJS } from 'immutable';
+import { fromJS, List as ImmutableList } from 'immutable';
 
 jest.mock('mastodon/initial_state_data', () => ({
   meta: { me: '1', access_token: 'token' },
@@ -14,7 +14,8 @@ import reducer from '../../../reducers/statuses';
 import emojiMutes from '../../../reducers/emoji_mutes';
 import { EMOJI_REACTION_UPDATE, EMOJI_REACTION_REQUEST } from '../../../actions/interactions';
 import { STATUS_IMPORT, importFetchedStatuses, ACCOUNTS_IMPORT, STATUSES_IMPORT } from '../../../actions/importer';
-import { importEmojiMutes, importEmojiMutesRevision, refreshEmojiMuteSurfaces, restoreVisibleEmojiMuteStatus, resetEmojiMuteSurfaceForTests, syncEmojiMutes, EMOJI_MUTES_APPLY, noteStatusVisibility } from '../../../actions/emoji_mutes';
+import { importEmojiMutes, importEmojiMutesRevision, refreshEmojiMuteSurfaces, restoreVisibleEmojiMuteStatus, resetEmojiMuteSurfaceForTests, syncEmojiMutes, EMOJI_MUTES_APPLY, noteStatusVisibility, releaseVisibilitySource, immediateStatusIdsForMuteRestore } from '../../../actions/emoji_mutes';
+import { intersectionIdentity, mediaRowsForStatuses } from '../../../utils/timeline_layout';
 import { addIntersectionStatusId, removeIntersectionStatusId } from '../../../actions/statuses';
 import { projectStreamReaction, reactionNameHidden, guardImportedReactions, projectStatusReactions } from '../emoji_mute_projection';
 import { installEmojiMutesForTests, loadEmojiMutes, noteEmojiMutesChanged, appliedEmojiMuteRevision, observedEmojiMuteRevision, resetEmojiMuteStoreForTests, emojiReactionEventsAccepted } from '../emoji_mute_store';
@@ -1227,6 +1228,81 @@ describe('emoji mute projection', () => {
     await pending;
     expect(notifications.get('items').size).toBe(0);
     expect(notifications.get('emojiMuteWithheld').size).toBe(0);
+  });
+
+  it('keeps a status visible when one of its media rows leaves and restores that status id', async () => {
+    installEmojiMutesForTests({
+      revision: '4',
+      emoji_mutes: [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '👍' } }],
+    });
+    const statuses = {};
+    const home = [];
+    for (let index = 1; index <= 80; index += 1) {
+      home.push(String(index));
+      statuses[String(index)] = { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0, media_attachments: [] };
+    }
+    statuses['50'] = {
+      emoji_mutes_revision: '4',
+      emoji_reactions: [],
+      emoji_reactions_count: 0,
+      media_attachments: [{ id: 'a' }, { id: 'b' }],
+    };
+    const rows = mediaRowsForStatuses(ImmutableList(['50']), fromJS(statuses));
+    expect(rows.map(row => row.id)).toEqual(['50', '50']);
+    const tiles = rows.map(row => intersectionIdentity({ props: { id: row.id, visibilityKey: row.key }, key: `.$${row.key}` }));
+    expect(tiles[0].statusId).toBe('50');
+    expect(tiles[0].observerId).toBe(rows[0].key);
+    expect(tiles[1].observerId).not.toBe(tiles[0].observerId);
+    const calls = [];
+    api.mockImplementation(() => ({
+      get: url => {
+        calls.push(String(url));
+        if (String(url).includes('emoji_mutes')) {
+          return Promise.resolve({ data: { revision: '5', emoji_mutes: [] } });
+        }
+        if (String(url).includes('unread_count')) {
+          return Promise.resolve({ data: { count: 0 } });
+        }
+        return Promise.resolve({ data: [] });
+      },
+      put: jest.fn(),
+    }));
+    const state = () => fromJS({
+      timelines: { home: { items: home } },
+      contexts: {},
+      statuses,
+      notifications: { items: [], pendingItems: [] },
+    });
+    const dispatch = action => (typeof action === 'function' ? action(dispatch, state) : action);
+    tiles.forEach(tile => addIntersectionStatusId(tile.statusId, `media:${tile.observerId}`)(dispatch, state));
+    removeIntersectionStatusId(tiles[0].statusId, `media:${tiles[0].observerId}`)(dispatch, state);
+    await syncEmojiMutes()(dispatch, state);
+    const requested = calls.filter(url => url.includes('/api/v1/statuses?')).join(' ');
+    expect(requested).toEqual(expect.stringContaining('ids[]=50'));
+    expect(requested).not.toEqual(expect.stringContaining('ids[]=media'));
+  });
+
+  it('drops a column when it unmounts and does not let stale columns fill the restore window', () => {
+    installEmojiMutesForTests({ revision: '5', emoji_mutes: [] });
+    const statuses = { '50': { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0 } };
+    noteStatusVisibility('50', true, 'home:50');
+    noteStatusVisibility('50', true, 'list:50');
+    releaseVisibilitySource('home');
+    const state = fromJS({ timelines: {}, contexts: {}, statuses });
+    expect(immediateStatusIdsForMuteRestore(state)).toEqual(['50']);
+    noteStatusVisibility('50', false, 'list:50');
+    releaseVisibilitySource('list');
+    expect(immediateStatusIdsForMuteRestore(state)).toEqual([]);
+    for (let index = 1; index <= 45; index += 1) {
+      statuses[String(index)] = { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0 };
+      noteStatusVisibility(String(index), true, `stale:${index}`);
+    }
+    const crowded = fromJS({ timelines: {}, contexts: {}, statuses });
+    expect(immediateStatusIdsForMuteRestore(crowded)).toHaveLength(40);
+    expect(immediateStatusIdsForMuteRestore(crowded)).not.toContain('50');
+    releaseVisibilitySource('stale');
+    noteStatusVisibility('50', true, 'live:50');
+    expect(immediateStatusIdsForMuteRestore(fromJS({ timelines: {}, contexts: {}, statuses }))).toEqual(['50']);
   });
 
   it('registers the mute change event for EventSource', () => {
