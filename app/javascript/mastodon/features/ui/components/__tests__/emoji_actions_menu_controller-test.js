@@ -88,4 +88,35 @@ describe('buildEmojiActionMenuItems', () => {
     expect(items.some(item => item && item.text === 'Mute emoji')).toBe(true);
     expect(items.some(item => item && item.text === 'Add to Favorites')).toBe(false);
   });
+
+  it('keeps the saved mute and offers sync retry after sync-only failure', () => {
+    const onRetrySync = jest.fn();
+    const onMute = jest.fn();
+    const items = buildEmojiActionMenuItems({
+      intl,
+      reference: { kind: 'unicode', native: '😀' },
+      resolved: {
+        reference: { kind: 'unicode', native: '😀' },
+        actions: { mute: { allowed: true }, add_to_personal_category: { allowed: true } },
+      },
+      mute: { id: '10', revision: '4', emoji: { kind: 'unicode', native: '😀' } },
+      categories: [],
+      status: 'ready',
+      error: null,
+      syncError: Object.assign(new Error('offline'), { status: 503 }),
+      pendingSyncRevision: '4',
+      busy: false,
+      onMute,
+      onUnmute: jest.fn(),
+      onAddToCategory: jest.fn(),
+      onRetry: jest.fn(),
+      onRetrySync,
+    });
+
+    expect(items.some(item => item && item.text === 'Muted')).toBe(true);
+    expect(items.some(item => item && item.text === 'Refresh mute list' && item.action === onRetrySync)).toBe(true);
+    const unmute = items.find(item => item && item.text === 'Unmute emoji');
+    expect(unmute.disabled).toBe(true);
+    expect(items.some(item => item && item.text === 'Mute emoji')).toBe(false);
+  });
 });

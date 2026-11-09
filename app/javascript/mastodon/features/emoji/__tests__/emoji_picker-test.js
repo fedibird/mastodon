@@ -45,10 +45,18 @@ jest.mock('emoji-mart/dist-es/components/picker/nimble-picker', () => {
     render() {
       return (
         <div>
+          <input type='search' aria-label='Search' className='emoji-mart-search' />
           <button type='button' className='emoji-mart-anchor' onClick={this.handleAnchorClick}><span>People</span></button>
           <div className='emoji-mart-scroll' ref={this.setScrollRef}>
-            <button type='button' className='emoji-mart-emoji' title='thumbsup' aria-label='Thumbs Up Label, +1' onClick={this.props.onClick}><span role='img' aria-label='Thumbs Up Label'>{'\u{1F44D}'}</span></button>
-            <button type='button' className='emoji-mart-emoji-custom' onClick={this.props.onClick}><img src='/wide.png' alt='Wide custom' /></button>
+            <button type='button' className='emoji-mart-emoji' title='thumbsup' aria-label='Thumbs Up Label, +1' onClick={this.props.onClick}>
+              <span role='img' aria-label='Thumbs Up Label'>{'\u{1F44D}'}</span>
+            </button>
+            <button type='button' className='emoji-mart-emoji' title='heart' aria-label='Red Heart Label' onClick={this.props.onClick}>
+              <span role='img' aria-label='Red Heart Label'>{'\u{2764}\u{FE0F}'}</span>
+            </button>
+            <button type='button' className='emoji-mart-emoji' title='blob' aria-label='Blob Custom' onClick={this.props.onClick}>
+              <span className='emoji-mart-emoji-custom'><img src='/wide.png' alt='Wide custom' /></span>
+            </button>
             <img src='/other.png' alt='Other resource' />
           </div>
         </div>
@@ -135,22 +143,118 @@ describe('standard emoji picker adapters', () => {
     }));
   });
 
-  it('exposes a visible manage control driven by focused Nimble emoji data', () => {
+  it('uses the event cell for Shift+F10, not a previous hover selection', () => {
     const listener = jest.fn();
     setEmojiActionsListener(listener);
     renderPicker(<Picker />);
 
     const picker = mockPickers[0];
-    const emoji = { id: 'thumbsup', native: '👍', colons: ':thumbsup:' };
+    const thumb = screen.getByTitle('thumbsup');
+    const heart = screen.getByTitle('heart');
+
     act(() => {
-      picker.handleEmojiOver(emoji);
+      picker.handleEmojiOver({ id: 'thumbsup', native: '👍', colons: ':thumbsup:' });
     });
 
+    heart.focus();
+    fireEvent.keyDown(heart, { key: 'F10', shiftKey: true });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0][0].reference).toEqual(
+      referenceFromMartButton(heart, 1),
+    );
+    expect(listener.mock.calls[0][0].reference.native).not.toBe('👍');
+    expect(thumb).toBeTruthy();
+  });
+
+  it('no-ops Shift+F10 on the search field even after a prior hover', () => {
+    const listener = jest.fn();
+    setEmojiActionsListener(listener);
+    renderPicker(<Picker />);
+
+    const picker = mockPickers[0];
+    act(() => {
+      picker.handleEmojiOver({ id: 'thumbsup', native: '👍', colons: ':thumbsup:' });
+    });
+
+    const search = screen.getByLabelText('Search');
+    search.focus();
+    fireEvent.keyDown(search, { key: 'F10', shiftKey: true });
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('opens context menu actions for the right-clicked cell only', () => {
+    const listener = jest.fn();
+    setEmojiActionsListener(listener);
+    renderPicker(<Picker />);
+
+    const picker = mockPickers[0];
+    act(() => {
+      picker.handleEmojiOver({ id: 'thumbsup', native: '👍', colons: ':thumbsup:' });
+    });
+
+    const heart = screen.getByTitle('heart');
+    fireEvent.contextMenu(heart);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0][0].reference).toEqual(referenceFromMartButton(heart, 1));
+  });
+
+  it('enables the manage control from keyboard focus without hover', () => {
+    const listener = jest.fn();
+    setEmojiActionsListener(listener);
+    renderPicker(<Picker />);
+
+    expect(screen.getByLabelText('Emoji actions')).toBeDisabled();
+
+    const heart = screen.getByTitle('heart');
+    fireEvent.focusIn(heart);
+
+    expect(screen.getByLabelText('Emoji actions')).not.toBeDisabled();
     fireEvent.click(screen.getByLabelText('Emoji actions'));
+
     expect(listener).toHaveBeenCalledWith(expect.objectContaining({
-      reference: { kind: 'unicode', native: '👍' },
+      reference: referenceFromMartButton(heart, 1),
       source: 'standard_picker',
     }));
+  });
+
+  it('enables the manage control from pointerdown without hover', () => {
+    const listener = jest.fn();
+    setEmojiActionsListener(listener);
+    renderPicker(<Picker />);
+
+    expect(screen.getByLabelText('Emoji actions')).toBeDisabled();
+
+    const heart = screen.getByTitle('heart');
+    fireEvent.pointerDown(heart);
+
+    expect(screen.getByLabelText('Emoji actions')).not.toBeDisabled();
+    fireEvent.click(screen.getByLabelText('Emoji actions'));
+    expect(listener.mock.calls[0][0].reference).toEqual(referenceFromMartButton(heart, 1));
+  });
+
+  it('resolves local custom rows from title + custom catalog, not aria-label', () => {
+    const custom = [{
+      id: 'blob',
+      name: 'blob',
+      short_names: ['blob'],
+      custom: true,
+      custom_emoji_id: '42',
+      imageUrl: '/wide.png',
+    }];
+    const button = document.createElement('button');
+    button.className = 'emoji-mart-emoji';
+    button.setAttribute('title', 'blob');
+    button.setAttribute('aria-label', 'Blob Display Name');
+
+    expect(referenceFromMartButton(button, 1, custom)).toEqual({
+      kind: 'custom',
+      scope: 'local',
+      custom_emoji_id: '42',
+      shortcode: 'blob',
+    });
   });
 
   it('refreshes category positions once per frame after custom image loads or errors', () => {

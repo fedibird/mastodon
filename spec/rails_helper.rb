@@ -13,7 +13,6 @@ Dir[Rails.root.join('spec/support/**/*.rb')].each { |f| require f }
 
 ActiveRecord::Migration.maintain_test_schema!
 WebMock.disable_net_connect!(allow: Chewy.settings[:host])
-require 'sidekiq/testing'
 Sidekiq::Testing.inline!
 
 # Silence Sidekiq logging during the test run. Sidekiq 7 removed the
