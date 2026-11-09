@@ -282,7 +282,7 @@ describe('emoji actions menu portal host', () => {
     document.body.removeChild(anchor);
   });
 
-  it('shows i18n resolve failure instead of raw Invalid emoji reference', async () => {
+  it('shows context i18n (with retry) for context.account_id invalid_id, not deleted-emoji copy', async () => {
     resolveEmojiReference.mockImplementation(() => Promise.reject(Object.assign(
       new Error('Invalid emoji reference'),
       {
@@ -304,6 +304,39 @@ describe('emoji actions menu portal host', () => {
 
     act(() => {
       openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'reaction' });
+    });
+
+    expect(await screen.findByText('Could not verify this post context')).toBeTruthy();
+    expect(screen.queryByText('This emoji is unavailable or was deleted')).toBeNull();
+    expect(screen.queryByText('Invalid emoji reference')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mute emoji' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+
+    document.body.removeChild(anchor);
+  });
+
+  it('shows unavailable i18n without retry for emoji.custom_emoji_id unavailable_emoji', async () => {
+    resolveEmojiReference.mockImplementation(() => Promise.reject(Object.assign(
+      new Error('Invalid emoji reference'),
+      {
+        status: 422,
+        errors: [{ path: 'emoji.custom_emoji_id', code: 'unavailable_emoji' }],
+      },
+    )));
+
+    render(
+      <EmojiActionsMenuController
+        intl={intl}
+        signedIn
+        onSyncMutes={jest.fn(() => Promise.resolve())}
+      />,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+
+    act(() => {
+      openEmojiActions({ kind: 'custom', scope: 'local', custom_emoji_id: '99' }, { anchor, source: 'reaction' });
     });
 
     expect(await screen.findByText('This emoji is unavailable or was deleted')).toBeTruthy();

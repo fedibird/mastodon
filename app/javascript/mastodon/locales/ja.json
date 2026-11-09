@@ -1443,6 +1443,7 @@
   "emoji_actions.resolve_failed": "絵文字の操作を読み込めませんでした",
   "emoji_actions.resolve_unavailable": "この絵文字は削除済みか利用できません",
   "emoji_actions.resolve_invalid": "この絵文字を特定できませんでした",
+  "emoji_actions.resolve_context_failed": "投稿の文脈を確認できませんでした",
   "emoji_actions.manage_hint": "絵文字を選んでから操作を開きます",
   "emoji_actions.sync_failed": "保存は完了しましたが、ミュート一覧を更新できませんでした",
   "emoji_actions.retry_sync": "ミュート一覧を再取得",

@@ -79,50 +79,60 @@ const messages = defineMessages({
   resolveFailed: { id: 'emoji_actions.resolve_failed', defaultMessage: 'Could not load emoji actions' },
   resolveUnavailable: { id: 'emoji_actions.resolve_unavailable', defaultMessage: 'This emoji is unavailable or was deleted' },
   resolveInvalid: { id: 'emoji_actions.resolve_invalid', defaultMessage: 'Could not identify this emoji' },
+  resolveContextFailed: { id: 'emoji_actions.resolve_context_failed', defaultMessage: 'Could not verify this post context' },
   syncFailed: { id: 'emoji_actions.sync_failed', defaultMessage: 'Saved, but the mute list could not refresh' },
   retrySync: { id: 'emoji_actions.retry_sync', defaultMessage: 'Refresh mute list' },
 });
 
-const UNAVAILABLE_RESOLVE_CODES = {
+// Codes that mean the emoji itself is gone / not in catalog. Path must be
+// emoji.* — the same code on context.* is a different failure.
+const EMOJI_UNAVAILABLE_CODES = {
   unavailable_emoji: true,
   invalid_unicode: true,
-  invalid_reference: true,
-  invalid_id: true,
-  invalid_domain: true,
-  invalid_shortcode: true,
-  invalid_kind: true,
-  invalid_scope: true,
-  contradictory_scope: true,
-  contradictory_field: true,
+};
+
+const isContextErrorPath = path => typeof path === 'string' && (path === 'context' || path.indexOf('context.') === 0);
+
+const isEmojiErrorPath = path => typeof path === 'string' && (path === 'emoji' || path.indexOf('emoji.') === 0);
+
+const resolveErrorEntries = error => {
+  if (!error || !Array.isArray(error.errors)) {
+    return [];
+  }
+
+  return error.errors.filter(entry => entry && typeof entry === 'object');
+};
+
+const hasContextResolveError = error => resolveErrorEntries(error).some(entry => isContextErrorPath(entry.path));
+
+const hasUnavailableEmojiError = error => {
+  if (!error) {
+    return false;
+  }
+
+  if (error.status === 404) {
+    return true;
+  }
+
+  return resolveErrorEntries(error).some(entry => (
+    EMOJI_UNAVAILABLE_CODES[entry.code] && (!entry.path || isEmojiErrorPath(entry.path))
+  ));
 };
 
 // Map resolve API failures to i18n. Never surface the server's English
-// `Invalid emoji reference` string in the menu.
+// `Invalid emoji reference` string in the menu. context.* invalid_id is not
+// the same as an unavailable emoji.
 export function resolveErrorMessage(intl, error) {
   if (!error) {
     return intl.formatMessage(messages.resolveFailed);
   }
 
-  if (error.status === 404) {
+  if (hasUnavailableEmojiError(error)) {
     return intl.formatMessage(messages.resolveUnavailable);
   }
 
-  const codes = [];
-
-  if (Array.isArray(error.errors)) {
-    error.errors.forEach(entry => {
-      if (entry && entry.code) {
-        codes.push(entry.code);
-      }
-    });
-  }
-
-  if (error.code) {
-    codes.push(error.code);
-  }
-
-  if (codes.some(code => UNAVAILABLE_RESOLVE_CODES[code])) {
-    return intl.formatMessage(messages.resolveUnavailable);
+  if (hasContextResolveError(error)) {
+    return intl.formatMessage(messages.resolveContextFailed);
   }
 
   if (error.status === 422) {
@@ -130,6 +140,19 @@ export function resolveErrorMessage(intl, error) {
   }
 
   return intl.formatMessage(messages.resolveFailed);
+}
+
+// Unavailable / deleted emoji: no retry. Context or transient failures: retry.
+export function isResolveErrorRetryable(error) {
+  if (!error) {
+    return true;
+  }
+
+  if (hasUnavailableEmojiError(error)) {
+    return false;
+  }
+
+  return true;
 }
 
 // Pure menu builder for tests. Mutating actions require an explicit resolve
@@ -217,14 +240,8 @@ export function buildEmojiActionMenuItems({
       items.push({ text: resolveErrorMessage(intl, error), disabled: true });
     }
 
-    const retryable = !(error && (
-      error.status === 404
-      || (Array.isArray(error.errors) && error.errors.some(entry => entry && UNAVAILABLE_RESOLVE_CODES[entry.code]))
-      || UNAVAILABLE_RESOLVE_CODES[error.code]
-    ));
-
     // Copy / detail / react may already be present; retry only when useful.
-    if (retryable) {
+    if (isResolveErrorRetryable(error)) {
       items.push({
         text: intl.formatMessage(messages.retry),
         action: onRetry,

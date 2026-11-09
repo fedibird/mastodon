@@ -310,15 +310,22 @@ export function accountIdFromStatus(status) {
     return null;
   }
 
-  if (typeof account === 'object' && typeof account.get === 'function') {
-    const id = account.get('id');
-    return id === null || id === undefined || id === '' ? null : String(id);
+  if (typeof account === 'object') {
+    // Immutable Map / Record
+    if (typeof account.get === 'function') {
+      const id = account.get('id');
+      return id === null || id === undefined || id === '' ? null : String(id);
+    }
+
+    // Plain object: only a present id is safe. Never String(object).
+    if (account.id !== null && account.id !== undefined && account.id !== '') {
+      return String(account.id);
+    }
+
+    return null;
   }
 
-  if (typeof account === 'object' && account.id !== null && account.id !== undefined && account.id !== '') {
-    return String(account.id);
-  }
-
+  // Primitive status.account id (string / number).
   return String(account);
 }
 

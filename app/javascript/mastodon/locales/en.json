@@ -1441,6 +1441,7 @@
   "emoji_actions.resolve_failed": "Could not load emoji actions",
   "emoji_actions.resolve_unavailable": "This emoji is unavailable or was deleted",
   "emoji_actions.resolve_invalid": "Could not identify this emoji",
+  "emoji_actions.resolve_context_failed": "Could not verify this post context",
   "emoji_actions.manage_hint": "Select an emoji, then open actions",
   "emoji_actions.sync_failed": "Saved, but the mute list could not refresh",
   "emoji_actions.retry_sync": "Refresh mute list",

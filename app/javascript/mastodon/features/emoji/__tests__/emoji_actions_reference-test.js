@@ -94,10 +94,24 @@ describe('emoji actions references', () => {
     });
   });
 
-  it('reads account id from expanded status.account maps', () => {
+  it('reads account id from expanded status.account maps without [object Object]', () => {
     expect(accountIdFromStatus(fromJS({ account: 'acct-1' }))).toBe('acct-1');
+    expect(accountIdFromStatus(fromJS({ account: 7 }))).toBe('7');
     expect(accountIdFromStatus(fromJS({ account: { id: '42', acct: 'alice' } }))).toBe('42');
     expect(accountIdFromStatus(fromJS({ account: null }))).toBeNull();
+
+    // Immutable Map without id
+    expect(accountIdFromStatus(fromJS({ account: { acct: 'alice' } }))).toBeNull();
+
+    // Plain object with id via status.get
+    expect(accountIdFromStatus({
+      get: key => (key === 'account' ? { id: '99', acct: 'bob' } : undefined),
+    })).toBe('99');
+
+    // Plain object without id must not become "[object Object]"
+    expect(accountIdFromStatus({
+      get: key => (key === 'account' ? { acct: 'no-id' } : undefined),
+    })).toBeNull();
   });
 
   it('uses the display representative part, not created_at order', () => {

@@ -1,4 +1,8 @@
-import { buildEmojiActionMenuItems, resolveErrorMessage } from '../emoji_actions_menu_controller';
+import {
+  buildEmojiActionMenuItems,
+  isResolveErrorRetryable,
+  resolveErrorMessage,
+} from '../emoji_actions_menu_controller';
 
 const intl = {
   formatMessage: (message, values = {}) => {
@@ -48,6 +52,22 @@ describe('buildEmojiActionMenuItems', () => {
       status: 422,
     }))).toBe('Could not identify this emoji');
 
+    // context.account_id invalid_id is not "emoji deleted".
+    expect(resolveErrorMessage(intl, Object.assign(new Error('Invalid emoji reference'), {
+      status: 422,
+      errors: [{ path: 'context.account_id', code: 'invalid_id' }],
+    }))).toBe('Could not verify this post context');
+    expect(isResolveErrorRetryable(Object.assign(new Error('Invalid emoji reference'), {
+      status: 422,
+      errors: [{ path: 'context.account_id', code: 'invalid_id' }],
+    }))).toBe(true);
+
+    const unavailable = Object.assign(new Error('Invalid emoji reference'), {
+      status: 422,
+      errors: [{ path: 'emoji.custom_emoji_id', code: 'unavailable_emoji' }],
+    });
+    expect(isResolveErrorRetryable(unavailable)).toBe(false);
+
     const items = buildEmojiActionMenuItems({
       intl,
       reference,
@@ -55,10 +75,7 @@ describe('buildEmojiActionMenuItems', () => {
       mute: null,
       categories: [],
       status: 'ready',
-      error: Object.assign(new Error('Invalid emoji reference'), {
-        status: 422,
-        errors: [{ path: 'emoji.custom_emoji_id', code: 'unavailable_emoji' }],
-      }),
+      error: unavailable,
       busy: false,
       onMute: jest.fn(),
       onUnmute: jest.fn(),
@@ -69,6 +86,29 @@ describe('buildEmojiActionMenuItems', () => {
     expect(items.some(item => item && item.text === 'Invalid emoji reference')).toBe(false);
     expect(items.some(item => item && item.text === 'This emoji is unavailable or was deleted')).toBe(true);
     expect(items.some(item => item && item.text === 'Try again')).toBe(false);
+
+    const contextItems = buildEmojiActionMenuItems({
+      intl,
+      reference,
+      resolved: null,
+      mute: null,
+      categories: [],
+      status: 'ready',
+      error: Object.assign(new Error('Invalid emoji reference'), {
+        status: 422,
+        errors: [{ path: 'context.status_id', code: 'invalid_id' }],
+      }),
+      busy: false,
+      onMute: jest.fn(),
+      onUnmute: jest.fn(),
+      onAddToCategory: jest.fn(),
+      onRetry: jest.fn(),
+    });
+
+    expect(contextItems.some(item => item && item.text === 'This emoji is unavailable or was deleted')).toBe(false);
+    expect(contextItems.some(item => item && item.text === 'Could not verify this post context')).toBe(true);
+    expect(contextItems.some(item => item && item.text === 'Try again')).toBe(true);
+    expect(contextItems.some(item => item && item.text === 'Mute emoji')).toBe(false);
   });
 
   it('shows category append only when resolve allows it', () => {
