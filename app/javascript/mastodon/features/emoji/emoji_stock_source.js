@@ -81,6 +81,7 @@ export function loadPersonalEmojiStock() {
   if (personalStockDisabled) {
     return Promise.resolve({ status: 'ready', stock: emptyEmojiStock() });
   }
+
   if (!me && !initialState?.meta?.access_token) {
     return Promise.resolve({ status: 'ready', stock: emptyEmojiStock() });
   }
