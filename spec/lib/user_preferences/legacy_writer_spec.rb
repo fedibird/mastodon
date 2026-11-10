@@ -110,11 +110,14 @@ RSpec.describe UserPreferences::LegacyWriter do
       expect(stored(user, 'reduce_motion').value).to be true
 
       prefer = writer.update('emoji_picker_prefer_personal', '0')
+      disabled = writer.update('emoji_picker_disable_personal', '1')
       lazy = writer.update('emoji_picker_lazy_load_standard', '0')
 
       expect(prefer.after['emoji_picker_prefer_personal']).to eq(state: :present, configured: false)
       expect(stored(user, 'emoji_picker_prefer_personal').value).to be false
       expect(stored(user, 'emoji_picker_prefer_personal').value).not_to eq '0'
+      expect(disabled.after['emoji_picker_disable_personal']).to eq(state: :present, configured: true)
+      expect(stored(user, 'emoji_picker_disable_personal').value).to be true
       expect(lazy.after['emoji_picker_lazy_load_standard']).to eq(state: :present, configured: false)
       expect(stored(user, 'emoji_picker_lazy_load_standard').value).to be false
       expect(reader(user, 'emoji_picker_lazy_load_standard')).to have_attributes(state: :present, effective: false)
