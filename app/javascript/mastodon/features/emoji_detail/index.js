@@ -10,10 +10,16 @@ import ColumnHeader from 'mastodon/components/column_header';
 import Emoji from 'mastodon/components/emoji';
 import Icon from 'mastodon/components/icon';
 import { fetchCustomEmojiDetail } from 'mastodon/actions/custom_emojis';
+import { changeSetting } from 'mastodon/actions/settings';
+import { changeColumnParams } from 'mastodon/actions/columns';
 import { defaultColumnWidth } from 'mastodon/initial_state';
+import { openEmojiActions } from 'mastodon/features/emoji/emoji_actions/bus';
+import { resolveEmojiReference } from 'mastodon/features/emoji/emoji_actions/api';
+import { attachLongPressGesture } from 'mastodon/features/emoji/long_press';
 
 const messages = defineMessages({
   heading: { id: 'column.custom_emoji_detail', defaultMessage: 'Custom emoji detail' },
+  unicodeHeading: { id: 'column.emoji_detail_unicode', defaultMessage: 'Emoji detail' },
   copy_permission_allow: { id: 'copy_permission_none.allow', defaultMessage: 'Allow' },
   copy_permission_deny: { id: 'copy_permission_none.deny', defaultMessage: 'Deny' },
   copy_permission_conditional: { id: 'copy_permission_none.conditional', defaultMessage: 'Conditional' },
@@ -21,13 +27,195 @@ const messages = defineMessages({
   linkToCustomEmojiInLocal: { id: 'status.link_to_custom_emoji_in_local', defaultMessage: 'Link to :@{shortcode}:' },
   linkToCustomEmojiInRemote: { id: 'status.link_to_custom_emoji_in_remote', defaultMessage: 'Link to :@{shortcode}: in @{domain}' },
   postByAcct: { id: 'status.post_by_acct', defaultMessage: 'Post by @{acct}' },
+  manage: { id: 'emoji_actions.manage', defaultMessage: 'Emoji actions' },
+  native: { id: 'emoji_detail.native', defaultMessage: 'Completed string' },
+  codePoints: { id: 'emoji_detail.code_points', defaultMessage: 'Code points' },
+  emojiId: { id: 'emoji_detail.emoji_id', defaultMessage: 'Catalog id' },
 });
 
-const mapStateToProps = (state, { params: { shortcode_with_domain } }) => ({
-  custom_emoji: state.getIn(['custom_emojis_detail', shortcode_with_domain]),
-  isLoading: state.getIn(['user_lists', 'custom_emojis_detail', 'isLoading'], true),
-  columnWidth: defaultColumnWidth,
-});
+const mapStateToProps = (state, { params }) => {
+  if (params.native) {
+    return {
+      mode: 'unicode',
+      native: decodeURIComponent(params.native),
+      columnWidth: defaultColumnWidth,
+    };
+  }
+
+  return {
+    mode: 'custom',
+    custom_emoji: state.getIn(['custom_emojis_detail', params.shortcode_with_domain]),
+    isLoading: state.getIn(['user_lists', 'custom_emojis_detail', 'isLoading'], true),
+    columnWidth: defaultColumnWidth,
+  };
+};
+
+const codePointsFor = native => Array.from(native || '').map(ch => `U+${ch.codePointAt(0).toString(16).toUpperCase()}`).join(' ');
+
+class EmojiActionsBar extends React.PureComponent {
+
+  static propTypes = {
+    intl: PropTypes.object.isRequired,
+    reference: PropTypes.object.isRequired,
+  };
+
+  handleClick = event => {
+    openEmojiActions(this.props.reference, {
+      anchor: event.currentTarget,
+      source: 'emoji_detail',
+    });
+  };
+
+  render () {
+    const { intl } = this.props;
+
+    return (
+      <div className='emoji-detail-actions'>
+        <button type='button' className='button' onClick={this.handleClick}>
+          {intl.formatMessage(messages.manage)}
+        </button>
+      </div>
+    );
+  }
+
+}
+
+class EmojiDetailPreview extends React.PureComponent {
+
+  static propTypes = {
+    reference: PropTypes.object.isRequired,
+    children: PropTypes.node,
+  };
+
+  setNode = node => {
+    if (this.detachLongPress) {
+      this.detachLongPress();
+      this.detachLongPress = null;
+    }
+
+    this.node = node;
+
+    if (node) {
+      this.detachLongPress = attachLongPressGesture(node, {
+        onLongPress: event => {
+          if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+
+          openEmojiActions(this.props.reference, {
+            anchor: node,
+            source: 'emoji_detail',
+          });
+        },
+      });
+    }
+  };
+
+  componentWillUnmount () {
+    if (this.detachLongPress) {
+      this.detachLongPress();
+      this.detachLongPress = null;
+    }
+  }
+
+  render () {
+    return (
+      <div className='custom-emoji__image' ref={this.setNode}>
+        {this.props.children}
+      </div>
+    );
+  }
+
+}
+
+class UnicodeEmojiDetailItem extends React.PureComponent {
+
+  static propTypes = {
+    intl: PropTypes.object.isRequired,
+    native: PropTypes.string.isRequired,
+  };
+
+  state = {
+    status: 'loading',
+    resolved: null,
+    error: null,
+  };
+
+  componentDidMount () {
+    this.load();
+  }
+
+  componentDidUpdate (prevProps) {
+    if (prevProps.native !== this.props.native) {
+      this.load();
+    }
+  }
+
+  load = () => {
+    const { native } = this.props;
+
+    this.setState({ status: 'loading', resolved: null, error: null });
+
+    resolveEmojiReference({ kind: 'unicode', native }).then(resolved => {
+      this.setState({ status: 'ready', resolved });
+    }).catch(error => {
+      this.setState({ status: 'error', error });
+    });
+  };
+
+  render () {
+    const { intl, native } = this.props;
+    const { status, resolved, error } = this.state;
+
+    if (status === 'loading') {
+      return <LoadingIndicator />;
+    }
+
+    if (status === 'error' || !resolved) {
+      return <div className='custom-emoji__detail'><p>{error && error.message}</p></div>;
+    }
+
+    const detail = resolved.detail || {};
+    const image = detail.image || {};
+
+    const reference = resolved.reference || { kind: 'unicode', native };
+
+    return (
+      <div className='custom-emoji__detail'>
+        <EmojiDetailPreview reference={reference}>
+          {image.src ? (
+            <img src={image.src} alt='' draggable='false' />
+          ) : (
+            <span aria-hidden='true'>{native}</span>
+          )}
+        </EmojiDetailPreview>
+        <EmojiActionsBar intl={intl} reference={reference} />
+        <div className='custom-emoji__property'>
+          <div className='custom-emoji__label'>{intl.formatMessage(messages.native)}</div>
+          <div className='custom-emoji__shortcode'>{native}</div>
+        </div>
+        <div className='custom-emoji__property'>
+          <div className='custom-emoji__label'>{intl.formatMessage(messages.codePoints)}</div>
+          <div className='custom-emoji__domain'>{codePointsFor(native)}</div>
+        </div>
+        {detail.emoji_id && (
+          <div className='custom-emoji__property'>
+            <div className='custom-emoji__label'>{intl.formatMessage(messages.emojiId)}</div>
+            <div className='custom-emoji__domain'>{detail.emoji_id}</div>
+          </div>
+        )}
+        {image.alt && (
+          <div className='custom-emoji__property'>
+            <div className='custom-emoji__label'><FormattedMessage id='search_results.custom_emojis.alternate_name' defaultMessage='Name' /></div>
+            <div className='custom-emoji__alternate_name'>{image.alt}</div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+}
 
 class EmojiDetailItem extends React.PureComponent {
 
@@ -109,7 +297,32 @@ class EmojiDetailItem extends React.PureComponent {
   };
 
   setTargetRef = c => {
+    if (this.detachLongPress) {
+      this.detachLongPress();
+      this.detachLongPress = null;
+    }
+
     this.target = c;
+
+    if (c) {
+      const reference = this.customReference();
+
+      if (reference) {
+        this.detachLongPress = attachLongPressGesture(c, {
+          onLongPress: event => {
+            if (event) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+
+            openEmojiActions(reference, {
+              anchor: c,
+              source: 'emoji_detail',
+            });
+          },
+        });
+      }
+    }
   };
 
   setRef = (c) => {
@@ -131,6 +344,11 @@ class EmojiDetailItem extends React.PureComponent {
   componentWillUnmount () {
     this.target?.removeEventListener('mouseenter', this.handleMouseEnter, { capture: true });
     this.target?.removeEventListener('mouseleave', this.handleMouseLeave, false);
+
+    if (this.detachLongPress) {
+      this.detachLongPress();
+      this.detachLongPress = null;
+    }
   }
 
   onHashtagClick = (hashtag, e) => {
@@ -145,7 +363,7 @@ class EmojiDetailItem extends React.PureComponent {
   onAccountUrlClick = (accountId, path, accountActorType, e) => {
     if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      this.context.router.history.push(`${accountActorType == 'Group' ? '/timelines/groups/' : '/accounts/'}${accountId}${path}`);
+      this.context.router.history.push(`${accountActorType === 'Group' ? '/timelines/groups/' : '/accounts/'}${accountId}${path}`);
     }
   }
 
@@ -170,6 +388,30 @@ class EmojiDetailItem extends React.PureComponent {
     }
   }
 
+  customReference () {
+    const { custom_emoji } = this.props;
+
+    if (!custom_emoji) {
+      return null;
+    }
+
+    if (custom_emoji.get('local')) {
+      // Detail REST payload has no database id; resolve pins the current local row.
+      return {
+        kind: 'custom',
+        scope: 'local',
+        shortcode: custom_emoji.get('shortcode'),
+      };
+    }
+
+    return {
+      kind: 'custom',
+      scope: 'remote',
+      domain: custom_emoji.get('domain'),
+      shortcode: custom_emoji.get('shortcode'),
+    };
+  }
+
   render () {
     const { intl, params: { shortcode_with_domain }, custom_emoji } = this.props;
 
@@ -185,14 +427,14 @@ class EmojiDetailItem extends React.PureComponent {
     const aliases = custom_emoji.get('aliases') ?? [];
     const copy_permission = (p => {
       switch (p) {
-        case 'allow':
-          return intl.formatMessage(messages.copy_permission_allow);
-        case 'deny':
-          return intl.formatMessage(messages.copy_permission_deny);
-        case 'conditional':
-          return intl.formatMessage(messages.copy_permission_conditional);
-        default:
-          return null;
+      case 'allow':
+        return intl.formatMessage(messages.copy_permission_allow);
+      case 'deny':
+        return intl.formatMessage(messages.copy_permission_deny);
+      case 'conditional':
+        return intl.formatMessage(messages.copy_permission_conditional);
+      default:
+        return null;
       }
     })(custom_emoji.get('copy_permission'));
     const creator = custom_emoji.get('creator');
@@ -208,12 +450,14 @@ class EmojiDetailItem extends React.PureComponent {
     const description = custom_emoji.get('description');
     const related_links = custom_emoji.get('related_links') ?? [];
     const updated_at = custom_emoji.get('updated_at');
+    const reference = this.customReference();
 
     return (
       <div className='custom-emoji__detail' ref={this.setRef}>
         <div className='custom-emoji__image' ref={this.setTargetRef}>
           <Emoji emoji={shortcode_with_domain} hovered={this.state.hovered} domain={domain} url={custom_emoji.get('url')} static_url={custom_emoji.get('static_url')} title={alternateName ?? shortcode} />
         </div>
+        {reference && <EmojiActionsBar intl={intl} reference={reference} />}
         <div className='custom-emoji__property'>
           <div className='custom-emoji__label'><FormattedMessage id='search_results.custom_emojis.shortcode' defaultMessage='Short code' /></div>
           <div className='custom-emoji__shortcode'>{shortcode}</div>
@@ -283,13 +527,13 @@ class EmojiDetailItem extends React.PureComponent {
         {aliases.size > 0 && <div className='custom-emoji__property'>
           <div className='custom-emoji__label'><FormattedMessage id='search_results.custom_emojis.keyword' defaultMessage='Keyword' /></div>
           {aliases.map(keyword =>
-            <div key={keyword} className='custom-emoji__keyword keyword-badge'>{keyword}</div>
+            <div key={keyword} className='custom-emoji__keyword keyword-badge'>{keyword}</div>,
           )}
         </div>}
         {related_links.size > 0 && <div className='custom-emoji__property'>
           <div className='custom-emoji__label'><FormattedMessage id='search_results.custom_emojis.related_links' defaultMessage='Related links' /></div>
           {related_links.map(link =>
-            <div key={link} className='custom-emoji__related_link' dangerouslySetInnerHTML={{ __html: link }} />
+            <div key={link} className='custom-emoji__related_link' dangerouslySetInnerHTML={{ __html: link }} />,
           )}
         </div>}
         {misskey_license && <div className='custom-emoji__property'>
@@ -303,6 +547,7 @@ class EmojiDetailItem extends React.PureComponent {
       </div>
     );
   }
+
 }
 
 class EmojiDetail extends React.PureComponent {
@@ -310,25 +555,28 @@ class EmojiDetail extends React.PureComponent {
   static propTypes = {
     params: PropTypes.object.isRequired,
     dispatch: PropTypes.func.isRequired,
+    mode: PropTypes.oneOf(['custom', 'unicode']),
+    native: PropTypes.string,
     custom_emoji: ImmutablePropTypes.map,
     isLoading: PropTypes.bool,
     intl: PropTypes.object.isRequired,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    columnId: PropTypes.string,
   };
 
   componentDidMount () {
-    const { custom_emoji, params: { shortcode_with_domain } } = this.props;
+    const { mode, custom_emoji, params: { shortcode_with_domain } } = this.props;
 
-    if (!custom_emoji) {
+    if (mode === 'custom' && !custom_emoji) {
       this.props.dispatch(fetchCustomEmojiDetail(shortcode_with_domain));
     }
   }
 
   componentDidUpdate (prevProps) {
-    const { custom_emoji, params: { shortcode_with_domain } } = this.props;
+    const { mode, custom_emoji, params: { shortcode_with_domain } } = this.props;
 
-    if (!custom_emoji && prevProps.params.shortcode_with_domain != shortcode_with_domain) {
+    if (mode === 'custom' && !custom_emoji && prevProps.params.shortcode_with_domain !== shortcode_with_domain) {
       this.props.dispatch(fetchCustomEmojiDetail(shortcode_with_domain));
     }
   }
@@ -344,9 +592,11 @@ class EmojiDetail extends React.PureComponent {
   }
 
   render () {
-    const { intl, custom_emoji, isLoading, multiColumn, columnWidth } = this.props;
+    const { intl, mode, native, custom_emoji, isLoading, multiColumn, columnWidth } = this.props;
+    const unicode = mode === 'unicode';
+    const heading = intl.formatMessage(unicode ? messages.unicodeHeading : messages.heading);
 
-    if (!custom_emoji) {
+    if (!unicode && !custom_emoji) {
       if (isLoading) {
         return (
           <Column>
@@ -357,6 +607,10 @@ class EmojiDetail extends React.PureComponent {
     }
 
     const scrollableContent = (() => {
+      if (unicode) {
+        return <UnicodeEmojiDetailItem intl={intl} native={native} />;
+      }
+
       if (!custom_emoji) {
         return null;
       }
@@ -364,13 +618,13 @@ class EmojiDetail extends React.PureComponent {
       return <EmojiDetailItem {...this.props} />;
     })();
 
-    const emptyMessage = <FormattedMessage id='empty_column.custom_emoji_detail' defaultMessage="There are no matching custom emojis" />;
+    const emptyMessage = <FormattedMessage id='empty_column.custom_emoji_detail' defaultMessage='There are no matching custom emojis' />;
 
     return (
-      <Column bindToDocument={!multiColumn} label={intl.formatMessage(messages.heading)} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} label={heading} columnWidth={columnWidth}>
         <ColumnHeader
           icon='smile-o'
-          title={intl.formatMessage(messages.heading)}
+          title={heading}
           showBackButton
           multiColumn={multiColumn}
           columnWidth={columnWidth}
@@ -379,7 +633,7 @@ class EmojiDetail extends React.PureComponent {
 
         <ScrollableList
           scrollKey='emoji_detail'
-          isLoading={isLoading}
+          isLoading={!unicode && isLoading}
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
         >

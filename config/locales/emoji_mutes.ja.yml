@@ -1,0 +1,7 @@
+ja:
+  emoji_mutes:
+    title: ミュートした絵文字
+    loading: ミュートした絵文字を読み込み中…
+    javascript_required: ミュートした絵文字を管理するには JavaScript を有効にしてください。
+  settings:
+    emoji_mutes: ミュート

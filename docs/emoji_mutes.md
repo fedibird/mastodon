@@ -202,8 +202,10 @@ that send allows a message that was already queued.
 
 ## P3 handoff
 
-P3 applies `replace_in_text` and `hide_in_picker`, builds the settings
-screen, and only then advertises `emoji_mutes`.
+P3-A (settings screen + shared actions menu) is documented in
+[emoji_mutes_p3a.md](emoji_mutes_p3a.md). P3-B/C still apply
+`replace_in_text` and `hide_in_picker`. Only then does P3-D advertise
+`emoji_mutes`.
 
 The signed-in WebUI loads `GET /api/v1/fedibird/emoji_mutes` when the user
 stream connects and keeps the document in memory. `observedRevision` is the

@@ -65,7 +65,9 @@ export class DropdownMenu extends React.PureComponent {
   }
 
   handleKeyDown = e => {
-    const items = Array.from(this.node.querySelectorAll('.dropdown-menu__item a, .dropdown-menu__item button'));
+    const items = Array.from(this.node.querySelectorAll(
+      '.dropdown-menu__item a:not([aria-disabled="true"]), .dropdown-menu__item button:not([aria-disabled="true"])',
+    ));
     const index = items.indexOf(document.activeElement);
     let element = null;
 
@@ -90,8 +92,10 @@ export class DropdownMenu extends React.PureComponent {
       element = items[items.length-1];
       break;
     case 'Escape':
+      e.preventDefault();
+      e.stopPropagation();
       this.props.onClose();
-      break;
+      return;
     }
 
     if (element) {
@@ -108,6 +112,15 @@ export class DropdownMenu extends React.PureComponent {
   }
 
   handleClick = e => {
+    const index = Number(e.currentTarget.getAttribute('data-index'));
+    const option = this.props.items[index];
+
+    if (option && option.disabled) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
     const { onItemClick } = this.props;
     onItemClick(e);
   }
@@ -117,11 +130,24 @@ export class DropdownMenu extends React.PureComponent {
       return <li key={`sep-${i}`} className='dropdown-menu__separator' />;
     }
 
-    const { text, href = '#', target = '_blank', method, dangerous } = option;
+    const { text, href = '#', target = '_blank', method, dangerous, disabled } = option;
+    const isDisabled = Boolean(disabled);
 
     return (
-      <li className={classNames('dropdown-menu__item', { 'dropdown-menu__item--dangerous': dangerous })} key={`${text}-${i}`}>
-        <a href={href === null ? undefined : href} target={target} data-method={method} rel='noopener noreferrer' role='button' tabIndex='0' ref={setRef} onClick={onClick} onKeyPress={onKeyPress} data-index={i}>
+      <li className={classNames('dropdown-menu__item', { 'dropdown-menu__item--dangerous': dangerous, 'dropdown-menu__item--disabled': isDisabled })} key={`${text}-${i}`}>
+        <a
+          href={isDisabled || href === null ? undefined : href}
+          target={isDisabled ? undefined : target}
+          data-method={isDisabled ? undefined : method}
+          rel='noopener noreferrer'
+          role='button'
+          tabIndex={isDisabled ? '-1' : '0'}
+          aria-disabled={isDisabled ? 'true' : undefined}
+          ref={setRef}
+          onClick={onClick}
+          onKeyPress={isDisabled ? undefined : onKeyPress}
+          data-index={i}
+        >
           {text}
         </a>
       </li>
@@ -132,6 +158,7 @@ export class DropdownMenu extends React.PureComponent {
     const { items, scrollable, renderHeader, loading, menuId, menuRole } = this.props;
 
     let renderItem = this.props.renderItem || this.renderItem;
+    const focusIndex = items.findIndex(option => option && !option.disabled);
 
     return (
       <div className={classNames('dropdown-menu__container', { 'dropdown-menu__container--loading': loading })} ref={this.setRef}>
@@ -147,7 +174,11 @@ export class DropdownMenu extends React.PureComponent {
 
         {!loading && (
           <ul id={menuId} role={menuRole} className={classNames('dropdown-menu__container__list', { 'dropdown-menu__container__list--scrollable': scrollable })}>
-            {items.map((option, i) => renderItem(option, i, { onClick: this.handleClick, onKeyPress: this.handleItemKeyPress, setRef: i === 0 ? this.setFocusRef : null }))}
+            {items.map((option, i) => renderItem(option, i, {
+              onClick: this.handleClick,
+              onKeyPress: this.handleItemKeyPress,
+              setRef: i === (focusIndex === -1 ? 0 : focusIndex) ? this.setFocusRef : null,
+            }))}
           </ul>
         )}
       </div>
@@ -240,6 +271,11 @@ class Dropdown extends React.PureComponent {
     const { onItemClick } = this.props;
     const i = Number(e.currentTarget.getAttribute('data-index'));
     const item = this.props.items[i];
+
+    if (item && item.disabled) {
+      e.preventDefault();
+      return;
+    }
 
     if (this.props.closeOnSelect) this.handleClose();
 

@@ -348,10 +348,44 @@
   }
 }
 
+.emoji-picker-shell__chrome {
+  display: flex;
+  flex-direction: column;
+}
+
 .emoji-picker-shell__modes {
   border-bottom: 1px solid darken($ui-secondary-color, 8%);
   border-radius: 5px 5px 0 0;
   background: $ui-secondary-color;
+}
+
+.emoji-picker-shell__edit {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px;
+  border-bottom: 1px solid darken($ui-secondary-color, 8%);
+  background: $ui-secondary-color;
+}
+
+.emoji-picker-shell__edit-toggle {
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 10px;
+  background: transparent;
+  color: $darker-text-color;
+  cursor: pointer;
+  font-size: 13px;
+
+  &:hover,
+  &:focus-visible {
+    color: $highlight-text-color;
+    background: rgba($ui-highlight-color, .12);
+  }
+
+  &--active {
+    color: $highlight-text-color;
+    font-weight: 600;
+  }
 }
 
 // Preserve the legacy picker palette in both modes, regardless of app theme.

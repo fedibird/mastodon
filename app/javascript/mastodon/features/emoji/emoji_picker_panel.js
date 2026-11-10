@@ -31,6 +31,24 @@ const messages = defineMessages({
 const listenerOptions = supportsPassiveEvents ? { passive: false } : false;
 const backgroundImageFn = () => `${assetHost}/emoji/sheet_15.png`;
 
+// Emoji actions render in a portal outside the picker DOM. Clicks / touchends
+// on that menu must not count as "outside" or the picker closes before the
+// menu item action runs (observed on desktop Chrome).
+export function isEmojiActionsMenuTarget(target) {
+  let node = target;
+
+  // Some engines report the text node inside the <a> as event.target.
+  if (node && node.nodeType === Node.TEXT_NODE) {
+    node = node.parentElement;
+  }
+
+  return Boolean(
+    node
+    && typeof node.closest === 'function'
+    && node.closest('[data-emoji-actions-menu="1"]'),
+  );
+}
+
 const BASE_CATEGORIES = [
   'recent',
   'people',
@@ -244,6 +262,10 @@ class EmojiPickerPanel extends React.PureComponent {
 
   handleDocumentClick = event => {
     if (this.node && this.node.contains(event.target)) {
+      return;
+    }
+
+    if (isEmojiActionsMenuTarget(event.target)) {
       return;
     }
 
