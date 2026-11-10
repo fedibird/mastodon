@@ -28,7 +28,9 @@ class EmojiMute < ApplicationRecord
     hide_in_picker
   ).freeze
 
-  # Stored for P3. P2 applies only the reaction effects below.
+  # Server reads apply the reaction effects below. The WebUI applies
+  # replace_in_text as a display projection and does not rewrite status HTML,
+  # so it stays in STORED_ONLY_EFFECTS. hide_in_picker stays stored.
   APPLIED_EFFECTS = %w(reject_reactions_to_own_posts hide_reactions).freeze
   STORED_ONLY_EFFECTS = %w(replace_in_text hide_in_picker).freeze
 

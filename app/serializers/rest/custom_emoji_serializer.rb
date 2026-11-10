@@ -3,7 +3,10 @@
 class REST::CustomEmojiSerializer < ActiveModel::Serializer
   include RoutingHelper
 
-  attributes :shortcode, :url, :static_url, :visible_in_picker
+  # `id` is the stable local mute identity. `domain` is null for a local emoji
+  # and is the remote mute identity together with `shortcode`. A shortcode
+  # alone is not an identity: a later row can reuse it.
+  attributes :id, :shortcode, :domain, :url, :static_url, :visible_in_picker
 
   attribute :category, if: :category_loaded?
   attribute :width, if: :width?
@@ -12,6 +15,10 @@ class REST::CustomEmojiSerializer < ActiveModel::Serializer
   attribute :alternate_name, if: :alternate_name?
   attribute :ruby, if: :ruby?
   attribute :aliases, if: :aliases?
+
+  def id
+    object.id.to_s
+  end
 
   def url
     full_asset_url(object.image.url)

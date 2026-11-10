@@ -13,6 +13,7 @@ import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'ma
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
+import { replaceEmojiInDisplayHtml, replaceInTextIndexFromRules } from 'mastodon/features/emoji/emoji_mute_text';
 import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 
@@ -47,6 +48,7 @@ const mapStateToProps = (state, ownProps) => {
     translationBarRevealed: translationBarRevealed(state, subject),
     acceptedTranslationBarVisibility: accepted.visibility,
     acceptedTranslationPreferredMode: accepted.preferredMode,
+    emojiMuteTextIndex: replaceInTextIndexFromRules(state.getIn(['emojiMutes', 'rules'])),
   };
 };
 
@@ -86,6 +88,10 @@ class StatusContent extends React.PureComponent {
     translationBarRevealed: PropTypes.bool,
     acceptedTranslationBarVisibility: PropTypes.string,
     acceptedTranslationPreferredMode: PropTypes.string,
+    emojiMuteTextIndex: PropTypes.shape({
+      active: PropTypes.bool,
+      signature: PropTypes.string,
+    }),
     onTranslationAssumption: PropTypes.func,
     onTranslationTarget: PropTypes.func,
     intl: PropTypes.object.isRequired,
@@ -544,6 +550,13 @@ class StatusContent extends React.PureComponent {
     const hashtagBadges = this.renderHashtagBadges(sourceHashtagParts.hashtags, contentVisible);
     const sourceSpoilerHtml = status.get('spoilerHtml');
     const targetSpoilerHtml = translated.getIn(['translation', 'spoilerHtml']);
+    // Mute replacement is a view of the stored HTML. Hashtag badges stay on
+    // the original string, and the status record is not rewritten.
+    const presentHtml = html => replaceEmojiInDisplayHtml(html, status.get('emojis'), this.props.emojiMuteTextIndex);
+    const displaySourceHtml = presentHtml(sourceBodyHtml);
+    const displayTargetHtml = presentHtml(targetBodyHtml);
+    const displaySourceSpoilerHtml = presentHtml(sourceSpoilerHtml);
+    const displayTargetSpoilerHtml = presentHtml(targetSpoilerHtml);
     const language = viewMode === 'original' ? sourceLang : (targetLang || sourceLang);
     const preferredMode = this.props.translationPreferredMode || this.props.acceptedTranslationPreferredMode || translationPreferredMode;
     const barVisibility = this.props.acceptedTranslationBarVisibility || translationBarVisibility;
@@ -575,8 +588,8 @@ class StatusContent extends React.PureComponent {
       <PollContainer pollId={status.get('poll')} lang={language} sourceLang={sourceLang} targetLang={targetLang} translationMode={viewMode} disabled={disableReactions} />
     );
 
-    const mainText = this.renderMainText(viewMode, sourceBodyHtml, targetBodyHtml, sourceLang, targetLang, contentVisible);
-    const spoilerText = this.renderSpoilerText(viewMode, sourceSpoilerHtml, targetSpoilerHtml, sourceLang, targetLang);
+    const mainText = this.renderMainText(viewMode, displaySourceHtml, displayTargetHtml, sourceLang, targetLang, contentVisible);
+    const spoilerText = this.renderSpoilerText(viewMode, displaySourceSpoilerHtml, displayTargetSpoilerHtml, sourceLang, targetLang);
 
     const translateButton = !compactCard && translationBarEffectivelyVisible({
       visibility: barVisibility,

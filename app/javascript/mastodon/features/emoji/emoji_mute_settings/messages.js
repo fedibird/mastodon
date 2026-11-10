@@ -2,7 +2,7 @@ import { defineMessages } from 'react-intl';
 
 export default defineMessages({
   title: { id: 'emoji_mutes.title', defaultMessage: 'Muted emoji' },
-  subtitle: { id: 'emoji_mutes.subtitle', defaultMessage: 'Choose how muted emoji are replaced, hidden from reactions, and kept out of pickers. Text replacement and picker exclusion are stored now and applied in a later step.' },
+  subtitle: { id: 'emoji_mutes.subtitle', defaultMessage: 'Choose how muted emoji are replaced in posts you read, hidden from reactions, and kept out of pickers. Picker exclusion is stored and applied in a later step.' },
   loading: { id: 'emoji_mutes.loading', defaultMessage: 'Loading muted emoji…' },
   loadError: { id: 'emoji_mutes.load_error', defaultMessage: 'Could not load muted emoji' },
   retry: { id: 'emoji_mutes.retry', defaultMessage: 'Try again' },
@@ -13,7 +13,7 @@ export default defineMessages({
   identity: { id: 'emoji_mutes.identity', defaultMessage: 'Identity' },
   replacement: { id: 'emoji_mutes.replacement', defaultMessage: 'Replacement text' },
   effects: { id: 'emoji_mutes.effects', defaultMessage: 'Effects' },
-  replaceInText: { id: 'emoji_mutes.effect.replace_in_text', defaultMessage: 'Replace in text (stored)' },
+  replaceInText: { id: 'emoji_mutes.effect.replace_in_text', defaultMessage: 'Replace in text' },
   rejectOwn: { id: 'emoji_mutes.effect.reject_reactions_to_own_posts', defaultMessage: 'Reject reactions on your posts' },
   hideReactions: { id: 'emoji_mutes.effect.hide_reactions', defaultMessage: 'Hide reactions' },
   hideInPicker: { id: 'emoji_mutes.effect.hide_in_picker', defaultMessage: 'Hide in pickers (stored)' },
@@ -41,6 +41,6 @@ export default defineMessages({
   openDetails: { id: 'emoji_mutes.open_details', defaultMessage: 'Open details' },
   count: { id: 'emoji_mutes.count', defaultMessage: '{count, plural, one {# muted emoji} other {# muted emoji}}' },
   dirty: { id: 'emoji_mutes.dirty', defaultMessage: 'Unsaved changes' },
-  appliedNote: { id: 'emoji_mutes.applied_note', defaultMessage: 'Applied now: reject reactions on your posts, hide reactions. Stored for later: replace in text, hide in pickers.' },
+  appliedNote: { id: 'emoji_mutes.applied_note', defaultMessage: 'Applied now: replace emoji in post text you read, reject reactions on your posts, hide reactions. Stored for later: hide in pickers. Post HTML from the server is unchanged.' },
   javascriptRequired: { id: 'emoji_mutes.javascript_required', defaultMessage: 'Enable JavaScript to manage muted emoji.' },
 });
