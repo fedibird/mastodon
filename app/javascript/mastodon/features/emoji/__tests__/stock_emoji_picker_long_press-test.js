@@ -19,6 +19,12 @@ jest.mock('react-intl', () => {
 
 jest.mock('../emoji_actions/bus', () => ({
   openEmojiActions: jest.fn(() => true),
+  createEmojiActionsSlideGestureId: jest.fn(() => 'test-slide-gesture'),
+  beginEmojiActionsSlideGesture: jest.fn(),
+  endEmojiActionsSlideGesture: jest.fn(),
+  reportEmojiActionsSlideMove: jest.fn(),
+  reportEmojiActionsSlideRelease: jest.fn(),
+  reportEmojiActionsSlideCancel: jest.fn(),
 }));
 
 const stock = {
