@@ -6,6 +6,8 @@ import PropTypes from 'prop-types';
 import IconButton from 'mastodon/components/icon_button';
 import Icon from 'mastodon/components/icon';
 import { textNeedsCustomEmojiCatalog } from 'mastodon/features/emoji/custom_emoji_demand';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
 import { defineMessages, injectIntl, FormattedMessage, FormattedDate } from 'react-intl';
 import { autoPlayEmoji, reduceMotion, disableSwiping } from 'mastodon/initial_state';
 import { reduceMotionNow, watchReduceMotion } from 'mastodon/utils/appearance_preferences';
@@ -42,6 +44,7 @@ class Content extends ImmutablePureComponent {
 
   static propTypes = {
     announcement: ImmutablePropTypes.map.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   setRef = c => {
@@ -156,13 +159,14 @@ class Content extends ImmutablePureComponent {
   }
 
   render () {
-    const { announcement } = this.props;
+    const { announcement, emojiMuteTextIndex } = this.props;
+    const source = announcement.get('contentHtml') || '';
 
     return (
       <div
         className='announcements__item__content translate'
         ref={this.setRef}
-        dangerouslySetInnerHTML={{ __html: announcement.get('contentHtml') }}
+        dangerouslySetInnerHTML={{ __html: replaceEmojiInDisplayHtml(source, emojiMuteTextIndex) }}
         onMouseEnter={this.handleMouseEnter}
         onMouseLeave={this.handleMouseLeave}
       />
@@ -170,6 +174,11 @@ class Content extends ImmutablePureComponent {
   }
 
 }
+
+// The stored contentHtml stays shared. This boundary re-renders when the
+// viewer's replace_in_text rules change and rebinds mention, hashtag, and
+// status links on the new nodes. Reaction controls are outside this node.
+const AnnouncementBody = withEmojiMuteTextIndex(Content);
 
 class Emoji extends React.PureComponent {
 
@@ -374,7 +383,7 @@ class Announcement extends ImmutablePureComponent {
           {!hasTimeRange && <span> · <FormattedMessage id='announcement.published_at' defaultMessage='Published {date}' values={{ date: publishedAt }} /></span>}
         </strong>
 
-        <Content announcement={announcement} />
+        <AnnouncementBody announcement={announcement} />
 
         <ReactionsBar
           reactions={announcement.get('reactions')}
