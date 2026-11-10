@@ -686,7 +686,7 @@ class StockEmojiPicker extends React.PureComponent {
     const { stock } = this.props;
     const query = this.currentQuery();
     const visible = this.visibleStock();
-    const hasVisible = this.flatItems(visible).length > 0;
+    const hasVisible = visible.categories.some(category => category.items.length > 0);
     let status = null;
 
     if (!hasVisible && !normalizeSearchKey(query) && isEmptyEmojiStock(stock)) {
