@@ -703,6 +703,115 @@ describe('emoji actions menu portal host', () => {
     document.body.removeChild(anchor);
   });
 
+  it('allows a fresh menu item click within 700ms after slide-select copy', async () => {
+    const history = { push: jest.fn() };
+
+    class RouterHarness extends React.Component {
+
+      static childContextTypes = { router: PropTypes.object };
+
+      getChildContext() {
+        return { router: { history } };
+      }
+
+      render() {
+        return this.props.children;
+      }
+
+    }
+
+    render(
+      <RouterHarness>
+        <EmojiActionsMenuController
+          intl={intl}
+          signedIn
+          onSyncMutes={jest.fn(() => Promise.resolve())}
+        />
+      </RouterHarness>,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const reference = { kind: 'unicode', native: '😀' };
+
+    act(() => {
+      openEmojiActions(reference, { anchor, source: 'standard_picker' });
+    });
+
+    const copyItem = await screen.findByRole('button', { name: 'Copy emoji' });
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => copyItem;
+
+    act(() => {
+      expect(reportEmojiActionsSlideRelease({ clientX: 30, clientY: 30 })).toBe(true);
+    });
+
+    document.elementFromPoint = original;
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith('😀'));
+
+    // Immediately (well under 700ms) click a different menu item — must not be blocked.
+    fireEvent.click(await screen.findByRole('button', { name: 'Emoji details' }));
+    expect(history.push).toHaveBeenCalledWith(detailPathForReference(reference));
+
+    document.body.removeChild(anchor);
+  });
+
+  it('allows an immediate item click after close and reopen', async () => {
+    const history = { push: jest.fn() };
+
+    class RouterHarness extends React.Component {
+
+      static childContextTypes = { router: PropTypes.object };
+
+      getChildContext() {
+        return { router: { history } };
+      }
+
+      render() {
+        return this.props.children;
+      }
+
+    }
+
+    render(
+      <RouterHarness>
+        <EmojiActionsMenuController
+          intl={intl}
+          signedIn
+          onSyncMutes={jest.fn(() => Promise.resolve())}
+        />
+      </RouterHarness>,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const reference = { kind: 'unicode', native: '😀' };
+
+    act(() => {
+      openEmojiActions(reference, { anchor, source: 'standard_picker' });
+    });
+
+    const muteItem = await screen.findByRole('button', { name: 'Mute emoji' });
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => muteItem;
+
+    act(() => {
+      expect(reportEmojiActionsSlideRelease({ clientX: 30, clientY: 30 })).toBe(true);
+    });
+
+    document.elementFromPoint = original;
+    await waitFor(() => expect(createEmojiMute).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      openEmojiActions(reference, { anchor, source: 'standard_picker' });
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Emoji details' }));
+    expect(history.push).toHaveBeenCalledWith(detailPathForReference(reference));
+
+    document.body.removeChild(anchor);
+  });
+
   it('does not steal an unrelated click or keyboard activation after slide select', async () => {
     render(
       <EmojiActionsMenuController
@@ -842,12 +951,16 @@ describe('emoji actions menu portal host', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Emoji details' }));
     expect(onCloseReactionModal).toHaveBeenCalledTimes(1);
 
-    // Detail must not push before the delayed POP lands.
+    // Detail must not push before the delayed POP lands — including after >100ms.
+    expect(history.location.pathname).toBe('/timelines/home');
+    expect(history.location.state && history.location.state.mastodonModalKey).toBe(modalKey);
+    expect(typeof pendingPop).toBe('function');
+
+    await new Promise(resolve => setTimeout(resolve, 150));
     expect(history.location.pathname).toBe('/timelines/home');
     expect(history.location.state && history.location.state.mastodonModalKey).toBe(modalKey);
 
     act(() => {
-      expect(typeof pendingPop).toBe('function');
       pendingPop();
     });
 

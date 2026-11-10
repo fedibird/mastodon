@@ -441,9 +441,8 @@ class EmojiActionsMenuController extends React.PureComponent {
   armSlideClickSwallow = () => {
     this.clearSlideClickSwallow();
     const until = Date.now() + LONG_PRESS_CLICK_SUPPRESS_MS;
-    this.slideActivatedUntil = until;
     // Only the original long-press host should have its trailing synthetic
-    // click swallowed — never an unrelated button or keyboard activation.
+    // click swallowed — never menu items, unrelated buttons, or keyboard.
     const anchor = this.state.element;
 
     this.slideClickSwallow = event => {
@@ -669,9 +668,9 @@ class EmojiActionsMenuController extends React.PureComponent {
 
     if (path && this.context.router) {
       if (closePicker) {
-        // Close first so ModalRoot can schedule goBack; then wait for POP.
-        this.closePickerSurfaces();
+        // Arm POP wait before close so ModalRoot's goBack is observed.
         this.navigateAfterPickerClose(path);
+        this.closePickerSurfaces();
       } else {
         this.context.router.history.push(path);
       }
@@ -1173,12 +1172,9 @@ class EmojiActionsMenuController extends React.PureComponent {
       return;
     }
 
-    // Swallow the synthetic click that follows a slide-to-select release.
-    if (this.slideActivatedUntil && Date.now() < this.slideActivatedUntil) {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
+    // Menu item clicks are always intentional (pointer or keyboard). The
+    // slide synthetic-click swallow is document+anchor scoped only — never
+    // block a fresh item activation here.
 
     const index = Number(event.currentTarget.getAttribute('data-index'));
     const item = this.menuItems()[index];

@@ -355,4 +355,27 @@ describe('attachLongPressGesture', () => {
     expect(onMove).toHaveBeenCalledWith({ clientX: 80, clientY: 90 });
     expect(onRelease).toHaveBeenCalledWith({ clientX: 80, clientY: 90 });
   });
+
+  it('suppresses host click after a pre-fire drag cancel under pointer capture', () => {
+    const click = jest.fn();
+    document.addEventListener('click', click);
+
+    const elsewhere = document.createElement('div');
+    document.body.appendChild(elsewhere);
+
+    dispatchPointer(node, 'pointerdown', { clientX: 10, clientY: 10 });
+    // Move beyond threshold before long-press fires.
+    dispatchPointer(elsewhere, 'pointermove', { clientX: 40, clientY: 40 });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+    expect(onLongPress).not.toHaveBeenCalled();
+
+    dispatchPointer(elsewhere, 'pointerup', { clientX: 40, clientY: 40 });
+    // Captured/cancelled gestures must not insert/react via synthetic click.
+    fireEvent.click(node, { detail: 1 });
+
+    expect(click).not.toHaveBeenCalled();
+    document.removeEventListener('click', click);
+  });
 });

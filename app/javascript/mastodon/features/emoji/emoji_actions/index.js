@@ -13,7 +13,6 @@ export {
 } from './slide_select';
 export {
   navigateAfterPickerClose,
-  MODAL_HISTORY_SETTLE_FALLBACK_MS,
 } from './navigate_after_picker_close';
 export {
   resolveEmojiReference,

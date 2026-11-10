@@ -48,21 +48,23 @@ uses viewport coordinates (`changedTouches` / `clientX/Y`) with
 `elementFromPoint` hit-testing inside `[data-emoji-actions-menu]` — not
 `event.target` on the original cell. Mouse slide uses `setPointerCapture`
 plus a temporary document `pointermove`/`pointerup`/`pointercancel` watch
-so release on a portal menu item still reports coordinates. A valid
-enabled item activates once through the shared item-action path; outside /
+so release on a portal menu item still reports coordinates. A pre-fire
+drag cancel (>12px before 480ms) releases capture and suppresses the
+host’s trailing click so insert/react does not fire. A valid enabled
+item activates once through the shared item-action path; outside /
 disabled / loading / separator leaves the menu open for a follow-up tap.
 Slide candidates can show a temporary highlight class. Re-tap after
 release still works. Post-slide synthetic-click swallow is
-time-bounded and limited to the original host (keyboard `detail === 0`
-and unrelated clicks are never stolen).
+time-bounded and limited to the original host (menu item clicks,
+keyboard `detail === 0`, and unrelated clicks are never blocked).
 
 On **mobile** or **single-column** layout, choosing **Emoji details** from a
 `standard_picker` / `personal_picker` source closes the reaction modal and
-any open picker dropdown, then waits for ModalRoot’s history `POP` (with a
-short fallback) before `history.push`, so detail is not buried under the
-picker and a late POP cannot undo the route. Reaction-source detail,
-desktop multi-column, copy, mute, and category actions do not take that
-close path.
+any open picker dropdown, then waits for ModalRoot’s history `POP` when
+`goBack` actually ran (or pushes after the close flush if `goBack` was
+skipped). A fixed timeout is never treated as POP completion, so a late
+POP cannot undo detail. Reaction-source detail, desktop multi-column,
+copy, mute, and category actions do not take that close path.
 
 P3-A long-press hosts (picker cells, reaction chips, detail preview, and
 their images) set `-webkit-touch-callout: none` / `user-select: none` so

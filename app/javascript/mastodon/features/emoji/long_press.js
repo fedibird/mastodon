@@ -107,6 +107,11 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     if (movedBeyond(event.clientX, event.clientY)) {
       tracking.cancelled = true;
       clearTimer();
+      // Drop capture so a cancelled drag does not keep targeting the host;
+      // still arm click suppress on pointerup (capture may already have
+      // routed the forthcoming click to the original button).
+      releasePointerCaptureIfNeeded();
+      tracking.captured = false;
     }
   };
 
@@ -116,6 +121,7 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     }
 
     const fired = tracking.fired;
+    const cancelled = tracking.cancelled;
     const clientX = event.clientX;
     const clientY = event.clientY;
     clearTracking();
@@ -127,6 +133,17 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
       event.stopPropagation();
       armClickSuppress();
       emitSlideRelease(clientX, clientY);
+      return;
+    }
+
+    if (cancelled) {
+      // Pre-fire drag cancel under pointer capture would otherwise synthesize
+      // a click on the original emoji cell (insert / react).
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
+      armClickSuppress();
     }
   };
 
@@ -281,6 +298,7 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     }
 
     const fired = tracking.fired;
+    const cancelled = tracking.cancelled;
     const id = tracking.id;
     const point = pointFromTouchList(event.changedTouches, id)
       || pointFromTouchList(event.touches, id);
@@ -298,6 +316,15 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
       if (point) {
         emitSlideRelease(point.clientX, point.clientY);
       }
+      return;
+    }
+
+    if (cancelled) {
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
+      armClickSuppress();
     }
   };
 
