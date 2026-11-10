@@ -30,6 +30,7 @@ import {
   hitTestEmojiActionsMenuItem,
   setEmojiActionsSlideHighlight,
 } from 'mastodon/features/emoji/emoji_actions/slide_select';
+import { navigateAfterPickerClose as scheduleNavigateAfterPickerClose } from 'mastodon/features/emoji/emoji_actions/navigate_after_picker_close';
 import { LONG_PRESS_CLICK_SUPPRESS_MS } from 'mastodon/features/emoji/long_press';
 import {
   createMuteAndSync,
@@ -414,6 +415,7 @@ class EmojiActionsMenuController extends React.PureComponent {
 
     this.clearSlideHighlight();
     this.clearSlideClickSwallow();
+    this.cancelPendingDetailNavigation();
     document.removeEventListener(emojiActionsEventName(), this.handleDomEvent);
     document.removeEventListener('contextmenu', this.handleContextMenu, true);
     document.removeEventListener('keydown', this.handleKeyDown, true);
@@ -425,6 +427,11 @@ class EmojiActionsMenuController extends React.PureComponent {
   };
 
   clearSlideClickSwallow = () => {
+    if (this.slideClickSwallowTimer !== null && this.slideClickSwallowTimer !== undefined) {
+      clearTimeout(this.slideClickSwallowTimer);
+      this.slideClickSwallowTimer = null;
+    }
+
     if (this.slideClickSwallow) {
       document.removeEventListener('click', this.slideClickSwallow, true);
       this.slideClickSwallow = null;
@@ -433,15 +440,44 @@ class EmojiActionsMenuController extends React.PureComponent {
 
   armSlideClickSwallow = () => {
     this.clearSlideClickSwallow();
-    this.slideActivatedUntil = Date.now() + LONG_PRESS_CLICK_SUPPRESS_MS;
+    const until = Date.now() + LONG_PRESS_CLICK_SUPPRESS_MS;
+    this.slideActivatedUntil = until;
+    // Only the original long-press host should have its trailing synthetic
+    // click swallowed — never an unrelated button or keyboard activation.
+    const anchor = this.state.element;
 
     this.slideClickSwallow = event => {
+      if (event.detail === 0) {
+        this.clearSlideClickSwallow();
+        return;
+      }
+
+      if (Date.now() >= until) {
+        this.clearSlideClickSwallow();
+        return;
+      }
+
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      const relatedToAnchor = Boolean(anchor) && (
+        event.target === anchor
+        || (typeof anchor.contains === 'function' && anchor.contains(event.target))
+        || path.indexOf(anchor) !== -1
+      );
+
+      if (!relatedToAnchor) {
+        this.clearSlideClickSwallow();
+        return;
+      }
+
       event.preventDefault();
       event.stopPropagation();
       this.clearSlideClickSwallow();
     };
 
     document.addEventListener('click', this.slideClickSwallow, true);
+    this.slideClickSwallowTimer = setTimeout(() => {
+      this.clearSlideClickSwallow();
+    }, LONG_PRESS_CLICK_SUPPRESS_MS);
   };
 
   isSignedIn() {
@@ -473,6 +509,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.slideActivated = false;
     this.clearSlideHighlight();
     this.clearSlideClickSwallow();
+    this.cancelPendingDetailNavigation();
 
     this.setState({
       element,
@@ -510,6 +547,7 @@ class EmojiActionsMenuController extends React.PureComponent {
   handleClose = () => {
     this.slideActivated = false;
     this.clearSlideHighlight();
+    this.clearSlideClickSwallow();
     // Keep module-level pending sync; only clear the visible menu chrome.
     this.setState({
       element: null,
@@ -600,17 +638,18 @@ class EmojiActionsMenuController extends React.PureComponent {
     }
   };
 
-  navigateAfterPickerClose = path => {
-    const push = () => {
-      if (this.context.router && path) {
-        this.context.router.history.push(path);
-      }
-    };
+  cancelPendingDetailNavigation = () => {
+    if (typeof this.cancelDetailNavigation === 'function') {
+      this.cancelDetailNavigation();
+      this.cancelDetailNavigation = null;
+    }
+  };
 
-    // ModalRoot may history.goBack() when REACTION closes; push after that.
-    Promise.resolve().then(() => {
-      setTimeout(push, 0);
-    }).catch(() => {});
+  navigateAfterPickerClose = path => {
+    const history = this.context.router && this.context.router.history;
+
+    this.cancelPendingDetailNavigation();
+    this.cancelDetailNavigation = scheduleNavigateAfterPickerClose(history, path);
   };
 
   activateMenuItem = (item, event = null) => {
@@ -630,6 +669,7 @@ class EmojiActionsMenuController extends React.PureComponent {
 
     if (path && this.context.router) {
       if (closePicker) {
+        // Close first so ModalRoot can schedule goBack; then wait for POP.
         this.closePickerSurfaces();
         this.navigateAfterPickerClose(path);
       } else {

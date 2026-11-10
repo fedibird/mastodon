@@ -331,4 +331,28 @@ describe('attachLongPressGesture', () => {
     expect(onLongPress).not.toHaveBeenCalled();
     expect(onRelease).not.toHaveBeenCalled();
   });
+
+  it('reports slide release when pointerup lands on a different DOM node (menu item)', () => {
+    const onMove = jest.fn();
+    const onRelease = jest.fn();
+    setEmojiActionsSlideListeners({ onMove, onRelease });
+
+    const menuItem = document.createElement('a');
+    menuItem.setAttribute('role', 'button');
+    menuItem.textContent = 'Mute emoji';
+    document.body.appendChild(menuItem);
+
+    dispatchPointer(node, 'pointerdown', { clientX: 10, clientY: 10 });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+
+    // Deliver move/up to the *other* node — element-only listeners would miss these.
+    dispatchPointer(menuItem, 'pointermove', { clientX: 80, clientY: 90 });
+    dispatchPointer(menuItem, 'pointerup', { clientX: 80, clientY: 90 });
+
+    expect(onMove).toHaveBeenCalledWith({ clientX: 80, clientY: 90 });
+    expect(onRelease).toHaveBeenCalledWith({ clientX: 80, clientY: 90 });
+  });
 });

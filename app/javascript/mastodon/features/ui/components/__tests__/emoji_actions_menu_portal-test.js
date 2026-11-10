@@ -702,4 +702,167 @@ describe('emoji actions menu portal host', () => {
 
     document.body.removeChild(anchor);
   });
+
+  it('does not steal an unrelated click or keyboard activation after slide select', async () => {
+    render(
+      <EmojiActionsMenuController
+        intl={intl}
+        signedIn
+        onSyncMutes={jest.fn(() => Promise.resolve())}
+      />,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const other = document.createElement('button');
+    other.textContent = 'Elsewhere';
+    const otherClick = jest.fn();
+    other.addEventListener('click', otherClick);
+    document.body.appendChild(other);
+
+    act(() => {
+      openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+    });
+
+    const muteItem = await screen.findByRole('button', { name: 'Mute emoji' });
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => muteItem;
+
+    act(() => {
+      expect(reportEmojiActionsSlideRelease({ clientX: 40, clientY: 40 })).toBe(true);
+    });
+
+    document.elementFromPoint = original;
+    await waitFor(() => expect(createEmojiMute).toHaveBeenCalledTimes(1));
+
+    // No synthetic click on the emoji cell — an unrelated button must work now.
+    fireEvent.click(other, { detail: 1 });
+    expect(otherClick).toHaveBeenCalledTimes(1);
+
+    const keyboardTarget = document.createElement('button');
+    const keyboardClick = jest.fn();
+    keyboardTarget.addEventListener('click', keyboardClick);
+    document.body.appendChild(keyboardTarget);
+    fireEvent.click(keyboardTarget, { detail: 0 });
+    expect(keyboardClick).toHaveBeenCalledTimes(1);
+
+    document.body.removeChild(anchor);
+    document.body.removeChild(other);
+    document.body.removeChild(keyboardTarget);
+  });
+
+  it('waits for ModalRoot POP before pushing detail (delayed goBack)', async () => {
+    const { createMemoryHistory } = require('history');
+    const ModalRoot = require('mastodon/components/modal_root').default;
+
+    const history = createMemoryHistory({ initialEntries: ['/timelines/home'] });
+    const onCloseReactionModal = jest.fn();
+
+    class RouterHarness extends React.Component {
+
+      static childContextTypes = { router: PropTypes.object };
+
+      getChildContext() {
+        return { router: { history } };
+      }
+
+      render() {
+        return this.props.children;
+      }
+
+    }
+
+    class ReactionModalHost extends React.Component {
+
+      // Start closed so ModalRoot sees children null → present and arms history.
+      state = { open: false };
+
+      componentDidMount() {
+        this.props.registerClose(() => this.setState({ open: false }));
+        this.setState({ open: true });
+      }
+
+      render() {
+        return (
+          <ModalRoot onClose={() => this.setState({ open: false })}>
+            {this.state.open ? <div>Reaction picker</div> : null}
+          </ModalRoot>
+        );
+      }
+
+    }
+
+    let closeHost = null;
+
+    render(
+      <RouterHarness>
+        <ReactionModalHost
+          registerClose={fn => {
+            closeHost = fn;
+          }}
+        />
+        <EmojiActionsMenuController
+          intl={intl}
+          signedIn
+          layout='mobile'
+          onCloseReactionModal={() => {
+            onCloseReactionModal();
+            if (closeHost) {
+              closeHost();
+            }
+          }}
+          onSyncMutes={jest.fn(() => Promise.resolve())}
+        />
+      </RouterHarness>,
+    );
+
+    // Let ModalRoot push its history buffer.
+    await waitFor(() => {
+      expect(history.location.state && history.location.state.mastodonModalKey).toBeTruthy();
+    });
+
+    const modalKey = history.location.state.mastodonModalKey;
+    const realGoBack = history.goBack.bind(history);
+    let pendingPop = null;
+    history.goBack = () => {
+      pendingPop = () => {
+        history.goBack = realGoBack;
+        realGoBack();
+      };
+    };
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const reference = { kind: 'unicode', native: '😀' };
+
+    act(() => {
+      openEmojiActions(reference, { anchor, source: 'standard_picker' });
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Emoji details' }));
+    expect(onCloseReactionModal).toHaveBeenCalledTimes(1);
+
+    // Detail must not push before the delayed POP lands.
+    expect(history.location.pathname).toBe('/timelines/home');
+    expect(history.location.state && history.location.state.mastodonModalKey).toBe(modalKey);
+
+    act(() => {
+      expect(typeof pendingPop).toBe('function');
+      pendingPop();
+    });
+
+    await waitFor(() => {
+      // history may decode the unicode segment in location.pathname
+      expect(decodeURIComponent(history.location.pathname)).toBe(
+        decodeURIComponent(detailPathForReference(reference)),
+      );
+    });
+
+    act(() => {
+      realGoBack();
+    });
+    expect(history.location.pathname).toBe('/timelines/home');
+
+    document.body.removeChild(anchor);
+  });
 });

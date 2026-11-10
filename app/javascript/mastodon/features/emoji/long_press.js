@@ -35,6 +35,7 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
   let timer = null;
   let suppressClickUntil = 0;
   let watchingDocumentTouches = false;
+  let watchingDocumentPointer = false;
 
   const clearTimer = () => {
     if (timer !== null) {
@@ -73,9 +74,97 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     watchingDocumentTouches = true;
   };
 
+  const releasePointerCaptureIfNeeded = () => {
+    if (!tracking || tracking.kind !== 'pointer' || !tracking.captured) {
+      return;
+    }
+
+    if (typeof element.releasePointerCapture !== 'function') {
+      return;
+    }
+
+    try {
+      if (typeof element.hasPointerCapture !== 'function' || element.hasPointerCapture(tracking.id)) {
+        element.releasePointerCapture(tracking.id);
+      }
+    } catch (error) {
+      // Ignore release failures (already released / unsupported).
+    }
+  };
+
+  // Mouse slide-to-select leaves the emoji cell; element-only listeners never
+  // see that pointerup. Capture + temporary document watch cover off-cell release.
+  const onDocumentPointerMove = event => {
+    if (!tracking || tracking.kind !== 'pointer' || event.pointerId !== tracking.id) {
+      return;
+    }
+
+    if (tracking.fired) {
+      emitSlideMove(event.clientX, event.clientY);
+      return;
+    }
+
+    if (movedBeyond(event.clientX, event.clientY)) {
+      tracking.cancelled = true;
+      clearTimer();
+    }
+  };
+
+  const onDocumentPointerUp = event => {
+    if (!tracking || tracking.kind !== 'pointer' || event.pointerId !== tracking.id) {
+      return;
+    }
+
+    const fired = tracking.fired;
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    clearTracking();
+
+    if (fired) {
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
+      armClickSuppress();
+      emitSlideRelease(clientX, clientY);
+    }
+  };
+
+  const onDocumentPointerCancel = event => {
+    if (!tracking || tracking.kind !== 'pointer' || event.pointerId !== tracking.id) {
+      return;
+    }
+
+    clearTracking();
+  };
+
+  const disarmDocumentPointerWatch = () => {
+    if (!watchingDocumentPointer) {
+      return;
+    }
+
+    document.removeEventListener('pointermove', onDocumentPointerMove, true);
+    document.removeEventListener('pointerup', onDocumentPointerUp, true);
+    document.removeEventListener('pointercancel', onDocumentPointerCancel, true);
+    watchingDocumentPointer = false;
+  };
+
+  const armDocumentPointerWatch = () => {
+    if (watchingDocumentPointer) {
+      return;
+    }
+
+    document.addEventListener('pointermove', onDocumentPointerMove, true);
+    document.addEventListener('pointerup', onDocumentPointerUp, true);
+    document.addEventListener('pointercancel', onDocumentPointerCancel, true);
+    watchingDocumentPointer = true;
+  };
+
   const clearTracking = () => {
     clearTimer();
     disarmDocumentMultiTouchWatch();
+    releasePointerCaptureIfNeeded();
+    disarmDocumentPointerWatch();
     tracking = null;
   };
 
@@ -238,52 +327,22 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
       cancelled: false,
       fired: false,
       kind: 'pointer',
+      captured: false,
     };
-    timer = setTimeout(() => fire(event), LONG_PRESS_MS);
-  };
 
-  const onPointerMove = event => {
-    if (!tracking || tracking.kind !== 'pointer' || event.pointerId !== tracking.id) {
-      return;
-    }
-
-    if (tracking.fired) {
-      emitSlideMove(event.clientX, event.clientY);
-      return;
-    }
-
-    if (movedBeyond(event.clientX, event.clientY)) {
-      tracking.cancelled = true;
-      clearTimer();
-    }
-  };
-
-  const onPointerUp = event => {
-    if (!tracking || tracking.kind !== 'pointer' || event.pointerId !== tracking.id) {
-      return;
-    }
-
-    const fired = tracking.fired;
-    const clientX = event.clientX;
-    const clientY = event.clientY;
-    clearTracking();
-
-    if (fired) {
-      if (event.cancelable) {
-        event.preventDefault();
+    // Capture during pointerdown so off-cell move/up still reach us when the
+    // browser supports it; document watch covers environments that do not.
+    if (typeof element.setPointerCapture === 'function') {
+      try {
+        element.setPointerCapture(event.pointerId);
+        tracking.captured = true;
+      } catch (error) {
+        tracking.captured = false;
       }
-      event.stopPropagation();
-      armClickSuppress();
-      emitSlideRelease(clientX, clientY);
-    }
-  };
-
-  const onPointerCancel = event => {
-    if (!tracking || tracking.kind !== 'pointer' || event.pointerId !== tracking.id) {
-      return;
     }
 
-    clearTracking();
+    armDocumentPointerWatch();
+    timer = setTimeout(() => fire(event), LONG_PRESS_MS);
   };
 
   const onClick = event => {
@@ -307,9 +366,6 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
   element.addEventListener('touchend', onTouchEnd, { passive: false });
   element.addEventListener('touchcancel', onTouchCancel, { passive: true });
   element.addEventListener('pointerdown', onPointerDown);
-  element.addEventListener('pointermove', onPointerMove);
-  element.addEventListener('pointerup', onPointerUp);
-  element.addEventListener('pointercancel', onPointerCancel);
   element.addEventListener('click', onClick, true);
 
   return () => {
@@ -320,9 +376,6 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     element.removeEventListener('touchend', onTouchEnd);
     element.removeEventListener('touchcancel', onTouchCancel);
     element.removeEventListener('pointerdown', onPointerDown);
-    element.removeEventListener('pointermove', onPointerMove);
-    element.removeEventListener('pointerup', onPointerUp);
-    element.removeEventListener('pointercancel', onPointerCancel);
     element.removeEventListener('click', onClick, true);
   };
 }
