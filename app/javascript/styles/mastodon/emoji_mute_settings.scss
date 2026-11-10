@@ -1,0 +1,312 @@
+.emoji-mute-settings {
+  --ems-surface: #{lighten($ui-base-color, 4%)};
+  --ems-soft: #{darken($ui-base-color, 1%)};
+  --ems-input: #{darken($ui-base-color, 4%)};
+  --ems-text: #{$primary-text-color};
+  --ems-muted: #{$darker-text-color};
+  --ems-line: #{lighten($ui-base-color, 12%)};
+  --ems-accent: #{$highlight-text-color};
+  --ems-button: #{$ui-highlight-color};
+  --ems-danger: #{$error-red};
+
+  color: var(--ems-text);
+  font-size: 14px;
+  line-height: 1.55;
+  min-width: 0;
+
+  * {
+    box-sizing: border-box;
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+
+  button {
+    cursor: pointer;
+    color: inherit;
+
+    &:disabled {
+      cursor: default;
+      opacity: .45;
+    }
+  }
+
+  button:focus-visible,
+  input:focus-visible {
+    outline: 3px solid var(--ems-accent);
+    outline-offset: 3px;
+  }
+
+  .ems-heading {
+    margin: 0 0 6px;
+    font-size: 18px;
+    font-weight: 500;
+  }
+
+  .ems-subtitle,
+  .ems-hint,
+  .ems-collapsed-note {
+    color: var(--ems-muted);
+    margin: 0 0 8px;
+  }
+
+  .ems-page-head,
+  .ems-rule-head,
+  .ems-rule-foot,
+  .ems-head-actions,
+  .ems-rule-actions {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .ems-button {
+    min-height: 37px;
+    padding: 7px 13px;
+    border-radius: 5px;
+    border: 1px solid var(--ems-line);
+    background: var(--ems-surface);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .ems-primary {
+    background: var(--ems-button);
+    border-color: var(--ems-button);
+    color: $primary-text-color;
+  }
+
+  .ems-danger {
+    color: var(--ems-danger);
+    border-color: rgba($error-red, .45);
+  }
+
+  .ems-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .ems-rule {
+    border: 1px solid var(--ems-line);
+    border-radius: 8px;
+    background: var(--ems-soft);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .ems-rule--dirty {
+    border-color: var(--ems-accent);
+  }
+
+  .ems-identity {
+    font-weight: 500;
+    word-break: break-word;
+  }
+
+  .ems-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--ems-muted);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .ems-dirty {
+    color: var(--ems-accent);
+  }
+
+  .ems-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .ems-field input[type='text'],
+  .ems-field input[type='search'],
+  .ems-search input {
+    width: 100%;
+    min-height: 37px;
+    border-radius: 5px;
+    border: 1px solid var(--ems-line);
+    background: var(--ems-input);
+    color: var(--ems-text);
+    padding: 7px 10px;
+  }
+
+  .ems-effects {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .ems-effects legend {
+    padding: 0;
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+
+  .ems-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .ems-preview,
+  .ems-alert {
+    border-radius: 6px;
+    border: 1px solid var(--ems-line);
+    background: var(--ems-surface);
+    padding: 10px 12px;
+  }
+
+  .ems-preview img,
+  .ems-preview-native {
+    display: block;
+    max-width: 96px;
+    max-height: 96px;
+    font-size: 48px;
+    line-height: 1;
+  }
+
+  .ems-alert {
+    border-color: rgba($error-red, .45);
+  }
+}
+
+.emoji-actions-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: $darker-text-color;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: $highlight-text-color;
+    background: rgba($ui-highlight-color, .12);
+  }
+
+  &:disabled {
+    opacity: .45;
+    cursor: default;
+  }
+}
+
+// P3-A long-press hosts only: suppress iOS/WebKit image callout menus.
+// Do not apply to status media, link previews, or other attachments.
+// Avoid touch-action: none here — that would break picker scrolling.
+.emoji-mart-emoji,
+.emoji-mart-emoji img,
+.emoji-mart-emoji span,
+.emoji-stock-picker .emoji-mart-emoji,
+.emoji-stock-picker__image,
+.emoji-mart-emoji-cell,
+.emoji-mart-emoji-actions,
+.reactions-bar__item,
+.reactions-bar__item__emoji,
+.reactions-bar__item__emoji img,
+.custom-emoji__image,
+.custom-emoji__image img {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.emoji-stock-picker__item {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+}
+
+.emoji-stock-picker__actions {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 18px;
+  min-height: 18px;
+  font-size: 12px;
+  line-height: 1;
+  background: var(--ems-surface, #{$ui-base-color});
+  opacity: .92;
+}
+
+.emoji-standard-picker-with-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.emoji-picker-actions-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 8px 6px;
+}
+
+.emoji-mart-emoji-cell {
+  position: relative;
+}
+
+.emoji-mart-emoji-actions {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  z-index: 2;
+  min-width: 18px;
+  min-height: 18px;
+  font-size: 12px;
+  line-height: 1;
+  background: var(--ems-surface, #{$ui-base-color});
+  opacity: .92;
+}
+
+.emoji-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+
+.emoji-detail-actions .button {
+  margin: 0;
+}
+
+// Dedicated body portal for the shared actions Overlay. Stacks above
+// `.modal-root` (9999) so mobile modal pickers can receive menu taps.
+// `pointer-events: auto` keeps items hittable while `.ui` is none for
+// desktop dropdownMenuIsOpen.
+#emoji-actions-overlay-root {
+  position: relative;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+#emoji-actions-overlay-root .emoji-actions-menu-portal,
+#emoji-actions-overlay-root .dropdown-menu {
+  pointer-events: auto;
+}
+
+// Long-press slide-to-select hover candidate (finger/pointer still down).
+#emoji-actions-overlay-root .emoji-actions-menu__slide-target {
+  background: var(--dropdown-border-color);
+  outline: 0;
+}

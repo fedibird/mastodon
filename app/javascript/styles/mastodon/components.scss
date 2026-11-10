@@ -4322,6 +4322,21 @@ a.account__display-name {
     color: $error-value-color;
   }
 
+  &--disabled {
+    opacity: 0.5;
+
+    a,
+    button {
+      cursor: default;
+
+      &:focus,
+      &:hover,
+      &:active {
+        background: transparent;
+      }
+    }
+  }
+
   a,
   button {
     font: inherit;

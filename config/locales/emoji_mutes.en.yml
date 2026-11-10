@@ -1,0 +1,7 @@
+en:
+  emoji_mutes:
+    title: Muted emoji
+    loading: Loading muted emoji…
+    javascript_required: Enable JavaScript to manage muted emoji.
+  settings:
+    emoji_mutes: Mutes

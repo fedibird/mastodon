@@ -10,6 +10,13 @@ import {
   searchEmojiStock,
   toEmojiPickerCallbackPayload,
 } from './emoji_stock';
+import { openEmojiActions } from './emoji_actions/bus';
+import { datasetFromReference, referenceFromStockItem } from './emoji_actions/reference';
+import { attachLongPressGesture } from './long_press';
+
+const actionMessages = defineMessages({
+  manage: { id: 'emoji_actions.manage', defaultMessage: 'Emoji actions' },
+});
 
 // Enter from an IME reports isComposing, or keyCode 229 on some browsers.
 // Those keys belong to the composition, not to emoji selection.
@@ -91,6 +98,7 @@ class StockEmojiPicker extends React.PureComponent {
     animate: PropTypes.bool,
     theme: PropTypes.oneOf(['light', 'dark', 'auto']),
     selectedCategoryId: PropTypes.string,
+    editMode: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -104,6 +112,7 @@ class StockEmojiPicker extends React.PureComponent {
     autoFocus: false,
     animate: false,
     theme: 'light',
+    editMode: false,
   };
 
   state = {
@@ -113,6 +122,7 @@ class StockEmojiPicker extends React.PureComponent {
   };
 
   buttonRefs = {};
+  longPressCleanups = new Map();
 
   componentDidMount() {
     document.addEventListener('touchstart', this.handleAdditionalTouch, true);
@@ -126,6 +136,8 @@ class StockEmojiPicker extends React.PureComponent {
   componentWillUnmount() {
     document.removeEventListener('touchstart', this.handleAdditionalTouch, true);
     this.touch = null;
+    this.longPressCleanups.forEach(detach => detach());
+    this.longPressCleanups.clear();
   }
 
   componentDidUpdate(prevProps) {
@@ -145,6 +157,8 @@ class StockEmojiPicker extends React.PureComponent {
         this.setState({ selectedCategoryId: this.props.selectedCategoryId });
       }
     }
+
+    this.pruneLongPressHandlers();
   }
 
   setSearchRef = node => {
@@ -162,9 +176,44 @@ class StockEmojiPicker extends React.PureComponent {
 
     const key = node.getAttribute('data-stock-key');
 
-    if (key) {
-      this.buttonRefs[key] = node;
+    if (!key) {
+      return;
     }
+
+    const previous = this.buttonRefs[key];
+
+    if (previous && previous !== node && this.longPressCleanups.has(key)) {
+      this.longPressCleanups.get(key)();
+      this.longPressCleanups.delete(key);
+    }
+
+    this.buttonRefs[key] = node;
+
+    if (!this.longPressCleanups.has(key)) {
+      const detach = attachLongPressGesture(node, {
+        onLongPress: event => {
+          // Do not set a sticky React flag here. Long-press stops the native
+          // touchend (so handleEmojiTouchEnd never runs for that gesture) and
+          // suppresses the following synthetic click. A sticky flag would
+          // survive when React never sees that touchend and would swallow the
+          // next short tap.
+          this.openActionsForStockKey(key, node, event);
+        },
+      });
+      this.longPressCleanups.set(key, detach);
+    }
+  };
+
+  pruneLongPressHandlers = () => {
+    this.longPressCleanups.forEach((detach, key) => {
+      const node = this.buttonRefs[key];
+
+      if (!node || node.isConnected === false) {
+        detach();
+        this.longPressCleanups.delete(key);
+        delete this.buttonRefs[key];
+      }
+    });
   };
 
   setCategoryRef = node => {
@@ -631,11 +680,66 @@ class StockEmojiPicker extends React.PureComponent {
     );
   }
 
+  openActionsForStockKey = (key, anchor, event) => {
+    const item = this.flatItems(this.visibleStock()).find(entry => entry.key === key);
+
+    if (!item) {
+      return;
+    }
+
+    const reference = referenceFromStockItem(item);
+
+    if (!reference) {
+      return;
+    }
+
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    openEmojiActions(reference, {
+      anchor: anchor || null,
+      source: 'personal_picker',
+    });
+  };
+
+  handleItemActionsClick = event => {
+    const key = event.currentTarget.getAttribute('data-stock-key');
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.openActionsForStockKey(key, event.currentTarget, event);
+  };
+
+  handleActionsMouseDown = event => {
+    event.preventDefault();
+  };
+
+  handleActionsTouchStart = event => {
+    event.stopPropagation();
+  };
+
   renderItem(item, emojiSize) {
+    const { intl, editMode } = this.props;
     const image = item.image || {};
     const src = this.imageSource(item);
     const active = item.key === this.state.activeKey;
     const custom = item.selection && item.selection.custom;
+    const reference = referenceFromStockItem(item);
+    const actionDataset = datasetFromReference(reference);
+    const actionProps = {
+      'data-emoji-actions': '1',
+      'data-emoji-source': 'personal_picker',
+    };
+
+    if (actionDataset.emojiKind) actionProps['data-emoji-kind'] = actionDataset.emojiKind;
+    if (actionDataset.emojiNative) actionProps['data-emoji-native'] = actionDataset.emojiNative;
+    if (actionDataset.emojiScope) actionProps['data-emoji-scope'] = actionDataset.emojiScope;
+    if (actionDataset.emojiCustomEmojiId) actionProps['data-emoji-custom-emoji-id'] = actionDataset.emojiCustomEmojiId;
+    if (actionDataset.emojiDomain) actionProps['data-emoji-domain'] = actionDataset.emojiDomain;
+    if (actionDataset.emojiShortcode) actionProps['data-emoji-shortcode'] = actionDataset.emojiShortcode;
+
     let imageWidth = emojiSize;
 
     // Reserve known aspect ratios before loading; older stock without metadata
@@ -647,11 +751,12 @@ class StockEmojiPicker extends React.PureComponent {
     }
 
     return (
-      <li key={item.key}>
+      <li key={item.key} className={classNames('emoji-stock-picker__item', { 'emoji-stock-picker__item--editing': editMode })}>
         <button
           type='button'
           className='emoji-mart-emoji'
           data-stock-key={item.key}
+          {...actionProps}
           aria-label={item.label}
           title={image.title || item.label}
           aria-current={active ? 'true' : undefined}
@@ -678,6 +783,20 @@ class StockEmojiPicker extends React.PureComponent {
             <span>{item.label}</span>
           )}
         </button>
+        {editMode && reference && (
+          <button
+            type='button'
+            className='emoji-actions-trigger emoji-stock-picker__actions'
+            data-stock-key={item.key}
+            aria-label={intl.formatMessage(actionMessages.manage)}
+            title={intl.formatMessage(actionMessages.manage)}
+            onClick={this.handleItemActionsClick}
+            onMouseDown={this.handleActionsMouseDown}
+            onTouchStart={this.handleActionsTouchStart}
+          >
+            ⋯
+          </button>
+        )}
       </li>
     );
   }

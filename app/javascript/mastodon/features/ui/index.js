@@ -40,6 +40,7 @@ import { WrappedSwitch, WrappedRoute } from './util/react_router_helpers';
 import UploadArea from './components/upload_area';
 import AppearancePreferences from './components/appearance_preferences';
 import HashtagMenuController from './components/hashtag_menu_controller';
+import EmojiActionsMenuController from './components/emoji_actions_menu_controller';
 import ColumnsAreaContainer from './containers/columns_area_container';
 import DocumentTitle from './components/document_title';
 import PictureInPicture from 'mastodon/features/picture_in_picture';
@@ -278,6 +279,7 @@ class SwitchingColumnsArea extends React.PureComponent {
           <WrappedRoute path='/mixes' exact component={Mixes} content={children} />
           <WrappedRoute path='/circles' component={Circles} content={children} />
           <WrappedRoute path='/scheduled_statuses' component={ScheduledStatuses} content={children} />
+          <WrappedRoute path='/emoji_detail/unicode/:native' component={EmojiDetail} content={children} />
           <WrappedRoute path='/emoji_detail/:shortcode_with_domain' component={EmojiDetail} content={children} />
 
           <WrappedRoute path='/empty' component={EmptyColumn} content={children} />
@@ -752,6 +754,8 @@ class UI extends React.PureComponent {
           <UploadArea active={draggingOver} onClose={this.closeUploadModal} />
           <DocumentTitle />
         </div>
+        {/* Outside `.ui`: desktop pickers set dropdownMenuIsOpen → pointer-events:none on `.ui`. */}
+        <EmojiActionsMenuController />
       </HotKeys>
     );
   }
