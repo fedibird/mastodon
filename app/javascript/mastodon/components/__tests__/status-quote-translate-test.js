@@ -79,7 +79,7 @@ jest.mock('mastodon/components/media_gallery', () => () => null);
 jest.mock('mastodon/features/video', () => () => null);
 jest.mock('mastodon/features/audio', () => () => null);
 
-import Status from '../status';
+import Status, { mapStateToProps } from '../status';
 import DetailedStatus from '../../features/status/components/detailed_status';
 
 const store = createStore(() => fromJS({
@@ -231,5 +231,11 @@ describe.each([
     expect(screen.getByRole('button', { name: 'Original' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Translated' })).toBeTruthy();
     expect(document.querySelector('.quote-status .status__translation-controls')).toBeTruthy();
+  });
+});
+
+describe('Status Redux state mapping', () => {
+  it('returns plain props while a status is temporarily null', () => {
+    expect(mapStateToProps(store.getState(), { status: null })).toEqual({ quote_muted: false });
   });
 });
