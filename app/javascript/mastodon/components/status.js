@@ -47,11 +47,11 @@ const domParser = new DOMParser();
 // to use the progress bar to show download progress
 import Bundle from '../features/ui/components/bundle';
 
-const mapStateToProps = (state, props) => {
+export const mapStateToProps = (state, props) => {
   let status = props.status;
 
   if (status === null) {
-    return null;
+    return { quote_muted: false };
   }
 
   if (status.get('reblog', null) !== null && typeof status.get('reblog') === 'object') {
