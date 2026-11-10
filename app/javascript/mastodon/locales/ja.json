@@ -1455,5 +1455,11 @@
   "emoji_actions.copy_success": "コピーしました",
   "emoji_actions.copy_failed": "コピーできませんでした",
   "emoji_actions.react_same": "同一リアクションする",
-  "emoji_actions.react_remove": "このリアクションを取り消す"
+  "emoji_actions.react_remove": "このリアクションを取り消す",
+  "account_context.boost": "このブーストの前後の投稿を見る",
+  "account_context.quote": "この引用の前後の投稿を見る",
+  "account_context.reference": "この参照の前後の投稿を見る",
+  "compose_form.more_actions": "その他の操作",
+  "notification.admin.sign_up": "{name}さんが登録しました",
+  "timeline.reading_bookmarks": "閲覧位置のしおり"
 }

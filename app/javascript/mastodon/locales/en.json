@@ -1453,5 +1453,11 @@
   "emoji_actions.copy_success": "Copied",
   "emoji_actions.copy_failed": "Could not copy",
   "emoji_actions.react_same": "React with this emoji",
-  "emoji_actions.react_remove": "Remove this reaction"
+  "emoji_actions.react_remove": "Remove this reaction",
+  "account_context.boost": "See posts around this boost",
+  "account_context.quote": "See posts around this quote",
+  "account_context.reference": "See posts around this reference",
+  "compose_form.more_actions": "More actions",
+  "notification.admin.sign_up": "{name} signed up",
+  "timeline.reading_bookmarks": "Reading bookmarks"
 }

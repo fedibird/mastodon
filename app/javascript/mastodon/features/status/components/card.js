@@ -88,12 +88,23 @@ export default class Card extends React.PureComponent {
     revealed: !this.props.sensitive,
   };
 
-  componentWillReceiveProps (nextProps) {
-    if (!Immutable.is(this.props.card, nextProps.card)) {
-      this.setState({ embedded: false, previewLoaded: false });
-    }
-    if (this.props.sensitive !== nextProps.sensitive) {
-      this.setState({ revealed: !nextProps.sensitive });
+  componentDidUpdate (prevProps) {
+    const cardChanged = !Immutable.is(prevProps.card, this.props.card);
+    const sensitiveChanged = prevProps.sensitive !== this.props.sensitive;
+
+    if (cardChanged || sensitiveChanged) {
+      const nextState = {};
+
+      if (cardChanged) {
+        nextState.embedded = false;
+        nextState.previewLoaded = false;
+      }
+
+      if (sensitiveChanged) {
+        nextState.revealed = !this.props.sensitive;
+      }
+
+      this.setState(nextState);
     }
   }
 
@@ -236,22 +247,17 @@ export default class Card extends React.PureComponent {
     );
 
     let embed  = '';
-    let canvas = card.get('thumbhash') ?
-      (<Thumbhash
-        hash={card.get('thumbhash')}
-        className={classnames('status-card__image-preview', {
-          'status-card__image-preview--hidden': revealed && this.state.previewLoaded,
-        })}
-        dummy={!useBlurhash}
-      />)
-      :
-      (<Blurhash
-        hash={card.get('blurhash')}
-        className={classnames('status-card__image-preview', {
-          'status-card__image-preview--hidden': revealed && this.state.previewLoaded,
-        })}
-        dummy={!useBlurhash}
-      />);
+    const previewClassName = classnames('status-card__image-preview', {
+      'status-card__image-preview--hidden': revealed && this.state.previewLoaded,
+    });
+    let canvas = null;
+
+    if (card.get('thumbhash')) {
+      canvas = <Thumbhash hash={card.get('thumbhash')} className={previewClassName} dummy={!useBlurhash} />;
+    } else if (card.get('blurhash')) {
+      canvas = <Blurhash hash={card.get('blurhash')} className={previewClassName} dummy={!useBlurhash} />;
+    }
+
     let thumbnail = <img src={card.get('image')} alt='' style={{ width: horizontal ? width : null, height: horizontal ? height : null, visibility: revealed ? null : 'hidden' }} onLoad={this.handleImageLoad} className='status-card__image-image' />;
     let spoilerButton = (
       <button type='button' onClick={this.handleReveal} className='spoiler-button__overlay'>

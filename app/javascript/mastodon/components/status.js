@@ -47,11 +47,11 @@ const domParser = new DOMParser();
 // to use the progress bar to show download progress
 import Bundle from '../features/ui/components/bundle';
 
-const mapStateToProps = (state, props) => {
+export const mapStateToProps = (state, props) => {
   let status = props.status;
 
   if (status === null) {
-    return null;
+    return { quote_muted: false };
   }
 
   if (status.get('reblog', null) !== null && typeof status.get('reblog') === 'object') {
@@ -787,6 +787,25 @@ class Status extends ImmutablePureComponent {
     const quoteText = quote && (quote.get('hidden') && quote.get('spoiler_text')
       ? quote.get('spoiler_text') : plainHtmlText(quote.get('contentHtml')));
 
+    let quotePreview = null;
+    if (quote) {
+      if (hiddenQuote) {
+        quotePreview = <FormattedMessage id='status.muted_quote' defaultMessage='Muted quote' />;
+      } else if (unlistedQuote) {
+        quotePreview = <FormattedMessage id='status.unlisted_quote' defaultMessage='Unlisted quote' />;
+      } else {
+        quotePreview = (
+          <>
+            {quote.get('account') && <div className='timeline-card__quote-author'>
+              <Avatar account={quote.get('account')} size={18} />
+              <DisplayName account={quote.get('account')} />
+            </div>}
+            <p className='timeline-card__quote-text'>{quoteText}</p>
+          </>
+        );
+      }
+    }
+
     const quoteBody = contentVisible && quote ? (
       <div
         className='timeline-card__quote'
@@ -795,16 +814,7 @@ class Status extends ImmutablePureComponent {
         role='button'
         tabIndex='0'
       >
-        {hiddenQuote ? <FormattedMessage id='status.muted_quote' defaultMessage='Muted quote' /> :
-          unlistedQuote ? <FormattedMessage id='status.unlisted_quote' defaultMessage='Unlisted quote' /> : (
-            <>
-              {quote.get('account') && <div className='timeline-card__quote-author'>
-                <Avatar account={quote.get('account')} size={18} />
-                <DisplayName account={quote.get('account')} />
-              </div>}
-              <p className='timeline-card__quote-text'>{quoteText}</p>
-            </>
-          )}
+        {quotePreview}
       </div>
     ) : null;
 
@@ -1004,9 +1014,16 @@ class Status extends ImmutablePureComponent {
         ? <Blurhash className='timeline-media-tile__blurhash' hash={hash} />
         : <Thumbhash className='timeline-media-tile__blurhash' hash={thumbnailHash} />;
     } else {
+      let placeholderIcon = 'file-o';
+      if (concealed) {
+        placeholderIcon = 'eye-slash';
+      } else if (attachment.get('type') === 'audio') {
+        placeholderIcon = 'music';
+      }
+
       mediaTileContent = (
         <span className='timeline-media-tile__placeholder'>
-          <Icon id={concealed ? 'eye-slash' : attachment.get('type') === 'audio' ? 'music' : 'file-o'} />
+          <Icon id={placeholderIcon} />
         </span>
       );
     }
