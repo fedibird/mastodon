@@ -22,7 +22,8 @@ export function preloadPersonalEmojiStockIfNeeded(lazyLoadStandard = emojiPicker
     return Promise.resolve(null);
   }
 
-  return loadPersonalEmojiStock().catch(() => null);
+  // Capture both synchronous API setup errors and rejected network requests.
+  return Promise.resolve().then(() => loadPersonalEmojiStock()).catch(() => null);
 }
 
 // Non-lazy mode prepares both the standard module and the user's small,
