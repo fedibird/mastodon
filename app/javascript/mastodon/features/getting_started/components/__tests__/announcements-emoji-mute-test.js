@@ -9,6 +9,7 @@ import { createStore } from 'redux';
 
 import { EMOJI_MUTES_APPLY } from 'mastodon/actions/emoji_mutes';
 import { normalizeAnnouncement } from 'mastodon/actions/importer/normalizer';
+import emojify from 'mastodon/features/emoji/emoji';
 import { emojiMuteTextParseCount, resetEmojiMuteTextForTests } from 'mastodon/features/emoji/emoji_mute_text';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
 
@@ -23,7 +24,17 @@ jest.mock('react-intl', () => {
   const intl = {
     locale: 'en',
     formatDate: () => 'Jan 1',
-    formatMessage: ({ defaultMessage }) => defaultMessage,
+    formatMessage: ({ defaultMessage }, values) => {
+      let message = defaultMessage || '';
+
+      if (values) {
+        Object.keys(values).forEach(key => {
+          message = message.replace(`{${key}}`, values[key] === undefined || values[key] === null ? '' : String(values[key]));
+        });
+      }
+
+      return message;
+    },
     now: () => Date.now(),
   };
 
@@ -39,6 +50,10 @@ import Announcements from '../announcements';
 
 const localImg = (id, shortcode = 'blob') => (
   `<img draggable="false" class="emojione custom-emoji" alt=":${shortcode}:" title="${shortcode}" src="https://cdn.example/${id}.svg" data-shortcode="${shortcode}" data-domain="" data-original="https://cdn.example/${id}.svg" data-static="https://cdn.example/${id}.png" data-emoji-id="${id}">`
+);
+
+const remoteImg = (domain, shortcode = 'blob') => (
+  `<img draggable="false" class="emojione custom-emoji" alt=":${shortcode}:" title="${shortcode}" src="https://cdn.example/${domain}/${shortcode}.svg" data-shortcode="${shortcode}" data-domain="${domain}" data-original="https://cdn.example/${domain}/${shortcode}.svg" data-static="https://cdn.example/${domain}/${shortcode}.png">`
 );
 
 const rule = (emoji, replacement = '［絵文字］', effects = {}) => ({
@@ -209,5 +224,99 @@ describe('announcement replace_in_text', () => {
 
     expect(container.querySelector('.announcements__item__content [data-emoji-id="10"]')).not.toBeNull();
     expect(container.querySelector('.reactions-bar').textContent).toContain('2');
+  });
+
+  it('does not put a muted emoji url back into the link title', () => {
+    const html = `<p><a class="custom-emoji-url-link" href="https://example.test/emoji/blob" data-shortcode="blob" title=":blob:">${localImg('10')}</a><a class="custom-emoji-url-link" href="https://a.test/emoji/blob" data-shortcode="blob" data-domain="a.test" title=":blob:">${remoteImg('a.test')}${remoteImg('b.test', 'other')}</a><a class="custom-emoji-url-link" href="https://b.test/emoji/kept" data-shortcode="kept" data-domain="b.test" title=":kept:">${remoteImg('b.test', 'kept')}</a> <a href="https://example.test/@ada">@ada</a> <a href="https://example.test/tags/fedibird">#fedibird</a> <a href="https://example.test/statuses/s1">post</a> <a href="https://example.test/outside">outside</a></p>`;
+    const record = announcement(html);
+    const store = makeStore();
+    const history = { push: jest.fn() };
+    const { container } = render(
+      <Provider store={store}>
+        <RouterStub router={{ history }}>
+          <Announcements
+            announcements={fromJS([record])}
+            emojiMap={fromJS({})}
+            dismissAnnouncement={jest.fn()}
+            addReaction={jest.fn()}
+            removeReaction={jest.fn()}
+          />
+        </RouterStub>
+      </Provider>,
+    );
+    const body = () => container.querySelector('.announcements__item__content');
+    const emojiLink = (href) => body().querySelector(`a[href="${href}"]`);
+
+    expect(emojiLink('https://example.test/emoji/blob').getAttribute('title')).toBe('Link to :@blob:');
+    expect(emojiLink('https://b.test/emoji/kept').getAttribute('title')).toBe('Link to :@kept: in @b.test');
+
+    apply(store, [
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[local]'),
+      rule({ kind: 'custom', scope: 'remote', domain: 'a.test', shortcode: 'blob' }, '[remote]'),
+    ]);
+
+    const mutedLocal = emojiLink('https://example.test/emoji/blob');
+    const mixed = emojiLink('https://a.test/emoji/blob');
+    const kept = emojiLink('https://b.test/emoji/kept');
+
+    expect(mutedLocal.getAttribute('href')).toBe('https://example.test/emoji/blob');
+    expect(mutedLocal.getAttribute('title')).toBe('[local]');
+    expect(mutedLocal.getAttribute('title')).not.toContain('example.test/emoji/blob');
+    expect(mutedLocal.querySelector('img')).toBeNull();
+    expect(mutedLocal.innerHTML).not.toContain('cdn.example/10');
+    expect(mixed.getAttribute('href')).toBe('https://a.test/emoji/blob');
+    expect(mixed.getAttribute('title')).not.toContain('a.test/emoji/blob');
+    expect(mixed.getAttribute('title')).not.toContain(':blob:');
+    expect(mixed.querySelector('[data-domain="a.test"]')).toBeNull();
+    expect(mixed.querySelector('[data-domain="b.test"][data-shortcode="other"]')).not.toBeNull();
+    expect(kept.getAttribute('title')).toBe('Link to :@kept: in @b.test');
+    expect(kept.querySelector('[data-domain="b.test"]')).not.toBeNull();
+    expect(emojiLink('https://example.test/outside').getAttribute('title')).toBe('https://example.test/outside');
+    expect(container.querySelector('.reactions-bar').textContent).toContain('2');
+    expect(record.get('contentHtml')).toBe(html);
+
+    fireEvent.mouseEnter(body());
+
+    expect(mutedLocal.querySelector('img')).toBeNull();
+    expect(mutedLocal.getAttribute('title')).toBe('[local]');
+
+    fireEvent.click(emojiLink('https://example.test/@ada'));
+    fireEvent.click(emojiLink('https://example.test/tags/fedibird'));
+    fireEvent.click(emojiLink('https://example.test/statuses/s1'));
+
+    expect(history.push).toHaveBeenNthCalledWith(1, '/accounts/a1');
+    expect(history.push).toHaveBeenNthCalledWith(2, '/timelines/tag/fedibird');
+    expect(history.push).toHaveBeenNthCalledWith(3, '/statuses/s1');
+
+    apply(store, [], '4');
+
+    expect(emojiLink('https://example.test/emoji/blob').querySelector('[data-emoji-id="10"]')).not.toBeNull();
+    expect(emojiLink('https://example.test/emoji/blob').getAttribute('title')).toBe('Link to :@blob:');
+    expect(emojiLink('https://a.test/emoji/blob').querySelector('[data-domain="a.test"]')).not.toBeNull();
+    expect(emojiLink('https://a.test/emoji/blob').getAttribute('title')).toBe('Link to :@blob: in @a.test');
+  });
+
+  it('records each announcement emoji row domain', () => {
+    const normalized = normalizeAnnouncement({
+      id: 'an1',
+      content: '<p>Hello :localblob: :remotea: :blob:</p>',
+      emojis: [
+        { id: '10', shortcode: 'localblob', domain: null, url: 'https://cdn.example/10.svg', static_url: 'https://cdn.example/10.png' },
+        { id: '20', shortcode: 'remotea', domain: 'a.test', url: 'https://cdn.example/a.svg', static_url: 'https://cdn.example/a.png' },
+        { id: '19', shortcode: 'blob', domain: 'a.test', url: 'https://cdn.example/a-blob.svg', static_url: 'https://cdn.example/a-blob.png' },
+        { id: '22', shortcode: 'blob', domain: 'b.test', url: 'https://cdn.example/b-blob.svg', static_url: 'https://cdn.example/b-blob.png' },
+      ],
+    });
+    const authorHtml = emojify('<p>:blob:</p>', {
+      ':blob:': { id: '7', shortcode: 'blob', domain: 'row.test', url: 'https://cdn.example/7.svg', static_url: 'https://cdn.example/7.png' },
+    }, 'author.test');
+
+    expect(normalized.content).toBe('<p>Hello :localblob: :remotea: :blob:</p>');
+    expect(normalized.contentHtml).toContain('data-emoji-id="10"');
+    expect(normalized.contentHtml).toContain('data-domain="a.test"');
+    expect(normalized.contentHtml).toContain('data-domain="b.test"');
+    expect(normalized.contentHtml).not.toContain('data-emoji-id="22"');
+    expect(authorHtml).toContain('data-domain="author.test"');
+    expect(authorHtml).not.toContain('data-domain="row.test"');
   });
 });

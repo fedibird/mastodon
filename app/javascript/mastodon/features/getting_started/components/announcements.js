@@ -7,7 +7,7 @@ import IconButton from 'mastodon/components/icon_button';
 import Icon from 'mastodon/components/icon';
 import { textNeedsCustomEmojiCatalog } from 'mastodon/features/emoji/custom_emoji_demand';
 import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
-import { replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
+import { linkTargetEmojiRemains, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { defineMessages, injectIntl, FormattedMessage, FormattedDate } from 'react-intl';
 import { autoPlayEmoji, reduceMotion, disableSwiping } from 'mastodon/initial_state';
 import { reduceMotionNow, watchReduceMotion } from 'mastodon/utils/appearance_preferences';
@@ -22,6 +22,8 @@ import spring from 'react-motion/lib/spring';
 import { assetHost } from 'mastodon/utils/config';
 
 const messages = defineMessages({
+  linkToCustomEmojiInLocal: { id: 'status.link_to_custom_emoji_in_local', defaultMessage: 'Link to :@{shortcode}:' },
+  linkToCustomEmojiInRemote: { id: 'status.link_to_custom_emoji_in_remote', defaultMessage: 'Link to :@{shortcode}: in @{domain}' },
   close: { id: 'lightbox.close', defaultMessage: 'Close' },
   previous: { id: 'lightbox.previous', defaultMessage: 'Previous' },
   next: { id: 'lightbox.next', defaultMessage: 'Next' },
@@ -36,6 +38,7 @@ const dateFormatOptions = {
   minute: '2-digit',
 };
 
+@injectIntl
 class Content extends ImmutablePureComponent {
 
   static contextTypes = {
@@ -44,6 +47,7 @@ class Content extends ImmutablePureComponent {
 
   static propTypes = {
     announcement: ImmutablePropTypes.map.isRequired,
+    intl: PropTypes.object.isRequired,
     emojiMuteTextIndex: PropTypes.object,
   };
 
@@ -86,6 +90,18 @@ class Content extends ImmutablePureComponent {
           link.addEventListener('click', this.onMentionClick.bind(this, mention), false);
         }
         link.setAttribute('title', mention.get('acct'));
+      } else if (link.classList.contains('custom-emoji-url-link') && link.dataset.shortcode) {
+        // A muted emoji link already has a plain-text title. Do not put the
+        // href, shortcode, or domain back into the tooltip.
+        if (linkTargetEmojiRemains(link)) {
+          if (link.dataset.domain) {
+            link.setAttribute('title', this.props.intl.formatMessage(messages.linkToCustomEmojiInRemote, { shortcode: link.dataset.shortcode, domain: link.dataset.domain }));
+          } else {
+            link.setAttribute('title', this.props.intl.formatMessage(messages.linkToCustomEmojiInLocal, { shortcode: link.dataset.shortcode }));
+          }
+        } else {
+          retainMutedEmojiLinkLabel(link);
+        }
       } else if (link.textContent[0] === '#' || (link.previousSibling && link.previousSibling.textContent && link.previousSibling.textContent[link.previousSibling.textContent.length - 1] === '#')) {
         link.addEventListener('click', this.onHashtagClick.bind(this, link.text), false);
       } else {
