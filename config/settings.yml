@@ -205,6 +205,8 @@ defaults: &defaults
   disable_auto_focus_to_emoji_search: false
   # Personal set first. Off shows the standard picker when a picker opens.
   emoji_picker_prefer_personal: false
+  # Skip personal-set stock loading and hide its picker without deleting saved sets.
+  emoji_picker_disable_personal: false
   # On skips both standard module and personal stock preloading until opened.
   # Off may preload both at page load without changing the visible mode.
   # A saved change applies on the next full page load and does not unload a
