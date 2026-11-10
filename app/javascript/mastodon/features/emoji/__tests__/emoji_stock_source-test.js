@@ -39,6 +39,41 @@ describe('personal emoji stock source', () => {
     jest.dontMock('mastodon/initial_state_data');
   });
 
+  it('does not read storage markers, fetch stock, or subscribe when disabled', async () => {
+    const storageRead = jest.spyOn(Storage.prototype, 'getItem');
+
+    try {
+      jest.resetModules();
+      jest.doMock('mastodon/initial_state_data', () => ({
+        __esModule: true,
+        default: { meta: { access_token: 'test-token', me: 'account-1', picker_emoji_size: 22, emoji_picker_disable_personal: true } },
+      }));
+      const disabledSource = require('../emoji_stock_source');
+      const stockListener = jest.fn();
+      const sizeListener = jest.fn();
+
+      expect(storageRead).not.toHaveBeenCalled();
+      expect(disabledSource.getCachedPersonalEmojiStock()).toBeNull();
+      const stopStock = disabledSource.subscribePersonalEmojiStock(stockListener);
+      const stopSize = disabledSource.subscribePickerEmojiSize(sizeListener);
+
+      await expect(disabledSource.loadPersonalEmojiStock()).resolves.toEqual({ status: 'ready', stock: { categories: [] } });
+      disabledSource.notifySavedPersonalEmojiSet(documentFor(1));
+      window.dispatchEvent(new StorageEvent('storage', { key: 'mastodon:personal-emoji-set:account-1', newValue: 'changed' }));
+      stopStock();
+      stopSize();
+
+      expect(disabledSource.getCachedPersonalEmojiStock()).toBeNull();
+      expect(disabledSource.getPickerEmojiSize()).toBe(22);
+      expect(get).not.toHaveBeenCalled();
+      expect(storageRead).not.toHaveBeenCalled();
+      expect(stockListener).not.toHaveBeenCalled();
+      expect(sizeListener).not.toHaveBeenCalled();
+    } finally {
+      storageRead.mockRestore();
+    }
+  });
+
   it('requests only registered stock and revalidates with an ETag on each open', async () => {
     const document = documentFor(1);
 

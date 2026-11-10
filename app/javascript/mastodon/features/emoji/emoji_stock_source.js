@@ -36,6 +36,7 @@ export function getCachedPersonalEmojiStock() {
   if (personalStockDisabled) {
     return null;
   }
+
   // A different tab may have saved while no picker was mounted, and therefore
   // while the storage listener was detached. Never paint that stale cache.
   if (changeMarker() !== lastChange) {
