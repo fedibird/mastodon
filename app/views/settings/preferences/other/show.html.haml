@@ -209,8 +209,9 @@
   .fields-group
     = f.input :setting_emoji_picker_disable_personal, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
 
-  .fields-group
-    = f.input :setting_emoji_picker_prefer_personal, as: :boolean, wrapper: :with_label, fedibird_features: true
+  - unless current_user.setting_emoji_picker_disable_personal
+    .fields-group
+      = f.input :setting_emoji_picker_prefer_personal, as: :boolean, wrapper: :with_label, fedibird_features: true
 
   .fields-group
     = f.input :setting_emoji_picker_lazy_load_standard, as: :boolean, wrapper: :with_label, fedibird_features: true

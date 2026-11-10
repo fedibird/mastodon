@@ -26,6 +26,25 @@ describe Settings::Preferences::OtherController do
       expect(user.chosen_languages).to eq ['es', 'fr']
     end
 
+    it 'persists disabling and re-enabling personal emoji sets without deleting picker preferences' do
+      put :update, params: {
+        user: {
+          setting_emoji_picker_disable_personal: '1',
+          setting_emoji_picker_prefer_personal: '1',
+        },
+      }
+
+      expect(response).to redirect_to(settings_preferences_other_path)
+      expect(user.reload.setting_emoji_picker_disable_personal).to be true
+      expect(user.setting_emoji_picker_prefer_personal).to be true
+
+      put :update, params: { user: { setting_emoji_picker_disable_personal: '0' } }
+
+      expect(response).to redirect_to(settings_preferences_other_path)
+      expect(user.reload.setting_emoji_picker_disable_personal).to be false
+      expect(user.setting_emoji_picker_prefer_personal).to be true
+    end
+
     it 'updates user settings' do
       user.settings['boost_modal'] = false
       user.settings['delete_modal'] = true
