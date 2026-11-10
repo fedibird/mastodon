@@ -43,7 +43,9 @@ describe('personal emoji stock source', () => {
     const document = documentFor(1);
 
     get.mockResolvedValueOnce({ status: 200, data: document, headers: { etag: 'resolved-v1' } });
+    expect(source.getCachedPersonalEmojiStock()).toBeNull();
     expect(await source.loadPersonalEmojiStock()).toEqual({ status: 'ready', stock: document.stock });
+    expect(source.getCachedPersonalEmojiStock()).toEqual({ status: 'ready', stock: document.stock });
     expect(get).toHaveBeenCalledWith('/api/v1/emoji_sets/personal/stock', expect.objectContaining({
       headers: { Authorization: 'Bearer test-token' },
     }));
@@ -100,6 +102,7 @@ describe('personal emoji stock source', () => {
     expect(changed).not.toHaveBeenCalled();
     window.dispatchEvent(new StorageEvent('storage', { key: 'mastodon:personal-emoji-set:account-1', newValue: 'untrusted-marker' }));
     expect(changed).toHaveBeenCalledWith(null);
+    expect(source.getCachedPersonalEmojiStock()).toBeNull();
     await source.loadPersonalEmojiStock();
     expect(sizeChanged).toHaveBeenCalledWith(40);
     expect(get).toHaveBeenCalledTimes(1);
