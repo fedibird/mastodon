@@ -386,6 +386,34 @@ const cardPresentation = (card) => {
 
 const canonicalLink = (value) => String(readValue(value, 'url') || readValue(value, 'uri') || '');
 
+// The derived HTML is valid only for the emoji rows that produced it. A
+// reused shortcode with a new id, or a new image URL, is a different
+// presentation even when the status text and updated_at are unchanged.
+const emojiPresentation = (emojis) => {
+  if (!emojis || typeof emojis.forEach !== 'function') {
+    return '';
+  }
+
+  const entries = [];
+
+  emojis.forEach(item => {
+    if (!item) {
+      return;
+    }
+
+    const field = (key) => {
+      const value = readValue(item, key);
+
+      return value === null || value === undefined ? '' : String(value);
+    };
+
+    entries.push([field('id'), field('shortcode'), field('domain'), field('url'), field('static_url')].join('\u0000'));
+  });
+
+  entries.sort();
+  return entries.join('\n');
+};
+
 // Body, links, and media can arrive twice with one updated_at: the POST
 // response, then the timeline payload. Refresh the derived HTML when those
 // differ. Counter-only refreshes stay on the fast path.
@@ -406,6 +434,10 @@ const presentationChanged = (oldStatus, incoming) => {
   }
 
   if (mediaPresentation(oldStatus.get('media_attachments')) !== mediaPresentation(incoming.media_attachments)) {
+    return true;
+  }
+
+  if (emojiPresentation(oldStatus.get('emojis')) !== emojiPresentation(incoming.emojis)) {
     return true;
   }
 

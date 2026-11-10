@@ -242,4 +242,63 @@ describe('StatusContent replace_in_text', () => {
     expect(status.get('contentHtml')).toContain('cdn.example/blob.svg');
     expect(status.getIn(['translation', 'contentHtml'])).toContain('cdn.example/blob.svg');
   });
+
+  it('matches a boosted post and its translation to the author domain', () => {
+    const remote = {
+      id: '99',
+      shortcode: 'blob',
+      url: 'https://original.example/blob.svg',
+      static_url: 'https://original.example/blob.png',
+      domain: 'original.example',
+    };
+    const authorHtml = emojify('<p>Hello :blob:</p>', { ':blob:': remote }, 'original.example');
+    const authorTranslation = emojify('<p>こんにちは :blob:</p>', { ':blob:': remote }, 'original.example');
+    const authorMute = muteRule({
+      emoji: { kind: 'custom', scope: 'remote', domain: 'original.example', shortcode: 'blob' },
+      replacement: '[author]',
+    });
+    const boosterMute = muteRule({
+      id: 'm9',
+      emoji: { kind: 'custom', scope: 'remote', domain: 'other.example', shortcode: 'blob' },
+      replacement: '[booster]',
+    });
+    const localMute = muteRule({
+      id: 'm8',
+      emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '99', shortcode: 'blob' },
+      replacement: '[local]',
+    });
+    const statusFor = mode => buildStatus({
+      contentHtml: authorHtml,
+      emojis: [remote],
+      ...(mode === 'original' ? {} : {
+        translationMode: mode,
+        translation: {
+          contentHtml: authorTranslation,
+          spoilerHtml: '',
+          language: 'ja',
+          detected_source_language: 'en',
+          provider: 'test',
+        },
+      }),
+    });
+
+    const original = renderStatus(statusFor('original'), [authorMute]);
+    const translated = renderStatus(statusFor('translated'), [authorMute]);
+    const bilingual = renderStatus(statusFor('bilingual'), [authorMute]);
+    const wrongDomain = renderStatus(statusFor('bilingual'), [boosterMute]);
+    const localId = renderStatus(statusFor('translated'), [localMute]);
+
+    expect(original.container.querySelector('.status__content__text').textContent).toBe('Hello [author]');
+    expect(translated.container.querySelector('.status__content__text').textContent).toBe('こんにちは [author]');
+    expect(bilingual.container.querySelector('.status-translation-pair__source').textContent).toBe('Hello [author]');
+    expect(bilingual.container.querySelector('.status-translation-pair__target').textContent).toBe('こんにちは [author]');
+    expect(original.container.querySelector('img')).toBeNull();
+    expect(translated.container.querySelector('img')).toBeNull();
+    expect(bilingual.container.querySelector('img')).toBeNull();
+    expect(wrongDomain.container.querySelectorAll('img.custom-emoji')).toHaveLength(2);
+    expect(wrongDomain.container.textContent).not.toContain('[booster]');
+    expect(localId.container.querySelector('img.custom-emoji').getAttribute('data-domain')).toBe('original.example');
+    expect(localId.container.textContent).not.toContain('[local]');
+    expect(authorHtml).not.toContain('data-emoji-id');
+  });
 });

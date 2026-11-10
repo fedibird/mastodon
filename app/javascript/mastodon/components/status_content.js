@@ -552,7 +552,7 @@ class StatusContent extends React.PureComponent {
     const targetSpoilerHtml = translated.getIn(['translation', 'spoilerHtml']);
     // Mute replacement is a view of the stored HTML. Hashtag badges stay on
     // the original string, and the status record is not rewritten.
-    const presentHtml = html => replaceEmojiInDisplayHtml(html, status.get('emojis'), this.props.emojiMuteTextIndex);
+    const presentHtml = html => replaceEmojiInDisplayHtml(html, this.props.emojiMuteTextIndex);
     const displaySourceHtml = presentHtml(sourceBodyHtml);
     const displayTargetHtml = presentHtml(targetBodyHtml);
     const displaySourceSpoilerHtml = presentHtml(sourceSpoilerHtml);

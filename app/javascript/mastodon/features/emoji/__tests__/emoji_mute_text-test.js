@@ -48,7 +48,7 @@ const img = ({ alt, src = '/emoji/x.svg', extra = '', custom = false }) => (
   `<img draggable="false" class="emojione${custom ? ' custom-emoji' : ''}" alt="${alt}" title=":name:" src="${src}"${extra}>`
 );
 
-const show = (html, emojis, rules) => replaceEmojiInDisplayHtml(html, emojis, buildReplaceInTextIndex(rules));
+const show = (html, rules) => replaceEmojiInDisplayHtml(html, buildReplaceInTextIndex(rules));
 
 const textOf = html => {
   const template = document.createElement('template');
@@ -63,7 +63,7 @@ describe('replace_in_text display transform', () => {
 
   it('replaces a whole unicode sequence and leaves a different sequence', () => {
     const html = `<p>${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })}${img({ alt: THUMBS_LIGHT, src: '/emoji/1f44d-1f3fb.svg' })}${img({ alt: FAMILY, src: '/emoji/family.svg' })}</p>`;
-    const result = show(html, [], [unicodeRule(THUMBS_LIGHT, '[skin]'), unicodeRule(FAMILY, '[family]')]);
+    const result = show(html, [unicodeRule(THUMBS_LIGHT, '[skin]'), unicodeRule(FAMILY, '[family]')]);
     const template = document.createElement('template');
     template.innerHTML = result;
 
@@ -79,7 +79,7 @@ describe('replace_in_text display transform', () => {
 
   it('treats variation selectors as different emoji', () => {
     const html = `<p>${img({ alt: EXCLAMATION, src: '/emoji/2757.svg' })}${img({ alt: DOUBLE_EXCLAMATION, src: '/emoji/203c.svg' })}</p>`;
-    const result = show(html, [], [unicodeRule(EXCLAMATION, '[one]')]);
+    const result = show(html, [unicodeRule(EXCLAMATION, '[one]')]);
 
     const template = document.createElement('template');
     template.innerHTML = result;
@@ -93,7 +93,7 @@ describe('replace_in_text display transform', () => {
 
   it('removes the picture wrapper so srcset and alt do not remain', () => {
     const html = `<picture><source media="(prefers-color-scheme: dark)" srcset="/emoji/dark.svg"><img class="emojione" alt="${THUMBS}" title=":thumbsup:" src="/emoji/light.svg"></picture>`;
-    const result = show(html, [], [unicodeRule(THUMBS, 'x')]);
+    const result = show(html, [unicodeRule(THUMBS, 'x')]);
 
     expect(result).toBe('x');
     expect(result).not.toContain('src');
@@ -101,32 +101,40 @@ describe('replace_in_text display transform', () => {
     expect(result).not.toContain('title');
   });
 
-  it('replaces a local custom emoji only when the stable id matches', () => {
+  it('replaces a local custom emoji only from the id stored on the image', () => {
     const current = localEmoji('10');
     const html = emojify('<p>Hi :blob: there</p>', { ':blob:': current }, '');
-    const matched = show(html, [current], [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]')]);
-    const reused = show(html, [localEmoji('11')], [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' })]);
-    const missingId = show(html, [{ shortcode: 'blob', url: current.url, static_url: current.static_url }], [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' })]);
+    const withoutId = emojify('<p>Hi :blob: there</p>', {
+      ':blob:': { shortcode: 'blob', url: current.url, static_url: current.static_url },
+    }, '');
+    const mute10 = [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]')];
+    const mute11 = [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[new]')];
+    const matched = show(html, mute10);
+    const otherRow = show(html, mute11);
 
+    expect(html).toContain('data-emoji-id="10"');
     expect(textOf(matched)).toBe('Hi [blob] there');
     expect(matched).not.toContain('cdn.example');
-    expect(matched).not.toContain('data-shortcode');
+    expect(matched).not.toContain('data-emoji-id');
     expect(matched).not.toContain('alt=');
-    expect(reused).toBe(html);
-    expect(missingId).toBe(html);
-    expect(reused).toContain('cdn.example/10.svg');
+    expect(otherRow).toBe(html);
+    expect(withoutId).not.toContain('data-emoji-id');
+    expect(show(withoutId, mute10)).toBe(withoutId);
   });
 
-  it('does not treat two local ids that share a shortcode as one emoji', () => {
+  it('keeps an older generated image on its own id when the shortcode is reused', () => {
     const html = emojify('<p>:blob:</p>', { ':blob:': localEmoji('10') }, '');
-    const result = show(html, [localEmoji('10'), localEmoji('11')], [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' })]);
+    const mute10 = [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[old]')];
+    const mute11 = [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[new]')];
 
-    expect(result).toBe(html);
+    expect(textOf(show(html, mute10))).toBe('[old]');
+    expect(show(html, mute11)).toBe(html);
+    expect(html).toContain('cdn.example/10.svg');
   });
 
   it('keeps a literal shortcode when the emoji was not rendered', () => {
     const html = '<p>Say :blob: plainly</p>';
-    const result = show(html, [], [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' })]);
+    const result = show(html, [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' })]);
 
     expect(result).toBe(html);
   });
@@ -137,10 +145,11 @@ describe('replace_in_text display transform', () => {
     const otherDomain = emojify('<p>:blob:</p>', { ':blob:': { ...remote, url: 'https://other.example/blob.svg' } }, 'other.example');
     const mute = [rule({ kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' }, '[remote]')];
 
-    const matched = show(html, [remote], mute);
-    const wrongDomain = show(otherDomain, [remote], mute);
-    const localOnly = show(html, [localEmoji('10')], [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' })]);
+    const matched = show(html, mute);
+    const wrongDomain = show(otherDomain, mute);
+    const localOnly = show(html, [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '99', shortcode: 'blob' })]);
 
+    expect(html).not.toContain('data-emoji-id');
     expect(textOf(matched)).toBe('[remote]');
     expect(matched).not.toContain('remote.example/blob');
     expect(wrongDomain).toBe(otherDomain);
@@ -149,11 +158,11 @@ describe('replace_in_text display transform', () => {
 
   it('escapes replacement text and does not emojify it again', () => {
     const html = `<p>A ${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })} B</p>`;
-    const nasty = show(html, [], [unicodeRule(THUMBS, '<img src=x onerror=alert(1)>&')]);
-    const emojiText = show(html, [], [unicodeRule(THUMBS, `${THUMBS}<script>alert(1)</script>`)]);
-    const empty = show(html, [], [unicodeRule(THUMBS, '')]);
+    const nasty = show(html, [unicodeRule(THUMBS, '<img src=x onerror=alert(1)>&')]);
+    const emojiText = show(html, [unicodeRule(THUMBS, `${THUMBS}<script>alert(1)</script>`)]);
+    const empty = show(html, [unicodeRule(THUMBS, '')]);
     const specialText = 'a&b<c>"\'';
-    const special = show(html, [], [unicodeRule(THUMBS, specialText)]);
+    const special = show(html, [unicodeRule(THUMBS, specialText)]);
 
     expect(nasty).not.toMatch(/<img/i);
     expect(nasty).not.toMatch(/<script/i);
@@ -170,7 +179,7 @@ describe('replace_in_text display transform', () => {
 
   it('leaves html unchanged when replace_in_text is false', () => {
     const html = `<p>${img({ alt: THUMBS })} <a href="https://example.test/@alice" class="mention">@alice</a></p>`;
-    const result = show(html, [], [unicodeRule(THUMBS, '[x]', { replace_in_text: false, hide_reactions: true })]);
+    const result = show(html, [unicodeRule(THUMBS, '[x]', { replace_in_text: false, hide_reactions: true })]);
 
     expect(result).toBe(html);
     expect(emojiMuteTextParseCount()).toBe(0);
@@ -178,7 +187,7 @@ describe('replace_in_text display transform', () => {
 
   it('keeps links and hashtags around a replaced emoji', () => {
     const html = `<p>${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })} <a href="https://example.test/@alice" class="mention">@alice</a> <a href="https://example.test/tags/fedibird" class="mention hashtag">#fedibird</a></p>`;
-    const result = show(html, [], [unicodeRule(THUMBS, '[ok]')]);
+    const result = show(html, [unicodeRule(THUMBS, '[ok]')]);
     const template = document.createElement('template');
     template.innerHTML = result;
 
@@ -188,24 +197,20 @@ describe('replace_in_text display transform', () => {
     expect(template.content.querySelector('img')).toBeNull();
   });
 
-  it('memoizes by html, emoji identity, and the replace rules', () => {
-    const emoji = localEmoji('10');
-    const html = emojify('<p>:blob:</p>', { ':blob:': emoji }, '');
+  it('memoizes by the generated html and the replace rules', () => {
+    const html = emojify('<p>:blob:</p>', { ':blob:': localEmoji('10') }, '');
     const mute = buildReplaceInTextIndex([rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]')]);
     const otherId = buildReplaceInTextIndex([rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[other]')]);
 
-    const first = replaceEmojiInDisplayHtml(html, [emoji], mute);
-    const second = replaceEmojiInDisplayHtml(html, [emoji], mute);
+    const first = replaceEmojiInDisplayHtml(html, mute);
+    const second = replaceEmojiInDisplayHtml(html, mute);
     expect(emojiMuteTextParseCount()).toBe(1);
     expect(second).toBe(first);
 
-    const renamed = replaceEmojiInDisplayHtml(html, [localEmoji('11')], mute);
-    expect(renamed).toBe(html);
-    expect(emojiMuteTextParseCount()).toBe(2);
-
-    const cleared = replaceEmojiInDisplayHtml(html, [emoji], otherId);
+    const cleared = replaceEmojiInDisplayHtml(html, otherId);
     expect(cleared).toBe(html);
     expect(first).toContain('[blob]');
+    expect(emojiMuteTextParseCount()).toBe(2);
   });
 
   it('reuses one index object when replace_in_text did not change', () => {
@@ -246,8 +251,8 @@ describe('replace_in_text display transform', () => {
       rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]'),
       unicodeRule('👌', '[ok]'),
     ]);
-    const shown = replaceEmojiInDisplayHtml(second.contentHtml, second.emojis, index);
-    const shownSpoiler = replaceEmojiInDisplayHtml(second.spoilerHtml, second.emojis, index);
+    const shown = replaceEmojiInDisplayHtml(second.contentHtml, index);
+    const shownSpoiler = replaceEmojiInDisplayHtml(second.spoilerHtml, index);
     const translation = normalizeStatusTranslation({
       content: '<p>Bonjour :blob:</p>',
       spoiler_text: 'Alerte :blob:',
@@ -255,7 +260,7 @@ describe('replace_in_text display transform', () => {
       language: 'fr',
       provider: 'test',
     }, fromJS(second), '');
-    const shownTranslation = replaceEmojiInDisplayHtml(translation.contentHtml, second.emojis, index);
+    const shownTranslation = replaceEmojiInDisplayHtml(translation.contentHtml, index);
 
     expect(second.contentHtml).toBe(first.contentHtml);
     expect(second.spoilerHtml).toBe(first.spoilerHtml);
@@ -280,6 +285,55 @@ describe('replace_in_text display transform', () => {
 
     expect(state.getIn(['s1', 'contentHtml'])).toBe(first.contentHtml);
     expect(state.getIn(['s1', 'spoilerHtml'])).toBe(first.spoilerHtml);
+    expect(first.contentHtml).toContain('data-emoji-id="10"');
+  });
+
+  it('rebuilds html when the same shortcode is a new local emoji and does not cross the ids', () => {
+    const base = {
+      id: '1',
+      account: { id: 'a', acct: 'alice' },
+      content: '<p>Hello :blob:</p>',
+      spoiler_text: 'CW :blob:',
+      media_attachments: [],
+      mentions: [],
+      tags: [],
+      visibility: 'public',
+      sensitive: false,
+      language: 'en',
+      url: 'https://example.test/1',
+      uri: 'https://example.test/1',
+      updated_at: '2026-11-10T00:00:00.000Z',
+      quote: null,
+    };
+    const first = normalizeStatus({ ...base, emojis: [localEmoji('10')] }, null, '');
+    const stored = fromJS(first).set('translation', fromJS({
+      contentHtml: first.contentHtml,
+      spoilerHtml: first.spoilerHtml,
+      spoiler_text: '',
+      language: 'ja',
+    }));
+    const second = normalizeStatus({ ...base, emojis: [localEmoji('11')] }, stored, '');
+    const third = normalizeStatus({ ...base, emojis: [localEmoji('11')] }, fromJS(second), '');
+    const mute10 = buildReplaceInTextIndex([rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[old]')]);
+    const mute11 = buildReplaceInTextIndex([rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[new]')]);
+    const keptTranslation = second.translation.get('contentHtml');
+
+    expect(second.contentHtml).not.toBe(first.contentHtml);
+    expect(second.contentHtml).toContain('data-emoji-id="11"');
+    expect(second.contentHtml).not.toContain('data-emoji-id="10"');
+    expect(second.spoilerHtml).toContain('data-emoji-id="11"');
+    expect(second.shortHtml).toContain('data-emoji-id="11"');
+    expect(third.contentHtml).toBe(second.contentHtml);
+    expect(third.spoilerHtml).toBe(second.spoilerHtml);
+    expect(keptTranslation).toBe(first.contentHtml);
+
+    expect(replaceEmojiInDisplayHtml(first.contentHtml, mute11)).toBe(first.contentHtml);
+    expect(replaceEmojiInDisplayHtml(first.contentHtml, mute10)).not.toContain('cdn.example/10');
+    expect(replaceEmojiInDisplayHtml(second.contentHtml, mute10)).toBe(second.contentHtml);
+    expect(replaceEmojiInDisplayHtml(second.contentHtml, mute11)).not.toContain('cdn.example/11');
+    expect(replaceEmojiInDisplayHtml(second.spoilerHtml, mute10)).toBe(second.spoilerHtml);
+    expect(replaceEmojiInDisplayHtml(keptTranslation, mute11)).toBe(keptTranslation);
+    expect(replaceEmojiInDisplayHtml(keptTranslation, mute10)).not.toContain('data-emoji-id="10"');
   });
 
   it('looks up many rules without scanning them into unrelated emoji', () => {
@@ -291,7 +345,7 @@ describe('replace_in_text display transform', () => {
 
     rules.push(unicodeRule(THUMBS, '[ok]'));
     const html = `<p>${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })}${img({ alt: FAMILY, src: '/emoji/family.svg' })}</p>`;
-    const result = show(html, [], rules);
+    const result = show(html, rules);
 
     const template = document.createElement('template');
     template.innerHTML = result;

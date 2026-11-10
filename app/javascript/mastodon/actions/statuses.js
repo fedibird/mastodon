@@ -794,8 +794,22 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
 
     const currentState = getState();
     const current = currentState.getIn(['statuses', id]);
-    const acct = current ? currentState.getIn(['accounts', current.get('account'), 'acct'], '') : '';
-    const domain = acct.split('@')[1] || '';
+    const contentId = contentStatus && contentStatus.get('id');
+    // Personal boosts are requested as the wrapper, but the emoji in the
+    // text belong to the boosted status. A wrapper domain would tag the
+    // translation images as the booster's emoji.
+    const emojiStatus = (contentId && currentState.getIn(['statuses', contentId])) || contentStatus || current;
+    const account = emojiStatus && emojiStatus.get('account');
+    let accountId = account;
+
+    if (account && typeof account.get === 'function') {
+      accountId = account.get('id');
+    } else if (account && typeof account === 'object') {
+      accountId = account.id;
+    }
+
+    const acct = accountId ? currentState.getIn(['accounts', accountId, 'acct'], '') : '';
+    const domain = typeof acct === 'string' ? (acct.split('@')[1] || '') : '';
     const translation = {
       ...response.data,
       requested_source_language: viewerPair.source,

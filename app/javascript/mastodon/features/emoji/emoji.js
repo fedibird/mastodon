@@ -91,6 +91,18 @@ const emojifyTextNode = (node, customEmojis, domain) => {
       replacement.setAttribute('data-domain', domain);
       replacement.setAttribute('data-original', custom_emoji.url);
       replacement.setAttribute('data-static', custom_emoji.static_url);
+
+      // Local mute identity is the row id at the moment this HTML is built.
+      // A later row that reuses the shortcode must not be read back from the
+      // current emoji list. Remote images keep domain + shortcode only; their
+      // cache id is not an identity.
+      const emojiDomain = custom_emoji.domain;
+      const localEmoji = (emojiDomain === null || emojiDomain === undefined || emojiDomain === '') && !domain;
+      const emojiId = custom_emoji.id;
+
+      if (localEmoji && emojiId !== null && emojiId !== undefined && emojiId !== '') {
+        replacement.setAttribute('data-emoji-id', String(emojiId));
+      }
     } else { // start of an unicode emoji
       rend = i + unicode_emoji.length;
 
