@@ -625,9 +625,22 @@ const translationField = (translation, key) => {
   return typeof translation.get === 'function' ? translation.get(key) : translation[key];
 };
 
-// Rebuild translated HTML for a new emoji generation. Returns null when the
-// translation has no stored source, in which case the caller must drop it
-// instead of painting the previous image under the new id.
+const renderTranslationEmoji = (content, spoilerText, emojis, domain) => {
+  const emojiMap = makeEmojiMap({ emojis: emojis || [] });
+
+  return {
+    content: content || '',
+    spoiler_text: spoilerText || '',
+    contentHtml: applyEmojiPresentation(emojify(content || '', emojiMap, domain)),
+    spoilerHtml: emojify(escapeTextContentForBrowser(spoilerText || ''), emojiMap, domain),
+  };
+};
+
+// Rebuild translated HTML for a new emoji generation. The stored content and
+// spoiler are already in display shape, including a CW-only move done on the
+// first pass, so this does not run that move again. Returns null when the
+// translation has no stored source; the caller then drops it instead of
+// painting the previous image under the new id.
 export function rebuildTranslationEmoji(translation, emojis, domain = '') {
   const content = translationField(translation, 'content');
 
@@ -636,28 +649,24 @@ export function rebuildTranslationEmoji(translation, emojis, domain = '') {
   }
 
   const spoilerText = translationField(translation, 'spoiler_text');
-  const status = {
-    get(key) {
-      if (key === 'emojis') {
-        return { toJS: () => emojis || [] };
-      }
-
-      if (key === 'spoiler_text') {
-        return '';
-      }
-
-      return undefined;
-    },
-  };
-  const rebuilt = normalizeStatusTranslation({
-    content,
-    spoiler_text: typeof spoilerText === 'string' ? spoilerText : '',
+  const rendered = renderTranslationEmoji(content, typeof spoilerText === 'string' ? spoilerText : '', emojis, domain);
+  const rebuilt = {
     detected_source_language: translationField(translation, 'detected_source_language'),
     language: translationField(translation, 'language'),
     provider: translationField(translation, 'provider'),
-    requested_source_language: translationField(translation, 'requested_source_language'),
-    requested_target_language: translationField(translation, 'requested_target_language'),
-  }, status, domain);
+    ...rendered,
+  };
+  const requestedSource = translationField(translation, 'requested_source_language');
+  const requestedTarget = translationField(translation, 'requested_target_language');
+
+  if (typeof requestedSource === 'string') {
+    rebuilt.requested_source_language = requestedSource;
+  }
+
+  if (typeof requestedTarget === 'string') {
+    rebuilt.requested_target_language = requestedTarget;
+  }
+
   const media = translationField(translation, 'media_attachments');
 
   if (media) {
@@ -860,7 +869,6 @@ export function normalizeStatus(status, normalOldStatus, domain, previousPoll, o
 
 export function normalizeStatusTranslation(translation, status, domain = '') {
   const emojis = status.get('emojis');
-  const emojiMap = makeEmojiMap({ emojis: emojis ? emojis.toJS() : [] });
   let content = translation.content;
   let spoilerText = translation.spoiler_text;
 
@@ -872,16 +880,14 @@ export function normalizeStatusTranslation(translation, status, domain = '') {
     spoilerText = '';
   }
 
+  const rendered = renderTranslationEmoji(content, spoilerText, emojis ? emojis.toJS() : [], domain);
   const normalized = {
     detected_source_language: translation.detected_source_language,
     language: translation.language,
     provider: translation.provider,
     // The source passed to emojify, kept so a later emoji row can rebuild
     // the images without rewriting an older HTML string.
-    content: content || '',
-    contentHtml: applyEmojiPresentation(emojify(content, emojiMap, domain)),
-    spoilerHtml: emojify(escapeTextContentForBrowser(spoilerText), emojiMap, domain),
-    spoiler_text: spoilerText,
+    ...rendered,
   };
 
   if (typeof translation.requested_source_language === 'string') {
