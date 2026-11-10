@@ -1372,5 +1372,11 @@
   "personal_emoji_sets.tone_medium_light": "Medium light",
   "personal_emoji_sets.tone_medium": "Medium",
   "personal_emoji_sets.tone_medium_dark": "Medium dark",
-  "personal_emoji_sets.tone_dark": "Dark"
+  "personal_emoji_sets.tone_dark": "Dark",
+  "account_context.boost": "See posts around this boost",
+  "account_context.quote": "See posts around this quote",
+  "account_context.reference": "See posts around this reference",
+  "compose_form.more_actions": "More actions",
+  "notification.admin.sign_up": "{name} signed up",
+  "timeline.reading_bookmarks": "Reading bookmarks"
 }
