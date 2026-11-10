@@ -63,7 +63,8 @@
 
   .fields-group
     = f.input :setting_content_emoji_reaction_size, as: :range, input_html: { min: 10, max: 48, list: 'emoji_reaction_size_label' }, wrapper: :with_label, false: true, fedibird_features: true
-    %p.hint= link_to t('personal_emoji_sets.appearance_link'), settings_custom_emojis_personal_set_path
+    - unless current_user.setting_emoji_picker_disable_personal
+      %p.hint= link_to t('personal_emoji_sets.appearance_link'), settings_custom_emojis_personal_set_path
 
   %h4= t 'appearance.advanced_web_interface'
 

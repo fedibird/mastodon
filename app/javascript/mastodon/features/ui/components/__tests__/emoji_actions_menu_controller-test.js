@@ -138,6 +138,35 @@ describe('buildEmojiActionMenuItems', () => {
     expect(items.some(item => item && item.text === 'Add to Favorites')).toBe(true);
   });
 
+  it('does not offer personal category additions when personal sets are disabled', () => {
+    const items = buildEmojiActionMenuItems({
+      intl,
+      reference: { kind: 'unicode', native: '😀' },
+      resolved: {
+        reference: { kind: 'unicode', native: '😀' },
+        actions: {
+          add_to_personal_category: { allowed: true },
+          mute: { allowed: true },
+        },
+      },
+      mute: null,
+      categories: [{ id: 'favorites', name: 'Favorites', items: [] }],
+      personalEnabled: false,
+      status: 'ready',
+      error: null,
+      busy: false,
+      onMute: jest.fn(),
+      onUnmute: jest.fn(),
+      onAddToCategory: jest.fn(),
+      onRetry: jest.fn(),
+    });
+
+    expect(items.some(item => item && item.text === 'Add to Favorites')).toBe(false);
+    expect(items.some(item => item && item.text === 'No personal categories yet')).toBe(false);
+    expect(items.some(item => item && item.text === 'Mute emoji')).toBe(true);
+    expect(items.some(item => item && item.text === 'Emoji details')).toBe(true);
+  });
+
   it('hides category append for remote emoji when resolve denies it', () => {
     const items = buildEmojiActionMenuItems({
       intl,

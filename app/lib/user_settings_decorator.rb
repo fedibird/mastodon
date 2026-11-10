@@ -139,6 +139,7 @@ class UserSettingsDecorator
     enable_status_polling_intersection
     disable_auto_focus_to_emoji_search
     emoji_picker_prefer_personal
+    emoji_picker_disable_personal
     emoji_picker_lazy_load_standard
     show_composer_posting_style_selector
   ).freeze

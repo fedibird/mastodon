@@ -84,6 +84,7 @@ ja:
         setting_disable_account_delete: 一時的な迷いでアカウント削除することを防ぎます
         setting_disable_auto_focus_to_emoji_search: オートコンプリート候補が出て邪魔をするケースに対応するため、絵文字ピッカーの検索欄へのオートフォーカスを無効にします
         setting_emoji_picker_prefer_personal: 絵文字ピッカーを個人セットから開きます。個人セットが空でも、標準ピッカーへは自動では切り替わりません。反映には再読み込みが必要です。
+        setting_emoji_picker_disable_personal: 標準ピッカーのみを使用し、個人セットの事前読み込み・API取得・検索用データの準備を行いません。登録した個人セットは削除されません。反映にはページの再読み込みが必要です。
         setting_emoji_picker_lazy_load_standard: 標準ピッカーの専用データは、標準ピッカーを開くまで読み込みません。オフにすると次のページ読み込みで先読みしますが、表示中のモードは変わりません。すでに読み込んだデータは、設定を保存しても未取得には戻りません。
         setting_disable_block: 誤ってブロックすることを防ぎます
         setting_disable_clear_all_notifications: 通知の全消去を防ぎます
@@ -352,6 +353,7 @@ ja:
         setting_disable_account_delete: アカウント削除を無効にする
         setting_disable_auto_focus_to_emoji_search: 絵文字ピッカーの検索欄へのオートフォーカスを無効にする
         setting_emoji_picker_prefer_personal: 個人セットを優先する
+        setting_emoji_picker_disable_personal: 絵文字ピッカーの個人セットを無効にする
         setting_emoji_picker_lazy_load_standard: 標準ピッカーを必要になるまでロードしない
         setting_disable_block: ブロックを無効にする
         setting_disable_clear_all_notifications: 通知の全消去を無効にする

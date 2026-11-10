@@ -1,5 +1,5 @@
 import { loadPersonalEmojiStock } from '../emoji_stock_source';
-import { preloadEmojiPickersIfNeeded } from '../emoji_picker_preferences';
+import { emojiPickerInitialMode, preloadEmojiPickersIfNeeded } from '../emoji_picker_preferences';
 import { loadStandardEmojiPicker } from '../standard_emoji_loader';
 
 jest.mock('../emoji_stock_source', () => ({
@@ -40,6 +40,21 @@ describe('emoji picker startup preload', () => {
     expect(calls).toEqual(['standard', 'personal']);
     expect(loadStandardEmojiPicker).toHaveBeenCalledTimes(1);
     expect(loadPersonalEmojiStock).toHaveBeenCalledTimes(1);
+  });
+
+  it('forces standard mode and skips personal stock when disabled', async () => {
+    loadStandardEmojiPicker.mockResolvedValue({ Picker: () => null, Emoji: () => null });
+
+    expect(emojiPickerInitialMode(true, true)).toBe('standard');
+    expect(emojiPickerInitialMode(false, true)).toBe('standard');
+    expect(emojiPickerInitialMode(true, false)).toBe('personal');
+
+    await expect(preloadEmojiPickersIfNeeded(false, true)).resolves.toEqual([
+      { Picker: expect.any(Function), Emoji: expect.any(Function) },
+      null,
+    ]);
+    expect(loadStandardEmojiPicker).toHaveBeenCalledTimes(1);
+    expect(loadPersonalEmojiStock).not.toHaveBeenCalled();
   });
 
   it('does not reject startup when either preload fails', async () => {

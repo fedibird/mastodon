@@ -88,6 +88,7 @@ en:
         setting_disable_account_delete: Restrict account deletion due to temporary hesitation
         setting_disable_auto_focus_to_emoji_search: Disable autofocus on the search field of the emoji picker to deal with cases where autocomplete candidates appear and interfere with the search
         setting_emoji_picker_prefer_personal: Open the emoji picker on your personal set. An empty personal set stays empty until you switch to the standard picker. Applies on the next reload.
+        setting_emoji_picker_disable_personal: Use only the standard emoji picker. Skip personal-set preload, network requests, and search preparation. Saved personal sets are not deleted. Takes effect after a full reload.
         setting_emoji_picker_lazy_load_standard: Wait to load the standard emoji picker until you open it. Turning this off preloads that picker on the next page load without changing which mode is showing. Saving this does not unload a picker that has already been loaded.
         setting_disable_block: Restricts you from accidentally blocking
         setting_disable_clear_all_notifications: Restrict clearing all notifications
@@ -356,6 +357,7 @@ en:
         setting_disable_account_delete: Disable account delete
         setting_disable_auto_focus_to_emoji_search: Disable autofocus on the search field in the emoji picker
         setting_emoji_picker_prefer_personal: Prefer the personal emoji set
+        setting_emoji_picker_disable_personal: Disable personal emoji sets in the picker
         setting_emoji_picker_lazy_load_standard: Load the standard emoji picker only when needed
         setting_disable_block: Disable block
         setting_disable_clear_all_notifications: Disable clear all notifications
