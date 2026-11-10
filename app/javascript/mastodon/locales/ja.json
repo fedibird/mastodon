@@ -1374,5 +1374,11 @@
   "personal_emoji_sets.tone_medium_light": "やや明るい",
   "personal_emoji_sets.tone_medium": "中間",
   "personal_emoji_sets.tone_medium_dark": "やや暗い",
-  "personal_emoji_sets.tone_dark": "暗い"
+  "personal_emoji_sets.tone_dark": "暗い",
+  "account_context.boost": "このブーストの前後の投稿を見る",
+  "account_context.quote": "この引用の前後の投稿を見る",
+  "account_context.reference": "この参照の前後の投稿を見る",
+  "compose_form.more_actions": "その他の操作",
+  "notification.admin.sign_up": "{name}さんが登録しました",
+  "timeline.reading_bookmarks": "閲覧位置のしおり"
 }
