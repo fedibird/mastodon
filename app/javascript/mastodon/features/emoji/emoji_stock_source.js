@@ -1,6 +1,6 @@
 import api from 'mastodon/api';
 import initialState from 'mastodon/initial_state_data';
-import { emptyEmojiStock } from './emoji_stock';
+import { emptyEmojiStock, prepareEmojiStock } from './emoji_stock';
 
 const endpoint = '/api/v1/emoji_sets/personal/stock';
 const me = initialState?.meta?.me;
@@ -27,6 +27,12 @@ function changeMarker() {
 let lastChange = changeMarker();
 
 const ready = document => ({ status: 'ready', stock: document.stock });
+
+// A warm stock is safe to paint immediately. Callers still revalidate with
+// ETag in the background and never persist private stock to browser storage.
+export function getCachedPersonalEmojiStock() {
+  return cachedDocument ? ready(cachedDocument) : null;
+}
 
 function currentResult() {
   if (cachedDocument) {
@@ -91,6 +97,7 @@ export function loadPersonalEmojiStock() {
 
     if (response.status !== 304) {
       cachedDocument = validateDocument(response.data);
+      prepareEmojiStock(cachedDocument.stock);
       etag = response.headers?.etag || null;
     }
 
@@ -195,6 +202,7 @@ export function notifySavedPersonalEmojiSet(document) {
   request = null;
   latestRequest = null;
   cachedDocument = saved;
+  prepareEmojiStock(saved.stock);
   etag = null;
   applySize(saved.picker_emoji_size);
   stockListeners.forEach(listener => listener(ready(saved)));
