@@ -69,6 +69,7 @@ jest.mock('../absolute_timestamp', () => () => <span>time</span>);
 jest.mock('../relative_timestamp', () => () => <span>time</span>);
 jest.mock('../icon', () => () => null);
 jest.mock('mastodon/components/icon', () => () => null);
+jest.mock('mastodon/components/thumbhash', () => () => null);
 jest.mock('mastodon/components/emoji_reactions_bar', () => () => null);
 jest.mock('mastodon/components/picture_in_picture_placeholder', () => () => null);
 jest.mock('../../features/ui/components/bundle', () => () => null);
