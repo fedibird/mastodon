@@ -236,6 +236,86 @@ const sameEmojiIdentity = (left, right) => {
   return left.shortcode !== '' && left.shortcode === right.shortcode && left.domain === right.domain;
 };
 
+const UNPROVEN_LOCAL_MUTE = 'data-emoji-mute-unproven';
+
+// A local custom-emoji link usually has no row id. Another image that only
+// shares the shortcode is not proof that the muted row is still on screen.
+const noteUnprovenLocalTarget = (link, identity) => {
+  if (!link || !identity.emojiId || identity.domain || !identity.shortcode) {
+    return;
+  }
+
+  const target = linkIdentity(link);
+
+  if (target.emojiId || target.domain || target.shortcode !== identity.shortcode) {
+    return;
+  }
+
+  link.setAttribute(UNPROVEN_LOCAL_MUTE, '1');
+};
+
+const codePointBefore = (value, index) => {
+  if (index <= 0) {
+    return undefined;
+  }
+
+  return value.codePointAt(index - (value.charCodeAt(index - 1) >= 0xDC00 && index > 1 ? 2 : 1));
+};
+
+const continuesEmojiSequence = (value, index, sequence) => {
+  const next = value.codePointAt(index);
+
+  if (next === undefined) {
+    return false;
+  }
+
+  if ((next >= 0x1F3FB && next <= 0x1F3FF) || next === 0x200D || next === 0xFE0E || next === 0xFE0F || next === 0x20E3) {
+    return true;
+  }
+
+  if (next >= 0xE0020 && next <= 0xE007F) {
+    return true;
+  }
+
+  const lastOfSequence = codePointBefore(sequence, sequence.length);
+  const regional = cp => cp >= 0x1F1E6 && cp <= 0x1F1FF;
+
+  return regional(next) && regional(lastOfSequence);
+};
+
+// Replace one finished emoji sequence. A longer sequence that merely begins
+// with it, such as a skin tone, ZWJ family, or variation selector, stays.
+const replaceCompleteEmojiSequence = (value, sequence, replacement) => {
+  if (!value || !sequence || value.indexOf(sequence) === -1) {
+    return value;
+  }
+
+  let result = '';
+  let index = 0;
+
+  while (index < value.length) {
+    const found = value.indexOf(sequence, index);
+
+    if (found === -1) {
+      result += value.slice(index);
+      break;
+    }
+
+    const after = found + sequence.length;
+
+    if (codePointBefore(value, found) === 0x200D || continuesEmojiSequence(value, after, sequence)) {
+      result += value.slice(index, after);
+      index = after;
+      continue;
+    }
+
+    result += value.slice(index, found) + replacement;
+    index = after;
+  }
+
+  return result;
+};
+
 const attributeNamesIdentity = (value, identity) => {
   if (!value || !identity) {
     return false;
@@ -285,10 +365,26 @@ export function linkTargetEmojiRemains(link) {
     return false;
   }
 
+  // Local links do not carry a row id. A leftover image with the same
+  // shortcode can be a different emoji, so do not restore the old label.
+  if (!target.emojiId && !target.domain && link.getAttribute(UNPROVEN_LOCAL_MUTE) === '1') {
+    return false;
+  }
+
   const images = link.querySelectorAll('img.emojione, img.custom-emoji');
 
   for (let index = 0; index < images.length; index += 1) {
-    if (sameEmojiIdentity(target, imageIdentity(images[index]))) {
+    const image = imageIdentity(images[index]);
+
+    if (target.emojiId) {
+      if (image.emojiId === target.emojiId && image.domain === '') {
+        return true;
+      }
+
+      continue;
+    }
+
+    if (sameEmojiIdentity(target, image)) {
       return true;
     }
   }
@@ -311,7 +407,25 @@ const scrubMutedEmojiLink = (link, replacement, identity) => {
   LABEL_ATTRIBUTES.forEach(name => {
     const value = link.getAttribute(name) || '';
 
-    if (value && attributeNamesMutedImage(value, identity, target)) {
+    if (!value) {
+      return;
+    }
+
+    if (!identity.shortcode && identity.alt) {
+      const rewritten = replaceCompleteEmojiSequence(value, identity.alt, replacement);
+
+      if (rewritten !== value) {
+        if (rewritten.trim() === '') {
+          link.removeAttribute(name);
+        } else {
+          link.setAttribute(name, rewritten);
+        }
+
+        return;
+      }
+    }
+
+    if (attributeNamesMutedImage(value, identity, target)) {
       link.removeAttribute(name);
     }
   });
@@ -377,6 +491,7 @@ const transformHtml = (html, index) => {
     const link = target.closest ? target.closest('a') : null;
     const identity = imageIdentity(img);
     replaceNode(target, replacement);
+    noteUnprovenLocalTarget(link, identity);
     scrubMutedEmojiLink(link, replacement, identity);
     changed = true;
   }

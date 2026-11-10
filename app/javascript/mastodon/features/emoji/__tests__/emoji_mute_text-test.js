@@ -422,6 +422,47 @@ describe('emojiMutedPlainLabel', () => {
     expect(link.getAttribute('href')).toBe('https://example.test/emoji/cat');
   });
 
+  it('does not treat another local id with the same shortcode as the muted row', () => {
+    const html = '<p><a class="custom-emoji-url-link" href="https://example.test/emoji/blob" data-shortcode="blob" title=":blob:" aria-label="blob"><img draggable="false" class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/10.svg" data-shortcode="blob" data-domain="" data-emoji-id="10"><img draggable="false" class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/11.svg" data-shortcode="blob" data-domain="" data-emoji-id="11"></a></p>';
+    const muted = id => show(html, [rule({ kind: 'custom', scope: 'local', custom_emoji_id: id, shortcode: 'blob' }, '[safe]')]);
+    const read = result => {
+      const template = document.createElement('template');
+      template.innerHTML = result;
+      return template.content.querySelector('a');
+    };
+    const mute10 = read(muted('10'));
+    const mute11 = read(muted('11'));
+
+    expect(mute10.querySelector('[data-emoji-id="10"]')).toBeNull();
+    expect(mute10.querySelector('[data-emoji-id="11"]').getAttribute('src')).toBe('https://cdn.example/11.svg');
+    expect(mute10.getAttribute('title')).toBe('[safe]');
+    expect(mute10.getAttribute('aria-label')).toBeNull();
+    expect(mute10.getAttribute('href')).toBe('https://example.test/emoji/blob');
+    expect(mute11.querySelector('[data-emoji-id="11"]')).toBeNull();
+    expect(mute11.querySelector('[data-emoji-id="10"]')).not.toBeNull();
+    expect(mute11.getAttribute('title')).toBe('[safe]');
+  });
+
+  it('replaces one unicode sequence inside a label and leaves a longer sequence', () => {
+    const bang = '\u2757';
+    const bangVs = '\u2757\uFE0F';
+    const html = `<p><a href="https://example.test/react" title="reaction ${THUMBS}" aria-label="thumbs up ${THUMBS} category"><img class="emojione" alt="${THUMBS}" src="/emoji/1f44d.svg"></a><a href="https://example.test/keep" title="category" aria-label="keep ${THUMBS_LIGHT}"><img class="emojione" alt="${THUMBS_LIGHT}" src="/emoji/skin.svg"></a><a href="https://example.test/vs" title="see ${bangVs} and ${bang}"><img class="emojione" alt="${bang}" src="/emoji/2757.svg"></a><a href="https://example.test/family" title="hi ${FAMILY} and ${PERSON}"><img class="emojione" alt="${PERSON}" src="/emoji/person.svg"></a></p>`;
+    const result = show(html, [unicodeRule(THUMBS, '[ok]'), unicodeRule(bang, '[one]'), unicodeRule(PERSON, '[person]')]);
+    const template = document.createElement('template');
+    template.innerHTML = result;
+    const links = template.content.querySelectorAll('a');
+
+    expect(links[0].querySelector('img')).toBeNull();
+    expect(links[0].getAttribute('title')).toBe('reaction [ok]');
+    expect(links[0].getAttribute('aria-label')).toBe('thumbs up [ok] category');
+    expect(links[0].getAttribute('href')).toBe('https://example.test/react');
+    expect(links[1].querySelector('img').getAttribute('alt')).toBe(THUMBS_LIGHT);
+    expect(links[1].getAttribute('title')).toBe('category');
+    expect(links[1].getAttribute('aria-label')).toBe(`keep ${THUMBS_LIGHT}`);
+    expect(links[2].getAttribute('title')).toBe(`see ${bangVs} and [one]`);
+    expect(links[3].getAttribute('title')).toBe(`hi ${FAMILY} and [person]`);
+  });
+
   it('keeps the original plain text when nothing was replaced', () => {
     const plain = `Hello ${THUMBS} :blob:`;
     const html = `<p>Hello ${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })}</p>`;

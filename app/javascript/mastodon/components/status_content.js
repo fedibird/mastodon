@@ -189,7 +189,9 @@ class StatusContent extends React.PureComponent {
         }
         link.setAttribute('title', mention.get('acct'));
       } else {
-        link.setAttribute('title', link.href);
+        if (!link.getAttribute('title')) {
+          link.setAttribute('title', link.href);
+        }
         link.classList.add('unhandled-link');
       }
 

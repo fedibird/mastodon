@@ -622,6 +622,50 @@ describe('account replace_in_text presentation', () => {
     expect(container.querySelector('a[data-shortcode="cat"]').getAttribute('title')).toBe('Link to :@cat:');
   });
 
+  it('does not restore a local shortcode title from a different emoji id', () => {
+    const skin = '\u{1F44D}\u{1F3FB}';
+    const html = `<p><a class="custom-emoji-url-link" href="https://example.test/emoji/blob" data-shortcode="blob" title=":blob:" aria-label="blob">${localImg('10')}${localImg('11')}</a><a class="custom-emoji-url-link" href="https://other.example/emoji/blob" data-shortcode="blob" data-domain="other.example" title="remote blob">${remoteImg('other.example', 'blob')}</a><a href="https://example.test/react" title="reaction ${THUMB}" aria-label="thumbs up ${THUMB} and keep ${skin}">${unicodeImg(THUMB, '/emoji/thumb.svg')}</a></p>`;
+    const store = makeStore();
+    const { container } = render(
+      <Provider store={store}>
+        <Content contentHtml={{ __html: html }} />
+      </Provider>,
+    );
+    const localLink = () => container.querySelector('a[href="https://example.test/emoji/blob"]');
+    const remoteLink = () => container.querySelector('a[data-domain="other.example"]');
+    const unicodeLink = () => container.querySelector('a[href="https://example.test/react"]');
+
+    apply(store, [
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[id10]'),
+      rule({ kind: 'unicode', native: THUMB }, '[ok]'),
+    ]);
+
+    expect(localLink().querySelector('[data-emoji-id="10"]')).toBeNull();
+    expect(localLink().querySelector('[data-emoji-id="11"]')).not.toBeNull();
+    expect(localLink().getAttribute('title')).toBe('[id10]');
+    expect(localLink().hasAttribute('aria-label')).toBe(false);
+    expect(localLink().getAttribute('href')).toBe('https://example.test/emoji/blob');
+    expect(remoteLink().querySelector('img')).not.toBeNull();
+    expect(remoteLink().getAttribute('title')).toBe('Link to :@blob: in @other.example');
+    expect(unicodeLink().querySelector('img')).toBeNull();
+    expect(unicodeLink().getAttribute('title')).toBe('reaction [ok]');
+    expect(unicodeLink().getAttribute('aria-label')).toBe(`thumbs up [ok] and keep ${skin}`);
+
+    apply(store, [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[id11]')], '12');
+
+    expect(localLink().querySelector('[data-emoji-id="11"]')).toBeNull();
+    expect(localLink().querySelector('[data-emoji-id="10"]')).not.toBeNull();
+    expect(localLink().getAttribute('title')).toBe('[id11]');
+    expect(localLink().getAttribute('href')).toBe('https://example.test/emoji/blob');
+
+    apply(store, [], '13');
+
+    expect(localLink().querySelector('[data-emoji-id="10"]')).not.toBeNull();
+    expect(localLink().querySelector('[data-emoji-id="11"]')).not.toBeNull();
+    expect(localLink().getAttribute('title')).toBe('Link to :@blob:');
+    expect(unicodeLink().querySelector('img').getAttribute('alt')).toBe(THUMB);
+  });
+
   it('keeps emoji and hashtag clicks after onClick is toggled', () => {
     const html = '<p><img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/plain.svg" data-shortcode="blob" data-domain="" data-original="https://cdn.example/plain.svg" data-static="https://cdn.example/plain.png"><a href="https://example.test/tags/bird">#bird</a></p>';
     const push = jest.fn();

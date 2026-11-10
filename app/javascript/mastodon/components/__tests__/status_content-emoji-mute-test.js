@@ -404,4 +404,47 @@ describe('StatusContent replace_in_text', () => {
     expect(container.querySelector('a[data-shortcode="cat"] img')).not.toBeNull();
     expect(container.querySelector('a[data-shortcode="cat"]').getAttribute('title')).toBe('Link to :@cat:');
   });
+
+  it('keeps a different local id and a longer unicode sequence', () => {
+    const thumb = '👍';
+    const skin = '\u{1F44D}\u{1F3FB}';
+    const mixed = `<p><a class="custom-emoji-url-link" href="https://example.test/emoji/blob" data-shortcode="blob" title=":blob:" aria-label="blob"><img draggable="false" class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/10.svg" data-shortcode="blob" data-domain="" data-emoji-id="10" data-original="https://cdn.example/10.svg" data-static="https://cdn.example/10.png"><img draggable="false" class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/11.svg" data-shortcode="blob" data-domain="" data-emoji-id="11" data-original="https://cdn.example/11.svg" data-static="https://cdn.example/11.png"></a><a href="https://example.test/react" title="reaction ${thumb}" aria-label="thumbs up ${thumb}"><img class="emojione" alt="${thumb}" src="/emoji/thumb.svg"></a><a href="https://example.test/keep" title="category" aria-label="keep ${skin}"><img class="emojione" alt="${skin}" src="/emoji/skin.svg"></a></p>`;
+    const status = buildStatus({ contentHtml: mixed, search_index: 'emoji', emojis: [] });
+    const { container, store } = renderStatus(status, [
+      muteRule({
+        emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' },
+        replacement: '[id10]',
+      }),
+      muteRule({
+        id: 'm-thumb',
+        emoji: { kind: 'unicode', native: thumb },
+        replacement: '[ok]',
+      }),
+    ]);
+    const localLink = container.querySelector('a[href="https://example.test/emoji/blob"]');
+    const unicodeLink = container.querySelector('a[href="https://example.test/react"]');
+    const keptLink = container.querySelector('a[href="https://example.test/keep"]');
+
+    expect(localLink.querySelector('[data-emoji-id="10"]')).toBeNull();
+    expect(localLink.querySelector('[data-emoji-id="11"]')).not.toBeNull();
+    expect(localLink.getAttribute('title')).toBe('[id10]');
+    expect(localLink.hasAttribute('aria-label')).toBe(false);
+    expect(localLink.getAttribute('href')).toBe('https://example.test/emoji/blob');
+    expect(unicodeLink.querySelector('img')).toBeNull();
+    expect(unicodeLink.getAttribute('title')).toBe('reaction [ok]');
+    expect(unicodeLink.getAttribute('aria-label')).toBe('thumbs up [ok]');
+    expect(keptLink.getAttribute('title')).toBe('category');
+    expect(keptLink.getAttribute('aria-label')).toBe(`keep ${skin}`);
+    expect(keptLink.querySelector('img').getAttribute('alt')).toBe(skin);
+    expect(status.get('contentHtml')).toBe(mixed);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '10', mutes: [] });
+    });
+
+    expect(container.querySelector('[data-emoji-id="10"]')).not.toBeNull();
+    expect(container.querySelector('[data-emoji-id="11"]')).not.toBeNull();
+    expect(container.querySelector('a[href="https://example.test/emoji/blob"]').getAttribute('title')).toBe('Link to :@blob:');
+    expect(container.querySelector('a[href="https://example.test/react"] img').getAttribute('alt')).toBe(thumb);
+  });
 });

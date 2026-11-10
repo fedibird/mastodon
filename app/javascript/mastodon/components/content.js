@@ -91,7 +91,9 @@ class Content extends React.PureComponent {
       } else if (link.textContent[0] === '#' || (link.previousSibling && link.previousSibling.textContent && link.previousSibling.textContent[link.previousSibling.textContent.length - 1] === '#')) {
         link.addEventListener('click', this.onHashtagClick.bind(this, link.text), false);
       } else {
-        link.setAttribute('title', link.href);
+        if (!link.getAttribute('title')) {
+          link.setAttribute('title', link.href);
+        }
         link.classList.add('unhandled-link');
       }
 
