@@ -21,18 +21,18 @@ jest.mock('mastodon/components/thumbhash', () => {
 import Card from '../card';
 
 const makeCard = (overrides = {}) => fromJS({
-      type: 'link',
-      provider_name: 'Example',
-      url: 'https://example.test/article',
-      title: 'Article',
-      description: '',
-      width: 320,
-      height: 180,
-      image: 'https://example.test/image.jpg',
-      blurhash: null,
-      thumbhash: null,
-      ...overrides,
-  });
+  type: 'link',
+  provider_name: 'Example',
+  url: 'https://example.test/article',
+  title: 'Article',
+  description: '',
+  width: 320,
+  height: 180,
+  image: 'https://example.test/image.jpg',
+  blurhash: null,
+  thumbhash: null,
+  ...overrides,
+});
 
 const renderCard = (overrides = {}) => render(
   <Card card={makeCard(overrides)} onOpenMedia={jest.fn()} />,
