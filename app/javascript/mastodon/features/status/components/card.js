@@ -246,6 +246,7 @@ export default class Card extends React.PureComponent {
     } else if (card.get('blurhash')) {
       canvas = <Blurhash hash={card.get('blurhash')} className={previewClassName} dummy={!useBlurhash} />;
     }
+
     let thumbnail = <img src={card.get('image')} alt='' style={{ width: horizontal ? width : null, height: horizontal ? height : null, visibility: revealed ? null : 'hidden' }} onLoad={this.handleImageLoad} className='status-card__image-image' />;
     let spoilerButton = (
       <button type='button' onClick={this.handleReveal} className='spoiler-button__overlay'>
