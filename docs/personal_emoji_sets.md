@@ -193,6 +193,17 @@ does not probe remote image storage or fetch the full custom catalog. The browse
 handles a missing image. Unicode assets and searchable names are supplied only
 for registered placements.
 
+When `emoji_picker_lazy_load_standard` is false, boot starts a personal stock
+read alongside the standard picker module preload. The resolved stock and its
+normalized search terms are prepared in page memory. Opening a personal picker
+uses that ready stock immediately (including a copy fetched by another picker),
+while its ETag check runs in the background. A 304 needs no repaint; a 200
+updates the visible stock. A transient refresh failure keeps the warm view,
+whereas a cold failure retains the retry UI. Search/category results are cached
+for the current stock and query in each picker. With lazy loading enabled,
+no stock preload request is made at boot. Nothing private is put into
+localStorage, and edits / cross-tab changes still invalidate the shared cache.
+
 Stock responses use `Cache-Control: private, no-store`, matching the existing
 authenticated API policy. The client retains the current document and ETag only
 in page memory and explicitly sends `If-None-Match` on each opening; it does not
