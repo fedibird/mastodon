@@ -7,7 +7,9 @@ import classNames from 'classnames';
 import Motion from 'mastodon/features/ui/util/optional_motion';
 import spring from 'react-motion/lib/spring';
 import escapeTextContentForBrowser from 'escape-html';
-import emojify from 'mastodon/features/emoji/emoji';
+import emojify, { authorDomainForEmojis } from 'mastodon/features/emoji/emoji';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { emojiMutedPlainLabel, replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
 import RelativeTimestamp from './relative_timestamp';
 import Icon from 'mastodon/components/icon';
 
@@ -21,7 +23,7 @@ const makeEmojiMap = record => record.get('emojis').reduce((obj, emoji) => {
   return obj;
 }, {});
 
-export default @injectIntl
+@injectIntl
 class Poll extends ImmutablePureComponent {
 
   static propTypes = {
@@ -34,6 +36,7 @@ class Poll extends ImmutablePureComponent {
     sourceLang: PropTypes.string,
     targetLang: PropTypes.string,
     translationMode: PropTypes.oneOf(['original', 'translated', 'bilingual']),
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   state = {
@@ -126,18 +129,24 @@ class Poll extends ImmutablePureComponent {
     const active          = !!this.state.selected[`${optionIndex}`];
     const voted           = option.get('voted') || (poll.get('own_votes') && poll.get('own_votes').includes(optionIndex));
 
-    const { sourceLang, targetLang, translationMode } = this.props;
+    const { sourceLang, targetLang, translationMode, emojiMuteTextIndex } = this.props;
     const translatedTitle = option.getIn(['translation', 'title']) || '';
     const translatedHtml = option.getIn(['translation', 'titleHtml']);
     const mode = translationMode || (option.get('translation') ? 'translated' : 'original');
     const showTranslation = mode === 'translated' && (translatedHtml || translatedTitle);
     const showBilingual = mode === 'bilingual' && (translatedHtml || translatedTitle);
     const title = showTranslation ? (translatedTitle || option.get('title')) : option.get('title');
-    let titleEmojified = showTranslation ? (translatedHtml || option.get('title_emojified')) : option.get('title_emojified');
-    if (!titleEmojified) {
-      const emojiMap = makeEmojiMap(poll);
-      titleEmojified = emojify(escapeTextContentForBrowser(title), emojiMap);
-    }
+    const needsFallback = !option.get('title_emojified') || ((showTranslation || showBilingual) && !translatedHtml && translatedTitle);
+    const emojiMap = needsFallback ? makeEmojiMap(poll) : null;
+    const emojiDomain = needsFallback ? authorDomainForEmojis(poll.get('emojis')) : '';
+    const fallbackHtml = (text) => emojify(escapeTextContentForBrowser(text || ''), emojiMap, emojiDomain);
+    const sourceHtml = option.get('title_emojified') || fallbackHtml(option.get('title'));
+    const targetHtml = translatedHtml || ((showTranslation || showBilingual) && translatedTitle ? fallbackHtml(translatedTitle) : '');
+    const activeHtml = showTranslation ? (targetHtml || sourceHtml) : sourceHtml;
+    const present = (html) => replaceEmojiInDisplayHtml(html || '', emojiMuteTextIndex);
+    // The visible HTML and the radio/checkbox name share one projection.
+    // A label is left as the stored plain title unless that HTML changed.
+    const spoken = emojiMutedPlainLabel(title || '', activeHtml || '', emojiMuteTextIndex);
     const optionLang = showTranslation ? (targetLang || lang) : (sourceLang || lang);
     const sourceId = `poll-${poll.get('id')}-${optionIndex}-source`;
     const targetId = `poll-${poll.get('id')}-${optionIndex}-target`;
@@ -161,7 +170,7 @@ class Poll extends ImmutablePureComponent {
               role={poll.get('multiple') ? 'checkbox' : 'radio'}
               onKeyPress={this.handleOptionKeyPress}
               aria-checked={active}
-              aria-label={showBilingual ? undefined : title}
+              aria-label={showBilingual ? undefined : spoken}
               aria-labelledby={showBilingual ? `${sourceId} ${targetId}` : undefined}
               lang={optionLang}
               data-index={optionIndex}
@@ -178,14 +187,14 @@ class Poll extends ImmutablePureComponent {
                 className='poll__option__text translate status-translation-pair__source'
                 lang={sourceLang || lang}
                 dir='auto'
-                dangerouslySetInnerHTML={{ __html: option.get('title_emojified') || emojify(escapeTextContentForBrowser(option.get('title')), makeEmojiMap(poll)) }}
+                dangerouslySetInnerHTML={{ __html: present(sourceHtml) }}
               />
               <span
                 id={targetId}
                 className='poll__option__text poll__option__translation status-translation-pair__target'
                 lang={targetLang || lang}
                 dir='auto'
-                dangerouslySetInnerHTML={{ __html: translatedHtml || emojify(escapeTextContentForBrowser(translatedTitle), makeEmojiMap(poll)) }}
+                dangerouslySetInnerHTML={{ __html: present(targetHtml) }}
               />
             </React.Fragment>
           ) : (
@@ -193,7 +202,7 @@ class Poll extends ImmutablePureComponent {
               className='poll__option__text translate'
               lang={optionLang}
               dir='auto'
-              dangerouslySetInnerHTML={{ __html: titleEmojified }}
+              dangerouslySetInnerHTML={{ __html: present(activeHtml) }}
             />
           )}
 
@@ -250,3 +259,5 @@ class Poll extends ImmutablePureComponent {
   }
 
 }
+
+export default withEmojiMuteTextIndex(Poll);

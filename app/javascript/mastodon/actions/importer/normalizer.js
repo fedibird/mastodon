@@ -1,5 +1,5 @@
 import escapeTextContentForBrowser from 'escape-html';
-import emojify from '../../features/emoji/emoji';
+import emojify, { authorDomainForEmojis } from '../../features/emoji/emoji';
 import { unescapeHTML } from '../../utils/html';
 import { expandSpoilers } from '../../initial_state';
 
@@ -913,22 +913,46 @@ const pollRequestStillCurrent = (poll, normalOldPoll) => {
   return poll.options.every((option, index) => oldOptions.getIn([index, 'title']) === option.title);
 };
 
+const refreshPollOptionTranslation = (translation, emojiMap, domain) => {
+  const title = translationField(translation, 'title');
+
+  if (typeof title !== 'string') {
+    return undefined;
+  }
+
+  const previous = typeof translation.toJS === 'function' ? translation.toJS() : { ...translation };
+
+  return {
+    ...previous,
+    titleHtml: emojify(escapeTextContentForBrowser(title), emojiMap, domain),
+  };
+};
+
 export function normalizePoll(poll, normalOldPoll) {
   const normalPoll = { ...poll };
   const emojiMap = makeEmojiMap(normalPoll);
+  // Identity is fixed when this HTML is built. A later mute only reads it.
+  const domain = authorDomainForEmojis(normalPoll.emojis);
+  const emojiChanged = !!(normalOldPoll && emojiPresentation(normalOldPoll.get('emojis')) !== emojiPresentation(normalPoll.emojis));
 
   normalPoll.options = poll.options.map((option, index) => {
     const normalOption = {
       ...option,
       voted: poll.own_votes && poll.own_votes.includes(index),
-      title_emojified: emojify(escapeTextContentForBrowser(option.title), emojiMap),
+      title_emojified: emojify(escapeTextContentForBrowser(option.title), emojiMap, domain),
     };
 
     if (normalOldPoll && normalOldPoll.getIn(['options', index, 'title']) === option.title) {
       const translation = normalOldPoll.getIn(['options', index, 'translation']);
 
-      if (translation) {
+      if (translation && !emojiChanged) {
         normalOption.translation = translation;
+      } else if (translation) {
+        const refreshed = refreshPollOptionTranslation(translation, emojiMap, domain);
+
+        if (refreshed) {
+          normalOption.translation = refreshed;
+        }
       }
     }
 
@@ -944,11 +968,12 @@ export function normalizePoll(poll, normalOldPoll) {
 
 export function normalizePollOptionTranslation(translation, poll) {
   const emojis = poll && poll.get('emojis');
-  const emojiMap = makeEmojiMap({ emojis: emojis ? emojis.toJS() : [] });
+  const emojiList = emojis ? emojis.toJS() : [];
+  const emojiMap = makeEmojiMap({ emojis: emojiList });
 
   return {
     ...translation,
-    titleHtml: emojify(escapeTextContentForBrowser(translation.title), emojiMap),
+    titleHtml: emojify(escapeTextContentForBrowser(translation.title), emojiMap, authorDomainForEmojis(emojiList)),
   };
 }
 
@@ -956,7 +981,7 @@ export function normalizeAnnouncement(announcement) {
   const normalAnnouncement = { ...announcement };
   const emojiMap = makeEmojiMap(normalAnnouncement);
 
-  normalAnnouncement.contentHtml = emojify(normalAnnouncement.content, emojiMap);
+  normalAnnouncement.contentHtml = emojify(normalAnnouncement.content, emojiMap, authorDomainForEmojis(normalAnnouncement.emojis));
 
   return normalAnnouncement;
 }

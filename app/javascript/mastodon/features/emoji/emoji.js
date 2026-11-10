@@ -165,6 +165,62 @@ const emojifyNode = (node, customEmojis, domain) => {
   }
 };
 
+const emojiRecords = (emojis) => {
+  if (!emojis) {
+    return [];
+  }
+
+  if (Array.isArray(emojis)) {
+    return emojis;
+  }
+
+  if (typeof emojis.toArray === 'function') {
+    return emojis.toArray();
+  }
+
+  return Array.from(emojis);
+};
+
+// Polls and announcements have no separate author argument. Their custom
+// emoji rows carry the domain `CustomEmoji.from_text` used. One shared remote
+// domain is that author domain and is written to `data-domain`. A local row
+// keeps an empty domain so emojify can store `data-emoji-id`. Mixed domains,
+// or a local row beside a remote row, have no single author: return '' so a
+// local id is still recorded and a remote image fails closed instead of
+// inheriting another row's domain.
+export const authorDomainForEmojis = (emojis) => {
+  let domain = '';
+  let sawLocal = false;
+  let conflict = false;
+
+  emojiRecords(emojis).forEach(emoji => {
+    if (!emoji || conflict) {
+      return;
+    }
+
+    const value = typeof emoji.get === 'function' ? emoji.get('domain') : emoji.domain;
+    const text = value === null || value === undefined ? '' : String(value);
+
+    if (text === '') {
+      sawLocal = true;
+      return;
+    }
+
+    if (domain && domain !== text) {
+      conflict = true;
+      return;
+    }
+
+    domain = text;
+  });
+
+  if (conflict || (sawLocal && domain)) {
+    return '';
+  }
+
+  return domain;
+};
+
 const emojify = (str, customEmojis = {}, domain = '') => {
   const wrapper = document.createElement('div');
   wrapper.innerHTML = str;
