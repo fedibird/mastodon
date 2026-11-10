@@ -4,7 +4,7 @@ import { connect } from 'react-redux';
 import { defineMessages, injectIntl } from 'react-intl';
 import Overlay from 'react-overlays/Overlay';
 import { DropdownMenu } from 'mastodon/components/dropdown_menu';
-import { me } from 'mastodon/initial_state';
+import { emojiPickerDisablePersonal, me } from 'mastodon/initial_state';
 import { syncEmojiMutes } from 'mastodon/actions/emoji_mutes';
 import { addEmojiReaction, removeEmojiReaction } from 'mastodon/actions/interactions';
 import { currentEmojiMutes } from 'mastodon/features/emoji/emoji_mute_store';
@@ -179,6 +179,7 @@ export function buildEmojiActionMenuItems({
   resolved,
   mute,
   categories,
+  personalEnabled = true,
   status,
   notice,
   error,
@@ -272,7 +273,7 @@ export function buildEmojiActionMenuItems({
     return items;
   }
 
-  const canAdd = Boolean(actions.add_to_personal_category && actions.add_to_personal_category.allowed);
+  const canAdd = Boolean(personalEnabled && actions.add_to_personal_category && actions.add_to_personal_category.allowed);
   const canMute = Boolean(actions.mute && actions.mute.allowed);
   const syncBlocked = Boolean(syncError || pendingSyncRevision);
 
@@ -831,9 +832,14 @@ class EmojiActionsMenuController extends React.PureComponent {
       context.account_id = accountId;
     }
 
+    // Keep detail, copy, and mute while avoiding personal-set network requests.
+    const personalRequest = emojiPickerDisablePersonal
+      ? Promise.resolve(null)
+      : loadPersonalEmojiSetDocument().catch(() => null);
+
     Promise.all([
       resolveEmojiReference(reference, context).catch(error => ({ error })),
-      loadPersonalEmojiSetDocument().catch(() => null),
+      personalRequest,
     ]).then(([resolved, personal]) => {
       if (requestGeneration !== this.loadGeneration) {
         return;
@@ -896,6 +902,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       resolved,
       mute,
       categories,
+      personalEnabled: !emojiPickerDisablePersonal,
       status,
       notice,
       error,
@@ -1180,7 +1187,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     const { intl } = this.props;
     const { reference, personalRevision } = this.state;
 
-    if (!category || !reference || this.state.busy) {
+    if (emojiPickerDisablePersonal || !category || !reference || this.state.busy) {
       return;
     }
 
