@@ -203,73 +203,141 @@ const replaceNode = (node, text) => {
   parent.replaceChild(node.ownerDocument.createTextNode(text), node);
 };
 
-const identityHints = img => {
-  const alt = img.getAttribute('alt') || '';
-  const title = img.getAttribute('title') || '';
-  const shortcode = img.getAttribute('data-shortcode') || '';
-  const domain = img.getAttribute('data-domain') || '';
-  const hints = [alt, title, shortcode, domain];
+const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  if (shortcode) {
-    hints.push(`:${shortcode}:`);
+// Whole token only. `:cat:` matches, and so does a standalone cat, but
+// `category` does not.
+const hasToken = (value, token, boundary = 'A-Za-z0-9_') => {
+  if (!value || !token) {
+    return false;
   }
 
-  return hints.filter(hint => hint !== '');
+  return new RegExp(`(?:^|[^${boundary}])${escapeRegExp(token)}(?:[^${boundary}]|$)`).test(value);
 };
 
-const attributeNamesEmoji = (value, hints) => hints.some(hint => value.includes(hint));
+const imageIdentity = img => ({
+  shortcode: img.getAttribute('data-shortcode') || '',
+  domain: img.getAttribute('data-domain') || '',
+  emojiId: img.getAttribute('data-emoji-id') || '',
+  alt: img.getAttribute('alt') || '',
+});
 
-// A muted image can sit inside the emoji's own link. The link stays so the
-// text substitute remains a link, but its title and accessible name must be
-// the substitute, not the shortcode or domain.
-const scrubMutedEmojiLink = (link, replacement, hints) => {
-  if (!link || link.querySelector('img.emojione, img.custom-emoji')) {
+const linkIdentity = link => ({
+  shortcode: link.getAttribute('data-shortcode') || '',
+  domain: link.getAttribute('data-domain') || '',
+  emojiId: link.getAttribute('data-emoji-id') || '',
+});
+
+const sameEmojiIdentity = (left, right) => {
+  if (left.emojiId && right.emojiId) {
+    return left.emojiId === right.emojiId;
+  }
+
+  return left.shortcode !== '' && left.shortcode === right.shortcode && left.domain === right.domain;
+};
+
+const attributeNamesIdentity = (value, identity) => {
+  if (!value || !identity) {
+    return false;
+  }
+
+  if (identity.alt && value === identity.alt) {
+    return true;
+  }
+
+  if (hasToken(value, identity.shortcode)) {
+    return true;
+  }
+
+  return hasToken(value, identity.domain, 'A-Za-z0-9.-');
+};
+
+// A shared shortcode must not make a remote mute erase the local link label,
+// or the reverse. Require the domain or row id when the link points elsewhere.
+const attributeNamesMutedImage = (value, identity, target) => {
+  if (!attributeNamesIdentity(value, identity)) {
+    return false;
+  }
+
+  const differentTarget = target && target.shortcode && (
+    identity.shortcode !== target.shortcode || identity.domain !== target.domain
+  );
+
+  if (!differentTarget) {
+    return true;
+  }
+
+  if (identity.domain && hasToken(value, identity.domain, 'A-Za-z0-9.-')) {
+    return true;
+  }
+
+  return !!(identity.emojiId && hasToken(value, identity.emojiId));
+};
+
+export function linkTargetEmojiRemains(link) {
+  if (!link) {
+    return false;
+  }
+
+  const target = linkIdentity(link);
+
+  if (!target.shortcode && !target.emojiId) {
+    return false;
+  }
+
+  const images = link.querySelectorAll('img.emojione, img.custom-emoji');
+
+  for (let index = 0; index < images.length; index += 1) {
+    if (sameEmojiIdentity(target, imageIdentity(images[index]))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+const LABEL_ATTRIBUTES = ['title', 'aria-label', 'aria-labelledby', 'aria-describedby'];
+
+// Drop labels that name the muted emoji. Another emoji image in the same
+// link does not keep those labels, and an unrelated word such as "category"
+// is left in place. href and data-* stay so the existing detail link works.
+const scrubMutedEmojiLink = (link, replacement, identity) => {
+  if (!link) {
     return;
   }
 
-  ['title', 'aria-label', 'aria-labelledby', 'aria-describedby'].forEach(name => {
+  const target = linkIdentity(link);
+
+  LABEL_ATTRIBUTES.forEach(name => {
     const value = link.getAttribute(name) || '';
 
-    if (value && attributeNamesEmoji(value, hints)) {
+    if (value && attributeNamesMutedImage(value, identity, target)) {
       link.removeAttribute(name);
     }
   });
 
-  if (!link.classList.contains('custom-emoji-url-link')) {
+  if (!link.classList.contains('custom-emoji-url-link') || linkTargetEmojiRemains(link)) {
     return;
   }
 
-  link.removeAttribute('aria-label');
-  link.removeAttribute('aria-labelledby');
-  link.removeAttribute('aria-describedby');
-
-  if (replacement) {
+  if (!link.getAttribute('title') && replacement) {
     link.setAttribute('title', replacement);
-    return;
   }
-
-  link.removeAttribute('title');
 };
 
-export function mutedEmojiImageRemains(link) {
-  return !!(link && link.querySelector('img.emojione, img.custom-emoji'));
-}
-
 // Content rewrites link titles after the projection. Do not put the muted
-// shortcode or domain back into title or aria-label.
+// link target's shortcode or domain back into title or aria-label.
 export function retainMutedEmojiLinkLabel(link) {
-  if (!link || mutedEmojiImageRemains(link)) {
+  if (!link || linkTargetEmojiRemains(link)) {
     return;
   }
 
-  const shortcode = link.getAttribute('data-shortcode') || '';
-  const domain = link.getAttribute('data-domain') || '';
-  const hints = [shortcode, domain, shortcode ? `:${shortcode}:` : ''].filter(hint => hint !== '');
+  const identity = linkIdentity(link);
 
-  ['title', 'aria-label', 'aria-labelledby', 'aria-describedby'].forEach(name => {
+  LABEL_ATTRIBUTES.forEach(name => {
     const value = link.getAttribute(name) || '';
 
-    if (value && attributeNamesEmoji(value, hints)) {
+    if (value && attributeNamesIdentity(value, identity)) {
       link.removeAttribute(name);
     }
   });
@@ -280,7 +348,7 @@ export function retainMutedEmojiLinkLabel(link) {
 
   const visible = (link.textContent || '').trim();
 
-  if (visible && !attributeNamesEmoji(visible, hints)) {
+  if (visible && !attributeNamesIdentity(visible, identity)) {
     link.setAttribute('title', visible);
   }
 }
@@ -307,9 +375,9 @@ const transformHtml = (html, index) => {
 
     const target = img.parentElement && img.parentElement.tagName === 'PICTURE' ? img.parentElement : img;
     const link = target.closest ? target.closest('a') : null;
-    const hints = identityHints(img);
+    const identity = imageIdentity(img);
     replaceNode(target, replacement);
-    scrubMutedEmojiLink(link, replacement, hints);
+    scrubMutedEmojiLink(link, replacement, identity);
     changed = true;
   }
 

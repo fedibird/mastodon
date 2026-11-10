@@ -13,7 +13,7 @@ import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'ma
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
-import { mutedEmojiImageRemains, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
+import { linkTargetEmojiRemains, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 
@@ -163,7 +163,7 @@ class StatusContent extends React.PureComponent {
       let mention = status.get('mentions').find(item => link.href === item.get('url'));
 
       if (link.classList.contains('custom-emoji-url-link') && link.dataset.shortcode) {
-        if (mutedEmojiImageRemains(link)) {
+        if (linkTargetEmojiRemains(link)) {
           if (link.dataset.domain) {
             link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInRemote, { shortcode: link.dataset.shortcode, domain: link.dataset.domain }));
           } else {

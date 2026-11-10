@@ -390,6 +390,38 @@ describe('emojiMutedPlainLabel', () => {
     expect(link.getAttribute('title')).not.toContain('remote.example');
   });
 
+  it('scrubs only the muted emoji when another image remains in the link', () => {
+    const html = '<p><a class="custom-emoji-url-link" href="https://remote.example/emoji/blob" data-shortcode="blob" data-domain="remote.example" title=":blob:" aria-label="blob"><img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/blob.svg" data-shortcode="blob" data-domain="remote.example"><img draggable="false" class="emojione custom-emoji" alt=":other:" title="other" src="https://cdn.example/other.svg" data-shortcode="other" data-domain="other.example"></a></p>';
+    const result = show(html, [rule({ kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' }, '[safe]')]);
+    const template = document.createElement('template');
+    template.innerHTML = result;
+    const link = template.content.querySelector('a');
+    const kept = template.content.querySelector('img');
+
+    expect(template.content.querySelectorAll('img')).toHaveLength(1);
+    expect(kept.getAttribute('data-shortcode')).toBe('other');
+    expect(kept.getAttribute('src')).toBe('https://cdn.example/other.svg');
+    expect(link.getAttribute('title')).toBe('[safe]');
+    expect(link.getAttribute('aria-label')).toBeNull();
+    expect(link.getAttribute('href')).toBe('https://remote.example/emoji/blob');
+    expect(link.getAttribute('data-shortcode')).toBe('blob');
+    expect(link.getAttribute('data-domain')).toBe('remote.example');
+  });
+
+  it('keeps an unrelated label and the other emoji when only one local id is muted', () => {
+    const html = '<p><a class="custom-emoji-url-link" href="https://example.test/emoji/cat" data-shortcode="cat" title="category" aria-label="See the category"><img draggable="false" class="emojione custom-emoji" alt=":cat:" title="cat" src="https://cdn.example/4.svg" data-shortcode="cat" data-domain="" data-emoji-id="4"><img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/remote/blob.svg" data-shortcode="blob" data-domain="remote.example"></a></p>';
+    const result = show(html, [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '4', shortcode: 'cat' }, '[cat]')]);
+    const template = document.createElement('template');
+    template.innerHTML = result;
+    const link = template.content.querySelector('a');
+
+    expect(template.content.querySelector('[data-emoji-id="4"]')).toBeNull();
+    expect(template.content.querySelector('[data-domain="remote.example"]')).not.toBeNull();
+    expect(link.getAttribute('title')).toBe('category');
+    expect(link.getAttribute('aria-label')).toBe('See the category');
+    expect(link.getAttribute('href')).toBe('https://example.test/emoji/cat');
+  });
+
   it('keeps the original plain text when nothing was replaced', () => {
     const plain = `Hello ${THUMBS} :blob:`;
     const html = `<p>Hello ${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })}</p>`;

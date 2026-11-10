@@ -587,6 +587,41 @@ describe('account replace_in_text presentation', () => {
     expect(push.mock.calls.filter(call => call[0] === '/accounts/9')).toHaveLength(2);
   });
 
+  it('hides a muted emoji inside a link that still shows another emoji', () => {
+    const html = `<p><a class="custom-emoji-url-link" href="https://remote.example/emoji/blob" data-shortcode="blob" data-domain="remote.example" title=":blob:" aria-label="blob">${remoteImg('remote.example', 'blob')}${remoteImg('other.example', 'other')}</a><a class="custom-emoji-url-link" href="https://example.test/emoji/cat" data-shortcode="cat" title="category" aria-label="See the category">${localImg('4', 'cat')}</a></p>`;
+    const store = makeStore();
+    const { container } = render(
+      <Provider store={store}>
+        <Content contentHtml={{ __html: html }} />
+      </Provider>,
+    );
+
+    apply(store, [
+      rule({ kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' }, '[safe]'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '4', shortcode: 'cat' }, '[cat]'),
+    ]);
+
+    const blobLink = container.querySelector('a[data-domain="remote.example"]');
+    const catLink = container.querySelector('a[data-shortcode="cat"]');
+
+    expect(blobLink.querySelector('[data-shortcode="blob"]')).toBeNull();
+    expect(blobLink.querySelector('[data-shortcode="other"]').getAttribute('src')).toContain('other.example');
+    expect(blobLink.getAttribute('title')).toBe('[safe]');
+    expect(blobLink.hasAttribute('aria-label')).toBe(false);
+    expect(blobLink.getAttribute('href')).toBe('https://remote.example/emoji/blob');
+    expect(catLink.querySelector('img')).toBeNull();
+    expect(catLink.getAttribute('title')).toBe('category');
+    expect(catLink.getAttribute('aria-label')).toBe('See the category');
+
+    apply(store, [], '11');
+
+    expect(container.querySelector('a[data-domain="remote.example"] [data-shortcode="blob"]')).not.toBeNull();
+    expect(container.querySelector('a[data-domain="remote.example"] [data-shortcode="other"]')).not.toBeNull();
+    expect(container.querySelector('a[data-domain="remote.example"]').getAttribute('title')).toBe('Link to :@blob: in @remote.example');
+    expect(container.querySelector('a[data-shortcode="cat"] img')).not.toBeNull();
+    expect(container.querySelector('a[data-shortcode="cat"]').getAttribute('title')).toBe('Link to :@cat:');
+  });
+
   it('keeps emoji and hashtag clicks after onClick is toggled', () => {
     const html = '<p><img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/plain.svg" data-shortcode="blob" data-domain="" data-original="https://cdn.example/plain.svg" data-static="https://cdn.example/plain.png"><a href="https://example.test/tags/bird">#bird</a></p>';
     const push = jest.fn();

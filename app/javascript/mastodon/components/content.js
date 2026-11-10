@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { injectIntl, defineMessages } from 'react-intl';
 import { autoPlayEmoji } from 'mastodon/initial_state';
 import { customEmojiTarget, withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
-import { mutedEmojiImageRemains, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
+import { linkTargetEmojiRemains, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 
 // Profile note, follow message, and profile field values. Status bodies do
 // not render through here. The stored emojify HTML is left unchanged; only
@@ -72,7 +72,7 @@ class Content extends React.PureComponent {
       link.classList.add('status-link');
 
       if (link.classList.contains('custom-emoji-url-link') && link.dataset.shortcode) {
-        if (mutedEmojiImageRemains(link)) {
+        if (linkTargetEmojiRemains(link)) {
           if (link.dataset.domain) {
             link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInRemote, { shortcode: link.dataset.shortcode, domain: link.dataset.domain }));
           } else {
