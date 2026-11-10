@@ -88,12 +88,23 @@ export default class Card extends React.PureComponent {
     revealed: !this.props.sensitive,
   };
 
-  componentWillReceiveProps (nextProps) {
-    if (!Immutable.is(this.props.card, nextProps.card)) {
-      this.setState({ embedded: false, previewLoaded: false });
-    }
-    if (this.props.sensitive !== nextProps.sensitive) {
-      this.setState({ revealed: !nextProps.sensitive });
+  componentDidUpdate (prevProps) {
+    const cardChanged = !Immutable.is(prevProps.card, this.props.card);
+    const sensitiveChanged = prevProps.sensitive !== this.props.sensitive;
+
+    if (cardChanged || sensitiveChanged) {
+      const nextState = {};
+
+      if (cardChanged) {
+        nextState.embedded = false;
+        nextState.previewLoaded = false;
+      }
+
+      if (sensitiveChanged) {
+        nextState.revealed = !this.props.sensitive;
+      }
+
+      this.setState(nextState);
     }
   }
 
