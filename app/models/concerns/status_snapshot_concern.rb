@@ -14,7 +14,8 @@ module StatusSnapshotConcern
   def build_snapshot(account_id: nil, at_time: nil, rate_limit: true)
     # Build the row directly so saving the status does not persist it.
     # The edit service decides when each snapshot is written.
-    StatusEdit.new(
+    edit = StatusEdit.new(
+      status: self,
       status_id: id,
       text: text,
       spoiler_text: spoiler_text,
@@ -26,6 +27,11 @@ module StatusSnapshotConcern
       created_at: at_time || edited_at,
       rate_limit: rate_limit
     )
+    # Resolve ids now. A later save of this row keeps them. A synthetic
+    # snapshot for a status that was never edited is built at read time, so
+    # its ids describe the text that is current, not an older revision.
+    edit.emoji_identities = edit.capture_emoji_identities
+    edit
   end
 
   def snapshot!(**options)
