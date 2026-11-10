@@ -4,6 +4,7 @@ import { makeGetAccount } from 'mastodon/selectors';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import Avatar from 'mastodon/components/avatar';
+import EmojiMutedHtml from 'mastodon/components/emoji_muted_html';
 import { FormattedMessage, injectIntl } from 'react-intl';
 
 const makeMapStateToProps = () => {
@@ -32,7 +33,7 @@ class Account extends ImmutablePureComponent {
     return (
       <div className='account-popup__wapper'>
         <div className='account-popup__avatar-wrapper'><Avatar account={account} size={14} /></div>
-        <bdi><strong className='account-popup__display-name__html' dangerouslySetInnerHTML={{ __html: account.get('display_name_html') }} /></bdi>
+        <bdi><EmojiMutedHtml tag='strong' className='account-popup__display-name__html' html={account.get('display_name_html') || ''} /></bdi>
       </div>
     );
   }

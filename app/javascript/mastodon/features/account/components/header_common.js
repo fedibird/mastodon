@@ -11,6 +11,7 @@ import IconButton from 'mastodon/components/icon_button';
 import Avatar from 'mastodon/components/avatar';
 import DropdownMenuContainer from 'mastodon/containers/dropdown_menu_container';
 import NotificationSettings from './notification_settings';
+import EmojiMutedHtml, { bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from 'mastodon/components/emoji_muted_html';
 
 const messages = defineMessages({
   unfollow: { id: 'account.unfollow', defaultMessage: 'Unfollow' },
@@ -88,25 +89,23 @@ class HeaderCommon extends ImmutablePureComponent {
     this._updateEmojiLinks();
   }
 
+  componentWillUnmount () {
+    unbindCustomEmojiClick(this.node, this.handleEmojiClick);
+  }
+
   _updateEmojiLinks () {
-    const node = this.node;
-
-    if (!node) {
-      return;
-    }
-
-    const emojis = node.querySelectorAll('.custom-emoji');
-
-    for (var i = 0; i < emojis.length; i++) {
-      let emoji = emojis[i];
-      emoji.addEventListener('click', this.handleEmojiClick, false);
-      emoji.style.cursor = 'pointer';
-    }
+    bindCustomEmojiClick(this.node, this.handleEmojiClick);
   }
 
   handleEmojiClick = e => {
-    const shortcode = e.target.dataset.shortcode;
-    const domain = e.target.dataset.domain;
+    const emoji = customEmojiTarget(e);
+
+    if (!emoji) {
+      return;
+    }
+
+    const shortcode = emoji.getAttribute('data-shortcode');
+    const domain = emoji.getAttribute('data-domain');
 
     if (this.context.router) {
       e.preventDefault();
@@ -327,7 +326,6 @@ class HeaderCommon extends ImmutablePureComponent {
       menu.push({ text: intl.formatMessage(messages.admin_account, { name: account.get('username') }), href: `/admin/accounts/${account.get('id')}` });
     }
 
-    const displayNameHtml = { __html: account.get('display_name_html') };
     const acct            = account.get('acct').indexOf('@') === -1 && domain ? `${account.get('acct')}@${domain}` : account.get('acct');
 
     let badge;
@@ -421,7 +419,7 @@ class HeaderCommon extends ImmutablePureComponent {
 
           <div className='account__header__tabs__name'>
             <h1 ref={this.setRef}>
-              <span dangerouslySetInnerHTML={displayNameHtml} /> {badge}
+              <EmojiMutedHtml html={account.get('display_name_html') || ''} /> {badge}
               <small>@{acct} {lockedIcon}</small>
             </h1>
             <div className='account__header__tabs__name__relationship account__relationship'>

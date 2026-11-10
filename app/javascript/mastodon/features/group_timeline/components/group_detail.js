@@ -7,6 +7,7 @@ import { counterRenderer } from 'mastodon/components/common_counter';
 import { makeGetAccount } from 'mastodon/selectors';
 import Avatar from 'mastodon/components/avatar';
 import DisplayName from 'mastodon/components/display_name';
+import EmojiMutedHtml, { bindCustomEmojiHover, unbindCustomEmojiHover } from 'mastodon/components/emoji_muted_html';
 import IconButton from 'mastodon/components/icon_button';
 import { FormattedMessage, injectIntl, defineMessages } from 'react-intl';
 import {
@@ -148,24 +149,11 @@ class GroupDetail extends ImmutablePureComponent {
   };
 
   _updateEmojis() {
-    const node = this.node;
-
-    if (!node || autoPlayEmoji) {
+    if (autoPlayEmoji) {
       return;
     }
 
-    const emojis = node.querySelectorAll('.custom-emoji');
-
-    for (var i = 0; i < emojis.length; i++) {
-      let emoji = emojis[i];
-      if (emoji.classList.contains('status-emoji')) {
-        continue;
-      }
-      emoji.classList.add('status-emoji');
-
-      emoji.addEventListener('mouseenter', this.handleEmojiMouseEnter, false);
-      emoji.addEventListener('mouseleave', this.handleEmojiMouseLeave, false);
-    }
+    bindCustomEmojiHover(this.node, this.playEmoji, this.stopEmoji);
   }
 
   componentDidMount() {
@@ -176,12 +164,16 @@ class GroupDetail extends ImmutablePureComponent {
     this._updateEmojis();
   }
 
-  handleEmojiMouseEnter = ({ target }) => {
-    target.src = target.getAttribute('data-original');
+  componentWillUnmount() {
+    unbindCustomEmojiHover(this.node);
+  }
+
+  playEmoji = emoji => {
+    emoji.src = emoji.getAttribute('data-original');
   };
 
-  handleEmojiMouseLeave = ({ target }) => {
-    target.src = target.getAttribute('data-static');
+  stopEmoji = emoji => {
+    emoji.src = emoji.getAttribute('data-static');
   };
 
   handleFollow = (e) => {
@@ -317,10 +309,7 @@ class GroupDetail extends ImmutablePureComponent {
         </div>
 
         <div className='group__detail__extra' ref={this.setRef}>
-          <div
-            className='group__header__content'
-            dangerouslySetInnerHTML={{ __html: account.get('note_emojified') }}
-          />
+          <EmojiMutedHtml tag='div' className='group__header__content' html={account.get('note_emojified') || ''} />
         </div>
 
         <div className='group__detail__extra'>

@@ -6,6 +6,7 @@ import { connect } from 'react-redux';
 import { makeGetAccount } from 'mastodon/selectors';
 import Avatar from 'mastodon/components/avatar';
 import DisplayName from 'mastodon/components/display_name';
+import EmojiMutedHtml from 'mastodon/components/emoji_muted_html';
 import Permalink from 'mastodon/components/permalink';
 import RelativeTimestamp from 'mastodon/components/relative_timestamp';
 import IconButton from 'mastodon/components/icon_button';
@@ -305,10 +306,7 @@ class AccountCard extends ImmutablePureComponent {
         </div>
 
         <div className='directory__card__extra' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave}>
-          <div
-            className='account__header__content translate'
-            dangerouslySetInnerHTML={{ __html: account.get('note_emojified') }}
-          />
+          <EmojiMutedHtml tag='div' className='account__header__content translate' html={account.get('note_emojified') || ''} />
         </div>
 
         <div className='directory__card__extra'>

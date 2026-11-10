@@ -2,6 +2,14 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { injectIntl, defineMessages } from 'react-intl';
 import { autoPlayEmoji } from 'mastodon/initial_state';
+import { customEmojiTarget, withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
+
+// Profile note, follow message, and profile field values. Status bodies do
+// not render through here. The stored emojify HTML is left unchanged; only
+// this span's HTML is a viewer-specific projection. Link handlers are rebound
+// after that projection changes. Emoji clicks stay on the span (capture, once)
+// so a rules update cannot stack listeners or revive a removed image.
 
 const messages = defineMessages({
   linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
@@ -11,7 +19,7 @@ const messages = defineMessages({
 });
 
 @injectIntl
-export default class Content extends React.PureComponent {
+class Content extends React.PureComponent {
 
   static contextTypes = {
     router: PropTypes.object,
@@ -24,27 +32,20 @@ export default class Content extends React.PureComponent {
     onClick: PropTypes.func,
     className: PropTypes.string,
     intl: PropTypes.object.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
-  _updateEmojiLinks () {
-    const node = this.node;
+  handleEmojiClick = e => {
+    const emoji = customEmojiTarget(e);
 
-    if (!node) {
+    if (!emoji || !this.clickNode || !this.clickNode.contains(emoji)) {
       return;
     }
 
-    const emojis = node.querySelectorAll('.custom-emoji');
+    const shortcode = emoji.getAttribute('data-shortcode');
+    const domain = emoji.getAttribute('data-domain');
 
-    for (var i = 0; i < emojis.length; i++) {
-      let emoji = emojis[i];
-      emoji.addEventListener('click', this.handleEmojiClick, false);
-      emoji.style.cursor = 'pointer';
-    }
-  }
-
-  handleEmojiClick = e => {
-    const shortcode = e.target.dataset.shortcode;
-    const domain = e.target.dataset.domain;
+    emoji.style.cursor = 'pointer';
 
     if (this.context.router) {
       e.preventDefault();
@@ -104,6 +105,7 @@ export default class Content extends React.PureComponent {
 
     for (var i = 0; i < emojis.length; i++) {
       let emoji = emojis[i];
+      emoji.style.cursor = 'pointer';
       emoji.src = emoji.getAttribute('data-original');
     }
   }
@@ -123,12 +125,21 @@ export default class Content extends React.PureComponent {
 
   componentDidMount () {
     this._updateContentLinks();
-    this._updateEmojiLinks();
+    this.clickNode = this.node;
+
+    if (this.clickNode) {
+      this.clickNode.addEventListener('click', this.handleEmojiClick, true);
+    }
   }
 
   componentDidUpdate () {
     this._updateContentLinks();
-    this._updateEmojiLinks();
+  }
+
+  componentWillUnmount () {
+    if (this.clickNode) {
+      this.clickNode.removeEventListener('click', this.handleEmojiClick, true);
+    }
   }
 
   onMentionClick = (mention, e) => {
@@ -157,7 +168,7 @@ export default class Content extends React.PureComponent {
   onAccountUrlClick = (accountId, path, accountActorType, e) => {
     if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      this.context.router.history.push(`${accountActorType == 'Group' ? '/timelines/groups/' : '/accounts/'}${accountId}${path}`);
+      this.context.router.history.push(`${accountActorType === 'Group' ? '/timelines/groups/' : '/accounts/'}${accountId}${path}`);
     }
   }
 
@@ -207,16 +218,21 @@ export default class Content extends React.PureComponent {
   }
 
   render () {
+    const source = this.props.contentHtml && this.props.contentHtml.__html;
+    const presented = replaceEmojiInDisplayHtml(source, this.props.emojiMuteTextIndex);
+    const contentHtml = presented === source ? this.props.contentHtml : { __html: presented };
+
     if (this.props.onClick) {
       return (
-        <span ref={this.setRef} tabIndex='0' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave} dangerouslySetInnerHTML={this.props.contentHtml}
-          onMouseDown={this.handleMouseDown} onMouseUp={this.handleMouseUp} key='content' />
+        <span ref={this.setRef} tabIndex='0' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave} dangerouslySetInnerHTML={contentHtml} onMouseDown={this.handleMouseDown} onMouseUp={this.handleMouseUp} key='content' />
       );
     } else {
       return (
-        <span ref={this.setRef} tabIndex='0' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave} dangerouslySetInnerHTML={this.props.contentHtml} />
+        <span ref={this.setRef} tabIndex='0' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave} dangerouslySetInnerHTML={contentHtml} />
       );
     }
   }
 
 }
+
+export default withEmojiMuteTextIndex(Content);

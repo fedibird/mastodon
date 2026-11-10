@@ -8,6 +8,7 @@ import emojify from '../emoji';
 import {
   buildReplaceInTextIndex,
   emojiMuteTextParseCount,
+  emojiMutedPlainLabel,
   replaceEmojiInDisplayHtml,
   replaceInTextIndexFromRules,
   resetEmojiMuteTextForTests,
@@ -364,5 +365,42 @@ describe('replace_in_text display transform', () => {
     expect(template.content.querySelector('img').getAttribute('alt')).toBe(FAMILY);
     expect(result).toContain('/emoji/family.svg');
     expect(result).not.toContain('not-emoji');
+  });
+});
+
+describe('emojiMutedPlainLabel', () => {
+  beforeEach(() => {
+    resetEmojiMuteTextForTests();
+  });
+
+  it('keeps the original plain text when nothing was replaced', () => {
+    const plain = `Hello ${THUMBS} :blob:`;
+    const html = `<p>Hello ${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })}</p>`;
+
+    expect(emojiMutedPlainLabel(plain, html, buildReplaceInTextIndex([]))).toBe(plain);
+    expect(emojiMutedPlainLabel(plain, html, buildReplaceInTextIndex([
+      unicodeRule(FAMILY, '[family]'),
+    ]))).toBe(plain);
+  });
+
+  it('drops a muted glyph, shortcode, and image URL from the label', () => {
+    const plain = `Mood ${THUMBS} :blob:`;
+    const html = `<p>Mood ${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })} ${img({
+      alt: ':blob:',
+      src: 'https://cdn.example/10.svg',
+      extra: ' data-shortcode="blob" data-domain="" data-emoji-id="10" data-original="https://cdn.example/10.svg"',
+      custom: true,
+    })}</p>`;
+    const index = buildReplaceInTextIndex([
+      unicodeRule(THUMBS, '<img src=x>'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '［絵文字］'),
+    ]);
+    const label = emojiMutedPlainLabel(plain, html, index);
+
+    expect(label).toBe('Mood <img src=x> ［絵文字］');
+    expect(label).not.toContain(THUMBS);
+    expect(label).not.toContain(':blob:');
+    expect(label).not.toContain('cdn.example');
+    expect(emojiMutedPlainLabel(plain, html, index)).toBe(label);
   });
 });

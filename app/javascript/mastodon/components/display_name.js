@@ -2,6 +2,7 @@ import React from 'react';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import { autoPlayEmoji } from 'mastodon/initial_state';
+import EmojiMutedHtml, { customEmojiTarget } from 'mastodon/components/emoji_muted_html';
 
 export default class DisplayName extends React.PureComponent {
 
@@ -16,32 +17,30 @@ export default class DisplayName extends React.PureComponent {
   };
 
   componentDidMount () {
-    this._updateEmojiLinks();
-  }
+    this.clickNode = this.node;
 
-  componentDidUpdate () {
-    this._updateEmojiLinks();
-  }
-
-  _updateEmojiLinks () {
-    const node = this.node;
-
-    if (!node) {
-      return;
+    if (this.clickNode) {
+      this.clickNode.addEventListener('click', this.handleEmojiClick, true);
     }
+  }
 
-    const emojis = node.querySelectorAll('.custom-emoji');
-
-    for (var i = 0; i < emojis.length; i++) {
-      let emoji = emojis[i];
-      emoji.addEventListener('click', this.handleEmojiClick, false);
-      emoji.style.cursor = 'pointer';
+  componentWillUnmount () {
+    if (this.clickNode) {
+      this.clickNode.removeEventListener('click', this.handleEmojiClick, true);
     }
   }
 
   handleEmojiClick = e => {
-    const shortcode = e.target.dataset.shortcode;
-    const domain = e.target.dataset.domain;
+    const emoji = customEmojiTarget(e);
+
+    if (!emoji || !this.clickNode || !this.clickNode.contains(emoji)) {
+      return;
+    }
+
+    const shortcode = emoji.getAttribute('data-shortcode');
+    const domain = emoji.getAttribute('data-domain');
+
+    emoji.style.cursor = 'pointer';
 
     if (this.context.router) {
       e.preventDefault();
@@ -59,6 +58,7 @@ export default class DisplayName extends React.PureComponent {
 
     for (var i = 0; i < emojis.length; i++) {
       let emoji = emojis[i];
+      emoji.style.cursor = 'pointer';
       emoji.src = emoji.getAttribute('data-original');
     }
   }
@@ -86,7 +86,7 @@ export default class DisplayName extends React.PureComponent {
     let displayName, suffix, account;
 
     if (others && others.size > 1) {
-      displayName = others.take(2).map(a => <bdi key={a.get('id')}><strong className='display-name__html' dangerouslySetInnerHTML={{ __html: a.get('display_name_html') }} /></bdi>).reduce((prev, cur) => [prev, ', ', cur]);
+      displayName = others.take(2).map(a => <bdi key={a.get('id')}><EmojiMutedHtml tag='strong' className='display-name__html' html={a.get('display_name_html')} /></bdi>).reduce((prev, cur) => [prev, ', ', cur]);
 
       if (others.size - 2 > 0) {
         suffix = `+${others.size - 2}`;
@@ -104,7 +104,7 @@ export default class DisplayName extends React.PureComponent {
         acct = `${acct}@${localDomain}`;
       }
 
-      displayName = <bdi><strong className='display-name__html' dangerouslySetInnerHTML={{ __html: account.get('display_name_html') }} /></bdi>;
+      displayName = <bdi><EmojiMutedHtml tag='strong' className='display-name__html' html={account.get('display_name_html')} /></bdi>;
       suffix      = <span className='display-name__account'>@{acct}</span>;
     }
 

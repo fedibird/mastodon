@@ -39,6 +39,8 @@ let cachedRules = null;
 let cachedIndex = INACTIVE_INDEX;
 let cacheSignature = INACTIVE_INDEX.signature;
 let cache = new Map();
+let textCache = new Map();
+let textCacheSignature = INACTIVE_INDEX.signature;
 let parseCount = 0;
 
 const read = (value, key) => {
@@ -242,7 +244,9 @@ export function replaceEmojiInDisplayHtml(html, index) {
 
   if (cacheSignature !== index.signature) {
     cache = new Map();
+    textCache = new Map();
     cacheSignature = index.signature;
+    textCacheSignature = index.signature;
   }
 
   const stored = cache.get(html);
@@ -261,11 +265,95 @@ export function replaceEmojiInDisplayHtml(html, index) {
   return next;
 }
 
+const visibleText = html => {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  const parts = [];
+
+  const walk = node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      parts.push(node.nodeValue || '');
+      return;
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    }
+
+    const tag = node.tagName;
+
+    if (tag === 'SCRIPT' || tag === 'STYLE') {
+      return;
+    }
+
+    // Remaining images were not muted. Alt is the glyph or :shortcode:, never
+    // the image URL or the img title (which can repeat a shortcode).
+    if (tag === 'IMG') {
+      parts.push(node.getAttribute('alt') || '');
+      return;
+    }
+
+    const children = node.childNodes;
+
+    for (let index = 0; index < children.length; index += 1) {
+      walk(children[index]);
+    }
+  };
+
+  const roots = template.content.childNodes;
+
+  for (let index = 0; index < roots.length; index += 1) {
+    walk(roots[index]);
+  }
+
+  return parts.join('');
+};
+
+// Title and other plain labels stay byte-for-byte the same unless this HTML
+// actually replaced a muted emoji. The replacement is read back from the
+// presented HTML, so a muted glyph, shortcode, or image URL is not copied
+// out of the original plain string.
+export function emojiMutedPlainLabel(plain, html, index) {
+  if (typeof plain !== 'string') {
+    return plain;
+  }
+
+  const presented = replaceEmojiInDisplayHtml(html, index);
+
+  if (presented === html || typeof presented !== 'string') {
+    return plain;
+  }
+
+  const signature = index && index.signature ? index.signature : '';
+
+  if (textCacheSignature !== signature) {
+    textCache = new Map();
+    textCacheSignature = signature;
+  }
+
+  const stored = textCache.get(presented);
+
+  if (stored !== undefined) {
+    return stored;
+  }
+
+  const text = visibleText(presented);
+  textCache.set(presented, text);
+
+  if (textCache.size > CACHE_LIMIT) {
+    textCache.delete(textCache.keys().next().value);
+  }
+
+  return text;
+}
+
 export function resetEmojiMuteTextForTests() {
   cachedRules = null;
   cachedIndex = INACTIVE_INDEX;
   cacheSignature = INACTIVE_INDEX.signature;
+  textCacheSignature = INACTIVE_INDEX.signature;
   cache = new Map();
+  textCache = new Map();
   parseCount = 0;
 }
 

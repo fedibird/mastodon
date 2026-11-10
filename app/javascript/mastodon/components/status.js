@@ -8,6 +8,7 @@ import AvatarComposite from './avatar_composite';
 import AbsoluteTimestamp from './absolute_timestamp';
 import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
+import EmojiMutedHtml, { bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
 import TimelineCardBody from './timeline_card_body';
@@ -393,40 +394,22 @@ class Status extends ImmutablePureComponent {
   }
 
   _updateEmojiLinks () {
-    const node = this.emoji_node;
-
-    if (!node) {
-      return;
-    }
-
-    const emojis = node.querySelectorAll('.custom-emoji');
-
-    for (var i = 0; i < emojis.length; i++) {
-      let emoji = emojis[i];
-      emoji.addEventListener('click', this.handleEmojiClick, false);
-      emoji.style.cursor = 'pointer';
-    }
+    bindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
   }
 
   _removeEmojiLinks () {
-    const node = this.emoji_node;
-
-    if (!node) {
-      return;
-    }
-
-    const emojis = node.querySelectorAll('.custom-emoji');
-
-    for (var i = 0; i < emojis.length; i++) {
-      let emoji = emojis[i];
-      emoji.removeEventListener('click', this.handleEmojiClick, false);
-      emoji.style.cursor = 'default';
-    }
+    unbindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
   }
 
   handleEmojiClick = e => {
-    const shortcode = e.target.dataset.shortcode;
-    const domain = e.target.dataset.domain;
+    const emoji = customEmojiTarget(e);
+
+    if (!emoji || !this.emoji_node || !this.emoji_node.contains(emoji)) {
+      return;
+    }
+
+    const shortcode = emoji.getAttribute('data-shortcode');
+    const domain = emoji.getAttribute('data-domain');
 
     if (this.context.router) {
       e.preventDefault();
@@ -727,7 +710,13 @@ class Status extends ImmutablePureComponent {
   }
 
   emojiRef = c => {
+    if (c === this.emoji_node) {
+      return;
+    }
+
+    unbindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
     this.emoji_node = c;
+    bindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
   }
 
 
@@ -850,7 +839,7 @@ class Status extends ImmutablePureComponent {
       // the plain display-name fallback must remain escaped React text.
       const boosterNameHtml = booster.get('display_name_html');
       const boosterName = boosterNameHtml
-        ? <strong dangerouslySetInnerHTML={{ __html: boosterNameHtml }} />
+        ? <EmojiMutedHtml tag='strong' html={boosterNameHtml} />
         : <strong>{booster.get('display_name') || booster.get('username') || booster.get('acct')}</strong>;
       const name = (
         <a
@@ -1146,14 +1135,13 @@ class Status extends ImmutablePureComponent {
       );
     } else if (status.get('reblog', null) !== null && typeof status.get('reblog') === 'object') {
       if (!hideRebloggedBy) {
-        const display_name_html = { __html: status.getIn(['account', 'display_name_html']) };
         const visibilityReblogIcon = visibilityIconInfo[status.get('visibility')];
         const visibilityReblogLink = <Icon id={visibilityReblogIcon.icon} className='status__prepend-icon' title={visibilityReblogIcon.text} />;
 
         prepend = (
           <div className='status__prepend' ref={this.emojiRef}>
             <div className='status__prepend-icon-wrapper'><Icon id='retweet' className='status__prepend-icon' fixedWidth /></div>
-            <FormattedMessage id='status.reblogged_by' defaultMessage='{name} boosted' values={{ name: <a onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} href={status.getIn(['account', 'url'])} className='status__display-name muted'><bdi><strong dangerouslySetInnerHTML={display_name_html} /></bdi></a> }} />
+            <FormattedMessage id='status.reblogged_by' defaultMessage='{name} boosted' values={{ name: <a onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} href={status.getIn(['account', 'url'])} className='status__display-name muted'><bdi><EmojiMutedHtml tag='strong' html={status.getIn(['account', 'display_name_html']) || ''} /></bdi></a> }} />
             {visibilityReblogLink}
           </div>
         );

@@ -12,6 +12,7 @@ import Avatar from 'mastodon/components/avatar';
 import { counterRenderer } from 'mastodon/components/common_counter';
 import ShortNumber from 'mastodon/components/short_number';
 import Content from 'mastodon/components/content';
+import EmojiMutedHtml, { EmojiMutedTitle, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from 'mastodon/components/emoji_muted_html';
 import { NavLink } from 'react-router-dom';
 import DropdownMenuContainer from 'mastodon/containers/dropdown_menu_container';
 import NotificationSettings from './notification_settings';
@@ -118,35 +119,25 @@ class Header extends ImmutablePureComponent {
     this._updateEmojiLinks();
   }
 
+  componentWillUnmount () {
+    unbindCustomEmojiClick(this.node, this.handleEmojiClick);
+    unbindCustomEmojiClick(this.node2, this.handleEmojiClick);
+  }
+
   _updateEmojiLinks () {
-    const node = this.node;
-    const node2 = this.node2;
-
-    if (node) {
-      const emojis = node.querySelectorAll('.custom-emoji');
-
-      for (var i = 0; i < emojis.length; i++) {
-        let emoji = emojis[i];
-        emoji.addEventListener('click', this.handleEmojiClick, false);
-        emoji.style.cursor = 'pointer';
-      }
-    }
-
-    if (node2) {
-      const emojis = node2.querySelectorAll('.custom-emoji');
-
-      for (var i = 0; i < emojis.length; i++) {
-        let emoji = emojis[i];
-        emoji.addEventListener('click', this.handleEmojiClick, false);
-        emoji.style.cursor = 'pointer';
-      }
-    }
-
+    bindCustomEmojiClick(this.node, this.handleEmojiClick);
+    bindCustomEmojiClick(this.node2, this.handleEmojiClick);
   }
 
   handleEmojiClick = e => {
-    const shortcode = e.target.dataset.shortcode;
-    const domain = e.target.dataset.domain;
+    const emoji = customEmojiTarget(e);
+
+    if (!emoji) {
+      return;
+    }
+
+    const shortcode = emoji.getAttribute('data-shortcode');
+    const domain = emoji.getAttribute('data-domain');
 
     if (this.context.router) {
       e.preventDefault();
@@ -373,8 +364,6 @@ class Header extends ImmutablePureComponent {
       menu.push({ text: intl.formatMessage(messages.admin_account, { name: account.get('username') }), href: `/admin/accounts/${account.get('id')}` });
     }
 
-    const contentHtml      = { __html: account.get('note_emojified') };
-    const displayNameHtml  = { __html: account.get('display_name_html') };
     const fields           = account.get('fields');
     const acct             = account.get('acct').indexOf('@') === -1 && domain ? `${account.get('acct')}@${domain}` : account.get('acct');
     const followed_message = account.get('followed_message_emojified');
@@ -508,7 +497,7 @@ class Header extends ImmutablePureComponent {
 
           <div className='account__header__tabs__name'>
             <h1 ref={this.setRef}>
-              <span dangerouslySetInnerHTML={displayNameHtml} /> {badge}
+              <EmojiMutedHtml html={account.get('display_name_html') || ''} /> {badge}
               <small>@{acct} {lockedIcon}</small>
             </h1>
             <div className='account__header__tabs__name__relationship account__relationship'>
@@ -540,11 +529,11 @@ class Header extends ImmutablePureComponent {
                     ))}
                     {fields.map((pair, i) => (
                       <dl key={i}>
-                        <dt dangerouslySetInnerHTML={{ __html: pair.get('name_emojified') }} title={pair.get('name')} className='translate' />
+                        <EmojiMutedHtml tag='dt' className='translate' html={pair.get('name_emojified') || ''} plain={pair.get('name')} />
 
-                        <dd className={`${pair.get('verified_at') ? 'verified' : ''} translate`} title={pair.get('value_plain')}>
-                          {pair.get('verified_at') && <span title={intl.formatMessage(messages.linkVerifiedOn, { date: intl.formatDate(pair.get('verified_at'), dateFormatOptions) })}><Icon id='check' className='verified__mark' /></span>} <Content contentHtml={{ __html: pair.get('value_emojified')}} />
-                        </dd>
+                        <EmojiMutedTitle tag='dd' className={`${pair.get('verified_at') ? 'verified' : ''} translate`} plain={pair.get('value_plain')} html={pair.get('value_emojified') || ''}>
+                          {pair.get('verified_at') && <span title={intl.formatMessage(messages.linkVerifiedOn, { date: intl.formatDate(pair.get('verified_at'), dateFormatOptions) })}><Icon id='check' className='verified__mark' /></span>} <Content contentHtml={{ __html: pair.get('value_emojified') }} />
+                        </EmojiMutedTitle>
                       </dl>
                     ))}
                   </div>
@@ -552,7 +541,7 @@ class Header extends ImmutablePureComponent {
 
                 {account.get('id') !== me && !suspended && <AccountNoteContainer account={account} />}
 
-                {account.get('note').length > 0 && account.get('note') !== '<p></p>' && <div className='account__header__content translate'><Content contentHtml={contentHtml} /></div>}
+                {account.get('note').length > 0 && account.get('note') !== '<p></p>' && <div className='account__header__content translate'><Content contentHtml={{ __html: account.get('note_emojified') }} /></div>}
 
                 <div className='account__header__personal--wrapper'>
                   <table className='account__header__personal'>
