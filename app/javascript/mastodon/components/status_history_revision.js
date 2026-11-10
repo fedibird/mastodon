@@ -3,10 +3,55 @@ import PropTypes from 'prop-types';
 import { FormattedMessage } from 'react-intl';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { List as ImmutableList } from 'immutable';
+import escapeTextContentForBrowser from 'escape-html';
 import IconButton from 'mastodon/components/icon_button';
 import DisplayName from 'mastodon/components/display_name';
+import EmojiMutedHtml from 'mastodon/components/emoji_muted_html';
 import RelativeTimestamp from 'mastodon/components/relative_timestamp';
 import emojify from 'mastodon/features/emoji/emoji';
+
+// The author domain is the remote mute identity. A missing account is not
+// guessed from an emoji row. Local identity is only the id on this revision's
+// emoji list, written while the HTML is built. A later row that reused the
+// shortcode is a different emoji, and a shortcode with no id is left alone.
+const authorDomainFromAccount = account => {
+  const acct = account && typeof account.get === 'function' ? account.get('acct') : '';
+
+  if (typeof acct !== 'string') {
+    return '';
+  }
+
+  const at = acct.indexOf('@');
+
+  return at === -1 ? '' : acct.slice(at + 1);
+};
+
+const revisionEmojiMap = revision => {
+  const emojis = revision && typeof revision.get === 'function' ? revision.get('emojis') : null;
+  const map = {};
+
+  if (!emojis || typeof emojis.forEach !== 'function') {
+    return map;
+  }
+
+  emojis.forEach(emoji => {
+    const shortcode = emoji && typeof emoji.get === 'function' ? emoji.get('shortcode') : null;
+
+    if (!shortcode) {
+      return;
+    }
+
+    map[`:${shortcode}:`] = typeof emoji.toJS === 'function' ? emoji.toJS() : emoji;
+  });
+
+  return map;
+};
+
+const revisionDisplayHtml = (text, revision, account, escaped) => {
+  const source = escaped ? escapeTextContentForBrowser(text || '') : (text || '');
+
+  return emojify(source, revisionEmojiMap(revision), authorDomainFromAccount(account));
+};
 
 export default class StatusHistoryRevision extends React.PureComponent {
 
@@ -31,11 +76,9 @@ export default class StatusHistoryRevision extends React.PureComponent {
       );
     }
 
-    const emojiMap = (revision.get('emojis') || ImmutableList()).reduce((obj, emoji) => {
-      obj[`:${emoji.get('shortcode')}:`] = emoji.toJS();
-      return obj;
-    }, {});
-    const content = { __html: emojify(revision.get('content') || '', emojiMap) };
+    const contentHtml = revisionDisplayHtml(revision.get('content'), revision, account, false);
+    const spoilerText = revision.get('spoiler_text') || '';
+    const spoilerHtml = spoilerText ? revisionDisplayHtml(spoilerText, revision, account, true) : '';
     const formattedDate = <RelativeTimestamp timestamp={revision.get('created_at')} short={false} />;
     const formattedName = account ? <DisplayName account={account} /> : null;
     const label = revision.get('original') ? (
@@ -54,14 +97,14 @@ export default class StatusHistoryRevision extends React.PureComponent {
 
         <div className='compare-history-modal__container'>
           <div className='status__content'>
-            {revision.get('spoiler_text') && revision.get('spoiler_text').length > 0 && (
+            {spoilerText.length > 0 && (
               <React.Fragment>
-                <div className='translate' lang={language}>{revision.get('spoiler_text')}</div>
+                <EmojiMutedHtml tag='div' className='translate' html={spoilerHtml} lang={language} />
                 <hr />
               </React.Fragment>
             )}
 
-            <div className='status__content__text status__content__text--visible translate' dangerouslySetInnerHTML={content} lang={language} />
+            <EmojiMutedHtml tag='div' className='status__content__text status__content__text--visible translate' html={contentHtml} lang={language} />
 
             {revision.get('sensitive') && (
               <p className='compare-history-modal__sensitive'>
@@ -71,8 +114,10 @@ export default class StatusHistoryRevision extends React.PureComponent {
 
             {!!revision.get('poll') && (
               <ul className='compare-history-modal__poll'>
-                {revision.getIn(['poll', 'options']).map(option => (
-                  <li key={option.get('title')}>{option.get('title')}</li>
+                {revision.getIn(['poll', 'options']).map((option, optionIndex) => (
+                  <li key={`${optionIndex}-${option.get('title')}`}>
+                    <EmojiMutedHtml html={revisionDisplayHtml(option.get('title'), revision, account, true)} />
+                  </li>
                 ))}
               </ul>
             )}
