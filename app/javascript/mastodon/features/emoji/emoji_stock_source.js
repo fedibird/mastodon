@@ -31,6 +31,12 @@ const ready = document => ({ status: 'ready', stock: document.stock });
 // A warm stock is safe to paint immediately. Callers still revalidate with
 // ETag in the background and never persist private stock to browser storage.
 export function getCachedPersonalEmojiStock() {
+  // A different tab may have saved while no picker was mounted, and therefore
+  // while the storage listener was detached. Never paint that stale cache.
+  if (changeMarker() !== lastChange) {
+    return null;
+  }
+
   return cachedDocument ? ready(cachedDocument) : null;
 }
 
