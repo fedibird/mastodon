@@ -4,6 +4,7 @@ export {
   setEmojiActionsSlideListeners,
   reportEmojiActionsSlideMove,
   reportEmojiActionsSlideRelease,
+  reportEmojiActionsSlideCancel,
   beginEmojiActionsSlideGesture,
   peekEmojiActionsSlideGesture,
   endEmojiActionsSlideGesture,

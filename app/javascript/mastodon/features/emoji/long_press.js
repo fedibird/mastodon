@@ -7,6 +7,7 @@ import {
   beginEmojiActionsSlideGesture,
   createEmojiActionsSlideGestureId,
   endEmojiActionsSlideGesture,
+  reportEmojiActionsSlideCancel,
   reportEmojiActionsSlideMove,
   reportEmojiActionsSlideRelease,
 } from './emoji_actions/bus';
@@ -48,10 +49,25 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     timer = null;
   };
 
+  // Abort an in-flight slide: end the bus session and notify the menu so any
+  // slide-target highlight is cleared (multitouch / pointercancel).
   const cancelSlideGesture = () => {
-    if (tracking && tracking.gestureId) {
-      endEmojiActionsSlideGesture(tracking.gestureId);
+    if (!tracking || !tracking.gestureId) {
+      return;
     }
+
+    const gestureId = tracking.gestureId;
+    tracking.gestureId = null;
+    endEmojiActionsSlideGesture(gestureId);
+    reportEmojiActionsSlideCancel({ gestureId, anchor: element });
+  };
+
+  const endSlideGestureQuiet = () => {
+    if (!tracking || !tracking.gestureId) {
+      return;
+    }
+
+    endEmojiActionsSlideGesture(tracking.gestureId);
   };
 
   const onDocumentTouchStart = event => {
@@ -171,6 +187,7 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
       return;
     }
 
+    tracking.cancelled = true;
     clearTracking();
   };
 
@@ -201,7 +218,17 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     disarmDocumentMultiTouchWatch();
     releasePointerCaptureIfNeeded();
     disarmDocumentPointerWatch();
-    cancelSlideGesture();
+
+    if (tracking) {
+      if (tracking.cancelled) {
+        cancelSlideGesture();
+      } else {
+        // Successful release path ends the bus id without a cancel notify;
+        // the menu clears highlight from handleSlideRelease instead.
+        endSlideGestureQuiet();
+      }
+    }
+
     tracking = null;
   };
 
@@ -383,6 +410,9 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
   };
 
   const onTouchCancel = () => {
+    if (tracking) {
+      tracking.cancelled = true;
+    }
     clearTracking();
   };
 

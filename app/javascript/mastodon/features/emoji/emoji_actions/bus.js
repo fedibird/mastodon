@@ -8,6 +8,7 @@ const EVENT = 'mastodon:open-emoji-actions';
 let listener = null;
 let slideMoveListener = null;
 let slideReleaseListener = null;
+let slideCancelListener = null;
 let activeSlideGesture = null;
 let gestureSeq = 0;
 
@@ -66,10 +67,12 @@ export function setEmojiActionsListener(next) {
 
 // Long-press slide-to-select: after the menu opens, move/release coordinates
 // from the still-held press are reported here (not via permanent document
-// gesture listeners on unrelated media).
-export function setEmojiActionsSlideListeners({ onMove, onRelease } = {}) {
+// gesture listeners on unrelated media). Cancel notifies so highlight clears
+// when multitouch / pointercancel aborts without a release.
+export function setEmojiActionsSlideListeners({ onMove, onRelease, onCancel } = {}) {
   slideMoveListener = typeof onMove === 'function' ? onMove : null;
   slideReleaseListener = typeof onRelease === 'function' ? onRelease : null;
+  slideCancelListener = typeof onCancel === 'function' ? onCancel : null;
 
   return () => {
     if (slideMoveListener === onMove) {
@@ -78,6 +81,10 @@ export function setEmojiActionsSlideListeners({ onMove, onRelease } = {}) {
 
     if (slideReleaseListener === onRelease) {
       slideReleaseListener = null;
+    }
+
+    if (slideCancelListener === onCancel) {
+      slideCancelListener = null;
     }
   };
 }
@@ -94,6 +101,12 @@ export function reportEmojiActionsSlideRelease(payload) {
   }
 
   return false;
+}
+
+export function reportEmojiActionsSlideCancel(payload) {
+  if (slideCancelListener && payload) {
+    slideCancelListener(payload);
+  }
 }
 
 function normalizeReactionContext(reaction) {
@@ -169,6 +182,7 @@ export function resetEmojiActionsBusForTests() {
   listener = null;
   slideMoveListener = null;
   slideReleaseListener = null;
+  slideCancelListener = null;
   activeSlideGesture = null;
   gestureSeq = 0;
 }

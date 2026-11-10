@@ -383,7 +383,8 @@ describe('attachLongPressGesture', () => {
 
   it('cancels slide release when a second finger lands after the menu opens', () => {
     const onRelease = jest.fn();
-    setEmojiActionsSlideListeners({ onRelease });
+    const onCancel = jest.fn();
+    setEmojiActionsSlideListeners({ onRelease, onCancel });
 
     const other = document.createElement('button');
     document.body.appendChild(other);
@@ -403,6 +404,11 @@ describe('attachLongPressGesture', () => {
       ],
     });
 
+    expect(onCancel).toHaveBeenCalledWith(expect.objectContaining({
+      gestureId: expect.any(String),
+      anchor: node,
+    }));
+
     const endOnItem = { identifier: 7, clientX: 90, clientY: 90 };
     fireEvent.touchEnd(node, { changedTouches: [endOnItem], touches: [{ identifier: 8, clientX: 20, clientY: 20 }] });
 
@@ -411,7 +417,8 @@ describe('attachLongPressGesture', () => {
 
   it('cancels slide release after multitouch on touchmove even when fired', () => {
     const onRelease = jest.fn();
-    setEmojiActionsSlideListeners({ onRelease });
+    const onCancel = jest.fn();
+    setEmojiActionsSlideListeners({ onRelease, onCancel });
 
     const touch = { identifier: 9, clientX: 1, clientY: 1 };
     fireEvent.touchStart(node, { touches: [touch] });
@@ -426,11 +433,36 @@ describe('attachLongPressGesture', () => {
       ],
     });
 
+    expect(onCancel).toHaveBeenCalledWith(expect.objectContaining({
+      gestureId: expect.any(String),
+      anchor: node,
+    }));
+
     fireEvent.touchEnd(node, {
       changedTouches: [{ identifier: 9, clientX: 50, clientY: 50 }],
       touches: [{ identifier: 10, clientX: 60, clientY: 60 }],
     });
 
+    expect(onRelease).not.toHaveBeenCalled();
+  });
+
+  it('notifies slide cancel on pointercancel after the menu opens', () => {
+    const onRelease = jest.fn();
+    const onCancel = jest.fn();
+    setEmojiActionsSlideListeners({ onRelease, onCancel });
+
+    dispatchPointer(node, 'pointerdown', { clientX: 10, clientY: 10 });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+
+    dispatchPointer(node, 'pointercancel', { clientX: 40, clientY: 40 });
+
+    expect(onCancel).toHaveBeenCalledWith(expect.objectContaining({
+      gestureId: expect.any(String),
+      anchor: node,
+    }));
     expect(onRelease).not.toHaveBeenCalled();
   });
 

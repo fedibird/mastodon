@@ -16,6 +16,8 @@ import {
   beginEmojiActionsSlideGesture,
   createEmojiActionsSlideGestureId,
   openEmojiActions,
+  reportEmojiActionsSlideCancel,
+  reportEmojiActionsSlideMove,
   reportEmojiActionsSlideRelease,
   resetEmojiActionsBusForTests,
 } from 'mastodon/features/emoji/emoji_actions/bus';
@@ -92,6 +94,22 @@ function slideRelease(gestureId, anchor, clientX, clientY) {
   return reportEmojiActionsSlideRelease({
     clientX,
     clientY,
+    gestureId,
+    anchor,
+  });
+}
+
+function slideMove(gestureId, anchor, clientX, clientY) {
+  reportEmojiActionsSlideMove({
+    clientX,
+    clientY,
+    gestureId,
+    anchor,
+  });
+}
+
+function slideCancel(gestureId, anchor) {
+  reportEmojiActionsSlideCancel({
     gestureId,
     anchor,
   });
@@ -881,6 +899,122 @@ describe('emoji actions menu portal host', () => {
 
     document.body.removeChild(anchorA);
     document.body.removeChild(anchorB);
+  });
+
+  it('clears slide highlight on gesture cancel and keeps normal tap usable', async () => {
+    render(
+      <EmojiActionsMenuController
+        intl={intl}
+        signedIn
+        onSyncMutes={jest.fn(() => Promise.resolve())}
+      />,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+
+    let gestureId;
+    act(() => {
+      gestureId = openWithSlideGesture({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+    });
+
+    const muteItem = await screen.findByRole('button', { name: 'Mute emoji' });
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => muteItem;
+
+    act(() => {
+      slideMove(gestureId, anchor, 40, 40);
+    });
+
+    expect(muteItem.classList.contains('emoji-actions-menu__slide-target')).toBe(true);
+
+    act(() => {
+      slideCancel(gestureId, anchor);
+    });
+
+    expect(muteItem.classList.contains('emoji-actions-menu__slide-target')).toBe(false);
+
+    document.elementFromPoint = original;
+
+    fireEvent.click(muteItem);
+    await waitFor(() => expect(createEmojiMute).toHaveBeenCalledTimes(1));
+
+    document.body.removeChild(anchor);
+  });
+
+  it('ignores slide release after the anchor is removed from the DOM', async () => {
+    render(
+      <EmojiActionsMenuController
+        intl={intl}
+        signedIn
+        onSyncMutes={jest.fn(() => Promise.resolve())}
+      />,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+
+    let gestureId;
+    act(() => {
+      gestureId = openWithSlideGesture({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+    });
+
+    const muteItem = await screen.findByRole('button', { name: 'Mute emoji' });
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => muteItem;
+
+    act(() => {
+      slideMove(gestureId, anchor, 40, 40);
+    });
+    expect(muteItem.classList.contains('emoji-actions-menu__slide-target')).toBe(true);
+
+    // Host cell replaced / removed while the press is still held.
+    document.body.removeChild(anchor);
+    expect(anchor.isConnected).toBe(false);
+
+    act(() => {
+      expect(slideRelease(gestureId, anchor, 40, 40)).toBe(false);
+    });
+
+    expect(muteItem.classList.contains('emoji-actions-menu__slide-target')).toBe(false);
+    document.elementFromPoint = original;
+    expect(createEmojiMute).not.toHaveBeenCalled();
+
+    // Menu remains for a normal tap after the stale gesture is rejected.
+    fireEvent.click(muteItem);
+    await waitFor(() => expect(createEmojiMute).toHaveBeenCalledTimes(1));
+  });
+
+  it('still activates once when the slide anchor remains connected', async () => {
+    render(
+      <EmojiActionsMenuController
+        intl={intl}
+        signedIn
+        onSyncMutes={jest.fn(() => Promise.resolve())}
+      />,
+    );
+
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+
+    let gestureId;
+    act(() => {
+      gestureId = openWithSlideGesture({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+    });
+
+    const muteItem = await screen.findByRole('button', { name: 'Mute emoji' });
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => muteItem;
+
+    act(() => {
+      expect(anchor.isConnected).toBe(true);
+      expect(slideRelease(gestureId, anchor, 40, 40)).toBe(true);
+    });
+
+    document.elementFromPoint = original;
+    await waitFor(() => expect(createEmojiMute).toHaveBeenCalledTimes(1));
+
+    document.body.removeChild(anchor);
   });
 
   it('does not steal an unrelated click or keyboard activation after slide select', async () => {

@@ -399,6 +399,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.unlistenSlide = setEmojiActionsSlideListeners({
       onMove: this.handleSlideMove,
       onRelease: this.handleSlideRelease,
+      onCancel: this.handleSlideCancel,
     });
     document.addEventListener(emojiActionsEventName(), this.handleDomEvent);
     document.addEventListener('contextmenu', this.handleContextMenu, true);
@@ -597,6 +598,12 @@ class EmojiActionsMenuController extends React.PureComponent {
       return false;
     }
 
+    // Fail-closed when the host cell was removed / replaced (Nimble rebuild,
+    // status unmount). Stale document pointerup must not hit-test the menu.
+    if (this.state.element.isConnected === false) {
+      return false;
+    }
+
     // Anchor must still be the open menu's host when provided.
     if (payload.anchor && payload.anchor !== this.state.element) {
       return false;
@@ -605,8 +612,24 @@ class EmojiActionsMenuController extends React.PureComponent {
     return true;
   };
 
+  handleSlideCancel = (payload = {}) => {
+    if (!payload.gestureId || payload.gestureId !== this.slideGestureId) {
+      return;
+    }
+
+    if (this.slideGestureGeneration !== this.loadGeneration) {
+      return;
+    }
+
+    this.clearSlideHighlight();
+  };
+
   handleSlideMove = (payload = {}) => {
     if (!this.isSlideGestureCurrent(payload)) {
+      // Matching id but stale (disconnected / generation) — drop our highlight.
+      if (payload.gestureId && payload.gestureId === this.slideGestureId) {
+        this.clearSlideHighlight();
+      }
       return;
     }
 

@@ -53,12 +53,14 @@ drag cancel (>12px before 480ms) releases capture and suppresses the
 host’s trailing click so insert/react does not fire. A second finger
 after the menu opens cancels slide activation; `touchend` only releases
 when the tracked touch id is present and the gesture is not cancelled.
-Slide move/release carry a gesture id + anchor bound to the open menu
-generation so a stale press cannot activate a later menu. A valid
-enabled item activates once through the shared item-action path; outside /
-disabled / loading / separator leaves the menu open for a follow-up tap.
-Slide candidates can show a temporary highlight class. Re-tap after
-release still works. Post-slide synthetic-click swallow is
+Cancel (multitouch / pointercancel) notifies the menu so any
+`.emoji-actions-menu__slide-target` highlight is cleared and a normal tap
+still works. Slide move/release carry a gesture id + anchor bound to the
+open menu generation so a stale press cannot activate a later menu;
+disconnected anchors are fail-closed. A valid enabled item activates once
+through the shared item-action path; outside / disabled / loading /
+separator leaves the menu open for a follow-up tap. Slide candidates can
+show a temporary highlight class. Re-tap after release still works. Post-slide synthetic-click swallow is
 time-bounded and limited to the original host (menu item clicks,
 keyboard `detail === 0`, and unrelated clicks are never blocked).
 
