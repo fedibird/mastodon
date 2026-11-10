@@ -236,22 +236,16 @@ export default class Card extends React.PureComponent {
     );
 
     let embed  = '';
-    let canvas = card.get('thumbhash') ?
-      (<Thumbhash
-        hash={card.get('thumbhash')}
-        className={classnames('status-card__image-preview', {
-          'status-card__image-preview--hidden': revealed && this.state.previewLoaded,
-        })}
-        dummy={!useBlurhash}
-      />)
-      :
-      (<Blurhash
-        hash={card.get('blurhash')}
-        className={classnames('status-card__image-preview', {
-          'status-card__image-preview--hidden': revealed && this.state.previewLoaded,
-        })}
-        dummy={!useBlurhash}
-      />);
+    const previewClassName = classnames('status-card__image-preview', {
+      'status-card__image-preview--hidden': revealed && this.state.previewLoaded,
+    });
+    let canvas = null;
+
+    if (card.get('thumbhash')) {
+      canvas = <Thumbhash hash={card.get('thumbhash')} className={previewClassName} dummy={!useBlurhash} />;
+    } else if (card.get('blurhash')) {
+      canvas = <Blurhash hash={card.get('blurhash')} className={previewClassName} dummy={!useBlurhash} />;
+    }
     let thumbnail = <img src={card.get('image')} alt='' style={{ width: horizontal ? width : null, height: horizontal ? height : null, visibility: revealed ? null : 'hidden' }} onLoad={this.handleImageLoad} className='status-card__image-image' />;
     let spoilerButton = (
       <button type='button' onClick={this.handleReveal} className='spoiler-button__overlay'>
