@@ -4,6 +4,7 @@ import {
   isEmptyEmojiStock,
   normalizeEmojiStockLoad,
   normalizeSearchKey,
+  prepareEmojiStock,
   searchEmojiStock,
   toEmojiPickerCallbackPayload,
 } from '../emoji_stock';
@@ -137,6 +138,19 @@ describe('emoji stock contract', () => {
     expect(visible.categories[1].items[0].selection.native).toBe('👍');
     expect(frozen.categories[0].items).toHaveLength(2);
     expect(frozen.categories[1].items).toHaveLength(4);
+  });
+
+  it('prepares immutable stock for searching and handles new revisions independently', () => {
+    const original = deepFreeze(stock());
+    const updated = stock();
+
+    updated.categories[0].items[0].search.push('新しい別名');
+    expect(prepareEmojiStock(original)).toBe(original);
+    expect(prepareEmojiStock(original)).toBe(original);
+    expect(searchEmojiStock(original, 'かぞく').categories[0].items[0].key).toBe('place-zwj');
+    expect(searchEmojiStock(original, '新しい別名').categories).toEqual([]);
+    expect(prepareEmojiStock(updated)).toBe(updated);
+    expect(searchEmojiStock(updated, '新しい別名').categories[0].items[0].key).toBe('place-zwj');
   });
 
   it('searches only stock terms and keeps the registered order', () => {
