@@ -127,6 +127,15 @@ describe('personal emoji stock source', () => {
 
     localStorage.setItem('mastodon:personal-emoji-set:account-1', 'other-tab-change');
     expect(source.getCachedPersonalEmojiStock()).toBeNull();
+
+    const changed = documentFor(2);
+
+    get.mockResolvedValueOnce({ status: 200, data: changed, headers: { etag: 'v2' } });
+    expect((await source.loadPersonalEmojiStock()).stock).toBe(changed.stock);
+    expect(source.getCachedPersonalEmojiStock().stock).toBe(changed.stock);
+    expect(get).toHaveBeenLastCalledWith('/api/v1/emoji_sets/personal/stock', expect.objectContaining({
+      headers: { Authorization: 'Bearer test-token' },
+    }));
   });
 
   it('refreshes the size after a save in another tab while all dropdowns were closed', async () => {
