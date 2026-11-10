@@ -2,6 +2,10 @@ import Graphemer from 'graphemer';
 
 const graphemes = new Graphemer();
 
+// Prepared lookup data belongs to the immutable stock object. Weak keys let
+// old revisions be collected after a save or an ETag refresh.
+const preparedSearchFields = new WeakMap();
+
 // Resolved personal-emoji stock shared by the picker and its supply adapter.
 // This is an in-memory contract for the picker, not a persistence schema
 // or a public API. Suppliers fill every field the picker needs so rendering,
@@ -154,8 +158,35 @@ function searchFields(item) {
   return fields;
 }
 
-function itemMatches(item, normalizedQuery) {
-  return searchFields(item).some(field => normalizeSearchKey(field).includes(normalizedQuery));
+// Prepare search terms when a stock document arrives, not on the first
+// keystroke. Custom suppliers that skip preparation still use the same search.
+export function prepareEmojiStock(stock) {
+  if (!stock || typeof stock !== 'object' || preparedSearchFields.has(stock)) {
+    return stock;
+  }
+
+  const byItem = new WeakMap();
+  const categories = Array.isArray(stock.categories) ? stock.categories : [];
+
+  categories.forEach(category => {
+    const items = category && Array.isArray(category.items) ? category.items : [];
+
+    items.forEach(item => {
+      if (item && typeof item === 'object' && !byItem.has(item)) {
+        byItem.set(item, searchFields(item).map(normalizeSearchKey));
+      }
+    });
+  });
+
+  preparedSearchFields.set(stock, byItem);
+  return stock;
+}
+
+function itemMatches(item, normalizedQuery, byItem) {
+  const prepared = item && byItem && byItem.get(item);
+  const fields = prepared || searchFields(item).map(normalizeSearchKey);
+
+  return fields.some(field => field.includes(normalizedQuery));
 }
 
 // New category and item arrays, same item objects. Order is kept.
@@ -163,11 +194,12 @@ function itemMatches(item, normalizedQuery) {
 export function searchEmojiStock(stock, query) {
   const source = stock && Array.isArray(stock.categories) ? stock.categories : [];
   const normalized = normalizeSearchKey(query);
+  const byItem = stock && preparedSearchFields.get(stock);
   const categories = [];
 
   source.forEach(category => {
     const items = category && Array.isArray(category.items) ? category.items : [];
-    const visible = normalized ? items.filter(item => itemMatches(item, normalized)) : items.slice();
+    const visible = normalized ? items.filter(item => itemMatches(item, normalized, byItem)) : items.slice();
 
     if (normalized && visible.length === 0) {
       return;

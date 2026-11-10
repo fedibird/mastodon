@@ -198,7 +198,20 @@ class StockEmojiPicker extends React.PureComponent {
   }
 
   visibleStock() {
-    return searchEmojiStock(this.props.stock, this.currentQuery());
+    const { stock } = this.props;
+    const query = this.currentQuery();
+    const cached = this.visibleStockCache;
+
+    // A render, category jump, and subsequent selection often share the same
+    // query. Avoid rebuilding category arrays for each of those operations.
+    if (cached && cached.stock === stock && cached.query === query) {
+      return cached.result;
+    }
+
+    const result = searchEmojiStock(stock, query);
+
+    this.visibleStockCache = { stock, query, result };
+    return result;
   }
 
   flatItems(stock) {
@@ -673,7 +686,7 @@ class StockEmojiPicker extends React.PureComponent {
     const { stock } = this.props;
     const query = this.currentQuery();
     const visible = this.visibleStock();
-    const hasVisible = this.flatItems(visible).length > 0;
+    const hasVisible = visible.categories.some(category => category.items.length > 0);
     let status = null;
 
     if (!hasVisible && !normalizeSearchKey(query) && isEmptyEmojiStock(stock)) {

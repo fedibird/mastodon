@@ -1,6 +1,6 @@
 import api from 'mastodon/api';
 import initialState from 'mastodon/initial_state_data';
-import { emptyEmojiStock } from './emoji_stock';
+import { emptyEmojiStock, prepareEmojiStock } from './emoji_stock';
 
 const endpoint = '/api/v1/emoji_sets/personal/stock';
 const me = initialState?.meta?.me;
@@ -27,6 +27,18 @@ function changeMarker() {
 let lastChange = changeMarker();
 
 const ready = document => ({ status: 'ready', stock: document.stock });
+
+// A warm stock is safe to paint immediately. Callers still revalidate with
+// ETag in the background and never persist private stock to browser storage.
+export function getCachedPersonalEmojiStock() {
+  // A different tab may have saved while no picker was mounted, and therefore
+  // while the storage listener was detached. Never paint that stale cache.
+  if (changeMarker() !== lastChange) {
+    return null;
+  }
+
+  return cachedDocument ? ready(cachedDocument) : null;
+}
 
 function currentResult() {
   if (cachedDocument) {
@@ -63,6 +75,15 @@ export function loadPersonalEmojiStock() {
     return Promise.resolve({ status: 'ready', stock: emptyEmojiStock() });
   }
 
+  // An editor in another tab might have changed the set while all pickers
+  // were closed and the storage listener detached. Invalidate before
+  // conditional requests, even for standalone picker hosts.
+  const marker = changeMarker();
+
+  if (marker !== lastChange) {
+    handleStorage({ key: changeKey, newValue: marker });
+  }
+
   if (request) {
     return request;
   }
@@ -91,6 +112,7 @@ export function loadPersonalEmojiStock() {
 
     if (response.status !== 304) {
       cachedDocument = validateDocument(response.data);
+      prepareEmojiStock(cachedDocument.stock);
       etag = response.headers?.etag || null;
     }
 
@@ -195,6 +217,7 @@ export function notifySavedPersonalEmojiSet(document) {
   request = null;
   latestRequest = null;
   cachedDocument = saved;
+  prepareEmojiStock(saved.stock);
   etag = null;
   applySize(saved.picker_emoji_size);
   stockListeners.forEach(listener => listener(ready(saved)));

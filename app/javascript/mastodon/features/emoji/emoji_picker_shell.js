@@ -4,7 +4,7 @@ import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
 import { assetHost } from 'mastodon/utils/config';
 import StockEmojiPicker from './stock_emoji_picker';
-import { loadPersonalEmojiStock, subscribePersonalEmojiStock } from './emoji_stock_source';
+import { getCachedPersonalEmojiStock, loadPersonalEmojiStock, subscribePersonalEmojiStock } from './emoji_stock_source';
 import { emptyEmojiStock, normalizeEmojiStockLoad } from './emoji_stock';
 import { loadStandardEmojiPicker } from './standard_emoji_loader';
 import { markEmojiPickerEscape } from './emoji_picker_escape';
@@ -103,6 +103,7 @@ class EmojiPickerShell extends React.PureComponent {
     this.standardGeneration = 0;
     this.stockInFlight = false;
     this.standardInFlight = false;
+    const cachedStock = props.stockSource === loadPersonalEmojiStock ? getCachedPersonalEmojiStock() : null;
 
     if (props.open) {
       activeEmojiPickerShell = this.shellId;
@@ -113,8 +114,8 @@ class EmojiPickerShell extends React.PureComponent {
       wasOpen: props.open,
       mode: this.modeFromProps(props),
       personalQuery: '',
-      stockStatus: 'idle',
-      stock: emptyEmojiStock(),
+      stockStatus: cachedStock ? 'ready' : 'idle',
+      stock: cachedStock ? cachedStock.stock : emptyEmojiStock(),
       standardStatus: 'idle',
       standardModule: null,
       standardAutoFocus: false,
@@ -151,7 +152,7 @@ class EmojiPickerShell extends React.PureComponent {
     this.bindStockSource();
 
     if (this.props.open) {
-      this.ensureData();
+      this.ensureData(this.props.stockSource === loadPersonalEmojiStock);
       this.emitMode(this.state.mode);
     }
   }
@@ -416,22 +417,30 @@ class EmojiPickerShell extends React.PureComponent {
   }
 
   beginStock(force) {
-    if (!this.props.personalEnabled) {
+    if (!this.props.personalEnabled || this.stockInFlight) {
       return;
     }
 
-    if (this.stockInFlight) {
-      return;
+    // The application may have preloaded stock, or another picker may have
+    // fetched it while this one was in standard mode. Paint that object now
+    // and keep it visible while ETag revalidation completes.
+    const warm = this.props.stockSource === loadPersonalEmojiStock ? getCachedPersonalEmojiStock() : null;
+    const hasReadyStock = this.state.stockStatus === 'ready' || Boolean(warm);
+
+    if (warm && (this.state.stockStatus !== 'ready' || this.state.stock !== warm.stock)) {
+      this.setState({ stockStatus: 'ready', stock: warm.stock });
     }
 
-    if (!force && this.state.stockStatus === 'ready') {
+    if (!force && hasReadyStock) {
       return;
     }
 
     const generation = ++this.stockGeneration;
 
     this.stockInFlight = true;
-    this.setState({ stockStatus: 'loading' });
+    if (!hasReadyStock) {
+      this.setState({ stockStatus: 'loading' });
+    }
 
     Promise.resolve().then(() => this.props.stockSource()).then(result => {
       if (!this.mounted || generation !== this.stockGeneration) {
@@ -442,12 +451,15 @@ class EmojiPickerShell extends React.PureComponent {
       const normalized = normalizeEmojiStockLoad(result);
 
       if (normalized.status === 'error') {
-        this.setState({ stockStatus: 'error', stock: emptyEmojiStock() });
+        if (!hasReadyStock) {
+          this.setState({ stockStatus: 'error', stock: emptyEmojiStock() });
+        }
         return null;
       }
 
-      // Keep the supplier's object. Search and selection copy what they need.
-      this.setState({ stockStatus: 'ready', stock: normalized.stock });
+      // A 304 response keeps the same stock object, so it needs no rerender.
+      this.setState(prev => prev.stockStatus === 'ready' && prev.stock === normalized.stock
+        ? null : { stockStatus: 'ready', stock: normalized.stock });
       return null;
     }).catch(error => {
       if (!this.mounted || generation !== this.stockGeneration) {
@@ -455,7 +467,9 @@ class EmojiPickerShell extends React.PureComponent {
       }
 
       this.stockInFlight = false;
-      this.setState({ stockStatus: 'error', stock: emptyEmojiStock(), stockError: error });
+      if (!hasReadyStock) {
+        this.setState({ stockStatus: 'error', stock: emptyEmojiStock(), stockError: error });
+      }
     });
   }
 

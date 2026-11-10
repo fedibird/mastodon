@@ -43,7 +43,9 @@ describe('personal emoji stock source', () => {
     const document = documentFor(1);
 
     get.mockResolvedValueOnce({ status: 200, data: document, headers: { etag: 'resolved-v1' } });
+    expect(source.getCachedPersonalEmojiStock()).toBeNull();
     expect(await source.loadPersonalEmojiStock()).toEqual({ status: 'ready', stock: document.stock });
+    expect(source.getCachedPersonalEmojiStock()).toEqual({ status: 'ready', stock: document.stock });
     expect(get).toHaveBeenCalledWith('/api/v1/emoji_sets/personal/stock', expect.objectContaining({
       headers: { Authorization: 'Bearer test-token' },
     }));
@@ -100,6 +102,7 @@ describe('personal emoji stock source', () => {
     expect(changed).not.toHaveBeenCalled();
     window.dispatchEvent(new StorageEvent('storage', { key: 'mastodon:personal-emoji-set:account-1', newValue: 'untrusted-marker' }));
     expect(changed).toHaveBeenCalledWith(null);
+    expect(source.getCachedPersonalEmojiStock()).toBeNull();
     await source.loadPersonalEmojiStock();
     expect(sizeChanged).toHaveBeenCalledWith(40);
     expect(get).toHaveBeenCalledTimes(1);
@@ -113,6 +116,26 @@ describe('personal emoji stock source', () => {
     await expect(source.loadPersonalEmojiStock()).rejects.toThrow('Invalid personal emoji stock');
     get.mockResolvedValueOnce({ status: 200, data: documentFor(1), headers: {} });
     await expect(source.loadPersonalEmojiStock()).resolves.toHaveProperty('status', 'ready');
+  });
+
+  it('does not expose stale cache if another tab saves while no listener is mounted', async () => {
+    const document = documentFor(1);
+
+    get.mockResolvedValueOnce({ status: 200, data: document, headers: { etag: 'v1' } });
+    await source.loadPersonalEmojiStock();
+    expect(source.getCachedPersonalEmojiStock().stock).toBe(document.stock);
+
+    localStorage.setItem('mastodon:personal-emoji-set:account-1', 'other-tab-change');
+    expect(source.getCachedPersonalEmojiStock()).toBeNull();
+
+    const changed = documentFor(2);
+
+    get.mockResolvedValueOnce({ status: 200, data: changed, headers: { etag: 'v2' } });
+    expect((await source.loadPersonalEmojiStock()).stock).toBe(changed.stock);
+    expect(source.getCachedPersonalEmojiStock().stock).toBe(changed.stock);
+    expect(get).toHaveBeenLastCalledWith('/api/v1/emoji_sets/personal/stock', expect.objectContaining({
+      headers: { Authorization: 'Bearer test-token' },
+    }));
   });
 
   it('refreshes the size after a save in another tab while all dropdowns were closed', async () => {
