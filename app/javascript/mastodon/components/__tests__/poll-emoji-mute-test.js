@@ -8,6 +8,7 @@ import { createStore } from 'redux';
 
 import { EMOJI_MUTES_APPLY } from 'mastodon/actions/emoji_mutes';
 import { normalizePoll, normalizePollOptionTranslation } from 'mastodon/actions/importer/normalizer';
+import emojify from 'mastodon/features/emoji/emoji';
 import { emojiMuteTextParseCount, resetEmojiMuteTextForTests } from 'mastodon/features/emoji/emoji_mute_text';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
 
@@ -330,7 +331,89 @@ describe('poll html identity', () => {
     expect(remote.options[0].title_emojified).not.toContain('data-emoji-id');
     expect(mixed.options[0].title_emojified).toContain('data-emoji-id="10"');
     expect(mixed.options[0].title_emojified).toContain('data-shortcode="remoteblob"');
-    expect(mixed.options[0].title_emojified).not.toContain('data-domain="remote.test"');
+    expect(mixed.options[0].title_emojified).toContain('data-domain="remote.test"');
+    expect(mixed.options[0].title).toBe('Yes :localblob: :remoteblob:');
+  });
+
+  it('keeps a separate domain on every poll and announcement row', () => {
+    const emojis = [
+      localEmoji('10', 'localblob'),
+      localEmoji('19', 'blob', 'a.test'),
+      localEmoji('20', 'remotea', 'a.test'),
+      localEmoji('21', 'remoteb', 'b.test'),
+      localEmoji('22', 'blob', 'b.test'),
+    ];
+    const poll = normalizePoll({
+      id: 'p1',
+      own_votes: [],
+      emojis,
+      options: [{ title: 'Yes :localblob: :remotea: :remoteb: :blob:' }],
+    });
+    const html = poll.options[0].title_emojified;
+    const translated = normalizePollOptionTranslation({ title: 'Oui :localblob: :remotea: :blob:' }, fromJS({ emojis }));
+
+    expect(html).toContain('data-emoji-id="10"');
+    expect(html).toContain('data-domain="a.test"');
+    expect(html).toContain('data-domain="b.test"');
+    expect(html).not.toContain('data-emoji-id="19"');
+    expect(html).not.toContain('data-emoji-id="22"');
+    expect(poll.options[0].title).toBe('Yes :localblob: :remotea: :remoteb: :blob:');
+    expect(translated.title).toBe('Oui :localblob: :remotea: :blob:');
+    expect(translated.titleHtml).toContain('data-emoji-id="10"');
+    expect(translated.titleHtml).toContain('data-shortcode="remotea"');
+    expect(translated.titleHtml).toContain('data-domain="a.test"');
+    expect(translated.titleHtml).toContain('data-domain="b.test"');
+    expect(translated.titleHtml).not.toContain('data-emoji-id="22"');
+
+    const shown = fromJS({
+      id: 'p1',
+      multiple: false,
+      expired: false,
+      expires_at: null,
+      voted: false,
+      votes_count: 0,
+      voters_count: 0,
+      own_votes: [],
+      emojis,
+      options: [{
+        title: poll.options[0].title,
+        title_emojified: html,
+        votes_count: 0,
+        translation: { title: translated.title, titleHtml: translated.titleHtml },
+      }],
+    });
+    const { container, store } = renderPoll(shown, { translationMode: 'bilingual' });
+
+    apply(store, [
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'localblob' }, '[local]'),
+      rule({ kind: 'custom', scope: 'remote', domain: 'a.test', shortcode: 'remotea' }, '[a]'),
+      rule({ kind: 'custom', scope: 'remote', domain: 'a.test', shortcode: 'blob' }, '[wrong-domain]'),
+    ]);
+
+    const source = container.querySelector('.status-translation-pair__source');
+    const target = container.querySelector('.status-translation-pair__target');
+
+    expect(source.textContent).toContain('[local]');
+    expect(source.textContent).toContain('[a]');
+    expect(source.textContent).not.toContain('[wrong-domain]');
+    expect(source.querySelector('[data-emoji-id="10"]')).toBeNull();
+    expect(source.querySelector('[data-shortcode="remotea"]')).toBeNull();
+    expect(source.querySelector('[data-shortcode="remoteb"]').getAttribute('data-domain')).toBe('b.test');
+    expect(source.querySelector('[data-shortcode="blob"]').getAttribute('data-domain')).toBe('b.test');
+    expect(source.innerHTML).not.toContain('cdn.example/10');
+    expect(target.textContent).toContain('[local]');
+    expect(target.textContent).toContain('[a]');
+    expect(target.querySelector('[data-shortcode="blob"]').getAttribute('data-domain')).toBe('b.test');
+    expect(shown.getIn(['options', 0, 'title_emojified'])).toBe(html);
+    expect(shown.getIn(['options', 0, 'translation', 'titleHtml'])).toBe(translated.titleHtml);
+
+    const authorHtml = emojify(':blob:', {
+      ':blob:': localEmoji('7', 'blob', 'row.test'),
+    }, 'author.test');
+
+    expect(authorHtml).toContain('data-domain="author.test"');
+    expect(authorHtml).not.toContain('data-domain="row.test"');
+    expect(authorHtml).not.toContain('data-emoji-id');
   });
 
   it('rebuilds translated option html when the emoji row changes and keeps it when the row does not', () => {

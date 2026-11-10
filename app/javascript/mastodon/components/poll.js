@@ -7,7 +7,7 @@ import classNames from 'classnames';
 import Motion from 'mastodon/features/ui/util/optional_motion';
 import spring from 'react-motion/lib/spring';
 import escapeTextContentForBrowser from 'escape-html';
-import emojify, { authorDomainForEmojis } from 'mastodon/features/emoji/emoji';
+import emojify from 'mastodon/features/emoji/emoji';
 import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
 import { emojiMutedPlainLabel, replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
 import RelativeTimestamp from './relative_timestamp';
@@ -138,8 +138,7 @@ class Poll extends ImmutablePureComponent {
     const title = showTranslation ? (translatedTitle || option.get('title')) : option.get('title');
     const needsFallback = !option.get('title_emojified') || ((showTranslation || showBilingual) && !translatedHtml && translatedTitle);
     const emojiMap = needsFallback ? makeEmojiMap(poll) : null;
-    const emojiDomain = needsFallback ? authorDomainForEmojis(poll.get('emojis')) : '';
-    const fallbackHtml = (text) => emojify(escapeTextContentForBrowser(text || ''), emojiMap, emojiDomain);
+    const fallbackHtml = (text) => emojify(escapeTextContentForBrowser(text || ''), emojiMap, '', { identity: 'row' });
     const sourceHtml = option.get('title_emojified') || fallbackHtml(option.get('title'));
     const targetHtml = translatedHtml || ((showTranslation || showBilingual) && translatedTitle ? fallbackHtml(translatedTitle) : '');
     const activeHtml = showTranslation ? (targetHtml || sourceHtml) : sourceHtml;
