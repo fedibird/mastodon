@@ -1,10 +1,11 @@
 /* eslint-disable react/prop-types */
 
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 
 jest.mock('mastodon/initial_state', () => ({ useBlurhash: true }));
+jest.mock('react-intl', () => ({ FormattedMessage: ({ defaultMessage }) => defaultMessage }));
 jest.mock('mastodon/components/icon', () => () => null);
 jest.mock('mastodon/components/blurhash', () => {
   const ReactMock = require('react');
@@ -19,9 +20,7 @@ jest.mock('mastodon/components/thumbhash', () => {
 
 import Card from '../card';
 
-const renderCard = (overrides = {}) => render(
-  <Card
-    card={fromJS({
+const makeCard = (overrides = {}) => fromJS({
       type: 'link',
       provider_name: 'Example',
       url: 'https://example.test/article',
@@ -33,9 +32,10 @@ const renderCard = (overrides = {}) => render(
       blurhash: null,
       thumbhash: null,
       ...overrides,
-    })}
-    onOpenMedia={jest.fn()}
-  />,
+  });
+
+const renderCard = (overrides = {}) => render(
+  <Card card={makeCard(overrides)} onOpenMedia={jest.fn()} />,
 );
 
 describe('Card image preview hashes', () => {
@@ -53,6 +53,35 @@ describe('Card image preview hashes', () => {
 
     expect(getByTestId('card-blurhash')).toHaveAttribute('data-hash', 'blur');
     expect(queryByTestId('card-thumbhash')).toBeNull();
+  });
+
+  it('resets the loaded preview when the card changes', () => {
+    const onOpenMedia = jest.fn();
+    const { container, rerender } = render(
+      <Card card={makeCard({ blurhash: 'old' })} onOpenMedia={onOpenMedia} />,
+    );
+
+    fireEvent.load(container.querySelector('.status-card__image-image'));
+    expect(container.querySelector('.status-card__image-preview')).toHaveClass('status-card__image-preview--hidden');
+
+    rerender(<Card card={makeCard({ blurhash: 'new', title: 'New article' })} onOpenMedia={onOpenMedia} />);
+    expect(container.querySelector('.status-card__image-preview')).not.toHaveClass('status-card__image-preview--hidden');
+  });
+
+  it('updates the spoiler overlay when sensitivity changes', () => {
+    const onOpenMedia = jest.fn();
+    const photo = makeCard({ type: 'photo' });
+    const { getByText, queryByText, rerender } = render(
+      <Card card={photo} sensitive onOpenMedia={onOpenMedia} />,
+    );
+
+    expect(getByText('Sensitive content')).toBeInTheDocument();
+
+    rerender(<Card card={photo} sensitive={false} onOpenMedia={onOpenMedia} />);
+    expect(queryByText('Sensitive content')).toBeNull();
+
+    rerender(<Card card={photo} sensitive onOpenMedia={onOpenMedia} />);
+    expect(getByText('Sensitive content')).toBeInTheDocument();
   });
 
   it('prefers thumbhash when both hashes are present', () => {
