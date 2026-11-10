@@ -2335,7 +2335,7 @@ entries:
     (boolean)
   read_sources:
   - InitialState meta via setting_*
-  - static JS import emojiPickerDisablePersonal (3 importers)
+  - static JS import emojiPickerDisablePersonal (4 importers)
   - Rails preferences form getter
   write_sources:
   - rails preferences update via LegacyWriter (other)
@@ -2374,7 +2374,7 @@ entries:
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
     prefix setting. JavaScript captures emojiPickerDisablePersonal at module evaluation.
-    3 import sites. Redux meta also receives the value on hydrate, but scanned selectors
+    4 import sites. Redux meta also receives the value on hydrate, but scanned selectors
     do not read it from state.meta. Changing the stored value does not by itself update
     the open WebUI. A stored true hides the personal mode and its management link,
     skips stock preload, requests, cache reads and listeners, and keeps saved sets
