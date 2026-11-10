@@ -542,4 +542,82 @@ describe('account replace_in_text presentation', () => {
     unbindCustomEmojiHover(node);
     node.remove();
   });
+
+  it('does not republish a muted emoji shortcode on the profile link title', () => {
+    const html = `<p>Hi <a class="custom-emoji-url-link" href="https://remote.example/emoji/blob" data-shortcode="blob" data-domain="remote.example" title=":blob:" aria-label="blob at remote.example">${remoteImg('remote.example', 'blob')}</a> <a href="https://example.test/tags/bird">#bird</a> <a class="mention" href="https://example.test/@ada" data-account-id="9" data-account-acct="ada">@ada</a></p>`;
+    const push = jest.fn();
+    const store = makeStore();
+    const { container } = render(
+      <Provider store={store}>
+        <RouterStub router={{ history: { push } }}>
+          <Content contentHtml={{ __html: html }} />
+        </RouterStub>
+      </Provider>,
+    );
+
+    apply(store, [rule({ kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' }, '[safe]')]);
+
+    const emojiLink = container.querySelector('a.custom-emoji-url-link');
+
+    expect(container.querySelector('img')).toBeNull();
+    expect(emojiLink.getAttribute('title')).toBe('[safe]');
+    expect(emojiLink.hasAttribute('aria-label')).toBe(false);
+    container.querySelectorAll('a').forEach(anchor => {
+      expect(anchor.getAttribute('title') || '').not.toContain('blob');
+      expect(anchor.getAttribute('title') || '').not.toContain('remote.example');
+      expect(anchor.getAttribute('aria-label') || '').not.toContain('blob');
+      expect(anchor.getAttribute('aria-label') || '').not.toContain('remote.example');
+    });
+    expect(container.querySelector('a.mention').getAttribute('title')).toBe('Link to @ada');
+    expect(container.querySelector('a[href="https://example.test/tags/bird"]')).not.toBeNull();
+
+    fireEvent.click(container.querySelector('a[href="https://example.test/tags/bird"]'));
+    fireEvent.click(container.querySelector('a.mention'));
+
+    apply(store, [], '9');
+
+    expect(container.querySelector('a.custom-emoji-url-link img')).not.toBeNull();
+    expect(container.querySelector('a.custom-emoji-url-link').getAttribute('title')).toBe('Link to :@blob: in @remote.example');
+    expect(container.querySelector('a.mention').getAttribute('title')).toBe('Link to @ada');
+
+    fireEvent.click(container.querySelector('a[href="https://example.test/tags/bird"]'));
+    fireEvent.click(container.querySelector('a.mention'));
+
+    expect(push.mock.calls.filter(call => call[0] === '/timelines/tag/bird')).toHaveLength(2);
+    expect(push.mock.calls.filter(call => call[0] === '/accounts/9')).toHaveLength(2);
+  });
+
+  it('keeps emoji and hashtag clicks after onClick is toggled', () => {
+    const html = '<p><img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/plain.svg" data-shortcode="blob" data-domain="" data-original="https://cdn.example/plain.svg" data-static="https://cdn.example/plain.png"><a href="https://example.test/tags/bird">#bird</a></p>';
+    const push = jest.fn();
+    const onClick = jest.fn();
+    const store = makeStore();
+    const ui = clickHandler => (
+      <Provider store={store}>
+        <RouterStub router={{ history: { push } }}>
+          <Content contentHtml={{ __html: html }} onClick={clickHandler} />
+        </RouterStub>
+      </Provider>
+    );
+    const view = render(ui(undefined));
+    const clickEmoji = () => fireEvent.click(view.container.querySelector('.custom-emoji'));
+    const clickTag = () => fireEvent.click(view.container.querySelector('a'));
+
+    clickEmoji();
+    clickTag();
+    view.rerender(ui(onClick));
+    clickEmoji();
+    clickTag();
+    view.rerender(ui(undefined));
+    clickEmoji();
+    clickTag();
+
+    expect(push.mock.calls.filter(call => call[0] === '/emoji_detail/blob')).toHaveLength(3);
+    expect(push.mock.calls.filter(call => call[0] === '/timelines/tag/bird')).toHaveLength(3);
+
+    const node = view.container.querySelector('span');
+    const remove = jest.spyOn(node, 'removeEventListener');
+    view.unmount();
+    expect(remove).toHaveBeenCalledWith('click', expect.any(Function), true);
+  });
 });

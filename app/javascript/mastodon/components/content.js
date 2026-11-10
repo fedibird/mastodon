@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { injectIntl, defineMessages } from 'react-intl';
 import { autoPlayEmoji } from 'mastodon/initial_state';
 import { customEmojiTarget, withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
-import { replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
+import { mutedEmojiImageRemains, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 
 // Profile note, follow message, and profile field values. Status bodies do
 // not render through here. The stored emojify HTML is left unchanged; only
@@ -72,10 +72,14 @@ class Content extends React.PureComponent {
       link.classList.add('status-link');
 
       if (link.classList.contains('custom-emoji-url-link') && link.dataset.shortcode) {
-        if (link.dataset.domain) {
-          link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInRemote, { shortcode: link.dataset.shortcode, domain: link.dataset.domain }));
+        if (mutedEmojiImageRemains(link)) {
+          if (link.dataset.domain) {
+            link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInRemote, { shortcode: link.dataset.shortcode, domain: link.dataset.domain }));
+          } else {
+            link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInLocal, { shortcode: link.dataset.shortcode }));
+          }
         } else {
-          link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInLocal, { shortcode: link.dataset.shortcode }));
+          retainMutedEmojiLinkLabel(link);
         }
         link.addEventListener('click', this.onCustomEmojiUrlClick.bind(this, link.dataset.shortcode, link.dataset.domain), false);
       } else if ((link.classList.contains('account-url-link') || link.classList.contains('mention')) && link.dataset.accountId) {
@@ -125,11 +129,6 @@ class Content extends React.PureComponent {
 
   componentDidMount () {
     this._updateContentLinks();
-    this.clickNode = this.node;
-
-    if (this.clickNode) {
-      this.clickNode.addEventListener('click', this.handleEmojiClick, true);
-    }
   }
 
   componentDidUpdate () {
@@ -137,8 +136,8 @@ class Content extends React.PureComponent {
   }
 
   componentWillUnmount () {
-    if (this.clickNode) {
-      this.clickNode.removeEventListener('click', this.handleEmojiClick, true);
+    if (this.node) {
+      this.node.removeEventListener('click', this.handleEmojiClick, true);
     }
   }
 
@@ -213,8 +212,21 @@ class Content extends React.PureComponent {
     this.startXY = null;
   }
 
-  setRef = (c) => {
-    this.node = c;
+  setRef = (node) => {
+    if (node === this.node) {
+      return;
+    }
+
+    if (this.node) {
+      this.node.removeEventListener('click', this.handleEmojiClick, true);
+    }
+
+    this.node = node;
+    this.clickNode = node;
+
+    if (node) {
+      node.addEventListener('click', this.handleEmojiClick, true);
+    }
   }
 
   render () {
@@ -222,15 +234,17 @@ class Content extends React.PureComponent {
     const presented = replaceEmojiInDisplayHtml(source, this.props.emojiMuteTextIndex);
     const contentHtml = presented === source ? this.props.contentHtml : { __html: presented };
 
-    if (this.props.onClick) {
-      return (
-        <span ref={this.setRef} tabIndex='0' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave} dangerouslySetInnerHTML={contentHtml} onMouseDown={this.handleMouseDown} onMouseUp={this.handleMouseUp} key='content' />
-      );
-    } else {
-      return (
-        <span ref={this.setRef} tabIndex='0' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave} dangerouslySetInnerHTML={contentHtml} />
-      );
-    }
+    return (
+      <span
+        ref={this.setRef}
+        tabIndex='0'
+        onMouseEnter={this.handleMouseEnter}
+        onMouseLeave={this.handleMouseLeave}
+        dangerouslySetInnerHTML={contentHtml}
+        onMouseDown={this.props.onClick ? this.handleMouseDown : undefined}
+        onMouseUp={this.props.onClick ? this.handleMouseUp : undefined}
+      />
+    );
   }
 
 }

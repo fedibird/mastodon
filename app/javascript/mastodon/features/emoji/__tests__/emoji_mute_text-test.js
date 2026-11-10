@@ -373,6 +373,23 @@ describe('emojiMutedPlainLabel', () => {
     resetEmojiMuteTextForTests();
   });
 
+  it('replaces an emoji inside its link without keeping the shortcode title', () => {
+    const html = '<p><a class="custom-emoji-url-link" href="https://remote.example/emoji/blob" data-shortcode="blob" data-domain="remote.example" title=":blob:" aria-label="blob at remote.example"><img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/blob.svg" data-shortcode="blob" data-domain="remote.example" data-original="https://cdn.example/blob.svg"></a></p>';
+    const result = show(html, [rule({ kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' }, '［絵文字］')]);
+    const template = document.createElement('template');
+    template.innerHTML = result;
+    const link = template.content.querySelector('a');
+
+    expect(template.content.querySelector('img')).toBeNull();
+    expect(link.getAttribute('title')).toBe('［絵文字］');
+    expect(link.getAttribute('aria-label')).toBeNull();
+    expect(link.getAttribute('href')).toBe('https://remote.example/emoji/blob');
+    expect(result).not.toContain('cdn.example');
+    expect(result).not.toContain('alt=');
+    expect(link.getAttribute('title')).not.toContain('blob');
+    expect(link.getAttribute('title')).not.toContain('remote.example');
+  });
+
   it('keeps the original plain text when nothing was replaced', () => {
     const plain = `Hello ${THUMBS} :blob:`;
     const html = `<p>Hello ${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })}</p>`;

@@ -203,6 +203,88 @@ const replaceNode = (node, text) => {
   parent.replaceChild(node.ownerDocument.createTextNode(text), node);
 };
 
+const identityHints = img => {
+  const alt = img.getAttribute('alt') || '';
+  const title = img.getAttribute('title') || '';
+  const shortcode = img.getAttribute('data-shortcode') || '';
+  const domain = img.getAttribute('data-domain') || '';
+  const hints = [alt, title, shortcode, domain];
+
+  if (shortcode) {
+    hints.push(`:${shortcode}:`);
+  }
+
+  return hints.filter(hint => hint !== '');
+};
+
+const attributeNamesEmoji = (value, hints) => hints.some(hint => value.includes(hint));
+
+// A muted image can sit inside the emoji's own link. The link stays so the
+// text substitute remains a link, but its title and accessible name must be
+// the substitute, not the shortcode or domain.
+const scrubMutedEmojiLink = (link, replacement, hints) => {
+  if (!link || link.querySelector('img.emojione, img.custom-emoji')) {
+    return;
+  }
+
+  ['title', 'aria-label', 'aria-labelledby', 'aria-describedby'].forEach(name => {
+    const value = link.getAttribute(name) || '';
+
+    if (value && attributeNamesEmoji(value, hints)) {
+      link.removeAttribute(name);
+    }
+  });
+
+  if (!link.classList.contains('custom-emoji-url-link')) {
+    return;
+  }
+
+  link.removeAttribute('aria-label');
+  link.removeAttribute('aria-labelledby');
+  link.removeAttribute('aria-describedby');
+
+  if (replacement) {
+    link.setAttribute('title', replacement);
+    return;
+  }
+
+  link.removeAttribute('title');
+};
+
+export function mutedEmojiImageRemains(link) {
+  return !!(link && link.querySelector('img.emojione, img.custom-emoji'));
+}
+
+// Content rewrites link titles after the projection. Do not put the muted
+// shortcode or domain back into title or aria-label.
+export function retainMutedEmojiLinkLabel(link) {
+  if (!link || mutedEmojiImageRemains(link)) {
+    return;
+  }
+
+  const shortcode = link.getAttribute('data-shortcode') || '';
+  const domain = link.getAttribute('data-domain') || '';
+  const hints = [shortcode, domain, shortcode ? `:${shortcode}:` : ''].filter(hint => hint !== '');
+
+  ['title', 'aria-label', 'aria-labelledby', 'aria-describedby'].forEach(name => {
+    const value = link.getAttribute(name) || '';
+
+    if (value && attributeNamesEmoji(value, hints)) {
+      link.removeAttribute(name);
+    }
+  });
+
+  if (link.getAttribute('title')) {
+    return;
+  }
+
+  const visible = (link.textContent || '').trim();
+
+  if (visible && !attributeNamesEmoji(visible, hints)) {
+    link.setAttribute('title', visible);
+  }
+}
+
 const transformHtml = (html, index) => {
   parseCount += 1;
   const template = document.createElement('template');
@@ -224,7 +306,10 @@ const transformHtml = (html, index) => {
     }
 
     const target = img.parentElement && img.parentElement.tagName === 'PICTURE' ? img.parentElement : img;
+    const link = target.closest ? target.closest('a') : null;
+    const hints = identityHints(img);
     replaceNode(target, replacement);
+    scrubMutedEmojiLink(link, replacement, hints);
     changed = true;
   }
 
