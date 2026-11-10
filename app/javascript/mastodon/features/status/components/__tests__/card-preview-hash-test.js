@@ -7,10 +7,14 @@ import React from 'react';
 jest.mock('mastodon/initial_state', () => ({ useBlurhash: true }));
 jest.mock('mastodon/components/icon', () => () => null);
 jest.mock('mastodon/components/blurhash', () => {
-  return ({ hash, className }) => <canvas className={className} data-testid='card-blurhash' data-hash={hash} />;
+  const ReactMock = require('react');
+
+  return ({ hash, className }) => ReactMock.createElement('canvas', { className, 'data-testid': 'card-blurhash', 'data-hash': hash });
 });
 jest.mock('mastodon/components/thumbhash', () => {
-  return ({ hash, className }) => <canvas className={className} data-testid='card-thumbhash' data-hash={hash} />;
+  const ReactMock = require('react');
+
+  return ({ hash, className }) => ReactMock.createElement('canvas', { className, 'data-testid': 'card-thumbhash', 'data-hash': hash });
 });
 
 import Card from '../card';
