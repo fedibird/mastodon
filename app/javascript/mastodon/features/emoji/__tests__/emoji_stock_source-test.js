@@ -118,6 +118,17 @@ describe('personal emoji stock source', () => {
     await expect(source.loadPersonalEmojiStock()).resolves.toHaveProperty('status', 'ready');
   });
 
+  it('does not expose stale cache if another tab saves while no listener is mounted', async () => {
+    const document = documentFor(1);
+
+    get.mockResolvedValueOnce({ status: 200, data: document, headers: { etag: 'v1' } });
+    await source.loadPersonalEmojiStock();
+    expect(source.getCachedPersonalEmojiStock().stock).toBe(document.stock);
+
+    localStorage.setItem('mastodon:personal-emoji-set:account-1', 'other-tab-change');
+    expect(source.getCachedPersonalEmojiStock()).toBeNull();
+  });
+
   it('refreshes the size after a save in another tab while all dropdowns were closed', async () => {
     localStorage.setItem('mastodon:personal-emoji-set:account-1', 'another-tab-saved');
     get.mockResolvedValueOnce({ status: 200, data: documentFor(5, 46), headers: {} });
