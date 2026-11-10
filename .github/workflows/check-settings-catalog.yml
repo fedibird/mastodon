@@ -17,13 +17,5 @@ jobs:
           ruby-version: '3.2'
       - name: Check the catalog matches the generator
         run: ruby script/check_settings_service_catalog.rb
-      - name: Print generated catalog patch for reconciliation
-        if: failure()
-        run: |
-          ruby script/build_settings_service_catalog.rb
-          echo 'GENERATED_CATALOG_PATCH_BASE64_BEGIN'
-          git diff --unified=0 -- docs/settings_service/catalog.yml | base64 -w0
-          echo
-          echo 'GENERATED_CATALOG_PATCH_BASE64_END'
       - name: Check the catalog audit invariants
         run: ruby -Itest spec/script/check_settings_service_catalog_test.rb

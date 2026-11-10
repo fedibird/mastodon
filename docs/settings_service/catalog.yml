@@ -2338,16 +2338,22 @@ entries:
   - static JS import emojiPickerDisablePersonal (3 importers)
   - Rails preferences form getter
   write_sources:
-  - rails preferences update (other)
-  normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
-    returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
-    is empty.
+  - rails preferences update via LegacyWriter (other)
+  normalization: LegacyWriter casts Simple Form 0 and 1 to boolean before Writer stores
+    it. A missing row uses false from settings.yml, retaining personal mode. A stored
+    true disables personal stock work and forces standard-only mode after the next
+    full page load without deleting the saved set.
   availability: user preference
   read_policy: general
   write_policy: general
   side_effects:
-  - settings row update and Rails.cache.write in ScopedSettings#[]=
-  apply_hint: reinitialize
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache,
+    legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write
+    before saving anything
+  - the next full page load disables personal stock requests and subscriptions; saved
+    personal sets remain intact
+  apply_hint: reload
   client_reference:
   - static_import
   - redux_meta_hydrated_unread
@@ -2357,6 +2363,8 @@ entries:
   source_refs:
   - config/settings.yml:209
   - app/lib/user_settings_decorator.rb:142
+  - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:264
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:210
@@ -2368,7 +2376,10 @@ entries:
     prefix setting. JavaScript captures emojiPickerDisablePersonal at module evaluation.
     3 import sites. Redux meta also receives the value on hydrate, but scanned selectors
     do not read it from state.meta. Changing the stored value does not by itself update
-    the open WebUI.'
+    the open WebUI. A stored true hides the personal mode and its management link,
+    skips stock preload, requests, cache reads and listeners, and keeps saved sets
+    intact. It overrides the prefer-personal setting until disabled again and the
+    page is reloaded.'
 - key: user.emoji_picker_lazy_load_standard
   category: reactions
   owner: user
