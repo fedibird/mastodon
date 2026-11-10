@@ -3,6 +3,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import Avatar from 'mastodon/components/avatar';
 import DisplayName from 'mastodon/components/display_name';
+import { EmojiMutedPlain } from 'mastodon/components/emoji_muted_html';
 import Permalink from 'mastodon/components/permalink';
 import IconButton from 'mastodon/components/icon_button';
 import { defineMessages, injectIntl } from 'react-intl';
@@ -33,7 +34,7 @@ class FollowRequest extends ImmutablePureComponent {
     if (hidden) {
       return (
         <Fragment>
-          {account.get('display_name')}
+          <EmojiMutedPlain tag='span' plain={account.get('display_name') || ''} html={account.get('display_name_html') || ''} />
           {account.get('username')}
         </Fragment>
       );

@@ -38,7 +38,10 @@ jest.mock('mastodon/components/emoji_reactions_bar', () => () => null);
 jest.mock('mastodon/components/picture_in_picture_placeholder', () => () => null);
 jest.mock('../../features/ui/components/bundle', () => () => null);
 jest.mock('../../features/status/components/card', () => () => null);
+jest.mock('../thumbhash', () => () => null);
+jest.mock('mastodon/components/thumbhash', () => () => null);
 
+import { buildReplaceInTextIndex } from 'mastodon/features/emoji/emoji_mute_text';
 import { defaultMediaVisibility as statusMediaVisibility, textForScreenReader } from '../status';
 import { defaultMediaVisibility as defaultMediaTileVisibility } from 'mastodon/utils/media_display';
 
@@ -221,6 +224,161 @@ describe('textForScreenReader translation mode', () => {
       translationMode: 'bilingual',
       translation,
     }), 'Bob boosted')).toBe('Alice, Hello → こんにちは, Jan 1, 12:00 PM, alice@example.com, Bob boosted');
+  });
+});
+
+const THUMB = '👍';
+const thumbImg = `<img draggable="false" class="emojione" alt="${THUMB}" src="/emoji/thumb.svg">`;
+const localImg = (id) => (
+  `<img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/${id}.svg" data-shortcode="blob" data-domain="" data-original="https://cdn.example/${id}.svg" data-emoji-id="${id}">`
+);
+const remoteImg = (domain) => (
+  `<img draggable="false" class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/${domain}/blob.svg" data-shortcode="blob" data-domain="${domain}">`
+);
+
+const rule = (emoji, replacement = '[emoji]', effects = {}) => ({
+  emoji,
+  replacement,
+  effects: {
+    replace_in_text: true,
+    reject_reactions_to_own_posts: true,
+    hide_reactions: true,
+    hide_in_picker: true,
+    ...effects,
+  },
+});
+
+const muteIndex = rules => buildReplaceInTextIndex(rules);
+
+describe('textForScreenReader emoji mute', () => {
+  const named = (extra = {}) => buildStatus({
+    search_index: `Hello ${THUMB}`,
+    contentHtml: `<p>Hello ${thumbImg}</p>`,
+    account: {
+      display_name: `Alice ${THUMB} :blob:`,
+      display_name_html: `Alice ${thumbImg} ${localImg('10')}`,
+      acct: 'alice@example.com',
+    },
+    ...extra,
+  });
+
+  it('keeps the stored plain text and speaks the presented html when a mute matches', () => {
+    const status = named();
+    const index = muteIndex([
+      rule({ kind: 'unicode', native: THUMB }, '[thumb]'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]'),
+    ]);
+    const spoken = label(status, false);
+
+    expect(textForScreenReader(intl, status, false, index)).toBe('Alice [thumb] [blob], Hello [thumb], Jan 1, 12:00 PM, alice@example.com');
+    expect(spoken).toBe(`Alice ${THUMB} :blob:, Hello ${THUMB}, Jan 1, 12:00 PM, alice@example.com`);
+    expect(status.get('search_index')).toBe(`Hello ${THUMB}`);
+    expect(status.get('contentHtml')).toContain('/emoji/thumb.svg');
+    expect(status.getIn(['account', 'display_name'])).toContain(THUMB);
+  });
+
+  it('does not treat another local id, a false effect, or a remote shortcode as this emoji', () => {
+    const status = named({
+      account: {
+        display_name: 'Alice :blob:',
+        display_name_html: `Alice ${remoteImg('remote.example')}`,
+        acct: 'alice@remote.example',
+      },
+      search_index: 'Hello :blob:',
+      contentHtml: `<p>Hello ${localImg('10')}</p>`,
+    });
+
+    expect(textForScreenReader(intl, status, false, muteIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[other]'),
+    ]))).toBe(label(status));
+    expect(textForScreenReader(intl, status, false, muteIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]', { replace_in_text: false }),
+    ]))).toBe(label(status));
+    expect(textForScreenReader(intl, status, false, muteIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]'),
+      rule({ kind: 'custom', scope: 'remote', domain: 'other.example', shortcode: 'blob' }, '[remote]'),
+    ]))).toContain('[blob]');
+    expect(textForScreenReader(intl, status, false, muteIndex([
+      rule({ kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' }, '[remote]'),
+    ]))).toContain('[remote]');
+    expect(status.get('contentHtml')).toContain('data-emoji-id="10"');
+  });
+
+  it('reads a hidden content warning without the body, in original, translated, and bilingual modes', () => {
+    const hidden = {
+      hidden: true,
+      spoiler_text: `secret ${THUMB}`,
+      spoilerHtml: `secret ${thumbImg}`,
+      search_index: `secret ${THUMB}\n\nHello body ${THUMB}`,
+      contentHtml: `<p>Hello body ${thumbImg}</p>`,
+      translationMode: 'original',
+      translation: {
+        ...translation,
+        contentHtml: `<p>本文 ${thumbImg}</p>`,
+        spoiler_text: '警告',
+        spoilerHtml: '警告',
+      },
+    };
+    const index = muteIndex([rule({ kind: 'unicode', native: THUMB }, '[thumb]')]);
+
+    expect(textForScreenReader(intl, buildStatus(hidden), false, index)).toBe('Alice, secret [thumb], Jan 1, 12:00 PM, alice@example.com');
+    expect(textForScreenReader(intl, buildStatus(hidden), false, index)).not.toContain('Hello body');
+    expect(textForScreenReader(intl, buildStatus({ ...hidden, translationMode: 'translated' }), false, index)).toBe('Alice, 警告, Jan 1, 12:00 PM, alice@example.com');
+    expect(textForScreenReader(intl, buildStatus({ ...hidden, translationMode: 'bilingual' }), false, index)).toBe('Alice, secret [thumb] → 警告, Jan 1, 12:00 PM, alice@example.com');
+    expect(buildStatus(hidden).get('search_index')).toContain('Hello body');
+  });
+
+  it('reads the translated and bilingual bodies from their html', () => {
+    const translatedHtml = `<p>こんにちは ${thumbImg}</p>`;
+    const status = buildStatus({
+      search_index: 'Hello',
+      contentHtml: '<p>Hello</p>',
+      translationMode: 'translated',
+      translation: { ...translation, contentHtml: translatedHtml },
+    });
+    const index = muteIndex([rule({ kind: 'unicode', native: THUMB }, '[thumb]')]);
+
+    expect(textForScreenReader(intl, status, false, index)).toBe('Alice, こんにちは [thumb], Jan 1, 12:00 PM, alice@example.com');
+    expect(textForScreenReader(intl, status.set('translationMode', 'bilingual'), false, index)).toBe('Alice, Hello → こんにちは [thumb], Jan 1, 12:00 PM, alice@example.com');
+    expect(status.getIn(['translation', 'contentHtml'])).toBe(translatedHtml);
+  });
+
+  it('replaces unicode in an external byline and does not read the owner emoji id', () => {
+    const readerIntl = {
+      formatDate: () => 'Jan 1, 12:00 PM',
+      formatMessage: ({ defaultMessage }, values) => (defaultMessage || '').replace(/\{(\w+)\}/g, (_, key) => (values && values[key] !== undefined && values[key] !== null ? String(values[key]) : '')),
+    };
+    const status = buildStatus({
+      search_index: 'Article body',
+      contentHtml: '<p>Article body</p>',
+      account: {
+        display_name: 'Owner Face',
+        display_name_html: `Owner ${localImg('10')}`,
+        acct: 'owner@example.com',
+      },
+      visibility: 'public',
+      fedibird_external: {
+        protocol: 'rss',
+        canonical_url: 'https://blog.example/post',
+        presentation: {
+          kind: 'external_source',
+          name: 'Blog name',
+          subtitle: 'RSS',
+          source_url: 'https://blog.example/',
+          byline_name: `Ada ${THUMB} :blob:`,
+        },
+      },
+    });
+    const spoken = textForScreenReader(readerIntl, status, false, muteIndex([
+      rule({ kind: 'unicode', native: THUMB }, '[thumb]'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]'),
+    ]));
+
+    expect(spoken).toContain('Ada [thumb] :blob:');
+    expect(spoken).not.toContain(THUMB);
+    expect(spoken).not.toContain('[blob]');
+    expect(spoken).not.toContain('Owner Face');
+    expect(spoken).toContain('Article body');
   });
 });
 

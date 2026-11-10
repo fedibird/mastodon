@@ -8,7 +8,8 @@ import AvatarComposite from './avatar_composite';
 import AbsoluteTimestamp from './absolute_timestamp';
 import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
-import EmojiMutedHtml, { EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
+import EmojiMutedHtml, { EmojiMutedAria, EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
+import { emojiMutedPlainText, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
 import TimelineCardBody from './timeline_card_body';
@@ -91,9 +92,9 @@ const bilingualText = (source, translated) => {
   return source || translated;
 };
 
-// Screen-reader copy stays on the shared plain extraction. replace_in_text
-// for that path is a later P3-B slice, so a mute does not rewrite it here.
-const screenReaderStatusText = (status) => {
+// Screen-reader copy is derived at read time. search_index and the saved
+// plain strings stay shared. A hidden CW does not contribute its body.
+const screenReaderStatusText = (status, index) => {
   const mode = statusTranslationView(status).mode;
   const sourceSpoiler = status.get('spoiler_text') || '';
   const translatedSpoiler = presentText(status.getIn(['translation', 'spoiler_text']));
@@ -101,32 +102,47 @@ const screenReaderStatusText = (status) => {
   const translatedBody = plainHtmlText(status.getIn(['translation', 'contentHtml']));
   const hiddenSpoiler = mode === TRANSLATION_MODE_ORIGINAL ? sourceSpoiler : (sourceSpoiler || translatedSpoiler);
 
-  const read = (source, translated) => {
+  const project = (plain, html) => emojiMutedPlainText(plain, html, index);
+
+  const read = (source, translated, sourceHtml, translatedHtml) => {
+    const sourceLabel = project(source, sourceHtml);
+    const translatedLabel = project(translated, translatedHtml);
+
     if (mode === TRANSLATION_MODE_TRANSLATED) {
-      return translated || source;
+      return translatedLabel || sourceLabel;
     }
 
     if (mode === TRANSLATION_MODE_BILINGUAL) {
-      return bilingualText(source, translated);
+      return bilingualText(sourceLabel, translatedLabel);
     }
 
-    return source;
+    return sourceLabel;
   };
 
   if (status.get('hidden') && hiddenSpoiler) {
-    return read(sourceSpoiler, translatedSpoiler);
+    return read(
+      sourceSpoiler,
+      translatedSpoiler,
+      status.get('spoilerHtml') || '',
+      status.getIn(['translation', 'spoilerHtml']) || '',
+    );
   }
 
-  return read(sourceBody, translatedBody);
+  return read(
+    sourceBody,
+    translatedBody,
+    status.get('contentHtml') || '',
+    status.getIn(['translation', 'contentHtml']) || '',
+  );
 };
 
-export const textForScreenReader = (intl, status, rebloggedByText = false) => {
+export const textForScreenReader = (intl, status, rebloggedByText = false, index) => {
   const externalIdentity = externalIdentityOf(status);
 
   if (externalIdentity) {
     const externalValues = [
-      externalIdentityReaderText(intl, externalIdentity),
-      screenReaderStatusText(status),
+      replaceUnicodeEmojiInPlainText(externalIdentityReaderText(intl, externalIdentity), index),
+      screenReaderStatusText(status, index),
       intl.formatDate(status.get('created_at'), { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }),
     ];
 
@@ -140,8 +156,8 @@ export const textForScreenReader = (intl, status, rebloggedByText = false) => {
   const displayName = status.getIn(['account', 'display_name']);
 
   const values = [
-    displayName.length === 0 ? status.getIn(['account', 'acct']).split('@')[0] : displayName,
-    screenReaderStatusText(status),
+    displayName.length === 0 ? status.getIn(['account', 'acct']).split('@')[0] : emojiMutedPlainText(displayName, status.getIn(['account', 'display_name_html']) || '', index),
+    screenReaderStatusText(status, index),
     intl.formatDate(status.get('created_at'), { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }),
     status.getIn(['account', 'acct']),
   ];
@@ -711,6 +727,8 @@ class Status extends ImmutablePureComponent {
     this.node = c;
   }
 
+  timelineScreenReaderLabel = index => textForScreenReader(this.props.intl, this.screenReaderStatus, this.screenReaderBoost, index);
+
   emojiRef = c => {
     if (c === this.emoji_node) {
       return;
@@ -851,7 +869,7 @@ class Status extends ImmutablePureComponent {
       const boosterNameHtml = booster.get('display_name_html');
       const boosterName = boosterNameHtml
         ? <EmojiMutedHtml tag='strong' html={boosterNameHtml} />
-        : <strong>{booster.get('display_name') || booster.get('username') || booster.get('acct')}</strong>;
+        : <EmojiMutedPlain tag='strong' plain={booster.get('display_name') || booster.get('username') || booster.get('acct') || ''} html='' />;
       const name = (
         <a
           href={booster.get('url')}
@@ -875,59 +893,64 @@ class Status extends ImmutablePureComponent {
       ? intl.formatMessage({ id: 'status.reblogged_by', defaultMessage: '{name} boosted' }, { name: booster.get('acct') })
       : false;
 
+    this.screenReaderStatus = status;
+    this.screenReaderBoost = boosterDescription;
+
     return (
       <HotKeys handlers={{ open: this.handleHotkeyOpen, favourite: this.handleHotkeyFavourite, moveUp: this.handleHotkeyMoveUp, moveDown: this.handleHotkeyMoveDown }}>
-        <div className='status__wrapper status__wrapper--compact focusable' tabIndex='0' data-id={status.get('id')} aria-label={textForScreenReader(intl, status, boosterDescription)} ref={this.handleRef} onClick={this.handleTimelineCardClick}>
-          <div className='timeline-card'>
-            {firstMedia && <div className='timeline-card__media'>
-              {firstMedia}
-              {media.size > 1 && (
-                <span
-                  className='timeline-card__media-count'
-                  role='img'
-                  aria-label={intl.formatMessage(messages.cardMediaCount, { count: media.size })}
-                >
-                  <span aria-hidden='true'><Icon id='clone' fixedWidth /> {media.size}</span>
-                </span>
-              )}
-            </div>}
-            <TimelineCardBody
-              key={status.get('id')}
-              expandLabel={intl.formatMessage(messages.cardExpandText)}
-              scrollLabel={intl.formatMessage(messages.cardScrollText)}
-              collapseLongText={cardCollapseLongText !== false}
-            >
-              <StatusContent status={status} translationWrapper={original} onClick={this.handleClick} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} compactCard />
-            </TimelineCardBody>
-            {quoteBody}
-            {linkPreview}
-            {cardContext}
-            <div className='timeline-card__author'>
-              {externalIdentity ? (
-                <ExternalSourceIdentity identity={externalIdentity} size={26} showLabel={false} />
-              ) : (
-                <a href={status.getIn(['account', 'url'])} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} onClick={this.handleAccountClick} className='status__display-name timeline-card__author-link'>
-                  <Avatar account={status.get('account')} size={26} />
-                  <DisplayName account={status.get('account')} others={otherAccounts} />
-                </a>
-              )}
-              {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
-              <div className='timeline-card__author-actions'>
-                <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='favourite' expired={expired} onFavourite={this.props.onFavourite} />
-                {enableReaction && <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />}
-              </div>
-            </div>
-            {showReactions && (
-              <TimelineCardReactions
-                singleLine={cardReactionsSingleLine !== false}
-                expandLabel={intl.formatMessage(messages.cardExpandReactions)}
-                scrollLabel={intl.formatMessage(messages.cardScrollReactions)}
+        <EmojiMutedAria labelFor={this.timelineScreenReaderLabel}>
+          <div className='status__wrapper status__wrapper--compact focusable' tabIndex='0' data-id={status.get('id')} ref={this.handleRef} onClick={this.handleTimelineCardClick}>
+            <div className='timeline-card'>
+              {firstMedia && <div className='timeline-card__media'>
+                {firstMedia}
+                {media.size > 1 && (
+                  <span
+                    className='timeline-card__media-count'
+                    role='img'
+                    aria-label={intl.formatMessage(messages.cardMediaCount, { count: media.size })}
+                  >
+                    <span aria-hidden='true'><Icon id='clone' fixedWidth /> {media.size}</span>
+                  </span>
+                )}
+              </div>}
+              <TimelineCardBody
+                key={status.get('id')}
+                expandLabel={intl.formatMessage(messages.cardExpandText)}
+                scrollLabel={intl.formatMessage(messages.cardScrollText)}
+                collapseLongText={cardCollapseLongText !== false}
               >
-                <EmojiReactionsBar status={status} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} reactionLimitReached={reactionLimitReached} />
-              </TimelineCardReactions>
-            )}
+                <StatusContent status={status} translationWrapper={original} onClick={this.handleClick} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} compactCard />
+              </TimelineCardBody>
+              {quoteBody}
+              {linkPreview}
+              {cardContext}
+              <div className='timeline-card__author'>
+                {externalIdentity ? (
+                  <ExternalSourceIdentity identity={externalIdentity} size={26} showLabel={false} />
+                ) : (
+                  <a href={status.getIn(['account', 'url'])} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} onClick={this.handleAccountClick} className='status__display-name timeline-card__author-link'>
+                    <Avatar account={status.get('account')} size={26} />
+                    <DisplayName account={status.get('account')} others={otherAccounts} />
+                  </a>
+                )}
+                {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
+                <div className='timeline-card__author-actions'>
+                  <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='favourite' expired={expired} onFavourite={this.props.onFavourite} />
+                  {enableReaction && <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />}
+                </div>
+              </div>
+              {showReactions && (
+                <TimelineCardReactions
+                  singleLine={cardReactionsSingleLine !== false}
+                  expandLabel={intl.formatMessage(messages.cardExpandReactions)}
+                  scrollLabel={intl.formatMessage(messages.cardScrollReactions)}
+                >
+                  <EmojiReactionsBar status={status} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} reactionLimitReached={reactionLimitReached} />
+                </TimelineCardReactions>
+              )}
+            </div>
           </div>
-        </div>
+        </EmojiMutedAria>
       </HotKeys>
     );
   }
@@ -1048,7 +1071,11 @@ class Status extends ImmutablePureComponent {
             </div>}
           </div>
           <button type='button' className='timeline-media-tile__source' onClick={this.handleClick} title={this.props.intl.formatMessage(messages.openMediaSource)}>
-            {externalIdentity ? externalIdentityName(this.props.intl, externalIdentity) : (status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']))}
+            {externalIdentity ? (
+              <EmojiMutedPlain tag='span' plain={externalIdentityName(this.props.intl, externalIdentity)} html='' />
+            ) : (
+              <EmojiMutedPlain tag='span' plain={status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || ''} html={status.getIn(['account', 'display_name']) ? (status.getIn(['account', 'display_name_html']) || '') : ''} />
+            )}
           </button>
         </div>
       </div>
@@ -1098,8 +1125,14 @@ class Status extends ImmutablePureComponent {
       return (
         <HotKeys handlers={handlers}>
           <div ref={this.handleRef} className={classNames('status__wrapper', { focusable: !this.props.muted })} tabIndex='0'>
-            <span>{hiddenExternalIdentity ? externalIdentityName(intl, hiddenExternalIdentity) : (status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']))}</span>
-            <span>{status.get('content')}</span>
+            <span>
+              {hiddenExternalIdentity ? (
+                <EmojiMutedPlain tag='span' plain={externalIdentityName(intl, hiddenExternalIdentity)} html='' />
+              ) : (
+                <EmojiMutedPlain tag='span' plain={status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || ''} html={status.getIn(['account', 'display_name']) ? (status.getIn(['account', 'display_name_html']) || '') : ''} />
+              )}
+            </span>
+            <EmojiMutedPlain tag='span' plain={status.get('content') || ''} html={status.get('contentHtml') || ''} />
           </div>
         </HotKeys>
       );
@@ -1382,74 +1415,79 @@ class Status extends ImmutablePureComponent {
       })} title={threadMarkTitle}
     >+</span>) : null;
 
+    this.screenReaderStatus = status;
+    this.screenReaderBoost = rebloggedByText;
+
     return (
       <HotKeys handlers={handlers}>
-        <div
-          className={classNames('status__wrapper', `status__wrapper-${status.get('visibility')}`, {
-            'status__wrapper-reply': !!status.get('in_reply_to_id'),
-            unread,
-            focusable: !this.props.muted,
-            'status__wrapper-with-expiration': expires_date,
-            'status__wrapper-expired': expired,
-            'status__wrapper-referenced': referenced,
-            'status__wrapper-context-referenced': contextReferenced,
-            'status__wrapper-reference': referenceCount > 0,
-          })} tabIndex={this.props.muted ? null : 0} data-featured={featured ? 'true' : null} aria-label={textForScreenReader(intl, status, rebloggedByText)} ref={this.handleRef}
-        >
-          {prepend}
-          <AccountContextActions status={this.props.status} hostTimelineId={this.props.contextHostId || scrollKey || 'timeline'} onOpen={this.props.onOpenAccountContext} />
+        <EmojiMutedAria labelFor={this.timelineScreenReaderLabel}>
+          <div
+            className={classNames('status__wrapper', `status__wrapper-${status.get('visibility')}`, {
+              'status__wrapper-reply': !!status.get('in_reply_to_id'),
+              unread,
+              focusable: !this.props.muted,
+              'status__wrapper-with-expiration': expires_date,
+              'status__wrapper-expired': expired,
+              'status__wrapper-referenced': referenced,
+              'status__wrapper-context-referenced': contextReferenced,
+              'status__wrapper-reference': referenceCount > 0,
+            })} tabIndex={this.props.muted ? null : 0} data-featured={featured ? 'true' : null} ref={this.handleRef}
+          >
+            {prepend}
+            <AccountContextActions status={this.props.status} hostTimelineId={this.props.contextHostId || scrollKey || 'timeline'} onOpen={this.props.onOpenAccountContext} />
 
-          <div className={classNames('status', `status-${status.get('visibility')}`, { 'status-reply': !!status.get('in_reply_to_id'), muted: this.props.muted, 'status-with-expiration': expires_date, 'status-expired': expired, referenced, 'context-referenced': contextReferenced, 'status-immediate': this.props.immediate && new_features_policy === 'tester' })} data-id={status.get('id')}>
-            {!externalIdentity && <AccountActionBar account={status.get('account')} {...other} />}
-            <div className='status__expand' onClick={this.handleExpandClick} role='presentation' />
-            <div className='status__info'>
-              {status.get('expires_at') && <span className='status__expiration-time'><time dateTime={expires_at} title={intl.formatDate(expires_date, dateFormatOptions)}><i className='fa fa-clock-o' aria-hidden='true' /></time></span>}
-              <TimeLink url={externalIdentity ? externalIdentity.articleUrl : status.get('url')} external={!!externalIdentity} className='status__relative-time'>
-                {threadMark}
-                {disableRelativeTime ? <AbsoluteTimestamp timestamp={status.get('created_at')} /> : <RelativeTimestamp timestamp={status.get('created_at')} /> }
-                {status.get('edited_at') && (
-                  <abbr
-                    title={intl.formatMessage(messages.edited, {
-                      date: intl.formatDate(status.get('edited_at'), dateFormatOptions),
-                    })}
-                  >
-                    {' *'}
-                  </abbr>
+            <div className={classNames('status', `status-${status.get('visibility')}`, { 'status-reply': !!status.get('in_reply_to_id'), muted: this.props.muted, 'status-with-expiration': expires_date, 'status-expired': expired, referenced, 'context-referenced': contextReferenced, 'status-immediate': this.props.immediate && new_features_policy === 'tester' })} data-id={status.get('id')}>
+              {!externalIdentity && <AccountActionBar account={status.get('account')} {...other} />}
+              <div className='status__expand' onClick={this.handleExpandClick} role='presentation' />
+              <div className='status__info'>
+                {status.get('expires_at') && <span className='status__expiration-time'><time dateTime={expires_at} title={intl.formatDate(expires_date, dateFormatOptions)}><i className='fa fa-clock-o' aria-hidden='true' /></time></span>}
+                <TimeLink url={externalIdentity ? externalIdentity.articleUrl : status.get('url')} external={!!externalIdentity} className='status__relative-time'>
+                  {threadMark}
+                  {disableRelativeTime ? <AbsoluteTimestamp timestamp={status.get('created_at')} /> : <RelativeTimestamp timestamp={status.get('created_at')} /> }
+                  {status.get('edited_at') && (
+                    <abbr
+                      title={intl.formatMessage(messages.edited, {
+                        date: intl.formatDate(status.get('edited_at'), dateFormatOptions),
+                      })}
+                    >
+                      {' *'}
+                    </abbr>
+                  )}
+                </TimeLink>
+                <span className='status__visibility-icon'>{visibilityLink}</span>
+
+                {externalIdentity ? (
+                  <ExternalSourceIdentity identity={externalIdentity} size={48} className='status__display-name' avatarClassName='status__avatar' />
+                ) : (
+                  <a onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} href={status.getIn(['account', 'url'])} title={status.getIn(['account', 'acct'])} className='status__display-name' target='_blank' rel='noopener noreferrer'>
+                    <div className='status__avatar'>
+                      {statusAvatar}
+                    </div>
+
+                    <DisplayName account={status.get('account')} others={otherAccounts} />
+                  </a>
                 )}
-              </TimeLink>
-              <span className='status__visibility-icon'>{visibilityLink}</span>
+                {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
+              </div>
 
-              {externalIdentity ? (
-                <ExternalSourceIdentity identity={externalIdentity} size={48} className='status__display-name' avatarClassName='status__avatar' />
-              ) : (
-                <a onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} href={status.getIn(['account', 'url'])} title={status.getIn(['account', 'acct'])} className='status__display-name' target='_blank' rel='noopener noreferrer'>
-                  <div className='status__avatar'>
-                    {statusAvatar}
-                  </div>
+              <StatusContent status={status} translationWrapper={this.props.status} onClick={this.handleClick} expanded={!status.get('hidden')} showThread={showThread} onExpandedToggle={this.handleExpandedToggle} collapsable onCollapsedToggle={this.handleCollapsedToggle} onTranslate={this.props.onTranslate && this.handleTranslate} />
 
-                  <DisplayName account={status.get('account')} others={otherAccounts} />
-                </a>
-              )}
-              {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
+              {!(status.get('hidden') && status.get('spoiler_text').length > 0) && <>
+                {quote}
+                {media}
+              </>
+              }
+
+              {enableReaction && (contextType === 'thread' || !compactReaction) && <EmojiReactionsBar
+                status={status}
+                addEmojiReaction={this.props.addEmojiReaction}
+                removeEmojiReaction={this.props.removeEmojiReaction}
+                reactionLimitReached={reactionLimitReached}
+              />}
+              <StatusActionBar scrollKey={scrollKey} status={status} translationStatus={translationRequestStatus(this.props.status)} account={account} expired={expired} {...other} onFilter={hasMatchedFilters ? this.handleFilterClick : null} />
             </div>
-
-            <StatusContent status={status} translationWrapper={this.props.status} onClick={this.handleClick} expanded={!status.get('hidden')} showThread={showThread} onExpandedToggle={this.handleExpandedToggle} collapsable onCollapsedToggle={this.handleCollapsedToggle} onTranslate={this.props.onTranslate && this.handleTranslate} />
-
-            {!(status.get('hidden') && status.get('spoiler_text').length > 0) && <>
-              {quote}
-              {media}
-            </>
-            }
-
-            {enableReaction && (contextType === 'thread' || !compactReaction) && <EmojiReactionsBar
-              status={status}
-              addEmojiReaction={this.props.addEmojiReaction}
-              removeEmojiReaction={this.props.removeEmojiReaction}
-              reactionLimitReached={reactionLimitReached}
-            />}
-            <StatusActionBar scrollKey={scrollKey} status={status} translationStatus={translationRequestStatus(this.props.status)} account={account} expired={expired} {...other} onFilter={hasMatchedFilters ? this.handleFilterClick : null} />
           </div>
-        </div>
+        </EmojiMutedAria>
       </HotKeys>
     );
   }
