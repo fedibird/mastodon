@@ -65,7 +65,7 @@ const rule = (emoji, replacement = '［絵文字］', effects = {}) => ({
   },
 });
 
-const text = `<b>Hi</b> :blob: ${OK}`;
+const text = `<b>Hi</b> :blob: <a href="/path/${OK}" title="${OK}">link</a> ${OK}`;
 
 const scheduled = () => fromJS({
   id: 'sch1',
@@ -141,6 +141,9 @@ describe('scheduled status preview', () => {
     ]);
 
     expect(preview().querySelector('b')).not.toBeNull();
+    expect(preview().querySelector('a').getAttribute('href')).toBe(`/path/${OK}`);
+    expect(preview().querySelector('a').getAttribute('title')).toBe(OK);
+    expect(preview().querySelector('a').textContent).toBe('link');
     expect(preview().textContent).toContain(':blob:');
     expect(preview().textContent).toContain('<img src="https://evil.test/x.png" onerror="alert(1)">');
     expect(preview().querySelector('img')).toBeNull();
@@ -161,6 +164,8 @@ describe('scheduled status preview', () => {
     ], '4');
 
     expect(preview().textContent).toContain(OK);
+    expect(preview().querySelector('a').getAttribute('href')).toBe(`/path/${OK}`);
+    expect(preview().querySelector('a').getAttribute('title')).toBe(OK);
     expect(record.getIn(['params', 'text'])).toBe(text);
   });
 });

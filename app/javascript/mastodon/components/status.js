@@ -9,7 +9,7 @@ import AbsoluteTimestamp from './absolute_timestamp';
 import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
 import EmojiMutedHtml, { EmojiMutedAria, EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
-import { emojiMutedPlainText, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMutedPlainText, replaceMutedEmojiInPlain, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
 import TimelineCardBody from './timeline_card_body';
@@ -92,6 +92,84 @@ const bilingualText = (source, translated) => {
   return source || translated;
 };
 
+// The same replacements the normalizer applies before search_index textContent.
+const indexedText = (html) => {
+  const prepared = (html || '').replace(/<br\s*\/?>/g, '\n').replace(/<\/p><p>/g, '\n\n');
+
+  return domParser.parseFromString(prepared, 'text/html').documentElement.textContent || '';
+};
+
+const exactPollOptionAt = (value, title) => {
+  const token = `\n\n${title}`;
+  let from = 0;
+
+  while (from < value.length) {
+    const at = value.indexOf(token, from);
+
+    if (at === -1) {
+      return -1;
+    }
+
+    const after = at + token.length;
+
+    if (after === value.length || value.startsWith('\n\n', after)) {
+      return at;
+    }
+
+    from = at + 2;
+  }
+
+  return -1;
+};
+
+const projectPollSuffix = (suffix, status, index) => {
+  let next = suffix || '';
+  const options = status.getIn(['poll', 'options']);
+
+  if (options && typeof options.forEach === 'function') {
+    options.forEach(option => {
+      const title = option && typeof option.get === 'function' ? (option.get('title') || '') : '';
+      const html = option && typeof option.get === 'function' ? (option.get('title_emojified') || '') : '';
+      const at = title && html ? exactPollOptionAt(next, title) : -1;
+
+      if (at === -1) {
+        return;
+      }
+
+      const projected = replaceMutedEmojiInPlain(title, html, index);
+
+      if (projected !== title) {
+        next = `${next.slice(0, at)}\n\n${projected}${next.slice(at + title.length + 2)}`;
+      }
+    });
+  }
+
+  // Unicode in a choice is its own identity. A custom shortcode without
+  // title_emojified is not, so it stays in the suffix.
+  return replaceUnicodeEmojiInPlainText(next, index);
+};
+
+// search_index is spoiler + body + poll titles. Replacing the whole body
+// with contentHtml's visible text would drop the poll titles. The body
+// segment uses the post HTML. The suffix keeps its words.
+const projectReadableBody = (sourceBody, status, index) => {
+  const bodyText = indexedText(status.get('content') || '');
+  const html = status.get('contentHtml') || '';
+  const at = bodyText ? sourceBody.indexOf(bodyText) : -1;
+
+  if (at !== -1) {
+    return sourceBody.slice(0, at)
+      + replaceMutedEmojiInPlain(bodyText, html, index)
+      + projectPollSuffix(sourceBody.slice(at + bodyText.length), status, index);
+  }
+
+  if (sourceBody.indexOf('\n\n') === -1) {
+    return replaceMutedEmojiInPlain(sourceBody, html, index);
+  }
+
+  return replaceUnicodeEmojiInPlainText(sourceBody, index);
+};
+
 // Screen-reader copy is derived at read time. search_index and the saved
 // plain strings stay shared. A hidden CW does not contribute its body.
 const screenReaderStatusText = (status, index) => {
@@ -104,8 +182,8 @@ const screenReaderStatusText = (status, index) => {
 
   const project = (plain, html) => emojiMutedPlainText(plain, html, index);
 
-  const read = (source, translated, sourceHtml, translatedHtml) => {
-    const sourceLabel = project(source, sourceHtml);
+  const read = (source, translated, sourceHtml, translatedHtml, projectSource) => {
+    const sourceLabel = projectSource ? projectSource(source) : project(source, sourceHtml);
     const translatedLabel = project(translated, translatedHtml);
 
     if (mode === TRANSLATION_MODE_TRANSLATED) {
@@ -133,6 +211,7 @@ const screenReaderStatusText = (status, index) => {
     translatedBody,
     status.get('contentHtml') || '',
     status.getIn(['translation', 'contentHtml']) || '',
+    () => projectReadableBody(sourceBody, status, index),
   );
 };
 

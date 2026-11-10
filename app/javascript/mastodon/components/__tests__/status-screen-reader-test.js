@@ -229,8 +229,8 @@ describe('textForScreenReader translation mode', () => {
 
 const THUMB = '👍';
 const thumbImg = `<img draggable="false" class="emojione" alt="${THUMB}" src="/emoji/thumb.svg">`;
-const localImg = (id) => (
-  `<img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/${id}.svg" data-shortcode="blob" data-domain="" data-original="https://cdn.example/${id}.svg" data-emoji-id="${id}">`
+const localImg = (id, shortcode = 'blob') => (
+  `<img draggable="false" class="emojione custom-emoji" alt=":${shortcode}:" title="${shortcode}" src="https://cdn.example/${id}.svg" data-shortcode="${shortcode}" data-domain="" data-original="https://cdn.example/${id}.svg" data-emoji-id="${id}">`
 );
 const remoteImg = (domain) => (
   `<img draggable="false" class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/${domain}/blob.svg" data-shortcode="blob" data-domain="${domain}">`
@@ -275,6 +275,61 @@ describe('textForScreenReader emoji mute', () => {
     expect(status.get('search_index')).toBe(`Hello ${THUMB}`);
     expect(status.get('contentHtml')).toContain('/emoji/thumb.svg');
     expect(status.getIn(['account', 'display_name'])).toContain(THUMB);
+  });
+
+  it('keeps poll choices when a body emoji is muted and does not guess their shortcode', () => {
+    const status = buildStatus({
+      content: `<p>Hello ${THUMB} :blob:</p>`,
+      contentHtml: `<p>Hello ${thumbImg} ${localImg('10')}</p>`,
+      search_index: `\n\nHello ${THUMB} :blob:\n\nYes :blob:\n\nNo`,
+      poll: {
+        options: [
+          { title: 'Yes :blob:', title_emojified: `Yes ${localImg('11')}` },
+          { title: 'No', title_emojified: 'No' },
+        ],
+      },
+    });
+    const index = muteIndex([
+      rule({ kind: 'unicode', native: THUMB }, '[thumb]'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]'),
+    ]);
+    const spoken = textForScreenReader(intl, status, false, index);
+
+    expect(spoken).toContain('Hello [thumb] [blob]');
+    expect(spoken).toContain('Yes :blob:');
+    expect(spoken).not.toContain('Yes [blob]');
+    expect(spoken).toContain('\n\nNo');
+    expect(spoken).not.toContain(THUMB);
+    expect(status.get('search_index')).toContain('Yes :blob:');
+    expect(textForScreenReader(intl, status, false, muteIndex([]))).toBe(label(status));
+  });
+
+  it('projects a poll choice from its own emoji html without dropping the other choice', () => {
+    const choice = `Pick ${THUMB}`;
+    const status = buildStatus({
+      content: '<p>Hello</p>',
+      contentHtml: '<p>Hello</p>',
+      search_index: `\n\nHello\n\n${choice}\n\nNo`,
+      translationMode: 'bilingual',
+      translation,
+      poll: {
+        options: [
+          { title: choice, title_emojified: `Pick ${thumbImg}` },
+          { title: 'No', title_emojified: 'No' },
+        ],
+      },
+    });
+    const hidden = status.set('hidden', true).set('translationMode', 'original').set('spoiler_text', 'secret').set('spoilerHtml', 'secret').set('search_index', `secret\n\nHello\n\n${choice}`);
+    const index = muteIndex([rule({ kind: 'unicode', native: THUMB }, '[thumb]')]);
+    const hiddenLabel = textForScreenReader(intl, hidden, false, index);
+
+    expect(textForScreenReader(intl, status, false, index)).toContain('Hello');
+    expect(textForScreenReader(intl, status, false, index)).toContain('Pick [thumb]');
+    expect(textForScreenReader(intl, status, false, index)).toContain('No');
+    expect(textForScreenReader(intl, status, false, index)).toContain('こんにちは');
+    expect(hiddenLabel).toBe('Alice, secret, Jan 1, 12:00 PM, alice@example.com');
+    expect(hiddenLabel).not.toContain('Pick');
+    expect(hidden.get('search_index')).toContain(choice);
   });
 
   it('does not treat another local id, a false effect, or a remote shortcode as this emoji', () => {

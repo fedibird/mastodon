@@ -8,6 +8,7 @@ import emojify from '../emoji';
 import {
   buildReplaceInTextIndex,
   emojiMuteTextParseCount,
+  emojiMuteUnicodeComparisonCount,
   emojiMutedPlainLabel,
   emojiMutedPlainText,
   replaceEmojiInDisplayHtml,
@@ -530,5 +531,49 @@ describe('unicode preview text', () => {
     expect(replaceUnicodeEmojiInPreviewHtml('just :blob:', index())).toBe('just :blob:');
     expect(emojiMutedPlainText(`Mood ${THUMBS}`, '', index())).toBe('Mood <img src=x onerror=alert(1)>');
     expect(emojiMutedPlainText('Hello', '<p>Hello</p>', index())).toBe('Hello');
+  });
+
+  it('changes text nodes in preview HTML and leaves attributes, urls, and script text', () => {
+    const source = `<a href="/path/${THUMBS}" title="${THUMBS}">link</a> ${THUMBS}<script>${THUMBS}</script><!-- ${THUMBS} -->`;
+    const html = replaceUnicodeEmojiInPreviewHtml(source, buildReplaceInTextIndex([
+      unicodeRule(THUMBS, '<b>nope</b>'),
+    ]));
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const link = template.content.querySelector('a');
+
+    expect(link.getAttribute('href')).toBe(`/path/${THUMBS}`);
+    expect(link.getAttribute('title')).toBe(THUMBS);
+    expect(link.textContent).toBe('link');
+    expect(html).toContain('&lt;b&gt;nope&lt;/b&gt;');
+    expect(html).not.toContain('<b>nope</b>');
+    expect(template.content.querySelector('script').textContent).toBe(THUMBS);
+    expect(html).toContain(`<!-- ${THUMBS} -->`);
+    expect(replaceUnicodeEmojiInPreviewHtml('<b>Hi</b> &#x1F44D;', buildReplaceInTextIndex([
+      unicodeRule(THUMBS, '[thumb]'),
+    ]))).toBe('<b>Hi</b> [thumb]');
+  });
+
+  it('compares unicode rules by first code point instead of every rule at every character', () => {
+    const rules = [];
+
+    for (let offset = 0; offset < 1000; offset += 1) {
+      rules.push(unicodeRule(String.fromCodePoint(0x1F300 + (offset % 700), offset), `[${offset}]`));
+    }
+
+    rules.push(unicodeRule(THUMBS, '[thumb]'));
+    const index = buildReplaceInTextIndex(rules);
+    const plain = `${'word '.repeat(400)}${THUMBS_LIGHT} tail`;
+
+    resetEmojiMuteTextForTests();
+    const replaced = replaceUnicodeEmojiInPlainText(plain, index);
+
+    expect(replaced).toContain(THUMBS_LIGHT);
+    expect(replaced).not.toContain('[thumb]');
+    expect(emojiMuteUnicodeComparisonCount()).toBeLessThan(plain.length);
+
+    resetEmojiMuteTextForTests();
+    expect(replaceUnicodeEmojiInPlainText(`${plain} ${THUMBS}`, index)).toContain('[thumb]');
+    expect(emojiMuteUnicodeComparisonCount()).toBeLessThan(plain.length);
   });
 });

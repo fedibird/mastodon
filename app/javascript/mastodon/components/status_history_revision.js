@@ -11,9 +11,10 @@ import RelativeTimestamp from 'mastodon/components/relative_timestamp';
 import emojify from 'mastodon/features/emoji/emoji';
 
 // The author domain is the remote mute identity. A missing account is not
-// guessed from an emoji row. Local identity is only the id on this revision's
-// emoji list, written while the HTML is built. A later row that reused the
-// shortcode is a different emoji, and a shortcode with no id is left alone.
+// guessed from an emoji row. A local id is written only when this revision's
+// payload includes one. The history API sends that id from the save-time
+// snapshot. A legacy row, or a snapshot whose row was deleted, has no id and
+// is left alone. The current shortcode is not an identity.
 const authorDomainFromAccount = account => {
   const acct = account && typeof account.get === 'function' ? account.get('acct') : '';
 
