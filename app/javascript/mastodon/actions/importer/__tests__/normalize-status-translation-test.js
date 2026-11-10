@@ -1,7 +1,7 @@
 import { fromJS } from 'immutable';
 
 import { importFetchedStatuses, POLLS_IMPORT, STATUSES_IMPORT } from '../index';
-import { normalizeStatus } from '../normalizer';
+import { normalizeStatus, normalizeStatusTranslation } from '../normalizer';
 
 const buildStatus = (overrides = {}) => ({
   id: 's1',
@@ -532,6 +532,254 @@ describe('personal boost wrapper translation source changes', () => {
 
     expect(wrapperOf(statuses).translation).toBeUndefined();
     expect(wrapperOf(statuses).translationRequestId).toBeUndefined();
+  });
+
+  it('rebuilds a personal boost translation when the boosted emoji row changes', () => {
+    const emoji10 = {
+      id: '10',
+      shortcode: 'blob',
+      url: 'https://cdn.example/10.svg',
+      static_url: 'https://cdn.example/10.png',
+      domain: null,
+    };
+    const emoji11 = { ...emoji10, id: '11', url: 'https://cdn.example/11.svg', static_url: 'https://cdn.example/11.png' };
+    const properStatus = storedProper.merge({
+      content: '<p>Hello :blob:</p>',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji10],
+    });
+    const translation = normalizeStatusTranslation({
+      content: '<p>Hello :blob:</p>',
+      spoiler_text: '',
+      language: 'ja',
+      detected_source_language: 'en',
+      provider: 'test',
+    }, fromJS({ emojis: [emoji10], spoiler_text: '' }), '');
+    const wrapper = storedWrapper.set('translation', fromJS(translation));
+    const changed = importStatuses([proper({
+      content: '<p>Hello :blob:</p>',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji11],
+    })], { proper: properStatus, wrap: wrapper });
+    const refreshed = wrapperOf(changed);
+
+    expect(refreshed.translation.contentHtml).toContain('data-emoji-id="11"');
+    expect(refreshed.translation.contentHtml).not.toContain('data-emoji-id="10"');
+    expect(refreshed.translationMode).toBe('translated');
+    expect(refreshed.translationContentSignature).toBe('old');
+
+    const unchanged = importStatuses([proper({
+      content: '<p>Hello :blob:</p>',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji11],
+    })], {
+      proper: properStatus.set('emojis', fromJS([emoji11])),
+      wrap: wrapper.set('translation', fromJS(refreshed.translation)),
+    });
+
+    expect(wrapperOf(unchanged)).toBeUndefined();
+  });
+
+  it('keeps a translated spoiler in place when the emoji row changes', () => {
+    const emoji10 = {
+      id: '10',
+      shortcode: 'blob',
+      url: 'https://cdn.example/10.svg',
+      static_url: 'https://cdn.example/10.png',
+      domain: null,
+    };
+    const emoji11 = { ...emoji10, id: '11', url: 'https://cdn.example/11.svg', static_url: 'https://cdn.example/11.png' };
+    const source = {
+      id: 's1',
+      account: { id: 'a1', acct: 'alice' },
+      content: '<p></p>',
+      spoiler_text: '注意',
+      emojis: [emoji10],
+      media_attachments: [],
+      mentions: [],
+      visibility: 'public',
+      sensitive: false,
+      language: 'ja',
+      url: 'https://example.test/1',
+      uri: 'https://example.test/1',
+      updated_at: '2026-11-10T00:00:00.000Z',
+      quote: null,
+    };
+    const first = normalizeStatus(source, null, '');
+    const translated = normalizeStatusTranslation({
+      content: '',
+      spoiler_text: '警告 :blob:',
+      language: 'en',
+      detected_source_language: 'ja',
+      provider: 'test',
+    }, fromJS(first), '');
+    const second = normalizeStatus({ ...source, emojis: [emoji11] }, fromJS(first).set('translation', fromJS(translated)).set('translationMode', 'translated'), '');
+
+    expect(first.spoiler_text).toBe('注意');
+    expect(translated.content).toBe('');
+    expect(translated.spoiler_text).toBe('警告 :blob:');
+    expect(translated.spoilerHtml).toContain('data-emoji-id="10"');
+    expect(translated.contentHtml).not.toContain('data-emoji-id');
+    expect(second.translation.content).toBe('');
+    expect(second.translation.spoiler_text).toBe('警告 :blob:');
+    expect(second.translation.spoilerHtml).toContain('data-emoji-id="11"');
+    expect(second.translation.contentHtml).not.toContain('data-emoji-id');
+    expect(second.translation.contentHtml).not.toContain('警告');
+  });
+
+  it('still moves a CW-only translation into the body, then keeps that shape', () => {
+    const emoji10 = {
+      id: '10',
+      shortcode: 'blob',
+      url: 'https://cdn.example/10.svg',
+      static_url: 'https://cdn.example/10.png',
+      domain: null,
+    };
+    const emoji11 = { ...emoji10, id: '11', url: 'https://cdn.example/11.svg', static_url: 'https://cdn.example/11.png' };
+    const source = {
+      id: 's1',
+      account: { id: 'a1', acct: 'alice' },
+      content: '',
+      spoiler_text: '注意',
+      emojis: [emoji10],
+      media_attachments: [],
+      mentions: [],
+      visibility: 'public',
+      sensitive: false,
+      language: 'ja',
+      url: 'https://example.test/1',
+      uri: 'https://example.test/1',
+      updated_at: '2026-11-10T00:00:00.000Z',
+      quote: null,
+    };
+    const first = normalizeStatus(source, null, '');
+    const translated = normalizeStatusTranslation({
+      content: '',
+      spoiler_text: '警告 :blob:',
+      language: 'en',
+      detected_source_language: 'ja',
+      provider: 'test',
+    }, fromJS(first), '');
+    const second = normalizeStatus({ ...source, emojis: [emoji11] }, fromJS(first).set('translation', fromJS(translated)).set('translationMode', 'translated'), '');
+
+    expect(first.content).toBe('注意');
+    expect(first.spoiler_text).toBe('');
+    expect(translated.content).toBe('警告 :blob:');
+    expect(translated.spoiler_text).toBe('');
+    expect(translated.contentHtml).toContain('data-emoji-id="10"');
+    expect(second.translation.content).toBe('警告 :blob:');
+    expect(second.translation.spoiler_text).toBe('');
+    expect(second.translation.contentHtml).toContain('data-emoji-id="11"');
+    expect(second.translation.spoilerHtml).not.toContain('data-emoji-id');
+  });
+
+  it('keeps a translated body and spoiler in place when the emoji row changes', () => {
+    const emoji10 = {
+      id: '10',
+      shortcode: 'blob',
+      url: 'https://cdn.example/10.svg',
+      static_url: 'https://cdn.example/10.png',
+      domain: null,
+    };
+    const emoji11 = { ...emoji10, id: '11', url: 'https://cdn.example/11.svg', static_url: 'https://cdn.example/11.png' };
+    const source = {
+      id: 's1',
+      account: { id: 'a1', acct: 'alice' },
+      content: '<p>Hello :blob:</p>',
+      spoiler_text: '注意 :blob:',
+      emojis: [emoji10],
+      media_attachments: [],
+      mentions: [],
+      visibility: 'public',
+      sensitive: false,
+      language: 'en',
+      url: 'https://example.test/1',
+      uri: 'https://example.test/1',
+      updated_at: '2026-11-10T00:00:00.000Z',
+      quote: null,
+    };
+    const first = normalizeStatus(source, null, '');
+    const translated = normalizeStatusTranslation({
+      content: '<p>Bonjour :blob:</p>',
+      spoiler_text: 'Alerte :blob:',
+      language: 'fr',
+      detected_source_language: 'en',
+      provider: 'test',
+    }, fromJS(first), '');
+    const second = normalizeStatus({ ...source, emojis: [emoji11] }, fromJS(first).set('translation', fromJS(translated)).set('translationMode', 'bilingual'), '');
+
+    expect(second.contentHtml).toContain('data-emoji-id="11"');
+    expect(second.spoilerHtml).toContain('data-emoji-id="11"');
+    expect(second.translation.content).toBe('<p>Bonjour :blob:</p>');
+    expect(second.translation.spoiler_text).toBe('Alerte :blob:');
+    expect(second.translation.contentHtml).toContain('data-emoji-id="11"');
+    expect(second.translation.spoilerHtml).toContain('data-emoji-id="11"');
+    expect(second.translation.contentHtml).not.toContain('data-emoji-id="10"');
+    expect(second.translationMode).toBe('bilingual');
+  });
+
+  it('rebuilds a personal boost spoiler without moving it into the body', () => {
+    const emoji10 = {
+      id: '10',
+      shortcode: 'blob',
+      url: 'https://cdn.example/10.svg',
+      static_url: 'https://cdn.example/10.png',
+      domain: null,
+    };
+    const emoji11 = { ...emoji10, id: '11', url: 'https://cdn.example/11.svg', static_url: 'https://cdn.example/11.png' };
+    const properStatus = storedProper.merge({
+      content: '<p></p>',
+      spoiler_text: '注意',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji10],
+    });
+    const translation = normalizeStatusTranslation({
+      content: '',
+      spoiler_text: '警告 :blob:',
+      language: 'en',
+      detected_source_language: 'ja',
+      provider: 'test',
+    }, fromJS({ emojis: [emoji10], spoiler_text: '注意' }), '');
+    const wrapper = storedWrapper.set('translation', fromJS(translation));
+    const changed = importStatuses([proper({
+      content: '<p></p>',
+      spoiler_text: '注意',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji11],
+    })], { proper: properStatus, wrap: wrapper });
+    const refreshed = wrapperOf(changed);
+
+    expect(translation.content).toBe('');
+    expect(translation.spoiler_text).toBe('警告 :blob:');
+    expect(refreshed.translation.content).toBe('');
+    expect(refreshed.translation.spoiler_text).toBe('警告 :blob:');
+    expect(refreshed.translation.spoilerHtml).toContain('data-emoji-id="11"');
+    expect(refreshed.translation.contentHtml).not.toContain('data-emoji-id');
+    expect(refreshed.translation.contentHtml).not.toContain('警告');
+    expect(refreshed.translationMode).toBe('translated');
+  });
+
+  it('drops a personal boost translation that has no stored source when the emoji row changes', () => {
+    const emoji10 = { id: '10', shortcode: 'blob', url: 'https://cdn.example/10.svg', static_url: 'https://cdn.example/10.png' };
+    const emoji11 = { id: '11', shortcode: 'blob', url: 'https://cdn.example/11.svg', static_url: 'https://cdn.example/11.png' };
+    const properStatus = storedProper.merge({
+      content: '<p>Hello :blob:</p>',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji10],
+    });
+    const statuses = importStatuses([proper({
+      content: '<p>Hello :blob:</p>',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji11],
+    })], { proper: properStatus, wrap: storedWrapper });
+    const wrapper = wrapperOf(statuses);
+
+    expect(wrapper.translation).toBeUndefined();
+    expect(wrapper.translationMode).toBeUndefined();
+    expect(wrapper.translationPending).toBe(true);
+    expect(wrapper.translationRequestId).toBe('req-a');
+    expect(statuses.find(status => status.id === 'proper').contentHtml).toContain('data-emoji-id="11"');
+    expect(JSON.stringify(wrapper)).not.toContain('data-emoji-id="10"');
   });
 
   it('keeps the wrapper translation when a refresh only changes a counter', () => {

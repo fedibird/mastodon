@@ -135,6 +135,79 @@ describe('translateStatus', () => {
     });
   });
 
+  it('emojifies a personal boost translation with the boosted author domain', async () => {
+    const blob = {
+      id: '99',
+      shortcode: 'blob',
+      url: 'https://original.example/blob.svg',
+      static_url: 'https://original.example/blob.png',
+      domain: 'original.example',
+    };
+    const translation = {
+      content: '<p>Hello :blob:</p>',
+      spoiler_text: 'CW :blob:',
+      provider: 'test',
+      language: 'ja',
+      detected_source_language: 'en',
+    };
+    const post = jest.fn(() => Promise.resolve({ data: translation }));
+    api.mockReturnValue({ post });
+
+    const store = createDispatch(fromJS({
+      statuses: {
+        wrap: { id: 'wrap', visibility: 'public', reblog: 'orig', account: 'booster', language: 'en' },
+        orig: {
+          id: 'orig',
+          visibility: 'public',
+          language: 'en',
+          account: 'author',
+          content: '<p>:blob:</p>',
+          spoiler_text: '',
+          emojis: [blob],
+          media_attachments: [],
+        },
+      },
+      accounts: {
+        booster: { acct: 'booster@other.example' },
+        author: { acct: 'author@original.example' },
+      },
+    }));
+
+    await store.run(translateStatus('wrap'));
+
+    const request = store.actions.find(action => action.type === STATUS_TRANSLATE_REQUEST);
+    const success = store.actions.find(action => action.type === STATUS_TRANSLATE_SUCCESS);
+
+    expect(success.domain).toBe('original.example');
+    expect(success.contentStatusId).toBe('orig');
+
+    const reduced = statusesReducer(fromJS({
+      wrap: {
+        id: 'wrap',
+        account: 'booster',
+        reblog: 'orig',
+        language: 'en',
+        translationRequestId: request.translationRequestId,
+      },
+      orig: {
+        id: 'orig',
+        account: 'author',
+        language: 'en',
+        content: '<p>:blob:</p>',
+        spoiler_text: '',
+        emojis: [blob],
+        media_attachments: [],
+      },
+    }), success);
+    const translatedHtml = reduced.getIn(['wrap', 'translation', 'contentHtml']);
+    const translatedSpoiler = reduced.getIn(['wrap', 'translation', 'spoilerHtml']);
+
+    expect(translatedHtml).toContain('data-domain="original.example"');
+    expect(translatedHtml).not.toContain('other.example');
+    expect(translatedHtml).not.toContain('data-emoji-id');
+    expect(translatedSpoiler).toContain('data-domain="original.example"');
+  });
+
   it('requests a new translation after the boosted status body changes and ignores an older response', async () => {
     const proper = fromJS({
       id: 'orig',

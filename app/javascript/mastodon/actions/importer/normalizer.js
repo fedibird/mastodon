@@ -386,6 +386,34 @@ const cardPresentation = (card) => {
 
 const canonicalLink = (value) => String(readValue(value, 'url') || readValue(value, 'uri') || '');
 
+// The derived HTML is valid only for the emoji rows that produced it. A
+// reused shortcode with a new id, or a new image URL, is a different
+// presentation even when the status text and updated_at are unchanged.
+export const emojiPresentation = (emojis) => {
+  if (!emojis || typeof emojis.forEach !== 'function') {
+    return '';
+  }
+
+  const entries = [];
+
+  emojis.forEach(item => {
+    if (!item) {
+      return;
+    }
+
+    const field = (key) => {
+      const value = readValue(item, key);
+
+      return value === null || value === undefined ? '' : String(value);
+    };
+
+    entries.push([field('id'), field('shortcode'), field('domain'), field('url'), field('static_url')].join('\u0000'));
+  });
+
+  entries.sort();
+  return entries.join('\n');
+};
+
 // Body, links, and media can arrive twice with one updated_at: the POST
 // response, then the timeline payload. Refresh the derived HTML when those
 // differ. Counter-only refreshes stay on the fast path.
@@ -406,6 +434,10 @@ const presentationChanged = (oldStatus, incoming) => {
   }
 
   if (mediaPresentation(oldStatus.get('media_attachments')) !== mediaPresentation(incoming.media_attachments)) {
+    return true;
+  }
+
+  if (emojiPresentation(oldStatus.get('emojis')) !== emojiPresentation(incoming.emojis)) {
     return true;
   }
 
@@ -585,6 +617,90 @@ const copySignature = (normalStatus, normalOldStatus, key) => {
   }
 };
 
+const translationField = (translation, key) => {
+  if (!translation) {
+    return undefined;
+  }
+
+  return typeof translation.get === 'function' ? translation.get(key) : translation[key];
+};
+
+const renderTranslationEmoji = (content, spoilerText, emojis, domain) => {
+  const emojiMap = makeEmojiMap({ emojis: emojis || [] });
+
+  return {
+    content: content || '',
+    spoiler_text: spoilerText || '',
+    contentHtml: applyEmojiPresentation(emojify(content || '', emojiMap, domain)),
+    spoilerHtml: emojify(escapeTextContentForBrowser(spoilerText || ''), emojiMap, domain),
+  };
+};
+
+// Rebuild translated HTML for a new emoji generation. The stored content and
+// spoiler are already in display shape, including a CW-only move done on the
+// first pass, so this does not run that move again. Returns null when the
+// translation has no stored source; the caller then drops it instead of
+// painting the previous image under the new id.
+export function rebuildTranslationEmoji(translation, emojis, domain = '') {
+  const content = translationField(translation, 'content');
+
+  if (typeof content !== 'string') {
+    return null;
+  }
+
+  const spoilerText = translationField(translation, 'spoiler_text');
+  const rendered = renderTranslationEmoji(content, typeof spoilerText === 'string' ? spoilerText : '', emojis, domain);
+  const rebuilt = {
+    detected_source_language: translationField(translation, 'detected_source_language'),
+    language: translationField(translation, 'language'),
+    provider: translationField(translation, 'provider'),
+    ...rendered,
+  };
+  const requestedSource = translationField(translation, 'requested_source_language');
+  const requestedTarget = translationField(translation, 'requested_target_language');
+
+  if (typeof requestedSource === 'string') {
+    rebuilt.requested_source_language = requestedSource;
+  }
+
+  if (typeof requestedTarget === 'string') {
+    rebuilt.requested_target_language = requestedTarget;
+  }
+
+  const media = translationField(translation, 'media_attachments');
+
+  if (media) {
+    rebuilt.media_attachments = typeof media.toJS === 'function' ? media.toJS() : media;
+  }
+
+  return rebuilt;
+}
+
+const adoptRefreshedTranslation = (normalStatus, normalOldStatus, domain) => {
+  const rebuilt = rebuildTranslationEmoji(normalOldStatus.get('translation'), normalStatus.emojis || [], domain);
+
+  if (rebuilt) {
+    normalStatus.translation = rebuilt;
+
+    if (normalOldStatus.get('translationMode')) {
+      normalStatus.translationMode = normalOldStatus.get('translationMode');
+    }
+  }
+
+  if (normalOldStatus.get('translationPending')) {
+    normalStatus.translationPending = true;
+
+    if (normalOldStatus.get('translationRequestId')) {
+      normalStatus.translationRequestId = normalOldStatus.get('translationRequestId');
+    }
+  }
+
+  if (normalStatus.translation || normalStatus.translationPending) {
+    copySignature(normalStatus, normalOldStatus, 'translationContentSignature');
+    copySignature(normalStatus, normalOldStatus, 'translationStatusSignature');
+  }
+};
+
 const copyTranslationState = (normalStatus, normalOldStatus) => {
   if (normalOldStatus.get('translation')) {
     normalStatus.translation = normalOldStatus.get('translation');
@@ -725,7 +841,15 @@ export function normalizeStatus(status, normalOldStatus, domain, previousPoll, o
     normalStatus.media_attachments = preserveMediaTranslations(status.media_attachments, normalOldStatus);
 
     if (normalOldStatus && translationSourcesMatch(normalOldStatus, status, previousPoll)) {
-      copyTranslationState(normalStatus, normalOldStatus);
+      if (emojiPresentation(normalOldStatus.get('emojis')) === emojiPresentation(normalStatus.emojis)) {
+        copyTranslationState(normalStatus, normalOldStatus);
+      } else {
+        // The translated words are still current, but their emoji images were
+        // built for the previous row. Rebuild from the stored source. A
+        // translation saved before that source existed is dropped, so the old
+        // image is not left beside the new original.
+        adoptRefreshedTranslation(normalStatus, normalOldStatus, domain);
+      }
     }
 
     if (normalStatus.url && !(normalStatus.url.startsWith('http://') || normalStatus.url.startsWith('https://'))) {
@@ -745,7 +869,6 @@ export function normalizeStatus(status, normalOldStatus, domain, previousPoll, o
 
 export function normalizeStatusTranslation(translation, status, domain = '') {
   const emojis = status.get('emojis');
-  const emojiMap = makeEmojiMap({ emojis: emojis ? emojis.toJS() : [] });
   let content = translation.content;
   let spoilerText = translation.spoiler_text;
 
@@ -757,13 +880,14 @@ export function normalizeStatusTranslation(translation, status, domain = '') {
     spoilerText = '';
   }
 
+  const rendered = renderTranslationEmoji(content, spoilerText, emojis ? emojis.toJS() : [], domain);
   const normalized = {
     detected_source_language: translation.detected_source_language,
     language: translation.language,
     provider: translation.provider,
-    contentHtml: applyEmojiPresentation(emojify(content, emojiMap, domain)),
-    spoilerHtml: emojify(escapeTextContentForBrowser(spoilerText), emojiMap, domain),
-    spoiler_text: spoilerText,
+    // The source passed to emojify, kept so a later emoji row can rebuild
+    // the images without rewriting an older HTML string.
+    ...rendered,
   };
 
   if (typeof translation.requested_source_language === 'string') {
