@@ -75,6 +75,15 @@ export function loadPersonalEmojiStock() {
     return Promise.resolve({ status: 'ready', stock: emptyEmojiStock() });
   }
 
+  // An editor in another tab might have changed the set while all pickers
+  // were closed and the storage listener detached. Invalidate before
+  // conditional requests, even for standalone picker hosts.
+  const marker = changeMarker();
+
+  if (marker !== lastChange) {
+    handleStorage({ key: changeKey, newValue: marker });
+  }
+
   if (request) {
     return request;
   }
