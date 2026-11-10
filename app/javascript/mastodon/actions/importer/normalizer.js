@@ -389,7 +389,7 @@ const canonicalLink = (value) => String(readValue(value, 'url') || readValue(val
 // The derived HTML is valid only for the emoji rows that produced it. A
 // reused shortcode with a new id, or a new image URL, is a different
 // presentation even when the status text and updated_at are unchanged.
-const emojiPresentation = (emojis) => {
+export const emojiPresentation = (emojis) => {
   if (!emojis || typeof emojis.forEach !== 'function') {
     return '';
   }
@@ -617,6 +617,81 @@ const copySignature = (normalStatus, normalOldStatus, key) => {
   }
 };
 
+const translationField = (translation, key) => {
+  if (!translation) {
+    return undefined;
+  }
+
+  return typeof translation.get === 'function' ? translation.get(key) : translation[key];
+};
+
+// Rebuild translated HTML for a new emoji generation. Returns null when the
+// translation has no stored source, in which case the caller must drop it
+// instead of painting the previous image under the new id.
+export function rebuildTranslationEmoji(translation, emojis, domain = '') {
+  const content = translationField(translation, 'content');
+
+  if (typeof content !== 'string') {
+    return null;
+  }
+
+  const spoilerText = translationField(translation, 'spoiler_text');
+  const status = {
+    get(key) {
+      if (key === 'emojis') {
+        return { toJS: () => emojis || [] };
+      }
+
+      if (key === 'spoiler_text') {
+        return '';
+      }
+
+      return undefined;
+    },
+  };
+  const rebuilt = normalizeStatusTranslation({
+    content,
+    spoiler_text: typeof spoilerText === 'string' ? spoilerText : '',
+    detected_source_language: translationField(translation, 'detected_source_language'),
+    language: translationField(translation, 'language'),
+    provider: translationField(translation, 'provider'),
+    requested_source_language: translationField(translation, 'requested_source_language'),
+    requested_target_language: translationField(translation, 'requested_target_language'),
+  }, status, domain);
+  const media = translationField(translation, 'media_attachments');
+
+  if (media) {
+    rebuilt.media_attachments = typeof media.toJS === 'function' ? media.toJS() : media;
+  }
+
+  return rebuilt;
+}
+
+const adoptRefreshedTranslation = (normalStatus, normalOldStatus, domain) => {
+  const rebuilt = rebuildTranslationEmoji(normalOldStatus.get('translation'), normalStatus.emojis || [], domain);
+
+  if (rebuilt) {
+    normalStatus.translation = rebuilt;
+
+    if (normalOldStatus.get('translationMode')) {
+      normalStatus.translationMode = normalOldStatus.get('translationMode');
+    }
+  }
+
+  if (normalOldStatus.get('translationPending')) {
+    normalStatus.translationPending = true;
+
+    if (normalOldStatus.get('translationRequestId')) {
+      normalStatus.translationRequestId = normalOldStatus.get('translationRequestId');
+    }
+  }
+
+  if (normalStatus.translation || normalStatus.translationPending) {
+    copySignature(normalStatus, normalOldStatus, 'translationContentSignature');
+    copySignature(normalStatus, normalOldStatus, 'translationStatusSignature');
+  }
+};
+
 const copyTranslationState = (normalStatus, normalOldStatus) => {
   if (normalOldStatus.get('translation')) {
     normalStatus.translation = normalOldStatus.get('translation');
@@ -757,7 +832,15 @@ export function normalizeStatus(status, normalOldStatus, domain, previousPoll, o
     normalStatus.media_attachments = preserveMediaTranslations(status.media_attachments, normalOldStatus);
 
     if (normalOldStatus && translationSourcesMatch(normalOldStatus, status, previousPoll)) {
-      copyTranslationState(normalStatus, normalOldStatus);
+      if (emojiPresentation(normalOldStatus.get('emojis')) === emojiPresentation(normalStatus.emojis)) {
+        copyTranslationState(normalStatus, normalOldStatus);
+      } else {
+        // The translated words are still current, but their emoji images were
+        // built for the previous row. Rebuild from the stored source. A
+        // translation saved before that source existed is dropped, so the old
+        // image is not left beside the new original.
+        adoptRefreshedTranslation(normalStatus, normalOldStatus, domain);
+      }
     }
 
     if (normalStatus.url && !(normalStatus.url.startsWith('http://') || normalStatus.url.startsWith('https://'))) {
@@ -793,6 +876,9 @@ export function normalizeStatusTranslation(translation, status, domain = '') {
     detected_source_language: translation.detected_source_language,
     language: translation.language,
     provider: translation.provider,
+    // The source passed to emojify, kept so a later emoji row can rebuild
+    // the images without rewriting an older HTML string.
+    content: content || '',
     contentHtml: applyEmojiPresentation(emojify(content, emojiMap, domain)),
     spoilerHtml: emojify(escapeTextContentForBrowser(spoilerText), emojiMap, domain),
     spoiler_text: spoilerText,

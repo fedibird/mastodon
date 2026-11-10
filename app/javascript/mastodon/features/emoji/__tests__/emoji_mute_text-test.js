@@ -306,34 +306,44 @@ describe('replace_in_text display transform', () => {
       quote: null,
     };
     const first = normalizeStatus({ ...base, emojis: [localEmoji('10')] }, null, '');
-    const stored = fromJS(first).set('translation', fromJS({
-      contentHtml: first.contentHtml,
-      spoilerHtml: first.spoilerHtml,
-      spoiler_text: '',
-      language: 'ja',
-    }));
+    const translated = normalizeStatusTranslation({
+      content: '<p>Bonjour :blob:</p>',
+      spoiler_text: 'Alerte :blob:',
+      detected_source_language: 'en',
+      language: 'fr',
+      provider: 'test',
+    }, fromJS(first), '');
+    const stored = fromJS(first).set('translation', fromJS(translated)).set('translationMode', 'translated');
     const second = normalizeStatus({ ...base, emojis: [localEmoji('11')] }, stored, '');
     const third = normalizeStatus({ ...base, emojis: [localEmoji('11')] }, fromJS(second), '');
+    const legacy = normalizeStatus({ ...base, emojis: [localEmoji('11')] }, fromJS(first).set('translation', fromJS({
+      contentHtml: first.contentHtml,
+      spoilerHtml: first.spoilerHtml,
+      language: 'fr',
+    })).set('translationMode', 'translated'), '');
     const mute10 = buildReplaceInTextIndex([rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[old]')]);
     const mute11 = buildReplaceInTextIndex([rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[new]')]);
-    const keptTranslation = second.translation.get('contentHtml');
+    const refreshedTranslation = second.translation.contentHtml;
+    const refreshedSpoiler = second.translation.spoilerHtml;
 
     expect(second.contentHtml).not.toBe(first.contentHtml);
     expect(second.contentHtml).toContain('data-emoji-id="11"');
     expect(second.contentHtml).not.toContain('data-emoji-id="10"');
     expect(second.spoilerHtml).toContain('data-emoji-id="11"');
-    expect(second.shortHtml).toContain('data-emoji-id="11"');
-    expect(third.contentHtml).toBe(second.contentHtml);
-    expect(third.spoilerHtml).toBe(second.spoilerHtml);
-    expect(keptTranslation).toBe(first.contentHtml);
+    expect(refreshedTranslation).toContain('data-emoji-id="11"');
+    expect(refreshedTranslation).not.toContain('data-emoji-id="10"');
+    expect(refreshedSpoiler).toContain('data-emoji-id="11"');
+    expect(second.translationMode).toBe('translated');
+    expect(third.translation.get('contentHtml')).toBe(refreshedTranslation);
+    expect(legacy.translation).toBeUndefined();
+    expect(legacy.translationMode).toBeUndefined();
+    expect(legacy.contentHtml).toContain('data-emoji-id="11"');
 
-    expect(replaceEmojiInDisplayHtml(first.contentHtml, mute11)).toBe(first.contentHtml);
-    expect(replaceEmojiInDisplayHtml(first.contentHtml, mute10)).not.toContain('cdn.example/10');
     expect(replaceEmojiInDisplayHtml(second.contentHtml, mute10)).toBe(second.contentHtml);
     expect(replaceEmojiInDisplayHtml(second.contentHtml, mute11)).not.toContain('cdn.example/11');
-    expect(replaceEmojiInDisplayHtml(second.spoilerHtml, mute10)).toBe(second.spoilerHtml);
-    expect(replaceEmojiInDisplayHtml(keptTranslation, mute11)).toBe(keptTranslation);
-    expect(replaceEmojiInDisplayHtml(keptTranslation, mute10)).not.toContain('data-emoji-id="10"');
+    expect(replaceEmojiInDisplayHtml(refreshedTranslation, mute10)).toBe(refreshedTranslation);
+    expect(replaceEmojiInDisplayHtml(refreshedTranslation, mute11)).not.toContain('cdn.example/11');
+    expect(replaceEmojiInDisplayHtml(first.contentHtml, mute11)).toBe(first.contentHtml);
   });
 
   it('looks up many rules without scanning them into unrelated emoji', () => {

@@ -1,4 +1,4 @@
-import { normalizeAccount, normalizeStatus, normalizePoll, normalizeCustomEmojiDetail, translationSourceSignature } from './normalizer';
+import { emojiPresentation, normalizeAccount, normalizeStatus, normalizePoll, normalizeCustomEmojiDetail, rebuildTranslationEmoji, translationSourceSignature } from './normalizer';
 import { revalidateUnknownFilters } from '../filter_definitions';
 import { applyBoostFloor } from '../../external_boosts/revision';
 import { guardImportedReactions } from '../../features/emoji/emoji_mute_projection';
@@ -188,10 +188,12 @@ export function importFetchedStatuses(statuses, options = {}) {
 
       // A personal boost keeps its translation on the wrapper, while the
       // editable source is this proper status. Drop that wrapper state when
-      // the source changes. Counter-only refreshes keep the same signature.
+      // the source changes. An emoji-row change keeps the translated words
+      // and rebuilds their images. Counter-only refreshes keep both.
       if (previousStatus) {
         const previousSignature = translationSourceSignature(previousStatus, previousPoll);
         const nextSignature = translationSourceSignature(normalizedStatus, pollForSignature(status.poll, previousPoll));
+        const emojiChanged = emojiPresentation(previousStatus.get('emojis')) !== emojiPresentation(normalizedStatus.emojis);
 
         if (previousSignature !== nextSignature) {
           state.get('statuses').forEach(stored => {
@@ -210,21 +212,60 @@ export function importFetchedStatuses(statuses, options = {}) {
               normalStatuses[index]._translationInvalidated = true;
             }
           });
+        } else if (emojiChanged) {
+          state.get('statuses').forEach(stored => {
+            if (!stored || !stored.get('translation') || String(stored.get('reblog')) !== String(status.id)) {
+              return;
+            }
+
+            const rebuilt = rebuildTranslationEmoji(stored.get('translation'), normalizedStatus.emojis || [], domain);
+            const next = stored.toJS();
+
+            if (rebuilt) {
+              next.translation = rebuilt;
+            } else {
+              delete next.translation;
+              delete next.translationMode;
+            }
+
+            next._emojiTranslationRefresh = rebuilt || false;
+            const index = normalStatuses.findIndex(item => item.id === next.id);
+
+            if (index === -1) {
+              normalStatuses.push(next);
+            } else if (!normalStatuses[index]._translationInvalidated) {
+              normalStatuses[index] = next;
+            }
+          });
         }
       }
 
       const invalidatedIndex = normalStatuses.findIndex(item => item.id === normalizedStatus.id && item._translationInvalidated);
+      const refreshIndex = normalStatuses.findIndex(item => item.id === normalizedStatus.id && item._emojiTranslationRefresh !== undefined);
 
-      if (invalidatedIndex === -1) {
-        pushUnique(normalStatuses, normalizedStatus);
-      } else {
+      if (invalidatedIndex !== -1) {
         normalStatuses[invalidatedIndex] = stripTranslationState(normalizedStatus);
+      } else if (refreshIndex !== -1) {
+        const rebuilt = normalStatuses[refreshIndex]._emojiTranslationRefresh;
+        const merged = normalizedStatus;
+
+        if (rebuilt) {
+          merged.translation = rebuilt;
+        } else {
+          delete merged.translation;
+          delete merged.translationMode;
+        }
+
+        normalStatuses[refreshIndex] = merged;
+      } else {
+        pushUnique(normalStatuses, normalizedStatus);
       }
     }
 
     statuses.forEach(processStatus);
     normalStatuses.forEach(item => {
       delete item._translationInvalidated;
+      delete item._emojiTranslationRefresh;
     });
 
     dispatch(importPolls(polls));

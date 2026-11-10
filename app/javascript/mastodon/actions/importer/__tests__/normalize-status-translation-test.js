@@ -1,7 +1,7 @@
 import { fromJS } from 'immutable';
 
 import { importFetchedStatuses, POLLS_IMPORT, STATUSES_IMPORT } from '../index';
-import { normalizeStatus } from '../normalizer';
+import { normalizeStatus, normalizeStatusTranslation } from '../normalizer';
 
 const buildStatus = (overrides = {}) => ({
   id: 's1',
@@ -532,6 +532,75 @@ describe('personal boost wrapper translation source changes', () => {
 
     expect(wrapperOf(statuses).translation).toBeUndefined();
     expect(wrapperOf(statuses).translationRequestId).toBeUndefined();
+  });
+
+  it('rebuilds a personal boost translation when the boosted emoji row changes', () => {
+    const emoji10 = {
+      id: '10',
+      shortcode: 'blob',
+      url: 'https://cdn.example/10.svg',
+      static_url: 'https://cdn.example/10.png',
+      domain: null,
+    };
+    const emoji11 = { ...emoji10, id: '11', url: 'https://cdn.example/11.svg', static_url: 'https://cdn.example/11.png' };
+    const properStatus = storedProper.merge({
+      content: '<p>Hello :blob:</p>',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji10],
+    });
+    const translation = normalizeStatusTranslation({
+      content: '<p>Hello :blob:</p>',
+      spoiler_text: '',
+      language: 'ja',
+      detected_source_language: 'en',
+      provider: 'test',
+    }, fromJS({ emojis: [emoji10], spoiler_text: '' }), '');
+    const wrapper = storedWrapper.set('translation', fromJS(translation));
+    const changed = importStatuses([proper({
+      content: '<p>Hello :blob:</p>',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji11],
+    })], { proper: properStatus, wrap: wrapper });
+    const refreshed = wrapperOf(changed);
+
+    expect(refreshed.translation.contentHtml).toContain('data-emoji-id="11"');
+    expect(refreshed.translation.contentHtml).not.toContain('data-emoji-id="10"');
+    expect(refreshed.translationMode).toBe('translated');
+    expect(refreshed.translationContentSignature).toBe('old');
+
+    const unchanged = importStatuses([proper({
+      content: '<p>Hello :blob:</p>',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji11],
+    })], {
+      proper: properStatus.set('emojis', fromJS([emoji11])),
+      wrap: wrapper.set('translation', fromJS(refreshed.translation)),
+    });
+
+    expect(wrapperOf(unchanged)).toBeUndefined();
+  });
+
+  it('drops a personal boost translation that has no stored source when the emoji row changes', () => {
+    const emoji10 = { id: '10', shortcode: 'blob', url: 'https://cdn.example/10.svg', static_url: 'https://cdn.example/10.png' };
+    const emoji11 = { id: '11', shortcode: 'blob', url: 'https://cdn.example/11.svg', static_url: 'https://cdn.example/11.png' };
+    const properStatus = storedProper.merge({
+      content: '<p>Hello :blob:</p>',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji10],
+    });
+    const statuses = importStatuses([proper({
+      content: '<p>Hello :blob:</p>',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      emojis: [emoji11],
+    })], { proper: properStatus, wrap: storedWrapper });
+    const wrapper = wrapperOf(statuses);
+
+    expect(wrapper.translation).toBeUndefined();
+    expect(wrapper.translationMode).toBeUndefined();
+    expect(wrapper.translationPending).toBe(true);
+    expect(wrapper.translationRequestId).toBe('req-a');
+    expect(statuses.find(status => status.id === 'proper').contentHtml).toContain('data-emoji-id="11"');
+    expect(JSON.stringify(wrapper)).not.toContain('data-emoji-id="10"');
   });
 
   it('keeps the wrapper translation when a refresh only changes a counter', () => {

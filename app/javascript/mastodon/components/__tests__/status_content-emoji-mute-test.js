@@ -52,6 +52,7 @@ jest.mock('../permalink', () => ({ children }) => <span>{children}</span>);
 jest.mock('mastodon/components/icon', () => () => null);
 
 import { EMOJI_MUTES_APPLY } from '../../actions/emoji_mutes';
+import { normalizeStatus, normalizeStatusTranslation } from '../../actions/importer/normalizer';
 import emojify from '../../features/emoji/emoji';
 import { resetEmojiMuteTextForTests } from '../../features/emoji/emoji_mute_text';
 import emojiMutesReducer from '../../reducers/emoji_mutes';
@@ -300,5 +301,65 @@ describe('StatusContent replace_in_text', () => {
     expect(localId.container.querySelector('img.custom-emoji').getAttribute('data-domain')).toBe('original.example');
     expect(localId.container.textContent).not.toContain('[local]');
     expect(authorHtml).not.toContain('data-emoji-id');
+  });
+
+  it('shows one emoji generation in the original, translation, and bilingual body', () => {
+    const base = {
+      id: '1',
+      account: { id: 'a', acct: 'alice' },
+      content: '<p>Hello :blob:</p>',
+      spoiler_text: '',
+      media_attachments: [],
+      mentions: [],
+      tags: [],
+      visibility: 'public',
+      sensitive: false,
+      language: 'en',
+      url: 'https://example.test/1',
+      uri: 'https://example.test/1',
+      updated_at: '2026-11-10T00:00:00.000Z',
+      quote: null,
+    };
+    const previousEmoji = { ...emoji, id: '10', url: 'https://cdn.example/10.svg', static_url: 'https://cdn.example/10.png' };
+    const nextEmoji = { ...emoji, id: '11', url: 'https://cdn.example/11.svg', static_url: 'https://cdn.example/11.png' };
+    const first = normalizeStatus({ ...base, emojis: [previousEmoji] }, null, '');
+    const translated = normalizeStatusTranslation({
+      content: '<p>Bonjour :blob:</p>',
+      spoiler_text: '',
+      language: 'ja',
+      detected_source_language: 'en',
+      provider: 'test',
+    }, fromJS(first), '');
+    const second = normalizeStatus({ ...base, emojis: [nextEmoji] }, fromJS(first).set('translation', fromJS(translated)).set('translationMode', 'bilingual'), '');
+    const view = mode => buildStatus({
+      contentHtml: second.contentHtml,
+      emojis: [nextEmoji],
+      translationMode: mode,
+      translation: second.translation,
+    });
+    const mute11 = muteRule({
+      emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' },
+      replacement: '[new]',
+    });
+    const mute10 = muteRule({
+      emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' },
+      replacement: '[old]',
+    });
+
+    const original = renderStatus(view('original'), [mute11]);
+    const translatedView = renderStatus(view('translated'), [mute11]);
+    const bilingual = renderStatus(view('bilingual'), [mute11]);
+    const staleMute = renderStatus(view('bilingual'), [mute10]);
+
+    expect(original.container.querySelector('.status__content__text').textContent).toBe('Hello [new]');
+    expect(translatedView.container.querySelector('.status__content__text').textContent).toBe('Bonjour [new]');
+    expect(bilingual.container.querySelector('.status-translation-pair__source').textContent).toBe('Hello [new]');
+    expect(bilingual.container.querySelector('.status-translation-pair__target').textContent).toBe('Bonjour [new]');
+    expect(original.container.querySelector('img')).toBeNull();
+    expect(translatedView.container.querySelector('img')).toBeNull();
+    expect(bilingual.container.querySelector('img')).toBeNull();
+    expect(staleMute.container.querySelectorAll('img.custom-emoji').length).toBeGreaterThan(0);
+    expect(staleMute.container.textContent).not.toContain('[old]');
+    expect(staleMute.container.innerHTML).not.toContain('data-emoji-id="10"');
   });
 });
