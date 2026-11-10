@@ -9,8 +9,11 @@ import {
   buildReplaceInTextIndex,
   emojiMuteTextParseCount,
   emojiMutedPlainLabel,
+  emojiMutedPlainText,
   replaceEmojiInDisplayHtml,
   replaceInTextIndexFromRules,
+  replaceUnicodeEmojiInPlainText,
+  replaceUnicodeEmojiInPreviewHtml,
   resetEmojiMuteTextForTests,
 } from '../emoji_mute_text';
 
@@ -492,5 +495,40 @@ describe('emojiMutedPlainLabel', () => {
     expect(label).not.toContain(':blob:');
     expect(label).not.toContain('cdn.example');
     expect(emojiMutedPlainLabel(plain, html, index)).toBe(label);
+  });
+});
+
+describe('unicode preview text', () => {
+  const index = () => buildReplaceInTextIndex([
+    unicodeRule(THUMBS, '<img src=x onerror=alert(1)>'),
+    unicodeRule(PERSON, '[person]'),
+    unicodeRule(FAMILY, '[family]'),
+    rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]'),
+  ]);
+
+  beforeEach(() => {
+    resetEmojiMuteTextForTests();
+  });
+
+  it('replaces a finished unicode sequence and leaves shortcodes, markup, and longer sequences', () => {
+    const source = `<b>Hi</b> :blob: ${THUMBS} ${THUMBS_LIGHT} ${FAMILY} category`;
+    const html = replaceUnicodeEmojiInPreviewHtml(source, index());
+    const plain = replaceUnicodeEmojiInPlainText(source, index());
+
+    expect(html).toBe(`<b>Hi</b> :blob: &lt;img src=x onerror=alert(1)&gt; ${THUMBS_LIGHT} [family] category`);
+    expect(plain).toContain('<img src=x onerror=alert(1)>');
+    expect(plain).toContain(':blob:');
+    expect(replaceUnicodeEmojiInPreviewHtml(source, buildReplaceInTextIndex([
+      unicodeRule(THUMBS, '[thumb]', { replace_in_text: false }),
+    ]))).toBe(source);
+  });
+
+  it('does not scan the replacement again and keeps the original string when nothing matches', () => {
+    const muted = buildReplaceInTextIndex([unicodeRule(THUMBS, `${THUMBS}${THUMBS}`)]);
+
+    expect(replaceUnicodeEmojiInPlainText(`see ${THUMBS}`, muted)).toBe(`see ${THUMBS}${THUMBS}`);
+    expect(replaceUnicodeEmojiInPreviewHtml('just :blob:', index())).toBe('just :blob:');
+    expect(emojiMutedPlainText(`Mood ${THUMBS}`, '', index())).toBe('Mood <img src=x onerror=alert(1)>');
+    expect(emojiMutedPlainText('Hello', '<p>Hello</p>', index())).toBe('Hello');
   });
 });

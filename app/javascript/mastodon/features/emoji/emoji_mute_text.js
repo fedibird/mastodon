@@ -6,6 +6,10 @@
 // screen. It does not write those stores, re-run emojify, or interpret the
 // replacement as HTML.
 //
+// A scheduled post's `params.text` is the composer string, already inserted
+// as HTML by the existing preview. Unicode sequences can be replaced there.
+// A plain `:shortcode:` is not an image and is not a local id, so it stays.
+//
 // Identity matches the P2 contract and is read from the HTML that emojify
 // built, not from a later `emojis` list:
 // - Unicode: the whole `alt` sequence, including skin tone, ZWJ, and VS.
@@ -42,6 +46,9 @@ let cacheSignature = INACTIVE_INDEX.signature;
 let cache = new Map();
 let textCache = new Map();
 let textCacheSignature = INACTIVE_INDEX.signature;
+let previewCache = new Map();
+let previewCacheSignature = INACTIVE_INDEX.signature;
+const unicodeSequenceCache = new WeakMap();
 let parseCount = 0;
 
 const read = (value, key) => {
@@ -582,6 +589,148 @@ const visibleText = html => {
 // actually replaced a muted emoji. The replacement is read back from the
 // presented HTML, so a muted glyph, shortcode, or image URL is not copied
 // out of the original plain string.
+const escapeHtmlText = value => value.replace(/[&<>"']/g, character => {
+  if (character === '&') {
+    return '&amp;';
+  }
+
+  if (character === '<') {
+    return '&lt;';
+  }
+
+  if (character === '>') {
+    return '&gt;';
+  }
+
+  if (character === '"') {
+    return '&quot;';
+  }
+
+  return '&#39;';
+});
+
+const unicodeSequencesFor = index => {
+  if (!index || index.active !== true) {
+    return [];
+  }
+
+  const stored = unicodeSequenceCache.get(index);
+
+  if (stored) {
+    return stored;
+  }
+
+  const sequences = [];
+
+  index.replacements.forEach((replacement, key) => {
+    if (key.slice(0, 2) !== 'u:') {
+      return;
+    }
+
+    const native = key.slice(2);
+
+    if (!native) {
+      return;
+    }
+
+    sequences.push({
+      native,
+      replacement: typeof replacement === 'string' ? replacement : '',
+    });
+  });
+
+  sequences.sort((left, right) => right.native.length - left.native.length || (left.native < right.native ? -1 : 1));
+  unicodeSequenceCache.set(index, sequences);
+  return sequences;
+};
+
+// One left-to-right pass. A longer muted sequence wins, a skin tone / ZWJ /
+// variation selector keeps a shorter muted prefix, and the replacement is
+// not scanned again.
+const replaceUnicodeEmojiSequences = (text, index, mapReplacement) => {
+  if (typeof text !== 'string' || text === '' || !index || index.active !== true) {
+    return text;
+  }
+
+  const sequences = unicodeSequencesFor(index);
+
+  if (sequences.length === 0 || !sequences.some(sequence => text.indexOf(sequence.native) !== -1)) {
+    return text;
+  }
+
+  let result = '';
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    let matched = null;
+
+    for (let indexInList = 0; indexInList < sequences.length; indexInList += 1) {
+      const sequence = sequences[indexInList];
+
+      if (!text.startsWith(sequence.native, cursor)) {
+        continue;
+      }
+
+      const after = cursor + sequence.native.length;
+
+      if (codePointBefore(text, cursor) === 0x200D || continuesEmojiSequence(text, after, sequence.native)) {
+        continue;
+      }
+
+      matched = sequence;
+      break;
+    }
+
+    if (!matched) {
+      result += text.charAt(cursor);
+      cursor += 1;
+      continue;
+    }
+
+    result += mapReplacement(matched.replacement);
+    cursor += matched.native.length;
+  }
+
+  return result;
+};
+
+// Plain text, such as a screen-reader segment or a collapsed label. Custom
+// shortcodes are not emoji identities here.
+export function replaceUnicodeEmojiInPlainText(text, index) {
+  return replaceUnicodeEmojiSequences(text, index, value => value);
+}
+
+// The scheduled-status preview already treats params.text as HTML. Splice
+// escaped replacement text into that string. Do not escape or reparse the
+// rest, and do not turn a replacement into markup.
+export function replaceUnicodeEmojiInPreviewHtml(text, index) {
+  if (typeof text !== 'string' || !index || index.active !== true) {
+    return text;
+  }
+
+  const signature = index.signature || '';
+
+  if (previewCacheSignature !== signature) {
+    previewCache = new Map();
+    previewCacheSignature = signature;
+  }
+
+  const stored = previewCache.get(text);
+
+  if (stored !== undefined) {
+    return stored;
+  }
+
+  const next = replaceUnicodeEmojiSequences(text, index, escapeHtmlText);
+  previewCache.set(text, next);
+
+  if (previewCache.size > CACHE_LIMIT) {
+    previewCache.delete(previewCache.keys().next().value);
+  }
+
+  return next;
+}
+
 export function emojiMutedPlainLabel(plain, html, index) {
   if (typeof plain !== 'string') {
     return plain;
@@ -616,13 +765,32 @@ export function emojiMutedPlainLabel(plain, html, index) {
   return text;
 }
 
+// Prefer the presented HTML when it actually changed, so a custom emoji is
+// identified from the image. Otherwise replace only finished Unicode
+// sequences that are still sitting in the plain string.
+export function emojiMutedPlainText(plain, html, index) {
+  if (typeof plain !== 'string') {
+    return plain;
+  }
+
+  const fromHtml = emojiMutedPlainLabel(plain, typeof html === 'string' ? html : '', index);
+
+  if (fromHtml !== plain) {
+    return fromHtml;
+  }
+
+  return replaceUnicodeEmojiInPlainText(plain, index);
+}
+
 export function resetEmojiMuteTextForTests() {
   cachedRules = null;
   cachedIndex = INACTIVE_INDEX;
   cacheSignature = INACTIVE_INDEX.signature;
   textCacheSignature = INACTIVE_INDEX.signature;
+  previewCacheSignature = INACTIVE_INDEX.signature;
   cache = new Map();
   textCache = new Map();
+  previewCache = new Map();
   parseCount = 0;
 }
 
