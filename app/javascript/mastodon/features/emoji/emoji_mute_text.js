@@ -39,6 +39,8 @@ let cachedRules = null;
 let cachedIndex = INACTIVE_INDEX;
 let cacheSignature = INACTIVE_INDEX.signature;
 let cache = new Map();
+let textCache = new Map();
+let textCacheSignature = INACTIVE_INDEX.signature;
 let parseCount = 0;
 
 const read = (value, key) => {
@@ -201,6 +203,270 @@ const replaceNode = (node, text) => {
   parent.replaceChild(node.ownerDocument.createTextNode(text), node);
 };
 
+const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Whole token only. `:cat:` matches, and so does a standalone cat, but
+// `category` does not.
+const hasToken = (value, token, boundary = 'A-Za-z0-9_') => {
+  if (!value || !token) {
+    return false;
+  }
+
+  return new RegExp(`(?:^|[^${boundary}])${escapeRegExp(token)}(?:[^${boundary}]|$)`).test(value);
+};
+
+const imageIdentity = img => ({
+  shortcode: img.getAttribute('data-shortcode') || '',
+  domain: img.getAttribute('data-domain') || '',
+  emojiId: img.getAttribute('data-emoji-id') || '',
+  alt: img.getAttribute('alt') || '',
+});
+
+const linkIdentity = link => ({
+  shortcode: link.getAttribute('data-shortcode') || '',
+  domain: link.getAttribute('data-domain') || '',
+  emojiId: link.getAttribute('data-emoji-id') || '',
+});
+
+const sameEmojiIdentity = (left, right) => {
+  if (left.emojiId && right.emojiId) {
+    return left.emojiId === right.emojiId;
+  }
+
+  return left.shortcode !== '' && left.shortcode === right.shortcode && left.domain === right.domain;
+};
+
+const UNPROVEN_LOCAL_MUTE = 'data-emoji-mute-unproven';
+
+// A local custom-emoji link usually has no row id. Another image that only
+// shares the shortcode is not proof that the muted row is still on screen.
+const noteUnprovenLocalTarget = (link, identity) => {
+  if (!link || !identity.emojiId || identity.domain || !identity.shortcode) {
+    return;
+  }
+
+  const target = linkIdentity(link);
+
+  if (target.emojiId || target.domain || target.shortcode !== identity.shortcode) {
+    return;
+  }
+
+  link.setAttribute(UNPROVEN_LOCAL_MUTE, '1');
+};
+
+const codePointBefore = (value, index) => {
+  if (index <= 0) {
+    return undefined;
+  }
+
+  return value.codePointAt(index - (value.charCodeAt(index - 1) >= 0xDC00 && index > 1 ? 2 : 1));
+};
+
+const continuesEmojiSequence = (value, index, sequence) => {
+  const next = value.codePointAt(index);
+
+  if (next === undefined) {
+    return false;
+  }
+
+  if ((next >= 0x1F3FB && next <= 0x1F3FF) || next === 0x200D || next === 0xFE0E || next === 0xFE0F || next === 0x20E3) {
+    return true;
+  }
+
+  if (next >= 0xE0020 && next <= 0xE007F) {
+    return true;
+  }
+
+  const lastOfSequence = codePointBefore(sequence, sequence.length);
+  const regional = cp => cp >= 0x1F1E6 && cp <= 0x1F1FF;
+
+  return regional(next) && regional(lastOfSequence);
+};
+
+// Replace one finished emoji sequence. A longer sequence that merely begins
+// with it, such as a skin tone, ZWJ family, or variation selector, stays.
+const replaceCompleteEmojiSequence = (value, sequence, replacement) => {
+  if (!value || !sequence || value.indexOf(sequence) === -1) {
+    return value;
+  }
+
+  let result = '';
+  let index = 0;
+
+  while (index < value.length) {
+    const found = value.indexOf(sequence, index);
+
+    if (found === -1) {
+      result += value.slice(index);
+      break;
+    }
+
+    const after = found + sequence.length;
+
+    if (codePointBefore(value, found) === 0x200D || continuesEmojiSequence(value, after, sequence)) {
+      result += value.slice(index, after);
+      index = after;
+      continue;
+    }
+
+    result += value.slice(index, found) + replacement;
+    index = after;
+  }
+
+  return result;
+};
+
+const attributeNamesIdentity = (value, identity) => {
+  if (!value || !identity) {
+    return false;
+  }
+
+  if (identity.alt && value === identity.alt) {
+    return true;
+  }
+
+  if (hasToken(value, identity.shortcode)) {
+    return true;
+  }
+
+  return hasToken(value, identity.domain, 'A-Za-z0-9.-');
+};
+
+// A shared shortcode must not make a remote mute erase the local link label,
+// or the reverse. Require the domain or row id when the link points elsewhere.
+const attributeNamesMutedImage = (value, identity, target) => {
+  if (!attributeNamesIdentity(value, identity)) {
+    return false;
+  }
+
+  const differentTarget = target && target.shortcode && (
+    identity.shortcode !== target.shortcode || identity.domain !== target.domain
+  );
+
+  if (!differentTarget) {
+    return true;
+  }
+
+  if (identity.domain && hasToken(value, identity.domain, 'A-Za-z0-9.-')) {
+    return true;
+  }
+
+  return !!(identity.emojiId && hasToken(value, identity.emojiId));
+};
+
+export function linkTargetEmojiRemains(link) {
+  if (!link) {
+    return false;
+  }
+
+  const target = linkIdentity(link);
+
+  if (!target.shortcode && !target.emojiId) {
+    return false;
+  }
+
+  // Local links do not carry a row id. A leftover image with the same
+  // shortcode can be a different emoji, so do not restore the old label.
+  if (!target.emojiId && !target.domain && link.getAttribute(UNPROVEN_LOCAL_MUTE) === '1') {
+    return false;
+  }
+
+  const images = link.querySelectorAll('img.emojione, img.custom-emoji');
+
+  for (let index = 0; index < images.length; index += 1) {
+    const image = imageIdentity(images[index]);
+
+    if (target.emojiId) {
+      if (image.emojiId === target.emojiId && image.domain === '') {
+        return true;
+      }
+
+      continue;
+    }
+
+    if (sameEmojiIdentity(target, image)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+const LABEL_ATTRIBUTES = ['title', 'aria-label', 'aria-labelledby', 'aria-describedby'];
+
+// Drop labels that name the muted emoji. Another emoji image in the same
+// link does not keep those labels, and an unrelated word such as "category"
+// is left in place. href and data-* stay so the existing detail link works.
+const scrubMutedEmojiLink = (link, replacement, identity) => {
+  if (!link) {
+    return;
+  }
+
+  const target = linkIdentity(link);
+
+  LABEL_ATTRIBUTES.forEach(name => {
+    const value = link.getAttribute(name) || '';
+
+    if (!value) {
+      return;
+    }
+
+    if (!identity.shortcode && identity.alt) {
+      const rewritten = replaceCompleteEmojiSequence(value, identity.alt, replacement);
+
+      if (rewritten !== value) {
+        if (rewritten.trim() === '') {
+          link.removeAttribute(name);
+        } else {
+          link.setAttribute(name, rewritten);
+        }
+
+        return;
+      }
+    }
+
+    if (attributeNamesMutedImage(value, identity, target)) {
+      link.removeAttribute(name);
+    }
+  });
+
+  if (!link.classList.contains('custom-emoji-url-link') || linkTargetEmojiRemains(link)) {
+    return;
+  }
+
+  if (!link.getAttribute('title') && replacement) {
+    link.setAttribute('title', replacement);
+  }
+};
+
+// Content rewrites link titles after the projection. Do not put the muted
+// link target's shortcode or domain back into title or aria-label.
+export function retainMutedEmojiLinkLabel(link) {
+  if (!link || linkTargetEmojiRemains(link)) {
+    return;
+  }
+
+  const identity = linkIdentity(link);
+
+  LABEL_ATTRIBUTES.forEach(name => {
+    const value = link.getAttribute(name) || '';
+
+    if (value && attributeNamesIdentity(value, identity)) {
+      link.removeAttribute(name);
+    }
+  });
+
+  if (link.getAttribute('title')) {
+    return;
+  }
+
+  const visible = (link.textContent || '').trim();
+
+  if (visible && !attributeNamesIdentity(visible, identity)) {
+    link.setAttribute('title', visible);
+  }
+}
+
 const transformHtml = (html, index) => {
   parseCount += 1;
   const template = document.createElement('template');
@@ -222,7 +488,11 @@ const transformHtml = (html, index) => {
     }
 
     const target = img.parentElement && img.parentElement.tagName === 'PICTURE' ? img.parentElement : img;
+    const link = target.closest ? target.closest('a') : null;
+    const identity = imageIdentity(img);
     replaceNode(target, replacement);
+    noteUnprovenLocalTarget(link, identity);
+    scrubMutedEmojiLink(link, replacement, identity);
     changed = true;
   }
 
@@ -242,7 +512,9 @@ export function replaceEmojiInDisplayHtml(html, index) {
 
   if (cacheSignature !== index.signature) {
     cache = new Map();
+    textCache = new Map();
     cacheSignature = index.signature;
+    textCacheSignature = index.signature;
   }
 
   const stored = cache.get(html);
@@ -261,11 +533,95 @@ export function replaceEmojiInDisplayHtml(html, index) {
   return next;
 }
 
+const visibleText = html => {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  const parts = [];
+
+  const walk = node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      parts.push(node.nodeValue || '');
+      return;
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    }
+
+    const tag = node.tagName;
+
+    if (tag === 'SCRIPT' || tag === 'STYLE') {
+      return;
+    }
+
+    // Remaining images were not muted. Alt is the glyph or :shortcode:, never
+    // the image URL or the img title (which can repeat a shortcode).
+    if (tag === 'IMG') {
+      parts.push(node.getAttribute('alt') || '');
+      return;
+    }
+
+    const children = node.childNodes;
+
+    for (let index = 0; index < children.length; index += 1) {
+      walk(children[index]);
+    }
+  };
+
+  const roots = template.content.childNodes;
+
+  for (let index = 0; index < roots.length; index += 1) {
+    walk(roots[index]);
+  }
+
+  return parts.join('');
+};
+
+// Title and other plain labels stay byte-for-byte the same unless this HTML
+// actually replaced a muted emoji. The replacement is read back from the
+// presented HTML, so a muted glyph, shortcode, or image URL is not copied
+// out of the original plain string.
+export function emojiMutedPlainLabel(plain, html, index) {
+  if (typeof plain !== 'string') {
+    return plain;
+  }
+
+  const presented = replaceEmojiInDisplayHtml(html, index);
+
+  if (presented === html || typeof presented !== 'string') {
+    return plain;
+  }
+
+  const signature = index && index.signature ? index.signature : '';
+
+  if (textCacheSignature !== signature) {
+    textCache = new Map();
+    textCacheSignature = signature;
+  }
+
+  const stored = textCache.get(presented);
+
+  if (stored !== undefined) {
+    return stored;
+  }
+
+  const text = visibleText(presented);
+  textCache.set(presented, text);
+
+  if (textCache.size > CACHE_LIMIT) {
+    textCache.delete(textCache.keys().next().value);
+  }
+
+  return text;
+}
+
 export function resetEmojiMuteTextForTests() {
   cachedRules = null;
   cachedIndex = INACTIVE_INDEX;
   cacheSignature = INACTIVE_INDEX.signature;
+  textCacheSignature = INACTIVE_INDEX.signature;
   cache = new Map();
+  textCache = new Map();
   parseCount = 0;
 }
 

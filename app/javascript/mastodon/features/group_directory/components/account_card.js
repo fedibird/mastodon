@@ -6,6 +6,7 @@ import { connect } from 'react-redux';
 import { makeGetAccount } from 'mastodon/selectors';
 import Avatar from 'mastodon/components/avatar';
 import DisplayName from 'mastodon/components/display_name';
+import EmojiMutedHtml, { bindCustomEmojiHover, unbindCustomEmojiHover } from 'mastodon/components/emoji_muted_html';
 import Permalink from 'mastodon/components/permalink';
 import RelativeTimestamp from 'mastodon/components/relative_timestamp';
 import IconButton from 'mastodon/components/icon_button';
@@ -149,24 +150,11 @@ class AccountCard extends ImmutablePureComponent {
   };
 
   _updateEmojis() {
-    const node = this.node;
-
-    if (!node || autoPlayEmoji) {
+    if (autoPlayEmoji) {
       return;
     }
 
-    const emojis = node.querySelectorAll('.custom-emoji');
-
-    for (var i = 0; i < emojis.length; i++) {
-      let emoji = emojis[i];
-      if (emoji.classList.contains('status-emoji')) {
-        continue;
-      }
-      emoji.classList.add('status-emoji');
-
-      emoji.addEventListener('mouseenter', this.handleEmojiMouseEnter, false);
-      emoji.addEventListener('mouseleave', this.handleEmojiMouseLeave, false);
-    }
+    bindCustomEmojiHover(this.node, this.playEmoji, this.stopEmoji);
   }
 
   componentDidMount() {
@@ -177,12 +165,16 @@ class AccountCard extends ImmutablePureComponent {
     this._updateEmojis();
   }
 
-  handleEmojiMouseEnter = ({ target }) => {
-    target.src = target.getAttribute('data-original');
+  componentWillUnmount() {
+    unbindCustomEmojiHover(this.node);
+  }
+
+  playEmoji = emoji => {
+    emoji.src = emoji.getAttribute('data-original');
   };
 
-  handleEmojiMouseLeave = ({ target }) => {
-    target.src = target.getAttribute('data-static');
+  stopEmoji = emoji => {
+    emoji.src = emoji.getAttribute('data-static');
   };
 
   handleFollow = (e) => {
@@ -320,10 +312,7 @@ class AccountCard extends ImmutablePureComponent {
         </div>
 
         <div className='directory__card__extra group-directory-card__note' ref={this.setRef}>
-          <div
-            className='account__header__content'
-            dangerouslySetInnerHTML={{ __html: account.get('note_emojified') }}
-          />
+          <EmojiMutedHtml tag='div' className='account__header__content' html={account.get('note_emojified') || ''} />
         </div>
 
         <div className='group-directory__metadata'>

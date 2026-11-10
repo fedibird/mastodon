@@ -17,6 +17,7 @@ export function normalizeAccount(account) {
   const emojiMap = makeEmojiMap(account);
   const displayName = account.display_name.trim().length === 0 ? account.username : account.display_name;
 
+  // Shared, viewer-independent HTML. Emoji mute replacement is applied at render.
   account.display_name_html = emojify(escapeTextContentForBrowser(displayName), emojiMap, domain);
   account.note_emojified = emojify(account.note, emojiMap, domain);
   account.note_plain = unescapeHTML(account.note);

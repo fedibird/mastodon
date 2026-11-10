@@ -6,6 +6,7 @@ import { connect } from 'react-redux';
 import { makeGetAccount } from 'mastodon/selectors';
 import Avatar from 'mastodon/components/avatar';
 import DisplayName from 'mastodon/components/display_name';
+import { EmojiMutedPlain } from 'mastodon/components/emoji_muted_html';
 import Permalink from 'mastodon/components/permalink';
 import IconButton from 'mastodon/components/icon_button';
 import { injectIntl, defineMessages } from 'react-intl';
@@ -71,7 +72,7 @@ class Account extends ImmutablePureComponent {
 
             <DisplayName account={account} />
 
-            <div className='account__note'>{getFirstSentence(account.get('note_plain'))}</div>
+            <EmojiMutedPlain className='account__note' plain={account.get('note_plain')} html={account.get('note_emojified')} format={getFirstSentence} />
           </Permalink>
 
           <div className='account__relationship'>

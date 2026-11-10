@@ -13,6 +13,7 @@ import Emoji from 'mastodon/components/emoji';
 import Icon from 'mastodon/components/icon';
 import Permalink from 'mastodon/components/permalink';
 import Content from 'mastodon/components/content';
+import EmojiMutedHtml, { bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from 'mastodon/components/emoji_muted_html';
 import classNames from 'classnames';
 import Report from './report';
 
@@ -73,31 +74,60 @@ class Notification extends ImmutablePureComponent {
     this._updateEmojiLinks();
   }
 
-  _updateEmojiLinks () {
-    const node = this.node;
+  componentWillUnmount () {
+    this._removeEmojiLinks(this.node);
+  }
 
-    if (!node) {
+  setRef = (c) => {
+    if (c === this.node) {
       return;
     }
 
-    const emojis = node.querySelectorAll('.custom-emoji');
+    this._removeEmojiLinks(this.node);
+    this.node = c;
+    this._updateEmojiLinks();
+  }
 
-    for (var i = 0; i < emojis.length; i++) {
-      let emoji = emojis[i];
-      emoji.addEventListener('mouseup', this.handleEmojiMouseUp, false);
-      emoji.addEventListener('click', this.handleEmojiClick, false);
-      emoji.style.cursor = 'pointer';
+  _updateEmojiLinks () {
+    const node = this.node;
+
+    if (!node || node.__notificationEmojiBound) {
+      return;
     }
+
+    node.__notificationEmojiBound = true;
+    node.addEventListener('mouseup', this.handleEmojiMouseUp, true);
+    bindCustomEmojiClick(node, this.handleEmojiClick);
+  }
+
+  _removeEmojiLinks (node) {
+    if (!node || !node.__notificationEmojiBound) {
+      return;
+    }
+
+    node.removeEventListener('mouseup', this.handleEmojiMouseUp, true);
+    unbindCustomEmojiClick(node, this.handleEmojiClick);
+    node.__notificationEmojiBound = false;
   }
 
   handleEmojiMouseUp = e => {
+    if (!customEmojiTarget(e)) {
+      return;
+    }
+
     e.preventDefault();
     this.startXY = null;
   }
 
   handleEmojiClick = e => {
-    const shortcode = e.target.dataset.shortcode;
-    const domain = e.target.dataset.domain;
+    const emoji = customEmojiTarget(e);
+
+    if (!emoji) {
+      return;
+    }
+
+    const shortcode = emoji.getAttribute('data-shortcode');
+    const domain = emoji.getAttribute('data-domain');
 
     if (this.context.router) {
       e.preventDefault();
@@ -165,10 +195,6 @@ class Notification extends ImmutablePureComponent {
       moveDown: this.handleMoveDown,
       toggleHidden: this.handleHotkeyToggleHidden,
     };
-  }
-
-  setRef = (c) => {
-    this.node = c;
   }
 
   renderFollow (notification, account, link) {
@@ -561,7 +587,7 @@ class Notification extends ImmutablePureComponent {
             </div>
 
             <span title={notification.get('created_at')}>
-              <FormattedMessage id='notification.admin.sign_up' defaultMessage='{name} signed up' values={{ name: <bdi><Permalink className='notification__display-name' href={account.get('url')} to={`/accounts/${account.get('id')}`} title={account.get('acct')} dangerouslySetInnerHTML={{ __html: account.get('display_name_html') }} /></bdi> }} />
+              <FormattedMessage id='notification.admin.sign_up' defaultMessage='{name} signed up' values={{ name: <bdi><Permalink className='notification__display-name' href={account.get('url')} to={`/accounts/${account.get('id')}`} title={account.get('acct')}><EmojiMutedHtml html={account.get('display_name_html') || ''} /></Permalink></bdi> }} />
             </span>
           </div>
 
@@ -588,8 +614,9 @@ class Notification extends ImmutablePureComponent {
             href={targetAccount.get('url') || ''}
             to={targetPath}
             title={targetAcct}
-            dangerouslySetInnerHTML={{ __html: targetAccount.get('display_name_html') || '' }}
-          />
+          >
+            <EmojiMutedHtml html={targetAccount.get('display_name_html') || ''} />
+          </Permalink>
         </bdi>
       );
     } else {
@@ -618,8 +645,7 @@ class Notification extends ImmutablePureComponent {
   render () {
     const { notification } = this.props;
     const account          = notification.get('account');
-    const displayNameHtml  = { __html: account.get('display_name_html') };
-    const link             = <bdi><Permalink className='notification__display-name' href={account.get('url')} title={account.get('acct')} to={`${(account.get('group', false)) ? '/timelines/groups/' : '/accounts/'}${account.get('id')}`} dangerouslySetInnerHTML={displayNameHtml} /></bdi>;
+    const link             = <bdi><Permalink className='notification__display-name' href={account.get('url')} title={account.get('acct')} to={`${(account.get('group', false)) ? '/timelines/groups/' : '/accounts/'}${account.get('id')}`}><EmojiMutedHtml html={account.get('display_name_html') || ''} /></Permalink></bdi>;
 
     switch(notification.get('type')) {
     case 'follow':

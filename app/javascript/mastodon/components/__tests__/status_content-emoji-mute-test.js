@@ -362,4 +362,89 @@ describe('StatusContent replace_in_text', () => {
     expect(staleMute.container.textContent).not.toContain('[old]');
     expect(staleMute.container.innerHTML).not.toContain('data-emoji-id="10"');
   });
+
+  it('hides the muted emoji in a shared link and keeps the other image', () => {
+    const mixed = '<p><a class="custom-emoji-url-link" href="https://remote.example/emoji/blob" data-shortcode="blob" data-domain="remote.example" title=":blob:" aria-label="blob"><img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/blob.svg" data-shortcode="blob" data-domain="remote.example" data-original="https://cdn.example/blob.svg" data-static="https://cdn.example/blob.png"><img draggable="false" class="emojione custom-emoji" alt=":other:" title="other" src="https://cdn.example/other.svg" data-shortcode="other" data-domain="other.example" data-original="https://cdn.example/other.svg" data-static="https://cdn.example/other.png"></a><a class="custom-emoji-url-link" href="https://example.test/emoji/cat" data-shortcode="cat" title="category" aria-label="See the category"><img draggable="false" class="emojione custom-emoji" alt=":cat:" title="cat" src="https://cdn.example/4.svg" data-shortcode="cat" data-domain="" data-emoji-id="4" data-original="https://cdn.example/4.svg" data-static="https://cdn.example/4.png"></a></p>';
+    const status = buildStatus({
+      contentHtml: mixed,
+      search_index: 'emoji',
+      emojis: [],
+    });
+    const { container, store } = renderStatus(status, [
+      muteRule({
+        emoji: { kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' },
+        replacement: '[safe]',
+      }),
+      muteRule({
+        id: 'm4',
+        emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '4', shortcode: 'cat' },
+        replacement: '[cat]',
+      }),
+    ]);
+    const blobLink = container.querySelector('a[data-domain="remote.example"]');
+    const catLink = container.querySelector('a[data-shortcode="cat"]');
+
+    expect(blobLink.querySelector('[data-shortcode="blob"]')).toBeNull();
+    expect(blobLink.querySelector('[data-shortcode="other"]').getAttribute('src')).toBe('https://cdn.example/other.svg');
+    expect(blobLink.getAttribute('title')).toBe('[safe]');
+    expect(blobLink.hasAttribute('aria-label')).toBe(false);
+    expect(blobLink.getAttribute('data-shortcode')).toBe('blob');
+    expect(catLink.querySelector('img')).toBeNull();
+    expect(catLink.getAttribute('title')).toBe('category');
+    expect(catLink.getAttribute('aria-label')).toBe('See the category');
+    expect(status.get('contentHtml')).toBe(mixed);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '9', mutes: [] });
+    });
+
+    expect(container.querySelector('a[data-domain="remote.example"] [data-shortcode="blob"]')).not.toBeNull();
+    expect(container.querySelector('a[data-domain="remote.example"] [data-shortcode="other"]')).not.toBeNull();
+    expect(container.querySelector('a[data-domain="remote.example"]').getAttribute('title')).toBe('Link to :@blob: in @remote.example');
+    expect(container.querySelector('a[data-shortcode="cat"] img')).not.toBeNull();
+    expect(container.querySelector('a[data-shortcode="cat"]').getAttribute('title')).toBe('Link to :@cat:');
+  });
+
+  it('keeps a different local id and a longer unicode sequence', () => {
+    const thumb = '👍';
+    const skin = '\u{1F44D}\u{1F3FB}';
+    const mixed = `<p><a class="custom-emoji-url-link" href="https://example.test/emoji/blob" data-shortcode="blob" title=":blob:" aria-label="blob"><img draggable="false" class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/10.svg" data-shortcode="blob" data-domain="" data-emoji-id="10" data-original="https://cdn.example/10.svg" data-static="https://cdn.example/10.png"><img draggable="false" class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/11.svg" data-shortcode="blob" data-domain="" data-emoji-id="11" data-original="https://cdn.example/11.svg" data-static="https://cdn.example/11.png"></a><a href="https://example.test/react" title="reaction ${thumb}" aria-label="thumbs up ${thumb}"><img class="emojione" alt="${thumb}" src="/emoji/thumb.svg"></a><a href="https://example.test/keep" title="category" aria-label="keep ${skin}"><img class="emojione" alt="${skin}" src="/emoji/skin.svg"></a></p>`;
+    const status = buildStatus({ contentHtml: mixed, search_index: 'emoji', emojis: [] });
+    const { container, store } = renderStatus(status, [
+      muteRule({
+        emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' },
+        replacement: '[id10]',
+      }),
+      muteRule({
+        id: 'm-thumb',
+        emoji: { kind: 'unicode', native: thumb },
+        replacement: '[ok]',
+      }),
+    ]);
+    const localLink = container.querySelector('a[href="https://example.test/emoji/blob"]');
+    const unicodeLink = container.querySelector('a[href="https://example.test/react"]');
+    const keptLink = container.querySelector('a[href="https://example.test/keep"]');
+
+    expect(localLink.querySelector('[data-emoji-id="10"]')).toBeNull();
+    expect(localLink.querySelector('[data-emoji-id="11"]')).not.toBeNull();
+    expect(localLink.getAttribute('title')).toBe('[id10]');
+    expect(localLink.hasAttribute('aria-label')).toBe(false);
+    expect(localLink.getAttribute('href')).toBe('https://example.test/emoji/blob');
+    expect(unicodeLink.querySelector('img')).toBeNull();
+    expect(unicodeLink.getAttribute('title')).toBe('reaction [ok]');
+    expect(unicodeLink.getAttribute('aria-label')).toBe('thumbs up [ok]');
+    expect(keptLink.getAttribute('title')).toBe('category');
+    expect(keptLink.getAttribute('aria-label')).toBe(`keep ${skin}`);
+    expect(keptLink.querySelector('img').getAttribute('alt')).toBe(skin);
+    expect(status.get('contentHtml')).toBe(mixed);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '10', mutes: [] });
+    });
+
+    expect(container.querySelector('[data-emoji-id="10"]')).not.toBeNull();
+    expect(container.querySelector('[data-emoji-id="11"]')).not.toBeNull();
+    expect(container.querySelector('a[href="https://example.test/emoji/blob"]').getAttribute('title')).toBe('Link to :@blob:');
+    expect(container.querySelector('a[href="https://example.test/react"] img').getAttribute('alt')).toBe(thumb);
+  });
 });

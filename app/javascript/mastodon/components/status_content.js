@@ -13,7 +13,7 @@ import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'ma
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
-import { replaceEmojiInDisplayHtml, replaceInTextIndexFromRules } from 'mastodon/features/emoji/emoji_mute_text';
+import { linkTargetEmojiRemains, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 
@@ -163,10 +163,14 @@ class StatusContent extends React.PureComponent {
       let mention = status.get('mentions').find(item => link.href === item.get('url'));
 
       if (link.classList.contains('custom-emoji-url-link') && link.dataset.shortcode) {
-        if (link.dataset.domain) {
-          link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInRemote, { shortcode: link.dataset.shortcode, domain: link.dataset.domain }));
+        if (linkTargetEmojiRemains(link)) {
+          if (link.dataset.domain) {
+            link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInRemote, { shortcode: link.dataset.shortcode, domain: link.dataset.domain }));
+          } else {
+            link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInLocal, { shortcode: link.dataset.shortcode }));
+          }
         } else {
-          link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInLocal, { shortcode: link.dataset.shortcode }));
+          retainMutedEmojiLinkLabel(link);
         }
         link.addEventListener('click', this.onCustomEmojiUrlClick.bind(this, link.dataset.shortcode, link.dataset.domain), false);
       } else if (this.isHashtagLink(link)) {
@@ -185,7 +189,9 @@ class StatusContent extends React.PureComponent {
         }
         link.setAttribute('title', mention.get('acct'));
       } else {
-        link.setAttribute('title', link.href);
+        if (!link.getAttribute('title')) {
+          link.setAttribute('title', link.href);
+        }
         link.classList.add('unhandled-link');
       }
 

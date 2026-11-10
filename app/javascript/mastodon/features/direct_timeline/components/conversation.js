@@ -8,6 +8,7 @@ import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import DropdownMenuContainer from 'mastodon/containers/dropdown_menu_container';
 import AvatarComposite from 'mastodon/components/avatar_composite';
 import Permalink from 'mastodon/components/permalink';
+import EmojiMutedHtml from 'mastodon/components/emoji_muted_html';
 import IconButton from 'mastodon/components/icon_button';
 import AbsoluteTimestamp from 'mastodon/components/absolute_timestamp';
 import RelativeTimestamp from 'mastodon/components/relative_timestamp';
@@ -134,7 +135,7 @@ class Conversation extends ImmutablePureComponent {
 
     menu.push({ text: intl.formatMessage(messages.delete), action: this.handleDelete });
 
-    const names = accounts.map(a => <Permalink to={`${(a.get('group', false)) ? '/timelines/groups/' : '/accounts/'}${a.get('id')}`} href={a.get('url')} key={a.get('id')} title={a.get('acct')}><bdi><strong className='display-name__html' dangerouslySetInnerHTML={{ __html: a.get('display_name_html') }} /></bdi></Permalink>).reduce((prev, cur) => [prev, ', ', cur]);
+    const names = accounts.map(a => <Permalink to={`${(a.get('group', false)) ? '/timelines/groups/' : '/accounts/'}${a.get('id')}`} href={a.get('url')} key={a.get('id')} title={a.get('acct')}><bdi><EmojiMutedHtml tag='strong' className='display-name__html' html={a.get('display_name_html') || ''} /></bdi></Permalink>).reduce((prev, cur) => [prev, ', ', cur]);
 
     const handlers = {
       reply: this.handleReply,
