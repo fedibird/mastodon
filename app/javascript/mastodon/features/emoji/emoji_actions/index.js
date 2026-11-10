@@ -4,6 +4,10 @@ export {
   setEmojiActionsSlideListeners,
   reportEmojiActionsSlideMove,
   reportEmojiActionsSlideRelease,
+  beginEmojiActionsSlideGesture,
+  peekEmojiActionsSlideGesture,
+  endEmojiActionsSlideGesture,
+  createEmojiActionsSlideGestureId,
   resetEmojiActionsBusForTests,
 } from './bus';
 export {

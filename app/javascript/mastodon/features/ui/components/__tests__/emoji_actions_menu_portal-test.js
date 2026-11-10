@@ -13,6 +13,8 @@ import {
   resolveEmojiReference,
 } from 'mastodon/features/emoji/emoji_actions/api';
 import {
+  beginEmojiActionsSlideGesture,
+  createEmojiActionsSlideGestureId,
   openEmojiActions,
   reportEmojiActionsSlideRelease,
   resetEmojiActionsBusForTests,
@@ -78,6 +80,22 @@ const intl = {
     return text;
   },
 };
+
+function openWithSlideGesture(reference, context = {}) {
+  const gestureId = createEmojiActionsSlideGestureId();
+  beginEmojiActionsSlideGesture({ gestureId, anchor: context.anchor || null });
+  openEmojiActions(reference, { ...context, slideGestureId: gestureId });
+  return gestureId;
+}
+
+function slideRelease(gestureId, anchor, clientX, clientY) {
+  return reportEmojiActionsSlideRelease({
+    clientX,
+    clientY,
+    gestureId,
+    anchor,
+  });
+}
 
 // Keep Overlay's portal/container behavior (no full mock) so we can assert
 // the dedicated root above modal / outside pointer-events:none hosts.
@@ -364,8 +382,9 @@ describe('emoji actions menu portal host', () => {
     const anchor = document.createElement('button');
     document.body.appendChild(anchor);
 
+    let gestureId;
     act(() => {
-      openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+      gestureId = openWithSlideGesture({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
     });
 
     const muteItem = await screen.findByRole('button', { name: 'Mute emoji' });
@@ -373,9 +392,9 @@ describe('emoji actions menu portal host', () => {
     document.elementFromPoint = () => muteItem;
 
     act(() => {
-      expect(reportEmojiActionsSlideRelease({ clientX: 40, clientY: 40 })).toBe(true);
+      expect(slideRelease(gestureId, anchor, 40, 40)).toBe(true);
       // Second release in the same gesture session must not re-run.
-      expect(reportEmojiActionsSlideRelease({ clientX: 40, clientY: 40 })).toBe(false);
+      expect(slideRelease(gestureId, anchor, 40, 40)).toBe(false);
     });
 
     document.elementFromPoint = original;
@@ -396,8 +415,9 @@ describe('emoji actions menu portal host', () => {
     const anchor = document.createElement('button');
     document.body.appendChild(anchor);
 
+    let gestureId;
     act(() => {
-      openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+      gestureId = openWithSlideGesture({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
     });
 
     await screen.findByRole('button', { name: 'Mute emoji' });
@@ -406,7 +426,7 @@ describe('emoji actions menu portal host', () => {
     document.elementFromPoint = () => document.body;
 
     act(() => {
-      expect(reportEmojiActionsSlideRelease({ clientX: 1, clientY: 1 })).toBe(false);
+      expect(slideRelease(gestureId, anchor, 1, 1)).toBe(false);
     });
 
     document.elementFromPoint = original;
@@ -434,8 +454,9 @@ describe('emoji actions menu portal host', () => {
     const anchor = document.createElement('button');
     document.body.appendChild(anchor);
 
+    let gestureId;
     act(() => {
-      openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+      gestureId = openWithSlideGesture({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
     });
 
     const muted = await screen.findByRole('button', { name: 'Muted' });
@@ -445,7 +466,7 @@ describe('emoji actions menu portal host', () => {
     document.elementFromPoint = () => muted;
 
     act(() => {
-      expect(reportEmojiActionsSlideRelease({ clientX: 12, clientY: 12 })).toBe(false);
+      expect(slideRelease(gestureId, anchor, 12, 12)).toBe(false);
     });
 
     document.elementFromPoint = original;
@@ -680,8 +701,9 @@ describe('emoji actions menu portal host', () => {
     document.body.appendChild(anchor);
     const reference = { kind: 'unicode', native: '😀' };
 
+    let gestureId;
     act(() => {
-      openEmojiActions(reference, { anchor, source: 'standard_picker' });
+      gestureId = openWithSlideGesture(reference, { anchor, source: 'standard_picker' });
     });
 
     const detailItem = await screen.findByRole('button', { name: 'Emoji details' });
@@ -689,7 +711,7 @@ describe('emoji actions menu portal host', () => {
     document.elementFromPoint = () => detailItem;
 
     act(() => {
-      expect(reportEmojiActionsSlideRelease({ clientX: 22, clientY: 22 })).toBe(true);
+      expect(slideRelease(gestureId, anchor, 22, 22)).toBe(true);
     });
 
     document.elementFromPoint = original;
@@ -734,8 +756,9 @@ describe('emoji actions menu portal host', () => {
     document.body.appendChild(anchor);
     const reference = { kind: 'unicode', native: '😀' };
 
+    let gestureId;
     act(() => {
-      openEmojiActions(reference, { anchor, source: 'standard_picker' });
+      gestureId = openWithSlideGesture(reference, { anchor, source: 'standard_picker' });
     });
 
     const copyItem = await screen.findByRole('button', { name: 'Copy emoji' });
@@ -743,7 +766,7 @@ describe('emoji actions menu portal host', () => {
     document.elementFromPoint = () => copyItem;
 
     act(() => {
-      expect(reportEmojiActionsSlideRelease({ clientX: 30, clientY: 30 })).toBe(true);
+      expect(slideRelease(gestureId, anchor, 30, 30)).toBe(true);
     });
 
     document.elementFromPoint = original;
@@ -787,8 +810,9 @@ describe('emoji actions menu portal host', () => {
     document.body.appendChild(anchor);
     const reference = { kind: 'unicode', native: '😀' };
 
+    let gestureId;
     act(() => {
-      openEmojiActions(reference, { anchor, source: 'standard_picker' });
+      gestureId = openWithSlideGesture(reference, { anchor, source: 'standard_picker' });
     });
 
     const muteItem = await screen.findByRole('button', { name: 'Mute emoji' });
@@ -796,7 +820,7 @@ describe('emoji actions menu portal host', () => {
     document.elementFromPoint = () => muteItem;
 
     act(() => {
-      expect(reportEmojiActionsSlideRelease({ clientX: 30, clientY: 30 })).toBe(true);
+      expect(slideRelease(gestureId, anchor, 30, 30)).toBe(true);
     });
 
     document.elementFromPoint = original;
@@ -810,6 +834,53 @@ describe('emoji actions menu portal host', () => {
     expect(history.push).toHaveBeenCalledWith(detailPathForReference(reference));
 
     document.body.removeChild(anchor);
+  });
+
+  it('ignores slide release from gesture A after menu switches to B', async () => {
+    render(
+      <EmojiActionsMenuController
+        intl={intl}
+        signedIn
+        onSyncMutes={jest.fn(() => Promise.resolve())}
+      />,
+    );
+
+    const anchorA = document.createElement('button');
+    const anchorB = document.createElement('button');
+    document.body.appendChild(anchorA);
+    document.body.appendChild(anchorB);
+
+    let gestureA;
+    act(() => {
+      gestureA = openWithSlideGesture(
+        { kind: 'unicode', native: '😀' },
+        { anchor: anchorA, source: 'standard_picker' },
+      );
+    });
+
+    await screen.findByRole('button', { name: 'Mute emoji' });
+
+    // Switch to another emoji menu while A's press is still held.
+    act(() => {
+      openEmojiActions({ kind: 'unicode', native: '🎉' }, { anchor: anchorB, source: 'standard_picker' });
+    });
+
+    await screen.findByRole('button', { name: 'Mute emoji' });
+
+    const muteItem = screen.getByRole('button', { name: 'Mute emoji' });
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => muteItem;
+
+    act(() => {
+      // Stale A release must not mute B.
+      expect(slideRelease(gestureA, anchorA, 40, 40)).toBe(false);
+    });
+
+    document.elementFromPoint = original;
+    expect(createEmojiMute).not.toHaveBeenCalled();
+
+    document.body.removeChild(anchorA);
+    document.body.removeChild(anchorB);
   });
 
   it('does not steal an unrelated click or keyboard activation after slide select', async () => {
@@ -829,8 +900,9 @@ describe('emoji actions menu portal host', () => {
     other.addEventListener('click', otherClick);
     document.body.appendChild(other);
 
+    let gestureId;
     act(() => {
-      openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+      gestureId = openWithSlideGesture({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
     });
 
     const muteItem = await screen.findByRole('button', { name: 'Mute emoji' });
@@ -838,7 +910,7 @@ describe('emoji actions menu portal host', () => {
     document.elementFromPoint = () => muteItem;
 
     act(() => {
-      expect(reportEmojiActionsSlideRelease({ clientX: 40, clientY: 40 })).toBe(true);
+      expect(slideRelease(gestureId, anchor, 40, 40)).toBe(true);
     });
 
     document.elementFromPoint = original;

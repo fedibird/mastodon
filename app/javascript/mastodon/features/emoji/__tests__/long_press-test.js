@@ -300,10 +300,20 @@ describe('attachLongPressGesture', () => {
 
     // Large move after fire must not cancel the gesture.
     dispatchPointer(node, 'pointermove', { clientX: 80, clientY: 90 });
-    expect(onMove).toHaveBeenCalledWith({ clientX: 80, clientY: 90 });
+    expect(onMove).toHaveBeenCalledWith(expect.objectContaining({
+      clientX: 80,
+      clientY: 90,
+      gestureId: expect.any(String),
+      anchor: node,
+    }));
 
     dispatchPointer(node, 'pointerup', { clientX: 80, clientY: 90 });
-    expect(onRelease).toHaveBeenCalledWith({ clientX: 80, clientY: 90 });
+    expect(onRelease).toHaveBeenCalledWith(expect.objectContaining({
+      clientX: 80,
+      clientY: 90,
+      gestureId: expect.any(String),
+      anchor: node,
+    }));
   });
 
   it('reports touch release from changedTouches coordinates, not event.target', () => {
@@ -319,7 +329,12 @@ describe('attachLongPressGesture', () => {
     const endTouch = { identifier: 44, clientX: 120, clientY: 140 };
     fireEvent.touchEnd(node, { changedTouches: [endTouch], touches: [] });
 
-    expect(onRelease).toHaveBeenCalledWith({ clientX: 120, clientY: 140 });
+    expect(onRelease).toHaveBeenCalledWith(expect.objectContaining({
+      clientX: 120,
+      clientY: 140,
+      gestureId: expect.any(String),
+      anchor: node,
+    }));
   });
 
   it('does not report slide release when the press never fired', () => {
@@ -352,8 +367,90 @@ describe('attachLongPressGesture', () => {
     dispatchPointer(menuItem, 'pointermove', { clientX: 80, clientY: 90 });
     dispatchPointer(menuItem, 'pointerup', { clientX: 80, clientY: 90 });
 
-    expect(onMove).toHaveBeenCalledWith({ clientX: 80, clientY: 90 });
-    expect(onRelease).toHaveBeenCalledWith({ clientX: 80, clientY: 90 });
+    expect(onMove).toHaveBeenCalledWith(expect.objectContaining({
+      clientX: 80,
+      clientY: 90,
+      gestureId: expect.any(String),
+      anchor: node,
+    }));
+    expect(onRelease).toHaveBeenCalledWith(expect.objectContaining({
+      clientX: 80,
+      clientY: 90,
+      gestureId: expect.any(String),
+      anchor: node,
+    }));
+  });
+
+  it('cancels slide release when a second finger lands after the menu opens', () => {
+    const onRelease = jest.fn();
+    setEmojiActionsSlideListeners({ onRelease });
+
+    const other = document.createElement('button');
+    document.body.appendChild(other);
+
+    const touch = { identifier: 7, clientX: 5, clientY: 5 };
+    fireEvent.touchStart(node, { touches: [touch] });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+
+    // Second finger on another element after fire must cancel slide activation.
+    fireEvent.touchStart(other, {
+      touches: [
+        touch,
+        { identifier: 8, clientX: 20, clientY: 20 },
+      ],
+    });
+
+    const endOnItem = { identifier: 7, clientX: 90, clientY: 90 };
+    fireEvent.touchEnd(node, { changedTouches: [endOnItem], touches: [{ identifier: 8, clientX: 20, clientY: 20 }] });
+
+    expect(onRelease).not.toHaveBeenCalled();
+  });
+
+  it('cancels slide release after multitouch on touchmove even when fired', () => {
+    const onRelease = jest.fn();
+    setEmojiActionsSlideListeners({ onRelease });
+
+    const touch = { identifier: 9, clientX: 1, clientY: 1 };
+    fireEvent.touchStart(node, { touches: [touch] });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+
+    fireEvent.touchMove(node, {
+      touches: [
+        { identifier: 9, clientX: 50, clientY: 50 },
+        { identifier: 10, clientX: 60, clientY: 60 },
+      ],
+    });
+
+    fireEvent.touchEnd(node, {
+      changedTouches: [{ identifier: 9, clientX: 50, clientY: 50 }],
+      touches: [{ identifier: 10, clientX: 60, clientY: 60 }],
+    });
+
+    expect(onRelease).not.toHaveBeenCalled();
+  });
+
+  it('does not use another finger coordinate when tracked id is absent from changedTouches', () => {
+    const onRelease = jest.fn();
+    setEmojiActionsSlideListeners({ onRelease });
+
+    const touch = { identifier: 11, clientX: 2, clientY: 2 };
+    fireEvent.touchStart(node, { touches: [touch] });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+
+    // Only the other finger ends — must not fall back to list[0].
+    fireEvent.touchEnd(node, {
+      changedTouches: [{ identifier: 99, clientX: 200, clientY: 200 }],
+      touches: [touch],
+    });
+
+    expect(onRelease).not.toHaveBeenCalled();
   });
 
   it('suppresses host click after a pre-fire drag cancel under pointer capture', () => {

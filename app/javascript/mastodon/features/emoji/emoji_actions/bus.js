@@ -8,6 +8,51 @@ const EVENT = 'mastodon:open-emoji-actions';
 let listener = null;
 let slideMoveListener = null;
 let slideReleaseListener = null;
+let activeSlideGesture = null;
+let gestureSeq = 0;
+
+export function createEmojiActionsSlideGestureId() {
+  gestureSeq += 1;
+  return `emoji-slide-${gestureSeq}-${Date.now()}`;
+}
+
+export function beginEmojiActionsSlideGesture({ gestureId, anchor } = {}) {
+  if (!gestureId) {
+    activeSlideGesture = null;
+    return null;
+  }
+
+  activeSlideGesture = {
+    gestureId,
+    anchor: anchor || null,
+  };
+
+  return activeSlideGesture;
+}
+
+export function peekEmojiActionsSlideGesture(anchor = undefined) {
+  if (!activeSlideGesture) {
+    return null;
+  }
+
+  if (anchor !== undefined && activeSlideGesture.anchor !== anchor) {
+    return null;
+  }
+
+  return activeSlideGesture;
+}
+
+export function endEmojiActionsSlideGesture(gestureId) {
+  if (!activeSlideGesture) {
+    return;
+  }
+
+  if (gestureId && activeSlideGesture.gestureId !== gestureId) {
+    return;
+  }
+
+  activeSlideGesture = null;
+}
 
 export function setEmojiActionsListener(next) {
   listener = typeof next === 'function' ? next : null;
@@ -37,15 +82,15 @@ export function setEmojiActionsSlideListeners({ onMove, onRelease } = {}) {
   };
 }
 
-export function reportEmojiActionsSlideMove(point) {
-  if (slideMoveListener && point) {
-    slideMoveListener(point);
+export function reportEmojiActionsSlideMove(payload) {
+  if (slideMoveListener && payload) {
+    slideMoveListener(payload);
   }
 }
 
-export function reportEmojiActionsSlideRelease(point) {
-  if (slideReleaseListener && point) {
-    return slideReleaseListener(point);
+export function reportEmojiActionsSlideRelease(payload) {
+  if (slideReleaseListener && payload) {
+    return slideReleaseListener(payload);
   }
 
   return false;
@@ -85,6 +130,7 @@ function normalizeReactionContext(reaction) {
  * @param {string|number} [context.account_id]
  * @param {string} [context.source] Host label for tests / diagnostics.
  * @param {object} [context.reaction] Reaction chip payload when source is reaction.
+ * @param {string} [context.slideGestureId] Optional long-press slide gesture id.
  */
 export function openEmojiActions(reference, context = {}) {
   const normalized = normalizeReference(reference);
@@ -100,6 +146,7 @@ export function openEmojiActions(reference, context = {}) {
     account_id: context.account_id || null,
     source: context.source || null,
     reaction: normalizeReactionContext(context.reaction),
+    slideGestureId: context.slideGestureId || null,
   };
 
   if (listener) {
@@ -122,6 +169,8 @@ export function resetEmojiActionsBusForTests() {
   listener = null;
   slideMoveListener = null;
   slideReleaseListener = null;
+  activeSlideGesture = null;
+  gestureSeq = 0;
 }
 
 export { normalizeReactionContext };

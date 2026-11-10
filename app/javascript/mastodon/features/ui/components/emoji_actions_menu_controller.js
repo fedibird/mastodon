@@ -17,6 +17,7 @@ import {
   setEmojiActionsSlideListeners,
   emojiActionsEventName,
   normalizeReactionContext,
+  peekEmojiActionsSlideGesture,
 } from 'mastodon/features/emoji/emoji_actions/bus';
 import {
   createEmojiMute,
@@ -510,6 +511,15 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.clearSlideClickSwallow();
     this.cancelPendingDetailNavigation();
 
+    // Bind slide activation only to the long-press gesture that opened this menu.
+    const pendingGesture = detail.slideGestureId
+      ? { gestureId: detail.slideGestureId, anchor: element }
+      : peekEmojiActionsSlideGesture(element);
+    this.slideGestureId = pendingGesture && pendingGesture.gestureId
+      ? pendingGesture.gestureId
+      : null;
+    this.slideGestureGeneration = generation;
+
     this.setState({
       element,
       reference: detail.reference,
@@ -545,6 +555,8 @@ class EmojiActionsMenuController extends React.PureComponent {
 
   handleClose = () => {
     this.slideActivated = false;
+    this.slideGestureId = null;
+    this.slideGestureGeneration = null;
     this.clearSlideHighlight();
     this.clearSlideClickSwallow();
     // Keep module-level pending sync; only clear the visible menu chrome.
@@ -568,8 +580,33 @@ class EmojiActionsMenuController extends React.PureComponent {
     });
   };
 
-  handleSlideMove = ({ clientX, clientY } = {}) => {
+  isSlideGestureCurrent = (payload = {}) => {
+    if (!this.slideGestureId || !payload.gestureId) {
+      return false;
+    }
+
+    if (payload.gestureId !== this.slideGestureId) {
+      return false;
+    }
+
+    if (this.slideGestureGeneration !== this.loadGeneration) {
+      return false;
+    }
+
     if (!this.state.element || !this.state.reference) {
+      return false;
+    }
+
+    // Anchor must still be the open menu's host when provided.
+    if (payload.anchor && payload.anchor !== this.state.element) {
+      return false;
+    }
+
+    return true;
+  };
+
+  handleSlideMove = (payload = {}) => {
+    if (!this.isSlideGestureCurrent(payload)) {
       return;
     }
 
@@ -578,12 +615,12 @@ class EmojiActionsMenuController extends React.PureComponent {
       return;
     }
 
-    const item = hitTestEmojiActionsMenuItem(clientX, clientY);
+    const item = hitTestEmojiActionsMenuItem(payload.clientX, payload.clientY);
     this.slideHighlightEl = setEmojiActionsSlideHighlight(this.slideHighlightEl, item);
   };
 
-  handleSlideRelease = ({ clientX, clientY } = {}) => {
-    if (!this.state.element || !this.state.reference || this.slideActivated) {
+  handleSlideRelease = (payload = {}) => {
+    if (!this.isSlideGestureCurrent(payload) || this.slideActivated) {
       this.clearSlideHighlight();
       return false;
     }
@@ -593,7 +630,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       return false;
     }
 
-    const el = hitTestEmojiActionsMenuItem(clientX, clientY);
+    const el = hitTestEmojiActionsMenuItem(payload.clientX, payload.clientY);
     this.clearSlideHighlight();
 
     if (!el) {

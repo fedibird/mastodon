@@ -4,6 +4,9 @@
 // coordinates are reported so the menu can activate that item once.
 
 import {
+  beginEmojiActionsSlideGesture,
+  createEmojiActionsSlideGestureId,
+  endEmojiActionsSlideGesture,
   reportEmojiActionsSlideMove,
   reportEmojiActionsSlideRelease,
 } from './emoji_actions/bus';
@@ -12,12 +15,13 @@ export const LONG_PRESS_MS = 480;
 export const LONG_PRESS_MOVE_PX = 12;
 export const LONG_PRESS_CLICK_SUPPRESS_MS = 700;
 
+// Only the tracked touch id — never fall back to list[0] (another finger).
 const pointFromTouchList = (list, id) => {
-  if (!list || list.length === 0) {
+  if (!list || list.length === 0 || id === undefined || id === null) {
     return null;
   }
 
-  const touch = Array.from(list).find(entry => entry.identifier === id) || list[0];
+  const touch = Array.from(list).find(entry => entry.identifier === id);
 
   if (!touch) {
     return null;
@@ -44,15 +48,22 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     timer = null;
   };
 
+  const cancelSlideGesture = () => {
+    if (tracking && tracking.gestureId) {
+      endEmojiActionsSlideGesture(tracking.gestureId);
+    }
+  };
+
   const onDocumentTouchStart = event => {
-    if (!tracking || tracking.kind !== 'touch' || tracking.fired || tracking.cancelled) {
+    // Keep watching after the menu opens (fired) so a second finger cancels slide.
+    if (!tracking || tracking.kind !== 'touch' || tracking.cancelled) {
       return;
     }
 
-    // A second finger on any element (not only this cell) must cancel.
     if (event.touches && event.touches.length > 1) {
       tracking.cancelled = true;
       clearTimer();
+      cancelSlideGesture();
     }
   };
 
@@ -99,6 +110,10 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
       return;
     }
 
+    if (tracking.cancelled) {
+      return;
+    }
+
     if (tracking.fired) {
       emitSlideMove(event.clientX, event.clientY);
       return;
@@ -122,6 +137,7 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
 
     const fired = tracking.fired;
     const cancelled = tracking.cancelled;
+    const gestureId = tracking.gestureId;
     const clientX = event.clientX;
     const clientY = event.clientY;
     clearTracking();
@@ -132,7 +148,10 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
       }
       event.stopPropagation();
       armClickSuppress();
-      emitSlideRelease(clientX, clientY);
+
+      if (!cancelled) {
+        emitSlideReleaseAfterClear(clientX, clientY, gestureId);
+      }
       return;
     }
 
@@ -182,6 +201,7 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     disarmDocumentMultiTouchWatch();
     releasePointerCaptureIfNeeded();
     disarmDocumentPointerWatch();
+    cancelSlideGesture();
     tracking = null;
   };
 
@@ -201,21 +221,42 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     suppressClickUntil = Date.now() + LONG_PRESS_CLICK_SUPPRESS_MS;
   };
 
+  const slidePayload = (clientX, clientY) => ({
+    clientX,
+    clientY,
+    gestureId: tracking && tracking.gestureId,
+    anchor: element,
+  });
+
   const emitSlideMove = (clientX, clientY) => {
-    const point = { clientX, clientY };
-    reportEmojiActionsSlideMove(point);
+    if (!tracking || tracking.cancelled || !tracking.gestureId) {
+      return;
+    }
+
+    const payload = slidePayload(clientX, clientY);
+    reportEmojiActionsSlideMove(payload);
 
     if (typeof onLongPressMove === 'function') {
-      onLongPressMove(point);
+      onLongPressMove(payload);
     }
   };
 
-  const emitSlideRelease = (clientX, clientY) => {
-    const point = { clientX, clientY };
-    reportEmojiActionsSlideRelease(point);
+  // Capture gestureId before clearTracking; then report with those locals.
+  const emitSlideReleaseAfterClear = (clientX, clientY, gestureId) => {
+    if (!gestureId) {
+      return;
+    }
+
+    const payload = {
+      clientX,
+      clientY,
+      gestureId,
+      anchor: element,
+    };
+    reportEmojiActionsSlideRelease(payload);
 
     if (typeof onLongPressRelease === 'function') {
-      onLongPressRelease(point);
+      onLongPressRelease(payload);
     }
   };
 
@@ -225,6 +266,11 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     }
 
     tracking.fired = true;
+    tracking.gestureId = createEmojiActionsSlideGestureId();
+    beginEmojiActionsSlideGesture({
+      gestureId: tracking.gestureId,
+      anchor: element,
+    });
 
     if (event && event.cancelable) {
       event.preventDefault();
@@ -255,6 +301,7 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
       cancelled: false,
       fired: false,
       kind: 'touch',
+      gestureId: null,
     };
     armDocumentMultiTouchWatch();
     timer = setTimeout(() => fire(event), LONG_PRESS_MS);
@@ -268,6 +315,7 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     if (event.touches && event.touches.length > 1) {
       tracking.cancelled = true;
       clearTimer();
+      cancelSlideGesture();
       return;
     }
 
@@ -277,6 +325,11 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     if (!touch) {
       tracking.cancelled = true;
       clearTimer();
+      cancelSlideGesture();
+      return;
+    }
+
+    if (tracking.cancelled) {
       return;
     }
 
@@ -300,8 +353,8 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     const fired = tracking.fired;
     const cancelled = tracking.cancelled;
     const id = tracking.id;
-    const point = pointFromTouchList(event.changedTouches, id)
-      || pointFromTouchList(event.touches, id);
+    const gestureId = tracking.gestureId;
+    const point = pointFromTouchList(event.changedTouches, id);
     clearTracking();
 
     if (fired) {
@@ -313,8 +366,9 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
       event.stopPropagation();
       armClickSuppress();
 
-      if (point) {
-        emitSlideRelease(point.clientX, point.clientY);
+      // Multitouch / cancel must not activate; only the tracked id's point.
+      if (!cancelled && point) {
+        emitSlideReleaseAfterClear(point.clientX, point.clientY, gestureId);
       }
       return;
     }
@@ -355,6 +409,7 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
       fired: false,
       kind: 'pointer',
       captured: false,
+      gestureId: null,
     };
 
     // Capture during pointerdown so off-cell move/up still reach us when the
