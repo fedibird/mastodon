@@ -184,14 +184,29 @@ class EmojiMutedHtmlInner extends React.PureComponent {
     tag: PropTypes.string,
     className: PropTypes.string,
     plain: PropTypes.string,
+    lang: PropTypes.string,
+    dir: PropTypes.string,
+    id: PropTypes.string,
     emojiMuteTextIndex: PropTypes.object,
   };
 
   render() {
-    const { tag: Tag = 'span', html, className, plain, emojiMuteTextIndex } = this.props;
+    const { tag: Tag = 'span', html, className, plain, lang, dir, id, emojiMuteTextIndex } = this.props;
     const source = typeof html === 'string' ? html : '';
     const presented = replaceEmojiInDisplayHtml(source, emojiMuteTextIndex);
     const extra = {};
+
+    if (id) {
+      extra.id = id;
+    }
+
+    if (lang) {
+      extra.lang = lang;
+    }
+
+    if (dir) {
+      extra.dir = dir;
+    }
 
     if (plain !== undefined) {
       extra.title = emojiMutedPlainLabel(plain, source, emojiMuteTextIndex);
@@ -229,16 +244,17 @@ class EmojiMutedPlainInner extends React.PureComponent {
     html: PropTypes.string,
     plain: PropTypes.string,
     className: PropTypes.string,
+    tag: PropTypes.string,
     format: PropTypes.func,
     emojiMuteTextIndex: PropTypes.object,
   };
 
   render() {
-    const { html, plain, className, format, emojiMuteTextIndex } = this.props;
+    const { html, plain, className, format, tag: Tag = 'div', emojiMuteTextIndex } = this.props;
     const value = emojiMutedPlainLabel(plain, typeof html === 'string' ? html : '', emojiMuteTextIndex);
     const text = typeof format === 'function' ? format(value) : value;
 
-    return <div className={className}>{text}</div>;
+    return <Tag className={className}>{text}</Tag>;
   }
 
 }

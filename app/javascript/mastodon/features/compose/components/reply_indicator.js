@@ -2,6 +2,7 @@ import React from 'react';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import Avatar from '../../../components/avatar';
+import EmojiMutedHtml from '../../../components/emoji_muted_html';
 import IconButton from '../../../components/icon_button';
 import DisplayName from '../../../components/display_name';
 import ExternalSourceIdentity from '../../../components/external_source_identity';
@@ -52,7 +53,6 @@ class ReplyIndicator extends ImmutablePureComponent {
       return null;
     }
 
-    const content = { __html: status.get('contentHtml') };
     const externalIdentity = externalIdentityOf(status);
 
     return (
@@ -70,7 +70,7 @@ class ReplyIndicator extends ImmutablePureComponent {
           )}
         </div>
 
-        <div className='reply-indicator__content translate' dangerouslySetInnerHTML={content} />
+        <EmojiMutedHtml tag='div' className='reply-indicator__content translate' html={status.get('contentHtml') || ''} />
 
         {status.get('media_attachments').size > 0 && (
           <AttachmentList

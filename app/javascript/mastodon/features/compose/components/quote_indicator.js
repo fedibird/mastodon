@@ -2,6 +2,7 @@ import React from 'react';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import Avatar from '../../../components/avatar';
+import EmojiMutedHtml from '../../../components/emoji_muted_html';
 import IconButton from '../../../components/icon_button';
 import DisplayName from '../../../components/display_name';
 import ExternalSourceIdentity from '../../../components/external_source_identity';
@@ -46,7 +47,6 @@ class QuoteIndicator extends ImmutablePureComponent {
       return null;
     }
 
-    const content = { __html: status.get('contentHtml') };
     const externalIdentity = externalIdentityOf(status);
 
     return (
@@ -64,7 +64,7 @@ class QuoteIndicator extends ImmutablePureComponent {
           )}
         </div>
 
-        <div className='quote-indicator__content' dir='auto' dangerouslySetInnerHTML={content} />
+        <EmojiMutedHtml tag='div' className='quote-indicator__content' dir='auto' html={status.get('contentHtml') || ''} />
 
         {status.get('media_attachments').size > 0 && (
           <AttachmentList
