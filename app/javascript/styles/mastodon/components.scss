@@ -1033,13 +1033,13 @@ body > [data-popper-placement] {
 
   .compose-form__header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     flex-wrap: nowrap;
     gap: 8px;
     min-width: 0;
     max-width: 100%;
-    min-height: 32px;
+    min-height: 40px;
   }
 
   .compose-form__header-account,
@@ -1070,7 +1070,8 @@ body > [data-popper-placement] {
     align-items: center;
     gap: 4px;
     max-width: 7.5rem;
-    padding: 2px 4px;
+    min-height: 40px;
+    padding: 8px 6px;
   }
 
   .compose-form__header .dropdown-button__label {
