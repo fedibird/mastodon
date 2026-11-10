@@ -2,6 +2,7 @@ import React from 'react';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import Avatar from './avatar';
+import EmojiMutedHtml from './emoji_muted_html';
 import { ExternalSourceIcon } from './external_source_identity';
 import { externalIdentityOf, externalIdentityName } from '../external_presentation';
 import { messages as externalMessages } from '../external_presentation/messages';
@@ -113,7 +114,7 @@ class StatusItem extends ImmutablePureComponent {
                 <span className='mini-status__source-label'>{externalIdentity.subtitle ? `${externalIdentity.subtitle} · ` : ''}{intl.formatMessage(externalMessages.ownerLabel)}</span>
               </div>
             )}
-            <div className='mini-status__content__text translate' lang={status.get('language')} dangerouslySetInnerHTML={{ __html: status.get('shortHtml') }} />
+            <EmojiMutedHtml tag='div' className='mini-status__content__text translate' lang={status.get('language')} html={status.get('shortHtml') || ''} />
             <Bundle fetchComponent={ThumbnailGallery} loading={this.renderLoadingMediaGallery}>
               {Component => (
                 <Component

@@ -6,6 +6,8 @@ import PropTypes from 'prop-types';
 import IconButton from 'mastodon/components/icon_button';
 import Icon from 'mastodon/components/icon';
 import { textNeedsCustomEmojiCatalog } from 'mastodon/features/emoji/custom_emoji_demand';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { linkTargetEmojiRemains, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { defineMessages, injectIntl, FormattedMessage, FormattedDate } from 'react-intl';
 import { autoPlayEmoji, reduceMotion, disableSwiping } from 'mastodon/initial_state';
 import { reduceMotionNow, watchReduceMotion } from 'mastodon/utils/appearance_preferences';
@@ -20,6 +22,8 @@ import spring from 'react-motion/lib/spring';
 import { assetHost } from 'mastodon/utils/config';
 
 const messages = defineMessages({
+  linkToCustomEmojiInLocal: { id: 'status.link_to_custom_emoji_in_local', defaultMessage: 'Link to :@{shortcode}:' },
+  linkToCustomEmojiInRemote: { id: 'status.link_to_custom_emoji_in_remote', defaultMessage: 'Link to :@{shortcode}: in @{domain}' },
   close: { id: 'lightbox.close', defaultMessage: 'Close' },
   previous: { id: 'lightbox.previous', defaultMessage: 'Previous' },
   next: { id: 'lightbox.next', defaultMessage: 'Next' },
@@ -34,6 +38,7 @@ const dateFormatOptions = {
   minute: '2-digit',
 };
 
+@injectIntl
 class Content extends ImmutablePureComponent {
 
   static contextTypes = {
@@ -42,6 +47,8 @@ class Content extends ImmutablePureComponent {
 
   static propTypes = {
     announcement: ImmutablePropTypes.map.isRequired,
+    intl: PropTypes.object.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   setRef = c => {
@@ -83,6 +90,18 @@ class Content extends ImmutablePureComponent {
           link.addEventListener('click', this.onMentionClick.bind(this, mention), false);
         }
         link.setAttribute('title', mention.get('acct'));
+      } else if (link.classList.contains('custom-emoji-url-link') && link.dataset.shortcode) {
+        // A muted emoji link already has a plain-text title. Do not put the
+        // href, shortcode, or domain back into the tooltip.
+        if (linkTargetEmojiRemains(link)) {
+          if (link.dataset.domain) {
+            link.setAttribute('title', this.props.intl.formatMessage(messages.linkToCustomEmojiInRemote, { shortcode: link.dataset.shortcode, domain: link.dataset.domain }));
+          } else {
+            link.setAttribute('title', this.props.intl.formatMessage(messages.linkToCustomEmojiInLocal, { shortcode: link.dataset.shortcode }));
+          }
+        } else {
+          retainMutedEmojiLinkLabel(link);
+        }
       } else if (link.textContent[0] === '#' || (link.previousSibling && link.previousSibling.textContent && link.previousSibling.textContent[link.previousSibling.textContent.length - 1] === '#')) {
         link.addEventListener('click', this.onHashtagClick.bind(this, link.text), false);
       } else {
@@ -156,13 +175,14 @@ class Content extends ImmutablePureComponent {
   }
 
   render () {
-    const { announcement } = this.props;
+    const { announcement, emojiMuteTextIndex } = this.props;
+    const source = announcement.get('contentHtml') || '';
 
     return (
       <div
         className='announcements__item__content translate'
         ref={this.setRef}
-        dangerouslySetInnerHTML={{ __html: announcement.get('contentHtml') }}
+        dangerouslySetInnerHTML={{ __html: replaceEmojiInDisplayHtml(source, emojiMuteTextIndex) }}
         onMouseEnter={this.handleMouseEnter}
         onMouseLeave={this.handleMouseLeave}
       />
@@ -170,6 +190,11 @@ class Content extends ImmutablePureComponent {
   }
 
 }
+
+// The stored contentHtml stays shared. This boundary re-renders when the
+// viewer's replace_in_text rules change and rebinds mention, hashtag, and
+// status links on the new nodes. Reaction controls are outside this node.
+const AnnouncementBody = withEmojiMuteTextIndex(Content);
 
 class Emoji extends React.PureComponent {
 
@@ -374,7 +399,7 @@ class Announcement extends ImmutablePureComponent {
           {!hasTimeRange && <span> · <FormattedMessage id='announcement.published_at' defaultMessage='Published {date}' values={{ date: publishedAt }} /></span>}
         </strong>
 
-        <Content announcement={announcement} />
+        <AnnouncementBody announcement={announcement} />
 
         <ReactionsBar
           reactions={announcement.get('reactions')}

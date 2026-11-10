@@ -23,7 +23,7 @@ const emojiFilename = (filename) => {
   return borderedEmoji.includes(filename) ? (filename + '_border') : filename;
 };
 
-const emojifyTextNode = (node, customEmojis, domain) => {
+const emojifyTextNode = (node, customEmojis, domain, options) => {
   const VS15 = 0xFE0E;
   const VS16 = 0xFE0F;
 
@@ -88,7 +88,6 @@ const emojifyTextNode = (node, customEmojis, domain) => {
       replacement.setAttribute('title', title);
       replacement.setAttribute('src', filename);
       replacement.setAttribute('data-shortcode', striped_shortcode);
-      replacement.setAttribute('data-domain', domain);
       replacement.setAttribute('data-original', custom_emoji.url);
       replacement.setAttribute('data-static', custom_emoji.static_url);
 
@@ -96,9 +95,19 @@ const emojifyTextNode = (node, customEmojis, domain) => {
       // A later row that reuses the shortcode must not be read back from the
       // current emoji list. Remote images keep domain + shortcode only; their
       // cache id is not an identity.
-      const emojiDomain = custom_emoji.domain;
-      const localEmoji = (emojiDomain === null || emojiDomain === undefined || emojiDomain === '') && !domain;
+      //
+      // Status and account HTML keep the author domain passed into emojify.
+      // Polls and announcements pass identity: 'row' because each REST emoji
+      // row's domain is itself the remote mute identity (null means local).
+      const rowDomain = custom_emoji.domain === null || custom_emoji.domain === undefined || custom_emoji.domain === ''
+        ? ''
+        : String(custom_emoji.domain);
+      const useRowIdentity = options && options.identity === 'row';
+      const writtenDomain = useRowIdentity ? rowDomain : domain;
+      const localEmoji = useRowIdentity ? writtenDomain === '' : (rowDomain === '' && !domain);
       const emojiId = custom_emoji.id;
+
+      replacement.setAttribute('data-domain', writtenDomain || '');
 
       if (localEmoji && emojiId !== null && emojiId !== undefined && emojiId !== '') {
         replacement.setAttribute('data-emoji-id', String(emojiId));
@@ -151,28 +160,28 @@ const emojifyTextNode = (node, customEmojis, domain) => {
   node.parentElement.replaceChild(fragment, node);
 };
 
-const emojifyNode = (node, customEmojis, domain) => {
+const emojifyNode = (node, customEmojis, domain, options) => {
   for (const child of Array.from(node.childNodes)) {
     switch(child.nodeType) {
     case Node.TEXT_NODE:
-      emojifyTextNode(child, customEmojis, domain);
+      emojifyTextNode(child, customEmojis, domain, options);
       break;
     case Node.ELEMENT_NODE:
       if (!child.classList.contains('invisible'))
-        emojifyNode(child, customEmojis, domain);
+        emojifyNode(child, customEmojis, domain, options);
       break;
     }
   }
 };
 
-const emojify = (str, customEmojis = {}, domain = '') => {
+const emojify = (str, customEmojis = {}, domain = '', options = {}) => {
   const wrapper = document.createElement('div');
   wrapper.innerHTML = str;
 
   if (!Object.keys(customEmojis).length)
     customEmojis = null;
 
-  emojifyNode(wrapper, customEmojis, domain);
+  emojifyNode(wrapper, customEmojis, domain, options);
 
   return wrapper.innerHTML;
 };

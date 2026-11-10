@@ -8,7 +8,7 @@ import AvatarComposite from './avatar_composite';
 import AbsoluteTimestamp from './absolute_timestamp';
 import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
-import EmojiMutedHtml, { bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
+import EmojiMutedHtml, { EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
 import TimelineCardBody from './timeline_card_body';
@@ -91,6 +91,8 @@ const bilingualText = (source, translated) => {
   return source || translated;
 };
 
+// Screen-reader copy stays on the shared plain extraction. replace_in_text
+// for that path is a later P3-B slice, so a mute does not rewrite it here.
 const screenReaderStatusText = (status) => {
   const mode = statusTranslationView(status).mode;
   const sourceSpoiler = status.get('spoiler_text') || '';
@@ -773,8 +775,17 @@ class Status extends ImmutablePureComponent {
     const hiddenQuote = quote && quote_muted;
     const unlistedQuote = quote && quote.get('visibility') === 'unlisted' &&
       !!contextType && ['public', 'community', 'hashtag'].includes(contextType.split(':', 2)[0]);
-    const quoteText = quote && (quote.get('hidden') && quote.get('spoiler_text')
-      ? quote.get('spoiler_text') : plainHtmlText(quote.get('contentHtml')));
+    // A concealed quote (muted account, or unlisted on a public timeline)
+    // never contributes its text. A CW uses the spoiler string until that
+    // spoiler HTML actually replaces an emoji. Other previews keep
+    // textContent, so an unmuted image alt does not change the card height.
+    let quotePreviewSource = null;
+
+    if (quote && !hiddenQuote && !unlistedQuote) {
+      quotePreviewSource = quote.get('hidden') && quote.get('spoiler_text')
+        ? { plain: quote.get('spoiler_text'), html: quote.get('spoilerHtml') || '' }
+        : { plain: plainHtmlText(quote.get('contentHtml')), html: quote.get('contentHtml') || '' };
+    }
 
     let quotePreview = null;
     if (quote) {
@@ -789,7 +800,7 @@ class Status extends ImmutablePureComponent {
               <Avatar account={quote.get('account')} size={18} />
               <DisplayName account={quote.get('account')} />
             </div>}
-            <p className='timeline-card__quote-text'>{quoteText}</p>
+            <EmojiMutedPlain tag='p' className='timeline-card__quote-text' plain={quotePreviewSource.plain} html={quotePreviewSource.html} />
           </>
         );
       }

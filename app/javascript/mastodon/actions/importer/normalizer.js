@@ -913,22 +913,47 @@ const pollRequestStillCurrent = (poll, normalOldPoll) => {
   return poll.options.every((option, index) => oldOptions.getIn([index, 'title']) === option.title);
 };
 
+const refreshPollOptionTranslation = (translation, emojiMap) => {
+  const title = translationField(translation, 'title');
+
+  if (typeof title !== 'string') {
+    return undefined;
+  }
+
+  const previous = typeof translation.toJS === 'function' ? translation.toJS() : { ...translation };
+
+  return {
+    ...previous,
+    titleHtml: emojify(escapeTextContentForBrowser(title), emojiMap, '', { identity: 'row' }),
+  };
+};
+
 export function normalizePoll(poll, normalOldPoll) {
   const normalPoll = { ...poll };
   const emojiMap = makeEmojiMap(normalPoll);
+  // Each REST row keeps its own mute identity. A local row records its id.
+  // A remote row records that row's domain, including when the list mixes
+  // local and remote rows or more than one remote domain.
+  const emojiChanged = !!(normalOldPoll && emojiPresentation(normalOldPoll.get('emojis')) !== emojiPresentation(normalPoll.emojis));
 
   normalPoll.options = poll.options.map((option, index) => {
     const normalOption = {
       ...option,
       voted: poll.own_votes && poll.own_votes.includes(index),
-      title_emojified: emojify(escapeTextContentForBrowser(option.title), emojiMap),
+      title_emojified: emojify(escapeTextContentForBrowser(option.title), emojiMap, '', { identity: 'row' }),
     };
 
     if (normalOldPoll && normalOldPoll.getIn(['options', index, 'title']) === option.title) {
       const translation = normalOldPoll.getIn(['options', index, 'translation']);
 
-      if (translation) {
+      if (translation && !emojiChanged) {
         normalOption.translation = translation;
+      } else if (translation) {
+        const refreshed = refreshPollOptionTranslation(translation, emojiMap);
+
+        if (refreshed) {
+          normalOption.translation = refreshed;
+        }
       }
     }
 
@@ -944,11 +969,12 @@ export function normalizePoll(poll, normalOldPoll) {
 
 export function normalizePollOptionTranslation(translation, poll) {
   const emojis = poll && poll.get('emojis');
-  const emojiMap = makeEmojiMap({ emojis: emojis ? emojis.toJS() : [] });
+  const emojiList = emojis ? emojis.toJS() : [];
+  const emojiMap = makeEmojiMap({ emojis: emojiList });
 
   return {
     ...translation,
-    titleHtml: emojify(escapeTextContentForBrowser(translation.title), emojiMap),
+    titleHtml: emojify(escapeTextContentForBrowser(translation.title), emojiMap, '', { identity: 'row' }),
   };
 }
 
@@ -956,7 +982,7 @@ export function normalizeAnnouncement(announcement) {
   const normalAnnouncement = { ...announcement };
   const emojiMap = makeEmojiMap(normalAnnouncement);
 
-  normalAnnouncement.contentHtml = emojify(normalAnnouncement.content, emojiMap);
+  normalAnnouncement.contentHtml = emojify(normalAnnouncement.content, emojiMap, '', { identity: 'row' });
 
   return normalAnnouncement;
 }

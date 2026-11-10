@@ -1,9 +1,10 @@
 // Display-only projection for emoji mute effect `replace_in_text`.
 //
-// Status HTML stays the shared, viewer-independent string produced by
-// emojify (`contentHtml`, `spoilerHtml`, translation HTML). This module
-// returns a new string for the screen. It does not write the status store,
-// re-run emojify, or interpret the replacement as HTML.
+// Shared HTML stays the viewer-independent string produced by emojify
+// (`contentHtml`, `spoilerHtml`, translation HTML, poll option HTML,
+// announcement HTML, `shortHtml`). This module returns a new string for the
+// screen. It does not write those stores, re-run emojify, or interpret the
+// replacement as HTML.
 //
 // Identity matches the P2 contract and is read from the HTML that emojify
 // built, not from a later `emojis` list:
