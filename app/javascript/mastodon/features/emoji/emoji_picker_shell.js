@@ -2,12 +2,15 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
+import { emojiPickerDisablePersonal } from 'mastodon/initial_state';
 import { assetHost } from 'mastodon/utils/config';
 import StockEmojiPicker from './stock_emoji_picker';
 import { getCachedPersonalEmojiStock, loadPersonalEmojiStock, subscribePersonalEmojiStock } from './emoji_stock_source';
 import { emptyEmojiStock, normalizeEmojiStockLoad } from './emoji_stock';
 import { loadStandardEmojiPicker } from './standard_emoji_loader';
 import { markEmojiPickerEscape } from './emoji_picker_escape';
+
+const personalIsEnabled = props => !emojiPickerDisablePersonal && props.personalEnabled;
 
 const messages = defineMessages({
   personal: { id: 'emoji_picker.mode.personal', defaultMessage: 'Personal set' },
@@ -86,7 +89,7 @@ class EmojiPickerShell extends React.PureComponent {
     open: true,
     initialMode: 'personal',
     standardEnabled: true,
-    personalEnabled: true,
+    personalEnabled: !emojiPickerDisablePersonal,
     onRequestClose: () => {},
     stockSource: loadPersonalEmojiStock,
     loadStandardEmojiPicker,
@@ -106,7 +109,7 @@ class EmojiPickerShell extends React.PureComponent {
     this.standardGeneration = 0;
     this.stockInFlight = false;
     this.standardInFlight = false;
-    const cachedStock = props.stockSource === loadPersonalEmojiStock ? getCachedPersonalEmojiStock() : null;
+    const cachedStock = personalIsEnabled(props) && props.stockSource === loadPersonalEmojiStock ? getCachedPersonalEmojiStock() : null;
 
     if (props.open) {
       activeEmojiPickerShell = this.shellId;
@@ -313,7 +316,7 @@ class EmojiPickerShell extends React.PureComponent {
       this.unsubscribeStock();
     }
 
-    this.unsubscribeStock = this.props.stockSource === loadPersonalEmojiStock
+    this.unsubscribeStock = personalIsEnabled(this.props) && this.props.stockSource === loadPersonalEmojiStock
       ? subscribePersonalEmojiStock(this.handleStockChange)
       : null;
   }
@@ -390,7 +393,7 @@ class EmojiPickerShell extends React.PureComponent {
       return 'standard';
     }
 
-    if (requested === 'personal' && props.personalEnabled) {
+    if (requested === 'personal' && personalIsEnabled(props)) {
       return 'personal';
     }
 
@@ -414,7 +417,7 @@ class EmojiPickerShell extends React.PureComponent {
       return;
     }
 
-    if (this.state.mode === 'personal' && this.props.personalEnabled) {
+    if (this.state.mode === 'personal' && personalIsEnabled(this.props)) {
       this.beginStock(forceStock);
     }
 
@@ -424,7 +427,7 @@ class EmojiPickerShell extends React.PureComponent {
   }
 
   beginStock(force) {
-    if (!this.props.personalEnabled || this.stockInFlight) {
+    if (!personalIsEnabled(this.props) || this.stockInFlight) {
       return;
     }
 
@@ -534,7 +537,7 @@ class EmojiPickerShell extends React.PureComponent {
   }
 
   handlePersonalMode = () => {
-    if (!this.props.personalEnabled || this.state.mode === 'personal') {
+    if (!personalIsEnabled(this.props) || this.state.mode === 'personal') {
       return;
     }
 
@@ -599,9 +602,9 @@ class EmojiPickerShell extends React.PureComponent {
   };
 
   renderModeSwitch() {
-    const { intl, personalEnabled, standardEnabled } = this.props;
+    const { intl, standardEnabled } = this.props;
 
-    if (!personalEnabled || !standardEnabled) {
+    if (!personalIsEnabled(this.props) || !standardEnabled) {
       return null;
     }
 
@@ -729,10 +732,10 @@ class EmojiPickerShell extends React.PureComponent {
   }
 
   render() {
-    const { open, personalEnabled, standardEnabled } = this.props;
+    const { open, standardEnabled } = this.props;
     const { mode } = this.state;
 
-    if (!open || (!personalEnabled && !standardEnabled)) {
+    if (!open || (!personalIsEnabled(this.props) && !standardEnabled)) {
       return null;
     }
 

@@ -5,6 +5,7 @@ import { emptyEmojiStock, prepareEmojiStock } from './emoji_stock';
 const endpoint = '/api/v1/emoji_sets/personal/stock';
 const me = initialState?.meta?.me;
 const pickerEmojiSize = initialState?.meta?.picker_emoji_size;
+const personalStockDisabled = initialState?.meta?.emoji_picker_disable_personal === true;
 const changeKey = `mastodon:personal-emoji-set:${me || 'anonymous'}`;
 const stockListeners = new Set();
 const sizeListeners = new Set();
@@ -24,13 +25,17 @@ function changeMarker() {
   }
 }
 
-let lastChange = changeMarker();
+// Do not even read personal-set storage markers for standard-only sessions.
+let lastChange = personalStockDisabled ? null : changeMarker();
 
 const ready = document => ({ status: 'ready', stock: document.stock });
 
 // A warm stock is safe to paint immediately. Callers still revalidate with
 // ETag in the background and never persist private stock to browser storage.
 export function getCachedPersonalEmojiStock() {
+  if (personalStockDisabled) {
+    return null;
+  }
   // A different tab may have saved while no picker was mounted, and therefore
   // while the storage listener was detached. Never paint that stale cache.
   if (changeMarker() !== lastChange) {
@@ -71,6 +76,10 @@ function validateDocument(document) {
 // reflects custom image, availability and search metadata changes. Concurrent
 // pickers share the request, never a full custom or Unicode catalog request.
 export function loadPersonalEmojiStock() {
+  // Defense in depth: an unexpected caller must not fetch or prepare stock.
+  if (personalStockDisabled) {
+    return Promise.resolve({ status: 'ready', stock: emptyEmojiStock() });
+  }
   if (!me && !initialState?.meta?.access_token) {
     return Promise.resolve({ status: 'ready', stock: emptyEmojiStock() });
   }
@@ -176,6 +185,9 @@ function updateStorageListener() {
 }
 
 export function subscribePersonalEmojiStock(listener) {
+  if (personalStockDisabled) {
+    return () => {};
+  }
   stockListeners.add(listener);
   updateStorageListener();
 
@@ -190,6 +202,9 @@ export function getPickerEmojiSize() {
 }
 
 export function subscribePickerEmojiSize(listener) {
+  if (personalStockDisabled) {
+    return () => {};
+  }
   sizeListeners.add(listener);
   updateStorageListener();
 
@@ -211,6 +226,9 @@ export function subscribePickerEmojiSize(listener) {
 // stock. A tiny change marker reaches other tabs and embedded settings frames;
 // definitions and access tokens are never stored in localStorage.
 export function notifySavedPersonalEmojiSet(document) {
+  if (personalStockDisabled) {
+    return;
+  }
   const saved = validateDocument(document);
 
   generation += 1;

@@ -5,7 +5,7 @@ import classNames from 'classnames';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { assetHost } from 'mastodon/utils/config';
-import { autoPlayEmoji, disableAutoFocusToEmojiSearch } from 'mastodon/initial_state';
+import { autoPlayEmoji, disableAutoFocusToEmojiSearch, emojiPickerDisablePersonal } from 'mastodon/initial_state';
 import EmojiPickerShell from './emoji_picker_shell';
 import { emojiPickerInitialMode } from './emoji_picker_preferences';
 import { getPickerEmojiSize, loadPersonalEmojiStock, subscribePickerEmojiSize } from './emoji_stock_source';
@@ -233,7 +233,7 @@ class EmojiPickerPanel extends React.PureComponent {
 
   state = {
     modifierOpen: false,
-    mode: this.props.initialMode || emojiPickerInitialMode(),
+    mode: emojiPickerDisablePersonal ? 'standard' : (this.props.initialMode || emojiPickerInitialMode()),
     Emoji: null,
     catalogHold: false,
     emojiSize: getPickerEmojiSize(),
@@ -241,10 +241,15 @@ class EmojiPickerPanel extends React.PureComponent {
 
   componentDidMount() {
     this.mounted = true;
-    this.unsubscribeSize = subscribePickerEmojiSize(emojiSize => this.setState({ emojiSize }));
-    // Refresh the shared size on every opening, including standard mode after
-    // a save on another device. Personal mode shares this bounded stock read.
-    loadPersonalEmojiStock().catch(() => {});
+    // When personal sets are disabled, do not attach their storage listener or
+    // fetch stock just to determine a size already supplied in initial state.
+    this.unsubscribeSize = () => {};
+    if (!emojiPickerDisablePersonal) {
+      this.unsubscribeSize = subscribePickerEmojiSize(emojiSize => this.setState({ emojiSize }));
+      // Refresh the shared size on every opening, including standard mode after
+      // a save on another device. Personal mode shares this bounded stock read.
+      loadPersonalEmojiStock().catch(() => {});
+    }
     document.addEventListener('click', this.handleDocumentClick, false);
     document.addEventListener('touchend', this.handleDocumentClick, listenerOptions);
   }
@@ -401,6 +406,7 @@ class EmojiPickerPanel extends React.PureComponent {
       <div className={classNames('emoji-picker-dropdown__menu', { selecting: modifierOpen })} ref={this.setRef}>
         <EmojiPickerShell
           open
+          personalEnabled={!emojiPickerDisablePersonal}
           initialMode={initialMode || emojiPickerInitialMode()}
           autoFocus={autoFocus}
           emojiSize={emojiSize}
