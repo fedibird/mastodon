@@ -98,7 +98,7 @@ export function releaseVisibilitySource(source) {
   stale.forEach(([id, label]) => noteStatusVisibility(id, false, label));
 }
 
-export function resetEmojiMuteSurfaceForTests() {
+export function resetEmojiMuteSurfaces() {
   surfaceGeneration += 1;
   restoreArmed = false;
   legacyRefreshArmed = false;
@@ -110,6 +110,9 @@ export function resetEmojiMuteSurfaceForTests() {
     restoreTimer = null;
   }
 }
+
+// Preserve the existing test reset API while sharing the same production cleanup.
+export const resetEmojiMuteSurfaceForTests = resetEmojiMuteSurfaces;
 
 const surfaceRefreshCurrent = generation => generation === surfaceGeneration;
 
@@ -480,7 +483,7 @@ let documentSyncGeneration = 0;
 // would leave stale surface work live in the previous viewer's Redux tree.
 export function invalidateEmojiMuteAsyncWork() {
   documentSyncGeneration += 1;
-  resetEmojiMuteSurfaceForTests();
+  resetEmojiMuteSurfaces();
 }
 
 // A stream event can make the local document stale before the new GET resolves.
