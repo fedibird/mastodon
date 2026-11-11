@@ -1,4 +1,7 @@
 {
+  "emoji_mutes.bootstrap_loading": "絵文字のミュート設定を読み込んでいます…",
+  "emoji_mutes.bootstrap_error": "絵文字のミュート設定を確認できませんでした。投稿は再試行するまで表示されません。",
+  "emoji_mutes.bootstrap_retry": "設定の読み込みを再試行",
   "column_header.layout.label": "表示方法",
   "column_header.layout.normal": "通常",
   "column_header.layout.card_1": "カード（1列）",
