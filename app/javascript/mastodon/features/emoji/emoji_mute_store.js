@@ -14,6 +14,8 @@ let mutes = [];
 let request = null;
 let settled = false;
 let notificationFetchEpoch = 0;
+let requestVersion = 0;
+let sessionVersion = 0;
 
 // A notification list that was cleared, blocked, or filtered must not be
 // filled again by a mute refresh that started before that action.
@@ -55,12 +57,36 @@ export function observedEmojiMuteRevision() {
   return observedRevision;
 }
 
+// A resolved empty document is different from a not-yet-fetched document.
+// Both the initial display gate and the stream/reaction guards use this.
+export function emojiMuteDocumentReady() {
+  if (!accessToken && !me) {
+    return true;
+  }
+
+  return settled && appliedRevision !== null &&
+    (observedRevision === null || compareRevision(appliedRevision, observedRevision) >= 0);
+}
+
+// Invalidate outstanding GETs before an account boundary is crossed. No
+// credential, definition or replacement text is persisted in browser storage.
+export function resetEmojiMuteSession() {
+  sessionVersion += 1;
+  requestVersion += 1;
+  observedRevision = null;
+  appliedRevision = null;
+  mutes = [];
+  request = null;
+  settled = false;
+  invalidateEmojiMuteNotificationFetches();
+}
+
 export function emojiReactionEventsAccepted() {
   if (!accessToken && !me) {
     return true;
   }
 
-  return settled && appliedRevision !== null && (observedRevision === null || compareRevision(appliedRevision, observedRevision) >= 0);
+  return emojiMuteDocumentReady();
 }
 
 function adopt(document, minRevision) {
@@ -75,6 +101,12 @@ function adopt(document, minRevision) {
   }
 
   if (minRevision !== null && minRevision !== undefined && compareRevision(next, String(minRevision)) < 0) {
+    return mutes;
+  }
+
+  // A newer stream revision might arrive after the request was sent. A
+  // response below that revision is never an authoritative document.
+  if (observedRevision !== null && compareRevision(next, observedRevision) < 0) {
     return mutes;
   }
 
@@ -106,7 +138,15 @@ export function loadEmojiMutes(options = {}) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
+  const version = ++requestVersion;
+  const session = sessionVersion;
   const pending = api().get('/api/v1/fedibird/emoji_mutes', { headers }).then(response => {
+    // Force refresh, session reset, or another user's request superseded us.
+    // The old promise may finish, but it must not mutate the module document.
+    if (session !== sessionVersion || version !== requestVersion) {
+      return mutes;
+    }
+
     return adopt(response.data, options.minRevision);
   }).finally(() => {
     if (request === pending) {
@@ -139,15 +179,14 @@ export function noteEmojiMutesChanged(payload) {
 }
 
 export function resetEmojiMuteStoreForTests() {
-  observedRevision = null;
-  appliedRevision = null;
-  mutes = [];
-  request = null;
-  settled = false;
+  resetEmojiMuteSession();
   notificationFetchEpoch = 0;
 }
 
 export function installEmojiMutesForTests(document) {
+  // No pending request from another fixture may overwrite this document.
+  requestVersion += 1;
+  sessionVersion += 1;
   appliedRevision = String(document.revision);
   observedRevision = appliedRevision;
   mutes = document.emoji_mutes || [];
