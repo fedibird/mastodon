@@ -7,14 +7,19 @@ import {
   appliedEmojiMuteRevision,
   currentEmojiMutes,
   emojiMuteNotificationFetchEpoch,
+  emojiMuteDocumentReady,
   loadEmojiMutes,
   noteEmojiMutesChanged,
+  observedEmojiMuteRevision,
 } from '../features/emoji/emoji_mute_store';
 import { hideReactionSignature, hideSignatureGrew, hideSignatureShrunk, revisionStale } from '../features/emoji/emoji_mute_projection';
 
 export const EMOJI_MUTES_IMPORT = 'EMOJI_MUTES_IMPORT';
 export const EMOJI_MUTES_REVISION = 'EMOJI_MUTES_REVISION';
 export const EMOJI_MUTES_APPLY = 'EMOJI_MUTES_APPLY';
+export const EMOJI_MUTES_LOAD = 'EMOJI_MUTES_LOAD';
+export const EMOJI_MUTES_FAIL = 'EMOJI_MUTES_FAIL';
+export const EMOJI_MUTES_RESET = 'EMOJI_MUTES_RESET';
 
 export function importEmojiMutes(revision, rules) {
   return {
@@ -468,13 +473,28 @@ export function restoreVisibleEmojiMuteStatus(id) {
   };
 }
 
+let documentSyncGeneration = 0;
+
+// A stream event can make the local document stale before the new GET resolves.
+// An older asynchronous continuation must never republish earlier rules.
 export function syncEmojiMutes(options = {}) {
   return (dispatch, getState) => {
+    const generation = ++documentSyncGeneration;
     const previousRevision = appliedEmojiMuteRevision();
     const previousSignature = hideReactionSignature(currentEmojiMutes());
     const pending = options.changed ? noteEmojiMutesChanged(options.changed) : loadEmojiMutes();
 
+    if (options.changed) {
+      dispatch(importEmojiMutesRevision(observedEmojiMuteRevision()));
+    } else {
+      dispatch({ type: EMOJI_MUTES_LOAD });
+    }
+
     return pending.then(mutes => {
+      if (generation !== documentSyncGeneration || !emojiMuteDocumentReady()) {
+        return null;
+      }
+
       const nextRevision = appliedEmojiMuteRevision();
       const nextSignature = hideReactionSignature(mutes);
       const sameDocument = previousRevision !== null && previousRevision === nextRevision;
@@ -488,10 +508,23 @@ export function syncEmojiMutes(options = {}) {
         sameDocument,
         hideShrunk,
       });
+
+      // On the initial boot no status/notification surface has been mounted.
+      // Loading the rest of the UI must not wait for a notification round trip.
+      if (options.bootstrap) {
+        return mutes;
+      }
+
       return refreshEmojiMuteSurfaces({
         restoreStatuses: hideShrunk && !sameDocument,
         refetchLegacy: hideGrew && !sameDocument,
       })(dispatch, getState);
+    }).catch(error => {
+      if (generation === documentSyncGeneration && !emojiMuteDocumentReady()) {
+        dispatch({ type: EMOJI_MUTES_FAIL });
+      }
+
+      throw error;
     });
   };
 }
