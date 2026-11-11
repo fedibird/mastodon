@@ -41,8 +41,9 @@ jest.mock('../../features/status/components/card', () => () => null);
 jest.mock('../thumbhash', () => () => null);
 jest.mock('mastodon/components/thumbhash', () => () => null);
 
-import { buildReplaceInTextIndex } from 'mastodon/features/emoji/emoji_mute_text';
-import { defaultMediaVisibility as statusMediaVisibility, textForScreenReader } from '../status';
+import { normalizePoll, normalizeStatus } from 'mastodon/actions/importer/normalizer';
+import { buildReplaceInTextIndex, emojiMuteTextParseCount, resetEmojiMuteTextForTests } from 'mastodon/features/emoji/emoji_mute_text';
+import { defaultMediaVisibility as statusMediaVisibility, indexedText, resetScreenReaderIndexForTests, textForScreenReader } from '../status';
 import { defaultMediaVisibility as defaultMediaTileVisibility } from 'mastodon/utils/media_display';
 
 const intl = {
@@ -434,6 +435,105 @@ describe('textForScreenReader emoji mute', () => {
     expect(spoken).not.toContain('[blob]');
     expect(spoken).not.toContain('Owner Face');
     expect(spoken).toContain('Article body');
+  });
+
+  it('reads a normalized poll by id and ignores quote-inline text', () => {
+    const normalized = normalizeStatus({
+      id: 's1',
+      account: { id: 'a1', acct: 'alice', username: 'alice', display_name: 'Alice' },
+      content: '<p>Hello :blob:</p><span class="quote-inline">secret :blob:</span><span class="reference-link-inline">ref :blob:</span>',
+      spoiler_text: '',
+      emojis: [{ id: '10', shortcode: 'blob', url: 'https://cdn.example/10.svg', static_url: 'https://cdn.example/10.png' }],
+      poll: {
+        id: 'p1',
+        options: [{ title: 'Yes :blob:' }, { title: 'No' }],
+        emojis: [{ id: '11', shortcode: 'blob', url: 'https://cdn.example/11.svg', static_url: 'https://cdn.example/11.png' }],
+        expired: false,
+        multiple: false,
+        votes_count: 0,
+        voters_count: null,
+      },
+      quote: { id: 'q1' },
+      media_attachments: [],
+      mentions: [],
+      tags: [],
+      visibility: 'public',
+      sensitive: false,
+      language: 'en',
+      created_at: '2024-01-01T00:00:00.000Z',
+    }, null, '');
+    const storedPoll = fromJS(normalizePoll({
+      id: 'p1',
+      options: [{ title: 'Yes :blob:' }, { title: 'No' }],
+      emojis: [{ id: '11', shortcode: 'blob', url: 'https://cdn.example/11.svg', static_url: 'https://cdn.example/11.png' }],
+      expired: false,
+      multiple: false,
+      votes_count: 0,
+      voters_count: null,
+    }));
+    const status = buildStatus({
+      ...normalized,
+      account: {
+        id: 'a1',
+        acct: 'alice',
+        username: 'alice',
+        display_name: 'Alice',
+        display_name_html: 'Alice',
+      },
+    });
+    const index = muteIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[body]'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[choice]'),
+    ]);
+
+    expect(status.get('poll')).toBe('p1');
+    expect(status.get('search_index')).not.toContain('secret');
+    expect(status.get('search_index')).not.toContain('ref');
+    expect(indexedText(status.get('content'))).not.toContain('secret');
+    expect(indexedText(status.get('content'))).toContain('Hello :blob:');
+
+    const spoken = textForScreenReader(intl, status, false, index, storedPoll);
+
+    expect(spoken).toContain('Hello [body]');
+    expect(spoken).toContain('Yes [choice]');
+    expect(spoken).toContain('No');
+    expect(spoken).not.toContain('secret');
+    expect(spoken).not.toContain(':blob:');
+    expect(storedPoll.getIn(['options', 0, 'title'])).toBe('Yes :blob:');
+    expect(storedPoll.get('id')).toBe('p1');
+    expect(textForScreenReader(intl, status.set('poll', 'p1'), false, muteIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[body]', { replace_in_text: false }),
+    ]), storedPoll)).toContain('Hello :blob:');
+    expect(textForScreenReader(intl, status.set('poll', 'p1'), false, muteIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[body]', { replace_in_text: false }),
+    ]), storedPoll)).toContain('Yes :blob:');
+  });
+
+  it('does not parse status html when no replace_in_text rule is active', () => {
+    resetEmojiMuteTextForTests();
+    resetScreenReaderIndexForTests();
+    const status = buildStatus({
+      content: '<p>Hello :blob:</p>',
+      contentHtml: `<p>Hello ${localImg('10')}</p>`,
+      search_index: 'Hello :blob:',
+    });
+
+    for (let count = 0; count < 1000; count += 1) {
+      textForScreenReader(intl, status);
+    }
+
+    expect(emojiMuteTextParseCount()).toBe(0);
+
+    const index = muteIndex([rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]')]);
+    resetEmojiMuteTextForTests();
+    resetScreenReaderIndexForTests();
+
+    for (let count = 0; count < 1000; count += 1) {
+      textForScreenReader(intl, status, false, index);
+    }
+
+    expect(emojiMuteTextParseCount()).toBeLessThan(5);
+    expect(textForScreenReader(intl, status, false, index)).toContain('[blob]');
   });
 });
 

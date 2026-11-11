@@ -9,7 +9,7 @@ import AbsoluteTimestamp from './absolute_timestamp';
 import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
 import EmojiMutedHtml, { EmojiMutedAria, EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
-import { emojiMutedPlainText, replaceMutedEmojiInPlain, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
+import { countEmojiMuteParse, emojiMutedPlainText, replaceMutedEmojiInPlain, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
 import TimelineCardBody from './timeline_card_body';
@@ -49,26 +49,48 @@ const domParser = new DOMParser();
 // to use the progress bar to show download progress
 import Bundle from '../features/ui/components/bundle';
 
+export const screenReaderPollFromState = (state, status) => {
+  if (!status || typeof status.get !== 'function' || !state || typeof state.getIn !== 'function') {
+    return null;
+  }
+
+  const poll = status.get('poll');
+
+  if (poll && typeof poll.get === 'function') {
+    return poll.get('options') ? poll : null;
+  }
+
+  if (poll === null || poll === undefined || poll === '') {
+    return null;
+  }
+
+  return state.getIn(['polls', poll]) || null;
+};
+
 export const mapStateToProps = (state, props) => {
   let status = props.status;
 
   if (status === null) {
-    return { quote_muted: false };
+    return { quote_muted: false, screenReaderPoll: null };
   }
 
   if (status.get('reblog', null) !== null && typeof status.get('reblog') === 'object') {
     status = status.get('reblog');
   }
 
+  const screenReaderPoll = screenReaderPollFromState(state, status);
+
   if (status.get('quote', null) === null) {
     return {
       quote_muted: status.get('quote_id', null) ? true : false,
+      screenReaderPoll,
     };
   }
   const id = status.getIn(['quote', 'account', 'id'], null);
 
   return {
     quote_muted: id !== null && (state.getIn(['relationships', id, 'muting']) || state.getIn(['relationships', id, 'blocking']) || state.getIn(['relationships', id, 'blocked_by']) || state.getIn(['relationships', id, 'domain_blocking'])) || status.getIn(['quote', 'quote_muted']),
+    screenReaderPoll,
   };
 };
 
@@ -92,11 +114,41 @@ const bilingualText = (source, translated) => {
   return source || translated;
 };
 
-// The same replacements the normalizer applies before search_index textContent.
-const indexedText = (html) => {
-  const prepared = (html || '').replace(/<br\s*\/?>/g, '\n').replace(/<\/p><p>/g, '\n\n');
+const indexedTextCache = new Map();
 
-  return domParser.parseFromString(prepared, 'text/html').documentElement.textContent || '';
+// Same exclusions as normalizeStatus before it stores search_index. Quote,
+// reference, and original-media inlines are not part of the spoken body.
+export const indexedText = (html) => {
+  const source = html || '';
+
+  if (source.indexOf('<') === -1) {
+    return source;
+  }
+
+  const stored = indexedTextCache.get(source);
+
+  if (stored !== undefined) {
+    return stored;
+  }
+
+  countEmojiMuteParse();
+  const prepared = source.replace(/<br\s*\/?>/g, '\n').replace(/<\/p><p>/g, '\n\n');
+  const doc = domParser.parseFromString(prepared, 'text/html').documentElement;
+  doc.querySelector('.quote-inline')?.remove();
+  doc.querySelector('.reference-link-inline')?.remove();
+  doc.querySelector('.original-media-link')?.remove();
+  const text = doc.textContent || '';
+  indexedTextCache.set(source, text);
+
+  if (indexedTextCache.size > 400) {
+    indexedTextCache.delete(indexedTextCache.keys().next().value);
+  }
+
+  return text;
+};
+
+export const resetScreenReaderIndexForTests = () => {
+  indexedTextCache.clear();
 };
 
 const exactPollOptionAt = (value, title) => {
@@ -122,45 +174,87 @@ const exactPollOptionAt = (value, title) => {
   return -1;
 };
 
-const projectPollSuffix = (suffix, status, index) => {
-  let next = suffix || '';
-  const options = status.getIn(['poll', 'options']);
+const pollOptionsOf = (status, poll) => {
+  if (poll && typeof poll.get === 'function' && poll.get('options')) {
+    return poll.get('options');
+  }
+
+  const embedded = status && typeof status.get === 'function' ? status.get('poll') : null;
+
+  if (embedded && typeof embedded.get === 'function' && embedded.get('options')) {
+    return embedded.get('options');
+  }
+
+  return null;
+};
+
+const projectPollSuffix = (suffix, status, index, poll) => {
+  const options = pollOptionsOf(status, poll);
+  const ranges = [];
 
   if (options && typeof options.forEach === 'function') {
     options.forEach(option => {
       const title = option && typeof option.get === 'function' ? (option.get('title') || '') : '';
       const html = option && typeof option.get === 'function' ? (option.get('title_emojified') || '') : '';
-      const at = title && html ? exactPollOptionAt(next, title) : -1;
+      const at = title ? exactPollOptionAt(suffix, title) : -1;
 
       if (at === -1) {
         return;
       }
 
-      const projected = replaceMutedEmojiInPlain(title, html, index);
-
-      if (projected !== title) {
-        next = `${next.slice(0, at)}\n\n${projected}${next.slice(at + title.length + 2)}`;
-      }
+      ranges.push({
+        start: at + 2,
+        end: at + 2 + title.length,
+        text: html ? replaceMutedEmojiInPlain(title, html, index) : title,
+      });
     });
   }
 
-  // Unicode in a choice is its own identity. A custom shortcode without
-  // title_emojified is not, so it stays in the suffix.
-  return replaceUnicodeEmojiInPlainText(next, index);
+  if (ranges.length === 0) {
+    // Unicode in a choice is its own identity. A custom shortcode without
+    // title_emojified is not, so it stays in the suffix.
+    return replaceUnicodeEmojiInPlainText(suffix, index);
+  }
+
+  ranges.sort((left, right) => left.start - right.start);
+  let result = '';
+  let cursor = 0;
+
+  ranges.forEach(range => {
+    if (range.start < cursor) {
+      return;
+    }
+
+    result += replaceUnicodeEmojiInPlainText(suffix.slice(cursor, range.start), index);
+    result += range.text;
+    cursor = range.end;
+  });
+  result += replaceUnicodeEmojiInPlainText(suffix.slice(cursor), index);
+  return result;
 };
 
 // search_index is spoiler + body + poll titles. Replacing the whole body
 // with contentHtml's visible text would drop the poll titles. The body
 // segment uses the post HTML. The suffix keeps its words.
-const projectReadableBody = (sourceBody, status, index) => {
-  const bodyText = indexedText(status.get('content') || '');
+const projectReadableBody = (sourceBody, status, index, poll) => {
+  if (!sourceBody || !index || index.active !== true) {
+    return sourceBody;
+  }
+
   const html = status.get('contentHtml') || '';
+  const options = pollOptionsOf(status, poll);
+
+  if (html.indexOf('emojione') === -1 && (!options || options.size === 0)) {
+    return replaceUnicodeEmojiInPlainText(sourceBody, index);
+  }
+
+  const bodyText = indexedText(status.get('content') || '');
   const at = bodyText ? sourceBody.indexOf(bodyText) : -1;
 
   if (at !== -1) {
     return sourceBody.slice(0, at)
       + replaceMutedEmojiInPlain(bodyText, html, index)
-      + projectPollSuffix(sourceBody.slice(at + bodyText.length), status, index);
+      + projectPollSuffix(sourceBody.slice(at + bodyText.length), status, index, poll);
   }
 
   if (sourceBody.indexOf('\n\n') === -1) {
@@ -172,7 +266,7 @@ const projectReadableBody = (sourceBody, status, index) => {
 
 // Screen-reader copy is derived at read time. search_index and the saved
 // plain strings stay shared. A hidden CW does not contribute its body.
-const screenReaderStatusText = (status, index) => {
+const screenReaderStatusText = (status, index, poll) => {
   const mode = statusTranslationView(status).mode;
   const sourceSpoiler = status.get('spoiler_text') || '';
   const translatedSpoiler = presentText(status.getIn(['translation', 'spoiler_text']));
@@ -211,17 +305,17 @@ const screenReaderStatusText = (status, index) => {
     translatedBody,
     status.get('contentHtml') || '',
     status.getIn(['translation', 'contentHtml']) || '',
-    () => projectReadableBody(sourceBody, status, index),
+    () => projectReadableBody(sourceBody, status, index, poll),
   );
 };
 
-export const textForScreenReader = (intl, status, rebloggedByText = false, index) => {
+export const textForScreenReader = (intl, status, rebloggedByText = false, index, poll) => {
   const externalIdentity = externalIdentityOf(status);
 
   if (externalIdentity) {
     const externalValues = [
       replaceUnicodeEmojiInPlainText(externalIdentityReaderText(intl, externalIdentity), index),
-      screenReaderStatusText(status, index),
+      screenReaderStatusText(status, index, poll),
       intl.formatDate(status.get('created_at'), { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }),
     ];
 
@@ -236,7 +330,7 @@ export const textForScreenReader = (intl, status, rebloggedByText = false, index
 
   const values = [
     displayName.length === 0 ? status.getIn(['account', 'acct']).split('@')[0] : emojiMutedPlainText(displayName, status.getIn(['account', 'display_name_html']) || '', index),
-    screenReaderStatusText(status, index),
+    screenReaderStatusText(status, index, poll),
     intl.formatDate(status.get('created_at'), { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }),
     status.getIn(['account', 'acct']),
   ];
@@ -806,7 +900,7 @@ class Status extends ImmutablePureComponent {
     this.node = c;
   }
 
-  timelineScreenReaderLabel = index => textForScreenReader(this.props.intl, this.screenReaderStatus, this.screenReaderBoost, index);
+  timelineScreenReaderLabel = index => textForScreenReader(this.props.intl, this.screenReaderStatus, this.screenReaderBoost, index, this.screenReaderPoll);
 
   emojiRef = c => {
     if (c === this.emoji_node) {
@@ -974,6 +1068,7 @@ class Status extends ImmutablePureComponent {
 
     this.screenReaderStatus = status;
     this.screenReaderBoost = boosterDescription;
+    this.screenReaderPoll = this.props.screenReaderPoll;
 
     return (
       <HotKeys handlers={{ open: this.handleHotkeyOpen, favourite: this.handleHotkeyFavourite, moveUp: this.handleHotkeyMoveUp, moveDown: this.handleHotkeyMoveDown }}>
@@ -1496,6 +1591,7 @@ class Status extends ImmutablePureComponent {
 
     this.screenReaderStatus = status;
     this.screenReaderBoost = rebloggedByText;
+    this.screenReaderPoll = this.props.screenReaderPoll;
 
     return (
       <HotKeys handlers={handlers}>

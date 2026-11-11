@@ -68,7 +68,7 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import { HotKeys } from 'react-hotkeys';
 import { boostModal, deleteModal, confirmDomainBlock, enableStatusReference } from '../../initial_state';
 import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from '../ui/util/fullscreen';
-import { textForScreenReader, defaultMediaVisibility, nextShownMediaState } from '../../components/status';
+import { textForScreenReader, defaultMediaVisibility, nextShownMediaState, screenReaderPollFromState } from '../../components/status';
 import { EmojiMutedAria } from '../../components/emoji_muted_html';
 import Icon from 'mastodon/components/icon';
 import DetailedHeaderContaier from './containers/header_container';
@@ -185,6 +185,7 @@ const makeMapStateToProps = () => {
       columnWidth: columnWidth ?? defaultColumnWidth,
       emojiReactioned: myCount > 0,
       reactionLimitReached: myCount >= maxReactionsPerAccount,
+      screenReaderPoll: status ? screenReaderPollFromState(state, getProper(status)) : null,
     };
   };
 
@@ -617,7 +618,7 @@ export class Status extends ImmutablePureComponent {
     this.setState({ fullscreen: isFullscreen() });
   }
 
-  screenReaderLabel = index => textForScreenReader(this.props.intl, this.screenReaderStatus, false, index);
+  screenReaderLabel = index => textForScreenReader(this.props.intl, this.screenReaderStatus, false, index, this.screenReaderPoll);
 
   handleWidthChange = (value) => {
     const { columnId, dispatch } = this.props;
@@ -654,6 +655,7 @@ export class Status extends ImmutablePureComponent {
     const referenceCount  = enableStatusReference ? status.get('status_references_count', 0) - (status.get('status_reference_ids', ImmutableList()).includes(status.get('quote_id')) ? 1 : 0) : 0;
 
     this.screenReaderStatus = status;
+    this.screenReaderPoll = this.props.screenReaderPoll;
 
     const handlers = {
       moveUp: this.handleHotkeyMoveUp,

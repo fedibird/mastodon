@@ -60,3 +60,33 @@ RSpec.describe Api::V1::Statuses::HistoriesController, type: :controller do
     expect(legacy_json[:content]).to include(':blob:')
   end
 end
+
+RSpec.describe StatusEdit, type: :model do
+  let(:status) { Fabricate(:status, text: 'remote history') }
+
+  def selects_for(custom_emojis_sql)
+    custom_emojis_sql.select { |sql| sql.include?('custom_emojis') && sql.start_with?('SELECT') }
+  end
+
+  it 'loads every remote identity pair in one query and does not mix domains' do
+    included = Array.new(10) { |index| Fabricate(:custom_emoji, shortcode: 'blob', domain: "remote#{index}.example") }
+    decoy = Fabricate(:custom_emoji, shortcode: 'blob', domain: 'other.example')
+    identities = included.map { |emoji| { 'id' => nil, 'shortcode' => 'blob', 'domain' => emoji.domain } }
+    edits = Array.new(2) do
+      described_class.new(status: status, text: 'hello :blob:', spoiler_text: '', emoji_identities: identities)
+    end
+    queries = []
+    callback = lambda do |_name, _start, _finish, _id, payload|
+      queries << payload[:sql] if payload[:sql]
+    end
+
+    loaded = ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+      edits.map(&:emojis)
+    end
+
+    expect(selects_for(queries).size).to eq(2)
+    expect(loaded.first.map(&:domain)).to match_array(included.map(&:domain))
+    expect(loaded.first.map(&:id)).not_to include(decoy.id)
+    expect(loaded.second.map(&:id)).to match_array(loaded.first.map(&:id))
+  end
+end

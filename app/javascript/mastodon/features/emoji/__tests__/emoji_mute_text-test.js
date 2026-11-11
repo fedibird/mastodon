@@ -13,6 +13,7 @@ import {
   emojiMutedPlainText,
   replaceEmojiInDisplayHtml,
   replaceInTextIndexFromRules,
+  replaceMutedEmojiInPlain,
   replaceUnicodeEmojiInPlainText,
   replaceUnicodeEmojiInPreviewHtml,
   resetEmojiMuteTextForTests,
@@ -552,6 +553,29 @@ describe('unicode preview text', () => {
     expect(replaceUnicodeEmojiInPreviewHtml('<b>Hi</b> &#x1F44D;', buildReplaceInTextIndex([
       unicodeRule(THUMBS, '[thumb]'),
     ]))).toBe('<b>Hi</b> [thumb]');
+  });
+
+  it('inserts each replacement once and leaves a literal shortcode that was not an image', () => {
+    const image = (id, shortcode, domain = '') => (
+      `<img class="emojione custom-emoji" alt=":${shortcode}:" data-shortcode="${shortcode}" data-domain="${domain}" data-emoji-id="${id}" src="https://cdn.example/${id || domain}.svg">`
+    );
+    const html = `<p>${image('10', 'a')}${image('11', 'b')}</p>`;
+    const plain = ':a: :b: literal :a:';
+    const index = buildReplaceInTextIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'a' }, ':b:'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'b' }, '[B]'),
+    ]);
+    const mixedIds = `<p>${image('10', 'a')}${image('12', 'a')}</p>`;
+    const mixedDomains = `<p>${image('', 'blob', 'a.example')}${image('', 'blob', 'b.example')}</p>`;
+
+    expect(replaceMutedEmojiInPlain(plain, html, index)).toBe(':b: [B] literal :a:');
+    expect(replaceMutedEmojiInPlain(':a: :a:', mixedIds, buildReplaceInTextIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'a' }, ':b:'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '12', shortcode: 'a' }, '[other]'),
+    ]))).toBe(':a: :a:');
+    expect(replaceMutedEmojiInPlain(':blob: :blob:', mixedDomains, buildReplaceInTextIndex([
+      rule({ kind: 'custom', scope: 'remote', domain: 'a.example', shortcode: 'blob' }, '[a]'),
+    ]))).toBe(':blob: :blob:');
   });
 
   it('compares unicode rules by first code point instead of every rule at every character', () => {

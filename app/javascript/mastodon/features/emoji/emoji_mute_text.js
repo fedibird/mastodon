@@ -48,6 +48,8 @@ let textCache = new Map();
 let textCacheSignature = INACTIVE_INDEX.signature;
 let previewCache = new Map();
 let previewCacheSignature = INACTIVE_INDEX.signature;
+let customHtmlCache = new Map();
+let customHtmlCacheSignature = INACTIVE_INDEX.signature;
 const unicodeIndexCache = new WeakMap();
 let unicodeComparisons = 0;
 let parseCount = 0;
@@ -635,6 +637,37 @@ const unicodeIndexFor = index => {
 
 const codePointSize = codePoint => (codePoint > 0xFFFF ? 2 : 1);
 
+const matchUnicodeAt = (text, cursor, buckets) => {
+  if (!buckets) {
+    return null;
+  }
+
+  const candidates = buckets.get(text.codePointAt(cursor));
+
+  if (!candidates) {
+    return null;
+  }
+
+  for (let indexInList = 0; indexInList < candidates.length; indexInList += 1) {
+    const sequence = candidates[indexInList];
+    unicodeComparisons += 1;
+
+    if (!text.startsWith(sequence.native, cursor)) {
+      continue;
+    }
+
+    const after = cursor + sequence.native.length;
+
+    if (codePointBefore(text, cursor) === 0x200D || continuesEmojiSequence(text, after, sequence.native)) {
+      continue;
+    }
+
+    return sequence;
+  }
+
+  return null;
+};
+
 // One left-to-right pass. A longer sequence that shares the first code point
 // wins. A skin tone, ZWJ, or variation selector keeps a shorter prefix, and
 // the replacement is not scanned again.
@@ -653,32 +686,10 @@ const replaceUnicodeEmojiSequences = (text, index, mapReplacement) => {
   let cursor = 0;
 
   while (cursor < text.length) {
-    const codePoint = text.codePointAt(cursor);
-    const candidates = buckets.get(codePoint);
-    let matched = null;
-
-    if (candidates) {
-      for (let indexInList = 0; indexInList < candidates.length; indexInList += 1) {
-        const sequence = candidates[indexInList];
-        unicodeComparisons += 1;
-
-        if (!text.startsWith(sequence.native, cursor)) {
-          continue;
-        }
-
-        const after = cursor + sequence.native.length;
-
-        if (codePointBefore(text, cursor) === 0x200D || continuesEmojiSequence(text, after, sequence.native)) {
-          continue;
-        }
-
-        matched = sequence;
-        break;
-      }
-    }
+    const matched = matchUnicodeAt(text, cursor, buckets);
 
     if (!matched) {
-      const size = codePointSize(codePoint);
+      const size = codePointSize(text.codePointAt(cursor));
       result += text.slice(cursor, cursor + size);
       cursor += size;
       continue;
@@ -794,11 +805,27 @@ export function replaceUnicodeEmojiInPreviewHtml(text, index) {
   return next;
 }
 
+const SHORTCODE_TOKEN = /^[A-Za-z0-9_]{1,64}$/;
+
 const mutedCustomInHtml = (html, index) => {
-  if (!index || index.active !== true || typeof html !== 'string' || html.indexOf('emojione') === -1) {
+  if (!index || index.active !== true || typeof html !== 'string' || html.indexOf('custom-emoji') === -1) {
     return [];
   }
 
+  const signature = index.signature || '';
+
+  if (customHtmlCacheSignature !== signature) {
+    customHtmlCache = new Map();
+    customHtmlCacheSignature = signature;
+  }
+
+  const stored = customHtmlCache.get(html);
+
+  if (stored) {
+    return stored;
+  }
+
+  parseCount += 1;
   const template = document.createElement('template');
   template.innerHTML = html;
   const images = template.content.querySelectorAll('img.custom-emoji');
@@ -814,59 +841,110 @@ const mutedCustomInHtml = (html, index) => {
 
     const replacement = replacementForImage(img, index);
     const previous = seen.get(shortcode);
-    const record = {
-      shortcode,
-      emojiId: img.getAttribute('data-emoji-id') || '',
-      domain: img.getAttribute('data-domain') || '',
-      replacement,
-      ambiguous: false,
-    };
+    const identity = `${img.getAttribute('data-emoji-id') || ''}\n${img.getAttribute('data-domain') || ''}`;
 
     if (!previous) {
-      seen.set(shortcode, record);
+      seen.set(shortcode, {
+        shortcode,
+        identity,
+        replacement,
+        count: replacement === undefined ? 0 : 1,
+        ambiguous: false,
+      });
       continue;
     }
 
-    if (previous.emojiId !== record.emojiId || previous.domain !== record.domain || (previous.replacement === undefined) !== (replacement === undefined)) {
+    if (previous.identity !== identity || (previous.count === 0) !== (replacement === undefined)) {
       previous.ambiguous = true;
+      continue;
+    }
+
+    if (replacement !== undefined) {
+      previous.count += 1;
     }
   }
 
   const list = [];
 
   seen.forEach(record => {
-    if (record.ambiguous || record.replacement === undefined) {
+    if (record.ambiguous || record.count === 0) {
       return;
     }
 
-    list.push(record);
+    list.push({
+      shortcode: record.shortcode,
+      replacement: record.replacement,
+      count: record.count,
+    });
   });
+  customHtmlCache.set(html, list);
+
+  if (customHtmlCache.size > CACHE_LIMIT) {
+    customHtmlCache.delete(customHtmlCache.keys().next().value);
+  }
 
   return list;
 };
 
-// Change only the muted emoji inside `plain`. The rest of the string, including
-// a poll suffix the caller did not pass in, stays. A shortcode shared by two
-// different rows in the same HTML is left alone.
+// One pass over the original plain text. A replacement is copied through and
+// not scanned, so a later shortcode rule cannot rewrite it. A `:shortcode:`
+// is consumed only as many times as the HTML actually showed that muted image.
 export function replaceMutedEmojiInPlain(plain, html, index) {
-  if (typeof plain !== 'string') {
+  if (typeof plain !== 'string' || plain === '' || !index || index.active !== true) {
     return plain;
   }
 
-  const withUnicode = replaceUnicodeEmojiInPlainText(plain, index);
-  const custom = mutedCustomInHtml(html, index);
+  const customs = mutedCustomInHtml(html, index);
+  const buckets = unicodeIndexFor(index);
+  const counts = new Map();
 
-  if (custom.length === 0) {
-    return withUnicode;
-  }
+  customs.forEach(record => {
+    counts.set(record.shortcode, record.count);
+  });
+  const replacementFor = new Map();
 
-  let next = withUnicode;
-
-  custom.forEach(record => {
-    next = next.split(`:${record.shortcode}:`).join(record.replacement);
+  customs.forEach(record => {
+    replacementFor.set(record.shortcode, record.replacement);
   });
 
-  return next;
+  if (counts.size === 0 && (!buckets || buckets.size === 0)) {
+    return plain;
+  }
+
+  let result = '';
+  let cursor = 0;
+
+  while (cursor < plain.length) {
+    if (plain.charAt(cursor) === ':') {
+      const end = plain.indexOf(':', cursor + 1);
+
+      if (end !== -1) {
+        const shortcode = plain.slice(cursor + 1, end);
+        const left = counts.get(shortcode) || 0;
+
+        if (left > 0 && SHORTCODE_TOKEN.test(shortcode)) {
+          result += replacementFor.get(shortcode);
+          counts.set(shortcode, left - 1);
+          cursor = end + 1;
+          continue;
+        }
+      }
+    }
+
+    const matched = matchUnicodeAt(plain, cursor, buckets);
+
+    if (matched) {
+      result += matched.replacement;
+      cursor += matched.native.length;
+      continue;
+    }
+
+    const size = codePointSize(plain.codePointAt(cursor));
+    result += plain.slice(cursor, cursor + size);
+    cursor += size;
+  }
+
+  return result;
 }
 
 export function emojiMutedPlainLabel(plain, html, index) {
@@ -929,12 +1007,18 @@ export function resetEmojiMuteTextForTests() {
   cache = new Map();
   textCache = new Map();
   previewCache = new Map();
+  customHtmlCache = new Map();
+  customHtmlCacheSignature = INACTIVE_INDEX.signature;
   unicodeComparisons = 0;
   parseCount = 0;
 }
 
 export function emojiMuteUnicodeComparisonCount() {
   return unicodeComparisons;
+}
+
+export function countEmojiMuteParse() {
+  parseCount += 1;
 }
 
 export function emojiMuteTextParseCount() {

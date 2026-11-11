@@ -140,8 +140,18 @@ class StatusEdit < ApplicationRecord
     rows = Array(emoji_identities)
     return [] if rows.empty?
 
-    local_ids = rows.filter_map { |row| identity_value(row, 'id') if identity_value(row, 'domain').blank? }
-    found_local = CustomEmoji.local.where(id: local_ids).index_by { |emoji| emoji.id.to_s }
+    local_ids = rows.filter_map { |row| identity_value(row, 'id') if identity_value(row, 'domain').blank? && identity_value(row, 'id').present? }
+    found_local = if local_ids.empty?
+                    {}
+                  else
+                    CustomEmoji.local.where(id: local_ids).index_by { |emoji| emoji.id.to_s }
+                  end
+    remote_pairs = rows.filter_map do |row|
+      domain = identity_value(row, 'domain').presence
+      shortcode = identity_value(row, 'shortcode')
+      [domain, shortcode] if domain && shortcode.present?
+    end.uniq
+    found_remote = remote_emojis_by_pair(remote_pairs)
 
     rows.filter_map do |row|
       domain = identity_value(row, 'domain').presence
@@ -149,11 +159,23 @@ class StatusEdit < ApplicationRecord
       next if shortcode.blank?
 
       if domain
-        CustomEmoji.find_by(domain: domain, shortcode: shortcode)
+        found_remote[[domain, shortcode]]
       else
         found_local[identity_value(row, 'id').to_s]
       end
     end
+  end
+
+  def remote_emojis_by_pair(pairs)
+    return {} if pairs.empty?
+
+    first, *rest = pairs
+    scope = CustomEmoji.where(domain: first.first, shortcode: first.last)
+    rest.each do |domain, shortcode|
+      scope = scope.or(CustomEmoji.where(domain: domain, shortcode: shortcode))
+    end
+
+    scope.index_by { |emoji| [emoji.domain, emoji.shortcode] }
   end
 
   def identity_value(row, key)
