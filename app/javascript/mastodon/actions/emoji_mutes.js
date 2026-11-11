@@ -475,6 +475,14 @@ export function restoreVisibleEmojiMuteStatus(id) {
 
 let documentSyncGeneration = 0;
 
+// A viewer boundary invalidates both in-flight document continuations and
+// queued status/notification refreshes. Resetting only the document module
+// would leave stale surface work live in the previous viewer's Redux tree.
+export function invalidateEmojiMuteAsyncWork() {
+  documentSyncGeneration += 1;
+  resetEmojiMuteSurfaceForTests();
+}
+
 // A stream event can make the local document stale before the new GET resolves.
 // An older asynchronous continuation must never republish earlier rules.
 export function syncEmojiMutes(options = {}) {
