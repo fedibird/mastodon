@@ -167,7 +167,10 @@ class StatusEdit < ApplicationRecord
       if domain
         found_remote[[domain, shortcode]]
       else
-        found_local[identity_value(row, 'id').to_s]
+        # The saved id and the saved shortcode are one identity. A later
+        # rename of that row must not emojify a different literal.
+        emoji = found_local[identity_value(row, 'id').to_s]
+        emoji if emoji&.shortcode == shortcode
       end
     end
   end

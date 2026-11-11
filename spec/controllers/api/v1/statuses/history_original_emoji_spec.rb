@@ -53,4 +53,21 @@ RSpec.describe Api::V1::Statuses::HistoriesController, type: :controller do
     expect(original[:content]).not_to include(replacement.id.to_s)
     expect(posted.edits.first.emoji_identities).to eq []
   end
+
+  it 'does not treat a renamed local shortcode as the historical emoji' do
+    posted = PostStatusService.new.call(user.account, text: ':blob: :new:', visibility: 'public')
+    UpdateStatusService.new.call(posted, user.account.id, text: ':blob: :new: edited')
+    emoji.update!(shortcode: 'new')
+
+    get :show, params: { status_id: posted.id }
+
+    original = body_as_json.find { |item| item[:content].include?(':blob:') && !item[:content].include?('edited') }
+
+    expect(response).to have_http_status(200)
+    expect(original[:emojis]).to eq []
+    expect(original[:content]).to include(':blob:')
+    expect(original[:content]).to include(':new:')
+    expect(original[:content]).not_to include(emoji.id.to_s)
+    expect(posted.edits.first.emoji_identities).to include(hash_including('id' => emoji.id.to_s, 'shortcode' => 'blob'))
+  end
 end

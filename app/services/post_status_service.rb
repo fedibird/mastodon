@@ -176,12 +176,13 @@ class PostStatusService < BaseService
     mention_service = ProcessMentionsService.new
     explicit_mentions = @status.personal_visibility? ? nil : mention_service.prepare(@status, @circle)
     safeguard_mentions!(@status)
+    # Emoji lookup hits the cache. Keep it outside the insert transaction.
+    @status.assign_posted_emoji_identities!(poll_options: poll_option_titles)
 
     # Status, capability token, mention rows, and a delegated audit row
     # commit together. A failed mention or audit write rolls the status
     # back before publish or distribution starts.
     ApplicationRecord.transaction do
-      @status.assign_posted_emoji_identities!(poll_options: poll_option_titles)
       @status.save!
       @status.capability_tokens.create! if @status.limited_visibility?
       mention_service.persist_mentions!(@status) if explicit_mentions

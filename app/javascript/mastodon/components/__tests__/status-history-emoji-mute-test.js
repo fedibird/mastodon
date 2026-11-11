@@ -266,4 +266,31 @@ describe('status history replace_in_text', () => {
     expect(body.textContent).not.toContain('[new]');
     expect(original.get('emojis').size).toBe(0);
   });
+
+  it('leaves a literal shortcode alone when the historical emoji was renamed', () => {
+    const original = revision({
+      content: '<p>:blob: :new:</p>',
+      spoiler_text: '',
+      emojis: [],
+      poll: null,
+    });
+    const store = makeStore(fromJS([original]));
+    const { container } = render(
+      <Provider store={store}>
+        <StatusHistoryRevision revision={original} account={account()} onClose={jest.fn()} />
+      </Provider>,
+    );
+
+    apply(store, [
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'new' }, '[new]'),
+    ]);
+
+    const body = container.querySelector('.status__content__text');
+
+    expect(body.querySelector('[data-emoji-id]')).toBeNull();
+    expect(body.querySelector('img.custom-emoji')).toBeNull();
+    expect(body.textContent).toContain(':blob:');
+    expect(body.textContent).toContain(':new:');
+    expect(body.textContent).not.toContain('[new]');
+  });
 });
