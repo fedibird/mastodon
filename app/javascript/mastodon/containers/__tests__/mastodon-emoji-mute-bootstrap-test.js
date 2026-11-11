@@ -49,6 +49,7 @@ jest.mock('mastodon/containers/mastodon_subscriptions', () => ({ startMastodonSu
 jest.mock('mastodon/features/emoji/emoji_mute_store', () => ({ resetEmojiMuteSession: jest.fn() }));
 jest.mock('mastodon/actions/emoji_mutes', () => ({
   EMOJI_MUTES_RESET: 'EMOJI_MUTES_RESET',
+  invalidateEmojiMuteAsyncWork: jest.fn(),
   syncEmojiMutes: jest.fn(() => () => mockRequest.promise),
 }));
 jest.mock('mastodon/locales', () => ({ getLocale: () => ({ localeData: [], messages: {} }) }));
