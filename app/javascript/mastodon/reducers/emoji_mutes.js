@@ -60,7 +60,7 @@ export default function emojiMutes(state = initialState, action) {
     return initialState;
   case EMOJI_MUTES_LOAD:
     // Revalidation of an already current document need not hide the UI.
-    return state.get('appliedRevision') === null || older(state.get('appliedRevision'), state.get('revision'))
+    return action.verify || state.get('appliedRevision') === null || older(state.get('appliedRevision'), state.get('revision'))
       ? state.set('phase', 'loading')
       : state;
   case EMOJI_MUTES_FAIL:
