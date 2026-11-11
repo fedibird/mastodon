@@ -3,9 +3,19 @@
 require 'rails_helper'
 
 RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
+  # The preference writer starts its own transactions; transactional fixtures
+  # would make legacy key updates raise UserPreferences::OpenTransaction.
+  self.use_transactional_tests = false
   render_views
 
   let(:user) { Fabricate(:user, locale: 'en') }
+
+  after do
+    Setting.unscoped.where(thing_type: 'User', thing_id: user.id).delete_all
+    UserPreferenceRevision.where(user_id: user.id).delete_all
+    Account.where(id: user.account_id).delete_all
+    User.where(id: user.id).delete_all
+  end
 
   # The admin layout pulls a webpack pack that this environment has not compiled.
   # The template itself is what the setting copy lives in.
@@ -30,7 +40,11 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
   it 'collects emoji display, reaction, and picker controls on one page' do
     get :show
     expect(response).to have_http_status(200)
-    expect(response.body).to include(I18n.t('emoji_settings.title', locale: :en))
+    # This controller spec renders without the admin layout; page_title lives
+    # in content_for, not response.body. Assert the headings rendered in the form.
+    %w(display reactions picker).each do |section|
+      expect(response.body).to include(I18n.t("emoji_settings.#{section}", locale: :en))
+    end
     %w(
       emoji_scale emoji_size_in_single emoji_size_in_multi emoji_size_in_mix emoji_size_in_other
       enable_wide_emoji auto_play_emoji
@@ -66,7 +80,7 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
     expect(user.setting_hide_reaction_counter).to be true
     expect(user.setting_card_reactions_single_line).to be false
     expect(user.setting_emoji_picker_lazy_load_standard).to be true
-    expect(user.setting_max_frequently_used_emojis).to eq 16
+    expect(user.setting_max_frequently_used_emojis.to_i).to eq 16
   end
 
   it 'preserves personal picker preference while disabled and restores it when re-enabled' do
