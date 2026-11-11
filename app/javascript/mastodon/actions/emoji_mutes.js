@@ -482,12 +482,15 @@ export function syncEmojiMutes(options = {}) {
     const generation = ++documentSyncGeneration;
     const previousRevision = appliedEmojiMuteRevision();
     const previousSignature = hideReactionSignature(currentEmojiMutes());
-    const pending = options.changed ? noteEmojiMutesChanged(options.changed) : loadEmojiMutes();
+    const pending = options.changed ? noteEmojiMutesChanged(options.changed) : loadEmojiMutes({
+      force: options.verify === true,
+      strict: options.verify === true,
+    });
 
     if (options.changed) {
       dispatch(importEmojiMutesRevision(observedEmojiMuteRevision()));
     } else {
-      dispatch({ type: EMOJI_MUTES_LOAD });
+      dispatch({ type: EMOJI_MUTES_LOAD, verify: options.verify === true });
     }
 
     return pending.then(mutes => {
