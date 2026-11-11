@@ -62,6 +62,35 @@ describe('emoji mute async safety (B5)', () => {
     });
   });
 
+  it('sets a bounded GET timeout and exposes a retryable error when Axios times out', async () => {
+    let state = reducer(undefined, { type: '@@INIT' });
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, () => ImmutableMap({ emojiMutes: state }));
+      }
+
+      state = reducer(state, action);
+      return action;
+    };
+    const getState = () => ImmutableMap({ emojiMutes: state });
+    const error = new Error('timeout of 20000ms exceeded');
+    error.code = 'ECONNABORTED';
+    api().get.mockRejectedValueOnce(error);
+
+    await expect(syncEmojiMutes({ bootstrap: true })(dispatch, getState)).rejects.toThrow('timeout');
+
+    expect(api().get).toHaveBeenCalledWith(
+      '/api/v1/fedibird/emoji_mutes',
+      expect.objectContaining({ timeout: 20000 }),
+    );
+    expect(state.get('phase')).toBe('error');
+    expect(emojiMuteDocumentReady()).toBe(false);
+
+    api().get.mockResolvedValueOnce({ data: { revision: '1', emoji_mutes: [] } });
+    await syncEmojiMutes({ bootstrap: true })(dispatch, getState);
+    expect(state.get('phase')).toBe('ready');
+  });
+
   it('discards the late first GET when a newer streamed revision wins', async () => {
     const first = deferred();
     const second = deferred();
