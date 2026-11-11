@@ -1,21 +1,40 @@
 // Dedicated portal host for the shared emoji actions menu.
 //
 // Mobile emoji pickers live inside `.modal-root` (z-index 9999). react-overlays
-// Overlay defaults to `document.body`, so the menu competes with the modal at
-// the same stacking level and can paint underneath it. Desktop compose pickers
-// also open while `.ui` has `pointer-events: none` via `dropdownMenuIsOpen`;
-// mounting the Overlay into a body child that is not under `.ui` keeps menu
-// clicks hittable without relying on an arbitrary mega z-index on the menu
-// itself.
+// Overlay defaults to `document.body`, so the menu competes with the modal
+// and can paint underneath it. Desktop pickers open while `.ui` has
+// `pointer-events: none`; keeping the overlay outside `.ui` makes its menu
+// clickable. In authenticated WebUI we mount it as a sibling of `.ui` inside
+// the detachable privacy portal; other contexts still use `document.body`.
 
 export const EMOJI_ACTIONS_OVERLAY_ROOT_ID = 'emoji-actions-overlay-root';
+
+// The authenticated WebUI's privacy portal may be detached during a stale
+// mute revision. Menu items mounted in document.body would escape that gate.
+// Keep the menu root as a sibling of .ui inside the same detachable portal,
+// preserving the established modal z-index and pointer-events behavior.
+let privacyContainer = null;
+
+export function setEmojiActionsOverlayPrivacyContainer(node) {
+  privacyContainer = node || null;
+
+  if (privacyContainer && typeof document !== 'undefined') {
+    const root = document.getElementById(EMOJI_ACTIONS_OVERLAY_ROOT_ID);
+
+    if (root && root.parentNode !== privacyContainer) {
+      privacyContainer.appendChild(root);
+    }
+  }
+}
 
 export function getEmojiActionsOverlayRoot() {
   if (typeof document === 'undefined') {
     return null;
   }
 
-  let root = document.getElementById(EMOJI_ACTIONS_OVERLAY_ROOT_ID);
+  // document.getElementById cannot see a DOM tree detached for privacy.
+  let root = privacyContainer?.querySelector('#' + EMOJI_ACTIONS_OVERLAY_ROOT_ID) ||
+    document.getElementById(EMOJI_ACTIONS_OVERLAY_ROOT_ID);
 
   if (!root) {
     root = document.createElement('div');
@@ -26,7 +45,11 @@ export function getEmojiActionsOverlayRoot() {
     root.style.position = 'relative';
     root.style.zIndex = '10000';
     root.style.pointerEvents = 'none';
-    document.body.appendChild(root);
+  }
+
+  const host = privacyContainer || document.body;
+  if (root.parentNode !== host) {
+    host.appendChild(root);
   }
 
   return root;
@@ -37,7 +60,8 @@ export function resetEmojiActionsOverlayRootForTests() {
     return;
   }
 
-  const root = document.getElementById(EMOJI_ACTIONS_OVERLAY_ROOT_ID);
+  const root = privacyContainer?.querySelector('#' + EMOJI_ACTIONS_OVERLAY_ROOT_ID) ||
+    document.getElementById(EMOJI_ACTIONS_OVERLAY_ROOT_ID);
 
   if (root && root.parentNode) {
     root.parentNode.removeChild(root);

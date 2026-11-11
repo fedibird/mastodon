@@ -299,6 +299,14 @@ class Dropdown extends React.PureComponent {
     return this.target;
   }
 
+  findOverlayContainer = () => {
+    // Keep opened dropdowns inside the same detachable privacy subtree as
+    // the WebUI; a body-level react-overlays portal would otherwise remain
+    // visible when the mute document is stale. Outside the WebUI retain the
+    // existing document.body behavior.
+    return this.target?.closest('.emoji-mutes-privacy-portal') || document.body;
+  };
+
   componentWillUnmount = () => {
     if (this.state.id === this.props.openDropdownId) {
       this.handleClose();
@@ -377,7 +385,7 @@ class Dropdown extends React.PureComponent {
           {button}
         </span>
 
-        <Overlay show={open} offset={[5, 5]} placement='bottom' flip target={this.findTarget} popperConfig={popperConfig}>
+        <Overlay show={open} offset={[5, 5]} placement='bottom' flip target={this.findTarget} container={this.findOverlayContainer} popperConfig={popperConfig}>
           {({ props, arrowProps, placement }) => (
             <div {...props}>
               <div className={`dropdown-animation dropdown-menu ${placement}`}>
