@@ -144,6 +144,37 @@ describe('emoji mute async safety (B5)', () => {
     expect(reducer(state, { type: EMOJI_MUTES_RESET })).toEqual(reducer(undefined, { type: '@@INIT' }));
   });
 
+  it('shows a retryable Redux error instead of spinning on a stale successful GET', async () => {
+    api().get.mockResolvedValueOnce({ data: document('4', 'original') });
+    await loadEmojiMutes();
+
+    let state = reducer(undefined, { type: EMOJI_MUTES_APPLY, revision: '4', mutes: document('4', 'original').emoji_mutes });
+    const actions = [];
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, () => ImmutableMap({ emojiMutes: state }));
+      }
+
+      actions.push(action);
+      state = reducer(state, action);
+      return action;
+    };
+
+    api().get.mockResolvedValueOnce({ data: document('4', 'stale') });
+    await syncEmojiMutes({ changed: { revision: '5' }, bootstrap: true })(dispatch, () => ImmutableMap({ emojiMutes: state }));
+
+    expect(state.get('revision')).toBe('5');
+    expect(state.get('appliedRevision')).toBe('4');
+    expect(state.get('phase')).toBe('error');
+    expect(actions.map(action => action.type)).toContain(EMOJI_MUTES_FAIL);
+    expect(emojiMuteDocumentReady()).toBe(false);
+
+    api().get.mockResolvedValueOnce({ data: document('5', 'current') });
+    await syncEmojiMutes({ bootstrap: true })(dispatch, () => ImmutableMap({ emojiMutes: state }));
+    expect(state.get('phase')).toBe('ready');
+    expect(state.get('appliedRevision')).toBe('5');
+  });
+
   it('only publishes the latest complete document from overlapping sync thunks', async () => {
     const one = deferred();
     const two = deferred();
