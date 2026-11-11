@@ -155,6 +155,7 @@ Rails.application.routes.draw do
     end
 
     namespace :custom_emojis do
+      resource :settings, only: [:show, :update]
       resource :personal_set, only: :show, controller: :personal_sets
       resource :mutes, only: :show, controller: :mutes
     end

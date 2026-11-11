@@ -57,12 +57,15 @@ describe Settings::Preferences::AppearanceController do
       expect(body).to include(I18n.t('appearance.media_display', locale: :ja))
       expect(body).to include(I18n.t('appearance.preview_card', locale: :ja))
       expect(body.index(I18n.t('appearance.card_display', locale: :ja))).to be < body.index(I18n.t('appearance.preview_card', locale: :ja))
-      expect(body).to include('user_setting_card_reactions_single_line')
+      expect(body).not_to include('user_setting_card_reactions_single_line')
       expect(body).to include('user_setting_card_collapse_long_text')
       expect(body).not_to include('user_setting_card_timeline_scroll_zone')
       expect(body).to include('user_setting_media_display_shape')
       expect(body).to include('user_setting_media_display_size')
-      expect(body).to include(I18n.t('simple_form.labels.defaults.setting_card_reactions_single_line', locale: :ja))
+      expect(body).not_to include('user_setting_emoji_scale')
+      expect(body).not_to include('user_setting_content_emoji_reaction_size')
+      expect(body).not_to include('user_setting_auto_play_emoji')
+      expect(body).not_to include(I18n.t('simple_form.labels.defaults.setting_card_reactions_single_line', locale: :ja))
       expect(body).to include(I18n.t('simple_form.labels.defaults.setting_card_collapse_long_text', locale: :ja))
     end
   end
