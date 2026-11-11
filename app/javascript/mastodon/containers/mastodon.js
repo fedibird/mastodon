@@ -14,6 +14,7 @@ import { startMastodonSubscriptions } from './mastodon_subscriptions';
 import { IntlProvider, addLocaleData, FormattedMessage } from 'react-intl';
 import { syncEmojiMutes, invalidateEmojiMuteAsyncWork, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
 import { resetEmojiMuteSession } from '../features/emoji/emoji_mute_store';
+import { setEmojiActionsOverlayPrivacyContainer } from '../features/emoji/emoji_actions/overlay_root';
 import { getLocale } from '../locales';
 import initialState from '../initial_state';
 import ErrorBoundary from '../components/error_boundary';
@@ -112,6 +113,8 @@ export default class Mastodon extends React.PureComponent {
 
   componentDidMount() {
     this.mounted = true;
+    this.uiPortalRoot.className = 'emoji-mutes-privacy-portal';
+    setEmojiActionsOverlayPrivacyContainer(this.uiPortalRoot);
     this.unsubscribeEmojiMutes = store.subscribe(this.observeEmojiMuteState);
 
     // A guest does not have a per-user mute document to fetch.
@@ -130,6 +133,7 @@ export default class Mastodon extends React.PureComponent {
     this.mounted = false;
     this.bootstrapGeneration = (this.bootstrapGeneration || 0) + 1;
     this.detachUiPortal();
+    setEmojiActionsOverlayPrivacyContainer(null);
 
     if (this.unsubscribeEmojiMutes) {
       this.unsubscribeEmojiMutes();
@@ -166,6 +170,7 @@ export default class Mastodon extends React.PureComponent {
 
     if (!sessionMatches(state)) {
       this.detachUiPortal();
+      setEmojiActionsOverlayPrivacyContainer(null);
       this.uiInitialized = false;
       this.sessionChanged = true;
       this.bootstrapGeneration = (this.bootstrapGeneration || 0) + 1;
