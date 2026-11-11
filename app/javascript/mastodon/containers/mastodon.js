@@ -66,6 +66,10 @@ export default class Mastodon extends React.PureComponent {
   };
 
   detachUiPortal = () => {
+    // Cancel any ready transition that has been queued while the rules were
+    // changing. The source DOM must never re-enter the document afterward.
+    this.uiRevealGeneration = (this.uiRevealGeneration || 0) + 1;
+
     if (this.uiPortalRoot.parentNode !== this.uiPortalHost || !this.uiPortalHost) {
       return;
     }
@@ -109,6 +113,23 @@ export default class Mastodon extends React.PureComponent {
       this.savedUiFocus.focus();
     }
     this.savedUiFocus = null;
+  };
+
+  scheduleUiPortalRestore = () => {
+    const generation = this.uiRevealGeneration || 0;
+
+    // The Mastodon store subscription runs before the nested display
+    // subscriptions. Wait until the current Redux dispatch has finished
+    // updating their projected HTML/ARIA before making it visible again.
+    Promise.resolve().then(() => {
+      if (generation !== (this.uiRevealGeneration || 0) || !this.mounted || this.sessionChanged ||
+          this.state.emojiMuteBoot !== 'ready' ||
+          store.getState().getIn(['emojiMutes', 'phase']) !== 'ready') {
+        return;
+      }
+
+      this.attachUiPortal();
+    });
   };
 
   componentDidMount() {
@@ -209,9 +230,7 @@ export default class Mastodon extends React.PureComponent {
 
       this.setState({ emojiMuteBoot: next }, () => {
         if (next === 'ready' && this.mounted && !this.sessionChanged) {
-          // Keep the portal detached while its subscribed display nodes
-          // reconcile the new document; move back the *same* DOM afterwards.
-          this.attachUiPortal();
+          this.scheduleUiPortalRestore();
         }
       });
     }
@@ -236,12 +255,23 @@ export default class Mastodon extends React.PureComponent {
         return;
       }
 
+      const initialMount = !this.uiInitialized;
       this.uiInitialized = true;
       this.uiPortalRoot.style.display = 'contents';
-      // Attach an empty portal root before the first UI mount, so layout
-      // measurements at componentDidMount see the actual page geometry.
-      this.attachUiPortal();
-      this.setState({ emojiMuteBoot: 'ready' }, this.startSubscriptions);
+      if (initialMount) {
+        // An empty root is safe to attach before the first UI mount; this
+        // ensures componentDidMount sees real geometry.
+        this.attachUiPortal();
+      }
+
+      this.setState({ emojiMuteBoot: 'ready' }, () => {
+        if (!initialMount) {
+          // An existing UI holds old HTML. It must remain detached until
+          // the fresh Redux document has propagated to its display nodes.
+          this.scheduleUiPortalRestore();
+        }
+        this.startSubscriptions();
+      });
     }).catch(() => {
       if (this.mounted && !this.sessionChanged && generation === this.bootstrapGeneration) {
         this.bootstrapComplete = true;
