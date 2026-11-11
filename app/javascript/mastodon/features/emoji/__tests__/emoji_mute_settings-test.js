@@ -1,157 +1,197 @@
-/**
- * @jest-environment jsdom
- */
-
 import React from 'react';
-import { render, fireEvent, waitFor, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { IntlProvider } from 'react-intl';
-import EmojiMuteSettings from '../emoji_mute_settings';
+import EmojiMuteSettings, { DEFAULT_REPLACEMENT } from '../emoji_mute_settings';
 
-const messages = {
-  'emoji_mutes.title': 'Muted emoji',
-  'emoji_mutes.subtitle': 'Subtitle',
-  'emoji_mutes.loading': 'Loading muted emoji…',
-  'emoji_mutes.load_error': 'Could not load muted emoji',
-  'emoji_mutes.retry': 'Try again',
-  'emoji_mutes.empty': 'No muted emoji yet',
-  'emoji_mutes.reveal': 'Show muted emoji ({count})',
-  'emoji_mutes.hide_list': 'Hide list',
-  'emoji_mutes.search': 'Search muted emoji',
-  'emoji_mutes.identity': 'Identity',
-  'emoji_mutes.replacement': 'Replacement text',
-  'emoji_mutes.effects': 'Effects',
-  'emoji_mutes.effect.replace_in_text': 'Replace in text (stored)',
-  'emoji_mutes.effect.reject_reactions_to_own_posts': 'Reject reactions on your posts',
-  'emoji_mutes.effect.hide_reactions': 'Hide reactions',
-  'emoji_mutes.effect.hide_in_picker': 'Hide in pickers (stored)',
-  'emoji_mutes.save': 'Save changes',
-  'emoji_mutes.saving': 'Saving…',
-  'emoji_mutes.saved': 'Saved',
-  'emoji_mutes.discard': 'Discard changes',
-  'emoji_mutes.remove': 'Unmute',
-  'emoji_mutes.removing': 'Removing…',
-  'emoji_mutes.conflict': 'Conflict',
-  'emoji_mutes.reload_rule': 'Reload saved rule',
-  'emoji_mutes.save_error': 'Could not save this mute',
-  'emoji_mutes.remove_error': 'Could not unmute',
-  'emoji_mutes.unavailable': 'Unavailable or deleted',
-  'emoji_mutes.disabled': 'Disabled',
-  'emoji_mutes.unfetched': 'Remote image not cached',
-  'emoji_mutes.kind.unicode': 'Unicode',
-  'emoji_mutes.kind.local': 'Local custom',
-  'emoji_mutes.kind.remote': 'Remote custom',
-  'emoji_mutes.preview_hidden': 'Preview hidden',
-  'emoji_mutes.show_preview': 'Show preview',
-  'emoji_mutes.hide_preview': 'Hide preview',
-  'emoji_mutes.preview_unavailable': 'Preview is unavailable for this emoji.',
-  'emoji_mutes.preview_loading': 'Loading preview…',
-  'emoji_mutes.open_details': 'Open details',
-  'emoji_mutes.count': '{count} muted emoji',
-  'emoji_mutes.dirty': 'Unsaved changes',
-  'emoji_mutes.applied_note': 'Applied note',
-  'emoji_mutes.javascript_required': 'Enable JavaScript',
-};
+jest.mock('../emoji_picker_shell', () => () => null);
 
-const documentFixture = {
-  revision: '3',
+const native = '🧪';
+const secretUrl = 'https://cdn.example/muted-secret.png';
+
+const documentResponse = {
+  revision: '4',
   effect_application: {
-    applied: ['reject_reactions_to_own_posts', 'hide_reactions'],
-    stored_only: ['replace_in_text', 'hide_in_picker'],
+    applied: ['reject_reactions_to_own_posts', 'hide_reactions', 'replace_in_text'],
+    stored_only: ['hide_in_picker'],
   },
   emoji_mutes: [
     {
-      id: '10',
+      id: '15',
       revision: '3',
-      emoji: { kind: 'unicode', native: '😀' },
+      emoji: { kind: 'unicode', native, url: secretUrl },
       effects: {
         replace_in_text: true,
         reject_reactions_to_own_posts: true,
         hide_reactions: true,
         hide_in_picker: true,
       },
-      replacement: '［絵文字］',
-      detail: { state: 'resolved', kind: 'unicode', emoji_id: 'grinning' },
+      replacement: DEFAULT_REPLACEMENT,
+      detail: { state: 'resolved', kind: 'unicode', emoji_id: 'test_tube' },
+    },
+    {
+      id: '16',
+      revision: '1',
+      emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '44', shortcode: 'secret_shortcode', url: secretUrl },
+      effects: {
+        replace_in_text: true,
+        reject_reactions_to_own_posts: false,
+        hide_reactions: true,
+        hide_in_picker: false,
+      },
+      replacement: '',
+      detail: { state: 'unavailable', kind: 'custom', scope: 'local', custom_emoji_id: '44', shortcode: 'secret_shortcode' },
     },
   ],
 };
 
-function renderEditor(overrides = {}) {
-  const loadDocument = jest.fn(() => Promise.resolve(documentFixture));
-  const updateRule = jest.fn(() => Promise.resolve({
-    revision: '4',
-    emoji_mute: {
-      ...documentFixture.emoji_mutes[0],
-      revision: '4',
-      replacement: 'x',
-      effects: {
-        replace_in_text: false,
-        reject_reactions_to_own_posts: true,
-        hide_reactions: true,
-        hide_in_picker: false,
-      },
-    },
-  }));
-  const removeRule = jest.fn(() => Promise.resolve({ revision: '5' }));
-  const resolveEmoji = jest.fn(() => Promise.resolve({
-    reference: { kind: 'unicode', native: '😀' },
-    detail: { image: { src: '/emoji/1f600.svg', alt: '😀' } },
-  }));
-  const onChanged = jest.fn();
-
-  const utils = render(
-    <IntlProvider locale='en' messages={messages}>
-      <EmojiMuteSettings
-        loadDocument={loadDocument}
-        updateRule={updateRule}
-        removeRule={removeRule}
-        resolveEmoji={resolveEmoji}
-        onChanged={onChanged}
-        {...overrides}
-      />
+function renderSettings(props) {
+  return render(
+    <IntlProvider locale='en' messages={{}}>
+      <EmojiMuteSettings {...props} />
     </IntlProvider>,
   );
-
-  return { ...utils, loadDocument, updateRule, removeRule, resolveEmoji, onChanged };
 }
 
-describe('EmojiMuteSettings', () => {
-  it('keeps glyphs out of the initial DOM until the list is revealed', async () => {
-    const { container } = renderEditor();
+describe('Emoji mute settings', () => {
+  const setItem = jest.spyOn(Storage.prototype, 'setItem');
 
-    await waitFor(() => expect(screen.getByText('Show muted emoji (1)')).toBeTruthy());
-
-    expect(container.textContent).not.toContain('😀');
-    expect(container.querySelector('img')).toBeNull();
-    expect(container.innerHTML).not.toContain('grinning');
+  beforeEach(() => {
+    setItem.mockClear();
   });
 
-  it('reveals identity text without painting the unicode glyph until preview', async () => {
-    const { resolveEmoji } = renderEditor();
+  it('shows replacements immediately and resolves originals only after the display toggle', async () => {
+    const resolveEmoji = jest.fn(reference => Promise.resolve(reference.kind === 'unicode' ? {
+      detail: { native, image: { src: '/emoji/test-tube.svg', alt: native } },
+    } : {
+      detail: {
+        state: 'fetched',
+        kind: 'custom',
+        emoji: {
+          shortcode: 'secret_shortcode',
+          url: '/emoji/secret.gif',
+          static_url: '/emoji/secret.png',
+        },
+      },
+    }));
+    const view = renderSettings({
+      loadDocument: () => Promise.resolve(documentResponse),
+      resolveEmoji,
+    });
 
-    await waitFor(() => expect(screen.getByText('Show muted emoji (1)')).toBeTruthy());
-    fireEvent.click(screen.getByText('Show muted emoji (1)'));
+    expect(screen.getByText('Loading muted emoji…')).toBeTruthy();
+    expect(await screen.findByText(DEFAULT_REPLACEMENT)).toBeTruthy();
+    expect(screen.getByText('(empty)')).toBeTruthy();
+    expect(resolveEmoji).not.toHaveBeenCalled();
+    expect(view.container.innerHTML).not.toContain(secretUrl);
 
-    expect(screen.getByText(/Unicode · code points/)).toBeTruthy();
-    expect(document.body.textContent).not.toContain('😀');
-    expect(document.querySelector('img')).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Display original emoji' }));
 
-    fireEvent.click(screen.getByText('Show preview'));
-    await waitFor(() => expect(resolveEmoji).toHaveBeenCalled());
-    await waitFor(() => expect(document.querySelector('img[src="/emoji/1f600.svg"]')).toBeTruthy());
-    expect(document.querySelector('img').getAttribute('alt')).toBe('');
+    await waitFor(() => expect(resolveEmoji).toHaveBeenCalledTimes(2));
+    expect((await screen.findAllByText(native)).length).toBeGreaterThan(0);
+    const images = Array.from(view.container.querySelectorAll('img')).map(image => image.getAttribute('src'));
+    expect(images).toContain('/emoji/secret.gif');
+    expect(view.container.innerHTML).not.toContain(secretUrl);
+    expect(setItem).not.toHaveBeenCalled();
   });
 
-  it('keeps dirty edits on conflict', async () => {
-    const conflict = Object.assign(new Error('conflict'), { status: 409, code: 'conflict' });
-    const updateRule = jest.fn(() => Promise.reject(conflict));
-    renderEditor({ updateRule });
+  it('selects rows and applies replacement and effect changes in bulk', async () => {
+    const saveRule = jest.fn();
 
-    await waitFor(() => expect(screen.getByText('Show muted emoji (1)')).toBeTruthy());
-    fireEvent.click(screen.getByText('Show muted emoji (1)'));
-    fireEvent.change(screen.getByDisplayValue('［絵文字］'), { target: { value: 'keep-me' } });
-    fireEvent.click(screen.getByText('Save changes'));
+    let currentDocument = documentResponse;
+    const loadDocument = jest.fn(() => Promise.resolve(currentDocument));
 
-    await waitFor(() => expect(screen.getByText('Conflict')).toBeTruthy());
-    expect(screen.getByDisplayValue('keep-me')).toBeTruthy();
+    saveRule.mockImplementation((id, revision, effects, replacement) => {
+      const updated = {
+        ...documentResponse.emoji_mutes.find(rule => rule.id === id),
+        revision: String(Number(revision) + 1),
+        effects,
+        replacement,
+      };
+
+      currentDocument = {
+        ...currentDocument,
+        revision: String(Number(currentDocument.revision) + 1),
+        emoji_mutes: currentDocument.emoji_mutes.map(rule => rule.id === id ? updated : rule),
+      };
+
+      return Promise.resolve({
+        revision: currentDocument.revision,
+        emoji_mute: updated,
+      });
+    });
+
+    renderSettings({
+      loadDocument,
+      saveRule,
+    });
+
+    await screen.findByText(DEFAULT_REPLACEMENT);
+    fireEvent.click(screen.getByRole('button', { name: 'Select all shown' }));
+    expect(screen.getByText('2 selected')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Change replacement text'));
+    const bulkReplacement = screen.getByRole('textbox', { name: 'Set replacement for selected' });
+    fireEvent.change(bulkReplacement, { target: { value: '□' } });
+
+    const selects = screen.getAllByRole('combobox');
+    fireEvent.change(selects[0], { target: { value: 'off' } });
+    fireEvent.change(selects[1], { target: { value: 'off' } });
+    fireEvent.change(selects[2], { target: { value: 'off' } });
+    fireEvent.change(selects[3], { target: { value: 'off' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to selected' }));
+
+    await waitFor(() => expect(saveRule).toHaveBeenCalledTimes(2));
+    saveRule.mock.calls.forEach(call => {
+      expect(call[3]).toBe('□');
+      expect(call[2]).toEqual({
+        replace_in_text: false,
+        reject_reactions_to_own_posts: false,
+        hide_reactions: false,
+        hide_in_picker: false,
+      });
+    });
+    expect(await screen.findByText('Bulk changes applied.')).toBeTruthy();
+
+    const rowCheckboxes = screen.getAllByRole('checkbox').filter(input => input.hasAttribute('data-effect'));
+    expect(rowCheckboxes.every(input => input.checked === false)).toBe(true);
+  });
+
+  it('supports compact emoji-only selection mode and bulk removal', async () => {
+    const removeRule = jest.fn(() => Promise.resolve({ revision: '7' }));
+
+    renderSettings({
+      loadDocument: () => Promise.resolve(documentResponse),
+      removeRule,
+    });
+
+    await screen.findByText(DEFAULT_REPLACEMENT);
+    fireEvent.click(screen.getByRole('tab', { name: 'Select emoji' }));
+
+    const options = screen.getAllByRole('option');
+    fireEvent.click(options[0]);
+    expect(options[0].getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByText('1 selected')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove selected mutes' }));
+    await waitFor(() => expect(removeRule).toHaveBeenCalledWith('15', '3'));
+    await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(1));
+  });
+
+  it('keeps an edited row when an individual save conflicts', async () => {
+    const saveRule = jest.fn().mockRejectedValue(Object.assign(new Error('conflict'), { status: 409, code: 'conflict' }));
+
+    renderSettings({
+      loadDocument: () => Promise.resolve(documentResponse),
+      saveRule,
+    });
+
+    await screen.findByText(DEFAULT_REPLACEMENT);
+    const replacementInputs = screen.getAllByDisplayValue(DEFAULT_REPLACEMENT);
+    fireEvent.change(replacementInputs[0], { target: { value: 'kept' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Save changes' })[0]);
+
+    await waitFor(() => expect(saveRule).toHaveBeenCalledWith('15', '3', expect.any(Object), 'kept'));
+    expect(screen.getByDisplayValue('kept')).toBeTruthy();
+    expect(await screen.findByText('This mute changed elsewhere. Reload the page and try again.')).toBeTruthy();
   });
 });

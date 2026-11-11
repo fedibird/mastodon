@@ -83,6 +83,7 @@ class EmojiPickerShell extends React.PureComponent {
     onModeChange: PropTypes.func,
     onStandardModule: PropTypes.func,
     deferStandardPicker: PropTypes.bool,
+    actionsEnabled: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -99,6 +100,7 @@ class EmojiPickerShell extends React.PureComponent {
     autoFocus: true,
     animate: false,
     theme: 'light',
+    actionsEnabled: true,
   };
 
   constructor(props) {
@@ -635,7 +637,11 @@ class EmojiPickerShell extends React.PureComponent {
   }
 
   renderEditToggle() {
-    const { intl } = this.props;
+    const { intl, actionsEnabled } = this.props;
+
+    if (!actionsEnabled) {
+      return null;
+    }
     const { editMode } = this.state;
 
     return (
@@ -655,6 +661,7 @@ class EmojiPickerShell extends React.PureComponent {
   renderStandard() {
     const { intl, standardPickerProps, autoFocus, emojiSize, perLine, theme } = this.props;
     const { standardStatus, standardModule, standardAutoFocus, editMode } = this.state;
+    const effectiveEditMode = this.props.actionsEnabled ? editMode : false;
 
     if (standardStatus === 'error') {
       return (
@@ -697,7 +704,7 @@ class EmojiPickerShell extends React.PureComponent {
         showSkinTones={false}
         backgroundImageFn={standardBackgroundImage}
         {...pickerProps}
-        editMode={editMode}
+        editMode={effectiveEditMode}
         perLine={perLine}
         emojiSize={emojiSize}
         theme={preferredTheme(theme)}
@@ -710,6 +717,7 @@ class EmojiPickerShell extends React.PureComponent {
   renderPersonal() {
     const { animate, autoFocus, emojiSize, perLine, theme } = this.props;
     const { personalQuery, stock, stockStatus, editMode } = this.state;
+    const effectiveEditMode = this.props.actionsEnabled ? editMode : false;
     const focus = Boolean(autoFocus && this.canTakeFocus() && stockStatus === 'ready');
 
     return (
@@ -726,7 +734,8 @@ class EmojiPickerShell extends React.PureComponent {
         autoFocus={focus}
         animate={animate}
         theme={preferredTheme(theme)}
-        editMode={editMode}
+        editMode={effectiveEditMode}
+        actionsEnabled={this.props.actionsEnabled}
       />
     );
   }

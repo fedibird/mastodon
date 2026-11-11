@@ -15,7 +15,7 @@
 #  reject_reactions_to_own_posts  :boolean          default(TRUE), not null
 #  hide_reactions                 :boolean          default(TRUE), not null
 #  hide_in_picker                 :boolean          default(TRUE), not null
-#  replacement                    :string           default("［絵文字］"), not null
+#  replacement                    :string           default("◻"), not null
 #  revision                       :bigint(8)        default(1), not null
 #  created_at                     :datetime         not null
 #  updated_at                     :datetime         not null
@@ -34,7 +34,7 @@ class EmojiMute < ApplicationRecord
   APPLIED_EFFECTS = %w(reject_reactions_to_own_posts hide_reactions).freeze
   STORED_ONLY_EFFECTS = %w(replace_in_text hide_in_picker).freeze
 
-  DEFAULT_REPLACEMENT = '［絵文字］'
+  DEFAULT_REPLACEMENT = '◻'
   MAX_PER_USER = 500
   MAX_REPLACEMENT_GRAPHEMES = 32
   MAX_REPLACEMENT_BYTES = 256
