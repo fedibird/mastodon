@@ -15,7 +15,7 @@
 #  reject_reactions_to_own_posts  :boolean          default(TRUE), not null
 #  hide_reactions                 :boolean          default(TRUE), not null
 #  hide_in_picker                 :boolean          default(TRUE), not null
-#  replacement                    :string           default("［絵文字］"), not null
+#  replacement                    :string           default("◻"), not null
 #  revision                       :bigint(8)        default(1), not null
 #  created_at                     :datetime         not null
 #  updated_at                     :datetime         not null
