@@ -1,4 +1,6 @@
 {
+  "emoji_mutes.session_changed": "Your account changed. Reload to protect your emoji mute settings.",
+  "emoji_mutes.session_reload": "Reload the page",
   "emoji_mutes.bootstrap_loading": "Loading emoji mute settings…",
   "emoji_mutes.bootstrap_error": "Emoji mute settings could not be verified. Posts are hidden until you retry.",
   "emoji_mutes.bootstrap_retry": "Retry loading settings",
