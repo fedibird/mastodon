@@ -584,6 +584,46 @@ describe('textForScreenReader emoji mute', () => {
     expect(textForScreenReader(intl, pollOnly, false, index, remotePoll)).toContain('Yes :blob:');
     expect(pollOnly.get('search_index')).toContain('Yes :blob:');
   });
+
+  it('keeps paragraph breaks in the label and speaks a poll title that search_index has not caught up with', () => {
+    const image = localImg('10');
+    const paragraphs = buildStatus({
+      content: '<p>前半 :blob:</p><p>後半</p>',
+      contentHtml: `<p>前半 ${image}</p><p>後半</p>`,
+      search_index: '前半 :blob:\n\n後半',
+    });
+    const broken = buildStatus({
+      content: '<p>前半 :blob:<br>後半</p>',
+      contentHtml: `<p>前半 ${image}<br>後半</p>`,
+      search_index: '前半 :blob:\n後半',
+    });
+    const index = muteIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[伏字]'),
+    ]);
+    const renamed = fromJS({
+      id: 'p1',
+      options: [
+        { title: 'Sure :blob:', title_emojified: `Sure ${localImg('11')}` },
+        { title: 'Later', title_emojified: 'Later' },
+      ],
+    });
+    const stale = buildStatus({
+      content: '<p>Hello</p>',
+      contentHtml: '<p>Hello</p>',
+      search_index: '\n\nHello\n\nYes :blob:\n\nNo',
+      poll: 'p1',
+    });
+    const choiceIndex = muteIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[choice]'),
+    ]);
+
+    expect(textForScreenReader(intl, paragraphs, false, index)).toContain('前半 [伏字]\n\n後半');
+    expect(textForScreenReader(intl, broken, false, index)).toContain('前半 [伏字]\n後半');
+    expect(textForScreenReader(intl, stale, false, choiceIndex, renamed)).toContain('Sure [choice]');
+    expect(textForScreenReader(intl, stale, false, choiceIndex, renamed)).toContain('Later');
+    expect(textForScreenReader(intl, stale, false, choiceIndex, renamed)).not.toContain('Yes :blob:');
+    expect(stale.get('search_index')).toContain('Yes :blob:');
+  });
 });
 
 describe('status and tile visibility defaults', () => {

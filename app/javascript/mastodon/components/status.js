@@ -188,32 +188,66 @@ const pollOptionsOf = (status, poll) => {
   return null;
 };
 
-const projectPollSuffix = (suffix, status, index, poll) => {
-  const options = pollOptionsOf(status, poll);
-  const ranges = [];
+const optionTitle = option => (option && typeof option.get === 'function' ? (option.get('title') || '') : '');
 
-  if (options && typeof options.forEach === 'function') {
-    options.forEach(option => {
-      const title = option && typeof option.get === 'function' ? (option.get('title') || '') : '';
-      const html = option && typeof option.get === 'function' ? (option.get('title_emojified') || '') : '';
-      const at = title ? exactPollOptionAt(suffix, title) : -1;
+const optionHtml = option => (option && typeof option.get === 'function' ? (option.get('title_emojified') || '') : '');
 
-      if (at === -1) {
-        return;
-      }
+const spokenPollChoice = (option, index) => {
+  const title = optionTitle(option);
+  const html = optionHtml(option);
 
-      ranges.push({
-        start: at + 2,
-        end: at + 2 + title.length,
-        text: html ? replaceMutedEmojiInPlain(title, html, index) : title,
-      });
-    });
+  if (html) {
+    return replaceMutedEmojiInPlain(title, html, index);
   }
 
-  if (ranges.length === 0) {
-    // Unicode in a choice is its own identity. A custom shortcode without
-    // title_emojified is not, so it stays in the suffix.
+  return replaceUnicodeEmojiInPlainText(title, index);
+};
+
+// The loaded poll is newer than search_index. Keep the blank lines that
+// separate the body from the choices, and speak the current titles.
+const projectCurrentPollChoices = (suffix, options, index) => {
+  const parts = [];
+
+  options.forEach(option => {
+    parts.push(spokenPollChoice(option, index));
+  });
+
+  const choices = parts.join('\n\n');
+  const leading = (suffix.match(/^\n*/) || [''])[0];
+  const gap = leading.length >= 2 ? leading : `\n\n${leading}`;
+
+  return choices ? `${gap}${choices}` : gap;
+};
+
+const projectPollSuffix = (suffix, status, index, poll) => {
+  const options = pollOptionsOf(status, poll);
+
+  if (!options || typeof options.forEach !== 'function' || options.size === 0) {
     return replaceUnicodeEmojiInPlainText(suffix, index);
+  }
+
+  const ranges = [];
+  let matched = 0;
+
+  options.forEach(option => {
+    const title = optionTitle(option);
+    const html = optionHtml(option);
+    const at = title ? exactPollOptionAt(suffix, title) : -1;
+
+    if (at === -1) {
+      return;
+    }
+
+    matched += 1;
+    ranges.push({
+      start: at + 2,
+      end: at + 2 + title.length,
+      text: html ? replaceMutedEmojiInPlain(title, html, index) : title,
+    });
+  });
+
+  if (matched !== options.size) {
+    return projectCurrentPollChoices(suffix, options, index);
   }
 
   ranges.sort((left, right) => left.start - right.start);

@@ -915,7 +915,11 @@ export function replaceMutedEmojiInPlain(plain, html, index) {
   }
 
   const source = stripIndexedNodes(typeof html === 'string' ? html : '');
-  const spoken = spokenCustomText(source, index);
+  // search_index turns <br> into a line break and a new paragraph into a
+  // blank line before it reads text. Do that before walking, so a muted
+  // image does not glue the paragraphs together.
+  const prepared = source.replace(/<br\s*\/?>/g, '\n').replace(/<\/p><p>/g, '\n\n');
+  const spoken = spokenCustomText(prepared, index);
 
   if (spoken === null) {
     return replaceUnicodeEmojiInPlainText(plain, index);

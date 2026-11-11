@@ -311,4 +311,40 @@ describe('mounted screen reader labels', () => {
     expect(label(standard)).not.toContain('[choice]');
     expect(status.get('search_index')).toContain('Yes :blob:');
   });
+
+  it('speaks the current poll title on standard and card when search_index is stale', () => {
+    const status = buildStatus({
+      content: '<p>Hello</p>',
+      contentHtml: '<p>Hello</p>',
+      search_index: '\n\nHello\n\nYes :blob:\n\nNo',
+      poll: 'p1',
+      account: account({ display_name: 'Alice', display_name_html: 'Alice' }),
+    });
+    const store = makeStore();
+    const standard = renderStatus(status, store);
+    const card = renderStatus(status, store, { layoutMode: 'card-1' });
+    const label = view => view.container.querySelector('.status__wrapper').getAttribute('aria-label');
+    const choice = '<img class="emojione custom-emoji" alt=":blob:" data-shortcode="blob" data-domain="" data-emoji-id="11" src="https://cdn.example/11.svg">';
+
+    apply(store, [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[choice]')]);
+
+    act(() => {
+      store.dispatch({
+        type: POLLS_IMPORT,
+        polls: [{
+          id: 'p1',
+          options: [
+            { title: 'Sure :blob:', title_emojified: `Sure ${choice}` },
+            { title: 'Later', title_emojified: 'Later' },
+          ],
+        }],
+      });
+    });
+
+    expect(label(standard)).toContain('Sure [choice]');
+    expect(label(card)).toContain('Sure [choice]');
+    expect(label(standard)).toContain('Later');
+    expect(label(standard)).not.toContain('Yes');
+    expect(status.get('search_index')).toContain('Yes :blob:');
+  });
 });

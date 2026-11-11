@@ -239,4 +239,31 @@ describe('status history replace_in_text', () => {
     expect(body.textContent).not.toContain('[blob]');
     expect(unnamed.getIn(['emojis', 0, 'shortcode'])).toBe('blob');
   });
+
+  it('does not paint a re-registered id onto an original revision the api could not prove', () => {
+    const original = revision({
+      content: '<p>hello :blob:</p>',
+      spoiler_text: '',
+      emojis: [],
+      poll: null,
+      original: true,
+    });
+    const store = makeStore(fromJS([original]));
+    const { container } = render(
+      <Provider store={store}>
+        <StatusHistoryRevision revision={original} account={account()} onClose={jest.fn()} />
+      </Provider>,
+    );
+
+    apply(store, [
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[new]'),
+    ]);
+
+    const body = container.querySelector('.status__content__text');
+
+    expect(body.innerHTML).not.toContain('data-emoji-id');
+    expect(body.textContent).toContain(':blob:');
+    expect(body.textContent).not.toContain('[new]');
+    expect(original.get('emojis').size).toBe(0);
+  });
 });

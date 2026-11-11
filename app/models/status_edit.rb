@@ -83,6 +83,12 @@ class StatusEdit < ApplicationRecord
 
   # Called from Status#build_snapshot while the status still has this text.
   # An empty array is a real snapshot of "no custom emoji", distinct from nil.
+  # A backdated original revision that was never recorded drops local rows:
+  # the shortcode may now belong to a different id.
+  def unproven_original_identities
+    capture_emoji_identities.reject { |row| row['domain'].blank? }
+  end
+
   def capture_emoji_identities
     parts = [spoiler_text, text]
     parts.concat(poll_options) if poll_options.present?

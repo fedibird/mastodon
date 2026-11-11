@@ -582,6 +582,17 @@ describe('unicode preview text', () => {
     ]))).toBe(`[thumb] ${THUMBS}`);
   });
 
+  it('keeps paragraph and line-break boundaries when a custom emoji is muted', () => {
+    const image = '<img class="emojione custom-emoji" alt=":blob:" data-shortcode="blob" data-domain="" data-emoji-id="10" src="https://cdn.example/10.svg">';
+    const mute = buildReplaceInTextIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[伏字]'),
+    ]);
+
+    expect(replaceMutedEmojiInPlain('前半 :blob:\n\n後半', `<p>前半 ${image}</p><p>後半</p>`, mute)).toBe('前半 [伏字]\n\n後半');
+    expect(replaceMutedEmojiInPlain('前半 :blob:\n後半', `<p>前半 ${image}<br>後半</p>`, mute)).toBe('前半 [伏字]\n後半');
+    expect(replaceMutedEmojiInPlain('前半 :blob: 中\n後', `<p>前半 ${image} 中<br>後</p>`, mute)).toBe('前半 [伏字] 中\n後');
+  });
+
   it('compares unicode rules by first code point instead of every rule at every character', () => {
     const rules = [];
 

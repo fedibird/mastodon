@@ -185,6 +185,7 @@ class PostStatusService < BaseService
       @status.capability_tokens.create! if @status.limited_visibility?
       mention_service.persist_mentions!(@status) if explicit_mentions
       record_posting_audit!
+      @status.remember_posted_emoji_identities!
     end
 
     # Hashtags and references are part of the payload publish serializes.
