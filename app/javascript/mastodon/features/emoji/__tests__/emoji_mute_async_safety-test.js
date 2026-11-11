@@ -175,6 +175,38 @@ describe('emoji mute async safety (B5)', () => {
     expect(state.get('appliedRevision')).toBe('5');
   });
 
+  it('gates the cached display while reconnect verification is pending', async () => {
+    api().get.mockResolvedValueOnce({ data: document('6', 'current') });
+    await loadEmojiMutes();
+
+    let state = reducer(undefined, {
+      type: EMOJI_MUTES_APPLY,
+      revision: '6',
+      mutes: document('6', 'current').emoji_mutes,
+    });
+    const dispatch = action => {
+      if (typeof action === 'function') return action(dispatch, () => ImmutableMap({ emojiMutes: state }));
+      state = reducer(state, action);
+      return action;
+    };
+    const getState = () => ImmutableMap({ emojiMutes: state });
+    const pending = deferred();
+    api().get.mockImplementationOnce(() => pending.promise);
+
+    const verifying = syncEmojiMutes({ bootstrap: true, verify: true })(dispatch, getState);
+    expect(state.get('phase')).toBe('loading');
+    expect(state.get('appliedRevision')).toBe('6');
+
+    pending.resolve({ data: document('6', 'current') });
+    await verifying;
+    expect(state.get('phase')).toBe('ready');
+
+    // A lagging server is not proof that the current document is valid.
+    api().get.mockResolvedValueOnce({ data: document('5', 'old') });
+    await expect(syncEmojiMutes({ bootstrap: true, verify: true })(dispatch, getState)).rejects.toThrow('revision');
+    expect(state.get('phase')).toBe('error');
+  });
+
   it('only publishes the latest complete document from overlapping sync thunks', async () => {
     const one = deferred();
     const two = deferred();
