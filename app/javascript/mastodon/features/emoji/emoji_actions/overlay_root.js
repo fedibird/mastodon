@@ -1,12 +1,11 @@
 // Dedicated portal host for the shared emoji actions menu.
 //
 // Mobile emoji pickers live inside `.modal-root` (z-index 9999). react-overlays
-// Overlay defaults to `document.body`, so the menu competes with the modal at
-// the same stacking level and can paint underneath it. Desktop compose pickers
-// also open while `.ui` has `pointer-events: none` via `dropdownMenuIsOpen`;
-// mounting the Overlay into a body child that is not under `.ui` keeps menu
-// clicks hittable without relying on an arbitrary mega z-index on the menu
-// itself.
+// Overlay defaults to `document.body`, so the menu competes with the modal
+// and can paint underneath it. Desktop pickers open while `.ui` has
+// `pointer-events: none`; keeping the overlay outside `.ui` makes its menu
+// clickable. In authenticated WebUI we mount it as a sibling of `.ui` inside
+// the detachable privacy portal; other contexts still use `document.body`.
 
 export const EMOJI_ACTIONS_OVERLAY_ROOT_ID = 'emoji-actions-overlay-root';
 
