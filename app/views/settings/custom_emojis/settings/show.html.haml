@@ -31,6 +31,7 @@
   .fields-group
     = f.input :setting_enable_reaction, as: :boolean, wrapper: :with_label, fedibird_features: true
     = f.input :setting_disable_reactions, as: :boolean, wrapper: :with_label, fedibird_features: true
+    %p.hint= t('preferences.disable_actions_hint')
 
   .fields-group
     = f.input :setting_compact_reaction, as: :boolean, wrapper: :with_label, fedibird_features: true
