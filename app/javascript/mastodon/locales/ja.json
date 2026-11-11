@@ -1,4 +1,6 @@
 {
+  "emoji_mutes.session_changed": "アカウントが切り替わりました。絵文字ミュート設定を安全に切り替えるため、ページを再読み込みしてください。",
+  "emoji_mutes.session_reload": "ページを再読み込み",
   "emoji_mutes.bootstrap_loading": "絵文字のミュート設定を読み込んでいます…",
   "emoji_mutes.bootstrap_error": "絵文字のミュート設定を確認できませんでした。投稿は再試行するまで表示されません。",
   "emoji_mutes.bootstrap_retry": "設定の読み込みを再試行",
