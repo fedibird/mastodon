@@ -27,10 +27,20 @@ store.dispatch(hydrateAction);
 store.dispatch(fetchCircles());
 preloadEmojiPickersIfNeeded();
 
-// Do not mount any WebUI surfaces (including labels/alt text) before the
-// first authoritative mute document has arrived. The user may have muted an
-// emoji which cannot be inferred from the shared status HTML alone.
+// The rules are scoped to the authenticated viewer. The bootstrap credential
+// cannot be switched in-place: changing accounts requires a fresh application
+// initialization so every cached status and mute projection belongs to one
+// viewer.
 const signedIn = !!(initialState?.meta?.me || initialState?.meta?.access_token);
+const sessionMatches = state => {
+  if (!state || typeof state.getIn !== 'function') {
+    return true;
+  }
+
+  return String(state.getIn(['meta', 'me']) || '') === String(initialState?.meta?.me || '') &&
+    String(state.getIn(['meta', 'access_token']) || '') === String(initialState?.meta?.access_token || '');
+};
+
 
 export default class Mastodon extends React.PureComponent {
 
@@ -44,6 +54,7 @@ export default class Mastodon extends React.PureComponent {
 
   componentDidMount() {
     this.mounted = true;
+    this.unsubscribeEmojiMutes = store.subscribe(this.observeEmojiMuteState);
 
     if (signedIn) {
       this.bootstrapEmojiMutes();
@@ -54,6 +65,12 @@ export default class Mastodon extends React.PureComponent {
 
   componentWillUnmount () {
     this.mounted = false;
+    this.bootstrapGeneration = (this.bootstrapGeneration || 0) + 1;
+
+    if (this.unsubscribeEmojiMutes) {
+      this.unsubscribeEmojiMutes();
+      this.unsubscribeEmojiMutes = null;
+    }
 
     if (this.disconnect) {
       this.disconnect();
@@ -67,29 +84,71 @@ export default class Mastodon extends React.PureComponent {
   }
 
   startSubscriptions = () => {
-    if (!this.disconnect && this.mounted) {
+    if (!this.disconnect && this.mounted && !this.sessionChanged) {
       this.disconnect = startMastodonSubscriptions(store);
     }
   };
 
+  // A newer streaming revision means the currently rendered HTML may expose
+  // a newly muted emoji. Remove the WebUI (including images and aria labels)
+  // rather than merely covering it with CSS. Keep the Redux data intact.
+  observeEmojiMuteState = () => {
+    if (!this.mounted || this.sessionChanged) {
+      return;
+    }
+
+    const state = store.getState();
+
+    if (!sessionMatches(state)) {
+      this.sessionChanged = true;
+      this.bootstrapGeneration = (this.bootstrapGeneration || 0) + 1;
+      this.setState({ emojiMuteBoot: 'session-changed' }, () => {
+        if (this.disconnect) {
+          this.disconnect();
+          this.disconnect = null;
+        }
+
+        resetEmojiMuteSession();
+        store.dispatch({ type: EMOJI_MUTES_RESET });
+      });
+      return;
+    }
+
+    if (!signedIn || !this.bootstrapComplete) {
+      return;
+    }
+
+    const phase = state.getIn(['emojiMutes', 'phase']);
+    const next = phase === 'ready' ? 'ready' : phase === 'error' ? 'error' : 'loading';
+
+    if (next !== this.state.emojiMuteBoot) {
+      this.setState({ emojiMuteBoot: next });
+    }
+  };
+
   bootstrapEmojiMutes = () => {
+    const generation = (this.bootstrapGeneration || 0) + 1;
+    this.bootstrapGeneration = generation;
     this.setState({ emojiMuteBoot: 'loading' });
 
     store.dispatch(syncEmojiMutes({ bootstrap: true })).then(() => {
-      if (!this.mounted) {
+      if (!this.mounted || this.sessionChanged || generation !== this.bootstrapGeneration) {
         return;
       }
 
+      this.bootstrapComplete = true;
       // A stale server answer can resolve without applying a document. That
       // is not permission to reveal the hydrated timeline.
-      if (store.getState().getIn(['emojiMutes', 'phase']) !== 'ready') {
+      const phase = store.getState().getIn(['emojiMutes', 'phase']);
+      if (phase !== 'ready') {
         this.setState({ emojiMuteBoot: 'error' });
         return;
       }
 
       this.setState({ emojiMuteBoot: 'ready' }, this.startSubscriptions);
     }).catch(() => {
-      if (this.mounted) {
+      if (this.mounted && !this.sessionChanged && generation === this.bootstrapGeneration) {
+        this.bootstrapComplete = true;
         this.setState({ emojiMuteBoot: 'error' });
       }
     });
@@ -118,6 +177,13 @@ export default class Mastodon extends React.PureComponent {
       <div className='emoji-mutes-bootstrap' role={boot === 'error' ? 'alert' : 'status'} style={{ padding: '2rem', textAlign: 'center' }}>
         {boot === 'loading' ? (
           <FormattedMessage id='emoji_mutes.bootstrap_loading' defaultMessage='Loading emoji mute settings…' />
+        ) : boot === 'session-changed' ? (
+          <React.Fragment>
+            <p><FormattedMessage id='emoji_mutes.session_changed' defaultMessage='Your account changed. Reload to protect your emoji mute settings.' /></p>
+            <button type='button' onClick={() => window.location.reload()}>
+              <FormattedMessage id='emoji_mutes.session_reload' defaultMessage='Reload the page' />
+            </button>
+          </React.Fragment>
         ) : (
           <React.Fragment>
             <p><FormattedMessage id='emoji_mutes.bootstrap_error' defaultMessage='Emoji mute settings could not be verified. Posts are hidden until you retry.' /></p>
