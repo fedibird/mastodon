@@ -54,6 +54,11 @@ export default class Mastodon extends React.PureComponent {
     emojiMuteBoot: signedIn ? 'loading' : 'ready',
   };
 
+  // Consecutive Redux actions may be batched before React commits setState.
+  // Compare the requested phase as well as the committed one so a stale
+  // action always supersedes an earlier ready action in the same batch.
+  requestedBootPhase = signedIn ? 'loading' : 'ready';
+
   // The portal target is never changed or unmounted during a mute revision.
   // Instead we detach *that same DOM node* from the visible document. This
   // removes the unverified images/alt/aria without throwing away UI/Router,
@@ -123,7 +128,7 @@ export default class Mastodon extends React.PureComponent {
     // updating their projected HTML/ARIA before making it visible again.
     Promise.resolve().then(() => {
       if (generation !== (this.uiRevealGeneration || 0) || !this.mounted || this.sessionChanged ||
-          this.state.emojiMuteBoot !== 'ready' ||
+          this.state.emojiMuteBoot !== 'ready' || this.requestedBootPhase !== 'ready' ||
           store.getState().getIn(['emojiMutes', 'phase']) !== 'ready') {
         return;
       }
@@ -194,6 +199,7 @@ export default class Mastodon extends React.PureComponent {
       setEmojiActionsOverlayPrivacyContainer(null);
       this.uiInitialized = false;
       this.sessionChanged = true;
+      this.requestedBootPhase = 'session-changed';
       this.bootstrapGeneration = (this.bootstrapGeneration || 0) + 1;
       this.setState({ emojiMuteBoot: 'session-changed' }, () => {
         if (this.disconnect) {
@@ -221,7 +227,8 @@ export default class Mastodon extends React.PureComponent {
       next = 'error';
     }
 
-    if (next !== this.state.emojiMuteBoot) {
+    if (next !== this.requestedBootPhase) {
+      this.requestedBootPhase = next;
       if (next !== 'ready') {
         // Detach synchronously when the Redux revision changes, before any
         // existing display subscription can expose unverified emoji content.
@@ -239,6 +246,7 @@ export default class Mastodon extends React.PureComponent {
   bootstrapEmojiMutes = () => {
     const generation = (this.bootstrapGeneration || 0) + 1;
     this.bootstrapGeneration = generation;
+    this.requestedBootPhase = 'loading';
     this.setState({ emojiMuteBoot: 'loading' });
 
     store.dispatch(syncEmojiMutes({ bootstrap: true })).then(() => {
@@ -251,6 +259,7 @@ export default class Mastodon extends React.PureComponent {
       // is not permission to reveal the hydrated timeline.
       const phase = store.getState().getIn(['emojiMutes', 'phase']);
       if (phase !== 'ready') {
+        this.requestedBootPhase = 'error';
         this.setState({ emojiMuteBoot: 'error' });
         return;
       }
@@ -264,6 +273,7 @@ export default class Mastodon extends React.PureComponent {
         this.attachUiPortal();
       }
 
+      this.requestedBootPhase = 'ready';
       this.setState({ emojiMuteBoot: 'ready' }, () => {
         if (!initialMount) {
           // An existing UI holds old HTML. It must remain detached until
@@ -275,6 +285,7 @@ export default class Mastodon extends React.PureComponent {
     }).catch(() => {
       if (this.mounted && !this.sessionChanged && generation === this.bootstrapGeneration) {
         this.bootstrapComplete = true;
+        this.requestedBootPhase = 'error';
         this.setState({ emojiMuteBoot: 'error' });
       }
     });
