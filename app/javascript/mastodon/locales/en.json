@@ -1,4 +1,7 @@
 {
+  "emoji_mutes.bootstrap_loading": "Loading emoji mute settings…",
+  "emoji_mutes.bootstrap_error": "Emoji mute settings could not be verified. Posts are hidden until you retry.",
+  "emoji_mutes.bootstrap_retry": "Retry loading settings",
   "embedded_settings.saving": "Saving settings… You can leave this column; changes will be synchronized when the request finishes.",
   "embedded_settings.filters": "Filter settings",
   "embedded_settings.posting_styles": "Posting style settings",
