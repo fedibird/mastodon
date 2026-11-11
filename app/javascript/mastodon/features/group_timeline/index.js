@@ -6,6 +6,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import classNames from 'classnames';
 import StatusListContainer from '../ui/containers/status_list_container';
 import Column from '../../components/column';
+import { EmojiMutedPlain } from '../../components/emoji_muted_html';
 import ColumnHeader from '../../components/column_header';
 import Icon from '../../components/icon';
 import { fetchAccount } from '../../actions/accounts';
@@ -411,7 +412,12 @@ class GroupTimeline extends React.PureComponent {
     );
 
     const displayName = account.get('display_name');
-    const title = displayName.length === 0 ? account.get('acct').split('@')[0] : displayName;
+    const plainTitle = displayName.length === 0 ? account.get('acct').split('@')[0] : displayName;
+    // The column landmark keeps the plain string. The visible heading
+    // subscribes on its own so a mute does not rebuild the timeline.
+    const title = displayName.length === 0 ? plainTitle : (
+      <EmojiMutedPlain tag='span' plain={plainTitle} html={account.get('display_name_html') || ''} />
+    );
 
     const groupDetail = (
       <div className={collapsibleClassName} tabIndex={collapsed ? -1 : null} onTransitionEnd={this.handleTransitionEnd}>
@@ -485,7 +491,7 @@ class GroupTimeline extends React.PureComponent {
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
+      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={plainTitle} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
         <ColumnHeader
           columnId={columnId}
           layoutScope='group'

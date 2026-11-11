@@ -8,9 +8,14 @@ import emojify from '../emoji';
 import {
   buildReplaceInTextIndex,
   emojiMuteTextParseCount,
+  emojiMuteUnicodeComparisonCount,
   emojiMutedPlainLabel,
+  emojiMutedPlainText,
   replaceEmojiInDisplayHtml,
   replaceInTextIndexFromRules,
+  replaceMutedEmojiInPlain,
+  replaceUnicodeEmojiInPlainText,
+  replaceUnicodeEmojiInPreviewHtml,
   resetEmojiMuteTextForTests,
 } from '../emoji_mute_text';
 
@@ -492,5 +497,122 @@ describe('emojiMutedPlainLabel', () => {
     expect(label).not.toContain(':blob:');
     expect(label).not.toContain('cdn.example');
     expect(emojiMutedPlainLabel(plain, html, index)).toBe(label);
+  });
+});
+
+describe('unicode preview text', () => {
+  const index = () => buildReplaceInTextIndex([
+    unicodeRule(THUMBS, '<img src=x onerror=alert(1)>'),
+    unicodeRule(PERSON, '[person]'),
+    unicodeRule(FAMILY, '[family]'),
+    rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]'),
+  ]);
+
+  beforeEach(() => {
+    resetEmojiMuteTextForTests();
+  });
+
+  it('replaces a finished unicode sequence and leaves shortcodes, markup, and longer sequences', () => {
+    const source = `<b>Hi</b> :blob: ${THUMBS} ${THUMBS_LIGHT} ${FAMILY} category`;
+    const html = replaceUnicodeEmojiInPreviewHtml(source, index());
+    const plain = replaceUnicodeEmojiInPlainText(source, index());
+
+    expect(html).toBe(`<b>Hi</b> :blob: &lt;img src=x onerror=alert(1)&gt; ${THUMBS_LIGHT} [family] category`);
+    expect(plain).toContain('<img src=x onerror=alert(1)>');
+    expect(plain).toContain(':blob:');
+    expect(replaceUnicodeEmojiInPreviewHtml(source, buildReplaceInTextIndex([
+      unicodeRule(THUMBS, '[thumb]', { replace_in_text: false }),
+    ]))).toBe(source);
+  });
+
+  it('does not scan the replacement again and keeps the original string when nothing matches', () => {
+    const muted = buildReplaceInTextIndex([unicodeRule(THUMBS, `${THUMBS}${THUMBS}`)]);
+
+    expect(replaceUnicodeEmojiInPlainText(`see ${THUMBS}`, muted)).toBe(`see ${THUMBS}${THUMBS}`);
+    expect(replaceUnicodeEmojiInPreviewHtml('just :blob:', index())).toBe('just :blob:');
+    expect(emojiMutedPlainText(`Mood ${THUMBS}`, '', index())).toBe('Mood <img src=x onerror=alert(1)>');
+    expect(emojiMutedPlainText('Hello', '<p>Hello</p>', index())).toBe('Hello');
+  });
+
+  it('changes text nodes in preview HTML and leaves attributes, urls, and script text', () => {
+    const source = `<a href="/path/${THUMBS}" title="${THUMBS}">link</a> ${THUMBS}<script>${THUMBS}</script><!-- ${THUMBS} -->`;
+    const html = replaceUnicodeEmojiInPreviewHtml(source, buildReplaceInTextIndex([
+      unicodeRule(THUMBS, '<b>nope</b>'),
+    ]));
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const link = template.content.querySelector('a');
+
+    expect(link.getAttribute('href')).toBe(`/path/${THUMBS}`);
+    expect(link.getAttribute('title')).toBe(THUMBS);
+    expect(link.textContent).toBe('link');
+    expect(html).toContain('&lt;b&gt;nope&lt;/b&gt;');
+    expect(html).not.toContain('<b>nope</b>');
+    expect(template.content.querySelector('script').textContent).toBe(THUMBS);
+    expect(html).toContain(`<!-- ${THUMBS} -->`);
+    expect(replaceUnicodeEmojiInPreviewHtml('<b>Hi</b> &#x1F44D;', buildReplaceInTextIndex([
+      unicodeRule(THUMBS, '[thumb]'),
+    ]))).toBe('<b>Hi</b> [thumb]');
+  });
+
+  it('follows html order so a literal before an image is not the muted one', () => {
+    const image = (id, shortcode, domain = '') => (
+      `<img class="emojione custom-emoji" alt=":${shortcode}:" data-shortcode="${shortcode}" data-domain="${domain}" data-emoji-id="${id}" src="https://cdn.example/${id || domain}.svg">`
+    );
+    const before = `<span class="invisible">:blob:</span> ${image('10', 'blob')}`;
+    const after = `${image('10', 'blob')} <span class="invisible">:blob:</span>`;
+    const mute = buildReplaceInTextIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, ':other:'),
+    ]);
+    const mixedIds = `${image('10', 'a')}${image('12', 'a')}`;
+    const mixedDomains = `${image('', 'blob', 'a.example')} ${image('', 'blob', 'b.example')}`;
+
+    expect(replaceMutedEmojiInPlain(':blob: :blob:', before, mute)).toBe(':blob: :other:');
+    expect(replaceMutedEmojiInPlain(':blob: :blob:', after, mute)).toBe(':other: :blob:');
+    expect(replaceMutedEmojiInPlain(':a: :a:', mixedIds, buildReplaceInTextIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'a' }, ':other:'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '12', shortcode: 'a' }, '[other]'),
+    ]))).toBe(':other:[other]');
+    expect(replaceMutedEmojiInPlain(':blob: :blob:', mixedDomains, buildReplaceInTextIndex([
+      rule({ kind: 'custom', scope: 'remote', domain: 'a.example', shortcode: 'blob' }, '[a]'),
+    ]))).toBe('[a] :blob:');
+    expect(replaceMutedEmojiInPlain(`${THUMBS} :blob:`, `<p>${THUMBS} ${image('10', 'blob')}</p>`, buildReplaceInTextIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, THUMBS),
+      unicodeRule(THUMBS, '[thumb]'),
+    ]))).toBe(`[thumb] ${THUMBS}`);
+  });
+
+  it('keeps paragraph and line-break boundaries when a custom emoji is muted', () => {
+    const image = '<img class="emojione custom-emoji" alt=":blob:" data-shortcode="blob" data-domain="" data-emoji-id="10" src="https://cdn.example/10.svg">';
+    const mute = buildReplaceInTextIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[伏字]'),
+    ]);
+
+    expect(replaceMutedEmojiInPlain('前半 :blob:\n\n後半', `<p>前半 ${image}</p><p>後半</p>`, mute)).toBe('前半 [伏字]\n\n後半');
+    expect(replaceMutedEmojiInPlain('前半 :blob:\n後半', `<p>前半 ${image}<br>後半</p>`, mute)).toBe('前半 [伏字]\n後半');
+    expect(replaceMutedEmojiInPlain('前半 :blob: 中\n後', `<p>前半 ${image} 中<br>後</p>`, mute)).toBe('前半 [伏字] 中\n後');
+  });
+
+  it('compares unicode rules by first code point instead of every rule at every character', () => {
+    const rules = [];
+
+    for (let offset = 0; offset < 1000; offset += 1) {
+      rules.push(unicodeRule(String.fromCodePoint(0x1F300 + (offset % 700), offset), `[${offset}]`));
+    }
+
+    rules.push(unicodeRule(THUMBS, '[thumb]'));
+    const index = buildReplaceInTextIndex(rules);
+    const plain = `${'word '.repeat(400)}${THUMBS_LIGHT} tail`;
+
+    resetEmojiMuteTextForTests();
+    const replaced = replaceUnicodeEmojiInPlainText(plain, index);
+
+    expect(replaced).toContain(THUMBS_LIGHT);
+    expect(replaced).not.toContain('[thumb]');
+    expect(emojiMuteUnicodeComparisonCount()).toBeLessThan(plain.length);
+
+    resetEmojiMuteTextForTests();
+    expect(replaceUnicodeEmojiInPlainText(`${plain} ${THUMBS}`, index)).toContain('[thumb]');
+    expect(emojiMuteUnicodeComparisonCount()).toBeLessThan(plain.length);
   });
 });

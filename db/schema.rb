@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_16_120000) do
+ActiveRecord::Schema.define(version: 2026_11_16_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -2319,6 +2319,7 @@ create_table "managed_groups", force: :cascade do |t|
     t.text "media_descriptions", array: true
     t.string "poll_options", array: true
     t.boolean "sensitive"
+    t.jsonb "emoji_identities"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["account_id"], name: "index_status_edits_on_account_id"
@@ -2409,6 +2410,7 @@ create_table "managed_groups", force: :cascade do |t|
     t.text "post_title"
     t.string "ap_object_type"
     t.boolean "external_projection"
+    t.jsonb "emoji_identities"
     t.index ["account_id", "id", "visibility", "updated_at"], name: "index_statuses_20210710", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL))"
     t.index ["account_id", "id"], name: "index_statuses_private_searchable", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL) AND (reblog_of_id IS NULL) AND (searchability = ANY (ARRAY[0, 1, 2])))"
     t.index ["audience_account_id"], name: "index_statuses_on_audience_account_id"

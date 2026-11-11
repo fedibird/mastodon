@@ -1008,7 +1008,7 @@ entries:
   - app/views/settings/preferences/appearance/show.html.haml:112
   - app/serializers/initial_state_serializer.rb:63
   - app/javascript/mastodon/initial_state.js:53
-  - app/javascript/mastodon/components/status.js:770
+  - app/javascript/mastodon/components/status.js:951
   - app/javascript/mastodon/components/media_gallery.js:430
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API

@@ -34,6 +34,7 @@
 #  post_title                   :text
 #  ap_object_type               :string
 #  external_projection          :boolean
+#  emoji_identities             :jsonb
 #
 
 class Status < ApplicationRecord

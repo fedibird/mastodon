@@ -11,10 +11,15 @@ module StatusSnapshotConcern
     edited_at.present?
   end
 
-  def build_snapshot(account_id: nil, at_time: nil, rate_limit: true)
+  # emoji_identities:
+  #   :capture  — resolve the rows that exist for this text right now
+  #   :unproven — this snapshot is backdated and the post never recorded ids
+  #   Array     — a snapshot already taken, copied as-is
+  def build_snapshot(account_id: nil, at_time: nil, rate_limit: true, emoji_identities: :capture)
     # Build the row directly so saving the status does not persist it.
     # The edit service decides when each snapshot is written.
-    StatusEdit.new(
+    edit = StatusEdit.new(
+      status: self,
       status_id: id,
       text: text,
       spoiler_text: spoiler_text,
@@ -26,9 +31,51 @@ module StatusSnapshotConcern
       created_at: at_time || edited_at,
       rate_limit: rate_limit
     )
+    edit.emoji_identities = case emoji_identities
+                            when :capture
+                              # A synthetic snapshot for a status that was never
+                              # edited is built at read time, so its ids describe
+                              # the text that is current, not an older revision.
+                              edit.capture_emoji_identities
+                            when :unproven
+                              edit.unproven_original_identities
+                            else
+                              emoji_identities
+                            end
+    edit
+  end
+
+  # The first stored revision stands in for the original post. Use the ids
+  # recorded when the status was created. A status from before that column
+  # has no proof, so local rows are left out instead of being re-resolved.
+  def build_original_snapshot
+    recorded = emoji_identities
+    if recorded.nil?
+      build_snapshot(at_time: created_at, rate_limit: false, emoji_identities: :unproven)
+    else
+      build_snapshot(at_time: created_at, rate_limit: false, emoji_identities: recorded)
+    end
+  end
+
+  def snapshot_original!
+    build_original_snapshot.save!
   end
 
   def snapshot!(**options)
     build_snapshot(**options).save!
+  end
+
+  # Set before the first INSERT. Poll options are passed in because the
+  # poll row does not exist yet. An empty array is a real record of "no
+  # custom emoji" and is distinct from a missing legacy value.
+  def assign_posted_emoji_identities!(poll_options: nil)
+    return unless emoji_identities.nil?
+
+    self.emoji_identities = StatusEdit.new(
+      status: self,
+      text: text,
+      spoiler_text: spoiler_text,
+      poll_options: poll_options
+    ).capture_emoji_identities
   end
 end

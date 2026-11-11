@@ -339,8 +339,10 @@ describe('preview replace_in_text', () => {
     expect(quoteText().textContent).toContain(OK);
     expect(quoteText().textContent).not.toContain('/emoji/thumb.svg');
     expect(quoteText().querySelector('img')).toBeNull();
-    expect(container.querySelector('.status__wrapper').getAttribute('aria-label')).toContain(THUMB);
+    expect(container.querySelector('.status__wrapper').getAttribute('aria-label')).toContain('[thumb]');
+    expect(container.querySelector('.status__wrapper').getAttribute('aria-label')).not.toContain(THUMB);
     expect(parent.get('contentHtml')).toContain('/emoji/thumb.svg');
+    expect(parent.get('search_index')).toContain(THUMB);
     expect(parent.getIn(['quote', 'contentHtml'])).toBe(contentHtml);
     expect(container.querySelector('.status__wrapper').getAttribute('data-id')).toBe('s1');
 

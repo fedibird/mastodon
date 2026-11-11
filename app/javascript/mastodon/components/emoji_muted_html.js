@@ -1,7 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { ReactReduxContext } from 'react-redux';
-import { emojiMutedPlainLabel, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMutedPlainLabel, emojiMutedPlainText, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, replaceUnicodeEmojiInPreviewHtml } from 'mastodon/features/emoji/emoji_mute_text';
 
 // One Redux subscription per mounted display node. The shared account and
 // status records keep the emojify HTML. A rules change re-renders only these
@@ -251,7 +251,7 @@ class EmojiMutedPlainInner extends React.PureComponent {
 
   render() {
     const { html, plain, className, format, tag: Tag = 'div', emojiMuteTextIndex } = this.props;
-    const value = emojiMutedPlainLabel(plain, typeof html === 'string' ? html : '', emojiMuteTextIndex);
+    const value = emojiMutedPlainText(plain, typeof html === 'string' ? html : '', emojiMuteTextIndex);
     const text = typeof format === 'function' ? format(value) : value;
 
     return <Tag className={className}>{text}</Tag>;
@@ -259,6 +259,51 @@ class EmojiMutedPlainInner extends React.PureComponent {
 
 }
 
+class EmojiMutedPreviewInner extends React.PureComponent {
+
+  static propTypes = {
+    text: PropTypes.string,
+    tag: PropTypes.string,
+    className: PropTypes.string,
+    lang: PropTypes.string,
+    emojiMuteTextIndex: PropTypes.object,
+  };
+
+  render() {
+    const { tag: Tag = 'div', text, className, lang, emojiMuteTextIndex } = this.props;
+    const source = typeof text === 'string' ? text : '';
+
+    return (
+      <Tag
+        className={className}
+        lang={lang}
+        dangerouslySetInnerHTML={{ __html: replaceUnicodeEmojiInPreviewHtml(source, emojiMuteTextIndex) }}
+      />
+    );
+  }
+
+}
+
+class EmojiMutedAriaInner extends React.Component {
+
+  static propTypes = {
+    children: PropTypes.element.isRequired,
+    labelFor: PropTypes.func.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
+  };
+
+  render() {
+    const { children, labelFor, emojiMuteTextIndex } = this.props;
+
+    return React.cloneElement(children, {
+      'aria-label': labelFor(emojiMuteTextIndex),
+    });
+  }
+
+}
+
 export default withEmojiMuteTextIndex(EmojiMutedHtmlInner);
 export const EmojiMutedTitle = withEmojiMuteTextIndex(EmojiMutedTitleInner);
 export const EmojiMutedPlain = withEmojiMuteTextIndex(EmojiMutedPlainInner);
+export const EmojiMutedPreview = withEmojiMuteTextIndex(EmojiMutedPreviewInner);
+export const EmojiMutedAria = withEmojiMuteTextIndex(EmojiMutedAriaInner);

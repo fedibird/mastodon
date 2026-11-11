@@ -68,7 +68,8 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import { HotKeys } from 'react-hotkeys';
 import { boostModal, deleteModal, confirmDomainBlock, enableStatusReference } from '../../initial_state';
 import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from '../ui/util/fullscreen';
-import { textForScreenReader, defaultMediaVisibility, nextShownMediaState } from '../../components/status';
+import { textForScreenReader, defaultMediaVisibility, nextShownMediaState, screenReaderPollFromState } from '../../components/status';
+import { EmojiMutedAria } from '../../components/emoji_muted_html';
 import Icon from 'mastodon/components/icon';
 import DetailedHeaderContaier from './containers/header_container';
 import { defaultColumnWidth, me, maxReactionsPerAccount } from 'mastodon/initial_state';
@@ -184,6 +185,7 @@ const makeMapStateToProps = () => {
       columnWidth: columnWidth ?? defaultColumnWidth,
       emojiReactioned: myCount > 0,
       reactionLimitReached: myCount >= maxReactionsPerAccount,
+      screenReaderPoll: status ? screenReaderPollFromState(state, getProper(status)) : null,
     };
   };
 
@@ -616,6 +618,8 @@ export class Status extends ImmutablePureComponent {
     this.setState({ fullscreen: isFullscreen() });
   }
 
+  screenReaderLabel = index => textForScreenReader(this.props.intl, this.screenReaderStatus, false, index, this.screenReaderPoll);
+
   handleWidthChange = (value) => {
     const { columnId, dispatch } = this.props;
 
@@ -650,6 +654,9 @@ export class Status extends ImmutablePureComponent {
 
     const referenceCount  = enableStatusReference ? status.get('status_references_count', 0) - (status.get('status_reference_ids', ImmutableList()).includes(status.get('quote_id')) ? 1 : 0) : 0;
 
+    this.screenReaderStatus = status;
+    this.screenReaderPoll = this.props.screenReaderPoll;
+
     const handlers = {
       moveUp: this.handleHotkeyMoveUp,
       moveDown: this.handleHotkeyMoveDown,
@@ -682,71 +689,73 @@ export class Status extends ImmutablePureComponent {
             {ancestors}
 
             <HotKeys handlers={handlers}>
-              <div
-                className={classNames('focusable', 'detailed-status__wrapper', {
-                  'detailed-status__wrapper-referenced': referenced,
-                  'detailed-status__wrapper-context-referenced': contextReferenced,
-                  'detailed-status__wrapper-reference': referenceCount > 0,
-                })} tabIndex='0' aria-label={textForScreenReader(intl, status, false)}
-              >
-                <DetailedStatus
-                  key={`details-${status.get('id')}`}
-                  status={status}
-                  contextHostId={this.contextHostId()}
-                  onOpenAccountContext={this.handleOpenAccountContext}
-                  referenced={referenced}
-                  contextReferenced={contextReferenced}
-                  onOpenVideo={this.handleOpenVideo}
-                  onOpenMedia={this.handleOpenMedia}
-                  onOpenVideoQuote={this.handleOpenVideoQuote}
-                  onOpenMediaQuote={this.handleOpenMediaQuote}
-                  onToggleHidden={this.handleToggleHidden}
-                  onTranslate={this.handleTranslate}
-                  domain={domain}
-                  showMedia={this.state.showMedia}
-                  onToggleMediaVisibility={this.handleToggleMediaVisibility}
-                  pictureInPicture={pictureInPicture}
-                  showQuoteMedia={this.state.showQuoteMedia}
-                  onToggleQuoteMediaVisibility={this.handleToggleQuoteMediaVisibility}
-                  addEmojiReaction={this.handleAddEmojiReaction}
-                  removeEmojiReaction={this.handleRemoveEmojiReaction}
-                />
+              <EmojiMutedAria labelFor={this.screenReaderLabel}>
+                <div
+                  className={classNames('focusable', 'detailed-status__wrapper', {
+                    'detailed-status__wrapper-referenced': referenced,
+                    'detailed-status__wrapper-context-referenced': contextReferenced,
+                    'detailed-status__wrapper-reference': referenceCount > 0,
+                  })} tabIndex='0'
+                >
+                  <DetailedStatus
+                    key={`details-${status.get('id')}`}
+                    status={status}
+                    contextHostId={this.contextHostId()}
+                    onOpenAccountContext={this.handleOpenAccountContext}
+                    referenced={referenced}
+                    contextReferenced={contextReferenced}
+                    onOpenVideo={this.handleOpenVideo}
+                    onOpenMedia={this.handleOpenMedia}
+                    onOpenVideoQuote={this.handleOpenVideoQuote}
+                    onOpenMediaQuote={this.handleOpenMediaQuote}
+                    onToggleHidden={this.handleToggleHidden}
+                    onTranslate={this.handleTranslate}
+                    domain={domain}
+                    showMedia={this.state.showMedia}
+                    onToggleMediaVisibility={this.handleToggleMediaVisibility}
+                    pictureInPicture={pictureInPicture}
+                    showQuoteMedia={this.state.showQuoteMedia}
+                    onToggleQuoteMediaVisibility={this.handleToggleQuoteMediaVisibility}
+                    addEmojiReaction={this.handleAddEmojiReaction}
+                    removeEmojiReaction={this.handleRemoveEmojiReaction}
+                  />
 
-                <ActionBar
-                  key={`action-bar-${status.get('id')}`}
-                  status={status}
-                  translationStatus={translationRequestStatus(status)}
-                  referenced={referenced}
-                  contextReferenced={contextReferenced}
-                  emojiReactioned={emojiReactioned}
-                  reactionLimitReached={reactionLimitReached}
-                  onReply={this.handleReplyClick}
-                  onFavourite={this.handleFavouriteClick}
-                  onReblog={this.handleReblogClick}
-                  onBookmark={this.handleBookmarkClick}
-                  onQuote={this.handleQuoteClick}
-                  onEdit={this.handleEditClick}
-                  onDelete={this.handleDeleteClick}
-                  onExpire={this.handleExpireClick}
-                  onDirect={this.handleDirectClick}
-                  onMemberList={this.handleMemberListClick}
-                  onMention={this.handleMentionClick}
-                  onMute={this.handleMuteClick}
-                  onUnmute={this.handleUnmuteClick}
-                  onMuteConversation={this.handleConversationMuteClick}
-                  onBlock={this.handleBlockClick}
-                  onUnblock={this.handleUnblockClick}
-                  onBlockDomain={this.handleBlockDomainClick}
-                  onUnblockDomain={this.handleUnblockDomainClick}
-                  onReport={this.handleReport}
-                  onPin={this.handlePin}
-                  onEmbed={this.handleEmbed}
-                  addEmojiReaction={this.handleAddEmojiReaction}
-                  removeEmojiReaction={this.handleRemoveEmojiReaction}
-                  onAddReference={this.handleAddReference}
-                  onRemoveReference={this.handleRemoveReference}
-                />
-              </div>
+                  <ActionBar
+                    key={`action-bar-${status.get('id')}`}
+                    status={status}
+                    translationStatus={translationRequestStatus(status)}
+                    referenced={referenced}
+                    contextReferenced={contextReferenced}
+                    emojiReactioned={emojiReactioned}
+                    reactionLimitReached={reactionLimitReached}
+                    onReply={this.handleReplyClick}
+                    onFavourite={this.handleFavouriteClick}
+                    onReblog={this.handleReblogClick}
+                    onBookmark={this.handleBookmarkClick}
+                    onQuote={this.handleQuoteClick}
+                    onEdit={this.handleEditClick}
+                    onDelete={this.handleDeleteClick}
+                    onExpire={this.handleExpireClick}
+                    onDirect={this.handleDirectClick}
+                    onMemberList={this.handleMemberListClick}
+                    onMention={this.handleMentionClick}
+                    onMute={this.handleMuteClick}
+                    onUnmute={this.handleUnmuteClick}
+                    onMuteConversation={this.handleConversationMuteClick}
+                    onBlock={this.handleBlockClick}
+                    onUnblock={this.handleUnblockClick}
+                    onBlockDomain={this.handleBlockDomainClick}
+                    onUnblockDomain={this.handleUnblockDomainClick}
+                    onReport={this.handleReport}
+                    onPin={this.handlePin}
+                    onEmbed={this.handleEmbed}
+                    addEmojiReaction={this.handleAddEmojiReaction}
+                    removeEmojiReaction={this.handleRemoveEmojiReaction}
+                    onAddReference={this.handleAddReference}
+                    onRemoveReference={this.handleRemoveReference}
+                  />
+                </div>
+              </EmojiMutedAria>
             </HotKeys>
 
             {descendants}

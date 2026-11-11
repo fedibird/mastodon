@@ -8,6 +8,7 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import { HotKeys } from 'react-hotkeys';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
+import { EmojiMutedPreview } from 'mastodon/components/emoji_muted_html';
 
 // We use the component (and not the container) since we do not want
 // to use the progress bar to show download progress
@@ -87,7 +88,7 @@ class ScheduledStatus extends ImmutablePureComponent {
         <div className={classNames('mini-status__wrapper', `mini-status__wrapper-${scheduledStatus.getIn(['params', 'visibility'])}`, 'focusable', { 'mini-status__wrapper-reply': !!scheduledStatus.getIn(['params', 'in_reply_to_id']) })} role='button' tabIndex={0} onClick={this.handleClick} ref={this.handleRef}>
           <div className={classNames('mini-status', `mini-status-${scheduledStatus.getIn(['params', 'visibility'])}`, { 'mini-status-reply': !!scheduledStatus.getIn(['params', 'in_reply_to_id']) })} data-id={scheduledStatus.get('id')}>
             <div className='mini-status__content'>
-              <div className='mini-status__content__text translate' lang={scheduledStatus.getIn(['params', 'language'])} dangerouslySetInnerHTML={{ __html: scheduledStatus.getIn(['params', 'text']) }} />
+              <EmojiMutedPreview tag='div' className='mini-status__content__text translate' lang={scheduledStatus.getIn(['params', 'language'])} text={scheduledStatus.getIn(['params', 'text']) || ''} />
               <Bundle fetchComponent={ThumbnailGallery} loading={this.renderLoadingMediaGallery}>
                 {Component => <Component media={scheduledStatus.get('media_attachments')} />}
               </Bundle>

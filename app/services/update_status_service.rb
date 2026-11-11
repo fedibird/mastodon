@@ -258,7 +258,7 @@ class UpdateStatusService < BaseService
   def create_previous_edit!
     return if @status.edits.any?
 
-    @status.snapshot!(at_time: @status.created_at, rate_limit: false)
+    @status.snapshot_original!
   end
 
   def create_edit!

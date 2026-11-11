@@ -176,6 +176,8 @@ class PostStatusService < BaseService
     mention_service = ProcessMentionsService.new
     explicit_mentions = @status.personal_visibility? ? nil : mention_service.prepare(@status, @circle)
     safeguard_mentions!(@status)
+    # Emoji lookup hits the cache. Keep it outside the insert transaction.
+    @status.assign_posted_emoji_identities!(poll_options: poll_option_titles)
 
     # Status, capability token, mention rows, and a delegated audit row
     # commit together. A failed mention or audit write rolls the status
@@ -455,6 +457,14 @@ class PostStatusService < BaseService
     return if @options[:poll].blank?
 
     @options[:poll].merge(account: @account, voters_count: 0)
+  end
+
+  def poll_option_titles
+    poll = @options[:poll]
+    return if poll.blank?
+
+    options = poll[:options] || poll['options']
+    Array(options).presence
   end
 
   def scheduled_options
