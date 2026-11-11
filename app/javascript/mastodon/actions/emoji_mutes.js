@@ -491,7 +491,15 @@ export function syncEmojiMutes(options = {}) {
     }
 
     return pending.then(mutes => {
-      if (generation !== documentSyncGeneration || !emojiMuteDocumentReady()) {
+      if (generation !== documentSyncGeneration) {
+        return null;
+      }
+
+      // A request may resolve successfully while returning a document older
+      // than a streaming revision. An unresolved gap is a failure, not an
+      // endless loading spinner; keep the WebUI hidden and offer retry.
+      if (!emojiMuteDocumentReady()) {
+        dispatch({ type: EMOJI_MUTES_FAIL });
         return null;
       }
 
