@@ -147,6 +147,12 @@ export function loadEmojiMutes(options = {}) {
       return mutes;
     }
 
+    if (options.strict && appliedRevision !== null &&
+        (!response.data || !REVISION.test(String(response.data.revision)) ||
+         compareRevision(String(response.data.revision), appliedRevision) < 0)) {
+      throw new Error('Emoji mute revision did not reach the verified version');
+    }
+
     return adopt(response.data, options.minRevision);
   }).finally(() => {
     if (request === pending) {
