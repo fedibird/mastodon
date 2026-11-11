@@ -7,6 +7,9 @@ import initialState from 'mastodon/initial_state_data';
 // wait until the applied document has caught up.
 
 const REVISION = /^(?:0|[1-9]\d*)$/;
+// Axios has no request timeout by default. A stalled request must release
+// the initial/stream revision gate to a retryable error state.
+const EMOJI_MUTES_GET_TIMEOUT_MS = 20000;
 
 let observedRevision = null;
 let appliedRevision = null;
@@ -140,7 +143,7 @@ export function loadEmojiMutes(options = {}) {
 
   const version = ++requestVersion;
   const session = sessionVersion;
-  const pending = api().get('/api/v1/fedibird/emoji_mutes', { headers }).then(response => {
+  const pending = api().get('/api/v1/fedibird/emoji_mutes', { headers, timeout: EMOJI_MUTES_GET_TIMEOUT_MS }).then(response => {
     // Force refresh, session reset, or another user's request superseded us.
     // The old promise may finish, but it must not mutate the module document.
     if (session !== sessionVersion || version !== requestVersion) {
