@@ -123,10 +123,13 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 
-const phaseChanged = next => {
-  act(() => {
+const phaseChanged = async next => {
+  await act(async () => {
     mockPhase = next;
     mockSubscribers.forEach(listener => listener());
+    // The privacy portal only reattaches in a microtask after the Redux
+    // subscribers have finished rebuilding their safe display projections.
+    await Promise.resolve();
   });
 };
 
@@ -190,7 +193,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(ui.getAttribute('aria-label')).toBe('👍');
     expect(view.container.querySelector('img[src="/emoji/thumb.svg"]')).not.toBeNull();
     expect(mockUiMounts).toHaveBeenCalledTimes(1);
-    phaseChanged('stale');
+    await phaseChanged('stale');
 
     // Detached DOM is absent from the displayed document, not CSS-hidden.
     expect(view.queryByTestId('webui')).toBeNull();
@@ -202,7 +205,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(mockUiUnmounts).not.toHaveBeenCalled();
     expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
 
-    phaseChanged('ready');
+    await phaseChanged('ready');
     expect(view.getByTestId('webui')).toBe(ui);
     expect(view.getByTestId('timeline-scroll')).toBe(scroller);
     expect(document.querySelector('img[src="/private-menu-emoji.svg"]')).toBe(menuImage);
@@ -216,13 +219,37 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(mockUiUnmounts).toHaveBeenCalledTimes(1);
   });
 
+  it('never reattaches an earlier ready transition after another revision arrives', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await bootReady();
+
+    await phaseChanged('stale');
+    await act(async () => {
+      mockPhase = 'ready';
+      mockSubscribers.forEach(listener => listener());
+      mockPhase = 'stale';
+      mockSubscribers.forEach(listener => listener());
+      await Promise.resolve();
+    });
+
+    expect(view.queryByTestId('webui')).toBeNull();
+    expect(view.container.querySelector('img')).toBeNull();
+    expect(mockUiMounts).toHaveBeenCalledTimes(1);
+    expect(mockUiUnmounts).not.toHaveBeenCalled();
+
+    await phaseChanged('ready');
+    expect(view.queryByTestId('webui')).not.toBeNull();
+    expect(mockUiMounts).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
   it('keeps a failed update hidden and supports an explicit retry', async () => {
     const view = render(<Mastodon locale='en' />);
     await bootReady();
 
     const ui = view.getByTestId('webui');
-    phaseChanged('stale');
-    phaseChanged('error');
+    await phaseChanged('stale');
+    await phaseChanged('error');
     expect(view.queryByTestId('webui')).toBeNull();
     expect(mockUiUnmounts).not.toHaveBeenCalled();
     expect(view.getByText(/could not be verified/)).not.toBeNull();
