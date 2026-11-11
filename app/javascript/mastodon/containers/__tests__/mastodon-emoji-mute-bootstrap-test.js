@@ -72,8 +72,11 @@ jest.mock('mastodon/features/embedded_rails_settings/navigation', () => ({
   settleSettingsReturnScroll: jest.fn(),
 }));
 
-import Mastodon from '../mastodon';
 import { resetEmojiMuteSession } from 'mastodon/features/emoji/emoji_mute_store';
+
+// Mastodon creates its store during module evaluation. Load it only after
+// the mock store and subscriber registry above have been initialized.
+const Mastodon = require('../mastodon').default;
 
 const deferred = () => {
   let resolve;
