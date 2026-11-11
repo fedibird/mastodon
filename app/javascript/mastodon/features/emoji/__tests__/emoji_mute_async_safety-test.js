@@ -17,6 +17,7 @@ import {
   EMOJI_MUTES_RESET,
   EMOJI_MUTES_REVISION,
   syncEmojiMutes,
+  invalidateEmojiMuteAsyncWork,
 } from 'mastodon/actions/emoji_mutes';
 import {
   appliedEmojiMuteRevision,
@@ -205,6 +206,34 @@ describe('emoji mute async safety (B5)', () => {
     api().get.mockResolvedValueOnce({ data: document('5', 'old') });
     await expect(syncEmojiMutes({ bootstrap: true, verify: true })(dispatch, getState)).rejects.toThrow('revision');
     expect(state.get('phase')).toBe('error');
+  });
+
+  it('does not let a failed old-session sync damage the next Redux viewer', async () => {
+    const late = deferred();
+    api().get.mockImplementationOnce(() => late.promise);
+    let state = reducer(undefined, { type: '@@INIT' });
+    const actions = [];
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, () => ImmutableMap({ emojiMutes: state }));
+      }
+
+      actions.push(action);
+      state = reducer(state, action);
+      return action;
+    };
+    const getState = () => ImmutableMap({ emojiMutes: state });
+    const oldSync = syncEmojiMutes({ bootstrap: true })(dispatch, getState);
+
+    invalidateEmojiMuteAsyncWork();
+    resetEmojiMuteSession();
+    dispatch({ type: EMOJI_MUTES_RESET });
+    late.reject(new Error('old viewer offline'));
+
+    await expect(oldSync).rejects.toThrow('old viewer offline');
+    expect(actions.some(action => action.type === EMOJI_MUTES_FAIL)).toBe(false);
+    expect(state.get('phase')).toBe('loading');
+    expect(state.get('appliedRevision')).toBeNull();
   });
 
   it('only publishes the latest complete document from overlapping sync thunks', async () => {
