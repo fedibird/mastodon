@@ -19,4 +19,18 @@ RSpec.describe 'Settings custom emoji preferences page', type: :request do
     expect(response.body).to include(settings_custom_emojis_personal_set_path)
     expect(response.body).to include(settings_custom_emojis_mutes_path)
   end
+
+  it 'removes the moved controls from appearance, other, and safety forms' do
+    {
+      settings_preferences_appearance_path => %w(emoji_scale enable_wide_emoji auto_play_emoji card_reactions_single_line content_emoji_reaction_size),
+      settings_preferences_other_path => %w(enable_reaction compact_reaction hide_reaction_counter disable_reaction_streaming hide_list_of_emoji_reactions_to_posts emoji_picker_disable_personal),
+      settings_preferences_safety_path => %w(disable_reactions emoji_reaction_fallback_policy),
+    }.each do |path, keys|
+      get path
+      expect(response).to have_http_status(200)
+      keys.each do |key|
+        expect(response.body).not_to include("user_setting_#{key}")
+      end
+    end
+  end
 end
