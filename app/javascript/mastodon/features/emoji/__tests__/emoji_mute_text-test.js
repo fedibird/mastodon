@@ -555,27 +555,31 @@ describe('unicode preview text', () => {
     ]))).toBe('<b>Hi</b> [thumb]');
   });
 
-  it('inserts each replacement once and leaves a literal shortcode that was not an image', () => {
+  it('follows html order so a literal before an image is not the muted one', () => {
     const image = (id, shortcode, domain = '') => (
       `<img class="emojione custom-emoji" alt=":${shortcode}:" data-shortcode="${shortcode}" data-domain="${domain}" data-emoji-id="${id}" src="https://cdn.example/${id || domain}.svg">`
     );
-    const html = `<p>${image('10', 'a')}${image('11', 'b')}</p>`;
-    const plain = ':a: :b: literal :a:';
-    const index = buildReplaceInTextIndex([
-      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'a' }, ':b:'),
-      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'b' }, '[B]'),
+    const before = `<span class="invisible">:blob:</span> ${image('10', 'blob')}`;
+    const after = `${image('10', 'blob')} <span class="invisible">:blob:</span>`;
+    const mute = buildReplaceInTextIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, ':other:'),
     ]);
-    const mixedIds = `<p>${image('10', 'a')}${image('12', 'a')}</p>`;
-    const mixedDomains = `<p>${image('', 'blob', 'a.example')}${image('', 'blob', 'b.example')}</p>`;
+    const mixedIds = `${image('10', 'a')}${image('12', 'a')}`;
+    const mixedDomains = `${image('', 'blob', 'a.example')} ${image('', 'blob', 'b.example')}`;
 
-    expect(replaceMutedEmojiInPlain(plain, html, index)).toBe(':b: [B] literal :a:');
+    expect(replaceMutedEmojiInPlain(':blob: :blob:', before, mute)).toBe(':blob: :other:');
+    expect(replaceMutedEmojiInPlain(':blob: :blob:', after, mute)).toBe(':other: :blob:');
     expect(replaceMutedEmojiInPlain(':a: :a:', mixedIds, buildReplaceInTextIndex([
-      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'a' }, ':b:'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'a' }, ':other:'),
       rule({ kind: 'custom', scope: 'local', custom_emoji_id: '12', shortcode: 'a' }, '[other]'),
-    ]))).toBe(':a: :a:');
+    ]))).toBe(':other:[other]');
     expect(replaceMutedEmojiInPlain(':blob: :blob:', mixedDomains, buildReplaceInTextIndex([
       rule({ kind: 'custom', scope: 'remote', domain: 'a.example', shortcode: 'blob' }, '[a]'),
-    ]))).toBe(':blob: :blob:');
+    ]))).toBe('[a] :blob:');
+    expect(replaceMutedEmojiInPlain(`${THUMBS} :blob:`, `<p>${THUMBS} ${image('10', 'blob')}</p>`, buildReplaceInTextIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, THUMBS),
+      unicodeRule(THUMBS, '[thumb]'),
+    ]))).toBe(`[thumb] ${THUMBS}`);
   });
 
   it('compares unicode rules by first code point instead of every rule at every character', () => {

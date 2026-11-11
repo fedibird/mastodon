@@ -7,7 +7,9 @@ import { Provider } from 'react-redux';
 import { createStore } from 'redux';
 
 import { EMOJI_MUTES_APPLY } from 'mastodon/actions/emoji_mutes';
+import { POLLS_IMPORT } from 'mastodon/actions/importer';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
+import pollsReducer from 'mastodon/reducers/polls';
 import { resetEmojiMuteTextForTests } from 'mastodon/features/emoji/emoji_mute_text';
 
 jest.mock('../../initial_state', () => ({
@@ -122,7 +124,10 @@ const pictureInPicture = fromJS({ inUse: false, available: false });
 const makeStore = () => createStore((state = fromJS({
   emojiMutes: { revision: null, rules: [] },
   relationships: {},
-}), action) => state.set('emojiMutes', emojiMutes(state.get('emojiMutes'), action)));
+  polls: {},
+}), action) => state
+  .set('emojiMutes', emojiMutes(state.get('emojiMutes'), action))
+  .set('polls', pollsReducer(state.get('polls'), action)));
 
 const apply = (store, mutes) => {
   act(() => {
@@ -257,5 +262,53 @@ describe('mounted screen reader labels', () => {
     expect(container.querySelector('.status__wrapper').textContent).not.toContain(THUMB);
     expect(container.querySelector('.status__wrapper').innerHTML).not.toContain('/emoji/thumb.svg');
     expect(status.get('content')).toContain(THUMB);
+  });
+
+  it('updates standard and card labels when the poll record changes and the status does not', () => {
+    const status = buildStatus({
+      content: '',
+      contentHtml: '',
+      search_index: '\n\n\n\nYes :blob:\n\nNo',
+      poll: 'p1',
+      account: account({ display_name: 'Alice', display_name_html: 'Alice' }),
+    });
+    const store = makeStore();
+    const standard = renderStatus(status, store);
+    const card = renderStatus(status, store, { layoutMode: 'card-1' });
+    const label = view => view.container.querySelector('.status__wrapper').getAttribute('aria-label');
+    const choice = id => (
+      `<img class="emojione custom-emoji" alt=":blob:" data-shortcode="blob" data-domain="" data-emoji-id="${id}" src="https://cdn.example/${id}.svg">`
+    );
+    const poll = html => ({
+      id: 'p1',
+      options: [
+        { title: 'Yes :blob:', title_emojified: `Yes ${html}` },
+        { title: 'No', title_emojified: 'No' },
+      ],
+    });
+
+    apply(store, [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[choice]')]);
+
+    expect(label(standard)).toContain('Yes :blob:');
+    expect(label(card)).toContain('Yes :blob:');
+    expect(status.get('poll')).toBe('p1');
+
+    act(() => {
+      store.dispatch({ type: POLLS_IMPORT, polls: [poll(choice('11'))] });
+    });
+
+    expect(label(standard)).toContain('Yes [choice]');
+    expect(label(card)).toContain('Yes [choice]');
+    expect(label(standard)).toContain('No');
+    expect(label(standard)).not.toContain(':blob:');
+
+    act(() => {
+      store.dispatch({ type: POLLS_IMPORT, polls: [poll(choice('12'))] });
+    });
+
+    expect(label(standard)).toContain('Yes :blob:');
+    expect(label(card)).toContain('Yes :blob:');
+    expect(label(standard)).not.toContain('[choice]');
+    expect(status.get('search_index')).toContain('Yes :blob:');
   });
 });

@@ -46,10 +46,10 @@ let cacheSignature = INACTIVE_INDEX.signature;
 let cache = new Map();
 let textCache = new Map();
 let textCacheSignature = INACTIVE_INDEX.signature;
+let spokenCache = new Map();
+let spokenCacheSignature = INACTIVE_INDEX.signature;
 let previewCache = new Map();
 let previewCacheSignature = INACTIVE_INDEX.signature;
-let customHtmlCache = new Map();
-let customHtmlCacheSignature = INACTIVE_INDEX.signature;
 const unicodeIndexCache = new WeakMap();
 let unicodeComparisons = 0;
 let parseCount = 0;
@@ -805,146 +805,123 @@ export function replaceUnicodeEmojiInPreviewHtml(text, index) {
   return next;
 }
 
-const SHORTCODE_TOKEN = /^[A-Za-z0-9_]{1,64}$/;
-
-const mutedCustomInHtml = (html, index) => {
-  if (!index || index.active !== true || typeof html !== 'string' || html.indexOf('custom-emoji') === -1) {
-    return [];
-  }
-
-  const signature = index.signature || '';
-
-  if (customHtmlCacheSignature !== signature) {
-    customHtmlCache = new Map();
-    customHtmlCacheSignature = signature;
-  }
-
-  const stored = customHtmlCache.get(html);
-
-  if (stored) {
-    return stored;
+const stripIndexedNodes = html => {
+  if (typeof html !== 'string' || (html.indexOf('quote-inline') === -1 && html.indexOf('reference-link-inline') === -1 && html.indexOf('original-media-link') === -1)) {
+    return html;
   }
 
   parseCount += 1;
   const template = document.createElement('template');
   template.innerHTML = html;
-  const images = template.content.querySelectorAll('img.custom-emoji');
-  const seen = new Map();
+  template.content.querySelectorAll('.quote-inline, .reference-link-inline, .original-media-link').forEach(node => {
+    node.remove();
+  });
+  const holder = document.createElement('div');
+  holder.appendChild(template.content);
+  return holder.innerHTML;
+};
 
-  for (let indexInHtml = 0; indexInHtml < images.length; indexInHtml += 1) {
-    const img = images[indexInHtml];
-    const shortcode = img.getAttribute('data-shortcode') || '';
+// Walk the HTML once and speak it in document order. A literal shortcode that
+// emojify left as text stays where it is. A muted custom image contributes
+// its replacement at the image, and that replacement is not scanned for
+// another shortcode or a Unicode sequence. Unicode in the original text is
+// still replaced. When no custom image changed, the caller keeps the
+// original plain. The walk is memoized per mute signature.
+const spokenCustomText = (html, index) => {
+  const signature = index && index.signature ? index.signature : '';
 
-    if (!shortcode) {
-      continue;
-    }
-
-    const replacement = replacementForImage(img, index);
-    const previous = seen.get(shortcode);
-    const identity = `${img.getAttribute('data-emoji-id') || ''}\n${img.getAttribute('data-domain') || ''}`;
-
-    if (!previous) {
-      seen.set(shortcode, {
-        shortcode,
-        identity,
-        replacement,
-        count: replacement === undefined ? 0 : 1,
-        ambiguous: false,
-      });
-      continue;
-    }
-
-    if (previous.identity !== identity || (previous.count === 0) !== (replacement === undefined)) {
-      previous.ambiguous = true;
-      continue;
-    }
-
-    if (replacement !== undefined) {
-      previous.count += 1;
-    }
+  if (spokenCacheSignature !== signature) {
+    spokenCache = new Map();
+    spokenCacheSignature = signature;
   }
 
-  const list = [];
+  const stored = spokenCache.get(html);
 
-  seen.forEach(record => {
-    if (record.ambiguous || record.count === 0) {
+  if (stored !== undefined) {
+    return stored;
+  }
+
+  if (html.indexOf('custom-emoji') === -1) {
+    spokenCache.set(html, null);
+    return null;
+  }
+
+  parseCount += 1;
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  const parts = [];
+  let changed = false;
+
+  const walk = node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      parts.push(replaceUnicodeEmojiInPlainText(node.nodeValue || '', index));
       return;
     }
 
-    list.push({
-      shortcode: record.shortcode,
-      replacement: record.replacement,
-      count: record.count,
-    });
-  });
-  customHtmlCache.set(html, list);
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    }
 
-  if (customHtmlCache.size > CACHE_LIMIT) {
-    customHtmlCache.delete(customHtmlCache.keys().next().value);
+    const tag = node.tagName;
+
+    if (tag === 'SCRIPT' || tag === 'STYLE') {
+      return;
+    }
+
+    if (tag === 'IMG' && node.classList.contains('custom-emoji')) {
+      const replacement = replacementForImage(node, index);
+
+      if (replacement !== undefined) {
+        changed = true;
+        parts.push(replacement);
+        return;
+      }
+
+      parts.push(replaceUnicodeEmojiInPlainText(node.getAttribute('alt') || '', index));
+      return;
+    }
+
+    if (tag === 'IMG') {
+      parts.push(replaceUnicodeEmojiInPlainText(node.getAttribute('alt') || '', index));
+      return;
+    }
+
+    const children = node.childNodes;
+
+    for (let childIndex = 0; childIndex < children.length; childIndex += 1) {
+      walk(children[childIndex]);
+    }
+  };
+
+  const roots = template.content.childNodes;
+
+  for (let rootIndex = 0; rootIndex < roots.length; rootIndex += 1) {
+    walk(roots[rootIndex]);
   }
 
-  return list;
+  const value = changed ? parts.join('') : null;
+  spokenCache.set(html, value);
+
+  if (spokenCache.size > CACHE_LIMIT) {
+    spokenCache.delete(spokenCache.keys().next().value);
+  }
+
+  return value;
 };
 
-// One pass over the original plain text. A replacement is copied through and
-// not scanned, so a later shortcode rule cannot rewrite it. A `:shortcode:`
-// is consumed only as many times as the HTML actually showed that muted image.
 export function replaceMutedEmojiInPlain(plain, html, index) {
   if (typeof plain !== 'string' || plain === '' || !index || index.active !== true) {
     return plain;
   }
 
-  const customs = mutedCustomInHtml(html, index);
-  const buckets = unicodeIndexFor(index);
-  const counts = new Map();
+  const source = stripIndexedNodes(typeof html === 'string' ? html : '');
+  const spoken = spokenCustomText(source, index);
 
-  customs.forEach(record => {
-    counts.set(record.shortcode, record.count);
-  });
-  const replacementFor = new Map();
-
-  customs.forEach(record => {
-    replacementFor.set(record.shortcode, record.replacement);
-  });
-
-  if (counts.size === 0 && (!buckets || buckets.size === 0)) {
-    return plain;
+  if (spoken === null) {
+    return replaceUnicodeEmojiInPlainText(plain, index);
   }
 
-  let result = '';
-  let cursor = 0;
-
-  while (cursor < plain.length) {
-    if (plain.charAt(cursor) === ':') {
-      const end = plain.indexOf(':', cursor + 1);
-
-      if (end !== -1) {
-        const shortcode = plain.slice(cursor + 1, end);
-        const left = counts.get(shortcode) || 0;
-
-        if (left > 0 && SHORTCODE_TOKEN.test(shortcode)) {
-          result += replacementFor.get(shortcode);
-          counts.set(shortcode, left - 1);
-          cursor = end + 1;
-          continue;
-        }
-      }
-    }
-
-    const matched = matchUnicodeAt(plain, cursor, buckets);
-
-    if (matched) {
-      result += matched.replacement;
-      cursor += matched.native.length;
-      continue;
-    }
-
-    const size = codePointSize(plain.codePointAt(cursor));
-    result += plain.slice(cursor, cursor + size);
-    cursor += size;
-  }
-
-  return result;
+  return spoken;
 }
 
 export function emojiMutedPlainLabel(plain, html, index) {
@@ -1006,9 +983,9 @@ export function resetEmojiMuteTextForTests() {
   previewCacheSignature = INACTIVE_INDEX.signature;
   cache = new Map();
   textCache = new Map();
+  spokenCache = new Map();
+  spokenCacheSignature = INACTIVE_INDEX.signature;
   previewCache = new Map();
-  customHtmlCache = new Map();
-  customHtmlCacheSignature = INACTIVE_INDEX.signature;
   unicodeComparisons = 0;
   parseCount = 0;
 }

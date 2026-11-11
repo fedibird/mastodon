@@ -249,7 +249,21 @@ const projectReadableBody = (sourceBody, status, index, poll) => {
   }
 
   const bodyText = indexedText(status.get('content') || '');
-  const at = bodyText ? sourceBody.indexOf(bodyText) : -1;
+
+  // A poll-only post has no body text. The choices still live in the suffix.
+  if (!bodyText) {
+    if (options && options.size > 0) {
+      return projectPollSuffix(sourceBody, status, index, poll);
+    }
+
+    if (html.indexOf('emojione') === -1 || sourceBody.indexOf('\n\n') !== -1) {
+      return replaceUnicodeEmojiInPlainText(sourceBody, index);
+    }
+
+    return replaceMutedEmojiInPlain(sourceBody, html, index);
+  }
+
+  const at = sourceBody.indexOf(bodyText);
 
   if (at !== -1) {
     return sourceBody.slice(0, at)
@@ -539,6 +553,7 @@ class Status extends ImmutablePureComponent {
     'referenced',
     'contextReferenced',
     'quote_muted',
+    'screenReaderPoll',
     'sourceBadges',
     'immediate',
     'layoutMode',

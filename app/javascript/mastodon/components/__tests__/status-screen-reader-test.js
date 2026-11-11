@@ -535,6 +535,55 @@ describe('textForScreenReader emoji mute', () => {
     expect(emojiMuteTextParseCount()).toBeLessThan(5);
     expect(textForScreenReader(intl, status, false, index)).toContain('[blob]');
   });
+
+  it('projects custom emoji in a poll-only post and a content warning with no body', () => {
+    const choice = `Yes ${localImg('11')}`;
+    const remoteChoice = `Yes ${remoteImg('remote.example')}`;
+    const poll = fromJS({
+      id: 'p1',
+      options: [
+        { title: 'Yes :blob:', title_emojified: choice },
+        { title: 'No', title_emojified: 'No' },
+      ],
+    });
+    const pollOnly = buildStatus({
+      content: '',
+      contentHtml: '',
+      search_index: '\n\n\n\nYes :blob:\n\nNo',
+      poll: 'p1',
+    });
+    const withWarning = buildStatus({
+      content: '',
+      contentHtml: '',
+      spoiler_text: 'secret',
+      spoilerHtml: 'secret',
+      hidden: false,
+      search_index: 'secret\n\n\n\nYes :blob:\n\nNo',
+      poll: 'p1',
+      translationMode: 'bilingual',
+      translation,
+    });
+    const index = muteIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[choice]'),
+    ]);
+    const remotePoll = poll.setIn(['options', 0, 'title_emojified'], remoteChoice);
+    const remoteIndex = muteIndex([
+      rule({ kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' }, '[remote]'),
+    ]);
+
+    expect(textForScreenReader(intl, pollOnly, false, index, poll)).toContain('Yes [choice]');
+    expect(textForScreenReader(intl, pollOnly, false, index, poll)).toContain('No');
+    expect(textForScreenReader(intl, pollOnly, false, index, poll)).not.toContain(':blob:');
+    expect(textForScreenReader(intl, withWarning, false, index, poll)).toContain('Yes [choice]');
+    expect(textForScreenReader(intl, withWarning, false, index, poll)).toContain('こんにちは');
+    expect(textForScreenReader(intl, withWarning.set('hidden', true), false, index, poll)).toBe('Alice, secret → 警告, Jan 1, 12:00 PM, alice@example.com');
+    expect(textForScreenReader(intl, pollOnly, false, muteIndex([
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[choice]', { replace_in_text: false }),
+    ]), poll)).toContain('Yes :blob:');
+    expect(textForScreenReader(intl, pollOnly, false, remoteIndex, remotePoll)).toContain('Yes [remote]');
+    expect(textForScreenReader(intl, pollOnly, false, index, remotePoll)).toContain('Yes :blob:');
+    expect(pollOnly.get('search_index')).toContain('Yes :blob:');
+  });
 });
 
 describe('status and tile visibility defaults', () => {
