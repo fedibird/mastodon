@@ -157,6 +157,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(view.queryByTestId('webui')).toBeNull();
     expect(view.getByText('Loading emoji mute settings…')).not.toBeNull();
     expect(mockStartSubscriptions).not.toHaveBeenCalled();
+    expect(mockUiMounts).not.toHaveBeenCalled();
 
     await bootReady();
 
@@ -176,6 +177,8 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     const draft = view.getByTestId('compose-draft');
     scroller.scrollTop = 237;
     fireEvent.change(draft, { target: { value: 'pending draft' } });
+    draft.focus();
+    expect(document.activeElement).toBe(draft);
 
     expect(ui.getAttribute('aria-label')).toBe('👍');
     expect(view.container.querySelector('img[src="/emoji/thumb.svg"]')).not.toBeNull();
@@ -195,6 +198,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(view.getByTestId('timeline-scroll')).toBe(scroller);
     expect(scroller.scrollTop).toBe(237);
     expect(view.getByTestId('compose-draft').value).toBe('pending draft');
+    expect(document.activeElement).toBe(draft);
     expect(mockUiMounts).toHaveBeenCalledTimes(1);
     expect(mockUiUnmounts).not.toHaveBeenCalled();
     expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
