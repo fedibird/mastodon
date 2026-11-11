@@ -32,6 +32,8 @@ const mockStore = {
   }),
 };
 const mockStartSubscriptions = jest.fn(() => jest.fn());
+const mockUiMounts = jest.fn();
+const mockUiUnmounts = jest.fn();
 
 jest.mock('mastodon/initial_state', () => ({
   __esModule: true,
@@ -66,7 +68,38 @@ jest.mock('react-router-dom', () => ({
   Route: ({ component: Component }) => <Component />,
 }));
 jest.mock('react-router-scroll-4', () => ({ ScrollContext: ({ children }) => <div>{children}</div> }));
-jest.mock('mastodon/features/ui', () => () => <div data-testid='webui' aria-label='👍'>timeline <img alt='👍' src='/emoji/thumb.svg' /></div>);
+jest.mock('mastodon/features/ui', () => {
+  const ReactMock = require('react');
+
+  return class MockUI extends ReactMock.Component {
+
+    state = { draft: '' };
+
+    componentDidMount() {
+      mockUiMounts();
+    }
+
+    componentWillUnmount() {
+      mockUiUnmounts();
+    }
+
+    handleDraftChange = event => {
+      this.setState({ draft: event.target.value });
+    };
+
+    render() {
+      return (
+        <div data-testid='webui' aria-label='👍'>
+          timeline <img alt='👍' src='/emoji/thumb.svg' />
+          <div className='scrollable' data-testid='timeline-scroll'>
+            <input data-testid='compose-draft' value={this.state.draft} onChange={this.handleDraftChange} />
+          </div>
+        </div>
+      );
+    }
+
+  };
+});
 jest.mock('mastodon/components/error_boundary', () => ({ children }) => <div>{children}</div>);
 jest.mock('mastodon/features/embedded_rails_settings/navigation', () => ({
   settingsReturnScroll: () => null,
@@ -108,6 +141,8 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
   beforeEach(() => {
     mockDispatch.mockClear();
     mockStartSubscriptions.mockClear();
+    mockUiMounts.mockClear();
+    mockUiUnmounts.mockClear();
     resetEmojiMuteSession.mockClear();
     mockSubscribers.clear();
     mockRequest = deferred();
@@ -136,29 +171,46 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     const view = render(<Mastodon locale='en' />);
     await bootReady();
 
-    expect(view.getByTestId('webui').getAttribute('aria-label')).toBe('👍');
+    const ui = view.getByTestId('webui');
+    const scroller = view.getByTestId('timeline-scroll');
+    const draft = view.getByTestId('compose-draft');
+    scroller.scrollTop = 237;
+    fireEvent.change(draft, { target: { value: 'pending draft' } });
+
+    expect(ui.getAttribute('aria-label')).toBe('👍');
     expect(view.container.querySelector('img[src="/emoji/thumb.svg"]')).not.toBeNull();
+    expect(mockUiMounts).toHaveBeenCalledTimes(1);
     phaseChanged('stale');
 
+    // Detached DOM is absent from the displayed document, not CSS-hidden.
     expect(view.queryByTestId('webui')).toBeNull();
     expect(view.container.querySelector('img[src="/emoji/thumb.svg"]')).toBeNull();
     expect(view.container.innerHTML).not.toContain('👍');
     expect(view.getByText('Loading emoji mute settings…')).not.toBeNull();
+    expect(mockUiUnmounts).not.toHaveBeenCalled();
     expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
 
     phaseChanged('ready');
-    expect(view.queryByTestId('webui')).not.toBeNull();
+    expect(view.getByTestId('webui')).toBe(ui);
+    expect(view.getByTestId('timeline-scroll')).toBe(scroller);
+    expect(scroller.scrollTop).toBe(237);
+    expect(view.getByTestId('compose-draft').value).toBe('pending draft');
+    expect(mockUiMounts).toHaveBeenCalledTimes(1);
+    expect(mockUiUnmounts).not.toHaveBeenCalled();
     expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
     view.unmount();
+    expect(mockUiUnmounts).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a failed update hidden and supports an explicit retry', async () => {
     const view = render(<Mastodon locale='en' />);
     await bootReady();
 
+    const ui = view.getByTestId('webui');
     phaseChanged('stale');
     phaseChanged('error');
     expect(view.queryByTestId('webui')).toBeNull();
+    expect(mockUiUnmounts).not.toHaveBeenCalled();
     expect(view.getByText(/could not be verified/)).not.toBeNull();
 
     mockRequest = deferred();
@@ -167,7 +219,8 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
 
     await bootReady();
 
-    expect(view.queryByTestId('webui')).not.toBeNull();
+    expect(view.getByTestId('webui')).toBe(ui);
+    expect(mockUiMounts).toHaveBeenCalledTimes(1);
     view.unmount();
   });
 
