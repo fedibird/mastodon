@@ -11,7 +11,7 @@ import { preloadEmojiPickersIfNeeded } from '../features/emoji/emoji_picker_pref
 import { hydrateStore } from '../actions/store';
 import { startMastodonSubscriptions } from './mastodon_subscriptions';
 import { IntlProvider, addLocaleData, FormattedMessage } from 'react-intl';
-import { syncEmojiMutes, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
+import { syncEmojiMutes, invalidateEmojiMuteAsyncWork, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
 import { resetEmojiMuteSession } from '../features/emoji/emoji_mute_store';
 import { getLocale } from '../locales';
 import initialState from '../initial_state';
@@ -79,6 +79,7 @@ export default class Mastodon extends React.PureComponent {
 
     // The same JS runtime must never carry a signed-in viewer's rules into a
     // later shell. Late GET promises are invalidated by the session counter.
+    invalidateEmojiMuteAsyncWork();
     resetEmojiMuteSession();
     store.dispatch({ type: EMOJI_MUTES_RESET });
   }
@@ -108,6 +109,7 @@ export default class Mastodon extends React.PureComponent {
           this.disconnect = null;
         }
 
+        invalidateEmojiMuteAsyncWork();
         resetEmojiMuteSession();
         store.dispatch({ type: EMOJI_MUTES_RESET });
       });
