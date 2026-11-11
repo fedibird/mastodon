@@ -542,7 +542,7 @@ export function syncEmojiMutes(options = {}) {
         refetchLegacy: hideGrew && !sameDocument,
       })(dispatch, getState);
     }).catch(error => {
-      if (generation === documentSyncGeneration && !emojiMuteDocumentReady()) {
+      if (generation === documentSyncGeneration && (options.verify === true || !emojiMuteDocumentReady())) {
         dispatch({ type: EMOJI_MUTES_FAIL });
       }
 
