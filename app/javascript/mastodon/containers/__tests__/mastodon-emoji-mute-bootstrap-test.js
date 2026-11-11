@@ -1,18 +1,36 @@
 /* eslint-disable react/prop-types */
 
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import React from 'react';
 
-let mockState;
 let mockRequest;
+let mockPhase = 'loading';
+let mockMe = '1';
+let mockToken = 'token';
+const mockSubscribers = new Set();
+const mockState = {
+  getIn: path => {
+    const key = path.join('.');
+    if (key === 'emojiMutes.phase') return mockPhase;
+    if (key === 'meta.me') return mockMe;
+    if (key === 'meta.access_token') return mockToken;
+    return undefined;
+  },
+};
 const mockDispatch = jest.fn(action => {
   if (typeof action === 'function') {
     return action(mockDispatch, () => mockState);
   }
   return action;
 });
-const mockGetState = jest.fn(() => mockState);
-const mockStore = { dispatch: mockDispatch, getState: mockGetState, subscribe: jest.fn(() => jest.fn()) };
+const mockStore = {
+  dispatch: mockDispatch,
+  getState: () => mockState,
+  subscribe: jest.fn(callback => {
+    mockSubscribers.add(callback);
+    return () => mockSubscribers.delete(callback);
+  }),
+};
 const mockStartSubscriptions = jest.fn(() => jest.fn());
 
 jest.mock('mastodon/initial_state', () => ({
@@ -47,7 +65,7 @@ jest.mock('react-router-dom', () => ({
   Route: ({ component: Component }) => <Component />,
 }));
 jest.mock('react-router-scroll-4', () => ({ ScrollContext: ({ children }) => <div>{children}</div> }));
-jest.mock('mastodon/features/ui', () => () => <div data-testid='webui'>timeline</div>);
+jest.mock('mastodon/features/ui', () => () => <div data-testid='webui' aria-label='👍'>timeline <img alt='👍' src='/emoji/thumb.svg' /></div>);
 jest.mock('mastodon/components/error_boundary', () => ({ children }) => <div>{children}</div>);
 jest.mock('mastodon/features/embedded_rails_settings/navigation', () => ({
   settingsReturnScroll: () => null,
@@ -55,6 +73,7 @@ jest.mock('mastodon/features/embedded_rails_settings/navigation', () => ({
 }));
 
 import Mastodon from '../mastodon';
+import { resetEmojiMuteSession } from 'mastodon/features/emoji/emoji_mute_store';
 
 const deferred = () => {
   let resolve;
@@ -63,12 +82,31 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 
-describe('authenticated emoji mute bootstrap', () => {
+const phaseChanged = next => {
+  act(() => {
+    mockPhase = next;
+    mockSubscribers.forEach(listener => listener());
+  });
+};
+
+const bootReady = async () => {
+  await act(async () => {
+    mockPhase = 'ready';
+    mockRequest.resolve(null);
+    await mockRequest.promise;
+  });
+};
+
+describe('authenticated emoji mute bootstrap and revision gate', () => {
   beforeEach(() => {
     mockDispatch.mockClear();
     mockStartSubscriptions.mockClear();
+    resetEmojiMuteSession.mockClear();
+    mockSubscribers.clear();
     mockRequest = deferred();
-    mockState = { getIn: path => path.join('.') === 'emojiMutes.phase' ? 'loading' : undefined };
+    mockPhase = 'loading';
+    mockMe = '1';
+    mockToken = 'token';
   });
 
   it('does not mount the WebUI before an authoritative mute document is loaded', async () => {
@@ -78,20 +116,57 @@ describe('authenticated emoji mute bootstrap', () => {
     expect(view.getByText('Loading emoji mute settings…')).not.toBeNull();
     expect(mockStartSubscriptions).not.toHaveBeenCalled();
 
-    await act(async () => {
-      mockState = { getIn: () => 'ready' };
-      mockRequest.resolve(null);
-      await mockRequest.promise;
-    });
+    await bootReady();
 
     expect(view.queryByTestId('webui')).not.toBeNull();
     expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
     view.unmount();
     expect(mockDispatch).toHaveBeenCalledWith({ type: 'EMOJI_MUTES_RESET' });
+    expect(mockSubscribers.size).toBe(0);
   });
 
-  it('keeps the WebUI unmounted on failure and permits an explicit retry', async () => {
+  it('unmounts visible images and aria labels during a stream revision gap', async () => {
     const view = render(<Mastodon locale='en' />);
+    await bootReady();
+
+    expect(view.getByTestId('webui').getAttribute('aria-label')).toBe('👍');
+    expect(view.container.querySelector('img[src="/emoji/thumb.svg"]')).not.toBeNull();
+    phaseChanged('stale');
+
+    expect(view.queryByTestId('webui')).toBeNull();
+    expect(view.container.querySelector('img[src="/emoji/thumb.svg"]')).toBeNull();
+    expect(view.container.innerHTML).not.toContain('👍');
+    expect(view.getByText('Loading emoji mute settings…')).not.toBeNull();
+    expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
+
+    phaseChanged('ready');
+    expect(view.queryByTestId('webui')).not.toBeNull();
+    expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  it('keeps a failed update hidden and supports an explicit retry', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await bootReady();
+
+    phaseChanged('stale');
+    phaseChanged('error');
+    expect(view.queryByTestId('webui')).toBeNull();
+    expect(view.getByText(/could not be verified/)).not.toBeNull();
+
+    mockRequest = deferred();
+    fireEvent.click(view.getByText('Retry loading settings'));
+    expect(view.queryByTestId('webui')).toBeNull();
+
+    await bootReady();
+
+    expect(view.queryByTestId('webui')).not.toBeNull();
+    view.unmount();
+  });
+
+  it('keeps the WebUI unmounted when the initial GET fails', async () => {
+    const view = render(<Mastodon locale='en' />);
+
     await act(async () => {
       mockRequest.reject(new Error('offline'));
       try {
@@ -100,23 +175,31 @@ describe('authenticated emoji mute bootstrap', () => {
         // The bootstrap handler owns the error.
       }
     });
-
     expect(view.queryByTestId('webui')).toBeNull();
     expect(view.getByText(/could not be verified/)).not.toBeNull();
+
     mockRequest = deferred();
-    const button = view.getByText('Retry loading settings');
+    fireEvent.click(view.getByText('Retry loading settings'));
+    await bootReady();
 
-    await act(async () => {
-      button.click();
-    });
-    expect(view.queryByTestId('webui')).toBeNull();
-
-    await act(async () => {
-      mockState = { getIn: () => 'ready' };
-      mockRequest.resolve([]);
-      await mockRequest.promise;
-    });
     expect(view.queryByTestId('webui')).not.toBeNull();
+    view.unmount();
+  });
+
+  it('removes the old viewer DOM before clearing a changed session', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await bootReady();
+
+    act(() => {
+      mockMe = 'another-account';
+      mockSubscribers.forEach(listener => listener());
+    });
+
+    expect(view.queryByTestId('webui')).toBeNull();
+    expect(view.container.querySelector('img')).toBeNull();
+    expect(view.getByText(/Your account changed/)).not.toBeNull();
+    expect(resetEmojiMuteSession).toHaveBeenCalled();
+    expect(mockDispatch).toHaveBeenCalledWith({ type: 'EMOJI_MUTES_RESET' });
     view.unmount();
   });
 });
