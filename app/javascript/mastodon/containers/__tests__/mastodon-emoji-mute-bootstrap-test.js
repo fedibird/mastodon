@@ -107,6 +107,7 @@ jest.mock('mastodon/features/embedded_rails_settings/navigation', () => ({
 }));
 
 import { resetEmojiMuteSession } from 'mastodon/features/emoji/emoji_mute_store';
+import { getEmojiActionsOverlayRoot } from 'mastodon/features/emoji/emoji_actions/overlay_root';
 
 // Mastodon creates its store during module evaluation. Load it only after
 // the mock store and subscriber registry above have been initialized.
@@ -175,6 +176,12 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     const ui = view.getByTestId('webui');
     const scroller = view.getByTestId('timeline-scroll');
     const draft = view.getByTestId('compose-draft');
+    const menuRoot = getEmojiActionsOverlayRoot();
+    const menuImage = document.createElement('img');
+    menuImage.src = '/private-menu-emoji.svg';
+    menuImage.alt = 'hidden emoji';
+    menuRoot.appendChild(menuImage);
+    expect(menuImage.isConnected).toBe(true);
     scroller.scrollTop = 237;
     fireEvent.change(draft, { target: { value: 'pending draft' } });
     draft.focus();
@@ -189,6 +196,8 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(view.queryByTestId('webui')).toBeNull();
     expect(view.container.querySelector('img[src="/emoji/thumb.svg"]')).toBeNull();
     expect(view.container.innerHTML).not.toContain('👍');
+    expect(document.querySelector('img[src="/private-menu-emoji.svg"]')).toBeNull();
+    expect(getEmojiActionsOverlayRoot()).toBe(menuRoot);
     expect(view.getByText('Loading emoji mute settings…')).not.toBeNull();
     expect(mockUiUnmounts).not.toHaveBeenCalled();
     expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
@@ -196,6 +205,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     phaseChanged('ready');
     expect(view.getByTestId('webui')).toBe(ui);
     expect(view.getByTestId('timeline-scroll')).toBe(scroller);
+    expect(document.querySelector('img[src="/private-menu-emoji.svg"]')).toBe(menuImage);
     expect(scroller.scrollTop).toBe(237);
     expect(view.getByTestId('compose-draft').value).toBe('pending draft');
     expect(document.activeElement).toBe(draft);
