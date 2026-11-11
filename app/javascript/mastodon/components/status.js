@@ -151,29 +151,6 @@ export const resetScreenReaderIndexForTests = () => {
   indexedTextCache.clear();
 };
 
-const exactPollOptionAt = (value, title) => {
-  const token = `\n\n${title}`;
-  let from = 0;
-
-  while (from < value.length) {
-    const at = value.indexOf(token, from);
-
-    if (at === -1) {
-      return -1;
-    }
-
-    const after = at + token.length;
-
-    if (after === value.length || value.startsWith('\n\n', after)) {
-      return at;
-    }
-
-    from = at + 2;
-  }
-
-  return -1;
-};
-
 const pollOptionsOf = (status, poll) => {
   if (poll && typeof poll.get === 'function' && poll.get('options')) {
     return poll.get('options');
@@ -226,45 +203,9 @@ const projectPollSuffix = (suffix, status, index, poll) => {
     return replaceUnicodeEmojiInPlainText(suffix, index);
   }
 
-  const ranges = [];
-  let matched = 0;
-
-  options.forEach(option => {
-    const title = optionTitle(option);
-    const html = optionHtml(option);
-    const at = title ? exactPollOptionAt(suffix, title) : -1;
-
-    if (at === -1) {
-      return;
-    }
-
-    matched += 1;
-    ranges.push({
-      start: at + 2,
-      end: at + 2 + title.length,
-      text: html ? replaceMutedEmojiInPlain(title, html, index) : title,
-    });
-  });
-
-  if (matched !== options.size) {
-    return projectCurrentPollChoices(suffix, options, index);
-  }
-
-  ranges.sort((left, right) => left.start - right.start);
-  let result = '';
-  let cursor = 0;
-
-  ranges.forEach(range => {
-    if (range.start < cursor) {
-      return;
-    }
-
-    result += replaceUnicodeEmojiInPlainText(suffix.slice(cursor, range.start), index);
-    result += range.text;
-    cursor = range.end;
-  });
-  result += replaceUnicodeEmojiInPlainText(suffix.slice(cursor), index);
-  return result;
+  // The loaded poll is the source of order. Matching titles inside the old
+  // search_index would keep a stale sequence when only the order changed.
+  return projectCurrentPollChoices(suffix, options, index);
 };
 
 // search_index is spoiler + body + poll titles. Replacing the whole body

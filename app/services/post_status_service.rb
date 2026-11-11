@@ -181,11 +181,11 @@ class PostStatusService < BaseService
     # commit together. A failed mention or audit write rolls the status
     # back before publish or distribution starts.
     ApplicationRecord.transaction do
+      @status.assign_posted_emoji_identities!(poll_options: poll_option_titles)
       @status.save!
       @status.capability_tokens.create! if @status.limited_visibility?
       mention_service.persist_mentions!(@status) if explicit_mentions
       record_posting_audit!
-      @status.remember_posted_emoji_identities!
     end
 
     # Hashtags and references are part of the payload publish serializes.
@@ -456,6 +456,14 @@ class PostStatusService < BaseService
     return if @options[:poll].blank?
 
     @options[:poll].merge(account: @account, voters_count: 0)
+  end
+
+  def poll_option_titles
+    poll = @options[:poll]
+    return if poll.blank?
+
+    options = poll[:options] || poll['options']
+    Array(options).presence
   end
 
   def scheduled_options

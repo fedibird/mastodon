@@ -805,6 +805,24 @@ export function replaceUnicodeEmojiInPreviewHtml(text, index) {
   return next;
 }
 
+const paragraphFollowsParagraph = node => {
+  let sibling = node.previousSibling;
+
+  while (sibling) {
+    if (sibling.nodeType === Node.ELEMENT_NODE) {
+      return sibling.tagName === 'P';
+    }
+
+    if (sibling.nodeType === Node.TEXT_NODE && (sibling.nodeValue || '').trim() !== '') {
+      return false;
+    }
+
+    sibling = sibling.previousSibling;
+  }
+
+  return false;
+};
+
 const stripIndexedNodes = html => {
   if (typeof html !== 'string' || (html.indexOf('quote-inline') === -1 && html.indexOf('reference-link-inline') === -1 && html.indexOf('original-media-link') === -1)) {
     return html;
@@ -868,6 +886,17 @@ const spokenCustomText = (html, index) => {
       return;
     }
 
+    // search_index turns a following paragraph into a blank line and <br>
+    // into a line break. Class and attributes on the <p> do not matter.
+    if (tag === 'P' && paragraphFollowsParagraph(node)) {
+      parts.push('\n\n');
+    }
+
+    if (tag === 'BR') {
+      parts.push('\n');
+      return;
+    }
+
     if (tag === 'IMG' && node.classList.contains('custom-emoji')) {
       const replacement = replacementForImage(node, index);
 
@@ -915,11 +944,7 @@ export function replaceMutedEmojiInPlain(plain, html, index) {
   }
 
   const source = stripIndexedNodes(typeof html === 'string' ? html : '');
-  // search_index turns <br> into a line break and a new paragraph into a
-  // blank line before it reads text. Do that before walking, so a muted
-  // image does not glue the paragraphs together.
-  const prepared = source.replace(/<br\s*\/?>/g, '\n').replace(/<\/p><p>/g, '\n\n');
-  const spoken = spokenCustomText(prepared, index);
+  const spoken = spokenCustomText(source, index);
 
   if (spoken === null) {
     return replaceUnicodeEmojiInPlainText(plain, index);

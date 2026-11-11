@@ -624,6 +624,54 @@ describe('textForScreenReader emoji mute', () => {
     expect(textForScreenReader(intl, stale, false, choiceIndex, renamed)).not.toContain('Yes :blob:');
     expect(stale.get('search_index')).toContain('Yes :blob:');
   });
+
+  it('keeps paragraph breaks from normalized html when the emoji is in a later paragraph', () => {
+    const emoji = {
+      shortcode: 'blob',
+      url: 'https://cdn.example/10.svg',
+      static_url: 'https://cdn.example/10.png',
+      id: '10',
+    };
+    const readable = (content) => {
+      const normalized = normalizeStatus({
+        id: '1',
+        account: { id: 'a', acct: 'alice@example.com', display_name: 'Alice' },
+        content,
+        spoiler_text: '',
+        emojis: [emoji],
+        media_attachments: [],
+        mentions: [],
+        tags: [],
+        visibility: 'public',
+        created_at: '2024-01-01T00:00:00.000Z',
+        quote: null,
+      }, null, '');
+      const status = fromJS(normalized).set('account', fromJS({
+        display_name: 'Alice',
+        display_name_html: 'Alice',
+        acct: 'alice@example.com',
+      }));
+      const index = muteIndex([
+        rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[伏字]'),
+      ]);
+
+      return { status, spoken: textForScreenReader(intl, status, false, index) };
+    };
+    const later = readable('<p>前半</p><p>後半 :blob:</p>');
+    const both = readable('<p>前半 :blob:</p><p>後半 :blob:</p>');
+    const broken = readable('<p>前半 :blob:<br>後半</p>');
+
+    expect(later.status.get('contentHtml')).toContain('emoji-other');
+    expect(later.status.get('contentHtml')).toContain('class="emoji-other"');
+    expect(later.status.get('search_index')).toContain('前半\n\n後半 :blob:');
+    expect(later.spoken).toContain('前半\n\n後半 [伏字]');
+    expect(later.spoken).not.toContain('前半後半');
+    expect(both.status.get('contentHtml').match(/emoji-other/g).length).toBeGreaterThan(1);
+    expect(both.spoken).toContain('前半 [伏字]\n\n後半 [伏字]');
+    expect(broken.status.get('search_index')).toContain('前半 :blob:\n後半');
+    expect(broken.spoken).toContain('前半 [伏字]\n後半');
+    expect(later.status.get('search_index')).toContain(':blob:');
+  });
 });
 
 describe('status and tile visibility defaults', () => {

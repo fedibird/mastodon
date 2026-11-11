@@ -65,18 +65,17 @@ module StatusSnapshotConcern
     build_snapshot(**options).save!
   end
 
-  # Called once, after the status and its poll exist. Later edits do not
-  # overwrite this: it is the proof for the original revision.
-  def remember_posted_emoji_identities!
+  # Set before the first INSERT. Poll options are passed in because the
+  # poll row does not exist yet. An empty array is a real record of "no
+  # custom emoji" and is distinct from a missing legacy value.
+  def assign_posted_emoji_identities!(poll_options: nil)
     return unless emoji_identities.nil?
 
-    draft = StatusEdit.new(
+    self.emoji_identities = StatusEdit.new(
       status: self,
       text: text,
       spoiler_text: spoiler_text,
-      poll_options: preloadable_poll&.options
-    )
-    self.emoji_identities = draft.capture_emoji_identities
-    update_column(:emoji_identities, emoji_identities)
+      poll_options: poll_options
+    ).capture_emoji_identities
   end
 end

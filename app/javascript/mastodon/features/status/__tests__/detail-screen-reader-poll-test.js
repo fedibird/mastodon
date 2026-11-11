@@ -116,13 +116,14 @@ class Harness extends React.Component {
   }
 
   render() {
-    const poll = screenReaderPollFromState(this.props.store.getState(), status);
+    const shown = this.props.statusRecord;
+    const poll = screenReaderPollFromState(this.props.store.getState(), shown);
 
     return (
       <DetailStatus
-        params={{ statusId: 's1' }}
+        params={{ statusId: shown.get('id') }}
         dispatch={this.props.store.dispatch}
-        status={status}
+        status={shown}
         intl={intl}
         domain='example.test'
         pictureInPicture={fromJS({ inUse: false, available: false })}
@@ -143,7 +144,7 @@ describe('detail screen reader poll', () => {
     const store = makeStore();
     const { container } = render(
       <Provider store={store}>
-        <Harness store={store} />
+        <Harness store={store} statusRecord={status} />
       </Provider>,
     );
     const label = () => container.querySelector('.detailed-status__wrapper').getAttribute('aria-label');
@@ -181,5 +182,47 @@ describe('detail screen reader poll', () => {
     expect(label()).toContain('Later');
     expect(label()).not.toContain('Yes');
     expect(status.get('search_index')).toContain('Yes :blob:');
+  });
+
+  it('speaks poll choices in the loaded order when only the order changed', () => {
+    const stored = status.set('search_index', '\n\nHello\n\nA :blob:\n\nB');
+    const store = makeStore();
+    const { container } = render(
+      <Provider store={store}>
+        <Harness store={store} statusRecord={stored} />
+      </Provider>,
+    );
+    const label = () => container.querySelector('.detailed-status__wrapper').getAttribute('aria-label');
+    const image = '<img class="emojione custom-emoji" alt=":blob:" data-shortcode="blob" data-domain="" data-emoji-id="11" src="https://cdn.example/11.svg">';
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        mutes: [{
+          id: 'm1',
+          revision: '2',
+          emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' },
+          replacement: '[choice]',
+          effects: { replace_in_text: true },
+        }],
+      });
+      store.dispatch({
+        type: POLLS_IMPORT,
+        polls: [{
+          id: 'p1',
+          options: [
+            { title: 'B', title_emojified: 'B' },
+            { title: 'A :blob:', title_emojified: `A ${image}` },
+          ],
+        }],
+      });
+    });
+
+    const spoken = label();
+    expect(spoken.indexOf('B')).toBeLessThan(spoken.indexOf('[choice]'));
+    expect(spoken).toContain('A [choice]');
+    expect(spoken).not.toContain(':blob:');
+    expect(stored.get('search_index')).toBe('\n\nHello\n\nA :blob:\n\nB');
   });
 });
