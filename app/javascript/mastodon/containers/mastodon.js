@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Provider } from 'react-redux';
 import PropTypes from 'prop-types';
 import configureStore from '../store/configureStore';
@@ -52,13 +53,75 @@ export default class Mastodon extends React.PureComponent {
     emojiMuteBoot: signedIn ? 'loading' : 'ready',
   };
 
+  // The portal target is never changed or unmounted during a mute revision.
+  // Instead we detach *that same DOM node* from the visible document. This
+  // removes the unverified images/alt/aria without throwing away UI/Router,
+  // compose drafts, masonry measurements, or React component instances.
+  uiPortalRoot = document.createElement('div');
+  uiInitialized = false;
+
+  setUiPortalHost = node => {
+    this.uiPortalHost = node;
+  };
+
+  detachUiPortal = () => {
+    if (this.uiPortalRoot.parentNode !== this.uiPortalHost || !this.uiPortalHost) {
+      return;
+    }
+
+    const scrolling = [
+      ...this.uiPortalRoot.querySelectorAll('.scrollable, .modal-root__modal'),
+      document.scrollingElement,
+    ].filter(Boolean);
+
+    this.savedUiScroll = scrolling.map(node => ({
+      node,
+      top: node.scrollTop,
+      left: node.scrollLeft,
+    }));
+
+    const active = document.activeElement;
+    this.savedUiFocus = active && this.uiPortalRoot.contains(active) ? active : null;
+    this.uiPortalHost.removeChild(this.uiPortalRoot);
+  };
+
+  attachUiPortal = () => {
+    if (!this.uiPortalHost || !this.uiInitialized || this.sessionChanged) {
+      return;
+    }
+
+    if (this.uiPortalRoot.parentNode !== this.uiPortalHost) {
+      this.uiPortalHost.appendChild(this.uiPortalRoot);
+    }
+
+    if (this.savedUiScroll) {
+      this.savedUiScroll.forEach(({ node, top, left }) => {
+        if (node.isConnected || node === document.scrollingElement) {
+          node.scrollTop = top;
+          node.scrollLeft = left;
+        }
+      });
+      this.savedUiScroll = null;
+    }
+
+    if (this.savedUiFocus && this.savedUiFocus.isConnected && document.activeElement === document.body) {
+      this.savedUiFocus.focus();
+    }
+    this.savedUiFocus = null;
+  };
+
   componentDidMount() {
     this.mounted = true;
     this.unsubscribeEmojiMutes = store.subscribe(this.observeEmojiMuteState);
 
+    // A guest does not have a per-user mute document to fetch.
     if (signedIn) {
       this.bootstrapEmojiMutes();
     } else {
+      this.uiInitialized = true;
+      this.uiPortalRoot.style.display = 'contents';
+      this.attachUiPortal();
+      this.forceUpdate();
       this.startSubscriptions();
     }
   }
@@ -66,6 +129,7 @@ export default class Mastodon extends React.PureComponent {
   componentWillUnmount () {
     this.mounted = false;
     this.bootstrapGeneration = (this.bootstrapGeneration || 0) + 1;
+    this.detachUiPortal();
 
     if (this.unsubscribeEmojiMutes) {
       this.unsubscribeEmojiMutes();
@@ -101,6 +165,8 @@ export default class Mastodon extends React.PureComponent {
     const state = store.getState();
 
     if (!sessionMatches(state)) {
+      this.detachUiPortal();
+      this.uiInitialized = false;
       this.sessionChanged = true;
       this.bootstrapGeneration = (this.bootstrapGeneration || 0) + 1;
       this.setState({ emojiMuteBoot: 'session-changed' }, () => {
@@ -130,7 +196,19 @@ export default class Mastodon extends React.PureComponent {
     }
 
     if (next !== this.state.emojiMuteBoot) {
-      this.setState({ emojiMuteBoot: next });
+      if (next !== 'ready') {
+        // Detach synchronously when the Redux revision changes, before any
+        // existing display subscription can expose unverified emoji content.
+        this.detachUiPortal();
+      }
+
+      this.setState({ emojiMuteBoot: next }, () => {
+        if (next === 'ready' && this.mounted && !this.sessionChanged) {
+          // Keep the portal detached while its subscribed display nodes
+          // reconcile the new document; move back the *same* DOM afterwards.
+          this.attachUiPortal();
+        }
+      });
     }
   };
 
@@ -153,6 +231,11 @@ export default class Mastodon extends React.PureComponent {
         return;
       }
 
+      this.uiInitialized = true;
+      this.uiPortalRoot.style.display = 'contents';
+      // Attach an empty portal root before the first UI mount, so layout
+      // measurements at componentDidMount see the actual page geometry.
+      this.attachUiPortal();
       this.setState({ emojiMuteBoot: 'ready' }, this.startSubscriptions);
     }).catch(() => {
       if (this.mounted && !this.sessionChanged && generation === this.bootstrapGeneration) {
@@ -203,22 +286,29 @@ export default class Mastodon extends React.PureComponent {
       );
     }
 
-    const body = boot === 'ready' ? (
+    const ui = this.uiInitialized && createPortal(
       <BrowserRouter basename='/web'>
         <ScrollContext shouldUpdateScroll={this.shouldUpdateScroll}>
           <Route path='/' component={UI} />
         </ScrollContext>
-      </BrowserRouter>
-    ) : (
-      <div className='emoji-mutes-bootstrap' role={boot === 'error' ? 'alert' : 'status'} style={{ padding: '2rem', textAlign: 'center' }}>
-        {bootContent}
-      </div>
+      </BrowserRouter>,
+      this.uiPortalRoot,
     );
 
     return (
       <IntlProvider locale={locale} messages={messages}>
         <Provider store={store}>
-          <ErrorBoundary>{body}</ErrorBoundary>
+          <ErrorBoundary>
+            <React.Fragment>
+              <div ref={this.setUiPortalHost} style={{ display: 'contents' }} />
+              {ui}
+              {boot !== 'ready' && (
+                <div className='emoji-mutes-bootstrap' role={boot === 'error' ? 'alert' : 'status'} style={{ padding: '2rem', textAlign: 'center' }}>
+                  {bootContent}
+                </div>
+              )}
+            </React.Fragment>
+          </ErrorBoundary>
         </Provider>
       </IntlProvider>
     );
