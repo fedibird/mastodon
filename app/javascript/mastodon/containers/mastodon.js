@@ -121,7 +121,13 @@ export default class Mastodon extends React.PureComponent {
     }
 
     const phase = state.getIn(['emojiMutes', 'phase']);
-    const next = phase === 'ready' ? 'ready' : phase === 'error' ? 'error' : 'loading';
+    let next = 'loading';
+
+    if (phase === 'ready') {
+      next = 'ready';
+    } else if (phase === 'error') {
+      next = 'error';
+    }
 
     if (next !== this.state.emojiMuteBoot) {
       this.setState({ emojiMuteBoot: next });
@@ -165,10 +171,38 @@ export default class Mastodon extends React.PureComponent {
     return !(location.state?.mastodonModalKey && location.state?.mastodonModalKey !== prevRouterProps?.location?.state?.mastodonModalKey);
   }
 
+  reloadPage = () => {
+    window.location.reload();
+  };
+
   render () {
     const { locale } = this.props;
 
     const boot = this.state.emojiMuteBoot;
+    let bootContent;
+
+    if (boot === 'loading') {
+      bootContent = <FormattedMessage id='emoji_mutes.bootstrap_loading' defaultMessage='Loading emoji mute settings…' />;
+    } else if (boot === 'session-changed') {
+      bootContent = (
+        <React.Fragment>
+          <p><FormattedMessage id='emoji_mutes.session_changed' defaultMessage='Your account changed. Reload to protect your emoji mute settings.' /></p>
+          <button type='button' onClick={this.reloadPage}>
+            <FormattedMessage id='emoji_mutes.session_reload' defaultMessage='Reload the page' />
+          </button>
+        </React.Fragment>
+      );
+    } else {
+      bootContent = (
+        <React.Fragment>
+          <p><FormattedMessage id='emoji_mutes.bootstrap_error' defaultMessage='Emoji mute settings could not be verified. Posts are hidden until you retry.' /></p>
+          <button type='button' onClick={this.bootstrapEmojiMutes}>
+            <FormattedMessage id='emoji_mutes.bootstrap_retry' defaultMessage='Retry loading settings' />
+          </button>
+        </React.Fragment>
+      );
+    }
+
     const body = boot === 'ready' ? (
       <BrowserRouter basename='/web'>
         <ScrollContext shouldUpdateScroll={this.shouldUpdateScroll}>
@@ -177,23 +211,7 @@ export default class Mastodon extends React.PureComponent {
       </BrowserRouter>
     ) : (
       <div className='emoji-mutes-bootstrap' role={boot === 'error' ? 'alert' : 'status'} style={{ padding: '2rem', textAlign: 'center' }}>
-        {boot === 'loading' ? (
-          <FormattedMessage id='emoji_mutes.bootstrap_loading' defaultMessage='Loading emoji mute settings…' />
-        ) : boot === 'session-changed' ? (
-          <React.Fragment>
-            <p><FormattedMessage id='emoji_mutes.session_changed' defaultMessage='Your account changed. Reload to protect your emoji mute settings.' /></p>
-            <button type='button' onClick={() => window.location.reload()}>
-              <FormattedMessage id='emoji_mutes.session_reload' defaultMessage='Reload the page' />
-            </button>
-          </React.Fragment>
-        ) : (
-          <React.Fragment>
-            <p><FormattedMessage id='emoji_mutes.bootstrap_error' defaultMessage='Emoji mute settings could not be verified. Posts are hidden until you retry.' /></p>
-            <button type='button' onClick={this.bootstrapEmojiMutes}>
-              <FormattedMessage id='emoji_mutes.bootstrap_retry' defaultMessage='Retry loading settings' />
-            </button>
-          </React.Fragment>
-        )}
+        {bootContent}
       </div>
     );
 
