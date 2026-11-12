@@ -129,6 +129,7 @@ class ActionBar extends React.PureComponent {
     relationship: ImmutablePropTypes.map,
     referenceCountLimit: PropTypes.bool,
     selected: PropTypes.bool,
+    editing: PropTypes.bool,
     composePrivacy: PropTypes.string,
     onReply: PropTypes.func.isRequired,
     onReblog: PropTypes.func.isRequired,
