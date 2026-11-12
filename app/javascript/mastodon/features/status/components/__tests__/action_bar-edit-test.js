@@ -243,3 +243,35 @@ describe('detailed status ActionBar copy post source', () => {
     expect(screen.queryByRole('button', { name: 'Copy post source' })).not.toBeInTheDocument();
   });
 });
+
+describe('detailed status ActionBar with temporarily withheld emoji reactions', () => {
+  it('renders safely when emoji reactions are missing, null or empty', () => {
+    [
+      buildStatus().delete('emoji_reactions'),
+      buildStatus({ emoji_reactions: null }),
+      buildStatus({ emoji_reactions: [] }),
+    ].forEach(status => {
+      const view = renderBar(status);
+
+      expect(screen.getByTestId('more-menu')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Show emoji reactioned users' })).not.toBeInTheDocument();
+
+      view.unmount();
+    });
+  });
+
+  it('retains boost and favourite lists while emoji reactions are withheld', () => {
+    renderBar(buildStatus({ reblogs_count: 1, favourites_count: 2 }).delete('emoji_reactions'));
+
+    expect(screen.getByRole('button', { name: 'Show boosted users' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show favourited users' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Show emoji reactioned users' })).not.toBeInTheDocument();
+  });
+
+  it('still shows the emoji reaction list when reactions are available', () => {
+    renderBar(buildStatus({ emoji_reactions: [{ name: '👍', count: 1 }] }));
+
+    expect(screen.getByRole('button', { name: 'Show emoji reactioned users' })).toBeInTheDocument();
+  });
+});
