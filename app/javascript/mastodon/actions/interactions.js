@@ -889,7 +889,7 @@ export function emojiReactionFail(status, name, domain, url, static_url, error) 
 };
 
 const findMyEmojiReaction = (status, name) => emojiReactionsForStatus(status).find(
-  emojiReaction => emojiReactionAccountIds(emojiReaction).includes(me) && emojiReaction.get('name') === name
+  emojiReaction => emojiReactionAccountIds(emojiReaction).includes(me) && emojiReaction.get('name') === name,
 );
 
 export function removeEmojiReaction(status, name) {
