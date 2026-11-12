@@ -472,10 +472,14 @@ describe('EmojiPickerPanel', () => {
     expect(nature.querySelector('[aria-label="dog"], [title="dog"]')).not.toBeNull();
   });
 
-  it('preloads the standard module only when lazy load is explicitly off', async () => {
+  it('preloads the standard module when the default non-lazy setting applies', async () => {
     await preloadStandardEmojiPickerIfNeeded(true);
-    await preloadStandardEmojiPickerIfNeeded(undefined);
     expect(EmojiPicker).not.toHaveBeenCalled();
+
+    // The default for emoji_picker_lazy_load_standard is now false. Passing
+    // undefined uses that default, so the standard module is preloaded.
+    await preloadStandardEmojiPickerIfNeeded(undefined);
+    expect(EmojiPicker).toHaveBeenCalledTimes(1);
 
     await preloadStandardEmojiPickerIfNeeded(false);
     expect(EmojiPicker).toHaveBeenCalledTimes(1);
