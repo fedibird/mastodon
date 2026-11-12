@@ -51,6 +51,36 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
     expect(response.body).to include(settings_custom_emojis_personal_set_path)
   end
 
+  it 'persists the two range values without changing the preference keys' do
+    put :update, params: { user: { setting_emoji_scale: '2.4', setting_content_emoji_reaction_size: '28' } }
+
+    expect(response).to redirect_to(settings_custom_emojis_settings_path)
+
+    get :show
+    page = Nokogiri::HTML(response.body)
+    expect(page.at_css('#user_setting_emoji_scale')['value']).to eq('2.4')
+    expect(page.at_css('output[for="user_setting_emoji_scale"]').text).to eq('2.4×')
+    expect(page.at_css('#user_setting_content_emoji_reaction_size')['value']).to eq('28')
+    expect(page.at_css('output[for="user_setting_content_emoji_reaction_size"]').text).to eq('28 px')
+  end
+
+  it 'uses the revised Japanese emoji preference labels and hints' do
+    user.update!(locale: 'ja')
+    get :show
+
+    [
+      '個人セットを使用しない',
+      '標準のMastodonのように、標準ピッカーのみを使用します。動作が軽量になります。反映にはページの再読み込みが必要です。',
+      '絵文字ピッカーの構築を呼び出し時まで遅延させる',
+      '有効にすると絵文字の使用頻度が低い場合にリソースの節約になりますが、ピッカー起動時の動作が遅くなります。',
+      '絵文字ピッカーの動作がおかしい場合は無効化をお試しください。',
+      'カードの絵文字リアクションを1行に畳む',
+      'リアクションのストリーミング反映を無効にする',
+    ].each do |copy|
+      expect(response.body).to include(copy)
+    end
+  end
+
   it 'persists moved preferences through the existing settings writer' do
     put :update, params: { user: {
       setting_enable_wide_emoji: '1',
