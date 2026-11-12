@@ -145,6 +145,40 @@ class StandardProbe extends React.PureComponent {
 
 }
 
+// Mimic Nimble's internal (uncontrolled) search state. A restored input value
+// must also dispatch a search event to update the results, not just the DOM.
+class StandardSearchProbe extends React.PureComponent {
+
+  state = { query: '' };
+
+  componentDidMount() {
+    if (this.props.autoFocus && this.search) {
+      this.search.focus();
+    }
+  }
+
+  setSearchRef = node => {
+    this.search = node;
+  };
+
+  handleSearch = event => {
+    this.setState({ query: event.target.value });
+  };
+
+  render() {
+    return (
+      <div data-testid='standard-search-picker'>
+        <div className='emoji-mart-search'>
+          <input type='search' aria-label='Standard search' ref={this.setSearchRef} onChange={this.handleSearch} />
+        </div>
+        <output data-testid='standard-query'>{this.state.query || '(all)'}</output>
+        <div className='emoji-mart-scroll' />
+      </div>
+    );
+  }
+
+}
+
 const renderShell = (props = {}) => {
   const loadStandardEmojiPicker = props.loadStandardEmojiPicker || jest.fn(() => new Promise(() => {}));
   const stockSource = props.stockSource || ready(fixture());
@@ -310,6 +344,84 @@ describe('emoji picker shell and personal stock', () => {
     expect(stock.categories[0].items).toHaveLength(2);
     expect(loadStandardEmojiPicker).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('shares search text from a zero-result personal search to standard and back', async () => {
+    const loadStandardEmojiPicker = jest.fn(() => Promise.resolve({ Picker: StandardSearchProbe, Emoji: () => null }));
+    renderShell({ loadStandardEmojiPicker });
+
+    const personal = await screen.findByRole('searchbox');
+
+    fireEvent.change(personal, { target: { value: 'pineapple' } });
+    expect(screen.getByText('No matching emojis found')).toBeInTheDocument();
+    expect(loadStandardEmojiPicker).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Standard' }));
+    const standard = await screen.findByRole('searchbox', { name: 'Standard search' });
+
+    expect(standard).toHaveValue('pineapple');
+    expect(screen.getByTestId('standard-query')).toHaveTextContent('pineapple');
+
+    fireEvent.change(standard, { target: { value: 'thumb' } });
+    expect(screen.getByTestId('standard-query')).toHaveTextContent('thumb');
+    fireEvent.click(screen.getByRole('button', { name: 'Personal set' }));
+
+    expect(screen.getByRole('searchbox')).toHaveValue('thumb');
+    expect(screen.getByRole('button', { name: 'Thumb light' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Thumb' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Family' })).not.toBeInTheDocument();
+    expect(loadStandardEmojiPicker).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares an empty query after clearing either mode', async () => {
+    const loadStandardEmojiPicker = jest.fn(() => Promise.resolve({ Picker: StandardSearchProbe, Emoji: () => null }));
+    renderShell({ initialMode: 'standard', loadStandardEmojiPicker });
+
+    const standard = await screen.findByRole('searchbox', { name: 'Standard search' });
+
+    fireEvent.change(standard, { target: { value: 'family' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Personal set' }));
+    expect(screen.getByRole('searchbox')).toHaveValue('family');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(screen.getByRole('searchbox')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Standard' }));
+
+    const clearedStandard = await screen.findByRole('searchbox', { name: 'Standard search' });
+
+    expect(clearedStandard).toHaveValue('');
+    expect(screen.getByTestId('standard-query')).toHaveTextContent('(all)');
+
+    fireEvent.change(clearedStandard, { target: { value: 'fedibird' } });
+    fireEvent.change(clearedStandard, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Personal set' }));
+
+    expect(screen.getByRole('searchbox')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Family' })).toBeInTheDocument();
+  });
+
+  it('uses the latest personal query if standard finishes loading after mode switches', async () => {
+    const pending = deferred();
+    const loadStandardEmojiPicker = jest.fn(() => pending.promise);
+    renderShell({ loadStandardEmojiPicker });
+    const personal = await screen.findByRole('searchbox');
+
+    fireEvent.change(personal, { target: { value: 'pineapple' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Standard' }));
+    expect(await screen.findByText('Loading standard emoji')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Personal set' }));
+    expect(screen.getByRole('searchbox')).toHaveValue('pineapple');
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'thumb' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Standard' }));
+
+    await act(async () => {
+      pending.resolve({ Picker: StandardSearchProbe, Emoji: () => null });
+    });
+
+    expect(screen.getByRole('searchbox', { name: 'Standard search' })).toHaveValue('thumb');
+    expect(screen.getByTestId('standard-query')).toHaveTextContent('thumb');
+    expect(loadStandardEmojiPicker).toHaveBeenCalledTimes(1);
   });
 
   it('uses the animated image only when animation is enabled', async () => {
