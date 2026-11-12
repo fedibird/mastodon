@@ -254,24 +254,42 @@ export const reactionTokenStale = (current, incoming) => {
 
 export const revisionStale = (current, incoming) => reactionTokenStale(current, incoming);
 
+// The client-only marker lets a later, authenticated refresh recover a
+// reaction list deliberately withheld while the mute document was unsettled.
+// It contains no unfiltered reaction data and is cleared on an accepted import.
 const keepPreviousReactions = (previous, status) => {
   if (!previous || typeof previous.get !== 'function') {
     const next = { ...status };
     delete next.emoji_reactions;
     delete next.emoji_reactions_count;
     delete next.emoji_mutes_revision;
+    next.emoji_reactions_withheld = true;
     return next;
   }
 
   const reactions = previous.get('emoji_reactions');
-
-  return {
+  const next = {
     ...status,
-    emoji_reactions: reactions && typeof reactions.toJS === 'function' ? reactions.toJS() : status.emoji_reactions,
     emoji_reactions_count: previous.get('emoji_reactions_count'),
     emoji_reactions_cache_token: previous.get('emoji_reactions_cache_token'),
     emoji_mutes_revision: previous.get('emoji_mutes_revision'),
   };
+
+  // Missing reactions must stay absent rather than become an explicitly
+  // undefined value in Immutable.js, which bypasses get(key, defaultValue).
+  if (reactions && typeof reactions.toJS === 'function') {
+    next.emoji_reactions = reactions.toJS();
+  } else {
+    delete next.emoji_reactions;
+  }
+
+  if (previous.get('emoji_reactions_withheld') === true || !reactions) {
+    next.emoji_reactions_withheld = true;
+  } else {
+    delete next.emoji_reactions_withheld;
+  }
+
+  return next;
 };
 
 // Anonymous status updates have no viewer revision. Project them with the
@@ -319,12 +337,16 @@ export const guardImportedReactions = (previous, status, rules, reactionsAccepte
 
   const globallyStale = incoming !== null && incoming !== undefined && appliedRevision !== null && appliedRevision !== undefined && revisionStale(appliedRevision, incoming);
 
-  if (!globallyStale && incoming !== null && incoming !== undefined) {
-    return status;
-  }
-
+  // A revisioned REST status is not safe while the viewer's mute rules are
+  // still loading. Do not short-circuit before the readiness check.
   if (!reactionsAccepted) {
     return keepPreviousReactions(previous, status);
+  }
+
+  if (!globallyStale && incoming !== null && incoming !== undefined) {
+    const accepted = { ...status };
+    delete accepted.emoji_reactions_withheld;
+    return accepted;
   }
 
   const projected = projectStatusReactions(status.emoji_reactions, rules);
@@ -335,9 +357,12 @@ export const guardImportedReactions = (previous, status, rules, reactionsAccepte
 
   const keptRevision = globallyStale || current === null || current === undefined ? appliedRevision : current;
 
-  return withRevision({
+  const accepted = {
     ...status,
     emoji_reactions: projected,
     emoji_reactions_count: projected.reduce((sum, group) => sum + Number(group.count || 0), 0),
-  }, keptRevision);
+  };
+  delete accepted.emoji_reactions_withheld;
+
+  return withRevision(accepted, keptRevision);
 };
