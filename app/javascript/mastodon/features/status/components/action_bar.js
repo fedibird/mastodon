@@ -403,6 +403,8 @@ class ActionBar extends React.PureComponent {
     const reblogsCount       = status.get('reblogs_count');
     const referredByCount    = status.get('status_referred_by_count');
     const favouritesCount    = status.get('favourites_count');
+    const emojiReactions     = status.get('emoji_reactions');
+    const hasEmojiReactions  = !!emojiReactions && !emojiReactions.isEmpty();
     const [ , domain ]       = account.get('acct').split('@');
 
     const expires_at = status.get('expires_at');
@@ -411,7 +413,7 @@ class ActionBar extends React.PureComponent {
 
     const showReblogCount = !hideListOfReblogsToPosts && reblogsCount > 0;
     const showFavouritCount = !hideListOfFavouritesToPosts && favouritesCount > 0;
-    const showEmojiReactionCount = !hideListOfEmojiReactionsToPosts && enableReaction && !status.get('emoji_reactions').isEmpty();
+    const showEmojiReactionCount = !hideListOfEmojiReactionsToPosts && enableReaction && hasEmojiReactions;
     const showStatusReferredByCount = !hideListOfReferredByToPosts && enableStatusReference && referredByCount > 0;
 
     let menu = [];
