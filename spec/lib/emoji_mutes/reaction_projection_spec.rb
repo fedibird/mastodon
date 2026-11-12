@@ -160,6 +160,31 @@ RSpec.describe EmojiMutes::ReactionProjection do
     expect(mute_reads).to eq 1
   end
 
+  it 'checks domain-blocked account ids once for multiple reaction groups on the same status' do
+    blocked = Fabricate(:account, domain: 'blocked.example')
+    visible = Fabricate(:account, domain: 'visible.example')
+    Fabricate(:account_domain_block, account: viewer_user.account, domain: 'blocked.example')
+    cache!([
+      { 'name' => '👍', 'count' => 2, 'account_ids' => [blocked.id.to_s, visible.id.to_s] },
+      { 'name' => '👀', 'count' => 2, 'account_ids' => [blocked.id.to_s, visible.id.to_s] },
+    ])
+
+    queries = []
+    callback = lambda do |_name, _start, _finish, _id, payload|
+      sql = payload[:sql]
+      queries << sql if sql.include?('FROM "accounts"') && sql.include?('"accounts"."domain"')
+    end
+
+    result = nil
+    ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+      result = described_class.for(status, viewer_user.account, user: viewer_user)
+    end
+
+    expect(result.groups.map { |group| group['account_ids'] }).to eq [[visible.id.to_s], [visible.id.to_s]]
+    expect(result.count).to eq 2
+    expect(queries.size).to eq 1
+  end
+
   it 'keeps both identities in a refreshed cache and preserves a part identity' do
     EmojiReaction.create!(account: Fabricate(:account), status: status, name: 'blob', custom_emoji: local_emoji)
     EmojiReaction.create!(account: Fabricate(:account), status: status, name: 'blob', custom_emoji: remote_emoji)
