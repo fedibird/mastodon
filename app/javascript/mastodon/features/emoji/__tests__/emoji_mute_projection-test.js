@@ -239,6 +239,10 @@ describe('emoji mute projection', () => {
     const stillWaiting = guardImportedReactions(fromJS(starting), { ...incoming, content: 'updated while waiting' }, hide, false, null, null);
     expect(stillWaiting.content).toBe('updated while waiting');
     expect(stillWaiting.emoji_reactions).toBeUndefined();
+    // A repeated import must not introduce an undefined-valued reaction key.
+    // Such a key overrides the Immutable.js fallback in status_container.
+    expect(stillWaiting).not.toHaveProperty('emoji_reactions');
+    expect(fromJS(stillWaiting).has('emoji_reactions')).toBe(false);
     expect(stillWaiting.emoji_reactions_withheld).toBe(true);
 
     const acceptedStatus = guardImportedReactions(undefined, { ...incoming, emoji_mutes_revision: '5', emoji_reactions_withheld: true }, hide, true, '5');
