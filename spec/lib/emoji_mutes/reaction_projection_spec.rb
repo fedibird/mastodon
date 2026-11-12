@@ -2,6 +2,8 @@
 
 require 'rails_helper'
 
+# These integration examples share cache and viewer fixtures across scenarios.
+# rubocop:disable Metrics/BlockLength
 RSpec.describe EmojiMutes::ReactionProjection do
   let(:author) { Fabricate(:account) }
   let(:viewer_user) { Fabricate(:user) }
@@ -17,7 +19,7 @@ RSpec.describe EmojiMutes::ReactionProjection do
   end
 
   def mute(user, emoji, hide: true, reject: false)
-    EmojiMutes::Repository.new(user).create({
+    body = {
       'emoji' => emoji,
       'effects' => {
         'replace_in_text' => false,
@@ -25,7 +27,8 @@ RSpec.describe EmojiMutes::ReactionProjection do
         'hide_reactions' => hide,
         'hide_in_picker' => false,
       },
-    })
+    }
+    EmojiMutes::Repository.new(user).create(body)
   end
 
   it 'keeps a legacy custom cache until a hide exists, then removes only that identity' do
@@ -33,14 +36,15 @@ RSpec.describe EmojiMutes::ReactionProjection do
     bob = Fabricate(:account, domain: 'other.example')
     EmojiReaction.create!(account: alice, status: status, name: 'blob', custom_emoji: local_emoji)
     EmojiReaction.create!(account: bob, status: status, name: 'blob', custom_emoji: remote_emoji)
-    cache!([{
+    cached = [{
       'name' => 'blob',
       'count' => 2,
       'account_ids' => [alice.id.to_s, bob.id.to_s],
       'url' => 'https://example.test/local.png',
       'static_url' => 'https://example.test/local-static.png',
       'domain' => nil,
-    }])
+    }]
+    cache!(cached)
 
     open_status = REST::StatusSerializer.new(status, scope: viewer_user, scope_name: :current_user)
     expect(open_status.emoji_reactions.first).not_to have_key('parts')
@@ -60,7 +64,7 @@ RSpec.describe EmojiMutes::ReactionProjection do
   it 'removes one identity from a mixed name and does not leak across viewers' do
     alice = Fabricate(:account)
     bob = Fabricate(:account)
-    cache!([{
+    cached = [{
       'name' => 'blob',
       'count' => 2,
       'account_ids' => [alice.id.to_s, bob.id.to_s],
@@ -87,7 +91,8 @@ RSpec.describe EmojiMutes::ReactionProjection do
           'domain' => 'other.example',
         },
       ],
-    }])
+    }]
+    cache!(cached)
     mute(viewer_user, { 'kind' => 'custom', 'scope' => 'local', 'custom_emoji_id' => local_emoji.id.to_s })
     mute(other_user, { 'kind' => 'custom', 'scope' => 'remote', 'domain' => 'other.example', 'shortcode' => 'blob' })
 
@@ -164,10 +169,11 @@ RSpec.describe EmojiMutes::ReactionProjection do
     blocked = Fabricate(:account, domain: 'blocked.example')
     visible = Fabricate(:account, domain: 'visible.example')
     Fabricate(:account_domain_block, account: viewer_user.account, domain: 'blocked.example')
-    cache!([
+    cached = [
       { 'name' => '👍', 'count' => 2, 'account_ids' => [blocked.id.to_s, visible.id.to_s] },
       { 'name' => '👀', 'count' => 2, 'account_ids' => [blocked.id.to_s, visible.id.to_s] },
-    ])
+    ]
+    cache!(cached)
 
     queries = []
     callback = lambda do |_name, _start, _finish, _id, payload|
@@ -198,3 +204,4 @@ RSpec.describe EmojiMutes::ReactionProjection do
     expect(groups.first['count']).to eq 2
   end
 end
+# rubocop:enable Metrics/BlockLength
