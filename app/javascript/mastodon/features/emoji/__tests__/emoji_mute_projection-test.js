@@ -39,6 +39,7 @@ describe('emoji mute projection', () => {
     resetEmojiMuteStoreForTests();
   });
   it('drops only the muted identity and ignores an older stream token', () => {
+    installEmojiMutesForTests({ revision: '4', emoji_mutes: [] });
     let state = reducer(undefined, {
       type: STATUS_IMPORT,
       status: {
