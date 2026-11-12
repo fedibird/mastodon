@@ -3,7 +3,6 @@ import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { List } from 'immutable';
 import classNames from 'classnames';
 import { fetchAccounts } from 'mastodon/actions/accounts';
 import Emoji from './emoji';
@@ -20,9 +19,10 @@ import {
   referenceFromReaction,
 } from 'mastodon/features/emoji/emoji_actions/reference';
 import { attachLongPressGesture } from 'mastodon/features/emoji/long_press';
+import { emojiReactionAccountIds } from '../utils/emoji_reactions';
 
 const getFilteredEmojiReaction = (emojiReaction, relationships) => {
-  let filteredEmojiReaction = emojiReaction.update('account_ids', accountIds => accountIds.filterNot( accountId => {
+  let filteredEmojiReaction = emojiReaction.set('account_ids', emojiReactionAccountIds(emojiReaction).filterNot(accountId => {
     const relationship = relationships.get(accountId);
     return relationship?.get('blocking') || relationship?.get('blocked_by') || relationship?.get('domain_blocking') || relationship?.get('muting');
   }));
@@ -38,7 +38,7 @@ const getFilteredEmojiReaction = (emojiReaction, relationships) => {
 
 const mapStateToProps = (state, { emojiReaction }) => {
   const relationships = new Map();
-  emojiReaction.get('account_ids').forEach(accountId => relationships.set(accountId, state.getIn(['relationships', accountId])));
+  emojiReactionAccountIds(emojiReaction).forEach(accountId => relationships.set(accountId, state.getIn(['relationships', accountId])));
 
   return {
     emojiReaction,
@@ -138,7 +138,7 @@ class EmojiReaction extends ImmutablePureComponent {
     const { dispatch, emojiReaction } = this.props;
 
     if (!this.state.fetched) {
-      dispatch(fetchAccounts(emojiReaction.get('account_ids')));
+      dispatch(fetchAccounts(emojiReactionAccountIds(emojiReaction)));
     }
 
     this.setState({
@@ -265,7 +265,7 @@ class EmojiReaction extends ImmutablePureComponent {
             <div {...props}>
               <div className={`dropdown-menu dropdown-animation account-popup ${placement}`}>
                 <div className={`dropdown-menu__arrow account-popup ${placement}`} {...arrowProps} />
-                <AccountPopup accountIds={emojiReaction.get('account_ids', List())} />
+                <AccountPopup accountIds={emojiReactionAccountIds(emojiReaction)} />
               </div>
             </div>
           )}
