@@ -1,5 +1,5 @@
 import { normalizeComposerToolbar } from './features/compose/composer_toolbar';
-import { normalizeTranslationBarVisibility, normalizeTranslationPreferredMode } from './utils/translation_view';
+import { normalizeTranslationBarVisibility, normalizeTranslationPreferredMode } from './utils/translation_view_preferences';
 import initialState from './initial_state_data';
 
 const getMeta = (prop) => initialState && initialState.meta && initialState.meta[prop];

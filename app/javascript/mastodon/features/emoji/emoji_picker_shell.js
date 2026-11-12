@@ -113,6 +113,7 @@ class EmojiPickerShell extends React.PureComponent {
     this.standardGeneration = 0;
     this.stockInFlight = false;
     this.standardInFlight = false;
+    this.pendingStandardSearch = undefined;
     const cachedStock = personalIsEnabled(props) && props.stockSource === loadPersonalEmojiStock ? getCachedPersonalEmojiStock() : null;
 
     if (props.open) {
@@ -125,7 +126,7 @@ class EmojiPickerShell extends React.PureComponent {
       mode: this.modeFromProps(props),
       // Shared across standard/personal; resets whenever the shell reopens.
       editMode: false,
-      personalQuery: '',
+      searchQuery: '',
       stockStatus: cachedStock ? 'ready' : 'idle',
       stock: cachedStock ? cachedStock.stock : emptyEmojiStock(),
       standardStatus: 'idle',
@@ -171,6 +172,10 @@ class EmojiPickerShell extends React.PureComponent {
     }
   }
 
+  standardSearchInput() {
+    return this.node && this.node.querySelector('.emoji-picker-shell__standard .emoji-mart-search input');
+  }
+
   getSnapshotBeforeUpdate(prevProps) {
     const previous = (prevProps.standardPickerProps || {}).pickerRevision || 'standard';
     const next = (this.props.standardPickerProps || {}).pickerRevision || 'standard';
@@ -179,7 +184,7 @@ class EmojiPickerShell extends React.PureComponent {
       return null;
     }
 
-    const input = this.node.querySelector('.emoji-mart-search input');
+    const input = this.standardSearchInput();
 
     if (!input) {
       return null;
@@ -193,6 +198,7 @@ class EmojiPickerShell extends React.PureComponent {
 
   componentDidUpdate(prevProps, _prevState, snapshot) {
     this.restoreStandardSearch(snapshot);
+    this.applyPendingStandardSearch();
 
     if (prevProps.stockSource !== this.props.stockSource) {
       this.bindStockSource();
@@ -211,7 +217,7 @@ class EmojiPickerShell extends React.PureComponent {
       return;
     }
 
-    const input = this.node.querySelector('.emoji-mart-search input');
+    const input = this.standardSearchInput();
 
     if (!input) {
       return;
@@ -227,6 +233,35 @@ class EmojiPickerShell extends React.PureComponent {
 
     if (snapshot.focused) {
       input.focus();
+    }
+  }
+
+  // Nimble manages its own search state, so replay the personal query after
+  // the standard picker mounts (including an asynchronously loaded module).
+  // Do not load the standard dataset just to keep the input text.
+  applyPendingStandardSearch() {
+    if (this.state.mode !== 'standard' || this.pendingStandardSearch === undefined) {
+      return;
+    }
+
+    const input = this.standardSearchInput();
+
+    if (!input) {
+      return;
+    }
+
+    const query = this.pendingStandardSearch;
+    this.pendingStandardSearch = undefined;
+
+    if (input.value === query) {
+      return;
+    }
+
+    input.value = query;
+    this.dispatchSearchInput(input);
+
+    if (query) {
+      this.syncSearchCategories(input);
     }
   }
 
@@ -546,7 +581,17 @@ class EmojiPickerShell extends React.PureComponent {
     }
 
     this.claimActive();
-    this.setState({ mode: 'personal', suppressFocus: false, standardAutoFocus: false }, () => {
+    // The standard search input belongs to Nimble; capture it before its
+    // subtree unmounts. This also picks up searches cleared by Nimble itself.
+    const standardSearch = this.standardSearchInput();
+    this.pendingStandardSearch = undefined;
+    this.stopSearchCategorySync();
+    this.setState({
+      mode: 'personal',
+      searchQuery: standardSearch ? standardSearch.value : this.state.searchQuery,
+      suppressFocus: false,
+      standardAutoFocus: false,
+    }, () => {
       this.beginStock(this.props.stockSource === loadPersonalEmojiStock);
       this.emitMode('personal');
     });
@@ -558,6 +603,7 @@ class EmojiPickerShell extends React.PureComponent {
     }
 
     this.claimActive();
+    this.pendingStandardSearch = this.state.searchQuery;
     this.setState({
       mode: 'standard',
       suppressFocus: false,
@@ -569,7 +615,7 @@ class EmojiPickerShell extends React.PureComponent {
   };
 
   handleQueryChange = query => {
-    this.setState({ personalQuery: query });
+    this.setState({ searchQuery: query });
   };
 
   handleToggleEditMode = () => {
@@ -719,7 +765,7 @@ class EmojiPickerShell extends React.PureComponent {
 
   renderPersonal() {
     const { animate, autoFocus, emojiSize, perLine, theme } = this.props;
-    const { personalQuery, stock, stockStatus, editMode } = this.state;
+    const { searchQuery, stock, stockStatus, editMode } = this.state;
     const effectiveEditMode = actionsAreEnabled(this.props) ? editMode : false;
     const focus = Boolean(autoFocus && this.canTakeFocus() && stockStatus === 'ready');
 
@@ -727,7 +773,7 @@ class EmojiPickerShell extends React.PureComponent {
       <StockEmojiPicker
         stock={stock}
         status={stockStatus === 'idle' ? 'loading' : stockStatus}
-        query={personalQuery}
+        query={searchQuery}
         onQueryChange={this.handleQueryChange}
         onPick={this.handlePick}
         onRequestClose={this.requestClose}
