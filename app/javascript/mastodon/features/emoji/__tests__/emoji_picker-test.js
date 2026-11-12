@@ -326,7 +326,9 @@ describe('standard emoji picker adapters', () => {
     fireEvent.keyDown(heart, { key: 'ContextMenu' });
     const touch = { identifier: 42, clientX: 5, clientY: 5 };
     fireEvent.touchStart(heart, { touches: [touch] });
-    act(() => { jest.advanceTimersByTime(600); });
+    act(() => {
+      jest.advanceTimersByTime(600);
+    });
     fireEvent.touchEnd(heart, { changedTouches: [touch] });
     fireEvent.click(heart, { detail: 1 });
 
