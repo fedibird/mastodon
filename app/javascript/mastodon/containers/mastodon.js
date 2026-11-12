@@ -7,6 +7,7 @@ import { ScrollContext } from 'react-router-scroll-4';
 import UI from '../features/ui';
 import { settingsReturnScroll, settleSettingsReturnScroll } from '../features/embedded_rails_settings/navigation';
 import { fetchCircles } from '../actions/circles';
+import { ensureCustomEmojis } from '../actions/custom_emojis';
 import { preloadEmojiPickersIfNeeded } from '../features/emoji/emoji_picker_preferences';
 import { hydrateStore } from '../actions/store';
 import { startMastodonSubscriptions } from './mastodon_subscriptions';
@@ -23,7 +24,9 @@ const hydrateAction = hydrateStore(initialState);
 
 store.dispatch(hydrateAction);
 store.dispatch(fetchCircles());
-preloadEmojiPickersIfNeeded();
+// Share the catalog request/result with the first standard picker open.
+// Preloads are deliberately not awaited before mounting the WebUI.
+preloadEmojiPickersIfNeeded(undefined, undefined, () => store.dispatch(ensureCustomEmojis()));
 
 export default class Mastodon extends React.PureComponent {
 
