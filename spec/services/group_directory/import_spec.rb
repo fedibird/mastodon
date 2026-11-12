@@ -128,5 +128,14 @@ RSpec.describe GroupDirectory::Import do
 
     expect(index.document('999999')).to be_nil
     expect(index.document(group.id)['display_name']).to eq('kept')
+    expect(GroupDirectory::Indexing.backfill_complete?).to be true
+  end
+
+  it 'clears the backfill marker when rebuild fails' do
+    GroupDirectory::Indexing.mark_backfill_complete!
+    allow(GroupDirectory::Eligibility).to receive(:scope).and_raise(RuntimeError, 'boom')
+
+    expect { described_class.rebuild!(index: described_class::MemoryIndex.new) }.to raise_error(RuntimeError, 'boom')
+    expect(GroupDirectory::Indexing.backfill_complete?).to be false
   end
 end

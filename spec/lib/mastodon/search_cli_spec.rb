@@ -128,5 +128,59 @@ describe Mastodon::SearchCLI do
       expect(GroupDirectoryIndex).to have_received(:purge)
       expect(specification).to have_received(:lock!)
     end
+
+    it 'drops the backfill marker before a mapping purge and restores it only after success' do
+      specification = instance_double(Chewy::Index::Specification, changed?: true)
+      allow(GroupDirectoryIndex).to receive(:specification).and_return(specification)
+      allow(GroupDirectoryIndex).to receive(:purge)
+      allow(specification).to receive(:lock!)
+      scope = double('empty group directory scope', count: 0)
+      allow(scope).to receive(:where).and_return(scope)
+      allow(scope).to receive(:reorder).with(nil).and_return(scope)
+      allow(scope).to receive(:find_in_batches)
+      allow(GroupDirectoryIndex.adapter).to receive(:default_scope).and_return(scope)
+      GroupDirectory::Indexing.mark_backfill_complete!
+
+      invoke(only: ['group_directory'])
+
+      expect(GroupDirectory::Indexing.backfill_complete?).to be true
+    end
+
+    it 'does not mark the directory ready when a mapping upgrade is limited by id' do
+      specification = instance_double(Chewy::Index::Specification, changed?: true)
+      allow(GroupDirectoryIndex).to receive(:specification).and_return(specification)
+      allow(GroupDirectoryIndex).to receive(:purge)
+      allow(specification).to receive(:lock!)
+      scope = double('bounded group directory scope', count: 0)
+      allow(scope).to receive(:where).and_return(scope)
+      allow(scope).to receive(:reorder).with(nil).and_return(scope)
+      allow(scope).to receive(:find_in_batches)
+      allow(GroupDirectoryIndex.adapter).to receive(:default_scope).and_return(scope)
+      GroupDirectory::Indexing.mark_backfill_complete!
+
+      invoke(only: ['group_directory'], min: '0', max: '0')
+
+      expect(GroupDirectoryIndex).to have_received(:purge)
+      expect(GroupDirectory::Indexing.backfill_complete?).to be false
+    end
+
+    it 'leaves the backfill marker clear when a purged directory import fails' do
+      specification = instance_double(Chewy::Index::Specification, changed?: true)
+      allow(GroupDirectoryIndex).to receive(:specification).and_return(specification)
+      allow(GroupDirectoryIndex).to receive(:purge)
+      allow(specification).to receive(:lock!)
+      record = Account.new(id: 15, username: 'directory', actor_type: 'Group', created_at: Time.now.utc, updated_at: Time.now.utc)
+      scope = double('group directory scope', count: 1)
+      allow(scope).to receive(:where).and_return(scope)
+      allow(scope).to receive(:reorder).with(nil).and_return(scope)
+      allow(scope).to receive(:find_in_batches).and_yield([record])
+      allow(GroupDirectoryIndex.adapter).to receive(:default_scope).and_return(scope)
+      allow(GroupDirectory::Import).to receive(:call).and_raise(StandardError, 'bulk down')
+      GroupDirectory::Indexing.mark_backfill_complete!
+
+      expect { invoke(only: ['group_directory']) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(GroupDirectoryIndex).to have_received(:purge)
+      expect(GroupDirectory::Indexing.backfill_complete?).to be false
+    end
   end
 end

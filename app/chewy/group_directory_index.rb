@@ -2,10 +2,11 @@
 
 # Directory search document for listable groups.
 #
-# The directory API still uses GroupDirectory::Query. This index is filled
-# only when an operator asks for it, and live sync stays off until
-# GROUP_DIRECTORY_INDEX=true. A full `tootctl search deploy` does not create
-# or rebuild this index.
+# GroupDirectory::Listing reads this index only when GROUP_DIRECTORY_ES_SEARCH
+# is true. That flag defaults off, and it is separate from live sync.
+# GROUP_DIRECTORY_INDEX=true fills and updates the index. A full
+# `tootctl search deploy` does not create or rebuild this index. The API
+# keeps using GroupDirectory::Query until the search flag is turned on.
 #
 # Plugins match AccountsIndex: analysis-sudachi, analysis-nori,
 # analysis-ik, and the stconvert character filter. Creating the index fails
@@ -16,15 +17,18 @@
 # used: a prefix gram does not match the middle of a name. The search
 # analyzer is a single lowercased token, so "%" and "_" stay literal
 # characters and the query is not a query_string or a wildcard. A query
-# longer than 20 characters has no single gram; the later query builder has
-# to AND overlapping 20-character windows. One-character substrings are not
-# grams, matching the current two-character rule.
+# longer than 20 characters has no single gram. ElasticsearchQuery ANDs
+# overlapping 20-character windows, then SearchText requires the whole
+# query inside one current field. Windows alone can match separate pieces.
+# One-character substrings are not grams, matching the two-character rule.
 #
 # A 2500-character text field produces at most 47_310 ngram windows, and a
 # 2000-character note produces at most 37_810. Do not set
 # GROUP_DIRECTORY_INDEX in production until index size, bulk throughput,
-# and search latency have been measured on the real cluster. The directory
-# API still searches the full note with SQL.
+# and search latency have been measured on the real cluster. With the
+# search flag off, SQL still searches the full note. With the flag on, a
+# match past the indexed prefix is absent. Do not turn the flag on until
+# that difference is accepted. See docs/group_directory_es_search.md.
 #
 # `last_status_at` stays null when the column is null. It is not replaced
 # with created_at. Elasticsearch treats a null date as a missing value, so
@@ -51,7 +55,9 @@
 # has a newer version, or the stored document is already the one we meant
 # to write. An equal version with a different document, including a delete
 # that leaves the public document in place, is a version gap.
-# Rollback: unset GROUP_DIRECTORY_INDEX and restart. The API is still SQL.
+# Rollback of live sync: unset GROUP_DIRECTORY_INDEX and restart.
+# Rollback of search: unset GROUP_DIRECTORY_ES_SEARCH and restart web.
+# Search then uses SQL again. Leave the index in place.
 # Optional: GroupDirectoryIndex.purge in a console. Do not purge the
 # accounts, tags, or statuses indexes. Redis keys
 # group_directory:index:pending and group_directory:index:scheduled can be

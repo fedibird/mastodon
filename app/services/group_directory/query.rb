@@ -27,6 +27,9 @@
 # stays a filter on Node rows. A two-character ILIKE, including note, is
 # still a filter on the discoverable-group index. This tree has no
 # production-sized measurement of that filter.
+#
+# Listing uses this class while GROUP_DIRECTORY_ES_SEARCH is off. The flag
+# is off unless an operator sets it. This class does not call Elasticsearch.
 class GroupDirectory::Query
   MAX_QUERY_LENGTH = 100
   MIN_SUBSTRING_LENGTH = 2
@@ -43,23 +46,23 @@ class GroupDirectory::Query
   SOFTWARE_PATTERN = /\A[a-z0-9][a-z0-9_.-]*\z/
   ACCT_WITH_DOMAIN = /\A@?(?<username>#{Account::USERNAME_RE})@(?<domain>[^@\s]+)\z/i
   ACCT_USERNAME = /\A@(?<username>#{Account::USERNAME_RE})\z/i
-  # A name@domain shape whose domain cannot be normalized. Not a description search.
-  REJECTED_HANDLE = :rejected_handle
 
-  def initialize(viewer:, params:, limit:)
+  def initialize(viewer:, params:, limit:, parsed: nil)
     @viewer = viewer
     @params = params
     @limit = limit
+    @parsed = parsed
   end
 
   def results
+    @parsed ||= GroupDirectory::Parameters.parse!(@params)
     scope = Account.discoverable.groups.where(domain_clause)
     scope = exclude_viewer_accounts(scope)
     scope = apply_search(scope)
     scope = apply_software(scope)
     scope = apply_listing_scope(scope)
     scope = apply_language(scope)
-    apply_order(scope).offset(offset_value).limit(@limit).preload(:node, :group_languages)
+    apply_order(scope).offset(@parsed.offset).limit(@limit).preload(:node, :group_languages)
   end
 
   private
@@ -84,28 +87,24 @@ class GroupDirectory::Query
   end
 
   def apply_search(scope)
-    query = string_param(:q, MAX_QUERY_LENGTH)
-    return scope if query.nil?
+    return scope if @parsed.query.nil?
+    return scope.none if @parsed.rejected_handle?
 
-    acct = exact_acct(query)
-    return scope.none if acct == REJECTED_HANDLE
-
-    if acct
+    if @parsed.exact?
+      acct = @parsed.acct
       binds = { acct_username: acct[:username] }
       binds[:acct_domain] = acct[:domain] if acct[:domain_constrained]
       return scope.where(acct_clause(acct), binds)
     end
 
-    return scope.none if query.length < MIN_SUBSTRING_LENGTH
+    return scope.none if @parsed.query.length < MIN_SUBSTRING_LENGTH
 
-    scope.where(substring_clause, pattern: "%#{Account.sanitize_sql_like(query)}%")
+    scope.where(substring_clause, pattern: "%#{Account.sanitize_sql_like(@parsed.query)}%")
   end
 
   def apply_software(scope)
-    software = string_param(:software, MAX_SOFTWARE_LENGTH)&.downcase
+    software = @parsed.software
     return scope if software.nil?
-
-    invalid!('software') unless SOFTWARE_PATTERN.match?(software)
 
     case software
     when 'fedibird'
@@ -124,52 +123,30 @@ class GroupDirectory::Query
   end
 
   def apply_listing_scope(scope)
-    listing = string_param(:scope, 16)&.downcase || 'all'
-    invalid!('scope') unless SCOPES.include?(listing)
-    return scope.where(domain: nil) if listing == 'local'
-    return scope if listing == 'all'
+    return scope.where(domain: nil) if @parsed.scope == 'local'
+    return scope if @parsed.scope == 'all'
     return scope.none if @viewer.nil?
 
     scope.where(id: Follow.where(account_id: @viewer.id).select(:target_account_id))
   end
 
   def apply_language(scope)
-    language = string_param(:language, MAX_LANGUAGE_LENGTH)
-    return scope if language.nil? || language.casecmp('all').zero?
-    return scope.where.not(id: GroupLanguage.select(:account_id)) if language.casecmp('unset').zero?
-
-    tag = GroupDirectory::Languages.canonicalize(language)
-    invalid!('language') if tag.nil?
-    scope.where(id: GroupLanguage.where(tag: tag).select(:account_id))
+    case @parsed.language
+    when nil
+      scope
+    when :unset
+      scope.where.not(id: GroupLanguage.select(:account_id))
+    else
+      scope.where(id: GroupLanguage.where(tag: @parsed.language).select(:account_id))
+    end
   end
 
   # active stays on Account.by_recent_status so this list keeps the existing
   # activity order. new is id desc, which is when this server stored the row.
   def apply_order(scope)
-    order = string_param(:order, 16)&.downcase || 'active'
-    invalid!('order') unless ORDERS.include?(order)
-    return scope.reorder(id: :desc) if order == 'new'
+    return scope.reorder(id: :desc) if @parsed.order == 'new'
 
     scope.merge(Account.by_recent_status)
-  end
-
-  def offset_value
-    value = @params[:offset]
-    return 0 if value.nil?
-    return 0 if value.is_a?(String) && value.strip.empty?
-
-    invalid!('offset') unless value.is_a?(String) && value.match?(/\A\d{1,5}\z/)
-    number = value.to_i
-    invalid!('offset') if number > MAX_OFFSET
-    number
-  end
-
-  def string_param(name, max_length)
-    value = @params[name]
-    return if value.nil?
-
-    invalid!(name.to_s) unless value.is_a?(String) && value.length <= max_length
-    value.strip.presence
   end
 
   def local_or_domains(nodes)
@@ -179,38 +156,6 @@ class GroupDirectory::Query
 
   def software_nodes(name)
     Node.has_nodeinfo.where("#{software_sql} = ?", name)
-  end
-
-  # @name matches that username on every domain. name@domain and
-  # @name@domain also constrain the domain. This server's own domain means
-  # the local row, whose domain column is null.
-  def exact_acct(query)
-    if (match = query.match(ACCT_WITH_DOMAIN))
-      domain = acct_domain(match[:domain])
-      return REJECTED_HANDLE if domain.nil?
-
-      return { username: match[:username].downcase, domain: domain, domain_constrained: true }
-    end
-
-    if (match = query.match(ACCT_USERNAME))
-      return { username: match[:username].downcase, domain_constrained: false }
-    end
-
-    return unless query.length < MIN_SUBSTRING_LENGTH && Account::USERNAME_ONLY_RE.match?(query)
-
-    { username: query.downcase, domain_constrained: false }
-  end
-
-  def acct_domain(domain)
-    return '' if TagManager.instance.local_domain?(domain)
-
-    normalized = TagManager.instance.normalize_domain(domain)
-    return if normalized.blank?
-    return '' if TagManager.instance.local_domain?(normalized)
-
-    normalized
-  rescue Addressable::URI::InvalidURIError, IDN::Idna::IdnaError
-    nil
   end
 
   def acct_clause(acct)
@@ -236,9 +181,5 @@ class GroupDirectory::Query
 
   def blank_software_sql
     "BTRIM(COALESCE(nodes.info->>'software_name', ''))"
-  end
-
-  def invalid!(name)
-    raise Mastodon::InvalidParameterError, "Invalid #{name}"
   end
 end

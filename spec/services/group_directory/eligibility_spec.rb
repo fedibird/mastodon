@@ -24,7 +24,7 @@ RSpec.describe GroupDirectory::Eligibility do
     )
   end
 
-  it 'lists the same groups as the directory scope and keeps the API on SQL' do
+  it 'lists the same groups as the directory scope and keeps the default API on SQL' do
     directory_node('lemmy.example', 'Lemmy')
     directory_node('video.example', 'PeerTube')
     directory_node('blank.example', '   ')
@@ -63,8 +63,12 @@ RSpec.describe GroupDirectory::Eligibility do
     sql = GroupDirectory::Query.new(viewer: nil, params: { q: 'photo' }, limit: 5).results.to_sql
     expect(sql).to include('ILIKE')
     controller = File.read(Rails.root.join('app/controllers/api/v1/group_directories_controller.rb'))
-    expect(controller).to include('GroupDirectory::Query')
+    listing = File.read(Rails.root.join('app/services/group_directory/listing.rb'))
+    expect(controller).to include('GroupDirectory::Listing')
     expect(controller).not_to include('GroupDirectoryIndex')
+    expect(listing).to include('GroupDirectory::Query')
+    expect(listing).to include('GROUP_DIRECTORY_ES_SEARCH')
+    expect(GroupDirectory::Readiness.search_enabled?).to be false
   end
 
   it 'keeps a managed local group with no login and classifies software buckets' do
