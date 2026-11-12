@@ -411,22 +411,27 @@ RSpec.describe UserPreferences::Reader do
       prefer = described_class.new(user).get(:emoji_picker_prefer_personal)
       disabled = described_class.new(user).get(:emoji_picker_disable_personal)
       lazy = described_class.new(user).get(:emoji_picker_lazy_load_standard)
+      actions = described_class.new(user).get(:emoji_picker_disable_actions)
 
       expect(prefer).to have_attributes(state: :absent, configured: nil, effective: false, public_value: false)
       expect(disabled).to have_attributes(state: :absent, configured: nil, effective: false, public_value: false)
       expect(lazy).to have_attributes(state: :absent, configured: nil, effective: true, public_value: true)
-      expect(Setting.where(thing_id: user.id, var: %w(emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_lazy_load_standard))).to be_empty
+      expect(actions).to have_attributes(state: :absent, configured: nil, effective: false, public_value: false)
+      expect(Setting.where(thing_id: user.id, var: %w(emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_actions emoji_picker_lazy_load_standard))).to be_empty
 
       store_setting(user, 'emoji_picker_prefer_personal', false)
       store_setting(user, 'emoji_picker_disable_personal', true)
+      store_setting(user, 'emoji_picker_disable_actions', true)
       store_setting(user, 'emoji_picker_lazy_load_standard', false)
       stored_prefer = described_class.new(user).get(:emoji_picker_prefer_personal)
       stored_disabled = described_class.new(user).get(:emoji_picker_disable_personal)
       stored_lazy = described_class.new(user).get(:emoji_picker_lazy_load_standard)
+      stored_actions = described_class.new(user).get(:emoji_picker_disable_actions)
 
       expect(stored_prefer).to have_attributes(state: :present, configured: false, effective: false, public_value: false)
       expect(stored_disabled).to have_attributes(state: :present, configured: true, effective: true, public_value: true)
       expect(stored_lazy).to have_attributes(state: :present, configured: false, effective: false, public_value: false)
+      expect(stored_actions).to have_attributes(state: :present, configured: true, effective: true, public_value: true)
       expect(stored_lazy.effective).not_to eq lazy.effective
     end
   end

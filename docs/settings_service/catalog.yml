@@ -17,9 +17,9 @@ meta:
   purpose: P1-0 audit catalog for a future Settings Service reader and schema. Not
     loaded by production.
   stats:
-    entries: 272
+    entries: 273
     by_disposition:
-      candidate_general: 128
+      candidate_general: 129
       candidate_high_risk: 29
       client: 21
       derived: 3
@@ -30,13 +30,13 @@ meta:
     by_audit_status:
       inferred: 23
       unresolved: 3
-      verified: 246
+      verified: 247
     by_owner:
       account: 16
       client: 21
       excluded: 12
       site: 57
-      user: 166
+      user: 167
     open_questions: 6
     form_inputs:
       appearance:
@@ -52,7 +52,7 @@ meta:
         commented: 0
         conditional: 0
       other:
-        active: 66
+        active: 67
         commented: 1
         conditional: 3
       profile:
@@ -703,7 +703,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:90
-  - app/lib/user_settings_decorator.rb:160
+  - app/lib/user_settings_decorator.rb:161
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:41
@@ -748,7 +748,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:91
-  - app/lib/user_settings_decorator.rb:161
+  - app/lib/user_settings_decorator.rb:162
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:42
@@ -892,7 +892,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:94
-  - app/lib/user_settings_decorator.rb:159
+  - app/lib/user_settings_decorator.rb:160
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:65
@@ -947,9 +947,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:88
-  - app/lib/user_settings_decorator.rb:157
+  - app/lib/user_settings_decorator.rb:158
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:39
@@ -1108,7 +1108,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:158
-  - app/lib/user_settings_decorator.rb:169
+  - app/lib/user_settings_decorator.rb:170
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:80
@@ -1156,11 +1156,11 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:160
-  - app/lib/user_settings_decorator.rb:171
+  - app/lib/user_settings_decorator.rb:172
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:83
-  - app/serializers/initial_state_serializer.rb:190
+  - app/serializers/initial_state_serializer.rb:191
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -1200,11 +1200,11 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:159
-  - app/lib/user_settings_decorator.rb:170
+  - app/lib/user_settings_decorator.rb:171
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:79
-  - app/serializers/initial_state_serializer.rb:189
+  - app/serializers/initial_state_serializer.rb:190
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -1257,9 +1257,9 @@ entries:
   configured_vs_effective: distinct
   form_status: active
   source_refs:
-  - app/lib/user_settings_decorator.rb:149
+  - app/lib/user_settings_decorator.rb:150
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
@@ -1320,14 +1320,14 @@ entries:
   configured_vs_effective: distinct
   form_status: active
   source_refs:
-  - app/lib/user_settings_decorator.rb:148
+  - app/lib/user_settings_decorator.rb:149
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:334
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:66
-  - app/serializers/initial_state_serializer.rb:185
+  - app/serializers/initial_state_serializer.rb:186
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is an override on User and is not the
@@ -1370,11 +1370,11 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:156
-  - app/lib/user_settings_decorator.rb:168
+  - app/lib/user_settings_decorator.rb:169
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:88
-  - app/serializers/initial_state_serializer.rb:211
+  - app/serializers/initial_state_serializer.rb:212
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -1434,12 +1434,12 @@ entries:
   - config/settings.yml:19
   - app/lib/user_settings_decorator.rb:34
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:72
-  - app/serializers/initial_state_serializer.rb:187
+  - app/serializers/initial_state_serializer.rb:188
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2304,7 +2304,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:34
-  - app/lib/user_settings_decorator.rb:152
+  - app/lib/user_settings_decorator.rb:153
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:155
@@ -2317,6 +2317,71 @@ entries:
     Redux meta also receives the value on hydrate, but scanned selectors do not read
     it from state.meta. Changing the stored value does not by itself update the open
     WebUI.'
+- key: user.emoji_picker_disable_actions
+  category: reactions
+  owner: user
+  disposition: candidate_general
+  storage: settings(thing_type=User,thing_id=users.id,var=emoji_picker_disable_actions)
+    YAML text; default from config/settings.yml via ScopedSettings, except theme and
+    noindex which fall back to the unscoped Setting row
+  legacy_keys:
+    settings_var: emoji_picker_disable_actions
+    getter: setting_emoji_picker_disable_actions
+    form: setting_emoji_picker_disable_actions
+    initial_state_meta: emoji_picker_disable_actions
+  raw_type: boolean
+  effective_type: boolean
+  default_source: config/settings.yml defaults.emoji_picker_disable_actions=false
+    (boolean)
+  read_sources:
+  - InitialState meta via setting_*
+  - static JS import emojiPickerDisableActions (1 importers)
+  - Rails preferences form getter
+  write_sources:
+  - rails preferences update via LegacyWriter (emoji settings)
+  normalization: LegacyWriter casts Simple Form 0 and 1 with ActiveModel::Type::Boolean
+    before Writer stores a boolean. The string 0 is not stored. A missing row uses
+    the settings.yml default. A stored false stays false. The next full page load
+    applies the value. Saving does not unload a standard picker module that has already
+    been fetched.
+  availability: user preference
+  read_policy: general
+  write_policy: general
+  side_effects:
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache,
+    legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write
+    before saving anything
+  - saving does not unload an already fetched standard emoji picker module; the next
+    full page load applies the effective value
+  apply_hint: reload
+  client_reference:
+  - static_import
+  - redux_meta_hydrated_unread
+  - dynamic_update_possible_if_selectors_replace_static_imports
+  configured_vs_effective: effective_is_stored_or_yaml_default
+  form_status: active
+  source_refs:
+  - config/settings.yml:211
+  - app/lib/user_settings_decorator.rb:143
+  - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:265
+  - app/models/user.rb:166
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:59
+  - app/serializers/initial_state_serializer.rb:158
+  - app/javascript/mastodon/initial_state.js:137
+  audit_status: verified
+  notes: 'Recommendation only: read_policy and write_policy are not an approved API
+    contract. Decorator group boolean. Getter is delegated to ScopedSettings with
+    prefix setting. JavaScript captures emojiPickerDisableActions at module evaluation.
+    1 import sites. Redux meta also receives the value on hydrate, but scanned selectors
+    do not read it from state.meta. Changing the stored value does not by itself update
+    the open WebUI. Reader distinguishes a missing row from a stored false. Form value
+    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal defaults
+    off and emoji_picker_lazy_load_standard defaults on. An empty personal set does
+    not fall through to the standard picker. Turning lazy load off preloads on the
+    next page load and does not change the visible mode.'
 - key: user.emoji_picker_disable_personal
   category: reactions
   owner: user
@@ -2338,7 +2403,7 @@ entries:
   - static JS import emojiPickerDisablePersonal (4 importers)
   - Rails preferences form getter
   write_sources:
-  - rails preferences update via LegacyWriter (other)
+  - rails preferences update via LegacyWriter (emoji settings)
   normalization: LegacyWriter casts Simple Form 0 and 1 to boolean before Writer stores
     it. A missing row uses false from settings.yml, retaining personal mode. A stored
     true disables personal stock work and forces standard-only mode after the next
@@ -2364,10 +2429,10 @@ entries:
   - config/settings.yml:209
   - app/lib/user_settings_decorator.rb:142
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:210
+  - app/views/settings/custom_emojis/settings/show.html.haml:49
   - app/serializers/initial_state_serializer.rb:157
   - app/javascript/mastodon/initial_state.js:136
   audit_status: verified
@@ -2401,7 +2466,7 @@ entries:
   - static JS import emojiPickerLazyLoadStandard (1 importers)
   - Rails preferences form getter
   write_sources:
-  - rails preferences update via LegacyWriter (other)
+  - rails preferences update via LegacyWriter (emoji settings)
   normalization: LegacyWriter casts Simple Form 0 and 1 with ActiveModel::Type::Boolean
     before Writer stores a boolean. The string 0 is not stored. A missing row uses
     the settings.yml default. A stored false stays false. The next full page load
@@ -2425,15 +2490,15 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:214
-  - app/lib/user_settings_decorator.rb:143
+  - config/settings.yml:216
+  - app/lib/user_settings_decorator.rb:144
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:217
-  - app/serializers/initial_state_serializer.rb:158
-  - app/javascript/mastodon/initial_state.js:137
+  - app/views/settings/custom_emojis/settings/show.html.haml:56
+  - app/serializers/initial_state_serializer.rb:159
+  - app/javascript/mastodon/initial_state.js:138
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2466,7 +2531,7 @@ entries:
   - static JS import emojiPickerPreferPersonal (1 importers)
   - Rails preferences form getter
   write_sources:
-  - rails preferences update via LegacyWriter (other)
+  - rails preferences update via LegacyWriter (emoji settings)
   normalization: LegacyWriter casts Simple Form 0 and 1 with ActiveModel::Type::Boolean
     before Writer stores a boolean. The string 0 is not stored. A missing row uses
     the settings.yml default. A stored false stays false. The next full page load
@@ -2493,10 +2558,10 @@ entries:
   - config/settings.yml:207
   - app/lib/user_settings_decorator.rb:141
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:214
+  - app/views/settings/custom_emojis/settings/show.html.haml:53
   - app/serializers/initial_state_serializer.rb:156
   - app/javascript/mastodon/initial_state.js:135
   audit_status: verified
@@ -2556,7 +2621,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:165
-  - app/lib/user_settings_decorator.rb:150
+  - app/lib/user_settings_decorator.rb:151
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:29
@@ -2611,7 +2676,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:95
-  - app/lib/user_settings_decorator.rb:162
+  - app/lib/user_settings_decorator.rb:163
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:48
@@ -2657,7 +2722,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:98
-  - app/lib/user_settings_decorator.rb:165
+  - app/lib/user_settings_decorator.rb:166
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:56
@@ -2703,7 +2768,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:164
+  - app/lib/user_settings_decorator.rb:165
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:54
@@ -2749,7 +2814,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:99
-  - app/lib/user_settings_decorator.rb:166
+  - app/lib/user_settings_decorator.rb:167
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:58
@@ -2795,7 +2860,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:96
-  - app/lib/user_settings_decorator.rb:163
+  - app/lib/user_settings_decorator.rb:164
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:52
@@ -3724,7 +3789,7 @@ entries:
   - app/lib/user_settings_decorator.rb:99
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:225
+  - app/views/settings/preferences/other/show.html.haml:228
   - app/serializers/initial_state_serializer.rb:115
   - app/javascript/mastodon/initial_state.js:111
   audit_status: verified
@@ -5006,9 +5071,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:89
-  - app/lib/user_settings_decorator.rb:158
+  - app/lib/user_settings_decorator.rb:159
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:40
@@ -5113,13 +5178,13 @@ entries:
   configured_vs_effective: type_may_diverge_after_form_save
   form_status: active
   source_refs:
-  - config/settings.yml:217
-  - app/lib/user_settings_decorator.rb:176
+  - config/settings.yml:219
+  - app/lib/user_settings_decorator.rb:177
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:220
-  - app/serializers/initial_state_serializer.rb:159
-  - app/javascript/mastodon/initial_state.js:141
+  - app/views/settings/preferences/other/show.html.haml:223
+  - app/serializers/initial_state_serializer.rb:160
+  - app/javascript/mastodon/initial_state.js:142
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -5165,7 +5230,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:59
-  - app/lib/user_settings_decorator.rb:172
+  - app/lib/user_settings_decorator.rb:173
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:119
@@ -5219,7 +5284,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:60
-  - app/lib/user_settings_decorator.rb:173
+  - app/lib/user_settings_decorator.rb:174
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:120
@@ -5325,9 +5390,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:86
-  - app/lib/user_settings_decorator.rb:155
+  - app/lib/user_settings_decorator.rb:156
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:94
@@ -5424,7 +5489,7 @@ entries:
   form_status: absent
   source_refs:
   - config/settings.yml:100
-  - app/lib/user_settings_decorator.rb:167
+  - app/lib/user_settings_decorator.rb:168
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/serializers/initial_state_serializer.rb:112
@@ -5575,10 +5640,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:173
-  - app/lib/user_settings_decorator.rb:174
+  - app/lib/user_settings_decorator.rb:175
   - app/models/user.rb:166
   - app/views/settings/preferences/safety/show.html.haml:58
-  - app/serializers/initial_state_serializer.rb:191
+  - app/serializers/initial_state_serializer.rb:192
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -5620,11 +5685,11 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:174
-  - app/lib/user_settings_decorator.rb:175
+  - app/lib/user_settings_decorator.rb:176
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:61
-  - app/serializers/initial_state_serializer.rb:192
+  - app/serializers/initial_state_serializer.rb:193
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -5675,7 +5740,7 @@ entries:
   - config/settings.yml:41
   - app/lib/user_settings_decorator.rb:53
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:92
@@ -5821,7 +5886,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:93
-  - app/lib/user_settings_decorator.rb:144
+  - app/lib/user_settings_decorator.rb:145
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:43
@@ -6395,9 +6460,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:38
-  - app/lib/user_settings_decorator.rb:154
+  - app/lib/user_settings_decorator.rb:155
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:344
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:148
@@ -6542,7 +6607,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:46
-  - app/lib/user_settings_decorator.rb:151
+  - app/lib/user_settings_decorator.rb:152
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:28
@@ -6587,7 +6652,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:47
-  - app/lib/user_settings_decorator.rb:156
+  - app/lib/user_settings_decorator.rb:157
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:31
@@ -6687,9 +6752,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:35
-  - app/lib/user_settings_decorator.rb:153
+  - app/lib/user_settings_decorator.rb:154
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:264
+  - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:348
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:149
@@ -8915,7 +8980,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:267
+  - config/settings.yml:269
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/models/form/action_review_settings.rb,
     app/services/action_review/policy_settings.rb. Not a user preference candidate.'
@@ -9220,7 +9285,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:232
+  - config/settings.yml:234
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/atproto/feature.rb.
     Not a user preference candidate.'
@@ -9254,7 +9319,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:233
+  - config/settings.yml:235
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/atproto/feature.rb.
     Not a user preference candidate.'
@@ -9289,7 +9354,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:240
+  - config/settings.yml:242
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/visibility_switch.rb.
     Not a user preference candidate.'
@@ -9323,7 +9388,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:248
+  - config/settings.yml:250
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/feeds/feature.rb.
     Not a user preference candidate.'
@@ -9357,7 +9422,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:249
+  - config/settings.yml:251
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/feeds/feature.rb.
     Not a user preference candidate.'
@@ -9391,7 +9456,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:256
+  - config/settings.yml:258
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/link_sharing/feature.rb.
     Not a user preference candidate.'
@@ -9426,7 +9491,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:257
+  - config/settings.yml:259
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/link_sharing/feature.rb.
     Not a user preference candidate.'
@@ -9460,7 +9525,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:223
+  - config/settings.yml:225
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/feature.rb.
     Not a user preference candidate.'
@@ -9495,7 +9560,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:225
+  - config/settings.yml:227
   - app/services/external_bridge/rss/activity_pub/schedule.rb:10
   audit_status: verified
   notes: Read by ExternalBridge::RSS::ActivityPub::Schedule.enabled?, and only when
@@ -9534,7 +9599,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:226
+  - config/settings.yml:228
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/feature.rb.
     Not a user preference candidate.'
@@ -9574,7 +9639,7 @@ entries:
   configured_vs_effective: out_of_range_reads_as_default_20
   form_status: absent
   source_refs:
-  - config/settings.yml:266
+  - config/settings.yml:268
   - app/models/form/admin_external_content_settings.rb:7
   - app/services/external_bridge/rss/media/policy.rb:34
   - app/controllers/admin/external_content_settings_controller.rb:12
@@ -9617,7 +9682,7 @@ entries:
   configured_vs_effective: unknown_stored_string_reads_as_remote
   form_status: absent
   source_refs:
-  - config/settings.yml:265
+  - config/settings.yml:267
   - app/models/form/admin_external_content_settings.rb:7
   - app/services/external_bridge/rss/media/policy.rb:18
   - app/controllers/admin/external_content_settings_controller.rb:12
@@ -9658,7 +9723,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:278
+  - config/settings.yml:280
   - app/services/group_creation_requests/feature.rb:10
   - app/services/group_creation_requests/approve_service.rb:22
   - app/controllers/settings/group_creation_requests_controller.rb:100
@@ -9703,7 +9768,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:286
+  - config/settings.yml:288
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:12
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -9750,7 +9815,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:292
+  - config/settings.yml:294
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:37
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -9799,7 +9864,7 @@ entries:
   configured_vs_effective: nil_on_read_when_indefinite
   form_status: absent
   source_refs:
-  - config/settings.yml:291
+  - config/settings.yml:293
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:17
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -9849,7 +9914,7 @@ entries:
   configured_vs_effective: nil_on_read_when_unlimited_uses
   form_status: absent
   source_refs:
-  - config/settings.yml:289
+  - config/settings.yml:291
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:15
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -9897,7 +9962,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:290
+  - config/settings.yml:292
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:33
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -9945,7 +10010,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:287
+  - config/settings.yml:289
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:13
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -9993,7 +10058,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:288
+  - config/settings.yml:290
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:14
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -10397,7 +10462,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:216
+  - config/settings.yml:218
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -10435,7 +10500,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:215
+  - config/settings.yml:217
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -11857,7 +11922,7 @@ entries:
   - app/helpers/languages_helper.rb:266
   - app/serializers/rest/preferences_serializer.rb:20
   - app/serializers/rest/credential_account_serializer.rb:18
-  - app/serializers/initial_state_serializer.rb:188
+  - app/serializers/initial_state_serializer.rb:189
   audit_status: verified
   notes: Preferences API and InitialState compose use this cascade. Credentials source.language
     and the Rails form use setting_default_language, the raw stored value, which can

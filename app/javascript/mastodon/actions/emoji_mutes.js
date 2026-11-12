@@ -7,6 +7,7 @@ import {
   appliedEmojiMuteRevision,
   currentEmojiMutes,
   emojiMuteNotificationFetchEpoch,
+  emojiReactionEventsAccepted,
   loadEmojiMutes,
   noteEmojiMutesChanged,
 } from '../features/emoji/emoji_mute_store';
@@ -121,6 +122,11 @@ const needsRestore = (state, id) => {
   return revision !== null && revision !== undefined && revisionStale(applied, revision);
 };
 
+// A status imported while the mute document was unsettled can lack both
+// reactions and a revision. Refetch it only after the viewer rules are ready.
+const needsWithheldRestore = (state, id) => emojiReactionEventsAccepted() &&
+  state.getIn(['statuses', id, 'emoji_reactions_withheld']) === true;
+
 // A custom group from a cache written before parts has a domain or URL and
 // no identity list. Hiding it by the representative domain would drop a
 // different emoji that shares the name.
@@ -146,7 +152,15 @@ const hasLegacyCustomGroup = status => {
   });
 };
 
-const statusNeedsFetch = (state, id) => {
+const statusNeedsFetch = (state, id, withheldOnly = false) => {
+  if (needsWithheldRestore(state, id)) {
+    return true;
+  }
+
+  if (withheldOnly) {
+    return false;
+  }
+
   if (needsRestore(state, id)) {
     return true;
   }
@@ -158,14 +172,14 @@ const statusNeedsFetch = (state, id) => {
   return hasLegacyCustomGroup(state.getIn(['statuses', id]));
 };
 
-const consider = (ids, state, id) => {
+const consider = (ids, state, id, withheldOnly = false) => {
   if (ids.length >= MAX_IMMEDIATE || id === null || id === undefined || id === '') {
     return;
   }
 
   const key = String(id);
 
-  if (ids.indexOf(key) !== -1 || !statusNeedsFetch(state, key)) {
+  if (ids.indexOf(key) !== -1 || !statusNeedsFetch(state, key, withheldOnly)) {
     return;
   }
 
@@ -186,13 +200,13 @@ const headIds = list => {
   return head;
 };
 
-// The open thread and the head of every column, at most 40 statuses whose
-// stored revision is behind the applied document. Loaded statuses that are
-// not on screen are restored when they are shown, not in this pass.
-export const immediateStatusIdsForMuteRestore = state => {
+// The open thread and the head of every column, at most 40 statuses.
+// A normal startup only refetches statuses explicitly marked as withheld;
+// unmute/legacy refreshes keep their existing revision-based behavior.
+export const immediateStatusIdsForMuteRestore = (state, { withheldOnly = false } = {}) => {
   const ids = [];
 
-  eachVisibleId(id => consider(ids, state, id));
+  eachVisibleId(id => consider(ids, state, id, withheldOnly));
 
   const contexts = state.get('contexts');
 
@@ -204,7 +218,7 @@ export const immediateStatusIdsForMuteRestore = state => {
       }
 
       const before = ids.length;
-      consider(ids, state, id);
+      consider(ids, state, id, withheldOnly);
 
       if (ids.length > before) {
         contextTaken += 1;
@@ -243,7 +257,7 @@ export const immediateStatusIdsForMuteRestore = state => {
   for (let index = 0; index < PER_SURFACE && ids.length < MAX_IMMEDIATE; index += 1) {
     heads.forEach(head => {
       if (index < head.length) {
-        consider(ids, state, head[index]);
+        consider(ids, state, head[index], withheldOnly);
       }
     });
   }
@@ -330,14 +344,16 @@ export function refreshEmojiMuteSurfaces(options = {}) {
       restoreArmed = true;
     }
 
-    const immediateIds = (options.restoreStatuses || options.refetchLegacy)
-      ? immediateStatusIdsForMuteRestore(getState())
+    const restoring = options.restoreStatuses || options.refetchLegacy || options.restoreWithheld;
+    const withheldOnly = options.restoreWithheld && !options.restoreStatuses && !options.refetchLegacy;
+    const immediateIds = restoring
+      ? immediateStatusIdsForMuteRestore(getState(), { withheldOnly })
       : [];
     const immediateSet = new Set(immediateIds);
 
-    if (options.restoreStatuses || options.refetchLegacy) {
+    if (restoring) {
       eachVisibleId(id => {
-        if (!immediateSet.has(id) && statusNeedsFetch(getState(), id)) {
+        if (!immediateSet.has(id) && statusNeedsFetch(getState(), id, withheldOnly)) {
           restoreQueue.push(id);
         }
       });
@@ -459,7 +475,8 @@ const scheduleRestore = (dispatch, getState) => {
 // refetches only itself. The refresh pass does not walk the whole cache.
 export function restoreVisibleEmojiMuteStatus(id) {
   return (dispatch, getState) => {
-    if ((!restoreArmed && !legacyRefreshArmed) || !statusNeedsFetch(getState(), id)) {
+    const state = getState();
+    if ((!restoreArmed && !legacyRefreshArmed && !needsWithheldRestore(state, id)) || !statusNeedsFetch(state, id)) {
       return;
     }
 
@@ -491,6 +508,7 @@ export function syncEmojiMutes(options = {}) {
       return refreshEmojiMuteSurfaces({
         restoreStatuses: hideShrunk && !sameDocument,
         refetchLegacy: hideGrew && !sameDocument,
+        restoreWithheld: true,
       })(dispatch, getState);
     });
   };

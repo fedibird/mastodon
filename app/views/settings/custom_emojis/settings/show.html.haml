@@ -30,8 +30,6 @@
 
   .fields-group
     = f.input :setting_enable_reaction, as: :boolean, wrapper: :with_label, fedibird_features: true
-    = f.input :setting_disable_reactions, as: :boolean, wrapper: :with_label, fedibird_features: true
-    %p.hint= t('preferences.disable_actions_hint')
 
   .fields-group
     = f.input :setting_compact_reaction, as: :boolean, wrapper: :with_label, fedibird_features: true
@@ -43,20 +41,6 @@
   .fields-group
     = f.input :setting_enable_wide_emoji_reaction, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
     = f.input :setting_content_emoji_reaction_size, as: :range, input_html: { min: 10, max: 48, list: 'emoji_reaction_size_label' }, wrapper: :with_label, false: true, fedibird_features: true
-
-  - fallback_raw = current_user.setting_emoji_reaction_fallback_policy.to_s
-  - fallback_choices = EmojiReactionCapability::FallbackPolicy.form_choices
-  - fallback_known = fallback_choices.include?(fallback_raw)
-  - fallback_hint = [t('preferences.emoji_reaction_fallback_policy_scope')]
-  - fallback_hint << (EmojiReactionCapability::FallbackPolicyConfig.effective? ? t('preferences.emoji_reaction_fallback_policy_enforced') : t('preferences.emoji_reaction_fallback_policy_not_enforced'))
-  - fallback_hint << t('preferences.emoji_reaction_fallback_policy_ask_unavailable') unless EmojiReactionCapability::FallbackPolicy.picker_confirmation_available?
-  - fallback_hint << t('preferences.emoji_reaction_fallback_policy_ask_stored') if fallback_raw == 'ask'
-  - fallback_hint << t('preferences.emoji_reaction_fallback_policy_disable_reactions')
-
-  %h4= t('preferences.emoji_reaction_fallback_policy')
-
-  .fields-group
-    = f.input :setting_emoji_reaction_fallback_policy, collection: fallback_choices, label_method: ->(choice) { t("preferences.emoji_reaction_fallback_policies.#{choice}") }, value_method: :itself, selected: (fallback_known ? fallback_raw : nil), include_blank: (fallback_known ? false : t('preferences.emoji_reaction_fallback_policy_choose')), hint: fallback_hint.join(' '), wrapper: :with_label, fedibird_features: true
 
   %h4= t('emoji_settings.picker')
 
@@ -70,6 +54,9 @@
 
   .fields-group
     = f.input :setting_emoji_picker_lazy_load_standard, as: :boolean, wrapper: :with_label, fedibird_features: true
+
+  .fields-group
+    = f.input :setting_emoji_picker_disable_actions, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
 
   .fields-group
     = f.input :setting_max_frequently_used_emojis, wrapper: :with_label, label: t('simple_form.labels.defaults.setting_max_frequently_used_emojis'), hint: t('simple_form.hints.defaults.setting_max_frequently_used_emojis', count: CustomEmoji::FREQUENTLY_USED_EMOJIS_LIMIT), fedibird_features: true

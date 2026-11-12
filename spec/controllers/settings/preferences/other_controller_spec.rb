@@ -14,6 +14,7 @@ describe Settings::Preferences::OtherController do
       get :show
       expect(response).to have_http_status(200)
       expect(response.body).not_to include('user_setting_emoji_picker_disable_personal')
+      expect(response.body).not_to include('user_setting_emoji_picker_disable_actions')
       expect(response.body).not_to include('user_setting_enable_reaction')
       expect(response.body).not_to include('user_setting_hide_reaction_counter')
       expect(response.body).not_to include('user_setting_hide_list_of_emoji_reactions_to_posts')

@@ -11,7 +11,7 @@ import spring from 'react-motion/lib/spring';
 import EmojiReaction from './emoji_reactions';
 
 const mapStateToProps = (state, { status }) => ({
-  emojiReactions: status.get('emoji_reactions'),
+  emojiReactions: status.get('emoji_reactions') || List(),
 });
 
 const mergeProps = ({ emojiReactions }, dispatchProps, ownProps) => ({
