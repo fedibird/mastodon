@@ -79,6 +79,7 @@ class UserPreferences::Definition
       motion,
       emoji_picker_prefer_personal,
       emoji_picker_disable_personal,
+      emoji_picker_disable_actions,
       emoji_picker_lazy_load_standard,
       fallback_policy,
       preferred_language,
@@ -291,6 +292,16 @@ class UserPreferences::Definition
       category: :appearance,
       default_source: 'config/settings.yml emoji_picker_disable_personal false by default. When true, personal picker stock is not fetched, prepared, or displayed; saved sets are retained.',
       source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/views/settings/preferences/other/show.html.haml'],
+      apply_hint: :reload
+    )
+  end
+
+  def self.emoji_picker_disable_actions
+    boolean(
+      key: 'emoji_picker_disable_actions',
+      category: :appearance,
+      default_source: 'config/settings.yml emoji_picker_disable_actions false by default. When true, action menus and gesture handlers are disabled only inside emoji pickers.',
+      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/features/emoji/emoji_picker_shell.js', 'app/views/settings/preferences/other/show.html.haml'],
       apply_hint: :reload
     )
   end

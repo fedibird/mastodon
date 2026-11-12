@@ -465,6 +465,8 @@ class StatusActionBar extends ImmutablePureComponent {
     const reblogsCount       = status.get('reblogs_count');
     const referredByCount    = status.get('status_referred_by_count');
     const favouritesCount    = status.get('favourites_count');
+    const emojiReactions     = status.get('emoji_reactions');
+    const hasEmojiReactions  = !!emojiReactions && !emojiReactions.isEmpty();
     const domain            = account.get('acct').split('@')[1];
 
     if (this.props.compactCardMode === 'favourite') {
@@ -547,7 +549,7 @@ class StatusActionBar extends ImmutablePureComponent {
       menu.push(...management);
     }
 
-    if (reblogsCount > 0 || favouritesCount > 0 || !status.get('emoji_reactions').isEmpty()) {
+    if (reblogsCount > 0 || favouritesCount > 0 || hasEmojiReactions) {
       menu.push(null);
     }
 
@@ -559,7 +561,7 @@ class StatusActionBar extends ImmutablePureComponent {
       menu.push({ text: intl.formatMessage(messages.show_favourites), action: this.handleFavourites });
     }
 
-    if (!status.get('emoji_reactions').isEmpty()) {
+    if (hasEmojiReactions) {
       menu.push({ text: intl.formatMessage(messages.show_emoji_reactions), action: this.handleEmojiReactions });
     }
 

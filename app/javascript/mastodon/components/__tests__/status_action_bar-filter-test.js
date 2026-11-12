@@ -162,3 +162,25 @@ describe('StatusActionBar Filter this post menu', () => {
     expect(onAddFilter).not.toHaveBeenCalled();
   });
 });
+
+describe('StatusActionBar with temporarily withheld emoji reactions', () => {
+  it('renders the menu when reactions are missing and there are no boosts or favourites', () => {
+    renderBar({ status: status.delete('emoji_reactions') });
+
+    expect(screen.getByTestId('more-menu')).toBeInTheDocument();
+    expect(screen.queryByText('Show emoji reactioned users')).not.toBeInTheDocument();
+  });
+
+  it('renders the menu when reactions are missing and there are boosts', () => {
+    renderBar({ status: status.delete('emoji_reactions').set('reblogs_count', 1) });
+
+    expect(screen.getByText('Show boosted users')).toBeInTheDocument();
+    expect(screen.queryByText('Show emoji reactioned users')).not.toBeInTheDocument();
+  });
+
+  it('still offers the reaction list when reactions are present', () => {
+    renderBar({ status: status.set('emoji_reactions', fromJS([{ name: '👍', count: 1 }])) });
+
+    expect(screen.getByText('Show emoji reactioned users')).toBeInTheDocument();
+  });
+});
