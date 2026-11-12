@@ -95,7 +95,8 @@ const makeMapStateToProps = () => {
       id,
       referenced: state.getIn(['compose', 'references']).has(id),
       contextReferenced: state.getIn(['compose', 'context_references']).has(id),
-      emojiReactions: !!status ? status.get('emoji_reactions', ImmutableList()) : ImmutableList(),
+      // An unsettled emoji-mute document can intentionally withhold reactions.
+      emojiReactions: !!status ? (status.get('emoji_reactions') || ImmutableList()) : ImmutableList(),
     };
   };
 

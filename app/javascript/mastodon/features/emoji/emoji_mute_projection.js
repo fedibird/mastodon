@@ -270,11 +270,18 @@ const keepPreviousReactions = (previous, status) => {
   const reactions = previous.get('emoji_reactions');
   const next = {
     ...status,
-    emoji_reactions: reactions && typeof reactions.toJS === 'function' ? reactions.toJS() : undefined,
     emoji_reactions_count: previous.get('emoji_reactions_count'),
     emoji_reactions_cache_token: previous.get('emoji_reactions_cache_token'),
     emoji_mutes_revision: previous.get('emoji_mutes_revision'),
   };
+
+  // Missing reactions must stay absent rather than become an explicitly
+  // undefined value in Immutable.js, which bypasses get(key, defaultValue).
+  if (reactions && typeof reactions.toJS === 'function') {
+    next.emoji_reactions = reactions.toJS();
+  } else {
+    delete next.emoji_reactions;
+  }
 
   if (previous.get('emoji_reactions_withheld') === true || !reactions) {
     next.emoji_reactions_withheld = true;
