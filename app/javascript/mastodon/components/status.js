@@ -29,6 +29,7 @@ import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_
 import FilterReason from './filter_reason';
 import { displayMedia, cropCardImages, enableReaction, compactReaction, cardReactionsSingleLine, cardCollapseLongText, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
+import { emojiReactionsForStatus } from '../utils/emoji_reactions';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
 import StatusMediaStack, { firstOpenableMedia, hotkeyMediaRoot, openMediaFromHotkey } from 'mastodon/components/status_media';
@@ -934,7 +935,7 @@ class Status extends ImmutablePureComponent {
     const media = status.get('media_attachments', ImmutableList());
     // The add-reaction control always stays beside favourite. Counts stay off
     // the card when compact reactions are on, including a zero-count row.
-    const hasVisibleEmojiReactions = status.get('emoji_reactions', ImmutableList()).some(reaction => reaction.get('count', 0) > 0);
+    const hasVisibleEmojiReactions = emojiReactionsForStatus(status).some(reaction => reaction && typeof reaction.get === 'function' && reaction.get('count', 0) > 0);
     const showReactions = showCardEmojiReactions(enableReaction, hasVisibleEmojiReactions, compactReaction);
     const firstMedia = contentVisible && media && media.size > 0
       ? this.renderAttachmentMedia(status.set('media_attachments', media.take(1)), {
