@@ -871,7 +871,7 @@ export class EmojiMuteSettings extends React.PureComponent {
         </div>
 
         <fieldset className='emoji-mute-settings__effects'>
-          {EFFECTS.map(([key, _stem, shortStem]) => (
+          {EFFECTS.map(([key, , shortStem]) => (
             <label key={key}>
               <input type='checkbox' checked={Boolean(draft.effects[key])} data-mute-id={rule.id} data-effect={key} onChange={this.handleEffect} />
               <span>{this.text(shortStem)}</span>
