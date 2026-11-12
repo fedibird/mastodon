@@ -254,24 +254,35 @@ export const reactionTokenStale = (current, incoming) => {
 
 export const revisionStale = (current, incoming) => reactionTokenStale(current, incoming);
 
+// The client-only marker lets a later, authenticated refresh recover a
+// reaction list deliberately withheld while the mute document was unsettled.
+// It contains no unfiltered reaction data and is cleared on an accepted import.
 const keepPreviousReactions = (previous, status) => {
   if (!previous || typeof previous.get !== 'function') {
     const next = { ...status };
     delete next.emoji_reactions;
     delete next.emoji_reactions_count;
     delete next.emoji_mutes_revision;
+    next.emoji_reactions_withheld = true;
     return next;
   }
 
   const reactions = previous.get('emoji_reactions');
-
-  return {
+  const next = {
     ...status,
     emoji_reactions: reactions && typeof reactions.toJS === 'function' ? reactions.toJS() : status.emoji_reactions,
     emoji_reactions_count: previous.get('emoji_reactions_count'),
     emoji_reactions_cache_token: previous.get('emoji_reactions_cache_token'),
     emoji_mutes_revision: previous.get('emoji_mutes_revision'),
   };
+
+  if (previous.get('emoji_reactions_withheld') === true || !reactions) {
+    next.emoji_reactions_withheld = true;
+  } else {
+    delete next.emoji_reactions_withheld;
+  }
+
+  return next;
 };
 
 // Anonymous status updates have no viewer revision. Project them with the
@@ -320,7 +331,9 @@ export const guardImportedReactions = (previous, status, rules, reactionsAccepte
   const globallyStale = incoming !== null && incoming !== undefined && appliedRevision !== null && appliedRevision !== undefined && revisionStale(appliedRevision, incoming);
 
   if (!globallyStale && incoming !== null && incoming !== undefined) {
-    return status;
+    const accepted = { ...status };
+    delete accepted.emoji_reactions_withheld;
+    return accepted;
   }
 
   if (!reactionsAccepted) {
@@ -335,9 +348,12 @@ export const guardImportedReactions = (previous, status, rules, reactionsAccepte
 
   const keptRevision = globallyStale || current === null || current === undefined ? appliedRevision : current;
 
-  return withRevision({
+  const accepted = {
     ...status,
     emoji_reactions: projected,
     emoji_reactions_count: projected.reduce((sum, group) => sum + Number(group.count || 0), 0),
-  }, keptRevision);
+  };
+  delete accepted.emoji_reactions_withheld;
+
+  return withRevision(accepted, keptRevision);
 };
