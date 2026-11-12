@@ -1,7 +1,7 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { IntlProvider } from 'react-intl';
-import EmojiMuteSettings, { DEFAULT_REPLACEMENT } from '../emoji_mute_settings';
+import EmojiMuteSettings, { DEFAULT_REPLACEMENT, EmojiMuteSettings as EmojiMuteSettingsInner } from '../emoji_mute_settings';
 
 jest.mock('../emoji_picker_shell', () => () => null);
 
@@ -57,6 +57,50 @@ describe('Emoji mute settings', () => {
 
   beforeEach(() => {
     setItem.mockClear();
+  });
+
+  it('does not cancel a newer settings request timeout when an older request resolves', async () => {
+    jest.useFakeTimers();
+    let resolveFirst;
+    const first = new Promise(resolve => { resolveFirst = resolve; });
+    const second = new Promise(() => {});
+    const loadDocument = jest.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const ref = React.createRef();
+    const view = render(
+      <EmojiMuteSettingsInner
+        ref={ref}
+        intl={{ formatMessage: message => message.defaultMessage }}
+        loadDocument={loadDocument}
+      />,
+    );
+
+    try {
+      await act(async () => { await Promise.resolve(); });
+      expect(loadDocument).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        ref.current.load(false);
+        await Promise.resolve();
+      });
+      expect(loadDocument).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        resolveFirst(documentResponse);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(ref.current.state.status).toBe('loading');
+
+      await act(async () => {
+        jest.advanceTimersByTime(15000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(ref.current.state.status).toBe('error');
+    } finally {
+      view.unmount();
+      jest.useRealTimers();
+    }
   });
 
   it('shows replacements immediately and resolves originals only after the display toggle', async () => {
