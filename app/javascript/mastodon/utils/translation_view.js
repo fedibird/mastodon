@@ -4,10 +4,12 @@ import { sameTranslationLanguage, translationRequestStatus } from 'mastodon/util
 import {
   TRANSLATION_BAR_ALWAYS,
   TRANSLATION_BAR_TARGET,
+  TRANSLATION_BAR_NEVER,
   TRANSLATION_MODE_BILINGUAL,
   TRANSLATION_MODE_BOTH,
   TRANSLATION_MODE_TRANSLATED,
   normalizeTranslationPreferredMode,
+  normalizeTranslationBarVisibility,
 } from './translation_view_preferences';
 
 // Preserve the existing translation_view exports for all current callers.
@@ -20,7 +22,7 @@ export {
   TRANSLATION_MODE_TRANSLATED,
   normalizeTranslationPreferredMode,
   normalizeTranslationBarVisibility,
-} from './translation_view_preferences';
+};
 
 export const TRANSLATION_MODE_ORIGINAL = 'original';
 
