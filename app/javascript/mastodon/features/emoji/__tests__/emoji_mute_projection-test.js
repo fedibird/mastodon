@@ -607,7 +607,17 @@ describe('emoji mute projection', () => {
     ];
     const statusFor = id => ({
       id,
-      account: { id: 'author', username: 'author', acct: 'author', display_name: 'Author', url: 'https://example.test/@author', note: '', followed_message: '', emojis: [], fields: [] },
+      account: {
+        id: 'author',
+        username: 'author',
+        acct: 'author',
+        display_name: 'Author',
+        url: 'https://example.test/@author',
+        note: '',
+        followed_message: '',
+        emojis: [],
+        fields: [],
+      },
       content: '<p>post</p>',
       spoiler_text: '',
       emojis: [],
