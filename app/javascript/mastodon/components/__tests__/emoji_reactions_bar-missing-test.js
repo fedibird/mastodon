@@ -37,6 +37,12 @@ describe('EmojiReactionsBar with temporarily withheld emoji reactions', () => {
     expect(container.querySelector('.emoji-reactions-bar')).toBeNull();
   });
 
+  it('does not fail to render when emoji_reactions is explicitly undefined', () => {
+    const { container } = renderBar(fromJS({ id: 's1', emoji_reactions: undefined }));
+
+    expect(container.querySelector('.emoji-reactions-bar')).toBeNull();
+  });
+
   it('does not fail to render when emoji_reactions is null', () => {
     const { container } = renderBar(fromJS({ id: 's1', emoji_reactions: null }));
 
