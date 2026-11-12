@@ -386,7 +386,7 @@ describe('emoji picker shell and personal stock', () => {
 
     fireEvent.change(standard, { target: { value: 'family' } });
     fireEvent.click(screen.getByRole('button', { name: 'Personal set' }));
-    expect(screen.getByRole('searchbox')).toHaveValue('family');
+    expect(await screen.findByRole('searchbox')).toHaveValue('family');
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
     expect(screen.getByRole('searchbox')).toHaveValue('');
