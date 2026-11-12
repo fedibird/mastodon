@@ -103,7 +103,8 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
   end
 
   it 'keeps the picker action-menu setting available when personal sets are disabled' do
-    user.settings['emoji_picker_disable_personal'] = true
+    put :update, params: { user: { setting_emoji_picker_disable_personal: '1' } }
+    expect(response).to redirect_to(settings_custom_emojis_settings_path)
 
     get :show
 
