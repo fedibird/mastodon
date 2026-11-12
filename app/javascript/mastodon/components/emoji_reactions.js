@@ -22,7 +22,7 @@ import { attachLongPressGesture } from 'mastodon/features/emoji/long_press';
 import { emojiReactionAccountIds } from '../utils/emoji_reactions';
 
 const getFilteredEmojiReaction = (emojiReaction, relationships) => {
-  let filteredEmojiReaction = emojiReaction.set('account_ids', emojiReactionAccountIds(emojiReaction).filterNot(accountId => {
+  const filteredEmojiReaction = emojiReaction.set('account_ids', emojiReactionAccountIds(emojiReaction).filterNot(accountId => {
     const relationship = relationships.get(accountId);
     return relationship?.get('blocking') || relationship?.get('blocked_by') || relationship?.get('domain_blocking') || relationship?.get('muting');
   }));
