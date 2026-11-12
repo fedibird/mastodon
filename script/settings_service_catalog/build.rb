@@ -25,14 +25,14 @@ module SettingsServiceCatalog
     LEGACY_FORM_KEYS = %w(
       default_privacy default_sensitive default_language show_translation_bar
       translation_preferred_mode new_features_policy content_font_size info_font_size
-      reduce_motion emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_lazy_load_standard
+      reduce_motion emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_actions emoji_picker_lazy_load_standard
     ).freeze
     CREDENTIALS_KEYS = %w(
       default_privacy default_sensitive default_language
     ).freeze
     TRANSLATION = %w[show_translation_bar translation_preferred_mode].freeze
     LIVE_WEB_UI = %w[content_font_size info_font_size reduce_motion].freeze
-    RELOAD_ON_NEXT_PAGE = %w[emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_lazy_load_standard].freeze
+    RELOAD_ON_NEXT_PAGE = %w[emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_actions emoji_picker_lazy_load_standard].freeze
     PRIVACY = %w[
       noindex hide_network hide_statuses_count hide_following_count hide_followers_count
       hide_statuses_count_from_yourself hide_following_count_from_yourself hide_followers_count_from_yourself
