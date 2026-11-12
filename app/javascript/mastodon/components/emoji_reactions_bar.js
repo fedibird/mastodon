@@ -20,8 +20,7 @@ const mergeProps = ({ emojiReactions }, dispatchProps, ownProps) => ({
   visibleReactions: emojiReactions.filter(x => x && typeof x.get === 'function' && x.get('count') > 0),
 });
 
-@connect(mapStateToProps, null, mergeProps)
-export default class EmojiReactionsBar extends ImmutablePureComponent {
+class EmojiReactionsBar extends ImmutablePureComponent {
 
   static propTypes = {
     status: ImmutablePropTypes.map.isRequired,
@@ -94,3 +93,5 @@ export default class EmojiReactionsBar extends ImmutablePureComponent {
   }
 
 }
+
+export default connect(mapStateToProps, null, mergeProps)(EmojiReactionsBar);
