@@ -229,6 +229,17 @@ describe('emoji mute projection', () => {
     expect(waiting.emoji_mutes_revision).toBeUndefined();
     expect(waiting.emoji_reactions_withheld).toBe(true);
 
+    // Startup has no applied or observed revision yet. Even a revisioned
+    // status must stay hidden until the viewer mute document is loaded.
+    const starting = guardImportedReactions(undefined, incoming, hide, false, null, null);
+    expect(starting.emoji_reactions).toBeUndefined();
+    expect(starting.emoji_mutes_revision).toBeUndefined();
+    expect(starting.emoji_reactions_withheld).toBe(true);
+    const stillWaiting = guardImportedReactions(fromJS(starting), { ...incoming, content: 'updated while waiting' }, hide, false, null, null);
+    expect(stillWaiting.content).toBe('updated while waiting');
+    expect(stillWaiting.emoji_reactions).toBeUndefined();
+    expect(stillWaiting.emoji_reactions_withheld).toBe(true);
+
     const acceptedStatus = guardImportedReactions(undefined, { ...incoming, emoji_mutes_revision: '5', emoji_reactions_withheld: true }, hide, true, '5');
     expect(acceptedStatus.emoji_reactions_withheld).toBeUndefined();
     const projectedStatus = guardImportedReactions(undefined, { ...incoming, emoji_reactions_withheld: true }, hide, true, '5');
