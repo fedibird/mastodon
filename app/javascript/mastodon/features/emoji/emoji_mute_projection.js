@@ -330,14 +330,16 @@ export const guardImportedReactions = (previous, status, rules, reactionsAccepte
 
   const globallyStale = incoming !== null && incoming !== undefined && appliedRevision !== null && appliedRevision !== undefined && revisionStale(appliedRevision, incoming);
 
+  // A revisioned REST status is not safe while the viewer's mute rules are
+  // still loading. Do not short-circuit before the readiness check.
+  if (!reactionsAccepted) {
+    return keepPreviousReactions(previous, status);
+  }
+
   if (!globallyStale && incoming !== null && incoming !== undefined) {
     const accepted = { ...status };
     delete accepted.emoji_reactions_withheld;
     return accepted;
-  }
-
-  if (!reactionsAccepted) {
-    return keepPreviousReactions(previous, status);
   }
 
   const projected = projectStatusReactions(status.emoji_reactions, rules);
