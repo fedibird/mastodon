@@ -270,7 +270,7 @@ const keepPreviousReactions = (previous, status) => {
   const reactions = previous.get('emoji_reactions');
   const next = {
     ...status,
-    emoji_reactions: reactions && typeof reactions.toJS === 'function' ? reactions.toJS() : status.emoji_reactions,
+    emoji_reactions: reactions && typeof reactions.toJS === 'function' ? reactions.toJS() : undefined,
     emoji_reactions_count: previous.get('emoji_reactions_count'),
     emoji_reactions_cache_token: previous.get('emoji_reactions_cache_token'),
     emoji_mutes_revision: previous.get('emoji_mutes_revision'),
