@@ -3,7 +3,7 @@ en:
     title: Personal set
     loading: Loading your personal set…
     javascript_required: Enable JavaScript to edit your personal set.
-    appearance_link: Adjust the emoji picker size and preview in Custom emoji → Personal set
+    appearance_link: Edit your personal emoji set under Custom emoji → Personal set
   settings:
     custom_emojis: Custom emoji
     personal_emoji_set: Personal set

@@ -281,7 +281,7 @@ class UserPreferences::Definition
       key: 'emoji_picker_prefer_personal',
       category: :appearance,
       default_source: 'config/settings.yml emoji_picker_prefer_personal false when no settings row exists. A stored false stays false and does not fall through to another mode.',
-      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/views/settings/preferences/other/show.html.haml'],
+      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/views/settings/custom_emojis/settings/show.html.haml'],
       apply_hint: :reload
     )
   end
@@ -291,7 +291,7 @@ class UserPreferences::Definition
       key: 'emoji_picker_disable_personal',
       category: :appearance,
       default_source: 'config/settings.yml emoji_picker_disable_personal false by default. When true, personal picker stock is not fetched, prepared, or displayed; saved sets are retained.',
-      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/views/settings/preferences/other/show.html.haml'],
+      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/views/settings/custom_emojis/settings/show.html.haml'],
       apply_hint: :reload
     )
   end
@@ -301,7 +301,7 @@ class UserPreferences::Definition
       key: 'emoji_picker_disable_actions',
       category: :appearance,
       default_source: 'config/settings.yml emoji_picker_disable_actions false by default. When true, action menus and gesture handlers are disabled only inside emoji pickers.',
-      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/features/emoji/emoji_picker_shell.js', 'app/views/settings/preferences/other/show.html.haml'],
+      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/features/emoji/emoji_picker_shell.js', 'app/views/settings/custom_emojis/settings/show.html.haml'],
       apply_hint: :reload
     )
   end
@@ -310,8 +310,8 @@ class UserPreferences::Definition
     boolean(
       key: 'emoji_picker_lazy_load_standard',
       category: :appearance,
-      default_source: 'config/settings.yml emoji_picker_lazy_load_standard true when no settings row exists. A stored false stays false. Saving does not unload a standard picker module that has already been fetched; the next full page load applies the preload decision.',
-      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/views/settings/preferences/other/show.html.haml'],
+      default_source: 'config/settings.yml emoji_picker_lazy_load_standard false when no settings row exists. A stored true stays true. Saving does not unload a standard picker module that has already been fetched; the next full page load applies the preload decision.',
+      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/views/settings/custom_emojis/settings/show.html.haml'],
       apply_hint: :reload
     )
   end

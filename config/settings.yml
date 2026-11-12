@@ -213,7 +213,7 @@ defaults: &defaults
   # Off may preload both at page load without changing the visible mode.
   # A saved change applies on the next full page load and does not unload a
   # module that has already been fetched.
-  emoji_picker_lazy_load_standard: true
+  emoji_picker_lazy_load_standard: false
   reject_pattern: ''
   reject_blurhash: ''
   max_frequently_used_emojis: 16

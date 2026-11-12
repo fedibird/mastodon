@@ -2338,7 +2338,7 @@ entries:
   - static JS import emojiPickerDisableActions (1 importers)
   - Rails preferences form getter
   write_sources:
-  - rails preferences update via LegacyWriter (other)
+  - rails preferences update via LegacyWriter (emoji settings)
   normalization: LegacyWriter casts Simple Form 0 and 1 with ActiveModel::Type::Boolean
     before Writer stores a boolean. The string 0 is not stored. A missing row uses
     the settings.yml default. A stored false stays false. The next full page load
@@ -2368,7 +2368,7 @@ entries:
   - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:220
+  - app/views/settings/custom_emojis/settings/show.html.haml:59
   - app/serializers/initial_state_serializer.rb:158
   - app/javascript/mastodon/initial_state.js:137
   audit_status: verified
@@ -2378,10 +2378,10 @@ entries:
     1 import sites. Redux meta also receives the value on hydrate, but scanned selectors
     do not read it from state.meta. Changing the stored value does not by itself update
     the open WebUI. Reader distinguishes a missing row from a stored false. Form value
-    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal defaults
-    off and emoji_picker_lazy_load_standard defaults on. An empty personal set does
-    not fall through to the standard picker. Turning lazy load off preloads on the
-    next page load and does not change the visible mode.'
+    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal and emoji_picker_lazy_load_standard default
+    off. An empty personal set does not fall through to the standard picker. Leaving
+    lazy load off preloads on the next page load without changing the visible
+    mode. A stored true still defers loading.'
 - key: user.emoji_picker_disable_personal
   category: reactions
   owner: user
@@ -2403,7 +2403,7 @@ entries:
   - static JS import emojiPickerDisablePersonal (4 importers)
   - Rails preferences form getter
   write_sources:
-  - rails preferences update via LegacyWriter (other)
+  - rails preferences update via LegacyWriter (emoji settings)
   normalization: LegacyWriter casts Simple Form 0 and 1 to boolean before Writer stores
     it. A missing row uses false from settings.yml, retaining personal mode. A stored
     true disables personal stock work and forces standard-only mode after the next
@@ -2432,7 +2432,7 @@ entries:
   - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:210
+  - app/views/settings/custom_emojis/settings/show.html.haml:49
   - app/serializers/initial_state_serializer.rb:157
   - app/javascript/mastodon/initial_state.js:136
   audit_status: verified
@@ -2459,14 +2459,14 @@ entries:
     initial_state_meta: emoji_picker_lazy_load_standard
   raw_type: boolean
   effective_type: boolean
-  default_source: config/settings.yml defaults.emoji_picker_lazy_load_standard=true
+  default_source: config/settings.yml defaults.emoji_picker_lazy_load_standard=false
     (boolean)
   read_sources:
   - InitialState meta via setting_*
   - static JS import emojiPickerLazyLoadStandard (1 importers)
   - Rails preferences form getter
   write_sources:
-  - rails preferences update via LegacyWriter (other)
+  - rails preferences update via LegacyWriter (emoji settings)
   normalization: LegacyWriter casts Simple Form 0 and 1 with ActiveModel::Type::Boolean
     before Writer stores a boolean. The string 0 is not stored. A missing row uses
     the settings.yml default. A stored false stays false. The next full page load
@@ -2496,7 +2496,7 @@ entries:
   - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:217
+  - app/views/settings/custom_emojis/settings/show.html.haml:56
   - app/serializers/initial_state_serializer.rb:159
   - app/javascript/mastodon/initial_state.js:138
   audit_status: verified
@@ -2506,10 +2506,10 @@ entries:
     1 import sites. Redux meta also receives the value on hydrate, but scanned selectors
     do not read it from state.meta. Changing the stored value does not by itself update
     the open WebUI. Reader distinguishes a missing row from a stored false. Form value
-    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal defaults
-    off and emoji_picker_lazy_load_standard defaults on. An empty personal set does
-    not fall through to the standard picker. Turning lazy load off preloads on the
-    next page load and does not change the visible mode.'
+    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal and emoji_picker_lazy_load_standard default
+    off. An empty personal set does not fall through to the standard picker. Leaving
+    lazy load off preloads on the next page load without changing the visible
+    mode. A stored true still defers loading.'
 - key: user.emoji_picker_prefer_personal
   category: reactions
   owner: user
@@ -2531,7 +2531,7 @@ entries:
   - static JS import emojiPickerPreferPersonal (1 importers)
   - Rails preferences form getter
   write_sources:
-  - rails preferences update via LegacyWriter (other)
+  - rails preferences update via LegacyWriter (emoji settings)
   normalization: LegacyWriter casts Simple Form 0 and 1 with ActiveModel::Type::Boolean
     before Writer stores a boolean. The string 0 is not stored. A missing row uses
     the settings.yml default. A stored false stays false. The next full page load
@@ -2561,7 +2561,7 @@ entries:
   - app/lib/user_settings_decorator.rb:265
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:214
+  - app/views/settings/custom_emojis/settings/show.html.haml:53
   - app/serializers/initial_state_serializer.rb:156
   - app/javascript/mastodon/initial_state.js:135
   audit_status: verified
@@ -2571,10 +2571,10 @@ entries:
     1 import sites. Redux meta also receives the value on hydrate, but scanned selectors
     do not read it from state.meta. Changing the stored value does not by itself update
     the open WebUI. Reader distinguishes a missing row from a stored false. Form value
-    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal defaults
-    off and emoji_picker_lazy_load_standard defaults on. An empty personal set does
-    not fall through to the standard picker. Turning lazy load off preloads on the
-    next page load and does not change the visible mode.'
+    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal and emoji_picker_lazy_load_standard default
+    off. An empty personal set does not fall through to the standard picker. Leaving
+    lazy load off preloads on the next page load without changing the visible
+    mode. A stored true still defers loading.'
 - key: user.emoji_reaction_fallback_policy
   category: safety
   owner: user

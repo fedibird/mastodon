@@ -3,6 +3,7 @@ import { delegate } from '@rails/ujs';
 import ready from '../mastodon/ready';
 import { initializeFeedRoutePickers } from '../mastodon/features/external_feed_routes/picker';
 import { initializeDeletionProgress } from '../mastodon/features/external_deletion_progress/progress';
+import { initializeEmojiSettingsRanges } from '../mastodon/features/emoji/emoji_settings_range';
 import { installComposerToolbarEditors } from '../mastodon/features/compose/composer_toolbar_editor';
 import { bindUserPostingContextCardMenus, bindUserPostingContextPreview } from '../mastodon/features/user_posting_contexts/preview';
 
@@ -180,5 +181,7 @@ ready(() => {
   installComposerToolbarEditors(document);
   initializeFeedRoutePickers(document);
   initializeDeletionProgress(document);
+  initializeEmojiSettingsRanges(document);
   document.addEventListener('embedded-settings:render', initializePostingStyleWidgets);
+  document.addEventListener('embedded-settings:render', () => initializeEmojiSettingsRanges(document));
 });

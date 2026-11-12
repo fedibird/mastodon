@@ -42,30 +42,6 @@
     = f.input :setting_composer_min_height, as: :range, input_html: { min: 20, max: 1200, list: 'composer_min_height_label' }, wrapper: :with_label, false: true, fedibird_features: true
     = f.input :setting_show_composer_posting_style_selector, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
 
-  %h4= t 'appearance.emoji_size'
-
-  .fields-group
-    = f.input :setting_emoji_scale, as: :range, input_html: { min: 1, max: 4, step: 0.1, list: 'emoji_scale_label' }, wrapper: :with_label, false: true, fedibird_features: true
-
-    .fields-row
-      .fields-row__column.fields-row__column-3
-        = f.input :setting_emoji_size_in_single, collection: ['standard', 'middle', 'large'], label_method: lambda { |item| t("simple_form.hints.defaults.setting_emoji_size_#{item}") }, wrapper: :with_label, include_blank: false, hint: t('simple_form.hints.defaults.setting_emoji_size_in_single_html')
-      .fields-row__column.fields-row__column-3
-        = f.input :setting_emoji_size_in_multi, collection: ['standard', 'middle', 'large'], label_method: lambda { |item| t("simple_form.hints.defaults.setting_emoji_size_#{item}") }, wrapper: :with_label, include_blank: false, hint: t('simple_form.hints.defaults.setting_emoji_size_in_multi_html')
-      .fields-row__column.fields-row__column-3
-        = f.input :setting_emoji_size_in_mix, collection: ['standard', 'middle', 'large'], label_method: lambda { |item| t("simple_form.hints.defaults.setting_emoji_size_#{item}") }, wrapper: :with_label, include_blank: false, hint: t('simple_form.hints.defaults.setting_emoji_size_in_mix_html')
-      .fields-row__column.fields-row__column-3
-        = f.input :setting_emoji_size_in_other, collection: ['standard', 'middle', 'large'], label_method: lambda { |item| t("simple_form.hints.defaults.setting_emoji_size_#{item}") }, wrapper: :with_label, include_blank: false, hint: t('simple_form.hints.defaults.setting_emoji_size_in_other_html')
-
-  .fields-group
-    = f.input :setting_enable_wide_emoji, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
-    = f.input :setting_enable_wide_emoji_reaction, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
-
-  .fields-group
-    = f.input :setting_content_emoji_reaction_size, as: :range, input_html: { min: 10, max: 48, list: 'emoji_reaction_size_label' }, wrapper: :with_label, false: true, fedibird_features: true
-    - unless current_user.setting_emoji_picker_disable_personal
-      %p.hint= link_to t('personal_emoji_sets.appearance_link'), settings_custom_emojis_personal_set_path
-
   %h4= t 'appearance.advanced_web_interface'
 
   %p.hint= t 'appearance.advanced_web_interface_hint'
@@ -88,7 +64,6 @@
     = f.input :setting_auto_play_avatar, as: :boolean, wrapper: :with_label, fedibird_features: true
     = f.input :setting_auto_play_header, as: :boolean, wrapper: :with_label, fedibird_features: true
     = f.input :setting_auto_play_media, as: :boolean, wrapper: :with_label, fedibird_features: true
-    = f.input :setting_auto_play_emoji, as: :boolean, wrapper: :with_label, fedibird_features: true
     = f.input :setting_reduce_motion, as: :boolean, wrapper: :with_label
     = f.input :setting_disable_swiping, as: :boolean, wrapper: :with_label
     = f.input :setting_system_font_ui, as: :boolean, wrapper: :with_label
@@ -110,7 +85,6 @@
 
   .fields-group
     = f.input :setting_crop_card_images, as: :boolean, wrapper: :with_label
-    = f.input :setting_card_reactions_single_line, as: :boolean, wrapper: :with_label, hint: true
     = f.input :setting_card_collapse_long_text, as: :boolean, wrapper: :with_label, hint: true
 
   %h4= t 'appearance.media_display'
