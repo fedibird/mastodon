@@ -63,7 +63,8 @@ describe('Emoji mute settings', () => {
     jest.useFakeTimers();
     let resolveFirst;
     const first = new Promise(resolve => { resolveFirst = resolve; });
-    const second = new Promise(() => {});
+    let resolveSecond;
+    const second = new Promise(resolve => { resolveSecond = resolve; });
     const loadDocument = jest.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
     const ref = React.createRef();
     const view = render(
@@ -99,6 +100,7 @@ describe('Emoji mute settings', () => {
       expect(ref.current.state.status).toBe('error');
     } finally {
       view.unmount();
+      resolveSecond(documentResponse);
       jest.useRealTimers();
     }
   });
