@@ -8,7 +8,8 @@ import { getLocale } from '../locales';
 import Compose from '../features/standalone/compose';
 import initialState from '../initial_state';
 import { fetchCircles } from '../actions/circles';
-import { preloadStandardEmojiPickerIfNeeded } from '../features/emoji/emoji_picker_preferences';
+import { ensureCustomEmojis } from '../actions/custom_emojis';
+import { preloadCustomEmojiCatalogIfNeeded, preloadStandardEmojiPickerIfNeeded } from '../features/emoji/emoji_picker_preferences';
 
 const { localeData, messages } = getLocale();
 addLocaleData(localeData);
@@ -21,6 +22,8 @@ if (initialState) {
 
 store.dispatch(fetchCircles());
 preloadStandardEmojiPickerIfNeeded();
+// Standalone compose needs the standard catalog but not the private stock.
+preloadCustomEmojiCatalogIfNeeded(() => store.dispatch(ensureCustomEmojis()));
 
 export default class TimelineContainer extends React.PureComponent {
 
