@@ -397,7 +397,7 @@ export default function statuses(state = initialState, action) {
     // Streaming updates change the projected groups without replacing the
     // status. Keep the compact counter in sync with the visible group counts.
     const visibleCount = emojiReactionsForStatus(next.get(id)).reduce(
-      (sum, group) => sum + (group && typeof group.get === 'function' ? Number(group.get('count') || 0) : 0), 0
+      (sum, group) => sum + (group && typeof group.get === 'function' ? Number(group.get('count') || 0) : 0), 0,
     );
     next = next.setIn([id, 'emoji_reactions_count'], visibleCount);
 
