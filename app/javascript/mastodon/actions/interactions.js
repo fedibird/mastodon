@@ -4,6 +4,7 @@ import { fetchRelationshipsSuccess, fetchRelationships, fetchRelationshipsFromSt
 import { me } from '../initial_state';
 import { reactionNameHidden } from '../features/emoji/emoji_mute_projection';
 import { currentEmojiMutes, emojiReactionEventsAccepted } from '../features/emoji/emoji_mute_store';
+import { emojiReactionsForStatus, emojiReactionAccountIds } from '../utils/emoji_reactions';
 
 export const REBLOG_REQUEST = 'REBLOG_REQUEST';
 export const REBLOG_SUCCESS = 'REBLOG_SUCCESS';
@@ -887,9 +888,9 @@ export function emojiReactionFail(status, name, domain, url, static_url, error) 
   };
 };
 
-const findMyEmojiReaction = (status, name) => {
-  return status.get('emoji_reactions').find(emoji_reaction => emoji_reaction.get('account_ids').includes(me) && emoji_reaction.get('name') === name);
-};
+const findMyEmojiReaction = (status, name) => emojiReactionsForStatus(status).find(
+  emojiReaction => emojiReactionAccountIds(emojiReaction).includes(me) && (name === undefined || emojiReaction.get('name') === name)
+);
 
 export function removeEmojiReaction(status, name) {
   return function (dispatch, getState) {
