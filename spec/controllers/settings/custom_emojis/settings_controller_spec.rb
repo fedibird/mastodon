@@ -51,6 +51,25 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
     expect(response.body).to include(settings_custom_emojis_personal_set_path)
   end
 
+  it 'defaults the four picker switches off while preserving explicit saved choices' do
+    get :show
+
+    page = Nokogiri::HTML(response.body)
+    %w(
+      emoji_picker_disable_personal
+      emoji_picker_prefer_personal
+      emoji_picker_lazy_load_standard
+      emoji_picker_disable_actions
+    ).each do |key|
+      expect(user.public_send("setting_#{key}")).to be false
+      input = page.at_css("#user_setting_#{key}")
+      expect(input).not_to be_nil
+      expect(input['checked']).to be_nil
+    end
+
+    expect(user.settings.emoji_picker_lazy_load_standard).to be false
+  end
+
   it 'persists the two range values without changing the preference keys' do
     put :update, params: { user: { setting_emoji_scale: '2.4', setting_content_emoji_reaction_size: '28' } }
 

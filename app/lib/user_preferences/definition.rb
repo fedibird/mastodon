@@ -310,7 +310,7 @@ class UserPreferences::Definition
     boolean(
       key: 'emoji_picker_lazy_load_standard',
       category: :appearance,
-      default_source: 'config/settings.yml emoji_picker_lazy_load_standard true when no settings row exists. A stored false stays false. Saving does not unload a standard picker module that has already been fetched; the next full page load applies the preload decision.',
+      default_source: 'config/settings.yml emoji_picker_lazy_load_standard false when no settings row exists. A stored true stays true. Saving does not unload a standard picker module that has already been fetched; the next full page load applies the preload decision.',
       source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/views/settings/custom_emojis/settings/show.html.haml'],
       apply_hint: :reload
     )

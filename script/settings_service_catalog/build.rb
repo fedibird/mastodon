@@ -968,7 +968,7 @@ module SettingsServiceCatalog
       if var == 'emoji_picker_disable_personal'
         parts << 'A stored true hides the personal mode and its management link, skips stock preload, requests, cache reads and listeners, and keeps saved sets intact. It overrides the prefer-personal setting until disabled again and the page is reloaded.'
       elsif RELOAD_ON_NEXT_PAGE.include?(var)
-        parts << 'Reader distinguishes a missing row from a stored false. Form value 0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal defaults off and emoji_picker_lazy_load_standard defaults on. An empty personal set does not fall through to the standard picker. Turning lazy load off preloads on the next page load and does not change the visible mode.'
+        parts << 'Reader distinguishes a missing row from a stored false. Form value 0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal and emoji_picker_lazy_load_standard default off. An empty personal set does not fall through to the standard picker. Leaving lazy load off preloads on the next page load without changing the visible mode. A stored true still defers loading.'
       end
       if var == 'emoji_reaction_fallback_policy'
         parts << 'High-risk because it can change an ActivityPub Like to the post server. It does not change follower fan-out, Undo, or a native EmojiReact. The safety form warns that enforcement is off until the server flag is on, and it does not offer ask while the picker dialog is absent. InitialState meta is the effective value.'

@@ -2378,10 +2378,10 @@ entries:
     1 import sites. Redux meta also receives the value on hydrate, but scanned selectors
     do not read it from state.meta. Changing the stored value does not by itself update
     the open WebUI. Reader distinguishes a missing row from a stored false. Form value
-    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal defaults
-    off and emoji_picker_lazy_load_standard defaults on. An empty personal set does
-    not fall through to the standard picker. Turning lazy load off preloads on the
-    next page load and does not change the visible mode.'
+    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal and emoji_picker_lazy_load_standard default
+    off. An empty personal set does not fall through to the standard picker. Leaving
+    lazy load off preloads on the next page load without changing the visible
+    mode. A stored true still defers loading.'
 - key: user.emoji_picker_disable_personal
   category: reactions
   owner: user
@@ -2459,7 +2459,7 @@ entries:
     initial_state_meta: emoji_picker_lazy_load_standard
   raw_type: boolean
   effective_type: boolean
-  default_source: config/settings.yml defaults.emoji_picker_lazy_load_standard=true
+  default_source: config/settings.yml defaults.emoji_picker_lazy_load_standard=false
     (boolean)
   read_sources:
   - InitialState meta via setting_*
@@ -2506,10 +2506,10 @@ entries:
     1 import sites. Redux meta also receives the value on hydrate, but scanned selectors
     do not read it from state.meta. Changing the stored value does not by itself update
     the open WebUI. Reader distinguishes a missing row from a stored false. Form value
-    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal defaults
-    off and emoji_picker_lazy_load_standard defaults on. An empty personal set does
-    not fall through to the standard picker. Turning lazy load off preloads on the
-    next page load and does not change the visible mode.'
+    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal and emoji_picker_lazy_load_standard default
+    off. An empty personal set does not fall through to the standard picker. Leaving
+    lazy load off preloads on the next page load without changing the visible
+    mode. A stored true still defers loading.'
 - key: user.emoji_picker_prefer_personal
   category: reactions
   owner: user
@@ -2571,10 +2571,10 @@ entries:
     1 import sites. Redux meta also receives the value on hydrate, but scanned selectors
     do not read it from state.meta. Changing the stored value does not by itself update
     the open WebUI. Reader distinguishes a missing row from a stored false. Form value
-    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal defaults
-    off and emoji_picker_lazy_load_standard defaults on. An empty personal set does
-    not fall through to the standard picker. Turning lazy load off preloads on the
-    next page load and does not change the visible mode.'
+    0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal and emoji_picker_lazy_load_standard default
+    off. An empty personal set does not fall through to the standard picker. Leaving
+    lazy load off preloads on the next page load without changing the visible
+    mode. A stored true still defers loading.'
 - key: user.emoji_reaction_fallback_policy
   category: safety
   owner: user

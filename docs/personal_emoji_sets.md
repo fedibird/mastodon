@@ -193,7 +193,7 @@ does not probe remote image storage or fetch the full custom catalog. The browse
 handles a missing image. Unicode assets and searchable names are supplied only
 for registered placements.
 
-When `emoji_picker_lazy_load_standard` is false, boot starts a personal stock
+By default, `emoji_picker_lazy_load_standard` is false: boot starts a personal stock
 read and the public custom emoji catalog (`/api/v1/custom_emojis`) alongside the
 standard picker module preload. The catalog uses the same Redux
 `ensureCustomEmojis()` request and result as a later standard picker open, so a
