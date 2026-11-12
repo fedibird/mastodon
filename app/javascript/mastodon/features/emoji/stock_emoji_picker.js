@@ -160,6 +160,13 @@ class StockEmojiPicker extends React.PureComponent {
       }
     }
 
+    if (!this.props.actionsEnabled && prevProps.actionsEnabled) {
+      this.longPressCleanups.forEach(detach => detach());
+      this.longPressCleanups.clear();
+    } else if (this.props.actionsEnabled && !prevProps.actionsEnabled) {
+      Object.values(this.buttonRefs).forEach(this.setButtonRef);
+    }
+
     this.pruneLongPressHandlers();
   }
 
