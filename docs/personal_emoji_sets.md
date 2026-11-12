@@ -194,7 +194,19 @@ handles a missing image. Unicode assets and searchable names are supplied only
 for registered placements.
 
 When `emoji_picker_lazy_load_standard` is false, boot starts a personal stock
-read alongside the standard picker module preload. The resolved stock and its
+read and the public custom emoji catalog (`/api/v1/custom_emojis`) alongside the
+standard picker module preload. The catalog uses the same Redux
+`ensureCustomEmojis()` request and result as a later standard picker open, so a
+warm catalog avoids the first-open fetch and synchronous search-index rebuild.
+An in-flight catalog request is shared instead of duplicated. Neither catalog
+nor module preloading blocks the application mount. A picker opened before the
+catalog request finishes may still wait for its result, and errors can be
+retried by the existing on-open path. The standalone composer also preloads
+its standard module and the public catalog, without preloading private stock.
+A disabled personal set still requires public custom emoji catalog preload for
+the standard picker; when lazy loading is enabled, no such preload is started.
+
+The resolved personal stock and its
 normalized search terms are prepared in page memory. Opening a personal picker
 uses that ready stock immediately (including a copy fetched by another picker),
 while its ETag check runs in the background. A 304 needs no repaint; a 200
