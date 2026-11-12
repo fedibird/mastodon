@@ -217,6 +217,9 @@
     = f.input :setting_emoji_picker_lazy_load_standard, as: :boolean, wrapper: :with_label, fedibird_features: true
 
   .fields-group
+    = f.input :setting_emoji_picker_disable_actions, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+
+  .fields-group
     = f.input :setting_max_frequently_used_emojis, wrapper: :with_label, label: t('simple_form.labels.defaults.setting_max_frequently_used_emojis'), hint: t('simple_form.hints.defaults.setting_max_frequently_used_emojis', count: CustomEmoji::FREQUENTLY_USED_EMOJIS_LIMIT), fedibird_features: true
 
   %h4= t 'preferences.public_timelines'

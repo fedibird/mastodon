@@ -310,6 +310,31 @@ describe('standard emoji picker adapters', () => {
     jest.useRealTimers();
   });
 
+  it('keeps action gestures unbound when actionsEnabled is false', () => {
+    jest.useFakeTimers();
+    const listener = jest.fn();
+    const onClick = jest.fn();
+    setEmojiActionsListener(listener);
+    renderPicker(<Picker actionsEnabled={false} editMode onClick={onClick} />);
+
+    const heart = screen.getByTitle('heart');
+    expect(screen.queryByLabelText('Emoji actions')).toBeNull();
+    expect(heart.parentElement.querySelector('[data-emoji-actions="1"]')).toBeNull();
+
+    fireEvent.contextMenu(heart);
+    fireEvent.keyDown(heart, { key: 'F10', shiftKey: true });
+    fireEvent.keyDown(heart, { key: 'ContextMenu' });
+    const touch = { identifier: 42, clientX: 5, clientY: 5 };
+    fireEvent.touchStart(heart, { touches: [touch] });
+    act(() => { jest.advanceTimersByTime(600); });
+    fireEvent.touchEnd(heart, { changedTouches: [touch] });
+    fireEvent.click(heart, { detail: 1 });
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(onClick).toHaveBeenCalledTimes(1);
+    jest.useRealTimers();
+  });
+
   it('keeps normal emoji tap insertion (pointerdown → click → onClick)', () => {
     const listener = jest.fn();
     const onClick = jest.fn();
