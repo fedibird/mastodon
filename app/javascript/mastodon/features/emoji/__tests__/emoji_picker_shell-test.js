@@ -169,6 +169,35 @@ describe('emoji picker shell and personal stock', () => {
     global.fetch = jest.fn();
   });
 
+  it('hides action controls in both modes without blocking normal selection', async () => {
+    const standardActions = [];
+    const StandardTestPicker = props => {
+      standardActions.push(props.actionsEnabled);
+      return <StandardProbe {...props} />;
+    };
+    const loadStandardEmojiPicker = jest.fn(() => Promise.resolve({
+      Picker: StandardTestPicker,
+      Emoji: () => null,
+    }));
+    const { onPick } = renderShell({
+      actionsEnabled: false,
+      initialMode: 'personal',
+      loadStandardEmojiPicker,
+    });
+
+    expect(await screen.findByRole('button', { name: 'Family' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Family' }));
+    expect(onPick).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Standard' }));
+    expect(await screen.findByRole('button', { name: 'Standard pineapple' })).toBeInTheDocument();
+    expect(standardActions).toContain(false);
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Standard pineapple' }));
+    expect(onPick).toHaveBeenCalledTimes(2);
+  });
+
   it('scrolls a category within the personal picker without scrolling its ancestors', async () => {
     renderShell();
     await screen.findByRole('button', { name: 'Family' });

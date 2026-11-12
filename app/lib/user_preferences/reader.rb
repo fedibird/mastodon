@@ -15,6 +15,7 @@ class UserPreferences::Reader
     reduce_motion
     emoji_picker_prefer_personal
     emoji_picker_disable_personal
+    emoji_picker_disable_actions
     emoji_picker_lazy_load_standard
     emoji_reaction_fallback_policy
   ).freeze
@@ -92,7 +93,7 @@ class UserPreferences::Reader
     when 'translation_preferred_mode'
       stored = state == :absent ? yaml_default(key) : configured
       TranslationPreferences.normalize_preferred_mode(stored)
-    when 'default_language', 'default_sensitive', 'new_features_policy', 'content_font_size', 'info_font_size', 'reduce_motion', 'emoji_picker_prefer_personal', 'emoji_picker_disable_personal', 'emoji_picker_lazy_load_standard'
+    when 'default_language', 'default_sensitive', 'new_features_policy', 'content_font_size', 'info_font_size', 'reduce_motion', 'emoji_picker_prefer_personal', 'emoji_picker_disable_personal', 'emoji_picker_disable_actions', 'emoji_picker_lazy_load_standard'
       return yaml_default(key) if state == :absent
 
       configured

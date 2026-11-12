@@ -183,6 +183,7 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_disable_auto_focus_to_emoji_search,
       :setting_emoji_picker_prefer_personal,
       :setting_emoji_picker_disable_personal,
+      :setting_emoji_picker_disable_actions,
       :setting_emoji_picker_lazy_load_standard,
       :setting_max_frequently_used_emojis,
       setting_prohibited_visibilities: [],

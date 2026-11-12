@@ -207,6 +207,8 @@ defaults: &defaults
   emoji_picker_prefer_personal: false
   # Skip personal-set stock loading and hide its picker without deleting saved sets.
   emoji_picker_disable_personal: false
+  # Disable only the emoji picker's actions UI and gesture handlers.
+  emoji_picker_disable_actions: false
   # On skips both standard module and personal stock preloading until opened.
   # Off may preload both at page load without changing the visible mode.
   # A saved change applies on the next full page load and does not unload a

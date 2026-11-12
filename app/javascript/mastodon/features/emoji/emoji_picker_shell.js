@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
-import { emojiPickerDisablePersonal } from 'mastodon/initial_state';
+import { emojiPickerDisableActions, emojiPickerDisablePersonal } from 'mastodon/initial_state';
 import { assetHost } from 'mastodon/utils/config';
 import StockEmojiPicker from './stock_emoji_picker';
 import { getCachedPersonalEmojiStock, loadPersonalEmojiStock, subscribePersonalEmojiStock } from './emoji_stock_source';
@@ -11,6 +11,8 @@ import { loadStandardEmojiPicker } from './standard_emoji_loader';
 import { markEmojiPickerEscape } from './emoji_picker_escape';
 
 const personalIsEnabled = props => !emojiPickerDisablePersonal && props.personalEnabled;
+// The global preference overrides any host that requests picker menus.
+const actionsAreEnabled = props => !emojiPickerDisableActions && props.actionsEnabled;
 
 const messages = defineMessages({
   personal: { id: 'emoji_picker.mode.personal', defaultMessage: 'Personal set' },
@@ -637,9 +639,9 @@ class EmojiPickerShell extends React.PureComponent {
   }
 
   renderEditToggle() {
-    const { intl, actionsEnabled } = this.props;
+    const { intl } = this.props;
 
-    if (!actionsEnabled) {
+    if (!actionsAreEnabled(this.props)) {
       return null;
     }
     const { editMode } = this.state;
@@ -661,7 +663,7 @@ class EmojiPickerShell extends React.PureComponent {
   renderStandard() {
     const { intl, standardPickerProps, autoFocus, emojiSize, perLine, theme } = this.props;
     const { standardStatus, standardModule, standardAutoFocus, editMode } = this.state;
-    const effectiveEditMode = this.props.actionsEnabled ? editMode : false;
+    const effectiveEditMode = actionsAreEnabled(this.props) ? editMode : false;
 
     if (standardStatus === 'error') {
       return (
@@ -705,6 +707,7 @@ class EmojiPickerShell extends React.PureComponent {
         backgroundImageFn={standardBackgroundImage}
         {...pickerProps}
         editMode={effectiveEditMode}
+        actionsEnabled={actionsAreEnabled(this.props)}
         perLine={perLine}
         emojiSize={emojiSize}
         theme={preferredTheme(theme)}
@@ -717,7 +720,7 @@ class EmojiPickerShell extends React.PureComponent {
   renderPersonal() {
     const { animate, autoFocus, emojiSize, perLine, theme } = this.props;
     const { personalQuery, stock, stockStatus, editMode } = this.state;
-    const effectiveEditMode = this.props.actionsEnabled ? editMode : false;
+    const effectiveEditMode = actionsAreEnabled(this.props) ? editMode : false;
     const focus = Boolean(autoFocus && this.canTakeFocus() && stockStatus === 'ready');
 
     return (
@@ -735,7 +738,7 @@ class EmojiPickerShell extends React.PureComponent {
         animate={animate}
         theme={preferredTheme(theme)}
         editMode={effectiveEditMode}
-        actionsEnabled={this.props.actionsEnabled}
+        actionsEnabled={actionsAreEnabled(this.props)}
       />
     );
   }

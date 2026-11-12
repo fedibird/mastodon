@@ -11,6 +11,7 @@ jest.mock('mastodon/initial_state', () => ({
   autoPlayEmoji: false,
   disableAutoFocusToEmojiSearch: false,
   emojiPickerDisablePersonal: true,
+  emojiPickerDisableActions: true,
   emojiPickerPreferPersonal: true,
   emojiPickerLazyLoadStandard: false,
 }));
@@ -37,9 +38,19 @@ jest.mock('../standard_emoji_loader', () => ({
   loadStandardEmojiPicker: jest.fn(),
 }));
 
-const StandardPicker = ({ onClick }) => (
-  <button type='button' onClick={event => onClick({ id: 'smile', native: '😊' }, event)}>Standard smile</button>
-);
+class StandardPicker extends React.PureComponent {
+
+  handleClick = event => {
+    this.props.onClick({ id: 'smile', native: '😊' }, event);
+  };
+
+  render() {
+    return (
+      <button data-actions-enabled={String(this.props.actionsEnabled)} type='button' onClick={this.handleClick}>Standard smile</button>
+    );
+  }
+
+}
 
 describe('personal emoji picker disabled', () => {
   beforeEach(() => {
@@ -52,10 +63,11 @@ describe('personal emoji picker disabled', () => {
   });
 
   it('uses standard mode even if a caller requests and enables personal mode', async () => {
-    render(<EmojiPickerShell personalEnabled initialMode='personal' onPick={jest.fn()} />);
+    render(<EmojiPickerShell personalEnabled initialMode='personal' actionsEnabled onPick={jest.fn()} />);
 
-    expect(await screen.findByRole('button', { name: 'Standard smile' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Standard smile' })).toHaveAttribute('data-actions-enabled', 'false');
     expect(screen.queryByRole('button', { name: 'Personal set' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     expect(getCachedPersonalEmojiStock).not.toHaveBeenCalled();
     expect(loadPersonalEmojiStock).not.toHaveBeenCalled();
     expect(subscribePersonalEmojiStock).not.toHaveBeenCalled();
