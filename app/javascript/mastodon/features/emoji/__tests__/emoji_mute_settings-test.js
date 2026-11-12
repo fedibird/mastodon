@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { IntlProvider } from 'react-intl';
 import EmojiMuteSettings, { DEFAULT_REPLACEMENT, EmojiMuteSettings as EmojiMuteSettingsInner } from '../emoji_mute_settings';
 
@@ -219,14 +219,15 @@ describe('Emoji mute settings', () => {
     await screen.findByText(DEFAULT_REPLACEMENT);
     fireEvent.click(screen.getByRole('tab', { name: 'Select emoji' }));
 
-    const options = screen.getAllByRole('option');
+    const grid = screen.getByRole('listbox');
+    const options = within(grid).getAllByRole('option');
     fireEvent.click(options[0]);
     expect(options[0].getAttribute('aria-selected')).toBe('true');
     expect(screen.getAllByText('1 selected')).toHaveLength(2);
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove selected mutes' }));
     await waitFor(() => expect(removeRule).toHaveBeenCalledWith('15', '3'));
-    await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(1));
+    await waitFor(() => expect(within(grid).getAllByRole('option')).toHaveLength(1));
   });
 
   it('keeps an edited row when an individual save conflicts', async () => {
