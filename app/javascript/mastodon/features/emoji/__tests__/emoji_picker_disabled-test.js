@@ -38,13 +38,19 @@ jest.mock('../standard_emoji_loader', () => ({
   loadStandardEmojiPicker: jest.fn(),
 }));
 
-const StandardPicker = ({ onClick, actionsEnabled }) => {
-  const handleClick = event => onClick({ id: 'smile', native: '😊' }, event);
+class StandardPicker extends React.PureComponent {
 
-  return (
-    <button data-actions-enabled={String(actionsEnabled)} type='button' onClick={handleClick}>Standard smile</button>
-  );
-};
+  handleClick = event => {
+    this.props.onClick({ id: 'smile', native: '😊' }, event);
+  };
+
+  render() {
+    return (
+      <button data-actions-enabled={String(this.props.actionsEnabled)} type='button' onClick={this.handleClick}>Standard smile</button>
+    );
+  }
+
+}
 
 describe('personal emoji picker disabled', () => {
   beforeEach(() => {
