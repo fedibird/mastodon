@@ -708,6 +708,26 @@ describe('emoji mute projection', () => {
     expect(calls.filter(url => url.includes('/api/v1/statuses?'))).toHaveLength(restoredCalls);
   });
 
+  it('limits initial recovery to explicitly withheld reactions and waits until rules are ready', () => {
+    resetEmojiMuteStoreForTests();
+    const state = fromJS({
+      statuses: {
+        stale: { emoji_mutes_revision: '4', emoji_reactions: [], emoji_reactions_count: 0 },
+        withheld: { emoji_reactions_withheld: true },
+        complete: { emoji_mutes_revision: '5', emoji_reactions: [], emoji_reactions_count: 0 },
+      },
+      timelines: { home: { items: ['stale', 'withheld', 'complete'] } },
+      contexts: {},
+    });
+
+    expect(immediateStatusIdsForMuteRestore(state, { withheldOnly: true })).toEqual([]);
+
+    installEmojiMutesForTests({ revision: '5', emoji_mutes: [] });
+
+    expect(immediateStatusIdsForMuteRestore(state, { withheldOnly: true })).toEqual(['withheld']);
+    expect(immediateStatusIdsForMuteRestore(state)).toEqual(['stale', 'withheld']);
+  });
+
   it('restores only the visible head after an unmute and fetches the rest on demand', async () => {
     installEmojiMutesForTests({
       revision: '4',
