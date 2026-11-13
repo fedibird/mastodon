@@ -2,6 +2,7 @@ export const COMPOSER_CREATE = 'COMPOSER_CREATE';
 export const COMPOSER_DRAFT_RESTORE = 'COMPOSER_DRAFT_RESTORE';
 export const COMPOSER_DRAFT_STATUS = 'COMPOSER_DRAFT_STATUS';
 export const COMPOSER_DRAFT_TARGET = 'COMPOSER_DRAFT_TARGET';
+export const COMPOSER_DRAFT_SURFACE_CONFIRM = 'COMPOSER_DRAFT_SURFACE_CONFIRM';
 export const COMPOSER_DESTROY = 'COMPOSER_DESTROY';
 export const COMPOSER_CONTEXT_APPLY = 'COMPOSER_CONTEXT_APPLY';
 export const COMPOSER_CONTEXT_HASHTAG_TOGGLE = 'COMPOSER_CONTEXT_HASHTAG_TOGGLE';
@@ -57,6 +58,10 @@ export const applyComposerSurface = (composerId, surface, postingContext, postin
     surfaceEpoch: surfaceEpochSerial,
   }, composerId);
 };
+
+export const confirmDraftSurface = composerId => targetComposerAction({
+  type: COMPOSER_DRAFT_SURFACE_CONFIRM,
+}, composerId);
 
 export const acceptComposerSurface = composerId => targetComposerAction({
   type: COMPOSER_SURFACE_ACCEPT,

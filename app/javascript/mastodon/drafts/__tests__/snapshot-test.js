@@ -135,7 +135,8 @@ describe('composer draft snapshot', () => {
     expect(applied.getIn(['media_attachments', 0, 'type'])).toBeUndefined();
     expect(applied.get('draftReplyHold')).toBe('pending');
     expect(applied.get('draftQuoteHold')).toBe('pending');
-    expect(applied.get('surfaceMismatch')).toBe(false);
+    expect(applied.get('surfaceMismatch')).toBe(true);
+    expect(applied.get('draftSurfaceUnconfirmed')).toBe(true);
     expect(applied.getIn(['media_attachments', 0, 'description'])).toBe('first');
     expect(applied.getIn(['media_attachments', 1, 'meta', 'focus', 'y'])).toBe(-0.4);
     expect(applied.getIn(['context', 'source', 'revision'])).toBe(1);
@@ -184,6 +185,28 @@ describe('composer draft snapshot', () => {
 
     expect(matching.get('surfaceMismatch')).toBe(false);
     expect(matching.get('pendingSurface')).toBeNull();
+    expect(matching.get('draftSurfaceUnconfirmed')).toBe(false);
+
+    const hashtag = {
+      ...snapshot,
+      input: {
+        ...snapshot.input,
+        surface: { kind: 'hashtag', key: 'fedibird' },
+      },
+    };
+    const onPrimary = applyComposerDraft(initialState, snapshot, { idempotencyKey: 'next-key', restoreToken: 'restore-1' });
+    const hashtagOnPrimary = applyComposerDraft(initialState, hashtag, { idempotencyKey: 'next-key', restoreToken: 'restore-2' });
+    const confirmed = composer(onPrimary, { type: 'COMPOSER_DRAFT_SURFACE_CONFIRM' });
+
+    expect(onPrimary.get('surfaceMismatch')).toBe(true);
+    expect(onPrimary.get('draftSurfaceUnconfirmed')).toBe(true);
+    expect(onPrimary.getIn(['surface', 'kind'])).toBe('group');
+    expect(onPrimary.get('pendingSurface')).toBeNull();
+    expect(hashtagOnPrimary.get('draftSurfaceUnconfirmed')).toBe(true);
+    expect(hashtagOnPrimary.getIn(['surface', 'kind'])).toBe('hashtag');
+    expect(confirmed.get('surfaceMismatch')).toBe(false);
+    expect(confirmed.get('draftSurfaceUnconfirmed')).toBe(false);
+    expect(confirmed.getIn(['surface', 'key'])).toBe('123');
   });
 
   it('keeps a loaded reply target and ignores a target for a different restore', () => {
@@ -192,25 +215,41 @@ describe('composer draft snapshot', () => {
       type: COMPOSER_DRAFT_RESTORE,
       snapshot,
       idempotencyKey: 'next-key',
+      restoreToken: 'restore-1',
     });
-    const ready = composer(restored, {
+    const typed = composer(restored, changeCompose('Hello!'));
+    const ready = composer(typed, {
       type: 'COMPOSER_DRAFT_TARGET',
       role: 'reply',
       hold: null,
+      targetId: 'reply-1',
       replyStatus: { id: 'reply-1', visibility: 'public' },
-      idempotencyKey: 'next-key',
+      restoreToken: 'restore-1',
     });
     const ignored = composer(ready, {
       type: 'COMPOSER_DRAFT_TARGET',
       role: 'reply',
       hold: 'failed',
-      idempotencyKey: 'other-key',
+      targetId: 'reply-1',
+      restoreToken: 'restore-2',
+    });
+    const moved = ready.set('in_reply_to', 'other').set('draftReplyHold', 'pending');
+    const staleTarget = composer(moved, {
+      type: 'COMPOSER_DRAFT_TARGET',
+      role: 'reply',
+      hold: null,
+      targetId: 'reply-1',
+      restoreToken: 'restore-1',
     });
 
+    expect(typed.get('idempotencyKey')).not.toBe('next-key');
+    expect(typed.get('draftRestoreToken')).toBe('restore-1');
     expect(ready.get('draftReplyHold')).toBeNull();
     expect(ready.getIn(['reply_status', 'id'])).toBe('reply-1');
     expect(ready.get('draftQuoteHold')).toBe('pending');
     expect(ignored.get('draftReplyHold')).toBeNull();
+    expect(staleTarget.get('draftReplyHold')).toBe('pending');
+    expect(staleTarget.get('in_reply_to')).toBe('other');
     expect(composerDraftRestoreBlocksSubmit(ready)).toBe(true);
     expect(composerDraftRestoreBlocksSubmit(ready.set('draftQuoteHold', null).set('media_attachments', ImmutableList()))).toBe(false);
   });

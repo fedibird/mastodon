@@ -15,7 +15,7 @@ import {
   cancelEditCompose,
 } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
-import { acceptComposerSurface, targetComposerAction } from '../../../actions/composer';
+import { acceptComposerSurface, confirmDraftSurface, targetComposerAction } from '../../../actions/composer';
 import { fetchPostingIdentities, scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
 import { selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
 import { materializeComposerText } from '../../../posting_context/materialize';
@@ -98,6 +98,9 @@ const mapStateToProps = (state, { composerId }) => {
     draftMediaUnresolved: composerDraftRestoreBlocks(composer).media,
     draftReplyHold: composer.get('draftReplyHold') || null,
     draftQuoteHold: composer.get('draftQuoteHold') || null,
+    draftSurfaceUnconfirmed: composer.get('draftSurfaceUnconfirmed') === true,
+    draftSurfaceKind: composer.getIn(['surface', 'kind']) || null,
+    draftSurfaceKey: composer.getIn(['surface', 'key']) || null,
     redraftNotice: composerRedraftNotice(composer),
   };
 };
@@ -147,6 +150,10 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onAcceptSurface () {
     dispatch(acceptComposerSurface(composerId));
+  },
+
+  onConfirmDraftSurface () {
+    dispatch(confirmDraftSurface(composerId));
   },
 
   onRetryRedraft () {

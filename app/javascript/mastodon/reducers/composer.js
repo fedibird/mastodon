@@ -71,7 +71,7 @@ import {
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
 import { COMPOSE_REDAFT_DISCARD, COMPOSE_REDAFT_MEDIA_LOCAL, COMPOSE_REDAFT_MEDIA_STATUS } from '../actions/redraft_media';
-import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_DRAFT_RESTORE, COMPOSER_DRAFT_TARGET, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_DRAFT_RESTORE, COMPOSER_DRAFT_SURFACE_CONFIRM, COMPOSER_DRAFT_TARGET, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
 import { applyComposerDraft } from '../drafts/snapshot';
 import { USER_PREFERENCES_DOCUMENT_ACCEPTED } from '../actions/user_preferences';
 import { applyComposerPreferenceDefaults } from '../utils/preference_apply';
@@ -220,6 +220,8 @@ export const initialState = ImmutableMap({
   surfaceEpoch: 0,
   draftReplyHold: null,
   draftQuoteHold: null,
+  draftRestoreToken: null,
+  draftSurfaceUnconfirmed: false,
 });
 
 // Survives composer destroy/recreate. Epoch restarts at 0 on a new instance.
@@ -722,6 +724,8 @@ const clearAll = state => {
     map.set('reply_status', null);
     map.set('draftReplyHold', null);
     map.set('draftQuoteHold', null);
+    map.set('draftRestoreToken', null);
+    map.set('draftSurfaceUnconfirmed', false);
     map.set('interactionCheck', null);
     map.set('privacy', state.get('default_privacy'));
     map.set('searchability', effectiveSearchability(state.get('default_privacy'), state.get('default_searchability')));
@@ -1652,6 +1656,9 @@ function reduceComposer(state = initialState, action) {
       map.set('quote_from', null);
       map.set('quote_from_url', null);
       map.set('reply_status', action.status);
+      map.set('draftReplyHold', null);
+      map.set('draftQuoteHold', null);
+      map.set('draftRestoreToken', null);
       map.set('text', statusToTextMentions(state.get('text') || '', privacy, action.status));
       clearManagedHashtagSuppressions(map);
       map.set('privacy', privacy);
@@ -1699,6 +1706,9 @@ function reduceComposer(state = initialState, action) {
       map.set('in_reply_to', null);
       map.set('quote_from', action.status.get('id'));
       map.set('quote_from_url', action.status.get('url'));
+      map.set('draftReplyHold', null);
+      map.set('draftQuoteHold', null);
+      map.set('draftRestoreToken', null);
       map.set('text', '');
       clearManagedHashtagSuppressions(map);
       map.set('privacy', privacy);
@@ -1744,6 +1754,8 @@ function reduceComposer(state = initialState, action) {
       map.set('reply_status', null);
       map.set('draftReplyHold', null);
       map.set('draftQuoteHold', null);
+      map.set('draftRestoreToken', null);
+      map.set('draftSurfaceUnconfirmed', false);
       map.set('text', '');
       map.set('spoiler', false);
       map.set('spoiler_text', '');
@@ -2223,9 +2235,28 @@ function reduceComposer(state = initialState, action) {
   case COMPOSE_REFERENCE_CHECK_IGNORE:
     return state.set('ignore_reference_check', true);
   case COMPOSER_DRAFT_RESTORE:
-    return applyComposerDraft(state, action.snapshot, { idempotencyKey: action.idempotencyKey });
-  case COMPOSER_DRAFT_TARGET:
-    if (!action.idempotencyKey || state.get('idempotencyKey') !== action.idempotencyKey) {
+    return applyComposerDraft(state, action.snapshot, {
+      idempotencyKey: action.idempotencyKey,
+      restoreToken: action.restoreToken,
+    });
+  case COMPOSER_DRAFT_SURFACE_CONFIRM:
+    if (state.get('draftSurfaceUnconfirmed') !== true) {
+      return state;
+    }
+
+    return state
+      .set('draftSurfaceUnconfirmed', false)
+      .set('surfaceMismatch', false);
+  case COMPOSER_DRAFT_TARGET: {
+    if (!action.restoreToken || state.get('draftRestoreToken') !== action.restoreToken) {
+      return state;
+    }
+
+    if (action.role === 'reply' && String(state.get('in_reply_to') || '') !== String(action.targetId || '')) {
+      return state;
+    }
+
+    if (action.role === 'quote' && String(state.get('quote_from') || '') !== String(action.targetId || '')) {
       return state;
     }
 
@@ -2242,6 +2273,7 @@ function reduceComposer(state = initialState, action) {
         map.set('draftQuoteHold', action.hold || null);
       }
     });
+  }
   default:
     return state;
   }

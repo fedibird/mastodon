@@ -140,6 +140,51 @@ describe('composer draft session', () => {
     expect(saved.media_incomplete).toBe(false);
   });
 
+  it('keeps a saved draft when the text is cleared and does not overwrite it', async () => {
+    const { backend, session } = harness();
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith('keep me') }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith('') }],
+    });
+    await session.flush();
+
+    expect((await backend.readDraft('42', 'draft-1')).input.text).toBe('keep me');
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith('keep me') }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith('fresh') }],
+    });
+    await session.flush();
+
+    const texts = (await backend.listDrafts('42')).map(item => item.input.text).sort();
+
+    expect(texts).toEqual(['fresh', 'keep me']);
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_RESET' },
+      composers: [{ composerId: 'primary', state: composerWith('') }],
+    });
+    await session.flush();
+
+    expect((await backend.listDrafts('42')).map(item => item.input.text).sort()).toEqual(['keep me']);
+  });
+
   it('drops an in-flight snapshot when the post succeeds or the surface is cleared', async () => {
     const backend = createMemoryDraftBackend();
     let release;

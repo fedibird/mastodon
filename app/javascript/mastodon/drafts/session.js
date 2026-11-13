@@ -512,8 +512,13 @@ export function createComposerDraftSession ({
         });
 
         if (!snapshot) {
-          if (surface.clientDraftUuid) {
+          if (surface.clientDraftUuid && targeted && CLEAR_LATCH.has(type)) {
             discard(accountId, surface);
+            setPersistence(composerId, 'idle', null, false);
+            refreshOffers(accountId);
+          } else if (surface.clientDraftUuid) {
+            flushComposer(composerId);
+            detach(surface);
             setPersistence(composerId, 'idle', null, false);
             refreshOffers(accountId);
           }

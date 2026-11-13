@@ -348,6 +348,8 @@
   "compose_form.draft_quote_pending": "引用先を読み込んでいます。表示されるまで投稿できません。",
   "compose_form.draft_reply_failed": "返信先を読み込めませんでした。投稿は止めたままです。",
   "compose_form.draft_reply_pending": "返信先を読み込んでいます。表示されるまで投稿できません。",
+  "compose_form.draft_surface_confirm": "この下書きの投稿先は{kind} {key}です。確認するまで投稿できません。",
+  "compose_form.draft_surface_confirm_action": "この投稿先に投稿する",
   "compose_form.draft_restore": "端末内の下書きを復元",
   "compose_form.draft_restore_count": "端末内の下書きを復元（{count}）",
   "compose_form.draft_save_failed": "この下書きをこの端末に保存できませんでした。再読み込みすると最新の変更が失われることがあります。",

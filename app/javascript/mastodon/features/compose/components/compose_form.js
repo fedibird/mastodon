@@ -78,6 +78,8 @@ const messages = defineMessages({
   draftReplyFailed: { id: 'compose_form.draft_reply_failed', defaultMessage: 'The post this replies to could not be loaded. Posting stays off.' },
   draftQuotePending: { id: 'compose_form.draft_quote_pending', defaultMessage: 'Loading the quoted post. Posting stays off until it appears.' },
   draftQuoteFailed: { id: 'compose_form.draft_quote_failed', defaultMessage: 'The quoted post could not be loaded. Posting stays off.' },
+  draftSurfaceConfirm: { id: 'compose_form.draft_surface_confirm', defaultMessage: 'This draft posts to {kind} {key}. Posting stays off until you confirm that destination.' },
+  draftSurfaceConfirmAction: { id: 'compose_form.draft_surface_confirm_action', defaultMessage: 'Post to this destination' },
   mediaType: { id: 'upload_button.media_type', defaultMessage: 'Video and audio cannot be posted as this account.' },
   mediaOwner: { id: 'compose_form.media_owner', defaultMessage: 'These images belong to a different posting account. They stay attached, and this post cannot be sent until they match the selected account.' },
   more: { id: 'compose_form.more_actions', defaultMessage: 'More actions' },
@@ -219,6 +221,10 @@ class ComposeForm extends ImmutablePureComponent {
     draftMediaUnresolved: PropTypes.bool,
     draftReplyHold: PropTypes.string,
     draftQuoteHold: PropTypes.string,
+    draftSurfaceUnconfirmed: PropTypes.bool,
+    draftSurfaceKind: PropTypes.string,
+    draftSurfaceKey: PropTypes.string,
+    onConfirmDraftSurface: PropTypes.func,
     onAcceptSurface: PropTypes.func,
     displayMode: PropTypes.oneOf(['full', 'simple']),
     onDisplayModeChange: PropTypes.func,
@@ -261,6 +267,7 @@ class ComposeForm extends ImmutablePureComponent {
     draftMediaUnresolved: false,
     draftReplyHold: null,
     draftQuoteHold: null,
+    draftSurfaceUnconfirmed: false,
     displayMode: 'full',
   };
 
@@ -327,8 +334,27 @@ class ComposeForm extends ImmutablePureComponent {
     );
   }
 
+  renderDraftSurfaceConfirm () {
+    const { intl, draftSurfaceUnconfirmed, draftSurfaceKind, draftSurfaceKey, onConfirmDraftSurface } = this.props;
+
+    if (!draftSurfaceUnconfirmed || !draftSurfaceKind || !draftSurfaceKey) {
+      return null;
+    }
+
+    return (
+      <div className='compose-form__surface-mismatch' role='status'>
+        <span>{intl.formatMessage(messages.draftSurfaceConfirm, { kind: draftSurfaceKind, key: draftSurfaceKey })}</span>
+        {onConfirmDraftSurface ? (
+          <button type='button' onClick={onConfirmDraftSurface}>
+            {intl.formatMessage(messages.draftSurfaceConfirmAction)}
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
   renderSurfaceMismatch () {
-    if (!this.props.surfaceMismatch) {
+    if (!this.props.surfaceMismatch || this.props.draftSurfaceUnconfirmed) {
       return null;
     }
 
@@ -1229,6 +1255,7 @@ class ComposeForm extends ImmutablePureComponent {
         {composerDraftRecoveryEnabled() && <ComposerDraftRecoveryContainer />}
         {this.props.styleController}
         {this.renderHeader()}
+        {this.renderDraftSurfaceConfirm()}
         {this.renderSurfaceMismatch()}
         {this.renderDraftHold()}
         {this.renderCapabilityGuard()}

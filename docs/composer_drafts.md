@@ -29,9 +29,11 @@ The database is `fedibird-composer-drafts`, separate from the service worker's `
 
 Completed media is restored as an id plus ALT, order, and focus, and marked unresolved. The thumbnail, type, and owner are not part of the snapshot. Posting stays off, and new files cannot be added, until those attachments are removed. An upload that has not finished is not described as saved. Keeping the files across reloads belongs to P1-B.
 
-A reply or quote id is restored, then the target post is loaded again. Posting stays off while that load is in progress and if it fails. The reply or quote indicator appears after the post is in the local cache.
+A reply or quote id is restored, then the target post is loaded again. Posting stays off while that load is in progress and if it fails. The reply or quote indicator appears after the post is in the local cache. Typing while the load is in progress still accepts the result. A later restore, or a change of the reply or quote target, ignores the older result. Canceling the reply or quote still clears the text. A control that drops only the failed target and keeps the text is left for a later change.
 
-Restoring onto a screen whose group or hashtag destination differs from the draft keeps the draft destination and sets the existing surface mismatch. Posting stays off until the destination shown on that screen is applied. The restore banner names the draft's surface, and says when the draft is a reply or a quote. A list-to-list change does not hold the post. While a write is waiting, the save state is `saving`. It becomes `saved` only after the acknowledgement for the current edit.
+Restoring onto a screen whose group or hashtag destination differs from the draft keeps the draft destination and sets the existing surface mismatch. Posting stays off until the destination shown on that screen is applied. Restoring a group or hashtag draft onto the primary composer, which has no surface, also keeps posting off until that saved destination is confirmed. The restore banner names the draft's surface, and says when the draft is a reply or a quote. A list-to-list change does not hold the post. While a write is waiting, the save state is `saving`. It becomes `saved` only after the acknowledgement for the current edit.
+
+Clearing the text does not delete a draft that was already saved. That copy stays available to restore, and the next text starts a new draft instead of replacing it. The clear action and a successful post still delete the draft they belong to.
 
 Existing-post edit, scheduled-post edit, and delete-and-redraft are not stored as new drafts. Clearing a new post deletes that post's local draft. Closing a portable composer keeps the draft and does not put it back automatically.
 

@@ -417,15 +417,19 @@ function restoreSurfaceConflict (composer, input) {
   const screen = assignmentSurface(composer.get('displayedSurface')) || assignmentSurface(composer.get('surface'));
   const draft = assignmentSurface(input && input.surface);
 
-  if (!screen || surfacesEqual(screen, draft)) {
-    return null;
+  if (surfacesEqual(screen, draft)) {
+    return { mode: 'same' };
   }
 
-  if (!(destinationShift(draft, screen) || destinationShift(screen, draft))) {
-    return null;
+  if (!screen && draft && (draft.kind === 'group' || draft.kind === 'hashtag')) {
+    return { mode: 'confirm' };
   }
 
-  return screen;
+  if (!screen || !(destinationShift(draft, screen) || destinationShift(screen, draft))) {
+    return { mode: 'same' };
+  }
+
+  return { mode: 'mismatch', screen };
 }
 
 export function composerDraftContentHash (input, mediaIncomplete) {
@@ -647,7 +651,8 @@ export function applyComposerDraft (state, snapshot, options = {}) {
   }
 
   const input = restored.snapshot.input;
-  const heldSurface = restoreSurfaceConflict(state, input);
+  const conflict = restoreSurfaceConflict(state, input);
+  const heldSurface = conflict.mode === 'mismatch' ? conflict.screen : null;
   const heldContext = heldSurface ? postingContextFromComposer(state) : null;
   const nextEpoch = (Number(state.get('surfaceEpoch')) || 0) + 1;
   const media = ImmutableList((input.media || []).map(item => ImmutableMap({
@@ -694,10 +699,12 @@ export function applyComposerDraft (state, snapshot, options = {}) {
     map.set('media_attachments', media);
     map.set('draftReplyHold', input.in_reply_to_id ? 'pending' : null);
     map.set('draftQuoteHold', input.quote_id ? 'pending' : null);
+    map.set('draftRestoreToken', options.restoreToken || null);
+    map.set('draftSurfaceUnconfirmed', conflict.mode === 'confirm');
     map.set('context', input.context ? restoredContext(input) : state.get('context'));
     map.set('posting_context_account_id', input.posting_context_account_id || null);
     map.set('surface', input.surface ? ImmutableMap({ kind: input.surface.kind, key: String(input.surface.key) }) : null);
-    map.set('surfaceMismatch', Boolean(heldSurface));
+    map.set('surfaceMismatch', conflict.mode !== 'same');
     map.set('pendingSurface', heldSurface ? ImmutableMap({
       kind: heldSurface.kind,
       key: heldSurface.key,

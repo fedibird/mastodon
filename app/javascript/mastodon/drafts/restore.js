@@ -30,7 +30,7 @@ function cachedStatus (state, id) {
   return status;
 }
 
-export function resolveDraftTargets (composerId, snapshot, idempotencyKey) {
+export function resolveDraftTargets (composerId, snapshot, restoreToken) {
   return (dispatch, getState) => {
     const input = snapshot && snapshot.input || {};
     const targets = [];
@@ -46,8 +46,9 @@ export function resolveDraftTargets (composerId, snapshot, idempotencyKey) {
     targets.forEach(([role, id]) => {
       const finish = (hold, replyStatus) => {
         const current = selectComposer(getState(), composerId);
+        const currentId = role === 'reply' ? current && current.get('in_reply_to') : current && current.get('quote_from');
 
-        if (!current || current.get('idempotencyKey') !== idempotencyKey) {
+        if (!current || current.get('draftRestoreToken') !== restoreToken || String(currentId || '') !== id) {
           return;
         }
 
@@ -56,7 +57,8 @@ export function resolveDraftTargets (composerId, snapshot, idempotencyKey) {
           role,
           hold,
           replyStatus,
-          idempotencyKey,
+          restoreToken,
+          targetId: id,
         }, composerId));
       };
       const present = cachedStatus(getState(), id);
@@ -110,16 +112,18 @@ export function restoreLocalComposerDraft (composerId, clientDraftUuid) {
       }
 
       const idempotencyKey = uuid();
+      const restoreToken = uuid();
 
       dispatch(targetComposerAction({
         type: COMPOSER_DRAFT_RESTORE,
         snapshot: restored.snapshot,
         idempotencyKey,
+        restoreToken,
         baseRevision: record.revision || 0,
       }, composerId));
 
-      if (selectComposer(getState(), composerId).get('idempotencyKey') === idempotencyKey) {
-        dispatch(resolveDraftTargets(composerId, restored.snapshot, idempotencyKey));
+      if (selectComposer(getState(), composerId).get('draftRestoreToken') === restoreToken) {
+        dispatch(resolveDraftTargets(composerId, restored.snapshot, restoreToken));
       }
 
       dispatch(scheduleComposerInteractionCheck(composerId));

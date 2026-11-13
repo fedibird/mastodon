@@ -334,6 +334,8 @@
   "compose_form.draft_quote_pending": "Loading the quoted post. Posting stays off until it appears.",
   "compose_form.draft_reply_failed": "The post this replies to could not be loaded. Posting stays off.",
   "compose_form.draft_reply_pending": "Loading the post this replies to. Posting stays off until it appears.",
+  "compose_form.draft_surface_confirm": "This draft posts to {kind} {key}. Posting stays off until you confirm that destination.",
+  "compose_form.draft_surface_confirm_action": "Post to this destination",
   "compose_form.draft_restore": "Restore local draft",
   "compose_form.draft_restore_count": "Restore local draft ({count})",
   "compose_form.draft_save_failed": "This draft could not be saved on this device. Reloading may lose the latest changes.",
