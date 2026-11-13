@@ -591,6 +591,28 @@ const finishSuccessfulSubmit = (state, action) => {
   return rememberConsumedSubmission(stripDelegatedSchedule(next).set('activeSubmitId', null), action);
 };
 
+const releaseRestoredDraftHold = map => {
+  const confirm = map.get('draftSurfaceConfirm');
+  const pending = map.get('pendingSurface');
+
+  map.set('draftReplyHold', null);
+  map.set('draftQuoteHold', null);
+  map.set('draftRestoreToken', null);
+  map.set('draftSurfaceUnconfirmed', false);
+  map.set('draftSurfaceConfirm', null);
+  map.update('media_attachments', list => (list && typeof list.filter === 'function' ? list.filter(item => item.get('unresolved') !== true) : list));
+
+  // An unconfirmed restored destination is not the screen the user is looking
+  // at. Drop it with the draft. A pending on-screen destination stays held.
+  if (confirm && !pending) {
+    map.set('surfaceMismatch', false);
+    map.set('surface', null);
+    map.set('displayedSurface', null);
+    map.set('context', emptyPostingContext());
+    map.set('posting_context_account_id', null);
+  }
+};
+
 const discardDraftToUsual = state => {
   const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
 
@@ -627,6 +649,7 @@ const discardDraftToUsual = state => {
     map.update('references', set => set.clear());
     clearScheduledDraftProvenance(map);
     clearManagedHashtagSuppressions(map);
+    releaseRestoredDraftHold(map);
     noteInteractionTarget(map);
   }), { respectManual: true, resetSuppressions: false });
 };
@@ -757,6 +780,7 @@ const clearAll = state => {
     map.set('ignore_reference_check', false);
     clearScheduledDraftProvenance(map);
     clearManagedHashtagSuppressions(map);
+    releaseRestoredDraftHold(map);
   });
 };
 
@@ -1781,6 +1805,7 @@ function reduceComposer(state = initialState, action) {
       }
       clearScheduledDraftProvenance(map);
       clearManagedHashtagSuppressions(map);
+      releaseRestoredDraftHold(map);
       noteInteractionTarget(map);
     }), { respectManual: true, resetSuppressions: false });
   case COMPOSER_INTERACTION_CHECK_REQUEST:

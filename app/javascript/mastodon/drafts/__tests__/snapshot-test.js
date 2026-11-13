@@ -1,6 +1,7 @@
 import { List as ImmutableList, Map as ImmutableMap, Set as ImmutableSet, fromJS } from 'immutable';
-import { changeCompose, changeComposeLanguage, changeComposeSearchability, changeComposeVisibility } from '../../actions/compose';
+import { COMPOSE_RESET, COMPOSE_UPLOAD_SUCCESS, changeCompose, changeComposeLanguage, changeComposeSearchability, changeComposeVisibility } from '../../actions/compose';
 import { applyComposerPostingContext, COMPOSER_DRAFT_RESTORE } from '../../actions/composer';
+import { fileDropBlockFromComposer } from '../../features/compose/composer_drop';
 import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
 import { materializeComposerText } from '../../posting_context/materialize';
 import composer, { initialState } from '../../reducers/composer';
@@ -289,6 +290,75 @@ describe('composer draft snapshot', () => {
     expect(snapshotComposerDraft(initialState.set('text', 'Hello').set('id', 'status-1'), { accountId: '42', clientDraftUuid: 'draft-1' })).toBeNull();
     expect(snapshotComposerDraft(initialState.set('text', 'Hello').set('scheduled_status_id', 'sched-1'), { accountId: '42', clientDraftUuid: 'draft-1' })).toBeNull();
     expect(snapshotComposerDraft(initialState.set('text', 'Hello').set('redraftMediaUnconfirmed', true), { accountId: '42', clientDraftUuid: 'draft-1' })).toBeNull();
+  });
+
+  it('clears a restored reply, destination, and unresolved media on discard', () => {
+    const snapshot = {
+      schema_version: 1,
+      account_id: '42',
+      client_draft_uuid: 'draft-9',
+      input: {
+        text: 'Hello',
+        in_reply_to_id: 'reply-1',
+        surface: { kind: 'group', key: '123' },
+        media: [{ id: 'media-1', order: 0, description: 'alt', focus: { x: 0, y: 0 } }],
+      },
+    };
+    const restored = composer(initialState, {
+      type: COMPOSER_DRAFT_RESTORE,
+      snapshot,
+      idempotencyKey: 'post-1',
+      restoreToken: 'restore-1',
+    });
+    const withUpload = restored.update('media_attachments', list => list.push(ImmutableMap({
+      id: 'real-1',
+      type: 'image',
+      unresolved: false,
+    })));
+    const reset = composer(withUpload, { type: COMPOSE_RESET });
+    const typed = composer(reset, changeCompose('Next'));
+    const uploaded = composer(reset, {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'new-1', type: 'image' },
+    });
+
+    expect(restored.get('draftReplyHold')).toBe('pending');
+    expect(restored.get('draftSurfaceUnconfirmed')).toBe(true);
+    expect(restored.getIn(['media_attachments', 0, 'unresolved'])).toBe(true);
+    expect(reset.get('text')).toBe('');
+    expect(reset.get('in_reply_to')).toBeNull();
+    expect(reset.get('draftReplyHold')).toBeNull();
+    expect(reset.get('draftQuoteHold')).toBeNull();
+    expect(reset.get('draftRestoreToken')).toBeNull();
+    expect(reset.get('draftSurfaceUnconfirmed')).toBe(false);
+    expect(reset.get('draftSurfaceConfirm')).toBeNull();
+    expect(reset.get('surfaceMismatch')).toBe(false);
+    expect(reset.get('surface')).toBeNull();
+    expect(reset.get('media_attachments').map(item => item.get('id')).toArray()).toEqual(['real-1']);
+    expect(composerDraftRestoreBlocksSubmit(reset)).toBe(false);
+    expect(fileDropBlockFromComposer(reset)).not.toBe('draft_media');
+    expect(composerDraftHasPersistableInput(composer(restored, { type: COMPOSE_RESET }))).toBe(false);
+    expect(typed.get('text')).toBe('Next');
+    expect(composerDraftRestoreBlocksSubmit(typed)).toBe(false);
+    expect(uploaded.get('media_attachments').map(item => item.get('id')).toArray()).toEqual(['real-1', 'new-1']);
+    expect(uploaded.get('media_attachments').some(item => item.get('unresolved') === true)).toBe(false);
+
+    const moved = composer(restored, {
+      type: 'COMPOSER_CONTEXT_APPLY',
+      surface: { kind: 'group', key: '456' },
+      surfaceEpoch: (restored.get('surfaceEpoch') || 0) + 1,
+      postingContext: { key: 'builtin:fedibird-group:456' },
+      hasPostingContext: true,
+    });
+    const resetMoved = composer(moved, { type: COMPOSE_RESET });
+
+    expect(resetMoved.get('draftReplyHold')).toBeNull();
+    expect(resetMoved.get('media_attachments').size).toBe(0);
+    expect(resetMoved.get('surfaceMismatch')).toBe(true);
+    expect(resetMoved.getIn(['surface', 'key'])).toBe('123');
+    expect(resetMoved.getIn(['pendingSurface', 'key'])).toBe('456');
+    expect(composerDraftRestoreBlocksSubmit(resetMoved)).toBe(false);
+    expect(composerDraftHasPersistableInput(resetMoved)).toBe(false);
   });
 
   it('restores a snapshot whose nested fields have the wrong shape', () => {

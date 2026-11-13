@@ -1,7 +1,7 @@
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
-import { COMPOSE_SET_STATUS, COMPOSE_SUBMIT_SUCCESS } from '../../actions/compose';
+import { COMPOSE_RESET, COMPOSE_SET_STATUS, COMPOSE_SUBMIT_SUCCESS } from '../../actions/compose';
 import { REDRAFT } from '../../actions/statuses';
-import { initialState } from '../../reducers/composer';
+import composer, { initialState } from '../../reducers/composer';
 import { createComposerDraftSession } from '../session';
 import { createMemoryDraftBackend } from '../storage';
 
@@ -183,6 +183,53 @@ describe('composer draft session', () => {
     await session.flush();
 
     expect((await backend.listDrafts('42')).map(item => item.input.text).sort()).toEqual(['keep me']);
+  });
+
+  it('deletes the discarded restored draft and keeps a different saved draft', async () => {
+    const { backend, session } = harness();
+    const typing = initialState.set('text', 'Hello group');
+    const other = initialState.set('text', 'keep other').set('instanceId', 'portable-1');
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [
+        { composerId: 'primary', state: typing },
+        { composerId: 'portable', state: other },
+      ],
+    });
+    await session.flush();
+
+    const restored = composer(initialState, {
+      type: 'COMPOSER_DRAFT_RESTORE',
+      snapshot: {
+        schema_version: 1,
+        account_id: '42',
+        client_draft_uuid: 'draft-1',
+        input: {
+          text: 'Hello group',
+          in_reply_to_id: 'reply-1',
+          surface: { kind: 'group', key: '123' },
+          media: [{ id: 'media-1', order: 0, description: 'alt', focus: { x: 0, y: 0 } }],
+        },
+      },
+      idempotencyKey: 'post-1',
+      restoreToken: 'restore-1',
+    });
+    const reset = composer(restored, { type: COMPOSE_RESET });
+
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_RESET },
+      composers: [
+        { composerId: 'primary', state: reset },
+        { composerId: 'portable', state: other },
+      ],
+    });
+    await session.flush();
+
+    expect(await backend.readDraft('42', 'draft-1')).toBeNull();
+    expect((await backend.readDraft('42', 'draft-2')).input.text).toBe('keep other');
   });
 
   it('drops an in-flight snapshot when the post succeeds or the surface is cleared', async () => {
