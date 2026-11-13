@@ -196,10 +196,19 @@ describe('composer draft snapshot', () => {
     };
     const onPrimary = applyComposerDraft(initialState, snapshot, { idempotencyKey: 'next-key', restoreToken: 'restore-1' });
     const hashtagOnPrimary = applyComposerDraft(initialState, hashtag, { idempotencyKey: 'next-key', restoreToken: 'restore-2' });
-    const confirmed = composer(onPrimary, { type: 'COMPOSER_DRAFT_SURFACE_CONFIRM' });
+    const confirmed = composer(onPrimary, { type: 'COMPOSER_DRAFT_SURFACE_CONFIRM', kind: 'group', key: '123' });
+    const moved = composer(onPrimary, {
+      type: 'COMPOSER_CONTEXT_APPLY',
+      surface: { kind: 'group', key: '456' },
+      surfaceEpoch: (onPrimary.get('surfaceEpoch') || 0) + 1,
+      postingContext: { key: 'builtin:fedibird-group:456' },
+      hasPostingContext: true,
+    });
+    const staleConfirm = composer(moved, { type: 'COMPOSER_DRAFT_SURFACE_CONFIRM', kind: 'group', key: '123' });
 
     expect(onPrimary.get('surfaceMismatch')).toBe(true);
     expect(onPrimary.get('draftSurfaceUnconfirmed')).toBe(true);
+    expect(onPrimary.getIn(['draftSurfaceConfirm', 'key'])).toBe('123');
     expect(onPrimary.getIn(['surface', 'kind'])).toBe('group');
     expect(onPrimary.get('pendingSurface')).toBeNull();
     expect(hashtagOnPrimary.get('draftSurfaceUnconfirmed')).toBe(true);
@@ -207,6 +216,14 @@ describe('composer draft snapshot', () => {
     expect(confirmed.get('surfaceMismatch')).toBe(false);
     expect(confirmed.get('draftSurfaceUnconfirmed')).toBe(false);
     expect(confirmed.getIn(['surface', 'key'])).toBe('123');
+    expect(moved.get('surfaceMismatch')).toBe(true);
+    expect(moved.getIn(['pendingSurface', 'key'])).toBe('456');
+    expect(moved.getIn(['displayedSurface', 'key'])).toBe('456');
+    expect(moved.getIn(['surface', 'key'])).toBe('123');
+    expect(staleConfirm.get('surfaceMismatch')).toBe(true);
+    expect(staleConfirm.get('draftSurfaceUnconfirmed')).toBe(true);
+    expect(staleConfirm.getIn(['surface', 'key'])).toBe('123');
+    expect(staleConfirm.getIn(['pendingSurface', 'key'])).toBe('456');
   });
 
   it('keeps a loaded reply target and ignores a target for a different restore', () => {
@@ -272,6 +289,48 @@ describe('composer draft snapshot', () => {
     expect(snapshotComposerDraft(initialState.set('text', 'Hello').set('id', 'status-1'), { accountId: '42', clientDraftUuid: 'draft-1' })).toBeNull();
     expect(snapshotComposerDraft(initialState.set('text', 'Hello').set('scheduled_status_id', 'sched-1'), { accountId: '42', clientDraftUuid: 'draft-1' })).toBeNull();
     expect(snapshotComposerDraft(initialState.set('text', 'Hello').set('redraftMediaUnconfirmed', true), { accountId: '42', clientDraftUuid: 'draft-1' })).toBeNull();
+  });
+
+  it('restores a snapshot whose nested fields have the wrong shape', () => {
+    const broken = {
+      schema_version: 1,
+      account_id: '42',
+      client_draft_uuid: 'draft-1',
+      input: {
+        text: 'Hello',
+        context: {
+          managed: { hashtags: { oops: true }, mentions: { acct: 'group' } },
+          suppressions: { hashtags: { fedibird: true } },
+        },
+        user_posting_style: {
+          selected_id: 'style-1',
+          manual_fields: { privacy: true },
+          unapplied: { a: 1 },
+          snapshot: 'nope',
+        },
+        media: { id: 'media-1' },
+        poll: { options: { red: true } },
+        references: { a: 'ref-a' },
+        surface: 'group',
+      },
+    };
+    const restored = restoreComposerDraft(broken);
+
+    expect(restored.ok).toBe(true);
+    expect(restored.snapshot.input.context.managed.hashtags).toEqual([]);
+    expect(restored.snapshot.input.user_posting_style.manual_fields).toEqual([]);
+    expect(restored.snapshot.input.media).toEqual([]);
+    expect(restored.snapshot.input.surface).toBeNull();
+
+    let applied;
+    expect(() => {
+      applied = applyComposerDraft(initialState, broken, { idempotencyKey: 'next-key' });
+    }).not.toThrow();
+    expect(applied.get('text')).toBe('Hello');
+    expect(applied.getIn(['context', 'managed', 'hashtags']).size).toBe(0);
+    expect(applied.getIn(['userPostingStyle', 'manualFields']).size).toBe(0);
+    expect(applied.get('media_attachments').size).toBe(0);
+    expect(applied.get('surface')).toBeNull();
   });
 
   it('refuses an old schema, invalid JSON, and a surface that already has text', () => {

@@ -59,8 +59,10 @@ export const applyComposerSurface = (composerId, surface, postingContext, postin
   }, composerId);
 };
 
-export const confirmDraftSurface = composerId => targetComposerAction({
+export const confirmDraftSurface = (composerId, surface) => targetComposerAction({
   type: COMPOSER_DRAFT_SURFACE_CONFIRM,
+  kind: surface && surface.kind,
+  key: surface && surface.key,
 }, composerId);
 
 export const acceptComposerSurface = composerId => targetComposerAction({

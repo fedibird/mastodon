@@ -222,6 +222,7 @@ export const initialState = ImmutableMap({
   draftQuoteHold: null,
   draftRestoreToken: null,
   draftSurfaceUnconfirmed: false,
+  draftSurfaceConfirm: null,
 });
 
 // Survives composer destroy/recreate. Epoch restarts at 0 on a new instance.
@@ -726,6 +727,7 @@ const clearAll = state => {
     map.set('draftQuoteHold', null);
     map.set('draftRestoreToken', null);
     map.set('draftSurfaceUnconfirmed', false);
+    map.set('draftSurfaceConfirm', null);
     map.set('interactionCheck', null);
     map.set('privacy', state.get('default_privacy'));
     map.set('searchability', effectiveSearchability(state.get('default_privacy'), state.get('default_searchability')));
@@ -1756,6 +1758,7 @@ function reduceComposer(state = initialState, action) {
       map.set('draftQuoteHold', null);
       map.set('draftRestoreToken', null);
       map.set('draftSurfaceUnconfirmed', false);
+      map.set('draftSurfaceConfirm', null);
       map.set('text', '');
       map.set('spoiler', false);
       map.set('spoiler_text', '');
@@ -2239,14 +2242,38 @@ function reduceComposer(state = initialState, action) {
       idempotencyKey: action.idempotencyKey,
       restoreToken: action.restoreToken,
     });
-  case COMPOSER_DRAFT_SURFACE_CONFIRM:
-    if (state.get('draftSurfaceUnconfirmed') !== true) {
+  case COMPOSER_DRAFT_SURFACE_CONFIRM: {
+    const confirm = state.get('draftSurfaceConfirm');
+    const owned = state.get('surface');
+    const pending = state.get('pendingSurface');
+    const displayed = state.get('displayedSurface');
+    const samePlace = (candidate, kind, key) => !candidate || (candidate.get('kind') === kind && String(candidate.get('key')) === key);
+
+    if (state.get('draftSurfaceUnconfirmed') !== true || !confirm || !owned) {
+      return state;
+    }
+
+    const kind = confirm.get('kind');
+    const key = String(confirm.get('key'));
+    const epoch = Number(confirm.get('surfaceEpoch')) || 0;
+
+    if ((Number(state.get('surfaceEpoch')) || 0) !== epoch || owned.get('kind') !== kind || String(owned.get('key')) !== key) {
+      return state;
+    }
+
+    if (!samePlace(pending, kind, key) || !samePlace(displayed, kind, key)) {
+      return state;
+    }
+
+    if (action.kind && (action.kind !== kind || String(action.key) !== key)) {
       return state;
     }
 
     return state
       .set('draftSurfaceUnconfirmed', false)
+      .set('draftSurfaceConfirm', null)
       .set('surfaceMismatch', false);
+  }
   case COMPOSER_DRAFT_TARGET: {
     if (!action.restoreToken || state.get('draftRestoreToken') !== action.restoreToken) {
       return state;

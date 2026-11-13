@@ -334,6 +334,14 @@ class ComposeForm extends ImmutablePureComponent {
     );
   }
 
+  handleConfirmDraftSurface = () => {
+    const { draftSurfaceKind, draftSurfaceKey, onConfirmDraftSurface } = this.props;
+
+    if (onConfirmDraftSurface) {
+      onConfirmDraftSurface(draftSurfaceKind, draftSurfaceKey);
+    }
+  };
+
   renderDraftSurfaceConfirm () {
     const { intl, draftSurfaceUnconfirmed, draftSurfaceKind, draftSurfaceKey, onConfirmDraftSurface } = this.props;
 
@@ -345,7 +353,7 @@ class ComposeForm extends ImmutablePureComponent {
       <div className='compose-form__surface-mismatch' role='status'>
         <span>{intl.formatMessage(messages.draftSurfaceConfirm, { kind: draftSurfaceKind, key: draftSurfaceKey })}</span>
         {onConfirmDraftSurface ? (
-          <button type='button' onClick={onConfirmDraftSurface}>
+          <button type='button' onClick={this.handleConfirmDraftSurface}>
             {intl.formatMessage(messages.draftSurfaceConfirmAction)}
           </button>
         ) : null}

@@ -464,6 +464,120 @@ function isPlainObject (value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function stringItems (value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(item => item !== null && item !== undefined && item !== '').map(item => String(item));
+}
+
+function recordList (value, fields) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isPlainObject).map(item => fields.reduce((record, field) => {
+    record[field] = item[field] === undefined ? null : item[field];
+
+    return record;
+  }, {}));
+}
+
+function normalizeContextInput (value) {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const managed = isPlainObject(value.managed) ? value.managed : {};
+  const suppressions = isPlainObject(value.suppressions) ? value.suppressions : {};
+  const requirements = isPlainObject(value.requirements) ? value.requirements : {};
+  const constraints = isPlainObject(value.constraints) ? value.constraints : {};
+  const protocol = isPlainObject(value.protocol) ? value.protocol : {};
+  const activityPub = isPlainObject(protocol.activity_pub) ? protocol.activity_pub : {};
+  const audience = isPlainObject(activityPub.audience) ? activityPub.audience : null;
+  const source = isPlainObject(value.source) ? value.source : null;
+
+  return {
+    key: stringOrNull(value.key),
+    resolved_account_id: stringOrNull(value.resolved_account_id),
+    source: source ? {
+      id: stringOrNull(source.id),
+      revision: numberOrNull(source.revision),
+    } : null,
+    managed: {
+      hashtags: recordList(managed.hashtags, ['name', 'normalizedName', 'enforcement', 'ruleId']),
+      mentions: recordList(managed.mentions, ['accountId', 'acct', 'enforcement', 'ruleId', 'placement']),
+    },
+    suppressions: {
+      hashtags: stringItems(suppressions.hashtags),
+    },
+    requirements: {
+      following_accounts: recordList(requirements.following_accounts, ['accountId', 'acct', 'enforcement', 'ruleId']),
+    },
+    constraints: {
+      allowed_visibilities: Array.isArray(constraints.allowed_visibilities) ? stringItems(constraints.allowed_visibilities) : null,
+    },
+    protocol: {
+      activity_pub: {
+        audience: audience ? {
+          accountId: stringOrNull(audience.accountId),
+          acct: audience.acct ? String(audience.acct) : null,
+          enforcement: audience.enforcement ? String(audience.enforcement) : null,
+          ruleId: audience.ruleId ? String(audience.ruleId) : null,
+        } : null,
+      },
+    },
+  };
+}
+
+function normalizeStyleInput (value) {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  return {
+    selected_id: stringOrNull(value.selected_id),
+    applied_revision: numberOrNull(value.applied_revision),
+    usage_mode: typeof value.usage_mode === 'string' ? value.usage_mode : 'usual',
+    selection_kind: typeof value.selection_kind === 'string' ? value.selection_kind : 'pending',
+    selection_origin: stringOrNull(value.selection_origin),
+    manual_fields: stringItems(value.manual_fields),
+    manual_values: isPlainObject(value.manual_values) ? value.manual_values : {},
+    suppressions: stringItems(value.suppressions),
+    style_owned_fields: stringItems(value.style_owned_fields),
+    unapplied: stringItems(value.unapplied),
+    destination_source: stringOrNull(value.destination_source),
+    destination_policy: stringOrNull(value.destination_policy),
+    destination_account_id: stringOrNull(value.destination_account_id),
+    destination_status: typeof value.destination_status === 'string' ? value.destination_status : 'idle',
+    snapshot: isPlainObject(value.snapshot) ? value.snapshot : null,
+  };
+}
+
+function normalizePollInput (value) {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  return {
+    options: Array.isArray(value.options) ? value.options.map(option => String(option)) : [],
+    expires_in: numberOrNull(value.expires_in),
+    multiple: value.multiple === true,
+  };
+}
+
+function normalizeSurfaceInput (value) {
+  if (!isPlainObject(value) || !value.kind || value.key === undefined || value.key === null || value.key === '') {
+    return null;
+  }
+
+  return {
+    kind: String(value.kind),
+    key: String(value.key),
+  };
+}
+
 function normalizeSnapshot (snapshot) {
   const input = { ...snapshot.input };
 
@@ -472,13 +586,21 @@ function normalizeSnapshot (snapshot) {
   });
 
   input.text = String(input.text);
-  input.media = Array.isArray(input.media) ? input.media.filter(item => item && item.id).map(item => ({
+  input.spoiler_text = input.spoiler_text ? String(input.spoiler_text) : '';
+  input.references = stringItems(input.references);
+  input.context_references = stringItems(input.context_references);
+  input.poll = normalizePollInput(input.poll);
+  input.context = normalizeContextInput(input.context);
+  input.surface = normalizeSurfaceInput(input.surface);
+  input.user_posting_style = normalizeStyleInput(input.user_posting_style);
+  input.sender = isPlainObject(input.sender) ? input.sender : {};
+  input.media = Array.isArray(input.media) ? input.media.filter(item => isPlainObject(item) && item.id).map(item => ({
     id: String(item.id),
     order: numberOrNull(item.order) || 0,
     description: item.description ? String(item.description) : '',
     focus: {
-      x: numberOrNull(item.focus && item.focus.x) || 0,
-      y: numberOrNull(item.focus && item.focus.y) || 0,
+      x: numberOrNull(isPlainObject(item.focus) ? item.focus.x : null) || 0,
+      y: numberOrNull(isPlainObject(item.focus) ? item.focus.y : null) || 0,
     },
   })) : [];
 
@@ -547,11 +669,7 @@ export function copyComposerDraftSnapshot (value) {
 }
 
 function listOf (items, fields) {
-  return ImmutableList((items || []).filter(isPlainObject).map(item => ImmutableMap(fields.reduce((record, field) => {
-    record[field] = item[field] === undefined ? null : item[field];
-
-    return record;
-  }, {}))));
+  return ImmutableList(recordList(items, fields).map(item => ImmutableMap(item)));
 }
 
 function restoredContext (input) {
@@ -573,7 +691,7 @@ function restoredContext (input) {
       mentions: listOf(managed.mentions, ['accountId', 'acct', 'enforcement', 'ruleId', 'placement']),
     }),
     suppressions: ImmutableMap({
-      hashtags: ImmutableSet(context.suppressions && context.suppressions.hashtags || []),
+      hashtags: ImmutableSet(stringItems(context.suppressions && context.suppressions.hashtags)),
     }),
     requirements: ImmutableMap({
       followingAccounts: listOf(context.requirements && context.requirements.following_accounts, ['accountId', 'acct', 'enforcement', 'ruleId']),
@@ -605,16 +723,16 @@ function restoredStyle (input, previous) {
     selectedId: stringOrNull(style.selected_id),
     appliedRevision: numberOrNull(style.applied_revision),
     status: style.selected_id ? 'applied' : 'idle',
-    manualFields: ImmutableSet(style.manual_fields || []),
+    manualFields: ImmutableSet(stringItems(style.manual_fields)),
     manualValues: fromJS(manualValues),
-    suppressions: ImmutableSet(style.suppressions || []),
-    styleOwnedFields: ImmutableSet(style.style_owned_fields || []),
-    unapplied: ImmutableList(style.unapplied || []),
+    suppressions: ImmutableSet(stringItems(style.suppressions)),
+    styleOwnedFields: ImmutableSet(stringItems(style.style_owned_fields)),
+    unapplied: ImmutableList(stringItems(style.unapplied)),
     destinationSource: stringOrNull(style.destination_source),
     destinationPolicy: stringOrNull(style.destination_policy),
     destinationAccountId: stringOrNull(style.destination_account_id),
     destinationStatus: style.destination_status || 'idle',
-    snapshot: style.snapshot ? fromJS(style.snapshot) : null,
+    snapshot: isPlainObject(style.snapshot) ? fromJS(style.snapshot) : null,
     selectionOrigin: stringOrNull(style.selection_origin),
     usageMode: style.usage_mode || 'usual',
     selectionKind: style.selection_kind || 'pending',
@@ -644,7 +762,7 @@ function restoredSender (input, previous) {
 }
 
 export function applyComposerDraft (state, snapshot, options = {}) {
-  const restored = snapshot && snapshot.input ? { ok: true, snapshot } : restoreComposerDraft(snapshot);
+  const restored = restoreComposerDraft(snapshot);
 
   if (!restored.ok || draftCaptureBlock(state) || composerDraftHasPersistableInput(state)) {
     return state;
@@ -655,7 +773,7 @@ export function applyComposerDraft (state, snapshot, options = {}) {
   const heldSurface = conflict.mode === 'mismatch' ? conflict.screen : null;
   const heldContext = heldSurface ? postingContextFromComposer(state) : null;
   const nextEpoch = (Number(state.get('surfaceEpoch')) || 0) + 1;
-  const media = ImmutableList((input.media || []).map(item => ImmutableMap({
+  const media = ImmutableList((Array.isArray(input.media) ? input.media : []).filter(item => isPlainObject(item) && item.id).map(item => ImmutableMap({
     id: String(item.id),
     description: item.description || '',
     order: item.order,
@@ -667,8 +785,8 @@ export function applyComposerDraft (state, snapshot, options = {}) {
       }),
     }),
   })));
-  const poll = input.poll ? ImmutableMap({
-    options: ImmutableList((input.poll.options || []).map(option => String(option))),
+  const poll = isPlainObject(input.poll) ? ImmutableMap({
+    options: ImmutableList((Array.isArray(input.poll.options) ? input.poll.options : []).map(option => String(option))),
     expires_in: numberOrNull(input.poll.expires_in),
     multiple: input.poll.multiple === true,
   }) : null;
@@ -689,8 +807,8 @@ export function applyComposerDraft (state, snapshot, options = {}) {
     map.set('quote_from', input.quote_id || null);
     map.set('quote_from_url', input.quote_url || null);
     map.set('reply_status', null);
-    map.set('references', ImmutableSet(input.references || []));
-    map.set('context_references', ImmutableSet(input.context_references || []));
+    map.set('references', ImmutableSet(stringItems(input.references)));
+    map.set('context_references', ImmutableSet(stringItems(input.context_references)));
     map.set('ignore_reference_check', input.ignore_reference_check === true);
     map.set('poll', poll);
     map.set('scheduled', input.scheduled || null);
@@ -701,6 +819,11 @@ export function applyComposerDraft (state, snapshot, options = {}) {
     map.set('draftQuoteHold', input.quote_id ? 'pending' : null);
     map.set('draftRestoreToken', options.restoreToken || null);
     map.set('draftSurfaceUnconfirmed', conflict.mode === 'confirm');
+    map.set('draftSurfaceConfirm', conflict.mode === 'confirm' ? ImmutableMap({
+      kind: String(input.surface.kind),
+      key: String(input.surface.key),
+      surfaceEpoch: nextEpoch,
+    }) : null);
     map.set('context', input.context ? restoredContext(input) : state.get('context'));
     map.set('posting_context_account_id', input.posting_context_account_id || null);
     map.set('surface', input.surface ? ImmutableMap({ kind: input.surface.kind, key: String(input.surface.key) }) : null);
