@@ -1,5 +1,7 @@
 import {
   COMPOSE_EDIT_CANCEL,
+  COMPOSE_QUOTE_CANCEL,
+  COMPOSE_REPLY_CANCEL,
   COMPOSE_RESET,
   COMPOSE_SCHEDULED_EDIT_CANCEL,
   COMPOSE_SET_STATUS,
@@ -27,6 +29,15 @@ const CLEAR_LATCH = new Set([
   COMPOSE_REDAFT_DISCARD,
 ]);
 
+const EXPLICIT_DISCARD = new Set([
+  COMPOSE_EDIT_CANCEL,
+  COMPOSE_QUOTE_CANCEL,
+  COMPOSE_REPLY_CANCEL,
+  COMPOSE_RESET,
+  COMPOSE_SCHEDULED_EDIT_CANCEL,
+  COMPOSE_REDAFT_DISCARD,
+]);
+
 const PUBLISH_SUCCESS = new Set([
   COMPOSE_SUBMIT_SUCCESS,
   SCHEDULED_STATUS_SUBMIT_SUCCESS,
@@ -34,6 +45,8 @@ const PUBLISH_SUCCESS = new Set([
 
 const FORCE_SYNC = new Set([
   COMPOSE_EDIT_CANCEL,
+  COMPOSE_QUOTE_CANCEL,
+  COMPOSE_REPLY_CANCEL,
   COMPOSE_RESET,
   COMPOSE_SCHEDULED_EDIT_CANCEL,
   COMPOSE_SET_STATUS,
@@ -504,6 +517,14 @@ export function createComposerDraftSession ({
           return;
         }
 
+        let discardedCurrent = false;
+
+        if (targeted && EXPLICIT_DISCARD.has(type) && surface.clientDraftUuid) {
+          discard(accountId, surface);
+          discardedCurrent = true;
+          refreshOffers(accountId);
+        }
+
         const snapshot = snapshotComposerDraft(state, {
           accountId,
           clientDraftUuid: surface.clientDraftUuid || 'pending',
@@ -512,10 +533,8 @@ export function createComposerDraftSession ({
         });
 
         if (!snapshot) {
-          if (surface.clientDraftUuid && targeted && CLEAR_LATCH.has(type)) {
-            discard(accountId, surface);
+          if (discardedCurrent) {
             setPersistence(composerId, 'idle', null, false);
-            refreshOffers(accountId);
           } else if (surface.clientDraftUuid) {
             flushComposer(composerId);
             detach(surface);

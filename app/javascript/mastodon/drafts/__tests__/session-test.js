@@ -1,5 +1,5 @@
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
-import { COMPOSE_RESET, COMPOSE_SET_STATUS, COMPOSE_SUBMIT_SUCCESS } from '../../actions/compose';
+import { COMPOSE_REPLY_CANCEL, COMPOSE_RESET, COMPOSE_SET_STATUS, COMPOSE_SUBMIT_SUCCESS, COMPOSE_UPLOAD_SUCCESS, changeCompose } from '../../actions/compose';
 import { REDRAFT } from '../../actions/statuses';
 import composer, { initialState } from '../../reducers/composer';
 import { createComposerDraftSession } from '../session';
@@ -230,6 +230,110 @@ describe('composer draft session', () => {
 
     expect(await backend.readDraft('42', 'draft-1')).toBeNull();
     expect((await backend.readDraft('42', 'draft-2')).input.text).toBe('keep other');
+  });
+
+  it('deletes the old draft when a clear leaves an uploaded attachment', async () => {
+    const { backend, session } = harness();
+    const typing = initialState.set('text', 'Hello');
+    const other = initialState.set('text', 'keep other').set('instanceId', 'portable-1');
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [
+        { composerId: 'primary', state: typing },
+        { composerId: 'portable', state: other },
+      ],
+    });
+    await session.flush();
+
+    const withMedia = composer(typing, {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'real-1', type: 'image' },
+    });
+
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_UPLOAD_SUCCESS },
+      composers: [
+        { composerId: 'primary', state: withMedia },
+        { composerId: 'portable', state: other },
+      ],
+    });
+    await session.flush();
+
+    const reset = composer(withMedia, { type: COMPOSE_RESET });
+
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_RESET },
+      composers: [
+        { composerId: 'primary', state: reset },
+        { composerId: 'portable', state: other },
+      ],
+    });
+    await session.flush();
+
+    const afterReset = await backend.listDrafts('42');
+    const kept = afterReset.find(item => item.input.text === 'keep other');
+    const continued = afterReset.find(item => item.client_draft_uuid !== kept.client_draft_uuid);
+
+    expect(await backend.readDraft('42', 'draft-1')).toBeNull();
+    expect(kept.client_draft_uuid).toBe('draft-2');
+    expect(continued.client_draft_uuid).not.toBe('draft-1');
+    expect(continued.input.text).toBe('');
+    expect(continued.input.media.map(item => item.id)).toEqual(['real-1']);
+    expect(reset.get('media_attachments').map(item => item.get('id')).toArray()).toEqual(['real-1']);
+
+    const typed = composer(reset, changeCompose('Next'));
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [
+        { composerId: 'primary', state: typed },
+        { composerId: 'portable', state: other },
+      ],
+    });
+    await session.flush();
+
+    expect(await backend.readDraft('42', 'draft-1')).toBeNull();
+    expect((await backend.readDraft('42', 'draft-2')).input.text).toBe('keep other');
+    expect((await backend.readDraft('42', continued.client_draft_uuid)).input.text).toBe('Next');
+  });
+
+  it('deletes the reply draft when the reply is canceled', async () => {
+    const { backend, session } = harness();
+    const reply = initialState.set('text', 'Hello').set('in_reply_to', 'reply-1');
+    const other = initialState.set('text', 'keep other').set('instanceId', 'portable-1');
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [
+        { composerId: 'primary', state: reply },
+        { composerId: 'portable', state: other },
+      ],
+    });
+    await session.flush();
+
+    const canceled = composer(reply, { type: COMPOSE_REPLY_CANCEL });
+
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_REPLY_CANCEL },
+      composers: [
+        { composerId: 'primary', state: canceled },
+        { composerId: 'portable', state: other },
+      ],
+    });
+    await session.flush();
+
+    expect(canceled.get('text')).toBe('');
+    expect(canceled.get('in_reply_to')).toBeNull();
+    expect(await backend.readDraft('42', 'draft-1')).toBeNull();
+    expect((await backend.readDraft('42', 'draft-2')).input.text).toBe('keep other');
+    expect((await backend.listDrafts('42')).map(item => item.client_draft_uuid)).toEqual(['draft-2']);
   });
 
   it('drops an in-flight snapshot when the post succeeds or the surface is cleared', async () => {
