@@ -6,14 +6,22 @@ import errorsMiddleware from '../middleware/errors';
 import soundsMiddleware from '../middleware/sounds';
 import externalPlayerMiddleware from '../external_player/middleware';
 import { filterReconciliationMiddleware } from '../filter_reconciliation/scheduler';
+import { composerDraftRecoveryEnabled } from '../drafts/feature';
+import { composerDraftMiddleware } from '../drafts/middleware';
 
 export default function configureStore() {
-  return createStore(appReducer, compose(applyMiddleware(
+  const middleware = [
     thunk,
     externalPlayerMiddleware,
     filterReconciliationMiddleware,
     loadingBarMiddleware({ promiseTypeSuffixes: ['REQUEST', 'SUCCESS', 'FAIL'] }),
     errorsMiddleware(),
     soundsMiddleware(),
-  ), window.__REDUX_DEVTOOLS_EXTENSION__ ? window.__REDUX_DEVTOOLS_EXTENSION__() : f => f));
+  ];
+
+  if (composerDraftRecoveryEnabled()) {
+    middleware.splice(1, 0, composerDraftMiddleware());
+  }
+
+  return createStore(appReducer, compose(applyMiddleware(...middleware), window.__REDUX_DEVTOOLS_EXTENSION__ ? window.__REDUX_DEVTOOLS_EXTENSION__() : f => f));
 };

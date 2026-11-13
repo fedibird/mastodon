@@ -71,7 +71,8 @@ import {
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
 import { COMPOSE_REDAFT_DISCARD, COMPOSE_REDAFT_MEDIA_LOCAL, COMPOSE_REDAFT_MEDIA_STATUS } from '../actions/redraft_media';
-import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_DRAFT_RESTORE, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { applyComposerDraft } from '../drafts/snapshot';
 import { USER_PREFERENCES_DOCUMENT_ACCEPTED } from '../actions/user_preferences';
 import { applyComposerPreferenceDefaults } from '../utils/preference_apply';
 import { consistentLocalFedibirdGroup, consistentSupportedRemoteGroup } from '../posting_identity/group_destination';
@@ -2215,6 +2216,8 @@ function reduceComposer(state = initialState, action) {
     return state.update('references', set => set.clear());
   case COMPOSE_REFERENCE_CHECK_IGNORE:
     return state.set('ignore_reference_check', true);
+  case COMPOSER_DRAFT_RESTORE:
+    return applyComposerDraft(state, action.snapshot, { idempotencyKey: action.idempotencyKey });
   default:
     return state;
   }
