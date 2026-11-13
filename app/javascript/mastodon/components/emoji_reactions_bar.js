@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { List } from 'immutable';
+import { emojiReactionsForStatus, emojiReactionAccountIds } from '../utils/emoji_reactions';
 import TransitionMotion from 'react-motion/lib/TransitionMotion';
 import { reduceMotion, me, hideReactionCounter, hideListOfEmojiReactionsToPosts } from 'mastodon/initial_state';
 import { reduceMotionNow, watchReduceMotion } from 'mastodon/utils/appearance_preferences';
@@ -11,17 +11,16 @@ import spring from 'react-motion/lib/spring';
 import EmojiReaction from './emoji_reactions';
 
 const mapStateToProps = (state, { status }) => ({
-  emojiReactions: status.get('emoji_reactions') || List(),
+  emojiReactions: emojiReactionsForStatus(status),
 });
 
 const mergeProps = ({ emojiReactions }, dispatchProps, ownProps) => ({
   ...ownProps,
   ...dispatchProps,
-  visibleReactions: emojiReactions.filter(x => x.get('count') > 0),
+  visibleReactions: emojiReactions.filter(x => x && typeof x.get === 'function' && x.get('count') > 0),
 });
 
-@connect(mapStateToProps, null, mergeProps)
-export default class EmojiReactionsBar extends ImmutablePureComponent {
+class EmojiReactionsBar extends ImmutablePureComponent {
 
   static propTypes = {
     status: ImmutablePropTypes.map.isRequired,
@@ -63,7 +62,7 @@ export default class EmojiReactionsBar extends ImmutablePureComponent {
         key: `${emojiReaction.get('name')}${domain ? `@${domain}` : ''}`,
         data: {
           emojiReaction: emojiReaction,
-          myReaction: emojiReaction.get('account_ids', List()).includes(me),
+          myReaction: emojiReactionAccountIds(emojiReaction).includes(me),
         },
         style: { scale: reduceMotionNow(reduceMotion) ? 1 : spring(1, { stiffness: 150, damping: 13 }) },
       };
@@ -94,3 +93,5 @@ export default class EmojiReactionsBar extends ImmutablePureComponent {
   }
 
 }
+
+export default connect(mapStateToProps, null, mergeProps)(EmojiReactionsBar);

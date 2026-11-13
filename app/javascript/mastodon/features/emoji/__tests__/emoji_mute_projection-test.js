@@ -20,7 +20,7 @@ import { addIntersectionStatusId, removeIntersectionStatusId } from '../../../ac
 import { projectStreamReaction, reactionNameHidden, guardImportedReactions, projectStatusReactions } from '../emoji_mute_projection';
 import { installEmojiMutesForTests, loadEmojiMutes, noteEmojiMutesChanged, appliedEmojiMuteRevision, observedEmojiMuteRevision, resetEmojiMuteStoreForTests, emojiReactionEventsAccepted } from '../emoji_mute_store';
 import api from 'mastodon/api';
-import { addEmojiReaction, updateEmojiReaction } from '../../../actions/interactions';
+import { addEmojiReaction, removeEmojiReaction, updateEmojiReaction } from '../../../actions/interactions';
 import { NOTIFICATIONS_FEED_MERGE, NOTIFICATIONS_RELOAD_SUCCESS, NOTIFICATIONS_CLEAR, NOTIFICATIONS_FILTER_SET, NOTIFICATIONS_EXPAND_SUCCESS, updateNotifications, clearNotifications } from '../../../actions/notifications';
 import { ACCOUNT_BLOCK_SUCCESS } from '../../../actions/accounts';
 import { DOMAIN_BLOCK_SUCCESS } from '../../../actions/domain_blocks';
@@ -81,6 +81,49 @@ describe('emoji mute projection', () => {
     });
     expect(state.getIn(['10', 'emoji_reactions_count'])).toBe(1);
     expect(state.getIn(['10', 'emoji_mutes_revision'])).toBe('4');
+  });
+
+  it('recalculates the compact total after hidden and visible stream updates', () => {
+    installEmojiMutesForTests({ revision: '4', emoji_mutes: [] });
+    let state = reducer(undefined, {
+      type: STATUS_IMPORT,
+      status: {
+        id: 'stream-total',
+        emoji_mutes_revision: '4',
+        emoji_reactions_count: 3,
+        emoji_reactions: [
+          { name: '👍', count: 2, account_ids: ['2', '3'] },
+          { name: '👀', count: 1, account_ids: ['4'] },
+        ],
+      },
+    });
+    const hide = [{ emoji: { kind: 'unicode', native: '👍' }, effects: { hide_reactions: true } }];
+    state = reducer(state, {
+      type: EMOJI_REACTION_UPDATE,
+      emojiReaction: { status_id: 'stream-total', name: '👍', count: 2, account_ids: ['2', '3'], cache_token: '1' },
+      emojiMuteRules: hide,
+    });
+
+    expect(state.getIn(['stream-total', 'emoji_reactions']).map(group => group.get('name')).toJS()).toEqual(['👀']);
+    expect(state.getIn(['stream-total', 'emoji_reactions_count'])).toBe(1);
+
+    state = reducer(state, {
+      type: EMOJI_REACTION_UPDATE,
+      emojiReaction: { status_id: 'stream-total', name: '👀', count: 2, account_ids: ['4', '5'], cache_token: '2' },
+      emojiMuteRules: hide,
+    });
+    expect(state.getIn(['stream-total', 'emoji_reactions_count'])).toBe(2);
+  });
+
+  it('does not throw or send DELETE when a withheld reaction list is unavailable', () => {
+    const dispatch = jest.fn();
+    const getState = () => fromJS({});
+    const missing = fromJS({ id: 'withheld', emoji_reactions: undefined });
+    const invalidIds = fromJS({ id: 'withheld', emoji_reactions: [{ name: '👍', account_ids: undefined }] });
+
+    expect(() => removeEmojiReaction(missing, '👍')(dispatch, getState)).not.toThrow();
+    expect(() => removeEmojiReaction(invalidIds, '👍')(dispatch, getState)).not.toThrow();
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it('keeps a newer mute revision and matches unicode without matching a skin tone', () => {

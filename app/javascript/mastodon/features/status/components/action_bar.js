@@ -17,6 +17,7 @@ import { copyStatusSource } from '../../../actions/statuses';
 import { translationPairStatus } from '../../../utils/translation_languages';
 import { selectAcceptedTranslationPreferences } from '../../../selectors/user_preferences';
 import { translationBarEffectivelyVisible, viewerTranslationPair } from '../../../utils/translation_view';
+import { emojiReactionsForStatus } from '../../../utils/emoji_reactions';
 
 const messages = defineMessages({
   edit: { id: 'status.edit', defaultMessage: 'Edit' },
@@ -404,8 +405,7 @@ class ActionBar extends React.PureComponent {
     const reblogsCount       = status.get('reblogs_count');
     const referredByCount    = status.get('status_referred_by_count');
     const favouritesCount    = status.get('favourites_count');
-    const emojiReactions     = status.get('emoji_reactions');
-    const hasEmojiReactions  = !!emojiReactions && !emojiReactions.isEmpty();
+    const hasEmojiReactions  = !emojiReactionsForStatus(status).isEmpty();
     const [ , domain ]       = account.get('acct').split('@');
 
     const expires_at = status.get('expires_at');

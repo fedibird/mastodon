@@ -60,6 +60,7 @@ import { boostModal, deleteModal, followModal, unfollowModal, subscribeModal, un
 import { showAlertForError } from '../actions/alerts';
 import { List as ImmutableList } from 'immutable';
 import { me, maxReactionsPerAccount } from 'mastodon/initial_state';
+import { emojiReactionsForStatus, emojiReactionAccountIds } from '../utils/emoji_reactions';
 
 const messages = defineMessages({
   deleteConfirm: { id: 'confirmations.delete.confirm', defaultMessage: 'Delete' },
@@ -95,8 +96,7 @@ const makeMapStateToProps = () => {
       id,
       referenced: state.getIn(['compose', 'references']).has(id),
       contextReferenced: state.getIn(['compose', 'context_references']).has(id),
-      // An unsettled emoji-mute document can intentionally withhold reactions.
-      emojiReactions: !!status ? (status.get('emoji_reactions') || ImmutableList()) : ImmutableList(),
+      emojiReactions: emojiReactionsForStatus(status),
     };
   };
 
@@ -104,7 +104,7 @@ const makeMapStateToProps = () => {
 };
 
 const mergeProps = ({ status, pictureInPicture, referenced, contextReferenced, emojiReactions }, dispatchProps, ownProps) => {
-  const myCount = emojiReactions.count((emojiReaction) => emojiReaction.get('account_ids', ImmutableList()).includes(me));
+  const myCount = emojiReactions.count(emojiReaction => emojiReactionAccountIds(emojiReaction).includes(me));
 
   let renderedStatus = status;
 

@@ -41,6 +41,7 @@ import { me } from '../initial_state';
 import { Map as ImmutableMap, List, fromJS } from 'immutable';
 import { guardImportedReactions, projectStatusReactions, projectStreamReaction, reactionTokenStale, revisionStale } from '../features/emoji/emoji_mute_projection';
 import { appliedEmojiMuteRevision, currentEmojiMutes, emojiReactionEventsAccepted, observedEmojiMuteRevision } from '../features/emoji/emoji_mute_store';
+import { emojiReactionsForStatus } from '../utils/emoji_reactions';
 import { EMOJI_MUTES_APPLY } from '../actions/emoji_mutes';
 
 const protectEmojiReactionProjection = (previous, status) => (
@@ -392,6 +393,13 @@ export default function statuses(state = initialState, action) {
     let next = projected.hidden
       ? state.update(id, status => status.update('emoji_reactions', emojiReactions => (emojiReactions || List()).filter(emojiReaction => emojiReaction.get('name') !== projected.payload.name)))
       : updateEmojiReactionCount(state, projected.payload);
+
+    // Streaming updates change the projected groups without replacing the
+    // status. Keep the compact counter in sync with the visible group counts.
+    const visibleCount = emojiReactionsForStatus(next.get(id)).reduce(
+      (sum, group) => sum + (group && typeof group.get === 'function' ? Number(group.get('count') || 0) : 0), 0,
+    );
+    next = next.setIn([id, 'emoji_reactions_count'], visibleCount);
 
     if (action.emojiReaction.cache_token) {
       next = next.setIn([id, 'emoji_reactions_cache_token'], String(action.emojiReaction.cache_token));

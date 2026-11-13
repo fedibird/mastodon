@@ -1,7 +1,7 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { IntlProvider } from 'react-intl';
-import EmojiMuteSettings, { DEFAULT_REPLACEMENT } from '../emoji_mute_settings';
+import EmojiMuteSettings, { DEFAULT_REPLACEMENT, EmojiMuteSettings as EmojiMuteSettingsInner } from '../emoji_mute_settings';
 
 jest.mock('../emoji_picker_shell', () => () => null);
 
@@ -59,6 +59,58 @@ describe('Emoji mute settings', () => {
     setItem.mockClear();
   });
 
+  it('does not cancel a newer settings request timeout when an older request resolves', async () => {
+    jest.useFakeTimers();
+    let resolveFirst;
+    const first = new Promise(resolve => {
+      resolveFirst = resolve;
+    });
+    let resolveSecond;
+    const second = new Promise(resolve => {
+      resolveSecond = resolve;
+    });
+    const loadDocument = jest.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const ref = React.createRef();
+    const view = render(
+      <EmojiMuteSettingsInner
+        ref={ref}
+        intl={{ formatMessage: message => message.defaultMessage }}
+        loadDocument={loadDocument}
+      />,
+    );
+
+    try {
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(loadDocument).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        ref.current.load(false);
+        await Promise.resolve();
+      });
+      expect(loadDocument).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        resolveFirst(documentResponse);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(ref.current.state.status).toBe('loading');
+
+      await act(async () => {
+        jest.advanceTimersByTime(15000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(ref.current.state.status).toBe('error');
+    } finally {
+      view.unmount();
+      resolveSecond(documentResponse);
+      jest.useRealTimers();
+    }
+  });
+
   it('shows replacements immediately and resolves originals only after the display toggle', async () => {
     const resolveEmoji = jest.fn(reference => Promise.resolve(reference.kind === 'unicode' ? {
       detail: { native, image: { src: '/emoji/test-tube.svg', alt: native } },
@@ -84,7 +136,7 @@ describe('Emoji mute settings', () => {
     expect(resolveEmoji).not.toHaveBeenCalled();
     expect(view.container.innerHTML).not.toContain(secretUrl);
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Display original emoji' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show original emoji' }));
 
     await waitFor(() => expect(resolveEmoji).toHaveBeenCalledTimes(2));
     expect((await screen.findAllByText(native)).length).toBeGreaterThan(0);
@@ -100,10 +152,10 @@ describe('Emoji mute settings', () => {
     let currentDocument = documentResponse;
     const loadDocument = jest.fn(() => Promise.resolve(currentDocument));
 
-    saveRule.mockImplementation((id, revision, effects, replacement) => {
+    saveRule.mockImplementation((id, { expectedRevision, effects, replacement }) => {
       const updated = {
-        ...documentResponse.emoji_mutes.find(rule => rule.id === id),
-        revision: String(Number(revision) + 1),
+        ...currentDocument.emoji_mutes.find(rule => rule.id === id),
+        revision: String(Number(expectedRevision) + 1),
         effects,
         replacement,
       };
@@ -127,7 +179,7 @@ describe('Emoji mute settings', () => {
 
     await screen.findByText(DEFAULT_REPLACEMENT);
     fireEvent.click(screen.getByRole('button', { name: 'Select all shown' }));
-    expect(screen.getByText('2 selected')).toBeTruthy();
+    expect(screen.getAllByText('2 selected')).toHaveLength(2);
 
     fireEvent.click(screen.getByText('Change replacement text'));
     const bulkReplacement = screen.getByRole('textbox', { name: 'Set replacement for selected' });
@@ -142,8 +194,8 @@ describe('Emoji mute settings', () => {
 
     await waitFor(() => expect(saveRule).toHaveBeenCalledTimes(2));
     saveRule.mock.calls.forEach(call => {
-      expect(call[3]).toBe('□');
-      expect(call[2]).toEqual({
+      expect(call[1].replacement).toBe('□');
+      expect(call[1].effects).toEqual({
         replace_in_text: false,
         reject_reactions_to_own_posts: false,
         hide_reactions: false,
@@ -167,14 +219,15 @@ describe('Emoji mute settings', () => {
     await screen.findByText(DEFAULT_REPLACEMENT);
     fireEvent.click(screen.getByRole('tab', { name: 'Select emoji' }));
 
-    const options = screen.getAllByRole('option');
+    const grid = screen.getByRole('listbox');
+    const options = within(grid).getAllByRole('option');
     fireEvent.click(options[0]);
     expect(options[0].getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByText('1 selected')).toBeTruthy();
+    expect(screen.getAllByText('1 selected')).toHaveLength(2);
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove selected mutes' }));
     await waitFor(() => expect(removeRule).toHaveBeenCalledWith('15', '3'));
-    await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(1));
+    await waitFor(() => expect(within(grid).getAllByRole('option')).toHaveLength(1));
   });
 
   it('keeps an edited row when an individual save conflicts', async () => {
@@ -190,7 +243,7 @@ describe('Emoji mute settings', () => {
     fireEvent.change(replacementInputs[0], { target: { value: 'kept' } });
     fireEvent.click(screen.getAllByRole('button', { name: 'Save changes' })[0]);
 
-    await waitFor(() => expect(saveRule).toHaveBeenCalledWith('15', '3', expect.any(Object), 'kept'));
+    await waitFor(() => expect(saveRule).toHaveBeenCalledWith('15', expect.objectContaining({ expectedRevision: '3', replacement: 'kept' })));
     expect(screen.getByDisplayValue('kept')).toBeTruthy();
     expect(await screen.findByText('This mute changed elsewhere. Reload the page and try again.')).toBeTruthy();
   });

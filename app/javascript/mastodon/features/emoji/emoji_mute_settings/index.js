@@ -254,6 +254,8 @@ export class EmojiMuteSettings extends React.PureComponent {
     addNotice: '',
   };
 
+  loadTimeouts = new Set();
+
   componentDidMount() {
     this.mounted = true;
     window.addEventListener('beforeunload', this.handleUnload);
@@ -275,7 +277,8 @@ export class EmojiMuteSettings extends React.PureComponent {
     document.removeEventListener('visibilitychange', this.handleVisibility);
     window.removeEventListener('pointerup', this.stopGridDrag);
     window.removeEventListener('pointercancel', this.stopGridDrag);
-    window.clearTimeout(this.loadTimeout);
+    this.loadTimeouts.forEach(timeoutId => window.clearTimeout(timeoutId));
+    this.loadTimeouts.clear();
   }
 
   text(id, values) {
@@ -304,13 +307,13 @@ export class EmojiMuteSettings extends React.PureComponent {
     if (!background) this.setState({ status: this.state.rules.length ? this.state.status : 'loading' });
 
     const request = Promise.resolve().then(() => this.props.loadDocument());
+    let timeoutId;
     const timeout = new Promise((_, reject) => {
-      this.loadTimeout = window.setTimeout(() => reject(Object.assign(new Error('timeout'), { status: 0, code: 'timeout' })), 15000);
+      timeoutId = window.setTimeout(() => reject(Object.assign(new Error('timeout'), { status: 0, code: 'timeout' })), 15000);
+      this.loadTimeouts.add(timeoutId);
     });
 
     Promise.race([request, timeout]).then(document => {
-      window.clearTimeout(this.loadTimeout);
-      this.loadTimeout = null;
       if (!this.mounted || generation !== this.generation) return null;
       if (!document) {
         if (!background) this.setState({ status: 'error' });
@@ -326,12 +329,14 @@ export class EmojiMuteSettings extends React.PureComponent {
       this.acceptDocument(document);
       return null;
     }).catch(error => {
-      window.clearTimeout(this.loadTimeout);
-      this.loadTimeout = null;
       if (!this.mounted || generation !== this.generation) return;
       if (background && this.state.status === 'ready') return;
       const status = error && (error.status === 401 || error.status === 403) ? 'auth' : 'error';
       this.setState({ status });
+    }).finally(() => {
+      // Another load may have started: only clear this request's timer.
+      window.clearTimeout(timeoutId);
+      this.loadTimeouts.delete(timeoutId);
     });
   }
 
@@ -866,7 +871,7 @@ export class EmojiMuteSettings extends React.PureComponent {
         </div>
 
         <fieldset className='emoji-mute-settings__effects'>
-          {EFFECTS.map(([key, _stem, shortStem]) => (
+          {EFFECTS.map(([key, , shortStem]) => (
             <label key={key}>
               <input type='checkbox' checked={Boolean(draft.effects[key])} data-mute-id={rule.id} data-effect={key} onChange={this.handleEffect} />
               <span>{this.text(shortStem)}</span>
