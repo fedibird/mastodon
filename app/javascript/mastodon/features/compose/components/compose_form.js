@@ -73,6 +73,11 @@ const messages = defineMessages({
   privacyPersonal: { id: 'privacy.personal.short', defaultMessage: 'Personal' },
   surfaceMismatch: { id: 'compose_form.posting_style.surface_mismatch', defaultMessage: 'This draft still uses the previous destination. Posting stays off until you apply the destination shown here.' },
   surfaceAccept: { id: 'compose_form.posting_style.surface_accept', defaultMessage: 'Use this destination' },
+  draftMediaUnresolved: { id: 'compose_form.draft_media_unresolved', defaultMessage: 'Saved attachments are not ready to post. Posting and new attachments stay off until they are removed.' },
+  draftReplyPending: { id: 'compose_form.draft_reply_pending', defaultMessage: 'Loading the post this replies to. Posting stays off until it appears.' },
+  draftReplyFailed: { id: 'compose_form.draft_reply_failed', defaultMessage: 'The post this replies to could not be loaded. Posting stays off.' },
+  draftQuotePending: { id: 'compose_form.draft_quote_pending', defaultMessage: 'Loading the quoted post. Posting stays off until it appears.' },
+  draftQuoteFailed: { id: 'compose_form.draft_quote_failed', defaultMessage: 'The quoted post could not be loaded. Posting stays off.' },
   mediaType: { id: 'upload_button.media_type', defaultMessage: 'Video and audio cannot be posted as this account.' },
   mediaOwner: { id: 'compose_form.media_owner', defaultMessage: 'These images belong to a different posting account. They stay attached, and this post cannot be sent until they match the selected account.' },
   more: { id: 'compose_form.more_actions', defaultMessage: 'More actions' },
@@ -211,6 +216,9 @@ class ComposeForm extends ImmutablePureComponent {
     canSendAsIdentity: PropTypes.bool,
     capabilityReason: PropTypes.string,
     surfaceMismatch: PropTypes.bool,
+    draftMediaUnresolved: PropTypes.bool,
+    draftReplyHold: PropTypes.string,
+    draftQuoteHold: PropTypes.string,
     onAcceptSurface: PropTypes.func,
     displayMode: PropTypes.oneOf(['full', 'simple']),
     onDisplayModeChange: PropTypes.func,
@@ -250,6 +258,9 @@ class ComposeForm extends ImmutablePureComponent {
     sendBlockReason: null,
     capabilityReason: null,
     surfaceMismatch: false,
+    draftMediaUnresolved: false,
+    draftReplyHold: null,
+    draftQuoteHold: null,
     displayMode: 'full',
   };
 
@@ -279,7 +290,41 @@ class ComposeForm extends ImmutablePureComponent {
     const noVisibility = !isEditing && prohibitedVisibilities?.includes(privacy);
     const ngWords = prohibitedWords.some( word => composedText.includes(word) || spoilerText?.includes(word) );
 
-    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt || canSendAsIdentity === false || this.props.surfaceMismatch || !!redraftNotice);
+    const replyHold = this.props.draftReplyHold === 'pending' || this.props.draftReplyHold === 'failed';
+    const quoteHold = this.props.draftQuoteHold === 'pending' || this.props.draftQuoteHold === 'failed';
+
+    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt || canSendAsIdentity === false || this.props.surfaceMismatch || this.props.draftMediaUnresolved || replyHold || quoteHold || !!redraftNotice);
+  }
+
+  renderDraftHold () {
+    const { intl, draftMediaUnresolved, draftReplyHold, draftQuoteHold } = this.props;
+    const lines = [];
+
+    if (draftMediaUnresolved) {
+      lines.push(intl.formatMessage(messages.draftMediaUnresolved));
+    }
+
+    if (draftReplyHold === 'pending') {
+      lines.push(intl.formatMessage(messages.draftReplyPending));
+    } else if (draftReplyHold === 'failed') {
+      lines.push(intl.formatMessage(messages.draftReplyFailed));
+    }
+
+    if (draftQuoteHold === 'pending') {
+      lines.push(intl.formatMessage(messages.draftQuotePending));
+    } else if (draftQuoteHold === 'failed') {
+      lines.push(intl.formatMessage(messages.draftQuoteFailed));
+    }
+
+    if (!lines.length) {
+      return null;
+    }
+
+    return (
+      <div className='compose-form__draft-hold' role='status'>
+        {lines.map(line => <p key={line}>{line}</p>)}
+      </div>
+    );
   }
 
   renderSurfaceMismatch () {
@@ -1185,6 +1230,7 @@ class ComposeForm extends ImmutablePureComponent {
         {this.props.styleController}
         {this.renderHeader()}
         {this.renderSurfaceMismatch()}
+        {this.renderDraftHold()}
         {this.renderCapabilityGuard()}
         {this.state.uploadNotice ? (
           <p className='compose-form__upload-notice' role='status'>{this.uploadNoticeText()}</p>

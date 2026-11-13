@@ -19,6 +19,7 @@ import { acceptComposerSurface, targetComposerAction } from '../../../actions/co
 import { fetchPostingIdentities, scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
 import { selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
 import { materializeComposerText } from '../../../posting_context/materialize';
+import { composerDraftRestoreBlocks } from '../../../drafts/snapshot';
 import { selectComposer } from '../../../selectors/composer';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../../../selectors/posting_identities';
 import { withComposerId } from '../composer_id_context';
@@ -94,6 +95,9 @@ const mapStateToProps = (state, { composerId }) => {
     }),
     overflowContextActive: !styleControlsAvailable && postingContextHasDetails(postingContextState(state, { composerId })),
     surfaceMismatch: composer.get('surfaceMismatch') === true,
+    draftMediaUnresolved: composerDraftRestoreBlocks(composer).media,
+    draftReplyHold: composer.get('draftReplyHold') || null,
+    draftQuoteHold: composer.get('draftQuoteHold') || null,
     redraftNotice: composerRedraftNotice(composer),
   };
 };

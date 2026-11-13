@@ -365,6 +365,120 @@ describe('composer draft session', () => {
     expect((await backend.readDraft('42', 'draft-1')).input.text).toBe('hidden');
   });
 
+  it('applies a delayed acknowledgement only to its own edit', async () => {
+    const backend = createMemoryDraftBackend();
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let writes = 0;
+    let entered;
+    const enteredGate = new Promise((resolve) => {
+      entered = resolve;
+    });
+    const gated = {
+      readDraft: (...args) => backend.readDraft(...args),
+      deleteDraft: (...args) => backend.deleteDraft(...args),
+      listDrafts: (...args) => backend.listDrafts(...args),
+      writeDraft: (record, options) => {
+        writes += 1;
+        const afterCommit = writes === 1 ? async () => {
+          entered();
+          await gate;
+        } : undefined;
+
+        return backend.writeDraft(record, { ...options, afterCommit });
+      },
+    };
+    let nextId = 0;
+    const session = createComposerDraftSession({
+      backend: gated,
+      now: () => '2026-11-13T00:00:01.000Z',
+      createId: () => {
+        nextId += 1;
+        return `draft-${nextId}`;
+      },
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith('a') }],
+    });
+    expect(session.snapshot().persistence.primary.status).toBe('saving');
+    const first = session.flush();
+
+    await enteredGate;
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith('b') }],
+    });
+    expect(session.snapshot().persistence.primary.status).toBe('saving');
+    const second = session.flush();
+
+    release();
+    await first;
+    await second;
+
+    const saved = await backend.readDraft('42', 'draft-1');
+
+    expect(saved.input.text).toBe('b');
+    expect(saved.revision).toBe(2);
+    expect(session.snapshot().persistence.primary.status).toBe('saved');
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith('c') }],
+    });
+    await session.flush();
+
+    const next = await backend.readDraft('42', 'draft-1');
+
+    expect(next.input.text).toBe('c');
+    expect(next.revision).toBe(3);
+    expect(await backend.listDrafts('42')).toHaveLength(1);
+  });
+
+  it('does not serialize an unchanged composer for an unrelated action', () => {
+    const { session } = harness();
+    const state = composerWith('hello');
+    let reads = 0;
+    const counting = {
+      get (key) {
+        reads += 1;
+        return state.get(key);
+      },
+      getIn (path) {
+        reads += 1;
+        return state.getIn(path);
+      },
+    };
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: counting }],
+    });
+    expect(reads).toBeGreaterThan(0);
+    reads = 0;
+    session.sync({
+      accountId: '42',
+      action: { type: 'TIMELINE_UPDATE' },
+      composers: [{ composerId: 'primary', state: counting }],
+    });
+    expect(reads).toBe(0);
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_SUBMIT_SUCCESS' },
+      composers: [{ composerId: 'primary', state: counting }],
+    });
+    expect(reads).toBeGreaterThan(0);
+  });
+
   it('skips an unsupported record instead of throwing', async () => {
     const backend = createMemoryDraftBackend();
 

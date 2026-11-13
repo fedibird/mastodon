@@ -4,9 +4,10 @@ import {
   COMPOSE_SCHEDULED_EDIT_CANCEL,
   COMPOSE_SET_STATUS,
   COMPOSE_SUBMIT_SUCCESS,
+  COMPOSE_UNMOUNT,
   SCHEDULED_STATUS_SUBMIT_SUCCESS,
 } from '../actions/compose';
-import { COMPOSER_DRAFT_RESTORE } from '../actions/composer';
+import { COMPOSER_DESTROY, COMPOSER_DRAFT_RESTORE } from '../actions/composer';
 import { COMPOSE_REDAFT_DISCARD } from '../actions/redraft_media';
 import { REDRAFT } from '../actions/statuses';
 import { composerDraftInProgress } from '../posting_context/surface';
@@ -31,6 +32,20 @@ const PUBLISH_SUCCESS = new Set([
   SCHEDULED_STATUS_SUBMIT_SUCCESS,
 ]);
 
+const FORCE_SYNC = new Set([
+  COMPOSE_EDIT_CANCEL,
+  COMPOSE_RESET,
+  COMPOSE_SCHEDULED_EDIT_CANCEL,
+  COMPOSE_SET_STATUS,
+  COMPOSE_SUBMIT_SUCCESS,
+  COMPOSE_UNMOUNT,
+  SCHEDULED_STATUS_SUBMIT_SUCCESS,
+  COMPOSER_DESTROY,
+  COMPOSER_DRAFT_RESTORE,
+  REDRAFT,
+  COMPOSE_REDAFT_DISCARD,
+]);
+
 function actionComposerId (action) {
   if (action && action.meta && action.meta.composerId) {
     return action.meta.composerId;
@@ -51,6 +66,7 @@ export function createComposerDraftSession ({
   const claimed = new Map();
   const discarded = new Set();
   const pending = new Map();
+  const writeChains = new Map();
   const timers = new Map();
   const epochs = new Map();
   const persistence = new Map();
@@ -159,19 +175,22 @@ export function createComposerDraftSession ({
     } catch (error) {
       const failure = fail(error);
       const current = surfaces.get(composerId);
+      const latest = current && current.clientDraftUuid === snapshot.client_draft_uuid && epochs.get(composerId) === epoch;
 
-      if (current) {
+      if (latest) {
         current.lastHash = null;
+        setPersistence(composerId, 'failed', failure.reason, snapshot.media_incomplete);
       }
 
-      setPersistence(composerId, 'failed', failure.reason, snapshot.media_incomplete);
       return failure;
     }
 
     const current = surfaces.get(composerId);
+    const ownsUuid = Boolean(current && current.clientDraftUuid === snapshot.client_draft_uuid);
+    const latest = ownsUuid && epochs.get(composerId) === epoch;
 
     if (result.status === 'conflict' && !forked) {
-      if (!current || epochs.get(composerId) !== epoch) {
+      if (!latest) {
         return result;
       }
 
@@ -190,10 +209,13 @@ export function createComposerDraftSession ({
       return commit(accountId, composerId, forkedSnapshot, epoch + 1, true);
     }
 
-    if ((result.status === 'saved' || result.status === 'unchanged') && current && current.clientDraftUuid === snapshot.client_draft_uuid) {
+    if ((result.status === 'saved' || result.status === 'unchanged') && ownsUuid && result.record) {
       current.baseRevision = result.record.revision;
-      current.lastHash = snapshot.content_hash;
-      setPersistence(composerId, 'saved', null, snapshot.media_incomplete);
+
+      if (latest) {
+        current.lastHash = snapshot.content_hash;
+        setPersistence(composerId, 'saved', null, snapshot.media_incomplete);
+      }
     }
 
     if (result.status === 'saved' || result.status === 'discarded' || result.status === 'conflict') {
@@ -219,7 +241,15 @@ export function createComposerDraftSession ({
 
     pending.delete(composerId);
 
-    return commit(queued.accountId, composerId, queued.snapshot, queued.epoch);
+    const previous = writeChains.get(composerId) || Promise.resolve();
+    const run = previous.then(
+      () => commit(queued.accountId, composerId, queued.snapshot, queued.epoch),
+      () => commit(queued.accountId, composerId, queued.snapshot, queued.epoch),
+    );
+
+    writeChains.set(composerId, run.then(() => undefined, () => undefined));
+
+    return run;
   }
 
   function scheduleWrite (accountId, composerId, snapshot) {
@@ -227,6 +257,7 @@ export function createComposerDraftSession ({
 
     epochs.set(composerId, epoch);
     pending.set(composerId, { accountId, snapshot, epoch });
+    setPersistence(composerId, 'saving', null, snapshot.media_incomplete);
 
     const existing = timers.get(composerId);
 
@@ -260,14 +291,23 @@ export function createComposerDraftSession ({
       return restored.ok
         && String(restored.snapshot.account_id) === String(accountId)
         && !claimed.has(restored.snapshot.client_draft_uuid);
-    }).map(record => ({
-      client_draft_uuid: String(record.client_draft_uuid),
-      account_id: String(record.account_id),
-      saved_at: record.saved_at || null,
-      composer_id: record.composer_id || null,
-      media_incomplete: record.media_incomplete === true,
-      revision: record.revision || 0,
-    })).sort((left, right) => String(right.saved_at || '').localeCompare(String(left.saved_at || '')));
+    }).map(record => {
+      const input = record.input || {};
+      const surface = input.surface || null;
+
+      return {
+        client_draft_uuid: String(record.client_draft_uuid),
+        account_id: String(record.account_id),
+        saved_at: record.saved_at || null,
+        composer_id: record.composer_id || null,
+        media_incomplete: record.media_incomplete === true,
+        revision: record.revision || 0,
+        surface_kind: surface && surface.kind ? String(surface.kind) : null,
+        surface_key: surface && surface.key ? String(surface.key) : null,
+        in_reply_to: Boolean(input.in_reply_to_id),
+        quote: Boolean(input.quote_id),
+      };
+    }).sort((left, right) => String(right.saved_at || '').localeCompare(String(left.saved_at || '')));
 
     const same = next.length === offers.length && next.every((item, index) => item.client_draft_uuid === offers[index].client_draft_uuid);
 
@@ -393,8 +433,15 @@ export function createComposerDraftSession ({
         }
 
         seen.add(composerId);
-        const instanceId = state.get('instanceId');
+
         let surface = surfaces.get(composerId);
+        const targeted = actionComposerId(action) === composerId;
+
+        if (surface && surface.stateRef === state && !(targeted && FORCE_SYNC.has(type))) {
+          return;
+        }
+
+        const instanceId = state.get('instanceId');
 
         if (surface && surface.instanceId !== instanceId) {
           flushComposer(composerId);
@@ -412,12 +459,12 @@ export function createComposerDraftSession ({
           surfaces.set(composerId, surface);
         }
 
+        surface.stateRef = state;
+
         if (type === COMPOSER_DRAFT_RESTORE && actionComposerId(action) === composerId) {
           adoptRestored(composerId, state, action);
           return;
         }
-
-        const targeted = actionComposerId(action) === composerId;
 
         if (targeted && type === REDRAFT) {
           surface.latched = 'redraft';

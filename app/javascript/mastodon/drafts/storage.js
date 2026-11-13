@@ -283,6 +283,10 @@ export function createMemoryDraftBackend () {
 
         records.set(key, decision.record);
 
+        if (options.afterCommit) {
+          await options.afterCommit();
+        }
+
         if (options.isDiscarded && options.isDiscarded()) {
           records.delete(key);
           return { status: 'discarded' };

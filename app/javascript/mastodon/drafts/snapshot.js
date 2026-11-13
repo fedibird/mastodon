@@ -1,6 +1,6 @@
 import { List as ImmutableList, Map as ImmutableMap, Set as ImmutableSet, fromJS } from 'immutable';
 import { initialSenderIdentity, sessionPostingIdentityId } from '../posting_identity/identity';
-import { composerDraftInProgress } from '../posting_context/surface';
+import { assignmentSurface, composerDraftInProgress, destinationShift, surfacesEqual } from '../posting_context/surface';
 import { initialUserPostingStyle } from '../posting_context/user_style_state';
 
 export const COMPOSER_DRAFT_SCHEMA_VERSION = 1;
@@ -363,6 +363,71 @@ export function stableStringify (value) {
   return JSON.stringify(value === undefined ? null : value);
 }
 
+export function composerDraftRestoreBlocks (composer) {
+  if (!composer || typeof composer.get !== 'function') {
+    return { media: false, reply: null, quote: null };
+  }
+
+  const media = composer.get('media_attachments');
+
+  return {
+    media: Boolean(media && typeof media.some === 'function' && media.some(item => item.get('unresolved') === true)),
+    reply: composer.get('draftReplyHold') || null,
+    quote: composer.get('draftQuoteHold') || null,
+  };
+}
+
+export function composerDraftRestoreBlocksSubmit (composer) {
+  const blocks = composerDraftRestoreBlocks(composer);
+
+  return blocks.media || blocks.reply === 'pending' || blocks.reply === 'failed' || blocks.quote === 'pending' || blocks.quote === 'failed';
+}
+
+function postingContextFromComposer (composer) {
+  const context = contextSnapshot(composer);
+
+  if (!context || !context.key) {
+    return null;
+  }
+
+  const audience = context.protocol && context.protocol.activity_pub && context.protocol.activity_pub.audience;
+
+  return {
+    key: context.key,
+    source: context.source,
+    managed: {
+      hashtags: context.managed.hashtags,
+      mentions: context.managed.mentions,
+    },
+    requirements: {
+      followingAccounts: (context.requirements && context.requirements.following_accounts) || [],
+    },
+    constraints: {
+      allowedVisibilities: context.constraints && context.constraints.allowed_visibilities,
+    },
+    protocol: {
+      activityPub: {
+        audience: audience || null,
+      },
+    },
+  };
+}
+
+function restoreSurfaceConflict (composer, input) {
+  const screen = assignmentSurface(composer.get('displayedSurface')) || assignmentSurface(composer.get('surface'));
+  const draft = assignmentSurface(input && input.surface);
+
+  if (!screen || surfacesEqual(screen, draft)) {
+    return null;
+  }
+
+  if (!(destinationShift(draft, screen) || destinationShift(screen, draft))) {
+    return null;
+  }
+
+  return screen;
+}
+
 export function composerDraftContentHash (input, mediaIncomplete) {
   return stableStringify({ input, media_incomplete: mediaIncomplete === true });
 }
@@ -582,10 +647,14 @@ export function applyComposerDraft (state, snapshot, options = {}) {
   }
 
   const input = restored.snapshot.input;
+  const heldSurface = restoreSurfaceConflict(state, input);
+  const heldContext = heldSurface ? postingContextFromComposer(state) : null;
+  const nextEpoch = (Number(state.get('surfaceEpoch')) || 0) + 1;
   const media = ImmutableList((input.media || []).map(item => ImmutableMap({
     id: String(item.id),
     description: item.description || '',
     order: item.order,
+    unresolved: true,
     meta: ImmutableMap({
       focus: ImmutableMap({
         x: item.focus.x,
@@ -623,13 +692,26 @@ export function applyComposerDraft (state, snapshot, options = {}) {
     map.set('expires', input.expires || state.get('expires'));
     map.set('expires_action', input.expires_action || state.get('expires_action'));
     map.set('media_attachments', media);
+    map.set('draftReplyHold', input.in_reply_to_id ? 'pending' : null);
+    map.set('draftQuoteHold', input.quote_id ? 'pending' : null);
     map.set('context', input.context ? restoredContext(input) : state.get('context'));
     map.set('posting_context_account_id', input.posting_context_account_id || null);
     map.set('surface', input.surface ? ImmutableMap({ kind: input.surface.kind, key: String(input.surface.key) }) : null);
-    map.set('pendingSurface', null);
-    map.set('displayedSurface', null);
-    map.set('surfaceMismatch', false);
-    map.update('surfaceEpoch', epoch => (epoch || 0) + 1);
+    map.set('surfaceMismatch', Boolean(heldSurface));
+    map.set('pendingSurface', heldSurface ? ImmutableMap({
+      kind: heldSurface.kind,
+      key: heldSurface.key,
+      postingContext: heldContext,
+      postingContextAccountId: state.get('posting_context_account_id') || null,
+      hasPostingContext: Boolean(heldContext),
+      surfaceEpoch: nextEpoch,
+    }) : null);
+    map.set('displayedSurface', heldSurface ? ImmutableMap({
+      kind: heldSurface.kind,
+      key: heldSurface.key,
+      surfaceEpoch: nextEpoch,
+    }) : null);
+    map.set('surfaceEpoch', nextEpoch);
     map.set('userPostingStyle', restoredStyle(input, state.get('userPostingStyle')));
     map.set('senderIdentity', restoredSender(input, state.get('senderIdentity')));
     map.set('id', null);

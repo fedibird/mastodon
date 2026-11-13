@@ -17,6 +17,10 @@ const mapStateToProps = (state, { composerId }) => {
   return {
     offerId: newest ? newest.get('client_draft_uuid') : null,
     offerCount: busy ? 0 : offers.size,
+    offerSurfaceKind: newest ? newest.get('surface_kind') : null,
+    offerSurfaceKey: newest ? newest.get('surface_key') : null,
+    offerReply: newest ? newest.get('in_reply_to') === true : false,
+    offerQuote: newest ? newest.get('quote') === true : false,
     status: persistence ? persistence.get('status') : null,
     reason: persistence ? persistence.get('reason') : null,
     mediaIncomplete: persistence ? persistence.get('mediaIncomplete') === true : false,

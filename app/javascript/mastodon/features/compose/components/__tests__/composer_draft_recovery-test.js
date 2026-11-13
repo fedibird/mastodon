@@ -30,6 +30,9 @@ describe('ComposerDraftRecovery', () => {
         intl={{ formatMessage: (descriptor, values = {}) => String(descriptor.defaultMessage).replace(/\{(\w+)\}/g, (_match, key) => values[key]) }}
         offerId='draft-1'
         offerCount={2}
+        offerSurfaceKind='group'
+        offerSurfaceKey='456'
+        offerReply
         status='saved'
         mediaIncomplete
         onRestore={onRestore}
@@ -37,6 +40,8 @@ describe('ComposerDraftRecovery', () => {
     );
 
     expect(screen.getByText('Attachments that are still uploading were not saved.')).toBeTruthy();
+    expect(screen.getByText('This draft is for group 456.')).toBeTruthy();
+    expect(screen.getByText('This draft is a reply.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Restore local draft (2)' }));
     expect(onRestore).toHaveBeenCalledWith('draft-1');
   });

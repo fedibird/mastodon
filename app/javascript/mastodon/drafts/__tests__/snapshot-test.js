@@ -7,6 +7,7 @@ import composer, { initialState } from '../../reducers/composer';
 import {
   applyComposerDraft,
   composerDraftHasPersistableInput,
+  composerDraftRestoreBlocksSubmit,
   copyComposerDraftSnapshot,
   restoreComposerDraft,
   snapshotComposerDraft,
@@ -130,6 +131,11 @@ describe('composer draft snapshot', () => {
     expect(applied.get('expires')).toBe('2026-12-02 09:00');
     expect(applied.get('expires_action')).toBe('delete');
     expect(applied.get('media_attachments').map(item => item.get('id')).toArray()).toEqual(['media-1', 'media-2']);
+    expect(applied.getIn(['media_attachments', 0, 'unresolved'])).toBe(true);
+    expect(applied.getIn(['media_attachments', 0, 'type'])).toBeUndefined();
+    expect(applied.get('draftReplyHold')).toBe('pending');
+    expect(applied.get('draftQuoteHold')).toBe('pending');
+    expect(applied.get('surfaceMismatch')).toBe(false);
     expect(applied.getIn(['media_attachments', 0, 'description'])).toBe('first');
     expect(applied.getIn(['media_attachments', 1, 'meta', 'focus', 'y'])).toBe(-0.4);
     expect(applied.getIn(['context', 'source', 'revision'])).toBe(1);
@@ -151,6 +157,62 @@ describe('composer draft snapshot', () => {
     expect(applied.get('draftGeneration')).toBe((fresh.get('draftGeneration') || 0) + 1);
     expect(applied.get('redraftEpoch')).toBe((fresh.get('redraftEpoch') || 0) + 1);
     expect(applied.getIn(['senderIdentity', 'changeEpoch'])).toBe((fresh.getIn(['senderIdentity', 'changeEpoch']) || 0) + 1);
+  });
+
+  it('holds a restored draft when the open surface has a different destination', () => {
+    const snapshot = snapshotComposerDraft(drafted(), { accountId: '42', clientDraftUuid: 'draft-1' });
+    const screen = initialState.merge({
+      surface: ImmutableMap({ kind: 'group', key: '456' }),
+      displayedSurface: ImmutableMap({ kind: 'group', key: '456' }),
+      posting_context_account_id: '456',
+      context: initialState.get('context').set('key', 'builtin:fedibird-group:456'),
+    });
+    const applied = applyComposerDraft(screen, snapshot, { idempotencyKey: 'next-key' });
+
+    expect(applied.get('text')).toBe('Hello');
+    expect(applied.getIn(['surface', 'key'])).toBe('123');
+    expect(applied.get('surfaceMismatch')).toBe(true);
+    expect(applied.getIn(['displayedSurface', 'key'])).toBe('456');
+    expect(applied.getIn(['pendingSurface', 'key'])).toBe('456');
+    expect(applied.getIn(['pendingSurface', 'postingContext']).key).toBe('builtin:fedibird-group:456');
+
+    const sameScreen = initialState.merge({
+      surface: ImmutableMap({ kind: 'group', key: '123' }),
+      displayedSurface: ImmutableMap({ kind: 'group', key: '123' }),
+    });
+    const matching = applyComposerDraft(sameScreen, snapshot, { idempotencyKey: 'next-key' });
+
+    expect(matching.get('surfaceMismatch')).toBe(false);
+    expect(matching.get('pendingSurface')).toBeNull();
+  });
+
+  it('keeps a loaded reply target and ignores a target for a different restore', () => {
+    const snapshot = snapshotComposerDraft(drafted(), { accountId: '42', clientDraftUuid: 'draft-1' });
+    const restored = composer(initialState, {
+      type: COMPOSER_DRAFT_RESTORE,
+      snapshot,
+      idempotencyKey: 'next-key',
+    });
+    const ready = composer(restored, {
+      type: 'COMPOSER_DRAFT_TARGET',
+      role: 'reply',
+      hold: null,
+      replyStatus: { id: 'reply-1', visibility: 'public' },
+      idempotencyKey: 'next-key',
+    });
+    const ignored = composer(ready, {
+      type: 'COMPOSER_DRAFT_TARGET',
+      role: 'reply',
+      hold: 'failed',
+      idempotencyKey: 'other-key',
+    });
+
+    expect(ready.get('draftReplyHold')).toBeNull();
+    expect(ready.getIn(['reply_status', 'id'])).toBe('reply-1');
+    expect(ready.get('draftQuoteHold')).toBe('pending');
+    expect(ignored.get('draftReplyHold')).toBeNull();
+    expect(composerDraftRestoreBlocksSubmit(ready)).toBe(true);
+    expect(composerDraftRestoreBlocksSubmit(ready.set('draftQuoteHold', null).set('media_attachments', ImmutableList()))).toBe(false);
   });
 
   it('keeps managed mentions out of the raw text', () => {

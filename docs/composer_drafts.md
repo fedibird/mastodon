@@ -21,13 +21,17 @@ The database is `fedibird-composer-drafts`, separate from the service worker's `
 | Reply id, quote id, quote URL, reference ids | Sender permission, from the current identity catalog | `is_submitting`, upload progress, processing flags |
 | Poll options, multiple choice, poll duration | Group and delegated permission at send time | `instanceId`, `draftGeneration`, `idempotencyKey` |
 | Schedule and expiry text the user entered | Posting-style destination that was `failed` (`needs_resolve`) | Materialized text and HTML |
-| Completed media id, order, ALT, focus | | In-progress upload bytes and preview-only attachments |
+| Completed media id, order, ALT, focus. Posting stays off while the attachment is unresolved | | In-progress upload bytes and preview-only attachments |
 | Managed hashtags and mentions, suppressions, context source id and revision | | Permission caches and `interactionCheck` |
 | Selected posting style, revision, manual overrides, usage | | Display objects such as `reply_status` |
 | Sender id and whether the choice was explicit | | Redraft and existing-post edit state |
 | Surface kind and key, group destination account id | | |
 
-Completed media is restored as an id plus ALT, order, and focus. The thumbnail URL is not part of the snapshot, and an upload that has not finished is not described as saved. The banner says when attachments were still uploading. Keeping those files across reloads belongs to P1-B.
+Completed media is restored as an id plus ALT, order, and focus, and marked unresolved. The thumbnail, type, and owner are not part of the snapshot. Posting stays off, and new files cannot be added, until those attachments are removed. An upload that has not finished is not described as saved. Keeping the files across reloads belongs to P1-B.
+
+A reply or quote id is restored, then the target post is loaded again. Posting stays off while that load is in progress and if it fails. The reply or quote indicator appears after the post is in the local cache.
+
+Restoring onto a screen whose group or hashtag destination differs from the draft keeps the draft destination and sets the existing surface mismatch. Posting stays off until the destination shown on that screen is applied. The restore banner names the draft's surface, and says when the draft is a reply or a quote. A list-to-list change does not hold the post. While a write is waiting, the save state is `saving`. It becomes `saved` only after the acknowledgement for the current edit.
 
 Existing-post edit, scheduled-post edit, and delete-and-redraft are not stored as new drafts. Clearing a new post deletes that post's local draft. Closing a portable composer keeps the draft and does not put it back automatically.
 

@@ -28,6 +28,7 @@ import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { delegatedFileIsBlocked } from '../posting_identity/still_image';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identities';
 import { isExclusiveFile } from '../features/compose/composer_media';
+import { composerDraftRestoreBlocksSubmit } from '../drafts/snapshot';
 import { composerFileDropAlert, fileDropBlockFromComposer } from '../features/compose/composer_drop';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
@@ -337,7 +338,7 @@ export function submitComposerWithCheck(composerId, routerHistory, intl) {
       return;
     }
 
-    if (composer.get('surfaceMismatch') || !selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
+    if (composer.get('surfaceMismatch') || composerDraftRestoreBlocksSubmit(composer) || !selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
       return;
     }
 
@@ -408,7 +409,7 @@ export function submitComposer(composerId, routerHistory) {
       return Promise.resolve();
     }
 
-    if (composer.get('surfaceMismatch') || !selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
+    if (composer.get('surfaceMismatch') || composerDraftRestoreBlocksSubmit(composer) || !selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
       return Promise.resolve();
     }
 

@@ -469,6 +469,24 @@ body > [data-popper-placement] {
     }
   }
 
+  .compose-form__draft-hold {
+    color: $inverted-text-color;
+    margin-bottom: 10px;
+    background: $ui-primary-color;
+    box-shadow: 0 2px 6px rgba($base-shadow-color, 0.3);
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+
+    p {
+      margin: 0 0 6px;
+    }
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+  }
+
   .compose-form__draft-recovery {
     color: $inverted-text-color;
     margin-bottom: 10px;
