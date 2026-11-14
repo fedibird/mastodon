@@ -17,12 +17,16 @@ module PostDrafts
       end
     end
 
-    # PostgreSQL jsonb text size of the largest normalized snapshot the
-    # field caps allow, including the client's full content_hash. Measured
-    # with a 4-byte character at every length cap. Japanese and ASCII text
-    # of the same length are smaller. The post_drafts_shape check uses this
-    # same number.
-    MAX_BYTES = 2_343_186
+    # Stored jsonb text per draft. A P0 snapshot with 10,000 4-byte
+    # characters, a 500-character spoiler, a full poll, context, style, and
+    # the duplicated content_hash is about 96 KiB. 256 KiB holds that draft.
+    # A snapshot that fills every field cap is about 2.3 MiB and is rejected:
+    # the client keeps the local copy and shows the sync failure (#803).
+    # One account can store PostDraft::LIMIT drafts, so the owner ceiling is
+    # 100 * 256 KiB. The post_drafts_shape check uses this same number.
+    # Request bodies may add 4 KiB for the JSON wrapper around the payload.
+    MAX_BYTES = 262_144
+    REQUEST_BODY_MAX = MAX_BYTES + 4_096
     TEXT_MAX = 10_000
     SHORT_TEXT_MAX = 500
     LIST_MAX = 20
@@ -69,6 +73,36 @@ module PostDrafts
       JSON.generate(sort_keys(value))
     end
 
+    # PostgreSQL jsonb text is the compact JSON plus one space after every
+    # structural ':' and ','. This is a few bytes above the real text, so a
+    # payload that passes here also passes the database check.
+    def self.stored_text_bytes(value)
+      json = canonical(value)
+      json.bytesize + structural_separators(json)
+    end
+
+    def self.structural_separators(json)
+      count = 0
+      in_string = false
+      escape = false
+      json.each_char do |char|
+        if in_string
+          if escape
+            escape = false
+          elsif char == '\\'
+            escape = true
+          elsif char == '"'
+            in_string = false
+          end
+        elsif char == '"'
+          in_string = true
+        elsif [':', ','].include?(char)
+          count += 1
+        end
+      end
+      count
+    end
+
     def self.sort_keys(value)
       case value
       when Hash
@@ -107,7 +141,9 @@ module PostDrafts
     private
 
     def fail!(code, key)
-      raise Invalid, [{ 'code' => code, 'key' => key }]
+      error = { 'code' => code, 'key' => key }
+      error['limit'] = MAX_BYTES if code == 'too_large'
+      raise Invalid, [error]
     end
 
     def require_object!(value, key)
@@ -140,7 +176,7 @@ module PostDrafts
     end
 
     def reject_size!(value)
-      fail!('too_large', 'payload') if JSON.generate(value).bytesize > MAX_BYTES
+      fail!('too_large', 'payload') if self.class.stored_text_bytes(value) > MAX_BYTES
     end
 
     def owner!

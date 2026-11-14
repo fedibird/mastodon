@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
-# Largest request PostDrafts::Payload accepts. Field lengths match the
-# validator caps. Text uses a 4-byte character so Japanese and ASCII drafts
-# of the same length are smaller.
+# Snapshot that fills every field cap. It is larger than the 256 KiB storage
+# budget and the API rejects it. Text uses a 4-byte character.
 module PostDraftMaxSnapshot
   UUID = '11111111-1111-4111-8111-111111111111'
   WIDE = '😀'

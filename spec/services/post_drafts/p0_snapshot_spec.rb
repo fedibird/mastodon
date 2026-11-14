@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'rails_helper'
-require Rails.root.join('spec/support/post_draft_max_snapshot')
 
 describe 'P0 composer snapshots' do
   def load_snapshot(name)
@@ -59,26 +58,5 @@ describe 'P0 composer snapshots', 'protocol audience' do
       expect(stored['input']['context']['key']).to be_present
       expect(stored['input']['user_posting_style']['usage_mode']).to eq 'keep'
     end
-  end
-end
-
-describe 'P0 composer snapshots', 'payload budget' do
-  let(:user) { Fabricate(:user) }
-
-  it 'stores the largest legal snapshot under the same limit as the database check' do
-    raw = PostDraftMaxSnapshot.request_body
-    raw['account_id'] = user.account_id.to_s
-    expect(JSON.generate(raw).bytesize).to be <= PostDrafts::Payload::MAX_BYTES
-
-    created = PostDrafts::Store.new(user.account).create(client_uuid: PostDraftMaxSnapshot::UUID, payload: raw)
-    expect(created.status).to eq :created
-
-    stored_bytes = PostDraft.where(id: created.draft.id).pick(Arel.sql('octet_length(payload::text)'))
-    definition = ActiveRecord::Base.connection.select_value("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'post_drafts_shape'")
-
-    expect(stored_bytes.to_i).to eq PostDrafts::Payload::MAX_BYTES
-    expect(definition).to include(PostDrafts::Payload::MAX_BYTES.to_s)
-    expect(created.draft.payload.dig('input', 'text').length).to eq PostDrafts::Payload::TEXT_MAX
-    expect(created.draft.payload.dig('input', 'media')).to eq []
   end
 end

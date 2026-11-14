@@ -1,17 +1,18 @@
 # frozen_string_literal: true
 
 class EnlargePostDraftsPayloadCheck < ActiveRecord::Migration[6.1]
-  # Matches PostDrafts::Payload::MAX_BYTES. A full content_hash repeats the
-  # input, so the original 32 KiB check cannot hold a draft the field caps
-  # already allow.
+  # Matches PostDrafts::Payload::MAX_BYTES. The original 32 KiB check cannot
+  # hold a 10,000-character P0 snapshot once content_hash repeats the input.
+  # 256 KiB does. A snapshot that only fits by filling every field cap is
+  # rejected by the application before insert.
   #
-  # Up replaces that check with the larger one. Rows stored under the old
-  # check already fit, so there is nothing to scan. The replacement is NOT
-  # VALID: PostgreSQL enforces it for later inserts without reading the
-  # table. Down restores the 32 KiB check the same way, so a row already
-  # stored above 32 KiB stays until that row is updated. Rails 6.1 schema
-  # dumps omit validate: false.
-  LIMIT = 2_343_186
+  # The replacement is NOT VALID here. The next migration validates it.
+  # post_drafts is a new table and is empty when these migrations run.
+  # Down puts the 32 KiB check back as NOT VALID and does not delete or
+  # rewrite rows. A draft already stored above 32 KiB stays until that row
+  # is updated. After any such row exists, roll forward; rolling back does
+  # not shrink stored drafts.
+  LIMIT = 262_144
   PREVIOUS_LIMIT = 32_768
 
   SHAPE = <<~SQL.squish.freeze

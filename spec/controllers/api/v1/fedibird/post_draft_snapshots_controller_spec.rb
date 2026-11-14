@@ -41,4 +41,28 @@ RSpec.describe Api::V1::Fedibird::PostDraftsController, type: :controller do
       end
     end
   end
+
+  describe 'payload byte budget' do
+    before { authorize(user) }
+
+    it 'rejects a request body above the parse budget' do
+      post :create, body: 'a' * (PostDrafts::Payload::REQUEST_BODY_MAX + 1), as: :json
+
+      expect(response).to have_http_status(422)
+      expect(body_as_json[:errors].first).to include(code: 'too_large', key: 'payload', limit: PostDrafts::Payload::MAX_BYTES)
+      expect(PostDraft.where(account_id: user.account_id)).to be_empty
+    end
+
+    it 'rejects a snapshot that fills every field cap' do
+      raw = PostDraftMaxSnapshot.request_body
+      raw['account_id'] = user.account_id.to_s
+      statuses = Status.count
+      post :create, body: { client_uuid: raw['client_draft_uuid'], payload: raw }.to_json, as: :json
+
+      expect(response).to have_http_status(422)
+      expect(body_as_json.dig(:errors, 0, :code)).to eq 'too_large'
+      expect(PostDraft.where(account_id: user.account_id)).to be_empty
+      expect(Status.count).to eq statuses
+    end
+  end
 end

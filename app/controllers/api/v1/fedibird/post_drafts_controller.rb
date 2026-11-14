@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class Api::V1::Fedibird::PostDraftsController < Api::BaseController
+  before_action :reject_oversized_body, only: [:create, :update, :destroy]
   before_action -> { doorkeeper_authorize! :'read:post_drafts' }, only: [:index, :show]
   before_action -> { doorkeeper_authorize! :'write:post_drafts' }, only: [:create, :update, :destroy]
   before_action :require_user!
@@ -118,6 +119,12 @@ class Api::V1::Fedibird::PostDraftsController < Api::BaseController
     @json_body ||= decode_json_body
   end
 
+  def reject_oversized_body
+    return if request.raw_post.bytesize <= PostDrafts::Payload::REQUEST_BODY_MAX
+
+    raise PostDrafts::Payload::Invalid, [{ 'code' => 'too_large', 'key' => 'payload', 'limit' => PostDrafts::Payload::MAX_BYTES }]
+  end
+
   def decode_json_body
     unless request.content_mime_type == Mime[:json]
       raise PostDrafts::Payload::Invalid, [{ 'code' => 'invalid_body', 'key' => nil }]
@@ -130,7 +137,7 @@ class Api::V1::Fedibird::PostDraftsController < Api::BaseController
     return parsed if parsed.is_a?(Hash)
 
     raise PostDrafts::Payload::Invalid, [{ 'code' => 'invalid_body', 'key' => nil }]
-  rescue JSON::ParserError, PostDrafts::Payload::Invalid
+  rescue JSON::ParserError
     raise PostDrafts::Payload::Invalid, [{ 'code' => 'invalid_body', 'key' => nil }]
   end
 
