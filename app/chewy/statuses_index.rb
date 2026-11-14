@@ -85,8 +85,8 @@ class StatusesIndex < Chewy::Index
           cjk_width
           sudachi_part_of_speech
           sudachi_ja_stop
-          sudachi_baseform
           search
+          sudachi_normalizedform
           lowercase
         ),
         tokenizer: 'sudachi_tokenizer',
