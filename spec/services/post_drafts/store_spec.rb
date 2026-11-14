@@ -71,9 +71,25 @@ describe PostDrafts::Store do
 
   it 'returns missing when an update or delete loses the row' do
     created = store.create(client_uuid: uuid, payload: payload('hello'))
-    expect(store.destroy(created.draft.id).status).to eq :deleted
+    expect(store.destroy(created.draft.id, expected_revision: 1).status).to eq :deleted
     expect(store.update(created.draft.id, expected_revision: 1, payload: payload('later')).status).to eq :missing
-    expect(store.destroy(created.draft.id).status).to eq :missing
+    expect(store.destroy(created.draft.id, expected_revision: 1).status).to eq :missing
+    expect(store.destroy(created.draft.id, expected_revision: '1').status).to eq :invalid
+  end
+
+  it 'keeps a newer revision when an older delete arrives after the update' do
+    created = store.create(client_uuid: uuid, payload: payload('hello'))
+    updated = store.update(created.draft.id, expected_revision: 1, payload: payload('edited'))
+    stale = store.destroy(created.draft.id, expected_revision: 1)
+
+    expect(updated.status).to eq :updated
+    expect(stale.status).to eq :conflict
+    expect(stale.draft.revision).to eq 2
+    expect(created.draft.reload.payload.dig('input', 'text')).to eq 'edited'
+
+    removed = store.destroy(created.draft.id, expected_revision: 2)
+    expect(removed.status).to eq :deleted
+    expect(PostDraft.where(id: created.draft.id)).to be_empty
   end
 
   it 'stops at the account cap without deleting an existing draft' do

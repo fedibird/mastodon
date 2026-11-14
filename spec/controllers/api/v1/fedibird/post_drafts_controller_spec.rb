@@ -89,6 +89,12 @@ RSpec.describe Api::V1::Fedibird::PostDraftsController, type: :controller do
       patch :update, params: { id: body[:draft_id] }, body: { expected_revision: 1, payload: draft_body('stolen')[:payload] }.to_json, as: :json
       expect(response).to have_http_status(404)
       expect(PostDraft.find(body[:draft_id]).payload.dig('input', 'text')).to eq 'saved personal note'
+
+      reset_request_body
+      delete :destroy, params: { id: body[:draft_id] }, body: { expected_revision: 1 }.to_json, as: :json
+      expect(response).to have_http_status(404)
+      expect(response.body).not_to include('saved personal note')
+      expect(PostDraft.find(body[:draft_id]).payload.dig('input', 'text')).to eq 'saved personal note'
     end
 
     it 'returns the same draft when the create is repeated and conflicts when the text differs' do
@@ -136,8 +142,36 @@ RSpec.describe Api::V1::Fedibird::PostDraftsController, type: :controller do
       expect(body_as_json[:revision]).to eq 2
       expect(body_as_json[:media_retained]).to be false
 
-      delete :destroy, params: { id: draft_id }
+      reset_request_body
+      delete :destroy, params: { id: draft_id }, body: { expected_revision: 2 }.to_json, as: :json
       expect(response).to have_http_status(200)
+      expect(response.body).not_to include('next')
+      expect(PostDraft.where(id: draft_id)).to be_empty
+    end
+
+    it 'refuses to delete a draft from an older revision' do
+      create_draft('hello')
+      draft_id = body_as_json[:draft_id]
+      reset_request_body
+      patch :update, params: { id: draft_id }, body: { expected_revision: 1, payload: draft_body('edited')[:payload] }.to_json, as: :json
+      expect(response).to have_http_status(200)
+
+      reset_request_body
+      delete :destroy, params: { id: draft_id }, body: { expected_revision: 1 }.to_json, as: :json
+      expect(response).to have_http_status(409)
+      expect(body_as_json[:revision]).to eq 2
+      expect(response.body).not_to include('edited')
+      expect(PostDraft.find(draft_id).payload.dig('input', 'text')).to eq 'edited'
+
+      reset_request_body
+      delete :destroy, params: { id: draft_id }, body: { expected_revision: '2' }.to_json, as: :json
+      expect(response).to have_http_status(422)
+      expect(PostDraft.find(draft_id).payload.dig('input', 'text')).to eq 'edited'
+
+      reset_request_body
+      delete :destroy, params: { id: draft_id }, body: { expected_revision: 2 }.to_json, as: :json
+      expect(response).to have_http_status(200)
+      expect(response.body).not_to include('edited')
       expect(PostDraft.where(id: draft_id)).to be_empty
     end
   end

@@ -117,4 +117,61 @@ describe 'post draft races' do
     finish(threads)
     cleanup(user)
   end
+
+  it 'keeps a concurrent edit when the other caller deletes the old revision' do
+    user = Fabricate(:user)
+    threads = []
+    created = PostDrafts::Store.new(user.account).create(
+      client_uuid: '66666666-6666-4666-8666-666666666666',
+      payload: payload('start')
+    )
+    outcomes = Queue.new
+    threads << Thread.new do
+      with_connection do
+        outcomes << [
+          :update,
+          PostDrafts::Store.new(Account.find(user.account_id)).update(
+            created.draft.id,
+            expected_revision: 1,
+            payload: payload('edited')
+          ),
+        ]
+      end
+    rescue StandardError => error
+      outcomes << [:update, error]
+    end
+    threads << Thread.new do
+      with_connection do
+        outcomes << [
+          :delete,
+          PostDrafts::Store.new(Account.find(user.account_id)).destroy(
+            created.draft.id,
+            expected_revision: 1
+          ),
+        ]
+      end
+    rescue StandardError => error
+      outcomes << [:delete, error]
+    end
+    finish(threads)
+    results = Array.new(outcomes.size) { outcomes.pop }.to_h
+    update_result = results[:update]
+    delete_result = results[:delete]
+    stored = PostDraft.find_by(id: created.draft.id)
+
+    expect(update_result).to be_a(PostDrafts::Store::Result)
+    expect(delete_result).to be_a(PostDrafts::Store::Result)
+    if update_result.status == :updated
+      expect(delete_result.status).to eq :conflict
+      expect(stored.revision).to eq 2
+      expect(stored.payload.dig('input', 'text')).to eq 'edited'
+    else
+      expect(update_result.status).to eq :missing
+      expect(delete_result.status).to eq :deleted
+      expect(stored).to be_nil
+    end
+  ensure
+    finish(threads)
+    cleanup(user)
+  end
 end

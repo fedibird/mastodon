@@ -40,15 +40,15 @@ module PostDrafts
       Result.new(status: :invalid, error: e)
     end
 
-    def destroy(id)
+    def destroy(id, expected_revision:)
+      return invalid_revision unless expected_revision.is_a?(Integer)
+
       outcome = nil
       Account.transaction do
         lock_owner!
         draft = lock_draft(id)
-        if draft.nil?
-          outcome = Result.new(status: :missing)
-          next
-        end
+        outcome = missing_or_conflict(draft, expected_revision)
+        next if outcome
 
         draft.destroy!
         outcome = Result.new(status: :deleted, draft: draft)

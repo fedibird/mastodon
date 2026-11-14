@@ -36,10 +36,7 @@ class Api::V1::Fedibird::PostDraftsController < Api::BaseController
   end
 
   def destroy
-    result = store.destroy(params[:id])
-    return render_missing if result.status == :missing
-
-    render_empty
+    render_destroy(store.destroy(params[:id], expected_revision: json_body['expected_revision']))
   end
 
   private
@@ -88,6 +85,19 @@ class Api::V1::Fedibird::PostDraftsController < Api::BaseController
       revision: draft.revision,
       updated_at: draft.updated_at.iso8601,
     }
+  end
+
+  def render_destroy(result)
+    case result.status
+    when :deleted
+      render_empty
+    when :conflict
+      render json: conflict_body(result.draft), status: 409
+    when :missing
+      render_missing
+    when :invalid
+      render_invalid(result.error.errors)
+    end
   end
 
   def render_missing
