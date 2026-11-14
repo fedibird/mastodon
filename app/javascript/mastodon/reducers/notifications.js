@@ -390,9 +390,9 @@ export default function notifications(state = initialState, action) {
       next = rememberWithheld(next, item, 'items');
     });
     next = reconcileEmojiReactionNotifications(next, rules);
-    // Browsing the notifications column at the top marks them as read.
-    // A delayed count response must not reintroduce the badge.
-    if (typeof action.unread === 'number' && shouldCountUnreadNotifications(next)) {
+    // The thunk discards counts stale against a local read. When a fresh
+    // count is supplied, keep it even if the current view is at the top.
+    if (typeof action.unread === 'number') {
       next = next.set('unread', action.unread);
     }
     return next;
