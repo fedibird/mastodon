@@ -67,7 +67,7 @@ module PostDrafts
       return {} if value.nil?
 
       require_object!(value, key)
-      fail!('too_many', key) if value.size > LIST_MAX
+      fail!('too_many', key) if value.size > Payload::LIST_MAX
       value.map { |child, item| scalar_entry(child, item, key) }.to_h
     end
 

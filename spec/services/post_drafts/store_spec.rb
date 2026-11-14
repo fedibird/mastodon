@@ -18,7 +18,7 @@ describe PostDrafts::Store do
         'media' => [],
       },
     }
-    body['input']['sender'] = { 'id' => sender_id.to_s, 'selection_origin' => 'explicit' } if sender_id
+    body['input']['sender'] = { 'id' => "delegated:#{sender_id}", 'selection_origin' => 'explicit' } if sender_id
     body
   end
 
@@ -51,7 +51,7 @@ describe PostDrafts::Store do
     created = store.create(client_uuid: uuid, payload: payload('hello', sender_id: other.id))
 
     expect(created.draft.account_id).to eq user.account_id
-    expect(created.draft.payload.dig('input', 'sender', 'id')).to eq other.id.to_s
+    expect(created.draft.payload.dig('input', 'sender', 'id')).to eq "delegated:#{other.id}"
     expect(PostDraft.where(account_id: other.id)).to be_empty
   end
 

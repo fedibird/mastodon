@@ -24,6 +24,9 @@ module PostDrafts
     UUID_PATTERN = /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
     ID_PATTERN = /\A[1-9][0-9]{0,18}\z/
     TOKEN_PATTERN = /\A[a-z0-9_]{1,32}\z/
+    # Portable composer ids and posting-context keys embed a hashtag, which
+    # can be any letter, so they are bounded text rather than ASCII tokens.
+    LABEL_MAX = 300
     LANGUAGE_PATTERN = /\A[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}\z/
     URL_PATTERN = /\Ahttps?:\/\/[^\s[:cntrl:]]{1,2000}\z/
     FORBIDDEN = %w(
@@ -156,19 +159,29 @@ module PostDrafts
     end
 
     def composer_id
-      value = @raw['composer_id']
+      label(@raw['composer_id'], 'composer_id')
+    end
+
+    # P0 names this field content_hash, but the client stores the stable
+    # serialization of the input. It is text, not a short digest, and this
+    # server does not recompute it.
+    def content_hash
+      value = @raw['content_hash']
       return nil if value.nil?
-      fail!('invalid_format', 'composer_id') unless value.is_a?(String) && value.match?(/\A[A-Za-z0-9_:-]{1,64}\z/)
+      fail!('invalid_type', 'content_hash') unless value.is_a?(String)
+      fail!('too_large', 'content_hash') if value.bytesize > MAX_BYTES
+      fail!('invalid_format', 'content_hash') if value.empty? || value.match?(/[[:cntrl:]]/)
 
       value
     end
 
-    def content_hash
-      value = @raw['content_hash']
+    def label(value, key)
       return nil if value.nil?
-      fail!('invalid_format', 'content_hash') unless value.is_a?(String) && value.match?(/\A[A-Za-z0-9:_-]{1,128}\z/)
 
-      value
+      text = bounded_string(value, key, LABEL_MAX, default: nil)
+      fail!('invalid_format', key) if text.empty?
+
+      text
     end
 
     def flag(value, key)
@@ -332,7 +345,7 @@ module PostDrafts
       require_object!(value, 'input.surface')
       reject_unknown!(value, %w(kind key), 'input.surface')
       kind = token(value['kind'], 'input.surface.kind')
-      key = bounded_string(value['key'], 'input.surface.key', 200, default: nil)
+      key = label(value['key'], 'input.surface.key')
       fail!('invalid_format', 'input.surface') if kind.nil? || key.nil?
       { 'kind' => kind, 'key' => key }
     end
@@ -343,9 +356,21 @@ module PostDrafts
       require_object!(value, 'input.sender')
       reject_unknown!(value, %w(id selection_origin), 'input.sender')
       {
-        'id' => reference(value['id'], 'input.sender.id'),
+        'id' => identity_id(value['id'], 'input.sender.id'),
         'selection_origin' => token(value['selection_origin'], 'input.sender.selection_origin'),
       }
+    end
+
+    # Sender ids are posting-identity ids (`local:42`, `delegated:9`), not
+    # the numeric account id of the draft owner.
+    def identity_id(value, key)
+      return nil if value.nil?
+      fail!('invalid_reference', key) unless value.is_a?(String)
+
+      kind, id = value.split(':', 2)
+      fail!('invalid_reference', key) unless PostingIdentity::KNOWN_KINDS.include?(kind) && ID_PATTERN.match?(id.to_s)
+
+      value
     end
   end
 end

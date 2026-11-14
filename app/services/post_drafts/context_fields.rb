@@ -2,6 +2,8 @@
 
 module PostDrafts
   module ContextFields
+    SOURCE_ID = /\A[A-Za-z0-9_.:-]{1,80}\z/
+
     private
 
     def context(value)
@@ -10,7 +12,7 @@ module PostDrafts
       require_object!(value, 'input.context')
       reject_unknown!(value, %w(key resolved_account_id source managed suppressions requirements constraints protocol), 'input.context')
       {
-        'key' => plain_text(value['key'], 'input.context.key'),
+        'key' => label(value['key'], 'input.context.key'),
         'resolved_account_id' => reference(value['resolved_account_id'], 'input.context.resolved_account_id'),
         'source' => context_source(value['source']),
         'managed' => managed(value['managed']),
@@ -27,9 +29,16 @@ module PostDrafts
       require_object!(value, 'input.context.source')
       reject_unknown!(value, %w(id revision), 'input.context.source')
       {
-        'id' => reference(value['id'], 'input.context.source.id'),
+        'id' => source_id(value['id'], 'input.context.source.id'),
         'revision' => small_integer(value['revision'], 'input.context.source.revision'),
       }
+    end
+
+    def source_id(value, key)
+      return nil if value.nil?
+      fail!('invalid_reference', key) unless value.is_a?(String) && SOURCE_ID.match?(value)
+
+      value
     end
 
     def small_integer(value, key)
@@ -53,7 +62,7 @@ module PostDrafts
     def record_list(value, key, fields)
       return [] if value.nil?
       fail!('invalid_type', key) unless value.is_a?(Array)
-      fail!('too_many', key) if value.size > LIST_MAX
+      fail!('too_many', key) if value.size > Payload::LIST_MAX
       value.map { |item| record(item, key, fields) }
     end
 
@@ -68,7 +77,7 @@ module PostDrafts
       return value if value.is_a?(Integer) && value.between?(0, 1_000_000_000)
       return value if [true, false].include?(value)
 
-      bounded_string(value, key, 200, default: nil)
+      bounded_string(value, key, Payload::SHORT_TEXT_MAX, default: nil)
     end
 
     def suppressions(value)
@@ -82,7 +91,7 @@ module PostDrafts
     def string_list(value, key)
       return [] if value.nil?
       fail!('invalid_type', key) unless value.is_a?(Array)
-      fail!('too_many', key) if value.size > LIST_MAX
+      fail!('too_many', key) if value.size > Payload::LIST_MAX
       value.map { |item| bounded_string(item, key, 200, default: '') }
     end
 
