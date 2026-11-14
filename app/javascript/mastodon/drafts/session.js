@@ -758,6 +758,7 @@ export function createComposerDraftSession ({
 
         return {
           contentHash: sent.hash,
+          savedHash: sent.savedHash || null,
           revision: sent.revision === null || sent.revision === undefined ? null : sent.revision,
         };
       };
@@ -791,6 +792,7 @@ export function createComposerDraftSession ({
           composerId,
           uuid: live.clientDraftUuid,
           hash: snapshot ? snapshot.content_hash : null,
+          savedHash: live.lastHash || null,
           submitId: requestAction && requestAction.submitId || null,
           instanceId: state.get('instanceId') || null,
           token: state.get('idempotencyKey') || null,

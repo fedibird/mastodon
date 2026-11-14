@@ -198,6 +198,15 @@ describe('composer draft storage', () => {
     expect(compareAndDelete(current, { contentHash: 'sent', revision: 1 }).status).toBe('kept');
     expect(compareAndDelete({ ...current, content_hash: 'sent', revision: 4 }, { contentHash: 'sent', revision: 1 }).status).toBe('deleted');
     expect(compareAndDelete(null, { contentHash: 'sent', revision: 1 }).status).toBe('missing');
+    expect(compareAndDelete(
+      { ...current, revision: 1, content_hash: 'old' },
+      { contentHash: 'new', savedHash: 'old', revision: 1 },
+    ).status).toBe('deleted');
+    expect(compareAndDelete(
+      { ...current, revision: 1, content_hash: 'other' },
+      { contentHash: 'new', savedHash: 'old', revision: 1 },
+    ).status).toBe('kept');
+    expect(compareAndDelete(current, { contentHash: 'new', savedHash: 'old', revision: 1 }).status).toBe('kept');
 
     const factory = fakeDatabase();
     const indexed = createIndexedDbDraftBackend({

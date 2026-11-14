@@ -14,15 +14,22 @@ export function compareAndDelete (current, expected) {
   }
 
   const expectedHash = expected && expected.contentHash;
+  const savedHash = expected && expected.savedHash;
   const expectedRevision = expected && expected.revision;
+  const revisionMatches = specified(expectedRevision) && Number(current.revision) === Number(expectedRevision);
 
-  // The posted body is the sent hash. A newer revision of that same body was
-  // still the post. Different text belongs to another tab and stays.
+  // The posted body is the sent hash. The body this tab had already saved is
+  // also the post when the row is still that revision. A different hash at
+  // the same revision, or a newer revision, belongs to another tab and stays.
   if (specified(expectedHash) && current.content_hash === expectedHash) {
     return { status: 'deleted' };
   }
 
-  if (!specified(expectedHash) && (!specified(expectedRevision) || Number(current.revision) === Number(expectedRevision))) {
+  if (specified(savedHash) && current.content_hash === savedHash && revisionMatches) {
+    return { status: 'deleted' };
+  }
+
+  if (!specified(expectedHash) && !specified(savedHash) && (!specified(expectedRevision) || revisionMatches)) {
     return { status: 'deleted' };
   }
 
@@ -142,7 +149,7 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
         const tx = db.transaction(COMPOSER_DRAFT_STORE, 'readwrite');
         const store = tx.objectStore(COMPOSER_DRAFT_STORE);
         const key = [String(accountId), String(clientDraftUuid)];
-        const conditional = expected && (specified(expected.contentHash) || specified(expected.revision));
+        const conditional = expected && (specified(expected.contentHash) || specified(expected.savedHash) || specified(expected.revision));
         let decision = { status: 'deleted' };
 
         if (!conditional) {
@@ -280,7 +287,7 @@ export function createMemoryDraftBackend () {
     deleteDraft (accountId, clientDraftUuid, expected) {
       return exclusive(async () => {
         const key = `${accountId}\u0000${clientDraftUuid}`;
-        const conditional = expected && (specified(expected.contentHash) || specified(expected.revision));
+        const conditional = expected && (specified(expected.contentHash) || specified(expected.savedHash) || specified(expected.revision));
 
         if (!conditional) {
           records.delete(key);

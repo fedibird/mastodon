@@ -1351,4 +1351,57 @@ describe('composer draft session', () => {
     expect((await failed.backend.readDraft('42', 'left-1')).input.text).toBe('from the other tab');
     expect((await failed.backend.listDrafts('42')).map(item => item.input.text).sort()).toEqual(['from the other tab', 'keep other']);
   });
+
+  it('deletes the saved draft when a newer edit is posted before its save timer', async () => {
+    const { backend, session, queued } = portableSession();
+    const saved = composerWith('old', { idempotencyKey: 'token-a' });
+    const posted = composerWith('new', { idempotencyKey: 'token-a' });
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: saved }],
+    });
+    await runQueued(session, queued);
+
+    const stored = await backend.readDraft('42', 'draft-1');
+
+    expect(stored.input.text).toBe('old');
+    expect(stored.revision).toBe(1);
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: posted }],
+    });
+    expect(queued.filter(fn => typeof fn === 'function')).toHaveLength(1);
+
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' },
+      composers: [{ composerId: 'primary', state: posted.set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(posted, 'new', 'submit-1'),
+      },
+      composers: [{ composerId: 'primary', state: composerWith('', { idempotencyKey: 'token-a' }) }],
+    });
+    await session.flush();
+
+    expect(await backend.readDraft('42', 'draft-1')).toBeNull();
+    expect(await backend.listDrafts('42')).toEqual([]);
+
+    const reloaded = createComposerDraftSession({
+      backend,
+      now: () => '2026-11-14T00:00:09.000Z',
+      createId: () => 'reloaded',
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+
+    expect(await reloaded.refreshOffers('42')).toEqual([]);
+  });
 });
