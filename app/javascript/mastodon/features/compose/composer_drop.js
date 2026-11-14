@@ -75,6 +75,7 @@ const uploadRejectionMessages = {
   idle: { id: 'compose_form.upload_blocked.unresolved', defaultMessage: 'Still confirming whether this posting account can attach media.' },
   loading: { id: 'compose_form.upload_blocked.unresolved', defaultMessage: 'Still confirming whether this posting account can attach media.' },
   failed: { id: 'compose_form.upload_blocked.failed', defaultMessage: 'Couldn’t confirm whether this posting account can attach media.' },
+  draft_media: { id: 'compose_form.upload_blocked.draft_media', defaultMessage: 'Saved attachments are not ready. New files stay off until those attachments are removed.' },
   mismatch: { id: 'compose_form.upload_blocked.mismatch', defaultMessage: 'This posting account doesn’t match the signed-in account.' },
   edit_bound: { id: 'compose_form.upload_blocked.edit', defaultMessage: 'Finish or discard this edit before attaching media as this posting account.' },
 };
@@ -88,6 +89,10 @@ export function fileDropBlockFromComposer (composer, permission, incomingMimeTyp
   }
 
   const media = composer.get('media_attachments');
+
+  if (media && typeof media.some === 'function' && media.some(item => item.get('unresolved') === true)) {
+    return 'draft_media';
+  }
 
   return composerFileDropBlock({
     canUpload: !permission || permission.canUpload !== false,

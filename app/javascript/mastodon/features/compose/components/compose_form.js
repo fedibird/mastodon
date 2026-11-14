@@ -43,6 +43,8 @@ import { isExternalFileDrag, markComposerFileDrop } from '../composer_drop';
 import { normalizeComposerToolbar } from '../composer_toolbar';
 import { uploadButtonCopy } from './upload_button';
 import ComposerOverflowMenu from './composer_overflow_menu';
+import ComposerDraftRecoveryContainer from '../containers/composer_draft_recovery_container';
+import { composerDraftRecoveryEnabled } from '../../../drafts/feature';
 
 const allowedAroundShortCode = '><\u0085\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\u2028\u2029\u0009\u000a\u000b\u000c\u000d';
 
@@ -71,6 +73,13 @@ const messages = defineMessages({
   privacyPersonal: { id: 'privacy.personal.short', defaultMessage: 'Personal' },
   surfaceMismatch: { id: 'compose_form.posting_style.surface_mismatch', defaultMessage: 'This draft still uses the previous destination. Posting stays off until you apply the destination shown here.' },
   surfaceAccept: { id: 'compose_form.posting_style.surface_accept', defaultMessage: 'Use this destination' },
+  draftMediaUnresolved: { id: 'compose_form.draft_media_unresolved', defaultMessage: 'Saved attachments are not ready to post. Posting and new attachments stay off until they are removed.' },
+  draftReplyPending: { id: 'compose_form.draft_reply_pending', defaultMessage: 'Loading the post this replies to. Posting stays off until it appears.' },
+  draftReplyFailed: { id: 'compose_form.draft_reply_failed', defaultMessage: 'The post this replies to could not be loaded. Posting stays off.' },
+  draftQuotePending: { id: 'compose_form.draft_quote_pending', defaultMessage: 'Loading the quoted post. Posting stays off until it appears.' },
+  draftQuoteFailed: { id: 'compose_form.draft_quote_failed', defaultMessage: 'The quoted post could not be loaded. Posting stays off.' },
+  draftSurfaceConfirm: { id: 'compose_form.draft_surface_confirm', defaultMessage: 'This draft posts to {kind} {key}. Posting stays off until you confirm that destination.' },
+  draftSurfaceConfirmAction: { id: 'compose_form.draft_surface_confirm_action', defaultMessage: 'Post to this destination' },
   mediaType: { id: 'upload_button.media_type', defaultMessage: 'Video and audio cannot be posted as this account.' },
   mediaOwner: { id: 'compose_form.media_owner', defaultMessage: 'These images belong to a different posting account. They stay attached, and this post cannot be sent until they match the selected account.' },
   more: { id: 'compose_form.more_actions', defaultMessage: 'More actions' },
@@ -209,6 +218,13 @@ class ComposeForm extends ImmutablePureComponent {
     canSendAsIdentity: PropTypes.bool,
     capabilityReason: PropTypes.string,
     surfaceMismatch: PropTypes.bool,
+    draftMediaUnresolved: PropTypes.bool,
+    draftReplyHold: PropTypes.string,
+    draftQuoteHold: PropTypes.string,
+    draftSurfaceUnconfirmed: PropTypes.bool,
+    draftSurfaceKind: PropTypes.string,
+    draftSurfaceKey: PropTypes.string,
+    onConfirmDraftSurface: PropTypes.func,
     onAcceptSurface: PropTypes.func,
     displayMode: PropTypes.oneOf(['full', 'simple']),
     onDisplayModeChange: PropTypes.func,
@@ -248,6 +264,10 @@ class ComposeForm extends ImmutablePureComponent {
     sendBlockReason: null,
     capabilityReason: null,
     surfaceMismatch: false,
+    draftMediaUnresolved: false,
+    draftReplyHold: null,
+    draftQuoteHold: null,
+    draftSurfaceUnconfirmed: false,
     displayMode: 'full',
   };
 
@@ -277,11 +297,72 @@ class ComposeForm extends ImmutablePureComponent {
     const noVisibility = !isEditing && prohibitedVisibilities?.includes(privacy);
     const ngWords = prohibitedWords.some( word => composedText.includes(word) || spoilerText?.includes(word) );
 
-    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt || canSendAsIdentity === false || this.props.surfaceMismatch || !!redraftNotice);
+    const replyHold = this.props.draftReplyHold === 'pending' || this.props.draftReplyHold === 'failed';
+    const quoteHold = this.props.draftQuoteHold === 'pending' || this.props.draftQuoteHold === 'failed';
+
+    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt || canSendAsIdentity === false || this.props.surfaceMismatch || this.props.draftMediaUnresolved || replyHold || quoteHold || !!redraftNotice);
+  }
+
+  renderDraftHold () {
+    const { intl, draftMediaUnresolved, draftReplyHold, draftQuoteHold } = this.props;
+    const lines = [];
+
+    if (draftMediaUnresolved) {
+      lines.push(intl.formatMessage(messages.draftMediaUnresolved));
+    }
+
+    if (draftReplyHold === 'pending') {
+      lines.push(intl.formatMessage(messages.draftReplyPending));
+    } else if (draftReplyHold === 'failed') {
+      lines.push(intl.formatMessage(messages.draftReplyFailed));
+    }
+
+    if (draftQuoteHold === 'pending') {
+      lines.push(intl.formatMessage(messages.draftQuotePending));
+    } else if (draftQuoteHold === 'failed') {
+      lines.push(intl.formatMessage(messages.draftQuoteFailed));
+    }
+
+    if (!lines.length) {
+      return null;
+    }
+
+    return (
+      <div className='compose-form__draft-hold' role='status'>
+        {lines.map(line => <p key={line}>{line}</p>)}
+      </div>
+    );
+  }
+
+  handleConfirmDraftSurface = () => {
+    const { draftSurfaceKind, draftSurfaceKey, onConfirmDraftSurface } = this.props;
+
+    if (onConfirmDraftSurface) {
+      onConfirmDraftSurface(draftSurfaceKind, draftSurfaceKey);
+    }
+  };
+
+  renderDraftSurfaceConfirm () {
+    const { intl, draftSurfaceUnconfirmed, draftSurfaceKind, draftSurfaceKey, onConfirmDraftSurface } = this.props;
+
+    if (!draftSurfaceUnconfirmed || !draftSurfaceKind || !draftSurfaceKey) {
+      return null;
+    }
+
+    return (
+      <div className='compose-form__surface-mismatch' role='status'>
+        <span>{intl.formatMessage(messages.draftSurfaceConfirm, { kind: draftSurfaceKind, key: draftSurfaceKey })}</span>
+        {onConfirmDraftSurface ? (
+          <button type='button' onClick={this.handleConfirmDraftSurface}>
+            {intl.formatMessage(messages.draftSurfaceConfirmAction)}
+          </button>
+        ) : null}
+      </div>
+    );
   }
 
   renderSurfaceMismatch () {
-    if (!this.props.surfaceMismatch) {
+    if (!this.props.surfaceMismatch || this.props.draftSurfaceUnconfirmed) {
       return null;
     }
 
@@ -1179,9 +1260,12 @@ class ComposeForm extends ImmutablePureComponent {
         onDragLeave={this.handleComposerDragLeave}
         onDrop={this.handleComposerDrop}
       >
+        {composerDraftRecoveryEnabled() && <ComposerDraftRecoveryContainer />}
         {this.props.styleController}
         {this.renderHeader()}
+        {this.renderDraftSurfaceConfirm()}
         {this.renderSurfaceMismatch()}
+        {this.renderDraftHold()}
         {this.renderCapabilityGuard()}
         {this.state.uploadNotice ? (
           <p className='compose-form__upload-notice' role='status'>{this.uploadNoticeText()}</p>

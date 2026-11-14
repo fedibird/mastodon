@@ -35,6 +35,7 @@ import user_posting_context_assignments from './user_posting_context_assignments
 import posting_identities from './posting_identities';
 import compose from './compose';
 import composers from './composers';
+import composerDraftRecovery from './composer_draft_recovery';
 import history from './history';
 import search from './search';
 import media_attachments from './media_attachments';
@@ -110,6 +111,7 @@ const reducers = {
   postingIdentities: posting_identities,
   compose,
   composers,
+  composerDraftRecovery,
   history,
   search,
   media_attachments,

@@ -15,10 +15,11 @@ import {
   cancelEditCompose,
 } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
-import { acceptComposerSurface, targetComposerAction } from '../../../actions/composer';
+import { acceptComposerSurface, confirmDraftSurface, targetComposerAction } from '../../../actions/composer';
 import { fetchPostingIdentities, scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
 import { selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
 import { materializeComposerText } from '../../../posting_context/materialize';
+import { composerDraftRestoreBlocks } from '../../../drafts/snapshot';
 import { selectComposer } from '../../../selectors/composer';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../../../selectors/posting_identities';
 import { withComposerId } from '../composer_id_context';
@@ -32,6 +33,28 @@ import { composerToolbar, isAdministrator, showComposerPostingStyleSelector } fr
 import { postingContextHasDetails } from '../components/posting_context_bar';
 import { postingAccountControlAvailable } from '../composer_toolbar';
 import { mapStateToProps as postingContextState } from './posting_context_bar_container';
+
+function sameDraftSurface (leftKind, leftKey, rightKind, rightKey) {
+  if (!rightKind) {
+    return true;
+  }
+
+  return leftKind === rightKind && String(leftKey) === String(rightKey);
+}
+
+function draftSurfaceConfirmStillMatches (composer) {
+  const kind = composer.getIn(['draftSurfaceConfirm', 'kind']);
+  const key = composer.getIn(['draftSurfaceConfirm', 'key']);
+  const epoch = Number(composer.getIn(['draftSurfaceConfirm', 'surfaceEpoch'])) || 0;
+
+  if (!kind || key === undefined || key === null || epoch !== (Number(composer.get('surfaceEpoch')) || 0)) {
+    return false;
+  }
+
+  return sameDraftSurface(kind, key, composer.getIn(['surface', 'kind']), composer.getIn(['surface', 'key']))
+    && sameDraftSurface(kind, key, composer.getIn(['pendingSurface', 'kind']), composer.getIn(['pendingSurface', 'key']))
+    && sameDraftSurface(kind, key, composer.getIn(['displayedSurface', 'kind']), composer.getIn(['displayedSurface', 'key']));
+}
 
 const messages = defineMessages({
   cancelEditConfirm: { id: 'confirmations.cancel_edit.confirm', defaultMessage: 'Discard changes' },
@@ -94,6 +117,12 @@ const mapStateToProps = (state, { composerId }) => {
     }),
     overflowContextActive: !styleControlsAvailable && postingContextHasDetails(postingContextState(state, { composerId })),
     surfaceMismatch: composer.get('surfaceMismatch') === true,
+    draftMediaUnresolved: composerDraftRestoreBlocks(composer).media,
+    draftReplyHold: composer.get('draftReplyHold') || null,
+    draftQuoteHold: composer.get('draftQuoteHold') || null,
+    draftSurfaceUnconfirmed: composer.get('draftSurfaceUnconfirmed') === true && draftSurfaceConfirmStillMatches(composer),
+    draftSurfaceKind: composer.getIn(['draftSurfaceConfirm', 'kind']) || composer.getIn(['surface', 'kind']) || null,
+    draftSurfaceKey: composer.getIn(['draftSurfaceConfirm', 'key']) || composer.getIn(['surface', 'key']) || null,
     redraftNotice: composerRedraftNotice(composer),
   };
 };
@@ -143,6 +172,10 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onAcceptSurface () {
     dispatch(acceptComposerSurface(composerId));
+  },
+
+  onConfirmDraftSurface (kind, key) {
+    dispatch(confirmDraftSurface(composerId, { kind, key }));
   },
 
   onRetryRedraft () {

@@ -71,7 +71,8 @@ import {
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
 import { COMPOSE_REDAFT_DISCARD, COMPOSE_REDAFT_MEDIA_LOCAL, COMPOSE_REDAFT_MEDIA_STATUS } from '../actions/redraft_media';
-import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_DRAFT_RESTORE, COMPOSER_DRAFT_SURFACE_CONFIRM, COMPOSER_DRAFT_TARGET, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { applyComposerDraft } from '../drafts/snapshot';
 import { USER_PREFERENCES_DOCUMENT_ACCEPTED } from '../actions/user_preferences';
 import { applyComposerPreferenceDefaults } from '../utils/preference_apply';
 import { consistentLocalFedibirdGroup, consistentSupportedRemoteGroup } from '../posting_identity/group_destination';
@@ -217,6 +218,11 @@ export const initialState = ImmutableMap({
   displayedSurface: null,
   surfaceMismatch: false,
   surfaceEpoch: 0,
+  draftReplyHold: null,
+  draftQuoteHold: null,
+  draftRestoreToken: null,
+  draftSurfaceUnconfirmed: false,
+  draftSurfaceConfirm: null,
 });
 
 // Survives composer destroy/recreate. Epoch restarts at 0 on a new instance.
@@ -585,6 +591,28 @@ const finishSuccessfulSubmit = (state, action) => {
   return rememberConsumedSubmission(stripDelegatedSchedule(next).set('activeSubmitId', null), action);
 };
 
+const releaseRestoredDraftHold = map => {
+  const confirm = map.get('draftSurfaceConfirm');
+  const pending = map.get('pendingSurface');
+
+  map.set('draftReplyHold', null);
+  map.set('draftQuoteHold', null);
+  map.set('draftRestoreToken', null);
+  map.set('draftSurfaceUnconfirmed', false);
+  map.set('draftSurfaceConfirm', null);
+  map.update('media_attachments', list => (list && typeof list.filter === 'function' ? list.filter(item => item.get('unresolved') !== true) : list));
+
+  // An unconfirmed restored destination is not the screen the user is looking
+  // at. Drop it with the draft. A pending on-screen destination stays held.
+  if (confirm && !pending) {
+    map.set('surfaceMismatch', false);
+    map.set('surface', null);
+    map.set('displayedSurface', null);
+    map.set('context', emptyPostingContext());
+    map.set('posting_context_account_id', null);
+  }
+};
+
 const discardDraftToUsual = state => {
   const usage = state.getIn(['userPostingStyle', 'usageMode']) || 'usual';
 
@@ -621,6 +649,7 @@ const discardDraftToUsual = state => {
     map.update('references', set => set.clear());
     clearScheduledDraftProvenance(map);
     clearManagedHashtagSuppressions(map);
+    releaseRestoredDraftHold(map);
     noteInteractionTarget(map);
   }), { respectManual: true, resetSuppressions: false });
 };
@@ -717,6 +746,11 @@ const clearAll = state => {
     map.set('quote_from', null);
     map.set('quote_from_url', null);
     map.set('reply_status', null);
+    map.set('draftReplyHold', null);
+    map.set('draftQuoteHold', null);
+    map.set('draftRestoreToken', null);
+    map.set('draftSurfaceUnconfirmed', false);
+    map.set('draftSurfaceConfirm', null);
     map.set('interactionCheck', null);
     map.set('privacy', state.get('default_privacy'));
     map.set('searchability', effectiveSearchability(state.get('default_privacy'), state.get('default_searchability')));
@@ -746,6 +780,7 @@ const clearAll = state => {
     map.set('ignore_reference_check', false);
     clearScheduledDraftProvenance(map);
     clearManagedHashtagSuppressions(map);
+    releaseRestoredDraftHold(map);
   });
 };
 
@@ -1647,6 +1682,9 @@ function reduceComposer(state = initialState, action) {
       map.set('quote_from', null);
       map.set('quote_from_url', null);
       map.set('reply_status', action.status);
+      map.set('draftReplyHold', null);
+      map.set('draftQuoteHold', null);
+      map.set('draftRestoreToken', null);
       map.set('text', statusToTextMentions(state.get('text') || '', privacy, action.status));
       clearManagedHashtagSuppressions(map);
       map.set('privacy', privacy);
@@ -1694,6 +1732,9 @@ function reduceComposer(state = initialState, action) {
       map.set('in_reply_to', null);
       map.set('quote_from', action.status.get('id'));
       map.set('quote_from_url', action.status.get('url'));
+      map.set('draftReplyHold', null);
+      map.set('draftQuoteHold', null);
+      map.set('draftRestoreToken', null);
       map.set('text', '');
       clearManagedHashtagSuppressions(map);
       map.set('privacy', privacy);
@@ -1737,6 +1778,11 @@ function reduceComposer(state = initialState, action) {
       map.set('quote_from', null);
       map.set('quote_from_url', null);
       map.set('reply_status', null);
+      map.set('draftReplyHold', null);
+      map.set('draftQuoteHold', null);
+      map.set('draftRestoreToken', null);
+      map.set('draftSurfaceUnconfirmed', false);
+      map.set('draftSurfaceConfirm', null);
       map.set('text', '');
       map.set('spoiler', false);
       map.set('spoiler_text', '');
@@ -1759,6 +1805,7 @@ function reduceComposer(state = initialState, action) {
       }
       clearScheduledDraftProvenance(map);
       clearManagedHashtagSuppressions(map);
+      releaseRestoredDraftHold(map);
       noteInteractionTarget(map);
     }), { respectManual: true, resetSuppressions: false });
   case COMPOSER_INTERACTION_CHECK_REQUEST:
@@ -2215,6 +2262,70 @@ function reduceComposer(state = initialState, action) {
     return state.update('references', set => set.clear());
   case COMPOSE_REFERENCE_CHECK_IGNORE:
     return state.set('ignore_reference_check', true);
+  case COMPOSER_DRAFT_RESTORE:
+    return applyComposerDraft(state, action.snapshot, {
+      idempotencyKey: action.idempotencyKey,
+      restoreToken: action.restoreToken,
+    });
+  case COMPOSER_DRAFT_SURFACE_CONFIRM: {
+    const confirm = state.get('draftSurfaceConfirm');
+    const owned = state.get('surface');
+    const pending = state.get('pendingSurface');
+    const displayed = state.get('displayedSurface');
+    const samePlace = (candidate, kind, key) => !candidate || (candidate.get('kind') === kind && String(candidate.get('key')) === key);
+
+    if (state.get('draftSurfaceUnconfirmed') !== true || !confirm || !owned) {
+      return state;
+    }
+
+    const kind = confirm.get('kind');
+    const key = String(confirm.get('key'));
+    const epoch = Number(confirm.get('surfaceEpoch')) || 0;
+
+    if ((Number(state.get('surfaceEpoch')) || 0) !== epoch || owned.get('kind') !== kind || String(owned.get('key')) !== key) {
+      return state;
+    }
+
+    if (!samePlace(pending, kind, key) || !samePlace(displayed, kind, key)) {
+      return state;
+    }
+
+    if (action.kind && (action.kind !== kind || String(action.key) !== key)) {
+      return state;
+    }
+
+    return state
+      .set('draftSurfaceUnconfirmed', false)
+      .set('draftSurfaceConfirm', null)
+      .set('surfaceMismatch', false);
+  }
+  case COMPOSER_DRAFT_TARGET: {
+    if (!action.restoreToken || state.get('draftRestoreToken') !== action.restoreToken) {
+      return state;
+    }
+
+    if (action.role === 'reply' && String(state.get('in_reply_to') || '') !== String(action.targetId || '')) {
+      return state;
+    }
+
+    if (action.role === 'quote' && String(state.get('quote_from') || '') !== String(action.targetId || '')) {
+      return state;
+    }
+
+    return state.withMutations(map => {
+      if (action.role === 'reply') {
+        map.set('draftReplyHold', action.hold || null);
+
+        if (action.replyStatus) {
+          map.set('reply_status', fromJS(action.replyStatus));
+        }
+      }
+
+      if (action.role === 'quote') {
+        map.set('draftQuoteHold', action.hold || null);
+      }
+    });
+  }
   default:
     return state;
   }
