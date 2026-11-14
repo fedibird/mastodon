@@ -22,29 +22,33 @@ describe 'draft media cleanup race' do
 
   it 'does not destroy a file that is still linked when cleanup and save overlap' do
     user = Fabricate(:user)
+    errors = []
+    barrier = Mutex.new
     4.times do |index|
       media = Fabricate(:media_attachment, account: user.account, created_at: 10.days.ago)
-      threads = []
-      threads << Thread.new do
-        with_connection { Scheduler::MediaCleanupScheduler.new.perform }
-      rescue StandardError
-        nil
-      end
-      threads << Thread.new do
-        with_connection do
-          PostDrafts::Store.new(Account.find(user.account_id)).create(
-            client_uuid: format('abababab-abab-4bab-8bab-%012d', index),
-            payload: {
-              'schema_version' => 1,
-              'input' => { 'text' => "race #{index}", 'media' => [{ 'id' => media.id.to_s }] },
-            }
-          )
+      threads = [Scheduler::MediaCleanupScheduler.new, nil].map.with_index do |_worker, worker_index|
+        Thread.new do
+          with_connection do
+            if worker_index.zero?
+              Scheduler::MediaCleanupScheduler.new.perform
+            else
+              PostDrafts::Store.new(Account.find(user.account_id)).create(
+                client_uuid: format('abababab-abab-4bab-8bab-%012d', index),
+                payload: {
+                  'schema_version' => 1,
+                  'input' => { 'text' => "race #{index}", 'media' => [{ 'id' => media.id.to_s }] },
+                }
+              )
+            end
+          end
+        rescue StandardError => e
+          barrier.synchronize { errors << e }
         end
-      rescue StandardError
-        nil
       end
-      threads.each { |thread| thread.join(20) }
+      unfinished = threads.count { |thread| thread.join(20).nil? }
 
+      expect(unfinished).to eq 0
+      expect(errors).to be_empty
       expect(MediaAttachment.exists?(media.id)).to be true if PostDraftMediaAttachment.exists?(media_attachment_id: media.id)
     end
   ensure

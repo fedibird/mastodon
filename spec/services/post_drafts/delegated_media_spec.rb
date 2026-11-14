@@ -50,6 +50,7 @@ describe 'delegated draft media' do
     expect(media.description).to eq 'grantor alt'
     expect(view[:media_restore]).to eq 'complete'
     expect(view[:media].map { |row| row[:id] || row['id'] }).to eq [media.id.to_s]
+    expect(view[:media].map { |row| row[:description] || row['description'] }).to eq ['from the operator']
 
     delegation.revoke!
     revoked = PostDrafts::Presenter.new(grantee).one(created.draft.reload)

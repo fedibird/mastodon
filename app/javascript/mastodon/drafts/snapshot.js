@@ -879,12 +879,33 @@ export function applyComposerDraft (state, snapshot, options = {}) {
   });
 }
 
+const FINISHED_MEDIA_TYPES = new Set(['image', 'gifv', 'video', 'audio']);
+
+// GET /api/v1/media/:id returns 206 and a null url while processing, and 422
+// when processing failed. A 200 body omits `processing`. An explicit
+// unfinished processing value still blocks submit when a url is present.
 export function draftMediaResponseUsable (media, mediaId) {
-  if (!isPlainObject(media) || !media.url || !media.type || media.type === 'unknown') {
+  if (!isPlainObject(media) || typeof media.url !== 'string' || media.url === '') {
     return false;
   }
 
-  return String(media.id) === String(mediaId);
+  if (!FINISHED_MEDIA_TYPES.has(media.type) || String(media.id) !== String(mediaId)) {
+    return false;
+  }
+
+  if (media.error) {
+    return false;
+  }
+
+  return processingFinished(media.processing);
+}
+
+function processingFinished (processing) {
+  if (processing === undefined || processing === null || processing === '') {
+    return true;
+  }
+
+  return processing === 'complete' || processing === 2;
 }
 
 export function applyResolvedDraftMedia (state, action) {
@@ -910,10 +931,17 @@ export function applyResolvedDraftMedia (state, action) {
   }
 
   const previous = list.get(index);
-  const resolved = fromJS(action.media)
+  const description = previous.get('description');
+  let resolved = fromJS(action.media)
     .set('unresolved', false)
     .set('unattached', true)
-    .set('order', previous.get('order'));
+    .set('order', previous.get('order'))
+    .set('description', description === undefined || description === null ? '' : description);
+  const focus = previous.getIn(['meta', 'focus']);
+
+  if (focus) {
+    resolved = resolved.setIn(['meta', 'focus'], focus);
+  }
 
   return state.set('media_attachments', list.set(index, resolved));
 }

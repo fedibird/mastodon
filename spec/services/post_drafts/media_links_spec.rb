@@ -8,8 +8,12 @@ describe PostDrafts::MediaLinks do
   let(:uuid) { '11111111-1111-4111-8111-111111111111' }
   let(:other_uuid) { '22222222-2222-4222-8222-222222222222' }
 
-  def item(id, order: 0, description: 'snapshot alt')
-    { 'id' => id.to_s, 'order' => order, 'description' => description, 'focus' => { 'x' => 0, 'y' => 0 } }
+  def item(id, order: 0, description: 'snapshot alt', focus: { 'x' => 0, 'y' => 0 })
+    { 'id' => id.to_s, 'order' => order, 'description' => description, 'focus' => focus }
+  end
+
+  def field(row, key)
+    row[key.to_sym] || row[key.to_s]
   end
 
   def payload(text, media, extra = {})
@@ -30,7 +34,12 @@ describe PostDrafts::MediaLinks do
   it 'links finished images in order without copying alt, focus, or thumbnail' do
     first = finished(user.account)
     second = finished(user.account, description: 'second')
-    created = store.create(client_uuid: uuid, payload: payload('hello', [item(second.id, order: 1), item(first.id, order: 0, description: "other\nalt")]))
+    created = store.create(client_uuid: uuid, payload: payload('hello', [
+      item(second.id, order: 1, description: 'second'),
+      item(first.id, order: 0, description: "other\nalt", focus: { 'x' => -0.25, 'y' => 0.5 }),
+    ]))
+    view = PostDrafts::Presenter.new(user).one(created.draft)
+    restored = view[:media].first
 
     expect(created.status).to eq :created
     expect(created.draft.post_draft_media_attachments.order(:position).pluck(:media_attachment_id)).to eq [first.id, second.id]
@@ -39,6 +48,10 @@ describe PostDrafts::MediaLinks do
     expect(first.thumbnail_file_name).to eq 'custom-thumb.jpg'
     expect(first.status_id).to be_nil
     expect(created.draft.payload.dig('input', 'media', 0, 'description')).to eq "other\nalt"
+    expect(field(restored, :description)).to eq "other\nalt"
+    expect(field(field(restored, :meta), :focus)['x'] || field(field(restored, :meta), :focus)[:x]).to eq(-0.25)
+    expect(field(view[:media].last, :description)).to eq 'second'
+    expect(field(restored, :preview_url)).to be_present
     expect(Status.count).to eq 0
     expect(ScheduledStatus.count).to eq 0
   end
@@ -60,6 +73,7 @@ describe PostDrafts::MediaLinks do
     updated = store.update(created.draft.id, expected_revision: 1, payload: payload('next', [item(second.id, order: 0), item(first.id, order: 1)]))
 
     expect(stale.status).to eq :conflict
+    expect(PostDrafts::Presenter.new(user).one(created.draft.reload).dig(:media, 0).then { |row| field(row, :description) }).to eq 'snapshot alt'
     expect(updated.status).to eq :updated
     expect(updated.draft.post_draft_media_attachments.order(:position).pluck(:media_attachment_id)).to eq [second.id, first.id]
     expect(first.reload.description).to eq "kept\nalt"
@@ -190,6 +204,25 @@ describe PostDrafts::MediaLinks do
     expect(MediaAttachment.exists?(media.id)).to be false
     expect(PostDraftMediaAttachment.where(post_draft_id: created.draft.id)).to be_empty
     expect(PostDraft.exists?(created.draft.id)).to be true
+  end
+
+  it 'reports a partial restore when the stored file is gone or processing is no longer complete' do
+    missing = finished(user.account, description: 'row alt')
+    failed = finished(user.account)
+    missing_draft = store.create(client_uuid: uuid, payload: payload('gone', [item(missing.id, description: "draft\nalt")]))
+    failed_draft = store.create(client_uuid: other_uuid, payload: payload('failed', [item(failed.id, description: 'draft alt')]))
+    missing.update_columns(file_file_name: nil)
+    failed.update_columns(processing: MediaAttachment.processings[:failed])
+    missing_view = PostDrafts::Presenter.new(user).one(missing_draft.draft)
+    failed_view = PostDrafts::Presenter.new(user).one(failed_draft.draft)
+
+    expect(missing_view[:media_retained]).to be true
+    expect(missing_view[:media_restore]).to eq 'partial'
+    expect(missing_view[:media]).to eq []
+    expect(missing_draft.draft.payload.dig('input', 'media', 0, 'description')).to eq "draft\nalt"
+    expect(failed_view[:media_restore]).to eq 'partial'
+    expect(failed_view[:media]).to eq []
+    expect(failed.reload.description).to eq "kept\nalt"
   end
 
   it 'indexes each attachment once and refuses deleting a referenced file at the database' do

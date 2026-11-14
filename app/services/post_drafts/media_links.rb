@@ -7,9 +7,12 @@ module PostDrafts
   # media rows, in that same id order, so they do not wait on the account
   # while holding media.
   #
-  # Description, focus, and thumbnail are not written. The media record
-  # remains the source for those attributes. A referenced file stays
-  # unattached to a status until a later publish step detaches it first.
+  # Description and focus stay in the draft snapshot. This class does not
+  # write them onto the media row, so an older snapshot cannot replace a
+  # newer description on that row. The thumbnail stays on the row as well.
+  # MediaView copies the snapshot description and focus onto the response.
+  # A referenced file stays unattached to a status until a later publish
+  # step detaches it first.
   class MediaLinks
     def initialize(owner_account_id)
       @owner_account_id = owner_account_id

@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
 module PostDrafts
-  # Reads the attachment rows committed for a draft. Generated URLs are
-  # resolved from those rows for the signed-in owner. They are not stored
-  # in the snapshot. A revoked delegation or an unfinished file stays
-  # linked, and is omitted from the rendered list.
+  # Reads the attachment rows committed for a draft. The file, type, URLs,
+  # dimensions, processing, and custom thumbnail come from those rows.
+  # The draft snapshot is the copy of ALT and focus that this draft
+  # restores, so a save does not write them onto the media row. A revoked
+  # delegation, an unfinished file, or a missing stored file stays linked
+  # and is omitted from the rendered list.
   class MediaView
     def initialize(draft, viewer)
       @draft = draft
@@ -29,12 +31,7 @@ module PostDrafts
       records = visible_records
       return [] if records.empty?
 
-      ActiveModelSerializers::SerializableResource.new(
-        records,
-        each_serializer: REST::MediaAttachmentSerializer,
-        scope: @viewer,
-        scope_name: :current_user
-      ).as_json
+      document_rows(records).map { |row| overlay_snapshot(row) }
     end
 
     private
@@ -44,8 +41,16 @@ module PostDrafts
     end
 
     def payload_ids
+      payload_media.map { |item| item['id'].to_s }
+    end
+
+    def payload_media
       media = @draft.payload.is_a?(Hash) ? @draft.payload.dig('input', 'media') : nil
-      Array(media).map { |item| item.is_a?(Hash) ? item['id'].to_s : nil }.compact
+      Array(media).select { |item| item.is_a?(Hash) }
+    end
+
+    def snapshot_by_id
+      @snapshot_by_id ||= payload_media.index_by { |item| item['id'].to_s }
     end
 
     def linked_ids
@@ -79,7 +84,34 @@ module PostDrafts
     end
 
     def renderable?(media, account_id)
-      media.local? && media.processing_complete? && media.account_id == account_id
+      media.local? && media.processing_complete? && media.account_id == account_id && stored_file?(media)
+    end
+
+    def stored_file?(media)
+      media.file.present? && media.file.exists?
+    rescue Errno::ENOENT, Paperclip::Error
+      false
+    end
+
+    def document_rows(records)
+      rendered = ActiveModelSerializers::SerializableResource.new(
+        records,
+        each_serializer: REST::MediaAttachmentSerializer,
+        scope: @viewer,
+        scope_name: :current_user
+      ).as_json
+      list = rendered.is_a?(Array) ? rendered : Array(rendered['media_attachments'] || rendered[:media_attachments])
+      list.map(&:deep_stringify_keys)
+    end
+
+    def overlay_snapshot(row)
+      snapshot = snapshot_by_id[row['id'].to_s]
+      return row if snapshot.nil?
+
+      focus = snapshot['focus'].is_a?(Hash) ? snapshot['focus'] : {}
+      meta = row['meta'].is_a?(Hash) ? row['meta'].deep_dup : {}
+      meta['focus'] = { 'x' => focus.fetch('x', 0), 'y' => focus.fetch('y', 0) }
+      row.merge('description' => snapshot['description'].to_s, 'meta' => meta)
     end
 
     def delegated_sender?

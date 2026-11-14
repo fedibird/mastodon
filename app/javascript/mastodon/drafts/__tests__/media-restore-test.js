@@ -53,14 +53,24 @@ describe('draft media restore', () => {
     const next = resolve(state, serverMedia);
 
     expect(next.getIn(['media_attachments', 0, 'unresolved'])).toBe(false);
-    expect(next.getIn(['media_attachments', 0, 'description'])).toBe('server alt');
+    expect(next.getIn(['media_attachments', 0, 'description'])).toBe('stale');
+    expect(next.getIn(['media_attachments', 0, 'meta', 'focus', 'x'])).toBe(0.2);
+    expect(next.getIn(['media_attachments', 0, 'meta', 'focus', 'y'])).toBe(-0.4);
     expect(next.getIn(['media_attachments', 0, 'type'])).toBe('image');
     expect(next.getIn(['media_attachments', 0, 'url'])).toBe('https://example.test/501.jpg');
+    expect(next.getIn(['media_attachments', 0, 'preview_url'])).toBe('https://example.test/501-small.jpg');
     expect(next.getIn(['media_attachments', 0, 'order'])).toBe(0);
     expect(next.getIn(['media_attachments', 1, 'unresolved'])).toBe(true);
     expect(composerDraftRestoreBlocksSubmit(next)).toBe(true);
     expect(draftMediaResponseUsable({ id: '501', type: 'unknown', url: 'https://example.test/x' }, '501')).toBe(false);
     expect(draftMediaResponseUsable({ id: '501', type: 'image' }, '501')).toBe(false);
+    expect(draftMediaResponseUsable({ ...serverMedia, processing: 'queued' }, '501')).toBe(false);
+    expect(draftMediaResponseUsable({ ...serverMedia, processing: 'in_progress' }, '501')).toBe(false);
+    expect(draftMediaResponseUsable({ ...serverMedia, processing: 'failed' }, '501')).toBe(false);
+    expect(draftMediaResponseUsable({ ...serverMedia, processing: 1 }, '501')).toBe(false);
+    expect(draftMediaResponseUsable({ ...serverMedia, processing: 'complete' }, '501')).toBe(true);
+    expect(draftMediaResponseUsable({ error: 'Error processing thumbnail for uploaded media' }, '501')).toBe(false);
+    expect(resolve(state, { ...serverMedia, processing: 'in_progress' }).getIn(['media_attachments', 0, 'unresolved'])).toBe(true);
     expect(resolve(state, { id: '501', type: 'image' }).getIn(['media_attachments', 0, 'unresolved'])).toBe(true);
     expect(resolve(state, { ...serverMedia, id: '999' }).getIn(['media_attachments', 0, 'unresolved'])).toBe(true);
   });
@@ -103,7 +113,8 @@ describe('draft media restore', () => {
     }, 'column-a'));
 
     expect(state.getIn(['byId', 'column-a', 'media_attachments', 0, 'unresolved'])).toBe(false);
-    expect(state.getIn(['byId', 'column-a', 'media_attachments', 0, 'description'])).toBe('server alt');
+    expect(state.getIn(['byId', 'column-a', 'media_attachments', 0, 'description'])).toBe('stale');
+    expect(state.getIn(['byId', 'column-a', 'media_attachments', 0, 'meta', 'focus', 'x'])).toBe(0.2);
     expect(state.getIn(['byId', 'column-b', 'media_attachments']).size).toBe(0);
   });
 });
