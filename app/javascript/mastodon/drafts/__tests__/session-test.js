@@ -1,5 +1,5 @@
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
-import { COMPOSE_REPLY_CANCEL, COMPOSE_RESET, COMPOSE_SET_STATUS, COMPOSE_SUBMIT_REQUEST, COMPOSE_SUBMIT_SUCCESS, COMPOSE_UPLOAD_SUCCESS, changeCompose, submissionSnapshot } from '../../actions/compose';
+import { COMPOSE_REPLY_CANCEL, COMPOSE_RESET, COMPOSE_SET_STATUS, COMPOSE_SUBMIT_FAIL, COMPOSE_SUBMIT_REQUEST, COMPOSE_SUBMIT_SUCCESS, COMPOSE_UPLOAD_SUCCESS, changeCompose, submissionSnapshot } from '../../actions/compose';
 import { REDRAFT } from '../../actions/statuses';
 import composer, { initialState } from '../../reducers/composer';
 import { createComposerDraftSession } from '../session';
@@ -813,6 +813,221 @@ describe('composer draft session', () => {
     await session.flush();
 
     expect(await backend.readDraft('42', 'draft-1')).toBeNull();
+    expect(await backend.listDrafts('42')).toEqual([]);
+  });
+
+  function portableSession () {
+    const backend = createMemoryDraftBackend();
+    const queued = [];
+    const session = createComposerDraftSession({
+      backend,
+      now: () => '2026-11-14T00:00:04.000Z',
+      createId: (() => {
+        let next = 0;
+
+        return () => {
+          next += 1;
+          return `draft-${next}`;
+        };
+      })(),
+      schedule: (fn) => {
+        queued.push(fn);
+        return queued.length;
+      },
+      cancel: (id) => {
+        queued[id - 1] = null;
+      },
+    });
+
+    return { backend, session, queued };
+  }
+
+  async function runQueued (session, queued) {
+    const pending = [];
+
+    queued.forEach((fn, index) => {
+      if (typeof fn === 'function') {
+        pending.push(fn);
+        queued[index] = null;
+      }
+    });
+    pending.forEach(fn => fn());
+    await session.flush();
+  }
+
+  it('saves a reopened composer when an older submit for that composer succeeds', async () => {
+    const { backend, session, queued } = portableSession();
+    const composerId = 'portable';
+    const postA = composerWith('post A', { instanceId: 'instance-a', idempotencyKey: 'token-a' });
+    const postB = composerWith('post B', { instanceId: 'instance-b', idempotencyKey: 'token-b' });
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE', meta: { composerId } },
+      composers: [{ composerId, state: postA }],
+    });
+    await runQueued(session, queued);
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1', meta: { composerId } },
+      composers: [{ composerId, state: postA.set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSER_DESTROY', meta: { composerId } },
+      composers: [],
+    });
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE', meta: { composerId } },
+      composers: [{ composerId, state: postB }],
+    });
+
+    const pendingSave = queued.filter(fn => typeof fn === 'function');
+
+    expect(pendingSave).toHaveLength(1);
+
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(postA, 'new', 'submit-1'),
+        meta: { composerId },
+      },
+      composers: [{ composerId, state: postB }],
+    });
+    expect(queued.filter(fn => typeof fn === 'function')).toHaveLength(1);
+    await runQueued(session, queued);
+
+    expect((await backend.listDrafts('42')).map(item => item.input.text)).toEqual(['post B']);
+  });
+
+  it('deletes only the submit that succeeded when two submits share a composer id', async () => {
+    const { backend, session } = harness();
+    const composerId = 'portable';
+    const postA = composerWith('post A', { instanceId: 'instance-a', idempotencyKey: 'token-a' });
+    const postB = composerWith('post B', { instanceId: 'instance-b', idempotencyKey: 'token-b' });
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE', meta: { composerId } },
+      composers: [{ composerId, state: postA }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1', meta: { composerId } },
+      composers: [{ composerId, state: postA.set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSER_DESTROY', meta: { composerId } },
+      composers: [],
+    });
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE', meta: { composerId } },
+      composers: [{ composerId, state: postB }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-2', meta: { composerId } },
+      composers: [{ composerId, state: postB.set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_FAIL, submitId: 'submit-1', meta: { composerId } },
+      composers: [{ composerId, state: postB }],
+    });
+    await session.flush();
+
+    expect((await backend.listDrafts('42')).map(item => item.input.text).sort()).toEqual(['post A', 'post B']);
+
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(postA, 'new', 'submit-1'),
+        meta: { composerId },
+      },
+      composers: [{ composerId, state: postB }],
+    });
+    await session.flush();
+
+    expect((await backend.listDrafts('42')).map(item => item.input.text)).toEqual(['post B']);
+
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(postB.set('is_submitting', true), 'new', 'submit-2'),
+        meta: { composerId },
+      },
+      composers: [{ composerId, state: postB.set('text', '') }],
+    });
+    await session.flush();
+
+    expect(await backend.listDrafts('42')).toEqual([]);
+  });
+
+  it('deletes each sent draft when the newer submit finishes first', async () => {
+    const { backend, session } = harness();
+    const composerId = 'portable';
+    const postA = composerWith('post A', { instanceId: 'instance-a', idempotencyKey: 'token-a' });
+    const postB = composerWith('post B', { instanceId: 'instance-b', idempotencyKey: 'token-b' });
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE', meta: { composerId } },
+      composers: [{ composerId, state: postA }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1', meta: { composerId } },
+      composers: [{ composerId, state: postA.set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSER_DESTROY', meta: { composerId } },
+      composers: [],
+    });
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE', meta: { composerId } },
+      composers: [{ composerId, state: postB }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-2', meta: { composerId } },
+      composers: [{ composerId, state: postB.set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(postB.set('is_submitting', true), 'new', 'submit-2'),
+        meta: { composerId },
+      },
+      composers: [{ composerId, state: postB.set('text', '') }],
+    });
+    await session.flush();
+
+    expect((await backend.listDrafts('42')).map(item => item.input.text)).toEqual(['post A']);
+
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(postA, 'new', 'submit-1'),
+        meta: { composerId },
+      },
+      composers: [{ composerId, state: postB.set('text', '') }],
+    });
+    await session.flush();
+
     expect(await backend.listDrafts('42')).toEqual([]);
   });
 });

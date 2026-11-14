@@ -155,12 +155,15 @@ export function createComposerDraftSession ({
     }
 
     discarded.add(clientDraftUuid);
-    epochs.set(composerId, (epochs.get(composerId) || 0) + 1);
 
     const surface = surfaces.get(composerId);
     const queued = pending.get(composerId);
+    const ownsCurrent = Boolean(surface && surface.clientDraftUuid === clientDraftUuid);
 
-    if (surface && surface.clientDraftUuid === clientDraftUuid) {
+    // A newer draft on this composer has its own epoch and write. Retiring
+    // the draft that was sent must not make that newer write look stale.
+    if (ownsCurrent) {
+      epochs.set(composerId, (epochs.get(composerId) || 0) + 1);
       detach(surface);
     } else {
       claimed.delete(clientDraftUuid);
@@ -529,7 +532,87 @@ export function createComposerDraftSession ({
         return true;
       };
 
-      const rememberPublishing = (composerId, state) => {
+      const publishRecordKey = (record) => [
+        record.composerId,
+        record.submitId || '',
+        record.instanceId || '',
+        record.token || '',
+      ].join('\u0000');
+
+      const submissionMatches = (record, submission) => {
+        if (!submission) {
+          return false;
+        }
+
+        if (record.submitId && submission.submitId && record.submitId !== submission.submitId) {
+          return false;
+        }
+
+        if (record.instanceId && submission.instanceId && record.instanceId !== submission.instanceId) {
+          return false;
+        }
+
+        if (record.token && submission.token && record.token !== submission.token) {
+          return false;
+        }
+
+        return Boolean(
+          (record.submitId && submission.submitId)
+          || (record.instanceId && submission.instanceId)
+          || (record.token && submission.token),
+        );
+      };
+
+      const takeSentDraft = (composerId, submission) => {
+        const records = [];
+
+        publishing.forEach((record, key) => {
+          if (record.composerId === composerId) {
+            records.push({ key, record });
+          }
+        });
+
+        const identified = Boolean(submission && (submission.submitId || submission.instanceId || submission.token));
+
+        if (!identified) {
+          return { record: null, tracked: false };
+        }
+
+        let matched = records.filter(({ record }) => submissionMatches(record, submission));
+
+        if (submission.submitId) {
+          const bySubmit = matched.filter(({ record }) => record.submitId === submission.submitId);
+
+          if (bySubmit.length > 0) {
+            matched = bySubmit;
+          }
+        }
+
+        if (matched.length === 1) {
+          publishing.delete(matched[0].key);
+          return { record: matched[0].record, tracked: true };
+        }
+
+        if (records.length > 0) {
+          return { record: null, tracked: true };
+        }
+
+        return { record: null, tracked: false };
+      };
+
+      const legacySentUuid = (surface, submission) => {
+        if (!surface || !surface.clientDraftUuid) {
+          return null;
+        }
+
+        if (submission && submission.instanceId && surface.instanceId && submission.instanceId !== surface.instanceId) {
+          return null;
+        }
+
+        return surface.clientDraftUuid;
+      };
+
+      const rememberPublishing = (composerId, state, requestAction) => {
         const live = surfaces.get(composerId);
 
         if (!live || !live.clientDraftUuid || live.instanceId !== state.get('instanceId')) {
@@ -542,20 +625,32 @@ export function createComposerDraftSession ({
           composerId,
           savedAt: now(),
         });
-
-        publishing.set(composerId, {
+        const record = {
+          composerId,
           uuid: live.clientDraftUuid,
           hash: snapshot ? snapshot.content_hash : null,
-        });
+          submitId: requestAction && requestAction.submitId || null,
+          instanceId: state.get('instanceId') || null,
+          token: state.get('idempotencyKey') || null,
+        };
+
+        publishing.set(publishRecordKey(record), record);
       };
 
       const finishPublishedDraft = (publishAccountId, composerId, state, publishAction, surface, instanceId) => {
-        const sent = publishing.get(composerId);
-
-        publishing.delete(composerId);
-
-        const sentUuid = (sent && sent.uuid) || (surface && surface.clientDraftUuid) || null;
+        const submission = publishAction && publishAction.submission;
+        const taken = takeSentDraft(composerId, submission);
+        const sent = taken.record;
+        const sentUuid = (sent && sent.uuid) || (!taken.tracked && legacySentUuid(surface, submission)) || null;
         const currentUuid = surface && surface.clientDraftUuid;
+
+        if (!sentUuid) {
+          if (surface) {
+            surface.stateRef = state;
+          }
+
+          return;
+        }
 
         if (sentUuid) {
           retireDraft(publishAccountId, composerId, sentUuid);
@@ -741,7 +836,7 @@ export function createComposerDraftSession ({
           scheduleWrite(accountId, composerId, storedSnapshot);
         } finally {
           if (targeted && type === COMPOSE_SUBMIT_REQUEST) {
-            rememberPublishing(composerId, state);
+            rememberPublishing(composerId, state, action);
           }
         }
       });
@@ -759,12 +854,11 @@ export function createComposerDraftSession ({
         }
 
         const surface = surfaces.get(composerId);
-        const sent = publishing.get(composerId);
 
         if (PUBLISH_SUCCESS.has(type) && actionComposerId(action) === composerId) {
-          publishing.delete(composerId);
-
-          const uuid = (sent && sent.uuid) || (surface && surface.clientDraftUuid);
+          const submission = action && action.submission;
+          const taken = takeSentDraft(composerId, submission);
+          const uuid = (taken.record && taken.record.uuid) || (!taken.tracked && legacySentUuid(surface, submission));
 
           if (uuid) {
             retireDraft(accountId, composerId, uuid);
