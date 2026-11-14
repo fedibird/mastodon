@@ -168,7 +168,9 @@ en:
       read:mutes: see your mutes
       read:notifications: see your notifications
       read:preferences: read your preferences
+      read:post_drafts: read your unpublished post drafts
       write:preferences: update your preferences
+      write:post_drafts: create and update your unpublished post drafts
       read:reports: see your reports
       read:search: search on your behalf
       read:statuses: see all posts

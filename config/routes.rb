@@ -741,6 +741,8 @@ Rails.application.routes.draw do
             get :capabilities
           end
         end
+
+        resources :post_drafts, only: [:index, :show, :create, :update, :destroy]
       end
 
       resource :instance, only: [:show] do

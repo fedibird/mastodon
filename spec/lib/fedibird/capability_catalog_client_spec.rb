@@ -48,6 +48,10 @@ RSpec.describe Fedibird::CapabilityCatalog do
       expect(contextual.dig(:posting_styles, :max_per_user)).to eq(UserPostingContext::MAX_PER_USER)
       expect(contextual.dig(:posting_identities, :scope)).to eq('administrator')
       expect(contextual.dig(:posting_identities, :collection_path)).to eq('/api/v1/fedibird/posting_identities')
+      expect(contextual.dig(:post_drafts, :read_scope)).to eq('read:post_drafts')
+      expect(contextual.dig(:post_drafts, :write_scope)).to eq('write:post_drafts')
+      expect(contextual.dig(:post_drafts, :media_retained)).to be false
+      expect(contextual.dig(:post_drafts, :max_per_account)).to eq 100
     end
   end
 end

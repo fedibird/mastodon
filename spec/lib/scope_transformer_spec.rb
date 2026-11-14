@@ -17,7 +17,9 @@ describe ScopeTransformer do
     'admin:read:accounts' => ['admin', 'accounts', 'read'],
     'read:accounts' => [nil, 'accounts', 'read'],
     'read:preferences' => [nil, 'preferences', 'read'],
+    'read:post_drafts' => [nil, 'post_drafts', 'read'],
     'write:preferences' => [nil, 'preferences', 'write'],
+    'write:post_drafts' => [nil, 'post_drafts', 'write'],
     'admin:read:domain_blocks' => ['admin', 'domain_blocks', 'read'],
     'admin:write:email_domain_blocks' => ['admin', 'email_domain_blocks', 'write'],
   }.each do |scope_string, (namespace, term, access)|
