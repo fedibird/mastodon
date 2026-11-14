@@ -6,6 +6,29 @@ export const COMPOSER_DRAFT_STORE = 'drafts';
 
 const recordKey = record => `${record.account_id}\u0000${record.client_draft_uuid}`;
 
+const specified = value => value !== null && value !== undefined;
+
+export function compareAndDelete (current, expected) {
+  if (!current) {
+    return { status: 'missing' };
+  }
+
+  const expectedHash = expected && expected.contentHash;
+  const expectedRevision = expected && expected.revision;
+
+  // The posted body is the sent hash. A newer revision of that same body was
+  // still the post. Different text belongs to another tab and stays.
+  if (specified(expectedHash) && current.content_hash === expectedHash) {
+    return { status: 'deleted' };
+  }
+
+  if (!specified(expectedHash) && (!specified(expectedRevision) || Number(current.revision) === Number(expectedRevision))) {
+    return { status: 'deleted' };
+  }
+
+  return { status: 'kept', record: current };
+}
+
 export function compareAndPut (current, incoming, { baseRevision = 0 } = {}) {
   if (current && String(current.account_id) !== String(incoming.account_id)) {
     return { status: 'rejected', reason: 'account_mismatch', record: current };
@@ -93,27 +116,6 @@ export function openComposerDraftDatabase (indexedDBImpl) {
   });
 }
 
-function runTransaction (db, mode, perform) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(COMPOSER_DRAFT_STORE, mode);
-    const store = tx.objectStore(COMPOSER_DRAFT_STORE);
-    let result;
-
-    try {
-      result = perform(store, (value) => {
-        result = value;
-      });
-    } catch (error) {
-      reject(error);
-      return;
-    }
-
-    tx.oncomplete = () => resolve(result);
-    tx.onerror = () => reject(tx.error || new Error('indexedDB transaction failed'));
-    tx.onabort = () => reject(tx.error || new Error('indexedDB transaction aborted'));
-  });
-}
-
 export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftDatabase } = {}) {
   let databasePromise = null;
 
@@ -135,9 +137,32 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
       return database().then(db => requestToPromise(db.transaction(COMPOSER_DRAFT_STORE, 'readonly').objectStore(COMPOSER_DRAFT_STORE).get([String(accountId), String(clientDraftUuid)])));
     },
 
-    deleteDraft (accountId, clientDraftUuid) {
-      return database().then(db => runTransaction(db, 'readwrite', (store) => {
-        store.delete([String(accountId), String(clientDraftUuid)]);
+    deleteDraft (accountId, clientDraftUuid, expected) {
+      return database().then(db => new Promise((resolve, reject) => {
+        const tx = db.transaction(COMPOSER_DRAFT_STORE, 'readwrite');
+        const store = tx.objectStore(COMPOSER_DRAFT_STORE);
+        const key = [String(accountId), String(clientDraftUuid)];
+        const conditional = expected && (specified(expected.contentHash) || specified(expected.revision));
+        let decision = { status: 'deleted' };
+
+        if (!conditional) {
+          store.delete(key);
+        } else {
+          const getRequest = store.get(key);
+
+          getRequest.onsuccess = () => {
+            decision = compareAndDelete(getRequest.result || null, expected);
+
+            if (decision.status === 'deleted') {
+              store.delete(key);
+            }
+          };
+          getRequest.onerror = () => reject(getRequest.error || new Error('indexedDB get failed'));
+        }
+
+        tx.oncomplete = () => resolve(decision);
+        tx.onerror = () => reject(tx.error || new Error('indexedDB delete failed'));
+        tx.onabort = () => reject(tx.error || new Error('indexedDB delete aborted'));
       }));
     },
 
@@ -156,7 +181,12 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
 
         getRequest.onsuccess = () => {
           if (options.isDiscarded && options.isDiscarded()) {
-            store.delete(key);
+            const stored = getRequest.result || null;
+
+            if (!stored || stored.content_hash === incoming.content_hash) {
+              store.delete(key);
+            }
+
             decision = { status: 'discarded' };
             return;
           }
@@ -169,7 +199,12 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
           decision = compareAndPut(getRequest.result || null, incoming, options);
 
           if (options.isDiscarded && options.isDiscarded()) {
-            store.delete(key);
+            const stored = getRequest.result || null;
+
+            if (!stored || stored.content_hash === incoming.content_hash) {
+              store.delete(key);
+            }
+
             decision = { status: 'discarded' };
             return;
           }
@@ -242,9 +277,23 @@ export function createMemoryDraftBackend () {
       return exclusive(async () => records.get(`${accountId}\u0000${clientDraftUuid}`) || null);
     },
 
-    deleteDraft (accountId, clientDraftUuid) {
+    deleteDraft (accountId, clientDraftUuid, expected) {
       return exclusive(async () => {
-        records.delete(`${accountId}\u0000${clientDraftUuid}`);
+        const key = `${accountId}\u0000${clientDraftUuid}`;
+        const conditional = expected && (specified(expected.contentHash) || specified(expected.revision));
+
+        if (!conditional) {
+          records.delete(key);
+          return { status: 'deleted' };
+        }
+
+        const decision = compareAndDelete(records.get(key) || null, expected);
+
+        if (decision.status === 'deleted') {
+          records.delete(key);
+        }
+
+        return decision;
       });
     },
 
@@ -271,7 +320,12 @@ export function createMemoryDraftBackend () {
         const key = recordKey(incoming);
 
         if (options.isDiscarded && options.isDiscarded()) {
-          records.delete(key);
+          const current = records.get(key) || null;
+
+          if (!current || current.content_hash === incoming.content_hash) {
+            records.delete(key);
+          }
+
           return { status: 'discarded' };
         }
 

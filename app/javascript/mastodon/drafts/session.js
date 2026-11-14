@@ -228,7 +228,7 @@ export function createComposerDraftSession ({
     });
   }
 
-  function retireDraft (accountId, composerId, clientDraftUuid) {
+  function retireDraft (accountId, composerId, clientDraftUuid, expected) {
     if (!clientDraftUuid) {
       return Promise.resolve();
     }
@@ -264,8 +264,8 @@ export function createComposerDraftSession ({
 
     const previous = writeChains.get(composerId) || Promise.resolve();
     const run = previous.then(
-      () => backend.deleteDraft(accountId, clientDraftUuid),
-      () => backend.deleteDraft(accountId, clientDraftUuid),
+      () => backend.deleteDraft(accountId, clientDraftUuid, expected),
+      () => backend.deleteDraft(accountId, clientDraftUuid, expected),
     ).then(() => {
       refreshOffers(accountId);
     }, () => undefined);
@@ -751,6 +751,17 @@ export function createComposerDraftSession ({
         return { record: null, tracked: false };
       };
 
+      const sentExpectation = (sent) => {
+        if (!sent || !sent.hash) {
+          return null;
+        }
+
+        return {
+          contentHash: sent.hash,
+          revision: sent.revision === null || sent.revision === undefined ? null : sent.revision,
+        };
+      };
+
       const legacySentUuid = (surface, submission) => {
         if (!surface || !surface.clientDraftUuid) {
           return null;
@@ -783,6 +794,7 @@ export function createComposerDraftSession ({
           submitId: requestAction && requestAction.submitId || null,
           instanceId: state.get('instanceId') || null,
           token: state.get('idempotencyKey') || null,
+          revision: Number(live.baseRevision) || 0,
         };
 
         publishing.set(publishRecordKey(record), record);
@@ -804,7 +816,7 @@ export function createComposerDraftSession ({
         }
 
         if (sentUuid) {
-          retireDraft(publishAccountId, composerId, sentUuid);
+          retireDraft(publishAccountId, composerId, sentUuid, sentExpectation(sent));
         }
 
         let current = surfaces.get(composerId);
@@ -1016,7 +1028,7 @@ export function createComposerDraftSession ({
           const uuid = (taken.record && taken.record.uuid) || (!taken.tracked && legacySentUuid(surface, submission));
 
           if (uuid) {
-            retireDraft(accountId, composerId, uuid);
+            retireDraft(accountId, composerId, uuid, sentExpectation(taken.record));
           }
 
           surfaces.delete(composerId);
@@ -1046,7 +1058,7 @@ export function createComposerDraftSession ({
           const uuid = taken.record && taken.record.uuid;
 
           if (uuid) {
-            retireDraft(accountId, target, uuid);
+            retireDraft(accountId, target, uuid, sentExpectation(taken.record));
           }
         }
       }

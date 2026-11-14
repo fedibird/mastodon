@@ -1183,4 +1183,172 @@ describe('composer draft session', () => {
     expect(remaining.map(item => item.input.text)).toEqual(['post B later']);
     expect(remaining.map(item => item.client_draft_uuid)).not.toContain(sentId);
   });
+
+  function tabSession (backend, prefix) {
+    let next = 0;
+
+    return createComposerDraftSession({
+      backend,
+      now: () => '2026-11-14T00:00:08.000Z',
+      createId: () => {
+        next += 1;
+        return `${prefix}-${next}`;
+      },
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+  }
+
+  async function sharedDraftTabs () {
+    const backend = createMemoryDraftBackend();
+    const left = tabSession(backend, 'left');
+    const right = tabSession(backend, 'right');
+    const posted = composerWith('original', { instanceId: 'composer-1', idempotencyKey: 'token-a' });
+    const other = composerWith('keep other', { instanceId: 'composer-2', idempotencyKey: 'token-other' });
+
+    left.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [
+        { composerId: 'primary', state: posted },
+        { composerId: 'portable', state: other },
+      ],
+    });
+    await left.flush();
+
+    const saved = await backend.readDraft('42', 'left-1');
+
+    right.claim(saved.client_draft_uuid, 'primary');
+    right.sync({
+      accountId: '42',
+      action: {
+        type: 'COMPOSER_DRAFT_RESTORE',
+        snapshot: saved,
+        idempotencyKey: 'right-key',
+        baseRevision: saved.revision,
+      },
+      composers: [{ composerId: 'primary', state: composerWith('original', { idempotencyKey: 'right-key' }) }],
+    });
+
+    return { backend, left, right, posted };
+  }
+
+  it('keeps another tab’s newer save when the sent draft is posted', async () => {
+    const { backend, left, right, posted } = await sharedDraftTabs();
+    const edited = composerWith('from the other tab', { idempotencyKey: 'right-key' });
+
+    left.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' },
+      composers: [
+        { composerId: 'primary', state: posted.set('is_submitting', true) },
+        { composerId: 'portable', state: composerWith('keep other', { instanceId: 'composer-2', idempotencyKey: 'token-other' }) },
+      ],
+    });
+    right.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: edited }],
+    });
+    await right.flush();
+    left.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(posted, 'new', 'submit-1'),
+      },
+      composers: [
+        { composerId: 'primary', state: composerWith('', { instanceId: 'composer-1', idempotencyKey: 'token-a' }) },
+        { composerId: 'portable', state: composerWith('keep other', { instanceId: 'composer-2', idempotencyKey: 'token-other' }) },
+      ],
+    });
+    await left.flush();
+
+    const reloaded = tabSession(backend, 'reloaded');
+    const kept = await backend.readDraft('42', 'left-1');
+
+    expect(kept.input.text).toBe('from the other tab');
+    expect(kept.revision).toBe(2);
+    expect((await reloaded.refreshOffers('42')).map(item => item.client_draft_uuid)).toContain('left-1');
+    expect((await backend.listDrafts('42')).map(item => item.input.text).sort()).toEqual(['from the other tab', 'keep other']);
+  });
+
+  it('forks the other tab when the sent draft is deleted before that tab saves', async () => {
+    const { backend, left, right, posted } = await sharedDraftTabs();
+
+    left.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' },
+      composers: [{ composerId: 'primary', state: posted.set('is_submitting', true) }],
+    });
+    left.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(posted, 'new', 'submit-1'),
+      },
+      composers: [{ composerId: 'primary', state: composerWith('', { instanceId: 'composer-1', idempotencyKey: 'token-a' }) }],
+    });
+    await left.flush();
+
+    expect(await backend.readDraft('42', 'left-1')).toBeNull();
+
+    right.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith('from the other tab', { idempotencyKey: 'right-key' }) }],
+    });
+    await right.flush();
+
+    const remaining = await backend.listDrafts('42');
+
+    expect(remaining.map(item => item.input.text).sort()).toEqual(['from the other tab', 'keep other']);
+    expect(remaining.map(item => item.client_draft_uuid)).not.toContain('left-1');
+  });
+
+  it('deletes the sent draft when the other tab has not changed it and leaves a failed submit stored', async () => {
+    const unchanged = await sharedDraftTabs();
+
+    unchanged.left.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' },
+      composers: [{ composerId: 'primary', state: unchanged.posted.set('is_submitting', true) }],
+    });
+    unchanged.left.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(unchanged.posted, 'new', 'submit-1'),
+      },
+      composers: [{ composerId: 'primary', state: composerWith('', { instanceId: 'composer-1', idempotencyKey: 'token-a' }) }],
+    });
+    await unchanged.left.flush();
+
+    expect(await unchanged.backend.readDraft('42', 'left-1')).toBeNull();
+    expect((await unchanged.backend.listDrafts('42')).map(item => item.input.text)).toEqual(['keep other']);
+
+    const failed = await sharedDraftTabs();
+    const edited = composerWith('from the other tab', { idempotencyKey: 'right-key' });
+
+    failed.right.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: edited }],
+    });
+    await failed.right.flush();
+    failed.left.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' },
+      composers: [{ composerId: 'primary', state: failed.posted.set('is_submitting', true) }],
+    });
+    failed.left.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_FAIL, submitId: 'submit-1' },
+      composers: [{ composerId: 'primary', state: failed.posted.set('is_submitting', false) }],
+    });
+    await failed.left.flush();
+
+    expect((await failed.backend.readDraft('42', 'left-1')).input.text).toBe('from the other tab');
+    expect((await failed.backend.listDrafts('42')).map(item => item.input.text).sort()).toEqual(['from the other tab', 'keep other']);
+  });
 });

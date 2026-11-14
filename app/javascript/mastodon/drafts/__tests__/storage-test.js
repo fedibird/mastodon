@@ -1,4 +1,4 @@
-import { compareAndPut, createIndexedDbDraftBackend, openComposerDraftDatabase } from '../storage';
+import { compareAndDelete, compareAndPut, createIndexedDbDraftBackend, createMemoryDraftBackend, openComposerDraftDatabase } from '../storage';
 
 function fakeDatabase () {
   const rows = new Map();
@@ -190,6 +190,55 @@ describe('composer draft storage', () => {
 
     expect(result.status).toBe('discarded');
     expect(await backend.readDraft('42', 'draft-1')).toBeUndefined();
+  });
+
+  it('deletes only the sent version and keeps a newer save from another writer', async () => {
+    const current = { account_id: '42', client_draft_uuid: 'draft-1', schema_version: 1, revision: 2, content_hash: 'newer', input: { text: 'newer' } };
+
+    expect(compareAndDelete(current, { contentHash: 'sent', revision: 1 }).status).toBe('kept');
+    expect(compareAndDelete({ ...current, content_hash: 'sent', revision: 4 }, { contentHash: 'sent', revision: 1 }).status).toBe('deleted');
+    expect(compareAndDelete(null, { contentHash: 'sent', revision: 1 }).status).toBe('missing');
+
+    const factory = fakeDatabase();
+    const indexed = createIndexedDbDraftBackend({
+      openDatabase: () => openComposerDraftDatabase(factory),
+    });
+    const memory = createMemoryDraftBackend();
+
+    await Promise.all([indexed, memory].map(async (backend) => {
+      await backend.writeDraft({
+        schema_version: 1,
+        account_id: '42',
+        client_draft_uuid: 'draft-1',
+        content_hash: 'sent',
+        input: { text: 'sent' },
+      }, { baseRevision: 0, stillCurrent: () => true, isDiscarded: () => false });
+      await backend.writeDraft({
+        schema_version: 1,
+        account_id: '42',
+        client_draft_uuid: 'draft-1',
+        content_hash: 'newer',
+        input: { text: 'newer' },
+      }, { baseRevision: 1, stillCurrent: () => true, isDiscarded: () => false });
+      await backend.writeDraft({
+        schema_version: 1,
+        account_id: '42',
+        client_draft_uuid: 'draft-2',
+        content_hash: 'other',
+        input: { text: 'other' },
+      }, { baseRevision: 0, stillCurrent: () => true, isDiscarded: () => false });
+
+      const kept = await backend.deleteDraft('42', 'draft-1', { contentHash: 'sent', revision: 1 });
+
+      expect(kept.status).toBe('kept');
+      expect((await backend.readDraft('42', 'draft-1')).input.text).toBe('newer');
+
+      const removed = await backend.deleteDraft('42', 'draft-1', { contentHash: 'newer', revision: 2 });
+
+      expect(removed.status).toBe('deleted');
+      expect(await backend.readDraft('42', 'draft-1')).toBeFalsy();
+      expect((await backend.readDraft('42', 'draft-2')).input.text).toBe('other');
+    }));
   });
 
   it('reports an unavailable database without throwing to the caller of open', async () => {

@@ -8,6 +8,7 @@ import composerDraftRecovery from '../../reducers/composer_draft_recovery';
 import composers from '../../reducers/composers';
 import { composerDraftMiddleware } from '../middleware';
 import { createComposerDraftSession } from '../session';
+import { composerDraftContentHash, snapshotComposerDraft } from '../snapshot';
 import { createMemoryDraftBackend } from '../storage';
 
 function storeFor () {
@@ -167,10 +168,12 @@ describe('composer draft middleware', () => {
 
     store.dispatch({ type: COMPOSE_RESET });
     await session.flush();
+    const personalInput = { ...saved.input, privacy: 'personal' };
+
     await backend.writeDraft({
       ...saved,
-      content_hash: `${saved.content_hash}:personal`,
-      input: { ...saved.input, privacy: 'personal' },
+      content_hash: composerDraftContentHash(personalInput, saved.media_incomplete),
+      input: personalInput,
     }, { baseRevision: 0 });
     const rewritten = await backend.readDraft('42', saved.client_draft_uuid);
 
@@ -184,6 +187,19 @@ describe('composer draft middleware', () => {
 
     expect(store.getState().getIn(['compose', 'text'])).toBe('restored post');
     expect(store.getState().getIn(['compose', 'privacy'])).toBe('personal');
+
+    const aligned = snapshotComposerDraft(store.getState().get('compose'), {
+      accountId: '42',
+      clientDraftUuid: saved.client_draft_uuid,
+      composerId: 'primary',
+      savedAt: rewritten.saved_at,
+    });
+
+    await backend.writeDraft({
+      ...rewritten,
+      content_hash: aligned.content_hash,
+      input: aligned.input,
+    }, { baseRevision: rewritten.revision });
 
     store.dispatch({ type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' });
 
