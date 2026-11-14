@@ -1030,4 +1030,157 @@ describe('composer draft session', () => {
 
     expect(await backend.listDrafts('42')).toEqual([]);
   });
+
+  function restoreSentDraft (composerId, clientDraftUuid, idempotencyKey) {
+    return {
+      type: 'COMPOSER_DRAFT_RESTORE',
+      meta: { composerId },
+      snapshot: {
+        schema_version: 1,
+        account_id: '42',
+        client_draft_uuid: clientDraftUuid,
+        content_hash: 'sent',
+        input: { text: 'post A' },
+      },
+      idempotencyKey,
+      baseRevision: 1,
+    };
+  }
+
+  async function closeWhileSending (session, composerId, state, submitId) {
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE', meta: { composerId } },
+      composers: [{ composerId, state }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId, meta: { composerId } },
+      composers: [{ composerId, state: state.set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSER_DESTROY', meta: { composerId } },
+      composers: [],
+    });
+  }
+
+  it('keeps an edit on another composer when it restores a draft that is still being sent', async () => {
+    const { backend, session } = harness();
+    const sent = composerWith('post A', { instanceId: 'instance-a', idempotencyKey: 'token-a' });
+    const edited = composerWith('post B edited', { instanceId: 'instance-b', idempotencyKey: 'restore-b' });
+
+    await closeWhileSending(session, 'portable-a', sent, 'submit-1');
+
+    const sentDraft = (await backend.listDrafts('42'))[0];
+
+    expect(session.claim(sentDraft.client_draft_uuid, 'portable-b')).toBe(false);
+    expect((await session.refreshOffers('42')).map(item => item.client_draft_uuid)).not.toContain(sentDraft.client_draft_uuid);
+
+    session.sync({
+      accountId: '42',
+      action: restoreSentDraft('portable-b', sentDraft.client_draft_uuid, 'restore-b'),
+      composers: [{ composerId: 'portable-b', state: composerWith('post A', { instanceId: 'instance-b', idempotencyKey: 'restore-b' }) }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE', meta: { composerId: 'portable-b' } },
+      composers: [{ composerId: 'portable-b', state: edited }],
+    });
+    await session.flush();
+
+    expect((await backend.listDrafts('42')).map(item => item.input.text).sort()).toEqual(['post A', 'post B edited']);
+    expect((await session.refreshOffers('42')).map(item => item.client_draft_uuid)).not.toContain(sentDraft.client_draft_uuid);
+
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(sent, 'new', 'submit-1'),
+        meta: { composerId: 'portable-a' },
+      },
+      composers: [{ composerId: 'portable-b', state: edited }],
+    });
+    await session.flush();
+
+    const remaining = await backend.listDrafts('42');
+
+    expect(remaining.map(item => item.input.text)).toEqual(['post B edited']);
+    expect(remaining.map(item => item.client_draft_uuid)).not.toContain(sentDraft.client_draft_uuid);
+  });
+
+  it('keeps a delayed edit on another composer when the older submit succeeds or fails', async () => {
+    const { backend, session, queued } = portableSession();
+    const sent = composerWith('post A', { instanceId: 'instance-a', idempotencyKey: 'token-a' });
+    const restored = composerWith('post A', { instanceId: 'instance-b', idempotencyKey: 'restore-b' });
+    const edited = composerWith('post B edited', { instanceId: 'instance-b', idempotencyKey: 'restore-b' });
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE', meta: { composerId: 'portable-a' } },
+      composers: [{ composerId: 'portable-a', state: sent }],
+    });
+    await runQueued(session, queued);
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1', meta: { composerId: 'portable-a' } },
+      composers: [{ composerId: 'portable-a', state: sent.set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSER_DESTROY', meta: { composerId: 'portable-a' } },
+      composers: [],
+    });
+
+    const sentId = (await backend.listDrafts('42'))[0].client_draft_uuid;
+
+    expect(session.claim(sentId, 'portable-b')).toBe(false);
+
+    session.sync({
+      accountId: '42',
+      action: restoreSentDraft('portable-b', sentId, 'restore-b'),
+      composers: [{ composerId: 'portable-b', state: restored }],
+    });
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE', meta: { composerId: 'portable-b' } },
+      composers: [{ composerId: 'portable-b', state: edited }],
+    });
+    expect(queued.filter(fn => typeof fn === 'function')).toHaveLength(1);
+
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_FAIL, submitId: 'submit-1', meta: { composerId: 'portable-a' } },
+      composers: [{ composerId: 'portable-b', state: edited }],
+    });
+    expect(queued.filter(fn => typeof fn === 'function')).toHaveLength(1);
+    await runQueued(session, queued);
+
+    expect((await backend.listDrafts('42')).map(item => item.input.text).sort()).toEqual(['post A', 'post B edited']);
+    expect((await session.refreshOffers('42')).map(item => item.client_draft_uuid)).toContain(sentId);
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE', meta: { composerId: 'portable-b' } },
+      composers: [{ composerId: 'portable-b', state: edited.set('text', 'post B later') }],
+    });
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(sent, 'new', 'submit-1'),
+        meta: { composerId: 'portable-a' },
+      },
+      composers: [{ composerId: 'portable-b', state: edited.set('text', 'post B later') }],
+    });
+    expect(queued.filter(fn => typeof fn === 'function')).toHaveLength(1);
+    await runQueued(session, queued);
+
+    const remaining = await backend.listDrafts('42');
+
+    expect(remaining.map(item => item.input.text)).toEqual(['post B later']);
+    expect(remaining.map(item => item.client_draft_uuid)).not.toContain(sentId);
+  });
 });
