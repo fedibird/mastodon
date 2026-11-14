@@ -107,7 +107,10 @@ describe('post draft server fixtures', () => {
     expect(primary.getIn(['context', 'protocol', 'activityPub', 'audience'])).toBeNull();
     expect(audience.getIn(['context', 'protocol', 'activityPub', 'audience', 'accountId'])).toBe('456');
 
+    const paragraphs = withSender(typed('1段落目\n\n2段落目 #test\n@user'), 'local:42', 'default');
+
     expectFixture('primary', capture(primary, '11111111-1111-4111-8111-111111111111'));
+    expectFixture('paragraphs', capture(paragraphs, '66666666-6666-4666-8666-666666666666'));
     expectFixture('hashtag', capture(hashtag, '22222222-2222-4222-8222-222222222222', 'portable:hashtag-column:日本語'));
     expectFixture('audience', capture(audience, '33333333-3333-4333-8333-333333333333'));
     expectFixture('long-ja', capture(styledHashtag, '44444444-4444-4444-8444-444444444444', 'portable:hashtag-column:日本語'));

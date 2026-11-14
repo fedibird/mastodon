@@ -241,7 +241,7 @@ module PostDrafts
 
     def text_fields(raw)
       {
-        'text' => bounded_string(raw['text'], 'input.text', TEXT_MAX, default: ''),
+        'text' => body_text(raw['text']),
         'spoiler' => flag(raw['spoiler'], 'input.spoiler'),
         'spoiler_text' => bounded_string(raw['spoiler_text'], 'input.spoiler_text', SHORT_TEXT_MAX, default: ''),
         'sensitive' => flag(raw['sensitive'], 'input.sensitive'),
@@ -284,6 +284,20 @@ module PostDrafts
         'user_posting_style' => style(raw['user_posting_style']),
         'sender' => sender(raw['sender']),
       }
+    end
+
+    # The composer body is a textarea. Its value keeps LF, and a paste can
+    # include TAB. Browsers turn CRLF into LF before the value is read; a
+    # snapshot that still has CR is stored unchanged so the content hash
+    # still matches. NUL, ESC, and every other control stay rejected.
+    # CW and poll choices are single-line inputs, so they use bounded_string.
+    def body_text(value)
+      return '' if value.nil?
+      fail!('invalid_type', 'input.text') unless value.is_a?(String)
+      fail!('too_long', 'input.text') if value.length > TEXT_MAX
+      fail!('invalid_format', 'input.text') if value.gsub(/[\n\r\t]/, '').match?(/[[:cntrl:]]/)
+
+      value
     end
 
     def bounded_string(value, key, max, default:)

@@ -24,7 +24,7 @@ RSpec.describe Api::V1::Fedibird::PostDraftsController, type: :controller do
   describe 'P0 snapshot posts' do
     before { authorize(user) }
 
-    %w(primary hashtag audience long-ja long-en).each do |name|
+    %w(primary hashtag audience long-ja long-en paragraphs).each do |name|
       it "creates #{name} without publishing it" do
         raw = load_snapshot(name)
         raw['account_id'] = user.account_id.to_s
