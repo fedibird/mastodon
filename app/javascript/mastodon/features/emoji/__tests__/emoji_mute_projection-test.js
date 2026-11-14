@@ -21,7 +21,7 @@ import { projectStreamReaction, reactionNameHidden, guardImportedReactions, proj
 import { installEmojiMutesForTests, loadEmojiMutes, noteEmojiMutesChanged, appliedEmojiMuteRevision, observedEmojiMuteRevision, resetEmojiMuteStoreForTests, emojiReactionEventsAccepted } from '../emoji_mute_store';
 import api from 'mastodon/api';
 import { addEmojiReaction, removeEmojiReaction, updateEmojiReaction } from '../../../actions/interactions';
-import { NOTIFICATIONS_FEED_MERGE, NOTIFICATIONS_RELOAD_SUCCESS, NOTIFICATIONS_CLEAR, NOTIFICATIONS_FILTER_SET, NOTIFICATIONS_EXPAND_SUCCESS, NOTIFICATIONS_MARK_AS_READ, updateNotifications, clearNotifications } from '../../../actions/notifications';
+import { NOTIFICATIONS_FEED_MERGE, NOTIFICATIONS_RELOAD_SUCCESS, NOTIFICATIONS_CLEAR, NOTIFICATIONS_FILTER_SET, NOTIFICATIONS_EXPAND_SUCCESS, NOTIFICATIONS_MARK_AS_READ, NOTIFICATIONS_SCROLL_TOP, updateNotifications, clearNotifications } from '../../../actions/notifications';
 import { ACCOUNT_BLOCK_SUCCESS } from '../../../actions/accounts';
 import { DOMAIN_BLOCK_SUCCESS } from '../../../actions/domain_blocks';
 import { MARKERS_FETCH_SUCCESS } from '../../../actions/markers';
@@ -1623,7 +1623,7 @@ describe('emoji mute projection', () => {
     expect(notifications.get('lastReadId')).toBe('105');
   });
 
-  it('does not rewind local reads on a delayed marker response or when browsing notifications', () => {
+  it('does not rewind local reads on delayed markers or discard an authoritative unread count', () => {
     const state = fromJS({
       items: [{ id: '105', type: 'mention', account: 'acct-1' }],
       pendingItems: [],
@@ -1647,8 +1647,66 @@ describe('emoji mute projection', () => {
       type: NOTIFICATIONS_FEED_MERGE,
       notifications: [],
       rules: [],
-      unread: 1,
+      unread: 7,
     });
-    expect(merged.get('unread')).toBe(0);
+    // A fresh count remains authoritative even while the column is open.
+    expect(merged.get('unread')).toBe(7);
+  });
+
+  it('does not revive a badge after scrolling to the top during an in-flight count', async () => {
+    let resolveCount;
+    api.mockImplementation(() => ({
+      get: url => {
+        if (String(url) === '/api/v1/notifications') {
+          return Promise.resolve({ data: [] });
+        }
+        if (String(url) === '/api/v1/notifications/unread_count') {
+          return new Promise(resolve => {
+            resolveCount = resolve;
+          });
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      },
+    }));
+
+    let notifications = fromJS({
+      items: [{ id: '105', type: 'mention', account: 'acct-1' }],
+      pendingItems: [],
+      hasMore: false,
+      unread: 1,
+      lastReadId: '104',
+      readMarkerId: '104',
+      top: false,
+      mounted: 1,
+      isTabVisible: true,
+      isLoading: false,
+    });
+    const state = () => fromJS({
+      settings: { notifications: { quickFilter: { active: 'all' }, shows: { mention: true } } },
+      notifications: notifications.toJS(),
+      timelines: {},
+      contexts: {},
+      statuses: {},
+    });
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, state);
+      }
+      notifications = notificationsReducer(notifications, action);
+      return action;
+    };
+
+    const refreshing = refreshEmojiMuteSurfaces()(dispatch, state);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(resolveCount).toEqual(expect.any(Function));
+
+    dispatch({ type: NOTIFICATIONS_SCROLL_TOP, top: true });
+    expect(notifications.get('unread')).toBe(0);
+    expect(notifications.get('lastReadId')).toBe('105');
+
+    resolveCount({ data: { count: 1 } });
+    await refreshing;
+    expect(notifications.get('unread')).toBe(0);
+    expect(notifications.get('lastReadId')).toBe('105');
   });
 });
