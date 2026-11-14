@@ -373,6 +373,10 @@ export function refreshEmojiMuteSurfaces(options = {}) {
     const params = { exclude_types: notificationExcludeTypes(getState()) };
     const readIdAtRequest = getState().getIn(['notifications', 'lastReadId'], '0');
     const unreadAtRequest = getState().getIn(['notifications', 'unread'], 0);
+    // A local read can precede the server's acknowledgement even before
+    // this refresh starts. Such an unread_count response can still be stale.
+    const acknowledgedReadId = getState().getIn(['markers', 'notifications'], null);
+    const readNotAcknowledged = acknowledgedReadId !== null && compareId(readIdAtRequest, String(acknowledgedReadId)) > 0;
     const notificationTask = api(getState).get('/api/v1/notifications', { params }).then(response => {
       if (!surfaceRefreshCurrent(generation) || notificationEpoch !== emojiMuteNotificationFetchEpoch() || !Array.isArray(response.data)) {
         return null;
@@ -398,7 +402,7 @@ export function refreshEmojiMuteSurfaces(options = {}) {
           type: NOTIFICATIONS_FEED_MERGE,
           notifications,
           rules: currentEmojiMutes(),
-          unread: readAdvanced || unreadReduced ? undefined : unread,
+          unread: readNotAcknowledged || readAdvanced || unreadReduced ? undefined : unread,
         });
         rememberRelationships(dispatch, getState, notifications);
         rememberMarkers(dispatch, getState);
