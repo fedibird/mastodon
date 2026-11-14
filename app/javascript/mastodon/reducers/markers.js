@@ -1,3 +1,4 @@
+import { Map as ImmutableMap } from 'immutable';
 import compareId from '../compare_id';
 import {
   MARKERS_FETCH_SUCCESS,
@@ -8,8 +9,6 @@ const initialState = ImmutableMap({
   home: '0',
   notifications: '0',
 });
-
-import { Map as ImmutableMap } from 'immutable';
 
 // Keep the last acknowledged server position monotonic even when an older
 // GET response or a previously submitted POST completes out of order.
