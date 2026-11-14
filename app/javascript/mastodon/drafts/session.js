@@ -135,6 +135,7 @@ export function createComposerDraftSession ({
       baseRevision: 0,
       latched: null,
       lastHash: null,
+      persistedHash: null,
       scheduledHash: null,
     };
   }
@@ -147,6 +148,7 @@ export function createComposerDraftSession ({
     surface.clientDraftUuid = null;
     surface.baseRevision = 0;
     surface.lastHash = null;
+    surface.persistedHash = null;
     surface.scheduledHash = null;
     pending.delete(surface.composerId);
   }
@@ -207,6 +209,7 @@ export function createComposerDraftSession ({
       surface.clientDraftUuid = nextUuid;
       surface.baseRevision = 0;
       surface.lastHash = null;
+      surface.persistedHash = null;
       surface.scheduledHash = null;
       claimed.set(nextUuid, surface.composerId);
       discarded.delete(nextUuid);
@@ -275,6 +278,17 @@ export function createComposerDraftSession ({
     return run;
   }
 
+  function heldDraftExpectation (surface) {
+    if (!surface || !surface.persistedHash) {
+      return null;
+    }
+
+    return {
+      savedHash: surface.persistedHash,
+      revision: Number(surface.baseRevision) || 0,
+    };
+  }
+
   function discard (accountId, surface) {
     const clientDraftUuid = surface.clientDraftUuid;
 
@@ -283,7 +297,7 @@ export function createComposerDraftSession ({
       return;
     }
 
-    retireDraft(accountId, surface.composerId, clientDraftUuid);
+    retireDraft(accountId, surface.composerId, clientDraftUuid, heldDraftExpectation(surface));
   }
 
   function writeOptions (composerId, epoch, clientDraftUuid) {
@@ -343,6 +357,7 @@ export function createComposerDraftSession ({
       current.clientDraftUuid = forkedSnapshot.client_draft_uuid;
       current.baseRevision = 0;
       current.lastHash = null;
+      current.persistedHash = null;
       epochs.set(composerId, epoch + 1);
 
       return commit(accountId, composerId, forkedSnapshot, epoch + 1, true);
@@ -350,6 +365,7 @@ export function createComposerDraftSession ({
 
     if ((result.status === 'saved' || result.status === 'unchanged') && ownsUuid && result.record) {
       current.baseRevision = result.record.revision;
+      current.persistedHash = snapshot.content_hash;
 
       if (latest) {
         current.lastHash = snapshot.content_hash;
@@ -481,7 +497,8 @@ export function createComposerDraftSession ({
     surface.latched = null;
     surface.clientDraftUuid = clientDraftUuid;
     surface.baseRevision = baseRevision;
-    surface.lastHash = reserved ? null : (snapshot.content_hash || null);
+    surface.persistedHash = reserved ? null : (snapshot.content_hash || null);
+    surface.lastHash = surface.persistedHash;
     surface.scheduledHash = null;
     claimed.set(clientDraftUuid, composerId);
 
@@ -792,7 +809,7 @@ export function createComposerDraftSession ({
           composerId,
           uuid: live.clientDraftUuid,
           hash: snapshot ? snapshot.content_hash : null,
-          savedHash: live.lastHash || null,
+          savedHash: live.persistedHash || null,
           submitId: requestAction && requestAction.submitId || null,
           instanceId: state.get('instanceId') || null,
           token: state.get('idempotencyKey') || null,
@@ -862,6 +879,7 @@ export function createComposerDraftSession ({
         current.clientDraftUuid = createId();
         current.baseRevision = 0;
         current.lastHash = null;
+        current.persistedHash = null;
         claimed.set(current.clientDraftUuid, composerId);
 
         const stored = {
@@ -985,6 +1003,7 @@ export function createComposerDraftSession ({
           if (!surface.clientDraftUuid) {
             surface.clientDraftUuid = createId();
             surface.baseRevision = 0;
+            surface.persistedHash = null;
             claimed.set(surface.clientDraftUuid, composerId);
           }
 

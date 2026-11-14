@@ -1404,4 +1404,138 @@ describe('composer draft session', () => {
 
     expect(await reloaded.refreshOffers('42')).toEqual([]);
   });
+
+  it('keeps another tab’s newer draft when this tab discards the saved version', async () => {
+    const changed = await sharedDraftTabs();
+    const edited = composerWith('from the other tab', { idempotencyKey: 'right-key' });
+
+    changed.right.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: edited }],
+    });
+    await changed.right.flush();
+    changed.left.sync({
+      accountId: '42',
+      action: { type: COMPOSE_RESET },
+      composers: [{ composerId: 'primary', state: composerWith('') }],
+    });
+    await changed.left.flush();
+
+    expect((await changed.backend.readDraft('42', 'left-1')).input.text).toBe('from the other tab');
+    expect((await changed.backend.listDrafts('42')).map(item => item.input.text).sort()).toEqual(['from the other tab', 'keep other']);
+
+    const unchanged = await sharedDraftTabs();
+
+    unchanged.left.sync({
+      accountId: '42',
+      action: { type: COMPOSE_RESET },
+      composers: [{ composerId: 'primary', state: composerWith('') }],
+    });
+    await unchanged.left.flush();
+
+    expect(await unchanged.backend.readDraft('42', 'left-1')).toBeNull();
+    expect((await unchanged.backend.listDrafts('42')).map(item => item.input.text)).toEqual(['keep other']);
+  });
+
+  it('deletes the stored draft when its acknowledgement follows a newer queued edit', async () => {
+    const backend = createMemoryDraftBackend();
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let writes = 0;
+    let entered;
+    const enteredGate = new Promise((resolve) => {
+      entered = resolve;
+    });
+    const gated = {
+      readDraft: (...args) => backend.readDraft(...args),
+      deleteDraft: (...args) => backend.deleteDraft(...args),
+      listDrafts: (...args) => backend.listDrafts(...args),
+      writeDraft: (record, options) => {
+        writes += 1;
+        const afterCommit = writes === 1 ? async () => {
+          entered();
+          await gate;
+        } : undefined;
+
+        return backend.writeDraft(record, { ...options, afterCommit });
+      },
+    };
+    const queued = [];
+    const session = createComposerDraftSession({
+      backend: gated,
+      now: () => '2026-11-14T00:00:08.000Z',
+      createId: (() => {
+        let next = 0;
+
+        return () => {
+          next += 1;
+          return `draft-${next}`;
+        };
+      })(),
+      schedule: (fn) => {
+        queued.push(fn);
+        return queued.length;
+      },
+      cancel: (id) => {
+        queued[id - 1] = null;
+      },
+    });
+    const posted = composerWith('old', { idempotencyKey: 'token-a' });
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: posted }],
+    });
+    expect(typeof queued[0]).toBe('function');
+    queued[0]();
+    queued[0] = null;
+    await enteredGate;
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith('new', { idempotencyKey: 'token-a' }) }],
+    });
+    expect(queued.filter(fn => typeof fn === 'function')).toHaveLength(1);
+    expect(session.snapshot().persistence.primary.status).toBe('saving');
+
+    release();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(session.snapshot().persistence.primary.status).toBe('saving');
+    expect((await backend.readDraft('42', 'draft-1')).input.text).toBe('old');
+
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' },
+      composers: [{ composerId: 'primary', state: composerWith('new', { idempotencyKey: 'token-a' }).set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(composerWith('new', { idempotencyKey: 'token-a' }), 'new', 'submit-1'),
+      },
+      composers: [{ composerId: 'primary', state: composerWith('', { idempotencyKey: 'token-a' }) }],
+    });
+    await session.flush();
+
+    expect(await backend.readDraft('42', 'draft-1')).toBeNull();
+
+    const reloaded = createComposerDraftSession({
+      backend,
+      now: () => '2026-11-14T00:00:09.000Z',
+      createId: () => 'reloaded',
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+
+    expect(await reloaded.refreshOffers('42')).toEqual([]);
+  });
 });
