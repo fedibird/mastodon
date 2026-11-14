@@ -90,6 +90,10 @@ jest.mock('../../containers/warning_container', () => () => null);
 jest.mock('../../containers/posting_context_bar_container', () => () => <div data-testid='posting-context-bar' />);
 jest.mock('../../../reference_stack', () => () => <div data-testid='reference-stack' />);
 
+import { COMPOSE_RESET, changeCompose } from 'mastodon/actions/compose';
+import { COMPOSER_DRAFT_RESTORE } from 'mastodon/actions/composer';
+import { snapshotComposerDraft } from 'mastodon/drafts/snapshot';
+import composer, { initialState as composerState } from 'mastodon/reducers/composer';
 import ComposeForm from '../compose_form';
 import SenderIdentity from '../sender_identity';
 
@@ -1361,5 +1365,94 @@ describe('ComposeForm composer toolbar', () => {
 
     expect(screen.queryByTestId('sender-identity')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Posting as' })).toBeNull();
+  });
+});
+
+function sameDraftSurface (leftKind, leftKey, rightKind, rightKey) {
+  if (!rightKind) {
+    return true;
+  }
+
+  return leftKind === rightKind && String(leftKey) === String(rightKey);
+}
+
+function draftFormProps (state) {
+  const kind = state.getIn(['draftSurfaceConfirm', 'kind']);
+  const key = state.getIn(['draftSurfaceConfirm', 'key']);
+  const epoch = Number(state.getIn(['draftSurfaceConfirm', 'surfaceEpoch'])) || 0;
+  const matches = Boolean(kind) && key !== undefined && key !== null
+    && epoch === (Number(state.get('surfaceEpoch')) || 0)
+    && sameDraftSurface(kind, key, state.getIn(['surface', 'kind']), state.getIn(['surface', 'key']))
+    && sameDraftSurface(kind, key, state.getIn(['pendingSurface', 'kind']), state.getIn(['pendingSurface', 'key']))
+    && sameDraftSurface(kind, key, state.getIn(['displayedSurface', 'kind']), state.getIn(['displayedSurface', 'key']));
+
+  return {
+    text: state.get('text'),
+    privacy: 'public',
+    surfaceMismatch: state.get('surfaceMismatch') === true,
+    draftSurfaceUnconfirmed: state.get('draftSurfaceUnconfirmed') === true && matches,
+    draftSurfaceKind: kind || state.getIn(['surface', 'kind']) || null,
+    draftSurfaceKey: key || state.getIn(['surface', 'key']) || null,
+    onConfirmDraftSurface: jest.fn(),
+    onAcceptSurface: jest.fn(),
+  };
+}
+
+describe('ComposeForm restored destination confirmation', () => {
+  const hashtag = composer(composer(composerState, changeCompose('tag draft')), {
+    type: 'COMPOSER_CONTEXT_APPLY',
+    surface: { kind: 'hashtag', key: 'fedibird' },
+    surfaceEpoch: 1,
+    hasPostingContext: false,
+  });
+  const snapshot = snapshotComposerDraft(hashtag, { accountId: '42', clientDraftUuid: 'draft-1' });
+  const restore = (state) => composer(state, {
+    type: COMPOSER_DRAFT_RESTORE,
+    snapshot,
+    idempotencyKey: 'restore-key',
+    restoreToken: 'restore-token',
+  });
+
+  it('blocks submit and shows the confirmation when the same draft is restored again', () => {
+    const confirmed = composer(restore(composerState), { type: 'COMPOSER_DRAFT_SURFACE_CONFIRM', kind: 'hashtag', key: 'fedibird' });
+    const again = restore(composer(confirmed, { type: COMPOSE_RESET }));
+
+    renderForm(draftFormProps(again));
+
+    expect(screen.getByRole('button', { name: 'Toot!' })).toBeDisabled();
+    expect(screen.getByRole('status').textContent).toContain('This draft posts to hashtag fedibird');
+    expect(screen.getByRole('button', { name: 'Post to this destination' })).toBeTruthy();
+  });
+
+  it('blocks submit with the other destination copy after the screen moves to another tag', () => {
+    const confirmed = composer(restore(composerState), { type: 'COMPOSER_DRAFT_SURFACE_CONFIRM', kind: 'hashtag', key: 'fedibird' });
+    const cleared = composer(confirmed, { type: COMPOSE_RESET });
+    const moved = composer(cleared, {
+      type: 'COMPOSER_CONTEXT_APPLY',
+      surface: { kind: 'hashtag', key: 'other' },
+      surfaceEpoch: (cleared.get('surfaceEpoch') || 0) + 1,
+      hasPostingContext: false,
+    });
+
+    renderForm(draftFormProps(restore(moved)));
+
+    expect(screen.getByRole('button', { name: 'Toot!' })).toBeDisabled();
+    expect(screen.getByRole('status').textContent).toContain('previous destination');
+    expect(screen.queryByRole('button', { name: 'Post to this destination' })).toBeNull();
+  });
+
+  it('leaves submit available when the open tab is already that hashtag', () => {
+    const column = composer(composerState, {
+      type: 'COMPOSER_CONTEXT_APPLY',
+      surface: { kind: 'hashtag', key: 'fedibird' },
+      surfaceEpoch: 4,
+      hasPostingContext: false,
+    });
+    const again = restore(composer(restore(column), changeCompose('')));
+
+    renderForm(draftFormProps(again));
+
+    expect(screen.getByRole('button', { name: 'Toot!' })).toBeEnabled();
+    expect(screen.queryByRole('status')).toBeNull();
   });
 });
