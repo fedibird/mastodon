@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_17_130000) do
+ActiveRecord::Schema.define(version: 2026_11_17_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -2065,7 +2065,7 @@ create_table "managed_groups", force: :cascade do |t|
     t.datetime "updated_at", precision: 6, null: false
     t.index ["account_id", "client_uuid"], name: "index_post_drafts_on_account_id_and_client_uuid", unique: true
     t.index ["account_id", "updated_at", "id"], name: "index_post_drafts_on_account_updated_at_and_id"
-    t.check_constraint "((((client_uuid)::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text) AND (schema_version = 1) AND (revision >= 1) AND ((state)::text = 'active'::text) AND (octet_length((payload)::text) <= 32768)))", name: "post_drafts_shape"
+    t.check_constraint "((((client_uuid)::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text) AND (schema_version = 1) AND (revision >= 1) AND ((state)::text = 'active'::text) AND (octet_length((payload)::text) <= 2343186)))", name: "post_drafts_shape"
   end
 
   create_table "posting_identity_delegations", force: :cascade do |t|

@@ -17,7 +17,12 @@ module PostDrafts
       end
     end
 
-    MAX_BYTES = 32_768
+    # PostgreSQL jsonb text size of the largest normalized snapshot the
+    # field caps allow, including the client's full content_hash. Measured
+    # with a 4-byte character at every length cap. Japanese and ASCII text
+    # of the same length are smaller. The post_drafts_shape check uses this
+    # same number.
+    MAX_BYTES = 2_343_186
     TEXT_MAX = 10_000
     SHORT_TEXT_MAX = 500
     LIST_MAX = 20

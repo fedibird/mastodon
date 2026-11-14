@@ -121,11 +121,19 @@ module PostDrafts
 
       require_object!(value, 'input.context.protocol')
       reject_unknown!(value, %w(activity_pub), 'input.context.protocol')
-      audience = value['activity_pub']
+      { 'activity_pub' => activity_pub_audience(value['activity_pub']) }
+    end
+
+    # P0 always writes `{ activity_pub: { audience: null | record } }`.
+    # `activity_pub` is the wrapper. The audience record is the inner value.
+    def activity_pub_audience(value)
+      return { 'audience' => nil } if value.nil?
+
+      require_object!(value, 'input.context.protocol.activity_pub')
+      reject_unknown!(value, %w(audience), 'input.context.protocol.activity_pub')
+      audience = value['audience']
       {
-        'activity_pub' => {
-          'audience' => audience.nil? ? nil : record(audience, 'input.context.protocol.activity_pub.audience', %w(accountId acct enforcement ruleId)),
-        },
+        'audience' => audience.nil? ? nil : record(audience, 'input.context.protocol.activity_pub.audience', %w(accountId acct enforcement ruleId)),
       }
     end
   end
