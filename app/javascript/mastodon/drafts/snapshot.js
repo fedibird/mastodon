@@ -878,3 +878,42 @@ export function applyComposerDraft (state, snapshot, options = {}) {
     map.set('is_composing', state.get('is_composing'));
   });
 }
+
+export function draftMediaResponseUsable (media, mediaId) {
+  if (!isPlainObject(media) || !media.url || !media.type || media.type === 'unknown') {
+    return false;
+  }
+
+  return String(media.id) === String(mediaId);
+}
+
+export function applyResolvedDraftMedia (state, action) {
+  if (!state || typeof state.get !== 'function' || !action || !action.restoreToken) {
+    return state;
+  }
+
+  if (state.get('draftRestoreToken') !== action.restoreToken) {
+    return state;
+  }
+
+  const list = state.get('media_attachments');
+
+  if (!list || typeof list.findIndex !== 'function') {
+    return state;
+  }
+
+  const mediaId = String(action.mediaId);
+  const index = list.findIndex(item => String(item.get('id')) === mediaId && item.get('unresolved') === true);
+
+  if (index < 0 || !draftMediaResponseUsable(action.media, mediaId)) {
+    return state;
+  }
+
+  const previous = list.get(index);
+  const resolved = fromJS(action.media)
+    .set('unresolved', false)
+    .set('unattached', true)
+    .set('order', previous.get('order'));
+
+  return state.set('media_attachments', list.set(index, resolved));
+}

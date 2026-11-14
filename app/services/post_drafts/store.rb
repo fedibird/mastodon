@@ -32,6 +32,7 @@ module PostDrafts
         next if outcome
 
         normalized = Payload.normalize(payload, owner_account_id: @account_id, client_uuid: draft.client_uuid)
+        MediaLinks.new(@account_id).apply!(draft, normalized)
         draft.update!(payload: normalized, schema_version: normalized.fetch('schema_version'), revision: draft.revision + 1)
         outcome = Result.new(status: :updated, draft: draft)
       end
@@ -74,7 +75,9 @@ module PostDrafts
       return duplicate_outcome(existing, normalized) if existing
       return Result.new(status: :limit) if PostDraft.where(account_id: @account_id).count >= PostDraft::LIMIT
 
-      Result.new(status: :created, draft: insert_draft(uuid, normalized))
+      draft = insert_draft(uuid, normalized)
+      MediaLinks.new(@account_id).apply!(draft, normalized)
+      Result.new(status: :created, draft: draft)
     end
 
     def duplicate_outcome(existing, normalized)

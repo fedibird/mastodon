@@ -183,7 +183,7 @@ module Fedibird
           write_scope: 'write:post_drafts',
           max_per_account: PostDraft::LIMIT,
           schema_version: PostDraft::SCHEMA_VERSION,
-          media_retained: false,
+          media_retained: true,
         },
       }.merge(Extensions.contextual)
     end

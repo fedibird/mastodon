@@ -5,6 +5,7 @@ import api from '../api';
 import { me } from '../initial_state';
 import { selectComposer } from '../selectors/composer';
 import uuid from '../uuid';
+import { resolveDraftMedia } from './media';
 import { getComposerDraftSession } from './middleware';
 import {
   composerDraftHasPersistableInput,
@@ -124,6 +125,7 @@ export function restoreLocalComposerDraft (composerId, clientDraftUuid) {
 
       if (selectComposer(getState(), composerId).get('draftRestoreToken') === restoreToken) {
         dispatch(resolveDraftTargets(composerId, restored.snapshot, restoreToken));
+        dispatch(resolveDraftMedia(composerId, restored.snapshot, restoreToken));
       }
 
       dispatch(scheduleComposerInteractionCheck(composerId));

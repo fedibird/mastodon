@@ -22,6 +22,7 @@ class PostingIdentity::DelegatedMedia
     delegation = fresh_delegation
     owned = @account.media_attachments.where(status_id: nil, scheduled_status_id: nil, id: ids).index_by(&:id)
     raise Mastodon::NotPermittedError unless owned.size == ids.size
+    raise Mastodon::ValidationError, I18n.t('media_attachments.validations.retained_by_draft') if PostDrafts::MediaGuard.referenced?(ids)
 
     audits = PostingIdentityMedia.where(
       media_attachment_id: ids,

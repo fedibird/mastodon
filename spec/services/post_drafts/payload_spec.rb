@@ -35,11 +35,37 @@ describe PostDrafts::Payload do
     expect(described_class.same?(left, normalize(input('changed')))).to be false
   end
 
-  it 'rejects another account, an unknown schema, html, and a media id' do
+  it 'rejects another account, an unknown schema, and html, and keeps a media alt' do
     expect { normalize(input('hello').merge('account_id' => '7')) }.to raise_error(described_class::Invalid) { |error| expect(error.errors.first['code']).to eq 'owner_mismatch' }
     expect { normalize(input('hello').merge('schema_version' => 2)) }.to raise_error(described_class::Invalid) { |error| expect(error.errors.first['code']).to eq 'unsupported_schema' }
     expect { normalize(input('hello').merge('html' => '<p>no</p>')) }.to raise_error(described_class::Invalid) { |error| expect(error.errors.first['code']).to eq 'unknown_field' }
-    expect { normalize(input('hello', 'media' => [{ 'id' => '9' }])) }.to raise_error(described_class::Invalid) { |error| expect(error.errors.first['code']).to eq 'media_not_retained' }
+    stored_media = normalize(input('hello', 'media' => [{ 'id' => '9', 'description' => "alt\nline", 'focus' => { 'x' => 0.5, 'y' => -1 } }]))
+    expect(stored_media['input']['media']).to eq [{ 'id' => '9', 'order' => 0, 'description' => "alt\nline", 'focus' => { 'x' => 0.5, 'y' => -1 } }]
+  end
+
+  it 'sorts media by order and rejects a bad focus, a long alt, a url, or a duplicate id' do
+    reversed = normalize(input('hello', 'media' => [
+      { 'id' => '20', 'order' => 1, 'description' => '' },
+      { 'id' => '10', 'order' => 0, 'description' => '' },
+    ]))
+    expect(reversed['input']['media'].map { |item| item['id'] }).to eq %w(10 20)
+
+    expect { normalize(input('hello', 'media' => [{ 'id' => '9', 'focus' => { 'x' => 1.1, 'y' => 0 } }])) }.to raise_error(described_class::Invalid) { |error| expect(error.errors.first['code']).to eq 'invalid_format' }
+    expect { normalize(input('hello', 'media' => [{ 'id' => '9', 'description' => 'x' * (MediaAttachment::MAX_DESCRIPTION_LENGTH + 1) }])) }.to raise_error(described_class::Invalid) { |error| expect(error.errors.first['code']).to eq 'too_long' }
+    expect { normalize(input('hello', 'media' => [{ 'id' => '9', 'url' => 'https://example.test/secret' }])) }.to raise_error(described_class::Invalid) { |error| expect(error.errors.first['code']).to eq 'unknown_field' }
+    expect { normalize(input('hello', 'media' => [{ 'id' => '9' }, { 'id' => '9' }])) }.to raise_error(described_class::Invalid) { |error| expect(error.errors.first['code']).to eq 'duplicate_media' }
+    expect { normalize(input('hello', 'media' => Array.new(5) { |index| { 'id' => (index + 1).to_s } })) }.to raise_error(described_class::Invalid) { |error| expect(error.errors.first['code']).to eq 'too_many' }
+  end
+
+  it 'keeps the P0 media fixture description, focus, and order' do
+    raw = JSON.parse(Rails.root.join('spec/fixtures/post_drafts/media.json').read)
+    stored = normalize(raw)
+
+    expect(stored['input']['text']).to eq "photo\n\ncaption"
+    expect(stored['input']['media'].map { |item| item['id'] }).to eq %w(90 100)
+    expect(stored['input']['media'].last['description']).to eq "second line\nkept"
+    expect(stored['input']['media'].last['focus']).to eq('x' => -0.25, 'y' => 0.5)
+    expect(stored['input']['media'].first).not_to have_key('url')
   end
 
   it 'rejects a token field nested in the input' do

@@ -38,7 +38,7 @@ module PostDrafts
     end
 
     def filtered
-      scope = owned.order(updated_at: :desc, id: :desc)
+      scope = owned.preload(:post_draft_media_attachments).order(updated_at: :desc, id: :desc)
       return scope if @params[:max_id].blank?
 
       cursor = owned.find_by(id: @params[:max_id])
