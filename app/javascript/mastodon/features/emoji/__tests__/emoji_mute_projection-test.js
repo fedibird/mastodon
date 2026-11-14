@@ -24,9 +24,10 @@ import { addEmojiReaction, removeEmojiReaction, updateEmojiReaction } from '../.
 import { NOTIFICATIONS_FEED_MERGE, NOTIFICATIONS_RELOAD_SUCCESS, NOTIFICATIONS_CLEAR, NOTIFICATIONS_FILTER_SET, NOTIFICATIONS_EXPAND_SUCCESS, NOTIFICATIONS_MARK_AS_READ, NOTIFICATIONS_SCROLL_TOP, updateNotifications, clearNotifications } from '../../../actions/notifications';
 import { ACCOUNT_BLOCK_SUCCESS } from '../../../actions/accounts';
 import { DOMAIN_BLOCK_SUCCESS } from '../../../actions/domain_blocks';
-import { MARKERS_FETCH_SUCCESS } from '../../../actions/markers';
+import { MARKERS_FETCH_SUCCESS, MARKERS_SUBMIT_SUCCESS } from '../../../actions/markers';
 import { TIMELINE_DELETE } from '../../../actions/timelines';
 import notificationsReducer from '../../../reducers/notifications';
+import markersReducer from '../../../reducers/markers';
 import { KNOWN_EVENT_TYPES } from '../../../stream';
 
 const rules = [{
@@ -1707,6 +1708,84 @@ describe('emoji mute projection', () => {
     resolveCount({ data: { count: 1 } });
     await refreshing;
     expect(notifications.get('unread')).toBe(0);
+    expect(notifications.get('lastReadId')).toBe('105');
+  });
+
+  it('does not resurrect a badge when the read precedes refresh but the server has not acknowledged it', async () => {
+    const account = {
+      id: 'acct-1',
+      username: 'a',
+      acct: 'a',
+      display_name: 'A',
+      note: '',
+      followed_message: '',
+      url: 'https://example.test/@a',
+      emojis: [],
+      fields: [],
+    };
+    let countRequests = 0;
+    api.mockImplementation(() => ({
+      get: url => {
+        if (String(url) === '/api/v1/notifications') {
+          return Promise.resolve({ data: [
+            { id: countRequests === 0 ? '105' : '106', type: 'mention', account },
+          ] });
+        }
+        if (String(url) === '/api/v1/notifications/unread_count') {
+          countRequests += 1;
+          return Promise.resolve({ data: { count: 1 } });
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      },
+    }));
+
+    let notifications = fromJS({
+      items: [{ id: '105', type: 'mention', account: 'acct-1' }],
+      pendingItems: [],
+      hasMore: false,
+      unread: 0,
+      lastReadId: '105',
+      readMarkerId: '105',
+      top: false,
+      mounted: 0,
+      isTabVisible: true,
+      isLoading: false,
+    });
+    let markers = markersReducer(undefined, { type: MARKERS_FETCH_SUCCESS, markers: { notifications: { last_read_id: '104' } } });
+    const state = () => fromJS({
+      settings: { notifications: { quickFilter: { active: 'all' }, shows: { mention: true } } },
+      notifications: notifications.toJS(),
+      markers: markers.toJS(),
+      timelines: {},
+      contexts: {},
+      statuses: {},
+      accounts: {},
+      polls: {},
+      relationships: {},
+    });
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, state);
+      }
+      notifications = notificationsReducer(notifications, action);
+      markers = markersReducer(markers, action);
+      return action;
+    };
+
+    // The user has read 105 locally, but server GET/POST is still at 104.
+    await refreshEmojiMuteSurfaces()(dispatch, state);
+    expect(notifications.get('lastReadId')).toBe('105');
+    expect(notifications.get('unread')).toBe(0);
+
+    dispatch({ type: MARKERS_SUBMIT_SUCCESS, notifications: '105' });
+    // An older markers GET finishing late must not move the acknowledgement back.
+    dispatch({ type: MARKERS_FETCH_SUCCESS, markers: { notifications: { last_read_id: '104' } } });
+    expect(markers.get('notifications')).toBe('105');
+
+    // A genuinely new notification (106) must still count once 105 is saved.
+    await refreshEmojiMuteSurfaces()(dispatch, state);
+    expect(countRequests).toBe(2);
+    expect(notifications.get('unread')).toBe(1);
     expect(notifications.get('lastReadId')).toBe('105');
   });
 });
