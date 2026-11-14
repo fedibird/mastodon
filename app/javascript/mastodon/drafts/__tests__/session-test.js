@@ -1,5 +1,5 @@
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
-import { COMPOSE_REPLY_CANCEL, COMPOSE_RESET, COMPOSE_SET_STATUS, COMPOSE_SUBMIT_SUCCESS, COMPOSE_UPLOAD_SUCCESS, changeCompose } from '../../actions/compose';
+import { COMPOSE_REPLY_CANCEL, COMPOSE_RESET, COMPOSE_SET_STATUS, COMPOSE_SUBMIT_REQUEST, COMPOSE_SUBMIT_SUCCESS, COMPOSE_UPLOAD_SUCCESS, changeCompose, submissionSnapshot } from '../../actions/compose';
 import { REDRAFT } from '../../actions/statuses';
 import composer, { initialState } from '../../reducers/composer';
 import { createComposerDraftSession } from '../session';
@@ -704,5 +704,115 @@ describe('composer draft session', () => {
     await session.refreshOffers('42');
 
     expect(session.snapshot().offers).toEqual([]);
+  });
+
+  it('deletes the sent draft when the composer instance changes or the composer is gone', async () => {
+    const { backend, session } = harness();
+    const drafted = composerWith('hello');
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: drafted }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' },
+      composers: [{ composerId: 'primary', state: drafted.set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(drafted, 'new', 'submit-1'),
+      },
+      composers: [{ composerId: 'primary', state: composerWith('', { instanceId: 'composer-2' }) }],
+    });
+    await session.flush();
+
+    expect(await backend.readDraft('42', 'draft-1')).toBeNull();
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith('again', { instanceId: 'composer-2' }) }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-2' },
+      composers: [{ composerId: 'primary', state: composerWith('again', { instanceId: 'composer-2' }).set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(composerWith('again', { instanceId: 'composer-2' }), 'new', 'submit-2'),
+      },
+      composers: [],
+    });
+    await session.flush();
+
+    expect(await backend.listDrafts('42')).toEqual([]);
+  });
+
+  it('does not let a late write put a sent draft back', async () => {
+    const backend = createMemoryDraftBackend();
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let writes = 0;
+    const hostile = {
+      readDraft: (...args) => backend.readDraft(...args),
+      deleteDraft: (...args) => backend.deleteDraft(...args),
+      listDrafts: (...args) => backend.listDrafts(...args),
+      writeDraft: (record, options) => {
+        writes += 1;
+
+        if (writes === 1) {
+          return backend.writeDraft(record, options);
+        }
+
+        return gate.then(() => backend.writeDraft(record, { baseRevision: options.baseRevision }));
+      },
+    };
+    const session = createComposerDraftSession({
+      backend: hostile,
+      now: () => '2026-11-14T00:00:01.000Z',
+      createId: () => 'draft-1',
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+    const drafted = composerWith('hello');
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: drafted }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith('hello!') }],
+    });
+    const stale = session.flush();
+
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(drafted, 'new', 'submit-1'),
+      },
+      composers: [{ composerId: 'primary', state: composerWith('') }],
+    });
+    release();
+    await stale;
+    await session.flush();
+
+    expect(await backend.readDraft('42', 'draft-1')).toBeNull();
+    expect(await backend.listDrafts('42')).toEqual([]);
   });
 });

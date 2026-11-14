@@ -168,14 +168,26 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
 
           decision = compareAndPut(getRequest.result || null, incoming, options);
 
+          if (options.isDiscarded && options.isDiscarded()) {
+            store.delete(key);
+            decision = { status: 'discarded' };
+            return;
+          }
+
           if (decision.status === 'saved') {
-            if ((options.isDiscarded && options.isDiscarded()) || (options.stillCurrent && !options.stillCurrent())) {
+            if (options.stillCurrent && !options.stillCurrent()) {
               decision = { status: 'stale' };
               return;
             }
 
             const putRequest = store.put(decision.record);
 
+            putRequest.onsuccess = () => {
+              if (options.isDiscarded && options.isDiscarded()) {
+                store.delete(key);
+                decision = { status: 'discarded' };
+              }
+            };
             putRequest.onerror = () => {
               const error = putRequest.error || new Error('indexedDB put failed');
 

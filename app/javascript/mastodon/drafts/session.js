@@ -5,6 +5,7 @@ import {
   COMPOSE_RESET,
   COMPOSE_SCHEDULED_EDIT_CANCEL,
   COMPOSE_SET_STATUS,
+  COMPOSE_SUBMIT_REQUEST,
   COMPOSE_SUBMIT_SUCCESS,
   COMPOSE_UNMOUNT,
   SCHEDULED_STATUS_SUBMIT_SUCCESS,
@@ -50,6 +51,7 @@ const FORCE_SYNC = new Set([
   COMPOSE_RESET,
   COMPOSE_SCHEDULED_EDIT_CANCEL,
   COMPOSE_SET_STATUS,
+  COMPOSE_SUBMIT_REQUEST,
   COMPOSE_SUBMIT_SUCCESS,
   COMPOSE_UNMOUNT,
   SCHEDULED_STATUS_SUBMIT_SUCCESS,
@@ -78,6 +80,7 @@ export function createComposerDraftSession ({
   const surfaces = new Map();
   const claimed = new Map();
   const discarded = new Set();
+  const publishing = new Map();
   const pending = new Map();
   const writeChains = new Map();
   const timers = new Map();
@@ -146,18 +149,56 @@ export function createComposerDraftSession ({
     pending.delete(surface.composerId);
   }
 
-  function discard (accountId, surface) {
-    const clientDraftUuid = surface.clientDraftUuid;
-
-    detach(surface);
-
+  function retireDraft (accountId, composerId, clientDraftUuid) {
     if (!clientDraftUuid) {
-      return;
+      return Promise.resolve();
     }
 
     discarded.add(clientDraftUuid);
-    epochs.set(surface.composerId, (epochs.get(surface.composerId) || 0) + 1);
-    backend.deleteDraft(accountId, clientDraftUuid).catch(() => undefined);
+    epochs.set(composerId, (epochs.get(composerId) || 0) + 1);
+
+    const surface = surfaces.get(composerId);
+    const queued = pending.get(composerId);
+
+    if (surface && surface.clientDraftUuid === clientDraftUuid) {
+      detach(surface);
+    } else {
+      claimed.delete(clientDraftUuid);
+
+      if (queued && queued.snapshot.client_draft_uuid === clientDraftUuid) {
+        const timer = timers.get(composerId);
+
+        if (timer) {
+          cancel(timer);
+          timers.delete(composerId);
+        }
+
+        pending.delete(composerId);
+      }
+    }
+
+    const previous = writeChains.get(composerId) || Promise.resolve();
+    const run = previous.then(
+      () => backend.deleteDraft(accountId, clientDraftUuid),
+      () => backend.deleteDraft(accountId, clientDraftUuid),
+    ).then(() => {
+      refreshOffers(accountId);
+    }, () => undefined);
+
+    writeChains.set(composerId, run.then(() => undefined, () => undefined));
+
+    return run;
+  }
+
+  function discard (accountId, surface) {
+    const clientDraftUuid = surface.clientDraftUuid;
+
+    if (!clientDraftUuid) {
+      detach(surface);
+      return;
+    }
+
+    retireDraft(accountId, surface.composerId, clientDraftUuid);
   }
 
   function writeOptions (composerId, epoch, clientDraftUuid) {
@@ -406,7 +447,14 @@ export function createComposerDraftSession ({
         composerIds.push(composerId);
       });
 
-      return Promise.all(composerIds.map(composerId => flushComposer(composerId)));
+      const runs = composerIds.map(composerId => flushComposer(composerId));
+      const chains = [];
+
+      writeChains.forEach((chain) => {
+        chains.push(chain);
+      });
+
+      return Promise.all(runs.concat(chains));
     },
 
     bindLifecycle (target) {
@@ -440,6 +488,132 @@ export function createComposerDraftSession ({
       const type = action && action.type;
       const seen = new Set();
 
+      const mediaIdsOf = (state) => {
+        const media = state && state.get('media_attachments');
+
+        return media && media.map ? media.map(item => String(item.get('id'))).join('\u001f') : '';
+      };
+
+      const keptEditAfterPublish = (state, action, sent) => {
+        if (!state || draftCaptureBlock(state)) {
+          return false;
+        }
+
+        const editing = composerDraftInProgress(state) || String(state.get('spoiler_text') || '').trim() !== '';
+
+        if (!editing) {
+          return false;
+        }
+
+        const snapshot = snapshotComposerDraft(state, {
+          accountId,
+          clientDraftUuid: 'pending',
+          composerId: 'pending',
+          savedAt: now(),
+        });
+
+        if (!snapshot) {
+          return false;
+        }
+
+        if (sent && sent.hash && snapshot.content_hash === sent.hash) {
+          return false;
+        }
+
+        const submission = action && action.submission;
+
+        if ((!sent || !sent.hash) && submission && (state.get('text') || '') === (submission.text || '') && mediaIdsOf(state) === (submission.mediaIds || '')) {
+          return false;
+        }
+
+        return true;
+      };
+
+      const rememberPublishing = (composerId, state) => {
+        const live = surfaces.get(composerId);
+
+        if (!live || !live.clientDraftUuid || live.instanceId !== state.get('instanceId')) {
+          return;
+        }
+
+        const snapshot = snapshotComposerDraft(state, {
+          accountId,
+          clientDraftUuid: live.clientDraftUuid,
+          composerId,
+          savedAt: now(),
+        });
+
+        publishing.set(composerId, {
+          uuid: live.clientDraftUuid,
+          hash: snapshot ? snapshot.content_hash : null,
+        });
+      };
+
+      const finishPublishedDraft = (publishAccountId, composerId, state, publishAction, surface, instanceId) => {
+        const sent = publishing.get(composerId);
+
+        publishing.delete(composerId);
+
+        const sentUuid = (sent && sent.uuid) || (surface && surface.clientDraftUuid) || null;
+        const currentUuid = surface && surface.clientDraftUuid;
+
+        if (sentUuid) {
+          retireDraft(publishAccountId, composerId, sentUuid);
+        }
+
+        let current = surfaces.get(composerId);
+
+        if (currentUuid && sentUuid && currentUuid !== sentUuid) {
+          if (current) {
+            current.stateRef = state;
+          }
+
+          refreshOffers(publishAccountId);
+          return;
+        }
+
+        if (!current || current.instanceId !== instanceId) {
+          current = blankSurface(composerId, instanceId);
+          surfaces.set(composerId, current);
+        }
+
+        current.stateRef = state;
+        current.latched = null;
+
+        if (!keptEditAfterPublish(state, publishAction, sent)) {
+          setPersistence(composerId, 'idle', null, false);
+          refreshOffers(publishAccountId);
+          return;
+        }
+
+        const snapshot = snapshotComposerDraft(state, {
+          accountId: publishAccountId,
+          clientDraftUuid: 'pending',
+          composerId,
+          savedAt: now(),
+        });
+
+        if (!snapshot) {
+          setPersistence(composerId, 'idle', null, false);
+          refreshOffers(publishAccountId);
+          return;
+        }
+
+        current.clientDraftUuid = createId();
+        current.baseRevision = 0;
+        current.lastHash = null;
+        claimed.set(current.clientDraftUuid, composerId);
+
+        const stored = {
+          ...snapshot,
+          client_draft_uuid: current.clientDraftUuid,
+        };
+
+        current.scheduledHash = stored.content_hash;
+        scheduleWrite(publishAccountId, composerId, stored);
+        refreshOffers(publishAccountId);
+      };
+
       (composers || []).forEach(({ composerId, state }) => {
         if (!state || typeof state.get !== 'function') {
           return;
@@ -450,122 +624,126 @@ export function createComposerDraftSession ({
         let surface = surfaces.get(composerId);
         const targeted = actionComposerId(action) === composerId;
 
-        if (surface && surface.stateRef === state && !(targeted && FORCE_SYNC.has(type))) {
-          return;
-        }
-
-        const instanceId = state.get('instanceId');
-
-        if (surface && surface.instanceId !== instanceId) {
-          flushComposer(composerId);
-
-          if (surface.clientDraftUuid) {
-            claimed.delete(surface.clientDraftUuid);
+        try {
+          if (surface && surface.stateRef === state && !(targeted && FORCE_SYNC.has(type))) {
+            return;
           }
 
-          surface = null;
-          refreshOffers(accountId);
-        }
-
-        if (!surface) {
-          surface = blankSurface(composerId, instanceId);
-          surfaces.set(composerId, surface);
-        }
-
-        surface.stateRef = state;
-
-        if (type === COMPOSER_DRAFT_RESTORE && actionComposerId(action) === composerId) {
-          adoptRestored(composerId, state, action);
-          return;
-        }
-
-        if (targeted && type === REDRAFT) {
-          surface.latched = 'redraft';
-        }
-
-        if (targeted && type === COMPOSE_SET_STATUS) {
-          surface.latched = 'existing_edit';
-        }
-
-        const blocked = draftCaptureBlock(state);
-
-        if (blocked) {
-          surface.latched = surface.latched || blocked;
-        }
-
-        if (targeted && CLEAR_LATCH.has(type) && !blocked) {
-          surface.latched = null;
-        }
-
-        if (targeted && PUBLISH_SUCCESS.has(type) && !composerDraftInProgress(state)) {
-          discard(accountId, surface);
-          setPersistence(composerId, 'idle', null, false);
-          refreshOffers(accountId);
-          return;
-        }
-
-        if (surface.latched || blocked) {
-          flushComposer(composerId);
-          const released = Boolean(surface.clientDraftUuid);
-
-          detach(surface);
-
-          if (released) {
-            refreshOffers(accountId);
+          if (targeted && PUBLISH_SUCCESS.has(type)) {
+            finishPublishedDraft(accountId, composerId, state, action, surface, state.get('instanceId'));
+            return;
           }
 
-          return;
-        }
+          const instanceId = state.get('instanceId');
 
-        let discardedCurrent = false;
-
-        if (targeted && EXPLICIT_DISCARD.has(type) && surface.clientDraftUuid) {
-          discard(accountId, surface);
-          discardedCurrent = true;
-          refreshOffers(accountId);
-        }
-
-        const snapshot = snapshotComposerDraft(state, {
-          accountId,
-          clientDraftUuid: surface.clientDraftUuid || 'pending',
-          composerId,
-          savedAt: now(),
-        });
-
-        if (!snapshot) {
-          if (discardedCurrent) {
-            setPersistence(composerId, 'idle', null, false);
-          } else if (surface.clientDraftUuid) {
+          if (surface && surface.instanceId !== instanceId) {
             flushComposer(composerId);
-            detach(surface);
-            setPersistence(composerId, 'idle', null, false);
+
+            if (surface.clientDraftUuid) {
+              claimed.delete(surface.clientDraftUuid);
+            }
+
+            surface = null;
             refreshOffers(accountId);
           }
 
-          return;
+          if (!surface) {
+            surface = blankSurface(composerId, instanceId);
+            surfaces.set(composerId, surface);
+          }
+
+          surface.stateRef = state;
+
+          if (type === COMPOSER_DRAFT_RESTORE && actionComposerId(action) === composerId) {
+            adoptRestored(composerId, state, action);
+            return;
+          }
+
+          if (targeted && type === REDRAFT) {
+            surface.latched = 'redraft';
+          }
+
+          if (targeted && type === COMPOSE_SET_STATUS) {
+            surface.latched = 'existing_edit';
+          }
+
+          const blocked = draftCaptureBlock(state);
+
+          if (blocked) {
+            surface.latched = surface.latched || blocked;
+          }
+
+          if (targeted && CLEAR_LATCH.has(type) && !blocked) {
+            surface.latched = null;
+          }
+
+          if (surface.latched || blocked) {
+            flushComposer(composerId);
+            const released = Boolean(surface.clientDraftUuid);
+
+            detach(surface);
+
+            if (released) {
+              refreshOffers(accountId);
+            }
+
+            return;
+          }
+
+          let discardedCurrent = false;
+
+          if (targeted && EXPLICIT_DISCARD.has(type) && surface.clientDraftUuid) {
+            discard(accountId, surface);
+            discardedCurrent = true;
+            refreshOffers(accountId);
+          }
+
+          const snapshot = snapshotComposerDraft(state, {
+            accountId,
+            clientDraftUuid: surface.clientDraftUuid || 'pending',
+            composerId,
+            savedAt: now(),
+          });
+
+          if (!snapshot) {
+            if (discardedCurrent) {
+              setPersistence(composerId, 'idle', null, false);
+            } else if (surface.clientDraftUuid) {
+              flushComposer(composerId);
+              detach(surface);
+              setPersistence(composerId, 'idle', null, false);
+              refreshOffers(accountId);
+            }
+
+            return;
+          }
+
+          if (!surface.clientDraftUuid) {
+            surface.clientDraftUuid = createId();
+            surface.baseRevision = 0;
+            claimed.set(surface.clientDraftUuid, composerId);
+          }
+
+          const storedSnapshot = {
+            ...snapshot,
+            client_draft_uuid: surface.clientDraftUuid,
+          };
+
+          if (storedSnapshot.content_hash === surface.lastHash) {
+            return;
+          }
+
+          if (storedSnapshot.content_hash === surface.scheduledHash && pending.has(composerId)) {
+            return;
+          }
+
+          surface.scheduledHash = storedSnapshot.content_hash;
+          scheduleWrite(accountId, composerId, storedSnapshot);
+        } finally {
+          if (targeted && type === COMPOSE_SUBMIT_REQUEST) {
+            rememberPublishing(composerId, state);
+          }
         }
-
-        if (!surface.clientDraftUuid) {
-          surface.clientDraftUuid = createId();
-          surface.baseRevision = 0;
-          claimed.set(surface.clientDraftUuid, composerId);
-        }
-
-        const storedSnapshot = {
-          ...snapshot,
-          client_draft_uuid: surface.clientDraftUuid,
-        };
-
-        if (storedSnapshot.content_hash === surface.lastHash) {
-          return;
-        }
-
-        if (storedSnapshot.content_hash === surface.scheduledHash && pending.has(composerId)) {
-          return;
-        }
-
-        surface.scheduledHash = storedSnapshot.content_hash;
-        scheduleWrite(accountId, composerId, storedSnapshot);
       });
 
       let releasedSurface = false;
@@ -581,6 +759,21 @@ export function createComposerDraftSession ({
         }
 
         const surface = surfaces.get(composerId);
+        const sent = publishing.get(composerId);
+
+        if (PUBLISH_SUCCESS.has(type) && actionComposerId(action) === composerId) {
+          publishing.delete(composerId);
+
+          const uuid = (sent && sent.uuid) || (surface && surface.clientDraftUuid);
+
+          if (uuid) {
+            retireDraft(accountId, composerId, uuid);
+          }
+
+          surfaces.delete(composerId);
+          refreshOffers(accountId);
+          return;
+        }
 
         flushComposer(composerId);
 

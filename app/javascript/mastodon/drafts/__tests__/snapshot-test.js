@@ -443,4 +443,61 @@ describe('composer draft snapshot', () => {
     expect(snapshot.media_incomplete).toBe(true);
     expect(snapshot.input.media.map(item => item.id)).toEqual(['media-1']);
   });
+
+  it('asks again when a hashtag draft is restored onto a primary composer that still holds the old destination', () => {
+    const hashtag = composer(composer(initialState, changeCompose('tag draft')), {
+      type: 'COMPOSER_CONTEXT_APPLY',
+      surface: { kind: 'hashtag', key: 'fedibird' },
+      surfaceEpoch: 1,
+      hasPostingContext: false,
+    });
+    const snapshot = snapshotComposerDraft(hashtag, { accountId: '42', clientDraftUuid: 'draft-1' });
+    const restore = (state) => composer(state, {
+      type: COMPOSER_DRAFT_RESTORE,
+      snapshot,
+      idempotencyKey: 'restore-key',
+      restoreToken: 'restore-token',
+    });
+    const first = restore(initialState);
+    const confirmed = composer(first, { type: 'COMPOSER_DRAFT_SURFACE_CONFIRM', kind: 'hashtag', key: 'fedibird' });
+    const cleared = composer(confirmed, { type: COMPOSE_RESET });
+    const again = restore(cleared);
+    const column = composer(initialState, {
+      type: 'COMPOSER_CONTEXT_APPLY',
+      surface: { kind: 'hashtag', key: 'fedibird' },
+      surfaceEpoch: 4,
+      hasPostingContext: false,
+    });
+    const onColumn = restore(column);
+    const columnAgain = restore(composer(onColumn, changeCompose('')));
+    const moved = composer(cleared, {
+      type: 'COMPOSER_CONTEXT_APPLY',
+      surface: { kind: 'hashtag', key: 'other' },
+      surfaceEpoch: (cleared.get('surfaceEpoch') || 0) + 1,
+      hasPostingContext: false,
+    });
+    const onOther = restore(moved);
+    const routed = restore(column.set('displayedSurface', null));
+
+    expect(first.get('draftSurfaceUnconfirmed')).toBe(true);
+    expect(first.get('surfaceMismatch')).toBe(true);
+    expect(confirmed.get('draftSurfaceUnconfirmed')).toBe(false);
+    expect(again.get('text')).toBe('tag draft');
+    expect(again.get('draftSurfaceUnconfirmed')).toBe(true);
+    expect(again.get('surfaceMismatch')).toBe(true);
+    expect(again.getIn(['draftSurfaceConfirm', 'key'])).toBe('fedibird');
+    expect(again.get('displayedSurface')).toBeNull();
+    expect(onColumn.get('draftSurfaceUnconfirmed')).toBe(false);
+    expect(onColumn.get('surfaceMismatch')).toBe(false);
+    expect(onColumn.getIn(['displayedSurface', 'key'])).toBe('fedibird');
+    expect(columnAgain.get('draftSurfaceUnconfirmed')).toBe(false);
+    expect(columnAgain.get('surfaceMismatch')).toBe(false);
+    expect(onOther.get('surfaceMismatch')).toBe(true);
+    expect(onOther.get('draftSurfaceUnconfirmed')).toBe(false);
+    expect(onOther.getIn(['displayedSurface', 'key'])).toBe('other');
+    expect(onOther.getIn(['surface', 'key'])).toBe('fedibird');
+    expect(routed.get('draftSurfaceUnconfirmed')).toBe(true);
+    expect(routed.get('surfaceMismatch')).toBe(true);
+    expect(routed.get('displayedSurface')).toBeNull();
+  });
 });

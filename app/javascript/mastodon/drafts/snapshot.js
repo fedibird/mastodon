@@ -414,7 +414,9 @@ function postingContextFromComposer (composer) {
 }
 
 function restoreSurfaceConflict (composer, input) {
-  const screen = assignmentSurface(composer.get('displayedSurface')) || assignmentSurface(composer.get('surface'));
+  // The screen is the destination the column is showing. A posting surface
+  // left by an earlier restore is not that screen.
+  const screen = assignmentSurface(composer.get('displayedSurface'));
   const draft = assignmentSurface(input && input.surface);
 
   if (surfacesEqual(screen, draft)) {
@@ -773,6 +775,17 @@ export function applyComposerDraft (state, snapshot, options = {}) {
   const heldSurface = conflict.mode === 'mismatch' ? conflict.screen : null;
   const heldContext = heldSurface ? postingContextFromComposer(state) : null;
   const nextEpoch = (Number(state.get('surfaceEpoch')) || 0) + 1;
+  let displayedSurface = null;
+
+  if (heldSurface) {
+    displayedSurface = ImmutableMap({
+      kind: heldSurface.kind,
+      key: heldSurface.key,
+      surfaceEpoch: nextEpoch,
+    });
+  } else if (conflict.mode === 'same') {
+    displayedSurface = state.get('displayedSurface');
+  }
   const media = ImmutableList((Array.isArray(input.media) ? input.media : []).filter(item => isPlainObject(item) && item.id).map(item => ImmutableMap({
     id: String(item.id),
     description: item.description || '',
@@ -836,11 +849,7 @@ export function applyComposerDraft (state, snapshot, options = {}) {
       hasPostingContext: Boolean(heldContext),
       surfaceEpoch: nextEpoch,
     }) : null);
-    map.set('displayedSurface', heldSurface ? ImmutableMap({
-      kind: heldSurface.kind,
-      key: heldSurface.key,
-      surfaceEpoch: nextEpoch,
-    }) : null);
+    map.set('displayedSurface', displayedSurface);
     map.set('surfaceEpoch', nextEpoch);
     map.set('userPostingStyle', restoredStyle(input, state.get('userPostingStyle')));
     map.set('senderIdentity', restoredSender(input, state.get('senderIdentity')));

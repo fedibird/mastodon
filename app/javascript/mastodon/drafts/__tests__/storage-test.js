@@ -167,6 +167,31 @@ describe('composer draft storage', () => {
     expect(await backend.readDraft('42', 'draft-1')).toBeUndefined();
   });
 
+  it('deletes a put that is discarded before the write transaction finishes', async () => {
+    const factory = fakeDatabase();
+    const backend = createIndexedDbDraftBackend({
+      openDatabase: () => openComposerDraftDatabase(factory),
+    });
+    let seen = 0;
+    const result = await backend.writeDraft({
+      schema_version: 1,
+      account_id: '42',
+      client_draft_uuid: 'draft-1',
+      content_hash: 'one',
+      input: { text: 'one' },
+    }, {
+      baseRevision: 0,
+      stillCurrent: () => true,
+      isDiscarded: () => {
+        seen += 1;
+        return seen >= 3;
+      },
+    });
+
+    expect(result.status).toBe('discarded');
+    expect(await backend.readDraft('42', 'draft-1')).toBeUndefined();
+  });
+
   it('reports an unavailable database without throwing to the caller of open', async () => {
     await expect(openComposerDraftDatabase(null)).rejects.toMatchObject({ reason: 'unavailable' });
     await expect(openComposerDraftDatabase({

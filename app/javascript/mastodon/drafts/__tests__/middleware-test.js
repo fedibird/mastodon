@@ -1,7 +1,7 @@
 import { applyMiddleware, createStore } from 'redux';
 import thunk from 'redux-thunk';
 import { combineReducers } from 'redux-immutable';
-import { changeCompose, COMPOSE_SUBMIT_SUCCESS } from '../../actions/compose';
+import { changeCompose, changeComposeVisibility, COMPOSE_RESET, COMPOSE_SUBMIT_REQUEST, COMPOSE_SUBMIT_SUCCESS, submissionSnapshot } from '../../actions/compose';
 import { createComposer, destroyComposer, targetComposerAction } from '../../actions/composer';
 import compose from '../../reducers/compose';
 import composerDraftRecovery from '../../reducers/composer_draft_recovery';
@@ -103,5 +103,135 @@ describe('composer draft middleware', () => {
 
     expect(await backend.listDrafts('42')).toEqual([]);
     expect(store.getState().getIn(['compose', 'text'])).toBe('');
+  });
+
+  async function publish (store, composerId) {
+    const request = { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' };
+
+    store.dispatch(composerId === 'primary' ? request : targetComposerAction(request, composerId));
+
+    const composer = composerId === 'primary'
+      ? store.getState().get('compose')
+      : store.getState().getIn(['composers', 'byId', composerId]);
+    const success = {
+      type: COMPOSE_SUBMIT_SUCCESS,
+      status: { id: 'status-1', visibility: 'personal' },
+      submission: submissionSnapshot(composer, 'new', 'submit-1'),
+    };
+
+    store.dispatch(composerId === 'primary' ? success : targetComposerAction(success, composerId));
+  }
+
+  it('deletes the sent personal draft after a real submit and keeps a different draft', async () => {
+    const { store, session, backend } = storeFor();
+
+    store.dispatch(changeComposeVisibility('personal'));
+    store.dispatch(changeCompose('first post'));
+    store.dispatch(createComposer('portable-a'));
+    store.dispatch(targetComposerAction(changeComposeVisibility('personal'), 'portable-a'));
+    store.dispatch(targetComposerAction(changeCompose('portable post'), 'portable-a'));
+    await session.flush();
+
+    const before = await backend.listDrafts('42');
+    const primary = before.find(item => item.input.text === 'first post');
+    const portable = before.find(item => item.input.text === 'portable post');
+
+    expect(primary.input.privacy).toBe('personal');
+    expect(portable.input.privacy).toBe('personal');
+
+    await publish(store, 'primary');
+    await session.flush();
+
+    expect(store.getState().getIn(['compose', 'text'])).toBe('');
+    expect(await backend.readDraft('42', primary.client_draft_uuid)).toBeNull();
+    expect((await backend.readDraft('42', portable.client_draft_uuid)).input.text).toBe('portable post');
+
+    const reloaded = createComposerDraftSession({
+      backend,
+      now: () => '2026-11-14T00:00:01.000Z',
+      createId: () => 'reloaded',
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+
+    expect((await reloaded.refreshOffers('42')).map(item => item.client_draft_uuid)).toEqual([portable.client_draft_uuid]);
+  });
+
+  it('deletes a restored personal draft on submit and keeps text typed while the request is open', async () => {
+    const { store, session, backend } = storeFor();
+
+    store.dispatch(changeCompose('restored post'));
+    await session.flush();
+
+    const saved = (await backend.listDrafts('42'))[0];
+
+    store.dispatch({ type: COMPOSE_RESET });
+    await session.flush();
+    await backend.writeDraft({
+      ...saved,
+      content_hash: `${saved.content_hash}:personal`,
+      input: { ...saved.input, privacy: 'personal' },
+    }, { baseRevision: 0 });
+    const rewritten = await backend.readDraft('42', saved.client_draft_uuid);
+
+    store.dispatch({
+      type: 'COMPOSER_DRAFT_RESTORE',
+      snapshot: rewritten,
+      idempotencyKey: 'restore-key',
+      restoreToken: 'restore-token',
+      baseRevision: rewritten.revision,
+    });
+
+    expect(store.getState().getIn(['compose', 'text'])).toBe('restored post');
+    expect(store.getState().getIn(['compose', 'privacy'])).toBe('personal');
+
+    store.dispatch({ type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' });
+
+    const submitted = store.getState().get('compose');
+
+    store.dispatch(changeCompose('typed while sending'));
+    store.dispatch({
+      type: COMPOSE_SUBMIT_SUCCESS,
+      status: { id: 'status-1', visibility: 'personal' },
+      submission: submissionSnapshot(submitted, 'new', 'submit-1'),
+    });
+    await session.flush();
+
+    const remaining = await backend.listDrafts('42');
+
+    expect(await backend.readDraft('42', saved.client_draft_uuid)).toBeNull();
+    expect(remaining.map(item => item.client_draft_uuid)).not.toContain(saved.client_draft_uuid);
+    expect(remaining.map(item => item.input.text)).toEqual(['typed while sending']);
+    expect(store.getState().getIn(['compose', 'text'])).toBe('typed while sending');
+
+    const reloaded = createComposerDraftSession({
+      backend,
+      now: () => '2026-11-14T00:00:02.000Z',
+      createId: () => 'reloaded',
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+
+    expect((await reloaded.refreshOffers('42')).map(item => item.client_draft_uuid)).toEqual(remaining.map(item => item.client_draft_uuid));
+    expect((await backend.listDrafts('42')).map(item => item.input.text)).toEqual(['typed while sending']);
+  });
+
+  it('deletes a portable personal draft on submit', async () => {
+    const { store, session, backend } = storeFor();
+
+    store.dispatch(changeCompose('keep primary'));
+    store.dispatch(createComposer('portable-a'));
+    store.dispatch(targetComposerAction(changeComposeVisibility('personal'), 'portable-a'));
+    store.dispatch(targetComposerAction(changeCompose('from portable'), 'portable-a'));
+    await session.flush();
+
+    const portable = (await backend.listDrafts('42')).find(item => item.input.text === 'from portable');
+
+    await publish(store, 'portable-a');
+    await session.flush();
+
+    expect(await backend.readDraft('42', portable.client_draft_uuid)).toBeNull();
+    expect((await backend.listDrafts('42')).map(item => item.input.text)).toEqual(['keep primary']);
+    expect(store.getState().getIn(['composers', 'byId', 'portable-a', 'text'])).toBe('');
   });
 });
