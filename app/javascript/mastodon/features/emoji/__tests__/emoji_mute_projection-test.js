@@ -21,9 +21,10 @@ import { projectStreamReaction, reactionNameHidden, guardImportedReactions, proj
 import { installEmojiMutesForTests, loadEmojiMutes, noteEmojiMutesChanged, appliedEmojiMuteRevision, observedEmojiMuteRevision, resetEmojiMuteStoreForTests, emojiReactionEventsAccepted } from '../emoji_mute_store';
 import api from 'mastodon/api';
 import { addEmojiReaction, removeEmojiReaction, updateEmojiReaction } from '../../../actions/interactions';
-import { NOTIFICATIONS_FEED_MERGE, NOTIFICATIONS_RELOAD_SUCCESS, NOTIFICATIONS_CLEAR, NOTIFICATIONS_FILTER_SET, NOTIFICATIONS_EXPAND_SUCCESS, updateNotifications, clearNotifications } from '../../../actions/notifications';
+import { NOTIFICATIONS_FEED_MERGE, NOTIFICATIONS_RELOAD_SUCCESS, NOTIFICATIONS_CLEAR, NOTIFICATIONS_FILTER_SET, NOTIFICATIONS_EXPAND_SUCCESS, NOTIFICATIONS_MARK_AS_READ, updateNotifications, clearNotifications } from '../../../actions/notifications';
 import { ACCOUNT_BLOCK_SUCCESS } from '../../../actions/accounts';
 import { DOMAIN_BLOCK_SUCCESS } from '../../../actions/domain_blocks';
+import { MARKERS_FETCH_SUCCESS } from '../../../actions/markers';
 import { TIMELINE_DELETE } from '../../../actions/timelines';
 import notificationsReducer from '../../../reducers/notifications';
 import { KNOWN_EVENT_TYPES } from '../../../stream';
@@ -596,6 +597,8 @@ describe('emoji mute projection', () => {
     };
     return refreshEmojiMuteSurfaces()(dispatch, state).then(() => {
       const request = calls.find(call => call.url === '/api/v1/notifications');
+      const countRequest = calls.find(call => call.url === '/api/v1/notifications/unread_count');
+      expect(countRequest.params.exclude_types).toEqual(request.params.exclude_types);
       expect(request.params.exclude_types).toContain('mention');
       expect(request.params.exclude_types).not.toContain('emoji_reaction');
       expect(request.params.limit).toBeUndefined();
@@ -1520,5 +1523,132 @@ describe('emoji mute projection', () => {
     expect(KNOWN_EVENT_TYPES).toContain('emoji_mutes_changed');
     expect(reactionNameHidden('‼️', null, [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '‼' } }])).toBe(false);
     expect(reactionNameHidden('1⃣', null, [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '1️⃣' } }])).toBe(false);
+  });
+
+  it('excludes hidden notification types from both the list and the unread badge', async () => {
+    const requests = [];
+    api.mockImplementation(() => ({
+      get: (url, options) => {
+        const path = String(url);
+        const excluded = options?.params?.exclude_types || [];
+        requests.push({ path, excluded });
+        if (path === '/api/v1/notifications/unread_count') {
+          return Promise.resolve({ data: { count: excluded.includes('follow_request') ? 0 : 1 } });
+        }
+        if (path === '/api/v1/notifications') {
+          return Promise.resolve({ data: [] });
+        }
+        return Promise.reject(new Error(`Unexpected request: ${path}`));
+      },
+    }));
+
+    let notifications = notificationsReducer(undefined, { type: '@@INIT' });
+    const state = () => fromJS({
+      settings: { notifications: { quickFilter: { active: 'all' }, shows: { follow_request: false, mention: true } } },
+      notifications: notifications.toJS(),
+      timelines: {},
+      contexts: {},
+      statuses: {},
+    });
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, state);
+      }
+      notifications = notificationsReducer(notifications, action);
+      return action;
+    };
+
+    await refreshEmojiMuteSurfaces()(dispatch, state);
+    const list = requests.find(request => request.path === '/api/v1/notifications');
+    const count = requests.find(request => request.path === '/api/v1/notifications/unread_count');
+    expect(list.excluded).toContain('follow_request');
+    expect(count.excluded).toEqual(list.excluded);
+    expect(notifications.get('unread')).toBe(0);
+  });
+
+  it('does not reapply a stale unread count after marking the last notification read', async () => {
+    let resolveCount;
+    api.mockImplementation(() => ({
+      get: url => {
+        if (String(url) === '/api/v1/notifications') {
+          return Promise.resolve({ data: [] });
+        }
+        if (String(url) === '/api/v1/notifications/unread_count') {
+          return new Promise(resolve => {
+            resolveCount = resolve;
+          });
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      },
+    }));
+
+    let notifications = fromJS({
+      items: [{ id: '105', type: 'mention', account: 'acct-1' }],
+      pendingItems: [],
+      hasMore: false,
+      unread: 1,
+      lastReadId: '104',
+      readMarkerId: '104',
+      top: false,
+      mounted: 0,
+      isTabVisible: true,
+      isLoading: false,
+    });
+    const state = () => fromJS({
+      settings: { notifications: { quickFilter: { active: 'all' }, shows: { mention: true } } },
+      notifications: notifications.toJS(),
+      timelines: {},
+      contexts: {},
+      statuses: {},
+    });
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, state);
+      }
+      notifications = notificationsReducer(notifications, action);
+      return action;
+    };
+
+    const refreshing = refreshEmojiMuteSurfaces()(dispatch, state);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(resolveCount).toEqual(expect.any(Function));
+
+    notifications = notificationsReducer(notifications, { type: NOTIFICATIONS_MARK_AS_READ });
+    expect(notifications.get('unread')).toBe(0);
+    expect(notifications.get('lastReadId')).toBe('105');
+
+    resolveCount({ data: { count: 1 } });
+    await refreshing;
+    expect(notifications.get('unread')).toBe(0);
+    expect(notifications.get('lastReadId')).toBe('105');
+  });
+
+  it('does not rewind local reads on a delayed marker response or when browsing notifications', () => {
+    const state = fromJS({
+      items: [{ id: '105', type: 'mention', account: 'acct-1' }],
+      pendingItems: [],
+      unread: 0,
+      lastReadId: '105',
+      readMarkerId: '105',
+      hasMore: false,
+      top: false,
+      mounted: 0,
+      isTabVisible: true,
+    });
+    const delayed = notificationsReducer(state, {
+      type: MARKERS_FETCH_SUCCESS,
+      markers: { notifications: { last_read_id: '100' } },
+    });
+    expect(delayed.get('lastReadId')).toBe('105');
+    expect(delayed.get('unread')).toBe(0);
+
+    const atTop = state.set('top', true).set('mounted', 1);
+    const merged = notificationsReducer(atTop, {
+      type: NOTIFICATIONS_FEED_MERGE,
+      notifications: [],
+      rules: [],
+      unread: 1,
+    });
+    expect(merged.get('unread')).toBe(0);
   });
 });

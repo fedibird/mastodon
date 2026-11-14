@@ -333,6 +333,11 @@ const shouldCountUnreadNotifications = (state, ignoreScroll = false) => {
 };
 
 const recountUnread = (state, last_read_id) => {
+  // A late markers response must never move the effective read position
+  // backwards when the user has already read newer notifications locally.
+  const currentReadId = state.get('lastReadId');
+  const effectiveReadId = compareId(last_read_id, currentReadId) > 0 ? last_read_id : currentReadId;
+
   return state.withMutations(mutable => {
     if (compareId(last_read_id, mutable.get('lastReadId')) > 0) {
       mutable.set('lastReadId', last_read_id);
@@ -343,7 +348,7 @@ const recountUnread = (state, last_read_id) => {
     }
 
     if (state.get('unread') > 0 || shouldCountUnreadNotifications(state)) {
-      mutable.set('unread', mutable.get('pendingItems').count(item => item !== null) + mutable.get('items').count(item => item && compareId(item.get('id'), last_read_id) > 0));
+      mutable.set('unread', mutable.get('pendingItems').count(item => item !== null) + mutable.get('items').count(item => item && compareId(item.get('id'), effectiveReadId) > 0));
     }
   });
 };
@@ -385,7 +390,9 @@ export default function notifications(state = initialState, action) {
       next = rememberWithheld(next, item, 'items');
     });
     next = reconcileEmojiReactionNotifications(next, rules);
-    if (typeof action.unread === 'number') {
+    // Browsing the notifications column at the top marks them as read.
+    // A delayed count response must not reintroduce the badge.
+    if (typeof action.unread === 'number' && shouldCountUnreadNotifications(next)) {
       next = next.set('unread', action.unread);
     }
     return next;
