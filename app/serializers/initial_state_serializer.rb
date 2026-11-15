@@ -155,6 +155,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:disable_auto_focus_to_emoji_search]    = object.current_account.user.setting_disable_auto_focus_to_emoji_search
       store[:emoji_picker_prefer_personal]         = preference_effective('emoji_picker_prefer_personal')
       store[:emoji_picker_disable_personal]        = preference_effective('emoji_picker_disable_personal')
+      store[:emoji_picker_disable_actions]         = preference_effective('emoji_picker_disable_actions')
       store[:emoji_picker_lazy_load_standard]      = preference_effective('emoji_picker_lazy_load_standard')
       store[:max_frequently_used_emojis]            = object.current_account.user.setting_max_frequently_used_emojis
       

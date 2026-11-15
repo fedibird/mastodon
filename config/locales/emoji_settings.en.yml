@@ -1,0 +1,8 @@
+en:
+  emoji_settings:
+    title: Emoji settings
+    display: Emoji display
+    reactions: Emoji reactions
+    picker: Emoji picker
+  settings:
+    emoji_settings: Emoji settings

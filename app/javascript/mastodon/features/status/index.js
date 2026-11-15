@@ -4,6 +4,7 @@ import PropTypes from 'prop-types';
 import classNames from 'classnames';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { List as ImmutableList } from 'immutable';
+import { emojiReactionsForStatus, emojiReactionAccountIds } from '../../utils/emoji_reactions';
 import { createSelector } from 'reselect';
 import { fetchStatus } from '../../actions/statuses';
 import { openAccountContext } from '../../actions/account_context_view';
@@ -170,8 +171,8 @@ const makeMapStateToProps = () => {
     const descendantsIds = status ? getDescendantsIds(state, { id: status.get('id') }) : ImmutableList();
     const referencesIds  = status ? getReferencesIds(state, { id: status.get('id') }) : ImmutableList();
     const id             = status ? getProper(status).get('id') : null;
-    const emojiReactions = status ? status.get('emoji_reactions', ImmutableList()) : ImmutableList();
-    const myCount        = emojiReactions.count((emojiReaction) => emojiReaction.get('account_ids', ImmutableList()).includes(me));
+    const emojiReactions = emojiReactionsForStatus(status);
+    const myCount        = emojiReactions.count(emojiReaction => emojiReactionAccountIds(emojiReaction).includes(me));
 
     return {
       status,

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_16_150000) do
+ActiveRecord::Schema.define(version: 2026_11_17_140100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -539,7 +539,7 @@ ActiveRecord::Schema.define(version: 2026_11_16_150000) do
     t.boolean "reject_reactions_to_own_posts", default: true, null: false
     t.boolean "hide_reactions", default: true, null: false
     t.boolean "hide_in_picker", default: true, null: false
-    t.string "replacement", default: "［絵文字］", null: false
+    t.string "replacement", default: "◻", null: false
     t.bigint "revision", default: 1, null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
@@ -2054,6 +2054,20 @@ create_table "managed_groups", force: :cascade do |t|
     t.index ["status_id"], name: "index_polls_on_status_id"
   end
 
+  create_table "post_drafts", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.string "client_uuid", limit: 36, null: false
+    t.integer "schema_version", null: false
+    t.integer "revision", default: 1, null: false
+    t.jsonb "payload", default: {}, null: false
+    t.string "state", limit: 16, default: "active", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id", "client_uuid"], name: "index_post_drafts_on_account_id_and_client_uuid", unique: true
+    t.index ["account_id", "updated_at", "id"], name: "index_post_drafts_on_account_updated_at_and_id"
+    t.check_constraint "((((client_uuid)::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text) AND (schema_version = 1) AND (revision >= 1) AND ((state)::text = 'active'::text) AND (octet_length((payload)::text) <= 262144)))", name: "post_drafts_shape"
+  end
+
   create_table "posting_identity_delegations", force: :cascade do |t|
     t.bigint "grantor_user_id", null: false
     t.bigint "grantee_user_id", null: false
@@ -2876,6 +2890,7 @@ create_table "managed_groups", force: :cascade do |t|
   add_foreign_key "poll_votes", "polls", on_delete: :cascade
   add_foreign_key "polls", "accounts", on_delete: :cascade
   add_foreign_key "polls", "statuses", on_delete: :cascade
+  add_foreign_key "post_drafts", "accounts", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "accounts", column: "posting_account_id", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "users", column: "grantee_user_id", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "users", column: "grantor_user_id", on_delete: :cascade

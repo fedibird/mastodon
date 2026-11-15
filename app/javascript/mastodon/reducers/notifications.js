@@ -333,6 +333,11 @@ const shouldCountUnreadNotifications = (state, ignoreScroll = false) => {
 };
 
 const recountUnread = (state, last_read_id) => {
+  // A late markers response must never move the effective read position
+  // backwards when the user has already read newer notifications locally.
+  const currentReadId = state.get('lastReadId');
+  const effectiveReadId = compareId(last_read_id, currentReadId) > 0 ? last_read_id : currentReadId;
+
   return state.withMutations(mutable => {
     if (compareId(last_read_id, mutable.get('lastReadId')) > 0) {
       mutable.set('lastReadId', last_read_id);
@@ -343,7 +348,7 @@ const recountUnread = (state, last_read_id) => {
     }
 
     if (state.get('unread') > 0 || shouldCountUnreadNotifications(state)) {
-      mutable.set('unread', mutable.get('pendingItems').count(item => item !== null) + mutable.get('items').count(item => item && compareId(item.get('id'), last_read_id) > 0));
+      mutable.set('unread', mutable.get('pendingItems').count(item => item !== null) + mutable.get('items').count(item => item && compareId(item.get('id'), effectiveReadId) > 0));
     }
   });
 };
@@ -385,6 +390,8 @@ export default function notifications(state = initialState, action) {
       next = rememberWithheld(next, item, 'items');
     });
     next = reconcileEmojiReactionNotifications(next, rules);
+    // The thunk discards counts stale against a local read. When a fresh
+    // count is supplied, keep it even if the current view is at the top.
     if (typeof action.unread === 'number') {
       next = next.set('unread', action.unread);
     }

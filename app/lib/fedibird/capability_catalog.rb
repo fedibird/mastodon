@@ -176,6 +176,15 @@ module Fedibird
           assignments_path: '/api/v1/fedibird/user_posting_context_assignments',
           max_per_user: UserPostingContext::MAX_PER_USER,
         },
+        post_drafts: {
+          scope: 'authenticated_owner',
+          collection_path: '/api/v1/fedibird/post_drafts',
+          read_scope: 'read:post_drafts',
+          write_scope: 'write:post_drafts',
+          max_per_account: PostDraft::LIMIT,
+          schema_version: PostDraft::SCHEMA_VERSION,
+          media_retained: false,
+        },
       }.merge(Extensions.contextual)
     end
 

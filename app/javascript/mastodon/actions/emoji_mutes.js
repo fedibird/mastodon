@@ -1,4 +1,5 @@
 import api from 'mastodon/api';
+import compareId from 'mastodon/compare_id';
 import { importFetchedAccounts, importFetchedStatuses } from './importer';
 import { NOTIFICATIONS_FEED_MERGE, notificationExcludeTypes } from './notifications';
 import { submitMarkers } from './markers';
@@ -375,9 +376,16 @@ export function refreshEmojiMuteSurfaces(options = {}) {
       scheduleRestore(dispatch, getState);
     }
 
-    const notificationTask = api(getState).get('/api/v1/notifications', {
-      params: { exclude_types: notificationExcludeTypes(getState()) },
-    }).then(response => {
+    // A hidden notification must not be counted in the badge if it is not
+    // included in the list. Snapshot the filter for both API requests.
+    const params = { exclude_types: notificationExcludeTypes(getState()) };
+    const readIdAtRequest = getState().getIn(['notifications', 'lastReadId'], '0');
+    const unreadAtRequest = getState().getIn(['notifications', 'unread'], 0);
+    // A local read can precede the server's acknowledgement even before
+    // this refresh starts. Such an unread_count response can still be stale.
+    const acknowledgedReadId = getState().getIn(['markers', 'notifications'], null);
+    const readNotAcknowledged = acknowledgedReadId !== null && compareId(readIdAtRequest, String(acknowledgedReadId)) > 0;
+    const notificationTask = api(getState).get('/api/v1/notifications', { params }).then(response => {
       if (!surfaceRefreshCurrent(generation) || notificationEpoch !== emojiMuteNotificationFetchEpoch() || !Array.isArray(response.data)) {
         return null;
       }
@@ -393,18 +401,23 @@ export function refreshEmojiMuteSurfaces(options = {}) {
           return null;
         }
 
+        // The server count might have been computed before the user read
+        // notifications while these requests were in flight.
+        const latestState = getState();
+        const readAdvanced = compareId(latestState.getIn(['notifications', 'lastReadId'], '0'), readIdAtRequest) > 0;
+        const unreadReduced = latestState.getIn(['notifications', 'unread'], 0) < unreadAtRequest;
         dispatch({
           type: NOTIFICATIONS_FEED_MERGE,
           notifications,
           rules: currentEmojiMutes(),
-          unread,
+          unread: readNotAcknowledged || readAdvanced || unreadReduced ? undefined : unread,
         });
         rememberRelationships(dispatch, getState, notifications);
         rememberMarkers(dispatch, getState);
         return notifications;
       };
 
-      return api(getState).get('/api/v1/notifications/unread_count').then(unreadResponse => {
+      return api(getState).get('/api/v1/notifications/unread_count', { params }).then(unreadResponse => {
         const count = unreadResponse && unreadResponse.data ? unreadResponse.data.count : undefined;
 
         return deliver(typeof count === 'number' ? count : undefined);

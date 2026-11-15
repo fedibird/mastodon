@@ -28,6 +28,7 @@ import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { delegatedFileIsBlocked } from '../posting_identity/still_image';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identities';
 import { isExclusiveFile } from '../features/compose/composer_media';
+import { composerDraftRestoreBlocksSubmit } from '../drafts/snapshot';
 import { composerFileDropAlert, fileDropBlockFromComposer } from '../features/compose/composer_drop';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
@@ -337,7 +338,7 @@ export function submitComposerWithCheck(composerId, routerHistory, intl) {
       return;
     }
 
-    if (composer.get('surfaceMismatch') || !selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
+    if (composer.get('surfaceMismatch') || composerDraftRestoreBlocksSubmit(composer) || !selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
       return;
     }
 
@@ -408,7 +409,7 @@ export function submitComposer(composerId, routerHistory) {
       return Promise.resolve();
     }
 
-    if (composer.get('surfaceMismatch') || !selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
+    if (composer.get('surfaceMismatch') || composerDraftRestoreBlocksSubmit(composer) || !selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
       return Promise.resolve();
     }
 
@@ -602,8 +603,8 @@ export function submitComposer(composerId, routerHistory) {
         dispatch(deleteScheduledStatus(scheduled_status_id));
       }
 
-      dispatch(insertIntoTagHistory(response.data.tags, status, composerId, tagHistorySnapshot));
       dispatchToComposer(dispatch, composerId, submitComposeSuccess({ ...response.data }, submission));
+      dispatch(insertIntoTagHistory(response.data.tags, status, composerId, tagHistorySnapshot));
 
       if (editing) {
         dispatch(importFetchedStatus({ ...response.data }));
@@ -718,7 +719,7 @@ export function submitScheduledStatusSuccess(status, submission) {
   };
 };
 
-const submissionSnapshot = (composer, kind, submitId) => {
+export function submissionSnapshot (composer, kind, submitId) {
   const surface = composer.get('surface');
   const media = composer.get('media_attachments');
 
@@ -734,7 +735,7 @@ const submissionSnapshot = (composer, kind, submitId) => {
     senderIdentityId: composer.getIn(['senderIdentity', 'id']) || null,
     kind,
   };
-};
+}
 
 const postingIdentityIdFor = composer => {
   const identityId = composer && composer.getIn(['senderIdentity', 'id']);
@@ -1439,7 +1440,16 @@ export function hydrateCompose() {
 function insertIntoTagHistory(recognizedTags, text, composerId, oldHistory) {
   return (dispatch, getState) => {
     const me = getState().getIn(['meta', 'me']);
-    const names = recognizedTags.map(tag => text.match(new RegExp(`#${tag.name}`, 'i'))[0].slice(1));
+    const names = [];
+
+    (recognizedTags || []).forEach((tag) => {
+      const name = tag && tag.name;
+      const match = name && text ? text.match(new RegExp(`#${name}`, 'i')) : null;
+
+      if (match) {
+        names.push(match[0].slice(1));
+      }
+    });
     const intersectedOldHistory = oldHistory.filter(name => names.findIndex(newName => newName.toLowerCase() === name.toLowerCase()) === -1);
 
     names.push(...intersectedOldHistory.toJS());

@@ -1,0 +1,85 @@
+- content_for :page_title do
+  = t('emoji_settings.title')
+
+- content_for :heading_actions do
+  = button_tag t('generic.save_changes'), class: 'button', form: 'edit_emoji_settings'
+
+= simple_form_for current_user, url: settings_custom_emojis_settings_path, html: { method: :put, id: 'edit_emoji_settings' } do |f|
+  = render 'shared/error_messages', object: current_user
+
+  %h4= t('emoji_settings.display')
+
+  .fields-group
+    .emoji-settings-range{ data: { emoji_settings_range: true, emoji_settings_range_suffix: '×' } }
+      .emoji-settings-range__heading
+        .emoji-settings-range__caption
+          = f.label :setting_emoji_scale, t('simple_form.labels.defaults.setting_emoji_scale'), class: 'emoji-settings-range__label'
+          %span.fedibird_features= t('simple_form.fedibird_features')
+        %output.emoji-settings-range__value{ for: 'user_setting_emoji_scale' }= "#{number_with_precision(current_user.setting_emoji_scale, precision: 1, strip_insignificant_zeros: true)}×"
+      = f.range_field :setting_emoji_scale, min: 1, max: 4, step: 0.1, class: 'emoji-settings-range__input'
+      .emoji-settings-range__limits{ 'aria-hidden': true }
+        %span 1×
+        %span 4×
+
+    .fields-row
+      .fields-row__column.fields-row__column-3
+        = f.input :setting_emoji_size_in_single, collection: ['standard', 'middle', 'large'], label_method: lambda { |item| t("simple_form.hints.defaults.setting_emoji_size_#{item}") }, wrapper: :with_label, include_blank: false, hint: t('simple_form.hints.defaults.setting_emoji_size_in_single_html')
+      .fields-row__column.fields-row__column-3
+        = f.input :setting_emoji_size_in_multi, collection: ['standard', 'middle', 'large'], label_method: lambda { |item| t("simple_form.hints.defaults.setting_emoji_size_#{item}") }, wrapper: :with_label, include_blank: false, hint: t('simple_form.hints.defaults.setting_emoji_size_in_multi_html')
+      .fields-row__column.fields-row__column-3
+        = f.input :setting_emoji_size_in_mix, collection: ['standard', 'middle', 'large'], label_method: lambda { |item| t("simple_form.hints.defaults.setting_emoji_size_#{item}") }, wrapper: :with_label, include_blank: false, hint: t('simple_form.hints.defaults.setting_emoji_size_in_mix_html')
+      .fields-row__column.fields-row__column-3
+        = f.input :setting_emoji_size_in_other, collection: ['standard', 'middle', 'large'], label_method: lambda { |item| t("simple_form.hints.defaults.setting_emoji_size_#{item}") }, wrapper: :with_label, include_blank: false, hint: t('simple_form.hints.defaults.setting_emoji_size_in_other_html')
+
+  .fields-group
+    = f.input :setting_enable_wide_emoji, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+    = f.input :setting_auto_play_emoji, as: :boolean, wrapper: :with_label, fedibird_features: true
+
+  %h4= t('emoji_settings.reactions')
+
+  .fields-group
+    = f.input :setting_enable_reaction, as: :boolean, wrapper: :with_label, fedibird_features: true
+
+  .fields-group
+    = f.input :setting_compact_reaction, as: :boolean, wrapper: :with_label, fedibird_features: true
+    = f.input :setting_hide_reaction_counter, as: :boolean, wrapper: :with_label, fedibird_features: true
+    = f.input :setting_disable_reaction_streaming, as: :boolean, wrapper: :with_label, fedibird_features: true
+    = f.input :setting_card_reactions_single_line, as: :boolean, wrapper: :with_label, hint: true
+    = f.input :setting_hide_list_of_emoji_reactions_to_posts, as: :boolean, wrapper: :with_label, fedibird_features: true
+
+  .fields-group
+    = f.input :setting_enable_wide_emoji_reaction, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+    .emoji-settings-range{ data: { emoji_settings_range: true, emoji_settings_range_suffix: ' px' } }
+      .emoji-settings-range__heading
+        .emoji-settings-range__caption
+          = f.label :setting_content_emoji_reaction_size, t('simple_form.labels.defaults.setting_content_emoji_reaction_size'), class: 'emoji-settings-range__label'
+          %span.fedibird_features= t('simple_form.fedibird_features')
+        %output.emoji-settings-range__value{ for: 'user_setting_content_emoji_reaction_size' }= "#{current_user.setting_content_emoji_reaction_size} px"
+      = f.range_field :setting_content_emoji_reaction_size, min: 10, max: 48, step: 1, class: 'emoji-settings-range__input'
+      .emoji-settings-range__limits{ 'aria-hidden': true }
+        %span 10 px
+        %span 48 px
+
+  %h4= t('emoji_settings.picker')
+
+  .fields-group
+    = f.input :setting_disable_auto_focus_to_emoji_search, as: :boolean, wrapper: :with_label, fedibird_features: true
+    = f.input :setting_emoji_picker_disable_personal, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+
+  - unless current_user.setting_emoji_picker_disable_personal
+    .fields-group
+      = f.input :setting_emoji_picker_prefer_personal, as: :boolean, wrapper: :with_label, fedibird_features: true
+
+  .fields-group
+    = f.input :setting_emoji_picker_lazy_load_standard, as: :boolean, wrapper: :with_label, fedibird_features: true
+
+  .fields-group
+    = f.input :setting_emoji_picker_disable_actions, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+
+  .fields-group
+    = f.input :setting_max_frequently_used_emojis, wrapper: :with_label, label: t('simple_form.labels.defaults.setting_max_frequently_used_emojis'), hint: t('simple_form.hints.defaults.setting_max_frequently_used_emojis', count: CustomEmoji::FREQUENTLY_USED_EMOJIS_LIMIT), fedibird_features: true
+    - unless current_user.setting_emoji_picker_disable_personal
+      %p.hint= link_to t('personal_emoji_sets.appearance_link'), settings_custom_emojis_personal_set_path
+
+  .actions
+    = f.button :button, t('generic.save_changes'), type: :submit

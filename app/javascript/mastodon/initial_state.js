@@ -1,5 +1,5 @@
 import { normalizeComposerToolbar } from './features/compose/composer_toolbar';
-import { normalizeTranslationBarVisibility, normalizeTranslationPreferredMode } from './utils/translation_view';
+import { normalizeTranslationBarVisibility, normalizeTranslationPreferredMode } from './utils/translation_view_preferences';
 import initialState from './initial_state_data';
 
 const getMeta = (prop) => initialState && initialState.meta && initialState.meta[prop];
@@ -134,7 +134,8 @@ export const disableAutoFocusToEmojiSearch = getMeta('disable_auto_focus_to_emoj
 // Missing meta uses the settings.yml defaults. Explicit false stays false.
 export const emojiPickerPreferPersonal = getMeta('emoji_picker_prefer_personal') === true;
 export const emojiPickerDisablePersonal = getMeta('emoji_picker_disable_personal') === true;
-export const emojiPickerLazyLoadStandard = getMeta('emoji_picker_lazy_load_standard') !== false;
+export const emojiPickerDisableActions = getMeta('emoji_picker_disable_actions') === true;
+export const emojiPickerLazyLoadStandard = getMeta('emoji_picker_lazy_load_standard') === true;
 
 export const languages = initialState?.languages;
 export const maxChars = initialState?.max_toot_chars ?? 500;

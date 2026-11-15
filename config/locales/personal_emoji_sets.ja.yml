@@ -3,7 +3,7 @@ ja:
     title: 個人セット
     loading: 個人セットを読み込んでいます…
     javascript_required: 個人セットを編集するにはJavaScriptを有効にしてください。
-    appearance_link: ピッカーの表示サイズとプレビューは「カスタム絵文字 → 個人セット」で調整できます
+    appearance_link: 個人セットの編集は「カスタム絵文字 → 個人セット」から行えます
   settings:
     custom_emojis: カスタム絵文字
     personal_emoji_set: 個人セット

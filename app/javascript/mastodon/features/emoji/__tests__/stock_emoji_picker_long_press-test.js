@@ -62,6 +62,26 @@ describe('StockEmojiPicker long-press vs short tap', () => {
     jest.useRealTimers();
   });
 
+  it('does not open the menu on touch long-press when actionsEnabled is false', () => {
+    const onPick = jest.fn();
+    render(<StockEmojiPicker stock={stock} onPick={onPick} actionsEnabled={false} editMode />);
+
+    const alpha = screen.getByRole('button', { name: 'Alpha' });
+    const touch = { identifier: 53, clientX: 4, clientY: 4 };
+
+    expect(screen.queryByRole('button', { name: /Manage this emoji/i })).not.toBeInTheDocument();
+
+    fireEvent.touchStart(alpha, { touches: [touch] });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 50);
+    });
+    fireEvent.touchEnd(alpha, { touches: [], changedTouches: [touch] });
+
+    expect(openEmojiActions).not.toHaveBeenCalled();
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick.mock.calls[0][0].native).toBe('🅰️');
+  });
+
   it('inserts on the next short tap after a long-press opened the menu', () => {
     const onPick = jest.fn();
     render(<StockEmojiPicker stock={stock} onPick={onPick} />);

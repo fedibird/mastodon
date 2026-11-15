@@ -29,7 +29,8 @@ SimpleNavigation::Configuration.run do |navigation|
       s.item :user_posting_contexts, safe_join([fa_icon('pencil fw'), t('settings.user_posting_contexts')]), settings_user_posting_contexts_url, highlights_on: %r{/settings/user_posting_contexts}, if: -> { current_user.can?(:administrator) }
     end
 
-    n.item :custom_emojis, safe_join([fa_icon('smile-o fw'), t('settings.custom_emojis')]), settings_custom_emojis_personal_set_url, highlights_on: %r{/settings/custom_emojis}, if: -> { current_user.functional? } do |s|
+    n.item :custom_emojis, safe_join([fa_icon('smile-o fw'), t('settings.custom_emojis')]), settings_custom_emojis_settings_url, highlights_on: %r{/settings/custom_emojis}, if: -> { current_user.functional? } do |s|
+      s.item :settings, safe_join([fa_icon('sliders fw'), t('settings.emoji_settings')]), settings_custom_emojis_settings_url
       s.item :personal_set, safe_join([fa_icon('th fw'), t('settings.personal_emoji_set')]), settings_custom_emojis_personal_set_url
       s.item :mutes, safe_join([fa_icon('eye-slash fw'), t('settings.emoji_mutes')]), settings_custom_emojis_mutes_url
     end

@@ -97,6 +97,7 @@ class Picker extends React.PureComponent {
     set: PropTypes.string,
     custom: PropTypes.array,
     editMode: PropTypes.bool,
+    actionsEnabled: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -104,6 +105,7 @@ class Picker extends React.PureComponent {
     skin: 1,
     custom: [],
     editMode: false,
+    actionsEnabled: true,
   };
 
   state = {
@@ -117,6 +119,9 @@ class Picker extends React.PureComponent {
   }
 
   componentDidUpdate(prevProps) {
+    if (prevProps.actionsEnabled !== this.props.actionsEnabled) {
+      this.detachRootListeners();
+    }
     this.attachPickerHooks();
     this.ensureCellActionButtons();
     this.ensureCellLongPress();
@@ -163,6 +168,10 @@ class Picker extends React.PureComponent {
   };
 
   openActionsForButton = (button, anchor, event) => {
+    if (!this.props.actionsEnabled) {
+      return false;
+    }
+
     const emoji = emojiFromMartButton(button, this.currentSkin(), this.currentCustom());
 
     if (!emoji) {
@@ -196,7 +205,7 @@ class Picker extends React.PureComponent {
       return;
     }
 
-    if (!this.props.editMode) {
+    if (!this.props.actionsEnabled || !this.props.editMode) {
       this.removeCellActionButtons();
       return;
     }
@@ -241,6 +250,11 @@ class Picker extends React.PureComponent {
   };
 
   ensureCellLongPress = () => {
+    if (!this.props.actionsEnabled) {
+      this.clearCellLongPress();
+      return;
+    }
+
     if (!this.scroll) {
       return;
     }
@@ -292,22 +306,27 @@ class Picker extends React.PureComponent {
   attachPickerHooks = () => {
     const picker = this.picker;
 
-    if (!picker || picker.__emojiActionsPatched) {
-      this.bindRootListeners();
+    if (!picker) {
       return;
     }
 
-    const originalOver = picker.handleEmojiOver && picker.handleEmojiOver.bind(picker);
+    if (this.props.actionsEnabled && !picker.__emojiActionsPatched) {
+      const originalOver = picker.handleEmojiOver && picker.handleEmojiOver.bind(picker);
 
-    picker.handleEmojiOver = emoji => {
-      this.selectEmoji(emoji);
+      picker.handleEmojiOver = emoji => {
+        if (this.props.actionsEnabled) {
+          this.selectEmoji(emoji);
+        }
 
-      if (originalOver) {
-        originalOver(emoji);
-      }
-    };
+        if (originalOver) {
+          originalOver(emoji);
+        }
+      };
 
-    picker.__emojiActionsPatched = true;
+      picker.__emojiActionsPatched = true;
+    }
+
+    // Preserve image/resize category measurements even with menus disabled.
     this.bindRootListeners();
   };
 
@@ -412,7 +431,7 @@ class Picker extends React.PureComponent {
       scheduleRefresh();
     };
 
-    this.mutationObserver = typeof MutationObserver !== 'undefined'
+    this.mutationObserver = this.props.actionsEnabled && typeof MutationObserver !== 'undefined'
       ? new MutationObserver(() => {
         this.ensureCellActionButtons();
         this.ensureCellLongPress();
@@ -448,9 +467,11 @@ class Picker extends React.PureComponent {
     this.scroll.addEventListener('error', handleImage, true);
     this.scroll.addEventListener('scroll', handleScroll, { passive: true });
     this.root.addEventListener('click', handleAnchor, true);
-    this.root.addEventListener('contextmenu', handleContextMenu);
-    this.root.addEventListener('keydown', handleKeyDown);
-    this.root.addEventListener('focusin', handleFocusIn);
+    if (this.props.actionsEnabled) {
+      this.root.addEventListener('contextmenu', handleContextMenu);
+      this.root.addEventListener('keydown', handleKeyDown);
+      this.root.addEventListener('focusin', handleFocusIn);
+    }
 
     if (this.mutationObserver) {
       this.mutationObserver.observe(this.scroll, { childList: true, subtree: true });
@@ -477,6 +498,10 @@ class Picker extends React.PureComponent {
   };
 
   handleManage = event => {
+    if (!this.props.actionsEnabled) {
+      return;
+    }
+
     const { selectedEmoji } = this.state;
 
     if (!selectedEmoji) {
@@ -487,7 +512,7 @@ class Picker extends React.PureComponent {
   };
 
   render() {
-    const { intl, editMode, ...props } = this.props;
+    const { intl, editMode, actionsEnabled, ...props } = this.props;
     const { selectedEmoji } = this.state;
     const canManage = Boolean(referenceFromPickerEmoji(selectedEmoji));
 
@@ -499,7 +524,7 @@ class Picker extends React.PureComponent {
           data={nimblePickerData}
           emojiTooltip
         />
-        {editMode && (
+        {actionsEnabled && editMode && (
           <div className='emoji-picker-actions-bar'>
             <button
               type='button'

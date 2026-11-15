@@ -44,6 +44,7 @@ RSpec.describe UserPreferences::Schema do
         'reduce_motion',
         'emoji_picker_prefer_personal',
         'emoji_picker_disable_personal',
+        'emoji_picker_disable_actions',
         'emoji_picker_lazy_load_standard',
         'emoji_reaction_fallback_policy'
       )
@@ -66,6 +67,7 @@ RSpec.describe UserPreferences::Schema do
       expect(described_class.get(:show_translation_bar).dependencies).to eq ['new_features_policy']
       expect(described_class.get(:emoji_picker_prefer_personal).apply_hint).to eq :reload
       expect(described_class.get(:emoji_picker_disable_personal).apply_hint).to eq :reload
+      expect(described_class.get(:emoji_picker_disable_actions).apply_hint).to eq :reload
       expect(described_class.get(:emoji_picker_lazy_load_standard).apply_hint).to eq :reload
     end
 

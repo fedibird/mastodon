@@ -99,6 +99,7 @@ class StockEmojiPicker extends React.PureComponent {
     theme: PropTypes.oneOf(['light', 'dark', 'auto']),
     selectedCategoryId: PropTypes.string,
     editMode: PropTypes.bool,
+    actionsEnabled: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -113,6 +114,7 @@ class StockEmojiPicker extends React.PureComponent {
     animate: false,
     theme: 'light',
     editMode: false,
+    actionsEnabled: true,
   };
 
   state = {
@@ -158,6 +160,13 @@ class StockEmojiPicker extends React.PureComponent {
       }
     }
 
+    if (!this.props.actionsEnabled && prevProps.actionsEnabled) {
+      this.longPressCleanups.forEach(detach => detach());
+      this.longPressCleanups.clear();
+    } else if (this.props.actionsEnabled && !prevProps.actionsEnabled) {
+      Object.values(this.buttonRefs).forEach(this.setButtonRef);
+    }
+
     this.pruneLongPressHandlers();
   }
 
@@ -189,7 +198,7 @@ class StockEmojiPicker extends React.PureComponent {
 
     this.buttonRefs[key] = node;
 
-    if (!this.longPressCleanups.has(key)) {
+    if (this.props.actionsEnabled && !this.longPressCleanups.has(key)) {
       const detach = attachLongPressGesture(node, {
         onLongPress: event => {
           // Do not set a sticky React flag here. Long-press stops the native
@@ -681,6 +690,10 @@ class StockEmojiPicker extends React.PureComponent {
   }
 
   openActionsForStockKey = (key, anchor, event) => {
+    if (!this.props.actionsEnabled) {
+      return;
+    }
+
     const item = this.flatItems(this.visibleStock()).find(entry => entry.key === key);
 
     if (!item) {
@@ -721,7 +734,7 @@ class StockEmojiPicker extends React.PureComponent {
   };
 
   renderItem(item, emojiSize) {
-    const { intl, editMode } = this.props;
+    const { intl, editMode, actionsEnabled } = this.props;
     const image = item.image || {};
     const src = this.imageSource(item);
     const active = item.key === this.state.activeKey;
@@ -783,7 +796,7 @@ class StockEmojiPicker extends React.PureComponent {
             <span>{item.label}</span>
           )}
         </button>
-        {editMode && reference && (
+        {actionsEnabled && editMode && reference && (
           <button
             type='button'
             className='emoji-actions-trigger emoji-stock-picker__actions'

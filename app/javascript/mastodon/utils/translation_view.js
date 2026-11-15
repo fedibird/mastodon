@@ -1,37 +1,36 @@
 import { fromJS } from 'immutable';
 import { statusSourceSignature } from 'mastodon/actions/importer/normalizer';
 import { sameTranslationLanguage, translationRequestStatus } from 'mastodon/utils/translation_languages';
+import {
+  TRANSLATION_BAR_ALWAYS,
+  TRANSLATION_BAR_TARGET,
+  TRANSLATION_BAR_NEVER,
+  TRANSLATION_MODE_BILINGUAL,
+  TRANSLATION_MODE_BOTH,
+  TRANSLATION_MODE_TRANSLATED,
+  normalizeTranslationPreferredMode,
+  normalizeTranslationBarVisibility,
+} from './translation_view_preferences';
+
+// Preserve the existing translation_view exports for all current callers.
+export {
+  TRANSLATION_BAR_ALWAYS,
+  TRANSLATION_BAR_TARGET,
+  TRANSLATION_BAR_NEVER,
+  TRANSLATION_MODE_BILINGUAL,
+  TRANSLATION_MODE_BOTH,
+  TRANSLATION_MODE_TRANSLATED,
+  normalizeTranslationPreferredMode,
+  normalizeTranslationBarVisibility,
+};
 
 export const TRANSLATION_MODE_ORIGINAL = 'original';
-export const TRANSLATION_MODE_TRANSLATED = 'translated';
-export const TRANSLATION_MODE_BILINGUAL = 'bilingual';
-export const TRANSLATION_MODE_BOTH = 'both';
-
-export const TRANSLATION_BAR_ALWAYS = 'always';
-export const TRANSLATION_BAR_TARGET = 'target';
-export const TRANSLATION_BAR_NEVER = 'never';
 
 const DISPLAY_MODES = new Set([
   TRANSLATION_MODE_ORIGINAL,
   TRANSLATION_MODE_TRANSLATED,
   TRANSLATION_MODE_BILINGUAL,
 ]);
-
-const PREFERRED_MODES = new Set([
-  TRANSLATION_MODE_TRANSLATED,
-  TRANSLATION_MODE_BILINGUAL,
-  TRANSLATION_MODE_BOTH,
-]);
-
-const BAR_VISIBILITIES = new Set([
-  TRANSLATION_BAR_ALWAYS,
-  TRANSLATION_BAR_TARGET,
-  TRANSLATION_BAR_NEVER,
-]);
-
-export function normalizeTranslationPreferredMode(value) {
-  return PREFERRED_MODES.has(value) ? value : TRANSLATION_MODE_TRANSLATED;
-}
 
 export function preferredTranslationMode(value) {
   return normalizeTranslationPreferredMode(value);
@@ -46,10 +45,6 @@ export function preTranslationRequestModes(preferredMode) {
   default:
     return [TRANSLATION_MODE_TRANSLATED];
   }
-}
-
-export function normalizeTranslationBarVisibility(value) {
-  return BAR_VISIBILITIES.has(value) ? value : null;
 }
 
 export function translationBarEffectivelyVisible({ visibility, revealed, source, target, translationLanguages }) {

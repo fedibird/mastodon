@@ -5,7 +5,7 @@
 # Each call uses Writer's lock, revision, ChangeSet, and after-commit hooks.
 class UserPreferences::LegacyWriter
   KEYS = UserPreferences::WriteContract::KEYS
-  BOOLEAN_KEYS = %w(default_sensitive reduce_motion emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_lazy_load_standard).freeze
+  BOOLEAN_KEYS = %w(default_sensitive reduce_motion emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_actions emoji_picker_lazy_load_standard).freeze
   SKIP = Object.new
   UNSET_POLICY = Object.new
   private_constant :SKIP, :UNSET_POLICY

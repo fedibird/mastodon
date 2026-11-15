@@ -10,9 +10,14 @@ describe Settings::Preferences::OtherController do
   end
 
   describe 'GET #show' do
-    it 'returns http success' do
+    it 'returns http success without the moved emoji controls' do
       get :show
       expect(response).to have_http_status(200)
+      expect(response.body).not_to include('user_setting_emoji_picker_disable_personal')
+      expect(response.body).not_to include('user_setting_emoji_picker_disable_actions')
+      expect(response.body).not_to include('user_setting_enable_reaction')
+      expect(response.body).not_to include('user_setting_hide_reaction_counter')
+      expect(response.body).not_to include('user_setting_hide_list_of_emoji_reactions_to_posts')
     end
   end
 
@@ -24,25 +29,6 @@ describe Settings::Preferences::OtherController do
       user.reload
       expect(user.locale).to eq 'en'
       expect(user.chosen_languages).to eq ['es', 'fr']
-    end
-
-    it 'persists disabling and re-enabling personal emoji sets without deleting picker preferences' do
-      put :update, params: {
-        user: {
-          setting_emoji_picker_disable_personal: '1',
-          setting_emoji_picker_prefer_personal: '1',
-        },
-      }
-
-      expect(response).to redirect_to(settings_preferences_other_path)
-      expect(user.reload.setting_emoji_picker_disable_personal).to be true
-      expect(user.setting_emoji_picker_prefer_personal).to be true
-
-      put :update, params: { user: { setting_emoji_picker_disable_personal: '0' } }
-
-      expect(response).to redirect_to(settings_preferences_other_path)
-      expect(user.reload.setting_emoji_picker_disable_personal).to be false
-      expect(user.setting_emoji_picker_prefer_personal).to be true
     end
 
     it 'updates user settings' do

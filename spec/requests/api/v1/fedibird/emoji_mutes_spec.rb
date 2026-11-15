@@ -51,7 +51,7 @@ RSpec.describe 'Emoji mute API', type: :request do
     post_mute(kind: 'unicode', native: '👍🏽')
     expect(response).to have_http_status(:created)
     expect(parsed.dig('emoji_mute', 'effects').values).to all(be true)
-    expect(parsed.dig('emoji_mute', 'replacement')).to eq '［絵文字］'
+    expect(parsed.dig('emoji_mute', 'replacement')).to eq '◻'
     expect(parsed.dig('emoji_mute', 'emoji')).to eq('kind' => 'unicode', 'native' => '👍🏽')
     unicode_id = parsed.dig('emoji_mute', 'id')
     expect(response.headers['ETag']).to eq %("#{unicode_id}-1")

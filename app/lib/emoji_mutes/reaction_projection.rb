@@ -42,12 +42,27 @@ module EmojiMutes
 
     def to_result
       groups = self.class.parse(@status.status_stat&.emoji_reactions_cache).map(&:dup)
+      @blocked_domain_ids = blocked_domain_account_ids(groups)
       fill_parts!(groups) if @rules.hide_any?
       visible = groups.filter_map { |group| project_group(group) }
       Result.new(visible, visible.sum { |group| group['count'].to_i })
     end
 
     private
+
+    # All groups on one status share the same domain blocks. Resolve their
+    # account ids in one SQL query rather than one query per emoji group.
+    def blocked_domain_account_ids(groups)
+      return [] if @account.nil? || groups.empty?
+
+      domains = @account.excluded_from_timeline_domains
+      return [] if domains.blank?
+
+      ids = groups.flat_map { |group| Array(group['account_ids']) }.uniq
+      return [] if ids.empty?
+
+      Account.where(id: ids, domain: domains).pluck(:id).map(&:to_s)
+    end
 
     def fill_parts!(groups)
       return unless groups.any? { |group| !group['parts'].is_a?(Array) && !self.class.unicode_only?(group) }
@@ -76,7 +91,7 @@ module EmojiMutes
 
     def excluded_ids(account_ids)
       if @account.present?
-        (@account.excluded_from_timeline_account_ids + Account.where(id: account_ids, domain: @account.excluded_from_timeline_domains).pluck(:id) + (Account.excluded_silenced_account_ids - [@account.id])).uniq.map(&:to_s)
+        (@account.excluded_from_timeline_account_ids + (account_ids & @blocked_domain_ids) + (Account.excluded_silenced_account_ids - [@account.id])).uniq.map(&:to_s)
       else
         Account.excluded_silenced_account_ids.map(&:to_s)
       end

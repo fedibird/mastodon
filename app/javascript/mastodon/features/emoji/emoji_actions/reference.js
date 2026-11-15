@@ -2,7 +2,7 @@
 // detail column. Identity matches the P1/P2 server contract: finished Unicode
 // native, local custom_emoji_id, or remote domain+shortcode.
 
-export const DEFAULT_MUTE_REPLACEMENT = '［絵文字］';
+export const DEFAULT_MUTE_REPLACEMENT = '◻';
 
 export const DEFAULT_MUTE_EFFECTS = Object.freeze({
   replace_in_text: true,

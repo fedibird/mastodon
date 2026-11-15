@@ -26,11 +26,24 @@ export function preloadPersonalEmojiStockIfNeeded(lazyLoadStandard = emojiPicker
   return Promise.resolve().then(() => loadPersonalEmojiStock()).catch(() => null);
 }
 
+// Non-lazy mode also warms the public custom emoji catalog via the caller's
+// Redux store. The catalog and its search reducer stay out of this module's
+// import graph; the caller provides an already-connected dispatch callback.
+// A failure is recoverable from the picker, and must not reject boot.
+export function preloadCustomEmojiCatalogIfNeeded(preloadCatalog, lazyLoadStandard = emojiPickerLazyLoadStandard) {
+  if (lazyLoadStandard !== false || typeof preloadCatalog !== 'function') {
+    return Promise.resolve(null);
+  }
+
+  return Promise.resolve().then(preloadCatalog).catch(() => null);
+}
+
 // Non-lazy mode prepares both the standard module and the user's small,
 // resolved personal stock. Neither request delays the application mount.
-export function preloadEmojiPickersIfNeeded(lazyLoadStandard = emojiPickerLazyLoadStandard, disablePersonal = emojiPickerDisablePersonal) {
+export function preloadEmojiPickersIfNeeded(lazyLoadStandard = emojiPickerLazyLoadStandard, disablePersonal = emojiPickerDisablePersonal, preloadCatalog = null) {
   return Promise.all([
     preloadStandardEmojiPickerIfNeeded(lazyLoadStandard),
     preloadPersonalEmojiStockIfNeeded(lazyLoadStandard, disablePersonal),
+    preloadCustomEmojiCatalogIfNeeded(preloadCatalog, lazyLoadStandard),
   ]);
 }
