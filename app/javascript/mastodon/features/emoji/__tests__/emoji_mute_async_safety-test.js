@@ -14,6 +14,7 @@ import reducer from 'mastodon/reducers/emoji_mutes';
 import {
   EMOJI_MUTES_APPLY,
   EMOJI_MUTES_FAIL,
+  EMOJI_MUTES_LOAD,
   EMOJI_MUTES_RESET,
   EMOJI_MUTES_REVISION,
   syncEmojiMutes,
@@ -158,6 +159,116 @@ describe('emoji mute async safety (B5)', () => {
     expect(dropped.state.get('phase')).toBe('ready');
     expect(dropped.state.get('appliedRevision')).toBe('3');
     expect(dropped.actions.some(action => action.type === EMOJI_MUTES_FAIL)).toBe(false);
+  });
+
+  it('keeps a rejected session hidden until a later GET adopts the document', async () => {
+    const shell = current => ImmutableMap({
+      emojiMutes: current,
+      notifications: ImmutableMap({ lastReadId: '0', unread: 0 }),
+      timelines: ImmutableMap(),
+      contexts: ImmutableMap(),
+      statuses: ImmutableMap(),
+    });
+    const muteGets = () => api().get.mock.calls.filter(call => String(call[0]).includes('emoji_mutes')).length;
+
+    for (const status of [401, 403]) {
+      resetEmojiMuteStoreForTests();
+      const failure = status === 401 ? 'unauthorized' : 'forbidden';
+      const denied = Object.assign(new Error(String(status)), { response: { status } });
+      let gate = 'ok';
+
+      api().get.mockImplementation(url => {
+        const path = String(url);
+
+        if (path.includes('unread_count')) {
+          return Promise.resolve({ data: { count: 0 } });
+        }
+
+        if (!path.includes('emoji_mutes')) {
+          return Promise.resolve({ data: [] });
+        }
+
+        if (gate === 'deny') {
+          return Promise.reject(denied);
+        }
+
+        return Promise.resolve({ data: { revision: '3', emoji_mutes: [] } });
+      });
+
+      await loadEmojiMutes();
+      let state = reducer(undefined, { type: EMOJI_MUTES_APPLY, revision: '3', mutes: [] });
+      const dispatch = action => {
+        if (typeof action === 'function') {
+          return action(dispatch, () => shell(state));
+        }
+
+        state = reducer(state, action);
+        return action;
+      };
+      const getState = () => shell(state);
+
+      gate = 'deny';
+      await expect(syncEmojiMutes()(dispatch, getState)).rejects.toBe(denied);
+      expect(state.get('phase')).toBe('error');
+      expect(state.get('failure')).toBe(failure);
+      expect(emojiMuteDocumentReady()).toBe(false);
+      expect(reducer(state, { type: EMOJI_MUTES_APPLY, revision: '3', mutes: [] }).get('phase')).toBe('error');
+      expect(reducer(state, { type: EMOJI_MUTES_LOAD, verify: true }).get('failure')).toBe(failure);
+
+      const getsAfterRejection = muteGets();
+      await syncEmojiMutes({ changed: { revision: '3' } })(dispatch, getState);
+      expect(muteGets()).toBe(getsAfterRejection);
+      expect(state.get('phase')).toBe('error');
+      expect(state.get('failure')).toBe(failure);
+      expect(emojiMuteDocumentReady()).toBe(false);
+
+      gate = 'ok';
+      await syncEmojiMutes()(dispatch, getState);
+      expect(state.get('phase')).toBe('ready');
+      expect(state.get('failure')).toBeNull();
+      expect(emojiMuteDocumentReady()).toBe(true);
+    }
+
+    resetEmojiMuteStoreForTests();
+    const offline = new Error('offline');
+    let gate = 'ok';
+    api().get.mockImplementation(url => {
+      const path = String(url);
+
+      if (path.includes('emoji_mutes') && gate === 'offline') {
+        return Promise.reject(offline);
+      }
+
+      if (path.includes('emoji_mutes')) {
+        return Promise.resolve({ data: { revision: '3', emoji_mutes: [] } });
+      }
+
+      if (path.includes('unread_count')) {
+        return Promise.resolve({ data: { count: 0 } });
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    await loadEmojiMutes();
+    let state = reducer(undefined, { type: EMOJI_MUTES_APPLY, revision: '3', mutes: [] });
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, () => shell(state));
+      }
+
+      state = reducer(state, action);
+      return action;
+    };
+
+    gate = 'offline';
+    await expect(syncEmojiMutes()(dispatch, () => shell(state))).rejects.toBe(offline);
+    expect(state.get('phase')).toBe('ready');
+    const getsAfterOffline = muteGets();
+    await syncEmojiMutes({ changed: { revision: '3' } })(dispatch, () => shell(state));
+    expect(muteGets()).toBe(getsAfterOffline);
+    expect(state.get('phase')).toBe('ready');
+    expect(emojiMuteDocumentReady()).toBe(true);
   });
 
   it('discards the late first GET when a newer streamed revision wins', async () => {

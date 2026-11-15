@@ -48,6 +48,13 @@ const applyDocument = (state, action, items) => {
     return state;
   }
 
+  // 401/403 stays in force until a GET that actually adopted a document
+  // dispatches the apply. A same-revision import must not reopen the UI.
+  const failure = state.get('failure');
+  if ((failure === 'unauthorized' || failure === 'forbidden') && !action.recovered) {
+    return state;
+  }
+
   return state
     .set('revision', newer(incoming, observed) ? incoming : observed || incoming)
     .set('appliedRevision', incoming)
@@ -60,13 +67,28 @@ export default function emojiMutes(state = initialState, action) {
   switch (action.type) {
   case EMOJI_MUTES_RESET:
     return initialState;
-  case EMOJI_MUTES_LOAD:
+  case EMOJI_MUTES_LOAD: {
     // Revalidation of an already current document need not hide the UI.
-    return action.verify || state.get('appliedRevision') === null || older(state.get('appliedRevision'), state.get('revision'))
-      ? state.set('phase', 'loading').set('failure', null)
-      : state;
-  case EMOJI_MUTES_FAIL:
-    return state.set('phase', 'error').set('failure', action.failure === 'unauthorized' || action.failure === 'forbidden' ? action.failure : 'unavailable');
+    if (!(action.verify || state.get('appliedRevision') === null || older(state.get('appliedRevision'), state.get('revision')))) {
+      return state;
+    }
+
+    const next = state.set('phase', 'loading');
+    const failure = state.get('failure');
+
+    if (failure === 'unauthorized' || failure === 'forbidden') {
+      return next;
+    }
+
+    return next.set('failure', null);
+  }
+  case EMOJI_MUTES_FAIL: {
+    const incoming = action.failure === 'unauthorized' || action.failure === 'forbidden' ? action.failure : 'unavailable';
+    const current = state.get('failure');
+    const failure = incoming === 'unavailable' && (current === 'unauthorized' || current === 'forbidden') ? current : incoming;
+
+    return state.set('phase', 'error').set('failure', failure);
+  }
   case EMOJI_MUTES_IMPORT:
     return applyDocument(state, action, action.rules);
   case EMOJI_MUTES_APPLY:

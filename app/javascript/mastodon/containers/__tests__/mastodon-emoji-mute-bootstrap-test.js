@@ -408,8 +408,10 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
 
     mockFailure = 'unauthorized';
     await phaseChanged('error');
+    await phaseChanged('error');
 
     expect(view.queryByTestId('webui')).toBeNull();
+    expect(document.querySelector('.emoji-mutes-privacy-portal')).toBeNull();
     expect(view.getByText(/session expired/i)).not.toBeNull();
     expect(view.queryByText('Retry loading settings')).toBeNull();
     expect(mockUiUnmounts).not.toHaveBeenCalled();

@@ -19,6 +19,9 @@ let settled = false;
 let notificationFetchEpoch = 0;
 let requestVersion = 0;
 let sessionVersion = 0;
+// 401/403 are not cleared by a repeated stream event for the revision we
+// already hold. Only a GET that adopts a current document lifts this.
+let authorizationFailure = null;
 
 // A notification list that was cleared, blocked, or filtered must not be
 // filled again by a mute refresh that started before that action.
@@ -62,7 +65,19 @@ export function observedEmojiMuteRevision() {
 
 // A resolved empty document is different from a not-yet-fetched document.
 // Both the initial display gate and the stream/reaction guards use this.
+export function emojiMuteAuthorizationFailure() {
+  return authorizationFailure;
+}
+
+export function blockEmojiMuteAuthorization(failure) {
+  authorizationFailure = failure === 'forbidden' ? 'forbidden' : 'unauthorized';
+}
+
 export function emojiMuteDocumentReady() {
+  if (authorizationFailure) {
+    return false;
+  }
+
   if (!accessToken && !me) {
     return true;
   }
@@ -81,6 +96,7 @@ export function resetEmojiMuteSession() {
   mutes = [];
   request = null;
   settled = false;
+  authorizationFailure = null;
   invalidateEmojiMuteNotificationFetches();
 }
 
@@ -119,6 +135,7 @@ function adopt(document, minRevision) {
   if (observedRevision === null || compareRevision(appliedRevision, observedRevision) >= 0) {
     observedRevision = appliedRevision;
     settled = true;
+    authorizationFailure = null;
   }
 
   return mutes;
@@ -201,4 +218,5 @@ export function installEmojiMutesForTests(document) {
   mutes = document.emoji_mutes || [];
   request = null;
   settled = true;
+  authorizationFailure = null;
 }

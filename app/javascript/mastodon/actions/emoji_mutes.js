@@ -9,6 +9,8 @@ import {
   currentEmojiMutes,
   emojiMuteNotificationFetchEpoch,
   emojiMuteDocumentReady,
+  emojiMuteAuthorizationFailure,
+  blockEmojiMuteAuthorization,
   emojiReactionEventsAccepted,
   loadEmojiMutes,
   noteEmojiMutesChanged,
@@ -546,7 +548,10 @@ export function syncEmojiMutes(options = {}) {
       // than a streaming revision. An unresolved gap is a failure, not an
       // endless loading spinner; keep the WebUI hidden and offer retry.
       if (!emojiMuteDocumentReady()) {
-        dispatch({ type: EMOJI_MUTES_FAIL });
+        dispatch({
+          type: EMOJI_MUTES_FAIL,
+          failure: emojiMuteAuthorizationFailure() || 'unavailable',
+        });
         return null;
       }
 
@@ -562,6 +567,9 @@ export function syncEmojiMutes(options = {}) {
         revision: nextRevision,
         sameDocument,
         hideShrunk,
+        // A duplicate stream event never reaches this apply while an
+        // authorization failure is latched. This flag is the successful GET.
+        recovered: true,
       });
 
       // The first mount has no status or notification column yet. Skip the
@@ -585,11 +593,18 @@ export function syncEmojiMutes(options = {}) {
       const failure = classifyEmojiMuteFetchError(error);
       // A confirmed document can stay on screen through a dropped connection.
       // An expired or forbidden token cannot: the portal has to close even
-      // when the last document was already applied.
+      // when the last document was already applied. The latch stays until a
+      // later GET adopts a current document.
       const sessionRejected = failure === 'unauthorized' || failure === 'forbidden';
 
-      if (sessionRejected || options.verify === true || !emojiMuteDocumentReady()) {
-        dispatch({ type: EMOJI_MUTES_FAIL, failure });
+      if (sessionRejected) {
+        blockEmojiMuteAuthorization(failure);
+      }
+
+      const blocked = emojiMuteAuthorizationFailure();
+
+      if (blocked || sessionRejected || options.verify === true || !emojiMuteDocumentReady()) {
+        dispatch({ type: EMOJI_MUTES_FAIL, failure: blocked || failure });
       }
 
       throw error;
