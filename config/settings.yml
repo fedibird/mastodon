@@ -84,6 +84,9 @@ defaults: &defaults
   hide_followers_count: false
   disable_joke_appearance: false
   new_features_policy: 'default'
+  # nil until the user saves on or off. Unset follows new_features_policy:
+  # off for conservative, on for default and tester. A saved choice wins.
+  enable_reboost:
   enable_status_reference: true
   content_font_size: 15
   info_font_size: 15

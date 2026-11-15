@@ -160,6 +160,7 @@ class UserSettingsDecorator
     translation_preferred_mode
     show_translation_bar
     new_features_policy
+    enable_reboost
     theme_instance_ticker
     content_font_size
     info_font_size

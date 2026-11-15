@@ -24,7 +24,7 @@ module SettingsServiceCatalog
     ].freeze
     LEGACY_FORM_KEYS = %w(
       default_privacy default_sensitive default_language show_translation_bar
-      translation_preferred_mode new_features_policy content_font_size info_font_size
+      translation_preferred_mode new_features_policy enable_reboost content_font_size info_font_size
       reduce_motion emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_standard emoji_picker_disable_actions emoji_actions_disable_personal_remove emoji_picker_lazy_load_standard
     ).freeze
     CREDENTIALS_KEYS = %w(
@@ -587,6 +587,7 @@ module SettingsServiceCatalog
 
     def raw_type_for(var, yaml, group)
       return 'string_or_nil_or_legacy_boolean' if var == 'show_translation_bar'
+      return 'nil_or_boolean' if var == 'enable_reboost'
       return 'string' if var == 'default_privacy' || var == 'default_language'
       return 'integer_in_yaml_string_after_form_save' if NUMERIC_STRINGS.include?(var)
       return 'array' if var == 'prohibited_visibilities'
@@ -599,6 +600,7 @@ module SettingsServiceCatalog
 
     def effective_type_for(var, yaml, group)
       return 'string enum always|target|never' if var == 'show_translation_bar'
+      return 'boolean' if var == 'enable_reboost'
       return 'string enum translated|bilingual|both' if var == 'translation_preferred_mode'
       return 'string visibility' if var == 'default_privacy'
       return 'string or nil' if var == 'default_language'
@@ -617,6 +619,8 @@ module SettingsServiceCatalog
         'no settings.yml key. setting_default_language is nil until saved. preferred_posting_language then falls back to users.locale and I18n.locale.'
       when 'show_translation_bar'
         'settings.yml value is nil. User#setting_show_translation_bar normalizes nil, legacy booleans, and unknown strings through new_features_policy without writing. Policy default is never for conservative, always for tester, and target otherwise.'
+      when 'enable_reboost'
+        'settings.yml value is nil. A missing row and a stored nil follow new_features_policy (off for conservative, on otherwise) and are not written back. Explicit true or false wins.'
       when 'translation_preferred_mode'
         "settings.yml default translated. Unknown stored values read back as translated."
       when 'enable_local_timeline'
@@ -642,6 +646,7 @@ module SettingsServiceCatalog
       }
       keys['initial_state_meta'] = var if initial.any? { |ref| ref['text'].include?("store[:#{var}]") || ref['text'].include?('enable_local_timeline') }
       keys['initial_state_meta'] = 'translation_bar_visibility' if var == 'show_translation_bar'
+      keys['initial_state_meta'] = 'enable_reboost' if var == 'enable_reboost'
       keys['initial_state_compose'] = compose_alias(var)
       keys['preferences_api'] = preferences_alias(var)
       keys['credentials_source'] = credentials_alias(var)
@@ -742,6 +747,8 @@ module SettingsServiceCatalog
       case var
       when 'show_translation_bar'
         'On write, TranslationPreferences.normalize_visibility. true becomes always, false becomes never, always|target|never are kept, and any other value becomes the new_features_policy default. The policy read during that write is the previously stored policy, because show_translation_bar is normalized before new_features_policy in STRING_KEYS. On read, the same function runs and does not save. JavaScript normalizeTranslationBarVisibility maps an unknown string to null instead of the policy default. InitialState already sends the Ruby effective value.'
+      when 'enable_reboost'
+        'On write, auto and a blank value are stored as nil. on and true are stored as true. off and false are stored as false. On read, nil follows new_features_policy and is not saved. InitialState sends the boolean effective value.'
       when 'translation_preferred_mode'
         'TranslationPreferences.normalize_preferred_mode keeps translated, bilingual, and both. Anything else becomes translated on read and on write. The display mode original is per-status UI state and is not a stored preference.'
       when 'default_privacy'
@@ -887,7 +894,7 @@ module SettingsServiceCatalog
     end
 
     def configured_vs_effective_for(var, initial)
-      return 'distinct' if %w[default_privacy default_language show_translation_bar translation_preferred_mode trends enable_local_timeline theme noindex default_search_searchability].include?(var)
+      return 'distinct' if %w[default_privacy default_language show_translation_bar translation_preferred_mode enable_reboost trends enable_local_timeline theme noindex default_search_searchability].include?(var)
       return 'distinct_literal_false' if initial.any? { |ref| ref['literal'] == false }
       return 'type_may_diverge_after_form_save' if NUMERIC_STRINGS.include?(var)
       return 'unset_is_nil' unless yaml_by_key[var]
@@ -941,6 +948,8 @@ module SettingsServiceCatalog
       html.each { |row| refs << "app/helpers/application_helper.rb:#{row['line']}" }
       refs << "app/controllers/application_controller.rb:#{@facts[:html_classes]['theme_line']}" if var == 'theme'
       refs << 'app/lib/translation_preferences.rb:11' if var == 'show_translation_bar'
+      refs << 'app/lib/reboost_preferences.rb:1' if var == 'enable_reboost'
+      refs << "app/models/user.rb:#{read_line('app/models/user.rb', 'def reboost_enabled?')}" if var == 'enable_reboost'
       refs << 'app/lib/translation_preferences.rb:36' if var == 'translation_preferred_mode'
       if var == 'crop_card_images'
         refs << "app/javascript/mastodon/components/status.js:#{read_line('app/javascript/mastodon/components/status.js', 'cropImages: cropCardImages')}"
@@ -954,8 +963,8 @@ module SettingsServiceCatalog
       parts << 'Recommendation only: read_policy and write_policy are not an approved API contract.'
       parts << "Decorator group #{group}."
       parts << 'Getter is delegated to ScopedSettings with prefix setting.' if @facts[:delegate]['keys'].include?(var)
-      parts << 'Getter is an override on User and is not the raw stored value.' if %w[default_privacy show_translation_bar translation_preferred_mode].include?(var)
-      parts << 'Not listed in the User delegate. Call sites use the override or settings[] directly.' if !@facts[:delegate]['keys'].include?(var) && !%w[default_privacy show_translation_bar translation_preferred_mode].include?(var)
+      parts << 'Getter is an override on User and is not the raw stored value.' if %w[default_privacy show_translation_bar translation_preferred_mode enable_reboost].include?(var)
+      parts << 'Not listed in the User delegate. Call sites use the override or settings[] directly.' if !@facts[:delegate]['keys'].include?(var) && !%w[default_privacy show_translation_bar translation_preferred_mode enable_reboost].include?(var)
       parts << 'No settings.yml default.' unless yaml
       parts << 'Active form input is commented out.' if forms.any? { |field| field['commented'] }
       parts << 'InitialState assigns the literal false and does not read the stored setting.' if initial.any? { |ref| ref['literal'] == false }

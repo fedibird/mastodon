@@ -59,7 +59,8 @@ ja:
         phrase: 投稿内容の大文字小文字や閲覧注意に関係なく一致
         scopes: アプリの API に許可するアクセス権を選択してください。最上位のスコープを選択する場合、個々のスコープを選択する必要はありません。
         searchability: この指定は、現時点ではFedibirdとkmyblueでのみ期待通り動作します。Mastodon v4.2以降の検索範囲については、互換設定から指定してください。この指定にかかわらず、Mastodon v4.1以前は『リアクション限定』の動作をします。外部検索サイトは収集した公開投稿全てを検索対象にすることが多く、Misskeyは全ての投稿を検索対象にします。
-        setting_aggregate_reblogs: 最近ブーストされた投稿が新たにブーストされても表示しません (設定後受信したものにのみ影響)
+        setting_aggregate_reblogs: ブーストや再ブーストで同じ投稿が繰り返し表示されるのを抑えます。最近表示した投稿は、別の人がブーストした場合も含め、ホーム・リストタイムラインへの再表示をまとめます（設定後に受信した投稿から適用）。
+        setting_enable_reboost: 再ブーストすると、この投稿をタイムラインにもう一度表示します。投稿への言及には引用や参照が適しています。同じ投稿を何度も見たくない場合は「ブーストをまとめる」を有効にしてください。
         setting_compact_reaction: 詳細表示以外の絵文字リアクション表示を件数のみにする
         setting_card_reactions_single_line: カードではリアクションを1行に収め、はみ出すときだけ▼で複数行に展開します。オフにすると従来の折り返し表示になり、▼は出ません。追加ボタンは常にアカウント行のお気に入りの直後です。
         setting_card_collapse_long_text: オンのとき、カードの長い本文はおよそ10行に畳まれます。本文を約400ミリ秒長押ししたまま上下に動かすと本文をスクロールし、離すとタイムラインのスクロールに戻ります。▼で全文表示できます。オフのときは初めから全文の高さで表示します。
@@ -451,6 +452,10 @@ ja:
         setting_missing_alt_text_modal: 代替テキストなしでメディアを投稿する前に確認ダイアログを表示する
         setting_max_frequently_used_emojis: よく使う絵文字の表示数
         setting_new_features_policy: 新機能へのポリシー
+        setting_enable_reboost: 再ブーストを有効にする
+        setting_enable_reboost_auto: 受入設定に従う（現在は%{state}）
+        setting_enable_reboost_on: オン
+        setting_enable_reboost_off: オフ
         setting_new_features_policy_conservative: 無効にしておき、自分で判断する
         setting_new_features_policy_default: 推奨に従う（デフォルト）
         setting_new_features_policy_tester: ベータテストに参加する

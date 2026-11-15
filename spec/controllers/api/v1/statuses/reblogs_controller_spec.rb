@@ -182,5 +182,48 @@ describe Api::V1::Statuses::ReblogsController do
         end
       end
     end
+
+    describe 'POST #create reboost' do
+      let(:status) { Fabricate(:status, account: user.account) }
+
+      it 'reboosts into a new wrapper' do
+        ReblogService.new.call(user.account, status)
+        travel 301.seconds do
+          post :create, params: { status_id: status.id, reboost: true }
+
+          expect(response).to have_http_status(200)
+          expect(body_as_json[:reblog][:id]).to eq status.id.to_s
+          expect(body_as_json[:reblog][:reblogged]).to be true
+          expect(body_as_json[:reblog][:reblogs_count]).to eq 1
+          expect(user.account.statuses.where(reblog_of_id: status.id).count).to eq 1
+        end
+      end
+
+      it 'rejects a non-boolean reboost flag' do
+        post :create, params: { status_id: status.id, reboost: 'yes' }
+
+        expect(response).to have_http_status(400)
+      end
+
+      it 'returns retry-after while the cooldown is active' do
+        ReblogService.new.call(user.account, status)
+        post :create, params: { status_id: status.id, reboost: true }
+
+        expect(response).to have_http_status(429)
+        expect(response.headers['Retry-After'].to_i).to be_positive
+        expect(body_as_json[:retry_after]).to be_positive
+      end
+
+      it 'rejects reboost when the acceptance policy leaves it off' do
+        user.settings.new_features_policy = 'conservative'
+        ReblogService.new.call(user.account, status)
+        travel 301.seconds do
+          post :create, params: { status_id: status.id, reboost: true }
+
+          expect(response).to have_http_status(403)
+        end
+        expect(user.account.statuses.where(reblog_of_id: status.id).count).to eq 1
+      end
+    end
   end
 end

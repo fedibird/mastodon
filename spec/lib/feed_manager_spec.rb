@@ -232,7 +232,7 @@ RSpec.describe FeedManager do
 
   describe '#push_to_home' do
     it 'trims timelines if they will have more than FeedManager::MAX_ITEMS' do
-      account = Fabricate(:account)
+      account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
       status = Fabricate(:status)
       members = FeedManager::MAX_ITEMS.times.map { |count| [count, count] }
       redis.zadd("feed:home:#{account.id}", members)
@@ -244,7 +244,7 @@ RSpec.describe FeedManager do
 
     context 'reblogs' do
       it 'saves reblogs of unseen statuses' do
-        account = Fabricate(:account)
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         reblog = Fabricate(:status, reblog: reblogged)
 
@@ -252,7 +252,7 @@ RSpec.describe FeedManager do
       end
 
       it 'does not save a new reblog of a recent status' do
-        account = Fabricate(:account)
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         reblog = Fabricate(:status, reblog: reblogged)
 
@@ -262,7 +262,7 @@ RSpec.describe FeedManager do
       end
 
       it 'saves a new reblog of an old status' do
-        account = Fabricate(:account)
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         reblog = Fabricate(:status, reblog: reblogged)
 
@@ -277,7 +277,7 @@ RSpec.describe FeedManager do
       end
 
       it 'does not save a new reblog of a recently-reblogged status' do
-        account = Fabricate(:account)
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         reblogs = 2.times.map { Fabricate(:status, reblog: reblogged) }
 
@@ -288,20 +288,46 @@ RSpec.describe FeedManager do
         expect(FeedManager.instance.push_to_home(account, reblogs.last)).to be false
       end
 
-      it 'saves a new reblog of a recently-reblogged status when previous reblog has been deleted' do
-        account = Fabricate(:account)
+      it 'does not save a new reblog of a recently-reblogged status when previous reblog has been deleted' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         old_reblog = Fabricate(:status, reblog: reblogged)
 
-        # The first reblog should be accepted
         expect(FeedManager.instance.push_to_home(account, old_reblog)).to be true
-
-        # The first reblog should be successfully removed
         expect(FeedManager.instance.unpush_from_home(account, old_reblog)).to be true
 
         reblog = Fabricate(:status, reblog: reblogged)
 
-        # The second reblog should be accepted
+        expect(FeedManager.instance.push_to_home(account, reblog)).to be false
+        expect(redis.zscore("feed:home:#{account.id}", reblog.id)).to be_nil
+        expect(redis.zscore("feed:home:#{account.id}:reblogs:seen", reblogged.id)).to be_present
+      end
+
+      it 'saves a reboost once the original has left the recent window' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        old_reblog = Fabricate(:status, reblog: reblogged)
+
+        FeedManager.instance.push_to_home(account, old_reblog)
+        FeedManager.instance.unpush_from_home(account, old_reblog)
+        FeedManager::REBLOG_FALLOFF.times do
+          FeedManager.instance.push_to_home(account, Fabricate(:status))
+        end
+
+        reblog = Fabricate(:status, reblog: reblogged)
+        expect(FeedManager.instance.push_to_home(account, reblog)).to be true
+      end
+
+      it 'saves a reboost immediately when aggregation is off' do
+        user = Fabricate(:user, current_sign_in_at: Time.now.utc)
+        user.settings.aggregate_reblogs = false
+        account = user.account
+        reblogged = Fabricate(:status)
+        old_reblog = Fabricate(:status, reblog: reblogged)
+
+        expect(FeedManager.instance.push_to_home(account, old_reblog)).to be true
+        expect(FeedManager.instance.unpush_from_home(account, old_reblog)).to be true
+        reblog = Fabricate(:status, reblog: reblogged)
         expect(FeedManager.instance.push_to_home(account, reblog)).to be true
       end
 
@@ -322,7 +348,7 @@ RSpec.describe FeedManager do
       end
 
       it 'saves a new reblog of a long-ago-reblogged status' do
-        account = Fabricate(:account)
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         reblogs = 2.times.map { Fabricate(:status, reblog: reblogged) }
 
@@ -340,7 +366,7 @@ RSpec.describe FeedManager do
     end
 
     it "does not push when the given status's reblog is already inserted" do
-      account = Fabricate(:account)
+      account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
       reblog = Fabricate(:status)
       status = Fabricate(:status, reblog: reblog)
       FeedManager.instance.push_to_home(account, status)

@@ -39,6 +39,7 @@ RSpec.describe UserPreferences::Schema do
         'show_translation_bar',
         'translation_preferred_mode',
         'new_features_policy',
+        'enable_reboost',
         'content_font_size',
         'info_font_size',
         'reduce_motion',

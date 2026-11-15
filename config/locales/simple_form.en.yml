@@ -59,7 +59,8 @@ en:
         phrase: Will be matched regardless of casing in text or content warning of a post
         scopes: Which APIs the application will be allowed to access. If you select a top-level scope, you don't need to select individual ones.
         searchability: This specification currently works as expected only in Fedibird. Regardless of what you specify, Mastodon uses "Reacted-users-only" behavior, external search sites often search only collected public posts, and Misskey searches all posts.
-        setting_aggregate_reblogs: Do not show new boosts for posts that have been recently boosted (only affects newly-received boosts)
+        setting_aggregate_reblogs: Group repeat boosts and reboosts of a post you recently saw, including boosts by other people, on home and lists (applies to posts received after you change this)
+        setting_enable_reboost: Reboost shows this post on the timeline again. To mention a post, use a quote or a reference. If you do not want to see the same post repeatedly, turn on Group boosts.
         setting_compact_reaction: Emoji reaction display to be only the number of cases, except for the detail display
         setting_card_reactions_single_line: On cards, keep reactions on one line and show ▼ only when they overflow. Off uses the previous wrapped rows and no ▼. The add button stays next to favourite.
         setting_card_collapse_long_text: When on, long card text is capped at about ten lines. Hold the text for 400 ms and drag to scroll inside it; release to resume timeline scrolling. Use ▼ to show all of the text. When off, it uses its natural height.
@@ -455,6 +456,10 @@ en:
         setting_missing_alt_text_modal: Show confirmation dialog before posting media without alt text
         setting_max_frequently_used_emojis: Number of frequently used emojis displayed
         setting_new_features_policy: Policy for new features
+        setting_enable_reboost: Enable reboost
+        setting_enable_reboost_auto: Follow the acceptance policy (currently %{state})
+        setting_enable_reboost_on: 'On'
+        setting_enable_reboost_off: 'Off'
         setting_new_features_policy_tester: Participate in the beta test
         setting_new_features_policy_conservative: Leave it disabled. I use it if necessary
         setting_new_features_policy_default: Follow recommendations (default)

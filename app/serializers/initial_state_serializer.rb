@@ -91,6 +91,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:show_reply_tree_button]                = object.current_account.user.setting_show_reply_tree_button
       store[:disable_joke_appearance]               = object.current_account.user.setting_disable_joke_appearance
       store[:new_features_policy]                   = preference_effective('new_features_policy')
+      store[:enable_reboost]                       = preference_effective('enable_reboost')
       store[:show_composer_posting_style_selector] = object.current_account.user.setting_show_composer_posting_style_selector
       store[:composer_toolbar] = ComposerToolbarPreference.effective(object.current_account.user)
       store[:theme_instance_ticker]                 = object.current_account.user.setting_theme_instance_ticker

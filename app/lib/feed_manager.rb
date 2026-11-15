@@ -15,6 +15,57 @@ class FeedManager
   # or the tracking sets will grow forever
   REBLOG_FALLOFF = 40
 
+  # Seen records outlive the wrapper so deleting a boost does not make the
+  # same original look new. The score is a rank, never a status to reinsert.
+  REBLOG_SEEN_INSERT = <<~LUA.freeze
+    local timeline, reblog_key, seen_key, extra_key = KEYS[1], KEYS[2], KEYS[3], KEYS[4]
+    local status_id, reblog_of_id, falloff = ARGV[1], ARGV[2], tonumber(ARGV[3])
+    local rank = redis.call('ZREVRANK', timeline, reblog_of_id)
+    if rank and rank < falloff then
+      return 0
+    end
+    local seen = redis.call('ZSCORE', seen_key, reblog_of_id)
+    if seen and not redis.call('ZSCORE', reblog_key, reblog_of_id) then
+      local newer = redis.call('ZCOUNT', timeline, tonumber(seen) + 1, '+inf')
+      if newer < falloff then
+        return 0
+      end
+    end
+    local added = redis.call('ZADD', reblog_key, 'NX', status_id, reblog_of_id)
+    if added == 1 then
+      redis.call('ZADD', timeline, status_id, status_id)
+      redis.call('ZADD', seen_key, status_id, reblog_of_id)
+      return 1
+    end
+    redis.call('SADD', extra_key, status_id)
+    return 0
+  LUA
+
+  REBLOG_SEEN_REMOVE = <<~LUA.freeze
+    local timeline, reblog_key, seen_key, extra_key = KEYS[1], KEYS[2], KEYS[3], KEYS[4]
+    local status_id, reblog_of_id = ARGV[1], ARGV[2]
+    local rank = redis.call('ZREVRANK', timeline, status_id)
+    if not rank then
+      return 0
+    end
+    redis.call('ZADD', seen_key, status_id, reblog_of_id)
+    redis.call('SREM', extra_key, status_id)
+    redis.call('ZREM', reblog_key, reblog_of_id)
+    local other = nil
+    for _, member in ipairs(redis.call('SMEMBERS', extra_key)) do
+      local number = tonumber(member)
+      if not other or number < other then
+        other = number
+      end
+    end
+    if other then
+      redis.call('ZADD', timeline, other, other)
+      redis.call('ZADD', reblog_key, other, reblog_of_id)
+    end
+    redis.call('ZREM', timeline, status_id)
+    return 1
+  LUA
+
   # Get active account
   def active_accounts
     Account.joins(:user).where('users.current_sign_in_at > ?', User::ACTIVE_DURATION.ago)
@@ -349,6 +400,7 @@ class FeedManager
         # it, but we can iterate over it later.
         reblogged_id_sets[feed_id] = redis.zrange(reblog_key, 0, -1)
         redis.del(reblog_key)
+        redis.del(key(type, feed_id, 'reblogs:seen'))
       end
     end
 
@@ -395,6 +447,8 @@ class FeedManager
       # feed.
       redis.del(key(type, timeline_id, "reblogs:#{reblogged_id}"))
     end
+
+    redis.zremrangebyscore(key(type, timeline_id, 'reblogs:seen'), 0, falloff_score)
   end
 
   # An edit fan-out rechecks subscriptions. A feed that already has the
@@ -561,27 +615,14 @@ class FeedManager
     reblog_key   = key(timeline_type, account_id, 'reblogs')
 
     if status.reblog? && (aggregate_reblogs.nil? || aggregate_reblogs)
-      # If the original status or a reblog of it is within
-      # REBLOG_FALLOFF statuses from the top, do not re-insert it into
-      # the feed
-      rank = redis.zrevrank(timeline_key, status.reblog_of_id)
-
-      return false if !rank.nil? && rank < FeedManager::REBLOG_FALLOFF
-
-      # The ordered set at `reblog_key` holds statuses which have a reblog
-      # in the top `REBLOG_FALLOFF` statuses of the timeline
-      if redis.zadd(reblog_key, status.id, status.reblog_of_id, nx: true)
-        # This is not something we've already seen reblogged, so we
-        # can just add it to the feed (and note that we're reblogging it).
-        redis.zadd(timeline_key, status.id, status.id)
-      else
-        # Another reblog of the same status was already in the
-        # REBLOG_FALLOFF most recent statuses, so we note that this
-        # is an "extra" reblog, by storing it in reblog_set_key.
-        reblog_set_key = key(timeline_type, account_id, "reblogs:#{status.reblog_of_id}")
-        redis.sadd(reblog_set_key, status.id)
-        return false
-      end
+      seen_key = key(timeline_type, account_id, 'reblogs:seen')
+      extra_key = key(timeline_type, account_id, "reblogs:#{status.reblog_of_id}")
+      inserted = redis.eval(
+        REBLOG_SEEN_INSERT,
+        keys: [timeline_key, reblog_key, seen_key, extra_key],
+        argv: [status.id.to_s, status.reblog_of_id.to_s, FeedManager::REBLOG_FALLOFF.to_s]
+      )
+      return false if inserted.to_i.zero?
     else
       # A reblog may reach earlier than the original status because of the
       # delay of the worker deliverying the original status, the late addition
@@ -609,30 +650,19 @@ class FeedManager
     reblog_key   = key(timeline_type, account_id, 'reblogs')
 
     if status.reblog? && (aggregate_reblogs.nil? || aggregate_reblogs)
-      # 1. If the reblogging status is not in the feed, stop.
-      status_rank = redis.zrevrank(timeline_key, status.id)
-      return false if status_rank.nil?
-
-      # 2. Remove reblog from set of this status's reblogs.
-      reblog_set_key = key(timeline_type, account_id, "reblogs:#{status.reblog_of_id}")
-
-      redis.srem(reblog_set_key, status.id)
-      redis.zrem(reblog_key, status.reblog_of_id)
-      # 3. Re-insert another reblog or original into the feed if one
-      # remains in the set. We could pick a random element, but this
-      # set should generally be small, and it seems ideal to show the
-      # oldest potential such reblog.
-      other_reblog = redis.smembers(reblog_set_key).map(&:to_i).min
-
-      redis.zadd(timeline_key, other_reblog, other_reblog) if other_reblog
-      redis.zadd(reblog_key, other_reblog, status.reblog_of_id) if other_reblog
-
-      # 4. Remove the reblogging status from the feed (as normal)
-      # (outside conditional)
+      seen_key = key(timeline_type, account_id, 'reblogs:seen')
+      extra_key = key(timeline_type, account_id, "reblogs:#{status.reblog_of_id}")
+      removed = redis.eval(
+        REBLOG_SEEN_REMOVE,
+        keys: [timeline_key, reblog_key, seen_key, extra_key],
+        argv: [status.id.to_s, status.reblog_of_id.to_s]
+      )
+      return removed.to_i == 1
     else
       # If the original is getting deleted, no use for reblog references
       redis.del(key(timeline_type, account_id, "reblogs:#{status.id}"))
       redis.zrem(reblog_key, status.id)
+      redis.zrem(key(timeline_type, account_id, 'reblogs:seen'), status.id) unless status.reblog?
     end
 
     redis.zrem(timeline_key, status.id)

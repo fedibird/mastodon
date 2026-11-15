@@ -10,6 +10,7 @@ class UserPreferences::WriteContract
     show_translation_bar
     translation_preferred_mode
     new_features_policy
+    enable_reboost
     content_font_size
     info_font_size
     reduce_motion
@@ -61,7 +62,7 @@ class UserPreferences::WriteContract
       next unless known_key?(name, errors)
       next unless acceptable_value?(name, value, errors)
 
-      copied[name] = value
+      copied[name] = name == 'enable_reboost' ? ReboostPreferences.normalize_choice(value) : value
     end
     copied
   end
@@ -124,6 +125,8 @@ class UserPreferences::WriteContract
       value.is_a?(String) && TranslationPreferences::PREFERRED_MODES.include?(value)
     when 'new_features_policy'
       value.is_a?(String) && POLICIES.include?(value)
+    when 'enable_reboost'
+      ReboostPreferences.normalize_choice(value) != :invalid && (value == true || value == false || value.is_a?(String))
     when 'content_font_size', 'info_font_size'
       value.is_a?(Integer) && FONT_RANGE.cover?(value)
     else
@@ -137,6 +140,8 @@ class UserPreferences::WriteContract
       value == true || value == false
     when 'content_font_size', 'info_font_size'
       value.is_a?(Integer)
+    when 'enable_reboost'
+      value == true || value == false || value.is_a?(String)
     else
       value.is_a?(String)
     end
