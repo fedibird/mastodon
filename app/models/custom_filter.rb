@@ -25,7 +25,8 @@ class CustomFilter < ApplicationRecord
     account
   ).freeze
 
-  EXPIRATION_DURATIONS = [30.minutes, 1.hour, 6.hours, 12.hours, 1.day, 1.week].freeze
+  EXPIRATION_DURATIONS = [5.minutes, 30.minutes, 1.hour, 2.hours, 3.hours, 6.hours, 12.hours, 1.day, 3.days, 1.week].freeze
+  HASHTAG_MUTE_DURATIONS = [5.minutes, 30.minutes, 1.hour, 2.hours, 3.hours, 6.hours, 1.day, 3.days, 1.week].freeze
 
   include Expireable
   include Redisable
@@ -35,6 +36,7 @@ class CustomFilter < ApplicationRecord
   belongs_to :account
   has_many :keywords, class_name: 'CustomFilterKeyword', foreign_key: :custom_filter_id, inverse_of: :custom_filter, dependent: :destroy
   has_many :statuses, class_name: 'CustomFilterStatus', foreign_key: :custom_filter_id, inverse_of: :custom_filter, dependent: :destroy
+  has_many :filter_tags, class_name: 'CustomFilterTag', inverse_of: :custom_filter, dependent: :destroy
   accepts_nested_attributes_for :keywords, reject_if: :all_blank, allow_destroy: true
 
   validates :title, :context, presence: true
@@ -64,7 +66,7 @@ class CustomFilter < ApplicationRecord
   end
 
 def self.cached_filters_for(account_id)
-    active_filters = Rails.cache.fetch("filters:v3:#{account_id}") do
+    active_filters = Rails.cache.fetch("filters:v4:#{account_id}") do
       filters_hash = {}
 
       scope = CustomFilterKeyword.left_outer_joins(:custom_filter).merge(unexpired.where(account_id: account_id))
@@ -82,10 +84,23 @@ def self.cached_filters_for(account_id)
         filters_hash[filter.id].merge!(status_ids: statuses.map(&:status_id))
       end
 
+      tag_scope = CustomFilterTag.eager_load(:custom_filter).merge(unexpired).where(custom_filters: { account_id: account_id })
+
+      tag_scope.to_a.group_by(&:custom_filter).each do |filter, tags|
+        filters_hash[filter.id] ||= { filter: filter }
+        filters_hash[filter.id][:tag_names] = tags.map(&:name)
+      end
+
       filters_hash.values.map { |cache| [cache.delete(:filter), cache] }
     end.to_a
 
-    active_filters.reject { |custom_filter, _| custom_filter.expired? }
+    active_filters.select { |custom_filter, _| still_active?(custom_filter) }
+  end
+
+  # Active while expires_at is absent or strictly after now. The exact
+  # timestamp is already expired, matching unexpired and the streaming check.
+  def self.still_active?(filter, now = Time.zone.now)
+    filter.expires_at.nil? || filter.expires_at > now
   end
 
   def self.apply_cached_filters(cached_filters, status, filterable_status: status.proper)
@@ -96,12 +111,35 @@ def self.cached_filters_for(account_id)
       keyword_matches = [match.to_s] unless match.nil?
 
       status_matches = [status.id, status.reblog_of_id].compact & rules[:status_ids] if rules[:status_ids].present?
+      tag_matches = tag_matches_for(rules[:tag_names], status, filterable_status)
 
-      next if keyword_matches.blank? && status_matches.blank?
+      next if keyword_matches.blank? && status_matches.blank? && tag_matches.blank?
 
-      FilterResultPresenter.new(filter: filter, keyword_matches: keyword_matches, status_matches: status_matches)
+      FilterResultPresenter.new(filter: filter, keyword_matches: keyword_matches, status_matches: status_matches, tag_matches: tag_matches.presence)
     end
   end
+
+  def self.tag_matches_for(expected, status, filterable_status)
+    return [] if expected.blank?
+
+    names = normalized_status_tag_names(tag_source_for(status, filterable_status))
+    expected.select { |name| names.include?(name) }
+  end
+
+  def self.tag_source_for(status, filterable_status)
+    return status if status.reblog_of_id.blank?
+    return status.reblog if status.association(:reblog).loaded? && status.reblog
+    return filterable_status if filterable_status&.id == status.reblog_of_id
+
+    status
+  end
+
+  def self.normalized_status_tag_names(status)
+    return [] if status.nil?
+
+    status.tags.map { |tag| CustomFilterTag.normalize_name(tag.name) }.compact.uniq
+  end
+  private_class_method :tag_matches_for, :tag_source_for, :normalized_status_tag_names
 
   def prepare_cache_invalidation!
     @should_invalidate_cache = true
@@ -111,6 +149,7 @@ def self.cached_filters_for(account_id)
     return unless @should_invalidate_cache
     @should_invalidate_cache = false
     Rails.cache.delete("filters:v3:#{account_id}")
+    Rails.cache.delete("filters:v4:#{account_id}")
     redis.publish("timeline:#{account_id}", Oj.dump(event: :filters_changed))
     redis.publish("timeline:system:#{account_id}", Oj.dump(event: :filters_changed))
   end

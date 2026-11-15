@@ -1,5 +1,6 @@
 // Complete-definition transport stays independent of status/UI actions.
 import api from '../api';
+import { armFilterExpiry } from './filter_expiry';
 import { isStatusId } from '../utils/filter_rules';
 
 export const FILTERS_FETCH_REQUEST = 'FILTERS_FETCH_REQUEST';
@@ -101,6 +102,7 @@ export const fetchFilters = ({ timeout } = {}) => (dispatch, getState) => {
         receivedAt: Date.now(),
         skipLoading: true,
       });
+      armFilterExpiry(dispatch, getState);
     })
     .catch(err => {
       if (latestFilterFetch.get(dispatch) !== request) return;

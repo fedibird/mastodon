@@ -1873,6 +1873,8 @@ en:
       context_descriptions_shown: Descriptions are shown under each name.
       hide_context_descriptions: Hide descriptions for each place
       keywords: Keywords
+      hashtags: Hashtags
+      hashtags_hint: Posts are hidden when they carry one of these hashtags exactly. The same word in ordinary text or in a URL is not treated as this hashtag.
       select_all: Select all
       select_none: Deselect all
       show_context_descriptions: Show descriptions for each place
@@ -1883,12 +1885,20 @@ en:
     errors:
       deprecated_api_multiple_keywords: These parameters cannot be changed from this application because they apply to more than one filter keyword. Use a more recent application or the web interface.
       invalid_context: None or invalid context supplied
+      invalid_hashtag: Enter one hashtag, without spaces or other characters this server rejects.
+      invalid_hashtag_duration: Choose one of the listed durations, or leave it indefinite.
     index:
       contexts: Filters in %{contexts}
       delete: Delete
       empty: You have no filters.
       expires_in: Expires in %{distance}
+      expires_in_at: Expires in %{distance} (%{date})
       expires_on: Expires on %{date}
+      expired_at: Expired %{date}
+      indefinite: Indefinite
+      hashtags:
+        one: "%{count} hashtag"
+        other: "%{count} hashtags"
       keywords:
         one: "%{count} keyword"
         other: "%{count} keywords"
@@ -2001,12 +2011,16 @@ en:
     delete: Deactivate
     expired: Expired
     expires_in:
+      '300': 5 minutes
       '1800': 30 minutes
       '21600': 6 hours
       '3600': 1 hour
+      '7200': 2 hours
+      '10800': 3 hours
       '43200': 12 hours
-      '604800': 1 week
       '86400': 1 day
+      '259200': 3 days
+      '604800': 1 week
     expires_in_prompt: Never
     generate: Generate invite link
     pending_review: Invite creation is waiting for moderator approval

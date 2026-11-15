@@ -3,7 +3,7 @@
 class FilterMatchesService < BaseService
   LIMIT = 100
   MAX_ID = '9223372036854775807'
-  TEXT_ASSOCIATIONS = [:account, :mentions, :preloadable_poll, :media_attachments, { references: :account }].freeze
+  TEXT_ASSOCIATIONS = [:account, :mentions, :preloadable_poll, :media_attachments, :tags, { references: :account }].freeze
 
   def call(account, input)
     ids = validate_ids!(input)

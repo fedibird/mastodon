@@ -110,6 +110,10 @@ const translation = {
 function reducer(state, action) {
   const next = state.set('favourite_tags', favouriteTagsReducer(state.get('favourite_tags'), action));
 
+  if (action.type === 'MODAL_OPEN') {
+    return next.set('modal', fromJS({ modalType: action.modalType, hashtag: action.modalProps.hashtag }));
+  }
+
   if (action.type !== 'ALERT_SHOW') {
     return next;
   }
@@ -595,7 +599,7 @@ describe('HashtagMenuController', () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('#mastodon');
   });
 
-  it('opens filters inside WebUI and hides favourite and mute when signed out', () => {
+  it('opens the hashtag mute dialog and hides favourite and mute when signed out', () => {
     const signedIn = renderMenu();
     click(signedIn.container.querySelector('a.status__content__hashtag-badge'));
     const labels = Array.from(document.querySelectorAll('.dropdown-menu__container__list > li')).map(item => item.textContent);
@@ -611,14 +615,15 @@ describe('HashtagMenuController', () => {
     ]);
     const mute = screen.getByRole('button', { name: 'Mute #mastodon' });
 
-    expect(mute).toHaveAttribute('href', '/web/settings/filters');
-    expect(mute).not.toHaveAttribute('target', '_blank');
+    expect(mute).not.toHaveAttribute('href');
     expect(mute.closest('li').className).toContain('dropdown-menu__item--dangerous');
 
     fireEvent.click(mute);
 
     expect(window.open).not.toHaveBeenCalled();
-    expect(history.push).toHaveBeenCalledWith('/settings/filters');
+    expect(history.push).not.toHaveBeenCalled();
+    expect(signedIn.store.getState().getIn(['modal', 'modalType'])).toBe('HASHTAG_MUTE');
+    expect(signedIn.store.getState().getIn(['modal', 'hashtag'])).toBe('mastodon');
     signedIn.unmount();
 
     const signedOut = renderMenu({ signedIn: false });
@@ -661,7 +666,7 @@ describe('HashtagMenuController', () => {
     expect(screen.getByRole('button', { name: 'View posts with #bar' })).toHaveAttribute('href', `${window.location.origin}/tags/bar`);
     expect(screen.getByRole('button', { name: 'View alice\'s posts with #bar' })).toHaveAttribute('href', `${window.location.origin}/@alice/tagged/bar`);
     expect(screen.getByRole('button', { name: 'Add to favorites' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Mute #bar' })).toHaveAttribute('href', '/web/settings/filters');
+    expect(screen.getByRole('button', { name: 'Mute #bar' })).not.toHaveAttribute('href');
     expect(Overlay.lastTarget).toBe(badge);
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy hashtags' }));

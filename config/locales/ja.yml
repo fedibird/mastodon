@@ -1834,6 +1834,8 @@ ja:
       context_descriptions_shown: 各名称の下に、その場所の説明を表示しています。
       hide_context_descriptions: 各適用範囲の説明を隠す
       keywords: キーワード
+      hashtags: ハッシュタグ
+      hashtags_hint: ここに並んだハッシュタグそのものが付いた投稿だけを非表示にします。本文やURLの中に同じ文字列があるだけでは対象になりません。
       select_all: すべて選択
       select_none: すべて解除
       show_context_descriptions: 各適用範囲の説明を表示
@@ -1844,12 +1846,19 @@ ja:
     errors:
       deprecated_api_multiple_keywords: これらのパラメータは複数のフィルタキーワードに適用されるため、このアプリケーションから変更できません。 最新のアプリケーションまたはWebインターフェースを使用してください。
       invalid_context: 対象がないか無効です
+      invalid_hashtag: ハッシュタグを1つ指定してください。空白や、このサーバーで使えない文字は含められません。
+      invalid_hashtag_duration: 一覧にある期間を選ぶか、無期限のままにしてください。
     index:
       contexts: "%{contexts}のフィルター"
       delete: 削除
       empty: フィルターはありません。
       expires_in: "%{distance}で期限切れ"
+      expires_in_at: "%{distance}で期限切れ（%{date}）"
       expires_on: 有効期限 %{date}
+      expired_at: "%{date}に期限切れ"
+      indefinite: 無期限
+      hashtags:
+        other: "%{count}件のハッシュタグ"
       keywords:
         other: "%{count}件のキーワード"
       statuses:
@@ -1951,12 +1960,16 @@ ja:
     delete: 無効化
     expired: 期限切れ
     expires_in:
+      '300': 5 分
       '1800': 30 分
       '21600': 6 時間
       '3600': 1 時間
+      '7200': 2 時間
+      '10800': 3 時間
       '43200': 12 時間
-      '604800': 1 週間
       '86400': 1 日
+      '259200': 3 日
+      '604800': 1 週間
     expires_in_prompt: 無期限
     generate: 招待リンクを作成
     pending_review: 招待コードの発行はモデレーターの承認待ちです

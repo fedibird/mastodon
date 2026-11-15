@@ -6,6 +6,7 @@ import { defineMessages, injectIntl } from 'react-intl';
 import Overlay from 'react-overlays/Overlay';
 import { DropdownMenu } from 'mastodon/components/dropdown_menu';
 import { createFavouriteTag } from 'mastodon/actions/favourite_tags';
+import { openModal } from 'mastodon/actions/modal';
 import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
 import { accountUrlForHashtag } from 'mastodon/utils/account_tag_url';
@@ -36,6 +37,7 @@ class HashtagMenuController extends React.PureComponent {
     statuses: ImmutablePropTypes.map,
     signedIn: PropTypes.bool,
     onAddFavourite: PropTypes.func.isRequired,
+    onMuteHashtag: PropTypes.func.isRequired,
   };
 
   state = {
@@ -245,9 +247,9 @@ class HashtagMenuController extends React.PureComponent {
     if (this.isSignedIn()) {
       items.push(null, {
         text: intl.formatMessage(messages.mute, { hashtag }),
-        href: '/web/settings/filters',
-        to: '/settings/filters',
-        target: '_self',
+        href: null,
+        target: null,
+        action: () => this.props.onMuteHashtag(hashtag),
         dangerous: true,
       });
     }
@@ -318,6 +320,10 @@ const mapStateToProps = state => ({
 const mapDispatchToProps = dispatch => ({
   onAddFavourite(name) {
     dispatch(createFavouriteTag(name));
+  },
+
+  onMuteHashtag(hashtag) {
+    dispatch(openModal('HASHTAG_MUTE', { hashtag }));
   },
 });
 

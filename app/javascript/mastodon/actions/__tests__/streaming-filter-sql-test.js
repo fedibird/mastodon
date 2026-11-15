@@ -19,7 +19,8 @@ describe('streaming custom-filter query', () => {
   it('loads keyword-less filters with a LEFT JOIN and a CustomFilterStatus query', () => {
     expect(source).toContain('LEFT JOIN custom_filter_keywords keyword ON keyword.custom_filter_id = filter.id');
     expect(source).toContain('FROM custom_filter_statuses filtered_status JOIN custom_filters filter ON filtered_status.custom_filter_id = filter.id');
-    expect(source).toContain('req.cachedFilters = buildCachedFilters(keywordRows, statusRows)');
+    expect(source).toContain('req.cachedFilters = buildCachedFilters(keywordRows, statusRows, tagRows)');
+    expect(source).toContain('FROM custom_filter_tags tag JOIN custom_filters filter ON tag.custom_filter_id = filter.id');
   });
 
   it('emits warn/hide strings for filter_action', () => {
