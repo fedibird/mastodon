@@ -3,20 +3,21 @@
 class StatusRelationshipsPresenter
   attr_reader :reblogs_map, :favourites_map, :mutes_map, :pins_map,
               :bookmarks_map, :filters_map, :emoji_reactions_map, :attributes_map,
-              :link_boost_states, :account_tag_pages
+              :link_boost_states, :account_tag_pages, :reboost_retry_after
 
   def initialize(statuses, current_account_id = nil, **options)
     @account_tag_pages = AccountTagPage::Pages.prefetch(statuses)
     @link_boost_states = {}
 
     if current_account_id.nil?
-      @reblogs_map         = {}
-      @favourites_map      = {}
-      @bookmarks_map       = {}
-      @emoji_reactions_map = {}
-      @mutes_map           = {}
-      @pins_map            = {}
-      @filters_map         = {}
+      @reblogs_map          = {}
+      @favourites_map       = {}
+      @bookmarks_map        = {}
+      @emoji_reactions_map  = {}
+      @mutes_map            = {}
+      @pins_map             = {}
+      @filters_map          = {}
+      @reboost_retry_after  = {}
     else
       statuses            = Status.where(id: statuses) if statuses.first.is_a?(Integer)
       statuses            = statuses.compact
@@ -45,6 +46,7 @@ class StatusRelationshipsPresenter
       @emoji_reactions_map = mapping(result['emoji_reactions'], options[:emoji_reactions_map])
       @mutes_map           = mapping(result['mutes'],           options[:mutes_map])
       @pins_map            = mapping(result['pins'],            options[:pins_map])
+      @reboost_retry_after = ReboostCooldown.retry_after_map(current_account_id, status_ids)
     end
 
     @attributes_map = options[:attributes_map] || {}

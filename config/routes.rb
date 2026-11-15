@@ -573,6 +573,7 @@ Rails.application.routes.draw do
           resources :referred_by, controller: :referred_by_statuses, only: :index
           resources :mentioned_by, controller: :mentioned_by_accounts, only: :index
           resource :reblog, only: :create
+          get :reboost_operation, to: 'reblogs#show'
           post :unreblog, to: 'reblogs#destroy'
 
           resource :favourite, only: :create

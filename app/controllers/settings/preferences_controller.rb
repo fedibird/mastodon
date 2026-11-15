@@ -108,6 +108,7 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_hide_followers_count,
       :setting_disable_joke_appearance,
       :setting_new_features_policy,
+      :setting_enable_reboost,
       :setting_theme_instance_ticker,
       :setting_theme_public,
       :setting_hexagon_avatar,
