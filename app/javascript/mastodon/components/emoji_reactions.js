@@ -87,7 +87,7 @@ class EmojiReaction extends ImmutablePureComponent {
       static_url: emojiReaction.get('static_url', null),
       my_reaction: myReaction,
       reaction_limit_reached: Boolean(reactionLimitReached),
-      disabled: Boolean(disableReactions || emojiPickerDisabled),
+      disabled: Boolean(disableReactions || (emojiPickerDisabled && !myReaction)),
     };
   };
 
@@ -96,7 +96,7 @@ class EmojiReaction extends ImmutablePureComponent {
 
     // Keep the chip pointer-enabled so long-press / context menu still open
     // when reactions are at the limit or globally disabled.
-    if (disableReactions || emojiPickerDisabled) {
+    if (disableReactions || (emojiPickerDisabled && !myReaction)) {
       return;
     }
 
@@ -246,9 +246,9 @@ class EmojiReaction extends ImmutablePureComponent {
             type='button'
             className={classNames('reactions-bar__item', {
               active: myReaction,
-              disabled: disableReactions || emojiPickerDisabled || (!myReaction && reactionLimitReached),
+              disabled: disableReactions || (emojiPickerDisabled && !myReaction) || (!myReaction && reactionLimitReached),
             })}
-            aria-disabled={disableReactions || emojiPickerDisabled || (!myReaction && reactionLimitReached) ? 'true' : undefined}
+            aria-disabled={disableReactions || (emojiPickerDisabled && !myReaction) || (!myReaction && reactionLimitReached) ? 'true' : undefined}
             onClick={this.handleClick}
             onContextMenu={reference ? this.handleContextMenu : undefined}
             title={`:${shortCode}:`}
