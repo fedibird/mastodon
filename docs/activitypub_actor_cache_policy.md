@@ -29,7 +29,7 @@ With a local Nginx 1.26.3 and a test HTTP upstream using `Cache-Control: public,
 | HTML `/users/actor` (first, repeat) | MISS, HIT |
 | `/api/v1/instance` ordinary GET (first, repeat) | MISS, HIT |
 
-These are **isolated fixture responses**, not dev/prod HTTP results.
+An isolated negative test stopped the upstream after seeding an Actor cache entry: the patched proxy returned **502**, not the stale Actor response. These are **isolated fixture responses**, not dev/prod HTTP results.
 
 ## Dev deployment and acceptance
 

@@ -78,8 +78,8 @@ run_mode = lambda do |enabled|
 end
 
 begin
-  # Alternate twice to expose order/warm-up effects; the final ON is followed
-  # by OFF, leaving only the prior process environment in the ensure block.
+  # Alternate twice to expose order/warm-up effects; the ensure block below
+  # restores the original runner environment regardless of the last mode.
   results = [false, true, false, true].map { |enabled| run_mode.call(enabled) }
   puts "Group Account.id=#{group.id}; direct Actor serializer (not HTTP/NGINX)"
   results.each { |result| puts result.inspect }
