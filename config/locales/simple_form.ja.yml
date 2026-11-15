@@ -84,7 +84,8 @@ ja:
         setting_disable_account_delete: 一時的な迷いでアカウント削除することを防ぎます
         setting_disable_auto_focus_to_emoji_search: オートコンプリート候補が出て邪魔をするケースに対応するため、絵文字ピッカーの検索欄へのオートフォーカスを無効にします
         setting_emoji_picker_prefer_personal: 絵文字ピッカーを個人セットから開きます。個人セットが空でも、標準ピッカーへは自動では切り替わりません。反映には再読み込みが必要です。
-        setting_emoji_picker_disable_personal: 標準のMastodonのように、標準ピッカーのみを使用します。動作が軽量になります。反映にはページの再読み込みが必要です。
+        setting_emoji_picker_disable_personal: 個人セットのピッカーとデータ読み込みを停止します。標準ピッカーも無効ならピッカーを表示せず、絵文字リアクションの追加もできません。反映にはページの再読み込みが必要です。
+        setting_emoji_picker_disable_standard: 標準ピッカーを表示せず、標準ピッカー用のデータ読み込みを停止します。個人セットのみ利用できます。個人セットも無効なら、絵文字リアクションの追加もできません。反映にはページの再読み込みが必要です。
         setting_emoji_picker_disable_actions: 標準ピッカーと個人セットの編集ボタン・長押し・右クリック・キーボードでの絵文字操作メニューを停止します。通常の絵文字入力やリアクションには影響しません。絵文字ピッカーの動作がおかしい場合は無効化をお試しください。反映にはページの再読み込みが必要です。
         setting_emoji_picker_lazy_load_standard: 有効にすると絵文字の使用頻度が低い場合にリソースの節約になりますが、ピッカー起動時の動作が遅くなります。
         setting_disable_block: 誤ってブロックすることを防ぎます
@@ -355,6 +356,7 @@ ja:
         setting_disable_auto_focus_to_emoji_search: 絵文字ピッカーの検索欄へのオートフォーカスを無効にする
         setting_emoji_picker_prefer_personal: 個人セットを優先する
         setting_emoji_picker_disable_personal: 個人セットを使用しない
+        setting_emoji_picker_disable_standard: 標準ピッカーを使用しない
         setting_emoji_picker_disable_actions: 絵文字ピッカーの操作メニューを無効にする
         setting_emoji_picker_lazy_load_standard: 絵文字ピッカーの構築を呼び出し時まで遅延させる
         setting_disable_block: ブロックを無効にする

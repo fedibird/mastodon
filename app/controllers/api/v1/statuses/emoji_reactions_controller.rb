@@ -8,7 +8,8 @@ class Api::V1::Statuses::EmojiReactionsController < Api::BaseController
   before_action :set_status
 
   def update
-    raise Mastodon::NotPermittedError if current_user.setting_disable_reactions
+    picker_disabled = current_user.setting_emoji_picker_disable_personal && current_user.setting_emoji_picker_disable_standard
+    raise Mastodon::NotPermittedError if current_user.setting_disable_reactions || picker_disabled
 
     if EmojiReactionService.new.call(current_account, @status, params[:id], fallback_confirmation: fallback_confirmation_param).present?
       @status = Status.include_expired.find(params[:status_id])
