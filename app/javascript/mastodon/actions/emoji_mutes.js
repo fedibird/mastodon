@@ -8,6 +8,7 @@ import {
   currentEmojiMutes,
   emojiMuteNotificationFetchEpoch,
   emojiMuteDocumentReady,
+  emojiReactionEventsAccepted,
   loadEmojiMutes,
   noteEmojiMutesChanged,
   observedEmojiMuteRevision,
