@@ -25,14 +25,14 @@ module SettingsServiceCatalog
     LEGACY_FORM_KEYS = %w(
       default_privacy default_sensitive default_language show_translation_bar
       translation_preferred_mode new_features_policy content_font_size info_font_size
-      reduce_motion emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_actions emoji_picker_lazy_load_standard
+      reduce_motion emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_standard emoji_picker_disable_actions emoji_picker_lazy_load_standard
     ).freeze
     CREDENTIALS_KEYS = %w(
       default_privacy default_sensitive default_language
     ).freeze
     TRANSLATION = %w[show_translation_bar translation_preferred_mode].freeze
     LIVE_WEB_UI = %w[content_font_size info_font_size reduce_motion].freeze
-    RELOAD_ON_NEXT_PAGE = %w[emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_actions emoji_picker_lazy_load_standard].freeze
+    RELOAD_ON_NEXT_PAGE = %w[emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_standard emoji_picker_disable_actions emoji_picker_lazy_load_standard].freeze
     PRIVACY = %w[
       noindex hide_network hide_statuses_count hide_following_count hide_followers_count
       hide_statuses_count_from_yourself hide_following_count_from_yourself hide_followers_count_from_yourself
@@ -759,7 +759,9 @@ module SettingsServiceCatalog
         if NUMERIC_STRINGS.include?(var)
           'Listed in STRING_KEYS, so the decorator stores the form value without Integer() or Float(). YAML defaults are numeric. After a Rails save the stored YAML value can be a string. CSS interpolates either. max_frequently_used_emojis is also validated as a number on User and Number()-cast once in initial_state.js.'
         elsif var == 'emoji_picker_disable_personal'
-          'LegacyWriter casts Simple Form 0 and 1 to boolean before Writer stores it. A missing row uses false from settings.yml, retaining personal mode. A stored true disables personal stock work and forces standard-only mode after the next full page load without deleting the saved set.'
+          'LegacyWriter casts Simple Form 0 and 1 to boolean before Writer stores it. A missing row uses false from settings.yml, retaining personal mode. A stored true disables personal stock work. When the standard picker is also disabled, no picker appears and new emoji reactions are rejected. The saved set remains intact.'
+        elsif var == 'emoji_picker_disable_standard'
+          'LegacyWriter casts Simple Form 0 and 1 to boolean before Writer stores it. A missing row uses false from settings.yml. A stored true suppresses standard picker modules and catalog loading. With personal sets disabled too, the picker is hidden and new emoji reactions are rejected after the next full page load.'
         elsif RELOAD_ON_NEXT_PAGE.include?(var)
           'LegacyWriter casts Simple Form 0 and 1 with ActiveModel::Type::Boolean before Writer stores a boolean. The string 0 is not stored. A missing row uses the settings.yml default. A stored false stays false. The next full page load applies the value. Saving does not unload a standard picker module that has already been fetched.'
         elsif group == 'boolean'
@@ -807,8 +809,10 @@ module SettingsServiceCatalog
                   if CREDENTIALS_KEYS.include?(var)
                     form_effects << 'Credentials LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not. ActivityPub distribution is enqueued after a successful save, including when every key is a no-op'
                   end
-                  form_effects << 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
-                  if var == 'emoji_picker_disable_personal'
+                  form_effects << 'UserSettingsDecorator without a LegacyWriter refuses a non-nil contract-key write before saving anything'
+                  if var == 'emoji_picker_disable_standard'
+                    form_effects << 'the next full page load stops standard picker module and catalog preloading; with personal sets also disabled, the emoji reaction API denies additions while still permitting removal'
+                  elsif var == 'emoji_picker_disable_personal'
                     form_effects << 'the next full page load disables personal stock requests and subscriptions; saved personal sets remain intact'
                   elsif RELOAD_ON_NEXT_PAGE.include?(var)
                     form_effects << 'saving does not unload an already fetched standard emoji picker module; the next full page load applies the effective value'
@@ -965,7 +969,9 @@ module SettingsServiceCatalog
       if var.start_with?('card_') || var.start_with?('media_display_')
         parts << 'Outside UserPreferences::Reader. The appearance form writes ScopedSettings through UserSettingsDecorator, and the WebUI reads InitialState after reload. Invalid media shape or size falls back to square or small. Toolbar changes on a media screen do not write these defaults.'
       end
-      if var == 'emoji_picker_disable_personal'
+      if var == 'emoji_picker_disable_standard'
+        parts << 'A stored true hides the standard mode, skips the standard picker module and custom picker catalog loading, and forces personal-only mode. If the personal picker is also disabled, all picker triggers disappear and new emoji reactions are rejected at the API. Existing reactions can still be viewed and removed.'
+      elsif var == 'emoji_picker_disable_personal'
         parts << 'A stored true hides the personal mode and its management link, skips stock preload, requests, cache reads and listeners, and keeps saved sets intact. It overrides the prefer-personal setting until disabled again and the page is reloaded.'
       elsif RELOAD_ON_NEXT_PAGE.include?(var)
         parts << 'Reader distinguishes a missing row from a stored false. Form value 0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal and emoji_picker_lazy_load_standard default off. An empty personal set does not fall through to the standard picker. Leaving lazy load off preloads on the next page load without changing the visible mode. A stored true still defers loading.'
