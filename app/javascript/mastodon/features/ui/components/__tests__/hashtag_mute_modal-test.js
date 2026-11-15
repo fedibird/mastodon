@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -42,14 +42,17 @@ jest.mock('react-intl', () => {
 });
 
 import filtersReducer from 'mastodon/reducers/filters';
+import filterClockReducer from 'mastodon/reducers/filter_clock';
 import HashtagMuteModal from '../hashtag_mute_modal';
 
-function reducer(state = fromJS({ filters: {} }), action) {
+function reducer(state = fromJS({ filters: {}, filterClock: 0 }), action) {
   if (action.type === 'MODAL_CLOSE') {
     return state.set('closed', true);
   }
 
-  return state.set('filters', filtersReducer(state.get('filters'), action));
+  return state
+    .set('filters', filtersReducer(state.get('filters'), action))
+    .set('filterClock', filterClockReducer(state.get('filterClock'), action));
 }
 
 function renderModal(hashtag = '番組') {
@@ -76,6 +79,10 @@ describe('HashtagMuteModal', () => {
     mockPost.mockResolvedValue({ data: { id: '9', title: '#番組', context: ['home'], filter_action: 'hide', expires_at: null, keywords: [], statuses: [], tags: [{ id: '1', name: '番組' }] } });
     mockPut.mockResolvedValue({ data: { id: '9', title: '#番組', context: ['home'], filter_action: 'hide', expires_at: null, keywords: [], statuses: [], tags: [{ id: '1', name: '番組' }] } });
     mockDelete.mockResolvedValue({ data: {} });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('confirms the tag, the default indefinite duration, and every place before saving', async () => {
@@ -235,5 +242,116 @@ describe('HashtagMuteModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Update mute' }));
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/v1/hashtag_mutes/9', { preserve_expiry: true }));
     expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('can return to keeping the current end time after choosing another duration', async () => {
+    mockGet.mockResolvedValue({
+      data: [{
+        id: '9',
+        title: '#番組',
+        context: ['home'],
+        filter_action: 'hide',
+        expires_at: '2030-01-01T00:00:00Z',
+        keywords: [],
+        statuses: [],
+        tags: [{ id: '1', name: '番組' }],
+      }],
+    });
+    renderModal();
+
+    const duration = await screen.findByLabelText(/Duration/);
+    await waitFor(() => expect(duration).toHaveValue(''));
+    expect(screen.getByRole('option', { name: 'Don\'t change' })).toBeTruthy();
+
+    fireEvent.change(duration, { target: { value: '7200' } });
+    expect(duration).toHaveValue('7200');
+    expect(screen.getByRole('option', { name: 'Don\'t change' })).toBeTruthy();
+
+    fireEvent.change(duration, { target: { value: '' } });
+    expect(duration).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Update mute' }));
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/v1/hashtag_mutes/9', { preserve_expiry: true }));
+    expect(mockPut).not.toHaveBeenCalledWith('/api/v1/hashtag_mutes/9', { expires_in: 7200 });
+  });
+
+  it('disables update when an open dialog reaches the end time', async () => {
+    jest.useFakeTimers('modern');
+    jest.setSystemTime(new Date('2026-11-15T00:00:00.000Z'));
+
+    mockGet.mockResolvedValue({
+      data: [{
+        id: '9',
+        title: '#番組',
+        context: ['home', 'thread'],
+        filter_action: 'hide',
+        expires_at: '2026-11-15T00:00:05.000Z',
+        keywords: [],
+        statuses: [],
+        tags: [{ id: '1', name: '番組' }],
+      }],
+    });
+    renderModal();
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('button', { name: 'Update mute' })).not.toBeDisabled();
+    expect(screen.getByRole('option', { name: 'Don\'t change' })).toBeTruthy();
+    expect(screen.queryByText('The previous end time has passed. Choose a new duration before muting again.')).toBeNull();
+
+    act(() => {
+      jest.advanceTimersByTime(5000);
+    });
+
+    expect(screen.getByRole('button', { name: 'Update mute' })).toBeDisabled();
+    expect(screen.queryByRole('option', { name: 'Don\'t change' })).toBeNull();
+    expect(screen.getByText('The previous end time has passed. Choose a new duration before muting again.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Update mute' }));
+    expect(mockPut).not.toHaveBeenCalled();
+
+    jest.useRealTimers();
+  });
+
+  it('switches an enabled update to a new-duration prompt if the end time passes before the timer paints', async () => {
+    jest.useFakeTimers('modern');
+    jest.setSystemTime(new Date('2026-11-15T00:00:00.000Z'));
+
+    mockGet.mockResolvedValue({
+      data: [{
+        id: '9',
+        title: '#番組',
+        context: ['home'],
+        filter_action: 'hide',
+        expires_at: '2026-11-15T00:00:05.000Z',
+        keywords: [],
+        statuses: [],
+        tags: [{ id: '1', name: '番組' }],
+      }],
+    });
+    renderModal();
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const update = screen.getByRole('button', { name: 'Update mute' });
+    expect(update).not.toBeDisabled();
+
+    act(() => {
+      jest.setSystemTime(new Date('2026-11-15T00:00:05.000Z'));
+    });
+    expect(screen.getByRole('button', { name: 'Update mute' })).not.toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update mute' }));
+
+    expect(mockPut).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Update mute' })).toBeDisabled();
+    expect(screen.getByText('The previous end time has passed. Choose a new duration before muting again.')).toBeTruthy();
+
+    jest.useRealTimers();
   });
 });

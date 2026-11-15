@@ -67,6 +67,10 @@ const DURATION_LABELS = {
 const mapStateToProps = (state, { hashtag }) => ({
   hashtag,
   existing: findHashtagMute(state.get('filters'), hashtag),
+  // The shared expiry timer only changes this count. Reading it here makes an
+  // open dialog render again at the end time, while Date.now() still decides
+  // whether the saved mute has ended.
+  filterClock: state.get('filterClock') || 0,
 });
 
 const mapDispatchToProps = dispatch => ({
@@ -96,6 +100,7 @@ class HashtagMuteModal extends React.PureComponent {
   static propTypes = {
     hashtag: PropTypes.string.isRequired,
     existing: ImmutablePropTypes.map,
+    filterClock: PropTypes.number,
     intl: PropTypes.object.isRequired,
     onLoad: PropTypes.func.isRequired,
     onClose: PropTypes.func.isRequired,
@@ -143,24 +148,33 @@ class HashtagMuteModal extends React.PureComponent {
   handleDuration = (event) => {
     const { value } = event.target;
 
+    if (value === '') {
+      this.setState({ durationChosen: false, duration: null });
+      return;
+    }
+
     this.setState({
       durationChosen: true,
-      duration: value === '' ? null : Number(value),
+      duration: Number(value),
     });
   };
 
-  expired(existing = this.props.existing) {
+  expired(existing = this.props.existing, now = Date.now()) {
     if (!existing) {
       return false;
     }
 
     const expiresAt = existing.get('expires_at');
 
-    return !!expiresAt && expiresAt <= Date.now();
+    return !!expiresAt && expiresAt <= now;
+  }
+
+  offersKeepDuration() {
+    return !!(this.props.existing && !this.expired());
   }
 
   keepsCurrentDuration() {
-    return !!(this.props.existing && !this.expired() && !this.state.durationChosen);
+    return this.offersKeepDuration() && !this.state.durationChosen;
   }
 
   resolvedDuration() {
@@ -201,6 +215,11 @@ class HashtagMuteModal extends React.PureComponent {
 
   handleConfirm = () => {
     const { existing, hashtag, onMute, onUpdate, onClose } = this.props;
+
+    if (this.expired() && !this.state.durationChosen) {
+      this.forceUpdate();
+      return;
+    }
 
     if (!this.canConfirm()) {
       return;
@@ -267,8 +286,11 @@ class HashtagMuteModal extends React.PureComponent {
     const { loadState, submitting } = this.state;
     const ready = loadState === 'ready';
     const duration = this.resolvedDuration();
-    const expired = ready && this.expired();
+    // filterClock is not a timestamp. Mentioning it keeps this render tied to
+    // the expiry tick; the comparison below uses the current time.
+    const expired = ready && this.props.filterClock >= 0 && this.expired();
     const keepDuration = ready && this.keepsCurrentDuration();
+    const offerKeep = ready && this.offersKeepDuration();
     const warns = ready && existing && existing.get('filter_action') !== 'hide' && !expired;
 
     return (
@@ -295,7 +317,7 @@ class HashtagMuteModal extends React.PureComponent {
               </label>
               {/* eslint-disable-next-line jsx-a11y/no-onchange */}
               <select id='hashtag-mute-duration' ref={this.setDurationSelect} value={duration === null ? '' : String(duration)} onChange={this.handleDuration}>
-                {keepDuration && (
+                {offerKeep && (
                   <option value=''>{intl.formatMessage(messages.keepDuration)}</option>
                 )}
                 {expired && <option value='' disabled>{intl.formatMessage(messages.chooseDuration)}</option>}
