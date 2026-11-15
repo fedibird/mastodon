@@ -119,6 +119,47 @@ describe('emoji mute async safety (B5)', () => {
     expect((await run(offline)).get('failure')).toBe('unavailable');
   });
 
+  it('hides a ready document on 401 and 403 and keeps it on a network failure', async () => {
+    const syncReadyDocument = async error => {
+      resetEmojiMuteStoreForTests();
+      api().get.mockResolvedValueOnce({ data: { revision: '3', emoji_mutes: [] } });
+      await loadEmojiMutes();
+
+      let state = reducer(undefined, { type: EMOJI_MUTES_APPLY, revision: '3', mutes: [] });
+      const actions = [];
+      const dispatch = action => {
+        if (typeof action === 'function') {
+          return action(dispatch, () => ImmutableMap({ emojiMutes: state }));
+        }
+
+        actions.push(action);
+        state = reducer(state, action);
+        return action;
+      };
+
+      api().get.mockRejectedValueOnce(error);
+      await expect(syncEmojiMutes()(dispatch, () => ImmutableMap({ emojiMutes: state }))).rejects.toBe(error);
+      return { state, actions };
+    };
+
+    const unauthorized = Object.assign(new Error('unauthorized'), { response: { status: 401 } });
+    const forbidden = Object.assign(new Error('forbidden'), { response: { status: 403 } });
+    const offline = new Error('offline');
+
+    const expired = await syncReadyDocument(unauthorized);
+    expect(expired.state.get('phase')).toBe('error');
+    expect(expired.state.get('failure')).toBe('unauthorized');
+
+    const denied = await syncReadyDocument(forbidden);
+    expect(denied.state.get('phase')).toBe('error');
+    expect(denied.state.get('failure')).toBe('forbidden');
+
+    const dropped = await syncReadyDocument(offline);
+    expect(dropped.state.get('phase')).toBe('ready');
+    expect(dropped.state.get('appliedRevision')).toBe('3');
+    expect(dropped.actions.some(action => action.type === EMOJI_MUTES_FAIL)).toBe(false);
+  });
+
   it('discards the late first GET when a newer streamed revision wins', async () => {
     const first = deferred();
     const second = deferred();

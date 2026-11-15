@@ -564,8 +564,10 @@ export function syncEmojiMutes(options = {}) {
         hideShrunk,
       });
 
-      // On the initial boot no status/notification surface has been mounted.
-      // Loading the rest of the UI must not wait for a notification round trip.
+      // The first mount has no status or notification column yet. Skip the
+      // refresh so that mount does not wait on another round trip. A retry
+      // after the UI exists must not use this flag: withheld reactions and
+      // the notification list are restored by the refresh below.
       if (options.bootstrap) {
         return mutes;
       }
@@ -576,8 +578,18 @@ export function syncEmojiMutes(options = {}) {
         restoreWithheld: true,
       })(dispatch, getState);
     }).catch(error => {
-      if (generation === documentSyncGeneration && (options.verify === true || !emojiMuteDocumentReady())) {
-        dispatch({ type: EMOJI_MUTES_FAIL, failure: classifyEmojiMuteFetchError(error) });
+      if (generation !== documentSyncGeneration) {
+        throw error;
+      }
+
+      const failure = classifyEmojiMuteFetchError(error);
+      // A confirmed document can stay on screen through a dropped connection.
+      // An expired or forbidden token cannot: the portal has to close even
+      // when the last document was already applied.
+      const sessionRejected = failure === 'unauthorized' || failure === 'forbidden';
+
+      if (sessionRejected || options.verify === true || !emojiMuteDocumentReady()) {
+        dispatch({ type: EMOJI_MUTES_FAIL, failure });
       }
 
       throw error;

@@ -280,7 +280,10 @@ export default class Mastodon extends React.PureComponent {
     this.requestedBootPhase = 'loading';
     this.setState({ emojiMuteBoot: 'loading', emojiMuteFailure: null });
 
-    store.dispatch(syncEmojiMutes({ bootstrap: true })).then(() => {
+    // Skip the status and notification refresh only before the first UI
+    // mount. A retry while that UI is detached still has withheld reactions
+    // and a notification list to restore, without mounting the columns again.
+    store.dispatch(syncEmojiMutes({ bootstrap: !this.uiInitialized })).then(() => {
       if (generation !== this.bootstrapGeneration) {
         return;
       }

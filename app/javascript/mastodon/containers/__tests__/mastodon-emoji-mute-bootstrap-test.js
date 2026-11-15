@@ -7,6 +7,7 @@ import ModalRoot from 'mastodon/components/modal_root';
 
 let mockRequest;
 let mockPhase = 'loading';
+let mockFailure = null;
 let mockMe = '1';
 let mockToken = 'token';
 const mockSubscribers = new Set();
@@ -14,6 +15,7 @@ const mockState = {
   getIn: path => {
     const key = path.join('.');
     if (key === 'emojiMutes.phase') return mockPhase;
+    if (key === 'emojiMutes.failure') return mockFailure;
     if (key === 'meta.me') return mockMe;
     if (key === 'meta.access_token') return mockToken;
     return undefined;
@@ -114,6 +116,7 @@ import { getEmojiActionsOverlayRoot } from 'mastodon/features/emoji/emoji_action
 // Mastodon creates its store during module evaluation. Load it only after
 // the mock store and subscriber registry above have been initialized.
 const Mastodon = require('../mastodon').default;
+const { syncEmojiMutes } = require('mastodon/actions/emoji_mutes');
 
 const clock = { now: 1_000_000 };
 
@@ -150,6 +153,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     clock.now = 1_000_000;
     jest.spyOn(Date, 'now').mockImplementation(() => clock.now);
     mockDispatch.mockClear();
+    syncEmojiMutes.mockClear();
     mockStartSubscriptions.mockClear();
     mockUiMounts.mockClear();
     mockUiUnmounts.mockClear();
@@ -157,6 +161,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     mockSubscribers.clear();
     mockRequest = deferred();
     mockPhase = 'loading';
+    mockFailure = null;
     mockMe = '1';
     mockToken = 'token';
   });
@@ -184,6 +189,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     const view = render(<Mastodon locale='en' />);
 
     expect(view.queryByTestId('webui')).toBeNull();
+    expect(syncEmojiMutes).toHaveBeenCalledWith({ bootstrap: true });
     expect(view.getByText('Loading emoji mute settings…')).not.toBeNull();
     expect(mockStartSubscriptions).not.toHaveBeenCalled();
     expect(mockUiMounts).not.toHaveBeenCalled();
@@ -282,6 +288,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     mockRequest = deferred();
     allowRetry();
     fireEvent.click(view.getByText('Retry loading settings'));
+    expect(syncEmojiMutes).toHaveBeenLastCalledWith({ bootstrap: false });
     expect(view.queryByTestId('webui')).toBeNull();
 
     await bootReady();
@@ -308,6 +315,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     mockRequest = deferred();
     allowRetry();
     fireEvent.click(view.getByText('Retry loading settings'));
+    expect(syncEmojiMutes).toHaveBeenLastCalledWith({ bootstrap: true });
     await bootReady();
 
     expect(view.queryByTestId('webui')).not.toBeNull();
@@ -391,6 +399,26 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(forbiddenView.queryByText('Retry loading settings')).toBeNull();
     expect(forbiddenView.queryByText('Reload and sign in')).toBeNull();
     forbiddenView.unmount();
+  });
+
+  it('shows the sign-in gate when a ready session is rejected by the store', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await bootReady();
+    const ui = view.getByTestId('webui');
+
+    mockFailure = 'unauthorized';
+    await phaseChanged('error');
+
+    expect(view.queryByTestId('webui')).toBeNull();
+    expect(view.getByText(/session expired/i)).not.toBeNull();
+    expect(view.queryByText('Retry loading settings')).toBeNull();
+    expect(mockUiUnmounts).not.toHaveBeenCalled();
+
+    mockFailure = null;
+    await phaseChanged('ready');
+    expect(view.getByTestId('webui')).toBe(ui);
+    expect(mockUiMounts).toHaveBeenCalledTimes(1);
+    view.unmount();
   });
 
   it('ignores a retry click until the quiet period has elapsed, then allows one', async () => {
