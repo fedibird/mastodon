@@ -40,8 +40,30 @@ jq -e --arg expected "$expected" --arg property "$property" --arg profile "$prof
     then .fedibirdGroupProtocols==[$profile] and has_protocol_context
     else (has("fedibirdGroupProtocols")|not) and (has_protocol_context|not)
    end)
-' "$actor" >/dev/null ||
-  { echo "FAIL: mismatched $expected Actor shape; inspect $actor" >&2; exit 1; }
+' "$actor" >/dev/null || {
+  echo "FAIL: mismatched $expected Actor shape; inspect $actor" >&2
+  echo "Diagnostic summary (no public-key material shown):" >&2
+  jq '(. as $actor |
+    {
+      id: .id,
+      type: .type,
+      publicKeyPresent: has("publicKey"),
+      fedibirdGroupProtocols: (.fedibirdGroupProtocols // null),
+      protocolContext: [
+        (."@context" |
+          if type == "array" then .[] else . end) |
+          objects |
+          .fedibirdGroupProtocols |
+          select(. != null)
+      ],
+      unexpectedPrivilegeFields: (
+        ["canPost", "viewerCapabilities", "roles", "affiliations", "groupProtocols"] |
+        map(select(. as $key | $actor | has($key)))
+      )
+    }
+  )' "$actor" >&2 || true
+  exit 1
+}
 
 if [[ -n ${BASELINE_JSON:-} ]]; then
   [[ -f $BASELINE_JSON ]] || { echo 'ERROR: missing BASELINE_JSON' >&2; exit 2; }
