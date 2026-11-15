@@ -2,6 +2,8 @@
 
 import { act, fireEvent, render } from '@testing-library/react';
 import React from 'react';
+import { DropdownMenu } from 'mastodon/components/dropdown_menu';
+import ModalRoot from 'mastodon/components/modal_root';
 
 let mockRequest;
 let mockPhase = 'loading';
@@ -113,6 +115,8 @@ import { getEmojiActionsOverlayRoot } from 'mastodon/features/emoji/emoji_action
 // the mock store and subscriber registry above have been initialized.
 const Mastodon = require('../mastodon').default;
 
+const clock = { now: 1_000_000 };
+
 const deferred = () => {
   let resolve;
   let reject;
@@ -143,6 +147,8 @@ const bootReady = async () => {
 
 describe('authenticated emoji mute bootstrap and revision gate', () => {
   beforeEach(() => {
+    clock.now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => clock.now);
     mockDispatch.mockClear();
     mockStartSubscriptions.mockClear();
     mockUiMounts.mockClear();
@@ -154,6 +160,25 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     mockMe = '1';
     mockToken = 'token';
   });
+
+  afterEach(() => {
+    Date.now.mockRestore();
+  });
+
+  const allowRetry = () => {
+    clock.now += 1000;
+  };
+
+  const rejectBootstrap = async error => {
+    await act(async () => {
+      mockRequest.reject(error);
+      try {
+        await mockRequest.promise;
+      } catch (_) {
+        // The bootstrap handler owns the error.
+      }
+    });
+  };
 
   it('does not mount the WebUI before an authoritative mute document is loaded', async () => {
     const view = render(<Mastodon locale='en' />);
@@ -255,6 +280,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(view.getByText(/could not be verified/)).not.toBeNull();
 
     mockRequest = deferred();
+    allowRetry();
     fireEvent.click(view.getByText('Retry loading settings'));
     expect(view.queryByTestId('webui')).toBeNull();
 
@@ -280,10 +306,106 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(view.getByText(/could not be verified/)).not.toBeNull();
 
     mockRequest = deferred();
+    allowRetry();
     fireEvent.click(view.getByText('Retry loading settings'));
     await bootReady();
 
     expect(view.queryByTestId('webui')).not.toBeNull();
+    view.unmount();
+  });
+
+  it('keeps Tab on the retry control while an open menu and modal are detached', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await bootReady();
+
+    const portal = document.querySelector('.emoji-mutes-privacy-portal');
+    const menuHolder = document.createElement('div');
+    const modalHolder = document.createElement('div');
+    portal.appendChild(menuHolder);
+    portal.appendChild(modalHolder);
+    function closeMenu() {}
+    function chooseMenuItem() {}
+    function closeModal() {}
+    const menu = render(
+      <DropdownMenu items={[{ text: 'Hide emoji' }]} onClose={closeMenu} onItemClick={chooseMenuItem} />,
+      { container: menuHolder },
+    );
+    const modal = render(
+      <ModalRoot onClose={closeModal}><button type='button'>Inside modal</button></ModalRoot>,
+      { container: modalHolder },
+    );
+    menu.getByText('Hide emoji').focus();
+
+    await phaseChanged('error');
+
+    const retry = view.getByRole('button', { name: 'Retry loading settings' });
+    expect(menuHolder.isConnected).toBe(false);
+    expect(modalHolder.isConnected).toBe(false);
+    expect(document.body.contains(retry)).toBe(true);
+
+    const menuTab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    document.dispatchEvent(menuTab);
+    const modalTab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    window.dispatchEvent(modalTab);
+    expect(menuTab.defaultPrevented).toBe(false);
+    expect(modalTab.defaultPrevented).toBe(false);
+
+    retry.focus();
+    expect(document.activeElement).toBe(retry);
+
+    await phaseChanged('ready');
+    expect(menuHolder.isConnected).toBe(true);
+    expect(modalHolder.isConnected).toBe(true);
+
+    const restoredModalTab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    window.dispatchEvent(restoredModalTab);
+    expect(restoredModalTab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(modal.getByText('Inside modal'));
+
+    modal.unmount();
+    const restoredTab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    document.dispatchEvent(restoredTab);
+    expect(restoredTab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(menu.getByText('Hide emoji'));
+
+    menu.unmount();
+    view.unmount();
+  });
+
+  it('sends an expired session to sign-in and a forbidden token to an explanation', async () => {
+    const unauthorized = render(<Mastodon locale='en' />);
+    const denied = Object.assign(new Error('unauthorized'), { response: { status: 401 } });
+    await rejectBootstrap(denied);
+
+    expect(unauthorized.queryByTestId('webui')).toBeNull();
+    expect(unauthorized.getByText(/session expired/i)).not.toBeNull();
+    expect(unauthorized.getByText('Reload and sign in')).not.toBeNull();
+    expect(unauthorized.queryByText('Retry loading settings')).toBeNull();
+    unauthorized.unmount();
+
+    mockRequest = deferred();
+    const forbiddenView = render(<Mastodon locale='en' />);
+    await rejectBootstrap(Object.assign(new Error('forbidden'), { response: { status: 403 } }));
+
+    expect(forbiddenView.getByText(/cannot read emoji mute settings/i)).not.toBeNull();
+    expect(forbiddenView.queryByText('Retry loading settings')).toBeNull();
+    expect(forbiddenView.queryByText('Reload and sign in')).toBeNull();
+    forbiddenView.unmount();
+  });
+
+  it('ignores a retry click until the quiet period has elapsed, then allows one', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await rejectBootstrap(new Error('offline'));
+
+    const callsBefore = mockDispatch.mock.calls.filter(call => typeof call[0] === 'function').length;
+    fireEvent.click(view.getByText('Retry loading settings'));
+    expect(mockDispatch.mock.calls.filter(call => typeof call[0] === 'function').length).toBe(callsBefore);
+
+    allowRetry();
+    mockRequest = deferred();
+    fireEvent.click(view.getByText('Retry loading settings'));
+    expect(mockDispatch.mock.calls.filter(call => typeof call[0] === 'function').length).toBe(callsBefore + 1);
+    expect(view.queryByText('Retry loading settings')).toBeNull();
     view.unmount();
   });
 

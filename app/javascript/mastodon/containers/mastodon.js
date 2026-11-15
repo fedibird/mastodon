@@ -14,6 +14,7 @@ import { hydrateStore } from '../actions/store';
 import { startMastodonSubscriptions } from './mastodon_subscriptions';
 import { IntlProvider, addLocaleData, FormattedMessage } from 'react-intl';
 import { syncEmojiMutes, invalidateEmojiMuteAsyncWork, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
+import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
 import { resetEmojiMuteSession } from '../features/emoji/emoji_mute_store';
 import { setEmojiActionsOverlayPrivacyContainer } from '../features/emoji/emoji_actions/overlay_root';
 import { getLocale } from '../locales';
@@ -37,6 +38,9 @@ preloadEmojiPickersIfNeeded(undefined, undefined, () => store.dispatch(ensureCus
 // initialization so every cached status and mute projection belongs to one
 // viewer.
 const signedIn = !!(initialState?.meta?.me || initialState?.meta?.access_token);
+// A failed network read can be repeated. Ignore clicks until this quiet
+// period has elapsed so a held button cannot queue a burst of GETs.
+const EMOJI_MUTE_RETRY_COOLDOWN_MS = 1000;
 const sessionMatches = state => {
   if (!state || typeof state.getIn !== 'function') {
     return true;
@@ -55,6 +59,7 @@ export default class Mastodon extends React.PureComponent {
 
   state = {
     emojiMuteBoot: signedIn ? 'loading' : 'ready',
+    emojiMuteFailure: null,
   };
 
   // Consecutive Redux actions may be batched before React commits setState.
@@ -95,6 +100,13 @@ export default class Mastodon extends React.PureComponent {
 
     const active = document.activeElement;
     this.savedUiFocus = active && this.uiPortalRoot.contains(active) ? active : null;
+
+    // Leave focus in the visible document. A detached menu or dialog must
+    // not remain the active element, or Tab never reaches the retry controls.
+    if (this.savedUiFocus && typeof this.savedUiFocus.blur === 'function') {
+      this.savedUiFocus.blur();
+    }
+
     this.uiPortalHost.removeChild(this.uiPortalRoot);
   };
 
@@ -245,7 +257,10 @@ export default class Mastodon extends React.PureComponent {
         this.detachUiPortal();
       }
 
-      this.setState({ emojiMuteBoot: next }, () => {
+      this.setState({
+        emojiMuteBoot: next,
+        emojiMuteFailure: next === 'error' ? (state.getIn(['emojiMutes', 'failure']) || 'unavailable') : null,
+      }, () => {
         if (next === 'ready' && this.mounted && !this.sessionChanged) {
           this.scheduleUiPortalRestore();
         }
@@ -254,13 +269,25 @@ export default class Mastodon extends React.PureComponent {
   };
 
   bootstrapEmojiMutes = () => {
+    if (this.emojiMuteRequestInFlight || Date.now() < (this.retryReadyAt || 0)) {
+      return;
+    }
+
     const generation = (this.bootstrapGeneration || 0) + 1;
     this.bootstrapGeneration = generation;
+    this.emojiMuteRequestInFlight = true;
+    this.retryReadyAt = 0;
     this.requestedBootPhase = 'loading';
-    this.setState({ emojiMuteBoot: 'loading' });
+    this.setState({ emojiMuteBoot: 'loading', emojiMuteFailure: null });
 
     store.dispatch(syncEmojiMutes({ bootstrap: true })).then(() => {
-      if (!this.mounted || this.sessionChanged || generation !== this.bootstrapGeneration) {
+      if (generation !== this.bootstrapGeneration) {
+        return;
+      }
+
+      this.emojiMuteRequestInFlight = false;
+
+      if (!this.mounted || this.sessionChanged) {
         return;
       }
 
@@ -269,8 +296,12 @@ export default class Mastodon extends React.PureComponent {
       // is not permission to reveal the hydrated timeline.
       const phase = store.getState().getIn(['emojiMutes', 'phase']);
       if (phase !== 'ready') {
+        const failure = store.getState().getIn(['emojiMutes', 'failure']) || 'unavailable';
         this.requestedBootPhase = 'error';
-        this.setState({ emojiMuteBoot: 'error' });
+        if (failure === 'unavailable') {
+          this.retryReadyAt = Date.now() + EMOJI_MUTE_RETRY_COOLDOWN_MS;
+        }
+        this.setState({ emojiMuteBoot: 'error', emojiMuteFailure: failure });
         return;
       }
 
@@ -284,7 +315,7 @@ export default class Mastodon extends React.PureComponent {
       }
 
       this.requestedBootPhase = 'ready';
-      this.setState({ emojiMuteBoot: 'ready' }, () => {
+      this.setState({ emojiMuteBoot: 'ready', emojiMuteFailure: null }, () => {
         if (!initialMount) {
           // An existing UI holds old HTML. It must remain detached until
           // the fresh Redux document has propagated to its display nodes.
@@ -292,12 +323,26 @@ export default class Mastodon extends React.PureComponent {
         }
         this.startSubscriptions();
       });
-    }).catch(() => {
-      if (this.mounted && !this.sessionChanged && generation === this.bootstrapGeneration) {
-        this.bootstrapComplete = true;
-        this.requestedBootPhase = 'error';
-        this.setState({ emojiMuteBoot: 'error' });
+    }).catch(error => {
+      if (generation !== this.bootstrapGeneration) {
+        return;
       }
+
+      this.emojiMuteRequestInFlight = false;
+
+      if (!this.mounted || this.sessionChanged) {
+        return;
+      }
+
+      const failure = classifyEmojiMuteFetchError(error);
+      this.bootstrapComplete = true;
+      this.requestedBootPhase = 'error';
+
+      if (failure === 'unavailable') {
+        this.retryReadyAt = Date.now() + EMOJI_MUTE_RETRY_COOLDOWN_MS;
+      }
+
+      this.setState({ emojiMuteBoot: 'error', emojiMuteFailure: failure });
     });
   };
 
@@ -330,6 +375,19 @@ export default class Mastodon extends React.PureComponent {
             <FormattedMessage id='emoji_mutes.session_reload' defaultMessage='Reload the page' />
           </button>
         </React.Fragment>
+      );
+    } else if (this.state.emojiMuteFailure === 'unauthorized') {
+      bootContent = (
+        <React.Fragment>
+          <p><FormattedMessage id='emoji_mutes.bootstrap_unauthorized' defaultMessage='Your session expired. Reload the page and sign in again. Posts stay hidden until then.' /></p>
+          <button type='button' onClick={this.reloadPage}>
+            <FormattedMessage id='emoji_mutes.bootstrap_sign_in' defaultMessage='Reload and sign in' />
+          </button>
+        </React.Fragment>
+      );
+    } else if (this.state.emojiMuteFailure === 'forbidden') {
+      bootContent = (
+        <p><FormattedMessage id='emoji_mutes.bootstrap_forbidden' defaultMessage='This account cannot read emoji mute settings. Posts stay hidden.' /></p>
       );
     } else {
       bootContent = (

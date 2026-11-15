@@ -65,6 +65,13 @@ export class DropdownMenu extends React.PureComponent {
   }
 
   handleKeyDown = e => {
+    // A detached privacy portal keeps this listener, but Tab must reach the
+    // retry controls in the visible document. The trap resumes when the same
+    // menu node is attached again.
+    if (!this.node || !this.node.isConnected) {
+      return;
+    }
+
     const items = Array.from(this.node.querySelectorAll(
       '.dropdown-menu__item a:not([aria-disabled="true"]), .dropdown-menu__item button:not([aria-disabled="true"])',
     ));

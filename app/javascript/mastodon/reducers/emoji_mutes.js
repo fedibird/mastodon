@@ -8,6 +8,7 @@ const initialState = ImmutableMap({
   revision: null,
   appliedRevision: null,
   phase: 'loading',
+  failure: null,
   rules: ImmutableList(),
 });
 
@@ -51,7 +52,8 @@ const applyDocument = (state, action, items) => {
     .set('revision', newer(incoming, observed) ? incoming : observed || incoming)
     .set('appliedRevision', incoming)
     .set('rules', fromJS(items || []))
-    .set('phase', 'ready');
+    .set('phase', 'ready')
+    .set('failure', null);
 };
 
 export default function emojiMutes(state = initialState, action) {
@@ -61,10 +63,10 @@ export default function emojiMutes(state = initialState, action) {
   case EMOJI_MUTES_LOAD:
     // Revalidation of an already current document need not hide the UI.
     return action.verify || state.get('appliedRevision') === null || older(state.get('appliedRevision'), state.get('revision'))
-      ? state.set('phase', 'loading')
+      ? state.set('phase', 'loading').set('failure', null)
       : state;
   case EMOJI_MUTES_FAIL:
-    return state.set('phase', 'error');
+    return state.set('phase', 'error').set('failure', action.failure === 'unauthorized' || action.failure === 'forbidden' ? action.failure : 'unavailable');
   case EMOJI_MUTES_IMPORT:
     return applyDocument(state, action, action.rules);
   case EMOJI_MUTES_APPLY:

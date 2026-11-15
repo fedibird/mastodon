@@ -84,11 +84,39 @@ describe('emoji mute async safety (B5)', () => {
       expect.objectContaining({ timeout: 20000 }),
     );
     expect(state.get('phase')).toBe('error');
+    expect(state.get('failure')).toBe('unavailable');
     expect(emojiMuteDocumentReady()).toBe(false);
 
     api().get.mockResolvedValueOnce({ data: { revision: '1', emoji_mutes: [] } });
     await syncEmojiMutes({ bootstrap: true })(dispatch, getState);
     expect(state.get('phase')).toBe('ready');
+  });
+
+  it('records 401 and 403 separately from a retryable network failure', async () => {
+    const run = async error => {
+      resetEmojiMuteStoreForTests();
+      let state = reducer(undefined, { type: '@@INIT' });
+      const dispatch = action => {
+        if (typeof action === 'function') {
+          return action(dispatch, () => ImmutableMap({ emojiMutes: state }));
+        }
+
+        state = reducer(state, action);
+        return action;
+      };
+
+      api().get.mockRejectedValueOnce(error);
+      await expect(syncEmojiMutes({ bootstrap: true })(dispatch, () => ImmutableMap({ emojiMutes: state }))).rejects.toBe(error);
+      return state;
+    };
+
+    const unauthorized = Object.assign(new Error('unauthorized'), { response: { status: 401 } });
+    const forbidden = Object.assign(new Error('forbidden'), { response: { status: 403 } });
+    const offline = new Error('offline');
+
+    expect((await run(unauthorized)).get('failure')).toBe('unauthorized');
+    expect((await run(forbidden)).get('failure')).toBe('forbidden');
+    expect((await run(offline)).get('failure')).toBe('unavailable');
   });
 
   it('discards the late first GET when a newer streamed revision wins', async () => {
@@ -171,6 +199,8 @@ describe('emoji mute async safety (B5)', () => {
 
     expect(reducer(state, { type: EMOJI_MUTES_APPLY, revision: '1', mutes: [] })).toBe(state);
     expect(reducer(state, { type: EMOJI_MUTES_FAIL }).get('phase')).toBe('error');
+    expect(reducer(state, { type: EMOJI_MUTES_FAIL, failure: 'unauthorized' }).get('failure')).toBe('unauthorized');
+    expect(reducer(state, { type: EMOJI_MUTES_FAIL, failure: 'forbidden' }).get('failure')).toBe('forbidden');
     expect(reducer(state, { type: EMOJI_MUTES_RESET })).toEqual(reducer(undefined, { type: '@@INIT' }));
   });
 

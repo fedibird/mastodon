@@ -25,6 +25,10 @@ export default class ModalRoot extends React.PureComponent {
   activeElement = this.props.children ? document.activeElement : null;
 
   handleKeyUp = (e) => {
+    if (!this.node || !this.node.isConnected) {
+      return;
+    }
+
     if (consumeEmojiPickerEscape(e)) {
       return;
     }
@@ -36,6 +40,13 @@ export default class ModalRoot extends React.PureComponent {
   }
 
   handleKeyDown = (e) => {
+    // While the WebUI portal is detached, this window listener must not trap
+    // Tab or move focus onto the hidden dialog. Reattaching the same node
+    // makes the dialog participate again.
+    if (!this.node || !this.node.isConnected) {
+      return;
+    }
+
     if (e.key === 'Tab') {
       const focusable = Array.from(this.node.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter((x) => window.getComputedStyle(x).display !== 'none');
       const index = focusable.indexOf(e.target);

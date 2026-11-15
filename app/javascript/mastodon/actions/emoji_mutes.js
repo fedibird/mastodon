@@ -15,6 +15,9 @@ import {
   observedEmojiMuteRevision,
 } from '../features/emoji/emoji_mute_store';
 import { hideReactionSignature, hideSignatureGrew, hideSignatureShrunk, revisionStale } from '../features/emoji/emoji_mute_projection';
+import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
+
+export { classifyEmojiMuteFetchError };
 
 export const EMOJI_MUTES_IMPORT = 'EMOJI_MUTES_IMPORT';
 export const EMOJI_MUTES_REVISION = 'EMOJI_MUTES_REVISION';
@@ -574,7 +577,7 @@ export function syncEmojiMutes(options = {}) {
       })(dispatch, getState);
     }).catch(error => {
       if (generation === documentSyncGeneration && (options.verify === true || !emojiMuteDocumentReady())) {
-        dispatch({ type: EMOJI_MUTES_FAIL });
+        dispatch({ type: EMOJI_MUTES_FAIL, failure: classifyEmojiMuteFetchError(error) });
       }
 
       throw error;
