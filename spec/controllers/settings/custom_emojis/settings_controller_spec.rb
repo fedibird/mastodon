@@ -43,7 +43,7 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
       enable_reaction compact_reaction hide_reaction_counter disable_reaction_streaming
       card_reactions_single_line hide_list_of_emoji_reactions_to_posts
       enable_wide_emoji_reaction content_emoji_reaction_size
-      disable_auto_focus_to_emoji_search emoji_picker_disable_personal
+      disable_auto_focus_to_emoji_search emoji_picker_disable_personal emoji_picker_disable_standard
       emoji_picker_prefer_personal emoji_picker_lazy_load_standard emoji_picker_disable_actions max_frequently_used_emojis
     ).each do |key|
       expect(response.body).to include("user_setting_#{key}")
@@ -51,12 +51,13 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
     expect(response.body).to include(settings_custom_emojis_personal_set_path)
   end
 
-  it 'defaults the four picker switches off while preserving explicit saved choices' do
+  it 'defaults the five picker switches off while preserving explicit saved choices' do
     get :show
 
     page = Nokogiri::HTML(response.body)
     %w(
       emoji_picker_disable_personal
+      emoji_picker_disable_standard
       emoji_picker_prefer_personal
       emoji_picker_lazy_load_standard
       emoji_picker_disable_actions
@@ -89,7 +90,8 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
 
     [
       '個人セットを使用しない',
-      '標準のMastodonのように、標準ピッカーのみを使用します。動作が軽量になります。反映にはページの再読み込みが必要です。',
+      '標準ピッカーを使用しない',
+      '個人セットのみ利用できます。個人セットも無効なら、絵文字リアクションの追加もできません。',
       '絵文字ピッカーの構築を呼び出し時まで遅延させる',
       '有効にすると絵文字の使用頻度が低い場合にリソースの節約になりますが、ピッカー起動時の動作が遅くなります。',
       '絵文字ピッカーの動作がおかしい場合は無効化をお試しください。',
@@ -108,6 +110,7 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
       setting_hide_reaction_counter: '1',
       setting_card_reactions_single_line: '0',
       setting_emoji_picker_lazy_load_standard: '1',
+      setting_emoji_picker_disable_standard: '1',
       setting_emoji_picker_disable_actions: '1',
       setting_max_frequently_used_emojis: '16',
     } }
@@ -120,6 +123,7 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
     expect(user.setting_hide_reaction_counter).to be true
     expect(user.setting_card_reactions_single_line).to be false
     expect(user.setting_emoji_picker_lazy_load_standard).to be true
+    expect(user.setting_emoji_picker_disable_standard).to be true
     expect(user.setting_emoji_picker_disable_actions).to be true
     expect(user.setting_max_frequently_used_emojis.to_i).to eq 16
   end
@@ -139,6 +143,30 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
 
     put :update, params: { user: { setting_emoji_picker_disable_personal: '0' } }
     expect(user.reload.setting_emoji_picker_disable_personal).to be false
+    expect(user.setting_emoji_picker_prefer_personal).to be true
+  end
+
+  it 'preserves the personal priority setting while standard-only mode is disabled' do
+    put :update, params: { user: {
+      setting_emoji_picker_disable_standard: '1',
+      setting_emoji_picker_prefer_personal: '1',
+    } }
+    expect(response).to redirect_to(settings_custom_emojis_settings_path)
+    expect(user.reload.setting_emoji_picker_disable_standard).to be true
+    expect(user.setting_emoji_picker_prefer_personal).to be true
+
+    get :show
+    expect(response.body).not_to include('user_setting_emoji_picker_prefer_personal')
+    expect(response.body).to include(settings_custom_emojis_personal_set_path)
+
+    put :update, params: { user: { setting_emoji_picker_disable_personal: '1' } }
+    expect(response).to redirect_to(settings_custom_emojis_settings_path)
+    get :show
+    expect(response.body).to include('user_setting_emoji_picker_disable_standard')
+    expect(response.body).not_to include(settings_custom_emojis_personal_set_path)
+
+    put :update, params: { user: { setting_emoji_picker_disable_standard: '0', setting_emoji_picker_disable_personal: '0' } }
+    expect(user.reload.setting_emoji_picker_disable_standard).to be false
     expect(user.setting_emoji_picker_prefer_personal).to be true
   end
 
