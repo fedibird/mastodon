@@ -52,6 +52,7 @@ import circles from './circles';
 import circleEditor from './circle_editor';
 import circleAdder from './circle_adder';
 import filters from './filters';
+import filterClock from './filter_clock';
 import filterMatches from './filter_matches';
 import { maintainFilterMatchContent } from './filter_match_lifecycle';
 import { FILTERS_IMPORT } from '../actions/importer';
@@ -129,6 +130,7 @@ const reducers = {
   circleEditor,
   circleAdder,
   filters,
+  filterClock,
   filterMatches,
   conversations,
   suggestions,

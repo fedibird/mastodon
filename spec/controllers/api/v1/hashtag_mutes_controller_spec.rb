@@ -83,6 +83,23 @@ RSpec.describe Api::V1::HashtagMutesController, type: :controller do
       expect(response).to have_http_status(404)
       expect(foreign.reload.expires_at).to be_within(1.second).of(foreign_expiry)
     end
+
+    it 'restores hide and can leave the current end time in place' do
+      filter = HashtagMutes::UpsertService.new.call(user.account, name: '番組', expires_in: 2.hours.to_i)
+      filter.update!(action: :warn, context: %w(home thread))
+      expiry = filter.expires_at
+      Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: '別件')
+
+      put :update, params: { id: filter.id, preserve_expiry: true, expires_in: 5.minutes.to_i }
+
+      expect(response).to have_http_status(200)
+      filter.reload
+      expect(filter.action).to eq 'hide'
+      expect(filter.context).to eq %w(home thread)
+      expect(filter.expires_at).to be_within(1.second).of(expiry)
+      expect(filter.keywords.pluck(:keyword)).to eq ['別件']
+      expect(body_as_json[:filter_action]).to eq 'hide'
+    end
   end
 
   describe 'DELETE #destroy' do
@@ -96,6 +113,21 @@ RSpec.describe Api::V1::HashtagMutesController, type: :controller do
       expect(response).to have_http_status(200)
       expect(CustomFilter.where(account: user.account)).to be_empty
       expect(CustomFilterTag.where(account: user.account)).to be_empty
+    end
+
+    it 'removes only the tag when the filter also has a keyword or an individual post' do
+      filter = HashtagMutes::UpsertService.new.call(user.account, name: '番組', expires_in: 300)
+      Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: '別件')
+      status = Fabricate(:status, account: user.account)
+      Fabricate(:custom_filter_status, custom_filter: filter, status: status)
+
+      delete :destroy, params: { id: filter.id }
+
+      expect(response).to have_http_status(200)
+      kept = CustomFilter.find(filter.id)
+      expect(kept.keywords.pluck(:keyword)).to eq ['別件']
+      expect(kept.statuses.pluck(:status_id)).to eq [status.id]
+      expect(kept.filter_tags).to be_empty
     end
   end
 end

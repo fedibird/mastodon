@@ -35,12 +35,12 @@ export const muteHashtag = (name, expiresIn) => (dispatch, getState) => {
   });
 };
 
-export const updateHashtagMute = (id, expiresIn) => (dispatch, getState) => {
+export const updateHashtagMute = (id, expiresIn, options = {}) => (dispatch, getState) => {
   dispatch({ type: HASHTAG_MUTE_REQUEST, skipLoading: true });
 
-  return api(getState).put(`/api/v1/hashtag_mutes/${id}`, {
-    expires_in: expiresIn || null,
-  }).then(response => {
+  const payload = options.preserveExpiry ? { preserve_expiry: true } : { expires_in: expiresIn || null };
+
+  return api(getState).put(`/api/v1/hashtag_mutes/${id}`, payload).then(response => {
     dispatch({ type: HASHTAG_MUTE_SUCCESS, filter: response.data, skipLoading: true });
     return refreshAfterChange(dispatch, getState, response.data);
   }).catch(error => {

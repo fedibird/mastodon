@@ -17,12 +17,17 @@ class Api::V1::HashtagMutesController < Api::BaseController
 
   def update
     name = @filter.filter_tags.pick(:name)
-    filter = HashtagMutes::UpsertService.new.call(current_account, name: name, expires_in: mute_params[:expires_in])
+    filter = HashtagMutes::UpsertService.new.call(
+      current_account,
+      name: name,
+      expires_in: mute_params[:expires_in],
+      preserve_expiry: preserve_expiry?
+    )
     render json: filter, serializer: REST::FilterSerializer, rules_requested: true
   end
 
   def destroy
-    @filter.destroy!
+    HashtagMutes::RemoveService.new.call(@filter)
     render_empty
   end
 
@@ -37,6 +42,10 @@ class Api::V1::HashtagMutesController < Api::BaseController
   end
 
   def mute_params
-    params.permit(:name, :expires_in)
+    params.permit(:name, :expires_in, :preserve_expiry)
+  end
+
+  def preserve_expiry?
+    ActiveModel::Type::Boolean.new.cast(mute_params[:preserve_expiry])
   end
 end

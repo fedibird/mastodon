@@ -5,22 +5,24 @@ class HashtagMutes::UpsertService < BaseService
   # Expiry is stored on CustomFilter and applied by comparing expires_at with
   # the current time, so extending or clearing it cannot be undone by an
   # older scheduled job.
-  def call(account, name:, expires_in:)
+  # preserve_expiry keeps the stored end time. An explicit mute still
+  # forces hide. Context, keywords, and individual posts stay as they are.
+  def call(account, name:, expires_in: nil, preserve_expiry: false)
     normalized = CustomFilterTag.normalize_name(name)
     raise Mastodon::ValidationError, I18n.t('filters.errors.invalid_hashtag') if normalized.blank?
 
-    duration = normalize_duration(expires_in)
-    upsert_with_retry(account, normalized, duration, name)
+    duration = preserve_expiry ? nil : normalize_duration(expires_in)
+    upsert_with_retry(account, normalized, duration, name, preserve_expiry)
   end
 
   private
 
-  def upsert_with_retry(account, normalized, duration, raw_name)
+  def upsert_with_retry(account, normalized, duration, raw_name, preserve_expiry)
     attempt = 0
 
     begin
       attempt += 1
-      upsert!(account, normalized, duration, raw_name)
+      upsert!(account, normalized, duration, raw_name, preserve_expiry)
     rescue ActiveRecord::RecordNotUnique
       retry if attempt < 2
 
@@ -28,7 +30,7 @@ class HashtagMutes::UpsertService < BaseService
     end
   end
 
-  def upsert!(account, normalized, duration, raw_name)
+  def upsert!(account, normalized, duration, raw_name, preserve_expiry)
     ApplicationRecord.transaction do
       rule = CustomFilterTag.find_by(account_id: account.id, name: normalized)
 
@@ -36,7 +38,8 @@ class HashtagMutes::UpsertService < BaseService
                  rule.custom_filter.tap do |existing|
                    raise ActiveRecord::RecordNotFound if existing.nil? || existing.account_id != account.id
 
-                   existing.expires_in = duration
+                   existing.action = :hide
+                   existing.expires_in = duration unless preserve_expiry
                    existing.save!
                  end
                else

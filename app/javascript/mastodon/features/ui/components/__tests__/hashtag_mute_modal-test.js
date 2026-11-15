@@ -120,8 +120,34 @@ describe('HashtagMuteModal', () => {
     expect(screen.getByText('Conversations')).toBeTruthy();
     expect(screen.queryByText('Notifications')).toBeNull();
     expect(screen.getByText('Currently muted with no end time.')).toBeTruthy();
+    expect(screen.getByLabelText(/Duration/)).toHaveValue('');
 
     fireEvent.click(screen.getByRole('button', { name: 'Update mute' }));
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/v1/hashtag_mutes/9', { preserve_expiry: true }));
+    expect(mockPut).not.toHaveBeenCalledWith('/api/v1/hashtag_mutes/9', { expires_in: null });
+  });
+
+  it('keeps a chosen duration and tells a warn rule that updating hides posts', async () => {
+    mockGet.mockResolvedValue({
+      data: [{
+        id: '9',
+        title: '#番組',
+        context: ['home'],
+        filter_action: 'warn',
+        expires_at: '2030-01-01T00:00:00Z',
+        keywords: [],
+        statuses: [],
+        tags: [{ id: '1', name: '番組' }],
+      }],
+    });
+    renderModal();
+
+    await waitFor(() => expect(screen.getByLabelText(/Duration/)).toHaveValue(''));
+    expect(screen.getByText('This rule is set to warn. Updating it hides matching posts again.')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/Duration/), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update mute' }));
+
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/v1/hashtag_mutes/9', { expires_in: null }));
   });
 

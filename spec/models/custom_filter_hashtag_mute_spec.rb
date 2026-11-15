@@ -93,6 +93,28 @@ RSpec.describe CustomFilter, type: :model do # rubocop:disable Metrics/BlockLeng
     expect(queries.grep(/statuses_tags|FROM "tags"/i)).to be_empty
   end
 
+  it 'normalizes tags once when many tag rules are checked' do
+    tag_sql = /statuses_tags|FROM "tags"/i
+    one_status = tag_with(Fabricate(:status, account: author, text: 'hello'), '番組')
+    many_status = tag_with(Fabricate(:status, account: author, text: 'hello'), '番組')
+    preloaded = tag_with(Fabricate(:status, account: author, text: 'hello'), '番組')
+    Status.preload_cacheable_associations([preloaded])
+
+    mute(viewer, '番組')
+    one_cache = described_class.cached_filters_for(viewer.id)
+    Rails.cache.clear
+    20.times { |index| mute(viewer, "tag#{index}") }
+    many_cache = described_class.cached_filters_for(viewer.id)
+
+    one_queries = sql_queries { described_class.apply_cached_filters(one_cache, one_status) }
+    many_queries = sql_queries { described_class.apply_cached_filters(many_cache, many_status) }
+    preloaded_queries = sql_queries { described_class.apply_cached_filters(many_cache, preloaded) }
+
+    expect(many_queries.grep(tag_sql).size).to eq(one_queries.grep(tag_sql).size)
+    expect(preloaded_queries.grep(tag_sql)).to be_empty
+    expect(described_class.apply_cached_filters(many_cache, preloaded).map { |result| result.filter.phrase }).to eq ['#番組']
+  end
+
   it 'keeps one rule when the duration is extended or cleared, and leaves keyword filters alone' do
     keyword = Fabricate(:custom_filter, account: viewer, phrase: '番組', context: %w(home notifications public thread account))
     Fabricate(:custom_filter_keyword, custom_filter: keyword, keyword: '番組', whole_word: false)
@@ -137,6 +159,26 @@ RSpec.describe CustomFilter, type: :model do # rubocop:disable Metrics/BlockLeng
       expect(apply(viewer, status)).to be_empty
       expect(described_class.where(id: filter.id)).to exist
     end
+  end
+
+  it 'turns a warn rule back into hide without moving its context or keyword' do
+    filter = mute(viewer, '番組', expires_in: 2.hours.to_i)
+    filter.update!(action: :warn, context: %w(home))
+    Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: '別件')
+    expiry = filter.expires_at
+
+    kept = HashtagMutes::UpsertService.new.call(viewer, name: '番組', expires_in: 5.minutes.to_i, preserve_expiry: true)
+
+    expect(kept.id).to eq filter.id
+    expect(kept.reload.action).to eq 'hide'
+    expect(kept.context).to eq %w(home)
+    expect(kept.expires_at).to be_within(1.second).of(expiry)
+    expect(kept.keywords.pluck(:keyword)).to eq ['別件']
+
+    removed = HashtagMutes::RemoveService.new.call(kept)
+    expect(removed.id).to eq filter.id
+    expect(removed.filter_tags).to be_empty
+    expect(removed.keywords.pluck(:keyword)).to eq ['別件']
   end
 
   it 'rejects an empty name, an invalid character, and a duration outside the list' do

@@ -18,16 +18,19 @@ const messages = defineMessages({
   title: { id: 'hashtag_mute.title', defaultMessage: 'Mute #{name}?' },
   explanation: { id: 'hashtag_mute.explanation', defaultMessage: 'Posts that carry this hashtag exactly are hidden. The posts and the tag stay where they are. A longer tag, ordinary text, and the same text inside a URL are not this hashtag.' },
   duration: { id: 'hashtag_mute.duration', defaultMessage: 'Duration' },
-  currentUntil: { id: 'hashtag_mute.current_until', defaultMessage: 'Currently muted until {time}. The duration above starts from now.' },
+  currentUntil: { id: 'hashtag_mute.current_until', defaultMessage: 'Currently muted until {time}.' },
   currentIndefinite: { id: 'hashtag_mute.current_indefinite', defaultMessage: 'Currently muted with no end time.' },
   currentExpired: { id: 'hashtag_mute.current_expired', defaultMessage: 'This mute has expired, so matching posts are visible again.' },
+  keepDuration: { id: 'hashtag_mute.keep_duration', defaultMessage: 'Don\'t change' },
+  keepHint: { id: 'hashtag_mute.keep_hint', defaultMessage: 'Don\'t change leaves the current end time. Any other choice starts from now and hides matching posts.' },
+  restoreHide: { id: 'hashtag_mute.restore_hide', defaultMessage: 'This rule is set to warn. Updating it hides matching posts again.' },
   contextsLabel: { id: 'hashtag_mute.contexts_label', defaultMessage: 'Applies in' },
   home: { id: 'hashtag_mute.context.home', defaultMessage: 'Home and lists' },
   notifications: { id: 'hashtag_mute.context.notifications', defaultMessage: 'Notifications' },
   public: { id: 'hashtag_mute.context.public', defaultMessage: 'Public and other timelines' },
   thread: { id: 'hashtag_mute.context.thread', defaultMessage: 'Conversations' },
   account: { id: 'hashtag_mute.context.account', defaultMessage: 'Profiles' },
-  scopeNote: { id: 'hashtag_mute.scope_note', defaultMessage: 'Muting again changes the duration and keeps these places. A new mute applies in every place.' },
+  scopeNote: { id: 'hashtag_mute.scope_note', defaultMessage: 'Updating keeps these places. A new mute applies in every place.' },
   settings: { id: 'hashtag_mute.settings', defaultMessage: 'Change where this applies' },
   confirm: { id: 'hashtag_mute.confirm', defaultMessage: 'Mute' },
   update: { id: 'hashtag_mute.update', defaultMessage: 'Update mute' },
@@ -73,8 +76,8 @@ const mapDispatchToProps = dispatch => ({
     return dispatch(muteHashtag(name, expiresIn));
   },
 
-  onUpdate(id, expiresIn) {
-    return dispatch(updateHashtagMute(id, expiresIn));
+  onUpdate(id, expiresIn, options) {
+    return dispatch(updateHashtagMute(id, expiresIn, options));
   },
 
   onUnmute(id) {
@@ -96,19 +99,20 @@ class HashtagMuteModal extends React.PureComponent {
   };
 
   state = {
-    duration: 0,
+    duration: null,
+    durationChosen: false,
     ready: false,
     submitting: false,
   };
 
   componentDidMount() {
-    const ready = Promise.resolve(this.props.onLoad()).then(this.markReady, this.markReady);
+    return Promise.resolve(this.props.onLoad()).then(this.markReady, this.markReady);
+  }
 
-    if (this.durationSelect) {
+  componentDidUpdate(_prevProps, prevState) {
+    if (this.state.ready && !prevState.ready && this.durationSelect) {
       this.durationSelect.focus();
     }
-
-    return ready;
   }
 
   markReady = () => {
@@ -120,8 +124,21 @@ class HashtagMuteModal extends React.PureComponent {
   };
 
   handleDuration = (event) => {
-    this.setState({ duration: Number(event.target.value) });
+    const { value } = event.target;
+
+    this.setState({
+      durationChosen: true,
+      duration: value === '' ? null : Number(value),
+    });
   };
+
+  resolvedDuration() {
+    if (this.state.durationChosen) {
+      return this.state.duration;
+    }
+
+    return this.props.existing ? null : 0;
+  }
 
   contexts() {
     const { existing } = this.props;
@@ -133,9 +150,10 @@ class HashtagMuteModal extends React.PureComponent {
 
   handleConfirm = () => {
     const { existing, hashtag, onMute, onUpdate, onClose } = this.props;
+    const duration = this.resolvedDuration();
     const request = existing
-      ? onUpdate(existing.get('id'), this.state.duration)
-      : onMute(hashtag, this.state.duration);
+      ? onUpdate(existing.get('id'), duration, { preserveExpiry: duration === null })
+      : onMute(hashtag, duration);
 
     this.setState({ submitting: true });
 
@@ -190,8 +208,10 @@ class HashtagMuteModal extends React.PureComponent {
 
   render() {
     const { hashtag, existing, intl, onClose } = this.props;
-    const { duration, ready, submitting } = this.state;
+    const { ready, submitting } = this.state;
+    const duration = this.resolvedDuration();
     const busy = !ready || submitting;
+    const warns = existing && existing.get('filter_action') !== 'hide';
 
     return (
       <div className='modal-root__modal mute-modal' role='dialog' aria-modal='true' aria-labelledby='hashtag-mute-title'>
@@ -209,7 +229,10 @@ class HashtagMuteModal extends React.PureComponent {
               {': '}
             </label>
             {/* eslint-disable-next-line jsx-a11y/no-onchange */}
-            <select id='hashtag-mute-duration' ref={this.setDurationSelect} value={String(duration)} onChange={this.handleDuration}>
+            <select id='hashtag-mute-duration' ref={this.setDurationSelect} value={duration === null ? '' : String(duration)} onChange={this.handleDuration} disabled={!ready}>
+              {existing && (
+                <option value=''>{intl.formatMessage(messages.keepDuration)}</option>
+              )}
               {HASHTAG_MUTE_DURATIONS.map(seconds => (
                 <option key={seconds} value={String(seconds)}>
                   {seconds === 0 ? intl.formatMessage(messages.indefinite) : intl.formatMessage(DURATION_LABELS[seconds][0], { number: DURATION_LABELS[seconds][1] })}
@@ -217,6 +240,8 @@ class HashtagMuteModal extends React.PureComponent {
               ))}
             </select>
           </div>
+          {existing && <p className='mute-modal__explanation'>{intl.formatMessage(messages.keepHint)}</p>}
+          {warns && <p className='mute-modal__explanation'>{intl.formatMessage(messages.restoreHide)}</p>}
           <p id='hashtag-mute-contexts-label'>{intl.formatMessage(messages.contextsLabel)}</p>
           <ul className='mute-modal__contexts' aria-labelledby='hashtag-mute-contexts-label'>
             {this.contexts().map(context => (

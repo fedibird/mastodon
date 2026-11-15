@@ -188,6 +188,7 @@ const candidateStatusIds = (status) => {
 const filteredResultsForStatus = (status, cachedFilters, now = new Date()) => {
   const searchIndex = searchIndexFromStatus(status);
   const statusIds = candidateStatusIds(status);
+  const tagNames = tagNamesForStatus(status);
   const filtered = [];
 
   Object.values(cachedFilters).forEach((cachedFilter) => {
@@ -197,7 +198,6 @@ const filteredResultsForStatus = (status, cachedFilters, now = new Date()) => {
 
     const keyword_matches = cachedFilter.regexp ? searchIndex.match(cachedFilter.regexp) : null;
     const status_matches = (cachedFilter.statusIds || []).filter(id => statusIds.includes(String(id)));
-    const tagNames = tagNamesForStatus(status);
     const tag_matches = (cachedFilter.tagNames || []).filter(name => tagNames.has(name));
 
     if (!keyword_matches && status_matches.length === 0 && tag_matches.length === 0) {

@@ -105,13 +105,14 @@ def self.cached_filters_for(account_id)
 
   def self.apply_cached_filters(cached_filters, status, filterable_status: status.proper)
     filterable_text = filterable_status.filterable_text
+    tag_names = tag_names_for_rules(cached_filters, status, filterable_status)
 
     cached_filters.filter_map do |filter, rules|
       match = rules[:keywords].match(filterable_text) if rules[:keywords].present?
       keyword_matches = [match.to_s] unless match.nil?
 
       status_matches = [status.id, status.reblog_of_id].compact & rules[:status_ids] if rules[:status_ids].present?
-      tag_matches = tag_matches_for(rules[:tag_names], status, filterable_status)
+      tag_matches = tag_matches_for(rules[:tag_names], tag_names)
 
       next if keyword_matches.blank? && status_matches.blank? && tag_matches.blank?
 
@@ -119,10 +120,15 @@ def self.cached_filters_for(account_id)
     end
   end
 
-  def self.tag_matches_for(expected, status, filterable_status)
-    return [] if expected.blank?
+  def self.tag_names_for_rules(cached_filters, status, filterable_status)
+    return {} unless cached_filters.any? { |_, rules| rules[:tag_names].present? }
 
-    names = normalized_status_tag_names(tag_source_for(status, filterable_status))
+    normalized_tag_set(tag_source_for(status, filterable_status))
+  end
+
+  def self.tag_matches_for(expected, names)
+    return [] if expected.blank? || names.blank?
+
     expected.select { |name| names.include?(name) }
   end
 
@@ -134,12 +140,15 @@ def self.cached_filters_for(account_id)
     status
   end
 
-  def self.normalized_status_tag_names(status)
-    return [] if status.nil?
+  def self.normalized_tag_set(status)
+    return {} if status.nil?
 
-    status.tags.map { |tag| CustomFilterTag.normalize_name(tag.name) }.compact.uniq
+    status.tags.each_with_object({}) do |tag, names|
+      normalized = CustomFilterTag.normalize_name(tag.name)
+      names[normalized] = true if normalized
+    end
   end
-  private_class_method :tag_matches_for, :tag_source_for, :normalized_status_tag_names
+  private_class_method :tag_names_for_rules, :tag_matches_for, :tag_source_for, :normalized_tag_set
 
   def prepare_cache_invalidation!
     @should_invalidate_cache = true
