@@ -12,6 +12,7 @@ import {
 } from '../emoji_mute_store';
 import {
   emojiPickerCandidateHidden,
+  emojiPickerIndexProbe,
   emojiPickerVisibility,
   noteUnresolvedPickerCandidate,
   projectEmojiStockForPicker,
@@ -145,7 +146,7 @@ describe('hide_in_picker candidate visibility', () => {
         {
           id: 'tones',
           name: 'Tones',
-          heading: { text: 'T', image: { src: light.image.src, alt: SKIN } },
+          heading: { text: 'T', image: { src: light.image.src, alt: SKIN }, reference: { kind: 'unicode', native: SKIN } },
           items: [light, plain],
         },
         {
@@ -180,28 +181,52 @@ describe('hide_in_picker candidate visibility', () => {
     expect(projectEmojiStockForPicker(source).stock).toBe(projected.stock);
   });
 
-  it('drops a muted representative without promoting another emoji', () => {
-    const plain = stockItem('plain', '👍');
-    const kept = stockItem('kept', '❤️');
+  it('drops a muted representative by saved reference when the SVG is shared', () => {
+    const shared = 'https://assets.example/203c.svg';
+    const plain = stockItem('plain', '‼', { item: { image: { src: shared, alt: '‼', title: 'plain' } } });
+    const qualified = stockItem('qualified', '‼️', { item: { image: { src: shared, alt: '‼️', title: 'qualified' } } });
     const source = {
       categories: [{
-        id: 'only',
-        name: 'Only muted',
-        heading: { text: 'O', image: { src: plain.image.src, alt: '👍' } },
-        items: [plain, kept],
+        id: 'marks',
+        name: 'Marks',
+        heading: {
+          text: 'M',
+          image: { src: shared, alt: '‼️' },
+          reference: { kind: 'unicode', native: '‼️' },
+        },
+        items: [plain, qualified],
       }],
     };
 
     installEmojiMutesForTests({
       revision: '1',
-      emoji_mutes: [rule({ kind: 'unicode', native: '👍' }, { hide_in_picker: true })],
+      emoji_mutes: [rule({ kind: 'unicode', native: '‼️' }, { hide_in_picker: true })],
     });
 
     const projected = projectEmojiStockForPicker(source);
+    const category = projected.stock.categories[0];
 
-    expect(projected.stock.categories[0].items.map(entry => entry.key)).toEqual(['kept']);
-    expect(projected.stock.categories[0].heading).toEqual({ text: 'Only muted' });
-    expect(JSON.stringify(projected.stock)).not.toContain(plain.image.src);
+    expect(category.items.map(entry => entry.key)).toEqual(['plain']);
+    expect(category.heading).toEqual({ text: 'Marks' });
+    expect(JSON.stringify(category.heading)).not.toContain('‼️');
+    expect(JSON.stringify(category.heading)).not.toContain(shared);
+
+    const reversed = projectEmojiStockForPicker({
+      categories: [{ ...source.categories[0], items: [qualified, plain] }],
+    });
+
+    expect(reversed.stock.categories[0].items.map(entry => entry.key)).toEqual(['plain']);
+    expect(reversed.stock.categories[0].heading).toEqual({ text: 'Marks' });
+
+    const unnamed = projectEmojiStockForPicker({
+      categories: [{
+        ...source.categories[0],
+        heading: { text: 'M', image: { src: shared, alt: '‼️' } },
+      }],
+    });
+
+    expect(unnamed.stock.categories[0].heading).toEqual({ text: 'Marks' });
+    expect(unresolvedPickerCandidates()).toContain('heading:marks');
   });
 
   it('rebuilds the standard candidate list for the active skin and leaves Nimble data intact', () => {
@@ -267,6 +292,28 @@ describe('hide_in_picker candidate visibility', () => {
     expect(emojiPickerVisibility().ready).toBe(false);
     expect(emojiPickerCandidateHidden({ kind: 'unicode', native: '👍' })).toBe(true);
     pending.catch(() => {});
+  });
+
+  it('builds the hide index once per document, not once per render', () => {
+    const rules = Array.from({ length: 500 }, (_value, index) => rule(
+      { kind: 'unicode', native: `e${index}` },
+      { hide_in_picker: true, hide_reactions: false },
+    ));
+
+    installEmojiMutesForTests({ revision: '7', emoji_mutes: rules });
+    emojiPickerIndexProbe.builds = 0;
+    const first = emojiPickerVisibility();
+
+    expect(emojiPickerIndexProbe.builds).toBe(1);
+    expect(emojiPickerVisibility()).toBe(first);
+    expect(emojiPickerVisibility()).toBe(first);
+    expect(emojiPickerIndexProbe.builds).toBe(1);
+
+    installEmojiMutesForTests({ revision: '8', emoji_mutes: rules });
+    emojiPickerVisibility();
+    expect(emojiPickerIndexProbe.builds).toBe(2);
+    emojiPickerVisibility();
+    expect(emojiPickerIndexProbe.builds).toBe(2);
   });
 
   it('records an unresolved candidate without hiding a different emoji', () => {

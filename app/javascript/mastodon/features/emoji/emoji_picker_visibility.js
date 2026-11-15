@@ -26,6 +26,10 @@ const HELD_STOCK = Object.freeze({ categories: [] });
 
 let cached = null;
 
+// Counts full index builds. Repeated renders with the same document stay at
+// the same count.
+export const emojiPickerIndexProbe = { builds: 0 };
+
 const read = (value, key) => {
   if (!value) {
     return undefined;
@@ -71,6 +75,7 @@ export function resetUnresolvedPickerCandidatesForTests() {
 }
 
 function hideKeys(rules) {
+  emojiPickerIndexProbe.builds += 1;
   const keys = [];
 
   asArray(rules).forEach(rule => {
@@ -92,20 +97,25 @@ function hideKeys(rules) {
 function buildVisibility() {
   const ready = emojiMuteDocumentReady();
   const revision = appliedEmojiMuteRevision();
-  const rules = ready ? currentEmojiMutes() : [];
+  const observed = observedEmojiMuteRevision();
+  const failure = emojiMuteAuthorizationFailure();
+  const rules = ready ? currentEmojiMutes() : null;
+
+  if (cached && cached.ready === ready && cached.revision === revision && cached.observed === observed && cached.failure === failure && cached.rules === rules) {
+    return cached;
+  }
+
   const keys = ready ? hideKeys(rules) : [];
   const signature = ready
     ? `${revision}:${keys.join('\n')}`
-    : `held:${emojiMuteAuthorizationFailure() || 'pending'}:${observedEmojiMuteRevision() || ''}`;
-
-  if (cached && cached.signature === signature && cached.ready === ready && cached.rules === rules) {
-    return cached;
-  }
+    : `held:${failure || 'pending'}:${observed || ''}`;
 
   cached = {
     ready,
     signature,
     revision,
+    observed,
+    failure,
     rules,
     index: new Set(keys),
   };
@@ -150,34 +160,33 @@ function stockItemHidden(item, visibility) {
   return emojiPickerCandidateHidden(reference, visibility);
 }
 
-function representativeItem(category) {
-  const image = category.heading && category.heading.image;
+function projectHeading(category, visibility) {
+  const heading = category && category.heading;
 
-  if (!image) {
-    return null;
+  if (!heading || !heading.image) {
+    return heading;
   }
 
-  const items = Array.isArray(category.items) ? category.items : [];
+  const key = identityKey(heading.reference);
 
-  return items.find(item => item && item.image && image.src && item.image.src === image.src)
-    || items.find(item => item && item.image && image.alt && item.image.alt === image.alt)
-    || null;
+  // A shared SVG or alt string is not an identity. Without the saved
+  // reference, the representative is ambiguous and the name is the heading.
+  if (!key) {
+    recordUnresolved('heading', category && category.id);
+    return { text: (category && category.name) || heading.text || '' };
+  }
+
+  if (visibility.index.has(key)) {
+    return { text: (category && category.name) || heading.text || '' };
+  }
+
+  return heading;
 }
 
 function projectCategory(category, visibility) {
   const sourceItems = category && Array.isArray(category.items) ? category.items : [];
   const items = sourceItems.filter(item => !stockItemHidden(item, visibility));
-  let heading = category && category.heading;
-  const image = heading && heading.image;
-
-  if (image) {
-    const representative = representativeItem(category);
-    const hidden = !representative || stockItemHidden(representative, visibility);
-
-    if (hidden) {
-      heading = { text: (category && category.name) || (heading && heading.text) || '' };
-    }
-  }
+  const heading = projectHeading(category, visibility);
 
   if (items.length === sourceItems.length && heading === (category && category.heading)) {
     return category;

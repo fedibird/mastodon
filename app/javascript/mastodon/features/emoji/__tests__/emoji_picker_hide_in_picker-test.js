@@ -66,7 +66,11 @@ const stock = () => ({
     {
       id: 'tones',
       name: 'Tones',
-      heading: { text: 'T', image: { src: 'https://assets.example/light.svg', alt: SKIN } },
+      heading: {
+        text: 'T',
+        image: { src: 'https://assets.example/light.svg', alt: SKIN },
+        reference: { kind: 'unicode', native: SKIN },
+      },
       items: [
         item('light', SKIN, 'Light'),
         item('plain', '👍', 'Plain'),
@@ -156,6 +160,94 @@ describe('picker DOM excludes hide_in_picker candidates', () => {
       'https://assets.example/family.svg',
       'https://assets.example/light-again.svg',
     ]);
+    expect(screen.getByRole('button', { name: 'Tones' }).querySelector('img')).toHaveAttribute('src', 'https://assets.example/light.svg');
+  });
+
+  it('does not keep a qualified representative that shares a file with an earlier native', async () => {
+    const shared = 'https://assets.example/203c.svg';
+    const plain = '‼';
+    const qualified = '‼️';
+    const mark = (key, native) => ({
+      key,
+      label: native,
+      image: { src: shared, alt: native, title: native },
+      search: [native],
+      selection: { id: key, custom: false, native },
+      reference: { kind: 'unicode', native },
+    });
+    const marks = (items, heading) => ({
+      categories: [{
+        id: 'marks',
+        name: 'Marks',
+        heading,
+        items,
+      }],
+    });
+    const savedHeading = {
+      text: 'M',
+      image: { src: shared, alt: qualified },
+      reference: { kind: 'unicode', native: qualified },
+    };
+    const forward = marks([mark('plain', plain), mark('qualified', qualified)], savedHeading);
+    const reversed = marks([mark('qualified', qualified), mark('plain', plain)], savedHeading);
+    const unbound = marks([mark('plain', plain)], { text: 'M', image: { src: shared, alt: qualified } });
+    const loadForward = () => Promise.resolve({ status: 'ready', stock: forward });
+    const loadReversed = () => Promise.resolve({ status: 'ready', stock: reversed });
+    const loadUnbound = () => Promise.resolve({ status: 'ready', stock: unbound });
+    const shell = stockSource => (
+      <IntlProvider locale='en'>
+        <EmojiPickerShell
+          stockSource={stockSource}
+          loadStandardEmojiPicker={hangStandardPicker}
+          onPick={ignorePick}
+        />
+      </IntlProvider>
+    );
+
+    const view = render(shell(loadForward));
+
+    expect(await screen.findByText('Emoji choices stay hidden until mute rules are confirmed.')).toBeTruthy();
+
+    act(() => {
+      installEmojiMutesForTests({
+        revision: '1',
+        emoji_mutes: [{ emoji: { kind: 'unicode', native: qualified }, effects: { hide_in_picker: true, hide_reactions: false } }],
+      });
+    });
+
+    const anchor = await screen.findByRole('button', { name: 'Marks' });
+
+    expect(anchor.querySelector('img')).toBeNull();
+    expect(anchor).toHaveTextContent('Marks');
+    expect(document.querySelector(`[alt="${qualified}"]`)).toBeNull();
+    expect(document.querySelector(`[title="${qualified}"]`)).toBeNull();
+    expect(document.querySelector(`[aria-label="${qualified}"]`)).toBeNull();
+    expect(screen.getByRole('button', { name: plain })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: qualified })).toBeNull();
+
+    view.rerender(shell(loadReversed));
+
+    expect((await screen.findByRole('button', { name: 'Marks' })).querySelector('img')).toBeNull();
+    expect(document.querySelector(`[alt="${qualified}"]`)).toBeNull();
+    expect(document.querySelector(`[title="${qualified}"]`)).toBeNull();
+    expect(await screen.findByRole('button', { name: plain })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: qualified })).toBeNull();
+
+    view.rerender(shell(loadUnbound));
+
+    expect((await screen.findByRole('button', { name: 'Marks' })).querySelector('img')).toBeNull();
+    expect(document.querySelector(`[alt="${qualified}"]`)).toBeNull();
+    expect(document.querySelector(`[title="${qualified}"]`)).toBeNull();
+
+    act(() => {
+      installEmojiMutesForTests({ revision: '2', emoji_mutes: [] });
+    });
+    view.rerender(shell(loadForward));
+
+    expect((await screen.findByRole('button', { name: 'Marks' })).querySelector('img')).toHaveAttribute('src', shared);
+    expect(screen.getByRole('button', { name: 'Marks' }).querySelector('img')).toHaveAttribute('alt', '');
+    expect(screen.getByRole('button', { name: qualified })).toBeTruthy();
+    expect(screen.getByRole('button', { name: plain })).toBeTruthy();
   });
 
   it('does not leave a keyboard cursor on a candidate that disappeared', async () => {
