@@ -2,6 +2,7 @@ import api, { getLinks } from '../api';
 import { importFetchedAccounts, importFetchedStatus, importFetchedStatuses } from './importer';
 import { fetchRelationshipsSuccess, fetchRelationships, fetchRelationshipsFromStatuses } from './accounts';
 import { me } from '../initial_state';
+import { showAlert, showAlertForError } from './alerts';
 import { reactionNameHidden } from '../features/emoji/emoji_mute_projection';
 import { currentEmojiMutes, emojiReactionEventsAccepted } from '../features/emoji/emoji_mute_store';
 import { emojiReactionsForStatus, emojiReactionAccountIds } from '../utils/emoji_reactions';
@@ -99,6 +100,36 @@ export function reblog(status, visibility) {
       dispatch(reblogSuccess(status));
     }).catch(function (error) {
       dispatch(reblogFail(status, error));
+    });
+  };
+};
+
+export function reboost(status) {
+  return (dispatch, getState) => {
+    return api(getState).post(`/api/v1/statuses/${status.get('id')}/reblog`, { reboost: true }).then((response) => {
+      if (response.status === 202) {
+        dispatch(showAlert(
+          { id: 'reboost.pending_title', defaultMessage: 'Reboost pending' },
+          { id: 'reboost.pending', defaultMessage: 'The previous boost is still being removed. This reboost will continue shortly.' },
+        ));
+        return;
+      }
+
+      dispatch(importFetchedStatus(response.data));
+      if (response.data.reblog) {
+        dispatch(importFetchedStatus(response.data.reblog));
+      }
+    }).catch((error) => {
+      if (error?.response?.status === 429) {
+        dispatch(showAlert(
+          { id: 'reboost.wait_title', defaultMessage: 'Please wait' },
+          { id: 'reboost.wait', defaultMessage: 'Wait {seconds} seconds before boosting this post again.' },
+          { seconds: error.response.data?.retry_after },
+        ));
+        return;
+      }
+
+      dispatch(showAlertForError(error));
     });
   };
 };
