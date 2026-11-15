@@ -5,7 +5,7 @@ import IconButton from '../../../components/icon_button';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import DropdownMenuContainer from '../../../containers/dropdown_menu_container';
 import { defineMessages, injectIntl } from 'react-intl';
-import { me, isStaff, show_quote_button, show_share_button, enableReaction, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal, disablePost, disableReactions, disableBlock, disableDomainBlock, disableReport, hideListOfEmojiReactionsToPosts, hideListOfFavouritesToPosts, hideListOfReblogsToPosts, hideListOfReferredByToPosts, translationBarVisibility } from '../../../initial_state';
+import { me, isStaff, show_quote_button, show_share_button, enableReaction, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal, disablePost, disableReactions, disableBlock, disableDomainBlock, disableReport, hideListOfEmojiReactionsToPosts, hideListOfFavouritesToPosts, hideListOfReblogsToPosts, hideListOfReferredByToPosts, translationBarVisibility, enableReboost } from '../../../initial_state';
 import classNames from 'classnames';
 import ReactionPickerDropdownContainer from 'mastodon/containers/reaction_picker_dropdown_container';
 import { openModal } from '../../../actions/modal';
@@ -18,6 +18,7 @@ import { translationPairStatus } from '../../../utils/translation_languages';
 import { selectAcceptedTranslationPreferences } from '../../../selectors/user_preferences';
 import { translationBarEffectivelyVisible, viewerTranslationPair } from '../../../utils/translation_view';
 import { emojiReactionsForStatus } from '../../../utils/emoji_reactions';
+import { reboostMenuItems, reboostWaitMinutes } from '../../reboost/menu';
 
 const messages = defineMessages({
   edit: { id: 'status.edit', defaultMessage: 'Edit' },
@@ -31,6 +32,9 @@ const messages = defineMessages({
   reply: { id: 'status.reply', defaultMessage: 'Reply' },
   reference: { id: 'status.reference', defaultMessage: 'Reference' },
   reblog: { id: 'status.reblog', defaultMessage: 'Boost' },
+  reboost: { id: 'status.reboost', defaultMessage: 'Reboost' },
+  reboost_wait: { id: 'status.reboost_wait', defaultMessage: 'Reboost (about {minutes} min left)' },
+  reboost_hint: { id: 'status.reboost_hint', defaultMessage: 'Turn on Group boosts in settings if you do not want to see the same post repeatedly.' },
   reblog_private: { id: 'status.reblog_private', defaultMessage: 'Boost with original visibility' },
   cancel_reblog_private: { id: 'status.cancel_reblog_private', defaultMessage: 'Unboost' },
   cannot_quote: { id: 'status.cannot_quote', defaultMessage: 'This post cannot be quoted' },
@@ -201,6 +205,45 @@ class ActionBar extends React.PureComponent {
 
   handleReblogClick = (e) => {
     this.props.onReblog(this.props.status, e);
+  }
+
+  handleReboost = () => {
+    if (this._reboosting || !this.props.onReboost) {
+      return;
+    }
+
+    this._reboosting = true;
+    Promise.resolve(this.props.onReboost(this.props.status)).finally(() => {
+      this._reboosting = false;
+    });
+  }
+
+  handleUnreblog = () => {
+    if (this.props.onUnreblog) {
+      this.props.onUnreblog(this.props.status);
+    }
+  }
+
+  renderBoostButton = ({ intl, status, reblogged, publicStatus, reblogPrivate, expired, externalContent, disableReactions, reblogTitle }) => {
+    const minutes = reboostWaitMinutes(status.get('reboost_retry_after'));
+    const waiting = !reblogged && minutes > 0;
+    const title = waiting ? intl.formatMessage(messages.reboost_wait, { minutes }) : reblogTitle;
+    const disabled = disableReactions || !publicStatus && !reblogPrivate || expired || waiting;
+    const menu = enableReboost && reblogged && me && !externalContent && !expired && (publicStatus || reblogPrivate);
+
+    if (!menu) {
+      return <IconButton className={classNames({ reblogPrivate })} disabled={disabled} active={reblogged} title={title} icon='retweet' onClick={this.handleReblogClick} />;
+    }
+
+    return (
+      <DropdownMenuContainer
+        status={status}
+        items={reboostMenuItems({ intl, messages, status, onReboost: this.handleReboost, onUnreblog: this.handleUnreblog, busy: this._reboosting })}
+        direction='right'
+      >
+        <IconButton className={classNames({ reblogPrivate })} disabled={disableReactions || expired} active={reblogged} title={title} icon='retweet' />
+      </DropdownMenuContainer>
+    );
   }
 
   handleReferenceClick = (e) => {
@@ -590,7 +633,7 @@ class ActionBar extends React.PureComponent {
       <div className='detailed-status__action-bar'>
         <div className='detailed-status__button'><IconButton disabled={disablePost || expired || externalContent} title={intl.formatMessage(messages.reply)} icon={status.get('in_reply_to_account_id') === status.getIn(['account', 'id']) ? 'reply' : replyIcon} onClick={this.handleReplyClick} /></div>
         {enableStatusReference && me && <div className='detailed-status__button'><IconButton className={classNames('link-icon', { referenced, 'context-referenced': contextReferenced })} animate disabled={disablePost || referenceDisabled} active={referenced} pressed={referenced} title={intl.formatMessage(messages.reference)} icon='link' onClick={this.handleReferenceClick} /></div>}
-        <div className='detailed-status__button'><IconButton className={classNames({ reblogPrivate })} disabled={disableReactions || !publicStatus && !reblogPrivate || expired} active={reblogged} title={reblogTitle} icon='retweet' onClick={this.handleReblogClick} /></div>
+        <div className='detailed-status__button'>{this.renderBoostButton({ intl, status, reblogged, publicStatus, reblogPrivate, expired, externalContent, disableReactions, reblogTitle })}</div>
         <div className='detailed-status__button'><IconButton className='star-icon' animate active={favourited} disabled={disableReactions || !favourited && expired} title={intl.formatMessage(messages.favourite)} icon='star' onClick={this.handleFavouriteClick} /></div>
         {show_quote_button && <div className='detailed-status__button'><IconButton disabled={disablePost || !publicStatus || expired} title={!publicStatus ? intl.formatMessage(messages.cannot_quote) : intl.formatMessage(messages.quote)} icon='quote-right' onClick={this.handleQuoteClick} /></div>}
         {shareButton}
