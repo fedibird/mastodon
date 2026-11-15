@@ -65,6 +65,13 @@ export class DropdownMenu extends React.PureComponent {
   }
 
   handleKeyDown = e => {
+    // A detached privacy portal keeps this listener, but Tab must reach the
+    // retry controls in the visible document. The trap resumes when the same
+    // menu node is attached again.
+    if (!this.node || !this.node.isConnected) {
+      return;
+    }
+
     const items = Array.from(this.node.querySelectorAll(
       '.dropdown-menu__item a:not([aria-disabled="true"]), .dropdown-menu__item button:not([aria-disabled="true"])',
     ));
@@ -299,6 +306,14 @@ class Dropdown extends React.PureComponent {
     return this.target;
   }
 
+  findOverlayContainer = () => {
+    // Keep opened dropdowns inside the same detachable privacy subtree as
+    // the WebUI; a body-level react-overlays portal would otherwise remain
+    // visible when the mute document is stale. Outside the WebUI retain the
+    // existing document.body behavior.
+    return this.target?.closest('.emoji-mutes-privacy-portal') || document.body;
+  };
+
   componentWillUnmount = () => {
     if (this.state.id === this.props.openDropdownId) {
       this.handleClose();
@@ -377,7 +392,7 @@ class Dropdown extends React.PureComponent {
           {button}
         </span>
 
-        <Overlay show={open} offset={[5, 5]} placement='bottom' flip target={this.findTarget} popperConfig={popperConfig}>
+        <Overlay show={open} offset={[5, 5]} placement='bottom' flip target={this.findTarget} container={this.findOverlayContainer} popperConfig={popperConfig}>
           {({ props, arrowProps, placement }) => (
             <div {...props}>
               <div className={`dropdown-animation dropdown-menu ${placement}`}>

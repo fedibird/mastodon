@@ -1,4 +1,12 @@
 {
+  "emoji_mutes.session_changed": "アカウントが切り替わりました。絵文字ミュート設定を安全に切り替えるため、ページを再読み込みしてください。",
+  "emoji_mutes.session_reload": "ページを再読み込み",
+  "emoji_mutes.bootstrap_loading": "絵文字のミュート設定を読み込んでいます…",
+  "emoji_mutes.bootstrap_error": "絵文字のミュート設定を確認できませんでした。投稿は再試行するまで表示されません。",
+  "emoji_mutes.bootstrap_retry": "設定の読み込みを再試行",
+  "emoji_mutes.bootstrap_unauthorized": "セッションの有効期限が切れました。ページを再読み込みして、もう一度ログインしてください。それまで投稿は表示されません。",
+  "emoji_mutes.bootstrap_sign_in": "再読み込みしてログイン",
+  "emoji_mutes.bootstrap_forbidden": "このアカウントには絵文字のミュート設定を読む権限がありません。投稿は表示しません。",
   "column_header.layout.label": "表示方法",
   "column_header.layout.normal": "通常",
   "column_header.layout.card_1": "カード（1列）",

@@ -770,6 +770,89 @@ describe('emoji mute projection', () => {
     expect(calls.filter(url => url.includes('/api/v1/statuses?'))).toHaveLength(restoredCalls);
   });
 
+  it('skips withheld restore on the first bootstrap and runs it when the UI already exists', async () => {
+    resetEmojiMuteStoreForTests();
+    installEmojiMutesForTests({ revision: '5', emoji_mutes: [] });
+    const calls = [];
+    const account = {
+      id: 'author',
+      username: 'author',
+      acct: 'author',
+      display_name: 'Author',
+      url: 'https://example.test/@author',
+      note: '',
+      followed_message: '',
+      emojis: [],
+      fields: [],
+    };
+    api.mockImplementation(() => ({
+      get: url => {
+        calls.push(String(url));
+
+        if (String(url).includes('/api/v1/fedibird/emoji_mutes')) {
+          return Promise.resolve({ data: { revision: '5', emoji_mutes: [] } });
+        }
+
+        if (String(url).includes('/api/v1/statuses?')) {
+          return Promise.resolve({
+            data: [{
+              id: 'pending',
+              account,
+              content: '<p>post</p>',
+              spoiler_text: '',
+              emojis: [],
+              media_attachments: [],
+              mentions: [],
+              emoji_reactions: [{ name: '😀', count: 1, account_ids: ['3'] }],
+              emoji_reactions_count: 1,
+              emoji_mutes_revision: '5',
+            }],
+          });
+        }
+
+        if (String(url).includes('unread_count')) {
+          return Promise.resolve({ data: { count: 1 } });
+        }
+
+        return Promise.resolve({ data: [] });
+      },
+      put: jest.fn(() => Promise.resolve({ data: {} })),
+    }));
+
+    let state = fromJS({
+      statuses: {
+        pending: { emoji_reactions_withheld: true },
+      },
+      accounts: {},
+      timelines: { home: { items: ['pending'] } },
+      contexts: {},
+      notifications: { items: [], pendingItems: [], lastReadId: '0', unread: 0 },
+    });
+    const getState = () => state;
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, getState);
+      }
+
+      if (action.type === STATUSES_IMPORT || action.type === STATUS_IMPORT) {
+        state = state.set('statuses', reducer(state.get('statuses'), action));
+      }
+
+      return action;
+    };
+
+    await syncEmojiMutes({ bootstrap: true })(dispatch, getState);
+    expect(calls.some(url => url.includes('/api/v1/statuses?'))).toBe(false);
+    expect(calls.some(url => url.includes('/api/v1/notifications'))).toBe(false);
+    expect(state.getIn(['statuses', 'pending', 'emoji_reactions_withheld'])).toBe(true);
+
+    calls.length = 0;
+    await syncEmojiMutes()(dispatch, getState);
+    expect(calls.filter(url => url.includes('/api/v1/statuses?')).join(' ')).toContain('ids[]=pending');
+    expect(calls.some(url => url.includes('/api/v1/notifications') && !url.includes('unread'))).toBe(true);
+    expect(state.getIn(['statuses', 'pending', 'emoji_reactions_withheld'])).toBeUndefined();
+  });
+
   it('limits initial recovery to explicitly withheld reactions and waits until rules are ready', () => {
     resetEmojiMuteStoreForTests();
     const state = fromJS({
