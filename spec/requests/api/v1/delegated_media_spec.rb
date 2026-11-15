@@ -211,6 +211,48 @@ RSpec.describe 'Delegated media uploads' do # rubocop:disable Metrics/BlockLengt
       expect(response).to have_http_status(422)
     end
 
+    it 'reads a draft sender file for the operator and stops after revocation' do
+      media = uploaded_media
+      own = Fabricate(:media_attachment, account: grantee.account)
+      created = PostDrafts::Store.new(grantee.account).create(
+        client_uuid: '88888888-8888-4888-8888-888888888888',
+        payload: {
+          'schema_version' => 1,
+          'input' => {
+            'text' => 'delegated',
+            'privacy' => 'public',
+            'media' => [{ 'id' => media.id.to_s, 'description' => 'from the operator' }],
+            'sender' => { 'id' => delegated_id, 'selection_origin' => 'explicit' },
+          },
+        }
+      )
+
+      expect(created.status).to eq :created
+
+      get "/api/v1/media/#{own.id}", headers: headers
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:id]).to eq own.id.to_s
+
+      get "/api/v1/media/#{media.id}", headers: headers, params: { posting_identity_id: delegated_id }
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:id]).to eq media.id.to_s
+      expect(body_as_json[:url]).to be_present
+
+      get "/api/v1/media/#{media.id}", headers: headers
+
+      expect(response).to have_http_status(404)
+
+      PostingIdentity::Revocation.call!(actor: grantor, delegation: delegation.reload)
+
+      get "/api/v1/media/#{media.id}", headers: headers, params: { posting_identity_id: delegated_id }
+
+      expect(response).to have_http_status(403)
+      expect(PostDraftMediaAttachment.exists?(media_attachment_id: media.id)).to be true
+      expect(media.reload.description).to be_nil
+    end
+
     it 'does not treat a known url as permission to read another image' do
       media = uploaded_media
       own = Fabricate(:media_attachment, account: grantee.account, status: nil)

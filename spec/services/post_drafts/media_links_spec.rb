@@ -104,6 +104,8 @@ describe PostDrafts::MediaLinks do
     failed.update_columns(processing: MediaAttachment.processings[:failed])
     remote = finished(user.account)
     remote.update_columns(remote_url: 'https://example.test/file.jpg')
+    missing_file = finished(user.account)
+    missing_file.update_columns(file_file_name: nil)
     video = Fabricate(:media_attachment, account: user.account, type: :video)
     video.update!(type: :video)
 
@@ -115,6 +117,7 @@ describe PostDrafts::MediaLinks do
       [item(queued.id)] => 'media_not_ready',
       [item(failed.id)] => 'media_not_ready',
       [item(remote.id)] => 'media_remote',
+      [item(missing_file.id)] => 'media_not_ready',
       [item(own.id), item(video.id, order: 1)] => 'media_mixed',
       [item(own.id)] => 'media_with_poll',
     }
@@ -131,6 +134,22 @@ describe PostDrafts::MediaLinks do
     expect(PostDraft.where(account_id: user.account_id)).to be_empty
     expect(own.reload.description).to eq 'untouched'
     expect(PostDraftMediaAttachment.count).to eq 0
+  end
+
+  it 'keeps the previous link when a later save names a missing file' do
+    kept = finished(user.account, description: 'kept alt')
+    missing = finished(user.account)
+    missing.update_columns(file_file_name: nil)
+    created = store.create(client_uuid: uuid, payload: payload('hello', [item(kept.id, description: "draft\nalt")]))
+    rejected = store.update(created.draft.id, expected_revision: 1, payload: payload('next', [item(missing.id, description: 'gone')]))
+
+    expect(created.status).to eq :created
+    expect(rejected.status).to eq :invalid
+    expect(rejected.error.errors.first['code']).to eq 'media_not_ready'
+    expect(created.draft.reload.revision).to eq 1
+    expect(created.draft.payload.dig('input', 'media', 0, 'description')).to eq "draft\nalt"
+    expect(PostDraftMediaAttachment.where(post_draft_id: created.draft.id).pluck(:media_attachment_id)).to eq [kept.id]
+    expect(kept.reload.description).to eq 'kept alt'
   end
 
   it 'refuses to share one file between two drafts' do

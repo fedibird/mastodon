@@ -51,6 +51,7 @@ module PostDrafts
       fail!('media_remote', item.id) unless item.local?
       fail!('media_forbidden', item.id) unless item.account_id == account_id
       fail!('media_not_ready', item.id) unless item.processing_complete?
+      fail!('media_not_ready', item.id) unless MediaGuard.stored_file?(item)
       fail!('media_in_use', item.id) if item.status_id.present? || item.scheduled_status_id.present?
     end
 

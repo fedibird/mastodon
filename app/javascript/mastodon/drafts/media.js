@@ -10,18 +10,29 @@ export function resolveDraftMedia (composerId, snapshot, restoreToken) {
       return Promise.resolve();
     }
 
-    return Promise.all(media.map(item => fetchDraftMedia(dispatch, getState, composerId, restoreToken, item)));
+    const senderId = senderIdFromSnapshot(snapshot);
+
+    return Promise.all(media.map(item => fetchDraftMedia(dispatch, getState, composerId, restoreToken, item, senderId)));
   };
 }
 
-function fetchDraftMedia (dispatch, getState, composerId, restoreToken, item) {
+function senderIdFromSnapshot (snapshot) {
+  const sender = snapshot && snapshot.input && snapshot.input.sender;
+  const id = sender && sender.id !== undefined && sender.id !== null ? String(sender.id) : '';
+
+  return id;
+}
+
+function fetchDraftMedia (dispatch, getState, composerId, restoreToken, item, senderId) {
   const mediaId = item && item.id !== undefined && item.id !== null ? String(item.id) : '';
 
   if (!mediaId) {
     return Promise.resolve();
   }
 
-  return api(getState).get(`/api/v1/media/${mediaId}`).then(response => {
+  const config = senderId ? { params: { posting_identity_id: senderId } } : {};
+
+  return api(getState).get(`/api/v1/media/${mediaId}`, config).then(response => {
     if (!response || response.status !== 200 || !draftMediaResponseUsable(response.data, mediaId)) {
       return;
     }

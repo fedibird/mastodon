@@ -22,6 +22,15 @@ module PostDrafts
       raise Mastodon::ValidationError, I18n.t('media_attachments.validations.retained_by_draft')
     end
 
+    # A completed row can still point at a deleted blob. Both the save and
+    # the later read use this check. A storage error is a missing file, so
+    # the save rolls back and the read stays partial.
+    def self.stored_file?(media)
+      media.file.present? && media.file.exists?
+    rescue Errno::ENOENT, Paperclip::Error
+      false
+    end
+
     def self.normalize(media_ids)
       Array(media_ids).map { |item| item.respond_to?(:id) ? item.id.to_i : item.to_i }.uniq.sort
     end

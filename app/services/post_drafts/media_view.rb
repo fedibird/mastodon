@@ -88,9 +88,7 @@ module PostDrafts
     end
 
     def stored_file?(media)
-      media.file.present? && media.file.exists?
-    rescue Errno::ENOENT, Paperclip::Error
-      false
+      MediaGuard.stored_file?(media)
     end
 
     def document_rows(records)
