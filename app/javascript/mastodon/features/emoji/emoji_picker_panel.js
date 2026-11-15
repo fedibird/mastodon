@@ -29,6 +29,18 @@ const messages = defineMessages({
 });
 
 const listenerOptions = supportsPassiveEvents ? { passive: false } : false;
+
+function initialPanelMode(initialMode) {
+  if (emojiPickerDisableStandard) {
+    return 'personal';
+  }
+
+  if (emojiPickerDisablePersonal) {
+    return 'standard';
+  }
+
+  return initialMode || emojiPickerInitialMode();
+}
 const backgroundImageFn = () => `${assetHost}/emoji/sheet_15.png`;
 
 // Emoji actions render in a portal outside the picker DOM. Clicks / touchends
@@ -233,7 +245,7 @@ class EmojiPickerPanel extends React.PureComponent {
 
   state = {
     modifierOpen: false,
-    mode: emojiPickerDisableStandard ? 'personal' : (emojiPickerDisablePersonal ? 'standard' : (this.props.initialMode || emojiPickerInitialMode())),
+    mode: initialPanelMode(this.props.initialMode),
     Emoji: null,
     catalogHold: false,
     emojiSize: getPickerEmojiSize(),
