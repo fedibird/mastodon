@@ -1848,6 +1848,7 @@ ja:
       invalid_context: 対象がないか無効です
       invalid_hashtag: ハッシュタグを1つ指定してください。空白や、このサーバーで使えない文字は含められません。
       invalid_hashtag_duration: 一覧にある期間を選ぶか、無期限のままにしてください。
+      expired_hashtag_preserve: このハッシュタグミュートはすでに終わっています。新しい期間を選んでください。
     index:
       contexts: "%{contexts}のフィルター"
       delete: 削除

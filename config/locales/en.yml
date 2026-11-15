@@ -1887,6 +1887,7 @@ en:
       invalid_context: None or invalid context supplied
       invalid_hashtag: Enter one hashtag, without spaces or other characters this server rejects.
       invalid_hashtag_duration: Choose one of the listed durations, or leave it indefinite.
+      expired_hashtag_preserve: This hashtag mute has already ended. Choose a new duration.
     index:
       contexts: Filters in %{contexts}
       delete: Delete

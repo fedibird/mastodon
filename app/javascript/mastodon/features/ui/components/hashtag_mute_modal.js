@@ -24,6 +24,12 @@ const messages = defineMessages({
   keepDuration: { id: 'hashtag_mute.keep_duration', defaultMessage: 'Don\'t change' },
   keepHint: { id: 'hashtag_mute.keep_hint', defaultMessage: 'Don\'t change leaves the current end time. Any other choice starts from now and hides matching posts.' },
   restoreHide: { id: 'hashtag_mute.restore_hide', defaultMessage: 'This rule is set to warn. Updating it hides matching posts again.' },
+  expiredChoice: { id: 'hashtag_mute.expired_choice', defaultMessage: 'The previous end time has passed. Choose a new duration before muting again.' },
+  chooseDuration: { id: 'hashtag_mute.choose_duration', defaultMessage: 'Choose a duration' },
+  loading: { id: 'hashtag_mute.loading', defaultMessage: 'Loading the current mute settings…' },
+  loadError: { id: 'hashtag_mute.load_error', defaultMessage: 'The current mute settings could not be loaded. Nothing was changed.' },
+  loadStale: { id: 'hashtag_mute.load_stale', defaultMessage: 'A newer request replaced this one. Load the settings again before muting.' },
+  retry: { id: 'hashtag_mute.retry', defaultMessage: 'Try again' },
   contextsLabel: { id: 'hashtag_mute.contexts_label', defaultMessage: 'Applies in' },
   home: { id: 'hashtag_mute.context.home', defaultMessage: 'Home and lists' },
   notifications: { id: 'hashtag_mute.context.notifications', defaultMessage: 'Notifications' },
@@ -101,22 +107,33 @@ class HashtagMuteModal extends React.PureComponent {
   state = {
     duration: null,
     durationChosen: false,
-    ready: false,
+    loadState: 'loading',
     submitting: false,
   };
 
   componentDidMount() {
-    return Promise.resolve(this.props.onLoad()).then(this.markReady, this.markReady);
+    return this.loadFilters();
   }
 
   componentDidUpdate(_prevProps, prevState) {
-    if (this.state.ready && !prevState.ready && this.durationSelect) {
+    if (this.state.loadState === 'ready' && prevState.loadState !== 'ready' && this.durationSelect) {
       this.durationSelect.focus();
     }
   }
 
-  markReady = () => {
-    this.setState({ ready: true });
+  loadFilters = () => {
+    this.setState({ loadState: 'loading', submitting: false, durationChosen: false, duration: null });
+
+    return Promise.resolve(this.props.onLoad()).then(result => {
+      if (result && result.ok) {
+        this.setState({ loadState: 'ready' });
+        return;
+      }
+
+      this.setState({ loadState: result && result.stale ? 'stale' : 'error' });
+    }, () => {
+      this.setState({ loadState: 'error' });
+    });
   };
 
   setDurationSelect = (node) => {
@@ -132,12 +149,46 @@ class HashtagMuteModal extends React.PureComponent {
     });
   };
 
+  expired(existing = this.props.existing) {
+    if (!existing) {
+      return false;
+    }
+
+    const expiresAt = existing.get('expires_at');
+
+    return !!expiresAt && expiresAt <= Date.now();
+  }
+
+  keepsCurrentDuration() {
+    return !!(this.props.existing && !this.expired() && !this.state.durationChosen);
+  }
+
   resolvedDuration() {
     if (this.state.durationChosen) {
       return this.state.duration;
     }
 
-    return this.props.existing ? null : 0;
+    if (this.keepsCurrentDuration()) {
+      return null;
+    }
+
+    if (this.props.existing) {
+      return null;
+    }
+
+    return 0;
+  }
+
+  canConfirm() {
+    if (this.state.loadState !== 'ready' || this.state.submitting) {
+      return false;
+    }
+
+    if (this.expired() && !this.state.durationChosen) {
+      return false;
+    }
+
+    return this.resolvedDuration() !== null || this.keepsCurrentDuration();
   }
 
   contexts() {
@@ -150,6 +201,11 @@ class HashtagMuteModal extends React.PureComponent {
 
   handleConfirm = () => {
     const { existing, hashtag, onMute, onUpdate, onClose } = this.props;
+
+    if (!this.canConfirm()) {
+      return;
+    }
+
     const duration = this.resolvedDuration();
     const request = existing
       ? onUpdate(existing.get('id'), duration, { preserveExpiry: duration === null })
@@ -208,10 +264,12 @@ class HashtagMuteModal extends React.PureComponent {
 
   render() {
     const { hashtag, existing, intl, onClose } = this.props;
-    const { ready, submitting } = this.state;
+    const { loadState, submitting } = this.state;
+    const ready = loadState === 'ready';
     const duration = this.resolvedDuration();
-    const busy = !ready || submitting;
-    const warns = existing && existing.get('filter_action') !== 'hide';
+    const expired = ready && this.expired();
+    const keepDuration = ready && this.keepsCurrentDuration();
+    const warns = ready && existing && existing.get('filter_action') !== 'hide' && !expired;
 
     return (
       <div className='modal-root__modal mute-modal' role='dialog' aria-modal='true' aria-labelledby='hashtag-mute-title'>
@@ -222,47 +280,61 @@ class HashtagMuteModal extends React.PureComponent {
           <p className='mute-modal__explanation'>
             {intl.formatMessage(messages.explanation)}
           </p>
-          {this.renderCurrent()}
-          <div>
-            <label htmlFor='hashtag-mute-duration'>
-              <FormattedMessage id='hashtag_mute.duration' defaultMessage='Duration' />
-              {': '}
-            </label>
-            {/* eslint-disable-next-line jsx-a11y/no-onchange */}
-            <select id='hashtag-mute-duration' ref={this.setDurationSelect} value={duration === null ? '' : String(duration)} onChange={this.handleDuration} disabled={!ready}>
-              {existing && (
-                <option value=''>{intl.formatMessage(messages.keepDuration)}</option>
-              )}
-              {HASHTAG_MUTE_DURATIONS.map(seconds => (
-                <option key={seconds} value={String(seconds)}>
-                  {seconds === 0 ? intl.formatMessage(messages.indefinite) : intl.formatMessage(DURATION_LABELS[seconds][0], { number: DURATION_LABELS[seconds][1] })}
-                </option>
-              ))}
-            </select>
-          </div>
-          {existing && <p className='mute-modal__explanation'>{intl.formatMessage(messages.keepHint)}</p>}
+          {loadState === 'loading' && <p className='mute-modal__explanation'>{intl.formatMessage(messages.loading)}</p>}
+          {loadState === 'error' && <p className='mute-modal__explanation' role='alert'>{intl.formatMessage(messages.loadError)}</p>}
+          {loadState === 'stale' && <p className='mute-modal__explanation' role='alert'>{intl.formatMessage(messages.loadStale)}</p>}
+          {(loadState === 'error' || loadState === 'stale') && (
+            <Button onClick={this.loadFilters}>{intl.formatMessage(messages.retry)}</Button>
+          )}
+          {ready && this.renderCurrent()}
+          {ready && (
+            <div>
+              <label htmlFor='hashtag-mute-duration'>
+                <FormattedMessage id='hashtag_mute.duration' defaultMessage='Duration' />
+                {': '}
+              </label>
+              {/* eslint-disable-next-line jsx-a11y/no-onchange */}
+              <select id='hashtag-mute-duration' ref={this.setDurationSelect} value={duration === null ? '' : String(duration)} onChange={this.handleDuration}>
+                {keepDuration && (
+                  <option value=''>{intl.formatMessage(messages.keepDuration)}</option>
+                )}
+                {expired && <option value='' disabled>{intl.formatMessage(messages.chooseDuration)}</option>}
+                {HASHTAG_MUTE_DURATIONS.map(seconds => (
+                  <option key={seconds} value={String(seconds)}>
+                    {seconds === 0 ? intl.formatMessage(messages.indefinite) : intl.formatMessage(DURATION_LABELS[seconds][0], { number: DURATION_LABELS[seconds][1] })}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {keepDuration && <p className='mute-modal__explanation'>{intl.formatMessage(messages.keepHint)}</p>}
+          {expired && <p className='mute-modal__explanation'>{intl.formatMessage(messages.expiredChoice)}</p>}
           {warns && <p className='mute-modal__explanation'>{intl.formatMessage(messages.restoreHide)}</p>}
-          <p id='hashtag-mute-contexts-label'>{intl.formatMessage(messages.contextsLabel)}</p>
-          <ul className='mute-modal__contexts' aria-labelledby='hashtag-mute-contexts-label'>
-            {this.contexts().map(context => (
-              <li key={context}>{intl.formatMessage(CONTEXT_MESSAGES[context])}</li>
-            ))}
-          </ul>
-          <p className='mute-modal__explanation'>{intl.formatMessage(messages.scopeNote)}</p>
-          <Link className='mute-modal__settings-link' to='/settings/filters' onClick={onClose}>
-            {intl.formatMessage(messages.settings)}
-          </Link>
+          {ready && <p id='hashtag-mute-contexts-label'>{intl.formatMessage(messages.contextsLabel)}</p>}
+          {ready && (
+            <ul className='mute-modal__contexts' aria-labelledby='hashtag-mute-contexts-label'>
+              {this.contexts().map(context => (
+                <li key={context}>{intl.formatMessage(CONTEXT_MESSAGES[context])}</li>
+              ))}
+            </ul>
+          )}
+          {ready && <p className='mute-modal__explanation'>{intl.formatMessage(messages.scopeNote)}</p>}
+          {ready && (
+            <Link className='mute-modal__settings-link' to='/settings/filters' onClick={onClose}>
+              {intl.formatMessage(messages.settings)}
+            </Link>
+          )}
         </div>
         <div className='mute-modal__action-bar'>
           <Button onClick={onClose} className='mute-modal__cancel-button' disabled={submitting}>
             {intl.formatMessage(messages.cancel)}
           </Button>
-          {existing && (
-            <Button onClick={this.handleUnmute} className='mute-modal__cancel-button' disabled={busy}>
+          {ready && existing && (
+            <Button onClick={this.handleUnmute} className='mute-modal__cancel-button' disabled={submitting}>
               {intl.formatMessage(messages.unmute)}
             </Button>
           )}
-          <Button onClick={this.handleConfirm} disabled={busy}>
+          <Button onClick={this.handleConfirm} disabled={!this.canConfirm()}>
             {intl.formatMessage(existing ? messages.update : messages.confirm)}
           </Button>
         </div>

@@ -93,7 +93,7 @@ export const fetchFilters = ({ timeout } = {}) => (dispatch, getState) => {
   const client = api(getState);
   return (timeout ? client.get('/api/v2/filters', { timeout }) : client.get('/api/v2/filters'))
     .then(({ data }) => {
-      if (latestFilterFetch.get(dispatch) !== request) return;
+      if (latestFilterFetch.get(dispatch) !== request) return { ok: false, stale: true };
       // FILTERS_FETCH_SUCCESS replaces the collection. A preceding
       // FILTERS_IMPORT merge would be overwritten on the next dispatch.
       dispatch({
@@ -103,9 +103,13 @@ export const fetchFilters = ({ timeout } = {}) => (dispatch, getState) => {
         skipLoading: true,
       });
       armFilterExpiry(dispatch, getState);
+      return { ok: true, stale: false };
     })
     .catch(err => {
-      if (latestFilterFetch.get(dispatch) !== request) return;
+      if (latestFilterFetch.get(dispatch) !== request) return { ok: false, stale: true };
       dispatch({ type: FILTERS_FETCH_FAIL, err, skipLoading: true, skipAlert: true });
+      // Resolve instead of rejecting. Callers such as status attachment treat
+      // this refresh as best-effort and must not see a network error as their own failure.
+      return { ok: false, stale: false };
     });
 };

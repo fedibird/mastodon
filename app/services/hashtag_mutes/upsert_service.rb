@@ -37,6 +37,7 @@ class HashtagMutes::UpsertService < BaseService
       filter = if rule
                  rule.custom_filter.tap do |existing|
                    raise ActiveRecord::RecordNotFound if existing.nil? || existing.account_id != account.id
+                   raise Mastodon::ValidationError, I18n.t('filters.errors.expired_hashtag_preserve') if preserve_expiry && !CustomFilter.still_active?(existing)
 
                    existing.action = :hide
                    existing.expires_in = duration unless preserve_expiry

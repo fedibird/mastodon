@@ -100,6 +100,27 @@ RSpec.describe Api::V1::HashtagMutesController, type: :controller do
       expect(filter.keywords.pluck(:keyword)).to eq ['別件']
       expect(body_as_json[:filter_action]).to eq 'hide'
     end
+
+    it 'does not accept keeping the end time of a mute that has already ended' do
+      filter = HashtagMutes::UpsertService.new.call(user.account, name: '番組', expires_in: 5.minutes.to_i)
+      filter.update!(expires_at: 1.minute.ago, action: :warn, context: %w(home))
+      expiry = filter.expires_at
+
+      put :update, params: { id: filter.id, preserve_expiry: true }
+
+      expect(response).to have_http_status(422)
+      filter.reload
+      expect(filter.action).to eq 'warn'
+      expect(filter.expires_at).to be_within(1.second).of(expiry)
+      expect(filter.context).to eq %w(home)
+
+      put :update, params: { id: filter.id, expires_in: 2.hours.to_i }
+
+      expect(response).to have_http_status(200)
+      expect(filter.reload.action).to eq 'hide'
+      expect(filter.expires_at).to be_within(5.seconds).of(2.hours.from_now)
+      expect(filter.context).to eq %w(home)
+    end
   end
 
   describe 'DELETE #destroy' do

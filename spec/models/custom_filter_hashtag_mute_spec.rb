@@ -181,6 +181,19 @@ RSpec.describe CustomFilter, type: :model do # rubocop:disable Metrics/BlockLeng
     expect(removed.keywords.pluck(:keyword)).to eq ['別件']
   end
 
+  it 'refuses to keep an end time that is already in the past' do
+    filter = mute(viewer, '番組', expires_in: 5.minutes.to_i)
+    filter.update!(expires_at: 1.minute.ago, action: :hide)
+    expiry = filter.reload.expires_at
+
+    expect do
+      HashtagMutes::UpsertService.new.call(viewer, name: '番組', preserve_expiry: true)
+    end.to raise_error(Mastodon::ValidationError)
+
+    expect(filter.reload.expires_at).to be_within(1.second).of(expiry)
+    expect(filter.action).to eq 'hide'
+  end
+
   it 'rejects an empty name, an invalid character, and a duration outside the list' do
     expect { mute(viewer, '', expires_in: nil) }.to raise_error(Mastodon::ValidationError)
     expect { mute(viewer, 'bad tag', expires_in: nil) }.to raise_error(Mastodon::ValidationError)

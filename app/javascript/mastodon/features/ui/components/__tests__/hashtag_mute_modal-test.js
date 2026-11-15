@@ -172,4 +172,68 @@ describe('HashtagMuteModal', () => {
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/api/v1/hashtag_mutes/9'));
     expect(mockPost).not.toHaveBeenCalled();
   });
+
+  it('requires a new duration when the saved mute has already ended', async () => {
+    mockGet.mockResolvedValue({
+      data: [{
+        id: '9',
+        title: '#番組',
+        context: ['home', 'thread'],
+        filter_action: 'hide',
+        expires_at: '2000-01-01T00:00:00Z',
+        keywords: [],
+        statuses: [],
+        tags: [{ id: '1', name: '番組' }],
+      }],
+    });
+    renderModal();
+
+    const update = await screen.findByRole('button', { name: 'Update mute' });
+    expect(update).toBeDisabled();
+    expect(screen.queryByRole('option', { name: 'Don\'t change' })).toBeNull();
+    expect(screen.getByText('The previous end time has passed. Choose a new duration before muting again.')).toBeTruthy();
+    fireEvent.click(update);
+    expect(mockPut).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText(/Duration/), { target: { value: '7200' } });
+    expect(screen.getByRole('button', { name: 'Update mute' })).not.toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Update mute' }));
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/v1/hashtag_mutes/9', { expires_in: 7200 }));
+  });
+
+  it('does not mute when the settings request fails, then shows the saved mute after a retry', async () => {
+    mockGet.mockRejectedValueOnce(new Error('offline'));
+    renderModal();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be loaded');
+    expect(screen.getByRole('button', { name: 'Mute' })).toBeDisabled();
+    expect(screen.queryByText('Home and lists')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(mockPut).not.toHaveBeenCalled();
+
+    mockGet.mockResolvedValueOnce({
+      data: [{
+        id: '9',
+        title: '#番組',
+        context: ['home', 'thread'],
+        filter_action: 'hide',
+        expires_at: '2030-01-01T00:00:00Z',
+        keywords: [],
+        statuses: [],
+        tags: [{ id: '1', name: '番組' }],
+      }],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Update mute' })).not.toBeDisabled());
+    expect(screen.getByText('Home and lists')).toBeTruthy();
+    expect(screen.getByText('Conversations')).toBeTruthy();
+    expect(screen.queryByText('Notifications')).toBeNull();
+    expect(screen.getByLabelText(/Duration/)).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Update mute' }));
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/v1/hashtag_mutes/9', { preserve_expiry: true }));
+    expect(mockPost).not.toHaveBeenCalled();
+  });
 });
