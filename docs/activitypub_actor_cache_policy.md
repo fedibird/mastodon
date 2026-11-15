@@ -6,7 +6,7 @@ During #748 testing, an allowlisted Group returned the old OFF Actor response on
 
 ## Scope of the Nginx change
 
-`dist/nginx.conf` adds three `map` values in the **http context** and both `proxy_cache_bypass` and `proxy_no_cache` to `location @proxy`. The condition is true **only** for an Actor path (`/users/:username`, `/@username` or `/actor`) **and** an `Accept` header containing `application/activity+json` or `application/ld+json`.
+`dist/nginx.conf` adds three `map` values in the **http context** and both `proxy_cache_bypass` and `proxy_no_cache` to `location @proxy`. The condition is true **only** for an Actor path (`/users/:username`, `/@username` or `/actor`) **and** a JSON representation selected by `Accept: application/activity+json`, `application/ld+json`, or `application/json`, **or** the explicit `?format=json` query parameter. Rails routes the latter to `format.json` even if `Accept` is HTML.
 
 - BYPASS prevents reading existing cached Actor data, even when previously HIT.
 - NO_CACHE prevents writing new Actor data to the proxy cache.
@@ -25,6 +25,8 @@ With a local Nginx 1.26.3 and a test HTTP upstream using `Cache-Control: public,
 | Actor ActivityPub GET before applying bypass (first, repeat) | MISS, HIT |
 | Same canonical cached Actor URL after config reload | BYPASS, BYPASS |
 | `Accept: application/ld+json; profile=...` on Actor URL | BYPASS |
+| `Accept: application/json` on Actor URL | BYPASS |
+| `?format=json` with `Accept: text/html` on Actor URL | BYPASS |
 | `/@actor` ActivityPub GET | BYPASS |
 | HTML `/users/actor` (first, repeat) | MISS, HIT |
 | `/api/v1/instance` ordinary GET (first, repeat) | MISS, HIT |
@@ -48,7 +50,7 @@ An isolated negative test stopped the upstream after seeding an Actor cache entr
    done
    ```
 
-   Expect both responses to show `X-Cached: BYPASS` (or prove the request reaches Rails by independent access log), never `HIT`/`STALE`/`UPDATING`. When dev is in test-only authorized-fetch mode use a signed requester instead of expecting anonymous 200.
+   Expect both responses to show `X-Cached: BYPASS` (or prove the request reaches Rails by independent access log), never `HIT`/`STALE`/`UPDATING`. Also verify `Accept: application/json` and `Accept: text/html` with `?format=json` on that Actor URL bypass caching; check HTTP status and JSON `Content-Type` where appropriate. When dev is in test-only authorized-fetch mode use a signed requester instead of expecting anonymous 200.
 
 4. Re-run the Group OFF→ON→OFF smoke test for the canonical URL **without waiting 180 seconds**. The new Actor claim must be added/removed immediately after all web workers have the new environment values; inspect both `X-Cached` and field/context. Do not change the live `fedibird.com` Group flag.
 5. Check ordinary HTML and API GET requests still use the original cache policy where eligible; inspect Nginx access logs before/after for cache hit ratio, Rails request rate and 5xx. In authorized-fetch mode unsigned requests should still receive 401, valid signed GET should return the correct Actor with private/no-store policy as appropriate. If upstream is unhealthy, prefer failure to stale advertised Group claims.
