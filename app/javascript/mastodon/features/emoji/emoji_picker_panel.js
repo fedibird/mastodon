@@ -5,7 +5,7 @@ import classNames from 'classnames';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { assetHost } from 'mastodon/utils/config';
-import { autoPlayEmoji, disableAutoFocusToEmojiSearch, emojiPickerDisablePersonal } from 'mastodon/initial_state';
+import { autoPlayEmoji, disableAutoFocusToEmojiSearch, emojiPickerDisablePersonal, emojiPickerDisableStandard } from 'mastodon/initial_state';
 import EmojiPickerShell from './emoji_picker_shell';
 import { emojiPickerInitialMode } from './emoji_picker_preferences';
 import { getPickerEmojiSize, loadPersonalEmojiStock, subscribePickerEmojiSize } from './emoji_stock_source';
@@ -233,7 +233,7 @@ class EmojiPickerPanel extends React.PureComponent {
 
   state = {
     modifierOpen: false,
-    mode: emojiPickerDisablePersonal ? 'standard' : (this.props.initialMode || emojiPickerInitialMode()),
+    mode: emojiPickerDisableStandard ? 'personal' : (emojiPickerDisablePersonal ? 'standard' : (this.props.initialMode || emojiPickerInitialMode())),
     Emoji: null,
     catalogHold: false,
     emojiSize: getPickerEmojiSize(),
@@ -407,6 +407,7 @@ class EmojiPickerPanel extends React.PureComponent {
         <EmojiPickerShell
           open
           personalEnabled={!emojiPickerDisablePersonal}
+          standardEnabled={!emojiPickerDisableStandard}
           initialMode={initialMode || emojiPickerInitialMode()}
           autoFocus={autoFocus}
           emojiSize={emojiSize}

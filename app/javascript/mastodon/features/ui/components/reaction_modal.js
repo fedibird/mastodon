@@ -10,7 +10,7 @@ import RelativeTimestamp from '../../../components/relative_timestamp';
 import DisplayName from '../../../components/display_name';
 import ExternalSourceIdentity, { TimeLink } from '../../../components/external_source_identity';
 import { externalIdentityOf } from 'mastodon/external_presentation';
-import { disableRelativeTime } from 'mastodon/initial_state';
+import { disableRelativeTime, emojiPickerDisabled } from 'mastodon/initial_state';
 import { ensureCustomEmojisForPicker } from 'mastodon/actions/custom_emojis';
 import { getFrequentlyUsedEmojis, getPickersEmoji } from 'mastodon/selectors';
 import EmojiPickerPanel from 'mastodon/features/emoji/emoji_picker_panel';
@@ -43,6 +43,10 @@ class ReactionModal extends ImmutablePureComponent {
   };
 
   render () {
+    if (emojiPickerDisabled) {
+      return null;
+    }
+
     const { pickersEmoji, onSkinTone, onClose, skinTone, frequentlyUsedEmojis, onStandardActive } = this.props;
     const externalIdentity = externalIdentityOf(this.props.status);
     const status = this.props.status && (
