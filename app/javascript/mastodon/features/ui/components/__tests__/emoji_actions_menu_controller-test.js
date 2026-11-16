@@ -298,3 +298,29 @@ describe('buildEmojiActionMenuItems', () => {
     expect(items.some(item => item && item.text === 'Mute emoji' && !item.disabled)).toBe(true);
   });
 });
+
+describe('preview-aware emoji action items', () => {
+  const intl = { formatMessage: descriptor => descriptor.defaultMessage || descriptor.id };
+  const reference = { kind: 'unicode', native: '😀' };
+  const options = {
+    intl, reference,
+    resolved: { reference, actions: { mute: { allowed: true }, add_to_personal_category: { allowed: false } } },
+    categories: [], status: 'ready', busy: false,
+    onMute: jest.fn(), onCopy: jest.fn(),
+  };
+
+  it('hides detail navigation in an already enlarged detail column', () => {
+    const items = buildEmojiActionMenuItems({ ...options, source: 'emoji_detail' });
+    expect(items.some(item => item?.text === 'Emoji details')).toBe(false);
+    expect(items.some(item => item?.text === 'Mute emoji')).toBe(true);
+    expect(items.some(item => item?.text === 'Copy emoji')).toBe(true);
+  });
+
+  it('keeps details outside the detail column and provides action icons', () => {
+    const items = buildEmojiActionMenuItems({ ...options, source: 'inline_status' });
+    expect(items.find(item => item?.text === 'Emoji details')?.icon).toBe('info-circle');
+    expect(items.find(item => item?.text === 'Copy emoji')?.icon).toBe('clone');
+    expect(items.find(item => item?.text === 'Mute emoji')?.icon).toBe('volume-off');
+    expect(items.find(item => item?.text === 'Open mute settings')?.icon).toBe('cog');
+  });
+});
