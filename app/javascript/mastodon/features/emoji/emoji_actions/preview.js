@@ -18,7 +18,7 @@ export function buildEmojiActionsPreview(reference, resolved, anchor) {
 
     return {
       native,
-      imageSrc: detail.image?.src || existingSrc,
+      imageSrc: existingSrc || detail.image?.src || null,
       name: detail.label || null,
       shortcode: shortcode ? `:${shortcode}:` : null,
     };
@@ -29,7 +29,8 @@ export function buildEmojiActionsPreview(reference, resolved, anchor) {
   }
 
   const emoji = detail.emoji || {};
-  const imageSrc = emoji.static_url || emoji.url || existingSrc;
+  // Enlarge the actual visible glyph first, not a different row reused under a shortcode.
+  const imageSrc = existingSrc || emoji.static_url || emoji.url || null;
 
   // No new remote fetch just to supply a preview: an unfetched remote emoji
   // stays metadata-only instead of inventing a preview or fetching its URL.
