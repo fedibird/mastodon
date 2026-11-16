@@ -355,7 +355,7 @@ export function buildEmojiActionMenuItems({
 
   items.push(null, {
     text: intl.formatMessage(messages.openSettings),
-      icon: 'cog',
+    icon: 'cog',
     href: '/settings/custom_emojis/mutes',
     target: '_self',
   });
@@ -493,7 +493,7 @@ class EmojiActionsMenuController extends React.PureComponent {
   };
 
   updatePreviewPosition = () => {
-    const menu = this.menuNode?.querySelector('.dropdown-menu');
+    const menu = this.menuNode;
     const preview = this.previewNode;
 
     if (!menu || !preview) {
@@ -1371,10 +1371,9 @@ class EmojiActionsMenuController extends React.PureComponent {
             {...props}
             data-emoji-actions-menu='1'
             className='emoji-actions-menu-portal'
-            ref={this.setMenuNode}
             style={{ ...(props.style || {}), pointerEvents: 'auto' }}
           >
-            <div className={`dropdown-animation dropdown-menu ${placement}`}>
+            <div className={`dropdown-animation dropdown-menu ${placement}`} ref={this.setMenuNode}>
               <div className={`dropdown-menu__arrow ${placement}`} {...arrowProps} />
               <DropdownMenu
                 items={this.menuItems()}
