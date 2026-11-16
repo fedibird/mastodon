@@ -57,13 +57,26 @@ export function attachInlineEmojiMenus(root, context = {}) {
       emoji.dataset[key] = dataset[key];
     });
 
+    // The first pointer/touch after a completed long press is a new gesture.
+    // Do not suppress a legitimate quick tap because a former hold ended <700ms ago.
+    const resetClickSuppress = () => {
+      delete emoji.dataset.emojiLongPressUntil;
+    };
+    emoji.addEventListener('touchstart', resetClickSuppress, { passive: true });
+    emoji.addEventListener('pointerdown', resetClickSuppress);
+
     const onLongPress = () => {
       // A synthetic click may reach an ancestor's capturing click listener
       // before the gesture's own target listener can suppress it.
       emoji.dataset.emojiLongPressUntil = String(Date.now() + LONG_PRESS_CLICK_SUPPRESS_MS);
       openInlineEmojiMenu(emoji, context);
     };
-    disposers.push(attachLongPressGesture(emoji, { onLongPress }));
+    const detachGesture = attachLongPressGesture(emoji, { onLongPress });
+    disposers.push(() => {
+      detachGesture();
+      emoji.removeEventListener('touchstart', resetClickSuppress);
+      emoji.removeEventListener('pointerdown', resetClickSuppress);
+    });
   }
 
   return () => {
