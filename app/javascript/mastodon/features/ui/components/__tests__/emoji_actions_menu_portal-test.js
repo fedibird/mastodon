@@ -1184,4 +1184,47 @@ describe('emoji actions menu portal host', () => {
 
     document.body.removeChild(anchor);
   });
+  it('shows large image with name and shortcode underneath without changing action markup', async () => {
+    const emojiRef = { kind: 'custom', scope: 'local', shortcode: 'wide', custom_emoji_id: '42' };
+    resolveEmojiReference.mockResolvedValueOnce({
+      reference: emojiRef,
+      detail: { emoji: { static_url: '/images/wide.png', alternate_name: 'Long horizontal emoji' } },
+      actions: { mute: { allowed: true }, add_to_personal_category: { allowed: false } },
+    });
+    render(<EmojiActionsMenuController intl={intl} signedIn onSyncMutes={jest.fn()} />);
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+
+    act(() => {
+      openEmojiActions(emojiRef, { anchor, source: 'inline_status' });
+    });
+
+    await screen.findByRole('button', { name: 'Mute emoji' });
+    const preview = document.querySelector('.emoji-actions-menu__preview');
+    expect(preview).not.toBeNull();
+    expect(preview.querySelector('img').getAttribute('src')).toBe('/images/wide.png');
+    expect(preview.querySelector('.emoji-actions-menu__preview-name').textContent).toBe('Long horizontal emoji');
+    expect(preview.querySelector('.emoji-actions-menu__preview-shortcode').textContent).toBe(':wide:');
+    const mute = screen.getByRole('button', { name: 'Mute emoji' });
+    expect(mute.querySelector('.emoji-actions-menu__item-icon')).not.toBeNull();
+    expect(mute.hasAttribute('data-index')).toBe(true);
+    document.body.removeChild(anchor);
+  });
+
+  it('omits both enlarged preview and detail navigation within the detail column', async () => {
+    render(<EmojiActionsMenuController intl={intl} signedIn onSyncMutes={jest.fn()} />);
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+
+    act(() => {
+      openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'emoji_detail' });
+    });
+
+    await screen.findByRole('button', { name: 'Mute emoji' });
+    expect(document.querySelector('.emoji-actions-menu__preview')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Emoji details' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Copy emoji' })).toBeTruthy();
+    document.body.removeChild(anchor);
+  });
+
 });
