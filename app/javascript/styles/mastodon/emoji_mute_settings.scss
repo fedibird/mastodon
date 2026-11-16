@@ -721,6 +721,12 @@
   outline: 0;
 }
 
+// Suppress image callouts only on actionable inline emojis, not all images.
+img.custom-emoji[data-emoji-actions='1'] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
 // The preview is outside dropdown flow: Popper positions the existing action
 // list as before. Only the preview moves to a spare area of the viewport.
 #emoji-actions-overlay-root .emoji-actions-menu-portal {
