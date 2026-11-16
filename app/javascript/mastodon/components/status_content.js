@@ -16,6 +16,7 @@ import { translationCapability, translationRequestStatus } from 'mastodon/utils/
 import { linkTargetEmojiRemains, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
+import { attachInlineEmojiMenus, isInlineEmojiLongPressClick, openInlineEmojiMenu } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 
 const messages = defineMessages({
   linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
@@ -103,38 +104,67 @@ class StatusContent extends React.PureComponent {
   };
 
   _updateEmojiLinks () {
+    this._clearEmojiLinks();
     const node = this.node;
+    if (!node) return;
 
-    if (!node) {
-      return;
-    }
+    this.detachInlineEmojiMenus = attachInlineEmojiMenus(node, {
+      source: 'inline_status',
+      statusId: this.props.status.get('id'),
+      accountId: this.statusAccountIdentity().id,
+    });
 
-    const emojis = node.querySelectorAll('.custom-emoji');
-
-    for (var i = 0; i < emojis.length; i++) {
-      let emoji = emojis[i];
+    this.emojiLinkNodes = Array.from(node.querySelectorAll('.custom-emoji'));
+    this.emojiLinkNodes.forEach(emoji => {
       emoji.addEventListener('mouseup', this.handleEmojiMouseUp, false);
       emoji.addEventListener('click', this.handleEmojiClick, false);
       emoji.style.cursor = 'pointer';
+    });
+  }
+
+  _clearEmojiLinks () {
+    if (this.detachInlineEmojiMenus) {
+      this.detachInlineEmojiMenus();
+      this.detachInlineEmojiMenus = null;
     }
+    (this.emojiLinkNodes || []).forEach(emoji => {
+      emoji.removeEventListener('mouseup', this.handleEmojiMouseUp, false);
+      emoji.removeEventListener('click', this.handleEmojiClick, false);
+    });
+    this.emojiLinkNodes = [];
   }
 
   handleEmojiMouseUp = e => {
     e.preventDefault();
     e.stopPropagation();
-  }
+  };
 
   handleEmojiClick = e => {
-    const shortcode = e.target.dataset.shortcode;
-    const domain = e.target.dataset.domain;
+    const emoji = e.currentTarget;
+    if (isInlineEmojiLongPressClick(e, emoji)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
 
-    if (this.context.router) {
+    if (openInlineEmojiMenu(emoji, {
+      source: 'inline_status',
+      statusId: this.props.status.get('id'),
+      accountId: this.statusAccountIdentity().id,
+    })) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    // Signed-out users retain the existing detail navigation.
+    const { shortcode, domain } = emoji.dataset;
+    if (this.context.router && shortcode) {
       e.preventDefault();
       e.stopPropagation();
       this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
     }
-  }
-
+  };
   _updateStatusLinks () {
     const { intl, status, collapsable, onClick, onCollapsedToggle } = this.props;
     const node = this.node;
@@ -248,6 +278,10 @@ class StatusContent extends React.PureComponent {
     this._updateEmojiLinks();
   }
 
+  componentWillUnmount () {
+    this._clearEmojiLinks();
+  }
+
   onMentionClick = (mention, e) => {
     if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -344,7 +378,17 @@ class StatusContent extends React.PureComponent {
   }
 
   onCustomEmojiUrlClick = (shortcode, domain, e) => {
-    if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey) return;
+    if (openInlineEmojiMenu(e.currentTarget, {
+      source: 'inline_status',
+      statusId: this.props.status.get('id'),
+      accountId: this.statusAccountIdentity().id,
+    })) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (this.context.router) {
       e.preventDefault();
       this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
     }
@@ -356,6 +400,12 @@ class StatusContent extends React.PureComponent {
 
   handleMouseUp = (e) => {
     if (!this.startXY) {
+      return;
+    }
+
+    // Opening the emoji menu must not also open the containing status.
+    if (e.target?.closest?.('.custom-emoji')) {
+      this.startXY = null;
       return;
     }
 
