@@ -210,15 +210,7 @@ class Reboost::Placement
   end
 
   def decrement_retained_once!(status)
-    key = "reboost:reblog_counted_out:#{status.id}"
-    claimed = RedisConfiguration.with { |redis| redis.set(key, '1', nx: true) }
-    return unless claimed
-
-    original.association(:status_stat).reset
-    original.decrement_count!(:reblogs_count)
-  rescue StandardError
-    RedisConfiguration.with { |redis| redis.del(key) }
-    raise
+    Reboost::RetainedCount.release!(original, status)
   end
 
   def raise_pending!(discarded, visibility, audience = nil)
