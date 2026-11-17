@@ -201,6 +201,8 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     await phaseChanged('stale');
     expect(privacyRoot.isConnected).toBe(false);
     expect(host.isConnected).toBe(true);
+    // The empty host cannot displace the retry/loading screen.
+    expect(host.style.display).toBe('contents');
     await phaseChanged('ready');
     expect(privacyRoot.parentElement).toBe(host);
     expect(host.style.display).not.toBe('contents');
