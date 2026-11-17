@@ -432,12 +432,17 @@ class FeedManager
     # tracking anything after it for deduplication purposes.
     falloff_rank  = FeedManager::REBLOG_FALLOFF
     falloff_range = redis.zrevrange(timeline_key, falloff_rank, falloff_rank, with_scores: true)
-    falloff_score = falloff_range&.first&.last&.to_i
+    falloff_score = falloff_range&.first&.last
 
-    return if falloff_score.nil?
+    # A short feed never reaches the falloff item, but seen history still has
+    # to move. Keep the newest window and drop only older originals.
+    if falloff_score.nil?
+      bound_seen_history(type, timeline_id)
+      return
+    end
 
     # Get any reblogs we might have to clean up after.
-    redis.zrangebyscore(reblog_key, 0, falloff_score).each do |reblogged_id|
+    redis.zrangebyscore(reblog_key, 0, falloff_score.to_i).each do |reblogged_id|
       # Remove it from the set of reblogs we're tracking *first* to avoid races.
       redis.zrem(reblog_key, reblogged_id)
       # Just drop any set we might have created to track additional reblogs.
@@ -447,7 +452,13 @@ class FeedManager
       redis.del(key(type, timeline_id, "reblogs:#{reblogged_id}"))
     end
 
-    redis.zremrangebyscore(key(type, timeline_id, 'reblogs:seen'), 0, falloff_score)
+    # Ties share one double score. An inclusive max would forget a seen
+    # original that the insert check still treats as inside the window.
+    redis.zremrangebyscore(key(type, timeline_id, 'reblogs:seen'), '-inf', "(#{falloff_score}")
+  end
+
+  def bound_seen_history(type, timeline_id)
+    redis.zremrangebyrank(key(type, timeline_id, 'reblogs:seen'), 0, -(FeedManager::REBLOG_FALLOFF + 1))
   end
 
   # An edit fan-out rechecks subscriptions. A feed that already has the

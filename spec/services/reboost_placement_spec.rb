@@ -77,6 +77,32 @@ RSpec.describe ReblogService do
       end
     end
 
+    it 'decrements a retained reported boost only once when another boost stays active' do
+      other = Fabricate(:status, reblog: original)
+      Fabricate(:report, account: account, target_account: account, status_ids: [first.id])
+      first.discard
+      RemovalWorker.new.perform(first.id)
+      replacement = nil
+
+      travel 301.seconds do
+        replacement = described_class.new.call(account, original)
+        expect(original.reload.reblogs_count).to eq 2
+      end
+
+      replacement.discard
+      RemovalWorker.new.perform(replacement.id)
+
+      travel 602.seconds do
+        again = described_class.new.call(account, original)
+
+        expect(again.id).not_to eq replacement.id
+        expect(account.statuses.where(reblog_of_id: original.id).pluck(:id)).to eq [again.id]
+        expect(Status.where(reblog_of_id: original.id).pluck(:id)).to contain_exactly(other.id, again.id)
+        expect(original.reload.reblogs_count).to eq 2
+        expect(Status.unscoped.find(first.id).deleted_at).to be_present
+      end
+    end
+
     it 'rejects an ordinary boost after unreblog until the cooldown ends' do
       first.discard
 
@@ -194,14 +220,16 @@ RSpec.describe ReblogService do
         options: {}
       )
       RedisConfiguration.with { |redis| redis.set("idempotency:reboost:#{account.id}:again", "operation:#{operation.id}") }
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
       expect(RedisLock).to receive(:acquire).with(hash_including(key: "lock:reboost:#{account.id}:#{original.id}")).at_least(:once).and_call_original
 
       Reboost::Placement.cancel_pending!(account, original.id)
 
+      expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(['https://remote.example/inbox'])
       travel 301.seconds do
         expect(Reboost::Placement.resume!(operation)).to be_nil
       end
-      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'unreblogged')
+      expect(operation.reload).to have_attributes(state: 'completed', error_code: 'unreblogged')
       expect(account.statuses.where(reblog_of_id: original.id)).to be_empty
     end
 

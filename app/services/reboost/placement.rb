@@ -34,12 +34,17 @@ class Reboost::Placement
   def cancel_pending!
     with_redis_lock(lock_name) do
       now = Time.current
-      ReboostOperation.where(account_id: account.id, reblog_of_id: options[:lock_status_id], state: 'pending').update_all(
+      pending = ReboostOperation.where(account_id: account.id, reblog_of_id: options[:lock_status_id], state: 'pending')
+      rows = pending.pluck(:id, :undo_payload)
+      pending.update_all(
         state: 'cancelled',
         error_code: 'unreblogged',
         completed_at: now,
         updated_at: now
       )
+      rows.each do |operation_id, undo_payload|
+        Reboost::FederationWorker.perform_async(operation_id) if undo_payload.present?
+      end
     end
   end
 
@@ -178,13 +183,25 @@ class Reboost::Placement
   def finish_removal!(discarded)
     if discarded.reported?
       RemoveStatusService.new.call(discarded, skip_remote: true, preserve: true)
-      original.decrement_count!(:reblogs_count)
+      decrement_retained_once!(discarded)
     else
       RemoveStatusService.new.call(discarded, skip_remote: true, immediate: true)
     end
     true
   rescue Mastodon::RaceConditionError
     false
+  end
+
+  def decrement_retained_once!(status)
+    key = "reboost:reblog_counted_out:#{status.id}"
+    claimed = RedisConfiguration.with { |redis| redis.set(key, '1', nx: true) }
+    return unless claimed
+
+    original.association(:status_stat).reset
+    original.decrement_count!(:reblogs_count)
+  rescue StandardError
+    RedisConfiguration.with { |redis| redis.del(key) }
+    raise
   end
 
   def raise_pending!(discarded, visibility, audience = nil)
@@ -223,7 +240,7 @@ class Reboost::Placement
     persist_recovery!(existing) if existing.local?
     if existing.reported?
       RemoveStatusService.new.call(existing, skip_remote: true, preserve: true)
-      original.decrement_count!(:reblogs_count)
+      decrement_retained_once!(existing)
     else
       RemoveStatusService.new.call(existing, skip_remote: true, immediate: true)
     end
