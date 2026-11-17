@@ -479,6 +479,8 @@
   "emoji_button.travel": "Travel & Places",
   "emoji_picker.categories": "Emoji categories",
   "emoji_picker.mode_group": "Emoji picker mode",
+  "emoji_picker.mutes_loading": "Checking muted emoji…",
+  "emoji_picker.mutes_unavailable": "Emoji choices stay hidden until mute rules are confirmed.",
   "emoji_picker.mode.personal": "Personal set",
   "emoji_picker.mode.standard": "Standard",
   "emoji_picker.standard_error": "Could not load the standard emoji picker",

@@ -45,6 +45,19 @@ RSpec.describe PersonalEmojiSets::Stock do
     stock = described_class.new(categories).as_json
 
     expect(stock[:categories].first[:heading][:image][:alt]).to eq '👍🏿'
+    expect(stock[:categories].first[:heading][:reference]).to eq(kind: 'unicode', native: '👍🏿')
+  end
+
+  it 'keeps the qualified representative when it shares a file with an earlier native' do
+    categories = definition(items: [unicode_item('plain', '‼'), unicode_item('qualified', '‼️')], heading: { 'mode' => 'emoji', 'item_id' => 'qualified' })
+    stock = described_class.new(categories).as_json
+    category = stock.fetch(:categories).first
+    sources = category.fetch(:items).map { |item| item.fetch(:image).fetch(:src) }
+
+    expect(sources.uniq).to eq [sources.first]
+    expect(category.fetch(:heading).fetch(:reference)).to eq(kind: 'unicode', native: '‼️')
+    expect(category.fetch(:heading).fetch(:image).fetch(:alt)).to eq '‼️'
+    expect(category.fetch(:items).map { |item| item.fetch(:reference).fetch(:native) }).to eq ['‼', '‼️']
   end
 
   context 'with custom emoji' do

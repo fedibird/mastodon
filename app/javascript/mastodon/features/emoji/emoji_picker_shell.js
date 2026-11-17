@@ -6,7 +6,8 @@ import { emojiPickerDisableActions, emojiPickerDisablePersonal, emojiPickerDisab
 import { assetHost } from 'mastodon/utils/config';
 import StockEmojiPicker from './stock_emoji_picker';
 import { getCachedPersonalEmojiStock, loadPersonalEmojiStock, subscribePersonalEmojiStock } from './emoji_stock_source';
-import { emptyEmojiStock, normalizeEmojiStockLoad } from './emoji_stock';
+import { emptyEmojiStock, isEmptyEmojiStock, normalizeEmojiStockLoad } from './emoji_stock';
+import { emojiPickerVisibility, ensureEmojiPickerMuteDocument, projectEmojiStockForPicker, subscribeEmojiPickerVisibility } from './emoji_picker_visibility';
 import { loadStandardEmojiPicker } from './standard_emoji_loader';
 import { markEmojiPickerEscape } from './emoji_picker_escape';
 
@@ -25,6 +26,8 @@ const messages = defineMessages({
   loadingStandard: { id: 'emoji_picker.standard_loading', defaultMessage: 'Loading standard emoji' },
   standardError: { id: 'emoji_picker.standard_error', defaultMessage: 'Could not load the standard emoji picker' },
   retry: { id: 'emoji_picker.stock_retry', defaultMessage: 'Try again' },
+  mutesLoading: { id: 'emoji_picker.mutes_loading', defaultMessage: 'Checking muted emoji…' },
+  mutesUnavailable: { id: 'emoji_picker.mutes_unavailable', defaultMessage: 'Emoji choices stay hidden until mute rules are confirmed.' },
 });
 
 // Which open shell may move focus. Updated when a shell opens and when focus
@@ -134,6 +137,8 @@ class EmojiPickerShell extends React.PureComponent {
       standardModule: null,
       standardAutoFocus: false,
       suppressFocus: false,
+      visibilityTick: 0,
+      muteDocumentStatus: emojiPickerVisibility().ready ? 'ready' : 'loading',
     };
   }
 
@@ -166,22 +171,46 @@ class EmojiPickerShell extends React.PureComponent {
   componentDidMount() {
     this.mounted = true;
     this.bindStockSource();
+    this.unsubscribeVisibility = subscribeEmojiPickerVisibility(this.handleVisibility);
 
     if (this.props.open) {
       this.ensureData(this.props.stockSource === loadPersonalEmojiStock);
+      this.ensureMuteDocument();
       this.emitMode(this.state.mode);
     }
+
+    this.committedStandardKey = this.standardMountKey();
   }
+
+  handleVisibility = () => {
+    if (!this.mounted) {
+      return;
+    }
+
+    this.setState(state => ({
+      visibilityTick: state.visibilityTick + 1,
+      muteDocumentStatus: emojiPickerVisibility().ready ? 'ready' : state.muteDocumentStatus,
+    }));
+  };
 
   standardSearchInput() {
     return this.node && this.node.querySelector('.emoji-picker-shell__standard .emoji-mart-search input');
   }
 
-  getSnapshotBeforeUpdate(prevProps) {
-    const previous = (prevProps.standardPickerProps || {}).pickerRevision || 'standard';
-    const next = (this.props.standardPickerProps || {}).pickerRevision || 'standard';
+  standardMountKey() {
+    const pickerProps = this.props.standardPickerProps || {};
+    const visibility = emojiPickerVisibility();
+    const skin = pickerProps.skin || 1;
 
-    if ((previous === next && prevProps.emojiSize === this.props.emojiSize && prevProps.perLine === this.props.perLine) || !this.node) {
+    return `${pickerProps.pickerRevision || 'standard'}:${this.props.emojiSize}:${this.props.perLine}:${skin}:${visibility.ready ? visibility.signature : 'held'}`;
+  }
+
+  getSnapshotBeforeUpdate() {
+    // render() has already run. Compare the key committed by the previous
+    // update so a revision, skin, or mute change can still read the old search.
+    const next = this.standardMountKey();
+
+    if (!this.committedStandardKey || this.committedStandardKey === next || !this.node) {
       return null;
     }
 
@@ -190,6 +219,8 @@ class EmojiPickerShell extends React.PureComponent {
     if (!input) {
       return null;
     }
+
+    this.pendingStandardSearch = input.value;
 
     return {
       value: input.value,
@@ -200,6 +231,11 @@ class EmojiPickerShell extends React.PureComponent {
   componentDidUpdate(prevProps, _prevState, snapshot) {
     this.restoreStandardSearch(snapshot);
     this.applyPendingStandardSearch();
+    this.committedStandardKey = this.standardMountKey();
+
+    if (snapshot && snapshot.value !== this.state.searchQuery) {
+      this.setState({ searchQuery: snapshot.value });
+    }
 
     if (prevProps.stockSource !== this.props.stockSource) {
       this.bindStockSource();
@@ -209,7 +245,10 @@ class EmojiPickerShell extends React.PureComponent {
     if (this.props.open && !prevProps.open) {
       this.claimActive();
       this.ensureData(this.props.stockSource === loadPersonalEmojiStock);
+      this.ensureMuteDocument();
       this.emitMode(this.state.mode);
+    } else if (this.props.open) {
+      this.ensureMuteDocument();
     }
   }
 
@@ -340,6 +379,12 @@ class EmojiPickerShell extends React.PureComponent {
     this.mounted = false;
     this.stockGeneration += 1;
     this.standardGeneration += 1;
+    this.muteGeneration = (this.muteGeneration || 0) + 1;
+
+    if (this.unsubscribeVisibility) {
+      this.unsubscribeVisibility();
+    }
+
     this.stopSearchCategorySync();
     this.detachFocusListener();
     if (this.unsubscribeStock) {
@@ -465,6 +510,46 @@ class EmojiPickerShell extends React.PureComponent {
       this.beginStandard(false);
     }
   }
+
+  ensureMuteDocument(force = false) {
+    if (!this.props.open || emojiPickerVisibility().ready || this.muteInFlight) {
+      return;
+    }
+
+    if (!force && this.state.muteDocumentStatus === 'error') {
+      return;
+    }
+
+    const generation = (this.muteGeneration || 0) + 1;
+    this.muteGeneration = generation;
+    this.muteInFlight = true;
+
+    if (this.state.muteDocumentStatus !== 'loading') {
+      this.setState({ muteDocumentStatus: 'loading' });
+    }
+
+    ensureEmojiPickerMuteDocument().then(() => {
+      if (!this.mounted || generation !== this.muteGeneration) {
+        return null;
+      }
+
+      this.muteInFlight = false;
+      this.setState({ muteDocumentStatus: emojiPickerVisibility().ready ? 'ready' : 'error' });
+      return null;
+    }).catch(() => {
+      if (!this.mounted || generation !== this.muteGeneration) {
+        return;
+      }
+
+      this.muteInFlight = false;
+      this.setState({ muteDocumentStatus: 'error' });
+    });
+  }
+
+  handleRetryMutes = () => {
+    this.muteInFlight = false;
+    this.ensureMuteDocument(true);
+  };
 
   beginStock(force) {
     if (!personalIsEnabled(this.props) || this.stockInFlight) {
@@ -707,10 +792,31 @@ class EmojiPickerShell extends React.PureComponent {
     );
   }
 
+  renderMuteHold() {
+    const { intl } = this.props;
+    const failed = this.state.muteDocumentStatus === 'error';
+
+    return (
+      <div className='emoji-mart-no-results emoji-picker-shell__mutes-held' role='status'>
+        <div>{intl.formatMessage(failed ? messages.mutesUnavailable : messages.mutesLoading)}</div>
+        {failed && (
+          <button type='button' onClick={this.handleRetryMutes}>
+            {intl.formatMessage(messages.retry)}
+          </button>
+        )}
+      </div>
+    );
+  }
+
   renderStandard() {
     const { intl, standardPickerProps, autoFocus, emojiSize, perLine, theme } = this.props;
     const { standardStatus, standardModule, standardAutoFocus, editMode } = this.state;
     const effectiveEditMode = actionsAreEnabled(this.props) ? editMode : false;
+    const visibility = emojiPickerVisibility();
+
+    if (!visibility.ready) {
+      return this.renderMuteHold();
+    }
 
     if (standardStatus === 'error') {
       return (
@@ -740,7 +846,7 @@ class EmojiPickerShell extends React.PureComponent {
     // arrives after the module is ready still appears.
     return (
       <Picker
-        key={`${pickerRevision || 'standard'}:${emojiSize}:${perLine}`}
+        key={this.standardMountKey()}
         sheetColumns={62}
         sheetRows={62}
         sheetSize={32}
@@ -753,6 +859,7 @@ class EmojiPickerShell extends React.PureComponent {
         showSkinTones={false}
         backgroundImageFn={standardBackgroundImage}
         {...pickerProps}
+        pickerVisibility={visibility}
         editMode={effectiveEditMode}
         actionsEnabled={actionsAreEnabled(this.props)}
         perLine={perLine}
@@ -768,11 +875,16 @@ class EmojiPickerShell extends React.PureComponent {
     const { animate, autoFocus, emojiSize, perLine, theme } = this.props;
     const { searchQuery, stock, stockStatus, editMode } = this.state;
     const effectiveEditMode = actionsAreEnabled(this.props) ? editMode : false;
-    const focus = Boolean(autoFocus && this.canTakeFocus() && stockStatus === 'ready');
+    const projected = projectEmojiStockForPicker(stock);
+    const focus = Boolean(autoFocus && this.canTakeFocus() && stockStatus === 'ready' && !projected.held);
 
     return (
       <StockEmojiPicker
-        stock={stock}
+        stock={projected.stock}
+        sourceEmpty={isEmptyEmojiStock(stock)}
+        candidatesHeld={projected.held}
+        holdError={projected.held && this.state.muteDocumentStatus === 'error'}
+        onHoldRetry={this.handleRetryMutes}
         status={stockStatus === 'idle' ? 'loading' : stockStatus}
         query={searchQuery}
         onQueryChange={this.handleQueryChange}
@@ -807,7 +919,7 @@ class EmojiPickerShell extends React.PureComponent {
         {mode === 'standard' ? (
           <div className='emoji-picker-shell__standard'>
             {this.renderStandard()}
-            {this.props.standardAccessory}
+            {emojiPickerVisibility().ready ? this.props.standardAccessory : null}
           </div>
         ) : this.renderPersonal()}
       </div>

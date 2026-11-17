@@ -1015,7 +1015,11 @@ describe('emoji picker shell and personal stock', () => {
   it('keeps the saved heading through search and falls back to the name if its image fails', async () => {
     const stock = JSON.parse(JSON.stringify(fixture()));
 
-    stock.categories[0].heading = { text: 'Z', image: stock.categories[0].items[0].image };
+    stock.categories[0].heading = {
+      text: 'Z',
+      image: stock.categories[0].items[0].image,
+      reference: { kind: 'unicode', native: stock.categories[0].items[0].selection.native },
+    };
     renderShell({ stockSource: ready(stock) });
 
     const search = await screen.findByRole('searchbox');

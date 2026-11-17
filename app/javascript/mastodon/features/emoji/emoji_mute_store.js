@@ -22,6 +22,41 @@ let sessionVersion = 0;
 // 401/403 are not cleared by a repeated stream event for the revision we
 // already hold. Only a GET that adopts a current document lifts this.
 let authorizationFailure = null;
+let viewerSignedInOverride = null;
+const documentListeners = new Set();
+
+function viewerIsSignedIn() {
+  if (viewerSignedInOverride !== null) {
+    return viewerSignedInOverride;
+  }
+
+  return Boolean(accessToken || me);
+}
+
+function notifyEmojiMuteDocument() {
+  documentListeners.forEach(listener => {
+    try {
+      listener();
+    } catch (error) {
+      // A picker subscriber must not block document adoption.
+    }
+  });
+}
+
+export function subscribeEmojiMuteDocument(listener) {
+  documentListeners.add(listener);
+
+  return () => {
+    documentListeners.delete(listener);
+  };
+}
+
+// Tests simulate a signed-in viewer without boot JSON. Production leaves this
+// unset and uses the page's account metadata.
+export function setEmojiMuteViewerSignedInForTests(signedIn) {
+  viewerSignedInOverride = signedIn === null || signedIn === undefined ? null : Boolean(signedIn);
+  notifyEmojiMuteDocument();
+}
 
 // A notification list that was cleared, blocked, or filtered must not be
 // filled again by a mute refresh that started before that action.
@@ -71,6 +106,7 @@ export function emojiMuteAuthorizationFailure() {
 
 export function blockEmojiMuteAuthorization(failure) {
   authorizationFailure = failure === 'forbidden' ? 'forbidden' : 'unauthorized';
+  notifyEmojiMuteDocument();
 }
 
 export function emojiMuteDocumentReady() {
@@ -78,7 +114,7 @@ export function emojiMuteDocumentReady() {
     return false;
   }
 
-  if (!accessToken && !me) {
+  if (!viewerIsSignedIn()) {
     return true;
   }
 
@@ -98,10 +134,11 @@ export function resetEmojiMuteSession() {
   settled = false;
   authorizationFailure = null;
   invalidateEmojiMuteNotificationFetches();
+  notifyEmojiMuteDocument();
 }
 
 export function emojiReactionEventsAccepted() {
-  if (!accessToken && !me) {
+  if (!viewerIsSignedIn()) {
     return true;
   }
 
@@ -138,13 +175,20 @@ function adopt(document, minRevision) {
     authorizationFailure = null;
   }
 
+  notifyEmojiMuteDocument();
   return mutes;
 }
 
 export function loadEmojiMutes(options = {}) {
-  if (!accessToken && !me) {
+  if (!viewerIsSignedIn()) {
+    const changed = !settled || appliedRevision === null;
     settled = true;
     appliedRevision = appliedRevision || '0';
+
+    if (changed) {
+      notifyEmojiMuteDocument();
+    }
+
     return Promise.resolve(mutes);
   }
 
@@ -191,20 +235,37 @@ export function noteEmojiMutesChanged(payload) {
     return Promise.resolve(mutes);
   }
 
+  let changed = false;
+
   if (observedRevision === null || compareRevision(next, observedRevision) > 0) {
     observedRevision = next;
     settled = false;
+    changed = true;
   }
 
   if (appliedRevision !== null && compareRevision(appliedRevision, observedRevision) >= 0) {
+    if (!settled) {
+      changed = true;
+    }
+
     settled = true;
+
+    if (changed) {
+      notifyEmojiMuteDocument();
+    }
+
     return Promise.resolve(mutes);
+  }
+
+  if (changed) {
+    notifyEmojiMuteDocument();
   }
 
   return loadEmojiMutes({ force: true, minRevision: observedRevision });
 }
 
 export function resetEmojiMuteStoreForTests() {
+  viewerSignedInOverride = null;
   resetEmojiMuteSession();
   notificationFetchEpoch = 0;
 }
@@ -219,4 +280,5 @@ export function installEmojiMutesForTests(document) {
   request = null;
   settled = true;
   authorizationFailure = null;
+  notifyEmojiMuteDocument();
 }

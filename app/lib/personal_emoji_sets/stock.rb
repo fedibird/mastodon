@@ -44,12 +44,34 @@ class PersonalEmojiSets::Stock
     definition = category.fetch('heading')
     return result if definition['mode'] == 'initial'
 
-    # Pick the reference before filtering unavailable entries, not the first
-    # available/search-matching entry in the rendered list.
+    # Pick the saved placement, not the first available entry and not an image
+    # URL. Two finished natives can share one SVG.
     item_id = definition['mode'] == 'emoji' ? definition['item_id'] : category.fetch('items').first&.fetch('id')
-    resolved = resolved_items[item_id]
-    result[:image] = resolved.fetch(:image) if resolved && resolved[:available]
+    resolved = item_id && resolved_items[item_id]
+    return result unless resolved && resolved[:available] && identifiable_reference?(resolved[:reference])
+
+    result[:reference] = resolved.fetch(:reference)
+    result[:image] = resolved.fetch(:image)
     result
+  end
+
+  def identifiable_reference?(reference)
+    return false unless reference.is_a?(Hash)
+
+    case reference[:kind]
+    when 'unicode'
+      reference[:native].present?
+    when 'custom'
+      if reference[:scope] == 'local'
+        reference[:custom_emoji_id].present?
+      elsif reference[:scope] == 'remote'
+        reference[:domain].present? && reference[:shortcode].present?
+      else
+        false
+      end
+    else
+      false
+    end
   end
 
   def unicode_item(item)

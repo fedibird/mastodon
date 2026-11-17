@@ -19,7 +19,7 @@ const preparedSearchFields = new WeakMap();
  * @typedef {Object} EmojiStockCategory
  * @property {string} id
  * @property {string} name
- * @property {{text: string, image?: EmojiStockImage}} [heading] Resolved before filtering.
+ * @property {{text: string, image?: EmojiStockImage, reference?: EmojiStockReference}} [heading] Resolved before filtering. `reference` is the saved representative; image URLs are not an identity.
  * @property {EmojiStockItem[]} items
  */
 

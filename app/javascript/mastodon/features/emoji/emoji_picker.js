@@ -7,7 +7,9 @@ import NimblePicker from 'emoji-mart/dist-es/components/picker/nimble-picker';
 import { getSanitizedData } from 'emoji-mart/dist/utils';
 import nimblePickerData from './emoji_mart_nimble_data';
 import { openEmojiActions } from './emoji_actions/bus';
-import { referenceFromPickerEmoji } from './emoji_actions/reference';
+import { identityKey, referenceFromPickerEmoji } from './emoji_actions/reference';
+import { emojiPickerVisibility } from './emoji_picker_visibility';
+import { projectStandardPickerProps } from './emoji_picker_standard_visibility';
 import { attachCellActionTriggerHandlers } from './cell_action_trigger';
 import { attachLongPressGesture } from './long_press';
 
@@ -98,6 +100,11 @@ class Picker extends React.PureComponent {
     custom: PropTypes.array,
     editMode: PropTypes.bool,
     actionsEnabled: PropTypes.bool,
+    pickerVisibility: PropTypes.shape({
+      ready: PropTypes.bool,
+      signature: PropTypes.string,
+      index: PropTypes.object,
+    }),
   };
 
   static defaultProps = {
@@ -119,6 +126,15 @@ class Picker extends React.PureComponent {
   }
 
   componentDidUpdate(prevProps) {
+    const selected = this.state.selectedEmoji;
+    const visibility = this.props.pickerVisibility || emojiPickerVisibility();
+    const selectedKey = identityKey(referenceFromPickerEmoji(selected));
+    const selectedHidden = !visibility.ready || Boolean(selectedKey && visibility.index && visibility.index.has(selectedKey));
+
+    if (selected && selectedHidden) {
+      this.setState({ selectedEmoji: null });
+    }
+
     if (prevProps.actionsEnabled !== this.props.actionsEnabled) {
       this.detachRootListeners();
     }
@@ -512,16 +528,20 @@ class Picker extends React.PureComponent {
   };
 
   render() {
-    const { intl, editMode, actionsEnabled, ...props } = this.props;
+    const { intl, editMode, actionsEnabled, pickerVisibility, ...props } = this.props;
     const { selectedEmoji } = this.state;
-    const canManage = Boolean(referenceFromPickerEmoji(selectedEmoji));
+    const visibility = pickerVisibility || emojiPickerVisibility();
+    const projected = projectStandardPickerProps(props, visibility, nimblePickerData);
+    const selectedReference = referenceFromPickerEmoji(selectedEmoji);
+    const selectedKey = identityKey(selectedReference);
+    const canManage = Boolean(selectedReference) && visibility.ready && !(selectedKey && visibility.index && visibility.index.has(selectedKey));
 
     return (
       <div className={classNames('emoji-standard-picker-with-actions', { 'emoji-standard-picker-with-actions--editing': editMode })}>
         <NimblePicker
-          {...props}
+          {...projected}
+          key={`${visibility.ready ? visibility.signature : 'held'}:${props.skin || 1}`}
           ref={this.setPickerRef}
-          data={nimblePickerData}
           emojiTooltip
         />
         {actionsEnabled && editMode && (
