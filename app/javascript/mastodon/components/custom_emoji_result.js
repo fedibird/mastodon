@@ -115,7 +115,13 @@ class CustomEmojiResult extends React.PureComponent {
 
   updateEmojiMenu = () => {
     this.detachInlineEmojiMenus?.();
-    this.detachInlineEmojiMenus = attachInlineEmojiMenus(this.emojiRoot, { source: 'inline_emoji_search' });
+    const context = { source: 'inline_emoji_search' };
+    const detachImage = attachInlineEmojiMenus(this.emojiRoot, context);
+    const detachSummary = attachInlineEmojiMenus(this.node, context);
+    this.detachInlineEmojiMenus = () => {
+      detachImage();
+      detachSummary();
+    };
   };
 
   onHashtagClick = (hashtag, e) => {
