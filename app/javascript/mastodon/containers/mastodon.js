@@ -417,7 +417,13 @@ export default class Mastodon extends React.PureComponent {
         <Provider store={store}>
           <ErrorBoundary>
             <React.Fragment>
-              <div ref={this.setUiPortalHost} style={{ display: 'contents' }} />
+              {/* Keep the host as an actual flex box. .app-holder > div
+                  provides width and alignment for the responsive WebUI.
+                  Making this element display: contents removes that layout
+                  boundary and can cause mobile columns to overflow. The
+                  *inner* privacy root remains display: contents so UI keeps
+                  its original flex-item relationship to the host. */}
+              <div ref={this.setUiPortalHost} />
               {ui}
               {boot !== 'ready' && (
                 <div className='emoji-mutes-bootstrap' role={boot === 'error' ? 'alert' : 'status'} style={{ padding: '2rem', textAlign: 'center' }}>
