@@ -288,6 +288,39 @@ RSpec.describe FeedManager do
         expect(FeedManager.instance.push_to_home(account, reblogs.last)).to be false
       end
 
+      it 'bounds seen history while the timeline stays inside the falloff' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        seen_key = FeedManager.instance.key(:home, account.id, 'reblogs:seen')
+        originals = Array.new(FeedManager::REBLOG_FALLOFF + 2) { Fabricate(:status) }
+
+        originals.each do |original|
+          reblog = Fabricate(:status, reblog: original)
+          FeedManager.instance.push_to_home(account, reblog)
+          FeedManager.instance.unpush_from_home(account, reblog)
+        end
+
+        expect(redis.zcard(seen_key)).to be <= FeedManager::REBLOG_FALLOFF
+        expect(redis.zscore(seen_key, originals.last.id)).to be_present
+        expect(FeedManager.instance.push_to_home(account, Fabricate(:status, reblog: originals.last))).to be false
+      end
+
+      it 'keeps seen history that ties the trim cutoff' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        timeline = FeedManager.instance.key(:home, account.id)
+        seen_key = FeedManager.instance.key(:home, account.id, 'reblogs:seen')
+        seen_score = '100000000000000001'
+        redis.zadd(timeline, seen_score, 'tied-a')
+        redis.zadd(timeline, '100000000000000000', 'tied-b')
+        3.times { |index| redis.zadd(timeline, (100_000_000_000_000_000 + ((index + 1) * 1000)).to_s, "newer-#{index}") }
+        redis.zadd(seen_key, seen_score, reblogged.id)
+
+        FeedManager.instance.send(:trim, :home, account.id)
+
+        expect(redis.zscore(seen_key, reblogged.id)).to be_present
+        expect(FeedManager.instance.push_to_home(account, Fabricate(:status, reblog: reblogged))).to be false
+      end
+
       it 'does not count a tied snowflake score as a newer entry' do
         account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
