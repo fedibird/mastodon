@@ -35,6 +35,16 @@ RSpec.describe Reboost::FederationWorker do
     expect(ActivityPub::OrderedReboostDeliveryWorker).not_to have_received(:push_bulk)
   end
 
+  it 'sends only the saved Undo when the operation was cancelled' do
+    operation.update!(state: 'cancelled', error_code: 'unreblogged')
+
+    described_class.new.perform(operation.id)
+
+    expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(['https://relay.example/inbox'])
+    expect(ActivityPub::OrderedReboostDeliveryWorker).not_to have_received(:push_bulk)
+    expect(operation.reload).to have_attributes(state: 'completed', error_code: 'unreblogged')
+  end
+
   it 'puts a public relay on the ordered Undo-then-Announce path once' do
     relays = instance_double(ActiveRecord::Relation, pluck: ['https://relay.example/inbox'])
     allow(Relay).to receive(:enabled).and_return(relays)

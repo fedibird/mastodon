@@ -33,7 +33,7 @@ RSpec.describe ActivityPub::OrderedReboostDeliveryWorker do
     expect(order.map(&:last).uniq).to eq ['https://remote.example/inbox']
   end
 
-  it 'still sends Announce when the first Undo attempt fails' do
+  it 'retries Undo before Announce on this inbox when the Undo delivery fails' do
     delivery = instance_double(ActivityPub::DeliveryWorker)
     allow(ActivityPub::DeliveryWorker).to receive(:new).and_return(delivery)
     calls = 0
@@ -43,10 +43,33 @@ RSpec.describe ActivityPub::OrderedReboostDeliveryWorker do
     end
     allow(ActivityPub::DeliveryWorker).to receive(:perform_async)
 
+    expect { described_class.new.perform(operation.id, 'https://remote.example/inbox') }.to raise_error(Mastodon::UnexpectedResponseError)
+
+    expect(ActivityPub::DeliveryWorker).not_to have_received(:perform_async)
+    expect(calls).to eq 1
+  end
+
+  it 'does not announce after Undo when the replacement was removed' do
+    boost.discard
+    delivery = instance_double(ActivityPub::DeliveryWorker)
+    allow(ActivityPub::DeliveryWorker).to receive(:new).and_return(delivery)
+    allow(delivery).to receive(:perform)
+
     described_class.new.perform(operation.id, 'https://remote.example/inbox')
 
-    expect(ActivityPub::DeliveryWorker).to have_received(:perform_async).with('{"type":"Undo"}', account.id, 'https://remote.example/inbox')
-    expect(calls).to eq 2
+    expect(delivery).to have_received(:perform).once.with('{"type":"Undo"}', account.id, 'https://remote.example/inbox')
+  end
+
+  it 'does not announce a cancelled replacement' do
+    operation.update!(state: 'cancelled', error_code: 'unreblogged')
+    delivery = instance_double(ActivityPub::DeliveryWorker)
+    allow(ActivityPub::DeliveryWorker).to receive(:new).and_return(delivery)
+    allow(delivery).to receive(:perform)
+
+    described_class.new.perform(operation.id, 'https://other.example/inbox')
+
+    expect(delivery).to have_received(:perform).once.with('{"type":"Undo"}', account.id, 'https://other.example/inbox')
+    expect(operation.reload.state).to eq 'cancelled'
   end
 
   it 'sends the saved Undo when the replacement wrapper is already gone' do
