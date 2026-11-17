@@ -122,6 +122,37 @@ const renderHeader = (store, columnId, multiColumn) => {
 };
 
 describe('ColumnHeader mobile portal lifetime', () => {
+  it('keeps the header portalled if privacy gate detaches an already mounted UI', () => {
+    document.getElementById('tabs-bar__portal')?.remove();
+    const privacyRoot = document.createElement('div');
+    privacyRoot.className = 'emoji-mutes-privacy-portal';
+    const target = document.createElement('div');
+    const portal = document.createElement('div');
+    portal.id = 'tabs-bar__portal';
+    privacyRoot.appendChild(target);
+    privacyRoot.appendChild(portal);
+    document.body.appendChild(privacyRoot);
+    const store = makeStore();
+    const { unmount } = render(
+      <Provider store={store}>
+        <HeaderHarness multiColumn={false} />
+      </Provider>,
+      { container: target },
+    );
+    expect(portal.querySelector('.column-header__wrapper')).not.toBeNull();
+
+    act(() => {
+      document.body.removeChild(privacyRoot);
+      store.dispatch({ type: 'SETTING_CHANGE', path: ['home', 'columnWidth'], value: 'x125' });
+    });
+
+    // document.getElementById cannot see the portal now, but the detached
+    // privacy root still contains it. No forceUpdate loop or inline fallback.
+    expect(document.getElementById('tabs-bar__portal')).toBeNull();
+    expect(portal.querySelector('.column-header__wrapper')).not.toBeNull();
+    expect(target.querySelector('.column-header__wrapper')).toBeNull();
+    unmount();
+  });
   it('finds the tab-bar portal inside a detached emoji-mute privacy root', async () => {
     document.getElementById('tabs-bar__portal')?.remove();
     const detachedRoot = document.createElement('div');
