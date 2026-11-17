@@ -1254,6 +1254,10 @@ describe('emoji actions menu portal host', () => {
       await screen.findByRole('button', { name: 'Mute emoji' });
       const preview = document.querySelector('.emoji-actions-menu__preview');
       expect(preview).not.toBeNull();
+      // The preview is a sibling portal, not a child of Popper's animated
+      // transform. Its viewport coordinates remain stable as menu items change.
+      expect(preview.parentElement.id).toBe(EMOJI_ACTIONS_OVERLAY_ROOT_ID);
+      expect(preview.closest('.emoji-actions-menu-portal')).toBeNull();
       expect(preview.style.visibility).toBe('hidden');
       expect(frames.length).toBeGreaterThanOrEqual(1);
 
