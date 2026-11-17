@@ -71,7 +71,13 @@ export function attachInlineEmojiMenus(root, context = {}) {
       emoji.dataset.emojiLongPressUntil = String(Date.now() + LONG_PRESS_CLICK_SUPPRESS_MS);
       openInlineEmojiMenu(emoji, context);
     };
-    const detachGesture = attachLongPressGesture(emoji, { onLongPress });
+    const detachGesture = attachLongPressGesture(emoji, {
+      onLongPress,
+      // A cancelled hold is a normal swipe: the timeline must see touchend.
+      // After the menu opens, slide-selection movements must not swipe it.
+      propagateCancelledTouchEnd: true,
+      stopSlideTouchMovePropagation: true,
+    });
     disposers.push(() => {
       detachGesture();
       emoji.removeEventListener('touchstart', resetClickSuppress);
