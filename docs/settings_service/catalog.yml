@@ -2607,7 +2607,8 @@ entries:
     the settings.yml default. A stored false stays false. The next full page load
     applies the value. Saving does not unload a standard picker module that has already
     been fetched.
-  availability: 'form condition: - unless current_user.setting_emoji_picker_disable_personal || current_user.setting_emoji_picker_disable_standard'
+  availability: 'form condition: - unless current_user.setting_emoji_picker_disable_personal
+    || current_user.setting_emoji_picker_disable_standard'
   read_policy: general
   write_policy: general
   side_effects:
@@ -12468,9 +12469,9 @@ open_questions:
     and initial_state.js exports it. No form input and no other JavaScript import
     were found. A dynamic or non-import use would not show up in the import scan.
 extractor_limits:
-- Haml inputs are detected with line regexes for .input :name and .range_field
-  :name, not a Haml parser. Inputs built by other helpers or rendered from partials
-  may be invisible.
+- Haml inputs are detected with line regexes for .input :name and .range_field :name,
+  not a Haml parser. Inputs built by other helpers or rendered from partials may be
+  invisible.
 - A form input is conditional while an indentation stack still holds a shallower "-
   if" or "- unless" line. The condition is not evaluated. The parser misses a condition
   in another file, a condition that is not written as "- if" or "- unless", and a
