@@ -2,8 +2,8 @@
  * @jest-environment jsdom
  */
 
-import { act, fireEvent } from '@testing-library/react';
-import { openEmojiActions, resetEmojiActionsBusForTests, setEmojiActionsListener } from '../bus';
+import { act } from '@testing-library/react';
+import { resetEmojiActionsBusForTests, setEmojiActionsListener } from '../bus';
 import { attachInlineEmojiMenus, handleInlineEmojiClick, referenceFromInlineEmoji } from '../inline_emoji';
 
 jest.mock('mastodon/initial_state', () => ({ me: 'viewer' }));
