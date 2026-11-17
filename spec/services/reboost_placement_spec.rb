@@ -96,6 +96,71 @@ RSpec.describe ReblogService do
         expect(account.statuses.where(reblog_of_id: original.id).count).to eq 1
       end
     end
+
+    it 'resumes a keyed pending operation instead of treating it as a duplicate' do
+      allow(Reboost::FederationWorker).to receive(:perform_async)
+      boost = described_class.new.call(account, original)
+      boost.discard
+      operation = ReboostOperation.create!(
+        account: account,
+        reblog_of_id: original.id,
+        old_status_id: boost.id,
+        state: 'pending',
+        reboost: true,
+        idempotency_key: 'again',
+        visibility: boost.visibility,
+        undo_payload: '{"type":"Undo"}',
+        undo_inboxes: ['https://remote.example/inbox'],
+        options: { 'audience' => [] }
+      )
+      RedisConfiguration.with { |redis| redis.set("idempotency:reboost:#{account.id}:again", "operation:#{operation.id}") }
+
+      travel 301.seconds do
+        result = Reboost::Placement.resume!(operation)
+
+        expect(result.id).not_to eq boost.id
+        expect(account.statuses.where(reblog_of_id: original.id).count).to eq 1
+        expect(operation.reload.state).to eq 'federating'
+        expect(operation.new_status_id).to eq result.id
+        expect(operation.undo_payload).to be_present
+        expect(Reboost::FederationWorker).to have_received(:perform_in).with(Reboost::FEDERATION_GAP, operation.id)
+        expect(ActivityPub::DistributionWorker).not_to have_received(:perform_async).with(result.id)
+      end
+    end
+
+    it 'does not recreate a wrapper when the author would now refuse the boost' do
+      operation = ReboostOperation.create!(
+        account: account,
+        reblog_of_id: original.id,
+        state: 'pending',
+        reboost: true,
+        undo_inboxes: [],
+        options: {}
+      )
+      refusal = instance_double(StatusPolicy, reblog?: false)
+      allow(StatusPolicy).to receive(:new).with(account, original).and_return(refusal)
+
+      expect(Reboost::Placement.resume!(operation)).to be_nil
+      expect(operation.reload).to have_attributes(state: 'failed', error_code: 'not_permitted')
+      expect(account.statuses.where(reblog_of_id: original.id).pluck(:id)).to eq [first.id]
+    end
+
+    it 'keeps the saved Undo when the replacement cannot be created' do
+      allow(Reboost::FederationWorker).to receive(:perform_async)
+      described_class.new.call(account, original)
+      allow_any_instance_of(Reboost::Placement).to receive(:create_reblog!).and_raise(Mastodon::ValidationError, 'nope')
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true) }.to raise_error(Mastodon::ValidationError)
+      end
+
+      operation = ReboostOperation.order(:id).last
+      expect(operation.undo_payload).to be_present
+      expect(operation.error_code).to eq 'create_failed'
+      expect(operation.new_status_id).to be_nil
+      expect(Reboost::FederationWorker).to have_received(:perform_async).with(operation.id)
+      expect(Status.find_by(id: first.id)).to be_nil
+    end
   end
 
   describe 'acceptance policy' do

@@ -16,18 +16,25 @@ class Reboost::FederationWorker
 
     status = Status.find_by(id: operation.new_status_id)
     unless status&.local?
-      operation.fail!('missing_status')
+      # The replacement can be unreblogged during the gap. The old Undo was
+      # saved before that wrapper existed, so it still has to go out.
+      deliver_undo(operation, Array(operation.undo_inboxes))
+      if operation.undo_payload.present?
+        operation.update!(state: 'completed', completed_at: Time.current)
+      else
+        operation.fail!('missing_status')
+      end
       return
     end
 
     undo_inboxes = Array(operation.undo_inboxes)
     announce_inboxes = announce_targets(status)
+    announce_inboxes |= Relay.enabled.pluck(:inbox_url) if status.public_visibility?
     shared = undo_inboxes & announce_inboxes
 
     ActivityPub::OrderedReboostDeliveryWorker.push_bulk(shared) { |inbox| [operation.id, inbox] } if shared.any?
-    deliver_undo(operation, status, undo_inboxes - shared)
+    deliver_undo(operation, undo_inboxes - shared)
     deliver_announce(status, announce_inboxes - undo_inboxes)
-    relay!(status) if status.public_visibility?
 
     queued_at = Time.current
     operation.update!(state: 'completed', completed_at: queued_at)
@@ -44,11 +51,11 @@ class Reboost::FederationWorker
     worker.send(:inboxes)
   end
 
-  def deliver_undo(operation, status, inboxes)
+  def deliver_undo(operation, inboxes)
     return if operation.undo_payload.blank? || inboxes.empty?
 
     ActivityPub::DeliveryWorker.push_bulk(inboxes) do |inbox|
-      [operation.undo_payload, status.account_id, inbox]
+      [operation.undo_payload, operation.account_id, inbox]
     end
   end
 
@@ -63,11 +70,5 @@ class Reboost::FederationWorker
   def announce_payload(status, inbox)
     software = Node.find_domain(Addressable::URI.parse(inbox).normalized_host.to_s.downcase)&.software_name
     Oj.dump(serialize_payload(ActivityPub::ActivityPresenter.from_status(status), ActivityPub::ActivitySerializer, signer: status.account, software: software))
-  end
-
-  def relay!(status)
-    ActivityPub::DeliveryWorker.push_bulk(Relay.enabled.pluck(:inbox_url)) do |inbox|
-      [announce_payload(status, inbox), status.account_id, inbox]
-    end
   end
 end

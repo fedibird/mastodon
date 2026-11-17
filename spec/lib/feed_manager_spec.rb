@@ -288,6 +288,54 @@ RSpec.describe FeedManager do
         expect(FeedManager.instance.push_to_home(account, reblogs.last)).to be false
       end
 
+      it 'restores a snowflake-sized extra reblog id exactly' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        reblog = Fabricate(:status, reblog: reblogged)
+        extra_id = '100000000000000001'
+
+        FeedManager.instance.push_to_home(account, reblog)
+        redis.sadd(FeedManager.instance.key(:home, account.id, "reblogs:#{reblogged.id}"), extra_id)
+
+        expect(FeedManager.instance.unpush_from_home(account, reblog)).to be true
+
+        timeline = FeedManager.instance.key(:home, account.id)
+        expect(redis.zscore(timeline, extra_id)).not_to be_nil
+        expect(redis.zscore(timeline, extra_id.to_f.to_i.to_s)).to be_nil
+      end
+
+      it 'keeps seen history when the original is only removed from the feed' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        author = Fabricate(:account)
+        reblogged = Fabricate(:status, account: author)
+        reblog = Fabricate(:status, reblog: reblogged)
+
+        FeedManager.instance.push_to_home(account, reblog)
+        FeedManager.instance.unpush_from_home(account, reblog)
+        seen = "feed:home:#{account.id}:reblogs:seen"
+        expect(redis.zscore(seen, reblogged.id)).to be_present
+
+        FeedManager.instance.unmerge_from_home(author, account)
+
+        expect(redis.zscore(seen, reblogged.id)).to be_present
+      end
+
+      it 'drops seen history when the original itself is deleted' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        reblog = Fabricate(:status, reblog: reblogged)
+
+        FeedManager.instance.push_to_home(account, reblog)
+        FeedManager.instance.unpush_from_home(account, reblog)
+        seen = "feed:home:#{account.id}:reblogs:seen"
+        expect(redis.zscore(seen, reblogged.id)).to be_present
+
+        reblogged.discard
+        FeedManager.instance.unpush_from_home(account, reblogged)
+
+        expect(redis.zscore(seen, reblogged.id)).to be_nil
+      end
+
       it 'does not save a new reblog of a recently-reblogged status when previous reblog has been deleted' do
         account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)

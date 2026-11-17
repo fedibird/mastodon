@@ -14,16 +14,17 @@ class ActivityPub::OrderedReboostDeliveryWorker
     return if operation.nil? || operation.undo_payload.blank?
 
     status = Status.find_by(id: operation.new_status_id)
-    return if status.nil?
 
     started = Time.current
     begin
-      ActivityPub::DeliveryWorker.new.perform(operation.undo_payload, status.account_id, inbox_url)
+      ActivityPub::DeliveryWorker.new.perform(operation.undo_payload, operation.account_id, inbox_url)
       Reboost::Log.emit('undo_attempt_ok', operation_id: operation.id, inbox: inbox_url)
-    rescue StandardError => error
-      Reboost::Log.emit('undo_attempt_failed', operation_id: operation.id, inbox: inbox_url, error: error.class)
-      ActivityPub::DeliveryWorker.perform_async(operation.undo_payload, status.account_id, inbox_url)
+    rescue StandardError => e
+      Reboost::Log.emit('undo_attempt_failed', operation_id: operation.id, inbox: inbox_url, error: e.class)
+      ActivityPub::DeliveryWorker.perform_async(operation.undo_payload, operation.account_id, inbox_url)
     end
+
+    return if status.nil?
 
     ActivityPub::DeliveryWorker.new.perform(announce_payload(status, inbox_url), status.account_id, inbox_url)
     Reboost::Log.emit('announce_after_undo', operation_id: operation.id, inbox: inbox_url, milliseconds: ((Time.current - started) * 1000).round)
