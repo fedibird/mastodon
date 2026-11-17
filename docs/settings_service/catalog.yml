@@ -1000,7 +1000,7 @@ entries:
   - app/views/settings/preferences/appearance/show.html.haml:87
   - app/serializers/initial_state_serializer.rb:63
   - app/javascript/mastodon/initial_state.js:53
-  - app/javascript/mastodon/components/status.js:952
+  - app/javascript/mastodon/components/status.js:958
   - app/javascript/mastodon/components/media_gallery.js:430
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -11261,7 +11261,7 @@ entries:
   source_refs:
   - app/controllers/api/web/settings_controller.rb:7
   - app/javascript/mastodon/actions/settings.js:23
-  - config/routes.rb:982
+  - config/routes.rb:983
   - app/helpers/application_helper.rb:207
   - app/javascript/mastodon/reducers/settings.js:12
   audit_status: verified
