@@ -80,7 +80,8 @@ describe('emoji-mute privacy portal responsive layout contract', () => {
     expect(window.getComputedStyle(host).display).toBe('flex');
     expect(wrapperStyle.display).toBe('flex');
     expect(wrapperStyle.width).toBe('100%');
-    expect(wrapperStyle.minWidth).toBe('0px');
+    // Browsers/JSDOM may serialize a zero CSS length as either 0 or 0px.
+    expect(parseFloat(wrapperStyle.minWidth)).toBe(0);
     expect(wrapperStyle.minHeight).toBe('100vh');
     // The dedicated overlay root must not become a full-width flex item.
     expect(window.getComputedStyle(menuRoot).display).not.toBe('flex');
@@ -94,7 +95,7 @@ describe('emoji-mute privacy portal responsive layout contract', () => {
     expect(wrapperStyle.width).toBe('100%');
     expect(wrapperStyle.height).toBe('100%');
     expect(wrapperStyle.maxHeight).toBe('100%');
-    expect(wrapperStyle.minHeight).toBe('0px');
+    expect(parseFloat(wrapperStyle.minHeight)).toBe(0);
   });
 
   it('keeps the original full-height layout under advanced multi-column mode', () => {
