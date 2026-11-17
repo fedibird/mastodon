@@ -51,16 +51,15 @@ class FeedManager
     redis.call('ZADD', seen_key, status_id, reblog_of_id)
     redis.call('SREM', extra_key, status_id)
     redis.call('ZREM', reblog_key, reblog_of_id)
-    local other = nil
+    local chosen = nil
     for _, member in ipairs(redis.call('SMEMBERS', extra_key)) do
-      local number = tonumber(member)
-      if not other or number < other then
-        other = number
+      if not chosen or #member < #chosen or (#member == #chosen and member < chosen) then
+        chosen = member
       end
     end
-    if other then
-      redis.call('ZADD', timeline, other, other)
-      redis.call('ZADD', reblog_key, other, reblog_of_id)
+    if chosen then
+      redis.call('ZADD', timeline, chosen, chosen)
+      redis.call('ZADD', reblog_key, chosen, reblog_of_id)
     end
     redis.call('ZREM', timeline, status_id)
     return 1
@@ -662,10 +661,16 @@ class FeedManager
       # If the original is getting deleted, no use for reblog references
       redis.del(key(timeline_type, account_id, "reblogs:#{status.id}"))
       redis.zrem(reblog_key, status.id)
-      redis.zrem(key(timeline_type, account_id, 'reblogs:seen'), status.id) unless status.reblog?
+      # Unmerge and other feed-only removals keep the seen rank. Drop it only
+      # when this original is actually deleted. Full feed cleanup deletes the key.
+      redis.zrem(key(timeline_type, account_id, 'reblogs:seen'), status.id) if original_deleted?(status)
     end
 
     redis.zrem(timeline_key, status.id)
+  end
+
+  def original_deleted?(status)
+    !status.reblog? && status.has_attribute?(:deleted_at) && status.deleted_at.present?
   end
 
   # Pre-fetch various objects and relationships for given statuses that

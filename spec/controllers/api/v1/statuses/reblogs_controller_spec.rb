@@ -166,6 +166,22 @@ describe Api::V1::Statuses::ReblogsController do
         end
       end
 
+      it 'cancels a pending reboost so a later resume cannot recreate it' do
+        operation = ReboostOperation.create!(
+          account: user.account,
+          reblog_of_id: status.id,
+          state: 'pending',
+          reboost: true,
+          undo_inboxes: [],
+          options: {}
+        )
+
+        post :destroy, params: { status_id: status.id }
+
+        expect(response).to have_http_status(200)
+        expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'unreblogged')
+      end
+
       it 'keeps the current count when the status is not reblogged' do
         ReblogService.new.call(Fabricate(:account), status)
         expect(status.reload.reblogs_count).to eq 1

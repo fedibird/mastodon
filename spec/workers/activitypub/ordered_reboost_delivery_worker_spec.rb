@@ -48,4 +48,15 @@ RSpec.describe ActivityPub::OrderedReboostDeliveryWorker do
     expect(ActivityPub::DeliveryWorker).to have_received(:perform_async).with('{"type":"Undo"}', account.id, 'https://remote.example/inbox')
     expect(calls).to eq 2
   end
+
+  it 'sends the saved Undo when the replacement wrapper is already gone' do
+    operation.update!(new_status_id: nil)
+    delivery = instance_double(ActivityPub::DeliveryWorker)
+    allow(ActivityPub::DeliveryWorker).to receive(:new).and_return(delivery)
+    allow(delivery).to receive(:perform)
+
+    described_class.new.perform(operation.id, 'https://remote.example/inbox')
+
+    expect(delivery).to have_received(:perform).once.with('{"type":"Undo"}', account.id, 'https://remote.example/inbox')
+  end
 end

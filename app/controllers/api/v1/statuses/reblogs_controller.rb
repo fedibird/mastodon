@@ -48,6 +48,7 @@ class Api::V1::Statuses::ReblogsController < Api::BaseController
   end
 
   def destroy
+    cancel_pending_reboosts!
     @status = current_account.statuses.find_by(reblog_of_id: params[:status_id])
 
     if @status
@@ -118,6 +119,16 @@ class Api::V1::Statuses::ReblogsController < Api::BaseController
     return not_found if error.code == 'not_owner'
 
     render json: { error: error.code }, status: error.http_status
+  end
+
+  def cancel_pending_reboosts!
+    now = Time.current
+    ReboostOperation.where(account_id: current_account.id, reblog_of_id: params[:status_id], state: 'pending').update_all(
+      state: 'cancelled',
+      error_code: 'unreblogged',
+      completed_at: now,
+      updated_at: now
+    )
   end
 
   def set_reblog
