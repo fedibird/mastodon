@@ -122,6 +122,31 @@ const renderHeader = (store, columnId, multiColumn) => {
 };
 
 describe('ColumnHeader mobile portal lifetime', () => {
+  it('finds the tab-bar portal inside a detached emoji-mute privacy root', async () => {
+    document.getElementById('tabs-bar__portal')?.remove();
+    const detachedRoot = document.createElement('div');
+    detachedRoot.className = 'emoji-mutes-privacy-portal';
+    const target = document.createElement('div');
+    const portal = document.createElement('div');
+    portal.id = 'tabs-bar__portal';
+    detachedRoot.appendChild(target);
+    detachedRoot.appendChild(portal);
+    const store = makeStore();
+
+    const { unmount } = render(
+      <Provider store={store}>
+        <HeaderHarness multiColumn={false} />
+      </Provider>,
+      { container: target },
+    );
+
+    await waitFor(() => expect(portal.querySelector('.column-header__wrapper')).not.toBeNull());
+    expect(target.querySelector('.column-header__wrapper')).toBeNull();
+    expect(document.getElementById('tabs-bar__portal')).toBeNull();
+    unmount();
+    expect(portal.querySelector('.column-header__wrapper')).toBeNull();
+  });
+
   it('renders safely before TabsBar exists and portals after it mounts', async () => {
     document.getElementById('tabs-bar__portal')?.remove();
     const store = makeStore();
