@@ -15,13 +15,13 @@ class Reboost::FederationWorker
     return if operation.nil? || operation.state == 'completed'
 
     status = Status.find_by(id: operation.new_status_id)
-    if operation.state == 'cancelled' || !status&.local?
+    if operation.state == 'cancelled' || operation.state == 'failed' || !status&.local?
       # The replacement can be unreblogged during the gap. The old Undo was
       # saved before that wrapper existed, so it still has to go out.
       deliver_undo(operation, Array(operation.undo_inboxes))
       if operation.undo_payload.present?
-        operation.update!(state: 'completed', completed_at: Time.current)
-      else
+        operation.update!(state: 'completed', completed_at: Time.current) unless operation.state == 'failed'
+      elsif !operation.terminal?
         operation.fail!('missing_status')
       end
       return

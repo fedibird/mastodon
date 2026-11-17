@@ -9,6 +9,7 @@ class Reboost::Placement
   include Payloadable
   include Redisable
   include Lockable
+  include Reboost::FederationSchedule
 
   IDEMPOTENCY_TTL = 3600
 
@@ -23,8 +24,18 @@ class Reboost::Placement
     return duplicate if duplicate
 
     with_redis_lock(lock_name) do
+      duplicate = idempotent_result
+      return duplicate if duplicate
+
       place!
     end
+  end
+
+  def self.fail_open!(operation, code)
+    return if operation.nil? || operation.terminal?
+
+    operation.fail!(code)
+    Reboost::FederationWorker.perform_async(operation.id) if operation.undo_payload.present?
   end
 
   def self.cancel_pending!(account, status_id)
@@ -57,12 +68,12 @@ class Reboost::Placement
     account = operation.account
     original = Status.find_by(id: operation.reblog_of_id)
     if original.nil?
-      operation.fail!('missing_status')
+      fail_open!(operation, 'missing_status')
       return
     end
 
     unless StatusPolicy.new(account, original).reblog?
-      operation.fail!('not_permitted')
+      fail_open!(operation, 'not_permitted')
       return
     end
 
@@ -317,13 +328,13 @@ class Reboost::Placement
     return unless previous&.local? && created.local?
 
     operation = federation_operation(created, previous)
-    Reboost::FederationWorker.perform_in(Reboost::FEDERATION_GAP, operation.id)
+    enqueue_federation!(operation)
     Reboost::Log.emit('federation_scheduled', operation_id: operation.id, gap_seconds: Reboost::FEDERATION_GAP.to_i)
   end
 
   def schedule_deferred_undo!(created)
     operation = federation_operation(created, nil)
-    Reboost::FederationWorker.perform_in(Reboost::FEDERATION_GAP, operation.id)
+    enqueue_federation!(operation)
     Reboost::Log.emit('federation_scheduled', operation_id: operation.id, gap_seconds: Reboost::FEDERATION_GAP.to_i)
   end
 
@@ -443,7 +454,9 @@ class Reboost::Placement
     return if cached.blank?
 
     if cached.start_with?('status:')
-      Status.find_by(id: cached.delete_prefix('status:'))
+      status = Status.find_by(id: cached.delete_prefix('status:'))
+      ensure_federating!(status)
+      status
     elsif cached.start_with?('operation:')
       operation = ReboostOperation.find_by(id: cached.delete_prefix('operation:'))
       if operation && !operation.terminal?

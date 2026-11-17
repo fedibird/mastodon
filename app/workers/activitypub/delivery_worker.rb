@@ -49,7 +49,7 @@ class ActivityPub::DeliveryWorker
     begin
       unless @options[:bypass_availability] || DeliveryFailureTracker.available?(inbox_url)
         @delivery_skip_reason = 'availability_suppression'
-        return
+        return false
       end
 
       @json           = json
@@ -63,6 +63,7 @@ class ActivityPub::DeliveryWorker
       # HTTP delivery succeeded; route optional tracking metadata to its generic
       # handler. Delivery success is only that — not follow acceptance.
       track_delivery_success! if @performed
+      @performed == true
     rescue StandardError => e
       error = e
       raise

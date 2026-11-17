@@ -34,7 +34,7 @@ class FeedManager
     local added = redis.call('ZADD', reblog_key, 'NX', status_id, reblog_of_id)
     if added == 1 then
       redis.call('ZADD', timeline, status_id, status_id)
-      redis.call('ZADD', seen_key, status_id, reblog_of_id)
+      redis.call('ZADD', seen_key, 'GT', status_id, reblog_of_id)
       return 1
     end
     redis.call('SADD', extra_key, status_id)
@@ -48,7 +48,7 @@ class FeedManager
     if not rank then
       return 0
     end
-    redis.call('ZADD', seen_key, status_id, reblog_of_id)
+    redis.call('ZADD', seen_key, 'GT', status_id, reblog_of_id)
     redis.call('SREM', extra_key, status_id)
     redis.call('ZREM', reblog_key, reblog_of_id)
     local chosen = nil

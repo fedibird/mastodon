@@ -383,6 +383,24 @@ RSpec.describe FeedManager do
         expect(redis.zscore(seen, reblogged.id)).to be_nil
       end
 
+      it 'keeps the higher seen score when an older wrapper is removed afterwards' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        timeline = FeedManager.instance.key(:home, account.id)
+        seen = FeedManager.instance.key(:home, account.id, 'reblogs:seen')
+        reblog_key = FeedManager.instance.key(:home, account.id, 'reblogs')
+        extra = FeedManager.instance.key(:home, account.id, "reblogs:#{reblogged.id}")
+        redis.zadd(timeline, '200', '200')
+        redis.zadd(timeline, '100', '100')
+        40.times { |index| redis.zadd(timeline, (101 + index).to_s, "between-#{index}") }
+
+        redis.eval(FeedManager::REBLOG_SEEN_REMOVE, keys: [timeline, reblog_key, seen, extra], argv: ['200', reblogged.id.to_s])
+        redis.eval(FeedManager::REBLOG_SEEN_REMOVE, keys: [timeline, reblog_key, seen, extra], argv: ['100', reblogged.id.to_s])
+
+        expect(redis.zscore(seen, reblogged.id).to_i).to eq 200
+        expect(FeedManager.instance.push_to_home(account, Fabricate(:status, reblog: reblogged))).to be false
+      end
+
       it 'does not save a new reblog of a recently-reblogged status when previous reblog has been deleted' do
         account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
@@ -405,8 +423,12 @@ RSpec.describe FeedManager do
 
         FeedManager.instance.push_to_home(account, old_reblog)
         FeedManager.instance.unpush_from_home(account, old_reblog)
-        FeedManager::REBLOG_FALLOFF.times do
-          FeedManager.instance.push_to_home(account, Fabricate(:status))
+        seen_score = redis.zscore(FeedManager.instance.key(:home, account.id, 'reblogs:seen'), reblogged.id).to_f
+        timeline = FeedManager.instance.key(:home, account.id)
+        FeedManager::REBLOG_FALLOFF.times do |index|
+          score = seen_score
+          (index + 1).times { score = score.next_float }
+          redis.zadd(timeline, score, "later-#{index}")
         end
 
         reblog = Fabricate(:status, reblog: reblogged)
