@@ -938,8 +938,9 @@ class Status extends ImmutablePureComponent {
     const hasSpoiler = !!status.get('spoiler_text');
     const contentVisible = !hasSpoiler || !status.get('hidden');
     const media = status.get('media_attachments', ImmutableList());
-    // The add-reaction control always stays beside favourite. Counts stay off
-    // the card when compact reactions are on, including a zero-count row.
+    // While a picker is enabled, the add-reaction control stays beside favourite
+    // and compact mode hides the card's reaction row. With both pickers disabled,
+    // keep existing reaction chips visible because the compact counter is gone.
     const hasVisibleEmojiReactions = emojiReactionsForStatus(status).some(reaction => reaction && typeof reaction.get === 'function' && reaction.get('count', 0) > 0);
     const showReactions = showCardEmojiReactions(enableReaction, hasVisibleEmojiReactions, compactReaction, emojiPickerDisabled);
     const firstMedia = contentVisible && media && media.size > 0
