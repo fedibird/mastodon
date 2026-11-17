@@ -220,9 +220,11 @@ describe('emoji picker shell and personal stock', () => {
   });
 
   it('renders no picker when both sources are disabled', () => {
-    const { container, stockSource, loadStandardEmojiPicker } = renderShell({
+    const stockSource = jest.fn(ready(fixture()));
+    const { container, loadStandardEmojiPicker } = renderShell({
       standardEnabled: false,
       personalEnabled: false,
+      stockSource,
     });
 
     expect(container.firstChild).toBeNull();
