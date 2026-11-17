@@ -28,7 +28,7 @@ import Icon from 'mastodon/components/icon';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
 import FilterReason from './filter_reason';
-import { displayMedia, cropCardImages, enableReaction, compactReaction, cardReactionsSingleLine, cardCollapseLongText, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
+import { displayMedia, cropCardImages, enableReaction, compactReaction, emojiPickerDisabled, cardReactionsSingleLine, cardCollapseLongText, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
 import { emojiReactionsForStatus } from '../utils/emoji_reactions';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
@@ -938,10 +938,11 @@ class Status extends ImmutablePureComponent {
     const hasSpoiler = !!status.get('spoiler_text');
     const contentVisible = !hasSpoiler || !status.get('hidden');
     const media = status.get('media_attachments', ImmutableList());
-    // The add-reaction control always stays beside favourite. Counts stay off
-    // the card when compact reactions are on, including a zero-count row.
+    // While a picker is enabled, the add-reaction control stays beside favourite
+    // and compact mode hides the card's reaction row. With both pickers disabled,
+    // keep existing reaction chips visible because the compact counter is gone.
     const hasVisibleEmojiReactions = emojiReactionsForStatus(status).some(reaction => reaction && typeof reaction.get === 'function' && reaction.get('count', 0) > 0);
-    const showReactions = showCardEmojiReactions(enableReaction, hasVisibleEmojiReactions, compactReaction);
+    const showReactions = showCardEmojiReactions(enableReaction, hasVisibleEmojiReactions, compactReaction, emojiPickerDisabled);
     const firstMedia = contentVisible && media && media.size > 0
       ? this.renderAttachmentMedia(status.set('media_attachments', media.take(1)), {
         sensitive: status.get('sensitive'),
@@ -1106,7 +1107,7 @@ class Status extends ImmutablePureComponent {
                 {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
                 <div className='timeline-card__author-actions'>
                   <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='favourite' expired={expired} onFavourite={this.props.onFavourite} />
-                  {enableReaction && <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />}
+                  {enableReaction && !emojiPickerDisabled && <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />}
                 </div>
               </div>
               {showReactions && (
@@ -1649,7 +1650,7 @@ class Status extends ImmutablePureComponent {
               </>
               }
 
-              {enableReaction && (contextType === 'thread' || !compactReaction) && <EmojiReactionsBar
+              {enableReaction && (contextType === 'thread' || !compactReaction || emojiPickerDisabled) && <EmojiReactionsBar
                 status={status}
                 addEmojiReaction={this.props.addEmojiReaction}
                 removeEmojiReaction={this.props.removeEmojiReaction}

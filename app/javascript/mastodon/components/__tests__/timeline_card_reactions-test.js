@@ -12,6 +12,14 @@ describe('showCardEmojiReactions', () => {
   });
 });
 
+describe('showCardEmojiReactions with all pickers disabled', () => {
+  it('preserves existing reactions in compact mode without a picker button', () => {
+    expect(showCardEmojiReactions(true, true, true, true)).toBe(true);
+    expect(showCardEmojiReactions(true, false, true, true)).toBe(false);
+    expect(showCardEmojiReactions(false, true, true, true)).toBe(false);
+  });
+});
+
 describe('TimelineCardReactions', () => {
   const originalResizeObserver = window.ResizeObserver;
   let observers;

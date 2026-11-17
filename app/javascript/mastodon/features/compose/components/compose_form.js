@@ -30,7 +30,7 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import { length } from 'stringz';
 import { countableText } from '../util/counter';
 import Icon from 'mastodon/components/icon';
-import { disablePost, maxChars } from '../../../initial_state';
+import { disablePost, emojiPickerDisabled, maxChars } from '../../../initial_state';
 import { noteComposeInsertionField } from 'mastodon/features/emoji/emoji_picker_focus';
 import IconButton from '../../../components/icon_button';
 import classNames from 'classnames';
@@ -1228,7 +1228,7 @@ class ComposeForm extends ImmutablePureComponent {
     const mediaAreaOpen = this.mediaAreaOpen();
     const searchabilityChanged = this.searchabilityChanged();
     const simpleBadges = simple ? this.renderSimpleBadges() : null;
-    const overlay = simple ? null : (
+    const overlay = simple || emojiPickerDisabled ? null : (
       <div className='compose-form__emoji-anchor'>
         <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
       </div>

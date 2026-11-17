@@ -65,8 +65,9 @@
   .fields-group
     = f.input :setting_disable_auto_focus_to_emoji_search, as: :boolean, wrapper: :with_label, fedibird_features: true
     = f.input :setting_emoji_picker_disable_personal, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+    = f.input :setting_emoji_picker_disable_standard, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
 
-  - unless current_user.setting_emoji_picker_disable_personal
+  - unless current_user.setting_emoji_picker_disable_personal || current_user.setting_emoji_picker_disable_standard
     .fields-group
       = f.input :setting_emoji_picker_prefer_personal, as: :boolean, wrapper: :with_label, fedibird_features: true
 

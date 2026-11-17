@@ -4,6 +4,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import IconButton from './icon_button';
 import Overlay from 'react-overlays/Overlay';
 import EmojiPickerPanel from 'mastodon/features/emoji/emoji_picker_panel';
+import { emojiPickerDisabled } from 'mastodon/initial_state';
 
 let id = 0;
 
@@ -112,6 +113,10 @@ class ReactionPickerDropdown extends React.PureComponent {
   };
 
   render() {
+    if (emojiPickerDisabled) {
+      return null;
+    }
+
     const { icon, size, title, disabled, openDropdownId, active, pressed, iconButtonClass, counter } = this.props;
     const { pickersEmoji, onSkinTone, skinTone, frequentlyUsedEmojis, onStandardActive } = this.props;
     const open = this.state.id === openDropdownId;

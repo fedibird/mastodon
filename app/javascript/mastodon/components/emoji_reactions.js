@@ -8,7 +8,7 @@ import { fetchAccounts } from 'mastodon/actions/accounts';
 import Emoji from './emoji';
 import unicodeMapping from 'mastodon/features/emoji/emoji_unicode_mapping_light';
 import AnimatedNumber from 'mastodon/components/animated_number';
-import { disableReactions } from 'mastodon/initial_state';
+import { disableReactions, emojiPickerDisabled } from 'mastodon/initial_state';
 import Overlay from 'react-overlays/Overlay';
 import { isUserTouching } from 'mastodon/is_mobile';
 import AccountPopup from 'mastodon/components/account_popup';
@@ -87,7 +87,7 @@ class EmojiReaction extends ImmutablePureComponent {
       static_url: emojiReaction.get('static_url', null),
       my_reaction: myReaction,
       reaction_limit_reached: Boolean(reactionLimitReached),
-      disabled: Boolean(disableReactions),
+      disabled: Boolean(disableReactions || (emojiPickerDisabled && !myReaction)),
     };
   };
 
@@ -96,7 +96,7 @@ class EmojiReaction extends ImmutablePureComponent {
 
     // Keep the chip pointer-enabled so long-press / context menu still open
     // when reactions are at the limit or globally disabled.
-    if (disableReactions) {
+    if (disableReactions || (emojiPickerDisabled && !myReaction)) {
       return;
     }
 
@@ -246,9 +246,9 @@ class EmojiReaction extends ImmutablePureComponent {
             type='button'
             className={classNames('reactions-bar__item', {
               active: myReaction,
-              disabled: disableReactions || (!myReaction && reactionLimitReached),
+              disabled: disableReactions || (emojiPickerDisabled && !myReaction) || (!myReaction && reactionLimitReached),
             })}
-            aria-disabled={disableReactions || (!myReaction && reactionLimitReached) ? 'true' : undefined}
+            aria-disabled={disableReactions || (emojiPickerDisabled && !myReaction) || (!myReaction && reactionLimitReached) ? 'true' : undefined}
             onClick={this.handleClick}
             onContextMenu={reference ? this.handleContextMenu : undefined}
             title={`:${shortCode}:`}

@@ -24,6 +24,7 @@ RSpec.describe 'Settings custom emoji preferences page', type: :request do
     get settings_custom_emojis_settings_path
 
     expect(response).to have_http_status(200)
+    expect(response.body).to include('user_setting_emoji_picker_disable_standard')
     expect(response.body).to include('user_setting_emoji_picker_disable_actions')
     expect(response.body).not_to include('user_setting_emoji_reaction_fallback_policy')
     expect(response.body).not_to include('user_setting_disable_reactions')

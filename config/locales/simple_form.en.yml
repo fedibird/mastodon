@@ -88,7 +88,8 @@ en:
         setting_disable_account_delete: Restrict account deletion due to temporary hesitation
         setting_disable_auto_focus_to_emoji_search: Disable autofocus on the search field of the emoji picker to deal with cases where autocomplete candidates appear and interfere with the search
         setting_emoji_picker_prefer_personal: Open the emoji picker on your personal set. An empty personal set stays empty until you switch to the standard picker. Applies on the next reload.
-        setting_emoji_picker_disable_personal: Use only the standard picker, as in Mastodon. This reduces resource usage. Reload the page for changes to take effect.
+        setting_emoji_picker_disable_personal: Disable the personal picker and its data loading. If the standard picker is also disabled, hide all pickers and prevent new emoji reactions. Reload the page for changes to take effect.
+        setting_emoji_picker_disable_standard: Disable the standard picker and its data loading; use only personal emoji sets. If personal sets are also disabled, hide all pickers and prevent new emoji reactions. Reload the page for changes to take effect.
         setting_emoji_picker_disable_actions: Disable the picker action controls and menu gestures (long press, right click, and keyboard) in both standard and personal emoji pickers. Normal emoji insertion and reactions continue to work. If the emoji picker behaves unexpectedly, try disabling this feature. Takes effect after a full reload.
         setting_emoji_picker_lazy_load_standard: Saves resources if you rarely use emoji, but makes the picker slower to open.
         setting_disable_block: Restricts you from accidentally blocking
@@ -359,6 +360,7 @@ en:
         setting_disable_auto_focus_to_emoji_search: Disable autofocus on the search field in the emoji picker
         setting_emoji_picker_prefer_personal: Prefer the personal emoji set
         setting_emoji_picker_disable_personal: Do not use personal emoji sets
+        setting_emoji_picker_disable_standard: Do not use the standard picker
         setting_emoji_picker_disable_actions: Disable emoji picker action menus
         setting_emoji_picker_lazy_load_standard: Defer building the emoji picker until it is opened
         setting_disable_block: Disable block

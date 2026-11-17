@@ -208,6 +208,30 @@ describe('emoji picker shell and personal stock', () => {
     global.fetch = jest.fn();
   });
 
+  it('uses the personal set without a standard mode switch or standard data load', async () => {
+    const { loadStandardEmojiPicker } = renderShell({
+      standardEnabled: false,
+      initialMode: 'standard',
+    });
+
+    expect(await screen.findByRole('button', { name: 'Family' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Standard' })).not.toBeInTheDocument();
+    expect(loadStandardEmojiPicker).not.toHaveBeenCalled();
+  });
+
+  it('renders no picker when both sources are disabled', () => {
+    const stockSource = jest.fn(ready(fixture()));
+    const { container, loadStandardEmojiPicker } = renderShell({
+      standardEnabled: false,
+      personalEnabled: false,
+      stockSource,
+    });
+
+    expect(container.firstChild).toBeNull();
+    expect(loadStandardEmojiPicker).not.toHaveBeenCalled();
+    expect(stockSource).not.toHaveBeenCalled();
+  });
+
   it('hides action controls in both modes without blocking normal selection', async () => {
     const standardActions = [];
     const StandardTestPicker = props => {
