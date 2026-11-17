@@ -47,9 +47,9 @@ class AltTextBadge extends React.PureComponent {
 
   handleMouseUp = (e) => {
     const maxDelta = 5;
-    const {clientX: startX, clientY: startY} = this.state;
+    const { clientX: startX, clientY: startY } = this.state;
 
-    if (startX == null) {
+    if (startX === null || startX === undefined) {
       return;
     }
 
@@ -87,6 +87,11 @@ class AltTextBadge extends React.PureComponent {
     this.node = c;
   }
 
+  // An open ALT popover is part of the same viewer surface as the tile.
+  // Keep it inside the detachable privacy portal; document.body would leave
+  // the description on screen while the mute document is withheld.
+  findOverlayContainer = () => this.node?.closest('.emoji-mutes-privacy-portal') || document.body;
+
   render () {
     const { open } = this.state;
     const original = this.props.originalDescription ?? this.props.description ?? '';
@@ -118,6 +123,7 @@ class AltTextBadge extends React.PureComponent {
           onHide={this.handleClose}
           show={open}
           target={this.node}
+          container={this.findOverlayContainer}
           placement='top-end'
           flip
           offset={offset}

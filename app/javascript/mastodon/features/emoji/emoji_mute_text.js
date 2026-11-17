@@ -708,6 +708,17 @@ export function replaceUnicodeEmojiInPlainText(text, index) {
   return replaceUnicodeEmojiSequences(text, index, value => value);
 }
 
+// User-authored plain text such as an attachment description. Only a finished
+// Unicode sequence can match. A literal `:shortcode:` is not a custom emoji:
+// this string has no stable local id and no author domain to compare.
+export function emojiMutedAltText(text, index) {
+  if (typeof text !== 'string') {
+    return text;
+  }
+
+  return replaceUnicodeEmojiInPlainText(text, index);
+}
+
 const walkPreviewText = (node, index) => {
   if (!node) {
     return false;

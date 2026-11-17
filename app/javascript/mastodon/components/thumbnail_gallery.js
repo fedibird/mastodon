@@ -7,6 +7,8 @@ import { displayMedia, useBlurhash, maxAttachments } from '../initial_state';
 import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
 import { FormattedMessage } from 'react-intl';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { emojiMutedAltText } from 'mastodon/features/emoji/emoji_mute_text';
 
 class Item extends React.PureComponent {
 
@@ -14,6 +16,7 @@ class Item extends React.PureComponent {
     attachment: ImmutablePropTypes.map.isRequired,
     visible: PropTypes.bool.isRequired,
     autoplay: PropTypes.bool,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   state = {
@@ -35,7 +38,7 @@ class Item extends React.PureComponent {
     const blurhash    = attachment.get('blurhash');
     const thumbhash   = attachment.get('thumbhash');
     const preview     = attachment.get('preview_url');
-    const description = attachment.get('description');
+    const description = emojiMutedAltText(attachment.get('description'), this.props.emojiMuteTextIndex);
 
     switch(type) {
     case 'image':
@@ -149,6 +152,8 @@ class Item extends React.PureComponent {
 
 }
 
+const ThumbnailItem = withEmojiMuteTextIndex(Item);
+
 export default
 class ThumbnailGallery extends React.PureComponent {
 
@@ -175,7 +180,7 @@ class ThumbnailGallery extends React.PureComponent {
     const { visible } = this.state;
 
     const uncached = media.every(attachment => attachment.get('type') === 'unknown');
-    const children = media.take(maxAttachments).map((attachment) => <Item key={attachment.get('id')} attachment={attachment} visible={visible || uncached} />);
+    const children = media.take(maxAttachments).map((attachment) => <ThumbnailItem key={attachment.get('id')} attachment={attachment} visible={visible || uncached} />);
 
     return (
       <div className='thumbnail-gallery' ref={this.handleRef}>

@@ -15,6 +15,8 @@ import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { getAverageFromBlurhash } from 'mastodon/blurhash';
 import { connect } from 'react-redux';
 import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { emojiMutedAltText } from 'mastodon/features/emoji/emoji_mute_text';
 import { mediaModalPagination } from 'mastodon/utils/media_modal_pagination';
 import { modalVideoDimensions, modalVideoFrameStyle } from 'mastodon/utils/modal_video_dimensions';
 
@@ -62,6 +64,7 @@ class MediaModal extends ImmutablePureComponent {
     currentTime: PropTypes.number,
     autoPlay: PropTypes.bool,
     volume: PropTypes.number,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   state = {
@@ -282,7 +285,7 @@ class MediaModal extends ImmutablePureComponent {
         sourceLang: this.props.lang || '',
         targetLang: this.props.lang || '',
       });
-      const description = accessible.text;
+      const description = emojiMutedAltText(accessible.text, this.props.emojiMuteTextIndex);
       const lang = accessible.lang || this.props.lang;
 
       if (image.get('type') === 'image') {
@@ -416,6 +419,6 @@ class MediaModal extends ImmutablePureComponent {
 
 // Public status pages mount this without a Redux store. The logged-in WebUI
 // keeps the connected default export so translation state still comes from status.
-export const PublicMediaModal = injectIntl(MediaModal);
+export const PublicMediaModal = injectIntl(withEmojiMuteTextIndex(MediaModal));
 
 export default connect(mapStateToProps)(PublicMediaModal);

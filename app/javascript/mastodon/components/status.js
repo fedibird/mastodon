@@ -8,7 +8,7 @@ import AvatarComposite from './avatar_composite';
 import AbsoluteTimestamp from './absolute_timestamp';
 import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
-import EmojiMutedHtml, { EmojiMutedAria, EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
+import EmojiMutedHtml, { EmojiMutedAlt, EmojiMutedAria, EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
 import { countEmojiMuteParse, emojiMutedPlainText, replaceMutedEmojiInPlain, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
 import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
@@ -1192,7 +1192,16 @@ class Status extends ImmutablePureComponent {
     const preview = attachment.get('preview_url') || (attachment.get('type') === 'image' ? attachment.get('url') : null);
     const canPreview = !concealed && preview && ['image', 'gifv', 'video'].includes(attachment.get('type'));
     const description = attachment.get('description');
-    const alt = description || status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || '';
+    const displayName = status.getIn(['account', 'display_name']);
+    const username = status.getIn(['account', 'username']) || '';
+    const rawAlt = description || displayName || username || '';
+    // A missing ALT falls back to the display name. That string has an
+    // emojify document; a written ALT does not, so shortcodes stay literal.
+    let altHtml;
+
+    if (!description && displayName) {
+      altHtml = status.getIn(['account', 'display_name_html']) || '';
+    }
     const externalIdentity = externalIdentityOf(status);
     const aspect = original && mediaAspectRatio(attachment);
     const itemStyle = aspect ? { aspectRatio: String(aspect) } : undefined;
@@ -1200,56 +1209,62 @@ class Status extends ImmutablePureComponent {
     const thumbnailHash = attachment.get('thumbhash');
     const blurred = concealed && useBlurhash && (hash || thumbnailHash);
 
-    let mediaTileContent;
-    if (canPreview) {
-      mediaTileContent = <img src={preview} alt={alt} loading='lazy' />;
-    } else if (blurred) {
-      mediaTileContent = hash
-        ? <Blurhash className='timeline-media-tile__blurhash' hash={hash} />
-        : <Thumbhash className='timeline-media-tile__blurhash' hash={thumbnailHash} />;
-    } else {
-      let placeholderIcon = 'file-o';
-      if (concealed) {
-        placeholderIcon = 'eye-slash';
-      } else if (attachment.get('type') === 'audio') {
-        placeholderIcon = 'music';
-      }
-
-      mediaTileContent = (
-        <span className='timeline-media-tile__placeholder'>
-          <Icon id={placeholderIcon} />
-        </span>
-      );
-    }
-
     return (
-      <div className='status__wrapper status__wrapper--media-tile' data-id={status.get('id')} ref={this.handleRef}>
-        <div className='timeline-media-tile'>
-          <div className='timeline-media-tile__preview'>
-            <button
-              type='button'
-              className={classNames('timeline-media-tile__open', { 'timeline-media-tile__open--original': original })}
-              style={itemStyle}
-              onClick={this.handleMediaTileClick}
-              aria-label={concealed ? this.props.intl.formatMessage(messages.revealMediaTile) : (alt || this.props.intl.formatMessage(messages.openMediaTile))}
-            >
-              {mediaTileContent}
-              {blurred && <span className='timeline-media-tile__concealed-icon'><Icon id='eye-slash' /></span>}
-              {!concealed && attachment.get('type') === 'video' && <span className='timeline-media-tile__play'><Icon id='play' /></span>}
-            </button>
-            {description && <div className='media-gallery__item__badges'>
-              <AltTextBadge description={description} />
-            </div>}
-          </div>
-          <button type='button' className='timeline-media-tile__source' onClick={this.handleClick} title={this.props.intl.formatMessage(messages.openMediaSource)}>
-            {externalIdentity ? (
-              <EmojiMutedPlain tag='span' plain={externalIdentityName(this.props.intl, externalIdentity)} html='' />
-            ) : (
-              <EmojiMutedPlain tag='span' plain={status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || ''} html={status.getIn(['account', 'display_name']) ? (status.getIn(['account', 'display_name_html']) || '') : ''} />
-            )}
-          </button>
-        </div>
-      </div>
+      <EmojiMutedAlt text={rawAlt} html={altHtml}>
+        {alt => {
+          let mediaTileContent;
+          if (canPreview) {
+            mediaTileContent = <img src={preview} alt={alt} loading='lazy' />;
+          } else if (blurred) {
+            mediaTileContent = hash
+              ? <Blurhash className='timeline-media-tile__blurhash' hash={hash} />
+              : <Thumbhash className='timeline-media-tile__blurhash' hash={thumbnailHash} />;
+          } else {
+            let placeholderIcon = 'file-o';
+            if (concealed) {
+              placeholderIcon = 'eye-slash';
+            } else if (attachment.get('type') === 'audio') {
+              placeholderIcon = 'music';
+            }
+
+            mediaTileContent = (
+              <span className='timeline-media-tile__placeholder'>
+                <Icon id={placeholderIcon} />
+              </span>
+            );
+          }
+
+          return (
+            <div className='status__wrapper status__wrapper--media-tile' data-id={status.get('id')} ref={this.handleRef}>
+              <div className='timeline-media-tile'>
+                <div className='timeline-media-tile__preview'>
+                  <button
+                    type='button'
+                    className={classNames('timeline-media-tile__open', { 'timeline-media-tile__open--original': original })}
+                    style={itemStyle}
+                    onClick={this.handleMediaTileClick}
+                    aria-label={concealed ? this.props.intl.formatMessage(messages.revealMediaTile) : (alt || this.props.intl.formatMessage(messages.openMediaTile))}
+                  >
+                    {mediaTileContent}
+                    {blurred && <span className='timeline-media-tile__concealed-icon'><Icon id='eye-slash' /></span>}
+                    {!concealed && attachment.get('type') === 'video' && <span className='timeline-media-tile__play'><Icon id='play' /></span>}
+                  </button>
+                  {description && <div className='media-gallery__item__badges'>
+                    <AltTextBadge description={alt} />
+                  </div>}
+                </div>
+                <button type='button' className='timeline-media-tile__source' onClick={this.handleClick} title={this.props.intl.formatMessage(messages.openMediaSource)}>
+                  {externalIdentity ? (
+                    <EmojiMutedPlain tag='span' plain={externalIdentityName(this.props.intl, externalIdentity)} html='' />
+                  ) : (
+                    <EmojiMutedPlain tag='span' plain={status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || ''} html={status.getIn(['account', 'display_name']) ? (status.getIn(['account', 'display_name_html']) || '') : ''} />
+                  )}
+                </button>
+              </div>
+            </div>
+          );
+        }}
+      </EmojiMutedAlt>
     );
   }
 

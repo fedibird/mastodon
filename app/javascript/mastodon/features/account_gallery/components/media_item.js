@@ -1,4 +1,6 @@
 import AltTextBadge from 'mastodon/components/alt_text_badge';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { emojiMutedAltText } from 'mastodon/features/emoji/emoji_mute_text';
 import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
 import classNames from 'classnames';
@@ -17,7 +19,7 @@ const messages = defineMessages({
   open: { id: 'timeline.media.open', defaultMessage: 'Open media' },
 });
 
-export default @injectIntl
+@injectIntl
 class MediaItem extends ImmutablePureComponent {
 
   static propTypes = {
@@ -27,6 +29,7 @@ class MediaItem extends ImmutablePureComponent {
     shape: PropTypes.oneOf(['square', 'original']),
     visibility: PropTypes.oneOf(['hide_sensitive', 'show_all', 'hide_all']),
     intl: PropTypes.object.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   state = {
@@ -94,7 +97,7 @@ class MediaItem extends ImmutablePureComponent {
   render () {
     const { attachment, shape, intl } = this.props;
     const status = attachment.get('status');
-    const description = attachment.get('description');
+    const description = emojiMutedAltText(attachment.get('description'), this.props.emojiMuteTextIndex);
     const type = attachment.get('type');
     const original = shape === 'original';
     const concealed = this.isConcealed();
@@ -159,3 +162,5 @@ class MediaItem extends ImmutablePureComponent {
   }
 
 }
+
+export default withEmojiMuteTextIndex(MediaItem);
