@@ -47,10 +47,13 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
         :'user.show_translation_bar',
         :'user.translation_preferred_mode',
         :'user.new_features_policy',
+        :'user.enable_reboost',
         :'user.content_font_size',
         :'user.info_font_size',
         :'user.reduce_motion',
         :'user.emoji_picker_prefer_personal',
+        :'user.emoji_picker_disable_personal',
+        :'user.emoji_picker_disable_actions',
         :'user.emoji_picker_lazy_load_standard',
         :'user.emoji_reaction_fallback_policy'
       )
@@ -287,10 +290,13 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
         :'user.show_translation_bar',
         :'user.translation_preferred_mode',
         :'user.new_features_policy',
+        :'user.enable_reboost',
         :'user.content_font_size',
         :'user.info_font_size',
         :'user.reduce_motion',
         :'user.emoji_picker_prefer_personal',
+        :'user.emoji_picker_disable_personal',
+        :'user.emoji_picker_disable_actions',
         :'user.emoji_picker_lazy_load_standard',
         :'user.emoji_reaction_fallback_policy'
       )
@@ -330,7 +336,7 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
 
       expect(response).to have_http_status(200)
       expect(stored(user, 'default_sensitive').value).to be false
-      expect(body_as_json[:preferences].keys.size).to eq 13
+      expect(body_as_json[:preferences].keys.size).to eq 16
     end
 
     it 'updates policy and the translation bar together, and policy alone leaves the bar row' do

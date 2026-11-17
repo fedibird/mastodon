@@ -13,6 +13,26 @@ module Mastodon
   class RateLimitExceededError < Error; end
   class InvalidParameterError < Error; end
 
+  class ReboostCooldownError < Error
+    attr_reader :retry_after
+
+    def initialize(retry_after)
+      @retry_after = retry_after.to_i
+      super(I18n.t('statuses.errors.reboost_cooldown', seconds: @retry_after))
+    end
+  end
+
+  class ReboostPendingError < Error
+    attr_reader :operation
+
+    def initialize(operation)
+      @operation = operation
+      super('reboost_pending')
+    end
+  end
+
+  class ReboostDisabledError < Error; end
+
   # Structured emoji-reaction fallback response. `error` stays a stable
   # sentence. `error_code` and `details` are additive. Details never include
   # the account, the status id, or the node document; the confirmation token

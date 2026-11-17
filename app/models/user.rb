@@ -345,6 +345,15 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
     TranslationPreferences.normalize_visibility(settings.show_translation_bar, setting_new_features_policy)
   end
 
+  # Form value: auto, on, or off. Reading this does not store a choice.
+  def setting_enable_reboost
+    ReboostPreferences.choice(settings.enable_reboost)
+  end
+
+  def reboost_enabled?
+    ReboostPreferences.enabled?(settings.enable_reboost, setting_new_features_policy)
+  end
+
   def setting_translation_preferred_mode
     TranslationPreferences.normalize_preferred_mode(settings.translation_preferred_mode)
   end

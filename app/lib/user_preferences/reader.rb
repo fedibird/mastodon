@@ -10,6 +10,7 @@ class UserPreferences::Reader
     show_translation_bar
     translation_preferred_mode
     new_features_policy
+    enable_reboost
     content_font_size
     info_font_size
     reduce_motion
@@ -90,6 +91,9 @@ class UserPreferences::Reader
     when 'show_translation_bar'
       stored = state == :absent ? nil : configured
       TranslationPreferences.normalize_visibility(stored, effective_policy)
+    when 'enable_reboost'
+      stored = state == :absent ? nil : configured
+      ReboostPreferences.enabled?(stored, effective_policy)
     when 'translation_preferred_mode'
       stored = state == :absent ? yaml_default(key) : configured
       TranslationPreferences.normalize_preferred_mode(stored)

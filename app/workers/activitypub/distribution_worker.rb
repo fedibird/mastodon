@@ -7,6 +7,8 @@ class ActivityPub::DistributionWorker
   sidekiq_options queue: 'push'
 
   def perform(status_id)
+    return true if suppressed_reboost_announce?(status_id)
+
     @status  = Status.find(status_id)
     @account = @status.account
 
@@ -24,6 +26,10 @@ class ActivityPub::DistributionWorker
   end
 
   private
+
+  def suppressed_reboost_announce?(status_id)
+    RedisConfiguration.with { |redis| redis.exists?("reboost:suppress_announce:#{status_id}") }
+  end
 
   def skip_distribution?
     @status.direct_visibility? || @status.ap_page? || ExternalBridge::ProjectionPrivacy.private_status?(@status)

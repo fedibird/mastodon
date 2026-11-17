@@ -39,6 +39,8 @@ class UserPreferences::LegacyWriter
       cast_boolean(name, value)
     when 'show_translation_bar'
       normalize_bar(name, value)
+    when 'enable_reboost'
+      normalize_reboost(name, value)
     when 'translation_preferred_mode'
       normalize_mode(name, value)
     else
@@ -58,6 +60,13 @@ class UserPreferences::LegacyWriter
     raise invalid(key, 'invalid_type') unless value.is_a?(String) || value == true || value == false
 
     TranslationPreferences.normalize_visibility(value, bar_policy)
+  end
+
+  def normalize_reboost(key, value)
+    choice = ReboostPreferences.normalize_choice(value)
+    raise invalid(key, 'invalid_value') if choice == :invalid
+
+    choice
   end
 
   def normalize_mode(key, value)

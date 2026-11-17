@@ -13,14 +13,42 @@ class Api::V1::Statuses::ReblogsController < Api::BaseController
   def create
     raise Mastodon::NotPermittedError if current_user.setting_disable_reactions
 
-    return create_link_boost if projection_target?
+    if projection_target?
+      return render json: { error: I18n.t('statuses.errors.reboost_unsupported') }, status: 422 if reboost_requested?
 
-    @status = ReblogService.new.call(current_account, @reblog, reblog_params)
+      return create_link_boost
+    end
+
+    @status = ReblogService.new.call(current_account, @reblog, reblog_options)
 
     render json: @status, serializer: REST::StatusSerializer
+  rescue Mastodon::ReboostCooldownError => e
+    response.headers['Retry-After'] = e.retry_after.to_s
+    render json: { error: e.message, retry_after: e.retry_after }, status: 429
+  rescue Mastodon::ReboostPendingError => e
+    render json: {
+      error: 'reboost_pending',
+      operation_id: e.operation.id.to_s,
+      state: e.operation.state,
+      reblog_of_id: e.operation.reblog_of_id.to_s,
+    }, status: 202
+  rescue Mastodon::ReboostDisabledError => e
+    render json: { error: e.message }, status: 403
+  end
+
+  def show
+    operation = ReboostOperation.where(account: current_account, reblog_of_id: params[:status_id]).order(id: :desc).first!
+    render json: {
+      id: operation.id.to_s,
+      state: operation.state,
+      reblog_of_id: operation.reblog_of_id.to_s,
+      new_status_id: operation.new_status_id&.to_s,
+      error: operation.error_code,
+    }
   end
 
   def destroy
+    cancel_pending_reboosts!
     @status = current_account.statuses.find_by(reblog_of_id: params[:status_id])
 
     if @status
@@ -93,6 +121,10 @@ class Api::V1::Statuses::ReblogsController < Api::BaseController
     render json: { error: error.code }, status: error.http_status
   end
 
+  def cancel_pending_reboosts!
+    Reboost::Placement.cancel_pending!(current_account, params[:status_id])
+  end
+
   def set_reblog
     @reblog = Status.find(params[:status_id])
     authorize @reblog, :show?
@@ -116,6 +148,28 @@ class Api::V1::Statuses::ReblogsController < Api::BaseController
   end
 
   def reblog_params
-    params.permit(:visibility, :circle_id)
+    @reblog_params ||= params.permit(:visibility, :circle_id)
+  end
+
+  def reblog_options
+    reblog_params.to_h.symbolize_keys.merge(
+      reboost: reboost_requested?,
+      idempotency: request.headers['Idempotency-Key'].presence,
+      visibility_explicit: params[:visibility].present?,
+      circle_explicit: params[:circle_id].present?
+    )
+  end
+
+  def reboost_requested?
+    return false unless params.key?(:reboost)
+
+    case params[:reboost]
+    when true, 'true'
+      true
+    when false, 'false'
+      false
+    else
+      raise Mastodon::InvalidParameterError, 'reboost must be true or false'
+    end
   end
 end
