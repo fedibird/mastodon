@@ -24,6 +24,21 @@ const compiledRules = sass.renderSync({
   data: stylesheet.slice(sectionStart, sectionEnd),
 }).css.toString();
 
+const componentsStyles = fs.readFileSync(
+  path.resolve(__dirname, '../../../styles/mastodon/components.scss'),
+  'utf8',
+);
+const splitStart = componentsStyles.indexOf('body.app-body.layout-single-column.status-timeline-split {');
+const splitEnd = componentsStyles.indexOf('\n.column-header__button.column-header__split-button', splitStart);
+
+if (splitStart === -1 || splitEnd === -1) {
+  throw new Error('Missing the split-timeline responsive layout rules');
+}
+
+const compiledSplitRules = sass.renderSync({
+  data: componentsStyles.slice(splitStart, splitEnd),
+}).css.toString();
+
 describe('emoji-mute privacy portal responsive layout contract', () => {
   let style;
   let holder;
@@ -35,7 +50,7 @@ describe('emoji-mute privacy portal responsive layout contract', () => {
   beforeEach(() => {
     document.body.className = 'layout-single-column';
     style = document.createElement('style');
-    style.textContent = compiledRules;
+    style.textContent = `${compiledRules}\n${compiledSplitRules}`;
     document.head.appendChild(style);
 
     holder = document.createElement('div');
@@ -70,6 +85,16 @@ describe('emoji-mute privacy portal responsive layout contract', () => {
     // The dedicated overlay root must not become a full-width flex item.
     expect(window.getComputedStyle(menuRoot).display).not.toBe('flex');
     expect(window.getComputedStyle(menuRoot).width).not.toBe('100%');
+  });
+
+  it('applies the mobile split-timeline height contract through the privacy portal', () => {
+    document.body.className = 'app-body layout-single-column status-timeline-split';
+    const wrapperStyle = window.getComputedStyle(hotkeys);
+    expect(wrapperStyle.display).toBe('flex');
+    expect(wrapperStyle.width).toBe('100%');
+    expect(wrapperStyle.height).toBe('100%');
+    expect(wrapperStyle.maxHeight).toBe('100%');
+    expect(wrapperStyle.minHeight).toBe('0px');
   });
 
   it('keeps the original full-height layout under advanced multi-column mode', () => {
