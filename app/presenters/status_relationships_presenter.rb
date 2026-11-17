@@ -29,7 +29,7 @@ class StatusRelationshipsPresenter
 
       result = ActiveRecord::Base.connection.select_all(ActiveRecord::Base.sanitize_sql_array([<<-SQL.squish, account_id: current_account_id, user_id: viewer_user_id.to_i, status_ids: status_ids, conversation_ids: conversation_ids, pinnable_status_ids: pinnable_status_ids])).to_a.first
         select
-          (select string_agg(reblog_of_id::text, ',') from statuses where account_id = :account_id and reblog_of_id in (:status_ids)) as reblogs,
+          (select string_agg(reblog_of_id::text, ',') from statuses where account_id = :account_id and reblog_of_id in (:status_ids) and deleted_at is null) as reblogs,
           (#{ExternalBridge::LinkSharing::BoostState.presenter_sql}) as link_boosts,
           (select string_agg(status_id::text, ',') from favourites where account_id = :account_id and status_id IN (:status_ids)) as favourites,
           (select string_agg(status_id::text, ',') from bookmarks where account_id = :account_id and status_id in (:status_ids)) as bookmarks,

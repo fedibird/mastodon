@@ -752,7 +752,9 @@ class Status < ApplicationRecord
     end
 
     def reblogs_map(status_ids, account_id)
-      unscoped.select('reblog_of_id').where(reblog_of_id: status_ids).where(account_id: account_id).each_with_object({}) { |s, h| h[s.reblog_of_id] = true }
+      # unscoped skips the default order. A discarded wrapper kept for an open
+      # report is not an active boost.
+      unscoped.select('reblog_of_id').where(reblog_of_id: status_ids, account_id: account_id, deleted_at: nil).each_with_object({}) { |s, h| h[s.reblog_of_id] = true }
     end
 
     def mutes_map(conversation_ids, account_id)

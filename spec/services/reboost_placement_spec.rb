@@ -74,7 +74,21 @@ RSpec.describe ReblogService do
         expect(kept.deleted_at).to be_present
         expect(report.reload.status_ids).to include(first.id)
         expect(report.statuses).to include(kept)
+        expect(StatusRelationshipsPresenter.new([original], account.id).reblogs_map[original.id]).to be true
+        expect(original.reload.reblogs_count).to eq 1
       end
+    end
+
+    it 'does not treat the retained boost as the active one before the next boost' do
+      Fabricate(:report, account: account, target_account: account, status_ids: [first.id])
+      Fabricate(:notification, account: account, from_account: account, activity: first, type: :reblog)
+      first.discard
+      RemovalWorker.new.perform(first.id)
+
+      relationships = StatusRelationshipsPresenter.new([original], account.id)
+      expect(relationships.reblogs_map[original.id]).to be_nil
+      expect(Notification.where(activity: first)).to exist
+      expect(Status.reblogs_map([original.id], account.id)).to eq({})
     end
 
     it 'decrements a retained reported boost only once when another boost stays active' do

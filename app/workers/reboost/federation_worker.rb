@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-# Local replacement is already committed before this runs. Remote delivery is
-# not a completion guarantee: each shared inbox sends Undo once, then the new
-# Announce. A failed Undo is retried on its own and may arrive after Announce.
-# Waiting for every remote server is intentionally not done.
+# Local replacement is already committed before this runs. Each shared inbox
+# retries Undo and Announce together. A cancelled operation, or one whose new
+# wrapper is gone, sends only the saved Undo. Waiting for every remote server
+# is intentionally not done.
 class Reboost::FederationWorker
   include Sidekiq::Worker
   include Payloadable
@@ -15,7 +15,7 @@ class Reboost::FederationWorker
     return if operation.nil? || operation.state == 'completed'
 
     status = Status.find_by(id: operation.new_status_id)
-    unless status&.local?
+    if operation.state == 'cancelled' || !status&.local?
       # The replacement can be unreblogged during the gap. The old Undo was
       # saved before that wrapper existed, so it still has to go out.
       deliver_undo(operation, Array(operation.undo_inboxes))

@@ -1,8 +1,9 @@
 # frozen_string_literal: true
 
-# One inbox, one job: the Undo attempt runs, then the new Announce. This does
-# not wait for the remote server to finish processing Undo, and a later Undo
-# retry can still pass the Announce. That limit is recorded in the log.
+# One inbox, one job. Undo is delivered, then the new Announce, and a failure
+# raises so Sidekiq retries that same inbox from Undo. Other inboxes have
+# their own jobs. Announce is sent only when the replacement is still the
+# live local wrapper.
 class ActivityPub::OrderedReboostDeliveryWorker
   include Sidekiq::Worker
   include Payloadable
@@ -13,18 +14,13 @@ class ActivityPub::OrderedReboostDeliveryWorker
     operation = ReboostOperation.find_by(id: operation_id)
     return if operation.nil? || operation.undo_payload.blank?
 
-    status = Status.find_by(id: operation.new_status_id)
-
     started = Time.current
-    begin
-      ActivityPub::DeliveryWorker.new.perform(operation.undo_payload, operation.account_id, inbox_url)
-      Reboost::Log.emit('undo_attempt_ok', operation_id: operation.id, inbox: inbox_url)
-    rescue StandardError => e
-      Reboost::Log.emit('undo_attempt_failed', operation_id: operation.id, inbox: inbox_url, error: e.class)
-      ActivityPub::DeliveryWorker.perform_async(operation.undo_payload, operation.account_id, inbox_url)
-    end
+    ActivityPub::DeliveryWorker.new.perform(operation.undo_payload, operation.account_id, inbox_url)
+    Reboost::Log.emit('undo_attempt_ok', operation_id: operation.id, inbox: inbox_url)
 
-    return if status.nil?
+    operation.reload
+    status = Status.find_by(id: operation.new_status_id)
+    return if operation.state == 'cancelled' || status.nil? || !status.local?
 
     ActivityPub::DeliveryWorker.new.perform(announce_payload(status, inbox_url), status.account_id, inbox_url)
     Reboost::Log.emit('announce_after_undo', operation_id: operation.id, inbox: inbox_url, milliseconds: ((Time.current - started) * 1000).round)
