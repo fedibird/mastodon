@@ -134,7 +134,8 @@ class Status < ApplicationRecord
   validates :text, presence: true, unless: -> { with_media? || reblog? }
   validates_with StatusLengthValidator
   validates_with DisallowedHashtagsValidator
-  validates :reblog, uniqueness: { scope: :account }, if: :reblog?
+  # A discarded row, including one kept for an open report, is not the active boost.
+  validates :reblog, uniqueness: { scope: :account, conditions: -> { where(deleted_at: nil) } }, if: :reblog?
   validates :visibility, exclusion: { in: %w(direct) }, if: :reblog?
   validates :quote_visibility, inclusion: { in: %w(public unlisted) }, if: :quote?
   validates_with ExpiresValidator, on: :create, if: :local?

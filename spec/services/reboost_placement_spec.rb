@@ -59,6 +59,24 @@ RSpec.describe ReblogService do
       expect(Status.find_by(id: first.id)).to be_present
     end
 
+    it 'keeps a reported boost soft-deleted when boosting again after unreblog' do
+      report = Fabricate(:report, account: account, target_account: account, status_ids: [first.id])
+      first.discard
+      RemovalWorker.new.perform(first.id)
+
+      travel 301.seconds do
+        replacement = described_class.new.call(account, original)
+
+        expect(replacement.id).not_to eq first.id
+        expect(account.statuses.where(reblog_of_id: original.id).pluck(:id)).to eq [replacement.id]
+        expect(original.reload.reblogs_count).to eq 1
+        kept = Status.unscoped.find(first.id)
+        expect(kept.deleted_at).to be_present
+        expect(report.reload.status_ids).to include(first.id)
+        expect(report.statuses).to include(kept)
+      end
+    end
+
     it 'rejects an ordinary boost after unreblog until the cooldown ends' do
       first.discard
 
