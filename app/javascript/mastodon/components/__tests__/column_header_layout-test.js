@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider, useSelector } from 'react-redux';
@@ -121,6 +121,51 @@ const renderHeader = (store, columnId, multiColumn) => {
   );
 };
 
+describe('ColumnHeader mobile portal lifetime', () => {
+  it('renders safely before TabsBar exists and portals after it mounts', async () => {
+    document.getElementById('tabs-bar__portal')?.remove();
+    const store = makeStore();
+    const { container, unmount } = render(
+      <Provider store={store}>
+        <HeaderHarness multiColumn={false} />
+      </Provider>,
+    );
+
+    // Previously render() called forceUpdate() while the portal was absent.
+    // That can exceed React's nested-update limit before commit.
+    expect(container.querySelector('.column-header__wrapper')).not.toBeNull();
+    expect(document.getElementById('tabs-bar__portal')).toBeNull();
+
+    const portal = document.createElement('div');
+    portal.id = 'tabs-bar__portal';
+    act(() => {
+      document.body.appendChild(portal);
+    });
+
+    await waitFor(() => expect(portal.querySelector('.column-header__wrapper')).not.toBeNull());
+    expect(container.querySelector('.column-header__wrapper')).toBeNull();
+    unmount();
+    expect(portal.querySelector('.column-header__wrapper')).toBeNull();
+    portal.remove();
+  });
+
+  it('keeps an inline fallback if the tab-bar portal never appears', () => {
+    document.getElementById('tabs-bar__portal')?.remove();
+    const store = makeStore();
+    const { container, unmount } = render(
+      <Provider store={store}>
+        <HeaderHarness multiColumn={false} />
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({ type: 'UNRELATED_UPDATE' });
+    });
+
+    expect(container.querySelector('.column-header__wrapper')).not.toBeNull();
+    unmount();
+  });
+});
 describe('ColumnHeader layout selector', () => {
   it('renders and updates the standalone timeline setting when columnId is absent', () => {
     const store = makeStore();
