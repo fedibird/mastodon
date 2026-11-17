@@ -33,12 +33,10 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
 
   def try_undo_announce
     status = Status.include_expired.where.not(reblog_of_id: nil).find_by(uri: object_uri, account: @account)
-    if status.present?
-      RemoveStatusService.new.call(status)
-      true
-    else
-      false
-    end
+    return false if status.nil?
+
+    undo_known_announce(object_uri)
+    true
   end
 
   def try_undo_accept
@@ -87,14 +85,31 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
   def undo_announce
     return if object_uri.nil?
 
-    status   = Status.include_expired.find_by(uri: object_uri, account: @account)
-    status ||= Status.include_expired.find_by(uri: @object['atomUri'], account: @account) if @object.is_a?(Hash) && @object['atomUri'].present?
+    undo_known_announce(object_uri)
+    undo_known_announce(@object['atomUri']) if @object.is_a?(Hash) && @object['atomUri'].present? && @object['atomUri'] != object_uri
+  end
 
+  # An Undo names one Announce id. It removes that wrapper when it is still
+  # the active boost, and it never removes a newer replacement of the same
+  # original. The id stays superseded so a later redelivery cannot revive it.
+  def undo_known_announce(uri)
+    return false if uri.blank?
+
+    status = Status.include_expired.where.not(reblog_of_id: nil).find_by(uri: uri, account: @account)
     if status.nil?
-      delete_later!(object_uri)
-    else
-      RemoveStatusService.new.call(status)
+      ReboostAnnounceState.supersede!(@account.id, uri)
+      RemoteReboostHold.where(account_id: @account.id, activity_uri: uri).delete_all
+      delete_later!(uri)
+      return false
     end
+
+    with_redis_lock("announce:#{@account.id}:#{status.reblog_of_id}") do
+      current = Status.include_expired.find_by(account: @account, reblog_of_id: status.reblog_of_id)
+      RemoveStatusService.new.call(current) if current&.uri == uri
+      ReboostAnnounceState.supersede!(@account.id, uri, reblog_of_id: status.reblog_of_id)
+      RemoteReboostHold.where(account_id: @account.id, activity_uri: uri).delete_all
+    end
+    true
   end
 
   def undo_accept
