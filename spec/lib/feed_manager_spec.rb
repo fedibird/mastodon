@@ -288,6 +288,20 @@ RSpec.describe FeedManager do
         expect(FeedManager.instance.push_to_home(account, reblogs.last)).to be false
       end
 
+      it 'does not count a tied snowflake score as a newer entry' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        timeline = FeedManager.instance.key(:home, account.id)
+        seen_key = FeedManager.instance.key(:home, account.id, 'reblogs:seen')
+        redis.zadd(timeline, '100000000000000000', 'tied-older')
+        3.times { |index| redis.zadd(timeline, (100_000_000_000_000_000 + ((index + 1) * 1000)).to_s, "newer-#{index}") }
+        redis.zadd(seen_key, '100000000000000001', reblogged.id)
+
+        reblog = Fabricate(:status, reblog: reblogged)
+
+        expect(FeedManager.instance.push_to_home(account, reblog)).to be false
+      end
+
       it 'restores a snowflake-sized extra reblog id exactly' do
         account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)

@@ -122,13 +122,7 @@ class Api::V1::Statuses::ReblogsController < Api::BaseController
   end
 
   def cancel_pending_reboosts!
-    now = Time.current
-    ReboostOperation.where(account_id: current_account.id, reblog_of_id: params[:status_id], state: 'pending').update_all(
-      state: 'cancelled',
-      error_code: 'unreblogged',
-      completed_at: now,
-      updated_at: now
-    )
+    Reboost::Placement.cancel_pending!(current_account, params[:status_id])
   end
 
   def set_reblog
