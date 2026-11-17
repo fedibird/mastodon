@@ -61,6 +61,10 @@ export function positionEmojiActionsPreview(menu, preview, viewport) {
 
   const edge = 8;
   const gap = 8;
+  // Hidden measurement must never create a horizontal/vertical scroll area.
+  if (preview.width > viewport.width - edge * 2 || preview.height > viewport.height - edge * 2) {
+    return null;
+  }
   const left = clamp(menu.left + (menu.width - preview.width) / 2, edge, viewport.width - preview.width - edge);
   const top = clamp(menu.top, edge, viewport.height - preview.height - edge);
 
