@@ -176,7 +176,12 @@ class Reboost::Placement
   end
 
   def finish_removal!(discarded)
-    RemoveStatusService.new.call(discarded, skip_remote: true, immediate: true)
+    if discarded.reported?
+      RemoveStatusService.new.call(discarded, skip_remote: true, preserve: true)
+      original.decrement_count!(:reblogs_count)
+    else
+      RemoveStatusService.new.call(discarded, skip_remote: true, immediate: true)
+    end
     true
   rescue Mastodon::RaceConditionError
     false
