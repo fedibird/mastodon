@@ -543,7 +543,7 @@ module SettingsServiceCatalog
 
     def extractor_limits
       [
-        'Haml inputs are detected with a line regex, not a Haml parser. Inputs built outside .input :name are invisible, including inputs rendered from a partial or a helper.',
+        'Haml inputs are detected with line regexes for .input :name and .range_field :name, not a Haml parser. Inputs built by other helpers or rendered from partials may be invisible.',
         'A form input is conditional while an indentation stack still holds a shallower "- if" or "- unless" line. The condition is not evaluated. The parser misses a condition in another file, a condition that is not written as "- if" or "- unless", and a commented parent whose child line is not itself a comment.',
         'Commented inputs are only those whose own line is a Haml comment. A commented parent block with an uncommented child would be counted as active.',
         'UserSettingsDecorator key lists are read from %w arrays only.',
@@ -706,7 +706,10 @@ module SettingsServiceCatalog
     def write_sources_for(var, forms)
       sources = []
       if @facts[:permit]['scalars'].include?(var)
-        pages = forms.reject { |field| field['commented'] }.map { |field| field['path'][%r{preferences/(\w+)/}, 1] || 'preferences' }.uniq
+        pages = forms.reject { |field| field['commented'] }.map do |field|
+          field['path'][%r{preferences/(\w+)/}, 1] ||
+            (field['path'].include?('custom_emojis/settings/') ? 'custom_emojis' : 'preferences')
+        end.uniq
         form_source = if LEGACY_FORM_KEYS.include?(var)
                         if pages.empty?
                           'permitted on preferences update and saved through LegacyWriter when the form passes one, but no active input submits it'
