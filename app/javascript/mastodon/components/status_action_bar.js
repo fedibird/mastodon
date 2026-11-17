@@ -39,6 +39,7 @@ const messages = defineMessages({
   reference: { id: 'status.reference', defaultMessage: 'Reference' },
   reblog: { id: 'status.reblog', defaultMessage: 'Boost' },
   reboost: { id: 'status.reboost', defaultMessage: 'Reboost' },
+  reboost_menu: { id: 'status.reboost_menu', defaultMessage: 'Boost actions' },
   reboost_wait: { id: 'status.reboost_wait', defaultMessage: 'Reboost (about {minutes} min left)' },
   reboost_hint: { id: 'status.reboost_hint', defaultMessage: 'Turn on Group boosts in settings if you do not want to see the same post repeatedly.' },
   reblog_private: { id: 'status.reblog_private', defaultMessage: 'Boost with original visibility' },
@@ -121,6 +122,7 @@ const mapStateToProps = (state, { status, translationStatus }) => {
     translationAssumption: state.getIn(['translation_assumptions', subject.get('id')]),
     translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
     languages: state.getIn(['server', 'translationLanguages', 'items']),
+    reboosting: Boolean(state.getIn(['statuses', status.get('id'), 'reboost_operation'])),
   };
 };
 
@@ -203,6 +205,7 @@ class StatusActionBar extends ImmutablePureComponent {
     'translationTarget',
     'languages',
     'compactCardMode',
+    'reboosting',
   ]
 
   handleReplyClick = () => {
@@ -243,15 +246,11 @@ class StatusActionBar extends ImmutablePureComponent {
   }
 
   handleReboost = () => {
-    if (this._reboosting || !this.props.onReboost) {
+    if (this.props.reboosting || !this.props.onReboost) {
       return;
     }
 
-    this._reboosting = true;
-    const result = this.props.onReboost(this.props.status);
-    Promise.resolve(result).finally(() => {
-      this._reboosting = false;
-    });
+    this.props.onReboost(this.props.status);
   }
 
   handleUnreblog = () => {
@@ -263,9 +262,15 @@ class StatusActionBar extends ImmutablePureComponent {
   renderBoostButton = ({ intl, status, scrollKey, reblogged, publicStatus, reblogPrivate, expired, externalContent, disableReactions, reblogTitle }) => {
     const minutes = reboostWaitMinutes(status.get('reboost_retry_after'));
     const waiting = !reblogged && minutes > 0;
-    const title = waiting ? intl.formatMessage(messages.reboost_wait, { minutes }) : reblogTitle;
-    const disabled = disableReactions || !publicStatus && !reblogPrivate || expired || waiting;
     const menu = enableReboost && reblogged && me && !externalContent && !expired && (publicStatus || reblogPrivate);
+    let title = reblogTitle;
+
+    if (menu) {
+      title = intl.formatMessage(messages.reboost_menu);
+    } else if (waiting) {
+      title = intl.formatMessage(messages.reboost_wait, { minutes });
+    }
+    const disabled = disableReactions || !publicStatus && !reblogPrivate || expired || waiting;
 
     if (!menu) {
       return (
@@ -277,7 +282,8 @@ class StatusActionBar extends ImmutablePureComponent {
       <DropdownMenuContainer
         scrollKey={scrollKey}
         status={status}
-        items={reboostMenuItems({ intl, messages, status, onReboost: this.handleReboost, onUnreblog: this.handleUnreblog, busy: this._reboosting })}
+        menuRole='menu'
+        items={reboostMenuItems({ intl, messages, status, onReboost: this.handleReboost, onUnreblog: this.handleUnreblog, busy: this.props.reboosting })}
         direction='right'
       >
         <IconButton className={classNames('status__action-bar-button', { reblogPrivate })} disabled={disableReactions || expired} active={reblogged} pressed={reblogged} title={title} icon='retweet' />
