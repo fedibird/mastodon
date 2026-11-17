@@ -1,5 +1,6 @@
 import {
   buildEmojiActionMenuItems,
+  EmojiActionsMenuController,
   isResolveErrorRetryable,
   resolveErrorMessage,
 } from '../emoji_actions_menu_controller';
@@ -322,5 +323,24 @@ describe('preview-aware emoji action items', () => {
     expect(items.find(item => item?.text === 'Copy emoji')?.icon).toBe('clone');
     expect(items.find(item => item?.text === 'Mute emoji')?.icon).toBe('volume-off');
     expect(items.find(item => item?.text === 'Open mute settings')?.icon).toBe('cog');
+  });
+});
+
+describe('inline emoji synthetic context menu guard', () => {
+  it('does not reopen the same menu after an iOS long press', () => {
+    const controller = new EmojiActionsMenuController({ signedIn: true });
+    controller.openFromElement = jest.fn();
+    const emoji = document.createElement('img');
+    emoji.dataset.emojiActions = '1';
+    emoji.dataset.emojiLongPressUntil = String(Date.now() + 1000);
+    const event = { target: emoji, preventDefault: jest.fn(), stopPropagation: jest.fn() };
+
+    controller.handleContextMenu(event);
+    expect(controller.openFromElement).not.toHaveBeenCalled();
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+
+    emoji.dataset.emojiLongPressUntil = String(Date.now() - 1);
+    controller.handleContextMenu(event);
+    expect(controller.openFromElement).toHaveBeenCalledTimes(1);
   });
 });
