@@ -720,3 +720,99 @@
   background: var(--dropdown-border-color);
   outline: 0;
 }
+
+// Suppress image callouts only on actionable inline emojis, not all images.
+img.custom-emoji[data-emoji-actions='1'] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+// The preview is outside dropdown flow: Popper positions the existing action
+// list as before. Only the preview moves to a spare area of the viewport.
+#emoji-actions-overlay-root {
+  .dropdown-animation {
+    position: relative;
+    z-index: 1;
+  }
+
+  .dropdown-menu__item > a {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .emoji-actions-menu__item-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 16px;
+    width: 16px;
+    color: inherit;
+  }
+
+  .emoji-actions-menu__item-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  // Independent fixed-position sibling of Popper's transformed menu: layout
+  // changes in the menu never drag an already visible preview around.
+  .emoji-actions-menu__preview {
+    position: fixed;
+    box-sizing: border-box;
+    width: 304px;
+    max-width: calc(100vw - 16px);
+    padding: 11px;
+    border-radius: 12px;
+    border: 1px solid rgba($primary-text-color, .15);
+    background: $ui-base-color;
+    color: $primary-text-color;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, .28);
+    pointer-events: none;
+  }
+
+  .emoji-actions-menu__preview-media {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 176px;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .emoji-actions-menu__preview-media img {
+    display: block;
+    width: 100%;
+    height: 176px;
+    max-width: 280px;
+    object-fit: contain;
+  }
+
+  .emoji-actions-menu__preview-media span {
+    max-width: 100%;
+    font-size: 128px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .emoji-actions-menu__preview-meta {
+    margin-top: 5px;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .emoji-actions-menu__preview-name {
+    font-weight: 600;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .emoji-actions-menu__preview-shortcode {
+    margin-top: 2px;
+    font-size: 11px;
+    color: $darker-text-color;
+    overflow-wrap: anywhere;
+  }
+}

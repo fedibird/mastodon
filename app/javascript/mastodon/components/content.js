@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { injectIntl, defineMessages } from 'react-intl';
 import { autoPlayEmoji } from 'mastodon/initial_state';
 import { customEmojiTarget, withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { attachInlineEmojiMenus, isInlineEmojiLongPressClick, openInlineEmojiMenu } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import { linkTargetEmojiRemains, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 
 // Profile note, follow message, and profile field values. Status bodies do
@@ -46,6 +47,18 @@ class Content extends React.PureComponent {
     const domain = emoji.getAttribute('data-domain');
 
     emoji.style.cursor = 'pointer';
+
+    if (isInlineEmojiLongPressClick(e, emoji)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    if (openInlineEmojiMenu(emoji, { source: 'inline_profile' })) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
 
     if (this.context.router) {
       e.preventDefault();
@@ -131,17 +144,25 @@ class Content extends React.PureComponent {
 
   componentDidMount () {
     this._updateContentLinks();
+    this.updateInlineEmojiMenus();
   }
 
   componentDidUpdate () {
     this._updateContentLinks();
+    this.updateInlineEmojiMenus();
   }
 
   componentWillUnmount () {
+    this.detachInlineEmojiMenus?.();
     if (this.node) {
       this.node.removeEventListener('click', this.handleEmojiClick, true);
     }
   }
+
+  updateInlineEmojiMenus = () => {
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = attachInlineEmojiMenus(this.node, { source: 'inline_profile' });
+  };
 
   onMentionClick = (mention, e) => {
     if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
@@ -181,7 +202,13 @@ class Content extends React.PureComponent {
   }
 
   onCustomEmojiUrlClick = (shortcode, domain, e) => {
-    if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey) return;
+    if (openInlineEmojiMenu(e.currentTarget, { source: 'inline_profile' })) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (this.context.router) {
       e.preventDefault();
       this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
     }
@@ -193,6 +220,11 @@ class Content extends React.PureComponent {
 
   handleMouseUp = (e) => {
     if (!this.startXY) {
+      return;
+    }
+
+    if (e.target?.closest?.('.custom-emoji')) {
+      this.startXY = null;
       return;
     }
 
@@ -222,6 +254,8 @@ class Content extends React.PureComponent {
     if (this.node) {
       this.node.removeEventListener('click', this.handleEmojiClick, true);
     }
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = null;
 
     this.node = node;
     this.clickNode = node;

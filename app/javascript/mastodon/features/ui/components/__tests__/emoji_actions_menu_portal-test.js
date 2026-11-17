@@ -1184,4 +1184,107 @@ describe('emoji actions menu portal host', () => {
 
     document.body.removeChild(anchor);
   });
+  it('shows large image with name and shortcode underneath without changing action markup', async () => {
+    const emojiRef = { kind: 'custom', scope: 'local', shortcode: 'wide', custom_emoji_id: '42' };
+    resolveEmojiReference.mockResolvedValueOnce({
+      reference: emojiRef,
+      detail: { emoji: { static_url: '/images/wide.png', alternate_name: 'Long horizontal emoji' } },
+      actions: { mute: { allowed: true }, add_to_personal_category: { allowed: false } },
+    });
+    render(<EmojiActionsMenuController intl={intl} signedIn onSyncMutes={jest.fn()} />);
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+
+    act(() => {
+      openEmojiActions(emojiRef, { anchor, source: 'inline_status' });
+    });
+
+    await screen.findByRole('button', { name: 'Mute emoji' });
+    const preview = document.querySelector('.emoji-actions-menu__preview');
+    expect(preview).not.toBeNull();
+    expect(preview.querySelector('img').getAttribute('src')).toBe('/images/wide.png');
+    expect(preview.querySelector('.emoji-actions-menu__preview-name').textContent).toBe('Long horizontal emoji');
+    expect(preview.querySelector('.emoji-actions-menu__preview-shortcode').textContent).toBe(':wide:');
+    const mute = screen.getByRole('button', { name: 'Mute emoji' });
+    expect(mute.querySelector('.emoji-actions-menu__item-icon')).not.toBeNull();
+    expect(mute.hasAttribute('data-index')).toBe(true);
+    document.body.removeChild(anchor);
+  });
+
+  it('omits both enlarged preview and detail navigation within the detail column', async () => {
+    render(<EmojiActionsMenuController intl={intl} signedIn onSyncMutes={jest.fn()} />);
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+
+    act(() => {
+      openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'emoji_detail' });
+    });
+
+    await screen.findByRole('button', { name: 'Mute emoji' });
+    expect(document.querySelector('.emoji-actions-menu__preview')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Emoji details' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Copy emoji' })).toBeTruthy();
+    document.body.removeChild(anchor);
+  });
+
+  it('reveals preview only after menu placement settles and does not move it on later updates', async () => {
+    const frames = [];
+    const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const cancelRaf = jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    const rect = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this.classList.contains('dropdown-animation')) {
+        return { left: 100, right: 300, top: 350, bottom: 550, width: 200, height: 200 };
+      }
+      if (this.classList.contains('emoji-actions-menu__preview')) {
+        return { left: 0, right: 304, top: 0, bottom: 230, width: 304, height: 230 };
+      }
+      return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 };
+    });
+
+    const view = render(<EmojiActionsMenuController intl={intl} signedIn onSyncMutes={jest.fn()} />);
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    try {
+      act(() => {
+        openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+      });
+      await screen.findByRole('button', { name: 'Mute emoji' });
+      const preview = document.querySelector('.emoji-actions-menu__preview');
+      expect(preview).not.toBeNull();
+      // The preview is a sibling portal, not a child of Popper's animated
+      // transform. Its viewport coordinates remain stable as menu items change.
+      expect(preview.parentElement.id).toBe(EMOJI_ACTIONS_OVERLAY_ROOT_ID);
+      expect(preview.closest('.emoji-actions-menu-portal')).toBeNull();
+      expect(preview.style.visibility).toBe('hidden');
+      expect(frames.length).toBeGreaterThanOrEqual(1);
+
+      act(() => {
+        frames.shift()();
+      });
+      expect(preview.style.visibility).toBe('hidden');
+      expect(frames.length).toBeGreaterThanOrEqual(1);
+      act(() => {
+        frames.shift()();
+      });
+      expect(preview.style.visibility).not.toBe('hidden');
+      const position = { top: preview.style.top, left: preview.style.left };
+      const placedFrameCount = raf.mock.calls.length;
+
+      fireEvent.click(screen.getByRole('button', { name: 'Copy emoji' }));
+      await waitFor(() => expect(screen.getByText('Copied')).toBeTruthy());
+      expect(preview.style.top).toBe(position.top);
+      expect(preview.style.left).toBe(position.left);
+      expect(raf).toHaveBeenCalledTimes(placedFrameCount);
+    } finally {
+      view.unmount();
+      anchor.remove();
+      raf.mockRestore();
+      cancelRaf.mockRestore();
+      rect.mockRestore();
+    }
+  });
+
 });

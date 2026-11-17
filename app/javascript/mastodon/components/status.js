@@ -10,6 +10,7 @@ import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
 import EmojiMutedHtml, { EmojiMutedAria, EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
 import { countEmojiMuteParse, emojiMutedPlainText, replaceMutedEmojiInPlain, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
+import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
 import TimelineCardBody from './timeline_card_body';
@@ -577,27 +578,31 @@ class Status extends ImmutablePureComponent {
 
   _updateEmojiLinks () {
     bindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = attachInlineEmojiMenus(this.emoji_node, {
+      source: 'inline_status_attribution',
+      statusId: this.props.status?.get('id'),
+      accountId: this.props.status?.getIn(['account', 'id']),
+    });
   }
 
   _removeEmojiLinks () {
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = null;
     unbindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
   }
 
   handleEmojiClick = e => {
     const emoji = customEmojiTarget(e);
-
     if (!emoji || !this.emoji_node || !this.emoji_node.contains(emoji)) {
       return;
     }
 
-    const shortcode = emoji.getAttribute('data-shortcode');
-    const domain = emoji.getAttribute('data-domain');
-
-    if (this.context.router) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
-    }
+    handleInlineEmojiClick(e, emoji, this.context.router, {
+      source: 'inline_status_attribution',
+      statusId: this.props.status?.get('id'),
+      accountId: this.props.status?.getIn(['account', 'id']),
+    });
   }
 
   handleToggleMediaVisibility = () => {
@@ -898,9 +903,9 @@ class Status extends ImmutablePureComponent {
       return;
     }
 
-    unbindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
+    this._removeEmojiLinks();
     this.emoji_node = c;
-    bindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
+    this._updateEmojiLinks();
   }
 
 

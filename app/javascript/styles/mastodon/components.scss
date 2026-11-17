@@ -4715,8 +4715,11 @@ body.app-body.layout-single-column.status-timeline-split {
   max-height: 100dvh;
   overflow: hidden;
 
+  // The React HotKeys wrapper is no longer a direct app-holder child after
+  // the emoji-mute privacy portal was introduced. Keep split-TL geometry.
   .app-holder,
   .app-holder > div,
+  .app-holder .emoji-mutes-privacy-portal > div:not(#emoji-actions-overlay-root),
   .ui,
   .columns-area__panels,
   .columns-area__panels__main {

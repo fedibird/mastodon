@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider, useSelector } from 'react-redux';
@@ -121,6 +121,107 @@ const renderHeader = (store, columnId, multiColumn) => {
   );
 };
 
+describe('ColumnHeader mobile portal lifetime', () => {
+  it('keeps the header portalled if privacy gate detaches an already mounted UI', () => {
+    document.getElementById('tabs-bar__portal')?.remove();
+    const privacyRoot = document.createElement('div');
+    privacyRoot.className = 'emoji-mutes-privacy-portal';
+    const target = document.createElement('div');
+    const portal = document.createElement('div');
+    portal.id = 'tabs-bar__portal';
+    privacyRoot.appendChild(target);
+    privacyRoot.appendChild(portal);
+    document.body.appendChild(privacyRoot);
+    const store = makeStore();
+    const { unmount } = render(
+      <Provider store={store}>
+        <HeaderHarness multiColumn={false} />
+      </Provider>,
+      { container: target },
+    );
+    expect(portal.querySelector('.column-header__wrapper')).not.toBeNull();
+
+    act(() => {
+      document.body.removeChild(privacyRoot);
+      store.dispatch({ type: 'SETTING_CHANGE', path: ['home', 'columnWidth'], value: 'x125' });
+    });
+
+    // document.getElementById cannot see the portal now, but the detached
+    // privacy root still contains it. No forceUpdate loop or inline fallback.
+    expect(document.getElementById('tabs-bar__portal')).toBeNull();
+    expect(portal.querySelector('.column-header__wrapper')).not.toBeNull();
+    expect(target.querySelector('.column-header__wrapper')).toBeNull();
+    unmount();
+  });
+  it('finds the tab-bar portal inside a detached emoji-mute privacy root', async () => {
+    document.getElementById('tabs-bar__portal')?.remove();
+    const detachedRoot = document.createElement('div');
+    detachedRoot.className = 'emoji-mutes-privacy-portal';
+    const target = document.createElement('div');
+    const portal = document.createElement('div');
+    portal.id = 'tabs-bar__portal';
+    detachedRoot.appendChild(target);
+    detachedRoot.appendChild(portal);
+    const store = makeStore();
+
+    const { unmount } = render(
+      <Provider store={store}>
+        <HeaderHarness multiColumn={false} />
+      </Provider>,
+      { container: target },
+    );
+
+    await waitFor(() => expect(portal.querySelector('.column-header__wrapper')).not.toBeNull());
+    expect(target.querySelector('.column-header__wrapper')).toBeNull();
+    expect(document.getElementById('tabs-bar__portal')).toBeNull();
+    unmount();
+    expect(portal.querySelector('.column-header__wrapper')).toBeNull();
+  });
+
+  it('renders safely before TabsBar exists and portals after it mounts', async () => {
+    document.getElementById('tabs-bar__portal')?.remove();
+    const store = makeStore();
+    const { container, unmount } = render(
+      <Provider store={store}>
+        <HeaderHarness multiColumn={false} />
+      </Provider>,
+    );
+
+    // Previously render() called forceUpdate() while the portal was absent.
+    // That can exceed React's nested-update limit before commit.
+    expect(container.querySelector('.column-header__wrapper')).not.toBeNull();
+    expect(document.getElementById('tabs-bar__portal')).toBeNull();
+
+    const portal = document.createElement('div');
+    portal.id = 'tabs-bar__portal';
+    act(() => {
+      document.body.appendChild(portal);
+    });
+
+    await waitFor(() => expect(portal.querySelector('.column-header__wrapper')).not.toBeNull());
+    expect(container.querySelector('.column-header__wrapper')).toBeNull();
+    unmount();
+    expect(portal.querySelector('.column-header__wrapper')).toBeNull();
+    portal.remove();
+  });
+
+  it('keeps an inline fallback if the tab-bar portal never appears', () => {
+    document.getElementById('tabs-bar__portal')?.remove();
+    const store = makeStore();
+    const { container, unmount } = render(
+      <Provider store={store}>
+        <HeaderHarness multiColumn={false} />
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({ type: 'UNRELATED_UPDATE' });
+    });
+
+    expect(container.querySelector('.column-header__wrapper')).not.toBeNull();
+    unmount();
+  });
+});
 describe('ColumnHeader layout selector', () => {
   it('renders and updates the standalone timeline setting when columnId is absent', () => {
     const store = makeStore();

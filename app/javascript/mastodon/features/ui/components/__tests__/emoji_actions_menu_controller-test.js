@@ -1,5 +1,6 @@
 import {
   buildEmojiActionMenuItems,
+  EmojiActionsMenuController,
   isResolveErrorRetryable,
   resolveErrorMessage,
 } from '../emoji_actions_menu_controller';
@@ -296,5 +297,50 @@ describe('buildEmojiActionMenuItems', () => {
     expect(actionable[0].disabled).toBe(true);
     expect(actionable[0].action).toBe(onReactSame);
     expect(items.some(item => item && item.text === 'Mute emoji' && !item.disabled)).toBe(true);
+  });
+});
+
+describe('preview-aware emoji action items', () => {
+  const intl = { formatMessage: descriptor => descriptor.defaultMessage || descriptor.id };
+  const reference = { kind: 'unicode', native: '😀' };
+  const options = {
+    intl, reference,
+    resolved: { reference, actions: { mute: { allowed: true }, add_to_personal_category: { allowed: false } } },
+    categories: [], status: 'ready', busy: false,
+    onMute: jest.fn(), onCopy: jest.fn(),
+  };
+
+  it('hides detail navigation in an already enlarged detail column', () => {
+    const items = buildEmojiActionMenuItems({ ...options, source: 'emoji_detail' });
+    expect(items.some(item => item?.text === 'Emoji details')).toBe(false);
+    expect(items.some(item => item?.text === 'Mute emoji')).toBe(true);
+    expect(items.some(item => item?.text === 'Copy emoji')).toBe(true);
+  });
+
+  it('keeps details outside the detail column and provides action icons', () => {
+    const items = buildEmojiActionMenuItems({ ...options, source: 'inline_status' });
+    expect(items.find(item => item?.text === 'Emoji details')?.icon).toBe('info-circle');
+    expect(items.find(item => item?.text === 'Copy emoji')?.icon).toBe('clone');
+    expect(items.find(item => item?.text === 'Mute emoji')?.icon).toBe('volume-off');
+    expect(items.find(item => item?.text === 'Open mute settings')?.icon).toBe('cog');
+  });
+});
+
+describe('inline emoji synthetic context menu guard', () => {
+  it('does not reopen the same menu after an iOS long press', () => {
+    const controller = new EmojiActionsMenuController({ signedIn: true });
+    controller.openFromElement = jest.fn();
+    const emoji = document.createElement('img');
+    emoji.dataset.emojiActions = '1';
+    emoji.dataset.emojiLongPressUntil = String(Date.now() + 1000);
+    const event = { target: emoji, preventDefault: jest.fn(), stopPropagation: jest.fn() };
+
+    controller.handleContextMenu(event);
+    expect(controller.openFromElement).not.toHaveBeenCalled();
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+
+    emoji.dataset.emojiLongPressUntil = String(Date.now() - 1);
+    controller.handleContextMenu(event);
+    expect(controller.openFromElement).toHaveBeenCalledTimes(1);
   });
 });

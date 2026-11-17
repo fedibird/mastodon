@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -55,6 +55,7 @@ import { EMOJI_MUTES_APPLY } from '../../actions/emoji_mutes';
 import { normalizeStatus, normalizeStatusTranslation } from '../../actions/importer/normalizer';
 import emojify from '../../features/emoji/emoji';
 import { resetEmojiMuteTextForTests } from '../../features/emoji/emoji_mute_text';
+import { resetEmojiActionsBusForTests, setEmojiActionsListener } from '../../features/emoji/emoji_actions/bus';
 import emojiMutesReducer from '../../reducers/emoji_mutes';
 import StatusContent from '../status_content';
 
@@ -446,5 +447,27 @@ describe('StatusContent replace_in_text', () => {
     expect(container.querySelector('[data-emoji-id="11"]')).not.toBeNull();
     expect(container.querySelector('a[href="https://example.test/emoji/blob"]').getAttribute('title')).toBe('Link to :@blob:');
     expect(container.querySelector('a[href="https://example.test/react"] img').getAttribute('alt')).toBe(thumb);
+  });
+});
+
+describe('inline emoji actions from a status body', () => {
+  it('opens the common menu on an emoji click, using its stable local id', () => {
+    resetEmojiActionsBusForTests();
+    const received = [];
+    const detach = setEmojiActionsListener(detail => received.push(detail));
+    const { container } = renderStatus(buildStatus(), []);
+    const emojiNode = container.querySelector('img.custom-emoji');
+
+    expect(emojiNode.dataset.emojiActions).toBe('1');
+    fireEvent.click(emojiNode);
+    expect(received).toHaveLength(1);
+    expect(received[0].reference).toEqual({
+      kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob',
+    });
+    expect(received[0].source).toBe('inline_status');
+    expect(received[0].status_id).toBe('s1');
+
+    detach();
+    resetEmojiActionsBusForTests();
   });
 });

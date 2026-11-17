@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import { defineMessages, injectIntl } from 'react-intl';
@@ -67,6 +68,9 @@ import {
 } from 'mastodon/features/emoji/emoji_actions/reference';
 import { getEmojiActionsOverlayRoot } from 'mastodon/features/emoji/emoji_actions/overlay_root';
 import { copyText } from 'mastodon/utils/clipboard';
+import Icon from 'mastodon/components/icon';
+import classNames from 'classnames';
+import { buildEmojiActionsPreview, positionEmojiActionsPreview } from 'mastodon/features/emoji/emoji_actions/preview';
 
 const messages = defineMessages({
   detail: { id: 'emoji_actions.detail', defaultMessage: 'Emoji details' },
@@ -187,6 +191,7 @@ export function buildEmojiActionMenuItems({
   pendingSyncRevision,
   busy,
   reaction,
+  source = null,
   onReactSame,
   onCopy,
   onMute,
@@ -198,11 +203,11 @@ export function buildEmojiActionMenuItems({
   const items = [];
 
   if (notice) {
-    items.push({ text: notice, disabled: true });
+    items.push({ text: notice, icon: 'info-circle', disabled: true });
   }
 
   if (status === 'loading') {
-    items.push({ text: intl.formatMessage(messages.loading), disabled: true });
+    items.push({ text: intl.formatMessage(messages.loading), icon: 'spinner', disabled: true });
     return items;
   }
 
@@ -214,6 +219,7 @@ export function buildEmojiActionMenuItems({
 
     items.push({
       text: intl.formatMessage(reaction.my_reaction ? messages.reactRemove : messages.reactSame),
+      icon: reaction.my_reaction ? 'minus-circle' : 'smile-o',
       action: onReactSame,
       disabled: reactDisabled || busy || typeof onReactSame !== 'function',
     });
@@ -221,9 +227,10 @@ export function buildEmojiActionMenuItems({
 
   const detailPath = detailPathForReference(reference);
 
-  if (detailPath) {
+  if (detailPath && source !== 'emoji_detail') {
     items.push({
       text: intl.formatMessage(messages.detail),
+      icon: 'info-circle',
       to: detailPath,
     });
   }
@@ -233,6 +240,7 @@ export function buildEmojiActionMenuItems({
   if (copyTextValue) {
     items.push({
       text: intl.formatMessage(messages.copy),
+      icon: 'clone',
       action: onCopy,
       disabled: busy || typeof onCopy !== 'function',
     });
@@ -241,10 +249,12 @@ export function buildEmojiActionMenuItems({
   if (syncError || pendingSyncRevision) {
     items.push({
       text: intl.formatMessage(messages.syncFailed),
+      icon: 'exclamation-circle',
       disabled: true,
     });
     items.push({
       text: intl.formatMessage(messages.retrySync),
+      icon: 'refresh',
       action: onRetrySync,
       disabled: busy,
     });
@@ -254,19 +264,21 @@ export function buildEmojiActionMenuItems({
 
   if (!actions) {
     if (error) {
-      items.push({ text: resolveErrorMessage(intl, error), disabled: true });
+      items.push({ text: resolveErrorMessage(intl, error), icon: 'exclamation-triangle', disabled: true });
     }
 
     // Copy / detail / react may already be present; retry only when useful.
     if (isResolveErrorRetryable(error)) {
       items.push({
         text: intl.formatMessage(messages.retry),
+        icon: 'refresh',
         action: onRetry,
       });
     }
 
     items.push(null, {
       text: intl.formatMessage(messages.openSettings),
+      icon: 'cog',
       href: '/settings/custom_emojis/mutes',
       target: '_self',
     });
@@ -280,16 +292,19 @@ export function buildEmojiActionMenuItems({
   if (mute) {
     items.push({
       text: intl.formatMessage(messages.muted),
+      icon: 'check-circle',
       disabled: true,
     });
     items.push({
       text: intl.formatMessage(messages.manageMute),
+      icon: 'sliders',
       href: '/settings/custom_emojis/mutes',
       to: null,
       target: '_self',
     });
     items.push({
       text: intl.formatMessage(messages.unmute),
+      icon: 'volume-up',
       action: onUnmute,
       dangerous: true,
       disabled: busy || syncBlocked,
@@ -297,6 +312,7 @@ export function buildEmojiActionMenuItems({
   } else if (canMute) {
     items.push({
       text: intl.formatMessage(messages.mute),
+      icon: 'volume-off',
       action: onMute,
       dangerous: true,
       disabled: busy || syncBlocked,
@@ -309,6 +325,7 @@ export function buildEmojiActionMenuItems({
     if (!categories || categories.length === 0) {
       items.push({
         text: intl.formatMessage(messages.noCategories),
+        icon: 'folder-open-o',
         disabled: true,
       });
     } else {
@@ -329,6 +346,7 @@ export function buildEmojiActionMenuItems({
 
         items.push({
           text: intl.formatMessage(present ? messages.alreadyInCategory : messages.addToCategory, { name }),
+          icon: present ? 'check-circle' : 'plus-circle',
           action: present ? null : () => onAddToCategory(category),
           disabled: present || busy,
         });
@@ -338,6 +356,7 @@ export function buildEmojiActionMenuItems({
 
   items.push(null, {
     text: intl.formatMessage(messages.openSettings),
+    icon: 'cog',
     href: '/settings/custom_emojis/mutes',
     target: '_self',
   });
@@ -345,6 +364,44 @@ export function buildEmojiActionMenuItems({
   return items;
 }
 
+// Icons are added only to this menu; other dropdowns retain their own markup.
+function renderEmojiActionMenuItem(option, index, { onClick, onKeyPress, setRef }) {
+  if (option === null) {
+    return <li key={'sep-' + index} className='dropdown-menu__separator' />;
+  }
+
+  const { text, href = '#', target = '_blank', method, dangerous, disabled, icon } = option;
+  const isDisabled = Boolean(disabled);
+
+  return (
+    <li
+      key={index}
+      className={classNames('dropdown-menu__item', {
+        'dropdown-menu__item--dangerous': dangerous,
+        'dropdown-menu__item--disabled': isDisabled,
+      })}
+    >
+      <a
+        href={isDisabled || href === null ? undefined : href}
+        target={isDisabled ? undefined : target}
+        data-method={isDisabled ? undefined : method}
+        rel='noopener noreferrer'
+        role='button'
+        tabIndex={isDisabled ? '-1' : '0'}
+        aria-disabled={isDisabled ? 'true' : undefined}
+        ref={setRef}
+        onClick={onClick}
+        onKeyPress={isDisabled ? undefined : onKeyPress}
+        data-index={index}
+      >
+        <span className='emoji-actions-menu__item-icon' aria-hidden='true'>
+          {icon && <Icon id={icon} fixedWidth />}
+        </span>
+        <span className='emoji-actions-menu__item-label'>{text}</span>
+      </a>
+    </li>
+  );
+}
 const popperConfig = {
   strategy: 'fixed',
 };
@@ -393,6 +450,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     accountId: null,
     source: null,
     reaction: null,
+    previewPosition: null,
   };
 
   componentDidMount() {
@@ -405,6 +463,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     document.addEventListener(emojiActionsEventName(), this.handleDomEvent);
     document.addEventListener('contextmenu', this.handleContextMenu, true);
     document.addEventListener('keydown', this.handleKeyDown, true);
+    window.addEventListener('resize', this.handlePreviewResize);
   }
 
   componentWillUnmount() {
@@ -422,8 +481,86 @@ class EmojiActionsMenuController extends React.PureComponent {
     document.removeEventListener(emojiActionsEventName(), this.handleDomEvent);
     document.removeEventListener('contextmenu', this.handleContextMenu, true);
     document.removeEventListener('keydown', this.handleKeyDown, true);
+    window.removeEventListener('resize', this.handlePreviewResize);
+    this.cancelPreviewPlacement();
   }
 
+  componentDidUpdate() {
+    // The menu starts with a short loading list and is re-positioned by
+    // Popper after its async actions arrive. Never show a preview while
+    // those sizes are changing. Reveal it once, after two animation frames.
+    if (this.state.status === 'ready' && this.state.source !== 'emoji_detail' &&
+        this.state.previewPosition === null && this.previewNode) {
+      this.schedulePreviewPlacement();
+    }
+  }
+
+  setMenuNode = node => {
+    this.menuNode = node;
+  };
+
+  setPreviewNode = node => {
+    this.previewNode = node;
+  };
+
+  cancelPreviewPlacement = () => {
+    if (this.previewPlacementFrame !== null && this.previewPlacementFrame !== undefined) {
+      cancelAnimationFrame(this.previewPlacementFrame);
+    }
+    this.previewPlacementFrame = null;
+    this.previewPlacementScheduled = false;
+  };
+
+  schedulePreviewPlacement = () => {
+    if (this.previewPlacementScheduled || !this.previewNode || !this.menuNode) {
+      return;
+    }
+
+    const generation = this.loadGeneration;
+    const element = this.state.element;
+    this.previewPlacementScheduled = true;
+    this.previewPlacementFrame = requestAnimationFrame(() => {
+      // Wait for Popper's placement/flip calculations to settle after the
+      // final async menu item list is committed.
+      this.previewPlacementFrame = requestAnimationFrame(() => {
+        this.previewPlacementFrame = null;
+        this.previewPlacementScheduled = false;
+        if (generation !== this.loadGeneration || element !== this.state.element ||
+            this.state.status !== 'ready' || this.state.previewPosition !== null) {
+          return;
+        }
+
+        const menuRect = this.menuNode?.getBoundingClientRect();
+        const previewRect = this.previewNode?.getBoundingClientRect();
+        if (!menuRect?.height || !previewRect?.height) {
+          // A detached privacy portal or unlaid-out menu must not trigger a
+          // continuous update loop. Keep the preview hidden for this session.
+          this.setState({ previewPosition: false });
+          return;
+        }
+
+        const position = positionEmojiActionsPreview(menuRect, previewRect, {
+          width: window.innerWidth, height: window.innerHeight,
+        });
+        // Snapshot the location exactly once. Subsequent state updates and
+        // image loads must not re-anchor a preview in front of the user.
+        this.setState({ previewPosition: position ? {
+          left: menuRect.left + position.left,
+          top: menuRect.top + position.top,
+        } : false });
+      });
+    });
+  };
+
+  handlePreviewResize = () => {
+    if (!this.state.element || this.state.source === 'emoji_detail') {
+      return;
+    }
+
+    this.cancelPreviewPlacement();
+    // Hide first; then measure and reveal at the new viewport position.
+    this.setState({ previewPosition: null });
+  };
   clearSlideHighlight = () => {
     clearEmojiActionsSlideHighlight(this.slideHighlightEl);
     this.slideHighlightEl = null;
@@ -512,6 +649,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.clearSlideHighlight();
     this.clearSlideClickSwallow();
     this.cancelPendingDetailNavigation();
+    this.cancelPreviewPlacement();
 
     // Bind slide activation only to the long-press gesture that opened this menu.
     const pendingGesture = detail.slideGestureId
@@ -540,6 +678,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       accountId: detail.account_id || null,
       source: detail.source || null,
       reaction: detail.source === 'reaction' ? (detail.reaction || null) : null,
+      previewPosition: null,
     }, () => {
       this.loadMenuData(generation);
 
@@ -556,6 +695,7 @@ class EmojiActionsMenuController extends React.PureComponent {
   };
 
   handleClose = () => {
+    this.cancelPreviewPlacement();
     this.slideActivated = false;
     this.slideGestureId = null;
     this.slideGestureGeneration = null;
@@ -579,6 +719,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       accountId: null,
       source: null,
       reaction: null,
+      previewPosition: null,
     });
   };
 
@@ -788,6 +929,14 @@ class EmojiActionsMenuController extends React.PureComponent {
       return;
     }
 
+    // iOS can emit a late synthetic contextmenu after a completed long press.
+    // Do not reopen/reposition an already open menu for the same gesture.
+    if (Date.now() < Number(target.dataset.emojiLongPressUntil || 0)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
     this.openFromElement(target, event);
   };
 
@@ -872,10 +1021,11 @@ class EmojiActionsMenuController extends React.PureComponent {
   };
 
   handleRetry = () => {
+    this.cancelPreviewPlacement();
     this.loadGeneration = (this.loadGeneration || 0) + 1;
     const generation = this.loadGeneration;
 
-    this.setState({ status: 'loading', error: null, notice: null, resolved: null }, () => {
+    this.setState({ status: 'loading', error: null, notice: null, resolved: null, previewPosition: null }, () => {
       this.loadMenuData(generation);
     });
   };
@@ -910,6 +1060,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       pendingSyncRevision,
       busy,
       reaction,
+      source: this.state.source,
       onReactSame: this.handleReactSame,
       onCopy: this.handleCopy,
       onMute: this.handleMute,
@@ -1257,34 +1408,64 @@ class EmojiActionsMenuController extends React.PureComponent {
       return null;
     }
 
+    const preview = this.state.source === 'emoji_detail' || this.state.status !== 'ready' ? null : buildEmojiActionsPreview(
+      this.state.reference, this.state.resolved, this.state.element,
+    );
+
     return (
-      <Overlay
-        show
-        offset={[5, 5]}
-        placement='bottom'
-        flip
-        target={this.findTarget}
-        container={getEmojiActionsOverlayRoot}
-        popperConfig={popperConfig}
-      >
-        {({ props, arrowProps, placement }) => (
-          <div
-            {...props}
-            data-emoji-actions-menu='1'
-            className='emoji-actions-menu-portal'
-            style={{ ...(props.style || {}), pointerEvents: 'auto' }}
-          >
-            <div className={`dropdown-animation dropdown-menu ${placement}`}>
-              <div className={`dropdown-menu__arrow ${placement}`} {...arrowProps} />
-              <DropdownMenu
-                items={this.menuItems()}
-                onClose={this.handleClose}
-                onItemClick={this.handleItemClick}
-              />
+      <React.Fragment>
+        <Overlay
+          show
+          offset={[5, 5]}
+          placement='bottom'
+          flip
+          target={this.findTarget}
+          container={getEmojiActionsOverlayRoot}
+          popperConfig={popperConfig}
+        >
+          {({ props, arrowProps, placement }) => (
+            <div
+              {...props}
+              data-emoji-actions-menu='1'
+              className='emoji-actions-menu-portal'
+              style={{ ...(props.style || {}), pointerEvents: 'auto' }}
+            >
+              <div className={`dropdown-animation dropdown-menu ${placement}`} ref={this.setMenuNode}>
+                <div className={`dropdown-menu__arrow ${placement}`} {...arrowProps} />
+                <DropdownMenu
+                  items={this.menuItems()}
+                  renderItem={renderEmojiActionMenuItem}
+                  onClose={this.handleClose}
+                  onItemClick={this.handleItemClick}
+                />
+              </div>
             </div>
-          </div>
+          )}
+        </Overlay>
+        {preview && createPortal(
+          <div
+            className='emoji-actions-menu__preview'
+            aria-hidden='true'
+            ref={this.setPreviewNode}
+            style={this.state.previewPosition === null ? { visibility: 'hidden', left: 0, top: 0 } : this.state.previewPosition || { display: 'none' }}
+          >
+            <div className='emoji-actions-menu__preview-media'>
+              {preview.imageSrc ? (
+                <img src={preview.imageSrc} alt='' draggable='false' />
+              ) : (
+                <span>{preview.native}</span>
+              )}
+            </div>
+            {(preview.name || preview.shortcode) && (
+              <div className='emoji-actions-menu__preview-meta'>
+                {preview.name && <div className='emoji-actions-menu__preview-name' title={preview.name}>{preview.name}</div>}
+                {preview.shortcode && <div className='emoji-actions-menu__preview-shortcode' title={preview.shortcode}>{preview.shortcode}</div>}
+              </div>
+            )}
+          </div>,
+          getEmojiActionsOverlayRoot(),
         )}
-      </Overlay>
+      </React.Fragment>
     );
   }
 

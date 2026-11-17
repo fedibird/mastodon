@@ -417,7 +417,12 @@ export default class Mastodon extends React.PureComponent {
         <Provider store={store}>
           <ErrorBoundary>
             <React.Fragment>
-              <div ref={this.setUiPortalHost} style={{ display: 'contents' }} />
+              {/* The ready WebUI requires the real .app-holder > div flex box
+                  for its responsive width/alignment. When the privacy gate
+                  is showing (and the UI is detached), this empty host must
+                  be boxless so it does not displace the retry/loading UI.
+                  The inner privacy root always stays display: contents. */}
+              <div ref={this.setUiPortalHost} style={boot === 'ready' ? undefined : { display: 'contents' }} />
               {ui}
               {boot !== 'ready' && (
                 <div className='emoji-mutes-bootstrap' role={boot === 'error' ? 'alert' : 'status'} style={{ padding: '2rem', textAlign: 'center' }}>

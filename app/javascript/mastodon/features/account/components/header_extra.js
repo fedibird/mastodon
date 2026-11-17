@@ -7,6 +7,7 @@ import { me, hideJoinedDateFromYourself } from 'mastodon/initial_state';
 import Icon from 'mastodon/components/icon';
 import Content from 'mastodon/components/content';
 import EmojiMutedHtml, { EmojiMutedTitle, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from 'mastodon/components/emoji_muted_html';
+import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import AccountNoteContainer from '../containers/account_note_container';
 import age from 's-age';
 import classNames from 'classnames';
@@ -58,28 +59,25 @@ class HeaderExtra extends ImmutablePureComponent {
   }
 
   componentWillUnmount () {
+    this.detachInlineEmojiMenus?.();
     unbindCustomEmojiClick(this.node, this.handleEmojiClick);
   }
 
   _updateEmojiLinks () {
     bindCustomEmojiClick(this.node, this.handleEmojiClick);
+    this.detachInlineEmojiMenus?.();
+    const context = { source: 'inline_account_header', accountId: this.props.account?.get('id') };
+    const detachMain = attachInlineEmojiMenus(this.node, context);
+    this.detachInlineEmojiMenus = () => {
+      detachMain();
+    };
   }
-
   handleEmojiClick = e => {
     const emoji = customEmojiTarget(e);
-
-    if (!emoji) {
-      return;
-    }
-
-    const shortcode = emoji.getAttribute('data-shortcode');
-    const domain = emoji.getAttribute('data-domain');
-
-    if (this.context.router) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
-    }
+    handleInlineEmojiClick(e, emoji, this.context.router, {
+      source: 'inline_account_header',
+      accountId: this.props.account?.get('id'),
+    });
   }
 
   setRef = (c) => {

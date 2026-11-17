@@ -185,6 +185,30 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     });
   };
 
+  it('keeps the responsive flex host when the private UI mounts and reattaches', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await bootReady();
+
+    // .app-holder > div supplies responsive width/alignment. The host must
+    // remain a real flex box, not display:contents (which removes its box).
+    const privacyRoot = view.container.querySelector('.emoji-mutes-privacy-portal');
+    expect(privacyRoot).not.toBeNull();
+    const host = privacyRoot.parentElement;
+    expect(host).not.toBeNull();
+    expect(host.style.display).not.toBe('contents');
+    expect(privacyRoot.style.display).toBe('contents');
+
+    await phaseChanged('stale');
+    expect(privacyRoot.isConnected).toBe(false);
+    expect(host.isConnected).toBe(true);
+    // The empty host cannot displace the retry/loading screen.
+    expect(host.style.display).toBe('contents');
+    await phaseChanged('ready');
+    expect(privacyRoot.parentElement).toBe(host);
+    expect(host.style.display).not.toBe('contents');
+    expect(privacyRoot.style.display).toBe('contents');
+    view.unmount();
+  });
   it('does not mount the WebUI before an authoritative mute document is loaded', async () => {
     const view = render(<Mastodon locale='en' />);
 
