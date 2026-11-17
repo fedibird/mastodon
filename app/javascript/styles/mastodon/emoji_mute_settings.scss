@@ -729,7 +729,7 @@ img.custom-emoji[data-emoji-actions='1'] {
 }
 // The preview is outside dropdown flow: Popper positions the existing action
 // list as before. Only the preview moves to a spare area of the viewport.
-#emoji-actions-overlay-root .emoji-actions-menu-portal {
+#emoji-actions-overlay-root {
   .dropdown-animation {
     position: relative;
     z-index: 1;
@@ -755,8 +755,10 @@ img.custom-emoji[data-emoji-actions='1'] {
     overflow-wrap: anywhere;
   }
 
+  // Independent fixed-position sibling of Popper's transformed menu: layout
+  // changes in the menu never drag an already visible preview around.
   .emoji-actions-menu__preview {
-    position: absolute;
+    position: fixed;
     box-sizing: border-box;
     width: 304px;
     max-width: calc(100vw - 16px);
