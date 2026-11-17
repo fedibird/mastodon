@@ -65,6 +65,26 @@ RSpec.describe ActivityPub::Activity::Announce do
     end
   end
 
+  it 'keeps the current boost when another id has the same or a missing published time' do
+    published = 10.minutes.ago.iso8601
+    first = announce('https://example.com/announce/a', published)
+
+    travel 301.seconds do
+      announce('https://example.com/announce/b', published)
+      described_class.new({
+        id: 'https://example.com/announce/c',
+        type: 'Announce',
+        actor: sender.uri,
+        object: object_uri,
+        to: sender.followers_url,
+      }.with_indifferent_access, sender).perform
+
+      expect(sender.statuses.find_by(reblog_of_id: status.id).id).to eq first.id
+      expect(ReboostAnnounceState.superseded?(sender.id, 'https://example.com/announce/b')).to be true
+      expect(ReboostAnnounceState.superseded?(sender.id, 'https://example.com/announce/c')).to be true
+    end
+  end
+
   it 'does not let a delayed older Announce roll back a newer one' do
     announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
     travel 301.seconds do
@@ -98,6 +118,85 @@ RSpec.describe ActivityPub::Activity::Announce do
 
       expect(sender.statuses.where(reblog_of_id: status.id)).to be_empty
       expect(announce('https://example.com/announce/b', Time.current.iso8601)).to be_nil
+    end
+  end
+
+  it 'locks Announce and an id-reference Undo on the original status' do
+    keys = []
+    allow(RedisLock).to receive(:acquire).and_wrap_original do |method, **kwargs, &block|
+      keys << kwargs[:key]
+      method.call(**kwargs, &block)
+    end
+
+    announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+    ActivityPub::Activity::Undo.new({
+      id: 'https://example.com/undo/a',
+      type: 'Undo',
+      actor: sender.uri,
+      object: 'https://example.com/announce/a',
+    }.with_indifferent_access, sender).perform
+
+    key = "lock:#{Reboost::AnnounceLock.key(sender.id, status.id)}"
+    expect(keys.count(key)).to be >= 2
+    expect(sender.statuses.where(reblog_of_id: status.id)).to be_empty
+  end
+
+  it 'cancels a held Announce when Undo names only its id' do
+    announce('https://example.com/announce/a', 1.minute.ago.iso8601)
+    announce('https://example.com/announce/b', Time.current.iso8601)
+    ActivityPub::Activity::Undo.new({
+      id: 'https://example.com/undo/b',
+      type: 'Undo',
+      actor: sender.uri,
+      object: 'https://example.com/announce/b',
+    }.with_indifferent_access, sender).perform
+
+    expect(RemoteReboostHold.where(account: sender, reblog_of: status)).to be_empty
+    expect(ReboostAnnounceState.superseded?(sender.id, 'https://example.com/announce/b')).to be true
+
+    travel 301.seconds do
+      expect(announce('https://example.com/announce/b', Time.current.iso8601)).to be_nil
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/a'
+    end
+  end
+
+  it 'finishes a discarded boost before accepting a newer Announce' do
+    first = announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+    first.discard
+
+    travel 301.seconds do
+      second = announce('https://example.com/announce/b', Time.current.iso8601)
+
+      expect(second.uri).to eq 'https://example.com/announce/b'
+      expect(Status.unscoped.find_by(id: first.id)).to be_nil
+      expect(sender.statuses.where(reblog_of_id: status.id).count).to eq 1
+      expect(status.reload.reblogs_count).to eq 1
+    end
+  end
+
+  it 'holds the newer Announce while removal of the discarded boost is locked' do
+    first = announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+    first.discard
+    blocked = true
+    allow(Reboost::RemoteApplyWorker).to receive(:perform_at)
+    allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+      raise Mastodon::RaceConditionError if blocked
+
+      method.call(*args, **kwargs)
+    end
+
+    travel 301.seconds do
+      expect(announce('https://example.com/announce/b', Time.current.iso8601)).to be_nil
+      hold = RemoteReboostHold.find_by(account: sender, reblog_of: status)
+      expect(hold.activity_uri).to eq 'https://example.com/announce/b'
+      expect(sender.statuses.where(reblog_of_id: status.id)).to be_empty
+
+      blocked = false
+      Reboost::RemoteApplyWorker.new.perform(hold.id)
+
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/b'
+      expect(Status.unscoped.find_by(id: first.id)).to be_nil
+      expect(status.reload.reblogs_count).to eq 1
     end
   end
 

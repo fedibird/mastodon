@@ -32,8 +32,12 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
   end
 
   def try_undo_announce
-    status = Status.include_expired.where.not(reblog_of_id: nil).find_by(uri: object_uri, account: @account)
-    return false if status.nil?
+    return false if object_uri.blank?
+
+    known = Status.include_expired.where.not(reblog_of_id: nil).exists?(uri: object_uri, account_id: @account.id)
+    known ||= RemoteReboostHold.exists?(account_id: @account.id, activity_uri: object_uri)
+    known ||= ReboostAnnounceState.exists?(account_id: @account.id, uri: object_uri)
+    return false unless known
 
     undo_known_announce(object_uri)
     true
@@ -96,18 +100,21 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
     return false if uri.blank?
 
     status = Status.include_expired.where.not(reblog_of_id: nil).find_by(uri: uri, account: @account)
-    if status.nil?
+    hold = RemoteReboostHold.find_by(account_id: @account.id, activity_uri: uri)
+    original_id = status&.reblog_of_id || hold&.reblog_of_id
+    if original_id.nil?
       ReboostAnnounceState.supersede!(@account.id, uri)
       RemoteReboostHold.where(account_id: @account.id, activity_uri: uri).delete_all
       delete_later!(uri)
       return false
     end
 
-    with_redis_lock("announce:#{@account.id}:#{status.reblog_of_id}") do
-      current = Status.include_expired.find_by(account: @account, reblog_of_id: status.reblog_of_id)
+    with_redis_lock(Reboost::AnnounceLock.key(@account.id, original_id)) do
+      current = Status.include_expired.find_by(account: @account, reblog_of_id: original_id)
       RemoveStatusService.new.call(current) if current&.uri == uri
-      ReboostAnnounceState.supersede!(@account.id, uri, reblog_of_id: status.reblog_of_id)
+      ReboostAnnounceState.supersede!(@account.id, uri, reblog_of_id: original_id)
       RemoteReboostHold.where(account_id: @account.id, activity_uri: uri).delete_all
+      delete_later!(uri)
     end
     true
   end

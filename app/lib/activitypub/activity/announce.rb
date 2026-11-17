@@ -5,13 +5,14 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
     return reject_payload! if delete_arrived_first?(@json['id']) || !related_to_local_activity?
     return reject_payload! if ReboostAnnounceState.superseded?(@account.id, @json['id'])
 
-    with_redis_lock("announce:#{@account.id}:#{value_or_id(@object)}") do
-      @original_status = status_from_object
+    @original_status = status_from_object
+    return reject_payload! if @original_status.nil? || !announceable?(@original_status)
 
-      return reject_payload! if @original_status.nil? || !announceable?(@original_status)
+    with_redis_lock(Reboost::AnnounceLock.key(@account.id, @original_status.id)) do
       return reject_payload! if ReboostAnnounceState.superseded?(@account.id, @json['id'])
 
       @status = Status.find_by(account: @account, reblog: @original_status)
+      return if held_for_pending_removal?
 
       if @status.nil?
         accept_new_announce!
@@ -55,14 +56,35 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
   def replace_announce!
     previous = @status
     ReboostAnnounceState.supersede!(@account.id, previous.uri, reblog_of_id: @original_status.id) if previous.uri.present?
-    if previous.reported?
-      RemoveStatusService.new.call(previous, skip_remote: true, preserve: true)
-      @original_status.decrement_count!(:reblogs_count)
-    else
-      RemoveStatusService.new.call(previous, skip_remote: true, immediate: true)
-    end
+    finish_discarded!(previous)
     @original_status.association(:status_stat).reset
+    @status = nil
     accept_new_announce!
+  end
+
+  # A removal can discard the old wrapper and then lose the distribution lock.
+  # The row is invisible to the default scope, so the next attempt has to
+  # finish that removal before it creates a replacement.
+  def held_for_pending_removal?
+    return false if @status.present?
+
+    pending = Status.unscoped.where(account_id: @account.id, reblog_of_id: @original_status.id).where.not(deleted_at: nil)
+    return false unless pending.exists?
+
+    pending.find_each { |row| finish_discarded!(row) }
+    false
+  rescue Mastodon::RaceConditionError
+    hold_newer_announce!(parsed_published)
+    true
+  end
+
+  def finish_discarded!(discarded)
+    if discarded.reported?
+      RemoveStatusService.new.call(discarded, skip_remote: true, preserve: true)
+      Reboost::RetainedCount.release!(@original_status, discarded)
+    else
+      RemoveStatusService.new.call(discarded, skip_remote: true, immediate: true)
+    end
   end
 
   def hold_newer_announce!(published)
