@@ -59,6 +59,10 @@ meta:
         active: 16
         commented: 0
         conditional: 1
+      custom_emojis:
+        active: 22
+        commented: 0
+        conditional: 1
 entries:
 - key: user.add_reference_modal
   category: notifications
@@ -261,6 +265,7 @@ entries:
   legacy_keys:
     settings_var: auto_play_emoji
     getter: setting_auto_play_emoji
+    form: setting_auto_play_emoji
     initial_state_meta: auto_play_emoji
     preferences_api: reading:autoplay:gifs is the AND of four autoplay settings, not
       this flag alone
@@ -271,9 +276,9 @@ entries:
   - InitialState meta via setting_*
   - GET /api/v1/preferences as part of reading:autoplay:gifs
   - static JS import autoPlayEmoji (14 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -288,12 +293,13 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:31
   - app/lib/user_settings_decorator.rb:49
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:36
   - app/serializers/initial_state_serializer.rb:48
   - app/javascript/mastodon/initial_state.js:11
   audit_status: verified
@@ -570,6 +576,7 @@ entries:
   legacy_keys:
     settings_var: card_reactions_single_line
     getter: setting_card_reactions_single_line
+    form: setting_card_reactions_single_line
     initial_state_meta: card_reactions_single_line
   raw_type: boolean
   effective_type: boolean
@@ -577,9 +584,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import cardReactionsSingleLine (1 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -594,12 +601,13 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:57
   - app/lib/user_settings_decorator.rb:66
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:47
   - app/serializers/initial_state_serializer.rb:64
   - app/javascript/mastodon/initial_state.js:54
   audit_status: verified
@@ -622,6 +630,7 @@ entries:
   legacy_keys:
     settings_var: compact_reaction
     getter: setting_compact_reaction
+    form: setting_compact_reaction
     initial_state_meta: compact_reaction
   raw_type: boolean
   effective_type: boolean
@@ -629,9 +638,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import compactReaction (2 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -646,12 +655,13 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:79
   - app/lib/user_settings_decorator.rb:85
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:44
   - app/serializers/initial_state_serializer.rb:85
   - app/javascript/mastodon/initial_state.js:76
   audit_status: verified
@@ -857,6 +867,7 @@ entries:
   legacy_keys:
     settings_var: content_emoji_reaction_size
     getter: setting_content_emoji_reaction_size
+    form: setting_content_emoji_reaction_size
     initial_state_meta: content_emoji_reaction_size
   raw_type: integer_in_yaml_string_after_form_save
   effective_type: number_or_numeric_string
@@ -864,9 +875,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - server CSS variables in account_theme_valiables
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: Listed in STRING_KEYS, so the decorator stores the form value without
     Integer() or Float(). YAML defaults are numeric. After a Rails save the stored
     YAML value can be a string. CSS interpolates either. max_frequently_used_emojis
@@ -882,12 +893,13 @@ entries:
   - redux_meta_hydrated_unread
   - css_variable
   configured_vs_effective: type_may_diverge_after_form_save
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:94
   - app/lib/user_settings_decorator.rb:161
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:58
   - app/serializers/initial_state_serializer.rb:106
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -1599,6 +1611,7 @@ entries:
   legacy_keys:
     settings_var: disable_auto_focus_to_emoji_search
     getter: setting_disable_auto_focus_to_emoji_search
+    form: setting_disable_auto_focus_to_emoji_search
     initial_state_meta: disable_auto_focus_to_emoji_search
   raw_type: boolean
   effective_type: boolean
@@ -1607,9 +1620,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import disableAutoFocusToEmojiSearch (2 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -1624,12 +1637,13 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:205
   - app/lib/user_settings_decorator.rb:140
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:66
   - app/serializers/initial_state_serializer.rb:155
   - app/javascript/mastodon/initial_state.js:133
   audit_status: verified
@@ -1961,6 +1975,7 @@ entries:
   legacy_keys:
     settings_var: disable_reaction_streaming
     getter: setting_disable_reaction_streaming
+    form: setting_disable_reaction_streaming
     initial_state_meta: disable_reaction_streaming
   raw_type: boolean
   effective_type: boolean
@@ -1968,9 +1983,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS export with no import found
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -1985,12 +2000,13 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:80
   - app/lib/user_settings_decorator.rb:86
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:46
   - app/serializers/initial_state_serializer.rb:86
   - app/javascript/mastodon/initial_state.js:77
   audit_status: verified
@@ -2315,6 +2331,7 @@ entries:
   legacy_keys:
     settings_var: emoji_picker_disable_actions
     getter: setting_emoji_picker_disable_actions
+    form: setting_emoji_picker_disable_actions
     initial_state_meta: emoji_picker_disable_actions
   raw_type: boolean
   effective_type: boolean
@@ -2323,9 +2340,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import emojiPickerDisableActions (1 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted on preferences update and saved through LegacyWriter when the form passes
-    one, but no active input submits it
+  - rails preferences update via LegacyWriter (custom_emojis)
   normalization: LegacyWriter casts Simple Form 0 and 1 with ActiveModel::Type::Boolean
     before Writer stores a boolean. The string 0 is not stored. A missing row uses
     the settings.yml default. A stored false stays false. The next full page load
@@ -2347,7 +2364,7 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:214
   - app/lib/user_settings_decorator.rb:144
@@ -2355,6 +2372,7 @@ entries:
   - app/lib/user_settings_decorator.rb:266
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:78
   - app/serializers/initial_state_serializer.rb:159
   - app/javascript/mastodon/initial_state.js:139
   audit_status: verified
@@ -2378,6 +2396,7 @@ entries:
   legacy_keys:
     settings_var: emoji_picker_disable_personal
     getter: setting_emoji_picker_disable_personal
+    form: setting_emoji_picker_disable_personal
     initial_state_meta: emoji_picker_disable_personal
   raw_type: boolean
   effective_type: boolean
@@ -2386,9 +2405,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import emojiPickerDisablePersonal (4 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted on preferences update and saved through LegacyWriter when the form passes
-    one, but no active input submits it
+  - rails preferences update via LegacyWriter (custom_emojis)
   normalization: LegacyWriter casts Simple Form 0 and 1 to boolean before Writer stores
     it. A missing row uses false from settings.yml, retaining personal mode. A stored
     true disables personal stock work. When the standard picker is also disabled,
@@ -2410,7 +2429,7 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:209
   - app/lib/user_settings_decorator.rb:142
@@ -2418,6 +2437,7 @@ entries:
   - app/lib/user_settings_decorator.rb:266
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:67
   - app/serializers/initial_state_serializer.rb:157
   - app/javascript/mastodon/initial_state.js:136
   audit_status: verified
@@ -2440,6 +2460,7 @@ entries:
   legacy_keys:
     settings_var: emoji_picker_disable_standard
     getter: setting_emoji_picker_disable_standard
+    form: setting_emoji_picker_disable_standard
     initial_state_meta: emoji_picker_disable_standard
   raw_type: boolean
   effective_type: boolean
@@ -2448,9 +2469,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import emojiPickerDisableStandard (3 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted on preferences update and saved through LegacyWriter when the form passes
-    one, but no active input submits it
+  - rails preferences update via LegacyWriter (custom_emojis)
   normalization: LegacyWriter casts Simple Form 0 and 1 to boolean before Writer stores
     it. A missing row uses false from settings.yml. A stored true suppresses standard
     picker modules and catalog loading. With personal sets disabled too, the picker
@@ -2472,7 +2493,7 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:212
   - app/lib/user_settings_decorator.rb:143
@@ -2480,6 +2501,7 @@ entries:
   - app/lib/user_settings_decorator.rb:266
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:68
   - app/serializers/initial_state_serializer.rb:158
   - app/javascript/mastodon/initial_state.js:137
   audit_status: verified
@@ -2503,6 +2525,7 @@ entries:
   legacy_keys:
     settings_var: emoji_picker_lazy_load_standard
     getter: setting_emoji_picker_lazy_load_standard
+    form: setting_emoji_picker_lazy_load_standard
     initial_state_meta: emoji_picker_lazy_load_standard
   raw_type: boolean
   effective_type: boolean
@@ -2511,9 +2534,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import emojiPickerLazyLoadStandard (1 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted on preferences update and saved through LegacyWriter when the form passes
-    one, but no active input submits it
+  - rails preferences update via LegacyWriter (custom_emojis)
   normalization: LegacyWriter casts Simple Form 0 and 1 with ActiveModel::Type::Boolean
     before Writer stores a boolean. The string 0 is not stored. A missing row uses
     the settings.yml default. A stored false stays false. The next full page load
@@ -2535,7 +2558,7 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:219
   - app/lib/user_settings_decorator.rb:145
@@ -2543,6 +2566,7 @@ entries:
   - app/lib/user_settings_decorator.rb:266
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:75
   - app/serializers/initial_state_serializer.rb:160
   - app/javascript/mastodon/initial_state.js:140
   audit_status: verified
@@ -2566,6 +2590,7 @@ entries:
   legacy_keys:
     settings_var: emoji_picker_prefer_personal
     getter: setting_emoji_picker_prefer_personal
+    form: setting_emoji_picker_prefer_personal
     initial_state_meta: emoji_picker_prefer_personal
   raw_type: boolean
   effective_type: boolean
@@ -2574,15 +2599,15 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import emojiPickerPreferPersonal (1 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted on preferences update and saved through LegacyWriter when the form passes
-    one, but no active input submits it
+  - rails preferences update via LegacyWriter (custom_emojis)
   normalization: LegacyWriter casts Simple Form 0 and 1 with ActiveModel::Type::Boolean
     before Writer stores a boolean. The string 0 is not stored. A missing row uses
     the settings.yml default. A stored false stays false. The next full page load
     applies the value. Saving does not unload a standard picker module that has already
     been fetched.
-  availability: user preference
+  availability: 'form condition: - unless current_user.setting_emoji_picker_disable_personal || current_user.setting_emoji_picker_disable_standard'
   read_policy: general
   write_policy: general
   side_effects:
@@ -2598,7 +2623,7 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: conditional
   source_refs:
   - config/settings.yml:207
   - app/lib/user_settings_decorator.rb:141
@@ -2606,6 +2631,7 @@ entries:
   - app/lib/user_settings_decorator.rb:266
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:72
   - app/serializers/initial_state_serializer.rb:156
   - app/javascript/mastodon/initial_state.js:135
   audit_status: verified
@@ -2691,6 +2717,7 @@ entries:
   legacy_keys:
     settings_var: emoji_scale
     getter: setting_emoji_scale
+    form: setting_emoji_scale
     initial_state_meta: emoji_scale
   raw_type: integer_in_yaml_string_after_form_save
   effective_type: number_or_numeric_string
@@ -2698,9 +2725,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - server CSS variables in account_theme_valiables
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: Listed in STRING_KEYS, so the decorator stores the form value without
     Integer() or Float(). YAML defaults are numeric. After a Rails save the stored
     YAML value can be a string. CSS interpolates either. max_frequently_used_emojis
@@ -2716,12 +2743,13 @@ entries:
   - redux_meta_hydrated_unread
   - css_variable
   configured_vs_effective: type_may_diverge_after_form_save
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:95
   - app/lib/user_settings_decorator.rb:164
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:19
   - app/serializers/initial_state_serializer.rb:107
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -2738,6 +2766,7 @@ entries:
   legacy_keys:
     settings_var: emoji_size_in_mix
     getter: setting_emoji_size_in_mix
+    form: setting_emoji_size_in_mix
     initial_state_meta: emoji_size_in_mix
   raw_type: string
   effective_type: string
@@ -2745,9 +2774,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - server CSS variables in account_theme_valiables
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: Stored as the submitted string with no extra cast.
   availability: user preference
   read_policy: general
@@ -2760,12 +2789,13 @@ entries:
   - redux_meta_hydrated_unread
   - css_variable
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:98
   - app/lib/user_settings_decorator.rb:167
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:30
   - app/serializers/initial_state_serializer.rb:110
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -2782,6 +2812,7 @@ entries:
   legacy_keys:
     settings_var: emoji_size_in_multi
     getter: setting_emoji_size_in_multi
+    form: setting_emoji_size_in_multi
     initial_state_meta: emoji_size_in_multi
   raw_type: string
   effective_type: string
@@ -2789,9 +2820,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - server CSS variables in account_theme_valiables
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: Stored as the submitted string with no extra cast.
   availability: user preference
   read_policy: general
@@ -2804,12 +2835,13 @@ entries:
   - redux_meta_hydrated_unread
   - css_variable
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:97
   - app/lib/user_settings_decorator.rb:166
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:28
   - app/serializers/initial_state_serializer.rb:109
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -2826,6 +2858,7 @@ entries:
   legacy_keys:
     settings_var: emoji_size_in_other
     getter: setting_emoji_size_in_other
+    form: setting_emoji_size_in_other
     initial_state_meta: emoji_size_in_other
   raw_type: string
   effective_type: string
@@ -2833,9 +2866,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - server CSS variables in account_theme_valiables
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: Stored as the submitted string with no extra cast.
   availability: user preference
   read_policy: general
@@ -2848,12 +2881,13 @@ entries:
   - redux_meta_hydrated_unread
   - css_variable
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:99
   - app/lib/user_settings_decorator.rb:168
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:32
   - app/serializers/initial_state_serializer.rb:111
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -2870,6 +2904,7 @@ entries:
   legacy_keys:
     settings_var: emoji_size_in_single
     getter: setting_emoji_size_in_single
+    form: setting_emoji_size_in_single
     initial_state_meta: emoji_size_in_single
   raw_type: string
   effective_type: string
@@ -2877,9 +2912,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - server CSS variables in account_theme_valiables
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: Stored as the submitted string with no extra cast.
   availability: user preference
   read_policy: general
@@ -2892,12 +2927,13 @@ entries:
   - redux_meta_hydrated_unread
   - css_variable
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:96
   - app/lib/user_settings_decorator.rb:165
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:26
   - app/serializers/initial_state_serializer.rb:108
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -3180,6 +3216,7 @@ entries:
   legacy_keys:
     settings_var: enable_reaction
     getter: setting_enable_reaction
+    form: setting_enable_reaction
     initial_state_meta: enable_reaction
   raw_type: boolean
   effective_type: boolean
@@ -3187,9 +3224,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import enableReaction (7 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -3206,12 +3243,13 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:78
   - app/lib/user_settings_decorator.rb:84
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:41
   - app/serializers/initial_state_serializer.rb:84
   - app/javascript/mastodon/initial_state.js:75
   audit_status: verified
@@ -3387,6 +3425,7 @@ entries:
   legacy_keys:
     settings_var: enable_wide_emoji
     getter: setting_enable_wide_emoji
+    form: setting_enable_wide_emoji
     initial_state_meta: enable_wide_emoji
   raw_type: boolean
   effective_type: boolean
@@ -3395,9 +3434,9 @@ entries:
   - InitialState meta via setting_*
   - static JS export with no import found
   - server CSS variables in account_theme_valiables
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -3413,12 +3452,13 @@ entries:
   - redux_meta_hydrated_unread
   - css_variable
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:101
   - app/lib/user_settings_decorator.rb:119
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:35
   - app/serializers/initial_state_serializer.rb:113
   - app/javascript/mastodon/initial_state.js:91
   - app/helpers/accounts_helper.rb:129
@@ -3439,6 +3479,7 @@ entries:
   legacy_keys:
     settings_var: enable_wide_emoji_reaction
     getter: setting_enable_wide_emoji_reaction
+    form: setting_enable_wide_emoji_reaction
     initial_state_meta: enable_wide_emoji_reaction
   raw_type: boolean
   effective_type: boolean
@@ -3447,9 +3488,9 @@ entries:
   - InitialState meta via setting_*
   - static JS export with no import found
   - server CSS variables in account_theme_valiables
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -3465,12 +3506,13 @@ entries:
   - redux_meta_hydrated_unread
   - css_variable
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:102
   - app/lib/user_settings_decorator.rb:120
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:51
   - app/serializers/initial_state_serializer.rb:114
   - app/javascript/mastodon/initial_state.js:92
   - app/helpers/accounts_helper.rb:129
@@ -4293,6 +4335,7 @@ entries:
   legacy_keys:
     settings_var: hide_list_of_emoji_reactions_to_posts
     getter: setting_hide_list_of_emoji_reactions_to_posts
+    form: setting_hide_list_of_emoji_reactions_to_posts
     initial_state_meta: hide_list_of_emoji_reactions_to_posts
   raw_type: boolean
   effective_type: boolean
@@ -4301,9 +4344,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import hideListOfEmojiReactionsToPosts (3 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -4319,12 +4362,13 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:198
   - app/lib/user_settings_decorator.rb:133
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:48
   - app/serializers/initial_state_serializer.rb:148
   - app/javascript/mastodon/initial_state.js:126
   audit_status: verified
@@ -4756,6 +4800,7 @@ entries:
   legacy_keys:
     settings_var: hide_reaction_counter
     getter: setting_hide_reaction_counter
+    form: setting_hide_reaction_counter
     initial_state_meta: hide_reaction_counter
   raw_type: boolean
   effective_type: boolean
@@ -4763,9 +4808,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import hideReactionCounter (1 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -4781,12 +4826,13 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: effective_is_stored_or_yaml_default
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:197
   - app/lib/user_settings_decorator.rb:132
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:45
   - app/serializers/initial_state_serializer.rb:147
   - app/javascript/mastodon/initial_state.js:125
   audit_status: verified
@@ -5174,6 +5220,7 @@ entries:
   legacy_keys:
     settings_var: max_frequently_used_emojis
     getter: setting_max_frequently_used_emojis
+    form: setting_max_frequently_used_emojis
     initial_state_meta: max_frequently_used_emojis
   raw_type: integer_in_yaml_string_after_form_save
   effective_type: number_or_numeric_string
@@ -5181,9 +5228,9 @@ entries:
   read_sources:
   - InitialState meta via setting_*
   - static JS import maxFrequentlyUsedEmojis (1 importers)
+  - Rails preferences form getter
   write_sources:
-  - permitted by every Settings::PreferencesController#update, but no active input
-    submits it
+  - rails preferences update (custom_emojis)
   normalization: Listed in STRING_KEYS, so the decorator stores the form value without
     Integer() or Float(). YAML defaults are numeric. After a Rails save the stored
     YAML value can be a string. CSS interpolates either. max_frequently_used_emojis
@@ -5199,12 +5246,13 @@ entries:
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: type_may_diverge_after_form_save
-  form_status: absent
+  form_status: active
   source_refs:
   - config/settings.yml:222
   - app/lib/user_settings_decorator.rb:178
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/custom_emojis/settings/show.html.haml:81
   - app/serializers/initial_state_serializer.rb:161
   - app/javascript/mastodon/initial_state.js:144
   audit_status: verified
@@ -12420,8 +12468,9 @@ open_questions:
     and initial_state.js exports it. No form input and no other JavaScript import
     were found. A dynamic or non-import use would not show up in the import scan.
 extractor_limits:
-- Haml inputs are detected with a line regex, not a Haml parser. Inputs built outside
-  .input :name are invisible, including inputs rendered from a partial or a helper.
+- Haml inputs are detected with line regexes for .input :name and .range_field
+  :name, not a Haml parser. Inputs built by other helpers or rendered from partials
+  may be invisible.
 - A form input is conditional while an indentation stack still holds a shallower "-
   if" or "- unless" line. The condition is not evaluated. The parser misses a condition
   in another file, a condition that is not written as "- if" or "- unless", and a
