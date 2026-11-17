@@ -44,6 +44,11 @@ describe('emoji actions preview', () => {
     expect(positionEmojiActionsPreview(bottom, { width: 300, height: 220 }, { width: 900, height: 800 }).top).toBe(-228);
   });
 
+  it('rejects an oversized preview instead of introducing page overflow', () => {
+    const menu = { left: 8, right: 200, top: 50, bottom: 320, width: 192, height: 270 };
+    expect(positionEmojiActionsPreview(menu, { width: 400, height: 170 }, { width: 320, height: 650 })).toBeNull();
+    expect(positionEmojiActionsPreview(menu, { width: 280, height: 700 }, { width: 320, height: 650 })).toBeNull();
+  });
   it('omits preview if a narrow viewport cannot fit both without obscuring actions', () => {
     const menu = { left: 10, right: 280, top: 80, bottom: 510, width: 270, height: 430 };
     expect(positionEmojiActionsPreview(menu, { width: 300, height: 220 }, { width: 320, height: 560 })).toBeNull();
