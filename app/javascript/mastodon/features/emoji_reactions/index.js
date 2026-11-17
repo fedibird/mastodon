@@ -83,7 +83,7 @@ class Reaction extends ImmutablePureComponent {
   render () {
     const { emojiReaction } = this.props;
 
-    const title = emojiReaction.get('alternate_name') ?? emojiReaction.get('name')
+    const title = emojiReaction.get('alternate_name') ?? emojiReaction.get('name');
 
     return (
       <div className='account__emoji_reaction' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave} ref={this.setRef}>
@@ -91,6 +91,7 @@ class Reaction extends ImmutablePureComponent {
       </div>
     );
   };
+
 }
 
 class EmojiReactions extends React.PureComponent {
@@ -99,6 +100,7 @@ class EmojiReactions extends React.PureComponent {
     dispatch: PropTypes.func.isRequired,
     emojiReactions: ImmutablePropTypes.list,
     multiColumn: PropTypes.bool,
+    columnId: PropTypes.string,
     columnWidth: PropTypes.string,
     intl: PropTypes.object.isRequired,
     hasMore: PropTypes.bool,
