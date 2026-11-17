@@ -373,10 +373,13 @@ function renderEmojiActionMenuItem(option, index, { onClick, onKeyPress, setRef 
   const isDisabled = Boolean(disabled);
 
   return (
-    <li key={index} className={classNames('dropdown-menu__item', {
-      'dropdown-menu__item--dangerous': dangerous,
-      'dropdown-menu__item--disabled': isDisabled,
-    })}>
+    <li
+      key={index}
+      className={classNames('dropdown-menu__item', {
+        'dropdown-menu__item--dangerous': dangerous,
+        'dropdown-menu__item--disabled': isDisabled,
+      })}
+    >
       <a
         href={isDisabled || href === null ? undefined : href}
         target={isDisabled ? undefined : target}
