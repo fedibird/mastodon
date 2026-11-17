@@ -1227,4 +1227,60 @@ describe('emoji actions menu portal host', () => {
     document.body.removeChild(anchor);
   });
 
+  it('reveals preview only after menu placement settles and does not move it on later updates', async () => {
+    const frames = [];
+    const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const cancelRaf = jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    const rect = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this.classList.contains('dropdown-animation')) {
+        return { left: 100, right: 300, top: 350, bottom: 550, width: 200, height: 200 };
+      }
+      if (this.classList.contains('emoji-actions-menu__preview')) {
+        return { left: 0, right: 304, top: 0, bottom: 230, width: 304, height: 230 };
+      }
+      return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 };
+    });
+
+    const view = render(<EmojiActionsMenuController intl={intl} signedIn onSyncMutes={jest.fn()} />);
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    try {
+      act(() => {
+        openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+      });
+      await screen.findByRole('button', { name: 'Mute emoji' });
+      const preview = document.querySelector('.emoji-actions-menu__preview');
+      expect(preview).not.toBeNull();
+      expect(preview.style.visibility).toBe('hidden');
+      expect(frames.length).toBeGreaterThanOrEqual(1);
+
+      act(() => {
+        frames.shift()();
+      });
+      expect(preview.style.visibility).toBe('hidden');
+      expect(frames.length).toBeGreaterThanOrEqual(1);
+      act(() => {
+        frames.shift()();
+      });
+      expect(preview.style.visibility).not.toBe('hidden');
+      const position = { top: preview.style.top, left: preview.style.left };
+      const placedFrameCount = raf.mock.calls.length;
+
+      fireEvent.click(screen.getByRole('button', { name: 'Copy emoji' }));
+      await waitFor(() => expect(screen.getByText('Copied')).toBeTruthy());
+      expect(preview.style.top).toBe(position.top);
+      expect(preview.style.left).toBe(position.left);
+      expect(raf).toHaveBeenCalledTimes(placedFrameCount);
+    } finally {
+      view.unmount();
+      anchor.remove();
+      raf.mockRestore();
+      cancelRaf.mockRestore();
+      rect.mockRestore();
+    }
+  });
+
 });
