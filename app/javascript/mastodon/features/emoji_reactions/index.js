@@ -12,6 +12,7 @@ import ScrollableList from '../../components/scrollable_list';
 import Icon from 'mastodon/components/icon';
 import ColumnHeader from '../../components/column_header';
 import Emoji from '../../components/emoji';
+import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import ReactedHeaderContaier from '../reactioned/containers/header_container';
 import { debounce } from 'lodash';
 import { defaultColumnWidth } from 'mastodon/initial_state';
@@ -51,15 +52,29 @@ class Reaction extends ImmutablePureComponent {
   };
 
   handleEmojiClick = e => {
-    const shortcode = e.target.dataset.shortcode;
-    const domain = e.target.dataset.domain;
-
-    if (this.context.router) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
-    }
+    handleInlineEmojiClick(e, e.currentTarget, this.context.router, { source: 'emoji_reaction_overview' });
   }
+
+  componentDidMount () {
+    this.updateEmojiMenu();
+  }
+
+  componentDidUpdate () {
+    this.updateEmojiMenu();
+  }
+
+  componentWillUnmount () {
+    this.detachInlineEmojiMenus?.();
+  }
+
+  setRef = node => {
+    this.node = node;
+  };
+
+  updateEmojiMenu = () => {
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = attachInlineEmojiMenus(this.node, { source: 'emoji_reaction_overview' });
+  };
 
   handleMouseEnter = () => this.setState({ hovered: true })
 
