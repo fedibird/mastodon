@@ -8535,6 +8535,21 @@ a.status-card.compact:hover {
   }
 }
 
+.mute-modal__contexts {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.mute-modal__settings-link {
+  display: inline-block;
+  margin-top: 12px;
+  color: inherit;
+  text-decoration: underline;
+}
+
 .confirmation-modal__container,
 .mute-modal__container,
 .block-modal__container,

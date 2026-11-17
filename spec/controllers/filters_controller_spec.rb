@@ -288,6 +288,44 @@ RSpec.describe FiltersController do
       expect(response.body).to include('data-custom-emoji-text')
       expect(response.body).to include('Work :fedibird:')
     end
+
+    it 'shows the muted hashtag, where it applies, and when it ends' do
+      mute = HashtagMutes::UpsertService.new.call(user.account, name: '番組', expires_in: 2.hours.to_i)
+
+      get :index
+
+      expect(response).to have_http_status(200)
+      expect(response.body).to include('#番組')
+      expect(response.body).to include(I18n.t('filters.index.hashtags', count: 1))
+      expect(response.body).to include(I18n.l(mute.reload.expires_at))
+      expect(response.body).not_to include(I18n.t('filters.index.indefinite'))
+    end
+
+    it 'keeps an indefinite hashtag mute on the list' do
+      HashtagMutes::UpsertService.new.call(user.account, name: 'ABC', expires_in: nil)
+
+      get :index
+
+      expect(response).to have_http_status(200)
+      expect(response.body).to include('#ABC')
+      expect(response.body).to include('#abc')
+      expect(response.body).to include(I18n.t('filters.index.indefinite'))
+    end
+  end
+
+  describe 'GET #edit for a hashtag mute' do
+    it 'shows the tag as a fixed rule and can represent a three hour duration' do
+      mute = HashtagMutes::UpsertService.new.call(user.account, name: '番組', expires_in: 3.hours.to_i)
+
+      get :edit, params: { id: mute.id }
+
+      expect(response).to have_http_status(200)
+      expect(response.body).to include(I18n.t('filters.edit.hashtags'))
+      expect(response.body).to include(I18n.t('filters.edit.hashtags_hint'))
+      expect(response.body).to include('#番組')
+      expect(response.body).to include('value="10800"')
+      expect(response.body).to include('selected="selected" value="10800"').or include('value="10800" selected="selected"')
+    end
   end
 
   def stub_webpacker_manifest

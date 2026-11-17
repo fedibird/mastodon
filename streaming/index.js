@@ -876,6 +876,7 @@ const startWorker = (workerId) => {
         if (!unpackedPayload.filtered && !req.cachedFilters) {
           queries.push(client.query('SELECT filter.id AS id, filter.phrase AS title, filter.context AS context, filter.expires_at AS expires_at, filter.action AS filter_action, keyword.keyword AS keyword, keyword.whole_word AS whole_word FROM custom_filters filter LEFT JOIN custom_filter_keywords keyword ON keyword.custom_filter_id = filter.id WHERE filter.account_id = $1 AND (filter.expires_at IS NULL OR filter.expires_at > NOW())', [req.accountId]));
           queries.push(client.query('SELECT filter.id AS id, filter.phrase AS title, filter.context AS context, filter.expires_at AS expires_at, filter.action AS filter_action, filtered_status.status_id AS status_id FROM custom_filter_statuses filtered_status JOIN custom_filters filter ON filtered_status.custom_filter_id = filter.id WHERE filter.account_id = $1 AND (filter.expires_at IS NULL OR filter.expires_at > NOW())', [req.accountId]));
+          queries.push(client.query('SELECT filter.id AS id, filter.phrase AS title, filter.context AS context, filter.expires_at AS expires_at, filter.action AS filter_action, tag.name AS tag_name FROM custom_filter_tags tag JOIN custom_filters filter ON tag.custom_filter_id = filter.id WHERE filter.account_id = $1 AND (filter.expires_at IS NULL OR filter.expires_at > NOW())', [req.accountId]));
         }
 
         Promise.all(queries).then(values => {
@@ -886,10 +887,12 @@ const startWorker = (workerId) => {
           }
 
           if (!unpackedPayload.filtered && !req.cachedFilters) {
-            const keywordRows = values[accountDomain ? 2 : 1].rows;
-            const statusRows = values[accountDomain ? 3 : 2].rows;
+            const filterBase = accountDomain ? 2 : 1;
+            const keywordRows = values[filterBase].rows;
+            const statusRows = values[filterBase + 1].rows;
+            const tagRows = values[filterBase + 2].rows;
 
-            req.cachedFilters = buildCachedFilters(keywordRows, statusRows);
+            req.cachedFilters = buildCachedFilters(keywordRows, statusRows, tagRows);
           }
 
           // Check filters

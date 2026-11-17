@@ -1,16 +1,29 @@
-.filters-list__item{ class: [filter.expired? && 'expired'] }
+- filter_active = CustomFilter.still_active?(filter)
+.filters-list__item{ class: [filter.expires? && !filter_active && 'expired'] }
   = link_to edit_filter_path(filter, embedded_filter_options), class: 'filters-list__item__title' do
     %span{ data: { custom_emoji_text: true } }= filter.title
 
     - if filter.expires?
       .expiration{ title: t('filters.index.expires_on', date: l(filter.expires_at)) }
-        - if filter.expired?
-          = t('invites.expired')
+        - if filter_active
+          = t('filters.index.expires_in_at', distance: distance_of_time_in_words_to_now(filter.expires_at), date: l(filter.expires_at))
         - else
-          = t('filters.index.expires_in', distance: distance_of_time_in_words_to_now(filter.expires_at))
+          = t('filters.index.expired_at', date: l(filter.expires_at))
+    - elsif filter.filter_tags.any?
+      .expiration
+        = t('filters.index.indefinite')
 
   .filters-list__item__permissions
     %ul.permissions-list
+      - unless filter.filter_tags.empty?
+        %li.permissions-list__item
+          .permissions-list__item__icon
+            = fa_icon('hashtag')
+          .permissions-list__item__text
+            .permissions-list__item__text__title
+              = t('filters.index.hashtags', count: filter.filter_tags.size)
+            .permissions-list__item__text__type
+              = filter.filter_tags.map { |tag_rule| "##{tag_rule.name}" }.join(', ')
       - unless filter.keywords.empty?
         %li.permissions-list__item
           .permissions-list__item__icon

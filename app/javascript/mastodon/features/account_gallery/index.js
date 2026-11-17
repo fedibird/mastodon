@@ -44,6 +44,9 @@ const mapStateToProps = (state, { params: { accountId } }) => {
     mediaFilters: state.get('filters'),
     mediaFilterMatches: state.get('filterMatches'),
     mediaFilterGeneration: state.getIn(['filterMatches', 'generation'], 0),
+    // The shared expiry tick only changes this count. The gallery still
+    // decides visibility with Date.now() when it renders.
+    filterClock: state.get('filterClock', 0),
     suspended: state.getIn(['accounts', accountId, 'suspended'], false),
     blockedBy: state.getIn(['relationships', accountId, 'blocked_by'], false),
     hideFeaturedTags: state.getIn(['settings', 'account', 'other', 'hideFeaturedTags'], false),
@@ -65,6 +68,7 @@ class AccountGallery extends ImmutablePureComponent {
     mediaFilters: ImmutablePropTypes.map,
     mediaFilterMatches: ImmutablePropTypes.map,
     mediaFilterGeneration: PropTypes.number,
+    filterClock: PropTypes.number,
     isAccount: PropTypes.bool,
     hideFeaturedTags: PropTypes.bool,
     hideRelation: PropTypes.bool,

@@ -688,6 +688,7 @@ Rails.application.routes.draw do
         resources :statuses, only: [:index]
       end
       resources :filters,         only: [:index, :create, :show, :update, :destroy]
+      resources :hashtag_mutes,   only: [:index, :create, :update, :destroy]
       resources :endorsements,    only: [:index]
       resources :markers,         only: [:index, :create]
       namespace :profile do

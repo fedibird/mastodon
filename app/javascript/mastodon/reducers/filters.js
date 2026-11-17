@@ -33,6 +33,10 @@ const normalizeFilter = (state, filter) => {
     normalized.statuses = filter.statuses;
   }
 
+  if (Object.prototype.hasOwnProperty.call(filter, 'tags')) {
+    normalized.tags = filter.tags;
+  }
+
   const normalizedFilter = fromJS(normalized);
 
   if (is(state.get(filterId), normalizedFilter)) {
