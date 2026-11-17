@@ -146,6 +146,55 @@ RSpec.describe ReblogService do
       expect(Status.find_by(id: first.id)).to be_present
     end
 
+    it 'returns the wrapper stored while this request waited for the lock' do
+      travel 301.seconds do
+        replacement = described_class.new.call(account, original, reboost: true, idempotency: 'again')
+        service = Reboost::Placement.new(account, original, reboost: true, idempotency: 'again')
+        allow(service).to receive(:idempotent_result).and_return(nil, replacement)
+
+        expect(service).not_to receive(:place!)
+        expect(service.call).to eq replacement
+      end
+    end
+
+    it 'schedules federation on a retry when the first enqueue failed' do
+      calls = 0
+      allow(Reboost::FederationWorker).to receive(:perform_in) do
+        calls += 1
+        raise Redis::BaseConnectionError if calls == 1
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true, idempotency: 'again') }.to raise_error(Redis::BaseConnectionError)
+        created = account.statuses.find_by(reblog_of_id: original.id)
+        retried = described_class.new.call(account, original, reboost: true, idempotency: 'again')
+
+        expect(retried.id).to eq created.id
+        expect(calls).to eq 2
+        expect(account.statuses.where(reblog_of_id: original.id).count).to eq 1
+      end
+    end
+
+    it 'delivers a saved Undo when a pending operation can no longer finish' do
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      operation = ReboostOperation.create!(
+        account: account,
+        reblog_of_id: original.id,
+        state: 'pending',
+        reboost: true,
+        undo_payload: '{"type":"Undo"}',
+        undo_inboxes: ['https://remote.example/inbox'],
+        options: {}
+      )
+      refusal = instance_double(StatusPolicy, reblog?: false)
+      allow(StatusPolicy).to receive(:new).with(account, original).and_return(refusal)
+
+      expect(Reboost::Placement.resume!(operation)).to be_nil
+
+      expect(operation.reload).to have_attributes(state: 'failed', error_code: 'not_permitted')
+      expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(['https://remote.example/inbox'])
+    end
+
     it 'replays an idempotency key as the same wrapper' do
       travel 301.seconds do
         first_try = described_class.new.call(account, original, reboost: true, idempotency: 'again')

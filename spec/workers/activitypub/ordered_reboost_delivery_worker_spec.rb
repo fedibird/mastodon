@@ -25,6 +25,7 @@ RSpec.describe ActivityPub::OrderedReboostDeliveryWorker do
     allow(ActivityPub::DeliveryWorker).to receive(:new).and_return(delivery)
     allow(delivery).to receive(:perform) do |json, _account_id, inbox|
       order << [json.include?('Undo') ? :undo : :announce, inbox]
+      true
     end
 
     described_class.new.perform(operation.id, 'https://remote.example/inbox')
@@ -49,11 +50,21 @@ RSpec.describe ActivityPub::OrderedReboostDeliveryWorker do
     expect(calls).to eq 1
   end
 
+  it 'does not announce when Undo delivery is suppressed' do
+    delivery = instance_double(ActivityPub::DeliveryWorker)
+    allow(ActivityPub::DeliveryWorker).to receive(:new).and_return(delivery)
+    allow(delivery).to receive(:perform).and_return(false)
+
+    expect { described_class.new.perform(operation.id, 'https://remote.example/inbox') }.to raise_error(described_class::UndoNotDelivered)
+
+    expect(delivery).to have_received(:perform).once
+  end
+
   it 'does not announce after Undo when the replacement was removed' do
     boost.discard
     delivery = instance_double(ActivityPub::DeliveryWorker)
     allow(ActivityPub::DeliveryWorker).to receive(:new).and_return(delivery)
-    allow(delivery).to receive(:perform)
+    allow(delivery).to receive(:perform).and_return(true)
 
     described_class.new.perform(operation.id, 'https://remote.example/inbox')
 
@@ -64,7 +75,7 @@ RSpec.describe ActivityPub::OrderedReboostDeliveryWorker do
     operation.update!(state: 'cancelled', error_code: 'unreblogged')
     delivery = instance_double(ActivityPub::DeliveryWorker)
     allow(ActivityPub::DeliveryWorker).to receive(:new).and_return(delivery)
-    allow(delivery).to receive(:perform)
+    allow(delivery).to receive(:perform).and_return(true)
 
     described_class.new.perform(operation.id, 'https://other.example/inbox')
 
@@ -76,7 +87,7 @@ RSpec.describe ActivityPub::OrderedReboostDeliveryWorker do
     operation.update!(new_status_id: nil)
     delivery = instance_double(ActivityPub::DeliveryWorker)
     allow(ActivityPub::DeliveryWorker).to receive(:new).and_return(delivery)
-    allow(delivery).to receive(:perform)
+    allow(delivery).to receive(:perform).and_return(true)
 
     described_class.new.perform(operation.id, 'https://remote.example/inbox')
 

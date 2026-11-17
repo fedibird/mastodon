@@ -5,6 +5,8 @@
 # their own jobs. Announce is sent only when the replacement is still the
 # live local wrapper.
 class ActivityPub::OrderedReboostDeliveryWorker
+  class UndoNotDelivered < StandardError; end
+
   include Sidekiq::Worker
   include Payloadable
 
@@ -15,7 +17,9 @@ class ActivityPub::OrderedReboostDeliveryWorker
     return if operation.nil? || operation.undo_payload.blank?
 
     started = Time.current
-    ActivityPub::DeliveryWorker.new.perform(operation.undo_payload, operation.account_id, inbox_url)
+    delivered = ActivityPub::DeliveryWorker.new.perform(operation.undo_payload, operation.account_id, inbox_url)
+    raise UndoNotDelivered, inbox_url unless delivered
+
     Reboost::Log.emit('undo_attempt_ok', operation_id: operation.id, inbox: inbox_url)
 
     operation.reload
