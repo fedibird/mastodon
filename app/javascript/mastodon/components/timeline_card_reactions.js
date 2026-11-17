@@ -3,8 +3,10 @@ import PropTypes from 'prop-types';
 
 const OVERFLOW_EPSILON = 1;
 
-export function showCardEmojiReactions (enableReactionFlag, hasVisibleReactions, compactReactionFlag) {
-  return Boolean(enableReactionFlag) && Boolean(hasVisibleReactions) && !compactReactionFlag;
+export function showCardEmojiReactions (enableReactionFlag, hasVisibleReactions, compactReactionFlag, pickerDisabledFlag = false) {
+  // With no picker button, the compact counter has nowhere to appear.
+  // Keep existing reactions visible as chips instead.
+  return Boolean(enableReactionFlag) && Boolean(hasVisibleReactions) && (!compactReactionFlag || pickerDisabledFlag);
 }
 
 export default function TimelineCardReactions ({ children, singleLine = true, expandLabel, scrollLabel }) {
