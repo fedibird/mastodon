@@ -5,6 +5,7 @@ import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { injectIntl, defineMessages, FormattedMessage } from 'react-intl';
 import Emoji from './emoji';
+import { attachInlineEmojiMenus, handleInlineEmojiClick, openInlineEmojiMenu } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 
 const messages = defineMessages({
   linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
@@ -34,14 +35,7 @@ class CustomEmojiResult extends React.PureComponent {
   };
 
   handleEmojiClick = e => {
-    const shortcode = e.target.dataset.shortcode;
-    const domain = e.target.dataset.domain;
-
-    if (this.context.router) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
-    }
+    handleInlineEmojiClick(e, e.currentTarget, this.context.router, { source: 'inline_emoji_search' });
   }
 
   handleMouseEnter = () => this.setState({ hovered: true });
@@ -103,11 +97,26 @@ class CustomEmojiResult extends React.PureComponent {
 
   componentDidMount () {
     this._updateLinks();
+    this.updateEmojiMenu();
   }
 
   componentDidUpdate () {
     this._updateLinks();
+    this.updateEmojiMenu();
   }
+
+  componentWillUnmount () {
+    this.detachInlineEmojiMenus?.();
+  }
+
+  setEmojiRef = node => {
+    this.emojiRoot = node;
+  };
+
+  updateEmojiMenu = () => {
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = attachInlineEmojiMenus(this.emojiRoot, { source: 'inline_emoji_search' });
+  };
 
   onHashtagClick = (hashtag, e) => {
     hashtag = hashtag.replace(/^#/, '');
@@ -140,7 +149,13 @@ class CustomEmojiResult extends React.PureComponent {
   }
 
   onCustomEmojiUrlClick = (shortcode, domain, e) => {
-    if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey) return;
+    if (openInlineEmojiMenu(e.currentTarget, { source: 'inline_emoji_search' })) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (this.context.router) {
       e.preventDefault();
       this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
     }
@@ -160,7 +175,7 @@ class CustomEmojiResult extends React.PureComponent {
 
     return (
       <div className='custom-emoji__result'>
-        <div className='custom-emoji__image' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave}>
+        <div className='custom-emoji__image' ref={this.setEmojiRef} onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave}>
           <Emoji emoji={shortcode} domain={domain} hovered={this.state.hovered} title={title} url={custom_emoji.get('url')} static_url={custom_emoji.get('static_url')} onClick={this.handleEmojiClick}/>
         </div>
         <div className='custom-emoji__shortcode'>:{shortcode}:{domain && <span className='custom-emoji__domain_part'>{domain}</span>}</div>
