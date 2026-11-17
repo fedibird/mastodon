@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import { defineMessages, injectIntl } from 'react-intl';
@@ -543,7 +544,10 @@ class EmojiActionsMenuController extends React.PureComponent {
         });
         // Snapshot the location exactly once. Subsequent state updates and
         // image loads must not re-anchor a preview in front of the user.
-        this.setState({ previewPosition: position || false });
+        this.setState({ previewPosition: position ? {
+          left: menuRect.left + position.left,
+          top: menuRect.top + position.top,
+        } : false });
       });
     });
   };
@@ -1401,56 +1405,59 @@ class EmojiActionsMenuController extends React.PureComponent {
     );
 
     return (
-      <Overlay
-        show
-        offset={[5, 5]}
-        placement='bottom'
-        flip
-        target={this.findTarget}
-        container={getEmojiActionsOverlayRoot}
-        popperConfig={popperConfig}
-      >
-        {({ props, arrowProps, placement }) => (
-          <div
-            {...props}
-            data-emoji-actions-menu='1'
-            className='emoji-actions-menu-portal'
-            style={{ ...(props.style || {}), pointerEvents: 'auto' }}
-          >
-            <div className={`dropdown-animation dropdown-menu ${placement}`} ref={this.setMenuNode}>
-              <div className={`dropdown-menu__arrow ${placement}`} {...arrowProps} />
-              <DropdownMenu
-                items={this.menuItems()}
-                renderItem={renderEmojiActionMenuItem}
-                onClose={this.handleClose}
-                onItemClick={this.handleItemClick}
-              />
+      <React.Fragment>
+        <Overlay
+          show
+          offset={[5, 5]}
+          placement='bottom'
+          flip
+          target={this.findTarget}
+          container={getEmojiActionsOverlayRoot}
+          popperConfig={popperConfig}
+        >
+          {({ props, arrowProps, placement }) => (
+            <div
+              {...props}
+              data-emoji-actions-menu='1'
+              className='emoji-actions-menu-portal'
+              style={{ ...(props.style || {}), pointerEvents: 'auto' }}
+            >
+              <div className={`dropdown-animation dropdown-menu ${placement}`} ref={this.setMenuNode}>
+                <div className={`dropdown-menu__arrow ${placement}`} {...arrowProps} />
+                <DropdownMenu
+                  items={this.menuItems()}
+                  renderItem={renderEmojiActionMenuItem}
+                  onClose={this.handleClose}
+                  onItemClick={this.handleItemClick}
+                />
+              </div>
             </div>
-            {preview && (
-              <div
-                className='emoji-actions-menu__preview'
-                aria-hidden='true'
-                ref={this.setPreviewNode}
-                style={this.state.previewPosition === null ? { visibility: 'hidden', right: 0, top: 0 } : this.state.previewPosition || { display: 'none' }}
-              >
-                <div className='emoji-actions-menu__preview-media'>
-                  {preview.imageSrc ? (
-                    <img src={preview.imageSrc} alt='' draggable='false' />
-                  ) : (
-                    <span>{preview.native}</span>
-                  )}
-                </div>
-                {(preview.name || preview.shortcode) && (
-                  <div className='emoji-actions-menu__preview-meta'>
-                    {preview.name && <div className='emoji-actions-menu__preview-name' title={preview.name}>{preview.name}</div>}
-                    {preview.shortcode && <div className='emoji-actions-menu__preview-shortcode' title={preview.shortcode}>{preview.shortcode}</div>}
-                  </div>
-                )}
+          )}
+        </Overlay>
+        {preview && createPortal(
+          <div
+            className='emoji-actions-menu__preview'
+            aria-hidden='true'
+            ref={this.setPreviewNode}
+            style={this.state.previewPosition === null ? { visibility: 'hidden', left: 0, top: 0 } : this.state.previewPosition || { display: 'none' }}
+          >
+            <div className='emoji-actions-menu__preview-media'>
+              {preview.imageSrc ? (
+                <img src={preview.imageSrc} alt='' draggable='false' />
+              ) : (
+                <span>{preview.native}</span>
+              )}
+            </div>
+            {(preview.name || preview.shortcode) && (
+              <div className='emoji-actions-menu__preview-meta'>
+                {preview.name && <div className='emoji-actions-menu__preview-name' title={preview.name}>{preview.name}</div>}
+                {preview.shortcode && <div className='emoji-actions-menu__preview-shortcode' title={preview.shortcode}>{preview.shortcode}</div>}
               </div>
             )}
-          </div>
+          </div>,
+          getEmojiActionsOverlayRoot(),
         )}
-      </Overlay>
+      </React.Fragment>
     );
   }
 
