@@ -462,7 +462,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     document.addEventListener(emojiActionsEventName(), this.handleDomEvent);
     document.addEventListener('contextmenu', this.handleContextMenu, true);
     document.addEventListener('keydown', this.handleKeyDown, true);
-    window.addEventListener('resize', this.updatePreviewPosition);
+    window.addEventListener('resize', this.handlePreviewResize);
   }
 
   componentWillUnmount() {
@@ -480,11 +480,18 @@ class EmojiActionsMenuController extends React.PureComponent {
     document.removeEventListener(emojiActionsEventName(), this.handleDomEvent);
     document.removeEventListener('contextmenu', this.handleContextMenu, true);
     document.removeEventListener('keydown', this.handleKeyDown, true);
-    window.removeEventListener('resize', this.updatePreviewPosition);
+    window.removeEventListener('resize', this.handlePreviewResize);
+    this.cancelPreviewPlacement();
   }
 
   componentDidUpdate() {
-    this.updatePreviewPosition();
+    // The menu starts with a short loading list and is re-positioned by
+    // Popper after its async actions arrive. Never show a preview while
+    // those sizes are changing. Reveal it once, after two animation frames.
+    if (this.state.status === 'ready' && this.state.source !== 'emoji_detail' &&
+        this.state.previewPosition === null && this.previewNode) {
+      this.schedulePreviewPlacement();
+    }
   }
 
   setMenuNode = node => {
@@ -495,30 +502,61 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.previewNode = node;
   };
 
-  updatePreviewPosition = () => {
-    const menu = this.menuNode;
-    const preview = this.previewNode;
-
-    if (!menu || !preview) {
-      return;
+  cancelPreviewPlacement = () => {
+    if (this.previewPlacementFrame !== null && this.previewPlacementFrame !== undefined) {
+      cancelAnimationFrame(this.previewPlacementFrame);
     }
-
-    const menuRect = menu.getBoundingClientRect();
-    const previewRect = preview.getBoundingClientRect();
-    if (!menuRect.height || !previewRect.height) {
-      return;
-    }
-
-    const position = positionEmojiActionsPreview(menuRect, previewRect, {
-      width: window.innerWidth, height: window.innerHeight,
-    });
-    const previous = this.state.previewPosition;
-
-    if ((!position && previous) || (position && (!previous || position.top !== previous.top || position.left !== previous.left))) {
-      this.setState({ previewPosition: position });
-    }
+    this.previewPlacementFrame = null;
+    this.previewPlacementScheduled = false;
   };
 
+  schedulePreviewPlacement = () => {
+    if (this.previewPlacementScheduled || !this.previewNode || !this.menuNode) {
+      return;
+    }
+
+    const generation = this.loadGeneration;
+    const element = this.state.element;
+    this.previewPlacementScheduled = true;
+    this.previewPlacementFrame = requestAnimationFrame(() => {
+      // Wait for Popper's placement/flip calculations to settle after the
+      // final async menu item list is committed.
+      this.previewPlacementFrame = requestAnimationFrame(() => {
+        this.previewPlacementFrame = null;
+        this.previewPlacementScheduled = false;
+        if (generation !== this.loadGeneration || element !== this.state.element ||
+            this.state.status !== 'ready' || this.state.previewPosition !== null) {
+          return;
+        }
+
+        const menuRect = this.menuNode?.getBoundingClientRect();
+        const previewRect = this.previewNode?.getBoundingClientRect();
+        if (!menuRect?.height || !previewRect?.height) {
+          // A detached privacy portal or unlaid-out menu must not trigger a
+          // continuous update loop. Keep the preview hidden for this session.
+          this.setState({ previewPosition: false });
+          return;
+        }
+
+        const position = positionEmojiActionsPreview(menuRect, previewRect, {
+          width: window.innerWidth, height: window.innerHeight,
+        });
+        // Snapshot the location exactly once. Subsequent state updates and
+        // image loads must not re-anchor a preview in front of the user.
+        this.setState({ previewPosition: position || false });
+      });
+    });
+  };
+
+  handlePreviewResize = () => {
+    if (!this.state.element || this.state.source === 'emoji_detail') {
+      return;
+    }
+
+    this.cancelPreviewPlacement();
+    // Hide first; then measure and reveal at the new viewport position.
+    this.setState({ previewPosition: null });
+  };
   clearSlideHighlight = () => {
     clearEmojiActionsSlideHighlight(this.slideHighlightEl);
     this.slideHighlightEl = null;
@@ -607,6 +645,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.clearSlideHighlight();
     this.clearSlideClickSwallow();
     this.cancelPendingDetailNavigation();
+    this.cancelPreviewPlacement();
 
     // Bind slide activation only to the long-press gesture that opened this menu.
     const pendingGesture = detail.slideGestureId
@@ -652,6 +691,7 @@ class EmojiActionsMenuController extends React.PureComponent {
   };
 
   handleClose = () => {
+    this.cancelPreviewPlacement();
     this.slideActivated = false;
     this.slideGestureId = null;
     this.slideGestureGeneration = null;
@@ -969,10 +1009,11 @@ class EmojiActionsMenuController extends React.PureComponent {
   };
 
   handleRetry = () => {
+    this.cancelPreviewPlacement();
     this.loadGeneration = (this.loadGeneration || 0) + 1;
     const generation = this.loadGeneration;
 
-    this.setState({ status: 'loading', error: null, notice: null, resolved: null }, () => {
+    this.setState({ status: 'loading', error: null, notice: null, resolved: null, previewPosition: null }, () => {
       this.loadMenuData(generation);
     });
   };
@@ -1355,7 +1396,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       return null;
     }
 
-    const preview = this.state.source === 'emoji_detail' ? null : buildEmojiActionsPreview(
+    const preview = this.state.source === 'emoji_detail' || this.state.status !== 'ready' ? null : buildEmojiActionsPreview(
       this.state.reference, this.state.resolved, this.state.element,
     );
 
@@ -1390,11 +1431,11 @@ class EmojiActionsMenuController extends React.PureComponent {
                 className='emoji-actions-menu__preview'
                 aria-hidden='true'
                 ref={this.setPreviewNode}
-                style={this.state.previewPosition || { visibility: 'hidden', right: 0, top: 0 }}
+                style={this.state.previewPosition === null ? { visibility: 'hidden', right: 0, top: 0 } : this.state.previewPosition || { display: 'none' }}
               >
                 <div className='emoji-actions-menu__preview-media'>
                   {preview.imageSrc ? (
-                    <img src={preview.imageSrc} alt='' draggable='false' onLoad={this.updatePreviewPosition} />
+                    <img src={preview.imageSrc} alt='' draggable='false' />
                   ) : (
                     <span>{preview.native}</span>
                   )}
