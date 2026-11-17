@@ -1,6 +1,7 @@
 import {
   REBLOG_REQUEST,
   REBLOG_FAIL,
+  REBOOST_OPERATION,
   UNREBLOG_REQUEST,
   UNREBLOG_FAIL,
   FAVOURITE_REQUEST,
@@ -56,7 +57,14 @@ const importStatus = (state, status) => {
   // An older payload keeps the pair already applied; everything else in it is
   // imported as before. A status with no revision is not touched.
   const previous = state.get(status.id);
-  return state.set(status.id, fromJS(protectEmojiReactionProjection(previous, protectBoostState(previous, status))));
+  let next = fromJS(protectEmojiReactionProjection(previous, protectBoostState(previous, status)));
+  const operation = previous && previous.get('reboost_operation');
+
+  if (operation && status.reboost_operation === undefined) {
+    next = next.set('reboost_operation', operation);
+  }
+
+  return state.set(status.id, next);
 };
 
 const importStatuses = (state, statuses) =>
@@ -421,6 +429,19 @@ export default function statuses(state = initialState, action) {
     return state;
   case EXTERNAL_LINK_BOOST_CHANGED:
     return applyBoostEvent(state, action);
+  case REBOOST_OPERATION:
+    if (!state.has(action.statusId)) {
+      return state;
+    }
+
+    if (!action.operation) {
+      return state.deleteIn([action.statusId, 'reboost_operation']);
+    }
+
+    return state.setIn([action.statusId, 'reboost_operation'], ImmutableMap({
+      id: action.operation.id === undefined || action.operation.id === null ? null : String(action.operation.id),
+      state: action.operation.state,
+    }));
   case REBLOG_REQUEST:
     if (hasBoostRevision(state, action.status.get('id'))) {
       return optimisticBoost(state, action.status.get('id'), true);

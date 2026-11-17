@@ -6,6 +6,9 @@ import { showAlert, showAlertForError } from './alerts';
 import { reactionNameHidden } from '../features/emoji/emoji_mute_projection';
 import { currentEmojiMutes, emojiReactionEventsAccepted } from '../features/emoji/emoji_mute_store';
 import { emojiReactionsForStatus, emojiReactionAccountIds } from '../utils/emoji_reactions';
+import { followReboostOperation } from '../features/reboost/follow_operation';
+
+export const REBOOST_OPERATION = 'REBOOST_OPERATION';
 
 export const REBLOG_REQUEST = 'REBLOG_REQUEST';
 export const REBLOG_SUCCESS = 'REBLOG_SUCCESS';
@@ -104,35 +107,121 @@ export function reblog(status, visibility) {
   };
 };
 
+export function setReboostOperation(statusId, operation) {
+  return {
+    type: REBOOST_OPERATION,
+    statusId,
+    operation,
+  };
+}
+
+const reboostMessages = {
+  pendingTitle: { id: 'reboost.pending_title', defaultMessage: 'Reboost pending' },
+  pending: { id: 'reboost.pending', defaultMessage: 'The previous boost is still being removed. This reboost will continue shortly.' },
+  waitTitle: { id: 'reboost.wait_title', defaultMessage: 'Please wait' },
+  wait: { id: 'reboost.wait', defaultMessage: 'Wait {seconds} seconds before boosting this post again.' },
+  failedTitle: { id: 'reboost.failed_title', defaultMessage: 'Reboost failed' },
+  failed: { id: 'reboost.failed', defaultMessage: 'The previous boost could not be replaced.' },
+  cancelledTitle: { id: 'reboost.cancelled_title', defaultMessage: 'Reboost cancelled' },
+  cancelled: { id: 'reboost.cancelled', defaultMessage: 'The reboost did not finish.' },
+  stillPendingTitle: { id: 'reboost.still_pending_title', defaultMessage: 'Reboost still running' },
+  stillPending: { id: 'reboost.still_pending', defaultMessage: 'It is still running. Refresh in a moment to see the result.' },
+};
+
 export function reboost(status) {
   return (dispatch, getState) => {
-    return api(getState).post(`/api/v1/statuses/${status.get('id')}/reblog`, { reboost: true }).then((response) => {
+    const statusId = status.get('id');
+
+    if (getState().getIn(['statuses', statusId, 'reboost_operation'])) {
+      return Promise.resolve();
+    }
+
+    dispatch(setReboostOperation(statusId, { state: 'pending' }));
+
+    return api(getState).post(`/api/v1/statuses/${statusId}/reblog`, { reboost: true }).then((response) => {
       if (response.status === 202) {
-        dispatch(showAlert(
-          { id: 'reboost.pending_title', defaultMessage: 'Reboost pending' },
-          { id: 'reboost.pending', defaultMessage: 'The previous boost is still being removed. This reboost will continue shortly.' },
-        ));
-        return;
+        const operationId = response.data?.operation_id;
+        dispatch(setReboostOperation(statusId, { id: operationId, state: response.data?.state || 'pending' }));
+        dispatch(showAlert(reboostMessages.pendingTitle, reboostMessages.pending));
+        return settleReboost(dispatch, getState, status, operationId);
       }
 
       dispatch(importFetchedStatus(response.data));
       if (response.data.reblog) {
         dispatch(importFetchedStatus(response.data.reblog));
       }
+      dispatch(reblogSuccess(status));
+      dispatch(setReboostOperation(statusId, null));
+      return null;
     }).catch((error) => {
+      dispatch(setReboostOperation(statusId, null));
+
       if (error?.response?.status === 429) {
         dispatch(showAlert(
-          { id: 'reboost.wait_title', defaultMessage: 'Please wait' },
-          { id: 'reboost.wait', defaultMessage: 'Wait {seconds} seconds before boosting this post again.' },
+          reboostMessages.waitTitle,
+          reboostMessages.wait,
           { seconds: error.response.data?.retry_after },
         ));
-        return;
+        return null;
       }
 
       dispatch(showAlertForError(error));
+      return null;
     });
   };
-};
+}
+
+function settleReboost(dispatch, getState, status, operationId) {
+  const statusId = status.get('id');
+
+  return followReboostOperation({
+    get: (url) => api(getState).get(url),
+    statusId,
+    operationId,
+    onUpdate: (operation) => dispatch(setReboostOperation(statusId, { id: operation.id, state: operation.state })),
+  }).then((operation) => {
+    if (!operation) {
+      dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
+      dispatch(setReboostOperation(statusId, null));
+      return null;
+    }
+
+    if (operation.state === 'completed') {
+      const imported = operation.new_status_id
+        ? api(getState).get(`/api/v1/statuses/${operation.new_status_id}`).then((response) => {
+          dispatch(importFetchedStatus(response.data));
+          return null;
+        })
+        : Promise.resolve();
+
+      return imported.then(() => {
+        dispatch(reblogSuccess(status));
+        dispatch(setReboostOperation(statusId, null));
+        return null;
+      });
+    }
+
+    dispatch(showAlert(
+      operation.state === 'cancelled' ? reboostMessages.cancelledTitle : reboostMessages.failedTitle,
+      operation.state === 'cancelled' ? reboostMessages.cancelled : reboostMessages.failed,
+    ));
+
+    return api(getState).get(`/api/v1/statuses/${statusId}`).then((response) => {
+      dispatch(importFetchedStatus(response.data));
+      return null;
+    }).catch((error) => {
+      dispatch(showAlertForError(error));
+      return null;
+    }).then(() => {
+      dispatch(setReboostOperation(statusId, null));
+      return null;
+    });
+  }).catch((error) => {
+    dispatch(setReboostOperation(statusId, null));
+    dispatch(showAlertForError(error));
+    return null;
+  });
+}
 
 export function unreblog(status) {
   return (dispatch, getState) => {
