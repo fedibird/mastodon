@@ -929,6 +929,14 @@ class EmojiActionsMenuController extends React.PureComponent {
       return;
     }
 
+    // iOS can emit a late synthetic contextmenu after a completed long press.
+    // Do not reopen/reposition an already open menu for the same gesture.
+    if (Date.now() < Number(target.dataset.emojiLongPressUntil || 0)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
     this.openFromElement(target, event);
   };
 
