@@ -127,6 +127,49 @@ describe('attachLongPressGesture', () => {
     expect(onLongPress).not.toHaveBeenCalled();
   });
 
+  it('lets mobile swipe views receive touchend if an inline emoji hold is cancelled', () => {
+    detach();
+    detach = attachLongPressGesture(node, { onLongPress, propagateCancelledTouchEnd: true, stopSlideTouchMovePropagation: true });
+    const ancestorEnd = jest.fn();
+    document.body.addEventListener('touchend', ancestorEnd);
+    const touch = { identifier: 56, clientX: 2, clientY: 2 };
+    const moved = { identifier: 56, clientX: 50, clientY: 2 };
+
+    fireEvent.touchStart(node, { touches: [touch] });
+    fireEvent.touchMove(node, { touches: [moved], changedTouches: [moved] });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+    fireEvent.touchEnd(node, { changedTouches: [moved], touches: [] });
+
+    expect(onLongPress).not.toHaveBeenCalled();
+    expect(ancestorEnd).toHaveBeenCalledTimes(1);
+    document.body.removeEventListener('touchend', ancestorEnd);
+  });
+
+  it('keeps inline emoji slide-selection touchmove away from mobile swipe views', () => {
+    detach();
+    detach = attachLongPressGesture(node, { onLongPress, propagateCancelledTouchEnd: true, stopSlideTouchMovePropagation: true });
+    const ancestorMove = jest.fn();
+    const ancestorEnd = jest.fn();
+    document.body.addEventListener('touchmove', ancestorMove);
+    document.body.addEventListener('touchend', ancestorEnd);
+    const touch = { identifier: 57, clientX: 2, clientY: 2 };
+    const moved = { identifier: 57, clientX: 50, clientY: 20 };
+
+    fireEvent.touchStart(node, { touches: [touch] });
+    act(() => {
+      jest.advanceTimersByTime(LONG_PRESS_MS + 20);
+    });
+    fireEvent.touchMove(node, { touches: [moved], changedTouches: [moved] });
+    fireEvent.touchEnd(node, { changedTouches: [moved], touches: [] });
+
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+    expect(ancestorMove).not.toHaveBeenCalled();
+    expect(ancestorEnd).not.toHaveBeenCalled();
+    document.body.removeEventListener('touchmove', ancestorMove);
+    document.body.removeEventListener('touchend', ancestorEnd);
+  });
   it('stops touchend after a long-press so ancestor/React handlers do not see it', () => {
     // React 17+ listens on the root; same-element listeners still run, but
     // stopPropagation must prevent the event from leaving the cell.
