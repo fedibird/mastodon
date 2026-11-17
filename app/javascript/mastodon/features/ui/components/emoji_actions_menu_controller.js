@@ -1387,7 +1387,7 @@ class EmojiActionsMenuController extends React.PureComponent {
                 className='emoji-actions-menu__preview'
                 aria-hidden='true'
                 ref={this.setPreviewNode}
-                style={this.state.previewPosition || { visibility: 'hidden' }}
+                style={this.state.previewPosition || { visibility: 'hidden', right: 0, top: 0 }}
               >
                 <div className='emoji-actions-menu__preview-media'>
                   {preview.imageSrc ? (
