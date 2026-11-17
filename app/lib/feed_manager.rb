@@ -26,7 +26,7 @@ class FeedManager
     end
     local seen = redis.call('ZSCORE', seen_key, reblog_of_id)
     if seen and not redis.call('ZSCORE', reblog_key, reblog_of_id) then
-      local newer = redis.call('ZCOUNT', timeline, tonumber(seen) + 1, '+inf')
+      local newer = redis.call('ZCOUNT', timeline, '(' .. seen, '+inf')
       if newer < falloff then
         return 0
       end

@@ -27,6 +27,22 @@ class Reboost::Placement
     end
   end
 
+  def self.cancel_pending!(account, status_id)
+    new(account, nil, lock_status_id: status_id).cancel_pending!
+  end
+
+  def cancel_pending!
+    with_redis_lock(lock_name) do
+      now = Time.current
+      ReboostOperation.where(account_id: account.id, reblog_of_id: options[:lock_status_id], state: 'pending').update_all(
+        state: 'cancelled',
+        error_code: 'unreblogged',
+        completed_at: now,
+        updated_at: now
+      )
+    end
+  end
+
   def self.resume!(operation)
     return if operation.nil?
 
@@ -228,11 +244,22 @@ class Reboost::Placement
       reblog = account.statuses.create!(reblog: original, text: '', visibility: visibility, rate_limit: options[:with_rate_limit])
       reblog.capability_tokens.create! if reblog.limited_visibility?
     end
-    ProcessMentionsService.new.call(reblog, circle)
-    Array(audience).each do |account_id, silent|
-      reblog.mentions.find_or_create_by!(account_id: account_id) { |copy| copy.silent = silent }
+    begin
+      ProcessMentionsService.new.call(reblog, circle)
+      Array(audience).each do |account_id, silent|
+        reblog.mentions.find_or_create_by!(account_id: account_id) { |copy| copy.silent = silent }
+      end
+    rescue ActiveRecord::RecordInvalid, Mastodon::ValidationError
+      remove_unpublished!(reblog)
+      raise
     end
     reblog
+  end
+
+  def remove_unpublished!(reblog)
+    RemoveStatusService.new.call(reblog, skip_remote: true, immediate: true)
+  rescue StandardError
+    nil
   end
 
   def distribute_locally!(reblog, federate:)
@@ -421,6 +448,6 @@ class Reboost::Placement
   end
 
   def lock_name
-    "reboost:#{account.id}:#{original.id}"
+    "reboost:#{account.id}:#{options[:lock_status_id] || original.id}"
   end
 end

@@ -145,6 +145,48 @@ RSpec.describe ReblogService do
       expect(account.statuses.where(reblog_of_id: original.id).pluck(:id)).to eq [first.id]
     end
 
+    it 'removes an unannounced replacement when mention processing fails' do
+      allow(Reboost::FederationWorker).to receive(:perform_async)
+      allow_any_instance_of(ProcessMentionsService).to receive(:call).and_wrap_original do |method, status, *args|
+        raise Mastodon::ValidationError, 'mentions failed' if status.reblog_of_id == original.id && status.id != first.id
+
+        method.call(status, *args)
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true) }.to raise_error(Mastodon::ValidationError, 'mentions failed')
+      end
+
+      expect(account.statuses.where(reblog_of_id: original.id)).to be_empty
+      expect(ReboostOperation.order(:id).last.error_code).to eq 'create_failed'
+      expect(Reboost::FederationWorker).to have_received(:perform_async)
+    end
+
+    it 'does not commit a replacement after cancellation takes the placement lock' do
+      first.discard
+      operation = ReboostOperation.create!(
+        account: account,
+        reblog_of_id: original.id,
+        old_status_id: first.id,
+        state: 'pending',
+        reboost: true,
+        idempotency_key: 'again',
+        undo_payload: '{"type":"Undo"}',
+        undo_inboxes: ['https://remote.example/inbox'],
+        options: {}
+      )
+      RedisConfiguration.with { |redis| redis.set("idempotency:reboost:#{account.id}:again", "operation:#{operation.id}") }
+      expect(RedisLock).to receive(:acquire).with(hash_including(key: "lock:reboost:#{account.id}:#{original.id}")).at_least(:once).and_call_original
+
+      Reboost::Placement.cancel_pending!(account, original.id)
+
+      travel 301.seconds do
+        expect(Reboost::Placement.resume!(operation)).to be_nil
+      end
+      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'unreblogged')
+      expect(account.statuses.where(reblog_of_id: original.id)).to be_empty
+    end
+
     it 'keeps the saved Undo when the replacement cannot be created' do
       allow(Reboost::FederationWorker).to receive(:perform_async)
       described_class.new.call(account, original)
