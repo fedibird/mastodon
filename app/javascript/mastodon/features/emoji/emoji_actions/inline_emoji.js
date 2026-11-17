@@ -50,7 +50,7 @@ export function handleInlineEmojiClick(event, emoji, router, context = {}) {
     return true;
   }
 
-  if (event.button !== undefined && event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
+  if ((event.button !== undefined && event.button !== 0) || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
     return false;
   }
 
