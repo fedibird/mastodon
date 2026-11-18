@@ -133,6 +133,18 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
           expect(status_ids).to eq [older_status.id.to_s]
         end
 
+        it 'uses status id for min_id pagination' do
+          get :index, params: { order: 'status', min_id: older_status.id }
+
+          expect(status_ids).to eq [newer_status.id.to_s]
+        end
+
+        it 'uses status id for since_id pagination' do
+          get :index, params: { order: 'status', since_id: older_status.id }
+
+          expect(status_ids).to eq [newer_status.id.to_s]
+        end
+
         it 'keeps the same reaction per status rule with emoji filtering' do
           insert_reaction(id: 900, status: older_status, name: '🎉')
           insert_reaction(id: 910, status: newer_status, name: '🎉')
