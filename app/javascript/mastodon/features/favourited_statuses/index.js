@@ -131,7 +131,7 @@ class Favourites extends ImmutablePureComponent {
   }
 
   render () {
-    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses } = this.props;
+    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses, listKey, sortByPostDate } = this.props;
     const pinned = !!columnId;
 
     const emptyMessage = <FormattedMessage id='empty_column.favourited_statuses' defaultMessage="You don't have any favourite posts yet. When you favourite one, it will show up here." />;
@@ -156,6 +156,7 @@ class Favourites extends ImmutablePureComponent {
         </ColumnHeader>
 
         <StatusList
+          key={`${listKey}:${sortByPostDate ? 'status' : 'added'}`}
           layoutMode={layoutMode}
           mediaStatuses={mediaStatuses}
           trackScroll={!pinned}
