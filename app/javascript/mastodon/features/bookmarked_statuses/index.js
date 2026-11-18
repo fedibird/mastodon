@@ -2,7 +2,7 @@ import React from 'react';
 import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
-import { fetchBookmarkedStatuses, expandBookmarkedStatuses } from '../../actions/bookmarks';
+import { fetchBookmarkedStatuses, expandBookmarkedStatuses, bookmarksListKey } from '../../actions/bookmarks';
 import Column from '../ui/components/column';
 import ColumnHeader from '../../components/column_header';
 import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
@@ -11,6 +11,7 @@ import StatusList from '../../components/status_list';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { debounce } from 'lodash';
+import { List as ImmutableList } from 'immutable';
 import { defaultColumnWidth } from 'mastodon/initial_state';
 import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { changeSetting } from '../../actions/settings';
@@ -19,6 +20,8 @@ import { changeColumnParams } from '../../actions/columns';
 const messages = defineMessages({
   heading: { id: 'column.bookmarks', defaultMessage: 'Bookmarks' },
 });
+
+const EMPTY_STATUS_LIST = ImmutableList();
 
 const mapStateToProps = (state, { columnId }) => {
   const uuid = columnId;
@@ -29,11 +32,17 @@ const mapStateToProps = (state, { columnId }) => {
   const onlyMedia = mediaLayout || ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'bookmarked_statuses', 'other', 'onlyMedia']));
   const withoutMedia = mediaLayout ? false : ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'bookmarked_statuses', 'other', 'withoutMedia']));
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'bookmarked_statuses', 'columnWidth']);
+  const sortByPostDate = !!((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'sortByPostDate']) : state.getIn(['settings', 'bookmarked_statuses', 'other', 'sortByPostDate']));
+  const listKey = bookmarksListKey(columnId, sortByPostDate);
+  const list = state.getIn(['status_lists', listKey]);
 
   return {
-    statusIds: state.getIn(['status_lists', 'bookmarks', 'items']),
-    isLoading: state.getIn(['status_lists', 'bookmarks', 'isLoading'], true),
-    hasMore: !!state.getIn(['status_lists', 'bookmarks', 'next']),
+    listKey,
+    sortByPostDate,
+    statusIds: list ? list.get('items') : EMPTY_STATUS_LIST,
+    isLoading: list ? list.get('isLoading') : true,
+    hasMore: !!(list && list.get('next')),
+    stale: !!(list && list.get('stale')),
     onlyMedia,
     withoutMedia,
     columnWidth: columnWidth ?? defaultColumnWidth,
@@ -57,6 +66,9 @@ class Bookmarks extends ImmutablePureComponent {
     mediaStatuses: ImmutablePropTypes.map,
     onlyMedia: PropTypes.bool,
     withoutMedia: PropTypes.bool,
+    sortByPostDate: PropTypes.bool,
+    listKey: PropTypes.string,
+    stale: PropTypes.bool,
     hasMore: PropTypes.bool,
     isLoading: PropTypes.bool,
   };
@@ -64,29 +76,30 @@ class Bookmarks extends ImmutablePureComponent {
   static defaultProps = {
     onlyMedia: false,
     withoutMedia: false,
+    sortByPostDate: false,
   };
 
   componentDidMount () {
-    const { dispatch, onlyMedia, withoutMedia } = this.props;
+    const { dispatch, listKey, onlyMedia, withoutMedia, sortByPostDate } = this.props;
 
-    dispatch(fetchBookmarkedStatuses({ onlyMedia, withoutMedia }));
+    dispatch(fetchBookmarkedStatuses({ listKey, onlyMedia, withoutMedia, sortByPostDate }));
   }
 
   componentDidUpdate (prevProps) {
-    const { dispatch, onlyMedia, withoutMedia } = this.props;
+    const { dispatch, listKey, onlyMedia, withoutMedia, sortByPostDate, stale, isLoading } = this.props;
 
-    if (prevProps.onlyMedia !== onlyMedia || prevProps.withoutMedia !== withoutMedia) {
-      dispatch(fetchBookmarkedStatuses({ onlyMedia, withoutMedia }));
+    if (prevProps.listKey !== listKey || prevProps.onlyMedia !== onlyMedia || prevProps.withoutMedia !== withoutMedia || prevProps.sortByPostDate !== sortByPostDate || (stale && !isLoading)) {
+      dispatch(fetchBookmarkedStatuses({ listKey, onlyMedia, withoutMedia, sortByPostDate }));
     }
   }
 
   handlePin = () => {
-    const { columnId, dispatch, onlyMedia, withoutMedia } = this.props;
+    const { columnId, dispatch, onlyMedia, withoutMedia, sortByPostDate } = this.props;
 
     if (columnId) {
       dispatch(removeColumn(columnId));
     } else {
-      dispatch(addColumn('BOOKMARKS', { other: { onlyMedia, withoutMedia } }));
+      dispatch(addColumn('BOOKMARKS', { other: { onlyMedia, withoutMedia, sortByPostDate } }));
     }
   }
 
@@ -104,7 +117,7 @@ class Bookmarks extends ImmutablePureComponent {
   }
 
   handleLoadMore = debounce(() => {
-    this.props.dispatch(expandBookmarkedStatuses());
+    this.props.dispatch(expandBookmarkedStatuses({ listKey: this.props.listKey }));
   }, 300, { leading: true })
 
   handleWidthChange = (value) => {
