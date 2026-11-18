@@ -28,6 +28,7 @@ const createList = () => ImmutableMap({
   isLoading: false,
   stale: false,
   queryKey: null,
+  requestId: null,
   filters: createFilters(),
 });
 
@@ -50,7 +51,7 @@ const listFor = (state, listKey) => state.getIn(['lists', listKey]);
 
 const matchesQuery = (state, action) => {
   const list = listFor(state, action.listKey);
-  return !!(list && list.get('queryKey') === action.queryKey);
+  return !!(list && list.get('queryKey') === action.queryKey && (action.requestId == null || list.get('requestId') === action.requestId));
 };
 
 const statusIds = statuses => ImmutableList((statuses || []).map(status => status.id));
@@ -82,6 +83,7 @@ export default function emojiReactionedStatuses(state = initialState, action) {
   case EMOJI_REACTIONED_STATUSES_FETCH_REQUEST:
     return state.updateIn(['lists', action.listKey], createList(), list => list.merge({
       queryKey: action.queryKey,
+      requestId: action.requestId ?? null,
       filters: createFilters(action.filters),
       isLoading: true,
       loaded: false,
