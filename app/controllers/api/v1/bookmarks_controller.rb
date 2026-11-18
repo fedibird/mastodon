@@ -28,10 +28,33 @@ class Api::V1::BookmarksController < Api::BaseController
   end
 
   def results
-    @_results ||= filtered_account_bookmarks.to_a_paginated_by_id(
-      limit_param(DEFAULT_STATUSES_LIMIT),
-      params_slice(:max_id, :since_id, :min_id)
-    )
+    @_results ||= if status_order?
+                    status_ordered_results(filtered_account_bookmarks)
+                  else
+                    filtered_account_bookmarks.to_a_paginated_by_id(
+                      limit_param(DEFAULT_STATUSES_LIMIT),
+                      params_slice(:max_id, :since_id, :min_id)
+                    )
+                  end
+  end
+
+  # The default cursor is the collection record id (added order). Status
+  # ordering uses a different cursor and must be paginated in the database,
+  # never by sorting an already-loaded page in the WebUI.
+  def status_ordered_results(scope)
+    status_id = Bookmark.arel_table[:status_id]
+    page = params_slice(:max_id, :since_id, :min_id)
+    scope = scope.where(status_id.lt(page[:max_id])) if page[:max_id].present?
+    scope = scope.where(status_id.gt(page[:since_id])) if page[:since_id].present?
+    scope = scope.where(status_id.gt(page[:min_id])) if page[:min_id].present?
+
+    ascending = page[:min_id].present?
+    records = scope.reorder(ascending ? status_id.asc : status_id.desc).limit(limit_param(DEFAULT_STATUSES_LIMIT)).to_a
+    ascending ? records.reverse : records
+  end
+
+  def status_order?
+    params[:order] == 'status'
   end
 
   def filtered_account_bookmarks
@@ -78,11 +101,11 @@ class Api::V1::BookmarksController < Api::BaseController
   end
 
   def pagination_max_id
-    results.last.id
+    status_order? ? results.last.status_id : results.last.id
   end
 
   def pagination_since_id
-    results.first.id
+    status_order? ? results.first.status_id : results.first.id
   end
 
   def records_continue?
@@ -90,6 +113,6 @@ class Api::V1::BookmarksController < Api::BaseController
   end
 
   def pagination_params(core_params)
-    params_slice(:limit, :compact, :only_media, :without_media).merge(core_params)
+    params_slice(:limit, :compact, :only_media, :without_media, :order).merge(core_params)
   end
 end
