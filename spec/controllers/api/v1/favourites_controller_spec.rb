@@ -58,6 +58,33 @@ RSpec.describe Api::V1::FavouritesController, type: :controller do
           expect(assigns(:statuses)).to match_array [favourite_by_user.status]
         end
 
+        context 'when registration and post chronology are reversed' do
+          let!(:older_status) { Fabricate(:status, account: user.account) }
+          let!(:newer_status) { Fabricate(:status, account: user.account) }
+          let!(:earlier_registration) { Fabricate(:favourite, account: user.account, status: newer_status) }
+          let!(:later_registration) { Fabricate(:favourite, account: user.account, status: older_status) }
+
+          it 'returns added order in compact WebUI responses' do
+            get :index, params: { compact: true }
+
+            expect(body_as_json[:statuses].map { |status| status[:id] }).to eq [older_status.id.to_s, newer_status.id.to_s]
+          end
+
+          it 'keeps registration ids as Link cursors in the first page' do
+            get :index, params: { compact: true, limit: 1 }
+
+            expect(body_as_json[:statuses].map { |status| status[:id] }).to eq [older_status.id.to_s]
+            next_link = response.headers['Link'].find_link(['rel', 'next']).href
+            expect(Rack::Utils.parse_query(URI(next_link).query)['max_id']).to eq later_registration.id.to_s
+          end
+
+          it 'can retrieve the next page after the later registration' do
+            get :index, params: { compact: true, limit: 1, max_id: later_registration.id }
+
+            expect(body_as_json[:statuses].map { |status| status[:id] }).to eq [newer_status.id.to_s]
+          end
+        end
+
         context 'with post-date order' do
           let!(:older_status) { Fabricate(:status, account: user.account) }
           let!(:newer_status) { Fabricate(:status, account: user.account) }
