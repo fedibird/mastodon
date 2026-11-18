@@ -22,6 +22,24 @@ RSpec.describe Reboost::ResumeWorker do
     allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
   end
 
+  it 'enqueues the saved Undo on a later attempt when the first enqueue failed' do
+    calls = []
+    allow(Reboost::Placement).to receive(:resume!).and_raise(Mastodon::ReboostCooldownError.new(12))
+    allow(Reboost::FederationWorker).to receive(:perform_async) do |operation_id|
+      calls << operation_id
+      raise Redis::BaseConnectionError if calls.size == 1
+    end
+
+    expect { described_class.new.perform(operation.id) }.to raise_error(Redis::BaseConnectionError)
+    expect(operation.reload).to have_attributes(state: 'failed', error_code: 'cooldown')
+
+    described_class.new.perform(operation.id)
+
+    expect(calls).to eq [operation.id, operation.id]
+    expect(operation.reload.state).to eq 'failed'
+    expect(account.statuses.where(reblog_of_id: original.id)).to be_empty
+  end
+
   it 'delivers a saved Undo when the cooldown rejects the resume' do
     allow(Reboost::Placement).to receive(:resume!).and_raise(Mastodon::ReboostCooldownError.new(12))
 

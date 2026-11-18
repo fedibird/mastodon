@@ -7,11 +7,17 @@ class Reboost::ResumeWorker
 
   def perform(operation_id)
     operation = ReboostOperation.find_by(id: operation_id)
-    return if operation.nil? || operation.terminal?
+    return if operation.nil?
+
+    if operation.terminal?
+      Reboost::UndoDelivery.deliver!(operation)
+      return
+    end
 
     if operation.reboost && !operation.account.user&.reboost_enabled?
+      Reboost::UndoDelivery.mark!(operation)
       operation.update!(state: 'cancelled', error_code: 'reboost_disabled', completed_at: Time.current)
-      Reboost::FederationWorker.perform_async(operation.id) if operation.undo_payload.present?
+      Reboost::UndoDelivery.deliver!(operation)
       Reboost::Log.emit('cancelled', operation_id: operation.id, error: 'reboost_disabled')
       return
     end

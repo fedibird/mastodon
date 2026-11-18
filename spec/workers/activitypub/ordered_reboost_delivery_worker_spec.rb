@@ -50,6 +50,20 @@ RSpec.describe ActivityPub::OrderedReboostDeliveryWorker do
     expect(calls).to eq 1
   end
 
+  it 'retries the inbox when Announce delivery is suppressed' do
+    delivery = instance_double(ActivityPub::DeliveryWorker)
+    allow(ActivityPub::DeliveryWorker).to receive(:new).and_return(delivery)
+    calls = 0
+    allow(delivery).to receive(:perform) do
+      calls += 1
+      calls == 1
+    end
+
+    expect { described_class.new.perform(operation.id, 'https://remote.example/inbox') }.to raise_error(described_class::AnnounceNotDelivered)
+
+    expect(calls).to eq 2
+  end
+
   it 'does not announce when Undo delivery is suppressed' do
     delivery = instance_double(ActivityPub::DeliveryWorker)
     allow(ActivityPub::DeliveryWorker).to receive(:new).and_return(delivery)

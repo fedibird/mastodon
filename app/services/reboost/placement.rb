@@ -34,8 +34,9 @@ class Reboost::Placement
   def self.fail_open!(operation, code)
     return if operation.nil? || operation.terminal?
 
+    Reboost::UndoDelivery.mark!(operation)
     operation.fail!(code)
-    Reboost::FederationWorker.perform_async(operation.id) if operation.undo_payload.present?
+    Reboost::UndoDelivery.deliver!(operation)
   end
 
   def self.cancel_pending!(account, status_id)
@@ -47,6 +48,9 @@ class Reboost::Placement
       now = Time.current
       pending = ReboostOperation.where(account_id: account.id, reblog_of_id: options[:lock_status_id], state: 'pending')
       rows = pending.pluck(:id, :undo_payload)
+      rows.each do |operation_id, undo_payload|
+        Reboost::UndoDelivery.mark!(ReboostOperation.new(id: operation_id, undo_payload: undo_payload)) if undo_payload.present?
+      end
       pending.update_all(
         state: 'cancelled',
         error_code: 'unreblogged',
@@ -54,7 +58,9 @@ class Reboost::Placement
         updated_at: now
       )
       rows.each do |operation_id, undo_payload|
-        Reboost::FederationWorker.perform_async(operation_id) if undo_payload.present?
+        next if undo_payload.blank?
+
+        Reboost::UndoDelivery.deliver!(ReboostOperation.find(operation_id))
       end
     end
   end
@@ -314,26 +320,18 @@ class Reboost::Placement
   end
 
   def publish_replacement!(existing, created)
+    # The replacement id is stored before any queue call. A later enqueue
+    # failure can still find this operation from the cached wrapper.
     # A saved Undo must travel with the new Announce. The ordinary distribution
     # worker does not know about that Undo, so it stays off in that case.
+    operation = if existing&.local?
+                  federation_operation(created, existing)
+                elsif ordered_undo?
+                  federation_operation(created, nil)
+                end
     distribute_locally!(created, federate: existing.nil? && !ordered_undo?)
-    if existing&.local?
-      schedule_federation!(existing, created)
-    elsif ordered_undo?
-      schedule_deferred_undo!(created)
-    end
-  end
+    return if operation.nil?
 
-  def schedule_federation!(previous, created)
-    return unless previous&.local? && created.local?
-
-    operation = federation_operation(created, previous)
-    enqueue_federation!(operation)
-    Reboost::Log.emit('federation_scheduled', operation_id: operation.id, gap_seconds: Reboost::FEDERATION_GAP.to_i)
-  end
-
-  def schedule_deferred_undo!(created)
-    operation = federation_operation(created, nil)
     enqueue_federation!(operation)
     Reboost::Log.emit('federation_scheduled', operation_id: operation.id, gap_seconds: Reboost::FEDERATION_GAP.to_i)
   end

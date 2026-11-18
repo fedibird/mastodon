@@ -6,6 +6,7 @@
 # live local wrapper.
 class ActivityPub::OrderedReboostDeliveryWorker
   class UndoNotDelivered < StandardError; end
+  class AnnounceNotDelivered < StandardError; end
 
   include Sidekiq::Worker
   include Payloadable
@@ -26,7 +27,9 @@ class ActivityPub::OrderedReboostDeliveryWorker
     status = Status.find_by(id: operation.new_status_id)
     return if operation.state == 'cancelled' || status.nil? || !status.local?
 
-    ActivityPub::DeliveryWorker.new.perform(announce_payload(status, inbox_url), status.account_id, inbox_url)
+    announced = ActivityPub::DeliveryWorker.new.perform(announce_payload(status, inbox_url), status.account_id, inbox_url)
+    raise AnnounceNotDelivered, inbox_url unless announced
+
     Reboost::Log.emit('announce_after_undo', operation_id: operation.id, inbox: inbox_url, milliseconds: ((Time.current - started) * 1000).round)
   end
 

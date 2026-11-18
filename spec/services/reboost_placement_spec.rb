@@ -157,6 +157,27 @@ RSpec.describe ReblogService do
       end
     end
 
+    it 'keeps the replacement linked when local distribution fails to enqueue' do
+      created_id = nil
+      allow(DistributionWorker).to receive(:perform_async) do |status_id|
+        created_id = status_id
+        raise Redis::BaseConnectionError
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true, idempotency: 'again') }.to raise_error(Redis::BaseConnectionError)
+        operation = ReboostOperation.order(:id).last
+        expect(operation).to have_attributes(state: 'federating', new_status_id: created_id)
+
+        allow(DistributionWorker).to receive(:perform_async)
+        retried = described_class.new.call(account, original, reboost: true, idempotency: 'again')
+
+        expect(retried.id).to eq created_id
+        expect(account.statuses.where(reblog_of_id: original.id).count).to eq 1
+        expect(Reboost::FederationWorker).to have_received(:perform_in).with(Reboost::FEDERATION_GAP, operation.id)
+      end
+    end
+
     it 'schedules federation on a retry when the first enqueue failed' do
       calls = 0
       allow(Reboost::FederationWorker).to receive(:perform_in) do
