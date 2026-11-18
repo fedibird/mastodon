@@ -75,7 +75,6 @@ export function fetchBookmarkedStatusesRequest(listKey = DEFAULT_LIST_KEY, query
     type: BOOKMARKED_STATUSES_FETCH_REQUEST,
     listKey,
     queryKey,
-    requestId,
     sortByPostDate,
     requestId,
   };
