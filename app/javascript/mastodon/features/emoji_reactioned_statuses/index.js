@@ -162,7 +162,7 @@ class EmojiReactions extends ImmutablePureComponent {
   }
 
   render () {
-    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses } = this.props;
+    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses, listKey, sortByPostDate } = this.props;
     const pinned = !!columnId;
 
     const emptyMessage = <FormattedMessage id='empty_column.emoji_reactioned_statuses' defaultMessage="You don't have any reaction posts yet. When you reaction one, it will show up here." />;
@@ -189,6 +189,7 @@ class EmojiReactions extends ImmutablePureComponent {
         <EmojiFilterDropdownContainer columnId={columnId} />
 
         <StatusList
+          key={`${listKey}:${sortByPostDate ? 'status' : 'added'}`}
           layoutMode={layoutMode}
           mediaStatuses={mediaStatuses}
           trackScroll={!pinned}
