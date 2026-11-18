@@ -60,6 +60,7 @@ class GroupColumnLandmark extends React.Component {
 
   static propTypes = {
     column: PropTypes.func.isRequired,
+    holdLabel: PropTypes.func.isRequired,
     plain: PropTypes.string.isRequired,
     html: PropTypes.string,
     project: PropTypes.bool,
@@ -75,6 +76,7 @@ class GroupColumnLandmark extends React.Component {
   }
 
   componentWillUnmount() {
+    this.props.holdLabel(undefined);
     this.write(undefined);
   }
 
@@ -88,8 +90,11 @@ class GroupColumnLandmark extends React.Component {
 
   apply() {
     const { plain, html, project, emojiMuteTextIndex } = this.props;
+    // The visible heading already has this string. The column instance ref is
+    // attached after this child's mount, so keep the label until bindColumn.
     const label = project ? emojiMutedPlainText(plain, html || '', emojiMuteTextIndex) : plain;
 
+    this.props.holdLabel(label);
     this.write(label);
   }
 
@@ -317,9 +322,19 @@ class GroupTimeline extends React.PureComponent {
     if (this.forwardColumnRef) {
       this.forwardColumnRef(column);
     }
+
+    // The landmark mounts before this ref. Apply the label it already computed
+    // without rendering the timeline again.
+    if (column && this.landmarkLabel !== undefined && typeof column.setLandmarkLabel === 'function') {
+      column.setLandmarkLabel(this.landmarkLabel);
+    }
   }
 
   groupColumn = () => this.column;
+
+  holdLandmark = (label) => {
+    this.landmarkLabel = label;
+  };
 
   composerIsMounted = (props) => groupPortableComposerMounted({
     composerVisible: props.composerVisible,
@@ -546,7 +561,7 @@ class GroupTimeline extends React.PureComponent {
 
     return (
       <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={plainTitle} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
-        <SubscribedGroupColumnLandmark column={this.groupColumn} plain={plainTitle} html={displayNameHtml} project={named} />
+        <SubscribedGroupColumnLandmark column={this.groupColumn} holdLabel={this.holdLandmark} plain={plainTitle} html={displayNameHtml} project={named} />
         <ColumnHeader
           columnId={columnId}
           layoutScope='group'

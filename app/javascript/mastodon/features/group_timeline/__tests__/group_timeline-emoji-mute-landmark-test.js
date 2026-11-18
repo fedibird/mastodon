@@ -163,6 +163,23 @@ describe('group column emoji mute landmark', () => {
     document.getElementById('tabs-bar__portal')?.remove();
   });
 
+  it('projects the region label on first mount when the rules are already applied', () => {
+    const plain = `Group ${THUMB}`;
+    const html = `Group ${unicodeImg(THUMB)}`;
+    const store = buildStore(account('7', { display_name: plain, display_name_html: html }));
+
+    apply(store, [
+      rule({ kind: 'unicode', native: THUMB }, '[on]'),
+    ], '2');
+
+    const { container } = renderGroup(store);
+
+    expect(headingText()).toBe('Group [on]');
+    expect(region(container).getAttribute('aria-label')).toBe('Group [on]');
+    expect(store.getState().getIn(['accounts', '7', 'display_name'])).toBe(plain);
+    expect(store.getState().getIn(['accounts', '7', 'display_name_html'])).toBe(html);
+  });
+
   it('keeps the visible title and the region label on the same projection', () => {
     const plain = `Group ${THUMB} ${THUMB_LIGHT} ${FAMILY}`;
     const html = `Group ${unicodeImg(THUMB)} ${unicodeImg(THUMB_LIGHT)} ${unicodeImg(FAMILY)} ${localImg('10')} ${localImg('11')} ${localImgWithoutId()} ${remoteImg('a.test')} ${remoteImg('b.test')}`;
