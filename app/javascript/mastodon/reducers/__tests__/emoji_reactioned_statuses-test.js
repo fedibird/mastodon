@@ -71,6 +71,25 @@ describe('emoji_reactioned_statuses reducer', () => {
     expect(state.getIn(['lists', 'default', 'isLoading'])).toBe(false);
   });
 
+  it('rejects stale A after A-B-A for the same emoji filter query', () => {
+    let state = reducer(undefined, { ...request('column-a', 'added'), requestId: 101 });
+    state = reducer(state, { ...request('column-a', 'status'), requestId: 102 });
+    state = reducer(state, { ...request('column-a', 'added'), requestId: 103 });
+    state = reducer(state, {
+      ...succeed('column-a', 'added', ['from-old-a']),
+      requestId: 101,
+    });
+
+    expect(state.getIn(['lists', 'column-a', 'items']).toJS()).toEqual([]);
+    expect(state.getIn(['lists', 'column-a', 'isLoading'])).toBe(true);
+
+    state = reducer(state, {
+      ...succeed('column-a', 'added', ['from-new-a']),
+      requestId: 103,
+    });
+    expect(state.getIn(['lists', 'column-a', 'items']).toJS()).toEqual(['from-new-a']);
+  });
+
   it('appends one column page without duplicating status ids or touching another column', () => {
     let state = reducer(undefined, request('column-a', 'party', ['🎉']));
     state = reducer(state, succeed('column-a', 'party', ['a-1', 'a-2'], '/next-a'));
