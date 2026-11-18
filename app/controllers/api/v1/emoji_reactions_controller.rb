@@ -43,9 +43,12 @@ class Api::V1::EmojiReactionsController < Api::BaseController
     cache_collection(results.map(&:status), Status)
   end
 
+  # The Status scope merged for visibility/media checks includes
+  # statuses.id DESC via Status.default_scope. Clear that order before
+  # pagination so the returned page follows the collection record id.
   def results
     @_results ||= if legacy_media_filter?
-                    filtered_emoji_reactions.to_a_paginated_by_id(
+                    filtered_emoji_reactions.reorder(nil).to_a_paginated_by_id(
                       limit_param(DEFAULT_STATUSES_LIMIT),
                       params_slice(:max_id, :since_id, :min_id)
                     )
