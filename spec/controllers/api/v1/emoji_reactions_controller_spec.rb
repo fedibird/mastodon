@@ -569,13 +569,11 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         expect(kept).to match(/"media_attachments"\."status_id" IS NULL/)
       end
 
-      it 'orders media-only reactions by their representative reaction ids after reload' do
+      it 'keeps registration order with the media-only compatibility path' do
         older_status = Fabricate(:status, account: user.account)
         newer_status = Fabricate(:status, account: user.account)
         Fabricate(:media_attachment, account: user.account, status: older_status)
         Fabricate(:media_attachment, account: user.account, status: newer_status)
-
-        # Older post is added to the reaction list more recently.
         insert_reaction(id: 5100, status: newer_status)
         insert_reaction(id: 5200, status: older_status)
 
