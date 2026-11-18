@@ -11,6 +11,9 @@ export const BOOKMARKED_STATUSES_EXPAND_SUCCESS = 'BOOKMARKED_STATUSES_EXPAND_SU
 export const BOOKMARKED_STATUSES_EXPAND_FAIL = 'BOOKMARKED_STATUSES_EXPAND_FAIL';
 
 const DEFAULT_LIST_KEY = 'bookmarks';
+let requestSequence = 0;
+
+// A -> B -> A must not accept a stale response from the first A request.
 
 // Each pinned column owns its query/cursor. Standalone modes also have separate
 // cursors, so switching order cannot reuse an incompatible page.
@@ -54,43 +57,48 @@ export function fetchBookmarkedStatuses({ listKey = DEFAULT_LIST_KEY, onlyMedia 
       return Promise.resolve();
     }
 
-    dispatch(fetchBookmarkedStatusesRequest(listKey, queryKey, sortByPostDate));
+    const requestId = ++requestSequence;
+    dispatch(fetchBookmarkedStatusesRequest(listKey, queryKey, sortByPostDate, requestId));
 
     return api(getState).get(`/api/v1/bookmarks?${requestParams({ onlyMedia, withoutMedia, sortByPostDate })}`).then(response => {
       const next = getLinks(response).refs.find(link => link.rel === 'next');
       const statuses = importStatuses(dispatch, response.data);
-      dispatch(fetchBookmarkedStatusesSuccess(statuses, next ? next.uri : null, listKey, queryKey));
+      dispatch(fetchBookmarkedStatusesSuccess(statuses, next ? next.uri : null, listKey, queryKey, requestId));
     }).catch(error => {
-      dispatch(fetchBookmarkedStatusesFail(error, listKey, queryKey));
+      dispatch(fetchBookmarkedStatusesFail(error, listKey, queryKey, requestId));
     });
   };
 }
 
-export function fetchBookmarkedStatusesRequest(listKey = DEFAULT_LIST_KEY, queryKey = null, sortByPostDate = false) {
+export function fetchBookmarkedStatusesRequest(listKey = DEFAULT_LIST_KEY, queryKey = null, sortByPostDate = false, requestId = null) {
   return {
     type: BOOKMARKED_STATUSES_FETCH_REQUEST,
     listKey,
     queryKey,
+    requestId,
     sortByPostDate,
+    requestId,
   };
 }
 
-export function fetchBookmarkedStatusesSuccess(statuses, next, listKey = DEFAULT_LIST_KEY, queryKey = null) {
+export function fetchBookmarkedStatusesSuccess(statuses, next, listKey = DEFAULT_LIST_KEY, queryKey = null, requestId = null) {
   return {
     type: BOOKMARKED_STATUSES_FETCH_SUCCESS,
     statuses,
     next,
     listKey,
     queryKey,
+    requestId,
   };
 }
 
-export function fetchBookmarkedStatusesFail(error, listKey = DEFAULT_LIST_KEY, queryKey = null) {
+export function fetchBookmarkedStatusesFail(error, listKey = DEFAULT_LIST_KEY, queryKey = null, requestId = null) {
   return {
     type: BOOKMARKED_STATUSES_FETCH_FAIL,
     error,
     listKey,
     queryKey,
+    requestId,
   };
 }
 
@@ -99,46 +107,50 @@ export function expandBookmarkedStatuses({ listKey = DEFAULT_LIST_KEY } = {}) {
     const list = getState().getIn(['status_lists', listKey]);
     const url = list?.get('next');
     const queryKey = list?.get('queryKey');
+    const requestId = list?.get('requestId');
 
     if (!url || list.get('isLoading')) {
       return Promise.resolve();
     }
 
-    dispatch(expandBookmarkedStatusesRequest(listKey, queryKey));
+    dispatch(expandBookmarkedStatusesRequest(listKey, queryKey, requestId));
 
     return api(getState).get(url).then(response => {
       const next = getLinks(response).refs.find(link => link.rel === 'next');
       const statuses = importStatuses(dispatch, response.data);
-      dispatch(expandBookmarkedStatusesSuccess(statuses, next ? next.uri : null, listKey, queryKey));
+      dispatch(expandBookmarkedStatusesSuccess(statuses, next ? next.uri : null, listKey, queryKey, requestId));
     }).catch(error => {
-      dispatch(expandBookmarkedStatusesFail(error, listKey, queryKey));
+      dispatch(expandBookmarkedStatusesFail(error, listKey, queryKey, requestId));
     });
   };
 }
 
-export function expandBookmarkedStatusesRequest(listKey = DEFAULT_LIST_KEY, queryKey = null) {
+export function expandBookmarkedStatusesRequest(listKey = DEFAULT_LIST_KEY, queryKey = null, requestId = null) {
   return {
     type: BOOKMARKED_STATUSES_EXPAND_REQUEST,
     listKey,
     queryKey,
+    requestId,
   };
 }
 
-export function expandBookmarkedStatusesSuccess(statuses, next, listKey = DEFAULT_LIST_KEY, queryKey = null) {
+export function expandBookmarkedStatusesSuccess(statuses, next, listKey = DEFAULT_LIST_KEY, queryKey = null, requestId = null) {
   return {
     type: BOOKMARKED_STATUSES_EXPAND_SUCCESS,
     statuses,
     next,
     listKey,
     queryKey,
+    requestId,
   };
 }
 
-export function expandBookmarkedStatusesFail(error, listKey = DEFAULT_LIST_KEY, queryKey = null) {
+export function expandBookmarkedStatusesFail(error, listKey = DEFAULT_LIST_KEY, queryKey = null, requestId = null) {
   return {
     type: BOOKMARKED_STATUSES_EXPAND_FAIL,
     error,
     listKey,
     queryKey,
+    requestId,
   };
 }
