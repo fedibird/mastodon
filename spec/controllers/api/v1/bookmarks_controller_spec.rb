@@ -153,6 +153,15 @@ RSpec.describe Api::V1::BookmarksController, type: :controller do
             expect(Rack::Utils.parse_query(URI(previous_link).query)).to include('order' => 'status', 'min_id' => newer_status.id.to_s)
           end
 
+          it 'does not duplicate a status with multiple media in date order' do
+            Fabricate(:media_attachment, account: user.account, status: newer_status)
+            Fabricate(:media_attachment, account: user.account, status: newer_status)
+
+            get :index, params: { order: 'status', only_media: true }
+
+            expect(assigns(:statuses).map(&:id)).to eq [newer_status.id]
+          end
+
           it 'paginates older statuses in date order' do
             get :index, params: { order: 'status', max_id: newer_status.id }
 
