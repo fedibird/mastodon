@@ -42,6 +42,7 @@ const createList = () => ImmutableMap({
   stale: false,
   sortByPostDate: false,
   queryKey: null,
+  requestId: null,
   items: ImmutableList(),
 });
 
@@ -57,7 +58,9 @@ const listKeyOf = (action, fallback) => action.listKey || fallback;
 // A superseded request must never replace the next-page cursor of a newer
 // filter/order, including when the user flips the order twice quickly.
 const matchesQuery = (state, action, listKey) => (
-  state.has(listKey) && (action.queryKey === null || action.queryKey === undefined || state.getIn([listKey, 'queryKey']) === action.queryKey)
+  state.has(listKey)
+  && (action.queryKey == null || state.getIn([listKey, 'queryKey']) === action.queryKey)
+  && (action.requestId == null || state.getIn([listKey, 'requestId']) === action.requestId)
 );
 
 const beginFetch = (state, listKey, action) => state.update(listKey, createList(), list => list.merge({
@@ -67,6 +70,7 @@ const beginFetch = (state, listKey, action) => state.update(listKey, createList(
   stale: false,
   sortByPostDate: !!action.sortByPostDate,
   queryKey: action.queryKey,
+  requestId: action.requestId ?? null,
   items: ImmutableList(),
 }));
 
