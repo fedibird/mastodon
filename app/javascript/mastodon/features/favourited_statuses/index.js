@@ -161,7 +161,7 @@ class Favourites extends ImmutablePureComponent {
           mediaStatuses={mediaStatuses}
           trackScroll={!pinned}
           statusIds={statusIds}
-          scrollKey={`favourited_statuses-${columnId}`}
+          scrollKey={`favourited_statuses-${columnId}${sortByPostDate ? '-status' : ''}`}
           hasMore={hasMore}
           isLoading={isLoading}
           onLoadMore={this.handleLoadMore}
