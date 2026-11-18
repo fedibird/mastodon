@@ -31,7 +31,10 @@ class Api::V1::BookmarksController < Api::BaseController
     @_results ||= if status_order?
                     status_ordered_results(filtered_account_bookmarks)
                   else
-                    filtered_account_bookmarks.to_a_paginated_by_id(
+                    # Status.default_scope orders by statuses.id DESC; the projection
+                    # privacy merge can bring that order into this relation.
+                    # Clear it so record-id pagination and the visible order agree.
+                    filtered_account_bookmarks.reorder(nil).to_a_paginated_by_id(
                       limit_param(DEFAULT_STATUSES_LIMIT),
                       params_slice(:max_id, :since_id, :min_id)
                     )
