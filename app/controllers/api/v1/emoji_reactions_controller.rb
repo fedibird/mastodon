@@ -47,7 +47,9 @@ class Api::V1::EmojiReactionsController < Api::BaseController
     @_results ||= if status_order?
                     limited_representative_emoji_reactions
                   elsif legacy_media_filter?
-                    filtered_emoji_reactions.to_a_paginated_by_id(
+                    # Clear Status.default_scope ordering inherited through the
+                    # visibility/media joins before cursor-based reaction ordering.
+                    filtered_emoji_reactions.reorder(nil).to_a_paginated_by_id(
                       limit_param(DEFAULT_STATUSES_LIMIT),
                       params_slice(:max_id, :since_id, :min_id)
                     )
