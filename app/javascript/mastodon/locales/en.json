@@ -149,6 +149,7 @@
   "column.account": "Account",
   "column.blocks": "Blocked users",
   "column.bookmarks": "Bookmarks",
+  "column.saved_sort_by_post_date": "Order by post date",
   "column.circles": "Circles",
   "column.community": "Local timeline",
   "column.custom_emoji_detail": "Custom emoji detail",
