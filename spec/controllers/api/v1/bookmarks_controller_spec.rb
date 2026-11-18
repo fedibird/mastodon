@@ -71,6 +71,44 @@ RSpec.describe Api::V1::BookmarksController, type: :controller do
           expect(assigns(:statuses)).to match_array [bookmarked_by_user.status]
         end
 
+        context 'with post-date order' do
+          let!(:older_status) { Fabricate(:status, account: user.account) }
+          let!(:newer_status) { Fabricate(:status, account: user.account) }
+
+          before do
+            # Register the newer post first and the older post last.
+            Fabricate(:bookmark, account: user.account, status: newer_status)
+            Fabricate(:bookmark, account: user.account, status: older_status)
+          end
+
+          it 'keeps the original added order when order is omitted' do
+            get :index
+
+            expect(assigns(:statuses).map(&:id)).to eq [older_status.id, newer_status.id]
+          end
+
+          it 'shows the newer status first when order=status is requested' do
+            get :index, params: { order: 'status' }
+
+            expect(assigns(:statuses).map(&:id)).to eq [newer_status.id, older_status.id]
+          end
+
+          it 'paginates status order using status ids and preserves the mode in Link headers' do
+            get :index, params: { order: 'status', limit: 1 }
+
+            expect(assigns(:statuses).map(&:id)).to eq [newer_status.id]
+            next_link = response.headers['Link'].find_link(['rel', 'next']).href
+            previous_link = response.headers['Link'].find_link(['rel', 'prev']).href
+            expect(Rack::Utils.parse_query(URI(next_link).query)).to include('order' => 'status', 'max_id' => newer_status.id.to_s)
+            expect(Rack::Utils.parse_query(URI(previous_link).query)).to include('order' => 'status', 'min_id' => newer_status.id.to_s)
+          end
+
+          it 'supports the older, newer, and since cursors in status order' do
+            get :index, params: { order: 'status', max_id: newer_status.id }
+            expect(assigns(:statuses).map(&:id)).to eq [older_status.id]
+          end
+        end
+
         it 'adds pagination headers if necessary' do
           bookmark = Fabricate(:bookmark, account: user.account)
 
