@@ -75,7 +75,6 @@ export function fetchFavouritedStatusesRequest(listKey = DEFAULT_LIST_KEY, query
     type: FAVOURITED_STATUSES_FETCH_REQUEST,
     listKey,
     queryKey,
-    requestId,
     sortByPostDate,
     requestId,
     skipLoading: true,
