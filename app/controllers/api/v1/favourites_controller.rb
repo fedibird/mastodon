@@ -27,8 +27,11 @@ class Api::V1::FavouritesController < Api::BaseController
     cache_collection(results.map(&:status), Status)
   end
 
+  # The Status scope merged for visibility/media checks includes
+  # statuses.id DESC via Status.default_scope. Clear that order before
+  # pagination so the returned page follows the collection record id.
   def results
-    @_results ||= filtered_account_favourites.to_a_paginated_by_id(
+    @_results ||= filtered_account_favourites.reorder(nil).to_a_paginated_by_id(
       limit_param(DEFAULT_STATUSES_LIMIT),
       params_slice(:max_id, :since_id, :min_id)
     )
