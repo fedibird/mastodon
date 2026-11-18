@@ -194,7 +194,7 @@ class EmojiReactions extends ImmutablePureComponent {
           mediaStatuses={mediaStatuses}
           trackScroll={!pinned}
           statusIds={statusIds}
-          scrollKey={`emoji_reactioned_statuses-${columnId}`}
+          scrollKey={`emoji_reactioned_statuses-${columnId}${sortByPostDate ? '-status' : ''}`}
           hasMore={hasMore}
           isLoading={isLoading}
           onLoadMore={this.handleLoadMore}
