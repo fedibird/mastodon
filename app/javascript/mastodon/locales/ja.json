@@ -163,6 +163,7 @@
   "column.account": "アカウント",
   "column.blocks": "ブロックしたユーザー",
   "column.bookmarks": "ブックマーク",
+  "column.saved_sort_by_post_date": "投稿日時順に表示",
   "column.circles": "サークル",
   "column.community": "ローカルタイムライン",
   "column.custom_emoji_detail": "カスタム絵文字の詳細",
