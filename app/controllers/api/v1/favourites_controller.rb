@@ -31,7 +31,10 @@ class Api::V1::FavouritesController < Api::BaseController
     @_results ||= if status_order?
                     status_ordered_results(filtered_account_favourites)
                   else
-                    filtered_account_favourites.to_a_paginated_by_id(
+                    # Status.default_scope orders by statuses.id DESC; the projection
+                    # privacy merge can bring that order into this relation.
+                    # Clear it so record-id pagination and the visible order agree.
+                    filtered_account_favourites.reorder(nil).to_a_paginated_by_id(
                       limit_param(DEFAULT_STATUSES_LIMIT),
                       params_slice(:max_id, :since_id, :min_id)
                     )
