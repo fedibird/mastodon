@@ -49,6 +49,33 @@ describe('saved timeline sort and cursor isolation', () => {
     expect(state.getIn([columnB, 'next'])).toBe('/date-next');
   });
 
+  it('ignores a delayed A response after an A-B-A filter sequence', () => {
+    const key = bookmarksListKey('column-a');
+    let state = reducer(undefined, {
+      type: BOOKMARKED_STATUSES_FETCH_REQUEST, listKey: key, queryKey: 'added', requestId: 11,
+    });
+    state = reducer(state, {
+      type: BOOKMARKED_STATUSES_FETCH_REQUEST, listKey: key, queryKey: 'status', sortByPostDate: true, requestId: 12,
+    });
+    state = reducer(state, {
+      type: BOOKMARKED_STATUSES_FETCH_REQUEST, listKey: key, queryKey: 'added', requestId: 13,
+    });
+    state = reducer(state, {
+      type: BOOKMARKED_STATUSES_FETCH_SUCCESS, listKey: key, queryKey: 'added', requestId: 11,
+      statuses: [{ id: 'old-result' }], next: '/wrong-page',
+    });
+
+    expect(state.getIn([key, 'items']).toJS()).toEqual([]);
+    expect(state.getIn([key, 'isLoading'])).toBe(true);
+
+    state = reducer(state, {
+      type: BOOKMARKED_STATUSES_FETCH_SUCCESS, listKey: key, queryKey: 'added', requestId: 13,
+      statuses: [{ id: 'new-result' }], next: '/new-page',
+    });
+    expect(state.getIn([key, 'items']).toJS()).toEqual(['new-result']);
+    expect(state.getIn([key, 'next'])).toBe('/new-page');
+  });
+
   it('ignores an old pagination response when the sort has changed', () => {
     const key = bookmarksListKey('column-a');
     let state = reducer(undefined, request(BOOKMARKED_STATUSES_FETCH_REQUEST, key, 'added'));
