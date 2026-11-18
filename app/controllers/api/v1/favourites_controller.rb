@@ -54,6 +54,10 @@ class Api::V1::FavouritesController < Api::BaseController
     scope = scope.where(status_id.gt(page[:since_id])) if page[:since_id].present?
     scope = scope.where(status_id.gt(page[:min_id])) if page[:min_id].present?
 
+    # A post can have multiple media attachments; the media join must not
+    # consume several positions in one status-ordered page.
+    scope = scope.distinct if media_only?
+
     ascending = page[:min_id].present?
     records = scope.reorder(ascending ? status_id.asc : status_id.desc).limit(limit_param(DEFAULT_STATUSES_LIMIT)).to_a
     ascending ? records.reverse : records
