@@ -18,6 +18,7 @@ const createFilters = (filters = {}) => ImmutableMap({
   emojis: ImmutableList(filters.emojis || []),
   onlyMedia: !!filters.onlyMedia,
   withoutMedia: !!filters.withoutMedia,
+  sortByPostDate: !!filters.sortByPostDate,
 });
 
 const createList = () => ImmutableMap({
