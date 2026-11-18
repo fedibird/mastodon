@@ -32,25 +32,27 @@ export function emojiReactionFilterValues(emojis) {
   return Array.from(emojis);
 }
 
-export function getEmojiReactionQueryKey({ emojis = [], onlyMedia = false, withoutMedia = false } = {}) {
+export function getEmojiReactionQueryKey({ emojis = [], onlyMedia = false, withoutMedia = false, sortByPostDate = false } = {}) {
   return JSON.stringify({
     emojis: Array.from(new Set(emojiReactionFilterValues(emojis))).sort(),
     onlyMedia: !!onlyMedia,
     withoutMedia: !!withoutMedia,
+    sortByPostDate: !!sortByPostDate,
   });
 }
 
-export function pinnedEmojiReactionColumnParams({ emojis, onlyMedia, withoutMedia } = {}) {
+export function pinnedEmojiReactionColumnParams({ emojis, onlyMedia, withoutMedia, sortByPostDate } = {}) {
   return {
     emojis: emojiReactionFilterValues(emojis),
     other: {
       onlyMedia: !!onlyMedia,
       withoutMedia: !!withoutMedia,
+      sortByPostDate: !!sortByPostDate,
     },
   };
 }
 
-function emojiReactionRequestParams(emojis, onlyMedia, withoutMedia) {
+function emojiReactionRequestParams(emojis, onlyMedia, withoutMedia, sortByPostDate) {
   const params = { compact: true };
 
   if (emojis.length) {
@@ -63,6 +65,10 @@ function emojiReactionRequestParams(emojis, onlyMedia, withoutMedia) {
 
   if (withoutMedia) {
     params.without_media = true;
+  }
+
+  if (sortByPostDate) {
+    params.order = 'status';
   }
 
   return params;
@@ -88,10 +94,11 @@ export function fetchEmojiReactionedStatuses({
   emojis = [],
   onlyMedia = false,
   withoutMedia = false,
+  sortByPostDate = false,
 } = {}) {
   return (dispatch, getState) => {
     const emojiValues = emojiReactionFilterValues(emojis);
-    const queryKey = getEmojiReactionQueryKey({ emojis: emojiValues, onlyMedia, withoutMedia });
+    const queryKey = getEmojiReactionQueryKey({ emojis: emojiValues, onlyMedia, withoutMedia, sortByPostDate });
     const current = getState().getIn(['emoji_reactioned_statuses', 'lists', listKey]);
 
     if (current && current.get('isLoading') && current.get('queryKey') === queryKey) {
@@ -102,12 +109,13 @@ export function fetchEmojiReactionedStatuses({
       emojis: emojiValues,
       onlyMedia: !!onlyMedia,
       withoutMedia: !!withoutMedia,
+      sortByPostDate: !!sortByPostDate,
     };
 
     dispatch(fetchEmojiReactionedStatusesRequest(listKey, queryKey, filters));
 
     return api(getState).get('/api/v1/emoji_reactions', {
-      params: emojiReactionRequestParams(emojiValues, filters.onlyMedia, filters.withoutMedia),
+      params: emojiReactionRequestParams(emojiValues, filters.onlyMedia, filters.withoutMedia, filters.sortByPostDate),
     }).then(response => {
       const next = getLinks(response).refs.find(link => link.rel === 'next');
       const statuses = importEmojiReactionedStatuses(dispatch, response.data);
