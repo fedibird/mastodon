@@ -131,7 +131,7 @@ class Bookmarks extends ImmutablePureComponent {
   }
 
   render () {
-    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses } = this.props;
+    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses, listKey, sortByPostDate } = this.props;
     const pinned = !!columnId;
 
     const emptyMessage = <FormattedMessage id='empty_column.bookmarked_statuses' defaultMessage="You don't have any bookmarked toots yet. When you bookmark one, it will show up here." />;
@@ -156,6 +156,7 @@ class Bookmarks extends ImmutablePureComponent {
         </ColumnHeader>
 
         <StatusList
+          key={`${listKey}:${sortByPostDate ? 'status' : 'added'}`}
           layoutMode={layoutMode}
           mediaStatuses={mediaStatuses}
           trackScroll={!pinned}
