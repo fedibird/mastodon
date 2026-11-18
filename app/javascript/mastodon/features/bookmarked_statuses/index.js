@@ -161,7 +161,7 @@ class Bookmarks extends ImmutablePureComponent {
           mediaStatuses={mediaStatuses}
           trackScroll={!pinned}
           statusIds={statusIds}
-          scrollKey={`bookmarked_statuses-${columnId}`}
+          scrollKey={`bookmarked_statuses-${columnId}${sortByPostDate ? '-status' : ''}`}
           hasMore={hasMore}
           isLoading={isLoading}
           onLoadMore={this.handleLoadMore}
