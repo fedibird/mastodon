@@ -27,6 +27,9 @@ class Api::V1::BookmarksController < Api::BaseController
     cache_collection(results.map(&:status), Status)
   end
 
+  # The Status scope merged for visibility/media checks includes
+  # statuses.id DESC via Status.default_scope. Clear that order before
+  # pagination so the returned page follows the collection record id.
   def results
     @_results ||= if status_order?
                     status_ordered_results(filtered_account_bookmarks)
