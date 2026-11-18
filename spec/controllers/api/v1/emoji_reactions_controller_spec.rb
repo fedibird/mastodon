@@ -569,6 +569,22 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         expect(kept).to match(/"media_attachments"\."status_id" IS NULL/)
       end
 
+      it 'orders media-only reactions by their representative reaction ids after reload' do
+        older_status = Fabricate(:status, account: user.account)
+        newer_status = Fabricate(:status, account: user.account)
+        Fabricate(:media_attachment, account: user.account, status: older_status)
+        Fabricate(:media_attachment, account: user.account, status: newer_status)
+
+        # Older post is added to the reaction list more recently.
+        insert_reaction(id: 5100, status: newer_status)
+        insert_reaction(id: 5200, status: older_status)
+
+        get :index, params: { compact: true, only_media: true, limit: 1 }
+
+        expect(body_as_json[:statuses].map { |status| status[:id] }).to eq [older_status.id.to_s]
+        expect(link_param('next', 'max_id')).to eq '5200'
+      end
+
       it 'keeps only_media on the existing filtered query' do
         with_media = Fabricate(:status, account: user.account)
         without_media = Fabricate(:status, account: user.account)
