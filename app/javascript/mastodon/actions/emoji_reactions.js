@@ -15,6 +15,7 @@ export const EMOJI_REACTION_EMOJIS_FETCH_SUCCESS = 'EMOJI_REACTION_EMOJIS_FETCH_
 export const EMOJI_REACTION_EMOJIS_FETCH_FAIL    = 'EMOJI_REACTION_EMOJIS_FETCH_FAIL';
 
 export const DEFAULT_EMOJI_REACTIONED_STATUSES_LIST_KEY = 'default';
+let requestSequence = 0;
 
 export function emojiReactionedStatusesListKey(columnId) {
   return columnId || DEFAULT_EMOJI_REACTIONED_STATUSES_LIST_KEY;
@@ -112,44 +113,48 @@ export function fetchEmojiReactionedStatuses({
       sortByPostDate: !!sortByPostDate,
     };
 
-    dispatch(fetchEmojiReactionedStatusesRequest(listKey, queryKey, filters));
+    const requestId = ++requestSequence;
+    dispatch(fetchEmojiReactionedStatusesRequest(listKey, queryKey, filters, requestId));
 
     return api(getState).get('/api/v1/emoji_reactions', {
       params: emojiReactionRequestParams(emojiValues, filters.onlyMedia, filters.withoutMedia, filters.sortByPostDate),
     }).then(response => {
       const next = getLinks(response).refs.find(link => link.rel === 'next');
       const statuses = importEmojiReactionedStatuses(dispatch, response.data);
-      dispatch(fetchEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next ? next.uri : null));
+      dispatch(fetchEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next ? next.uri : null, requestId));
     }).catch(error => {
-      dispatch(fetchEmojiReactionedStatusesFail(listKey, queryKey, error));
+      dispatch(fetchEmojiReactionedStatusesFail(listKey, queryKey, error, requestId));
     });
   };
 }
 
-export function fetchEmojiReactionedStatusesRequest(listKey, queryKey, filters) {
+export function fetchEmojiReactionedStatusesRequest(listKey, queryKey, filters, requestId = null) {
   return {
     type: EMOJI_REACTIONED_STATUSES_FETCH_REQUEST,
     listKey,
     queryKey,
+    requestId,
     filters,
   };
 }
 
-export function fetchEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next) {
+export function fetchEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next, requestId = null) {
   return {
     type: EMOJI_REACTIONED_STATUSES_FETCH_SUCCESS,
     listKey,
     queryKey,
+    requestId,
     statuses,
     next,
   };
 }
 
-export function fetchEmojiReactionedStatusesFail(listKey, queryKey, error) {
+export function fetchEmojiReactionedStatusesFail(listKey, queryKey, error, requestId = null) {
   return {
     type: EMOJI_REACTIONED_STATUSES_FETCH_FAIL,
     listKey,
     queryKey,
+    requestId,
     error,
   };
 }
@@ -159,46 +164,50 @@ export function expandEmojiReactionedStatuses(listKey = DEFAULT_EMOJI_REACTIONED
     const list = getState().getIn(['emoji_reactioned_statuses', 'lists', listKey]);
     const url = list ? list.get('next') : null;
     const queryKey = list ? list.get('queryKey') : null;
+    const requestId = list ? list.get('requestId') : null;
 
     if (!list || url === null || (list.get('isLoading') && list.get('queryKey') === queryKey)) {
       return Promise.resolve();
     }
 
-    dispatch(expandEmojiReactionedStatusesRequest(listKey, queryKey));
+    dispatch(expandEmojiReactionedStatusesRequest(listKey, queryKey, requestId));
 
     return api(getState).get(url).then(response => {
       const next = getLinks(response).refs.find(link => link.rel === 'next');
       const statuses = importEmojiReactionedStatuses(dispatch, response.data);
-      dispatch(expandEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next ? next.uri : null));
+      dispatch(expandEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next ? next.uri : null, requestId));
     }).catch(error => {
-      dispatch(expandEmojiReactionedStatusesFail(listKey, queryKey, error));
+      dispatch(expandEmojiReactionedStatusesFail(listKey, queryKey, error, requestId));
     });
   };
 }
 
-export function expandEmojiReactionedStatusesRequest(listKey, queryKey) {
+export function expandEmojiReactionedStatusesRequest(listKey, queryKey, requestId = null) {
   return {
     type: EMOJI_REACTIONED_STATUSES_EXPAND_REQUEST,
     listKey,
     queryKey,
+    requestId,
   };
 }
 
-export function expandEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next) {
+export function expandEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next, requestId = null) {
   return {
     type: EMOJI_REACTIONED_STATUSES_EXPAND_SUCCESS,
     listKey,
     queryKey,
+    requestId,
     statuses,
     next,
   };
 }
 
-export function expandEmojiReactionedStatusesFail(listKey, queryKey, error) {
+export function expandEmojiReactionedStatusesFail(listKey, queryKey, error, requestId = null) {
   return {
     type: EMOJI_REACTIONED_STATUSES_EXPAND_FAIL,
     listKey,
     queryKey,
+    requestId,
     error,
   };
 }
