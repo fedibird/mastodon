@@ -90,9 +90,15 @@ RSpec.describe Api::V1::FavouritesController, type: :controller do
             expect(Rack::Utils.parse_query(URI(previous_link).query)).to include('order' => 'status', 'min_id' => newer_status.id.to_s)
           end
 
-          it 'supports the older, newer, and since cursors in status order' do
+          it 'supports older, min_id, and since_id cursors in status order' do
             get :index, params: { order: 'status', max_id: newer_status.id }
             expect(assigns(:statuses).map(&:id)).to eq [older_status.id]
+
+            get :index, params: { order: 'status', min_id: older_status.id }
+            expect(assigns(:statuses).map(&:id)).to eq [newer_status.id]
+
+            get :index, params: { order: 'status', since_id: older_status.id }
+            expect(assigns(:statuses).map(&:id)).to eq [newer_status.id]
           end
         end
 
