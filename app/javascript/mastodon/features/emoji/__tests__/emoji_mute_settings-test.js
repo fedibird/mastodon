@@ -247,4 +247,47 @@ describe('Emoji mute settings', () => {
     expect(screen.getByDisplayValue('kept')).toBeTruthy();
     expect(await screen.findByText('This mute changed elsewhere. Reload the page and try again.')).toBeTruthy();
   });
+  it('shows existing mutes but disables all edits while the safety setting is enabled', async () => {
+    const saveRule = jest.fn();
+    const removeRule = jest.fn();
+    const createRule = jest.fn();
+    const ref = React.createRef();
+    const view = render(
+      <EmojiMuteSettingsInner
+        ref={ref}
+        intl={{ formatMessage: message => message.defaultMessage }}
+        disableMuteActions
+        loadDocument={() => Promise.resolve(documentResponse)}
+        saveRule={saveRule}
+        removeRule={removeRule}
+        createRule={createRule}
+      />,
+    );
+
+    try {
+      expect(await screen.findByText(DEFAULT_REPLACEMENT)).toBeTruthy();
+      expect(screen.getByText(/Emoji mute changes are disabled for safety/)).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Add muted emoji' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Apply to selected' })).toBeNull();
+      expect(screen.queryByRole('tab', { name: 'Select emoji' })).toBeNull();
+      expect(screen.getAllByRole('button', { name: 'Remove mute' }).every(button => button.disabled)).toBe(true);
+      expect(screen.getAllByRole('textbox', { name: 'Replacement text' }).every(input => input.disabled)).toBe(true);
+
+      // Guard write entry points too, rather than relying on disabled buttons.
+      await act(async () => {
+        ref.current.handlePickerPick({ native: '😀' });
+        ref.current.handleRemove({ currentTarget: { getAttribute: () => '15' } });
+        ref.current.handleSave({ preventDefault: () => {}, currentTarget: { getAttribute: () => '15' } });
+        await ref.current.runBulkRemove();
+        await ref.current.runBulkUpdate();
+      });
+      expect(saveRule).not.toHaveBeenCalled();
+      expect(removeRule).not.toHaveBeenCalled();
+      expect(createRule).not.toHaveBeenCalled();
+      expect(screen.getByText(DEFAULT_REPLACEMENT)).toBeTruthy();
+    } finally {
+      view.unmount();
+    }
+  });
+
 });

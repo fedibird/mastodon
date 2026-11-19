@@ -62,4 +62,14 @@ RSpec.describe 'Settings custom emoji preferences page', type: :request do
     expect(user.setting_emoji_preview_click_action).to eq('none')
     expect(user.setting_emoji_mute_disable_actions).to eq(false)
   end
+  it 'marks the mute manager read-only when the user safety flag is enabled' do
+    user.settings['emoji_mute_disable_actions'] = true
+    user.save!
+
+    get settings_custom_emojis_mutes_path
+
+    expect(response).to have_http_status(200)
+    expect(response.body).to include('data-disable-mute-actions="true"')
+  end
+
 end

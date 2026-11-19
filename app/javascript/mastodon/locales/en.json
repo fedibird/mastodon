@@ -1449,6 +1449,7 @@
   "emoji_detail.native": "Completed string",
   "emoji_detail.code_points": "Code points",
   "emoji_detail.emoji_id": "Catalog id",
+  "emoji_mutes.mute_actions_disabled": "Emoji mute changes are disabled for safety. To edit this list, turn off that option in custom emoji settings.",
   "emoji_mutes.title": "Muted emoji",
   "emoji_mutes.subtitle": "Choose how muted emoji are replaced in posts you read, hidden from reactions, and kept out of pickers. Picker exclusion is stored and applied in a later step.",
   "emoji_mutes.loading": "Loading muted emoji…",
