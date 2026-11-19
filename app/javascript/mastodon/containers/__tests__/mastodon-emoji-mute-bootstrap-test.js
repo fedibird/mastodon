@@ -219,9 +219,9 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     view.unmount();
   });
   it('offers a delayed generic startup message and an explicit bypass', () => {
-    const reload = jest.spyOn(Mastodon.prototype, 'reloadPage').mockImplementation(() => {});
     const ref = React.createRef();
     const view = render(<Mastodon ref={ref} locale='en' />);
+    ref.current.reloadPage = jest.fn();
 
     expect(view.queryByText('Preparing the interface…')).toBeNull();
     expect(view.queryByText('Start without emoji muting')).toBeNull();
@@ -230,25 +230,24 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(view.getByText('Preparing the interface…')).not.toBeNull();
     fireEvent.click(view.getByText('Start without emoji muting'));
     expect(requestEmojiMuteBypass).toHaveBeenCalledTimes(1);
-    expect(reload).toHaveBeenCalledTimes(1);
+    expect(ref.current.reloadPage).toHaveBeenCalledTimes(1);
 
     view.unmount();
-    reload.mockRestore();
   });
 
   it('shows a way back to normal after an opted-in bypass', async () => {
-    const reload = jest.spyOn(Mastodon.prototype, 'reloadPage').mockImplementation(() => {});
     emojiMuteBypassEnabled.mockReturnValue(true);
-    const view = render(<Mastodon locale='en' />);
+    const ref = React.createRef();
+    const view = render(<Mastodon ref={ref} locale='en' />);
+    ref.current.reloadPage = jest.fn();
     await bootReady();
 
     expect(view.getByText(/Emoji muting is disabled in this tab/)).not.toBeNull();
     fireEvent.click(view.getByText('Turn emoji muting back on'));
     expect(clearEmojiMuteBypass).toHaveBeenCalledTimes(1);
-    expect(reload).toHaveBeenCalledTimes(1);
+    expect(ref.current.reloadPage).toHaveBeenCalledTimes(1);
 
     view.unmount();
-    reload.mockRestore();
   });
 
   it('does not mount the WebUI before an authoritative mute document is loaded', async () => {
