@@ -125,6 +125,7 @@ class Api::V1::EmojiReactionsController < Api::BaseController
     scope = EmojiReaction.where(id: ids).joins(:status).eager_load(:status).merge(ExternalBridge::ProjectionPrivacy.visible_status_relation(current_user.id))
     scope = scope.merge(media_only_scope) if media_only?
     scope = scope.merge(without_media_scope) if without_media?
+
     # EmojiReaction#status deliberately includes expired statuses. The
     # projection privacy and media relations use Status.default_scope, which
     # adds expired_at IS NULL again. Remove only that condition, keeping
@@ -138,6 +139,7 @@ class Api::V1::EmojiReactionsController < Api::BaseController
     scope = account_emoji_reactions.joins(:status).eager_load(:status).merge(ExternalBridge::ProjectionPrivacy.visible_status_relation(current_user.id))
     scope = scope.merge(media_only_scope) if media_only?
     scope = scope.merge(without_media_scope) if without_media?
+    # Keep the legacy media-filtered query consistent with the bounded scan.
     scope.unscope(where: :expired_at)
   end
 
