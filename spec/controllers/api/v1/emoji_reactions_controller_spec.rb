@@ -101,6 +101,72 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         expect(status_ids).to eq [status_c.id.to_s, status_b.id.to_s, status_a.id.to_s]
       end
 
+      context 'with post-date order' do
+        let!(:older_status) { Fabricate(:status, account: user.account) }
+        let!(:newer_status) { Fabricate(:status, account: user.account) }
+
+        before do
+          # Reverse the reaction id order relative to the post order.
+          insert_reaction(id: 800, status: older_status)
+          insert_reaction(id: 700, status: newer_status)
+        end
+
+        it 'keeps the representative reaction order by default' do
+          get :index
+
+          expect(status_ids).to eq [older_status.id.to_s, newer_status.id.to_s]
+        end
+
+        it 'orders by status id and uses it in the page links' do
+          get :index, params: { order: 'status', limit: 1 }
+
+          expect(status_ids).to eq [newer_status.id.to_s]
+          expect(link_param('next', 'max_id')).to eq newer_status.id.to_s
+          expect(link_param('prev', 'min_id')).to eq newer_status.id.to_s
+          expect(link_param('next', 'order')).to eq 'status'
+          expect(link_param('prev', 'order')).to eq 'status'
+        end
+
+        it 'paginates after a status id instead of a reaction id' do
+          get :index, params: { order: 'status', max_id: newer_status.id }
+
+          expect(status_ids).to eq [older_status.id.to_s]
+        end
+
+        it 'uses status id for min_id pagination' do
+          get :index, params: { order: 'status', min_id: older_status.id }
+
+          expect(status_ids).to eq [newer_status.id.to_s]
+        end
+
+        it 'uses status id for since_id pagination' do
+          get :index, params: { order: 'status', since_id: older_status.id }
+
+          expect(status_ids).to eq [newer_status.id.to_s]
+        end
+
+        it 'keeps the same reaction per status rule with emoji filtering' do
+          insert_reaction(id: 900, status: older_status, name: '🎉')
+          insert_reaction(id: 910, status: newer_status, name: '🎉')
+
+          get :index, params: { order: 'status', emojis: ['🎉'] }
+
+          expect(status_ids).to eq [newer_status.id.to_s, older_status.id.to_s]
+          expect(link_param('prev', 'order')).to eq 'status'
+          expect(link_values('prev', 'emojis')).to eq ['🎉']
+        end
+
+        it 'keeps the candidate scan bounded and sorted without a join' do
+          queries = capture_sql { get :index, params: { order: 'status', limit: 1 } }
+          candidates = candidate_queries(queries)
+
+          expect(candidates.size).to eq 1
+          expect(candidates.first).to match(/ORDER BY "emoji_reactions"."status_id" DESC/)
+          expect(candidates.first).not_to match(/JOIN/i)
+          expect(candidates.first).to match(/LIMIT/)
+        end
+      end
+
       it 'returns only the first page of representative ids' do
         statuses = Array.new(4) { Fabricate(:status, account: user.account) }
         insert_reaction(id: 110, status: statuses[0])

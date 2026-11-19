@@ -170,6 +170,7 @@
   "column.pins": "Pinned posts",
   "column.public": "Federated timeline",
   "column.referred_by_statuses": "Referred by posts",
+  "column.saved_sort_by_post_date": "Order by post date",
   "column.scheduled_statuses": "Scheduled Posts",
   "column_back_button.label": "Back",
   "column_back_button_to_pots.label": "Back to post detail",

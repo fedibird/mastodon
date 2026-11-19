@@ -184,6 +184,7 @@
   "column.pins": "固定された投稿",
   "column.public": "連合タイムライン",
   "column.referred_by_statuses": "参照している投稿",
+  "column.saved_sort_by_post_date": "投稿日時順に表示",
   "column.scheduled_statuses": "予約投稿",
   "column_back_button.label": "戻る",
   "column_back_button_to_pots.label": "投稿の詳細に戻る",
