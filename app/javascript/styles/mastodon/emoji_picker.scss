@@ -348,19 +348,41 @@
   }
 }
 
-// The shell's source switch and action controls are not Nimble's native
-// .emoji-mart-bar elements. That class hides its last child, which would
-// otherwise hide the source switch when action controls are disabled (or
-// the edit button when enabled). Keep the shell chrome styled independently.
+// Shell chrome lives outside Nimble's .emoji-mart and must supply its own
+// palette. Do not re-add .emoji-mart-bar: its last-child rule would hide the
+// mode switch when the action menu is disabled (and the Edit bar otherwise).
 .emoji-picker-shell__chrome {
   display: flex;
   flex-direction: column;
+  background: $ui-secondary-color;
+  color: $lighter-text-color;
+  font-size: 13px;
 }
 
 .emoji-picker-shell__modes {
   border-bottom: 1px solid darken($ui-secondary-color, 8%);
   border-radius: 5px 5px 0 0;
   background: $ui-secondary-color;
+
+  // Buttons do not inherit color consistently outside .emoji-mart. Explicit
+  // states keep the inactive tab legible on the same light picker palette.
+  .emoji-mart-anchor {
+    color: $lighter-text-color;
+
+    &:hover,
+    &:focus-visible {
+      color: darken($lighter-text-color, 4%);
+    }
+
+    &.emoji-mart-anchor-selected {
+      color: $highlight-text-color;
+
+      &:hover,
+      &:focus-visible {
+        color: darken($highlight-text-color, 4%);
+      }
+    }
+  }
 }
 
 .emoji-picker-shell__edit {
