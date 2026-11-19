@@ -3,6 +3,7 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import EmojiPickerShell from '../emoji_picker_shell';
+import { EmojiActionsMenuController } from 'mastodon/features/ui/components/emoji_actions_menu_controller';
 import { loadStandardEmojiPicker } from '../standard_emoji_loader';
 import { loadPersonalEmojiStock } from '../emoji_stock_source';
 
@@ -72,6 +73,26 @@ describe('picker action-menu preference is independent of both emoji sources', (
     loadPersonalEmojiStock.mockResolvedValue({ status: 'ready', stock });
     loadStandardEmojiPicker.mockReset();
     loadStandardEmojiPicker.mockResolvedValue({ Picker: StandardPicker, Emoji: () => null });
+  });
+
+  it('ignores picker-scoped menu calls even when delegated DOM markers survive', () => {
+    const controller = new EmojiActionsMenuController({ signedIn: true });
+    const reference = { kind: 'unicode', native: '😊' };
+    const root = document.createElement('div');
+    const emoji = document.createElement('button');
+    root.className = 'emoji-picker-shell';
+    root.appendChild(emoji);
+
+    controller.handleOpen({ reference, anchor: emoji, source: 'standard_picker' });
+    controller.handleOpen({ reference, anchor: emoji, source: 'personal_picker' });
+    controller.handleOpen({ reference, anchor: emoji, source: 'dataset' });
+    expect(controller.state.element).toBeNull();
+
+    emoji.dataset.emojiSource = 'standard_picker';
+    const event = { preventDefault: jest.fn(), stopPropagation: jest.fn() };
+    controller.openFromElement(emoji, event);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopPropagation).not.toHaveBeenCalled();
   });
 
   it('retains standard mode, personal mode, and ordinary emoji insertion with menus disabled', async () => {

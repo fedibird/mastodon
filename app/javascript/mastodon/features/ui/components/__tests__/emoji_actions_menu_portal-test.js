@@ -1380,7 +1380,6 @@ describe('emoji actions menu portal host', () => {
           intl={intl}
           signedIn
           layout='single-column'
-          previewClickAction='detail'
           onCloseReactionModal={onCloseReactionModal}
           onSyncMutes={jest.fn(() => Promise.resolve())}
         />
