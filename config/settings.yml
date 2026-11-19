@@ -212,6 +212,10 @@ defaults: &defaults
   emoji_picker_disable_standard: false
   # Disable only the emoji picker's actions UI and gesture handlers.
   emoji_picker_disable_actions: false
+  # Prevent accidental quick mute/unmute actions; existing mute effects remain.
+  emoji_mute_disable_actions: false
+  # Enlarged emoji preview click: none, close, detail, or copy.
+  emoji_preview_click_action: none
   # On skips both standard module and personal stock preloading until opened.
   # Off may preload both at page load without changing the visible mode.
   # A saved change applies on the next full page load and does not unload a

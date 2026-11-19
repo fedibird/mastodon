@@ -142,6 +142,7 @@ class UserSettingsDecorator
     emoji_picker_disable_personal
     emoji_picker_disable_standard
     emoji_picker_disable_actions
+    emoji_mute_disable_actions
     emoji_picker_lazy_load_standard
     show_composer_posting_style_selector
   ).freeze
@@ -150,6 +151,7 @@ class UserSettingsDecorator
     default_privacy
     default_language
     emoji_reaction_fallback_policy
+    emoji_preview_click_action
     theme
     display_media
     translation_preferred_mode
@@ -188,6 +190,7 @@ class UserSettingsDecorator
   def process_update
     refuse_missing_legacy_writer!
     refuse_invalid_fallback_policy!
+    refuse_invalid_preview_click_action!
     NESTED_KEYS.each do |key|
       user.settings[key] = user.settings[key].merge coerced_settings(key) if change?(key)
     end
@@ -212,6 +215,17 @@ class UserSettingsDecorator
         user.settings[key] = boolean_cast_setting("setting_#{key}")
       end
     end
+  end
+
+  # Reject an invalid enum before any other preference in the same form is
+  # written. Never persist an unknown behavior or fall back after saving it.
+  def refuse_invalid_preview_click_action!
+    return unless change?('setting_emoji_preview_click_action')
+
+    value = settings['setting_emoji_preview_click_action']
+    return if %w(none close detail copy).include?(value)
+
+    raise UserPreferences::InvalidInput, [{ 'key' => 'emoji_preview_click_action', 'code' => 'invalid_value' }]
   end
 
   # Reject before any key in this request is written. ask is refused while

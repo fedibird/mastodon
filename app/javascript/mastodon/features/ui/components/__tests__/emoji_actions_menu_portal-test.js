@@ -1287,4 +1287,73 @@ describe('emoji actions menu portal host', () => {
     }
   });
 
+  it('remounts the anchored menu for another emoji without keeping the previous Popper', async () => {
+    render(<EmojiActionsMenuController intl={intl} signedIn onSyncMutes={jest.fn()} />);
+    const first = document.createElement('button');
+    const second = document.createElement('button');
+    document.body.append(first, second);
+    try {
+      act(() => {
+        openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor: first, source: 'inline_status' });
+      });
+      await screen.findByRole('button', { name: 'Mute emoji' });
+      const oldMenu = document.querySelector('[data-emoji-actions-menu="1"]');
+
+      act(() => {
+        openEmojiActions({ kind: 'unicode', native: '🥰' }, { anchor: second, source: 'inline_status' });
+      });
+      await screen.findByRole('button', { name: 'Mute emoji' });
+      const newMenu = document.querySelector('[data-emoji-actions-menu="1"]');
+
+      expect(newMenu).not.toBe(oldMenu);
+      expect(document.querySelectorAll('[data-emoji-actions-menu="1"]')).toHaveLength(1);
+      expect(document.querySelector('.emoji-actions-menu__preview')).not.toBeNull();
+    } finally {
+      first.remove();
+      second.remove();
+    }
+  });
+
+  it('keeps the menu open when a preview is touched or clicked with default no-op', async () => {
+    render(<EmojiActionsMenuController intl={intl} signedIn onSyncMutes={jest.fn()} previewClickAction='none' />);
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    try {
+      act(() => {
+        openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+      });
+      await screen.findByRole('button', { name: 'Mute emoji' });
+      const preview = document.querySelector('.emoji-actions-menu__preview');
+
+      fireEvent.touchEnd(preview);
+      fireEvent.click(preview.querySelector('.emoji-actions-menu__preview-media'));
+      expect(screen.getByRole('button', { name: 'Mute emoji' })).toBeTruthy();
+      expect(copyText).not.toHaveBeenCalled();
+    } finally {
+      anchor.remove();
+    }
+  });
+
+  it('copies by clicking the preview when configured and can close it instead', async () => {
+    const view = render(<EmojiActionsMenuController intl={intl} signedIn onSyncMutes={jest.fn()} previewClickAction='copy' />);
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    try {
+      act(() => {
+        openEmojiActions({ kind: 'unicode', native: '😀' }, { anchor, source: 'standard_picker' });
+      });
+      await screen.findByRole('button', { name: 'Mute emoji' });
+      fireEvent.click(document.querySelector('.emoji-actions-menu__preview'));
+      await waitFor(() => expect(copyText).toHaveBeenCalledWith('😀'));
+      expect(screen.getByRole('button', { name: 'Mute emoji' })).toBeTruthy();
+
+      view.rerender(<EmojiActionsMenuController intl={intl} signedIn onSyncMutes={jest.fn()} previewClickAction='close' />);
+      fireEvent.click(document.querySelector('.emoji-actions-menu__preview'));
+      expect(document.querySelector('[data-emoji-actions-menu="1"]')).toBeNull();
+    } finally {
+      view.unmount();
+      anchor.remove();
+    }
+  });
+
 });

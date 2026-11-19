@@ -67,6 +67,11 @@ describe('StockEmojiPicker long-press vs short tap', () => {
     render(<StockEmojiPicker stock={stock} onPick={onPick} actionsEnabled={false} editMode />);
 
     const alpha = screen.getByRole('button', { name: 'Alpha' });
+    // Global right-click/keyboard listeners must not see a disabled picker.
+    expect(alpha).not.toHaveAttribute('data-emoji-actions');
+    fireEvent.contextMenu(alpha);
+    fireEvent.keyDown(alpha, { key: 'ContextMenu' });
+    expect(openEmojiActions).not.toHaveBeenCalled();
     const touch = { identifier: 53, clientX: 4, clientY: 4 };
 
     expect(screen.queryByRole('button', { name: /Manage this emoji/i })).not.toBeInTheDocument();

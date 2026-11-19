@@ -26,7 +26,40 @@ RSpec.describe 'Settings custom emoji preferences page', type: :request do
     expect(response).to have_http_status(200)
     expect(response.body).to include('user_setting_emoji_picker_disable_standard')
     expect(response.body).to include('user_setting_emoji_picker_disable_actions')
+    expect(response.body).to include('user_setting_emoji_preview_click_action')
+    expect(response.body).to include('user_setting_emoji_mute_disable_actions')
     expect(response.body).not_to include('user_setting_emoji_reaction_fallback_policy')
     expect(response.body).not_to include('user_setting_disable_reactions')
+  end
+  it 'saves preview click behavior and mute safety independently of personal sets' do
+    put settings_custom_emojis_settings_path, params: {
+      user: {
+        setting_emoji_preview_click_action: 'copy',
+        setting_emoji_mute_disable_actions: '1',
+        setting_emoji_picker_disable_actions: '1',
+        setting_emoji_picker_disable_personal: '0',
+      },
+    }
+
+    expect(response).to have_http_status(:redirect)
+    user.reload
+    expect(user.setting_emoji_preview_click_action).to eq('copy')
+    expect(user.setting_emoji_mute_disable_actions).to eq(true)
+    expect(user.setting_emoji_picker_disable_actions).to eq(true)
+    expect(user.setting_emoji_picker_disable_personal).to eq(false)
+  end
+
+  it 'rejects unknown preview actions before changing any settings' do
+    put settings_custom_emojis_settings_path, params: {
+      user: {
+        setting_emoji_preview_click_action: 'dangerous_unknown_action',
+        setting_emoji_mute_disable_actions: '1',
+      },
+    }
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    user.reload
+    expect(user.setting_emoji_preview_click_action).to eq('none')
+    expect(user.setting_emoji_mute_disable_actions).to eq(false)
   end
 end

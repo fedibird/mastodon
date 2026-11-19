@@ -755,10 +755,13 @@ class StockEmojiPicker extends React.PureComponent {
     const custom = item.selection && item.selection.custom;
     const reference = referenceFromStockItem(item);
     const actionDataset = datasetFromReference(reference);
-    const actionProps = {
+    // The document-level menu listener also watches data-emoji-actions.
+    // Leave that marker off when picker actions are disabled; this does not
+    // disable personal-set data, searching, or ordinary emoji insertion.
+    const actionProps = actionsEnabled ? {
       'data-emoji-actions': '1',
       'data-emoji-source': 'personal_picker',
-    };
+    } : {};
 
     if (actionDataset.emojiKind) actionProps['data-emoji-kind'] = actionDataset.emojiKind;
     if (actionDataset.emojiNative) actionProps['data-emoji-native'] = actionDataset.emojiNative;

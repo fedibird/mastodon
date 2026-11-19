@@ -28,6 +28,7 @@ export class DropdownMenu extends React.PureComponent {
     renderItem: PropTypes.func,
     renderHeader: PropTypes.func,
     onItemClick: PropTypes.func.isRequired,
+    isEventInside: PropTypes.func,
   };
 
   static defaultProps = {
@@ -35,7 +36,7 @@ export class DropdownMenu extends React.PureComponent {
   };
 
   handleDocumentClick = e => {
-    if (this.node && !this.node.contains(e.target)) {
+    if (this.node && !this.node.contains(e.target) && !(this.props.isEventInside && this.props.isEventInside(e))) {
       this.props.onClose();
     }
   }
