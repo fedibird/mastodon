@@ -31,13 +31,18 @@ RSpec.describe 'Settings custom emoji preferences page', type: :request do
     expect(response.body).not_to include('user_setting_emoji_reaction_fallback_policy')
     expect(response.body).not_to include('user_setting_disable_reactions')
   end
+
   it 'saves preview click behavior and mute safety independently of personal sets' do
+    # LegacyWriter must run outside a database transaction. Keep the existing
+    # legacy picker settings in place and exercise these two ScopedSettings keys.
+    user.settings['emoji_picker_disable_actions'] = true
+    user.settings['emoji_picker_disable_personal'] = false
+    user.save!
+
     put settings_custom_emojis_settings_path, params: {
       user: {
         setting_emoji_preview_click_action: 'copy',
         setting_emoji_mute_disable_actions: '1',
-        setting_emoji_picker_disable_actions: '1',
-        setting_emoji_picker_disable_personal: '0',
       },
     }
 
@@ -62,6 +67,7 @@ RSpec.describe 'Settings custom emoji preferences page', type: :request do
     expect(user.setting_emoji_preview_click_action).to eq('none')
     expect(user.setting_emoji_mute_disable_actions).to eq(false)
   end
+
   it 'marks the mute manager read-only when the user safety flag is enabled' do
     user.settings['emoji_mute_disable_actions'] = true
     user.save!
@@ -71,5 +77,4 @@ RSpec.describe 'Settings custom emoji preferences page', type: :request do
     expect(response).to have_http_status(200)
     expect(response.body).to include('data-disable-mute-actions="true"')
   end
-
 end

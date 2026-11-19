@@ -344,6 +344,8 @@ describe('inline emoji synthetic context menu guard', () => {
     expect(controller.openFromElement).toHaveBeenCalledTimes(1);
   });
   it('keeps the existing muted status but disables accidental mute mutations', () => {
+    const intl = { formatMessage: descriptor => descriptor.defaultMessage || descriptor.id };
+    const reference = { kind: 'unicode', native: '😀' };
     const resolved = {
       actions: { mute: { allowed: true }, add_to_personal_category: { allowed: false } },
     };
