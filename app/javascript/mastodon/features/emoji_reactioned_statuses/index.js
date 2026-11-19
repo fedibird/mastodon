@@ -40,7 +40,7 @@ const mapStateToProps = (state, { columnId }) => {
   const layoutMode = readTimelineLayout(state, columnId, 'emoji_reactioned_statuses');
   const mediaLayout = layoutMode === 'media';
   const onlyMedia = mediaLayout || (pinned ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'onlyMedia']));
-  const withoutMedia = mediaLayout ? false : (pinned ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'withoutMedia']));
+  const withoutMedia = !mediaLayout && (pinned ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'withoutMedia']));
   const columnWidth = pinned ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'columnWidth']);
   const sortByPostDate = !!(pinned ? columns.get(index).getIn(['params', 'other', 'sortByPostDate']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'sortByPostDate']));
   const emojis = emojiFilterList(pinned ? columns.get(index).getIn(['params', 'emojis']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'emojis']));
