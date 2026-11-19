@@ -52,7 +52,13 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
   end
 
   def reaction_lookup_queries(queries)
-    queries.select { |sql| sql.match?(/"emoji_reactions"\."id" IN \(/) && sql.exclude?('NOT EXISTS') }
+    # The projection privacy predicate also has NOT EXISTS, so classify the
+    # actual status lookup by its JOIN, not by the absence of all NOT EXISTS.
+    queries.select do |sql|
+      sql.match?(/"emoji_reactions"\."id" IN \(/) &&
+        sql.include?('INNER JOIN "statuses"') &&
+        sql.exclude?('earlier.id')
+    end
   end
 
   def in_list_size(sql)
@@ -71,6 +77,14 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
     return [] if href.blank?
 
     Array(Rack::Utils.parse_nested_query(URI(href).query)[key])
+  end
+
+  it 'recognizes reaction lookup SQL even when projection privacy uses NOT EXISTS' do
+    representative_scan = 'SELECT id FROM emoji_reactions WHERE NOT EXISTS (SELECT 1 WHERE earlier.id < emoji_reactions.id)'
+    lookup = 'SELECT emoji_reactions.* FROM "emoji_reactions" INNER JOIN "statuses" ON "statuses"."id" = "emoji_reactions"."status_id" WHERE "emoji_reactions"."id" IN (1, 2) AND NOT EXISTS (SELECT 1 FROM external_status_projections)'
+
+    expect(reaction_lookup_queries([representative_scan, lookup])).to eq [lookup]
+    expect(in_list_size(lookup)).to eq 2
   end
 
   describe 'GET #index' do
