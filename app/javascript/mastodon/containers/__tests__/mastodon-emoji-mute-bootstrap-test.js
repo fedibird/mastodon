@@ -219,13 +219,17 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     view.unmount();
   });
   it('offers a delayed generic startup message and an explicit bypass', () => {
+    const timeout = jest.spyOn(global, 'setTimeout');
     const ref = React.createRef();
     const view = render(<Mastodon ref={ref} locale='en' />);
     ref.current.reloadPage = jest.fn();
 
     expect(view.queryByText('Preparing the interface…')).toBeNull();
     expect(view.queryByText('Start without emoji muting')).toBeNull();
-    act(() => ref.current.setState({ showSlowStart: true }));
+
+    const delayed = timeout.mock.calls.find(([, delay]) => delay === 2500)?.[0];
+    expect(delayed).toEqual(expect.any(Function));
+    act(() => delayed());
 
     expect(view.getByText('Preparing the interface…')).not.toBeNull();
     fireEvent.click(view.getByText('Start without emoji muting'));
@@ -233,6 +237,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(ref.current.reloadPage).toHaveBeenCalledTimes(1);
 
     view.unmount();
+    timeout.mockRestore();
   });
 
   it('shows a way back to normal after an opted-in bypass', async () => {
