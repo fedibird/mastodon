@@ -1,0 +1,110 @@
+/* eslint-disable react/prop-types */
+
+import React from 'react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import EmojiPickerShell from '../emoji_picker_shell';
+import { loadStandardEmojiPicker } from '../standard_emoji_loader';
+import { loadPersonalEmojiStock } from '../emoji_stock_source';
+
+jest.mock('mastodon/initial_state', () => ({
+  emojiPickerDisableActions: true,
+  emojiPickerDisablePersonal: false,
+  emojiPickerDisableStandard: false,
+  emojiPickerPreferPersonal: true,
+  emojiPickerLazyLoadStandard: false,
+}));
+
+jest.mock('react-intl', () => {
+  const intl = { formatMessage: descriptor => descriptor.defaultMessage };
+
+  return {
+    defineMessages: messages => messages,
+    FormattedMessage: ({ defaultMessage }) => defaultMessage,
+    injectIntl: Component => props => <Component {...props} intl={intl} />,
+  };
+});
+
+const stock = {
+  categories: [{
+    id: 'favorites',
+    name: 'Favorites',
+    items: [{
+      key: 'sample',
+      label: 'Alpha',
+      image: { src: '/emoji/alpha.svg', alt: '🅰️' },
+      search: ['Alpha'],
+      selection: { id: 'a', native: '🅰️', custom: false },
+    }],
+  }],
+};
+
+jest.mock('../emoji_stock_source', () => ({
+  getCachedPersonalEmojiStock: jest.fn(() => null),
+  getPickerEmojiSize: jest.fn(() => 22),
+  loadPersonalEmojiStock: jest.fn(),
+  subscribePersonalEmojiStock: jest.fn(() => () => {}),
+  subscribePickerEmojiSize: jest.fn(() => () => {}),
+}));
+
+jest.mock('../standard_emoji_loader', () => ({
+  loadStandardEmojiPicker: jest.fn(),
+}));
+
+class StandardPicker extends React.PureComponent {
+
+  handlePick = event => {
+    this.props.onClick({ id: 'smile', native: '😊', custom: false }, event);
+  };
+
+  render() {
+    return (
+      <div data-testid='standard-picker' data-actions-enabled={String(this.props.actionsEnabled)}>
+        <button type='button' onClick={this.handlePick}>Standard smile</button>
+      </div>
+    );
+  }
+
+}
+
+describe('picker action-menu preference is independent of both emoji sources', () => {
+  beforeEach(() => {
+    loadPersonalEmojiStock.mockReset();
+    loadPersonalEmojiStock.mockResolvedValue({ status: 'ready', stock });
+    loadStandardEmojiPicker.mockReset();
+    loadStandardEmojiPicker.mockResolvedValue({ Picker: StandardPicker, Emoji: () => null });
+  });
+
+  it('retains standard mode, personal mode, and ordinary emoji insertion with menus disabled', async () => {
+    const onPick = jest.fn();
+    const onRequestClose = jest.fn();
+
+    render(
+      <EmojiPickerShell
+        initialMode='standard'
+        onPick={onPick}
+        onRequestClose={onRequestClose}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Standard' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Personal set' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+
+    const standard = await screen.findByRole('button', { name: 'Standard smile' });
+    expect(standard.parentElement).toHaveAttribute('data-actions-enabled', 'false');
+    fireEvent.click(standard);
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ native: '😊' }), expect.anything());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personal set' }));
+    const personal = await screen.findByRole('button', { name: 'Alpha' });
+    expect(personal).not.toHaveAttribute('data-emoji-actions');
+    fireEvent.click(personal);
+    await waitFor(() => expect(onPick).toHaveBeenCalledTimes(2));
+    expect(onPick.mock.calls[1][0]).toEqual(expect.objectContaining({ native: '🅰️' }));
+    expect(loadPersonalEmojiStock).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Standard' }));
+    expect(await screen.findByRole('button', { name: 'Standard smile' })).toBeInTheDocument();
+    expect(loadStandardEmojiPicker).toHaveBeenCalledTimes(1);
+  });
+});

@@ -215,7 +215,7 @@ defaults: &defaults
   # Prevent accidental quick mute/unmute actions; existing mute effects remain.
   emoji_mute_disable_actions: false
   # Enlarged emoji preview click: none, close, detail, or copy.
-  emoji_preview_click_action: none
+  emoji_preview_click_action: detail
   # On skips both standard module and personal stock preloading until opened.
   # Off may preload both at page load without changing the visible mode.
   # A saved change applies on the next full page load and does not unload a

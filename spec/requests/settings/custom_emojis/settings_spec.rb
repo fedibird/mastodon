@@ -54,6 +54,12 @@ RSpec.describe 'Settings custom emoji preferences page', type: :request do
     expect(user.setting_emoji_picker_disable_personal).to eq(false)
   end
 
+  it 'defaults to opening emoji details without changing either picker source' do
+    expect(user.setting_emoji_preview_click_action).to eq('detail')
+    expect(user.setting_emoji_picker_disable_standard).to eq(false)
+    expect(user.setting_emoji_picker_disable_personal).to eq(false)
+  end
+
   it 'rejects unknown preview actions before changing any settings' do
     put settings_custom_emojis_settings_path, params: {
       user: {
@@ -64,7 +70,7 @@ RSpec.describe 'Settings custom emoji preferences page', type: :request do
 
     expect(response).to have_http_status(:unprocessable_entity)
     user.reload
-    expect(user.setting_emoji_preview_click_action).to eq('none')
+    expect(user.setting_emoji_preview_click_action).to eq('detail')
     expect(user.setting_emoji_mute_disable_actions).to eq(false)
   end
 

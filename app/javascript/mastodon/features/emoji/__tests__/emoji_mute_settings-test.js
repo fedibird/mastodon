@@ -251,13 +251,14 @@ describe('Emoji mute settings', () => {
     const saveRule = jest.fn();
     const removeRule = jest.fn();
     const createRule = jest.fn();
+    const loadDocument = jest.fn().mockResolvedValue(documentResponse);
     const ref = React.createRef();
     const view = render(
       <EmojiMuteSettingsInner
         ref={ref}
         intl={{ formatMessage: message => message.defaultMessage }}
         disableMuteActions
-        loadDocument={() => Promise.resolve(documentResponse)}
+        loadDocument={loadDocument}
         saveRule={saveRule}
         removeRule={removeRule}
         createRule={createRule}

@@ -5,7 +5,7 @@ import { connect } from 'react-redux';
 import { defineMessages, injectIntl } from 'react-intl';
 import Overlay from 'react-overlays/Overlay';
 import { DropdownMenu } from 'mastodon/components/dropdown_menu';
-import { emojiMuteDisableActions, emojiPickerDisablePersonal, emojiPreviewClickAction, me } from 'mastodon/initial_state';
+import { emojiMuteDisableActions, emojiPickerDisableActions, emojiPickerDisablePersonal, emojiPreviewClickAction, me } from 'mastodon/initial_state';
 import { syncEmojiMutes } from 'mastodon/actions/emoji_mutes';
 import { addEmojiReaction, removeEmojiReaction } from 'mastodon/actions/interactions';
 import { currentEmojiMutes } from 'mastodon/features/emoji/emoji_mute_store';
@@ -410,6 +410,15 @@ const popperConfig = {
   strategy: 'fixed',
 };
 
+// Action-menu suppression is a gesture policy, not a picker availability policy.
+// Handle both explicit bus sources and delegated DOM targets (e.g. a nested
+// custom emoji that still exposes a global data-emoji-actions marker).
+const isPickerActionSource = (source, anchor) => (
+  source === 'standard_picker' ||
+  source === 'personal_picker' ||
+  Boolean(anchor && anchor.closest && anchor.closest('.emoji-picker-shell'))
+);
+
 const isActionsTarget = element => {
   if (!element || element.nodeType !== Node.ELEMENT_NODE) {
     return null;
@@ -645,7 +654,8 @@ class EmojiActionsMenuController extends React.PureComponent {
   };
 
   handleOpen = detail => {
-    if (!detail || !detail.reference || !this.isSignedIn()) {
+    if (!detail || !detail.reference || !this.isSignedIn() ||
+        (emojiPickerDisableActions && isPickerActionSource(detail.source, detail.anchor))) {
       return;
     }
 
@@ -898,6 +908,12 @@ class EmojiActionsMenuController extends React.PureComponent {
   findTarget = () => this.state.element;
 
   openFromElement = (element, event) => {
+    const source = element.dataset.emojiSource || 'dataset';
+
+    if (emojiPickerDisableActions && isPickerActionSource(source, element)) {
+      return;
+    }
+
     const reference = referenceFromDataset(element.dataset);
 
     if (!reference) {
@@ -908,8 +924,6 @@ class EmojiActionsMenuController extends React.PureComponent {
       event.preventDefault();
       event.stopPropagation();
     }
-
-    const source = element.dataset.emojiSource || 'dataset';
     const reaction = source === 'reaction' ? normalizeReactionContext({
       name: element.dataset.emojiReactionName,
       domain: element.dataset.emojiReactionDomain || null,
