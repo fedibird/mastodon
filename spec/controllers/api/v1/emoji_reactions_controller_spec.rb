@@ -560,6 +560,7 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         expect(status_ids).to eq [live.id.to_s, expired.id.to_s]
         expect(reaction_lookup_queries(queries).join).to match(/INNER JOIN "statuses" ON "statuses"\."deleted_at" IS NULL/)
         expect(reaction_lookup_queries(queries).join).not_to match(/expired_at IS NULL/)
+        expect(reaction_lookup_queries(queries).join).to include('external_status_projections')
       end
 
       it 'uses the same emoji page for compact responses' do
@@ -698,6 +699,33 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         expect(status_ids).to eq [live.id.to_s, expired.id.to_s]
         expect(reaction_lookup_queries(queries).join).to match(/INNER JOIN "statuses" ON "statuses"\."deleted_at" IS NULL/)
         expect(reaction_lookup_queries(queries).join).not_to match(/expired_at IS NULL/)
+        expect(reaction_lookup_queries(queries).join).to include('external_status_projections')
+      end
+
+      it 'keeps expired statuses when the emoji page is ordered by post date' do
+        expired = Fabricate(:status, account: user.account)
+        live = Fabricate(:status, account: user.account)
+        expired.update_column(:expired_at, 1.hour.ago)
+        insert_reaction(id: 710, status: expired)
+        insert_reaction(id: 720, status: live)
+
+        get :index, params: { order: 'status' }
+
+        expect(status_ids).to eq [live.id.to_s, expired.id.to_s]
+      end
+
+      it 'keeps expired statuses in the legacy media-filtered reaction page' do
+        expired = Fabricate(:status, account: user.account)
+        live = Fabricate(:status, account: user.account)
+        Fabricate(:media_attachment, account: user.account, status: expired)
+        Fabricate(:media_attachment, account: user.account, status: live)
+        expired.update_column(:expired_at, 1.hour.ago)
+        insert_reaction(id: 710, status: expired)
+        insert_reaction(id: 720, status: live)
+
+        get :index, params: { only_media: true }
+
+        expect(status_ids).to eq [live.id.to_s, expired.id.to_s]
       end
 
       it 'uses the same status order for compact responses' do
