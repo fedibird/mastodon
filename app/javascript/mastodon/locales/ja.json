@@ -1451,6 +1451,7 @@
   "emoji_detail.native": "完成文字列",
   "emoji_detail.code_points": "コードポイント",
   "emoji_detail.emoji_id": "カタログID",
+  "emoji_mutes.mute_actions_disabled": "絵文字のミュート操作を無効にしています。変更する場合は、カスタム絵文字の設定からこの項目をオフにしてください。",
   "emoji_mutes.title": "ミュートした絵文字",
   "emoji_mutes.subtitle": "読んでいる投稿の代替文字、自分の投稿へのリアクション拒否、リアクション非表示、ピッカー非掲載を設定します。ピッカー除外は保存のみで、適用は後続です。",
   "emoji_mutes.loading": "ミュートした絵文字を読み込んでいます…",

@@ -4,7 +4,7 @@
 - content_for :header_tags do
   = javascript_pack_tag 'emoji_mutes', defer: true, crossorigin: 'anonymous'
 
-#emoji-mutes
+#emoji-mutes{ data: { disable_mute_actions: current_user.setting_emoji_mute_disable_actions ? 'true' : 'false' } }
   %p= t('emoji_mutes.loading')
 
 %noscript

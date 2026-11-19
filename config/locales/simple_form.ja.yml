@@ -87,6 +87,8 @@ ja:
         setting_emoji_picker_disable_personal: 個人セットのピッカーとデータ読み込みを停止します。標準ピッカーも無効ならピッカーを表示せず、絵文字リアクションの追加もできません。反映にはページの再読み込みが必要です。
         setting_emoji_picker_disable_standard: 標準ピッカーを表示せず、標準ピッカー用のデータ読み込みを停止します。個人セットのみ利用できます。個人セットも無効なら、絵文字リアクションの追加もできません。反映にはページの再読み込みが必要です。
         setting_emoji_picker_disable_actions: 標準ピッカーと個人セットの編集ボタン・長押し・右クリック・キーボードでの絵文字操作メニューを停止します。通常の絵文字入力やリアクションには影響しません。絵文字ピッカーの動作がおかしい場合は無効化をお試しください。反映にはページの再読み込みが必要です。
+        setting_emoji_preview_click_action: 拡大プレビューの画像・名称・余白をクリックしたときの動作です。既定値は「絵文字の詳細」です。どの設定でも背後の要素へクリックは透過しません。反映にはページの再読み込みが必要です。
+        setting_emoji_mute_disable_actions: 共通操作メニューでのミュート・解除を禁止し、ミュート管理画面を閲覧専用にします。設定済みミュートの効果は維持され、再び変更するにはこの設定をオフにします。反映にはページの再読み込みが必要です。
         setting_emoji_picker_lazy_load_standard: 有効にすると絵文字の使用頻度が低い場合にリソースの節約になりますが、ピッカー起動時の動作が遅くなります。
         setting_disable_block: 誤ってブロックすることを防ぎます
         setting_disable_clear_all_notifications: 通知の全消去を防ぎます
@@ -358,6 +360,12 @@ ja:
         setting_emoji_picker_disable_personal: 個人セットを使用しない
         setting_emoji_picker_disable_standard: 標準ピッカーを使用しない
         setting_emoji_picker_disable_actions: 絵文字ピッカーの操作メニューを無効にする
+        setting_emoji_preview_click_action: 拡大した絵文字をクリックした際の挙動
+        setting_emoji_preview_click_action_none: なにもしない
+        setting_emoji_preview_click_action_close: 閉じる
+        setting_emoji_preview_click_action_detail: 絵文字の詳細
+        setting_emoji_preview_click_action_copy: 絵文字をコピー
+        setting_emoji_mute_disable_actions: 絵文字のミュート操作を無効にする
         setting_emoji_picker_lazy_load_standard: 絵文字ピッカーの構築を呼び出し時まで遅延させる
         setting_disable_block: ブロックを無効にする
         setting_disable_clear_all_notifications: 通知の全消去を無効にする

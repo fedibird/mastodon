@@ -11,9 +11,11 @@ import { emojiPickerVisibility, ensureEmojiPickerMuteDocument, projectEmojiStock
 import { loadStandardEmojiPicker } from './standard_emoji_loader';
 import { markEmojiPickerEscape } from './emoji_picker_escape';
 
+// Source availability and action gestures are deliberately separate. Disabling
+// picker action menus must not change either source, its load path, or the
+// standard/personal mode switch.
 const personalIsEnabled = props => !emojiPickerDisablePersonal && props.personalEnabled;
 const standardIsEnabled = props => !emojiPickerDisableStandard && props.standardEnabled;
-// The global preference overrides any host that requests picker menus.
 const actionsAreEnabled = props => !emojiPickerDisableActions && props.actionsEnabled;
 
 const messages = defineMessages({
@@ -747,7 +749,7 @@ class EmojiPickerShell extends React.PureComponent {
     const { mode } = this.state;
 
     return (
-      <div className='emoji-mart-bar emoji-picker-shell__modes' role='group' aria-label={intl.formatMessage(messages.modes)}>
+      <div className='emoji-picker-shell__modes' role='group' aria-label={intl.formatMessage(messages.modes)}>
         <div className='emoji-mart-anchors'>
           <button
             type='button'
@@ -779,7 +781,7 @@ class EmojiPickerShell extends React.PureComponent {
     const { editMode } = this.state;
 
     return (
-      <div className='emoji-mart-bar emoji-picker-shell__edit' role='group' aria-label={intl.formatMessage(messages.editGroup)}>
+      <div className='emoji-picker-shell__edit' role='group' aria-label={intl.formatMessage(messages.editGroup)}>
         <button
           type='button'
           className={classNames('emoji-picker-shell__edit-toggle', { 'emoji-picker-shell__edit-toggle--active': editMode })}

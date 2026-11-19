@@ -348,23 +348,50 @@
   }
 }
 
+// Shell chrome lives outside Nimble's .emoji-mart and must supply its own
+// palette. Keep it consistent with the white picker search and emoji grid.
+// In mastodon-light, $ui-secondary-color is dark (#282c37), and
+// $lighter-text-color is also dark, so neither belongs on this light surface.
+// Do not re-add .emoji-mart-bar: its last-child rule hides the mode switch.
 .emoji-picker-shell__chrome {
   display: flex;
   flex-direction: column;
+  background: $simple-background-color;
+  color: $inverted-text-color;
+  font-size: 13px;
 }
 
 .emoji-picker-shell__modes {
-  border-bottom: 1px solid darken($ui-secondary-color, 8%);
+  border-bottom: 1px solid rgba($inverted-text-color, 0.15);
   border-radius: 5px 5px 0 0;
-  background: $ui-secondary-color;
+  background: $simple-background-color;
+
+  // Native button color does not inherit reliably outside .emoji-mart.
+  .emoji-mart-anchor {
+    color: $inverted-text-color;
+
+    &:hover,
+    &:focus-visible {
+      color: $highlight-text-color;
+    }
+
+    &.emoji-mart-anchor-selected {
+      color: $highlight-text-color;
+
+      &:hover,
+      &:focus-visible {
+        color: darken($highlight-text-color, 4%);
+      }
+    }
+  }
 }
 
 .emoji-picker-shell__edit {
   display: flex;
   justify-content: flex-end;
   padding: 4px 8px;
-  border-bottom: 1px solid darken($ui-secondary-color, 8%);
-  background: $ui-secondary-color;
+  border-bottom: 1px solid rgba($inverted-text-color, 0.15);
+  background: $simple-background-color;
 }
 
 .emoji-picker-shell__edit-toggle {
@@ -372,7 +399,7 @@
   border-radius: 4px;
   padding: 4px 10px;
   background: transparent;
-  color: $darker-text-color;
+  color: $inverted-text-color;
   cursor: pointer;
   font-size: 13px;
 

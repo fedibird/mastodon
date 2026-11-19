@@ -343,4 +343,33 @@ describe('inline emoji synthetic context menu guard', () => {
     controller.handleContextMenu(event);
     expect(controller.openFromElement).toHaveBeenCalledTimes(1);
   });
+  it('keeps the existing muted status but disables accidental mute mutations', () => {
+    const intl = { formatMessage: descriptor => descriptor.defaultMessage || descriptor.id };
+    const reference = { kind: 'unicode', native: '😀' };
+    const resolved = {
+      actions: { mute: { allowed: true }, add_to_personal_category: { allowed: false } },
+    };
+    const params = {
+      intl,
+      reference,
+      resolved,
+      categories: [],
+      status: 'ready',
+      busy: false,
+      muteActionsEnabled: false,
+      onMute: jest.fn(),
+      onUnmute: jest.fn(),
+      onCopy: jest.fn(),
+    };
+    const available = buildEmojiActionMenuItems({ ...params, mute: null });
+    expect(available.some(item => item?.text === 'Mute emoji')).toBe(false);
+    expect(available.some(item => item?.text === 'Emoji details')).toBe(true);
+
+    const muted = buildEmojiActionMenuItems({ ...params, mute: { id: '9' } });
+    expect(muted.some(item => item?.text === 'Muted')).toBe(true);
+    expect(muted.some(item => item?.text === 'Unmute emoji')).toBe(false);
+    expect(muted.some(item => item?.text === 'Change mute settings')).toBe(false);
+    expect(muted.some(item => item?.text === 'Open mute settings')).toBe(true);
+  });
+
 });

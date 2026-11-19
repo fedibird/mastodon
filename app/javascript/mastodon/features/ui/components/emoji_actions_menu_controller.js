@@ -5,7 +5,7 @@ import { connect } from 'react-redux';
 import { defineMessages, injectIntl } from 'react-intl';
 import Overlay from 'react-overlays/Overlay';
 import { DropdownMenu } from 'mastodon/components/dropdown_menu';
-import { emojiPickerDisablePersonal, me } from 'mastodon/initial_state';
+import { emojiMuteDisableActions, emojiPickerDisableActions, emojiPickerDisablePersonal, emojiPreviewClickAction, me } from 'mastodon/initial_state';
 import { syncEmojiMutes } from 'mastodon/actions/emoji_mutes';
 import { addEmojiReaction, removeEmojiReaction } from 'mastodon/actions/interactions';
 import { currentEmojiMutes } from 'mastodon/features/emoji/emoji_mute_store';
@@ -184,6 +184,7 @@ export function buildEmojiActionMenuItems({
   mute,
   categories,
   personalEnabled = true,
+  muteActionsEnabled = true,
   status,
   notice,
   error,
@@ -295,21 +296,24 @@ export function buildEmojiActionMenuItems({
       icon: 'check-circle',
       disabled: true,
     });
-    items.push({
-      text: intl.formatMessage(messages.manageMute),
-      icon: 'sliders',
-      href: '/settings/custom_emojis/mutes',
-      to: null,
-      target: '_self',
-    });
-    items.push({
-      text: intl.formatMessage(messages.unmute),
-      icon: 'volume-up',
-      action: onUnmute,
-      dangerous: true,
-      disabled: busy || syncBlocked,
-    });
-  } else if (canMute) {
+
+    if (muteActionsEnabled) {
+      items.push({
+        text: intl.formatMessage(messages.manageMute),
+        icon: 'sliders',
+        href: '/settings/custom_emojis/mutes',
+        to: null,
+        target: '_self',
+      });
+      items.push({
+        text: intl.formatMessage(messages.unmute),
+        icon: 'volume-up',
+        action: onUnmute,
+        dangerous: true,
+        disabled: busy || syncBlocked,
+      });
+    }
+  } else if (muteActionsEnabled && canMute) {
     items.push({
       text: intl.formatMessage(messages.mute),
       icon: 'volume-off',
@@ -406,6 +410,15 @@ const popperConfig = {
   strategy: 'fixed',
 };
 
+// Action-menu suppression is a gesture policy, not a picker availability policy.
+// Handle both explicit bus sources and delegated DOM targets (e.g. a nested
+// custom emoji that still exposes a global data-emoji-actions marker).
+const isPickerActionSource = (source, anchor) => (
+  source === 'standard_picker' ||
+  source === 'personal_picker' ||
+  Boolean(anchor && anchor.closest && anchor.closest('.emoji-picker-shell'))
+);
+
 const isActionsTarget = element => {
   if (!element || element.nodeType !== Node.ELEMENT_NODE) {
     return null;
@@ -431,6 +444,13 @@ class EmojiActionsMenuController extends React.PureComponent {
     onAddEmojiReaction: PropTypes.func,
     onRemoveEmojiReaction: PropTypes.func,
     getStatus: PropTypes.func,
+    previewClickAction: PropTypes.oneOf(['none', 'close', 'detail', 'copy']),
+    muteActionsEnabled: PropTypes.bool,
+  };
+
+  static defaultProps = {
+    previewClickAction: emojiPreviewClickAction,
+    muteActionsEnabled: !emojiMuteDisableActions,
   };
 
   state = {
@@ -634,7 +654,8 @@ class EmojiActionsMenuController extends React.PureComponent {
   };
 
   handleOpen = detail => {
-    if (!detail || !detail.reference || !this.isSignedIn()) {
+    if (!detail || !detail.reference || !this.isSignedIn() ||
+        (emojiPickerDisableActions && isPickerActionSource(detail.source, detail.anchor))) {
       return;
     }
 
@@ -887,6 +908,12 @@ class EmojiActionsMenuController extends React.PureComponent {
   findTarget = () => this.state.element;
 
   openFromElement = (element, event) => {
+    const source = element.dataset.emojiSource || 'dataset';
+
+    if (emojiPickerDisableActions && isPickerActionSource(source, element)) {
+      return;
+    }
+
     const reference = referenceFromDataset(element.dataset);
 
     if (!reference) {
@@ -897,8 +924,6 @@ class EmojiActionsMenuController extends React.PureComponent {
       event.preventDefault();
       event.stopPropagation();
     }
-
-    const source = element.dataset.emojiSource || 'dataset';
     const reaction = source === 'reaction' ? normalizeReactionContext({
       name: element.dataset.emojiReactionName,
       domain: element.dataset.emojiReactionDomain || null,
@@ -1053,6 +1078,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       mute,
       categories,
       personalEnabled: !emojiPickerDisablePersonal,
+      muteActionsEnabled: this.props.muteActionsEnabled,
       status,
       notice,
       error,
@@ -1130,7 +1156,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     const { intl, onSyncMutes } = this.props;
     const { reference } = this.state;
 
-    if (!reference || this.state.busy || this.state.pendingSyncRevision || isMuteMutationInFlight(reference) || getPendingMuteSync(reference)) {
+    if (!this.props.muteActionsEnabled || !reference || this.state.busy || this.state.pendingSyncRevision || isMuteMutationInFlight(reference) || getPendingMuteSync(reference)) {
       return;
     }
 
@@ -1210,7 +1236,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     const { intl, onSyncMutes } = this.props;
     const { mute, reference } = this.state;
 
-    if (!mute || this.state.busy || this.state.pendingSyncRevision || isMuteMutationInFlight(reference) || getPendingMuteSync(reference)) {
+    if (!this.props.muteActionsEnabled || !mute || this.state.busy || this.state.pendingSyncRevision || isMuteMutationInFlight(reference) || getPendingMuteSync(reference)) {
       return;
     }
 
@@ -1381,6 +1407,45 @@ class EmojiActionsMenuController extends React.PureComponent {
     });
   };
 
+  // A preview is outside the dropdown's DOM. Its full hit area must be treated
+  // as inside the open menu so touchend/click cannot dismiss the menu first.
+  isPreviewEvent = event => Boolean(this.previewNode && this.previewNode.contains(event.target));
+
+  stopPreviewPointer = event => {
+    event.stopPropagation();
+  };
+
+  handlePreviewContextMenu = event => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  handlePreviewClick = event => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    switch (this.props.previewClickAction) {
+    case 'close':
+      this.handleClose();
+      break;
+    case 'detail': {
+      const path = detailPathForReference(this.state.reference);
+      if (path) {
+        this.activateMenuItem({ to: path });
+      }
+      break;
+    }
+    case 'copy':
+      if (!this.state.busy) {
+        this.handleCopy();
+      }
+      break;
+    default:
+      // The default behavior is intentionally inert, without click-through.
+      break;
+    }
+  };
+
   handleItemClick = event => {
     if (event.type === 'click' && event.button !== 0) {
       return;
@@ -1415,6 +1480,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     return (
       <React.Fragment>
         <Overlay
+          key={this.loadGeneration}
           show
           offset={[5, 5]}
           placement='bottom'
@@ -1437,6 +1503,7 @@ class EmojiActionsMenuController extends React.PureComponent {
                   renderItem={renderEmojiActionMenuItem}
                   onClose={this.handleClose}
                   onItemClick={this.handleItemClick}
+                  isEventInside={this.isPreviewEvent}
                 />
               </div>
             </div>
@@ -1447,6 +1514,12 @@ class EmojiActionsMenuController extends React.PureComponent {
             className='emoji-actions-menu__preview'
             aria-hidden='true'
             ref={this.setPreviewNode}
+            onMouseDown={this.stopPreviewPointer}
+            onPointerDown={this.stopPreviewPointer}
+            onTouchStart={this.stopPreviewPointer}
+            onTouchEnd={this.stopPreviewPointer}
+            onContextMenu={this.handlePreviewContextMenu}
+            onClick={this.handlePreviewClick}
             style={this.state.previewPosition === null ? { visibility: 'hidden', left: 0, top: 0 } : this.state.previewPosition || { display: 'none' }}
           >
             <div className='emoji-actions-menu__preview-media'>

@@ -91,6 +91,8 @@ en:
         setting_emoji_picker_disable_personal: Disable the personal picker and its data loading. If the standard picker is also disabled, hide all pickers and prevent new emoji reactions. Reload the page for changes to take effect.
         setting_emoji_picker_disable_standard: Disable the standard picker and its data loading; use only personal emoji sets. If personal sets are also disabled, hide all pickers and prevent new emoji reactions. Reload the page for changes to take effect.
         setting_emoji_picker_disable_actions: Disable the picker action controls and menu gestures (long press, right click, and keyboard) in both standard and personal emoji pickers. Normal emoji insertion and reactions continue to work. If the emoji picker behaves unexpectedly, try disabling this feature. Takes effect after a full reload.
+        setting_emoji_preview_click_action: Choose what happens when the enlarged emoji preview, its label, or its surrounding area is clicked. Defaults to Emoji details. Clicks never pass through to elements behind it. Applies after a full reload.
+        setting_emoji_mute_disable_actions: Block quick mute/unmute actions and make the mute management page read-only. Existing mute effects remain active; turn this option off to edit them. Applies after a full reload.
         setting_emoji_picker_lazy_load_standard: Saves resources if you rarely use emoji, but makes the picker slower to open.
         setting_disable_block: Restricts you from accidentally blocking
         setting_disable_clear_all_notifications: Restrict clearing all notifications
@@ -362,6 +364,12 @@ en:
         setting_emoji_picker_disable_personal: Do not use personal emoji sets
         setting_emoji_picker_disable_standard: Do not use the standard picker
         setting_emoji_picker_disable_actions: Disable emoji picker action menus
+        setting_emoji_preview_click_action: Click action for enlarged emoji previews
+        setting_emoji_preview_click_action_none: Do nothing
+        setting_emoji_preview_click_action_close: Close
+        setting_emoji_preview_click_action_detail: Emoji details
+        setting_emoji_preview_click_action_copy: Copy emoji
+        setting_emoji_mute_disable_actions: Disable emoji mute actions
         setting_emoji_picker_lazy_load_standard: Defer building the emoji picker until it is opened
         setting_disable_block: Disable block
         setting_disable_clear_all_notifications: Disable clear all notifications
