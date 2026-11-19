@@ -349,6 +349,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     expect(view.queryByTestId('webui')).toBeNull();
     expect(mockUiUnmounts).not.toHaveBeenCalled();
     expect(view.getByText(/could not be verified/)).not.toBeNull();
+    expect(view.getByText('Start without emoji muting')).not.toBeNull();
 
     mockRequest = deferred();
     allowRetry();
