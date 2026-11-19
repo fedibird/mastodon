@@ -30,7 +30,7 @@ const mapStateToProps = (state, { columnId }) => {
   const layoutMode = readTimelineLayout(state, columnId, 'bookmarked_statuses');
   const mediaLayout = layoutMode === 'media';
   const onlyMedia = mediaLayout || ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'bookmarked_statuses', 'other', 'onlyMedia']));
-  const withoutMedia = mediaLayout ? false : ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'bookmarked_statuses', 'other', 'withoutMedia']));
+  const withoutMedia = !mediaLayout && ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'bookmarked_statuses', 'other', 'withoutMedia']));
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'bookmarked_statuses', 'columnWidth']);
   const sortByPostDate = !!((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'sortByPostDate']) : state.getIn(['settings', 'bookmarked_statuses', 'other', 'sortByPostDate']));
   const listKey = bookmarksListKey(columnId, sortByPostDate);
