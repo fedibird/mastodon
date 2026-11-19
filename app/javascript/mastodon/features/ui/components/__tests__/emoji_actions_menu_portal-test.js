@@ -1356,4 +1356,52 @@ describe('emoji actions menu portal host', () => {
     }
   });
 
+  it('uses the existing detail navigation and closes a mobile picker when preview is clicked', async () => {
+    const history = { push: jest.fn() };
+    const onCloseReactionModal = jest.fn();
+
+    class RouterHarness extends React.Component {
+
+      static childContextTypes = { router: PropTypes.object };
+
+      getChildContext() {
+        return { router: { history } };
+      }
+
+      render() {
+        return this.props.children;
+      }
+
+    }
+
+    render(
+      <RouterHarness>
+        <EmojiActionsMenuController
+          intl={intl}
+          signedIn
+          layout='single-column'
+          previewClickAction='detail'
+          onCloseReactionModal={onCloseReactionModal}
+          onSyncMutes={jest.fn(() => Promise.resolve())}
+        />
+      </RouterHarness>,
+    );
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const reference = { kind: 'unicode', native: '😀' };
+    try {
+      act(() => {
+        openEmojiActions(reference, { anchor, source: 'personal_picker' });
+      });
+      await screen.findByRole('button', { name: 'Emoji details' });
+      fireEvent.click(document.querySelector('.emoji-actions-menu__preview-media'));
+      expect(onCloseReactionModal).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(history.push).toHaveBeenCalledWith(detailPathForReference(reference));
+      });
+    } finally {
+      anchor.remove();
+    }
+  });
+
 });
