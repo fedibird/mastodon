@@ -109,6 +109,11 @@ describe('picker action-menu preference is independent of both emoji sources', (
 
     expect(screen.getByRole('button', { name: 'Standard' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Personal set' })).toBeInTheDocument();
+    // The native emoji-mart-bar:last-child CSS rule used to hide this mode
+    // switch when the Edit bar was omitted for disabled action menus.
+    const modeBar = screen.getByRole('group', { name: 'Emoji picker mode' });
+    expect(modeBar).not.toHaveClass('emoji-mart-bar');
+    expect(modeBar).toContainElement(screen.getByRole('button', { name: 'Personal set' }));
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
 
     const standard = await screen.findByRole('button', { name: 'Standard smile' });
@@ -128,4 +133,26 @@ describe('picker action-menu preference is independent of both emoji sources', (
     expect(await screen.findByRole('button', { name: 'Standard smile' })).toBeInTheDocument();
     expect(loadStandardEmojiPicker).toHaveBeenCalledTimes(1);
   });
+  it('keeps both source switch buttons when personal is preferred and menus are disabled', async () => {
+    render(
+      <EmojiPickerShell
+        initialMode='personal'
+        onPick={jest.fn()}
+        onRequestClose={jest.fn()}
+      />,
+    );
+
+    const group = screen.getByRole('group', { name: 'Emoji picker mode' });
+    expect(group).not.toHaveClass('emoji-mart-bar');
+    expect(screen.getByRole('button', { name: 'Personal set' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Standard' })).toHaveAttribute('aria-pressed', 'false');
+    expect(await screen.findByRole('button', { name: 'Alpha' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Standard' }));
+    expect(await screen.findByRole('button', { name: 'Standard smile' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Standard' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Personal set' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+
 });

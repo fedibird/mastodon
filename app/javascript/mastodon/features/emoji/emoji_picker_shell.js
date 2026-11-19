@@ -749,7 +749,7 @@ class EmojiPickerShell extends React.PureComponent {
     const { mode } = this.state;
 
     return (
-      <div className='emoji-mart-bar emoji-picker-shell__modes' role='group' aria-label={intl.formatMessage(messages.modes)}>
+      <div className='emoji-picker-shell__modes' role='group' aria-label={intl.formatMessage(messages.modes)}>
         <div className='emoji-mart-anchors'>
           <button
             type='button'
@@ -781,7 +781,7 @@ class EmojiPickerShell extends React.PureComponent {
     const { editMode } = this.state;
 
     return (
-      <div className='emoji-mart-bar emoji-picker-shell__edit' role='group' aria-label={intl.formatMessage(messages.editGroup)}>
+      <div className='emoji-picker-shell__edit' role='group' aria-label={intl.formatMessage(messages.editGroup)}>
         <button
           type='button'
           className={classNames('emoji-picker-shell__edit-toggle', { 'emoji-picker-shell__edit-toggle--active': editMode })}

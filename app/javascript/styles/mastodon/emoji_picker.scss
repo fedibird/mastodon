@@ -348,6 +348,10 @@
   }
 }
 
+// The shell's source switch and action controls are not Nimble's native
+// .emoji-mart-bar elements. That class hides its last child, which would
+// otherwise hide the source switch when action controls are disabled (or
+// the edit button when enabled). Keep the shell chrome styled independently.
 .emoji-picker-shell__chrome {
   display: flex;
   flex-direction: column;

@@ -261,6 +261,14 @@ describe('emoji picker shell and personal stock', () => {
     expect(onPick).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps the native emoji-mart last-child rule away from shell chrome even when actions are enabled', async () => {
+    renderShell();
+    await screen.findByRole('button', { name: 'Family' });
+    expect(screen.getByRole('group', { name: 'Emoji picker mode' })).not.toHaveClass('emoji-mart-bar');
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Emoji picker editing' })).not.toHaveClass('emoji-mart-bar');
+  });
+
   it('scrolls a category within the personal picker without scrolling its ancestors', async () => {
     renderShell();
     await screen.findByRole('button', { name: 'Family' });
