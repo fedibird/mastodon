@@ -1,5 +1,6 @@
 import api from 'mastodon/api';
 import initialState from 'mastodon/initial_state_data';
+import { emojiMuteBypassEnabled } from './emoji_mute_boot_bypass';
 
 // Memory only. The definition, replacement text, and access token are not
 // written to localStorage. `observedRevision` is the newest change we have
@@ -110,6 +111,10 @@ export function blockEmojiMuteAuthorization(failure) {
 }
 
 export function emojiMuteDocumentReady() {
+  if (emojiMuteBypassEnabled()) {
+    return true;
+  }
+
   if (authorizationFailure) {
     return false;
   }
@@ -180,6 +185,10 @@ function adopt(document, minRevision) {
 }
 
 export function loadEmojiMutes(options = {}) {
+  if (emojiMuteBypassEnabled()) {
+    return Promise.resolve([]);
+  }
+
   if (!viewerIsSignedIn()) {
     const changed = !settled || appliedRevision === null;
     settled = true;
@@ -229,6 +238,10 @@ export function loadEmojiMutes(options = {}) {
 }
 
 export function noteEmojiMutesChanged(payload) {
+  if (emojiMuteBypassEnabled()) {
+    return Promise.resolve([]);
+  }
+
   const next = payload && payload.revision !== undefined && payload.revision !== null ? String(payload.revision) : '';
 
   if (!REVISION.test(next)) {
