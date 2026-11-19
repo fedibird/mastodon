@@ -17,9 +17,13 @@ let requestSequence = 0;
 
 // Each pinned column owns its query/cursor. Standalone modes also have separate
 // cursors, so switching order cannot reuse an incompatible page.
-export const bookmarksListKey = (columnId, sortByPostDate = false) => (
-  columnId ? `bookmarks:${columnId}` : (sortByPostDate ? 'bookmarks:status' : DEFAULT_LIST_KEY)
-);
+export const bookmarksListKey = (columnId, sortByPostDate = false) => {
+  if (columnId) {
+    return `bookmarks:${columnId}`;
+  }
+
+  return sortByPostDate ? 'bookmarks:status' : DEFAULT_LIST_KEY;
+};
 
 export const bookmarksQueryKey = ({ onlyMedia = false, withoutMedia = false, sortByPostDate = false } = {}) => JSON.stringify({
   onlyMedia: !!onlyMedia,
