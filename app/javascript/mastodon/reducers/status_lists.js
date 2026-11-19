@@ -59,8 +59,8 @@ const listKeyOf = (action, fallback) => action.listKey || fallback;
 // filter/order, including when the user flips the order twice quickly.
 const matchesQuery = (state, action, listKey) => (
   state.has(listKey)
-  && (action.queryKey == null || state.getIn([listKey, 'queryKey']) === action.queryKey)
-  && (action.requestId == null || state.getIn([listKey, 'requestId']) === action.requestId)
+  && ((action.queryKey === null || action.queryKey === undefined) || state.getIn([listKey, 'queryKey']) === action.queryKey)
+  && ((action.requestId === null || action.requestId === undefined) || state.getIn([listKey, 'requestId']) === action.requestId)
 );
 
 const beginFetch = (state, listKey, action) => state.update(listKey, createList(), list => list.merge({
