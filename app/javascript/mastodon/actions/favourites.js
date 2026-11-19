@@ -17,9 +17,13 @@ let requestSequence = 0;
 
 // Each pinned column owns its query/cursor. Standalone modes also have separate
 // cursors, so switching order cannot reuse an incompatible page.
-export const favouritesListKey = (columnId, sortByPostDate = false) => (
-  columnId ? `favourites:${columnId}` : (sortByPostDate ? 'favourites:status' : DEFAULT_LIST_KEY)
-);
+export const favouritesListKey = (columnId, sortByPostDate = false) => {
+  if (columnId) {
+    return `favourites:${columnId}`;
+  }
+
+  return sortByPostDate ? 'favourites:status' : DEFAULT_LIST_KEY;
+};
 
 export const favouritesQueryKey = ({ onlyMedia = false, withoutMedia = false, sortByPostDate = false } = {}) => JSON.stringify({
   onlyMedia: !!onlyMedia,
