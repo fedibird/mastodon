@@ -51,7 +51,7 @@ const listFor = (state, listKey) => state.getIn(['lists', listKey]);
 
 const matchesQuery = (state, action) => {
   const list = listFor(state, action.listKey);
-  return !!(list && list.get('queryKey') === action.queryKey && (action.requestId == null || list.get('requestId') === action.requestId));
+  return !!(list && list.get('queryKey') === action.queryKey && ((action.requestId === null || action.requestId === undefined) || list.get('requestId') === action.requestId));
 };
 
 const statusIds = statuses => ImmutableList((statuses || []).map(status => status.id));
