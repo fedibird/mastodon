@@ -18,6 +18,7 @@ import {
 } from '../features/emoji/emoji_mute_store';
 import { hideReactionSignature, hideSignatureGrew, hideSignatureShrunk, revisionStale } from '../features/emoji/emoji_mute_projection';
 import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
+import { emojiMuteBypassEnabled } from '../features/emoji/emoji_mute_boot_bypass';
 
 export { classifyEmojiMuteFetchError };
 
@@ -525,6 +526,18 @@ export function invalidateEmojiMuteAsyncWork() {
 // An older asynchronous continuation must never republish earlier rules.
 export function syncEmojiMutes(options = {}) {
   return (dispatch, getState) => {
+    // Explicit recovery mode is scoped to this tab and account. Do not fetch
+    // rules, or let a later streaming revision put the UI back into stale.
+    if (emojiMuteBypassEnabled()) {
+      dispatch({
+        type: EMOJI_MUTES_APPLY,
+        mutes: [],
+        revision: '0',
+        recovered: true,
+      });
+      return Promise.resolve([]);
+    }
+
     const generation = ++documentSyncGeneration;
     const previousRevision = appliedEmojiMuteRevision();
     const previousSignature = hideReactionSignature(currentEmojiMutes());
