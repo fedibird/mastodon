@@ -16,7 +16,7 @@ import { IntlProvider, addLocaleData, FormattedMessage } from 'react-intl';
 import { syncEmojiMutes, invalidateEmojiMuteAsyncWork, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
 import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
 import { resetEmojiMuteSession } from '../features/emoji/emoji_mute_store';
-import { emojiMuteBypassEnabled, requestEmojiMuteBypass, clearEmojiMuteBypass } from '../features/emoji/emoji_mute_boot_bypass';
+import { emojiMuteBypassEnabled, requestEmojiMuteBypass, clearEmojiMuteBypass, TEMPORARILY_DISABLE_EMOJI_MUTE_LOADING } from '../features/emoji/emoji_mute_boot_bypass';
 import { setEmojiActionsOverlayPrivacyContainer } from '../features/emoji/emoji_actions/overlay_root';
 import { getLocale } from '../locales';
 import initialState from '../initial_state';
@@ -477,7 +477,7 @@ export default class Mastodon extends React.PureComponent {
                   The inner privacy root always stays display: contents. */}
               <div ref={this.setUiPortalHost} style={boot === 'ready' ? undefined : { display: 'contents' }} />
               {ui}
-              {boot === 'ready' && emojiMuteBypassEnabled() && (
+              {boot === 'ready' && !TEMPORARILY_DISABLE_EMOJI_MUTE_LOADING && emojiMuteBypassEnabled() && (
                 <div className='emoji-mutes-bypass-notice' role='status'>
                   <FormattedMessage id='emoji_mutes.bypass_active' defaultMessage='Emoji muting is disabled in this tab. Your saved settings are unchanged.' />
                   <button type='button' onClick={this.restoreEmojiMutes}>
