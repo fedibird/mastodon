@@ -162,14 +162,14 @@ button {
 // The signed-in WebUI is mounted through a detachable privacy portal.
 // Its HotKeys wrapper used to be the direct .app-holder > div child, and the
 // sizing below was what kept mobile timelines within the viewport.
-// After #785 the wrapper is nested in .emoji-mutes-privacy-portal, so restore
-// these *same* layout rules to that wrapper. Do not size the menu's separate
-// #emoji-actions-overlay-root, which is a sibling in the privacy portal.
+// After #785 the wrapper is nested in .emoji-mutes-privacy-portal. Size only
+// the WebUI HotKeys wrapper: react-overlays dropdowns are also direct div
+// children of this privacy portal, and must keep their Popper positioning.
 .app-holder {
   &,
   & > div,
   & > noscript,
-  .emoji-mutes-privacy-portal > div:not(#emoji-actions-overlay-root) {
+  .emoji-mutes-privacy-portal > .emoji-mutes-webui-hotkeys {
     display: flex;
     width: 100%;
     align-items: center;
@@ -183,7 +183,7 @@ button {
 
   // The HotKeys wrapper is now a flex child of the privacy portal host.
   // Its intrinsic minimum width must not enlarge/shift a narrow viewport.
-  .emoji-mutes-privacy-portal > div:not(#emoji-actions-overlay-root) {
+  .emoji-mutes-privacy-portal > .emoji-mutes-webui-hotkeys {
     min-width: 0;
   }
 }
@@ -191,7 +191,7 @@ button {
 .layout-single-column .app-holder {
   &,
   & > div,
-  .emoji-mutes-privacy-portal > div:not(#emoji-actions-overlay-root) {
+  .emoji-mutes-privacy-portal > .emoji-mutes-webui-hotkeys {
     min-height: 100vh;
   }
 }
@@ -199,7 +199,7 @@ button {
 .layout-multiple-columns .app-holder {
   &,
   & > div,
-  .emoji-mutes-privacy-portal > div:not(#emoji-actions-overlay-root) {
+  .emoji-mutes-privacy-portal > .emoji-mutes-webui-hotkeys {
     height: 100%;
   }
 }
