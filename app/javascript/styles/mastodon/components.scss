@@ -4716,10 +4716,11 @@ body.app-body.layout-single-column.status-timeline-split {
   overflow: hidden;
 
   // The React HotKeys wrapper is no longer a direct app-holder child after
-  // the emoji-mute privacy portal was introduced. Keep split-TL geometry.
+  // the emoji-mute privacy portal was introduced. Keep split-TL geometry
+  // without imposing viewport height on react-overlays dropdown portals.
   .app-holder,
   .app-holder > div,
-  .app-holder .emoji-mutes-privacy-portal > div:not(#emoji-actions-overlay-root),
+  .app-holder .emoji-mutes-privacy-portal > .emoji-mutes-webui-hotkeys,
   .ui,
   .columns-area__panels,
   .columns-area__panels__main {
