@@ -21,27 +21,28 @@ describe('emoji mute boot bypass', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  it('is opt-in, tab-scoped, and takes effect only after a reload', () => {
+  it('temporarily bypasses WebUI loading without an opt-in or stored preference', () => {
     const initial = loadModule();
-    expect(initial.emojiMuteBypassEnabled()).toBe(false);
-    expect(initial.requestEmojiMuteBypass()).toBe(true);
-    expect(initial.emojiMuteBypassEnabled()).toBe(false);
+    expect(initial.TEMPORARILY_DISABLE_EMOJI_MUTE_LOADING).toBe(true);
+    expect(initial.emojiMuteBypassEnabled()).toBe(true);
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
 
-    const reloaded = loadModule();
-    expect(reloaded.emojiMuteBypassEnabled()).toBe(true);
-    expect(reloaded.clearEmojiMuteBypass()).toBe(true);
-    expect(loadModule().emojiMuteBypassEnabled()).toBe(false);
+    expect(initial.requestEmojiMuteBypass()).toBe(true);
+    expect(initial.emojiMuteBypassEnabled()).toBe(true);
+    expect(loadModule().emojiMuteBypassEnabled()).toBe(true);
+    expect(initial.clearEmojiMuteBypass()).toBe(true);
+    expect(loadModule().emojiMuteBypassEnabled()).toBe(true);
   });
 
-  it('rejects an earlier account and does not apply on non-WebUI pages', () => {
+  it('discards a bypass for another account and does not bypass non-WebUI pages', () => {
     sessionStorage.setItem(STORAGE_KEY, 'account-2');
-    expect(loadModule().emojiMuteBypassEnabled()).toBe(false);
+    expect(loadModule().emojiMuteBypassEnabled()).toBe(true);
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
 
     sessionStorage.setItem(STORAGE_KEY, 'account-1');
     window.history.replaceState({}, '', '/settings');
     expect(loadModule().emojiMuteBypassEnabled()).toBe(false);
-    window.history.replaceState({}, '', '/web');
+    window.history.replaceState({}, '', '/web/notifications');
     expect(loadModule().emojiMuteBypassEnabled()).toBe(true);
   });
 });
