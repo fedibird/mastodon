@@ -39,8 +39,14 @@ const readBypass = () => {
   }
 };
 
-// Frozen for this page lifetime so a click can only affect a fresh reload.
-const bypassed = readBypass();
+// Temporary incident mitigation. Revert to false after investigating the
+// startup failures. Only the /web UI bypasses the emoji mute document.
+export const TEMPORARILY_DISABLE_EMOJI_MUTE_LOADING = true;
+const emergencyBypass = TEMPORARILY_DISABLE_EMOJI_MUTE_LOADING &&
+  typeof window !== 'undefined' && /^\/web(?:\/|$)/.test(window.location.pathname);
+
+// Keep the bypass fixed for this page lifetime.
+const bypassed = readBypass() || emergencyBypass;
 
 export const emojiMuteBypassEnabled = () => bypassed;
 
