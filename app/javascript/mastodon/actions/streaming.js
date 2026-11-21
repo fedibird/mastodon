@@ -81,7 +81,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
         }
 
         if (channelName === 'user') {
-          dispatch(syncEmojiMutes({ verify: reconnecting })).catch(() => {});
+          dispatch(syncEmojiMutes({ verify: reconnecting, reconnect: reconnecting })).catch(() => {});
           dispatch(scheduleFiltersRefresh());
           dispatch(retryFilterReconciliation());
           dispatch(refreshExternalFeedCapability());
@@ -181,7 +181,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
           dispatch(syncEmojiMutes({ changed: JSON.parse(data.payload) })).catch(() => {});
           break;
         case 'emoji_mute_preference':
-          dispatch(applyRemoteEmojiMutePreference(JSON.parse(data.payload || '{}').enabled));
+          dispatch(applyRemoteEmojiMutePreference()).catch(() => {});
           break;
         case 'announcement':
           dispatch(updateAnnouncements(JSON.parse(data.payload)));

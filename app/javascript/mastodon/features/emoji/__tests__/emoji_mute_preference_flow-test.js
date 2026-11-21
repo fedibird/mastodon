@@ -28,7 +28,7 @@ import {
   loadEmojiMutes,
   resetEmojiMuteStoreForTests,
 } from '../emoji_mute_store';
-import { currentEmojiMuteBoot } from '../emoji_mute_availability';
+import { currentEmojiMuteBoot, noteEmojiMuteDisabledLocally } from '../emoji_mute_availability';
 
 const deferred = () => {
   let resolve;
@@ -116,11 +116,15 @@ describe('emoji mute preference flow', () => {
         return pending.promise;
       }
 
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        return Promise.resolve({ data: { enabled: false, explicit: true, known: true } });
+      }
+
       return Promise.resolve({ data: [] });
     });
 
     const request = loadEmojiMutes({ force: true });
-    await dispatch(applyRemoteEmojiMutePreference(false));
+    await dispatch(applyRemoteEmojiMutePreference());
     pending.resolve({ data: { revision: '4', enabled: true, emoji_mutes: [hideRule] } });
     await request;
 
@@ -162,6 +166,10 @@ describe('emoji mute preference flow', () => {
         return Promise.resolve({ data: { count: 0 } });
       }
 
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        return Promise.resolve({ data: { enabled: true, explicit: true, known: true } });
+      }
+
       if (url === '/api/v1/fedibird/emoji_mutes') {
         return Promise.resolve({ data: { revision: '8', enabled: true, emoji_mutes: [] } });
       }
@@ -171,7 +179,7 @@ describe('emoji mute preference flow', () => {
 
     const ignored = dispatch(ignoreEmojiMutesThisView());
     await flush();
-    const enabled = dispatch(applyRemoteEmojiMutePreference(true));
+    const enabled = dispatch(applyRemoteEmojiMutePreference());
     await flush();
     expect(notificationCalls.length).toBeGreaterThanOrEqual(2);
 
@@ -222,6 +230,60 @@ describe('emoji mute preference flow', () => {
     await loading;
     expect(emojiMutes.get('availability')).toBe('temporary_ignore');
     expect(currentEmojiMutes()).toEqual([]);
+  });
+
+  it('ignores an older preference read that arrives after a newer one', async () => {
+    noteEmojiMuteDisabledLocally();
+    const reads = [];
+
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        const pending = deferred();
+        reads.push(pending);
+        return pending.promise;
+      }
+
+      if (url === '/api/v1/fedibird/emoji_mutes') {
+        return Promise.resolve({ data: { revision: '4', enabled: true, emoji_mutes: [hideRule] } });
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    const older = dispatch(applyRemoteEmojiMutePreference());
+    const newer = dispatch(applyRemoteEmojiMutePreference());
+    reads[1].resolve({ data: { enabled: true, explicit: true, known: true } });
+    await newer;
+    reads[0].resolve({ data: { enabled: false, explicit: true, known: true } });
+    await older;
+
+    expect(currentEmojiMuteBoot().availability).toBe('enabled');
+    expect(currentEmojiMutes()).toEqual([hideRule]);
+  });
+
+  it('reads the saved preference on reconnect and skips that read at startup', async () => {
+    noteEmojiMuteDisabledLocally();
+    await syncEmojiMutes()(dispatch, root);
+    expect(api().get).not.toHaveBeenCalled();
+
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        return Promise.resolve({ data: { enabled: true, explicit: true, known: true } });
+      }
+
+      if (url === '/api/v1/fedibird/emoji_mutes') {
+        return Promise.resolve({ data: { revision: '2', enabled: true, emoji_mutes: [hideRule] } });
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    await syncEmojiMutes({ reconnect: true })(dispatch, root);
+    const urls = api().get.mock.calls.map(call => call[0]);
+    expect(urls).toContain('/api/v1/fedibird/emoji_mute_preference');
+    expect(urls).toContain('/api/v1/fedibird/emoji_mutes');
+    expect(currentEmojiMuteBoot().availability).toBe('enabled');
+    expect(emojiMutes.get('display')).toBe('apply');
   });
 
   it('does not refresh notifications on the first document fetch', async () => {

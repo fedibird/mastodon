@@ -389,9 +389,33 @@ export function noteEmojiMutesChanged(payload) {
 export function resetEmojiMuteStoreForTests() {
   viewerSignedInOverride = null;
   temporaryIgnore = false;
+  preferenceReadGeneration = 0;
   resetEmojiMuteBootForTests();
   resetEmojiMuteSession();
   notificationFetchEpoch = 0;
+}
+
+let preferenceReadGeneration = 0;
+
+export function beginEmojiMutePreferenceRead() {
+  preferenceReadGeneration += 1;
+  return preferenceReadGeneration;
+}
+
+export function emojiMutePreferenceReadCurrent(generation) {
+  return generation === preferenceReadGeneration;
+}
+
+export function loadEmojiMutePreference() {
+  const headers = {};
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  return api().get('/api/v1/fedibird/emoji_mute_preference', { headers }).then(response => (
+    response && response.data
+  ));
 }
 
 export function saveEmojiMuteEnabled(enabled) {

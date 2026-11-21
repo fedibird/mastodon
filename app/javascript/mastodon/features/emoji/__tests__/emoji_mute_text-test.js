@@ -18,6 +18,7 @@ import {
   replaceUnicodeEmojiInPlainText,
   replaceUnicodeEmojiInPreviewHtml,
   resetEmojiMuteTextForTests,
+  suppressUnicodeEmoji,
 } from '../emoji_mute_text';
 
 const THUMBS = '👍';
@@ -635,6 +636,17 @@ describe('unicode preview text', () => {
     expect(template.content.querySelector('a').getAttribute('aria-label')).toBe('◻');
     expect(template.content.querySelector('a').getAttribute('href')).toBe('https://example.test/keep');
     expect(template.content.querySelector('a').getAttribute('aria-labelledby')).toBe('emoji-name');
+    expect(suppressUnicodeEmoji('abc 123')).toBe('abc 123');
+    expect(suppressUnicodeEmoji('🏽')).toBe('◻');
+    expect(suppressUnicodeEmoji('🇦')).toBe('◻');
+    expect(suppressUnicodeEmoji('🇺🇸')).toBe('◻');
+    expect(suppressUnicodeEmoji(`keep ${THUMBS} 3️⃣`)).toBe('keep ◻ ◻');
+    expect(replaceUnicodeEmojiInPlainText('plain 🏽 🇦', SUPPRESS_UNVERIFIED_INDEX)).toBe('plain ◻ ◻');
+    expect(replaceUnicodeEmojiInPreviewHtml('preview 🏽', SUPPRESS_UNVERIFIED_INDEX)).toBe('preview ◻');
+    const labelled = replaceEmojiInDisplayHtml('<a title="🏽" aria-label="🇦" href="https://example.test/a">text</a>', SUPPRESS_UNVERIFIED_INDEX);
+    expect(labelled).toContain('title="◻"');
+    expect(labelled).toContain('aria-label="◻"');
+    expect(labelled).toContain('href="https://example.test/a"');
     expect(emojiMutedPlainText(`hello ${THUMBS}`, '', SUPPRESS_UNVERIFIED_INDEX)).toBe('hello ◻');
     expect(emojiMutedPlainLabel(`hello ${THUMBS}`, '', SUPPRESS_UNVERIFIED_INDEX)).toBe('hello ◻');
     expect(emojiMutedPlainLabel(`hello ${THUMBS}`, html, SUPPRESS_UNVERIFIED_INDEX)).not.toContain(THUMBS);

@@ -22,6 +22,9 @@ import {
   saveEmojiMuteEnabled,
   emojiMuteTemporarilyIgnored,
   invalidateEmojiMuteNotificationFetches,
+  beginEmojiMutePreferenceRead,
+  emojiMutePreferenceReadCurrent,
+  loadEmojiMutePreference,
 } from '../features/emoji/emoji_mute_store';
 import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
 import { hideReactionSignature, hideSignatureGrew, hideSignatureShrunk, revisionStale } from '../features/emoji/emoji_mute_projection';
@@ -90,7 +93,7 @@ export function disableEmojiMuteFeature() {
   };
 }
 
-export function applyRemoteEmojiMutePreference(enabled) {
+function applyAuthoritativeEmojiMutePreference(enabled) {
   return dispatch => {
     if (enabled === true) {
       if (currentEmojiMuteBoot().availability === 'enabled') {
@@ -111,6 +114,22 @@ export function applyRemoteEmojiMutePreference(enabled) {
     }
 
     return Promise.resolve(null);
+  };
+}
+
+// The stream payload is only a notice that the preference changed. A slow
+// false event must not win over a newer read of the saved row.
+export function applyRemoteEmojiMutePreference() {
+  return dispatch => {
+    const generation = beginEmojiMutePreferenceRead();
+
+    return loadEmojiMutePreference().then(data => {
+      if (!emojiMutePreferenceReadCurrent(generation) || !data) {
+        return null;
+      }
+
+      return dispatch(applyAuthoritativeEmojiMutePreference(data.enabled));
+    });
   };
 }
 
@@ -651,6 +670,10 @@ export function syncEmojiMutes(options = {}) {
         recovered: true,
       });
       return Promise.resolve([]);
+    }
+
+    if (options.reconnect && currentEmojiMuteBoot().availability === 'disabled') {
+      return dispatch(applyRemoteEmojiMutePreference());
     }
 
     if (currentEmojiMuteBoot().availability === 'disabled') {

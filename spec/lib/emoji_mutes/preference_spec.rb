@@ -122,4 +122,19 @@ RSpec.describe EmojiMutes::Preference do
 
     expect(Setting.unscoped.where(thing_type: 'User', thing_id: with_rule.id, var: 'emoji_mute_enabled').count).to eq(1)
   end
+
+  it 'does not let a delayed cache callback replace a newer preference' do
+    described_class.new(user).update!(false)
+    stale = Setting.unscoped.find_by!(thing_type: 'User', thing_id: user.id, var: described_class::KEY)
+    described_class.new(user).update!(true)
+    user.settings['emoji_mute_enabled'] = true
+    stale.value = false
+
+    stale.rewrite_cache
+
+    expect(Setting.unscoped.find(stale.id).value).to eq(true)
+    expect(Rails.cache.read(Setting.cache_key(described_class::KEY, user))).to eq(true)
+    expect(user.setting_emoji_mute_enabled).to eq(true)
+    expect(described_class.new(user).effects_enabled?).to eq(true)
+  end
 end

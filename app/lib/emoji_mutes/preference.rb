@@ -88,6 +88,23 @@ module EmojiMutes
       :enabled
     end
 
+    # A committed value can be older than another commit by the time this
+    # callback runs. Re-read under the same user lock the writers take, and
+    # store that row. Writing the in-memory value here would republish it.
+    def self.refresh_cache(record)
+      User.transaction do
+        User.lock.find_by(id: record.thing_id)
+        latest = Setting.unscoped.find_by(thing_type: 'User', thing_id: record.thing_id, var: KEY)
+        if latest
+          Rails.cache.write(record.cache_key, latest.value)
+        else
+          Rails.cache.delete(record.cache_key)
+        end
+      end
+    rescue StandardError => e
+      Rails.logger.warn("Emoji mute preference cache refresh failed user_id=#{record.thing_id} error=#{e.class}")
+    end
+
     def self.publish!(user, enabled)
       account_id = user.account_id
       return if account_id.nil?

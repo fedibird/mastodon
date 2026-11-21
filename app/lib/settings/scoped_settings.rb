@@ -44,6 +44,12 @@ module Settings
       key = key.to_s
       if @object.is_a?(User) && key == PersonalEmojiSets::PickerSize::KEY
         PersonalEmojiSets::PickerSize.write_legacy!(@object, value)
+      elsif @object.is_a?(User) && key == EmojiMutes::Preference::KEY
+        record = thing_scoped.find_or_initialize_by(var: key)
+        record.update!(value: value)
+        # The saved argument can be older than a commit that landed after this
+        # request read the row. The refresh writes the current database value.
+        EmojiMutes::Preference.refresh_cache(record)
       else
         record = thing_scoped.find_or_initialize_by(var: key)
         record.update!(value: value)

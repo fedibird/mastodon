@@ -43,7 +43,7 @@ const INACTIVE_INDEX = Object.freeze({
 // Shown in place of every user-generated emoji while the mute document is
 // not verified. It is not a glyph, an alt string, or an image URL.
 export const UNVERIFIED_EMOJI_PLACEHOLDER = '\u25FB';
-const SUPPRESS_UNICODE_EMOJI = /(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?)*)/gu;
+const SUPPRESS_UNICODE_EMOJI = /(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?)*|\p{Emoji_Modifier}|\p{Regional_Indicator})/gu;
 
 export const SUPPRESS_UNVERIFIED_INDEX = Object.freeze({
   signature: 'suppress-unverified',
