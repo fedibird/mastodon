@@ -529,9 +529,19 @@ function preferenceNotSavedError() {
   return error;
 }
 
+function preferenceUnconfirmedError() {
+  const error = new Error('Emoji mute preference response could not be confirmed');
+  error.preferenceUnconfirmed = true;
+  return error;
+}
+
 function preferenceResponseLost(error) {
   if (error && error.preferenceNotSaved) {
     return false;
+  }
+
+  if (error && error.preferenceUnconfirmed) {
+    return true;
   }
 
   const code = error && error.response && error.response.data && Array.isArray(error.response.data.errors)
@@ -583,7 +593,7 @@ export function saveEmojiMuteEnabled(enabled) {
     const data = response && response.data;
 
     if (!emojiMutePreferenceAcceptable(data)) {
-      throw preferenceNotSavedError();
+      throw preferenceUnconfirmedError();
     }
 
     if (!emojiMutePreferenceReadCurrent(generation) || preferenceRevisionStale(data.preference_revision)) {

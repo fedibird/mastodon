@@ -785,15 +785,48 @@ describe('emoji mute preference flow', () => {
     });
   });
 
+  it('confirms off from one read when the save response body cannot be read', async () => {
+    noteEmojiMuteEnabledLocally();
+    api().patch.mockResolvedValue({ data: { enabled: 'no' } });
+    api().get.mockImplementation(url => (
+      url === '/api/v1/fedibird/emoji_mute_preference'
+        ? Promise.resolve({ data: { enabled: false, explicit: true, known: true, preference_revision: '4' } })
+        : Promise.resolve({ data: [] })
+    ));
+
+    const saved = await dispatch(disableEmojiMuteFeature());
+
+    expect(saved).toMatchObject({ enabled: false, applied: true, explicit: true });
+    expect(currentEmojiMuteBoot()).toMatchObject({ availability: 'disabled', explicit: true });
+    expect(api().patch).toHaveBeenCalledTimes(1);
+    expect(api().get.mock.calls.filter(call => call[0] === '/api/v1/fedibird/emoji_mute_preference')).toHaveLength(1);
+  });
+
+  it('does not resend the save when the confirmation read is also unknown', async () => {
+    noteEmojiMuteEnabledLocally();
+    api().patch.mockResolvedValue({ data: null });
+    api().get.mockRejectedValueOnce(Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }));
+
+    await expect(dispatch(disableEmojiMuteFeature())).rejects.toThrow(/timeout/);
+    expect(currentEmojiMuteBoot().availability).toBe('enabled');
+    expect(api().patch).toHaveBeenCalledTimes(1);
+    expect(api().get).toHaveBeenCalledTimes(1);
+  });
+
   it('does not treat an unset preference row as a saved off', async () => {
     noteEmojiMuteEnabledLocally();
     api().patch.mockResolvedValue({
+      data: { enabled: false, explicit: false, known: true, preference_revision: '0' },
+    });
+    api().get.mockResolvedValue({
       data: { enabled: false, explicit: false, known: true, preference_revision: '0' },
     });
 
     await expect(dispatch(disableEmojiMuteFeature())).rejects.toThrow(/not saved/);
     expect(currentEmojiMuteBoot().availability).toBe('enabled');
     expect(emojiMutes.get('availability')).toBe('unknown');
+    expect(api().patch).toHaveBeenCalledTimes(1);
+    expect(api().get.mock.calls.filter(call => call[0] === '/api/v1/fedibird/emoji_mute_preference')).toHaveLength(1);
   });
 
   it('treats a malformed preference response during confirmation as a failure', async () => {
