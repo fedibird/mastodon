@@ -31,6 +31,7 @@ import {
   applyEmojiMuteDisabledDocument,
   currentEmojiMutes,
   emojiMuteDocumentReady,
+  emojiMuteTemporarilyIgnored,
   emojiReactionEventsAccepted,
   installEmojiMutesForTests,
   loadEmojiMutes,
@@ -220,6 +221,34 @@ describe('emoji mute preference flow', () => {
     await expect(loading).resolves.toBeNull();
     expect(emojiMutes.get('availability')).toBe('temporary_ignore');
     expect(emojiMutes.get('phase')).not.toBe('error');
+  });
+
+  it('does not let a confirmation read resume filtering after ignore', async () => {
+    noteEmojiMuteDisabledLocally();
+    applyEmojiMuteDisabledDocument(true);
+    const pending = deferred();
+
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        return pending.promise;
+      }
+
+      if (url === '/api/v1/fedibird/emoji_mutes') {
+        return Promise.resolve({ data: { revision: '2', enabled: true, emoji_mutes: [hideRule] } });
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    const confirming = syncEmojiMutes({ reconnect: true })(dispatch, root);
+    await dispatch(ignoreEmojiMutesThisView());
+    pending.resolve({ data: { enabled: true, explicit: true, known: true, preference_revision: '3' } });
+    await confirming;
+
+    expect(emojiMuteTemporarilyIgnored()).toBe(true);
+    expect(emojiMutes.get('availability')).toBe('temporary_ignore');
+    expect(currentEmojiMutes()).toEqual([]);
+    expect(api().get.mock.calls.map(call => call[0])).not.toContain('/api/v1/fedibird/emoji_mutes');
   });
 
   it('does not adopt a list that arrives after this view ignores mutes', async () => {
@@ -454,10 +483,70 @@ describe('emoji mute preference flow', () => {
     expect(currentEmojiMuteBoot().availability).toBe('enabled');
   });
 
+  it('keeps a ready document when the save confirmation says the feature stayed on', async () => {
+    noteEmojiMuteEnabledLocally();
+    installEmojiMutesForTests({ revision: '3', emoji_mutes: [hideRule] });
+    dispatch({
+      type: 'EMOJI_MUTES_APPLY',
+      mutes: [hideRule],
+      revision: '3',
+      recovered: true,
+    });
+    api().patch.mockRejectedValueOnce(Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }));
+    api().get.mockImplementation(url => (
+      url === '/api/v1/fedibird/emoji_mute_preference'
+        ? Promise.resolve({ data: { enabled: true, explicit: true, known: true, preference_revision: '8' } })
+        : Promise.resolve({ data: [] })
+    ));
+
+    const saved = await dispatch(disableEmojiMuteFeature());
+
+    expect(saved.enabled).toBe(true);
+    expect(emojiMuteDocumentReady()).toBe(true);
+    expect(currentEmojiMutes()).toEqual([hideRule]);
+    expect(emojiReactionEventsAccepted()).toBe(true);
+    expect(emojiMutes.get('phase')).toBe('ready');
+    expect(api().get.mock.calls.map(call => call[0])).not.toContain('/api/v1/fedibird/emoji_mutes');
+  });
+
+  it('loads rules when the save confirmation says enabled and no document is ready', async () => {
+    noteEmojiMuteEnabledLocally();
+    api().patch.mockRejectedValueOnce(Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }));
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        return Promise.resolve({ data: { enabled: true, explicit: true, known: true, preference_revision: '8' } });
+      }
+
+      if (url === '/api/v1/fedibird/emoji_mutes') {
+        return Promise.resolve({ data: { revision: '2', enabled: true, emoji_mutes: [hideRule] } });
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    const saved = await dispatch(disableEmojiMuteFeature());
+
+    expect(saved.enabled).toBe(true);
+    expect(emojiMuteDocumentReady()).toBe(true);
+    expect(currentEmojiMutes()).toEqual([hideRule]);
+    expect(emojiMutes.get('phase')).toBe('ready');
+    expect(api().patch).toHaveBeenCalledTimes(1);
+  });
+
   it('reads the current preference when the save response is lost', async () => {
     noteEmojiMuteEnabledLocally();
     api().patch.mockRejectedValueOnce(Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }));
-    api().get.mockResolvedValueOnce({ data: { enabled: true, explicit: true, known: true, preference_revision: '6' } });
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        return Promise.resolve({ data: { enabled: true, explicit: true, known: true, preference_revision: '6' } });
+      }
+
+      if (url === '/api/v1/fedibird/emoji_mutes') {
+        return Promise.resolve({ data: { revision: '1', enabled: true, emoji_mutes: [] } });
+      }
+
+      return Promise.resolve({ data: [] });
+    });
 
     const saved = await dispatch(disableEmojiMuteFeature());
 

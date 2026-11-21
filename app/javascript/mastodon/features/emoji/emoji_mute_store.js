@@ -244,6 +244,7 @@ export function applyEmojiMuteDisabledDocument(explicit = false) {
 
 export function ignoreEmojiMutesForThisView() {
   temporaryIgnore = true;
+  beginEmojiMutePreferenceRead();
   releaseEmojiMutePreferenceConfirmation();
   requestVersion += 1;
   request = null;
@@ -516,7 +517,7 @@ function applySavedPreference(data) {
 
   if (data.enabled === false) {
     applyEmojiMuteDisabledDocument(true);
-  } else {
+  } else if (!(currentEmojiMuteBoot().availability === 'enabled' && emojiMuteDocumentReady())) {
     beginEmojiMuteEnabledFetch();
   }
 

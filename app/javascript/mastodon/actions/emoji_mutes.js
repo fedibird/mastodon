@@ -97,6 +97,11 @@ export function disableEmojiMuteFeature() {
     const previousSignature = hideReactionSignature(currentEmojiMutes());
 
     return saveEmojiMuteEnabled(false).then(data => {
+      if (data && data.applied === true && data.enabled === true && !emojiMuteDocumentReady()) {
+        dispatch({ type: EMOJI_MUTES_ENABLE });
+        return dispatch(syncEmojiMutes({ verify: true })).then(() => data);
+      }
+
       if (!data || data.applied === false || data.enabled !== false) {
         return data;
       }

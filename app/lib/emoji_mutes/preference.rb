@@ -54,12 +54,13 @@ module EmojiMutes
     end
 
     def as_json
+      row = record
       {
-        'enabled' => enabled?,
-        'explicit' => explicit?,
+        'enabled' => row&.value == true,
+        'explicit' => !row.nil?,
         'known' => true,
         'modal' => modal?,
-        'preference_revision' => self.class.revision_of(record),
+        'preference_revision' => self.class.revision_of(row),
       }
     end
 
