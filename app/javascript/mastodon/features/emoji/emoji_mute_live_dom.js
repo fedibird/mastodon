@@ -49,12 +49,23 @@ const concealEmojiImage = img => {
   img.setAttribute('hidden', '');
   img.setAttribute('aria-hidden', 'true');
 
-  const host = img.closest('[data-emoji-reaction-url], [data-emoji-reaction-static-url], [data-emoji-shortcode], [data-emoji-domain], [data-emoji-native]');
+  // The chip's tooltip is an ASCII :shortcode:, so the unicode rewrite leaves
+  // it. Clear that label and the name/domain attributes on the same walk.
+  const host = img.closest('.reactions-bar__item, [data-emoji-reaction-name], [data-emoji-reaction-url], [data-emoji-reaction-static-url], [data-emoji-shortcode], [data-emoji-domain], [data-emoji-native]');
 
   if (host && host !== img) {
-    ['data-emoji-reaction-url', 'data-emoji-reaction-static-url', 'data-emoji-shortcode', 'data-emoji-domain', 'data-emoji-native', 'data-emoji-custom-emoji-id'].forEach(name => {
-      host.removeAttribute(name);
-    });
+    [
+      'title',
+      'aria-label',
+      'data-emoji-reaction-name',
+      'data-emoji-reaction-domain',
+      'data-emoji-reaction-url',
+      'data-emoji-reaction-static-url',
+      'data-emoji-shortcode',
+      'data-emoji-domain',
+      'data-emoji-native',
+      'data-emoji-custom-emoji-id',
+    ].forEach(name => host.removeAttribute(name));
   }
 
   const picture = img.parentElement && img.parentElement.tagName === 'PICTURE' ? img.parentElement : null;

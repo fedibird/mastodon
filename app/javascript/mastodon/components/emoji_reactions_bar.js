@@ -4,6 +4,7 @@ import { connect } from 'react-redux';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { List as ImmutableList } from 'immutable';
+import { storedReactionHidden } from 'mastodon/features/emoji/emoji_mute_projection';
 import { emojiReactionsForStatus, emojiReactionAccountIds } from '../utils/emoji_reactions';
 import TransitionMotion from 'react-motion/lib/TransitionMotion';
 import { reduceMotion, me, hideReactionCounter, hideListOfEmojiReactionsToPosts } from 'mastodon/initial_state';
@@ -11,9 +12,24 @@ import { reduceMotionNow, watchReduceMotion } from 'mastodon/utils/appearance_pr
 import spring from 'react-motion/lib/spring';
 import EmojiReaction from './emoji_reactions';
 
-const mapStateToProps = (state, { status }) => ({
-  emojiReactions: state.getIn(['emojiMutes', 'display']) === 'suppress' ? ImmutableList() : emojiReactionsForStatus(status),
-});
+const mapStateToProps = (state, { status }) => {
+  const display = state.getIn(['emojiMutes', 'display']);
+  const reactions = emojiReactionsForStatus(status);
+
+  if (display === 'suppress') {
+    return { emojiReactions: ImmutableList() };
+  }
+
+  if (display === 'show') {
+    return { emojiReactions: reactions };
+  }
+
+  const rules = state.getIn(['emojiMutes', 'rules']);
+
+  return {
+    emojiReactions: reactions.filter(reaction => !storedReactionHidden(reaction, rules)),
+  };
+};
 
 const mergeProps = ({ emojiReactions }, dispatchProps, ownProps) => ({
   ...ownProps,

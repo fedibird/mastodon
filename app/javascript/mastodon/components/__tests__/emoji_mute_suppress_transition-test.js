@@ -249,4 +249,101 @@ describe('mounted suppress transition', () => {
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
     expect(() => view.unmount()).not.toThrow();
   });
+
+  it('clears custom reaction chip labels before React commits and restores only the unmuted chip', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    let beforeCommit = null;
+    let capture = false;
+    const customStatus = fromJS({
+      id: 's2',
+      account: 'a1',
+      emoji_reactions: [
+        { name: 'blob', count: 1, account_ids: ['2'], domain: 'remote.example', url: 'https://cdn.example/blob.svg', static_url: 'https://cdn.example/blob.png' },
+        { name: 'star', count: 1, account_ids: ['2'], domain: 'other.example', url: 'https://cdn.example/star.svg', static_url: 'https://cdn.example/star.png' },
+      ],
+    });
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      if (!capture) {
+        return;
+      }
+
+      const found = document.querySelectorAll('button.reactions-bar__item');
+      beforeCommit = [];
+
+      for (let index = 0; index < found.length; index += 1) {
+        const button = found[index];
+        beforeCommit.push({
+          html: button.outerHTML,
+          title: button.getAttribute('title'),
+          name: button.getAttribute('data-emoji-reaction-name'),
+          domain: button.getAttribute('data-emoji-reaction-domain'),
+        });
+      }
+      capture = false;
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <EmojiReactionsBar status={customStatus} addEmojiReaction={jest.fn()} removeEmojiReaction={jest.fn()} />
+        </div>
+      </Provider>,
+    );
+
+    expect(view.container.querySelector('button[title=":blob:"]')).not.toBeNull();
+    expect(view.container.querySelector('button[title=":star:"]')).not.toBeNull();
+    expect(emojiMuteLiveDomProbe.scans).toBe(0);
+
+    capture = true;
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(beforeCommit).toHaveLength(2);
+    beforeCommit.forEach(button => {
+      expect(button.title).toBeNull();
+      expect(button.name).toBeNull();
+      expect(button.domain).toBeNull();
+      expect(button.html).not.toContain('blob');
+      expect(button.html).not.toContain('star');
+      expect(button.html).not.toContain('remote.example');
+      expect(button.html).not.toContain('other.example');
+      expect(button.html).not.toContain('cdn.example');
+    });
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+
+    act(() => {
+      store.dispatch({ type: 'UNRELATED' });
+    });
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [{
+          id: 'm-blob',
+          revision: '3',
+          emoji: { kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' },
+          replacement: '[blob]',
+          effects: { replace_in_text: true, hide_reactions: true, hide_in_picker: true, reject_reactions_to_own_posts: true },
+        }],
+      });
+    });
+
+    const restored = view.container.querySelector('button.reactions-bar__item');
+    expect(restored.getAttribute('title')).toBe(':star:');
+    expect(restored.getAttribute('data-emoji-reaction-name')).toBe('star');
+    expect(restored.getAttribute('data-emoji-reaction-domain')).toBe('other.example');
+    expect(view.container.querySelectorAll('button.reactions-bar__item')).toHaveLength(1);
+    expect(view.container.innerHTML).not.toContain('blob');
+    expect(view.container.innerHTML).not.toContain('remote.example');
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+    expect(() => view.unmount()).not.toThrow();
+  });
 });
