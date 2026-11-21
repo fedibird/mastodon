@@ -170,6 +170,28 @@ export function replaceInTextIndexFromRules(rules) {
   return cachedIndex;
 }
 
+// One display decision for every surface. `suppress` hides user emoji before
+// a document is verified. `show` is an explicit off or a temporary ignore.
+// Anything else, including older tests that only store rules, applies those
+// rules. Callers must not read `rules` on their own.
+export function emojiMuteTextIndexFromState(state) {
+  if (!state || typeof state.getIn !== 'function') {
+    return undefined;
+  }
+
+  const display = state.getIn(['emojiMutes', 'display']);
+
+  if (display === 'suppress') {
+    return SUPPRESS_UNVERIFIED_INDEX;
+  }
+
+  if (display === 'show') {
+    return INACTIVE_INDEX;
+  }
+
+  return replaceInTextIndexFromRules(state.getIn(['emojiMutes', 'rules']));
+}
+
 const mappedReplacement = (index, reference) => {
   const key = identityKey(reference);
 
@@ -800,6 +822,14 @@ export function replaceUnicodeEmojiInPlainText(text, index) {
   }
 
   return replaceUnicodeEmojiSequences(text, index, value => value);
+}
+
+export function presentEmojiMutePlain(text, index) {
+  if (typeof text !== 'string' || text === '') {
+    return text;
+  }
+
+  return replaceUnicodeEmojiInPlainText(text, index);
 }
 
 const walkPreviewText = (node, index) => {

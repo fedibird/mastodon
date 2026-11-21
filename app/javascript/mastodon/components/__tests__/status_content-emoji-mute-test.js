@@ -51,7 +51,7 @@ jest.mock('mastodon/containers/poll_container', () => () => null);
 jest.mock('../permalink', () => ({ children }) => <span>{children}</span>);
 jest.mock('mastodon/components/icon', () => () => null);
 
-import { EMOJI_MUTES_APPLY } from '../../actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from '../../actions/emoji_mutes';
 import { normalizeStatus, normalizeStatusTranslation } from '../../actions/importer/normalizer';
 import emojify from '../../features/emoji/emoji';
 import { resetEmojiMuteTextForTests } from '../../features/emoji/emoji_mute_text';
@@ -447,6 +447,146 @@ describe('StatusContent replace_in_text', () => {
     expect(container.querySelector('[data-emoji-id="11"]')).not.toBeNull();
     expect(container.querySelector('a[href="https://example.test/emoji/blob"]').getAttribute('title')).toBe('Link to :@blob:');
     expect(container.querySelector('a[href="https://example.test/react"] img').getAttribute('alt')).toBe(thumb);
+  });
+});
+
+const assertNoEmojiLeak = container => {
+  const html = container.innerHTML;
+
+  expect(container.querySelector('img, source, picture')).toBeNull();
+  expect(html).not.toContain('srcset');
+  expect(html).not.toContain('cdn.example');
+  expect(html).not.toContain('/emoji/');
+  expect(html).not.toContain('👌');
+  expect(html).not.toContain(':blob:');
+  expect(html).not.toContain('data-emoji-id');
+  expect(html).not.toContain('data-shortcode');
+};
+
+describe('StatusContent unverified emoji suppression', () => {
+  beforeEach(() => {
+    resetEmojiMuteTextForTests();
+  });
+
+  const remote = {
+    id: '20',
+    shortcode: 'blob',
+    url: 'https://cdn.example/remote.svg',
+    static_url: 'https://cdn.example/remote.png',
+    domain: 'remote.example',
+  };
+  const mixedHtml = `${emojify('<p>Local :blob: 👌</p>', { ':blob:': emoji }, '')}${emojify('<p>Remote :blob:</p>', { ':blob:': remote }, 'remote.example')}<a href="https://example.test/keep" title="👌" aria-label="👌">keep</a>`;
+  const suppressedState = {
+    revision: null,
+    appliedRevision: null,
+    phase: 'error',
+    failure: 'unavailable',
+    availability: 'enabled',
+    display: 'suppress',
+    rules: [],
+  };
+
+  const renderMixed = (emojiState, props = {}) => {
+    const status = buildStatus({
+      contentHtml: mixedHtml,
+      spoiler_text: 'Secret :blob: 👌',
+      spoilerHtml: emojify('Secret :blob: 👌', { ':blob:': emoji }, ''),
+      translationMode: 'bilingual',
+      translation: {
+        contentHtml: emojify('<p>訳 :blob: 👌</p>', { ':blob:': emoji }, ''),
+        spoilerHtml: emojify('警告 👌', {}, ''),
+        spoiler_text: '警告 👌',
+        language: 'ja',
+        detected_source_language: 'en',
+        provider: 'test',
+      },
+    });
+    const store = createStore(reducer, baseState([]).set('emojiMutes', fromJS(emojiState)));
+    const view = render(
+      <Provider store={store}>
+        <StatusContent status={status} quote onTranslate={jest.fn()} onClick={jest.fn()} {...props} />
+      </Provider>,
+    );
+
+    return { ...view, store, status };
+  };
+
+  it('omits unicode, local, and remote emoji from the real connected body on the first frame', () => {
+    const { container, status } = renderMixed(suppressedState);
+
+    assertNoEmojiLeak(container);
+    expect(container.textContent).toContain('◻');
+    expect(container.querySelector('a[href="https://example.test/keep"]').getAttribute('title')).toBe('◻');
+    expect(container.querySelector('a[href="https://example.test/keep"]').getAttribute('aria-label')).toBe('◻');
+    expect(status.get('contentHtml')).toContain('cdn.example');
+    expect(status.get('contentHtml')).toContain('👌');
+  });
+
+  it('restores rules after a successful document, then shows every emoji after ignore and off', () => {
+    const { container, store } = renderMixed(suppressedState);
+
+    assertNoEmojiLeak(container);
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '4',
+        availability: 'enabled',
+        mutes: [muteRule(), unicodeRule],
+      });
+    });
+
+    expect(container.textContent).toContain('［絵文字］');
+    expect(container.textContent).toContain('[ok]');
+    expect(container.textContent).not.toContain('👌');
+    expect(container.innerHTML).not.toContain('cdn.example/blob');
+    expect(container.querySelector('img.custom-emoji').getAttribute('src')).toContain('cdn.example/remote');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    expect(container.querySelector('img.custom-emoji')).not.toBeNull();
+    expect(container.innerHTML).toContain('👌');
+    expect(container.querySelector('a[href="https://example.test/keep"]').getAttribute('title')).toBe('👌');
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '5',
+        availability: 'enabled',
+        mutes: [muteRule()],
+      });
+    });
+    expect(container.innerHTML).not.toContain('cdn.example/blob');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_DISABLE });
+    });
+
+    expect(container.querySelector('img.custom-emoji')).not.toBeNull();
+    expect(container.innerHTML).toContain('cdn.example/blob');
+    expect(container.innerHTML).toContain('👌');
+  });
+
+  it('suppresses again when a stream revision is newer than the applied document', () => {
+    const { container, store } = renderMixed({
+      revision: '3',
+      appliedRevision: '3',
+      phase: 'ready',
+      failure: null,
+      availability: 'enabled',
+      display: 'apply',
+      rules: [muteRule()],
+    });
+
+    expect(container.innerHTML).not.toContain('cdn.example/blob');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '9' });
+    });
+
+    assertNoEmojiLeak(container);
   });
 });
 

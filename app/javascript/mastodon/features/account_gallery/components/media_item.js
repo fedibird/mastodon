@@ -11,13 +11,15 @@ import React from 'react';
 import { defineMessages, injectIntl } from 'react-intl';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   reveal: { id: 'timeline.media.reveal', defaultMessage: 'Reveal media' },
   open: { id: 'timeline.media.open', defaultMessage: 'Open media' },
 });
 
-export default @injectIntl
+@injectIntl
 class MediaItem extends ImmutablePureComponent {
 
   static propTypes = {
@@ -27,6 +29,7 @@ class MediaItem extends ImmutablePureComponent {
     shape: PropTypes.oneOf(['square', 'original']),
     visibility: PropTypes.oneOf(['hide_sensitive', 'show_all', 'hide_all']),
     intl: PropTypes.object.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   state = {
@@ -94,7 +97,8 @@ class MediaItem extends ImmutablePureComponent {
   render () {
     const { attachment, shape, intl } = this.props;
     const status = attachment.get('status');
-    const description = attachment.get('description');
+    const rawDescription = attachment.get('description');
+    const description = typeof rawDescription === 'string' ? presentEmojiMutePlain(rawDescription, this.props.emojiMuteTextIndex) : rawDescription;
     const type = attachment.get('type');
     const original = shape === 'original';
     const concealed = this.isConcealed();
@@ -159,3 +163,5 @@ class MediaItem extends ImmutablePureComponent {
   }
 
 }
+
+export default withEmojiMuteTextIndex(MediaItem);

@@ -19,6 +19,7 @@ import Icon from 'mastodon/components/icon';
 import { logOut } from 'mastodon/utils/log_out';
 import NotificationsCounterIcon from '../ui/components/notifications_counter_icon';
 import classNames from 'classnames';
+import EmojiMuteLoadNotice from 'mastodon/components/emoji_mute_load_notice';
 
 const messages = defineMessages({
   short_start: { id: 'navigation_bar.short.getting_started', defaultMessage: 'Started' },
@@ -173,6 +174,7 @@ class Compose extends React.PureComponent {
     return (
       <div className='drawer' role='region' aria-label={intl.formatMessage(messages.compose)}>
         {header}
+        {multiColumn && <EmojiMuteLoadNotice placement='drawer' />}
 
         {(multiColumn || isSearchPage) && <SearchContainer /> }
 

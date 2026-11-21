@@ -89,6 +89,7 @@ jest.mock('react-router-dom', () => ({
 jest.mock('react-router-scroll-4', () => ({ ScrollContext: ({ children }) => <div>{children}</div> }));
 jest.mock('mastodon/features/ui', () => {
   const ReactMock = require('react');
+  const Notice = require('mastodon/components/emoji_mute_load_notice').default;
 
   return class MockUI extends ReactMock.Component {
 
@@ -109,6 +110,7 @@ jest.mock('mastodon/features/ui', () => {
     render() {
       return (
         <div data-testid='webui'>
+          <Notice placement='compose-panel' />
           timeline
           <div className='scrollable' data-testid='timeline-scroll'>
             <input data-testid='compose-draft' value={this.state.draft} onChange={this.handleDraftChange} />
@@ -246,17 +248,21 @@ describe('authenticated emoji mute bootstrap', () => {
 
     expect(view.getByTestId('webui')).toBe(ui);
     expect(mockUiUnmounts).not.toHaveBeenCalled();
-    expect(view.getByText(/could not be verified/)).not.toBeNull();
-    expect(view.getByText('Ignore this time and continue')).not.toBeNull();
-    expect(view.getByText(/Every emoji becomes visible, including ones you muted/)).not.toBeNull();
-    expect(view.getByText('Turn emoji muting off')).not.toBeNull();
+    expect(view.container.querySelector('.emoji-mutes-bootstrap')).toBeNull();
+    const portal = view.container.querySelector('.emoji-mutes-privacy-portal');
+    expect(portal.querySelector('.emoji-mute-load-notice')).not.toBeNull();
+    expect(portal.querySelector('.emoji-mute-load-notice').getAttribute('data-placement')).toBe('compose-panel');
+    expect(view.getByText(/Emoji stay hidden until the settings check finishes/)).not.toBeNull();
+    expect(view.getByText('Ignore this time')).not.toBeNull();
+    expect(view.getByText('Ignoring this also shows emoji you muted.')).not.toBeNull();
+    expect(view.getByText('Turn the feature off')).not.toBeNull();
 
-    fireEvent.click(view.getByText('Ignore this time and continue'));
+    fireEvent.click(view.getByText('Ignore this time'));
     expect(ignoreEmojiMutesThisView).toHaveBeenCalledTimes(1);
 
     mockRequest = deferred();
     allowRetry();
-    fireEvent.click(view.getByText('Retry loading settings'));
+    fireEvent.click(view.getByText('Try again'));
     expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(2);
     expect(retryEmojiMuteLoad).toHaveBeenLastCalledWith({ bootstrap: false });
     expect(view.getByTestId('webui')).toBe(ui);
@@ -272,11 +278,11 @@ describe('authenticated emoji mute bootstrap', () => {
     await rejectBootstrap(new Error('offline'));
 
     await act(async () => {
-      fireEvent.click(view.getByText('Turn emoji muting off'));
+      fireEvent.click(view.getByText('Turn the feature off'));
       await Promise.resolve();
     });
 
-    expect(view.queryByText(/could not be verified/)).toBeNull();
+    expect(view.queryByText(/Emoji stay hidden until the settings check finishes/)).toBeNull();
     expect(view.queryByText(/stayed on because the setting could not be saved/)).toBeNull();
     expect(view.getByTestId('webui')).not.toBeNull();
     view.unmount();
@@ -288,15 +294,15 @@ describe('authenticated emoji mute bootstrap', () => {
     await rejectBootstrap(new Error('offline'));
 
     await act(async () => {
-      fireEvent.click(view.getByText('Turn emoji muting off'));
+      fireEvent.click(view.getByText('Turn the feature off'));
       await Promise.resolve();
     });
 
-    expect(view.getByText(/could not be verified/)).not.toBeNull();
+    expect(view.getByText(/Emoji stay hidden until the settings check finishes/)).not.toBeNull();
     expect(view.getByText(/stayed on because the setting could not be saved/)).not.toBeNull();
-    expect(view.getByText('Retry loading settings')).not.toBeNull();
-    expect(view.getByText('Ignore this time and continue')).not.toBeNull();
-    expect(view.getByText('Turn emoji muting off')).not.toBeNull();
+    expect(view.getByText('Try again')).not.toBeNull();
+    expect(view.getByText('Ignore this time')).not.toBeNull();
+    expect(view.getByText('Turn the feature off')).not.toBeNull();
     expect(view.getByTestId('webui')).not.toBeNull();
     view.unmount();
   });
@@ -307,7 +313,7 @@ describe('authenticated emoji mute bootstrap', () => {
     await rejectBootstrap(new Error('offline'));
 
     await act(async () => {
-      fireEvent.click(view.getByText('Turn emoji muting off'));
+      fireEvent.click(view.getByText('Turn the feature off'));
       await Promise.resolve();
     });
 
@@ -323,9 +329,9 @@ describe('authenticated emoji mute bootstrap', () => {
     expect(unauthorized.getByTestId('webui')).not.toBeNull();
     expect(unauthorized.getByText(/session expired/i)).not.toBeNull();
     expect(unauthorized.getByText('Reload and sign in')).not.toBeNull();
-    expect(unauthorized.queryByText('Retry loading settings')).toBeNull();
-    expect(unauthorized.getByText('Ignore this time and continue')).not.toBeNull();
-    expect(unauthorized.getByText('Turn emoji muting off')).not.toBeNull();
+    expect(unauthorized.queryByText('Try again')).toBeNull();
+    expect(unauthorized.getByText('Ignore this time')).not.toBeNull();
+    expect(unauthorized.getByText('Turn the feature off')).not.toBeNull();
     unauthorized.unmount();
 
     mockRequest = deferred();
@@ -334,8 +340,8 @@ describe('authenticated emoji mute bootstrap', () => {
 
     expect(forbiddenView.getByTestId('webui')).not.toBeNull();
     expect(forbiddenView.getByText(/cannot read emoji mute settings/i)).not.toBeNull();
-    expect(forbiddenView.queryByText('Retry loading settings')).toBeNull();
-    expect(forbiddenView.getByText('Ignore this time and continue')).not.toBeNull();
+    expect(forbiddenView.queryByText('Try again')).toBeNull();
+    expect(forbiddenView.getByText('Ignore this time')).not.toBeNull();
     forbiddenView.unmount();
   });
 
@@ -344,12 +350,12 @@ describe('authenticated emoji mute bootstrap', () => {
     await rejectBootstrap(new Error('offline'));
 
     const callsBefore = retryEmojiMuteLoad.mock.calls.length;
-    fireEvent.click(view.getByText('Retry loading settings'));
+    fireEvent.click(view.getByText('Try again'));
     expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(callsBefore);
 
     allowRetry();
     mockRequest = deferred();
-    fireEvent.click(view.getByText('Retry loading settings'));
+    fireEvent.click(view.getByText('Try again'));
     expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(callsBefore + 1);
     view.unmount();
   });
@@ -366,7 +372,8 @@ describe('authenticated emoji mute bootstrap', () => {
 
     expect(view.queryByTestId('webui')).toBeNull();
     expect(view.getByText(/Your account changed/)).not.toBeNull();
-    expect(view.queryByText('Ignore this time and continue')).toBeNull();
+    expect(view.container.querySelector('.emoji-mute-load-notice').getAttribute('data-placement')).toBe('session');
+    expect(view.queryByText('Ignore this time')).toBeNull();
     expect(resetEmojiMuteSession).toHaveBeenCalled();
     expect(mockDispatch).toHaveBeenCalledWith({ type: 'EMOJI_MUTES_RESET' });
     view.unmount();

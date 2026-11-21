@@ -13,6 +13,8 @@ import { attachmentAccessibility } from 'mastodon/utils/translation_view';
 import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
 import { mediaGalleryAspectRatio } from 'mastodon/utils/media_gallery_layout';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   toggle_visible: { id: 'media_gallery.toggle_visible', defaultMessage: '{number, plural, one {Hide image} other {Hide images}}' },
@@ -33,6 +35,7 @@ class Item extends React.PureComponent {
     displayWidth: PropTypes.number,
     visible: PropTypes.bool.isRequired,
     autoplay: PropTypes.bool,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   static defaultProps = {
@@ -148,7 +151,9 @@ class Item extends React.PureComponent {
       sourceLang: this.props.sourceLang || this.props.lang || '',
       targetLang: this.props.targetLang || '',
     });
-    const description = accessible.text;
+    const description = presentEmojiMutePlain(accessible.text, this.props.emojiMuteTextIndex);
+    const originalDescription = presentEmojiMutePlain(accessible.original, this.props.emojiMuteTextIndex);
+    const translatedDescription = presentEmojiMutePlain(accessible.translated, this.props.emojiMuteTextIndex);
     const descriptionLang = accessible.lang || this.props.lang;
 
     if (description?.length > 0) {
@@ -156,8 +161,8 @@ class Item extends React.PureComponent {
         <AltTextBadge
           key='alt'
           description={description}
-          originalDescription={accessible.original}
-          translatedDescription={accessible.translated}
+          originalDescription={originalDescription}
+          translatedDescription={translatedDescription}
           sourceLang={this.props.sourceLang || this.props.lang}
           targetLang={this.props.targetLang}
           mode={this.props.translationMode || (accessible.translated ? 'translated' : 'original')}
@@ -305,6 +310,7 @@ class MediaGallery extends React.PureComponent {
     onToggleVisibility: PropTypes.func,
     quote: PropTypes.bool,
     cropImages: PropTypes.bool,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   static defaultProps = {
@@ -436,9 +442,9 @@ class MediaGallery extends React.PureComponent {
     const uncached = media.every(attachment => attachment.get('type') === 'unknown');
 
     if (standalone && this.isFullSizeEligible()) {
-      children = <Item standalone autoplay={autoplay} onClick={this.handleClick} attachment={media.get(0)} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} displayWidth={width} visible={visible} />;
+      children = <Item standalone autoplay={autoplay} onClick={this.handleClick} attachment={media.get(0)} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} displayWidth={width} visible={visible} emojiMuteTextIndex={this.props.emojiMuteTextIndex} />;
     } else {
-      children = media.take(maxAttachments).map((attachment, i) => <Item key={attachment.get('id')} autoplay={autoplay} onClick={this.handleClick} attachment={attachment} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} index={i} size={size} displayWidth={width} visible={visible || uncached} />);
+      children = media.take(maxAttachments).map((attachment, i) => <Item key={attachment.get('id')} autoplay={autoplay} onClick={this.handleClick} attachment={attachment} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} index={i} size={size} displayWidth={width} visible={visible || uncached} emojiMuteTextIndex={this.props.emojiMuteTextIndex} />);
     }
 
     if (uncached) {
@@ -470,4 +476,4 @@ class MediaGallery extends React.PureComponent {
 
 }
 
-export default injectIntl(MediaGallery);
+export default withEmojiMuteTextIndex(injectIntl(MediaGallery));

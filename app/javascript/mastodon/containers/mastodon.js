@@ -12,7 +12,8 @@ import { ensureCustomEmojis } from '../actions/custom_emojis';
 import { preloadEmojiPickersIfNeeded } from '../features/emoji/emoji_picker_preferences';
 import { hydrateStore } from '../actions/store';
 import { startMastodonSubscriptions } from './mastodon_subscriptions';
-import { IntlProvider, addLocaleData, FormattedMessage } from 'react-intl';
+import { IntlProvider, addLocaleData } from 'react-intl';
+import EmojiMuteLoadNotice, { EmojiMuteNoticeContext } from '../components/emoji_mute_load_notice';
 import { invalidateEmojiMuteAsyncWork, retryEmojiMuteLoad, ignoreEmojiMutesThisView, disableEmojiMuteFeature, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
 import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
 import { resetEmojiMuteSession } from '../features/emoji/emoji_mute_store';
@@ -381,41 +382,16 @@ export default class Mastodon extends React.PureComponent {
     const { locale } = this.props;
     const boot = this.state.emojiMuteBoot;
     const sessionChanged = boot === 'session-changed';
-    const showNotice = boot === 'error' || boot === 'ignored' || sessionChanged;
-    const allowRetry = !sessionChanged && this.state.emojiMuteFailure !== 'unauthorized' && this.state.emojiMuteFailure !== 'forbidden';
-    let notice;
-
-    if (sessionChanged) {
-      notice = (
-        <React.Fragment>
-          <p><FormattedMessage id='emoji_mutes.session_changed' defaultMessage='Your account changed. Reload to protect your emoji mute settings.' /></p>
-          <button type='button' onClick={this.reloadPage}>
-            <FormattedMessage id='emoji_mutes.session_reload' defaultMessage='Reload the page' />
-          </button>
-        </React.Fragment>
-      );
-    } else if (boot === 'ignored') {
-      notice = (
-        <p><FormattedMessage id='emoji_mutes.bootstrap_ignored' defaultMessage='Emoji muting is ignored in this tab for this account. Every emoji is visible, including ones you muted, until you reload or switch accounts.' /></p>
-      );
-    } else if (this.state.emojiMuteFailure === 'unauthorized') {
-      notice = (
-        <React.Fragment>
-          <p><FormattedMessage id='emoji_mutes.bootstrap_unauthorized' defaultMessage='Your session expired. Reload and sign in again. Emoji stay hidden until mute settings can be verified.' /></p>
-          <button type='button' onClick={this.reloadPage}>
-            <FormattedMessage id='emoji_mutes.bootstrap_sign_in' defaultMessage='Reload and sign in' />
-          </button>
-        </React.Fragment>
-      );
-    } else if (this.state.emojiMuteFailure === 'forbidden') {
-      notice = (
-        <p><FormattedMessage id='emoji_mutes.bootstrap_forbidden' defaultMessage='This account cannot read emoji mute settings. Emoji stay hidden until you ignore this view or turn the feature off.' /></p>
-      );
-    } else {
-      notice = (
-        <p><FormattedMessage id='emoji_mutes.bootstrap_error' defaultMessage='Emoji mute settings could not be verified. Emoji stay hidden until you retry, ignore this view, or turn the feature off.' /></p>
-      );
-    }
+    const noticeValue = {
+      boot,
+      failure: this.state.emojiMuteFailure,
+      preferenceSaving: this.state.preferenceSaving,
+      preferenceError: this.state.preferenceError,
+      onRetry: this.bootstrapEmojiMutes,
+      onIgnore: this.ignoreEmojiMutes,
+      onDisable: this.turnEmojiMutesOff,
+      onReload: this.reloadPage,
+    };
 
     const ui = this.uiInitialized && createPortal(
       <BrowserRouter basename='/web'>
@@ -430,36 +406,15 @@ export default class Mastodon extends React.PureComponent {
       <IntlProvider locale={locale} messages={messages}>
         <Provider store={store}>
           <ErrorBoundary>
-            <React.Fragment>
+            <EmojiMuteNoticeContext.Provider value={noticeValue}>
               <div ref={this.setUiPortalHost} style={sessionChanged ? { display: 'contents' } : undefined} />
               {ui}
-              {showNotice && (
-                <div className='emoji-mutes-bootstrap' role={boot === 'error' ? 'alert' : 'status'}>
-                  {notice}
-                  {allowRetry && (
-                    <button type='button' onClick={this.bootstrapEmojiMutes}>
-                      <FormattedMessage id='emoji_mutes.bootstrap_retry' defaultMessage='Retry loading settings' />
-                    </button>
-                  )}
-                  {boot === 'error' && (
-                    <React.Fragment>
-                      <button type='button' onClick={this.ignoreEmojiMutes}>
-                        <FormattedMessage id='emoji_mutes.bootstrap_ignore' defaultMessage='Ignore this time and continue' />
-                      </button>
-                      <p><FormattedMessage id='emoji_mutes.bootstrap_ignore_note' defaultMessage='Every emoji becomes visible, including ones you muted. This choice applies only to this tab and this account, and it ends when you reload.' /></p>
-                    </React.Fragment>
-                  )}
-                  {!sessionChanged && (
-                    <button type='button' onClick={this.turnEmojiMutesOff} disabled={this.state.preferenceSaving}>
-                      <FormattedMessage id='emoji_mutes.bootstrap_disable' defaultMessage='Turn emoji muting off' />
-                    </button>
-                  )}
-                  {this.state.preferenceError && (
-                    <p role='alert'><FormattedMessage id='emoji_mutes.bootstrap_disable_failed' defaultMessage='Emoji muting stayed on because the setting could not be saved.' /></p>
-                  )}
+              {sessionChanged && (
+                <div className='emoji-mute-load-notice-slot'>
+                  <EmojiMuteLoadNotice placement='session' />
                 </div>
               )}
-            </React.Fragment>
+            </EmojiMuteNoticeContext.Provider>
           </ErrorBoundary>
         </Provider>
       </IntlProvider>

@@ -7,6 +7,7 @@ import statusesReducer from 'mastodon/reducers/statuses';
 import emojify from '../emoji';
 import {
   buildReplaceInTextIndex,
+  emojiMuteTextIndexFromState,
   emojiMuteTextParseCount,
   emojiMuteUnicodeComparisonCount,
   emojiMutedPlainLabel,
@@ -651,5 +652,24 @@ describe('unicode preview text', () => {
     expect(emojiMutedPlainLabel(`hello ${THUMBS}`, '', SUPPRESS_UNVERIFIED_INDEX)).toBe('hello ◻');
     expect(emojiMutedPlainLabel(`hello ${THUMBS}`, html, SUPPRESS_UNVERIFIED_INDEX)).not.toContain(THUMBS);
     expect(emojiMutedPlainLabel(`hello ${THUMBS}`, html, SUPPRESS_UNVERIFIED_INDEX)).not.toContain(':blob:');
+  });
+});
+
+describe('emojiMuteTextIndexFromState', () => {
+  const rule = fromJS([{
+    emoji: { kind: 'unicode', native: THUMBS },
+    replacement: '[ok]',
+    effects: { replace_in_text: true },
+  }]);
+
+  it('suppresses while unverified, applies rules when ready, and shows everything when ignored or off', () => {
+    expect(emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'suppress', rules: rule } }))).toBe(SUPPRESS_UNVERIFIED_INDEX);
+    const applied = emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'apply', rules: rule } }));
+    expect(applied.active).toBe(true);
+    expect(applied.suppressAll).toBeUndefined();
+    expect(replaceUnicodeEmojiInPlainText(`hi ${THUMBS}`, applied)).toBe('hi [ok]');
+    expect(emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'show', rules: rule } })).active).toBe(false);
+    expect(replaceUnicodeEmojiInPlainText(`hi ${THUMBS}`, emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'show', rules: rule } })))).toBe(`hi ${THUMBS}`);
+    expect(emojiMuteTextIndexFromState(null)).toBeUndefined();
   });
 });

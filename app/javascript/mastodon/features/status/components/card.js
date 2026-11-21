@@ -10,6 +10,8 @@ import { useBlurhash } from 'mastodon/initial_state';
 import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
 import { debounce } from 'lodash';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const IDNA_PREFIX = 'xn--';
 
@@ -59,7 +61,7 @@ const addAutoPlay = html => {
   return html;
 };
 
-export default class Card extends React.PureComponent {
+class Card extends React.PureComponent {
 
   static contextTypes = {
     router: PropTypes.object,
@@ -74,6 +76,7 @@ export default class Card extends React.PureComponent {
     cacheWidth: PropTypes.func,
     sensitive: PropTypes.bool,
     quote: PropTypes.bool,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   static defaultProps = {
@@ -226,11 +229,13 @@ export default class Card extends React.PureComponent {
       return null;
     }
 
-    const provider    = card.get('provider_name').length === 0 ? decodeIDNA(getHostname(card.get('url'))) : card.get('provider_name');
+    const provider    = card.get('provider_name').length === 0 ? decodeIDNA(getHostname(card.get('url'))) : presentEmojiMutePlain(card.get('provider_name'), this.props.emojiMuteTextIndex);
+    const titleText = presentEmojiMutePlain(card.get('title') || '', this.props.emojiMuteTextIndex);
+    const descriptionText = presentEmojiMutePlain(trim(card.get('description') || '', maxDescription), this.props.emojiMuteTextIndex);
     const horizontal  = (!compact && card.get('width') > card.get('height') && (card.get('width') + 100 >= width)) || card.get('type') !== 'link' || embedded;
     const interactive = card.get('type') !== 'link';
     const className   = classnames('status-card', { horizontal, compact, interactive });
-    const title       = interactive ? <a className='status-card__title' href={card.get('url')} title={card.get('title')} rel='noopener noreferrer' target='_blank'><strong>{card.get('title')}</strong></a> : <strong className='status-card__title' title={card.get('title')}>{card.get('title')}</strong>;
+    const title       = interactive ? <a className='status-card__title' href={card.get('url')} title={titleText} rel='noopener noreferrer' target='_blank'><strong>{titleText}</strong></a> : <strong className='status-card__title' title={titleText}>{titleText}</strong>;
     const ratio       = card.get('width') / card.get('height');
     let height      = (compact && !embedded) ? (width / (16 / 9)) : (width / ratio);
 
@@ -241,7 +246,7 @@ export default class Card extends React.PureComponent {
     const description = (
       <div className='status-card__content'>
         {title}
-        {!(horizontal || compact) && <p className='status-card__description'>{trim(card.get('description') || '', maxDescription)}</p>}
+        {!(horizontal || compact) && <p className='status-card__description'>{descriptionText}</p>}
         <span className='status-card__host'>{provider}</span>
       </div>
     );
@@ -328,3 +333,5 @@ export default class Card extends React.PureComponent {
   }
 
 }
+
+export default withEmojiMuteTextIndex(Card);

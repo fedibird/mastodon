@@ -13,7 +13,7 @@ import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'ma
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
-import { linkTargetEmojiRemains, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMuteTextIndexFromState, linkTargetEmojiRemains, presentEmojiMutePlain, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 import { attachInlineEmojiMenus, isInlineEmojiLongPressClick, openInlineEmojiMenu } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
@@ -49,7 +49,7 @@ const mapStateToProps = (state, ownProps) => {
     translationBarRevealed: translationBarRevealed(state, subject),
     acceptedTranslationBarVisibility: accepted.visibility,
     acceptedTranslationPreferredMode: accepted.preferredMode,
-    emojiMuteTextIndex: replaceInTextIndexFromRules(state.getIn(['emojiMutes', 'rules'])),
+    emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
   };
 };
 
@@ -500,7 +500,7 @@ class StatusContent extends React.PureComponent {
               data-account-name={accountName || undefined}
               data-status-id={statusId || undefined}
             >
-              {hashtag.text}
+              {presentEmojiMutePlain(hashtag.text || '', this.props.emojiMuteTextIndex)}
             </a>
           );
         })}

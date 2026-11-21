@@ -6,6 +6,8 @@ import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import Permalink from './permalink';
 import ShortNumber from 'mastodon/components/short_number';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 class SilentErrorBoundary extends React.Component {
 
@@ -47,54 +49,59 @@ const accountsCountRenderer = (displayNumber, pluralReady) => (
   />
 );
 
-const Hashtag = ({ hashtag }) => (
-  <div className='trends__item'>
-    <div className='trends__item__name'>
-      <Permalink
-        href={hashtag.get('url')}
-        to={`/timelines/tag/${hashtag.get('name')}`}
-      >
-        #<span>{hashtag.get('name')}</span>
-      </Permalink>
+const Hashtag = ({ hashtag, emojiMuteTextIndex }) => {
+  const name = presentEmojiMutePlain(hashtag.get('name') || '', emojiMuteTextIndex);
 
-      <ShortNumber
-        value={
-          hashtag.getIn(['history', 0, 'accounts']) * 1 +
-          hashtag.getIn(['history', 1, 'accounts']) * 1
-        }
-        renderer={accountsCountRenderer}
-      />
-    </div>
-
-    <div className='trends__item__current'>
-      <ShortNumber
-        value={
-          hashtag.getIn(['history', 0, 'uses']) * 1 +
-          hashtag.getIn(['history', 1, 'uses']) * 1
-        }
-      />
-    </div>
-
-    <div className='trends__item__sparkline'>
-      <SilentErrorBoundary>
-        <Sparklines
-          width={50}
-          height={28}
-          data={hashtag
-            .get('history')
-            .reverse()
-            .map((day) => day.get('uses'))
-            .toArray()}
+  return (
+    <div className='trends__item'>
+      <div className='trends__item__name'>
+        <Permalink
+          href={hashtag.get('url')}
+          to={`/timelines/tag/${hashtag.get('name')}`}
         >
-          <SparklinesCurve style={{ fill: 'none' }} />
-        </Sparklines>
-      </SilentErrorBoundary>
+          #<span>{name}</span>
+        </Permalink>
+
+        <ShortNumber
+          value={
+            hashtag.getIn(['history', 0, 'accounts']) * 1 +
+          hashtag.getIn(['history', 1, 'accounts']) * 1
+          }
+          renderer={accountsCountRenderer}
+        />
+      </div>
+
+      <div className='trends__item__current'>
+        <ShortNumber
+          value={
+            hashtag.getIn(['history', 0, 'uses']) * 1 +
+          hashtag.getIn(['history', 1, 'uses']) * 1
+          }
+        />
+      </div>
+
+      <div className='trends__item__sparkline'>
+        <SilentErrorBoundary>
+          <Sparklines
+            width={50}
+            height={28}
+            data={hashtag
+              .get('history')
+              .reverse()
+              .map((day) => day.get('uses'))
+              .toArray()}
+          >
+            <SparklinesCurve style={{ fill: 'none' }} />
+          </Sparklines>
+        </SilentErrorBoundary>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 Hashtag.propTypes = {
   hashtag: ImmutablePropTypes.map.isRequired,
+  emojiMuteTextIndex: PropTypes.object,
 };
 
-export default Hashtag;
+export default withEmojiMuteTextIndex(Hashtag);
