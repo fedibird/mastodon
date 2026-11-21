@@ -7,6 +7,7 @@ let mockRequest;
 let mockPhase = 'loading';
 let mockFailure = null;
 let mockAvailability = 'enabled';
+let mockDisplay = 'suppress';
 let mockMe = '1';
 let mockToken = 'token';
 const mockSubscribers = new Set();
@@ -16,6 +17,7 @@ const mockState = {
     if (key === 'emojiMutes.phase') return mockPhase;
     if (key === 'emojiMutes.failure') return mockFailure;
     if (key === 'emojiMutes.availability') return mockAvailability;
+    if (key === 'emojiMutes.display') return mockDisplay;
     if (key === 'meta.me') return mockMe;
     if (key === 'meta.access_token') return mockToken;
     return undefined;
@@ -131,6 +133,7 @@ import { resetEmojiMuteSession } from 'mastodon/features/emoji/emoji_mute_store'
 import { currentEmojiMuteBoot } from 'mastodon/features/emoji/emoji_mute_availability';
 
 const Mastodon = require('../mastodon').default;
+const { scrubVisibleEmojiIfUnverified } = require('../mastodon');
 const { retryEmojiMuteLoad, ignoreEmojiMutesThisView, disableEmojiMuteFeature } = require('mastodon/actions/emoji_mutes');
 
 const clock = { now: 1_000_000 };
@@ -177,6 +180,7 @@ describe('authenticated emoji mute bootstrap', () => {
     mockPhase = 'loading';
     mockFailure = null;
     mockAvailability = 'enabled';
+    mockDisplay = 'suppress';
     mockMe = '1';
     mockToken = 'token';
   });
@@ -376,6 +380,51 @@ describe('authenticated emoji mute bootstrap', () => {
     expect(view.queryByText('Ignore this time')).toBeNull();
     expect(resetEmojiMuteSession).toHaveBeenCalled();
     expect(mockDispatch).toHaveBeenCalledWith({ type: 'EMOJI_MUTES_RESET' });
+    view.unmount();
+  });
+
+  it('scrubs visible emoji before React rerenders a stale revision and keeps the draft', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await bootReady();
+    const draft = view.getByTestId('compose-draft');
+    fireEvent.change(draft, { target: { value: 'draft 👌 stays' } });
+    const surface = view.getByTestId('webui');
+    surface.insertAdjacentHTML('beforeend', '<p>Hello 👌</p><img class="emojione" alt="👌" title="👌" src="/emoji/1f44c.svg" srcset="/emoji/1f44c.svg 2x"><img src="/media/x.jpg" alt="photo 👌" srcset="/media/x.jpg 2x">');
+    mockPhase = 'stale';
+    mockDisplay = 'suppress';
+
+    scrubVisibleEmojiIfUnverified();
+
+    expect(surface.querySelector('img.emojione')).toBeNull();
+    expect(surface.innerHTML).not.toContain('/emoji/1f44c.svg');
+    expect(surface.querySelector('p').textContent).toBe('Hello ◻');
+    expect(surface.querySelector('img[src="/media/x.jpg"]').getAttribute('alt')).toBe('photo ◻');
+    expect(surface.querySelector('img[src="/media/x.jpg"]').getAttribute('srcset')).toBe('/media/x.jpg 2x');
+    expect(draft.value).toBe('draft 👌 stays');
+    expect(view.getByTestId('webui')).toBe(surface);
+
+    mockPhase = 'stale';
+    scrubVisibleEmojiIfUnverified();
+    expect(surface.querySelector('img.emojione')).toBeNull();
+    expect(surface.querySelector('img[src="/media/x.jpg"]')).not.toBeNull();
+    view.unmount();
+  });
+
+  it('keeps the WebUI mounted and scrubs emoji when the GET fails', async () => {
+    const view = render(<Mastodon locale='en' />);
+    const surface = view.getByTestId('webui');
+    const draft = view.getByTestId('compose-draft');
+    fireEvent.change(draft, { target: { value: 'still drafting' } });
+    await rejectBootstrap(new Error('offline'));
+    surface.insertAdjacentHTML('beforeend', '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/secret.svg">');
+    mockDisplay = 'suppress';
+    mockPhase = 'error';
+    scrubVisibleEmojiIfUnverified();
+
+    expect(view.getByTestId('webui')).toBe(surface);
+    expect(surface.querySelector('img')).toBeNull();
+    expect(surface.innerHTML).not.toContain('secret.svg');
+    expect(draft.value).toBe('still drafting');
     view.unmount();
   });
 });

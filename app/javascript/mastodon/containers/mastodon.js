@@ -18,6 +18,7 @@ import { invalidateEmojiMuteAsyncWork, retryEmojiMuteLoad, ignoreEmojiMutesThisV
 import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
 import { resetEmojiMuteSession } from '../features/emoji/emoji_mute_store';
 import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
+import { scrubUnverifiedEmojiFromDocument } from '../features/emoji/emoji_mute_live_dom';
 import { setEmojiActionsOverlayPrivacyContainer } from '../features/emoji/emoji_actions/overlay_root';
 import { getLocale } from '../locales';
 import initialState from '../initial_state';
@@ -31,6 +32,19 @@ const hydrateAction = hydrateStore(initialState);
 
 store.dispatch(hydrateAction);
 store.dispatch(prefetchCircles());
+
+// Registered before any connected component. A stream revision can mark the
+// document unverified in this same turn; the visible emoji nodes are removed
+// before React applies the next render. Compose fields are not text nodes.
+export function scrubVisibleEmojiIfUnverified() {
+  const state = store.getState();
+
+  if (state && typeof state.getIn === 'function' && state.getIn(['emojiMutes', 'display']) === 'suppress') {
+    scrubUnverifiedEmojiFromDocument();
+  }
+}
+
+store.subscribe(scrubVisibleEmojiIfUnverified);
 // Share the catalog request/result with the first standard picker open.
 // Preloads are deliberately not awaited before mounting the WebUI.
 preloadEmojiPickersIfNeeded(undefined, undefined, () => store.dispatch(ensureCustomEmojis()));
@@ -189,15 +203,20 @@ export default class Mastodon extends React.PureComponent {
     }
   };
 
-  // A newer streaming revision means the currently rendered HTML may expose
-  // a newly muted emoji. Remove the WebUI (including images and aria labels)
-  // rather than merely covering it with CSS. Keep the Redux data intact.
+  // A newer streaming revision suppresses emoji in Redux. The module-level
+  // subscriber already removed the previous images and labels from the live
+  // document. This observer only moves the notice and isolates a changed
+  // session. The WebUI stays mounted, and compose drafts stay in their fields.
   observeEmojiMuteState = () => {
     if (!this.mounted || this.sessionChanged) {
       return;
     }
 
     const state = store.getState();
+
+    if (state.getIn(['emojiMutes', 'display']) === 'suppress') {
+      scrubUnverifiedEmojiFromDocument();
+    }
 
     if (!sessionMatches(state)) {
       this.detachUiPortal();
