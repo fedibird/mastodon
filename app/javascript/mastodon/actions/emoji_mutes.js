@@ -22,8 +22,10 @@ import {
   saveEmojiMuteEnabled,
   emojiMuteTemporarilyIgnored,
   invalidateEmojiMuteNotificationFetches,
+  abandonEmojiMutePreferenceConfirmation,
   beginEmojiMutePreferenceConfirmation,
   beginEmojiMutePreferenceRead,
+  emojiMutePreferenceAcceptable,
   emojiMutePreferenceConfirmationCurrent,
   emojiMutePreferenceReadCurrent,
   endEmojiMutePreferenceConfirmation,
@@ -143,14 +145,34 @@ export function applyRemoteEmojiMutePreference(options = {}) {
   return dispatch => {
     const generation = options.generation === undefined ? beginEmojiMutePreferenceRead() : options.generation;
 
+    const failConfirmation = error => {
+      if (!emojiMutePreferenceReadCurrent(generation) || !abandonEmojiMutePreferenceConfirmation()) {
+        return null;
+      }
+
+      dispatch({
+        type: EMOJI_MUTES_FAIL,
+        failure: classifyEmojiMuteFetchError(error),
+      });
+      return null;
+    };
+
     return loadEmojiMutePreference().then(data => {
-      if (!emojiMutePreferenceReadCurrent(generation) || !data || preferenceRevisionStale(data.preference_revision)) {
+      if (!emojiMutePreferenceReadCurrent(generation)) {
+        return null;
+      }
+
+      if (!emojiMutePreferenceAcceptable(data)) {
+        return failConfirmation(new Error('Emoji mute preference was not readable'));
+      }
+
+      if (preferenceRevisionStale(data.preference_revision)) {
         return null;
       }
 
       notePreferenceRevision(data.preference_revision);
       return dispatch(applyAuthoritativeEmojiMutePreference(data.enabled));
-    });
+    }).catch(error => failConfirmation(error));
   };
 }
 

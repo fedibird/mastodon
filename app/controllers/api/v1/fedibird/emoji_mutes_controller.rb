@@ -29,7 +29,9 @@ class Api::V1::Fedibird::EmojiMutesController < Api::BaseController
       return
     end
 
-    render json: EmojiMutes::Presenter.new(mutes).list(revision).merge(preference)
+    # modal is a separate setting. The list representation leaves it out so a
+    # dialog-only change does not have to move this ETag.
+    render json: EmojiMutes::Presenter.new(mutes).list(revision).merge(preference.except('modal'))
   end
 
   def create

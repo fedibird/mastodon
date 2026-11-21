@@ -180,6 +180,20 @@ export function endEmojiMutePreferenceConfirmation(generation) {
   return true;
 }
 
+export function emojiMutePreferenceConfirming() {
+  return preferenceConfirming;
+}
+
+export function abandonEmojiMutePreferenceConfirmation() {
+  if (!preferenceConfirming) {
+    return false;
+  }
+
+  releaseEmojiMutePreferenceConfirmation();
+  notifyEmojiMuteDocument();
+  return true;
+}
+
 // Invalidate outstanding GETs before an account boundary is crossed. No
 // credential, definition or replacement text is persisted in browser storage.
 export function resetEmojiMuteSession() {
@@ -489,7 +503,7 @@ export function notePreferenceRevision(revision) {
   }
 }
 
-function acceptablePreference(data) {
+export function emojiMutePreferenceAcceptable(data) {
   return !!(data && data.explicit === true && (data.enabled === true || data.enabled === false));
 }
 
@@ -531,7 +545,7 @@ export function loadEmojiMutePreference() {
 
 function confirmSavedPreference(generation) {
   return loadEmojiMutePreference().then(data => {
-    if (!acceptablePreference(data)) {
+    if (!emojiMutePreferenceAcceptable(data)) {
       throw new Error('Emoji mute preference was not saved');
     }
 
@@ -554,7 +568,7 @@ export function saveEmojiMuteEnabled(enabled) {
   return api().patch('/api/v1/fedibird/emoji_mute_preference', { enabled }, { headers, timeout: EMOJI_MUTE_PREFERENCE_TIMEOUT_MS }).then(response => {
     const data = response && response.data;
 
-    if (!acceptablePreference(data)) {
+    if (!emojiMutePreferenceAcceptable(data)) {
       throw new Error('Emoji mute preference was not saved');
     }
 

@@ -713,4 +713,54 @@ describe('emoji mute preference flow', () => {
     expect(emojiMutes.get('phase')).toBe('ready');
     expect(appliedEmojiMuteRevision()).toBe('2');
   });
+
+  it('moves a failed newer preference read during confirmation onto the recovery notice', async () => {
+    noteEmojiMuteDisabledLocally();
+    applyEmojiMuteDisabledDocument();
+    const first = deferred();
+    let preferenceReads = 0;
+
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        preferenceReads += 1;
+        if (preferenceReads === 1) {
+          return first.promise;
+        }
+
+        return Promise.reject(Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }));
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    const older = syncEmojiMutes({ reconnect: true })(dispatch, root);
+    expect(emojiMutes.get('phase')).toBe('loading');
+    expect(emojiMutes.get('display')).toBe('suppress');
+
+    await dispatch(applyRemoteEmojiMutePreference());
+    expect(emojiMutes.get('phase')).toBe('error');
+    expect(emojiMutes.get('failure')).toBe('unavailable');
+    expect(emojiMutes.get('display')).toBe('suppress');
+    expect(emojiReactionEventsAccepted()).toBe(false);
+
+    first.resolve({ data: { enabled: false, explicit: true, known: true, preference_revision: '4' } });
+    await older;
+
+    expect(emojiMutes.get('phase')).toBe('error');
+    expect(emojiMutes.get('availability')).toBe('unknown');
+    expect(currentEmojiMuteBoot().availability).toBe('unknown');
+    expect(emojiReactionEventsAccepted()).toBe(false);
+  });
+
+  it('treats a malformed preference response during confirmation as a failure', async () => {
+    noteEmojiMuteDisabledLocally();
+    api().get.mockResolvedValueOnce({ data: { enabled: 'no', explicit: true } });
+
+    await syncEmojiMutes({ reconnect: true })(dispatch, root);
+
+    expect(emojiMutes.get('phase')).toBe('error');
+    expect(emojiMutes.get('display')).toBe('suppress');
+    expect(emojiMutes.get('availability')).toBe('unknown');
+    expect(emojiReactionEventsAccepted()).toBe(false);
+  });
 });

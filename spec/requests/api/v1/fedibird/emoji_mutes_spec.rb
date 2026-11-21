@@ -188,4 +188,20 @@ RSpec.describe 'Emoji mute API', type: :request do
     expect(parsed.dig('errors', 0, 'code')).to eq 'too_long'
     expect(EmojiMute.where(user_id: user.id)).to be_empty
   end
+
+  it 'leaves the confirmation dialog setting out of the list and its ETag' do
+    get path, headers: headers
+    etag = response.headers['ETag']
+    expect(response).to have_http_status(:ok)
+    expect(parsed).not_to have_key('modal')
+    expect(parsed).to include('enabled' => false)
+
+    Setting.create!(thing_type: 'User', thing_id: user.id, var: 'emoji_mute_modal', value: false)
+    get path, headers: headers.merge('If-None-Match' => etag)
+    expect(response).to have_http_status(:not_modified)
+
+    get '/api/v1/fedibird/emoji_mute_preference', headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(parsed['modal']).to eq(false)
+  end
 end
