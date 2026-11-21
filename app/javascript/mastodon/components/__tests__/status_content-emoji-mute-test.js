@@ -147,6 +147,30 @@ describe('StatusContent replace_in_text', () => {
     resetEmojiMuteTextForTests();
   });
 
+  it('keeps the original hashtag for the menu while the label stays projected', () => {
+    const native = '👌';
+    const href = `https://example.com/tags/${encodeURIComponent(`party${native}`)}`;
+    const status = buildStatus({
+      contentHtml: `<p><a href="${href}" class="mention hashtag" rel="tag">#<span>party${native}</span></a></p>`,
+      search_index: `party${native}`,
+    });
+    const store = createStore(reducer, fromJS({
+      server: { translationLanguages: { items: { en: ['ja'] } } },
+      emojiMutes: { revision: '1', display: 'suppress', rules: [] },
+    }));
+    const { container } = render(
+      <Provider store={store}>
+        <StatusContent status={status} onTranslate={jest.fn()} onClick={jest.fn()} />
+      </Provider>,
+    );
+    const link = container.querySelector('a.mention.hashtag');
+
+    expect(link.textContent).toBe('#party◻');
+    expect(link.textContent).not.toContain(native);
+    expect(link.getAttribute('data-menu-hashtag')).toBe(`party${native}`);
+    expect(link.getAttribute('href')).toBe(href);
+  });
+
   it('replaces emoji in the stored body without rewriting that html', () => {
     const status = buildStatus();
     const { container } = renderStatus(status, [muteRule(), unicodeRule]);

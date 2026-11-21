@@ -100,12 +100,12 @@
     }
 
     &--primary {
-      background: #4b7cab;
+      background: #4073a2;
       border: 1px solid #7198c3;
 
       &:hover,
       &:focus {
-        background: #5b8cbb;
+        background: #4978a7;
       }
 
       &:active {
@@ -224,11 +224,29 @@
     .emoji-mute-load-notice__action--primary {
       background: #2f6294;
       border-color: #2f6294;
+
+      &:hover,
+      &:focus {
+        background: #275480;
+      }
+
+      &:active {
+        background: #1e4268;
+      }
     }
 
     .emoji-mute-load-notice__action--ignore {
       background: #5c5368;
       border-color: #5c5368;
+
+      &:hover,
+      &:focus {
+        background: #4e4659;
+      }
+
+      &:active {
+        background: #3f3848;
+      }
     }
 
     .emoji-mute-load-notice__disable {
@@ -237,6 +255,10 @@
 
     .emoji-mute-load-notice__note {
       color: #5c5164;
+    }
+
+    .emoji-mute-load-notice__save-error {
+      color: #8b3041;
     }
 
     .emoji-mute-load-notice__action:focus,

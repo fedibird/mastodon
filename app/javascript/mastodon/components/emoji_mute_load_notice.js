@@ -19,6 +19,29 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
 
   titleId = `emoji-mute-load-notice-title-${noticeSequence += 1}`;
 
+  state = { spoken: false };
+
+  componentDidMount () {
+    this.announce(this.context && this.context.boot);
+  }
+
+  componentDidUpdate () {
+    this.announce(this.context && this.context.boot);
+  }
+
+  // role=status does not announce the first paint. Filling the region after
+  // mount makes the initial failure a change the polite region can speak.
+  announce (boot) {
+    if (!boot || boot === this.announcedBoot) {
+      return;
+    }
+
+    this.announcedBoot = boot;
+    this.setState({ spoken: false }, () => {
+      this.setState({ spoken: true });
+    });
+  }
+
   render () {
     const notice = this.context;
     const { placement } = this.props;
@@ -51,7 +74,8 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
     const allowIgnore = boot === 'error';
     const allowDisable = !session;
     const allowSignIn = unauthorized;
-    const role = ignored ? 'status' : 'alert';
+    const role = session ? 'alert' : 'status';
+    const live = session ? 'assertive' : 'polite';
     let title = <FormattedMessage id='emoji_mutes.notice_title' defaultMessage="Couldn't load emoji mutes" />;
     let body = <FormattedMessage id='emoji_mutes.notice_body' defaultMessage='Emoji stay hidden until the settings check finishes. You can keep using everything else.' />;
 
@@ -72,17 +96,17 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
     const primaryLabel = allowSignIn
       ? <FormattedMessage id='emoji_mutes.bootstrap_sign_in' defaultMessage='Reload and sign in' />
       : <FormattedMessage id='emoji_mutes.notice_retry' defaultMessage='Try again' />;
-    const primaryAction = allowSignIn ? notice.onReload : notice.onRetry;
+    const primaryAction = (session || allowSignIn) ? notice.onReload : notice.onRetry;
     const showPrimary = allowRetry || allowSignIn || session;
     const singleAction = showPrimary && !allowIgnore;
 
     return (
-      <div className='emoji-mute-load-notice' role={role} data-placement={placement} aria-labelledby={this.titleId}>
+      <div className='emoji-mute-load-notice' role={role} aria-live={live} aria-atomic='true' data-placement={placement} aria-labelledby={this.state.spoken ? this.titleId : undefined}>
         <div className='emoji-mute-load-notice__title'>
           <span className='emoji-mute-load-notice__icon' aria-hidden='true'>!</span>
-          <strong id={this.titleId}>{title}</strong>
+          <strong id={this.titleId}>{this.state.spoken ? title : null}</strong>
         </div>
-        <p className='emoji-mute-load-notice__body'>{body}</p>
+        <p className='emoji-mute-load-notice__body'>{this.state.spoken ? body : null}</p>
         {showPrimary && (
           <div className={singleAction ? 'emoji-mute-load-notice__actions emoji-mute-load-notice__actions--single' : 'emoji-mute-load-notice__actions'}>
             <button type='button' className='emoji-mute-load-notice__action emoji-mute-load-notice__action--primary' onClick={primaryAction}>

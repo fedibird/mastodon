@@ -346,4 +346,59 @@ describe('mounted suppress transition', () => {
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
     expect(() => view.unmount()).not.toThrow();
   });
+
+  it('reprojects a success that lands before the suppress render commits', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    let concealedSrc = 'unset';
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) !== 'suppress') {
+        return;
+      }
+
+      const emoji = document.querySelector('img.custom-emoji');
+      concealedSrc = emoji ? emoji.getAttribute('src') : null;
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <DisplayName account={account} />
+          <Emoji emoji='star' hovered={false} url='https://cdn.example/star.svg' static_url='https://cdn.example/star.png' domain='other.example' />
+          <input aria-label='draft' defaultValue={`keep ${OK}`} />
+        </div>
+      </Provider>,
+    );
+    const draft = view.getByLabelText('draft');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [{
+          id: 'm1',
+          revision: '3',
+          emoji: { kind: 'unicode', native: OK },
+          replacement: '[ok]',
+          effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+        }],
+      });
+    });
+
+    expect(concealedSrc).toBeNull();
+    expect(view.container.innerHTML).toContain(`/emoji/${KEEP}.svg`);
+    expect(view.container.innerHTML).not.toContain(`/emoji/${OK}.svg`);
+    expect(view.container.innerHTML).toContain('[ok]');
+    expect(view.container.querySelector('img.custom-emoji').getAttribute('src')).toBe('https://cdn.example/star.png');
+    expect(view.container.querySelector('img.custom-emoji').getAttribute('data-original')).toBe('https://cdn.example/star.svg');
+    expect(view.container.querySelector('img[src="/media/x.jpg"]').getAttribute('alt')).toBe(`photo ${OK}`);
+    expect(draft.value).toBe(`keep ${OK}`);
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+    expect(() => view.unmount()).not.toThrow();
+  });
 });

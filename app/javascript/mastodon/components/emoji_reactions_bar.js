@@ -28,12 +28,14 @@ const mapStateToProps = (state, { status }) => {
 
   return {
     emojiReactions: reactions.filter(reaction => !storedReactionHidden(reaction, rules)),
+    reactionRules: rules,
   };
 };
 
-const mergeProps = ({ emojiReactions }, dispatchProps, ownProps) => ({
+const mergeProps = ({ emojiReactions, reactionRules }, dispatchProps, ownProps) => ({
   ...ownProps,
   ...dispatchProps,
+  reactionRules: reactionRules || null,
   visibleReactions: emojiReactions.filter(x => x && typeof x.get === 'function' && x.get('count') > 0),
 });
 
@@ -44,6 +46,7 @@ class EmojiReactionsBar extends ImmutablePureComponent {
     addEmojiReaction: PropTypes.func.isRequired,
     removeEmojiReaction: PropTypes.func.isRequired,
     visibleReactions: ImmutablePropTypes.list.isRequired,
+    reactionRules: PropTypes.oneOfType([PropTypes.array, PropTypes.object]),
     reactionLimitReached: PropTypes.bool,
   };
 
@@ -66,7 +69,7 @@ class EmojiReactionsBar extends ImmutablePureComponent {
   }
 
   render () {
-    const { status, addEmojiReaction, removeEmojiReaction, visibleReactions, reactionLimitReached } = this.props;
+    const { status, addEmojiReaction, removeEmojiReaction, visibleReactions, reactionLimitReached, reactionRules } = this.props;
 
     if (visibleReactions.isEmpty() ) {
       return <Fragment />;
@@ -89,7 +92,7 @@ class EmojiReactionsBar extends ImmutablePureComponent {
       <TransitionMotion styles={styles} willEnter={this.willEnter} willLeave={this.willLeave}>
         {items => (
           <div className='reactions-bar emoji-reactions-bar'>
-            {items.map(({ key, data, style }) => (
+            {items.filter(({ data }) => !storedReactionHidden(data.emojiReaction, reactionRules)).map(({ key, data, style }) => (
               <EmojiReaction
                 key={key}
                 emojiReaction={data.emojiReaction}

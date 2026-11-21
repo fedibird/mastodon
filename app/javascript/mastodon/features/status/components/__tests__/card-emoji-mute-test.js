@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -49,6 +49,30 @@ describe('link card unverified text', () => {
     expect(container.querySelector('.status-card__description').textContent).toContain('◻');
     expect(container.querySelector('.status-card__host').textContent).toBe('News ◻');
     expect(container.querySelector('img').getAttribute('src')).toBe('https://example.test/cover.jpg');
+  });
+
+  it('suppresses a decoded hostname and embed text without changing the embed URL', () => {
+    const video = card.merge({
+      provider_name: '',
+      url: 'https://xn--xp8h.example/watch',
+      type: 'video',
+      html: '<iframe src="https://player.example/embed?v=1" title="Play 👌"></iframe><p>Watch 👌</p>',
+    });
+    const store = createStore(state => state, fromJS({ emojiMutes: { display: 'suppress', rules: [] } }));
+    const { container } = render(
+      <Provider store={store}>
+        <Card card={video} onOpenMedia={jest.fn()} />
+      </Provider>,
+    );
+
+    fireEvent.click(container.querySelector('button'));
+
+    const html = container.innerHTML;
+    expect(html).toContain('src="https://player.example/embed?v=1&amp;autoplay=1&amp;auto_play=1"');
+    expect(html).not.toContain('👌');
+    expect(container.querySelector('.status-card__host').textContent).toBe('◻.example');
+    expect(container.querySelector('iframe').getAttribute('title')).toBe('Play ◻');
+    expect(container.querySelector('p').textContent).toBe('Watch ◻');
   });
 
   it('shows the card text when emoji muting is ignored', () => {

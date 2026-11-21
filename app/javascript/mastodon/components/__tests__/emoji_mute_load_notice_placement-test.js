@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 import { fromJS, List as ImmutableList } from 'immutable';
 import PropTypes from 'prop-types';
 import React from 'react';
@@ -64,7 +64,7 @@ jest.mock('mastodon/features/ui/components/tabs_bar', () => {
 });
 jest.mock('mastodon/features/ui/components/navigation_panel', () => () => <div data-testid='navigation-panel' />);
 
-import { EmojiMuteNoticeContext } from '../emoji_mute_load_notice';
+import EmojiMuteLoadNotice, { EmojiMuteNoticeContext } from '../emoji_mute_load_notice';
 import ComposePanel from '../../features/ui/components/compose_panel';
 import ColumnsArea from '../../features/ui/components/columns_area';
 import Compose from '../../features/compose';
@@ -150,7 +150,9 @@ describe('emoji mute load notice placement', () => {
     expect(children[0].getAttribute('data-placement')).toBe('compose-panel');
     expect(children[1].getAttribute('data-testid')).toBe('search');
     expect(container.querySelectorAll('.emoji-mute-load-notice')).toHaveLength(1);
-    expect(container.querySelector('.emoji-mute-load-notice').getAttribute('role')).toBe('alert');
+    expect(container.querySelector('.emoji-mute-load-notice').getAttribute('role')).toBe('status');
+    expect(container.querySelector('.emoji-mute-load-notice').getAttribute('aria-live')).toBe('polite');
+    expect(container.querySelector('.emoji-mute-load-notice__title').textContent).toContain('Couldn\'t load emoji mutes');
   });
 
   it('leaves no empty card in the compose panel when loading succeeded', () => {
@@ -224,5 +226,43 @@ describe('emoji mute load notice placement', () => {
 
     expect(container.querySelector('.emoji-mute-load-notice')).toBeNull();
     expect(container.querySelector('[data-testid="column-child"]').getAttribute('data-testid')).toBe('column-child');
+  });
+
+  it('retries an ordinary failure and reloads a session change or a new sign-in', () => {
+    const failed = notice('error');
+    const failure = render(
+      <EmojiMuteNoticeContext.Provider value={failed}>
+        <EmojiMuteLoadNotice placement='compose-panel' />
+      </EmojiMuteNoticeContext.Provider>,
+    );
+
+    expect(failure.container.querySelector('.emoji-mute-load-notice').getAttribute('role')).toBe('status');
+    fireEvent.click(failure.getByText('Try again'));
+    expect(failed.onRetry).toHaveBeenCalledTimes(1);
+    expect(failed.onReload).not.toHaveBeenCalled();
+
+    const changed = notice('session-changed');
+    const session = render(
+      <EmojiMuteNoticeContext.Provider value={changed}>
+        <EmojiMuteLoadNotice placement='session' />
+      </EmojiMuteNoticeContext.Provider>,
+    );
+
+    expect(session.container.querySelector('.emoji-mute-load-notice').getAttribute('role')).toBe('alert');
+    expect(session.container.querySelector('.emoji-mute-load-notice').getAttribute('aria-live')).toBe('assertive');
+    fireEvent.click(session.getByText('Reload the page'));
+    expect(changed.onReload).toHaveBeenCalledTimes(1);
+    expect(changed.onRetry).not.toHaveBeenCalled();
+
+    const expired = { ...notice('error'), failure: 'unauthorized' };
+    const signIn = render(
+      <EmojiMuteNoticeContext.Provider value={expired}>
+        <EmojiMuteLoadNotice placement='compose-panel' />
+      </EmojiMuteNoticeContext.Provider>,
+    );
+
+    fireEvent.click(signIn.getByText('Reload and sign in'));
+    expect(expired.onReload).toHaveBeenCalledTimes(1);
+    expect(expired.onRetry).not.toHaveBeenCalled();
   });
 });

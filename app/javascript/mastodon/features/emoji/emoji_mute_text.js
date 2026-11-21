@@ -263,6 +263,26 @@ const replacementForImage = (img, index) => {
   return mappedReplacement(index, { kind: 'custom', scope: 'local', custom_emoji_id: id, shortcode });
 };
 
+// `keep` means the verified document still shows this image. A replacement
+// is the mute text, never the original glyph.
+export function projectedEmojiImage(img, index) {
+  if (!isUserEmojiImage(img) || !index || index.active !== true) {
+    return { keep: true, replacement: undefined };
+  }
+
+  if (index.suppressAll === true) {
+    return { keep: false, replacement: UNVERIFIED_EMOJI_PLACEHOLDER };
+  }
+
+  const replacement = replacementForImage(img, index);
+
+  if (replacement === undefined) {
+    return { keep: true, replacement: undefined };
+  }
+
+  return { keep: false, replacement };
+}
+
 const replaceNode = (node, text) => {
   const parent = node.parentNode;
 

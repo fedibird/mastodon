@@ -321,8 +321,28 @@ class StatusContent extends React.PureComponent {
     };
   }
 
+  hashtagNameFromHref (link) {
+    const href = link.getAttribute('href') || '';
+
+    if (!href) {
+      return '';
+    }
+
+    try {
+      const url = new URL(href, window.location.origin);
+      const parts = url.pathname.split('/').filter(Boolean);
+      const tagsAt = parts.lastIndexOf('tags');
+      const encoded = tagsAt === -1 ? '' : parts[tagsAt + 1];
+
+      return encoded ? decodeURIComponent(encoded).replace(/^[#＃]/, '') : '';
+    } catch (error) {
+      return '';
+    }
+  }
+
   markHashtagLink (link) {
-    const name = (link.textContent || '').trim().replace(/^[#＃]/, '');
+    const fromHref = this.hashtagNameFromHref(link);
+    const name = fromHref || (link.textContent || '').trim().replace(/^[#＃]/, '');
 
     if (!name) {
       return;

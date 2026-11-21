@@ -40,6 +40,60 @@ const trim = (text, len) => {
 
 const domParser = new DOMParser();
 
+const EMBED_TEXT_SKIP = new Set(['SCRIPT', 'STYLE']);
+const EMBED_READABLE = ['alt', 'title', 'aria-label', 'aria-description', 'aria-valuetext'];
+
+// Provider embed HTML keeps its URLs and the existing autoplay query.
+// Only text nodes and readable labels are projected.
+const projectEmbedDisplay = (html, index) => {
+  if (!html || !index || index.active !== true) {
+    return html;
+  }
+
+  const parsed = domParser.parseFromString(html, 'text/html');
+  const body = parsed.body;
+  const walker = parsed.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
+  const texts = [];
+  let current = walker.nextNode();
+
+  while (current) {
+    texts.push(current);
+    current = walker.nextNode();
+  }
+
+  texts.forEach(node => {
+    const parent = node.parentElement;
+
+    if (parent && EMBED_TEXT_SKIP.has(parent.tagName)) {
+      return;
+    }
+
+    const next = presentEmojiMutePlain(node.nodeValue || '', index);
+
+    if (next !== undefined && next !== null && next !== node.nodeValue) {
+      node.nodeValue = next;
+    }
+  });
+
+  body.querySelectorAll(EMBED_READABLE.map(name => `[${name}]`).join(',')).forEach(element => {
+    EMBED_READABLE.forEach(name => {
+      const value = element.getAttribute(name);
+
+      if (!value) {
+        return;
+      }
+
+      const next = presentEmojiMutePlain(value, index);
+
+      if (next !== undefined && next !== null && next !== value) {
+        element.setAttribute(name, next);
+      }
+    });
+  });
+
+  return body.innerHTML;
+};
+
 const addAutoPlay = html => {
   const document = domParser.parseFromString(html, 'text/html').documentElement;
   const iframe = document.querySelector('iframe');
@@ -206,7 +260,7 @@ class Card extends React.PureComponent {
 
   renderVideo () {
     const { card }  = this.props;
-    const content   = { __html: addAutoPlay(card.get('html')) };
+    const content   = { __html: addAutoPlay(projectEmbedDisplay(card.get('html'), this.props.emojiMuteTextIndex)) };
     const { width } = this.state;
     const ratio     = card.get('width') / card.get('height');
     const height    = width / ratio;
@@ -229,7 +283,9 @@ class Card extends React.PureComponent {
       return null;
     }
 
-    const provider    = card.get('provider_name').length === 0 ? decodeIDNA(getHostname(card.get('url'))) : presentEmojiMutePlain(card.get('provider_name'), this.props.emojiMuteTextIndex);
+    const providerName = card.get('provider_name');
+    const providerSource = providerName.length === 0 ? decodeIDNA(getHostname(card.get('url'))) : providerName;
+    const provider    = presentEmojiMutePlain(providerSource, this.props.emojiMuteTextIndex);
     const titleText = presentEmojiMutePlain(card.get('title') || '', this.props.emojiMuteTextIndex);
     const descriptionText = presentEmojiMutePlain(trim(card.get('description') || '', maxDescription), this.props.emojiMuteTextIndex);
     const horizontal  = (!compact && card.get('width') > card.get('height') && (card.get('width') + 100 >= width)) || card.get('type') !== 'link' || embedded;
