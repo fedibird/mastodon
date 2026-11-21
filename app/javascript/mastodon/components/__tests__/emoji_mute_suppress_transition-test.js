@@ -436,7 +436,9 @@ describe('mounted suppress transition', () => {
         houseButton: chips[1],
         starButton: chips[2],
         loose: document.querySelector('.loose-emoji img'),
-        source: document.querySelector('picture source'),
+        keptSource: document.querySelector('.kept-picture source'),
+        mutedSource: document.querySelector('.muted-picture source'),
+        mutedImg: document.querySelector('.muted-picture img'),
         draft: document.querySelector('input[aria-label="draft"]'),
       };
     };
@@ -451,7 +453,8 @@ describe('mounted suppress transition', () => {
           blobSrc: shot.blob && shot.blob.getAttribute('src'),
           houseSrc: shot.house && shot.house.getAttribute('src'),
           looseSrc: shot.loose && shot.loose.getAttribute('src'),
-          sourceSrc: shot.source && shot.source.getAttribute('src'),
+          keptSourceSrc: shot.keptSource && shot.keptSource.getAttribute('src'),
+          mutedSourceSrc: shot.mutedSource && shot.mutedSource.getAttribute('src'),
         };
       }
 
@@ -471,8 +474,11 @@ describe('mounted suppress transition', () => {
           starTitle: shot.starButton && shot.starButton.getAttribute('title'),
           looseSrc: shot.loose && shot.loose.getAttribute('src'),
           looseOriginal: shot.loose && shot.loose.getAttribute('data-original'),
-          sourceSrc: shot.source && shot.source.getAttribute('src'),
-          sourceSet: shot.source && shot.source.getAttribute('srcset'),
+          keptSourceSrc: shot.keptSource && shot.keptSource.getAttribute('src'),
+          keptSourceSet: shot.keptSource && shot.keptSource.getAttribute('srcset'),
+          mutedSourceSrc: shot.mutedSource && shot.mutedSource.getAttribute('src'),
+          mutedSourceSet: shot.mutedSource && shot.mutedSource.getAttribute('srcset'),
+          mutedImgSrc: shot.mutedImg && shot.mutedImg.getAttribute('src'),
           draft: shot.draft && shot.draft.value,
         };
       }
@@ -485,9 +491,13 @@ describe('mounted suppress transition', () => {
           <div className='loose-emoji'>
             <Emoji emoji='blob' hovered={false} url='https://cdn.example/blob.svg' static_url='https://cdn.example/blob.png' domain='remote.example' />
           </div>
-          <picture>
+          <picture className='kept-picture'>
             <source src={`/emoji/${KEEP}.svg`} srcSet={`/emoji/${KEEP}.svg 2x`} />
             <img className='emojione' alt={KEEP} title={KEEP} src={`/emoji/${KEEP}.svg`} />
+          </picture>
+          <picture className='muted-picture'>
+            <source src={`/emoji/${OK}.svg`} srcSet={`/emoji/${OK}.svg 2x`} />
+            <img className='emojione' alt={OK} title={OK} src={`/emoji/${OK}.svg`} />
           </picture>
           <input aria-label='draft' defaultValue='draft stays' />
         </div>
@@ -503,6 +513,13 @@ describe('mounted suppress transition', () => {
         mutes: [
           hideOnly({ kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' }, 'm-remote'),
           hideOnly({ kind: 'custom', scope: 'local', custom_emoji_id: '42', shortcode: 'house' }, 'm-local'),
+          {
+            id: 'm-ok',
+            revision: '3',
+            emoji: { kind: 'unicode', native: OK },
+            replacement: '[ok]',
+            effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+          },
         ],
       });
     });
@@ -510,7 +527,8 @@ describe('mounted suppress transition', () => {
     expect(atSuppress.blobSrc).toBeNull();
     expect(atSuppress.houseSrc).toBeNull();
     expect(atSuppress.looseSrc).toBeNull();
-    expect(atSuppress.sourceSrc).toBeNull();
+    expect(atSuppress.keptSourceSrc).toBeNull();
+    expect(atSuppress.mutedSourceSrc).toBeNull();
 
     expect(beforeCommit.blobSrc).toBeNull();
     expect(beforeCommit.blobOriginal).toBeNull();
@@ -526,8 +544,11 @@ describe('mounted suppress transition', () => {
     expect(beforeCommit.starTitle).toBe(':star:');
     expect(beforeCommit.looseSrc).toBe('https://cdn.example/blob.png');
     expect(beforeCommit.looseOriginal).toBe('https://cdn.example/blob.svg');
-    expect(beforeCommit.sourceSrc).toBe(`/emoji/${KEEP}.svg`);
-    expect(beforeCommit.sourceSet).toBe(`/emoji/${KEEP}.svg 2x`);
+    expect(beforeCommit.keptSourceSrc).toBe(`/emoji/${KEEP}.svg`);
+    expect(beforeCommit.keptSourceSet).toBe(`/emoji/${KEEP}.svg 2x`);
+    expect(beforeCommit.mutedSourceSrc).toBeNull();
+    expect(beforeCommit.mutedSourceSet).toBeNull();
+    expect(beforeCommit.mutedImgSrc).toBeNull();
     expect(beforeCommit.draft).toBe('draft stays');
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
 
@@ -535,7 +556,9 @@ describe('mounted suppress transition', () => {
     expect(view.container.querySelector('button[title=":house:"]')).toBeNull();
     expect(view.container.querySelector('button[title=":star:"]')).not.toBeNull();
     expect(view.container.querySelector('.loose-emoji img').getAttribute('src')).toBe('https://cdn.example/blob.png');
-    expect(view.container.querySelector('picture source').getAttribute('src')).toBe(`/emoji/${KEEP}.svg`);
+    expect(view.container.querySelector('.kept-picture source').getAttribute('src')).toBe(`/emoji/${KEEP}.svg`);
+    expect(view.container.querySelector('.muted-picture source').getAttribute('src')).toBeNull();
+    expect(view.container.querySelector('.muted-picture source').getAttribute('srcset')).toBeNull();
     expect(view.getByLabelText('draft').value).toBe('draft stays');
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
     expect(() => view.unmount()).not.toThrow();
