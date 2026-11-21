@@ -20,8 +20,8 @@ class Api::V1::Fedibird::EmojiMutesController < Api::BaseController
   end
 
   def index
-    mutes, revision = EmojiMutes::Repository.consistent_state(current_user.id)
-    preference = EmojiMutes::Preference.new(current_user).as_json
+    mutes, revision, preference_row = EmojiMutes::Repository.consistent_state(current_user.id)
+    preference = EmojiMutes::Preference.list_json(preference_row)
     etag = collection_etag(revision, preference['preference_revision'])
     response.headers['ETag'] = etag
     if none_match?(etag)
@@ -29,9 +29,8 @@ class Api::V1::Fedibird::EmojiMutesController < Api::BaseController
       return
     end
 
-    # modal is a separate setting. The list representation leaves it out so a
-    # dialog-only change does not have to move this ETag.
-    render json: EmojiMutes::Presenter.new(mutes).list(revision).merge(preference.except('modal'))
+    # modal is a separate setting and is not part of this locked snapshot.
+    render json: EmojiMutes::Presenter.new(mutes).list(revision).merge(preference)
   end
 
   def create

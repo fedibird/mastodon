@@ -69,6 +69,17 @@ module EmojiMutes
       format('%d', (row.updated_at.to_r * 1_000_000).round)
     end
 
+    # Fields for the rules list. The caller already loaded this row under the
+    # user lock, so the list does not read the switch again.
+    def self.list_json(row)
+      {
+        'enabled' => row&.value == true,
+        'explicit' => !row.nil?,
+        'known' => true,
+        'preference_revision' => revision_of(row),
+      }
+    end
+
     def update!(enabled)
       raise EmojiMutes::Invalid.new(KEY, 'invalid_type') unless [true, false].include?(enabled)
 

@@ -752,6 +752,36 @@ describe('emoji mute preference flow', () => {
     expect(emojiReactionEventsAccepted()).toBe(false);
   });
 
+  it('accepts the default off preference on reconnect without loading rules', async () => {
+    noteEmojiMuteDisabledLocally();
+    applyEmojiMuteDisabledDocument();
+    api().get.mockResolvedValue({
+      data: { enabled: false, explicit: false, known: true, preference_revision: '0' },
+    });
+
+    await syncEmojiMutes({ reconnect: true })(dispatch, root);
+
+    const urls = api().get.mock.calls.map(call => call[0]);
+    expect(urls).toContain('/api/v1/fedibird/emoji_mute_preference');
+    expect(urls.filter(url => url === '/api/v1/fedibird/emoji_mutes')).toEqual([]);
+    expect(emojiMutes.get('phase')).toBe('ready');
+    expect(emojiMutes.get('display')).toBe('show');
+    expect(emojiMutes.get('availability')).toBe('disabled');
+    expect(emojiMutes.get('failure')).toBe(null);
+    expect(emojiReactionEventsAccepted()).toBe(true);
+  });
+
+  it('does not treat an unset preference row as a saved off', async () => {
+    noteEmojiMuteEnabledLocally();
+    api().patch.mockResolvedValue({
+      data: { enabled: false, explicit: false, known: true, preference_revision: '0' },
+    });
+
+    await expect(dispatch(disableEmojiMuteFeature())).rejects.toThrow(/not saved/);
+    expect(currentEmojiMuteBoot().availability).toBe('enabled');
+    expect(emojiMutes.get('availability')).toBe('unknown');
+  });
+
   it('treats a malformed preference response during confirmation as a failure', async () => {
     noteEmojiMuteDisabledLocally();
     api().get.mockResolvedValueOnce({ data: { enabled: 'no', explicit: true } });

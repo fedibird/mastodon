@@ -503,8 +503,12 @@ export function notePreferenceRevision(revision) {
   }
 }
 
+export function emojiMutePreferenceReadable(data) {
+  return !!(data && (data.enabled === true || data.enabled === false));
+}
+
 export function emojiMutePreferenceAcceptable(data) {
-  return !!(data && data.explicit === true && (data.enabled === true || data.enabled === false));
+  return emojiMutePreferenceReadable(data) && data.explicit === true;
 }
 
 function applySavedPreference(data) {
@@ -519,7 +523,17 @@ function applySavedPreference(data) {
   return { ...data, applied: true };
 }
 
+function preferenceNotSavedError() {
+  const error = new Error('Emoji mute preference was not saved');
+  error.preferenceNotSaved = true;
+  return error;
+}
+
 function preferenceResponseLost(error) {
+  if (error && error.preferenceNotSaved) {
+    return false;
+  }
+
   const code = error && error.response && error.response.data && Array.isArray(error.response.data.errors)
     ? error.response.data.errors[0] && error.response.data.errors[0].code
     : null;
@@ -546,7 +560,7 @@ export function loadEmojiMutePreference() {
 function confirmSavedPreference(generation) {
   return loadEmojiMutePreference().then(data => {
     if (!emojiMutePreferenceAcceptable(data)) {
-      throw new Error('Emoji mute preference was not saved');
+      throw preferenceNotSavedError();
     }
 
     if (!emojiMutePreferenceReadCurrent(generation) || preferenceRevisionStale(data.preference_revision)) {
@@ -569,7 +583,7 @@ export function saveEmojiMuteEnabled(enabled) {
     const data = response && response.data;
 
     if (!emojiMutePreferenceAcceptable(data)) {
-      throw new Error('Emoji mute preference was not saved');
+      throw preferenceNotSavedError();
     }
 
     if (!emojiMutePreferenceReadCurrent(generation) || preferenceRevisionStale(data.preference_revision)) {

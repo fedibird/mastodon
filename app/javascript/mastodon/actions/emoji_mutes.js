@@ -25,7 +25,7 @@ import {
   abandonEmojiMutePreferenceConfirmation,
   beginEmojiMutePreferenceConfirmation,
   beginEmojiMutePreferenceRead,
-  emojiMutePreferenceAcceptable,
+  emojiMutePreferenceReadable,
   emojiMutePreferenceConfirmationCurrent,
   emojiMutePreferenceReadCurrent,
   endEmojiMutePreferenceConfirmation,
@@ -162,7 +162,7 @@ export function applyRemoteEmojiMutePreference(options = {}) {
         return null;
       }
 
-      if (!emojiMutePreferenceAcceptable(data)) {
+      if (!emojiMutePreferenceReadable(data)) {
         return failConfirmation(new Error('Emoji mute preference was not readable'));
       }
 

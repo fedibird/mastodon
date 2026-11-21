@@ -16,18 +16,20 @@ module EmojiMutes
     end
 
     def revision
-      self.class.consistent_state(@user.id).last
+      self.class.consistent_state(@user.id)[1]
     end
 
-    # User row lock, then both reads. A writer uses the same first lock, so
-    # it cannot commit a new revision between the two selects.
+    # User row lock, then the rules, the collection revision, and the on/off
+    # row. A writer takes the same user lock first, so it cannot commit a new
+    # mute and a new switch between these reads.
     def self.consistent_state(user_id)
       EmojiMute.transaction do
         User.lock.find(user_id)
         mutes = EmojiMute.where(user_id: user_id).order(:id).to_a
         before_revision_read&.call
         revision = EmojiMuteCollection.where(user_id: user_id).pick(:revision) || 0
-        [mutes, revision.to_i]
+        preference = Setting.unscoped.find_by(thing_type: 'User', thing_id: user_id, var: EmojiMutes::Preference::KEY)
+        [mutes, revision.to_i, preference]
       end
     end
 
