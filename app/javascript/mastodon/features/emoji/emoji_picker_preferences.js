@@ -1,3 +1,4 @@
+import { featureUsageFlag, initialFeaturePrefetchAllowed } from 'mastodon/feature_usage';
 import { emojiPickerDisablePersonal, emojiPickerDisableStandard, emojiPickerLazyLoadStandard, emojiPickerPreferPersonal } from 'mastodon/initial_state';
 import { loadStandardEmojiPicker } from './standard_emoji_loader';
 import { loadPersonalEmojiStock } from './emoji_stock_source';
@@ -17,8 +18,12 @@ export function preloadStandardEmojiPickerIfNeeded(lazyLoadStandard = emojiPicke
   return loadStandardEmojiPicker().catch(() => null);
 }
 
-export function preloadPersonalEmojiStockIfNeeded(lazyLoadStandard = emojiPickerLazyLoadStandard, disablePersonal = emojiPickerDisablePersonal) {
-  if (disablePersonal || lazyLoadStandard !== false) {
+export function preloadPersonalEmojiStockIfNeeded(lazyLoadStandard = emojiPickerLazyLoadStandard, disablePersonal = emojiPickerDisablePersonal, hasPersonalEmojiSet = featureUsageFlag('has_personal_emoji_set')) {
+  // An explicit false means this document was rendered with no personal-set
+  // row. An empty row still preloads, because the stock request is the safe
+  // read. Opening the picker and saving a set call loadPersonalEmojiStock()
+  // directly and do not pass this snapshot in.
+  if (disablePersonal || lazyLoadStandard !== false || !initialFeaturePrefetchAllowed(hasPersonalEmojiSet)) {
     return Promise.resolve(null);
   }
 
@@ -40,10 +45,10 @@ export function preloadCustomEmojiCatalogIfNeeded(preloadCatalog, lazyLoadStanda
 
 // Non-lazy mode prepares both the standard module and the user's small,
 // resolved personal stock. Neither request delays the application mount.
-export function preloadEmojiPickersIfNeeded(lazyLoadStandard = emojiPickerLazyLoadStandard, disablePersonal = emojiPickerDisablePersonal, preloadCatalog = null, disableStandard = emojiPickerDisableStandard) {
+export function preloadEmojiPickersIfNeeded(lazyLoadStandard = emojiPickerLazyLoadStandard, disablePersonal = emojiPickerDisablePersonal, preloadCatalog = null, disableStandard = emojiPickerDisableStandard, hasPersonalEmojiSet = featureUsageFlag('has_personal_emoji_set')) {
   return Promise.all([
     preloadStandardEmojiPickerIfNeeded(lazyLoadStandard, disableStandard),
-    preloadPersonalEmojiStockIfNeeded(lazyLoadStandard, disablePersonal),
+    preloadPersonalEmojiStockIfNeeded(lazyLoadStandard, disablePersonal, hasPersonalEmojiSet),
     preloadCustomEmojiCatalogIfNeeded(preloadCatalog, lazyLoadStandard, disableStandard),
   ]);
 }

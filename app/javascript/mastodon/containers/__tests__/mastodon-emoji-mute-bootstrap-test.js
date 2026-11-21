@@ -59,7 +59,10 @@ jest.mock('mastodon/store/configureStore', () => ({
   default: jest.fn(() => mockStore),
 }));
 jest.mock('mastodon/actions/store', () => ({ hydrateStore: () => ({ type: 'TEST_HYDRATE' }) }));
-jest.mock('mastodon/actions/circles', () => ({ fetchCircles: () => ({ type: 'TEST_CIRCLES' }) }));
+jest.mock('mastodon/actions/circles', () => ({
+  fetchCircles: () => ({ type: 'TEST_CIRCLES' }),
+  prefetchCircles: () => ({ type: 'TEST_CIRCLES' }),
+}));
 jest.mock('mastodon/features/emoji/emoji_picker_preferences', () => ({ preloadEmojiPickersIfNeeded: jest.fn() }));
 jest.mock('mastodon/containers/mastodon_subscriptions', () => ({ startMastodonSubscriptions: (...args) => mockStartSubscriptions(...args) }));
 jest.mock('mastodon/features/emoji/emoji_mute_store', () => ({ resetEmojiMuteSession: jest.fn() }));

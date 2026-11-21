@@ -5,6 +5,10 @@ class InitialStateSerializer < ActiveModel::Serializer
              :media_attachments, :status_references, :emoji_reactions,
              :settings, :max_toot_chars, :languages
 
+  # Guests and partial documents omit the key. The WebUI treats a missing
+  # value as unknown and keeps the historical prefetch.
+  attribute :feature_usage, if: :current_account?
+
   has_one :push_subscription, serializer: REST::WebPushSubscriptionSerializer
   has_one :role, serializer: REST::RoleSerializer
 
@@ -229,9 +233,12 @@ class InitialStateSerializer < ActiveModel::Serializer
   end
 
   def lists
-    store = {}
-    store = ActiveModelSerializers::SerializableResource.new(object.current_account.owned_lists, each_serializer: REST::ListSerializer) if object.current_account
-    store
+    return {} unless object.current_account
+    # The existence probe already answered. Skip the row load when the
+    # account owns nothing; owners still receive the rows the tab bar paints.
+    return [] unless feature_usage[:has_lists]
+
+    ActiveModelSerializers::SerializableResource.new(object.current_account.owned_lists, each_serializer: REST::ListSerializer)
   end
 
   def media_attachments
@@ -251,6 +258,26 @@ class InitialStateSerializer < ActiveModel::Serializer
 
   def languages
     LanguagesHelper::SUPPORTED_LOCALES.map { |(key, value)| [key, value[0], value[1]] }
+  end
+
+  def current_account?
+    object.current_account.present?
+  end
+
+  # One indexed existence probe per flag. A personal-set row counts even when
+  # its category list is empty: "no row" and "row with no emoji" are different,
+  # and only the former may skip the stock request.
+  def feature_usage
+    @feature_usage ||= begin
+      account = object.current_account
+      user_id = account.user&.id
+
+      {
+        has_circles: Circle.exists?(account_id: account.id),
+        has_lists: List.exists?(account_id: account.id),
+        has_personal_emoji_set: user_id.present? && PersonalEmojiSet.exists?(user_id: user_id),
+      }
+    end
   end
 
   private

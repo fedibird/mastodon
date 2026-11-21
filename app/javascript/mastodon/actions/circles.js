@@ -1,4 +1,5 @@
 import api from '../api';
+import { featureUsageFlag, initialFeaturePrefetchAllowed } from '../feature_usage';
 import { importFetchedAccounts } from './importer';
 import { showAlertForError } from './alerts';
 
@@ -83,6 +84,17 @@ export const fetchCircles = () => (dispatch, getState) => {
   api(getState).get('/api/v1/circles')
     .then(({ data }) => dispatch(fetchCirclesSuccess(data)))
     .catch(err => dispatch(fetchCirclesFail(err)));
+};
+
+// Boot only. Opening circles, the circle adder, create, and delete call
+// fetchCircles() and ignore the document hint, so a circle made after this
+// HTML was rendered is still reachable.
+export const prefetchCircles = () => dispatch => {
+  if (!initialFeaturePrefetchAllowed(featureUsageFlag('has_circles'))) {
+    return null;
+  }
+
+  return dispatch(fetchCircles());
 };
 
 export const fetchCirclesRequest = () => ({
