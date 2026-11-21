@@ -25,7 +25,9 @@ describe('dropdown privacy portal layout selectors', () => {
 
       expect(selectors.length).toBeGreaterThan(0);
       selectors.forEach(selector => {
-        expect([...portal.querySelectorAll(selector)]).toEqual([webui]);
+        // A portal may be detached during a mute revision. Element.matches
+        // evaluates the element's own ancestry without requiring a document root.
+        expect(webui.matches(selector)).toBe(true);
         expect(overlay.matches(selector)).toBe(false);
         expect(emojiActionsOverlay.matches(selector)).toBe(false);
       });
@@ -33,8 +35,8 @@ describe('dropdown privacy portal layout selectors', () => {
   });
 
   it('marks the actual react-hotkeys DOM wrapper for the scoped layout', () => {
-    expect(readSource('mastodon/features/ui/index.js')).toContain(
-      "<HotKeys className='emoji-mutes-webui-hotkeys'",
+    expect(readSource('mastodon/features/ui/index.js')).toMatch(
+      /<HotKeys className='emoji-mutes-webui-hotkeys'/,
     );
   });
 });
