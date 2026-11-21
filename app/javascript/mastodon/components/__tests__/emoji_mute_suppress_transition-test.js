@@ -18,6 +18,7 @@ jest.mock('mastodon/initial_state', () => ({
 
 import { EMOJI_MUTES_APPLY, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
 import DisplayName from 'mastodon/components/display_name';
+import Emoji from 'mastodon/components/emoji';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import { createUnverifiedEmojiGuard, emojiMuteLiveDomProbe, resetEmojiMuteLiveDomProbe } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
@@ -149,6 +150,103 @@ describe('mounted suppress transition', () => {
     expect(view.container.innerHTML).toContain('[ok]');
     expect(view.container.querySelector('img[src="/media/x.jpg"]').getAttribute('alt')).toBe(`photo ${OK}`);
     expect(view.container.querySelector('.emoji-reactions-bar')).not.toBeNull();
+    expect(() => view.unmount()).not.toThrow();
+  });
+
+  it('strips a remote custom emoji before React commits and restores it when it is not muted', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    let beforeCommit = null;
+    let capture = false;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      if (!capture) {
+        return;
+      }
+
+      const img = document.querySelector('img.custom-emoji');
+      beforeCommit = img ? {
+        html: img.outerHTML,
+        alt: img.getAttribute('alt'),
+        title: img.getAttribute('title'),
+        ariaLabel: img.getAttribute('aria-label'),
+        src: img.getAttribute('src'),
+        srcset: img.getAttribute('srcset'),
+        original: img.getAttribute('data-original'),
+        staticUrl: img.getAttribute('data-static'),
+        shortcode: img.getAttribute('data-shortcode'),
+        domain: img.getAttribute('data-domain'),
+      } : null;
+      capture = false;
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <Emoji
+            emoji='blob'
+            hovered={false}
+            url='https://cdn.example/remote.svg'
+            static_url='https://cdn.example/remote.png'
+            domain='remote.example'
+          />
+          <input aria-label='draft' defaultValue='keep :blob: https://cdn.example/remote.svg' />
+        </div>
+      </Provider>,
+    );
+    const draft = view.getByLabelText('draft');
+
+    expect(view.container.querySelector('img').getAttribute('data-original')).toBe('https://cdn.example/remote.svg');
+    expect(emojiMuteLiveDomProbe.scans).toBe(0);
+
+    capture = true;
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(beforeCommit).not.toBeNull();
+    expect(beforeCommit.html).not.toContain('cdn.example');
+    expect(beforeCommit.html).not.toContain('blob');
+    expect(beforeCommit.html).not.toContain('remote.example');
+    expect(beforeCommit.src).toBeNull();
+    expect(beforeCommit.srcset).toBeNull();
+    expect(beforeCommit.original).toBeNull();
+    expect(beforeCommit.staticUrl).toBeNull();
+    expect(beforeCommit.shortcode).toBeNull();
+    expect(beforeCommit.domain).toBeNull();
+    expect(beforeCommit.title).toBeNull();
+    expect(beforeCommit.ariaLabel).toBeNull();
+    expect(beforeCommit.alt).toBe('◻');
+    expect(draft.value).toBe('keep :blob: https://cdn.example/remote.svg');
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+
+    act(() => {
+      store.dispatch({ type: 'UNRELATED' });
+    });
+    fireEvent.change(draft, { target: { value: 'keep :blob: https://cdn.example/remote.svg typed' } });
+
+    expect(draft.value).toBe('keep :blob: https://cdn.example/remote.svg typed');
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+
+    const restored = view.container.querySelector('img.custom-emoji');
+    expect(restored.getAttribute('src')).toBe('https://cdn.example/remote.png');
+    expect(restored.getAttribute('data-original')).toBe('https://cdn.example/remote.svg');
+    expect(restored.getAttribute('data-static')).toBe('https://cdn.example/remote.png');
+    expect(restored.getAttribute('data-shortcode')).toBe('blob');
+    expect(restored.getAttribute('data-domain')).toBe('remote.example');
+    expect(restored.hasAttribute('hidden')).toBe(false);
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
     expect(() => view.unmount()).not.toThrow();
   });
 });

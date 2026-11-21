@@ -23,15 +23,39 @@ const rewriteAttribute = (element, name) => {
   }
 };
 
-// The node stays where React put it. Clearing the URL and label stops the
-// glyph and the screen reader without detaching a child React still owns.
+const EMOJI_IDENTITY_ATTRIBUTES = [
+  'src',
+  'srcset',
+  'data-original',
+  'data-static',
+  'data-shortcode',
+  'data-domain',
+  'data-emoji-id',
+  'data-emoji-shortcode',
+  'data-emoji-domain',
+  'data-emoji-native',
+  'data-emoji-custom-emoji-id',
+  'data-emoji-reaction-url',
+  'data-emoji-reaction-static-url',
+  'aria-label',
+];
+
+// The node stays where React put it. URLs and identity attributes are
+// removed in place so the pre-commit DOM cannot name the emoji.
 const concealEmojiImage = img => {
+  EMOJI_IDENTITY_ATTRIBUTES.forEach(name => img.removeAttribute(name));
   img.setAttribute('alt', UNVERIFIED_EMOJI_PLACEHOLDER);
   img.removeAttribute('title');
-  img.removeAttribute('src');
-  img.removeAttribute('srcset');
   img.setAttribute('hidden', '');
   img.setAttribute('aria-hidden', 'true');
+
+  const host = img.closest('[data-emoji-reaction-url], [data-emoji-reaction-static-url], [data-emoji-shortcode], [data-emoji-domain], [data-emoji-native]');
+
+  if (host && host !== img) {
+    ['data-emoji-reaction-url', 'data-emoji-reaction-static-url', 'data-emoji-shortcode', 'data-emoji-domain', 'data-emoji-native', 'data-emoji-custom-emoji-id'].forEach(name => {
+      host.removeAttribute(name);
+    });
+  }
 
   const picture = img.parentElement && img.parentElement.tagName === 'PICTURE' ? img.parentElement : null;
 
