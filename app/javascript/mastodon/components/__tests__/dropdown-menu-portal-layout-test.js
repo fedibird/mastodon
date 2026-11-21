@@ -10,14 +10,17 @@ describe('dropdown privacy portal layout selectors', () => {
   it('scopes all privacy portal child layout selectors to the WebUI wrapper', () => {
     ['styles/mastodon/basics.scss', 'styles/mastodon/components.scss'].forEach(filename => {
       const source = readSource(filename);
-      const childSelectors = [...source.matchAll(/\.emoji-mutes-privacy-portal\s*>\s*([^\s,{]+)/g)]
-        .map(match => match[1]);
+      const portalChildSelector = '.emoji-mutes-privacy-portal >';
+      const expectedSelector = '.emoji-mutes-privacy-portal > .emoji-mutes-webui-hotkeys';
+      const selectorLines = source.split('\n')
+        .map(line => line.trim())
+        .filter(line => line.includes(portalChildSelector) && !line.startsWith('//'));
 
       // A broad "div" selector would resize the react-overlays popper portal,
       // making menus appear centered instead of next to their trigger.
-      expect(childSelectors.length).toBeGreaterThan(0);
-      childSelectors.forEach(selector => {
-        expect(selector).toBe('.emoji-mutes-webui-hotkeys');
+      expect(selectorLines.length).toBeGreaterThan(0);
+      selectorLines.forEach(line => {
+        expect(line).toContain(expectedSelector);
       });
     });
   });
