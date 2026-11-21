@@ -99,7 +99,14 @@ function applyAuthoritativeEmojiMutePreference(enabled) {
   return dispatch => {
     if (enabled === true) {
       if (currentEmojiMuteBoot().availability === 'enabled') {
-        return Promise.resolve(null);
+        if (emojiMuteDocumentReady()) {
+          return Promise.resolve(null);
+        }
+
+        // The list that was already in flight can be an older OFF snapshot.
+        // A forced GET does not join it, and does not reuse the bootstrap promise.
+        cancelInFlightEmojiMuteRefresh();
+        return dispatch(syncEmojiMutes({ verify: true }));
       }
 
       cancelInFlightEmojiMuteRefresh();

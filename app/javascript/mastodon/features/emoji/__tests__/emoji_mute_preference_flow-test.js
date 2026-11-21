@@ -290,6 +290,52 @@ describe('emoji mute preference flow', () => {
     expect(emojiMutes.get('display')).toBe('apply');
   });
 
+  it('fetches rules when a confirmed enabled preference finds the document unready', async () => {
+    noteEmojiMuteEnabledLocally();
+    const list = deferred();
+    const preference = deferred();
+    let muteGets = 0;
+
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mutes') {
+        muteGets += 1;
+        return muteGets === 1
+          ? list.promise
+          : Promise.resolve({ data: { revision: '5', enabled: true, emoji_mutes: [hideRule] } });
+      }
+
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        return preference.promise;
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    const boot = syncEmojiMutes({ bootstrap: true })(dispatch, root);
+    const reading = dispatch(applyRemoteEmojiMutePreference());
+    preference.resolve({ data: { enabled: true, explicit: true, known: true } });
+    await reading;
+    expect(muteGets).toBe(2);
+
+    list.resolve({ data: { revision: '4', enabled: false, emoji_mutes: [] } });
+    await boot;
+
+    expect(currentEmojiMuteBoot().availability).toBe('enabled');
+    expect(emojiMuteDocumentReady()).toBe(true);
+    expect(currentEmojiMutes()).toEqual([hideRule]);
+  });
+
+  it('does not fetch rules when the enabled preference matches a ready document', async () => {
+    noteEmojiMuteEnabledLocally();
+    installEmojiMutesForTests({ revision: '3', emoji_mutes: [hideRule] });
+    api().get.mockResolvedValue({ data: { enabled: true, explicit: true, known: true } });
+
+    await dispatch(applyRemoteEmojiMutePreference());
+
+    expect(api().get.mock.calls.map(call => call[0])).toEqual(['/api/v1/fedibird/emoji_mute_preference']);
+    expect(currentEmojiMutes()).toEqual([hideRule]);
+  });
+
   it('does not let an older disabled list drop a newer preference read', async () => {
     const list = deferred();
     const preference = deferred();
