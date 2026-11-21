@@ -10,7 +10,9 @@ import { syncEmojiMutes } from 'mastodon/actions/emoji_mutes';
 import { addEmojiReaction, removeEmojiReaction } from 'mastodon/actions/interactions';
 import { currentEmojiMutes } from 'mastodon/features/emoji/emoji_mute_store';
 import { notifySavedPersonalEmojiSet } from 'mastodon/features/emoji/emoji_stock_source';
-import { closeModal } from 'mastodon/actions/modal';
+import { closeModal, openModal } from 'mastodon/actions/modal';
+import { enableEmojiMuteLoading } from 'mastodon/actions/emoji_mutes';
+import { currentEmojiMuteBoot, emojiMuteConfirmation } from 'mastodon/features/emoji/emoji_mute_availability';
 import { closeDropdownMenu } from 'mastodon/actions/dropdown_menu';
 import {
   openEmojiActions,
@@ -93,6 +95,10 @@ const messages = defineMessages({
   addConflict: { id: 'emoji_actions.add_conflict', defaultMessage: 'Personal set changed. Try again.' },
   muteSuccess: { id: 'emoji_actions.mute_success', defaultMessage: 'Muted {label}' },
   unmuteSuccess: { id: 'emoji_actions.unmute_success', defaultMessage: 'Unmuted {label}' },
+  muteConfirm: { id: 'emoji_actions.mute_confirm', defaultMessage: 'Mute this emoji?' },
+  muteFirstEnable: { id: 'emoji_actions.mute_first_enable', defaultMessage: 'Mute this emoji? Emoji muting is off, so saving this also turns it on.' },
+  muteReenable: { id: 'emoji_actions.mute_reenable', defaultMessage: 'Emoji muting is turned off. Saving this mute turns it back on and applies your saved rules.' },
+  unmuteConfirm: { id: 'emoji_actions.unmute_confirm', defaultMessage: 'Unmute this emoji? Saved rules stay until you remove them.' },
   addSuccess: { id: 'emoji_actions.add_success', defaultMessage: 'Added to {name}' },
   openSettings: { id: 'emoji_actions.open_mute_settings', defaultMessage: 'Open mute settings' },
   retry: { id: 'emoji_actions.retry', defaultMessage: 'Try again' },
@@ -443,6 +449,8 @@ class EmojiActionsMenuController extends React.PureComponent {
     onCloseDropdown: PropTypes.func,
     onAddEmojiReaction: PropTypes.func,
     onRemoveEmojiReaction: PropTypes.func,
+    onConfirm: PropTypes.func,
+    onEmojiMuteEnabled: PropTypes.func,
     getStatus: PropTypes.func,
     previewClickAction: PropTypes.oneOf(['none', 'close', 'detail', 'copy']),
     muteActionsEnabled: PropTypes.bool,
@@ -1152,13 +1160,55 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.handleClose();
   };
 
+  confirmMuteAction = (decision, enable, preservedReference) => {
+    const { intl } = this.props;
+    const reference = preservedReference || this.state.reference;
+    let messageId = messages.muteConfirm;
+
+    if (decision.reason === 'reenable') {
+      messageId = messages.muteReenable;
+    } else if (decision.reason === 'first_enable') {
+      messageId = messages.muteFirstEnable;
+    }
+
+    this.handleClose();
+    this.props.onConfirm({
+      message: intl.formatMessage(messageId),
+      confirm: intl.formatMessage(messages.mute),
+      onConfirm: () => {
+        if (this.state.reference && !referencesEqual(this.state.reference, reference)) {
+          return;
+        }
+
+        this.persistMute({ enable, reference });
+      },
+    });
+  };
+
   handleMute = () => {
+    const decision = emojiMuteConfirmation({ operation: 'mute' });
+
+    if (decision.required) {
+      this.confirmMuteAction(decision, decision.reenable);
+      return;
+    }
+
+    this.persistMute({ enable: false });
+  };
+
+  persistMute = ({ enable, reference: capturedReference } = {}) => {
     const { intl, onSyncMutes } = this.props;
-    const { reference } = this.state;
+    const reference = capturedReference || this.state.reference;
+
+    if (capturedReference && this.state.reference && !referencesEqual(this.state.reference, capturedReference)) {
+      return;
+    }
 
     if (!this.props.muteActionsEnabled || !reference || this.state.busy || this.state.pendingSyncRevision || isMuteMutationInFlight(reference) || getPendingMuteSync(reference)) {
       return;
     }
+
+    const activate = currentEmojiMuteBoot().availability !== 'enabled';
 
     if (!beginMuteMutation(reference, 'mute')) {
       return;
@@ -1172,6 +1222,12 @@ class EmojiActionsMenuController extends React.PureComponent {
       createMute: createEmojiMute,
       syncMutes: onSyncMutes,
       reference,
+      enable: enable === true,
+      onEnabled: () => {
+        if (activate && typeof this.props.onEmojiMuteEnabled === 'function') {
+          this.props.onEmojiMuteEnabled();
+        }
+      },
     }).then(result => {
       const savedMute = result.response.emoji_mute
         || findMuteForReference(currentEmojiMutes(), reference);
@@ -1218,6 +1274,16 @@ class EmojiActionsMenuController extends React.PureComponent {
     }).catch(error => {
       endMuteMutation(reference);
 
+      const reenable = !enable && error && Array.isArray(error.errors) && error.errors.some(item => item && item.code === 'reenable_required');
+      const openReference = this.state.reference;
+      const closedForThisEmoji = !openReference && session && referencesEqual(session.reference, reference);
+
+      if (reenable && (canApplyMutationToOpenMenu(session, { reference: openReference }) || closedForThisEmoji)) {
+        this.setState({ busy: false, error: null });
+        this.confirmMuteAction({ reason: 'reenable' }, true, reference);
+        return;
+      }
+
       if (!canApplyMutationToOpenMenu(session, { reference: this.state.reference })) {
         return;
       }
@@ -1233,8 +1299,43 @@ class EmojiActionsMenuController extends React.PureComponent {
   };
 
   handleUnmute = () => {
+    const decision = emojiMuteConfirmation({ operation: 'unmute' });
+    const mute = this.state.mute;
+    const reference = this.state.reference;
+
+    if (decision.required) {
+      const { intl } = this.props;
+
+      this.handleClose();
+      this.props.onConfirm({
+        message: intl.formatMessage(messages.unmuteConfirm),
+        confirm: intl.formatMessage(messages.unmute),
+        onConfirm: () => {
+          if (this.state.reference && !referencesEqual(this.state.reference, reference)) {
+            return;
+          }
+
+          if (this.state.mute && mute && this.state.mute.id !== mute.id) {
+            return;
+          }
+
+          this.persistUnmute({ mute, reference });
+        },
+      });
+      return;
+    }
+
+    this.persistUnmute();
+  };
+
+  persistUnmute = ({ mute: capturedMute, reference: capturedReference } = {}) => {
     const { intl, onSyncMutes } = this.props;
-    const { mute, reference } = this.state;
+    const mute = capturedMute || this.state.mute;
+    const reference = capturedReference || this.state.reference;
+
+    if (capturedReference && this.state.reference && !referencesEqual(this.state.reference, capturedReference)) {
+      return;
+    }
 
     if (!this.props.muteActionsEnabled || !mute || this.state.busy || this.state.pendingSyncRevision || isMuteMutationInFlight(reference) || getPendingMuteSync(reference)) {
       return;
@@ -1565,6 +1666,12 @@ const mapDispatchToProps = dispatch => ({
   },
   onRemoveEmojiReaction(status, name) {
     return dispatch(removeEmojiReaction(status, name));
+  },
+  onConfirm(props) {
+    dispatch(openModal('CONFIRM', props));
+  },
+  onEmojiMuteEnabled() {
+    dispatch(enableEmojiMuteLoading());
   },
 });
 

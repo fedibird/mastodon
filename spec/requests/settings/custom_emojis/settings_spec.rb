@@ -28,6 +28,8 @@ RSpec.describe 'Settings custom emoji preferences page', type: :request do
     expect(response.body).to include('user_setting_emoji_picker_disable_actions')
     expect(response.body).to include('user_setting_emoji_preview_click_action')
     expect(response.body).to include('user_setting_emoji_mute_disable_actions')
+    expect(response.body).to include('user_setting_emoji_mute_enabled')
+    expect(response.body).to include('user_setting_emoji_mute_modal')
     expect(response.body).not_to include('user_setting_emoji_reaction_fallback_policy')
     expect(response.body).not_to include('user_setting_disable_reactions')
   end
@@ -72,6 +74,22 @@ RSpec.describe 'Settings custom emoji preferences page', type: :request do
     user.reload
     expect(user.setting_emoji_preview_click_action).to eq('detail')
     expect(user.setting_emoji_mute_disable_actions).to eq(false)
+  end
+
+  it 'saves the emoji mute feature switch without changing the action lock' do
+    put settings_custom_emojis_settings_path, params: {
+      user: {
+        setting_emoji_mute_enabled: '1',
+        setting_emoji_mute_modal: '0',
+      },
+    }
+
+    expect(response).to have_http_status(:redirect)
+    user.reload
+    expect(user.setting_emoji_mute_enabled).to eq(true)
+    expect(user.setting_emoji_mute_modal).to eq(false)
+    expect(user.setting_emoji_mute_disable_actions).to eq(false)
+    expect(EmojiMutes::Preference.new(user).explicit?).to eq(true)
   end
 
   it 'marks the mute manager read-only when the user safety flag is enabled' do

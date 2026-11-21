@@ -226,8 +226,50 @@ describe('Emoji mute settings', () => {
     expect(screen.getAllByText('1 selected')).toHaveLength(2);
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove selected mutes' }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(removeRule).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(removeRule).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove selected mutes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove mutes' }));
     await waitFor(() => expect(removeRule).toHaveBeenCalledWith('15', '3'));
     await waitFor(() => expect(within(grid).getAllByRole('option')).toHaveLength(1));
+  });
+
+  it('deletes the ids selected when the dialog opened', async () => {
+    const removeRule = jest.fn(() => Promise.resolve({ revision: '7' }));
+
+    renderSettings({
+      loadDocument: () => Promise.resolve(documentResponse),
+      removeRule,
+    });
+
+    await screen.findByText(DEFAULT_REPLACEMENT);
+    fireEvent.click(screen.getByRole('tab', { name: 'Select emoji' }));
+
+    const grid = screen.getByRole('listbox');
+    const options = within(grid).getAllByRole('option');
+    fireEvent.click(options[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove selected mutes' }));
+    fireEvent.click(options[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove mutes' }));
+
+    await waitFor(() => expect(removeRule).toHaveBeenCalledTimes(1));
+    expect(removeRule).toHaveBeenCalledWith('15', '3');
+  });
+
+  it('closes the confirmation dialog from the keyboard', async () => {
+    renderSettings({
+      loadDocument: () => Promise.resolve(documentResponse),
+    });
+
+    await screen.findByText(DEFAULT_REPLACEMENT);
+    fireEvent.click(screen.getByRole('tab', { name: 'Select emoji' }));
+    fireEvent.click(within(screen.getByRole('listbox')).getAllByRole('option')[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove selected mutes' }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    fireEvent.keyUp(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('keeps an edited row when an individual save conflicts', async () => {

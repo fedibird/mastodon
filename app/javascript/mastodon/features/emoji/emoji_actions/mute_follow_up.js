@@ -2,8 +2,12 @@
 // A sync failure must not be presented as a CRUD failure (which invites
 // duplicate POST / stale DELETE retries).
 
-export async function createMuteAndSync({ createMute, syncMutes, reference }) {
-  const response = await createMute(reference);
+export async function createMuteAndSync({ createMute, syncMutes, reference, enable, onEnabled }) {
+  const response = enable === true ? await createMute(reference, { enable: true }) : await createMute(reference);
+
+  if (typeof onEnabled === 'function') {
+    onEnabled(response);
+  }
 
   try {
     await syncMutes({ changed: { revision: response.revision } });

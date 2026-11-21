@@ -11,6 +11,8 @@ import {
 } from '../emoji_actions/api';
 import EmojiPickerShell from '../emoji_picker_shell';
 import { noteEmojiMutesChanged } from '../emoji_mute_store';
+import ConfirmationModal from 'mastodon/features/ui/components/confirmation_modal';
+import ModalRoot from 'mastodon/components/modal_root';
 
 export const DEFAULT_REPLACEMENT = '◻';
 
@@ -100,6 +102,9 @@ const messages = defineMessages({
   selected: { id: 'emoji_mutes.selected', defaultMessage: '{count} selected' },
   bulkTitle: { id: 'emoji_mutes.bulk_title', defaultMessage: 'Bulk actions' },
   bulkRemove: { id: 'emoji_mutes.bulk_remove', defaultMessage: 'Remove selected mutes' },
+  removeConfirm: { id: 'emoji_mutes.remove_confirm', defaultMessage: 'Remove this emoji mute?' },
+  bulkRemoveConfirm: { id: 'emoji_mutes.bulk_remove_confirm', defaultMessage: 'Remove the selected emoji mutes?' },
+  confirmRemove: { id: 'emoji_mutes.confirm_remove', defaultMessage: 'Remove mutes' },
   bulkReplacement: { id: 'emoji_mutes.bulk_replacement', defaultMessage: 'Set replacement for selected' },
   bulkReplacementEnable: { id: 'emoji_mutes.bulk_replacement_enable', defaultMessage: 'Change replacement text' },
   bulkEffect: { id: 'emoji_mutes.bulk_effect', defaultMessage: 'Bulk setting' },
@@ -255,6 +260,7 @@ export class EmojiMuteSettings extends React.PureComponent {
     bulkNotice: '',
     pickerOpen: false,
     addNotice: '',
+    pendingConfirm: null,
   };
 
   loadTimeouts = new Set();
@@ -471,6 +477,31 @@ export class EmojiMuteSettings extends React.PureComponent {
     if (this.props.disableMuteActions) return;
 
     const id = event.currentTarget.getAttribute('data-mute-id');
+    const rule = this.state.rules.find(entry => entry.id === id);
+    if (!rule || this.state.busyId || this.state.bulkBusy || this.state.pendingConfirm) return;
+
+    this.setState({ pendingConfirm: { kind: 'one', id } });
+  };
+
+  closePendingConfirm = () => {
+    this.setState({ pendingConfirm: null });
+  };
+
+  confirmPendingRemove = () => {
+    const pending = this.state.pendingConfirm;
+    this.setState({ pendingConfirm: null }, () => {
+      if (!pending) return;
+      if (pending.kind === 'bulk') {
+        this.runBulkRemove(pending.ids);
+        return;
+      }
+      this.removeConfirmed(pending.id);
+    });
+  };
+
+  removeConfirmed = id => {
+    if (this.props.disableMuteActions) return;
+
     const rule = this.state.rules.find(entry => entry.id === id);
     if (!rule || this.state.busyId || this.state.bulkBusy) return;
 
@@ -713,10 +744,17 @@ export class EmojiMuteSettings extends React.PureComponent {
     }));
   };
 
-  runBulkRemove = async () => {
-    if (this.props.disableMuteActions) return;
+  requestBulkRemove = () => {
+    if (this.props.disableMuteActions || this.state.pendingConfirm) return;
 
-    const ids = this.selectedIds();
+    const ids = this.selectedIds().slice();
+    if (ids.length === 0 || this.state.bulkBusy) return;
+
+    this.setState({ pendingConfirm: { kind: 'bulk', ids } });
+  };
+
+  runBulkRemove = async (ids = this.selectedIds()) => {
+    if (this.props.disableMuteActions) return;
     if (ids.length === 0 || this.state.bulkBusy) return;
 
     this.setState({ bulkBusy: true, bulkNotice: '', rowNotice: {} });
@@ -845,7 +883,7 @@ export class EmojiMuteSettings extends React.PureComponent {
         <button type='button' className='button' onClick={this.runBulkUpdate} disabled={selectedCount === 0 || this.state.bulkBusy || Boolean(replacementProblemValue)}>
           {this.state.bulkBusy ? this.text('bulkWorking') : this.text('bulkApply')}
         </button>
-        <button type='button' className='button button--destructive' onClick={this.runBulkRemove} disabled={selectedCount === 0 || this.state.bulkBusy}>
+        <button type='button' className='button button--destructive' onClick={this.requestBulkRemove} disabled={selectedCount === 0 || this.state.bulkBusy || Boolean(this.state.pendingConfirm)}>
           {this.text('bulkRemove')}
         </button>
         {this.state.bulkNotice ? <p role='status'>{this.text(this.state.bulkNotice)}</p> : null}
@@ -1010,6 +1048,16 @@ export class EmojiMuteSettings extends React.PureComponent {
         {status === 'loading' ? <p role='status'>{this.text('loading')}</p> : null}
         {status === 'error' ? <p role='alert'>{this.text('loadError')} <button type='button' onClick={this.handleRetry}>{this.text('retry')}</button></p> : null}
         {status === 'auth' ? <p role='alert'>{this.text('authError')}</p> : null}
+        <ModalRoot onClose={this.closePendingConfirm}>
+          {this.state.pendingConfirm ? (
+            <ConfirmationModal
+              message={this.text(this.state.pendingConfirm.kind === 'bulk' ? 'bulkRemoveConfirm' : 'removeConfirm')}
+              confirm={this.text('confirmRemove')}
+              onConfirm={this.confirmPendingRemove}
+              onClose={this.closePendingConfirm}
+            />
+          ) : null}
+        </ModalRoot>
         {status === 'ready' ? (
           <React.Fragment>
             {external ? <p className='emoji-mute-settings__external' role='status'>{this.text('external')}</p> : null}

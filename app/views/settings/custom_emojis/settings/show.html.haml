@@ -79,6 +79,8 @@
 
   .fields-group
     = f.input :setting_emoji_preview_click_action, collection: %w(none close detail copy), label_method: lambda { |item| t("simple_form.labels.defaults.setting_emoji_preview_click_action_#{item}") }, wrapper: :with_label, include_blank: false, hint: true, fedibird_features: true
+    = f.input :setting_emoji_mute_enabled, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+    = f.input :setting_emoji_mute_modal, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
     = f.input :setting_emoji_mute_disable_actions, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
 
   .fields-group

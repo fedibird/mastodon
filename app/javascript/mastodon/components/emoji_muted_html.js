@@ -1,7 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { ReactReduxContext } from 'react-redux';
-import { emojiMutedPlainLabel, emojiMutedPlainText, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, replaceUnicodeEmojiInPreviewHtml } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMutedPlainLabel, emojiMutedPlainText, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, replaceUnicodeEmojiInPreviewHtml, SUPPRESS_UNVERIFIED_INDEX, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 // One Redux subscription per mounted display node. The shared account and
 // status records keep the emojify HTML. A rules change re-renders only these
@@ -14,6 +14,12 @@ const indexFromStore = store => {
   }
 
   const state = store.getState();
+  const display = state && typeof state.getIn === 'function' ? state.getIn(['emojiMutes', 'display']) : undefined;
+
+  if (display === 'suppress') {
+    return SUPPRESS_UNVERIFIED_INDEX;
+  }
+
   const rules = state && typeof state.getIn === 'function' ? state.getIn(['emojiMutes', 'rules']) : undefined;
 
   return replaceInTextIndexFromRules(rules);
@@ -302,7 +308,25 @@ class EmojiMutedAriaInner extends React.Component {
 
 }
 
+class EmojiMuteSurfaceInner extends React.PureComponent {
+
+  static propTypes = {
+    children: PropTypes.node,
+    emojiMuteTextIndex: PropTypes.object,
+  };
+
+  render() {
+    if (this.props.emojiMuteTextIndex && this.props.emojiMuteTextIndex.suppressAll) {
+      return <span className='emoji-mute-unverified'>{UNVERIFIED_EMOJI_PLACEHOLDER}</span>;
+    }
+
+    return this.props.children;
+  }
+
+}
+
 export default withEmojiMuteTextIndex(EmojiMutedHtmlInner);
+export const EmojiMuteSurface = withEmojiMuteTextIndex(EmojiMuteSurfaceInner);
 export const EmojiMutedTitle = withEmojiMuteTextIndex(EmojiMutedTitleInner);
 export const EmojiMutedPlain = withEmojiMuteTextIndex(EmojiMutedPlainInner);
 export const EmojiMutedPreview = withEmojiMuteTextIndex(EmojiMutedPreviewInner);

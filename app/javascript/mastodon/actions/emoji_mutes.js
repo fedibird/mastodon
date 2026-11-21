@@ -15,7 +15,27 @@ import {
   loadEmojiMutes,
   noteEmojiMutesChanged,
   observedEmojiMuteRevision,
+  beginEmojiMuteEnabledFetch,
+  applyEmojiMuteDisabledDocument,
+  ignoreEmojiMutesForThisView,
+  clearEmojiMuteTemporaryIgnore,
+  saveEmojiMuteEnabled,
+  emojiMuteTemporarilyIgnored,
+  invalidateEmojiMuteNotificationFetches,
+  abandonEmojiMutePreferenceConfirmation,
+  beginEmojiMutePreferenceConfirmation,
+  beginEmojiMutePreferenceRead,
+  emojiMutePreferenceReadable,
+  emojiMutePreferenceConfirmationCurrent,
+  emojiMutePreferenceReadCurrent,
+  endEmojiMutePreferenceConfirmation,
+  emojiMutePreferenceGeneration,
+  emojiMuteRequestVersion,
+  notePreferenceRevision,
+  preferenceRevisionStale,
+  loadEmojiMutePreference,
 } from '../features/emoji/emoji_mute_store';
+import { currentEmojiMuteBoot, noteEmojiMutePreferenceConfirming } from '../features/emoji/emoji_mute_availability';
 import { hideReactionSignature, hideSignatureGrew, hideSignatureShrunk, revisionStale } from '../features/emoji/emoji_mute_projection';
 import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
 import { emojiMuteBypassEnabled } from '../features/emoji/emoji_mute_boot_bypass';
@@ -28,6 +48,191 @@ export const EMOJI_MUTES_APPLY = 'EMOJI_MUTES_APPLY';
 export const EMOJI_MUTES_LOAD = 'EMOJI_MUTES_LOAD';
 export const EMOJI_MUTES_FAIL = 'EMOJI_MUTES_FAIL';
 export const EMOJI_MUTES_RESET = 'EMOJI_MUTES_RESET';
+export const EMOJI_MUTES_DISABLE = 'EMOJI_MUTES_DISABLE';
+export const EMOJI_MUTES_ENABLE = 'EMOJI_MUTES_ENABLE';
+export const EMOJI_MUTES_IGNORE = 'EMOJI_MUTES_IGNORE';
+export const EMOJI_MUTES_CONFIRM = 'EMOJI_MUTES_CONFIRM';
+
+export function enableEmojiMuteLoading() {
+  return dispatch => {
+    cancelInFlightEmojiMuteRefresh();
+    beginEmojiMuteEnabledFetch();
+    dispatch({ type: EMOJI_MUTES_ENABLE });
+  };
+}
+
+function cancelInFlightEmojiMuteRefresh() {
+  surfaceGeneration += 1;
+  invalidateEmojiMuteNotificationFetches();
+  restoreQueue = [];
+  if (restoreTimer !== null) {
+    clearTimeout(restoreTimer);
+    restoreTimer = null;
+  }
+}
+
+function revealEmojiMuteEffects(previousSignature) {
+  return (dispatch, getState) => {
+    cancelInFlightEmojiMuteRefresh();
+    const hideShrunk = hideSignatureShrunk(previousSignature, hideReactionSignature([]));
+
+    dispatch({
+      type: EMOJI_MUTES_APPLY,
+      mutes: [],
+      revision: appliedEmojiMuteRevision() || '0',
+      sameDocument: false,
+      hideShrunk,
+      recovered: true,
+    });
+
+    return refreshEmojiMuteSurfaces({
+      restoreStatuses: hideShrunk,
+      restoreWithheld: true,
+    })(dispatch, getState);
+  };
+}
+
+export function disableEmojiMuteFeature() {
+  return dispatch => {
+    const previousSignature = hideReactionSignature(currentEmojiMutes());
+
+    return saveEmojiMuteEnabled(false).then(data => {
+      if (data && data.applied === true && data.enabled === true && !emojiMuteDocumentReady()) {
+        dispatch({ type: EMOJI_MUTES_ENABLE });
+        return dispatch(syncEmojiMutes({ verify: true })).then(() => data);
+      }
+
+      if (!data || data.applied === false || data.enabled !== false) {
+        return data;
+      }
+
+      dispatch({ type: EMOJI_MUTES_DISABLE });
+      dispatch(revealEmojiMuteEffects(previousSignature));
+      return data;
+    });
+  };
+}
+
+function applyAuthoritativeEmojiMutePreference(enabled, explicit) {
+  return dispatch => {
+    if (enabled === true) {
+      if (currentEmojiMuteBoot().availability === 'enabled') {
+        if (emojiMuteDocumentReady()) {
+          return Promise.resolve(null);
+        }
+
+        // The list that was already in flight can be an older OFF snapshot.
+        // A forced GET does not join it, and does not reuse the bootstrap promise.
+        cancelInFlightEmojiMuteRefresh();
+        return dispatch(syncEmojiMutes({ verify: true }));
+      }
+
+      cancelInFlightEmojiMuteRefresh();
+      beginEmojiMuteEnabledFetch();
+      dispatch({ type: EMOJI_MUTES_ENABLE });
+      return dispatch(syncEmojiMutes());
+    }
+
+    if (enabled === false) {
+      const boot = currentEmojiMuteBoot();
+      const explicitOff = explicit === true;
+
+      if (boot.availability === 'disabled' && boot.explicit === explicitOff) {
+        return Promise.resolve(null);
+      }
+
+      const previousSignature = hideReactionSignature(currentEmojiMutes());
+      const wasDisabled = boot.availability === 'disabled';
+      applyEmojiMuteDisabledDocument(explicitOff);
+      dispatch({ type: EMOJI_MUTES_DISABLE });
+
+      if (wasDisabled) {
+        return Promise.resolve(null);
+      }
+
+      return dispatch(revealEmojiMuteEffects(previousSignature));
+    }
+
+    return Promise.resolve(null);
+  };
+}
+
+// The stream payload is only a notice that the preference changed. A slow
+// false event must not win over a newer read of the saved row.
+export function applyRemoteEmojiMutePreference(options = {}) {
+  return dispatch => {
+    const generation = options.generation === undefined ? beginEmojiMutePreferenceRead() : options.generation;
+
+    const failConfirmation = error => {
+      if (!emojiMutePreferenceReadCurrent(generation) || !abandonEmojiMutePreferenceConfirmation()) {
+        return null;
+      }
+
+      dispatch({
+        type: EMOJI_MUTES_FAIL,
+        failure: classifyEmojiMuteFetchError(error),
+      });
+      return null;
+    };
+
+    return loadEmojiMutePreference().then(data => {
+      if (!emojiMutePreferenceReadCurrent(generation)) {
+        return null;
+      }
+
+      if (!emojiMutePreferenceReadable(data)) {
+        return failConfirmation(new Error('Emoji mute preference was not readable'));
+      }
+
+      if (preferenceRevisionStale(data.preference_revision)) {
+        return null;
+      }
+
+      notePreferenceRevision(data.preference_revision);
+      return dispatch(applyAuthoritativeEmojiMutePreference(data.enabled, data.explicit === true));
+    }).catch(error => failConfirmation(error));
+  };
+}
+
+export function ignoreEmojiMutesThisView() {
+  return dispatch => {
+    const previousSignature = hideReactionSignature(currentEmojiMutes());
+    ignoreEmojiMutesForThisView();
+    dispatch({ type: EMOJI_MUTES_IGNORE });
+    return dispatch(revealEmojiMuteEffects(previousSignature));
+  };
+}
+
+export function bootStandaloneEmojiMutes() {
+  return dispatch => {
+    if (!currentEmojiMuteBoot().fetch) {
+      return Promise.resolve(null);
+    }
+
+    return dispatch(retryEmojiMuteLoad({ bootstrap: true })).catch(() => null);
+  };
+}
+
+export function retryEmojiMuteLoad(options = {}) {
+  return (dispatch, getState) => {
+    const wasIgnored = emojiMuteTemporarilyIgnored();
+
+    clearEmojiMuteTemporaryIgnore();
+
+    if (currentEmojiMuteBoot().availability === 'disabled') {
+      return dispatch(syncEmojiMutes({ bootstrap: options.bootstrap === true }));
+    }
+
+    const phase = getState().getIn(['emojiMutes', 'phase']);
+    const applied = getState().getIn(['emojiMutes', 'appliedRevision']);
+
+    if (wasIgnored || phase !== 'ready' || applied === null) {
+      dispatch({ type: EMOJI_MUTES_ENABLE });
+    }
+
+    return dispatch(syncEmojiMutes({ bootstrap: options.bootstrap === true }));
+  };
+}
 
 export function importEmojiMutes(revision, rules) {
   return {
@@ -391,7 +596,7 @@ export function refreshEmojiMuteSurfaces(options = {}) {
     // this refresh starts. Such an unread_count response can still be stale.
     const acknowledgedReadId = getState().getIn(['markers', 'notifications'], null);
     const readNotAcknowledged = acknowledgedReadId !== null && compareId(readIdAtRequest, String(acknowledgedReadId)) > 0;
-    const notificationTask = api(getState).get('/api/v1/notifications', { params }).then(response => {
+    const notificationTask = options.skipNotifications ? Promise.resolve(null) : api(getState).get('/api/v1/notifications', { params }).then(response => {
       if (!surfaceRefreshCurrent(generation) || notificationEpoch !== emojiMuteNotificationFetchEpoch() || !Array.isArray(response.data)) {
         return null;
       }
@@ -513,12 +718,24 @@ export function restoreVisibleEmojiMuteStatus(id) {
 }
 
 let documentSyncGeneration = 0;
+let initialDocumentSync = null;
+let initialDocumentRequestVersion = null;
+
+function plainInitialFollowUp(options) {
+  return !options.bootstrap && !options.reconnect && !options.changed && options.verify !== true;
+}
+
+function initialDocumentStillCurrent() {
+  return initialDocumentSync && initialDocumentRequestVersion === emojiMuteRequestVersion();
+}
 
 // A viewer boundary invalidates both in-flight document continuations and
 // queued status/notification refreshes. Resetting only the document module
 // would leave stale surface work live in the previous viewer's Redux tree.
 export function invalidateEmojiMuteAsyncWork() {
   documentSyncGeneration += 1;
+  initialDocumentSync = null;
+  initialDocumentRequestVersion = null;
   resetEmojiMuteSurfaces();
 }
 
@@ -538,7 +755,46 @@ export function syncEmojiMutes(options = {}) {
       return Promise.resolve([]);
     }
 
+    if (options.reconnect && currentEmojiMuteBoot().availability === 'disabled') {
+      const confirmation = beginEmojiMutePreferenceConfirmation();
+      noteEmojiMutePreferenceConfirming();
+      dispatch({ type: EMOJI_MUTES_CONFIRM });
+      const generation = beginEmojiMutePreferenceRead();
+
+      return dispatch(applyRemoteEmojiMutePreference({ generation })).catch(error => {
+        if (!emojiMutePreferenceReadCurrent(generation) || !emojiMutePreferenceConfirmationCurrent(confirmation)) {
+          return null;
+        }
+
+        endEmojiMutePreferenceConfirmation(confirmation);
+        dispatch({
+          type: EMOJI_MUTES_FAIL,
+          failure: classifyEmojiMuteFetchError(error),
+        });
+        return null;
+      });
+    }
+
+    if (currentEmojiMuteBoot().availability === 'disabled') {
+      dispatch({ type: EMOJI_MUTES_DISABLE });
+      return Promise.resolve([]);
+    }
+
+    if (emojiMuteTemporarilyIgnored()) {
+      dispatch({ type: EMOJI_MUTES_IGNORE });
+      return Promise.resolve([]);
+    }
+
+    // The user stream connects while the first fetch is still running.
+    // Joining it keeps that fetch from being superseded and refreshing
+    // notifications before the columns exist. A preference change that
+    // already invalidated the request must start its own GET.
+    if (initialDocumentStillCurrent() && plainInitialFollowUp(options)) {
+      return initialDocumentSync;
+    }
+
     const generation = ++documentSyncGeneration;
+    const preferenceGeneration = emojiMutePreferenceGeneration();
     const previousRevision = appliedEmojiMuteRevision();
     const previousSignature = hideReactionSignature(currentEmojiMutes());
     const pending = options.changed ? noteEmojiMutesChanged(options.changed) : loadEmojiMutes({
@@ -552,15 +808,37 @@ export function syncEmojiMutes(options = {}) {
       dispatch({ type: EMOJI_MUTES_LOAD, verify: options.verify === true });
     }
 
-    return pending.then(mutes => {
+    const syncPromise = pending.then(mutes => {
       if (generation !== documentSyncGeneration) {
         return null;
       }
 
+      if (currentEmojiMuteBoot().availability === 'disabled') {
+        dispatch({ type: EMOJI_MUTES_DISABLE });
+        if (options.bootstrap) {
+          return refreshEmojiMuteSurfaces({
+            restoreWithheld: true,
+            skipNotifications: true,
+          })(dispatch, getState).then(() => mutes);
+        }
+
+        return dispatch(revealEmojiMuteEffects(previousSignature)).then(() => mutes);
+      }
+
+      // Ignore or a completed OFF happened while this GET was in flight.
+      // Adopting it would replace that recovery with the old request.
+      if (emojiMuteTemporarilyIgnored()) {
+        return mutes;
+      }
+
       // A request may resolve successfully while returning a document older
       // than a streaming revision. An unresolved gap is a failure, not an
-      // endless loading spinner; keep the WebUI hidden and offer retry.
+      // endless loading spinner. The WebUI stays mounted and emoji stay hidden.
       if (!emojiMuteDocumentReady()) {
+        if (preferenceGeneration !== emojiMutePreferenceGeneration()) {
+          return null;
+        }
+
         dispatch({
           type: EMOJI_MUTES_FAIL,
           failure: emojiMuteAuthorizationFailure() || 'unavailable',
@@ -580,17 +858,21 @@ export function syncEmojiMutes(options = {}) {
         revision: nextRevision,
         sameDocument,
         hideShrunk,
+        availability: currentEmojiMuteBoot().availability === 'enabled' ? 'enabled' : undefined,
         // A duplicate stream event never reaches this apply while an
         // authorization failure is latched. This flag is the successful GET.
         recovered: true,
       });
 
-      // The first mount has no status or notification column yet. Skip the
-      // refresh so that mount does not wait on another round trip. A retry
-      // after the UI exists must not use this flag: withheld reactions and
-      // the notification list are restored by the refresh below.
-      if (options.bootstrap) {
-        return mutes;
+      // The first mount skips the notification round trip. A stream connect
+      // that finds the same document does too: the column loads that list
+      // itself. A changed document or a reconnect still refreshes it.
+      // Statuses imported with reactions withheld are restored either way.
+      if (options.bootstrap || (sameDocument && !options.reconnect && !hideShrunk && !hideGrew)) {
+        return refreshEmojiMuteSurfaces({
+          restoreWithheld: true,
+          skipNotifications: true,
+        })(dispatch, getState).then(() => mutes);
       }
 
       return refreshEmojiMuteSurfaces({
@@ -603,11 +885,14 @@ export function syncEmojiMutes(options = {}) {
         throw error;
       }
 
+      if (emojiMuteTemporarilyIgnored() || currentEmojiMuteBoot().availability === 'disabled') {
+        return null;
+      }
+
       const failure = classifyEmojiMuteFetchError(error);
-      // A confirmed document can stay on screen through a dropped connection.
-      // An expired or forbidden token cannot: the portal has to close even
-      // when the last document was already applied. The latch stays until a
-      // later GET adopts a current document.
+      // A confirmed document stays applied through a dropped connection.
+      // An expired or forbidden token hides emoji until a later GET adopts a
+      // current document. The WebUI itself stays mounted.
       const sessionRejected = failure === 'unauthorized' || failure === 'forbidden';
 
       if (sessionRejected) {
@@ -622,5 +907,20 @@ export function syncEmojiMutes(options = {}) {
 
       throw error;
     });
+
+    if (options.bootstrap === true && !options.changed && options.verify !== true && !options.reconnect) {
+      let tracked;
+      tracked = syncPromise.finally(() => {
+        if (initialDocumentSync === tracked) {
+          initialDocumentSync = null;
+          initialDocumentRequestVersion = null;
+        }
+      });
+      initialDocumentRequestVersion = emojiMuteRequestVersion();
+      initialDocumentSync = tracked;
+      return tracked;
+    }
+
+    return syncPromise;
   };
 }

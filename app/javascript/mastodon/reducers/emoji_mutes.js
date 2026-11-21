@@ -1,16 +1,32 @@
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
-import { EMOJI_MUTES_APPLY, EMOJI_MUTES_IMPORT, EMOJI_MUTES_REVISION, EMOJI_MUTES_LOAD, EMOJI_MUTES_FAIL, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_IMPORT, EMOJI_MUTES_REVISION, EMOJI_MUTES_LOAD, EMOJI_MUTES_FAIL, EMOJI_MUTES_RESET, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_CONFIRM } from '../actions/emoji_mutes';
+import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
 
 // revision is the newest *observed* revision; appliedRevision is the version
 // whose complete rules are in Redux. Never render an observed revision using
 // rules from an older applied document.
+const boot = currentEmojiMuteBoot();
 const initialState = ImmutableMap({
-  revision: null,
-  appliedRevision: null,
-  phase: 'loading',
+  revision: boot.fetch ? null : '0',
+  appliedRevision: boot.fetch ? null : '0',
+  phase: boot.fetch ? 'loading' : 'ready',
   failure: null,
   rules: ImmutableList(),
+  availability: boot.availability,
+  display: boot.display,
 });
+
+function withDisplay(state) {
+  const availability = state.get('availability');
+  const phase = state.get('phase');
+  const show = availability === 'disabled' || availability === 'temporary_ignore' || availability === 'signed_out';
+
+  if (show) {
+    return state.set('display', 'show');
+  }
+
+  return state.set('display', phase === 'ready' ? 'apply' : 'suppress');
+}
 
 const REVISION = /^(?:0|[1-9]\d*)$/;
 
@@ -55,18 +71,44 @@ const applyDocument = (state, action, items) => {
     return state;
   }
 
-  return state
+  return withDisplay(state
     .set('revision', newer(incoming, observed) ? incoming : observed || incoming)
     .set('appliedRevision', incoming)
     .set('rules', fromJS(items || []))
     .set('phase', 'ready')
-    .set('failure', null);
+    .set('failure', null));
 };
 
 export default function emojiMutes(state = initialState, action) {
   switch (action.type) {
   case EMOJI_MUTES_RESET:
     return initialState;
+  case EMOJI_MUTES_DISABLE:
+    return withDisplay(state
+      .set('availability', 'disabled')
+      .set('phase', 'ready')
+      .set('failure', null)
+      .set('rules', ImmutableList())
+      .set('appliedRevision', '0'));
+  case EMOJI_MUTES_CONFIRM:
+    return withDisplay(state
+      .set('availability', 'unknown')
+      .set('phase', 'loading')
+      .set('failure', null)
+      .set('rules', ImmutableList()));
+  case EMOJI_MUTES_ENABLE:
+    return withDisplay(state
+      .set('availability', 'enabled')
+      .set('phase', 'loading')
+      .set('failure', null)
+      .set('rules', ImmutableList()));
+  case EMOJI_MUTES_IGNORE:
+    return withDisplay(state
+      .set('availability', 'temporary_ignore')
+      .set('phase', 'ready')
+      .set('failure', null)
+      .set('rules', ImmutableList())
+      .set('appliedRevision', '0'));
   case EMOJI_MUTES_LOAD: {
     // Revalidation of an already current document need not hide the UI.
     if (!(action.verify || state.get('appliedRevision') === null || older(state.get('appliedRevision'), state.get('revision')))) {
@@ -77,30 +119,30 @@ export default function emojiMutes(state = initialState, action) {
     const failure = state.get('failure');
 
     if (failure === 'unauthorized' || failure === 'forbidden') {
-      return next;
+      return withDisplay(next);
     }
 
-    return next.set('failure', null);
+    return withDisplay(next.set('failure', null));
   }
   case EMOJI_MUTES_FAIL: {
     const incoming = action.failure === 'unauthorized' || action.failure === 'forbidden' ? action.failure : 'unavailable';
     const current = state.get('failure');
     const failure = incoming === 'unavailable' && (current === 'unauthorized' || current === 'forbidden') ? current : incoming;
 
-    return state.set('phase', 'error').set('failure', failure);
+    return withDisplay(state.set('phase', 'error').set('failure', failure));
   }
   case EMOJI_MUTES_IMPORT:
     return applyDocument(state, action, action.rules);
   case EMOJI_MUTES_APPLY:
-    return applyDocument(state, action, action.mutes);
+    return applyDocument(action.availability ? state.set('availability', action.availability) : state, action, action.mutes);
   case EMOJI_MUTES_REVISION:
     if (!newer(action.revision, state.get('revision'))) {
       return state;
     }
 
-    return state
+    return withDisplay(state
       .set('revision', String(action.revision))
-      .set('phase', 'stale');
+      .set('phase', 'stale'));
   default:
     return state;
   }

@@ -7,6 +7,7 @@ module EmojiMutes
     class << self
       def for_user(user)
         return empty if user.nil?
+        return empty unless EmojiMutes::Preference.new(user).effects_enabled?
 
         store = EmojiMutes::Store.rule_sets ||= {}
         store[user.id] ||= load(user.id)

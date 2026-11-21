@@ -40,6 +40,26 @@ const INACTIVE_INDEX = Object.freeze({
   replacements: new Map(),
 });
 
+// Shown in place of every user-generated emoji while the mute document is
+// not verified. It is not a glyph, an alt string, or an image URL.
+export const UNVERIFIED_EMOJI_PLACEHOLDER = '\u25FB';
+const SUPPRESS_UNICODE_EMOJI = /(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?)*|\p{Emoji_Modifier}|\p{Regional_Indicator})/gu;
+
+export const SUPPRESS_UNVERIFIED_INDEX = Object.freeze({
+  signature: 'suppress-unverified',
+  active: true,
+  suppressAll: true,
+  replacements: new Map(),
+});
+
+export function suppressUnicodeEmoji(text) {
+  if (typeof text !== 'string' || text === '') {
+    return text;
+  }
+
+  return text.replace(SUPPRESS_UNICODE_EMOJI, UNVERIFIED_EMOJI_PLACEHOLDER);
+}
+
 let cachedRules = null;
 let cachedIndex = INACTIVE_INDEX;
 let cacheSignature = INACTIVE_INDEX.signature;
@@ -161,6 +181,10 @@ const mappedReplacement = (index, reference) => {
 };
 
 const replacementForImage = (img, index) => {
+  if (index && index.suppressAll === true && img.classList.contains('emojione')) {
+    return UNVERIFIED_EMOJI_PLACEHOLDER;
+  }
+
   if (!img.classList.contains('custom-emoji')) {
     const native = img.getAttribute('alt');
 
@@ -507,6 +531,12 @@ const transformHtml = (html, index) => {
     changed = true;
   }
 
+  if (index && index.suppressAll === true) {
+    suppressTextNodes(template.content);
+    suppressLabelAttributes(template.content);
+    changed = true;
+  }
+
   if (!changed) {
     return html;
   }
@@ -516,8 +546,68 @@ const transformHtml = (html, index) => {
   return holder.innerHTML;
 };
 
+const suppressLabelAttributes = root => {
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return;
+  }
+
+  root.querySelectorAll('[title], [aria-label]').forEach(element => {
+    ['title', 'aria-label'].forEach(name => {
+      const value = element.getAttribute(name);
+
+      if (!value) {
+        return;
+      }
+
+      const next = suppressUnicodeEmoji(value);
+
+      if (next !== value) {
+        element.setAttribute(name, next);
+      }
+    });
+  });
+};
+
+const suppressTextNodes = root => {
+  const nodes = [];
+
+  const walk = node => {
+    if (!node) {
+      return;
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      nodes.push(node);
+      return;
+    }
+
+    const children = node.childNodes;
+
+    if (!children) {
+      return;
+    }
+
+    for (let index = 0; index < children.length; index += 1) {
+      walk(children[index]);
+    }
+  };
+
+  walk(root);
+  nodes.forEach(node => {
+    const next = suppressUnicodeEmoji(node.nodeValue || '');
+
+    if (next !== node.nodeValue) {
+      node.nodeValue = next;
+    }
+  });
+};
+
 export function replaceEmojiInDisplayHtml(html, index) {
-  if (!index || index.active !== true || typeof html !== 'string' || html.indexOf('emojione') === -1) {
+  if (!index || index.active !== true || typeof html !== 'string') {
+    return html;
+  }
+
+  if (index.suppressAll !== true && html.indexOf('emojione') === -1) {
     return html;
   }
 
@@ -705,6 +795,10 @@ const replaceUnicodeEmojiSequences = (text, index, mapReplacement) => {
 // Plain text, such as a screen-reader segment or a collapsed label. Custom
 // shortcodes are not emoji identities here.
 export function replaceUnicodeEmojiInPlainText(text, index) {
+  if (index && index.suppressAll === true) {
+    return suppressUnicodeEmoji(text);
+  }
+
   return replaceUnicodeEmojiSequences(text, index, value => value);
 }
 
@@ -772,6 +866,10 @@ const previewHtmlFromTextNodes = (text, index) => {
 };
 
 export function replaceUnicodeEmojiInPreviewHtml(text, index) {
+  if (index && index.suppressAll === true) {
+    return typeof text === 'string' ? previewHtmlFromTextNodes(text, index) : text;
+  }
+
   if (typeof text !== 'string' || !index || index.active !== true) {
     return text;
   }
@@ -939,6 +1037,17 @@ const spokenCustomText = (html, index) => {
 };
 
 export function replaceMutedEmojiInPlain(plain, html, index) {
+  if (index && index.suppressAll === true && typeof plain === 'string') {
+    const source = stripIndexedNodes(typeof html === 'string' ? html : '');
+    const spoken = spokenCustomText(source, index);
+
+    if (spoken === null) {
+      return suppressUnicodeEmoji(plain);
+    }
+
+    return suppressUnicodeEmoji(spoken);
+  }
+
   if (typeof plain !== 'string' || plain === '' || !index || index.active !== true) {
     return plain;
   }
@@ -961,7 +1070,11 @@ export function emojiMutedPlainLabel(plain, html, index) {
   const presented = replaceEmojiInDisplayHtml(html, index);
 
   if (presented === html || typeof presented !== 'string') {
-    return plain;
+    if (!index || index.active !== true) {
+      return plain;
+    }
+
+    return replaceUnicodeEmojiInPlainText(plain, index);
   }
 
   const signature = index && index.signature ? index.signature : '';
