@@ -23,6 +23,8 @@ class PostDraft < ApplicationRecord
   STATES = %w(active).freeze
 
   belongs_to :account
+  has_many :post_draft_media_attachments, -> { order(:position) }, dependent: :delete_all, inverse_of: :post_draft
+  has_many :media_attachments, through: :post_draft_media_attachments
 
   validates :client_uuid, :schema_version, :revision, :state, :payload, presence: true
   validates :state, inclusion: { in: STATES }

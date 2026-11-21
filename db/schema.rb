@@ -2078,6 +2078,15 @@ create_table "managed_groups", force: :cascade do |t|
     t.check_constraint "((((client_uuid)::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text) AND (schema_version = 1) AND (revision >= 1) AND ((state)::text = 'active'::text) AND (octet_length((payload)::text) <= 262144)))", name: "post_drafts_shape"
   end
 
+  create_table "post_draft_media_attachments", force: :cascade do |t|
+    t.bigint "post_draft_id", null: false
+    t.bigint "media_attachment_id", null: false
+    t.integer "position", null: false
+    t.index ["media_attachment_id"], name: "index_post_draft_media_on_media_attachment_id", unique: true
+    t.index ["post_draft_id", "position"], name: "index_post_draft_media_on_draft_and_position", unique: true
+    t.check_constraint "position >= 0 AND position < 20", name: "post_draft_media_attachments_position"
+  end
+
   create_table "posting_identity_delegations", force: :cascade do |t|
     t.bigint "grantor_user_id", null: false
     t.bigint "grantee_user_id", null: false
@@ -2902,6 +2911,8 @@ create_table "managed_groups", force: :cascade do |t|
   add_foreign_key "poll_votes", "polls", on_delete: :cascade
   add_foreign_key "polls", "accounts", on_delete: :cascade
   add_foreign_key "polls", "statuses", on_delete: :cascade
+  add_foreign_key "post_draft_media_attachments", "media_attachments", on_delete: :restrict
+  add_foreign_key "post_draft_media_attachments", "post_drafts", on_delete: :cascade
   add_foreign_key "post_drafts", "accounts", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "accounts", column: "posting_account_id", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "users", column: "grantee_user_id", on_delete: :cascade

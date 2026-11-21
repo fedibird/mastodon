@@ -33,6 +33,7 @@ class MediaAttachment < ApplicationRecord
   self.inheritance_column = nil
 
   include Attachmentable
+  include PostDraftMediaReference
 
   enum type: [:image, :gifv, :video, :unknown, :audio]
   enum processing: [:queued, :in_progress, :complete, :failed], _prefix: true
@@ -238,6 +239,9 @@ class MediaAttachment < ApplicationRecord
   validates :file, presence: true, if: :local?
   validates :thumbnail, absence: true, if: -> { local? && !audio_or_video? }
 
+  # Unattached means no status and no scheduled status. A post draft
+  # reference is a separate row and does not change this meaning.
+  # Unused-media cleanup has to exclude that reference on its own.
   scope :attached,   -> { where.not(status_id: nil).or(where.not(scheduled_status_id: nil)) }
   scope :unattached, -> { where(status_id: nil, scheduled_status_id: nil) }
   scope :local,      -> { where(remote_url: '') }

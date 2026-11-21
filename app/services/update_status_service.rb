@@ -68,6 +68,7 @@ class UpdateStatusService < BaseService
 
     return unless @options.key?(:media_ids)
 
+    PostDrafts::MediaGuard.publication_allowed!(next_media_attachments.map(&:id))
     added_media_attachments = next_media_attachments - previous_media_attachments
     MediaAttachment.where(id: added_media_attachments.map(&:id)).update_all(status_id: @status.id)
 
@@ -92,6 +93,7 @@ class UpdateStatusService < BaseService
 
     media_attachments = @status.account.media_attachments.where(status_id: [nil, @status.id]).where(scheduled_status_id: nil).where(id: @options[:media_ids].take(max).map(&:to_i)).to_a
 
+    raise Mastodon::ValidationError, I18n.t('media_attachments.validations.retained_by_draft') if PostDrafts::MediaGuard.referenced?(media_attachments.map(&:id))
     raise Mastodon::ValidationError, I18n.t('media_attachments.validations.images_and_video') if media_attachments.size > 1 && media_attachments.find(&:audio_or_video?)
     raise Mastodon::ValidationError, I18n.t('media_attachments.validations.not_ready') if media_attachments.any?(&:not_processed?)
 
