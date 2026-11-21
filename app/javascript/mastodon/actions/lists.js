@@ -85,6 +85,12 @@ export const fetchListFail = (id, error) => ({
   error,
 });
 
+// There is no boot prefetch of GET /api/v1/lists. hydrateStore already applies
+// the lists embedded in initial state, including an empty array when the
+// viewer owns none. The lists column, the mix editor, and the list adder call
+// this on purpose. Do not gate it on the document snapshot: a list created in
+// another tab, or after this document was rendered, must still load when the
+// viewer opens or edits lists.
 export const fetchLists = () => (dispatch, getState) => {
   dispatch(fetchListsRequest());
 
