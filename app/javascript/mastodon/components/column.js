@@ -36,12 +36,39 @@ export default class Column extends React.PureComponent {
     this.node = c;
   }
 
+  // Group timelines publish a viewer-specific landmark without changing
+  // `label`. A label prop change would re-render every child in the column.
+  setLandmarkLabel(label) {
+    this.landmarkLabel = typeof label === 'string' ? label : undefined;
+    this.applyLandmarkLabel();
+  }
+
+  applyLandmarkLabel() {
+    if (!this.node) {
+      return;
+    }
+
+    const label = this.landmarkLabel !== undefined ? this.landmarkLabel : this.props.label;
+
+    if (typeof label !== 'string' || this.node.getAttribute('aria-label') === label) {
+      return;
+    }
+
+    this.node.setAttribute('aria-label', label);
+  }
+
   componentDidMount () {
+    this.applyLandmarkLabel();
+
     if (this.props.bindToDocument) {
       document.addEventListener('wheel', this.handleWheel, supportsPassiveEvents ? { passive: true } : false);
     } else {
       this.node.addEventListener('wheel', this.handleWheel, supportsPassiveEvents ? { passive: true } : false);
     }
+  }
+
+  componentDidUpdate () {
+    this.applyLandmarkLabel();
   }
 
   componentWillUnmount () {

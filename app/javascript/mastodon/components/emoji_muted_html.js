@@ -1,7 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { ReactReduxContext } from 'react-redux';
-import { emojiMutedPlainLabel, emojiMutedPlainText, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, replaceUnicodeEmojiInPreviewHtml } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMutedAltText, emojiMutedPlainLabel, emojiMutedPlainText, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, replaceUnicodeEmojiInPreviewHtml } from 'mastodon/features/emoji/emoji_mute_text';
 
 // One Redux subscription per mounted display node. The shared account and
 // status records keep the emojify HTML. A rules change re-renders only these
@@ -284,6 +284,28 @@ class EmojiMutedPreviewInner extends React.PureComponent {
 
 }
 
+class EmojiMutedAltInner extends React.Component {
+
+  static propTypes = {
+    text: PropTypes.string,
+    html: PropTypes.string,
+    children: PropTypes.func.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
+  };
+
+  render() {
+    const text = typeof this.props.text === 'string' ? this.props.text : '';
+    // html is present only when the caller has the emojify document for this
+    // string, such as a display-name fallback. Omit it for attachment ALT.
+    const projected = typeof this.props.html === 'string'
+      ? emojiMutedPlainText(text, this.props.html, this.props.emojiMuteTextIndex)
+      : emojiMutedAltText(text, this.props.emojiMuteTextIndex);
+
+    return this.props.children(projected);
+  }
+
+}
+
 class EmojiMutedAriaInner extends React.Component {
 
   static propTypes = {
@@ -306,4 +328,5 @@ export default withEmojiMuteTextIndex(EmojiMutedHtmlInner);
 export const EmojiMutedTitle = withEmojiMuteTextIndex(EmojiMutedTitleInner);
 export const EmojiMutedPlain = withEmojiMuteTextIndex(EmojiMutedPlainInner);
 export const EmojiMutedPreview = withEmojiMuteTextIndex(EmojiMutedPreviewInner);
+export const EmojiMutedAlt = withEmojiMuteTextIndex(EmojiMutedAltInner);
 export const EmojiMutedAria = withEmojiMuteTextIndex(EmojiMutedAriaInner);

@@ -8,6 +8,8 @@ import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { addReference, removeReference } from 'mastodon/actions/compose';
 import { makeGetStatus } from 'mastodon/selectors';
 import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { emojiMutedAltText } from 'mastodon/features/emoji/emoji_mute_text';
 
 const makeMapStateToProps = () => {
   const getStatus = makeGetStatus();
@@ -32,7 +34,7 @@ const makeMapStateToProps = () => {
   return mapStateToProps;
 };
 
-export default @connect(makeMapStateToProps)
+@connect(makeMapStateToProps)
 class AudioModal extends ImmutablePureComponent {
 
   static propTypes = {
@@ -46,6 +48,7 @@ class AudioModal extends ImmutablePureComponent {
     }),
     onClose: PropTypes.func.isRequired,
     onChangeBackgroundColor: PropTypes.func.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   handleAddReference = (id, change) => {
@@ -64,7 +67,7 @@ class AudioModal extends ImmutablePureComponent {
       sourceLang: this.props.lang || '',
       targetLang: this.props.lang || '',
     });
-    const description = accessible.text;
+    const description = emojiMutedAltText(accessible.text, this.props.emojiMuteTextIndex);
     const lang = accessible.lang || this.props.lang;
 
     return (
@@ -92,3 +95,5 @@ class AudioModal extends ImmutablePureComponent {
   }
 
 }
+
+export default withEmojiMuteTextIndex(AudioModal);

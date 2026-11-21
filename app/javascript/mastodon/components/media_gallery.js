@@ -9,6 +9,8 @@ import classNames from 'classnames';
 import { autoPlayMedia, cropImages, displayMedia, useBlurhash, useLowResolutionThumbnails, maxAttachments } from '../initial_state';
 import { debounce } from 'lodash';
 import AltTextBadge from 'mastodon/components/alt_text_badge';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { emojiMutedAltText } from 'mastodon/features/emoji/emoji_mute_text';
 import { attachmentAccessibility } from 'mastodon/utils/translation_view';
 import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
@@ -33,6 +35,7 @@ class Item extends React.PureComponent {
     displayWidth: PropTypes.number,
     visible: PropTypes.bool.isRequired,
     autoplay: PropTypes.bool,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   static defaultProps = {
@@ -148,7 +151,10 @@ class Item extends React.PureComponent {
       sourceLang: this.props.sourceLang || this.props.lang || '',
       targetLang: this.props.targetLang || '',
     });
-    const description = accessible.text;
+    const project = value => emojiMutedAltText(value, this.props.emojiMuteTextIndex);
+    const description = project(accessible.text);
+    const originalDescription = project(accessible.original);
+    const translatedDescription = project(accessible.translated);
     const descriptionLang = accessible.lang || this.props.lang;
 
     if (description?.length > 0) {
@@ -156,8 +162,8 @@ class Item extends React.PureComponent {
         <AltTextBadge
           key='alt'
           description={description}
-          originalDescription={accessible.original}
-          translatedDescription={accessible.translated}
+          originalDescription={originalDescription}
+          translatedDescription={translatedDescription}
           sourceLang={this.props.sourceLang || this.props.lang}
           targetLang={this.props.targetLang}
           mode={this.props.translationMode || (accessible.translated ? 'translated' : 'original')}
@@ -283,6 +289,8 @@ class Item extends React.PureComponent {
   }
 
 }
+
+const GalleryItem = withEmojiMuteTextIndex(Item);
 
 class MediaGallery extends React.PureComponent {
 
@@ -436,9 +444,9 @@ class MediaGallery extends React.PureComponent {
     const uncached = media.every(attachment => attachment.get('type') === 'unknown');
 
     if (standalone && this.isFullSizeEligible()) {
-      children = <Item standalone autoplay={autoplay} onClick={this.handleClick} attachment={media.get(0)} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} displayWidth={width} visible={visible} />;
+      children = <GalleryItem standalone autoplay={autoplay} onClick={this.handleClick} attachment={media.get(0)} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} displayWidth={width} visible={visible} />;
     } else {
-      children = media.take(maxAttachments).map((attachment, i) => <Item key={attachment.get('id')} autoplay={autoplay} onClick={this.handleClick} attachment={attachment} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} index={i} size={size} displayWidth={width} visible={visible || uncached} />);
+      children = media.take(maxAttachments).map((attachment, i) => <GalleryItem key={attachment.get('id')} autoplay={autoplay} onClick={this.handleClick} attachment={attachment} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} index={i} size={size} displayWidth={width} visible={visible || uncached} />);
     }
 
     if (uncached) {

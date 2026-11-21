@@ -1013,7 +1013,7 @@ entries:
   - app/serializers/initial_state_serializer.rb:63
   - app/javascript/mastodon/initial_state.js:53
   - app/javascript/mastodon/components/status.js:958
-  - app/javascript/mastodon/components/media_gallery.js:430
+  - app/javascript/mastodon/components/media_gallery.js:438
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
