@@ -108,7 +108,7 @@ export function disableEmojiMuteFeature() {
   };
 }
 
-function applyAuthoritativeEmojiMutePreference(enabled) {
+function applyAuthoritativeEmojiMutePreference(enabled, explicit) {
   return dispatch => {
     if (enabled === true) {
       if (currentEmojiMuteBoot().availability === 'enabled') {
@@ -128,10 +128,23 @@ function applyAuthoritativeEmojiMutePreference(enabled) {
       return dispatch(syncEmojiMutes());
     }
 
-    if (enabled === false && currentEmojiMuteBoot().availability !== 'disabled') {
+    if (enabled === false) {
+      const boot = currentEmojiMuteBoot();
+      const explicitOff = explicit === true;
+
+      if (boot.availability === 'disabled' && boot.explicit === explicitOff) {
+        return Promise.resolve(null);
+      }
+
       const previousSignature = hideReactionSignature(currentEmojiMutes());
-      applyEmojiMuteDisabledDocument();
+      const wasDisabled = boot.availability === 'disabled';
+      applyEmojiMuteDisabledDocument(explicitOff);
       dispatch({ type: EMOJI_MUTES_DISABLE });
+
+      if (wasDisabled) {
+        return Promise.resolve(null);
+      }
+
       return dispatch(revealEmojiMuteEffects(previousSignature));
     }
 
@@ -171,7 +184,7 @@ export function applyRemoteEmojiMutePreference(options = {}) {
       }
 
       notePreferenceRevision(data.preference_revision);
-      return dispatch(applyAuthoritativeEmojiMutePreference(data.enabled));
+      return dispatch(applyAuthoritativeEmojiMutePreference(data.enabled, data.explicit === true));
     }).catch(error => failConfirmation(error));
   };
 }

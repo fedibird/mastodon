@@ -227,8 +227,8 @@ export function beginEmojiMuteEnabledFetch() {
   notifyEmojiMuteDocument();
 }
 
-export function applyEmojiMuteDisabledDocument() {
-  noteEmojiMuteDisabledLocally();
+export function applyEmojiMuteDisabledDocument(explicit = false) {
+  noteEmojiMuteDisabledLocally(explicit);
   releaseEmojiMutePreferenceConfirmation();
   beginEmojiMutePreferenceRead();
   temporaryIgnore = false;
@@ -324,7 +324,7 @@ function adopt(document, minRevision, preferenceGeneration) {
       return mutes;
     }
 
-    applyEmojiMuteDisabledDocument();
+    applyEmojiMuteDisabledDocument(document.explicit === true);
     appliedRevision = next;
     observedRevision = next;
     notifyEmojiMuteDocument();
@@ -515,7 +515,7 @@ function applySavedPreference(data) {
   notePreferenceRevision(data.preference_revision);
 
   if (data.enabled === false) {
-    applyEmojiMuteDisabledDocument();
+    applyEmojiMuteDisabledDocument(true);
   } else {
     beginEmojiMuteEnabledFetch();
   }

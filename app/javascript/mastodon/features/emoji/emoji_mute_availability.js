@@ -88,12 +88,12 @@ export function noteEmojiMutePreferenceConfirming() {
   return runtime;
 }
 
-export function noteEmojiMuteDisabledLocally() {
+export function noteEmojiMuteDisabledLocally(explicit = true) {
   const current = currentEmojiMuteBoot();
   runtime = {
     ...current,
     availability: 'disabled',
-    explicit: true,
+    explicit: explicit === true,
     fetch: false,
     display: 'show',
   };

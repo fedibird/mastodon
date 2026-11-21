@@ -38,7 +38,7 @@ import {
   resetEmojiMuteSession,
   resetEmojiMuteStoreForTests,
 } from '../emoji_mute_store';
-import { currentEmojiMuteBoot, noteEmojiMuteDisabledLocally, noteEmojiMuteEnabledLocally } from '../emoji_mute_availability';
+import { currentEmojiMuteBoot, emojiMuteConfirmation, noteEmojiMuteDisabledLocally, noteEmojiMuteEnabledLocally } from '../emoji_mute_availability';
 
 const deferred = () => {
   let resolve;
@@ -754,7 +754,7 @@ describe('emoji mute preference flow', () => {
 
   it('accepts the default off preference on reconnect without loading rules', async () => {
     noteEmojiMuteDisabledLocally();
-    applyEmojiMuteDisabledDocument();
+    applyEmojiMuteDisabledDocument(true);
     api().get.mockResolvedValue({
       data: { enabled: false, explicit: false, known: true, preference_revision: '0' },
     });
@@ -769,6 +769,20 @@ describe('emoji mute preference flow', () => {
     expect(emojiMutes.get('availability')).toBe('disabled');
     expect(emojiMutes.get('failure')).toBe(null);
     expect(emojiReactionEventsAccepted()).toBe(true);
+    expect(currentEmojiMuteBoot()).toMatchObject({ availability: 'disabled', explicit: false, display: 'show' });
+    expect(emojiMuteConfirmation({ operation: 'mute' })).toEqual({
+      required: false,
+      reenable: false,
+      reason: null,
+    });
+    expect(emojiMuteConfirmation({
+      boot: { ...currentEmojiMuteBoot(), modal: true },
+      operation: 'mute',
+    })).toEqual({
+      required: true,
+      reenable: false,
+      reason: 'first_enable',
+    });
   });
 
   it('does not treat an unset preference row as a saved off', async () => {
