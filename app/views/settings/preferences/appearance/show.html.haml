@@ -5,8 +5,8 @@
   = button_tag t('generic.save_changes'), class: 'button', form: 'edit_user'
 
 - content_for :header_tags do
-  - Themes.instance.names.each do |theme|
-    = stylesheet_pack_tag theme, media: 'all', crossorigin: 'anonymous', 'data-theme-preview': theme, rel: 'preload', as: 'style'
+  - Themes.instance.user_selectable_names.each do |theme|
+    = theme_stylesheet_tags theme, preview: true
 
 = simple_form_for current_user, url: settings_preferences_appearance_path, html: { method: :put, id: 'edit_user' } do |f|
   = render 'shared/error_messages', object: current_user
@@ -25,7 +25,7 @@
 
   .fields-row
     .fields-row__column.fields-row__column-6
-      = f.input :setting_theme, collection: Themes.instance.names, label_method: lambda { |theme| I18n.t("themes.#{theme}", default: theme) }, wrapper: :with_label, include_blank: false, hint: true
+      = f.input :setting_theme, collection: Themes.instance.user_selectable_names, label_method: lambda { |theme| I18n.t("themes.#{theme}", default: theme) }, wrapper: :with_label, include_blank: false, hint: true
 
     .fields-row__column.fields-row__column-6
       = f.input :setting_theme_instance_ticker, collection: ['none', 'type-0', 'type-1', 'type-2', 'type-3'], label_method: lambda { |item| t("simple_form.hints.defaults.setting_theme_instance_ticker_#{item}") }, wrapper: :with_label, include_blank: false, hint: t('simple_form.hints.defaults.setting_theme_instance_ticker_html'), fedibird_features: true

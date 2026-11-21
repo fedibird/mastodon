@@ -204,6 +204,22 @@ module ApplicationHelper
     INSTANCE_TICKER_URL[current_user&.setting_theme_instance_ticker]
   end
 
+  def theme_stylesheet_tags(theme, preview: false)
+    options = { crossorigin: 'anonymous' }
+    if preview
+      options.merge!(rel: 'preload', as: 'style', 'data-theme-preview': theme)
+    else
+      options[:'data-active-theme'] = true
+    end
+
+    return stylesheet_pack_tag(theme, media: 'all', **options) unless theme == 'system'
+
+    safe_join([
+      stylesheet_pack_tag('default', media: 'not all and (prefers-color-scheme: light)', **options),
+      stylesheet_pack_tag('mastodon-light', media: '(prefers-color-scheme: light)', **options),
+    ])
+  end
+
   def render_initial_state
     state_params = {
       settings: {

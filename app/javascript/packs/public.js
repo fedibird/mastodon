@@ -308,12 +308,20 @@ function main() {
 
   delegate(document, '#user_setting_theme, #form_admin_settings_theme', 'change', (evt) => {
     const themeTags = document.querySelectorAll('link[data-theme-preview]');
+    let hasPreview = false;
 
     for (const themeTag of themeTags) {
       if (themeTag.getAttribute('data-theme-preview') === evt.target.value) {
         themeTag.setAttribute('rel', 'stylesheet');
+        hasPreview = true;
       } else {
         themeTag.setAttribute('rel', 'preload');
+      }
+    }
+
+    if (hasPreview) {
+      for (const themeTag of document.querySelectorAll('link[data-active-theme]')) {
+        themeTag.disabled = true;
       }
     }
   });
