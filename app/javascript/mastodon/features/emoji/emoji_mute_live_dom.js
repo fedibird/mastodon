@@ -1,5 +1,21 @@
-import { reactionNameHidden } from './emoji_mute_projection';
+import { storedReactionHidden } from './emoji_mute_projection';
 import { emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
+
+// One selector for both the clear and the record. A host cleared here has to
+// be in the snapshot, or a same-batch success cannot put it back.
+const REACTION_HOST_SELECTOR = '.reactions-bar__item, [data-emoji-reaction-name], [data-emoji-reaction-url], [data-emoji-reaction-static-url], [data-emoji-shortcode], [data-emoji-domain], [data-emoji-native], [data-emoji-custom-emoji-id]';
+const REACTION_HOST_ATTRIBUTES = [
+  'title',
+  'aria-label',
+  'data-emoji-reaction-name',
+  'data-emoji-reaction-domain',
+  'data-emoji-reaction-url',
+  'data-emoji-reaction-static-url',
+  'data-emoji-shortcode',
+  'data-emoji-domain',
+  'data-emoji-native',
+  'data-emoji-custom-emoji-id',
+];
 
 const READABLE_ATTRIBUTES = ['alt', 'title', 'aria-label', 'aria-description', 'aria-valuetext'];
 const SKIP_TEXT_PARENTS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'NOSCRIPT']);
@@ -52,21 +68,10 @@ const concealEmojiImage = img => {
 
   // The chip's tooltip is an ASCII :shortcode:, so the unicode rewrite leaves
   // it. Clear that label and the name/domain attributes on the same walk.
-  const host = img.closest('.reactions-bar__item, [data-emoji-reaction-name], [data-emoji-reaction-url], [data-emoji-reaction-static-url], [data-emoji-shortcode], [data-emoji-domain], [data-emoji-native]');
+  const host = img.closest(REACTION_HOST_SELECTOR);
 
   if (host && host !== img) {
-    [
-      'title',
-      'aria-label',
-      'data-emoji-reaction-name',
-      'data-emoji-reaction-domain',
-      'data-emoji-reaction-url',
-      'data-emoji-reaction-static-url',
-      'data-emoji-shortcode',
-      'data-emoji-domain',
-      'data-emoji-native',
-      'data-emoji-custom-emoji-id',
-    ].forEach(name => host.removeAttribute(name));
+    REACTION_HOST_ATTRIBUTES.forEach(name => host.removeAttribute(name));
   }
 
   const picture = img.parentElement && img.parentElement.tagName === 'PICTURE' ? img.parentElement : null;
@@ -129,6 +134,26 @@ const noteText = (sink, node) => {
   sink.push({ kind: 'text', node, value: node.nodeValue });
 };
 
+const recordedValue = (records, element, name) => {
+  const found = records.find(record => record.kind === 'attribute' && record.element === element && record.name === name);
+
+  return found && found.had ? found.value : '';
+};
+
+// Identity comes from the snapshot. The live host has already lost these
+// attributes, and reactionNameHidden cannot see a local custom id.
+const reactionHostHidden = (records, host, rules) => {
+  if (!host) {
+    return false;
+  }
+
+  return storedReactionHidden({
+    custom_emoji_id: recordedValue(records, host, 'data-emoji-custom-emoji-id'),
+    domain: recordedValue(records, host, 'data-emoji-reaction-domain') || recordedValue(records, host, 'data-emoji-domain'),
+    name: recordedValue(records, host, 'data-emoji-reaction-name') || recordedValue(records, host, 'data-emoji-shortcode') || recordedValue(records, host, 'data-emoji-native'),
+  }, rules);
+};
+
 const writeRecordedAttribute = (record, index) => {
   const { element, name, had, value } = record;
 
@@ -172,11 +197,11 @@ const releaseScrub = (records, state) => {
       return;
     }
 
-    if (!record.element.isConnected) {
+    if (!record.element.isConnected || record.element.tagName === 'SOURCE') {
       return;
     }
 
-    const chip = record.element.classList && record.element.classList.contains('reactions-bar__item');
+    const chip = record.element.matches && record.element.matches(REACTION_HOST_SELECTOR);
 
     if (isUserEmojiImage(record.element) || chip) {
       const bucket = grouped.get(record.element) || [];
@@ -188,16 +213,20 @@ const releaseScrub = (records, state) => {
     writeRecordedAttribute(record, index);
   });
 
+  const keptImages = new Set();
+
   grouped.forEach((bucket, element) => {
-    if (element.classList && element.classList.contains('reactions-bar__item')) {
-      const name = bucket.find(record => record.name === 'data-emoji-reaction-name');
-      const domain = bucket.find(record => record.name === 'data-emoji-reaction-domain');
-      const hidden = reactionNameHidden(name && name.value, (domain && domain.value) || null, rules);
+    const host = element.closest ? element.closest(REACTION_HOST_SELECTOR) : null;
+    const chip = host === element;
 
-      if (!hidden) {
-        bucket.forEach(record => writeRecordedAttribute(record, index));
+    if (chip || (host && host !== element)) {
+      if (reactionHostHidden(records, host, rules)) {
+        return;
       }
+    }
 
+    if (chip) {
+      bucket.forEach(record => writeRecordedAttribute(record, index));
       return;
     }
 
@@ -220,6 +249,7 @@ const releaseScrub = (records, state) => {
     }
 
     bucket.forEach(record => writeRecordedAttribute(record, index));
+    keptImages.add(element);
 
     if (!bucket.some(record => record.name === 'hidden' && record.had)) {
       element.removeAttribute('hidden');
@@ -227,6 +257,19 @@ const releaseScrub = (records, state) => {
 
     if (!bucket.some(record => record.name === 'aria-hidden' && record.had)) {
       element.removeAttribute('aria-hidden');
+    }
+  });
+
+  records.forEach(record => {
+    if (record.kind !== 'attribute' || !record.element.isConnected || record.element.tagName !== 'SOURCE') {
+      return;
+    }
+
+    const picture = record.element.parentElement;
+    const img = picture && picture.tagName === 'PICTURE' ? picture.querySelector('img') : null;
+
+    if (img && keptImages.has(img)) {
+      writeRecordedAttribute(record, index);
     }
   });
 };
@@ -247,11 +290,18 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
     noteAttribute(sink, img, 'title');
     noteAttribute(sink, img, 'hidden');
     noteAttribute(sink, img, 'aria-hidden');
-    const host = img.closest('.reactions-bar__item, [data-emoji-reaction-name]');
+    const host = img.closest(REACTION_HOST_SELECTOR);
 
     if (host && host !== img) {
-      ['title', 'aria-label', 'data-emoji-reaction-name', 'data-emoji-reaction-domain', 'data-emoji-reaction-url', 'data-emoji-reaction-static-url', 'data-emoji-shortcode', 'data-emoji-domain', 'data-emoji-native', 'data-emoji-custom-emoji-id'].forEach(name => {
-        noteAttribute(sink, host, name);
+      REACTION_HOST_ATTRIBUTES.forEach(name => noteAttribute(sink, host, name));
+    }
+
+    const picture = img.parentElement && img.parentElement.tagName === 'PICTURE' ? img.parentElement : null;
+
+    if (picture) {
+      picture.querySelectorAll('source').forEach(source => {
+        noteAttribute(sink, source, 'src');
+        noteAttribute(sink, source, 'srcset');
       });
     }
 

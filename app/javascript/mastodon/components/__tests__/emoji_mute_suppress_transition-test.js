@@ -401,4 +401,143 @@ describe('mounted suppress transition', () => {
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
     expect(() => view.unmount()).not.toThrow();
   });
+
+  it('keeps hide_reactions images concealed through a same-batch success and restores kept picture sources', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    let atSuppress = null;
+    let beforeCommit = null;
+    const reactionStatus = fromJS({
+      id: 's3',
+      account: 'a1',
+      emoji_reactions: [
+        { name: 'blob', count: 1, account_ids: ['2'], domain: 'remote.example', url: 'https://cdn.example/blob.svg', static_url: 'https://cdn.example/blob.png' },
+        { name: 'house', count: 1, account_ids: ['2'], custom_emoji_id: '42', url: 'https://cdn.example/house.svg', static_url: 'https://cdn.example/house.png' },
+        { name: 'star', count: 1, account_ids: ['2'], domain: 'other.example', url: 'https://cdn.example/star.svg', static_url: 'https://cdn.example/star.png' },
+      ],
+    });
+    const hideOnly = (emoji, id) => ({
+      id,
+      revision: '3',
+      emoji,
+      replacement: '',
+      effects: { replace_in_text: false, hide_reactions: true, hide_in_picker: true, reject_reactions_to_own_posts: false },
+    });
+
+    const snapshot = () => {
+      const chips = document.querySelectorAll('button.reactions-bar__item');
+
+      return {
+        blob: chips[0] && chips[0].querySelector('img'),
+        house: chips[1] && chips[1].querySelector('img'),
+        star: chips[2] && chips[2].querySelector('img'),
+        blobButton: chips[0],
+        houseButton: chips[1],
+        starButton: chips[2],
+        loose: document.querySelector('.loose-emoji img'),
+        source: document.querySelector('picture source'),
+        draft: document.querySelector('input[aria-label="draft"]'),
+      };
+    };
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      const display = store.getState().getIn(['emojiMutes', 'display']);
+      const shot = snapshot();
+
+      if (display === 'suppress') {
+        atSuppress = {
+          blobSrc: shot.blob && shot.blob.getAttribute('src'),
+          houseSrc: shot.house && shot.house.getAttribute('src'),
+          looseSrc: shot.loose && shot.loose.getAttribute('src'),
+          sourceSrc: shot.source && shot.source.getAttribute('src'),
+        };
+      }
+
+      if (display === 'apply' && atSuppress) {
+        beforeCommit = {
+          blobSrc: shot.blob && shot.blob.getAttribute('src'),
+          blobOriginal: shot.blob && shot.blob.getAttribute('data-original'),
+          blobAlt: shot.blob && shot.blob.getAttribute('alt'),
+          houseSrc: shot.house && shot.house.getAttribute('src'),
+          houseOriginal: shot.house && shot.house.getAttribute('data-original'),
+          blobName: shot.blobButton && shot.blobButton.getAttribute('data-emoji-reaction-name'),
+          blobShortcode: shot.blobButton && shot.blobButton.getAttribute('data-emoji-shortcode'),
+          houseId: shot.houseButton && shot.houseButton.getAttribute('data-emoji-custom-emoji-id'),
+          houseTitle: shot.houseButton && shot.houseButton.getAttribute('title'),
+          starSrc: shot.star && shot.star.getAttribute('src'),
+          starShortcode: shot.starButton && shot.starButton.getAttribute('data-emoji-shortcode'),
+          starTitle: shot.starButton && shot.starButton.getAttribute('title'),
+          looseSrc: shot.loose && shot.loose.getAttribute('src'),
+          looseOriginal: shot.loose && shot.loose.getAttribute('data-original'),
+          sourceSrc: shot.source && shot.source.getAttribute('src'),
+          sourceSet: shot.source && shot.source.getAttribute('srcset'),
+          draft: shot.draft && shot.draft.value,
+        };
+      }
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <EmojiReactionsBar status={reactionStatus} addEmojiReaction={jest.fn()} removeEmojiReaction={jest.fn()} />
+          <div className='loose-emoji'>
+            <Emoji emoji='blob' hovered={false} url='https://cdn.example/blob.svg' static_url='https://cdn.example/blob.png' domain='remote.example' />
+          </div>
+          <picture>
+            <source src={`/emoji/${KEEP}.svg`} srcSet={`/emoji/${KEEP}.svg 2x`} />
+            <img className='emojione' alt={KEEP} title={KEEP} src={`/emoji/${KEEP}.svg`} />
+          </picture>
+          <input aria-label='draft' defaultValue='draft stays' />
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [
+          hideOnly({ kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' }, 'm-remote'),
+          hideOnly({ kind: 'custom', scope: 'local', custom_emoji_id: '42', shortcode: 'house' }, 'm-local'),
+        ],
+      });
+    });
+
+    expect(atSuppress.blobSrc).toBeNull();
+    expect(atSuppress.houseSrc).toBeNull();
+    expect(atSuppress.looseSrc).toBeNull();
+    expect(atSuppress.sourceSrc).toBeNull();
+
+    expect(beforeCommit.blobSrc).toBeNull();
+    expect(beforeCommit.blobOriginal).toBeNull();
+    expect(beforeCommit.blobAlt).toBe('◻');
+    expect(beforeCommit.blobName).toBeNull();
+    expect(beforeCommit.blobShortcode).toBeNull();
+    expect(beforeCommit.houseSrc).toBeNull();
+    expect(beforeCommit.houseOriginal).toBeNull();
+    expect(beforeCommit.houseId).toBeNull();
+    expect(beforeCommit.houseTitle).toBeNull();
+    expect(beforeCommit.starSrc).toBe('https://cdn.example/star.png');
+    expect(beforeCommit.starShortcode).toBe('star');
+    expect(beforeCommit.starTitle).toBe(':star:');
+    expect(beforeCommit.looseSrc).toBe('https://cdn.example/blob.png');
+    expect(beforeCommit.looseOriginal).toBe('https://cdn.example/blob.svg');
+    expect(beforeCommit.sourceSrc).toBe(`/emoji/${KEEP}.svg`);
+    expect(beforeCommit.sourceSet).toBe(`/emoji/${KEEP}.svg 2x`);
+    expect(beforeCommit.draft).toBe('draft stays');
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+
+    expect(view.container.querySelector('button[title=":blob:"]')).toBeNull();
+    expect(view.container.querySelector('button[title=":house:"]')).toBeNull();
+    expect(view.container.querySelector('button[title=":star:"]')).not.toBeNull();
+    expect(view.container.querySelector('.loose-emoji img').getAttribute('src')).toBe('https://cdn.example/blob.png');
+    expect(view.container.querySelector('picture source').getAttribute('src')).toBe(`/emoji/${KEEP}.svg`);
+    expect(view.getByLabelText('draft').value).toBe('draft stays');
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+    expect(() => view.unmount()).not.toThrow();
+  });
 });
