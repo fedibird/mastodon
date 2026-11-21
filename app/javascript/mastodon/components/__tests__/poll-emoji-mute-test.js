@@ -441,4 +441,20 @@ describe('poll html identity', () => {
     expect(translated.titleHtml).toContain('data-domain="remote.test"');
     expect(translated.titleHtml).not.toContain('data-emoji-id');
   });
+
+  it('hides emoji images and scrubs a photo alt while the mute document is unverified', () => {
+    const source = `Yes ${localImg('10')} <img src="/media/x.jpg" alt="${THUMB}" srcset="/media/x.jpg 2x">`;
+    const store = createStore((state = fromJS({
+      emojiMutes: { display: 'suppress', phase: 'error', availability: 'enabled', rules: [] },
+    }), action) => state.set('emojiMutes', emojiMutes(state.get('emojiMutes'), action)));
+    const { container } = renderPoll(buildPoll([option(`Yes ${THUMB}`, source)]), { store });
+    const photo = container.querySelector('img[src="/media/x.jpg"]');
+
+    expect(container.querySelector('img.custom-emoji, img.emojione')).toBeNull();
+    expect(container.innerHTML).not.toContain('cdn.example/10');
+    expect(container.innerHTML).not.toContain(THUMB);
+    expect(photo.getAttribute('alt')).toBe('◻');
+    expect(photo.getAttribute('srcset')).toBe('/media/x.jpg 2x');
+    expect(container.querySelector('.poll__input').getAttribute('aria-label')).not.toContain(THUMB);
+  });
 });

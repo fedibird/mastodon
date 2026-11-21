@@ -17,6 +17,7 @@ import { connect } from 'react-redux';
 import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
 import { mediaModalPagination } from 'mastodon/utils/media_modal_pagination';
 import { modalVideoDimensions, modalVideoFrameStyle } from 'mastodon/utils/modal_video_dimensions';
+import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   close: { id: 'lightbox.close', defaultMessage: 'Close' },
@@ -36,6 +37,7 @@ const mapStateToProps = (state, props) => {
     translationView,
     lang: translationView ? translationView.mediaLang : props.lang,
     timelineStatuses: props.timelineStatusIds ? state.get('statuses') : null,
+    emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
   };
 };
 
@@ -282,7 +284,7 @@ class MediaModal extends ImmutablePureComponent {
         sourceLang: this.props.lang || '',
         targetLang: this.props.lang || '',
       });
-      const description = accessible.text;
+      const description = presentEmojiMutePlain(accessible.text, this.props.emojiMuteTextIndex);
       const lang = accessible.lang || this.props.lang;
 
       if (image.get('type') === 'image') {

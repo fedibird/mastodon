@@ -7,6 +7,7 @@ let mockRequest;
 let mockPhase = 'loading';
 let mockFailure = null;
 let mockAvailability = 'enabled';
+let mockDisplay = 'suppress';
 let mockMe = '1';
 let mockToken = 'token';
 const mockSubscribers = new Set();
@@ -16,6 +17,7 @@ const mockState = {
     if (key === 'emojiMutes.phase') return mockPhase;
     if (key === 'emojiMutes.failure') return mockFailure;
     if (key === 'emojiMutes.availability') return mockAvailability;
+    if (key === 'emojiMutes.display') return mockDisplay;
     if (key === 'meta.me') return mockMe;
     if (key === 'meta.access_token') return mockToken;
     return undefined;
@@ -89,6 +91,7 @@ jest.mock('react-router-dom', () => ({
 jest.mock('react-router-scroll-4', () => ({ ScrollContext: ({ children }) => <div>{children}</div> }));
 jest.mock('mastodon/features/ui', () => {
   const ReactMock = require('react');
+  const Notice = require('mastodon/components/emoji_mute_load_notice').default;
 
   return class MockUI extends ReactMock.Component {
 
@@ -109,6 +112,7 @@ jest.mock('mastodon/features/ui', () => {
     render() {
       return (
         <div data-testid='webui'>
+          <Notice placement='compose-panel' />
           timeline
           <div className='scrollable' data-testid='timeline-scroll'>
             <input data-testid='compose-draft' value={this.state.draft} onChange={this.handleDraftChange} />
@@ -129,6 +133,8 @@ import { resetEmojiMuteSession } from 'mastodon/features/emoji/emoji_mute_store'
 import { currentEmojiMuteBoot } from 'mastodon/features/emoji/emoji_mute_availability';
 
 const Mastodon = require('../mastodon').default;
+const { scrubVisibleEmojiIfUnverified } = require('../mastodon');
+const { resetEmojiMuteLiveDomProbe } = require('mastodon/features/emoji/emoji_mute_live_dom');
 const { retryEmojiMuteLoad, ignoreEmojiMutesThisView, disableEmojiMuteFeature } = require('mastodon/actions/emoji_mutes');
 
 const clock = { now: 1_000_000 };
@@ -171,10 +177,13 @@ describe('authenticated emoji mute bootstrap', () => {
     mockUiUnmounts.mockClear();
     resetEmojiMuteSession.mockClear();
     mockSubscribers.clear();
+    scrubVisibleEmojiIfUnverified.reset();
+    resetEmojiMuteLiveDomProbe();
     mockRequest = deferred();
     mockPhase = 'loading';
     mockFailure = null;
     mockAvailability = 'enabled';
+    mockDisplay = 'suppress';
     mockMe = '1';
     mockToken = 'token';
   });
@@ -246,17 +255,21 @@ describe('authenticated emoji mute bootstrap', () => {
 
     expect(view.getByTestId('webui')).toBe(ui);
     expect(mockUiUnmounts).not.toHaveBeenCalled();
-    expect(view.getByText(/could not be verified/)).not.toBeNull();
-    expect(view.getByText('Ignore this time and continue')).not.toBeNull();
-    expect(view.getByText(/Every emoji becomes visible, including ones you muted/)).not.toBeNull();
-    expect(view.getByText('Turn emoji muting off')).not.toBeNull();
+    expect(view.container.querySelector('.emoji-mutes-bootstrap')).toBeNull();
+    const portal = view.container.querySelector('.emoji-mutes-privacy-portal');
+    expect(portal.querySelector('.emoji-mute-load-notice')).not.toBeNull();
+    expect(portal.querySelector('.emoji-mute-load-notice').getAttribute('data-placement')).toBe('compose-panel');
+    expect(view.getByText(/Emoji stay hidden until the settings check finishes/)).not.toBeNull();
+    expect(view.getByText('Ignore this time')).not.toBeNull();
+    expect(view.getByText('Ignoring this also shows emoji you muted.')).not.toBeNull();
+    expect(view.getByText('Turn the feature off')).not.toBeNull();
 
-    fireEvent.click(view.getByText('Ignore this time and continue'));
+    fireEvent.click(view.getByText('Ignore this time'));
     expect(ignoreEmojiMutesThisView).toHaveBeenCalledTimes(1);
 
     mockRequest = deferred();
     allowRetry();
-    fireEvent.click(view.getByText('Retry loading settings'));
+    fireEvent.click(view.getByText('Try again'));
     expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(2);
     expect(retryEmojiMuteLoad).toHaveBeenLastCalledWith({ bootstrap: false });
     expect(view.getByTestId('webui')).toBe(ui);
@@ -272,11 +285,11 @@ describe('authenticated emoji mute bootstrap', () => {
     await rejectBootstrap(new Error('offline'));
 
     await act(async () => {
-      fireEvent.click(view.getByText('Turn emoji muting off'));
+      fireEvent.click(view.getByText('Turn the feature off'));
       await Promise.resolve();
     });
 
-    expect(view.queryByText(/could not be verified/)).toBeNull();
+    expect(view.queryByText(/Emoji stay hidden until the settings check finishes/)).toBeNull();
     expect(view.queryByText(/stayed on because the setting could not be saved/)).toBeNull();
     expect(view.getByTestId('webui')).not.toBeNull();
     view.unmount();
@@ -288,15 +301,15 @@ describe('authenticated emoji mute bootstrap', () => {
     await rejectBootstrap(new Error('offline'));
 
     await act(async () => {
-      fireEvent.click(view.getByText('Turn emoji muting off'));
+      fireEvent.click(view.getByText('Turn the feature off'));
       await Promise.resolve();
     });
 
-    expect(view.getByText(/could not be verified/)).not.toBeNull();
+    expect(view.getByText(/Emoji stay hidden until the settings check finishes/)).not.toBeNull();
     expect(view.getByText(/stayed on because the setting could not be saved/)).not.toBeNull();
-    expect(view.getByText('Retry loading settings')).not.toBeNull();
-    expect(view.getByText('Ignore this time and continue')).not.toBeNull();
-    expect(view.getByText('Turn emoji muting off')).not.toBeNull();
+    expect(view.getByText('Try again')).not.toBeNull();
+    expect(view.getByText('Ignore this time')).not.toBeNull();
+    expect(view.getByText('Turn the feature off')).not.toBeNull();
     expect(view.getByTestId('webui')).not.toBeNull();
     view.unmount();
   });
@@ -307,7 +320,7 @@ describe('authenticated emoji mute bootstrap', () => {
     await rejectBootstrap(new Error('offline'));
 
     await act(async () => {
-      fireEvent.click(view.getByText('Turn emoji muting off'));
+      fireEvent.click(view.getByText('Turn the feature off'));
       await Promise.resolve();
     });
 
@@ -323,9 +336,9 @@ describe('authenticated emoji mute bootstrap', () => {
     expect(unauthorized.getByTestId('webui')).not.toBeNull();
     expect(unauthorized.getByText(/session expired/i)).not.toBeNull();
     expect(unauthorized.getByText('Reload and sign in')).not.toBeNull();
-    expect(unauthorized.queryByText('Retry loading settings')).toBeNull();
-    expect(unauthorized.getByText('Ignore this time and continue')).not.toBeNull();
-    expect(unauthorized.getByText('Turn emoji muting off')).not.toBeNull();
+    expect(unauthorized.queryByText('Try again')).toBeNull();
+    expect(unauthorized.getByText('Ignore this time')).not.toBeNull();
+    expect(unauthorized.getByText('Turn the feature off')).not.toBeNull();
     unauthorized.unmount();
 
     mockRequest = deferred();
@@ -334,8 +347,8 @@ describe('authenticated emoji mute bootstrap', () => {
 
     expect(forbiddenView.getByTestId('webui')).not.toBeNull();
     expect(forbiddenView.getByText(/cannot read emoji mute settings/i)).not.toBeNull();
-    expect(forbiddenView.queryByText('Retry loading settings')).toBeNull();
-    expect(forbiddenView.getByText('Ignore this time and continue')).not.toBeNull();
+    expect(forbiddenView.queryByText('Try again')).toBeNull();
+    expect(forbiddenView.getByText('Ignore this time')).not.toBeNull();
     forbiddenView.unmount();
   });
 
@@ -344,12 +357,12 @@ describe('authenticated emoji mute bootstrap', () => {
     await rejectBootstrap(new Error('offline'));
 
     const callsBefore = retryEmojiMuteLoad.mock.calls.length;
-    fireEvent.click(view.getByText('Retry loading settings'));
+    fireEvent.click(view.getByText('Try again'));
     expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(callsBefore);
 
     allowRetry();
     mockRequest = deferred();
-    fireEvent.click(view.getByText('Retry loading settings'));
+    fireEvent.click(view.getByText('Try again'));
     expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(callsBefore + 1);
     view.unmount();
   });
@@ -366,9 +379,58 @@ describe('authenticated emoji mute bootstrap', () => {
 
     expect(view.queryByTestId('webui')).toBeNull();
     expect(view.getByText(/Your account changed/)).not.toBeNull();
-    expect(view.queryByText('Ignore this time and continue')).toBeNull();
+    expect(view.container.querySelector('.emoji-mute-load-notice').getAttribute('data-placement')).toBe('session');
+    expect(view.queryByText('Ignore this time')).toBeNull();
     expect(resetEmojiMuteSession).toHaveBeenCalled();
     expect(mockDispatch).toHaveBeenCalledWith({ type: 'EMOJI_MUTES_RESET' });
+    view.unmount();
+  });
+
+  it('scrubs visible emoji before React rerenders a stale revision and keeps the draft', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await bootReady();
+    const draft = view.getByTestId('compose-draft');
+    fireEvent.change(draft, { target: { value: 'draft 👌 stays' } });
+    const surface = view.getByTestId('webui');
+    surface.insertAdjacentHTML('beforeend', '<p>Hello 👌</p><img class="emojione" alt="👌" title="👌" src="/emoji/1f44c.svg" srcset="/emoji/1f44c.svg 2x"><img src="/media/x.jpg" alt="photo 👌" srcset="/media/x.jpg 2x">');
+    mockPhase = 'stale';
+    mockDisplay = 'suppress';
+
+    scrubVisibleEmojiIfUnverified();
+
+    const emoji = surface.querySelector('img.emojione');
+    expect(emoji).not.toBeNull();
+    expect(emoji.hasAttribute('src')).toBe(false);
+    expect(emoji.getAttribute('hidden')).toBe('');
+    expect(surface.innerHTML).not.toContain('/emoji/1f44c.svg');
+    expect(surface.querySelector('p').textContent).toBe('Hello ◻');
+    expect(surface.querySelector('img[src="/media/x.jpg"]').getAttribute('alt')).toBe('photo ◻');
+    expect(surface.querySelector('img[src="/media/x.jpg"]').getAttribute('srcset')).toBe('/media/x.jpg 2x');
+    expect(draft.value).toBe('draft 👌 stays');
+    expect(view.getByTestId('webui')).toBe(surface);
+
+    mockPhase = 'stale';
+    scrubVisibleEmojiIfUnverified();
+    expect(surface.querySelector('img.emojione')).toBe(emoji);
+    expect(surface.querySelector('img[src="/media/x.jpg"]')).not.toBeNull();
+    view.unmount();
+  });
+
+  it('keeps the WebUI mounted and scrubs emoji when the GET fails', async () => {
+    const view = render(<Mastodon locale='en' />);
+    const surface = view.getByTestId('webui');
+    const draft = view.getByTestId('compose-draft');
+    fireEvent.change(draft, { target: { value: 'still drafting' } });
+    await rejectBootstrap(new Error('offline'));
+    surface.insertAdjacentHTML('beforeend', '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/secret.svg">');
+    mockDisplay = 'suppress';
+    mockPhase = 'error';
+    scrubVisibleEmojiIfUnverified();
+
+    expect(view.getByTestId('webui')).toBe(surface);
+    expect(surface.querySelector('img.custom-emoji').hasAttribute('src')).toBe(false);
+    expect(surface.innerHTML).not.toContain('secret.svg');
+    expect(draft.value).toBe('still drafting');
     view.unmount();
   });
 });

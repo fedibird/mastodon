@@ -170,6 +170,28 @@ export function replaceInTextIndexFromRules(rules) {
   return cachedIndex;
 }
 
+// One display decision for every surface. `suppress` hides user emoji before
+// a document is verified. `show` is an explicit off or a temporary ignore.
+// Anything else, including older tests that only store rules, applies those
+// rules. Callers must not read `rules` on their own.
+export function emojiMuteTextIndexFromState(state) {
+  if (!state || typeof state.getIn !== 'function') {
+    return undefined;
+  }
+
+  const display = state.getIn(['emojiMutes', 'display']);
+
+  if (display === 'suppress') {
+    return SUPPRESS_UNVERIFIED_INDEX;
+  }
+
+  if (display === 'show') {
+    return INACTIVE_INDEX;
+  }
+
+  return replaceInTextIndexFromRules(state.getIn(['emojiMutes', 'rules']));
+}
+
 const mappedReplacement = (index, reference) => {
   const key = identityKey(reference);
 
@@ -180,8 +202,26 @@ const mappedReplacement = (index, reference) => {
   return index.replacements.get(key);
 };
 
+const EMOJI_ASSET_SRC = /(?:^|[\s/])emoji\/[0-9a-f][0-9a-f-]*\.svg(?:$|[\s,])/i;
+
+// A user emoji image is the glyph itself. A normal attachment can keep its
+// URL; only its readable text is scrubbed while verification is pending.
+export function isUserEmojiImage(img) {
+  if (!img || !img.classList) {
+    return false;
+  }
+
+  if (img.classList.contains('emojione') || img.classList.contains('custom-emoji')) {
+    return true;
+  }
+
+  const src = `${img.getAttribute('src') || ''} ${img.getAttribute('srcset') || ''}`;
+
+  return EMOJI_ASSET_SRC.test(src);
+}
+
 const replacementForImage = (img, index) => {
-  if (index && index.suppressAll === true && img.classList.contains('emojione')) {
+  if (index && index.suppressAll === true && isUserEmojiImage(img)) {
     return UNVERIFIED_EMOJI_PLACEHOLDER;
   }
 
@@ -506,13 +546,18 @@ const transformHtml = (html, index) => {
   parseCount += 1;
   const template = document.createElement('template');
   template.innerHTML = html;
-  const images = template.content.querySelectorAll('img.emojione');
+  const images = template.content.querySelectorAll(index && index.suppressAll === true ? 'img' : 'img.emojione');
   let changed = false;
 
   for (let indexInHtml = 0; indexInHtml < images.length; indexInHtml += 1) {
     const img = images[indexInHtml];
 
     if (!img.parentNode) {
+      continue;
+    }
+
+    // Attachment photos stay. Their alt is handled with the other labels.
+    if (index && index.suppressAll === true && !isUserEmojiImage(img)) {
       continue;
     }
 
@@ -546,13 +591,15 @@ const transformHtml = (html, index) => {
   return holder.innerHTML;
 };
 
+const READABLE_ATTRIBUTES = ['alt', 'title', 'aria-label', 'aria-description', 'aria-valuetext'];
+
 const suppressLabelAttributes = root => {
   if (!root || typeof root.querySelectorAll !== 'function') {
     return;
   }
 
-  root.querySelectorAll('[title], [aria-label]').forEach(element => {
-    ['title', 'aria-label'].forEach(name => {
+  root.querySelectorAll('[alt], [title], [aria-label], [aria-description], [aria-valuetext]').forEach(element => {
+    READABLE_ATTRIBUTES.forEach(name => {
       const value = element.getAttribute(name);
 
       if (!value) {
@@ -802,6 +849,14 @@ export function replaceUnicodeEmojiInPlainText(text, index) {
   return replaceUnicodeEmojiSequences(text, index, value => value);
 }
 
+export function presentEmojiMutePlain(text, index) {
+  if (typeof text !== 'string' || text === '') {
+    return text;
+  }
+
+  return replaceUnicodeEmojiInPlainText(text, index);
+}
+
 const walkPreviewText = (node, index) => {
   if (!node) {
     return false;
@@ -867,7 +922,9 @@ const previewHtmlFromTextNodes = (text, index) => {
 
 export function replaceUnicodeEmojiInPreviewHtml(text, index) {
   if (index && index.suppressAll === true) {
-    return typeof text === 'string' ? previewHtmlFromTextNodes(text, index) : text;
+    // Scheduled previews can already contain emojione <img> markup. Share the
+    // display projection so src, srcset, alt, and title do not survive.
+    return typeof text === 'string' ? replaceEmojiInDisplayHtml(text, index) : text;
   }
 
   if (typeof text !== 'string' || !index || index.active !== true) {

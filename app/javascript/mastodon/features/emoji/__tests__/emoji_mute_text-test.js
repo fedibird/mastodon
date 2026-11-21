@@ -7,6 +7,7 @@ import statusesReducer from 'mastodon/reducers/statuses';
 import emojify from '../emoji';
 import {
   buildReplaceInTextIndex,
+  emojiMuteTextIndexFromState,
   emojiMuteTextParseCount,
   emojiMuteUnicodeComparisonCount,
   emojiMutedPlainLabel,
@@ -651,5 +652,67 @@ describe('unicode preview text', () => {
     expect(emojiMutedPlainLabel(`hello ${THUMBS}`, '', SUPPRESS_UNVERIFIED_INDEX)).toBe('hello ◻');
     expect(emojiMutedPlainLabel(`hello ${THUMBS}`, html, SUPPRESS_UNVERIFIED_INDEX)).not.toContain(THUMBS);
     expect(emojiMutedPlainLabel(`hello ${THUMBS}`, html, SUPPRESS_UNVERIFIED_INDEX)).not.toContain(':blob:');
+  });
+
+  it('keeps an attachment image and removes emoji images, including preview markup', () => {
+    const html = `<img src="/media/x.jpg" alt="${THUMBS}" srcset="/media/x.jpg 2x"><img class="emojione" alt="${THUMBS}" title=":ok_hand:" src="/emoji/1f44c.svg" srcset="/emoji/1f44c.svg 2x"><img class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/secret.svg" srcset="https://cdn.example/secret.svg 2x" data-shortcode="blob" data-domain="" data-emoji-id="10">`;
+    const hidden = replaceEmojiInDisplayHtml(html, SUPPRESS_UNVERIFIED_INDEX);
+    const template = document.createElement('template');
+    template.innerHTML = hidden;
+    const photo = template.content.querySelector('img');
+
+    expect(photo.getAttribute('src')).toBe('/media/x.jpg');
+    expect(photo.getAttribute('srcset')).toBe('/media/x.jpg 2x');
+    expect(photo.getAttribute('alt')).toBe('◻');
+    expect(hidden).not.toContain('/emoji/1f44c.svg');
+    expect(hidden).not.toContain('secret.svg');
+    expect(hidden).not.toContain(THUMBS);
+    expect(hidden).not.toContain(':blob:');
+    expect(hidden).not.toContain('srcset="/emoji');
+    expect(template.content.querySelectorAll('img')).toHaveLength(1);
+
+    const shown = emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'show', rules: [] } }));
+    expect(replaceEmojiInDisplayHtml(html, shown)).toBe(html);
+
+    const applied = replaceEmojiInDisplayHtml(html, buildReplaceInTextIndex([
+      unicodeRule(THUMBS, '[ok]'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]'),
+    ]));
+    const appliedDom = document.createElement('template');
+    appliedDom.innerHTML = applied;
+    const appliedPhoto = appliedDom.content.querySelector('img');
+
+    expect(appliedPhoto.getAttribute('src')).toBe('/media/x.jpg');
+    expect(appliedPhoto.getAttribute('alt')).toBe(THUMBS);
+    expect(applied).toContain('[ok]');
+    expect(applied).toContain('[blob]');
+    expect(applied).not.toContain('secret.svg');
+    expect(applied).not.toContain('/emoji/1f44c.svg');
+
+    const preview = replaceUnicodeEmojiInPreviewHtml(`<p>Hi ${THUMBS}</p>${html}`, SUPPRESS_UNVERIFIED_INDEX);
+    expect(preview).not.toContain('secret.svg');
+    expect(preview).not.toContain('/emoji/1f44c.svg');
+    expect(preview).not.toContain(THUMBS);
+    expect(preview).toContain('src="/media/x.jpg"');
+    expect(preview).toContain('alt="◻"');
+  });
+});
+
+describe('emojiMuteTextIndexFromState', () => {
+  const rule = fromJS([{
+    emoji: { kind: 'unicode', native: THUMBS },
+    replacement: '[ok]',
+    effects: { replace_in_text: true },
+  }]);
+
+  it('suppresses while unverified, applies rules when ready, and shows everything when ignored or off', () => {
+    expect(emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'suppress', rules: rule } }))).toBe(SUPPRESS_UNVERIFIED_INDEX);
+    const applied = emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'apply', rules: rule } }));
+    expect(applied.active).toBe(true);
+    expect(applied.suppressAll).toBeUndefined();
+    expect(replaceUnicodeEmojiInPlainText(`hi ${THUMBS}`, applied)).toBe('hi [ok]');
+    expect(emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'show', rules: rule } })).active).toBe(false);
+    expect(replaceUnicodeEmojiInPlainText(`hi ${THUMBS}`, emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'show', rules: rule } })))).toBe(`hi ${THUMBS}`);
+    expect(emojiMuteTextIndexFromState(null)).toBeUndefined();
   });
 });

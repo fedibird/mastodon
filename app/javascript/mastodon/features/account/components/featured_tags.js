@@ -8,6 +8,7 @@ import classNames from 'classnames';
 import Permalink from 'mastodon/components/permalink';
 import ShortNumber from 'mastodon/components/short_number';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
+import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   hashtag_all: { id: 'account.hashtag_all', defaultMessage: 'All' },
@@ -55,6 +56,7 @@ class FeaturedTagPermalink extends React.PureComponent {
 
 const mapStateToProps = (state, { account }) => ({
   featuredTags: state.getIn(['user_lists', 'featured_tags', account.get('id'), 'items'], ImmutableList()),
+  emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
 });
 
 export default @connect(mapStateToProps)
@@ -72,6 +74,7 @@ class FeaturedTags extends ImmutablePureComponent {
     routeBase: PropTypes.string,
     onSelectTag: PropTypes.func,
     intl: PropTypes.object.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   render () {
@@ -97,9 +100,10 @@ class FeaturedTags extends ImmutablePureComponent {
             <FeaturedTagPermalink key='all' tagName={null} onSelectTag={onSelectTag} className={classNames('account__hashtag-link', { active: !tagged })} title={intl.formatMessage(messages.hashtag_all_description)} href={account.get('url')} to={routeBase}>{intl.formatMessage(messages.hashtag_all)}</FeaturedTagPermalink>
             {!suspended && displayed.map(featuredTag => {
               const name  = featuredTag.get('name');
+              const shown = presentEmojiMutePlain(name, this.props.emojiMuteTextIndex);
               const url   = featuredTag.get('url');
               const to    = `${routeBase}/${encodeURIComponent(name)}`;
-              const desc  = intl.formatMessage(messages.hashtag_select_description, { name });
+              const desc  = intl.formatMessage(messages.hashtag_select_description, { name: shown });
               const count = featuredTag.get('statuses_count');
               const temporary = !!featuredTag.get('temporary');
               const active = !!tagged && tagged.toLocaleLowerCase() === name.toLocaleLowerCase();
@@ -107,7 +111,7 @@ class FeaturedTags extends ImmutablePureComponent {
 
               return (
                 <FeaturedTagPermalink key={`#${name}`} tagName={name} onSelectTag={onSelectTag} className={classNames('account__hashtag-link', { active, 'account__hashtag-link--temporary': temporary })} title={desc} href={url || account.get('url')} to={to}>
-                  #{name} {countBadge}
+                  #{shown} {countBadge}
                 </FeaturedTagPermalink>
               );
             })}

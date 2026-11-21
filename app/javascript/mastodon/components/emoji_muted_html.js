@@ -1,7 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { ReactReduxContext } from 'react-redux';
-import { emojiMutedPlainLabel, emojiMutedPlainText, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, replaceUnicodeEmojiInPreviewHtml, SUPPRESS_UNVERIFIED_INDEX, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMutedPlainLabel, emojiMutedPlainText, emojiMuteTextIndexFromState, replaceEmojiInDisplayHtml, replaceUnicodeEmojiInPreviewHtml, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 // One Redux subscription per mounted display node. The shared account and
 // status records keep the emojify HTML. A rules change re-renders only these
@@ -9,20 +9,11 @@ import { emojiMutedPlainLabel, emojiMutedPlainText, replaceEmojiInDisplayHtml, r
 // (tests, or the signed-out shell) the original HTML is shown.
 
 const indexFromStore = store => {
-  if (!store) {
+  if (!store || typeof store.getState !== 'function') {
     return undefined;
   }
 
-  const state = store.getState();
-  const display = state && typeof state.getIn === 'function' ? state.getIn(['emojiMutes', 'display']) : undefined;
-
-  if (display === 'suppress') {
-    return SUPPRESS_UNVERIFIED_INDEX;
-  }
-
-  const rules = state && typeof state.getIn === 'function' ? state.getIn(['emojiMutes', 'rules']) : undefined;
-
-  return replaceInTextIndexFromRules(rules);
+  return emojiMuteTextIndexFromState(store.getState());
 };
 
 export function withEmojiMuteTextIndex(Wrapped) {

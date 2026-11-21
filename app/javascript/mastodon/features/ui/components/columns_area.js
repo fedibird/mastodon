@@ -47,6 +47,7 @@ import { supportsPassiveEvents } from 'detect-passive-events';
 import { scrollRight } from '../../../scroll';
 
 import classNames from 'classnames';
+import EmojiMuteLoadNotice from 'mastodon/components/emoji_mute_load_notice';
 
 const componentMap = {
   'COMPOSE': Compose,
@@ -277,6 +278,7 @@ class ColumnsArea extends ImmutablePureComponent {
 
           <div className='columns-area__panels__main'>
             <TabsBar key='tabs' />
+            {!renderComposePanel && <EmojiMuteLoadNotice placement='columns' />}
             {content}
           </div>
 

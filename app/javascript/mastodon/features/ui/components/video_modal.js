@@ -8,6 +8,7 @@ import { getAverageFromBlurhash } from 'mastodon/blurhash';
 import { connect } from 'react-redux';
 import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
 import { modalVideoDimensions, modalVideoFrameStyle } from 'mastodon/utils/modal_video_dimensions';
+import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const mapStateToProps = (state, props) => {
   const status = props.statusId ? state.getIn(['statuses', props.statusId]) : null;
@@ -17,6 +18,7 @@ const mapStateToProps = (state, props) => {
   return {
     translationView,
     lang: translationView ? translationView.mediaLang : props.lang,
+    emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
   };
 };
 
@@ -55,7 +57,7 @@ class VideoModal extends ImmutablePureComponent {
       sourceLang: this.props.lang || '',
       targetLang: this.props.lang || '',
     });
-    const description = accessible.text;
+    const description = presentEmojiMutePlain(accessible.text, this.props.emojiMuteTextIndex);
     const lang = accessible.lang || this.props.lang;
     const dimensions = modalVideoDimensions(media);
 

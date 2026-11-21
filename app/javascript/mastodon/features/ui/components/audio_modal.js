@@ -8,6 +8,7 @@ import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { addReference, removeReference } from 'mastodon/actions/compose';
 import { makeGetStatus } from 'mastodon/selectors';
 import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
+import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const makeMapStateToProps = () => {
   const getStatus = makeGetStatus();
@@ -26,6 +27,7 @@ const makeMapStateToProps = () => {
       accountStaticAvatar: state.getIn(['accounts', state.getIn(['statuses', props.statusId, 'account']), 'avatar_static']),
       translationView,
       lang: translationView ? translationView.mediaLang : props.lang,
+      emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
     };
   };
 
@@ -64,7 +66,7 @@ class AudioModal extends ImmutablePureComponent {
       sourceLang: this.props.lang || '',
       targetLang: this.props.lang || '',
     });
-    const description = accessible.text;
+    const description = presentEmojiMutePlain(accessible.text, this.props.emojiMuteTextIndex);
     const lang = accessible.lang || this.props.lang;
 
     return (

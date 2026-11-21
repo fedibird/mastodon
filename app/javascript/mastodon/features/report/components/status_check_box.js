@@ -6,14 +6,17 @@ import noop from 'lodash/noop';
 import StatusContent from '../../../components/status_content';
 import { MediaGallery, Video } from '../../ui/util/async-components';
 import Bundle from '../../ui/components/bundle';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
-export default class StatusCheckBox extends React.PureComponent {
+class StatusCheckBox extends React.PureComponent {
 
   static propTypes = {
     status: ImmutablePropTypes.map.isRequired,
     checked: PropTypes.bool,
     onToggle: PropTypes.func.isRequired,
     disabled: PropTypes.bool,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   render () {
@@ -38,7 +41,7 @@ export default class StatusCheckBox extends React.PureComponent {
                 thumbhash={video.get('thumbhash')}
                 blurhash={video.get('blurhash')}
                 src={video.get('url')}
-                alt={video.get('description')}
+                alt={presentEmojiMutePlain(video.get('description') || '', this.props.emojiMuteTextIndex)}
                 width={239}
                 height={110}
                 inline
@@ -72,3 +75,5 @@ export default class StatusCheckBox extends React.PureComponent {
   }
 
 }
+
+export default withEmojiMuteTextIndex(StatusCheckBox);
