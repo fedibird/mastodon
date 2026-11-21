@@ -8,8 +8,16 @@ const readSource = filename => readFileSync(path.join(sourceRoot, filename), 'ut
 
 describe('dropdown privacy portal layout selectors', () => {
   it('does not apply the WebUI flex/viewport sizing to overlay siblings', () => {
+    // Reproduce the real WebUI ancestry as well as the portal's siblings.
+    // JSDOM does not reliably match these selectors on a detached test tree.
+    const appHolder = document.createElement('div');
+    appHolder.className = 'app-holder';
+    const portalHost = document.createElement('div');
     const portal = document.createElement('div');
     portal.className = 'emoji-mutes-privacy-portal';
+    appHolder.appendChild(portalHost);
+    portalHost.appendChild(portal);
+    document.body.appendChild(appHolder);
 
     const webui = document.createElement('div');
     webui.className = 'emoji-mutes-webui-hotkeys';
@@ -18,20 +26,22 @@ describe('dropdown privacy portal layout selectors', () => {
     emojiActionsOverlay.id = 'emoji-actions-overlay-root';
     portal.append(webui, overlay, emojiActionsOverlay);
 
-    ['styles/mastodon/basics.scss', 'styles/mastodon/components.scss'].forEach(filename => {
-      const source = readSource(filename);
-      const selectors = [...source.matchAll(/\.emoji-mutes-privacy-portal\s*>\s*([^\s,{]+)/g)]
-        .map(match => `.emoji-mutes-privacy-portal > ${match[1]}`);
+    try {
+      ['styles/mastodon/basics.scss', 'styles/mastodon/components.scss'].forEach(filename => {
+        const source = readSource(filename);
+        const selectors = [...source.matchAll(/\.emoji-mutes-privacy-portal\s*>\s*([^\s,{]+)/g)]
+          .map(match => `.emoji-mutes-privacy-portal > ${match[1]}`);
 
-      expect(selectors.length).toBeGreaterThan(0);
-      selectors.forEach(selector => {
-        // A portal may be detached during a mute revision. Element.matches
-        // evaluates the element's own ancestry without requiring a document root.
-        expect(webui.matches(selector)).toBe(true);
-        expect(overlay.matches(selector)).toBe(false);
-        expect(emojiActionsOverlay.matches(selector)).toBe(false);
+        expect(selectors.length).toBeGreaterThan(0);
+        selectors.forEach(selector => {
+          expect([...document.querySelectorAll(selector)]).toContain(webui);
+          expect(overlay.matches(selector)).toBe(false);
+          expect(emojiActionsOverlay.matches(selector)).toBe(false);
+        });
       });
-    });
+    } finally {
+      appHolder.remove();
+    }
   });
 
   it('marks the actual react-hotkeys DOM wrapper for the scoped layout', () => {
