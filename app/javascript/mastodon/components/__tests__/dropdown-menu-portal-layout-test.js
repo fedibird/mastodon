@@ -9,7 +9,7 @@ const readSource = filename => readFileSync(path.join(sourceRoot, filename), 'ut
 describe('dropdown privacy portal layout selectors', () => {
   it('does not apply the WebUI flex/viewport sizing to overlay siblings', () => {
     // Reproduce the real WebUI ancestry as well as the portal's siblings.
-    // JSDOM does not reliably match these selectors on a detached test tree.
+    // Match against a connected app-holder to reflect the production CSS hierarchy.
     const appHolder = document.createElement('div');
     appHolder.className = 'app-holder';
     const portalHost = document.createElement('div');
