@@ -123,6 +123,20 @@ RSpec.describe EmojiMutes::Preference do
     expect(Setting.unscoped.where(thing_type: 'User', thing_id: with_rule.id, var: 'emoji_mute_enabled').count).to eq(1)
   end
 
+  it 'shows the saved value on the next scoped read in the same request' do
+    expect(user.setting_emoji_mute_enabled).to eq(false)
+
+    user.settings['emoji_mute_enabled'] = true
+
+    expect(user.setting_emoji_mute_enabled).to eq(true)
+    expect(described_class.new(user).effects_enabled?).to eq(true)
+
+    user.settings['emoji_mute_enabled'] = false
+
+    expect(user.setting_emoji_mute_enabled).to eq(false)
+    expect(described_class.new(user).effects_enabled?).to eq(false)
+  end
+
   it 'does not let a paused cache miss fill turn a newer enable off' do
     described_class.new(user).update!(false)
     Rails.cache.delete(Setting.cache_key(described_class::KEY, user))

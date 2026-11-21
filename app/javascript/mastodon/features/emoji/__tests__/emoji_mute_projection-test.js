@@ -770,7 +770,7 @@ describe('emoji mute projection', () => {
     expect(calls.filter(url => url.includes('/api/v1/statuses?'))).toHaveLength(restoredCalls);
   });
 
-  it('skips withheld restore on the first bootstrap and runs it when the UI already exists', async () => {
+  it('restores withheld statuses on the first bootstrap without refreshing notifications', async () => {
     resetEmojiMuteStoreForTests();
     installEmojiMutesForTests({ revision: '5', emoji_mutes: [] });
     const calls = [];
@@ -842,15 +842,14 @@ describe('emoji mute projection', () => {
     };
 
     await syncEmojiMutes({ bootstrap: true })(dispatch, getState);
-    expect(calls.some(url => url.includes('/api/v1/statuses?'))).toBe(false);
+    expect(calls.filter(url => url.includes('/api/v1/statuses?')).join(' ')).toContain('ids[]=pending');
     expect(calls.some(url => url.includes('/api/v1/notifications'))).toBe(false);
-    expect(state.getIn(['statuses', 'pending', 'emoji_reactions_withheld'])).toBe(true);
+    expect(state.getIn(['statuses', 'pending', 'emoji_reactions_withheld'])).toBeUndefined();
 
     calls.length = 0;
     await syncEmojiMutes()(dispatch, getState);
-    expect(calls.filter(url => url.includes('/api/v1/statuses?')).join(' ')).toContain('ids[]=pending');
+    expect(calls.some(url => url.includes('/api/v1/statuses?'))).toBe(false);
     expect(calls.some(url => url.includes('/api/v1/notifications') && !url.includes('unread'))).toBe(true);
-    expect(state.getIn(['statuses', 'pending', 'emoji_reactions_withheld'])).toBeUndefined();
   });
 
   it('limits initial recovery to explicitly withheld reactions and waits until rules are ready', () => {

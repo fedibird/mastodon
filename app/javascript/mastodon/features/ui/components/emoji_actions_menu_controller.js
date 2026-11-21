@@ -1160,9 +1160,9 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.handleClose();
   };
 
-  confirmMuteAction = (decision, enable) => {
+  confirmMuteAction = (decision, enable, preservedReference) => {
     const { intl } = this.props;
-    const reference = this.state.reference;
+    const reference = preservedReference || this.state.reference;
     let messageId = messages.muteConfirm;
 
     if (decision.reason === 'reenable') {
@@ -1275,10 +1275,12 @@ class EmojiActionsMenuController extends React.PureComponent {
       endMuteMutation(reference);
 
       const reenable = !enable && error && Array.isArray(error.errors) && error.errors.some(item => item && item.code === 'reenable_required');
+      const openReference = this.state.reference;
+      const closedForThisEmoji = !openReference && session && referencesEqual(session.reference, reference);
 
-      if (reenable && canApplyMutationToOpenMenu(session, { reference: this.state.reference })) {
+      if (reenable && (canApplyMutationToOpenMenu(session, { reference: openReference }) || closedForThisEmoji)) {
         this.setState({ busy: false, error: null });
-        this.confirmMuteAction({ reason: 'reenable' }, true);
+        this.confirmMuteAction({ reason: 'reenable' }, true, reference);
         return;
       }
 

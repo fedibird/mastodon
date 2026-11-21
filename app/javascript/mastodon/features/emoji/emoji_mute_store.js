@@ -147,6 +147,7 @@ export function emojiMuteDocumentReady() {
 export function resetEmojiMuteSession() {
   sessionVersion += 1;
   requestVersion += 1;
+  beginEmojiMutePreferenceRead();
   observedRevision = null;
   appliedRevision = null;
   mutes = [];
@@ -236,7 +237,7 @@ function documentPreference(document) {
   return null;
 }
 
-function adopt(document, minRevision) {
+function adopt(document, minRevision, preferenceGeneration) {
   if (!document || !Array.isArray(document.emoji_mutes) || !REVISION.test(String(document.revision))) {
     throw new Error('Invalid emoji mute document');
   }
@@ -260,6 +261,12 @@ function adopt(document, minRevision) {
   }
 
   if (preference === false) {
+    // A preference read that started after this list owns the outcome.
+    // Adopting this snapshot would also invalidate that newer read.
+    if (preferenceGeneration !== preferenceReadGeneration) {
+      return mutes;
+    }
+
     applyEmojiMuteDisabledDocument();
     appliedRevision = next;
     observedRevision = next;
@@ -324,6 +331,7 @@ export function loadEmojiMutes(options = {}) {
 
   const version = ++requestVersion;
   const session = sessionVersion;
+  const preferenceGeneration = preferenceReadGeneration;
   const pending = api().get('/api/v1/fedibird/emoji_mutes', { headers, timeout: EMOJI_MUTES_GET_TIMEOUT_MS }).then(response => {
     // Force refresh, session reset, or another user's request superseded us.
     // The old promise may finish, but it must not mutate the module document.
@@ -337,7 +345,7 @@ export function loadEmojiMutes(options = {}) {
       throw new Error('Emoji mute revision did not reach the verified version');
     }
 
-    return adopt(response.data, options.minRevision);
+    return adopt(response.data, options.minRevision, preferenceGeneration);
   }).finally(() => {
     if (request === pending) {
       request = null;
@@ -398,6 +406,14 @@ export function resetEmojiMuteStoreForTests() {
 }
 
 let preferenceReadGeneration = 0;
+
+export function emojiMuteRequestVersion() {
+  return requestVersion;
+}
+
+export function emojiMutePreferenceGeneration() {
+  return preferenceReadGeneration;
+}
 
 export function beginEmojiMutePreferenceRead() {
   preferenceReadGeneration += 1;

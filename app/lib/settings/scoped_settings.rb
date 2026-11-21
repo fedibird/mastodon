@@ -49,7 +49,9 @@ module Settings
         record.update!(value: value)
         # The saved argument can be older than a commit that landed after this
         # request read the row. The refresh writes the current database value.
+        # The request memo must not keep the value from before this write.
         EmojiMutes::Preference.refresh_cache(record)
+        EmojiMutes::Preference.new(@object).forget_rules!
       else
         record = thing_scoped.find_or_initialize_by(var: key)
         record.update!(value: value)

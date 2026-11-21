@@ -24,6 +24,8 @@ import {
   invalidateEmojiMuteNotificationFetches,
   beginEmojiMutePreferenceRead,
   emojiMutePreferenceReadCurrent,
+  emojiMutePreferenceGeneration,
+  emojiMuteRequestVersion,
   loadEmojiMutePreference,
 } from '../features/emoji/emoji_mute_store';
 import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
@@ -525,7 +527,7 @@ export function refreshEmojiMuteSurfaces(options = {}) {
     // this refresh starts. Such an unread_count response can still be stale.
     const acknowledgedReadId = getState().getIn(['markers', 'notifications'], null);
     const readNotAcknowledged = acknowledgedReadId !== null && compareId(readIdAtRequest, String(acknowledgedReadId)) > 0;
-    const notificationTask = api(getState).get('/api/v1/notifications', { params }).then(response => {
+    const notificationTask = options.skipNotifications ? Promise.resolve(null) : api(getState).get('/api/v1/notifications', { params }).then(response => {
       if (!surfaceRefreshCurrent(generation) || notificationEpoch !== emojiMuteNotificationFetchEpoch() || !Array.isArray(response.data)) {
         return null;
       }
@@ -648,9 +650,14 @@ export function restoreVisibleEmojiMuteStatus(id) {
 
 let documentSyncGeneration = 0;
 let initialDocumentSync = null;
+let initialDocumentRequestVersion = null;
 
 function plainInitialFollowUp(options) {
   return !options.bootstrap && !options.reconnect && !options.changed && options.verify !== true;
+}
+
+function initialDocumentStillCurrent() {
+  return initialDocumentSync && initialDocumentRequestVersion === emojiMuteRequestVersion();
 }
 
 // A viewer boundary invalidates both in-flight document continuations and
@@ -659,6 +666,7 @@ function plainInitialFollowUp(options) {
 export function invalidateEmojiMuteAsyncWork() {
   documentSyncGeneration += 1;
   initialDocumentSync = null;
+  initialDocumentRequestVersion = null;
   resetEmojiMuteSurfaces();
 }
 
@@ -694,12 +702,14 @@ export function syncEmojiMutes(options = {}) {
 
     // The user stream connects while the first fetch is still running.
     // Joining it keeps that fetch from being superseded and refreshing
-    // notifications before the columns exist.
-    if (initialDocumentSync && plainInitialFollowUp(options)) {
+    // notifications before the columns exist. A preference change that
+    // already invalidated the request must start its own GET.
+    if (initialDocumentStillCurrent() && plainInitialFollowUp(options)) {
       return initialDocumentSync;
     }
 
     const generation = ++documentSyncGeneration;
+    const preferenceGeneration = emojiMutePreferenceGeneration();
     const previousRevision = appliedEmojiMuteRevision();
     const previousSignature = hideReactionSignature(currentEmojiMutes());
     const pending = options.changed ? noteEmojiMutesChanged(options.changed) : loadEmojiMutes({
@@ -721,7 +731,10 @@ export function syncEmojiMutes(options = {}) {
       if (currentEmojiMuteBoot().availability === 'disabled') {
         dispatch({ type: EMOJI_MUTES_DISABLE });
         if (options.bootstrap) {
-          return mutes;
+          return refreshEmojiMuteSurfaces({
+            restoreWithheld: true,
+            skipNotifications: true,
+          })(dispatch, getState).then(() => mutes);
         }
 
         return dispatch(revealEmojiMuteEffects(previousSignature)).then(() => mutes);
@@ -737,6 +750,10 @@ export function syncEmojiMutes(options = {}) {
       // than a streaming revision. An unresolved gap is a failure, not an
       // endless loading spinner. The WebUI stays mounted and emoji stay hidden.
       if (!emojiMuteDocumentReady()) {
+        if (preferenceGeneration !== emojiMutePreferenceGeneration()) {
+          return null;
+        }
+
         dispatch({
           type: EMOJI_MUTES_FAIL,
           failure: emojiMuteAuthorizationFailure() || 'unavailable',
@@ -762,12 +779,14 @@ export function syncEmojiMutes(options = {}) {
         recovered: true,
       });
 
-      // The first mount has no status or notification column yet. Skip the
-      // refresh so that mount does not wait on another round trip. A retry
-      // after the UI exists must not use this flag: withheld reactions and
-      // the notification list are restored by the refresh below.
+      // The first mount skips the notification round trip. Statuses imported
+      // with their reactions withheld still need a refetch once the rules
+      // exist. A retry after the UI exists restores both.
       if (options.bootstrap) {
-        return mutes;
+        return refreshEmojiMuteSurfaces({
+          restoreWithheld: true,
+          skipNotifications: true,
+        })(dispatch, getState).then(() => mutes);
       }
 
       return refreshEmojiMuteSurfaces({
@@ -808,8 +827,10 @@ export function syncEmojiMutes(options = {}) {
       tracked = syncPromise.finally(() => {
         if (initialDocumentSync === tracked) {
           initialDocumentSync = null;
+          initialDocumentRequestVersion = null;
         }
       });
+      initialDocumentRequestVersion = emojiMuteRequestVersion();
       initialDocumentSync = tracked;
       return tracked;
     }
