@@ -22,8 +22,11 @@ import {
   saveEmojiMuteEnabled,
   emojiMuteTemporarilyIgnored,
   invalidateEmojiMuteNotificationFetches,
+  beginEmojiMutePreferenceConfirmation,
   beginEmojiMutePreferenceRead,
+  emojiMutePreferenceConfirmationCurrent,
   emojiMutePreferenceReadCurrent,
+  endEmojiMutePreferenceConfirmation,
   emojiMutePreferenceGeneration,
   emojiMuteRequestVersion,
   notePreferenceRevision,
@@ -136,16 +139,16 @@ function applyAuthoritativeEmojiMutePreference(enabled) {
 
 // The stream payload is only a notice that the preference changed. A slow
 // false event must not win over a newer read of the saved row.
-export function applyRemoteEmojiMutePreference() {
+export function applyRemoteEmojiMutePreference(options = {}) {
   return dispatch => {
-    const generation = beginEmojiMutePreferenceRead();
+    const generation = options.generation === undefined ? beginEmojiMutePreferenceRead() : options.generation;
 
     return loadEmojiMutePreference().then(data => {
-      if (!emojiMutePreferenceReadCurrent(generation) || !data || preferenceRevisionStale(data.revision)) {
+      if (!emojiMutePreferenceReadCurrent(generation) || !data || preferenceRevisionStale(data.preference_revision)) {
         return null;
       }
 
-      notePreferenceRevision(data.revision);
+      notePreferenceRevision(data.preference_revision);
       return dispatch(applyAuthoritativeEmojiMutePreference(data.enabled));
     });
   };
@@ -713,9 +716,17 @@ export function syncEmojiMutes(options = {}) {
     }
 
     if (options.reconnect && currentEmojiMuteBoot().availability === 'disabled') {
+      const confirmation = beginEmojiMutePreferenceConfirmation();
       noteEmojiMutePreferenceConfirming();
       dispatch({ type: EMOJI_MUTES_CONFIRM });
-      return dispatch(applyRemoteEmojiMutePreference()).catch(error => {
+      const generation = beginEmojiMutePreferenceRead();
+
+      return dispatch(applyRemoteEmojiMutePreference({ generation })).catch(error => {
+        if (!emojiMutePreferenceReadCurrent(generation) || !emojiMutePreferenceConfirmationCurrent(confirmation)) {
+          return null;
+        }
+
+        endEmojiMutePreferenceConfirmation(confirmation);
         dispatch({
           type: EMOJI_MUTES_FAIL,
           failure: classifyEmojiMuteFetchError(error),

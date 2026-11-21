@@ -68,7 +68,7 @@ jest.mock('mastodon/actions/emoji_mutes', () => ({
   invalidateEmojiMuteAsyncWork: jest.fn(),
   retryEmojiMuteLoad: jest.fn(() => () => mockRequest.promise),
   ignoreEmojiMutesThisView: jest.fn(() => ({ type: 'EMOJI_MUTES_IGNORE' })),
-  disableEmojiMuteFeature: jest.fn(() => () => Promise.resolve({ enabled: false, explicit: true })),
+  disableEmojiMuteFeature: jest.fn(() => () => Promise.resolve({ enabled: false, explicit: true, applied: true })),
 }));
 jest.mock('mastodon/locales', () => ({ getLocale: () => ({ localeData: [], messages: {} }) }));
 jest.mock('react-intl', () => {
@@ -261,6 +261,40 @@ describe('authenticated emoji mute bootstrap', () => {
     await bootReady();
     expect(view.getByTestId('webui')).toBe(ui);
     expect(mockUiMounts).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  it('closes the notice only after emoji muting is confirmed off', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await rejectBootstrap(new Error('offline'));
+
+    await act(async () => {
+      fireEvent.click(view.getByText('Turn emoji muting off'));
+      await Promise.resolve();
+    });
+
+    expect(view.queryByText(/could not be verified/)).toBeNull();
+    expect(view.queryByText(/stayed on because the setting could not be saved/)).toBeNull();
+    expect(view.getByTestId('webui')).not.toBeNull();
+    view.unmount();
+  });
+
+  it('keeps the notice and a recovery path when turning emoji muting off is not confirmed', async () => {
+    disableEmojiMuteFeature.mockImplementationOnce(() => () => Promise.resolve({ enabled: true, applied: true, explicit: true }));
+    const view = render(<Mastodon locale='en' />);
+    await rejectBootstrap(new Error('offline'));
+
+    await act(async () => {
+      fireEvent.click(view.getByText('Turn emoji muting off'));
+      await Promise.resolve();
+    });
+
+    expect(view.getByText(/could not be verified/)).not.toBeNull();
+    expect(view.getByText(/stayed on because the setting could not be saved/)).not.toBeNull();
+    expect(view.getByText('Retry loading settings')).not.toBeNull();
+    expect(view.getByText('Ignore this time and continue')).not.toBeNull();
+    expect(view.getByText('Turn emoji muting off')).not.toBeNull();
+    expect(view.getByTestId('webui')).not.toBeNull();
     view.unmount();
   });
 

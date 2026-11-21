@@ -1141,6 +1141,40 @@ describe('emoji mute projection', () => {
     expect(restored.get('unread')).toBe(1);
   });
 
+  it('adjusts unread by the restored or hidden rows and keeps the unloaded total', () => {
+    resetEmojiMuteStoreForTests();
+    const base = fromJS({
+      items: [{ id: '4', type: 'mention', account: { id: '1' } }],
+      pendingItems: [],
+      unread: 10,
+      lastReadId: '5',
+      top: false,
+      mounted: 0,
+      isTabVisible: true,
+      hasMore: true,
+    });
+    const withheld = notificationsReducer(base, {
+      type: 'NOTIFICATIONS_UPDATE',
+      notification: {
+        id: '8',
+        type: 'emoji_reaction',
+        account: { id: '1' },
+        emoji_reaction: { name: '😀' },
+      },
+    });
+    expect(withheld.get('unread')).toBe(10);
+
+    installEmojiMutesForTests({ revision: '1', emoji_mutes: [] });
+    const restored = notificationsReducer(withheld, { type: EMOJI_MUTES_APPLY, mutes: [], revision: '1' });
+    expect(restored.get('items').some(item => item.get('id') === '8')).toBe(true);
+    expect(restored.get('unread')).toBe(11);
+
+    const hide = [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '😀' } }];
+    const hidden = notificationsReducer(restored, { type: EMOJI_MUTES_APPLY, mutes: hide, revision: '2' });
+    expect(hidden.get('items').some(item => item.get('id') === '8')).toBe(false);
+    expect(hidden.get('unread')).toBe(10);
+  });
+
   it('does not restore a withheld notification after clear, block, or a filter change', () => {
     installEmojiMutesForTests({ revision: '2', emoji_mutes: [] });
     const hidden = fromJS({ id: '11', type: 'emoji_reaction', account: 'acct-1', status: 'post-1', emoji_reaction: { name: 'blob', custom_emoji_id: '11' } });

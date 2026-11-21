@@ -247,11 +247,16 @@ const reconcileEmojiReactionNotifications = (state, rules) => {
     .set('pendingItems', pendingItems)
     .set('emojiMuteWithheld', ImmutableList(withheld));
 
-  const lastReadId = next.get('lastReadId');
-  const readMarkerId = next.get('readMarkerId');
+  const lastReadId = state.get('lastReadId');
 
-  if (lastReadId !== null && lastReadId !== undefined && readMarkerId !== null && readMarkerId !== undefined && shouldCountUnreadNotifications(next)) {
-    next = recountUnread(next, next.get('lastReadId'));
+  if (lastReadId !== null && lastReadId !== undefined && shouldCountUnreadNotifications(next)) {
+    const before = countUnreadNotifications(state.get('items'), state.get('pendingItems'), lastReadId);
+    const after = countUnreadNotifications(items, pendingItems, lastReadId);
+    const delta = after - before;
+
+    if (delta !== 0) {
+      next = next.set('unread', Math.max(0, (state.get('unread') || 0) + delta));
+    }
   }
 
   return next;
@@ -339,6 +344,14 @@ const shouldCountUnreadNotifications = (state, ignoreScroll = false) => {
   const lastItemReached = !state.get('hasMore') || lastReadId === '0' || (lastItem && compareId(lastItem.get('id'), lastReadId) <= 0);
 
   return !(isTabVisible && (ignoreScroll || isOnTop) && isMounted && lastItemReached);
+};
+
+const countUnreadNotifications = (items, pendingItems, lastReadId) => {
+  const count = list => (list && typeof list.count === 'function'
+    ? list.count(item => item && compareId(item.get('id'), lastReadId) > 0)
+    : 0);
+
+  return count(items) + count(pendingItems);
 };
 
 const recountUnread = (state, last_read_id) => {

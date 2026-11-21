@@ -10,6 +10,7 @@ import initialState from '../initial_state';
 import { fetchCircles } from '../actions/circles';
 import { ensureCustomEmojis } from '../actions/custom_emojis';
 import { bootStandaloneEmojiMutes } from '../actions/emoji_mutes';
+import StandaloneEmojiMuteRetry from '../features/emoji/standalone_emoji_mute_retry';
 import { preloadCustomEmojiCatalogIfNeeded, preloadStandardEmojiPickerIfNeeded } from '../features/emoji/emoji_picker_preferences';
 
 const { localeData, messages } = getLocale();
@@ -39,6 +40,7 @@ export default class TimelineContainer extends React.PureComponent {
     return (
       <IntlProvider locale={locale} messages={messages}>
         <Provider store={store}>
+          <StandaloneEmojiMuteRetry />
           <Compose />
         </Provider>
       </IntlProvider>

@@ -338,8 +338,13 @@ export default class Mastodon extends React.PureComponent {
     }
 
     this.setState({ preferenceSaving: true, preferenceError: false });
-    store.dispatch(disableEmojiMuteFeature()).then(() => {
+    store.dispatch(disableEmojiMuteFeature()).then(data => {
       if (!this.mounted || this.sessionChanged) {
+        return;
+      }
+
+      if (!data || data.applied !== true || data.enabled !== false) {
+        this.setState({ preferenceSaving: false, preferenceError: true });
         return;
       }
 

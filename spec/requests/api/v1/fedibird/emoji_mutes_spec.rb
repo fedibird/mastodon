@@ -135,10 +135,25 @@ RSpec.describe 'Emoji mute API', type: :request do
     expect(parsed.dig('emoji_mute', 'effects').values).to all(be false)
     expect(parsed.dig('revision')).to eq '3'
 
-    get path, headers: headers.merge('If-None-Match' => 'W/"emoji-mutes-3"')
+    get path, headers: headers
+    rules_etag = response.headers['ETag']
+    expect(parsed['revision']).to eq '3'
+    expect(parsed['preference_revision']).to be_present
+    expect(parsed['preference_revision']).not_to eq parsed['revision']
+
+    get path, headers: headers.merge('If-None-Match' => rules_etag)
     expect(response).to have_http_status(:not_modified)
     expect(response.body).to be_empty
     expect(response.headers['Cache-Control']).to eq 'private, no-store'
+
+    preference = EmojiMutes::Preference.new(user)
+    was_enabled = preference.enabled?
+    preference.update!(!was_enabled)
+    get path, headers: headers.merge('If-None-Match' => rules_etag)
+    expect(response).to have_http_status(:ok)
+    expect(parsed['revision']).to eq '3'
+    expect(parsed['enabled']).to eq !was_enabled
+    expect(parsed['preference_revision']).not_to eq parsed['revision']
 
     other = Fabricate(:user)
     other_token = Fabricate(:accessible_access_token, resource_owner_id: other.id, scopes: 'write:mutes')

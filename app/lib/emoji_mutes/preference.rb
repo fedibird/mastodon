@@ -59,7 +59,7 @@ module EmojiMutes
         'explicit' => explicit?,
         'known' => true,
         'modal' => modal?,
-        'revision' => self.class.revision_of(record),
+        'preference_revision' => self.class.revision_of(record),
       }
     end
 
@@ -88,7 +88,7 @@ module EmojiMutes
       end
       forget_rules!
       self.class.publish!(@user, enabled) if changed
-      as_json.merge('enabled' => enabled, 'explicit' => true, 'revision' => revision)
+      as_json.merge('enabled' => enabled, 'explicit' => true, 'preference_revision' => revision)
     end
 
     # Inside the mute-create transaction. The caller already holds User.lock.

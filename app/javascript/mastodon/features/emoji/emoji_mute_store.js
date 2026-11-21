@@ -32,6 +32,8 @@ let sessionVersion = 0;
 let authorizationFailure = null;
 let viewerSignedInOverride = null;
 let temporaryIgnore = false;
+let preferenceConfirming = false;
+let preferenceConfirmGeneration = 0;
 const documentListeners = new Set();
 
 function rulesFetchSkipped() {
@@ -127,6 +129,12 @@ export function blockEmojiMuteAuthorization(failure) {
 }
 
 export function emojiMuteDocumentReady() {
+  // Reconnect confirmation has already hidden emoji in Redux. The module
+  // must not keep accepting reactions from the previous OFF snapshot.
+  if (preferenceConfirming) {
+    return false;
+  }
+
   if (rulesFetchSkipped()) {
     return true;
   }
@@ -143,12 +151,42 @@ export function emojiMuteDocumentReady() {
     (observedRevision === null || compareRevision(appliedRevision, observedRevision) >= 0);
 }
 
+function releaseEmojiMutePreferenceConfirmation() {
+  preferenceConfirmGeneration += 1;
+  preferenceConfirming = false;
+}
+
+export function beginEmojiMutePreferenceConfirmation() {
+  preferenceConfirming = true;
+  preferenceConfirmGeneration += 1;
+  requestVersion += 1;
+  request = null;
+  settled = false;
+  notifyEmojiMuteDocument();
+  return preferenceConfirmGeneration;
+}
+
+export function emojiMutePreferenceConfirmationCurrent(generation) {
+  return generation === preferenceConfirmGeneration;
+}
+
+export function endEmojiMutePreferenceConfirmation(generation) {
+  if (generation !== preferenceConfirmGeneration) {
+    return false;
+  }
+
+  releaseEmojiMutePreferenceConfirmation();
+  notifyEmojiMuteDocument();
+  return true;
+}
+
 // Invalidate outstanding GETs before an account boundary is crossed. No
 // credential, definition or replacement text is persisted in browser storage.
 export function resetEmojiMuteSession() {
   sessionVersion += 1;
   requestVersion += 1;
   appliedPreferenceRevision = '0';
+  releaseEmojiMutePreferenceConfirmation();
   beginEmojiMutePreferenceRead();
   observedRevision = null;
   appliedRevision = null;
@@ -163,6 +201,7 @@ export function resetEmojiMuteSession() {
 
 export function beginEmojiMuteEnabledFetch() {
   noteEmojiMuteEnabledLocally();
+  releaseEmojiMutePreferenceConfirmation();
   beginEmojiMutePreferenceRead();
   temporaryIgnore = false;
   requestVersion += 1;
@@ -176,6 +215,7 @@ export function beginEmojiMuteEnabledFetch() {
 
 export function applyEmojiMuteDisabledDocument() {
   noteEmojiMuteDisabledLocally();
+  releaseEmojiMutePreferenceConfirmation();
   beginEmojiMutePreferenceRead();
   temporaryIgnore = false;
   requestVersion += 1;
@@ -190,6 +230,7 @@ export function applyEmojiMuteDisabledDocument() {
 
 export function ignoreEmojiMutesForThisView() {
   temporaryIgnore = true;
+  releaseEmojiMutePreferenceConfirmation();
   requestVersion += 1;
   request = null;
   settled = true;
@@ -359,7 +400,7 @@ export function loadEmojiMutes(options = {}) {
 }
 
 export function noteEmojiMutesChanged(payload) {
-  if (rulesFetchSkipped()) {
+  if (preferenceConfirming || rulesFetchSkipped()) {
     return Promise.resolve(mutes);
   }
 
@@ -453,7 +494,7 @@ function acceptablePreference(data) {
 }
 
 function applySavedPreference(data) {
-  notePreferenceRevision(data.revision);
+  notePreferenceRevision(data.preference_revision);
 
   if (data.enabled === false) {
     applyEmojiMuteDisabledDocument();
@@ -494,7 +535,7 @@ function confirmSavedPreference(generation) {
       throw new Error('Emoji mute preference was not saved');
     }
 
-    if (!emojiMutePreferenceReadCurrent(generation) || preferenceRevisionStale(data.revision)) {
+    if (!emojiMutePreferenceReadCurrent(generation) || preferenceRevisionStale(data.preference_revision)) {
       return { ...data, applied: false };
     }
 
@@ -517,7 +558,7 @@ export function saveEmojiMuteEnabled(enabled) {
       throw new Error('Emoji mute preference was not saved');
     }
 
-    if (!emojiMutePreferenceReadCurrent(generation) || preferenceRevisionStale(data.revision)) {
+    if (!emojiMutePreferenceReadCurrent(generation) || preferenceRevisionStale(data.preference_revision)) {
       return confirmSavedPreference(generation);
     }
 
@@ -533,6 +574,7 @@ export function saveEmojiMuteEnabled(enabled) {
 
 export function installEmojiMutesForTests(document) {
   // No pending request from another fixture may overwrite this document.
+  releaseEmojiMutePreferenceConfirmation();
   requestVersion += 1;
   sessionVersion += 1;
   appliedRevision = String(document.revision);
