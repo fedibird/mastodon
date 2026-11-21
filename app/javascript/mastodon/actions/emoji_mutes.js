@@ -691,6 +691,12 @@ export function syncEmojiMutes(options = {}) {
         return dispatch(revealEmojiMuteEffects(previousSignature)).then(() => mutes);
       }
 
+      // Ignore or a completed OFF happened while this GET was in flight.
+      // Adopting it would replace that recovery with the old request.
+      if (emojiMuteTemporarilyIgnored()) {
+        return mutes;
+      }
+
       // A request may resolve successfully while returning a document older
       // than a streaming revision. An unresolved gap is a failure, not an
       // endless loading spinner. The WebUI stays mounted and emoji stay hidden.
@@ -736,6 +742,10 @@ export function syncEmojiMutes(options = {}) {
     }).catch(error => {
       if (generation !== documentSyncGeneration) {
         throw error;
+      }
+
+      if (emojiMuteTemporarilyIgnored() || currentEmojiMuteBoot().availability === 'disabled') {
+        return null;
       }
 
       const failure = classifyEmojiMuteFetchError(error);

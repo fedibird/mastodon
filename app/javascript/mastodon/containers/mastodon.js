@@ -310,6 +310,12 @@ export default class Mastodon extends React.PureComponent {
         return;
       }
 
+      const availability = store.getState().getIn(['emojiMutes', 'availability']);
+
+      if (availability === 'temporary_ignore' || availability === 'disabled') {
+        return;
+      }
+
       const failure = classifyEmojiMuteFetchError(error);
       this.bootstrapComplete = true;
       this.requestedBootPhase = 'error';

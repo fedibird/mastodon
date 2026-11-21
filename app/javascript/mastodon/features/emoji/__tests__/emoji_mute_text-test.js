@@ -618,7 +618,7 @@ describe('unicode preview text', () => {
   });
 
   it('omits unverified emoji from html, alt, and spoken text', () => {
-    const html = `<p>hi ${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })} ${img({ alt: ':blob:', src: 'https://cdn.example/secret.svg', custom: true, extra: ' data-shortcode="blob"' })} ${FAMILY} ${DOUBLE_EXCLAMATION}</p>`;
+    const html = `<p>hi ${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })} ${img({ alt: ':blob:', src: 'https://cdn.example/secret.svg', custom: true, extra: ' data-shortcode="blob"' })} ${FAMILY} ${DOUBLE_EXCLAMATION}</p><a href="https://example.test/keep" title="${THUMBS}" aria-label="${THUMBS}" aria-labelledby="emoji-name">link</a>`;
     const hidden = replaceEmojiInDisplayHtml(html, SUPPRESS_UNVERIFIED_INDEX);
     const template = document.createElement('template');
     template.innerHTML = hidden;
@@ -631,7 +631,12 @@ describe('unicode preview text', () => {
     expect(hidden).not.toContain(FAMILY);
     expect(hidden).not.toContain(DOUBLE_EXCLAMATION);
     expect(hidden).toContain('◻');
+    expect(template.content.querySelector('a').getAttribute('title')).toBe('◻');
+    expect(template.content.querySelector('a').getAttribute('aria-label')).toBe('◻');
+    expect(template.content.querySelector('a').getAttribute('href')).toBe('https://example.test/keep');
+    expect(template.content.querySelector('a').getAttribute('aria-labelledby')).toBe('emoji-name');
     expect(emojiMutedPlainText(`hello ${THUMBS}`, '', SUPPRESS_UNVERIFIED_INDEX)).toBe('hello ◻');
+    expect(emojiMutedPlainLabel(`hello ${THUMBS}`, '', SUPPRESS_UNVERIFIED_INDEX)).toBe('hello ◻');
     expect(emojiMutedPlainLabel(`hello ${THUMBS}`, html, SUPPRESS_UNVERIFIED_INDEX)).not.toContain(THUMBS);
     expect(emojiMutedPlainLabel(`hello ${THUMBS}`, html, SUPPRESS_UNVERIFIED_INDEX)).not.toContain(':blob:');
   });

@@ -184,6 +184,46 @@ describe('emoji mute preference flow', () => {
     expect(currentEmojiMuteBoot().availability).toBe('enabled');
   });
 
+  it('keeps ignore in place when the in-flight list fails', async () => {
+    installEmojiMutesForTests({ revision: '3', emoji_mutes: [hideRule] });
+    const pending = deferred();
+
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mutes') {
+        return pending.promise;
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    const loading = syncEmojiMutes()(dispatch, root);
+    await dispatch(ignoreEmojiMutesThisView());
+    pending.reject(Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }));
+    await expect(loading).resolves.toBeNull();
+    expect(emojiMutes.get('availability')).toBe('temporary_ignore');
+    expect(emojiMutes.get('phase')).not.toBe('error');
+  });
+
+  it('does not adopt a list that arrives after this view ignores mutes', async () => {
+    installEmojiMutesForTests({ revision: '3', emoji_mutes: [hideRule] });
+    const pending = deferred();
+
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mutes') {
+        return pending.promise;
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    const loading = syncEmojiMutes()(dispatch, root);
+    await dispatch(ignoreEmojiMutesThisView());
+    pending.resolve({ data: { revision: '9', enabled: true, emoji_mutes: [hideRule] } });
+    await loading;
+    expect(emojiMutes.get('availability')).toBe('temporary_ignore');
+    expect(currentEmojiMutes()).toEqual([]);
+  });
+
   it('does not refresh notifications on the first document fetch', async () => {
     api().get.mockResolvedValue({ data: { revision: '1', enabled: true, emoji_mutes: [] } });
 

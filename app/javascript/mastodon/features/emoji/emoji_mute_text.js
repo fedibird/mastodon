@@ -533,6 +533,7 @@ const transformHtml = (html, index) => {
 
   if (index && index.suppressAll === true) {
     suppressTextNodes(template.content);
+    suppressLabelAttributes(template.content);
     changed = true;
   }
 
@@ -543,6 +544,28 @@ const transformHtml = (html, index) => {
   const holder = document.createElement('div');
   holder.appendChild(template.content);
   return holder.innerHTML;
+};
+
+const suppressLabelAttributes = root => {
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return;
+  }
+
+  root.querySelectorAll('[title], [aria-label]').forEach(element => {
+    ['title', 'aria-label'].forEach(name => {
+      const value = element.getAttribute(name);
+
+      if (!value) {
+        return;
+      }
+
+      const next = suppressUnicodeEmoji(value);
+
+      if (next !== value) {
+        element.setAttribute(name, next);
+      }
+    });
+  });
 };
 
 const suppressTextNodes = root => {
@@ -1047,7 +1070,11 @@ export function emojiMutedPlainLabel(plain, html, index) {
   const presented = replaceEmojiInDisplayHtml(html, index);
 
   if (presented === html || typeof presented !== 'string') {
-    return plain;
+    if (!index || index.active !== true) {
+      return plain;
+    }
+
+    return replaceUnicodeEmojiInPlainText(plain, index);
   }
 
   const signature = index && index.signature ? index.signature : '';

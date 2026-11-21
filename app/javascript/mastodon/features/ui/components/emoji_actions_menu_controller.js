@@ -1163,7 +1163,6 @@ class EmojiActionsMenuController extends React.PureComponent {
   confirmMuteAction = (decision, enable) => {
     const { intl } = this.props;
     const reference = this.state.reference;
-    const session = captureMenuSession(this.loadGeneration, reference);
     let messageId = messages.muteConfirm;
 
     if (decision.reason === 'reenable') {
@@ -1172,11 +1171,12 @@ class EmojiActionsMenuController extends React.PureComponent {
       messageId = messages.muteFirstEnable;
     }
 
+    this.handleClose();
     this.props.onConfirm({
       message: intl.formatMessage(messageId),
       confirm: intl.formatMessage(messages.mute),
       onConfirm: () => {
-        if (!canApplyMutationToOpenMenu(session, { reference: this.state.reference })) {
+        if (this.state.reference && !referencesEqual(this.state.reference, reference)) {
           return;
         }
 
@@ -1200,7 +1200,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     const { intl, onSyncMutes } = this.props;
     const reference = capturedReference || this.state.reference;
 
-    if (capturedReference && !referencesEqual(this.state.reference, capturedReference)) {
+    if (capturedReference && this.state.reference && !referencesEqual(this.state.reference, capturedReference)) {
       return;
     }
 
@@ -1303,17 +1303,17 @@ class EmojiActionsMenuController extends React.PureComponent {
 
     if (decision.required) {
       const { intl } = this.props;
-      const session = captureMenuSession(this.loadGeneration, reference);
 
+      this.handleClose();
       this.props.onConfirm({
         message: intl.formatMessage(messages.unmuteConfirm),
         confirm: intl.formatMessage(messages.unmute),
         onConfirm: () => {
-          if (!canApplyMutationToOpenMenu(session, { reference: this.state.reference })) {
+          if (this.state.reference && !referencesEqual(this.state.reference, reference)) {
             return;
           }
 
-          if (!this.state.mute || !mute || this.state.mute.id !== mute.id) {
+          if (this.state.mute && mute && this.state.mute.id !== mute.id) {
             return;
           }
 
@@ -1331,7 +1331,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     const mute = capturedMute || this.state.mute;
     const reference = capturedReference || this.state.reference;
 
-    if (capturedReference && !referencesEqual(this.state.reference, capturedReference)) {
+    if (capturedReference && this.state.reference && !referencesEqual(this.state.reference, capturedReference)) {
       return;
     }
 
