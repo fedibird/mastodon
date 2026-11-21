@@ -261,9 +261,11 @@ export default class Mastodon extends React.PureComponent {
     this.retryReadyAt = 0;
     this.setState({ preferenceError: false });
 
-    // The WebUI is already mounted. A background GET must not unmount it.
-    // The first pass skips the status refresh because the columns are mounting.
-    store.dispatch(retryEmojiMuteLoad()).then(() => {
+    // The WebUI is already mounted. The first GET skips the notification
+    // refresh because the columns are mounting. A later retry must restore them.
+    const initialDocumentFetch = !this.emojiMuteInitialFetchStarted;
+    this.emojiMuteInitialFetchStarted = true;
+    store.dispatch(retryEmojiMuteLoad({ bootstrap: initialDocumentFetch })).then(() => {
       if (generation !== this.bootstrapGeneration) {
         return;
       }

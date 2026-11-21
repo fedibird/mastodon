@@ -1162,6 +1162,8 @@ class EmojiActionsMenuController extends React.PureComponent {
 
   confirmMuteAction = (decision, enable) => {
     const { intl } = this.props;
+    const reference = this.state.reference;
+    const session = captureMenuSession(this.loadGeneration, reference);
     let messageId = messages.muteConfirm;
 
     if (decision.reason === 'reenable') {
@@ -1173,7 +1175,13 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.props.onConfirm({
       message: intl.formatMessage(messageId),
       confirm: intl.formatMessage(messages.mute),
-      onConfirm: () => this.persistMute({ enable }),
+      onConfirm: () => {
+        if (!canApplyMutationToOpenMenu(session, { reference: this.state.reference })) {
+          return;
+        }
+
+        this.persistMute({ enable, reference });
+      },
     });
   };
 
@@ -1188,9 +1196,13 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.persistMute({ enable: false });
   };
 
-  persistMute = ({ enable } = {}) => {
+  persistMute = ({ enable, reference: capturedReference } = {}) => {
     const { intl, onSyncMutes } = this.props;
-    const { reference } = this.state;
+    const reference = capturedReference || this.state.reference;
+
+    if (capturedReference && !referencesEqual(this.state.reference, capturedReference)) {
+      return;
+    }
 
     if (!this.props.muteActionsEnabled || !reference || this.state.busy || this.state.pendingSyncRevision || isMuteMutationInFlight(reference) || getPendingMuteSync(reference)) {
       return;
@@ -1286,14 +1298,27 @@ class EmojiActionsMenuController extends React.PureComponent {
 
   handleUnmute = () => {
     const decision = emojiMuteConfirmation({ operation: 'unmute' });
+    const mute = this.state.mute;
+    const reference = this.state.reference;
 
     if (decision.required) {
       const { intl } = this.props;
+      const session = captureMenuSession(this.loadGeneration, reference);
 
       this.props.onConfirm({
         message: intl.formatMessage(messages.unmuteConfirm),
         confirm: intl.formatMessage(messages.unmute),
-        onConfirm: () => this.persistUnmute(),
+        onConfirm: () => {
+          if (!canApplyMutationToOpenMenu(session, { reference: this.state.reference })) {
+            return;
+          }
+
+          if (!this.state.mute || !mute || this.state.mute.id !== mute.id) {
+            return;
+          }
+
+          this.persistUnmute({ mute, reference });
+        },
       });
       return;
     }
@@ -1301,9 +1326,14 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.persistUnmute();
   };
 
-  persistUnmute = () => {
+  persistUnmute = ({ mute: capturedMute, reference: capturedReference } = {}) => {
     const { intl, onSyncMutes } = this.props;
-    const { mute, reference } = this.state;
+    const mute = capturedMute || this.state.mute;
+    const reference = capturedReference || this.state.reference;
+
+    if (capturedReference && !referencesEqual(this.state.reference, capturedReference)) {
+      return;
+    }
 
     if (!this.props.muteActionsEnabled || !mute || this.state.busy || this.state.pendingSyncRevision || isMuteMutationInFlight(reference) || getPendingMuteSync(reference)) {
       return;

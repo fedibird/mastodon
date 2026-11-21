@@ -12,7 +12,7 @@ class BackfillEmojiMuteEnabled < ActiveRecord::Migration[6.1]
         INSERT INTO settings (var, value, thing_type, thing_id, created_at, updated_at)
         SELECT 'emoji_mute_enabled', #{value}, 'User', src.user_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         FROM (
-          SELECT DISTINCT emoji_mutes.user_id
+          SELECT DISTINCT emoji_mutes.user_id AS user_id
           FROM emoji_mutes
           WHERE NOT EXISTS (
             SELECT 1 FROM settings
@@ -21,19 +21,14 @@ class BackfillEmojiMuteEnabled < ActiveRecord::Migration[6.1]
               AND settings.var = 'emoji_mute_enabled'
           )
         ) AS src
+        ON CONFLICT (thing_type, thing_id, var) DO NOTHING
       SQL
     end
   end
 
   def down
-    safety_assured do
-      execute(<<~SQL)
-        DELETE FROM settings
-        WHERE var = 'emoji_mute_enabled'
-          AND thing_type = 'User'
-          AND created_at = updated_at
-          AND thing_id IN (SELECT DISTINCT user_id FROM emoji_mutes)
-      SQL
-    end
+    # created_at = updated_at is also true of a value the user saved and never
+    # changed. A rollback cannot tell those rows from the ones this migration
+    # inserted, so it leaves every emoji_mute_enabled row in place.
   end
 end

@@ -215,21 +215,34 @@ export function emojiReactionEventsAccepted() {
   return emojiMuteDocumentReady();
 }
 
+// The mute list uses Preference#as_json (`enabled`). Older create responses
+// used `emoji_mute_enabled`. Only a strict false turns effects off; a missing
+// field still applies the rules.
+function documentPreference(document) {
+  if (!document || typeof document !== 'object') {
+    return null;
+  }
+
+  if (document.enabled === true || document.enabled === false) {
+    return document.enabled;
+  }
+
+  if (document.emoji_mute_enabled === true || document.emoji_mute_enabled === false) {
+    return document.emoji_mute_enabled;
+  }
+
+  return null;
+}
+
 function adopt(document, minRevision) {
   if (!document || !Array.isArray(document.emoji_mutes) || !REVISION.test(String(document.revision))) {
     throw new Error('Invalid emoji mute document');
   }
 
   const next = String(document.revision);
+  const preference = documentPreference(document);
 
-  if (document.emoji_mute_enabled === false) {
-    applyEmojiMuteDisabledDocument();
-    appliedRevision = next;
-    observedRevision = next;
-    notifyEmojiMuteDocument();
-    return mutes;
-  }
-
+  // An older list must not turn the feature on or off after a newer list.
   if (appliedRevision !== null && compareRevision(next, appliedRevision) < 0) {
     return mutes;
   }
@@ -242,6 +255,18 @@ function adopt(document, minRevision) {
   // response below that revision is never an authoritative document.
   if (observedRevision !== null && compareRevision(next, observedRevision) < 0) {
     return mutes;
+  }
+
+  if (preference === false) {
+    applyEmojiMuteDisabledDocument();
+    appliedRevision = next;
+    observedRevision = next;
+    notifyEmojiMuteDocument();
+    return mutes;
+  }
+
+  if (preference === true && currentEmojiMuteBoot().availability !== 'enabled') {
+    noteEmojiMuteEnabledLocally();
   }
 
   appliedRevision = next;

@@ -92,5 +92,34 @@ RSpec.describe EmojiMutes::Preference do
 
     BackfillEmojiMuteEnabled.new.migrate(:up)
     expect(Setting.unscoped.where(thing_type: 'User', thing_id: with_rule.id, var: 'emoji_mute_enabled').count).to eq(1)
+
+    BackfillEmojiMuteEnabled.new.migrate(:down)
+    expect(described_class.new(with_rule).enabled?).to eq(true)
+    expect(described_class.new(explicit_off).enabled?).to eq(false)
+  end
+
+  it 'treats a concurrent insert of the same setting as already backfilled' do
+    with_rule = Fabricate(:user)
+    EmojiMute.create!(user: with_rule, kind: 'unicode', native: '👍', replacement: '◻')
+    load Rails.root.join('db/migrate/20261121143000_backfill_emoji_mute_enabled.rb')
+    BackfillEmojiMuteEnabled.new.migrate(:up)
+    value = ActiveRecord::Base.connection.quote(true.to_yaml)
+
+    expect do
+      ActiveRecord::Base.connection.execute(<<~SQL)
+        INSERT INTO settings (var, value, thing_type, thing_id, created_at, updated_at)
+        VALUES (
+          'emoji_mute_enabled',
+          #{value},
+          'User',
+          #{with_rule.id},
+          CURRENT_TIMESTAMP,
+          CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (thing_type, thing_id, var) DO NOTHING
+      SQL
+    end.not_to raise_error
+
+    expect(Setting.unscoped.where(thing_type: 'User', thing_id: with_rule.id, var: 'emoji_mute_enabled').count).to eq(1)
   end
 end

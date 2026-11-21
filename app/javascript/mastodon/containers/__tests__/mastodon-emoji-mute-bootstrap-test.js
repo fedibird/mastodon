@@ -201,6 +201,7 @@ describe('authenticated emoji mute bootstrap', () => {
     expect(view.getByTestId('webui')).not.toBeNull();
     expect(view.getByTestId('compose-draft')).not.toBeNull();
     expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(1);
+    expect(retryEmojiMuteLoad).toHaveBeenCalledWith({ bootstrap: true });
     expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
     expect(mockUiMounts).toHaveBeenCalledTimes(1);
     expect(view.queryByText('Preparing the interface…')).toBeNull();
@@ -254,6 +255,7 @@ describe('authenticated emoji mute bootstrap', () => {
     allowRetry();
     fireEvent.click(view.getByText('Retry loading settings'));
     expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(2);
+    expect(retryEmojiMuteLoad).toHaveBeenLastCalledWith({ bootstrap: false });
     expect(view.getByTestId('webui')).toBe(ui);
 
     await bootReady();

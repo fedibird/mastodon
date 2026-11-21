@@ -128,7 +128,7 @@ export default function emojiMutes(state = initialState, action) {
   case EMOJI_MUTES_IMPORT:
     return applyDocument(state, action, action.rules);
   case EMOJI_MUTES_APPLY:
-    return applyDocument(state, action, action.mutes);
+    return applyDocument(action.availability ? state.set('availability', action.availability) : state, action, action.mutes);
   case EMOJI_MUTES_REVISION:
     if (!newer(action.revision, state.get('revision'))) {
       return state;

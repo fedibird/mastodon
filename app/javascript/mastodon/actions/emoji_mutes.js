@@ -21,6 +21,7 @@ import {
   clearEmojiMuteTemporaryIgnore,
   saveEmojiMuteEnabled,
   emojiMuteTemporarilyIgnored,
+  invalidateEmojiMuteNotificationFetches,
 } from '../features/emoji/emoji_mute_store';
 import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
 import { hideReactionSignature, hideSignatureGrew, hideSignatureShrunk, revisionStale } from '../features/emoji/emoji_mute_projection';
@@ -41,16 +42,52 @@ export const EMOJI_MUTES_IGNORE = 'EMOJI_MUTES_IGNORE';
 
 export function enableEmojiMuteLoading() {
   return dispatch => {
+    cancelInFlightEmojiMuteRefresh();
     beginEmojiMuteEnabledFetch();
     dispatch({ type: EMOJI_MUTES_ENABLE });
   };
 }
 
+function cancelInFlightEmojiMuteRefresh() {
+  surfaceGeneration += 1;
+  invalidateEmojiMuteNotificationFetches();
+  restoreQueue = [];
+  if (restoreTimer !== null) {
+    clearTimeout(restoreTimer);
+    restoreTimer = null;
+  }
+}
+
+function revealEmojiMuteEffects(previousSignature) {
+  return (dispatch, getState) => {
+    cancelInFlightEmojiMuteRefresh();
+    const hideShrunk = hideSignatureShrunk(previousSignature, hideReactionSignature([]));
+
+    dispatch({
+      type: EMOJI_MUTES_APPLY,
+      mutes: [],
+      revision: appliedEmojiMuteRevision() || '0',
+      sameDocument: false,
+      hideShrunk,
+      recovered: true,
+    });
+
+    return refreshEmojiMuteSurfaces({
+      restoreStatuses: hideShrunk,
+      restoreWithheld: true,
+    })(dispatch, getState);
+  };
+}
+
 export function disableEmojiMuteFeature() {
-  return dispatch => saveEmojiMuteEnabled(false).then(data => {
-    dispatch({ type: EMOJI_MUTES_DISABLE });
-    return data;
-  });
+  return dispatch => {
+    const previousSignature = hideReactionSignature(currentEmojiMutes());
+
+    return saveEmojiMuteEnabled(false).then(data => {
+      dispatch({ type: EMOJI_MUTES_DISABLE });
+      return dispatch(revealEmojiMuteEffects(previousSignature)).then(() => data);
+    });
+  };
 }
 
 export function applyRemoteEmojiMutePreference(enabled) {
@@ -60,14 +97,17 @@ export function applyRemoteEmojiMutePreference(enabled) {
         return Promise.resolve(null);
       }
 
+      cancelInFlightEmojiMuteRefresh();
       beginEmojiMuteEnabledFetch();
       dispatch({ type: EMOJI_MUTES_ENABLE });
       return dispatch(syncEmojiMutes());
     }
 
     if (enabled === false && currentEmojiMuteBoot().availability !== 'disabled') {
+      const previousSignature = hideReactionSignature(currentEmojiMutes());
       applyEmojiMuteDisabledDocument();
       dispatch({ type: EMOJI_MUTES_DISABLE });
+      return dispatch(revealEmojiMuteEffects(previousSignature));
     }
 
     return Promise.resolve(null);
@@ -76,19 +116,21 @@ export function applyRemoteEmojiMutePreference(enabled) {
 
 export function ignoreEmojiMutesThisView() {
   return dispatch => {
+    const previousSignature = hideReactionSignature(currentEmojiMutes());
     ignoreEmojiMutesForThisView();
     dispatch({ type: EMOJI_MUTES_IGNORE });
+    return dispatch(revealEmojiMuteEffects(previousSignature));
   };
 }
 
-export function retryEmojiMuteLoad() {
+export function retryEmojiMuteLoad(options = {}) {
   return (dispatch, getState) => {
     const wasIgnored = emojiMuteTemporarilyIgnored();
 
     clearEmojiMuteTemporaryIgnore();
 
     if (currentEmojiMuteBoot().availability === 'disabled') {
-      return dispatch(syncEmojiMutes());
+      return dispatch(syncEmojiMutes({ bootstrap: options.bootstrap === true }));
     }
 
     const phase = getState().getIn(['emojiMutes', 'phase']);
@@ -98,7 +140,7 @@ export function retryEmojiMuteLoad() {
       dispatch({ type: EMOJI_MUTES_ENABLE });
     }
 
-    return dispatch(syncEmojiMutes());
+    return dispatch(syncEmojiMutes({ bootstrap: options.bootstrap === true }));
   };
 }
 
@@ -642,7 +684,11 @@ export function syncEmojiMutes(options = {}) {
 
       if (currentEmojiMuteBoot().availability === 'disabled') {
         dispatch({ type: EMOJI_MUTES_DISABLE });
-        return mutes;
+        if (options.bootstrap) {
+          return mutes;
+        }
+
+        return dispatch(revealEmojiMuteEffects(previousSignature)).then(() => mutes);
       }
 
       // A request may resolve successfully while returning a document older
@@ -668,6 +714,7 @@ export function syncEmojiMutes(options = {}) {
         revision: nextRevision,
         sameDocument,
         hideShrunk,
+        availability: currentEmojiMuteBoot().availability === 'enabled' ? 'enabled' : undefined,
         // A duplicate stream event never reaches this apply while an
         // authorization failure is latched. This flag is the successful GET.
         recovered: true,

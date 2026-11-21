@@ -12,6 +12,7 @@ import {
 import EmojiPickerShell from '../emoji_picker_shell';
 import { noteEmojiMutesChanged } from '../emoji_mute_store';
 import ConfirmationModal from 'mastodon/features/ui/components/confirmation_modal';
+import ModalRoot from 'mastodon/components/modal_root';
 
 export const DEFAULT_REPLACEMENT = '◻';
 
@@ -491,7 +492,7 @@ export class EmojiMuteSettings extends React.PureComponent {
     this.setState({ pendingConfirm: null }, () => {
       if (!pending) return;
       if (pending.kind === 'bulk') {
-        this.runBulkRemove();
+        this.runBulkRemove(pending.ids);
         return;
       }
       this.removeConfirmed(pending.id);
@@ -746,16 +747,14 @@ export class EmojiMuteSettings extends React.PureComponent {
   requestBulkRemove = () => {
     if (this.props.disableMuteActions || this.state.pendingConfirm) return;
 
-    const ids = this.selectedIds();
+    const ids = this.selectedIds().slice();
     if (ids.length === 0 || this.state.bulkBusy) return;
 
-    this.setState({ pendingConfirm: { kind: 'bulk' } });
+    this.setState({ pendingConfirm: { kind: 'bulk', ids } });
   };
 
-  runBulkRemove = async () => {
+  runBulkRemove = async (ids = this.selectedIds()) => {
     if (this.props.disableMuteActions) return;
-
-    const ids = this.selectedIds();
     if (ids.length === 0 || this.state.bulkBusy) return;
 
     this.setState({ bulkBusy: true, bulkNotice: '', rowNotice: {} });
@@ -1049,14 +1048,16 @@ export class EmojiMuteSettings extends React.PureComponent {
         {status === 'loading' ? <p role='status'>{this.text('loading')}</p> : null}
         {status === 'error' ? <p role='alert'>{this.text('loadError')} <button type='button' onClick={this.handleRetry}>{this.text('retry')}</button></p> : null}
         {status === 'auth' ? <p role='alert'>{this.text('authError')}</p> : null}
-        {this.state.pendingConfirm ? (
-          <ConfirmationModal
-            message={this.text(this.state.pendingConfirm.kind === 'bulk' ? 'bulkRemoveConfirm' : 'removeConfirm')}
-            confirm={this.text('confirmRemove')}
-            onConfirm={this.confirmPendingRemove}
-            onClose={this.closePendingConfirm}
-          />
-        ) : null}
+        <ModalRoot onClose={this.closePendingConfirm}>
+          {this.state.pendingConfirm ? (
+            <ConfirmationModal
+              message={this.text(this.state.pendingConfirm.kind === 'bulk' ? 'bulkRemoveConfirm' : 'removeConfirm')}
+              confirm={this.text('confirmRemove')}
+              onConfirm={this.confirmPendingRemove}
+              onClose={this.closePendingConfirm}
+            />
+          ) : null}
+        </ModalRoot>
         {status === 'ready' ? (
           <React.Fragment>
             {external ? <p className='emoji-mute-settings__external' role='status'>{this.text('external')}</p> : null}
