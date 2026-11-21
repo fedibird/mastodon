@@ -226,6 +226,11 @@ describe('Emoji mute settings', () => {
     expect(screen.getAllByText('1 selected')).toHaveLength(2);
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove selected mutes' }));
+    expect(removeRule).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(removeRule).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove selected mutes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove mutes' }));
     await waitFor(() => expect(removeRule).toHaveBeenCalledWith('15', '3'));
     await waitFor(() => expect(within(grid).getAllByRole('option')).toHaveLength(1));
   });

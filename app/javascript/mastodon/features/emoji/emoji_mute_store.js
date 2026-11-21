@@ -1,6 +1,12 @@
 import api from 'mastodon/api';
 import initialState from 'mastodon/initial_state_data';
 import { emojiMuteBypassEnabled } from './emoji_mute_boot_bypass';
+import {
+  currentEmojiMuteBoot,
+  noteEmojiMuteDisabledLocally,
+  noteEmojiMuteEnabledLocally,
+  resetEmojiMuteBootForTests,
+} from './emoji_mute_availability';
 
 // Memory only. The definition, replacement text, and access token are not
 // written to localStorage. `observedRevision` is the newest change we have
@@ -24,7 +30,16 @@ let sessionVersion = 0;
 // already hold. Only a GET that adopts a current document lifts this.
 let authorizationFailure = null;
 let viewerSignedInOverride = null;
+let temporaryIgnore = false;
 const documentListeners = new Set();
+
+function rulesFetchSkipped() {
+  return emojiMuteBypassEnabled() || temporaryIgnore || currentEmojiMuteBoot().availability === 'disabled';
+}
+
+export function emojiMuteTemporarilyIgnored() {
+  return temporaryIgnore;
+}
 
 function viewerIsSignedIn() {
   if (viewerSignedInOverride !== null) {
@@ -111,7 +126,7 @@ export function blockEmojiMuteAuthorization(failure) {
 }
 
 export function emojiMuteDocumentReady() {
-  if (emojiMuteBypassEnabled()) {
+  if (rulesFetchSkipped()) {
     return true;
   }
 
@@ -138,7 +153,57 @@ export function resetEmojiMuteSession() {
   request = null;
   settled = false;
   authorizationFailure = null;
+  temporaryIgnore = false;
   invalidateEmojiMuteNotificationFetches();
+  notifyEmojiMuteDocument();
+}
+
+export function beginEmojiMuteEnabledFetch() {
+  noteEmojiMuteEnabledLocally();
+  temporaryIgnore = false;
+  requestVersion += 1;
+  request = null;
+  settled = false;
+  appliedRevision = null;
+  mutes = [];
+  authorizationFailure = null;
+  notifyEmojiMuteDocument();
+}
+
+export function applyEmojiMuteDisabledDocument() {
+  noteEmojiMuteDisabledLocally();
+  temporaryIgnore = false;
+  requestVersion += 1;
+  request = null;
+  settled = true;
+  appliedRevision = appliedRevision || '0';
+  observedRevision = appliedRevision;
+  mutes = [];
+  authorizationFailure = null;
+  notifyEmojiMuteDocument();
+}
+
+export function ignoreEmojiMutesForThisView() {
+  temporaryIgnore = true;
+  requestVersion += 1;
+  request = null;
+  settled = true;
+  appliedRevision = appliedRevision || '0';
+  observedRevision = appliedRevision;
+  mutes = [];
+  authorizationFailure = null;
+  notifyEmojiMuteDocument();
+}
+
+export function clearEmojiMuteTemporaryIgnore() {
+  if (!temporaryIgnore) {
+    return;
+  }
+
+  temporaryIgnore = false;
+  settled = false;
+  appliedRevision = null;
+  mutes = [];
   notifyEmojiMuteDocument();
 }
 
@@ -156,6 +221,14 @@ function adopt(document, minRevision) {
   }
 
   const next = String(document.revision);
+
+  if (document.emoji_mute_enabled === false) {
+    applyEmojiMuteDisabledDocument();
+    appliedRevision = next;
+    observedRevision = next;
+    notifyEmojiMuteDocument();
+    return mutes;
+  }
 
   if (appliedRevision !== null && compareRevision(next, appliedRevision) < 0) {
     return mutes;
@@ -185,8 +258,19 @@ function adopt(document, minRevision) {
 }
 
 export function loadEmojiMutes(options = {}) {
-  if (emojiMuteBypassEnabled()) {
-    return Promise.resolve([]);
+  if (rulesFetchSkipped()) {
+    const changed = !settled || appliedRevision === null;
+    settled = true;
+    appliedRevision = appliedRevision || '0';
+    if (emojiMuteBypassEnabled() || temporaryIgnore || currentEmojiMuteBoot().availability === 'disabled') {
+      mutes = [];
+    }
+
+    if (changed) {
+      notifyEmojiMuteDocument();
+    }
+
+    return Promise.resolve(mutes);
   }
 
   if (!viewerIsSignedIn()) {
@@ -238,8 +322,8 @@ export function loadEmojiMutes(options = {}) {
 }
 
 export function noteEmojiMutesChanged(payload) {
-  if (emojiMuteBypassEnabled()) {
-    return Promise.resolve([]);
+  if (rulesFetchSkipped()) {
+    return Promise.resolve(mutes);
   }
 
   const next = payload && payload.revision !== undefined && payload.revision !== null ? String(payload.revision) : '';
@@ -279,8 +363,34 @@ export function noteEmojiMutesChanged(payload) {
 
 export function resetEmojiMuteStoreForTests() {
   viewerSignedInOverride = null;
+  temporaryIgnore = false;
+  resetEmojiMuteBootForTests();
   resetEmojiMuteSession();
   notificationFetchEpoch = 0;
+}
+
+export function saveEmojiMuteEnabled(enabled) {
+  const headers = { 'Content-Type': 'application/json' };
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  return api().patch('/api/v1/fedibird/emoji_mute_preference', { enabled }, { headers }).then(response => {
+    const data = response && response.data;
+
+    if (!data || data.enabled !== enabled || data.explicit !== true) {
+      throw new Error('Emoji mute preference was not saved');
+    }
+
+    if (enabled === false) {
+      applyEmojiMuteDisabledDocument();
+    } else {
+      beginEmojiMuteEnabledFetch();
+    }
+
+    return data;
+  });
 }
 
 export function installEmojiMutesForTests(document) {

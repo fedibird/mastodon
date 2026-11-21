@@ -19,34 +19,15 @@ const sessionStore = () => {
   }
 };
 
-const readBypass = () => {
-  const store = sessionStore();
-  if (!store || viewerKey === null || !/^\/web(?:\/|$)/.test(window.location.pathname)) {
-    return false;
-  }
-
-  try {
-    const requested = store.getItem(STORAGE_KEY);
-
-    if (requested !== null && requested !== viewerKey) {
-      store.removeItem(STORAGE_KEY);
-      return false;
-    }
-
-    return requested === viewerKey;
-  } catch (_error) {
-    return false;
-  }
-};
-
-// Temporary incident mitigation. Revert to false after investigating the
-// startup failures. Only the /web UI bypasses the emoji mute document.
-export const TEMPORARILY_DISABLE_EMOJI_MUTE_LOADING = true;
+// The emergency WebUI bypass is off. Fail-soft startup keeps the interface
+// usable and hides unverified emoji instead of skipping the mute document.
+export const TEMPORARILY_DISABLE_EMOJI_MUTE_LOADING = false;
 const emergencyBypass = TEMPORARILY_DISABLE_EMOJI_MUTE_LOADING &&
   typeof window !== 'undefined' && /^\/web(?:\/|$)/.test(window.location.pathname);
 
-// Keep the bypass fixed for this page lifetime.
-const bypassed = readBypass() || emergencyBypass;
+// A stored opt-in from the incident bypass is not applied. Fail-soft ignore
+// is an in-memory choice for this page view and does not survive reload.
+const bypassed = emergencyBypass;
 
 export const emojiMuteBypassEnabled = () => bypassed;
 

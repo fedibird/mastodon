@@ -186,6 +186,8 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_emoji_picker_disable_standard,
       :setting_emoji_picker_disable_actions,
       :setting_emoji_mute_disable_actions,
+      :setting_emoji_mute_enabled,
+      :setting_emoji_mute_modal,
       :setting_emoji_preview_click_action,
       :setting_emoji_picker_lazy_load_standard,
       :setting_max_frequently_used_emojis,

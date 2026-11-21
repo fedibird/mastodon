@@ -15,7 +15,14 @@ import {
   loadEmojiMutes,
   noteEmojiMutesChanged,
   observedEmojiMuteRevision,
+  beginEmojiMuteEnabledFetch,
+  applyEmojiMuteDisabledDocument,
+  ignoreEmojiMutesForThisView,
+  clearEmojiMuteTemporaryIgnore,
+  saveEmojiMuteEnabled,
+  emojiMuteTemporarilyIgnored,
 } from '../features/emoji/emoji_mute_store';
+import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
 import { hideReactionSignature, hideSignatureGrew, hideSignatureShrunk, revisionStale } from '../features/emoji/emoji_mute_projection';
 import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
 import { emojiMuteBypassEnabled } from '../features/emoji/emoji_mute_boot_bypass';
@@ -28,6 +35,72 @@ export const EMOJI_MUTES_APPLY = 'EMOJI_MUTES_APPLY';
 export const EMOJI_MUTES_LOAD = 'EMOJI_MUTES_LOAD';
 export const EMOJI_MUTES_FAIL = 'EMOJI_MUTES_FAIL';
 export const EMOJI_MUTES_RESET = 'EMOJI_MUTES_RESET';
+export const EMOJI_MUTES_DISABLE = 'EMOJI_MUTES_DISABLE';
+export const EMOJI_MUTES_ENABLE = 'EMOJI_MUTES_ENABLE';
+export const EMOJI_MUTES_IGNORE = 'EMOJI_MUTES_IGNORE';
+
+export function enableEmojiMuteLoading() {
+  return dispatch => {
+    beginEmojiMuteEnabledFetch();
+    dispatch({ type: EMOJI_MUTES_ENABLE });
+  };
+}
+
+export function disableEmojiMuteFeature() {
+  return dispatch => saveEmojiMuteEnabled(false).then(data => {
+    dispatch({ type: EMOJI_MUTES_DISABLE });
+    return data;
+  });
+}
+
+export function applyRemoteEmojiMutePreference(enabled) {
+  return dispatch => {
+    if (enabled === true) {
+      if (currentEmojiMuteBoot().availability === 'enabled') {
+        return Promise.resolve(null);
+      }
+
+      beginEmojiMuteEnabledFetch();
+      dispatch({ type: EMOJI_MUTES_ENABLE });
+      return dispatch(syncEmojiMutes());
+    }
+
+    if (enabled === false && currentEmojiMuteBoot().availability !== 'disabled') {
+      applyEmojiMuteDisabledDocument();
+      dispatch({ type: EMOJI_MUTES_DISABLE });
+    }
+
+    return Promise.resolve(null);
+  };
+}
+
+export function ignoreEmojiMutesThisView() {
+  return dispatch => {
+    ignoreEmojiMutesForThisView();
+    dispatch({ type: EMOJI_MUTES_IGNORE });
+  };
+}
+
+export function retryEmojiMuteLoad() {
+  return (dispatch, getState) => {
+    const wasIgnored = emojiMuteTemporarilyIgnored();
+
+    clearEmojiMuteTemporaryIgnore();
+
+    if (currentEmojiMuteBoot().availability === 'disabled') {
+      return dispatch(syncEmojiMutes());
+    }
+
+    const phase = getState().getIn(['emojiMutes', 'phase']);
+    const applied = getState().getIn(['emojiMutes', 'appliedRevision']);
+
+    if (wasIgnored || phase !== 'ready' || applied === null) {
+      dispatch({ type: EMOJI_MUTES_ENABLE });
+    }
+
+    return dispatch(syncEmojiMutes());
+  };
+}
 
 export function importEmojiMutes(revision, rules) {
   return {
@@ -538,6 +611,16 @@ export function syncEmojiMutes(options = {}) {
       return Promise.resolve([]);
     }
 
+    if (currentEmojiMuteBoot().availability === 'disabled') {
+      dispatch({ type: EMOJI_MUTES_DISABLE });
+      return Promise.resolve([]);
+    }
+
+    if (emojiMuteTemporarilyIgnored()) {
+      dispatch({ type: EMOJI_MUTES_IGNORE });
+      return Promise.resolve([]);
+    }
+
     const generation = ++documentSyncGeneration;
     const previousRevision = appliedEmojiMuteRevision();
     const previousSignature = hideReactionSignature(currentEmojiMutes());
@@ -557,9 +640,14 @@ export function syncEmojiMutes(options = {}) {
         return null;
       }
 
+      if (currentEmojiMuteBoot().availability === 'disabled') {
+        dispatch({ type: EMOJI_MUTES_DISABLE });
+        return mutes;
+      }
+
       // A request may resolve successfully while returning a document older
       // than a streaming revision. An unresolved gap is a failure, not an
-      // endless loading spinner; keep the WebUI hidden and offer retry.
+      // endless loading spinner. The WebUI stays mounted and emoji stay hidden.
       if (!emojiMuteDocumentReady()) {
         dispatch({
           type: EMOJI_MUTES_FAIL,
@@ -604,10 +692,9 @@ export function syncEmojiMutes(options = {}) {
       }
 
       const failure = classifyEmojiMuteFetchError(error);
-      // A confirmed document can stay on screen through a dropped connection.
-      // An expired or forbidden token cannot: the portal has to close even
-      // when the last document was already applied. The latch stays until a
-      // later GET adopts a current document.
+      // A confirmed document stays applied through a dropped connection.
+      // An expired or forbidden token hides emoji until a later GET adopts a
+      // current document. The WebUI itself stays mounted.
       const sessionRejected = failure === 'unauthorized' || failure === 'forbidden';
 
       if (sessionRejected) {

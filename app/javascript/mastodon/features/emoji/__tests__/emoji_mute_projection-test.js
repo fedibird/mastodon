@@ -1605,6 +1605,7 @@ describe('emoji mute projection', () => {
 
   it('registers the mute change event for EventSource', () => {
     expect(KNOWN_EVENT_TYPES).toContain('emoji_mutes_changed');
+    expect(KNOWN_EVENT_TYPES).toContain('emoji_mute_preference');
     expect(reactionNameHidden('‼️', null, [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '‼' } }])).toBe(false);
     expect(reactionNameHidden('1⃣', null, [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '1️⃣' } }])).toBe(false);
   });

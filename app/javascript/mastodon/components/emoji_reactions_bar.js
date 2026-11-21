@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
+import { List as ImmutableList } from 'immutable';
 import { emojiReactionsForStatus, emojiReactionAccountIds } from '../utils/emoji_reactions';
 import TransitionMotion from 'react-motion/lib/TransitionMotion';
 import { reduceMotion, me, hideReactionCounter, hideListOfEmojiReactionsToPosts } from 'mastodon/initial_state';
@@ -11,7 +12,7 @@ import spring from 'react-motion/lib/spring';
 import EmojiReaction from './emoji_reactions';
 
 const mapStateToProps = (state, { status }) => ({
-  emojiReactions: emojiReactionsForStatus(status),
+  emojiReactions: state.getIn(['emojiMutes', 'display']) === 'suppress' ? ImmutableList() : emojiReactionsForStatus(status),
 });
 
 const mergeProps = ({ emojiReactions }, dispatchProps, ownProps) => ({

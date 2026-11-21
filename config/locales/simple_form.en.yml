@@ -93,6 +93,8 @@ en:
         setting_emoji_picker_disable_actions: Disable the picker action controls and menu gestures (long press, right click, and keyboard) in both standard and personal emoji pickers. Normal emoji insertion and reactions continue to work. If the emoji picker behaves unexpectedly, try disabling this feature. Takes effect after a full reload.
         setting_emoji_preview_click_action: Choose what happens when the enlarged emoji preview, its label, or its surrounding area is clicked. Defaults to Emoji details. Clicks never pass through to elements behind it. Applies after a full reload.
         setting_emoji_mute_disable_actions: Block quick mute/unmute actions and make the mute management page read-only. Existing mute effects remain active; turn this option off to edit them. Applies after a full reload.
+        setting_emoji_mute_enabled: Apply saved emoji mutes. Off leaves the rules in place but stops hiding emoji, refusing reactions, and loading the list when the WebUI starts. The first mute turns this on unless you have explicitly turned it off. Applies after a reload, or immediately in other open tabs.
+        setting_emoji_mute_modal: Ask before muting or unmuting an emoji from the action menu. The first time this turns emoji muting on, the dialog says so. Bulk removal on the mute page always asks.
         setting_emoji_picker_lazy_load_standard: Saves resources if you rarely use emoji, but makes the picker slower to open.
         setting_disable_block: Restricts you from accidentally blocking
         setting_disable_clear_all_notifications: Restrict clearing all notifications
@@ -370,6 +372,8 @@ en:
         setting_emoji_preview_click_action_detail: Emoji details
         setting_emoji_preview_click_action_copy: Copy emoji
         setting_emoji_mute_disable_actions: Disable emoji mute actions
+        setting_emoji_mute_enabled: Use emoji muting
+        setting_emoji_mute_modal: Confirm emoji mute and unmute
         setting_emoji_picker_lazy_load_standard: Defer building the emoji picker until it is opened
         setting_disable_block: Disable block
         setting_disable_clear_all_notifications: Disable clear all notifications

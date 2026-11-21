@@ -214,6 +214,11 @@ defaults: &defaults
   emoji_picker_disable_actions: false
   # Prevent accidental quick mute/unmute actions; existing mute effects remain.
   emoji_mute_disable_actions: false
+  # Feature switch. Off skips boot loading and does not apply saved rules.
+  # Distinct from emoji_mute_disable_actions, which only blocks editing.
+  emoji_mute_enabled: false
+  # Confirm mute and unmute from the emoji action menu. Default on.
+  emoji_mute_modal: true
   # Enlarged emoji preview click: none, close, detail, or copy.
   emoji_preview_click_action: detail
   # On skips both standard module and personal stock preloading until opened.

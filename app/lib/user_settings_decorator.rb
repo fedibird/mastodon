@@ -143,6 +143,8 @@ class UserSettingsDecorator
     emoji_picker_disable_standard
     emoji_picker_disable_actions
     emoji_mute_disable_actions
+    emoji_mute_enabled
+    emoji_mute_modal
     emoji_picker_lazy_load_standard
     show_composer_posting_style_selector
   ).freeze
@@ -206,6 +208,8 @@ class UserSettingsDecorator
       end
     end
 
+    previous_emoji_mute_enabled = user.setting_emoji_mute_enabled if change?('setting_emoji_mute_enabled')
+
     BOOLEAN_KEYS.each do |key|
       next unless change?("setting_#{key}")
 
@@ -215,6 +219,14 @@ class UserSettingsDecorator
         user.settings[key] = boolean_cast_setting("setting_#{key}")
       end
     end
+
+    return unless change?('setting_emoji_mute_enabled')
+
+    current_emoji_mute_enabled = user.setting_emoji_mute_enabled
+    return if current_emoji_mute_enabled == previous_emoji_mute_enabled
+
+    EmojiMutes::Store.rule_sets&.delete(user.id)
+    EmojiMutes::Preference.publish!(user, current_emoji_mute_enabled)
   end
 
   # Reject an invalid enum before any other preference in the same form is

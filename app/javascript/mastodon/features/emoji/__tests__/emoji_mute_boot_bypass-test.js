@@ -21,28 +21,30 @@ describe('emoji mute boot bypass', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  it('temporarily bypasses WebUI loading without an opt-in or stored preference', () => {
+  it('does not skip WebUI mute loading, including a stored incident opt-in', () => {
     const initial = loadModule();
-    expect(initial.TEMPORARILY_DISABLE_EMOJI_MUTE_LOADING).toBe(true);
-    expect(initial.emojiMuteBypassEnabled()).toBe(true);
+    expect(initial.TEMPORARILY_DISABLE_EMOJI_MUTE_LOADING).toBe(false);
+    expect(initial.emojiMuteBypassEnabled()).toBe(false);
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
 
     expect(initial.requestEmojiMuteBypass()).toBe(true);
-    expect(initial.emojiMuteBypassEnabled()).toBe(true);
-    expect(loadModule().emojiMuteBypassEnabled()).toBe(true);
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBe('account-1');
+    expect(initial.emojiMuteBypassEnabled()).toBe(false);
+    expect(loadModule().emojiMuteBypassEnabled()).toBe(false);
+
     expect(initial.clearEmojiMuteBypass()).toBe(true);
-    expect(loadModule().emojiMuteBypassEnabled()).toBe(true);
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(loadModule().emojiMuteBypassEnabled()).toBe(false);
   });
 
-  it('discards a bypass for another account and does not bypass non-WebUI pages', () => {
+  it('does not bypass another account or a non-WebUI page', () => {
     sessionStorage.setItem(STORAGE_KEY, 'account-2');
-    expect(loadModule().emojiMuteBypassEnabled()).toBe(true);
-    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(loadModule().emojiMuteBypassEnabled()).toBe(false);
 
     sessionStorage.setItem(STORAGE_KEY, 'account-1');
     window.history.replaceState({}, '', '/settings');
     expect(loadModule().emojiMuteBypassEnabled()).toBe(false);
     window.history.replaceState({}, '', '/web/notifications');
-    expect(loadModule().emojiMuteBypassEnabled()).toBe(true);
+    expect(loadModule().emojiMuteBypassEnabled()).toBe(false);
   });
 });

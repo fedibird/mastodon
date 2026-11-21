@@ -28,7 +28,7 @@ class Api::V1::Fedibird::EmojiMutesController < Api::BaseController
       return
     end
 
-    render json: EmojiMutes::Presenter.new(mutes).list(revision)
+    render json: EmojiMutes::Presenter.new(mutes).list(revision).merge(EmojiMutes::Preference.new(current_user).as_json)
   end
 
   def create

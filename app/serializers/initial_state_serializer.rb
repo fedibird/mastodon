@@ -158,6 +158,11 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:emoji_picker_disable_standard] = preference_effective('emoji_picker_disable_standard')
       store[:emoji_picker_disable_actions]         = preference_effective('emoji_picker_disable_actions')
       store[:emoji_mute_disable_actions]           = object.current_account.user.setting_emoji_mute_disable_actions
+      emoji_mute_preference = EmojiMutes::Preference.new(object.current_account.user)
+      store[:emoji_mute_enabled]                  = emoji_mute_preference.enabled?
+      store[:emoji_mute_enabled_explicit]         = emoji_mute_preference.explicit?
+      store[:emoji_mute_enabled_known]            = true
+      store[:emoji_mute_modal]                    = emoji_mute_preference.modal?
       store[:emoji_preview_click_action]           = object.current_account.user.setting_emoji_preview_click_action
       store[:emoji_picker_lazy_load_standard]      = preference_effective('emoji_picker_lazy_load_standard')
       store[:max_frequently_used_emojis]            = object.current_account.user.setting_max_frequently_used_emojis

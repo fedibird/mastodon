@@ -12,6 +12,7 @@ import {
   emojiMutedPlainLabel,
   emojiMutedPlainText,
   replaceEmojiInDisplayHtml,
+  SUPPRESS_UNVERIFIED_INDEX,
   replaceInTextIndexFromRules,
   replaceMutedEmojiInPlain,
   replaceUnicodeEmojiInPlainText,
@@ -614,5 +615,24 @@ describe('unicode preview text', () => {
     resetEmojiMuteTextForTests();
     expect(replaceUnicodeEmojiInPlainText(`${plain} ${THUMBS}`, index)).toContain('[thumb]');
     expect(emojiMuteUnicodeComparisonCount()).toBeLessThan(plain.length);
+  });
+
+  it('omits unverified emoji from html, alt, and spoken text', () => {
+    const html = `<p>hi ${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })} ${img({ alt: ':blob:', src: 'https://cdn.example/secret.svg', custom: true, extra: ' data-shortcode="blob"' })} ${FAMILY} ${DOUBLE_EXCLAMATION}</p>`;
+    const hidden = replaceEmojiInDisplayHtml(html, SUPPRESS_UNVERIFIED_INDEX);
+    const template = document.createElement('template');
+    template.innerHTML = hidden;
+
+    expect(template.content.querySelector('img')).toBeNull();
+    expect(hidden).not.toContain(THUMBS);
+    expect(hidden).not.toContain('1f44d');
+    expect(hidden).not.toContain('secret.svg');
+    expect(hidden).not.toContain(':blob:');
+    expect(hidden).not.toContain(FAMILY);
+    expect(hidden).not.toContain(DOUBLE_EXCLAMATION);
+    expect(hidden).toContain('◻');
+    expect(emojiMutedPlainText(`hello ${THUMBS}`, '', SUPPRESS_UNVERIFIED_INDEX)).toBe('hello ◻');
+    expect(emojiMutedPlainLabel(`hello ${THUMBS}`, html, SUPPRESS_UNVERIFIED_INDEX)).not.toContain(THUMBS);
+    expect(emojiMutedPlainLabel(`hello ${THUMBS}`, html, SUPPRESS_UNVERIFIED_INDEX)).not.toContain(':blob:');
   });
 });

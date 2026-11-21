@@ -2,12 +2,11 @@
 
 import { act, fireEvent, render } from '@testing-library/react';
 import React from 'react';
-import { DropdownMenu } from 'mastodon/components/dropdown_menu';
-import ModalRoot from 'mastodon/components/modal_root';
 
 let mockRequest;
 let mockPhase = 'loading';
 let mockFailure = null;
+let mockAvailability = 'enabled';
 let mockMe = '1';
 let mockToken = 'token';
 const mockSubscribers = new Set();
@@ -16,6 +15,7 @@ const mockState = {
     const key = path.join('.');
     if (key === 'emojiMutes.phase') return mockPhase;
     if (key === 'emojiMutes.failure') return mockFailure;
+    if (key === 'emojiMutes.availability') return mockAvailability;
     if (key === 'meta.me') return mockMe;
     if (key === 'meta.access_token') return mockToken;
     return undefined;
@@ -44,6 +44,16 @@ jest.mock('mastodon/initial_state', () => ({
   default: { meta: { me: '1', access_token: 'token' } },
 }));
 
+jest.mock('mastodon/features/emoji/emoji_mute_availability', () => ({
+  currentEmojiMuteBoot: jest.fn(() => ({
+    availability: 'enabled',
+    explicit: true,
+    modal: true,
+    fetch: true,
+    display: 'suppress',
+  })),
+}));
+
 jest.mock('mastodon/store/configureStore', () => ({
   __esModule: true,
   default: jest.fn(() => mockStore),
@@ -53,15 +63,12 @@ jest.mock('mastodon/actions/circles', () => ({ fetchCircles: () => ({ type: 'TES
 jest.mock('mastodon/features/emoji/emoji_picker_preferences', () => ({ preloadEmojiPickersIfNeeded: jest.fn() }));
 jest.mock('mastodon/containers/mastodon_subscriptions', () => ({ startMastodonSubscriptions: (...args) => mockStartSubscriptions(...args) }));
 jest.mock('mastodon/features/emoji/emoji_mute_store', () => ({ resetEmojiMuteSession: jest.fn() }));
-jest.mock('mastodon/features/emoji/emoji_mute_boot_bypass', () => ({
-  emojiMuteBypassEnabled: jest.fn(() => false),
-  requestEmojiMuteBypass: jest.fn(() => true),
-  clearEmojiMuteBypass: jest.fn(() => true),
-}));
 jest.mock('mastodon/actions/emoji_mutes', () => ({
   EMOJI_MUTES_RESET: 'EMOJI_MUTES_RESET',
   invalidateEmojiMuteAsyncWork: jest.fn(),
-  syncEmojiMutes: jest.fn(() => () => mockRequest.promise),
+  retryEmojiMuteLoad: jest.fn(() => () => mockRequest.promise),
+  ignoreEmojiMutesThisView: jest.fn(() => ({ type: 'EMOJI_MUTES_IGNORE' })),
+  disableEmojiMuteFeature: jest.fn(() => () => Promise.resolve({ enabled: false, explicit: true })),
 }));
 jest.mock('mastodon/locales', () => ({ getLocale: () => ({ localeData: [], messages: {} }) }));
 jest.mock('react-intl', () => {
@@ -98,8 +105,8 @@ jest.mock('mastodon/features/ui', () => {
 
     render() {
       return (
-        <div data-testid='webui' aria-label='👍'>
-          timeline <img alt='👍' src='/emoji/thumb.svg' />
+        <div data-testid='webui'>
+          timeline
           <div className='scrollable' data-testid='timeline-scroll'>
             <input data-testid='compose-draft' value={this.state.draft} onChange={this.handleDraftChange} />
           </div>
@@ -116,13 +123,10 @@ jest.mock('mastodon/features/embedded_rails_settings/navigation', () => ({
 }));
 
 import { resetEmojiMuteSession } from 'mastodon/features/emoji/emoji_mute_store';
-import { getEmojiActionsOverlayRoot } from 'mastodon/features/emoji/emoji_actions/overlay_root';
+import { currentEmojiMuteBoot } from 'mastodon/features/emoji/emoji_mute_availability';
 
-// Mastodon creates its store during module evaluation. Load it only after
-// the mock store and subscriber registry above have been initialized.
 const Mastodon = require('../mastodon').default;
-const { syncEmojiMutes } = require('mastodon/actions/emoji_mutes');
-const { emojiMuteBypassEnabled, requestEmojiMuteBypass, clearEmojiMuteBypass } = require('mastodon/features/emoji/emoji_mute_boot_bypass');
+const { retryEmojiMuteLoad, ignoreEmojiMutesThisView, disableEmojiMuteFeature } = require('mastodon/actions/emoji_mutes');
 
 const clock = { now: 1_000_000 };
 
@@ -136,16 +140,6 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 
-const phaseChanged = async next => {
-  await act(async () => {
-    mockPhase = next;
-    mockSubscribers.forEach(listener => listener());
-    // The privacy portal only reattaches in a microtask after the Redux
-    // subscribers have finished rebuilding their safe display projections.
-    await Promise.resolve();
-  });
-};
-
 const bootReady = async () => {
   await act(async () => {
     mockPhase = 'ready';
@@ -154,15 +148,21 @@ const bootReady = async () => {
   });
 };
 
-describe('authenticated emoji mute bootstrap and revision gate', () => {
+describe('authenticated emoji mute bootstrap', () => {
   beforeEach(() => {
     clock.now = 1_000_000;
     jest.spyOn(Date, 'now').mockImplementation(() => clock.now);
     mockDispatch.mockClear();
-    syncEmojiMutes.mockClear();
-    emojiMuteBypassEnabled.mockReturnValue(false);
-    requestEmojiMuteBypass.mockReturnValue(true);
-    clearEmojiMuteBypass.mockReturnValue(true);
+    retryEmojiMuteLoad.mockClear();
+    ignoreEmojiMutesThisView.mockClear();
+    disableEmojiMuteFeature.mockClear();
+    currentEmojiMuteBoot.mockReturnValue({
+      availability: 'enabled',
+      explicit: true,
+      modal: true,
+      fetch: true,
+      display: 'suppress',
+    });
     mockStartSubscriptions.mockClear();
     mockUiMounts.mockClear();
     mockUiUnmounts.mockClear();
@@ -171,6 +171,7 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     mockRequest = deferred();
     mockPhase = 'loading';
     mockFailure = null;
+    mockAvailability = 'enabled';
     mockMe = '1';
     mockToken = 'token';
   });
@@ -194,325 +195,130 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     });
   };
 
-  it('keeps the responsive flex host when the private UI mounts and reattaches', async () => {
+  it('mounts the WebUI immediately and fetches mute rules in the background', async () => {
     const view = render(<Mastodon locale='en' />);
-    await bootReady();
 
-    // .app-holder > div supplies responsive width/alignment. The host must
-    // remain a real flex box, not display:contents (which removes its box).
+    expect(view.getByTestId('webui')).not.toBeNull();
+    expect(view.getByTestId('compose-draft')).not.toBeNull();
+    expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(1);
+    expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
+    expect(mockUiMounts).toHaveBeenCalledTimes(1);
+    expect(view.queryByText('Preparing the interface…')).toBeNull();
+
     const privacyRoot = view.container.querySelector('.emoji-mutes-privacy-portal');
     expect(privacyRoot).not.toBeNull();
-    const host = privacyRoot.parentElement;
-    expect(host).not.toBeNull();
-    expect(host.style.display).not.toBe('contents');
+    expect(privacyRoot.parentElement.style.display).not.toBe('contents');
     expect(privacyRoot.style.display).toBe('contents');
 
-    await phaseChanged('stale');
-    expect(privacyRoot.isConnected).toBe(false);
-    expect(host.isConnected).toBe(true);
-    // The empty host cannot displace the retry/loading screen.
-    expect(host.style.display).toBe('contents');
-    await phaseChanged('ready');
-    expect(privacyRoot.parentElement).toBe(host);
-    expect(host.style.display).not.toBe('contents');
-    expect(privacyRoot.style.display).toBe('contents');
-    view.unmount();
-  });
-  it('offers a delayed generic startup message and an explicit bypass', () => {
-    const timeout = jest.spyOn(global, 'setTimeout');
-    const ref = React.createRef();
-    const view = render(<Mastodon ref={ref} locale='en' />);
-    ref.current.reloadPage = jest.fn();
-
-    expect(view.queryByText('Preparing the interface…')).toBeNull();
-    expect(view.queryByText('Start without emoji muting')).toBeNull();
-
-    const delayed = timeout.mock.calls.find(([, delay]) => delay === 2500)?.[0];
-    expect(delayed).toEqual(expect.any(Function));
-    act(() => delayed());
-
-    expect(view.getByText('Preparing the interface…')).not.toBeNull();
-    fireEvent.click(view.getByText('Start without emoji muting'));
-    expect(requestEmojiMuteBypass).toHaveBeenCalledTimes(1);
-    expect(ref.current.reloadPage).toHaveBeenCalledTimes(1);
-
-    view.unmount();
-    timeout.mockRestore();
-  });
-
-  it('shows a way back to normal after an opted-in bypass', async () => {
-    emojiMuteBypassEnabled.mockReturnValue(true);
-    const ref = React.createRef();
-    const view = render(<Mastodon ref={ref} locale='en' />);
-    ref.current.reloadPage = jest.fn();
     await bootReady();
-
-    expect(view.getByText(/Emoji muting is disabled in this tab/)).not.toBeNull();
-    fireEvent.click(view.getByText('Turn emoji muting back on'));
-    expect(clearEmojiMuteBypass).toHaveBeenCalledTimes(1);
-    expect(ref.current.reloadPage).toHaveBeenCalledTimes(1);
-
-    view.unmount();
-  });
-
-  it('does not mount the WebUI before an authoritative mute document is loaded', async () => {
-    const view = render(<Mastodon locale='en' />);
-
-    expect(view.queryByTestId('webui')).toBeNull();
-    expect(syncEmojiMutes).toHaveBeenCalledWith({ bootstrap: true });
-    expect(view.queryByText('Preparing the interface…')).toBeNull();
-    expect(mockStartSubscriptions).not.toHaveBeenCalled();
-    expect(mockUiMounts).not.toHaveBeenCalled();
-
-    await bootReady();
-
-    expect(view.queryByTestId('webui')).not.toBeNull();
-    expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
+    expect(view.getByTestId('webui')).not.toBeNull();
+    expect(mockUiMounts).toHaveBeenCalledTimes(1);
     view.unmount();
     expect(mockDispatch).toHaveBeenCalledWith({ type: 'EMOJI_MUTES_RESET' });
     expect(mockSubscribers.size).toBe(0);
   });
 
-  it('unmounts visible images and aria labels during a stream revision gap', async () => {
+  it('does not fetch when the feature is known to be off', () => {
+    currentEmojiMuteBoot.mockReturnValue({
+      availability: 'disabled',
+      explicit: true,
+      modal: true,
+      fetch: false,
+      display: 'show',
+    });
     const view = render(<Mastodon locale='en' />);
-    await bootReady();
 
-    const ui = view.getByTestId('webui');
-    const scroller = view.getByTestId('timeline-scroll');
-    const draft = view.getByTestId('compose-draft');
-    const menuRoot = getEmojiActionsOverlayRoot();
-    const menuImage = document.createElement('img');
-    menuImage.src = '/private-menu-emoji.svg';
-    menuImage.alt = 'hidden emoji';
-    menuRoot.appendChild(menuImage);
-    expect(menuImage.isConnected).toBe(true);
-    scroller.scrollTop = 237;
-    fireEvent.change(draft, { target: { value: 'pending draft' } });
-    draft.focus();
-    expect(document.activeElement).toBe(draft);
-
-    expect(ui.getAttribute('aria-label')).toBe('👍');
-    expect(view.container.querySelector('img[src="/emoji/thumb.svg"]')).not.toBeNull();
-    expect(mockUiMounts).toHaveBeenCalledTimes(1);
-    await phaseChanged('stale');
-
-    // Detached DOM is absent from the displayed document, not CSS-hidden.
-    expect(view.queryByTestId('webui')).toBeNull();
-    expect(view.container.querySelector('img[src="/emoji/thumb.svg"]')).toBeNull();
-    expect(view.container.innerHTML).not.toContain('👍');
-    expect(document.querySelector('img[src="/private-menu-emoji.svg"]')).toBeNull();
-    expect(getEmojiActionsOverlayRoot()).toBe(menuRoot);
-    expect(view.queryByText('Preparing the interface…')).toBeNull();
-    expect(mockUiUnmounts).not.toHaveBeenCalled();
-    expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
-
-    await phaseChanged('ready');
-    expect(view.getByTestId('webui')).toBe(ui);
-    expect(view.getByTestId('timeline-scroll')).toBe(scroller);
-    expect(document.querySelector('img[src="/private-menu-emoji.svg"]')).toBe(menuImage);
-    expect(scroller.scrollTop).toBe(237);
-    expect(view.getByTestId('compose-draft').value).toBe('pending draft');
-    expect(document.activeElement).toBe(draft);
-    expect(mockUiMounts).toHaveBeenCalledTimes(1);
-    expect(mockUiUnmounts).not.toHaveBeenCalled();
+    expect(view.getByTestId('webui')).not.toBeNull();
+    expect(retryEmojiMuteLoad).not.toHaveBeenCalled();
     expect(mockStartSubscriptions).toHaveBeenCalledTimes(1);
     view.unmount();
-    expect(mockUiUnmounts).toHaveBeenCalledTimes(1);
   });
 
-  it('never reattaches an earlier ready transition after another revision arrives', async () => {
+  it('keeps the WebUI mounted when the first GET fails and offers retry, ignore, and off', async () => {
     const view = render(<Mastodon locale='en' />);
-    await bootReady();
+    const ui = view.getByTestId('webui');
 
-    await phaseChanged('stale');
+    await rejectBootstrap(new Error('offline'));
+
+    expect(view.getByTestId('webui')).toBe(ui);
+    expect(mockUiUnmounts).not.toHaveBeenCalled();
+    expect(view.getByText(/could not be verified/)).not.toBeNull();
+    expect(view.getByText('Ignore this time and continue')).not.toBeNull();
+    expect(view.getByText(/Every emoji becomes visible, including ones you muted/)).not.toBeNull();
+    expect(view.getByText('Turn emoji muting off')).not.toBeNull();
+
+    fireEvent.click(view.getByText('Ignore this time and continue'));
+    expect(ignoreEmojiMutesThisView).toHaveBeenCalledTimes(1);
+
+    mockRequest = deferred();
+    allowRetry();
+    fireEvent.click(view.getByText('Retry loading settings'));
+    expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(2);
+    expect(view.getByTestId('webui')).toBe(ui);
+
+    await bootReady();
+    expect(view.getByTestId('webui')).toBe(ui);
+    expect(mockUiMounts).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  it('keeps a failed save from looking like emoji muting turned off', async () => {
+    disableEmojiMuteFeature.mockImplementationOnce(() => () => Promise.reject(new Error('not saved')));
+    const view = render(<Mastodon locale='en' />);
+    await rejectBootstrap(new Error('offline'));
+
     await act(async () => {
-      mockPhase = 'ready';
-      mockSubscribers.forEach(listener => listener());
-      mockPhase = 'stale';
-      mockSubscribers.forEach(listener => listener());
+      fireEvent.click(view.getByText('Turn emoji muting off'));
       await Promise.resolve();
     });
 
-    expect(view.queryByTestId('webui')).toBeNull();
-    expect(view.container.querySelector('img')).toBeNull();
-    expect(mockUiMounts).toHaveBeenCalledTimes(1);
-    expect(mockUiUnmounts).not.toHaveBeenCalled();
-
-    await phaseChanged('ready');
-    expect(view.queryByTestId('webui')).not.toBeNull();
-    expect(mockUiMounts).toHaveBeenCalledTimes(1);
+    expect(view.getByText(/stayed on because the setting could not be saved/)).not.toBeNull();
+    expect(view.getByTestId('webui')).not.toBeNull();
     view.unmount();
   });
 
-  it('keeps a failed update hidden and supports an explicit retry', async () => {
-    const view = render(<Mastodon locale='en' />);
-    await bootReady();
-
-    const ui = view.getByTestId('webui');
-    await phaseChanged('stale');
-    await phaseChanged('error');
-    expect(view.queryByTestId('webui')).toBeNull();
-    expect(mockUiUnmounts).not.toHaveBeenCalled();
-    expect(view.getByText(/could not be verified/)).not.toBeNull();
-    expect(view.getByText('Start without emoji muting')).not.toBeNull();
-
-    mockRequest = deferred();
-    allowRetry();
-    fireEvent.click(view.getByText('Retry loading settings'));
-    expect(syncEmojiMutes).toHaveBeenLastCalledWith({ bootstrap: false });
-    expect(view.queryByTestId('webui')).toBeNull();
-
-    await bootReady();
-
-    expect(view.getByTestId('webui')).toBe(ui);
-    expect(mockUiMounts).toHaveBeenCalledTimes(1);
-    view.unmount();
-  });
-
-  it('keeps the WebUI unmounted when the initial GET fails', async () => {
-    const view = render(<Mastodon locale='en' />);
-
-    await act(async () => {
-      mockRequest.reject(new Error('offline'));
-      try {
-        await mockRequest.promise;
-      } catch (_) {
-        // The bootstrap handler owns the error.
-      }
-    });
-    expect(view.queryByTestId('webui')).toBeNull();
-    expect(view.getByText(/could not be verified/)).not.toBeNull();
-
-    mockRequest = deferred();
-    allowRetry();
-    fireEvent.click(view.getByText('Retry loading settings'));
-    expect(syncEmojiMutes).toHaveBeenLastCalledWith({ bootstrap: true });
-    await bootReady();
-
-    expect(view.queryByTestId('webui')).not.toBeNull();
-    view.unmount();
-  });
-
-  it('keeps Tab on the retry control while an open menu and modal are detached', async () => {
-    const view = render(<Mastodon locale='en' />);
-    await bootReady();
-
-    const portal = document.querySelector('.emoji-mutes-privacy-portal');
-    const menuHolder = document.createElement('div');
-    const modalHolder = document.createElement('div');
-    portal.appendChild(menuHolder);
-    portal.appendChild(modalHolder);
-    function closeMenu() {}
-    function chooseMenuItem() {}
-    function closeModal() {}
-    const menu = render(
-      <DropdownMenu items={[{ text: 'Hide emoji' }]} onClose={closeMenu} onItemClick={chooseMenuItem} />,
-      { container: menuHolder },
-    );
-    const modal = render(
-      <ModalRoot onClose={closeModal}><button type='button'>Inside modal</button></ModalRoot>,
-      { container: modalHolder },
-    );
-    menu.getByText('Hide emoji').focus();
-
-    await phaseChanged('error');
-
-    const retry = view.getByRole('button', { name: 'Retry loading settings' });
-    expect(menuHolder.isConnected).toBe(false);
-    expect(modalHolder.isConnected).toBe(false);
-    expect(document.body.contains(retry)).toBe(true);
-
-    const menuTab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
-    document.dispatchEvent(menuTab);
-    const modalTab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
-    window.dispatchEvent(modalTab);
-    expect(menuTab.defaultPrevented).toBe(false);
-    expect(modalTab.defaultPrevented).toBe(false);
-
-    retry.focus();
-    expect(document.activeElement).toBe(retry);
-
-    await phaseChanged('ready');
-    expect(menuHolder.isConnected).toBe(true);
-    expect(modalHolder.isConnected).toBe(true);
-
-    const restoredModalTab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
-    window.dispatchEvent(restoredModalTab);
-    expect(restoredModalTab.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(modal.getByText('Inside modal'));
-
-    modal.unmount();
-    const restoredTab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
-    document.dispatchEvent(restoredTab);
-    expect(restoredTab.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(menu.getByText('Hide emoji'));
-
-    menu.unmount();
-    view.unmount();
-  });
-
-  it('sends an expired session to sign-in and a forbidden token to an explanation', async () => {
+  it('keeps the WebUI up for an expired or forbidden session and hides retry', async () => {
     const unauthorized = render(<Mastodon locale='en' />);
-    const denied = Object.assign(new Error('unauthorized'), { response: { status: 401 } });
-    await rejectBootstrap(denied);
+    await rejectBootstrap(Object.assign(new Error('unauthorized'), { response: { status: 401 } }));
 
-    expect(unauthorized.queryByTestId('webui')).toBeNull();
+    expect(unauthorized.getByTestId('webui')).not.toBeNull();
     expect(unauthorized.getByText(/session expired/i)).not.toBeNull();
     expect(unauthorized.getByText('Reload and sign in')).not.toBeNull();
     expect(unauthorized.queryByText('Retry loading settings')).toBeNull();
+    expect(unauthorized.getByText('Ignore this time and continue')).not.toBeNull();
+    expect(unauthorized.getByText('Turn emoji muting off')).not.toBeNull();
     unauthorized.unmount();
 
     mockRequest = deferred();
     const forbiddenView = render(<Mastodon locale='en' />);
     await rejectBootstrap(Object.assign(new Error('forbidden'), { response: { status: 403 } }));
 
+    expect(forbiddenView.getByTestId('webui')).not.toBeNull();
     expect(forbiddenView.getByText(/cannot read emoji mute settings/i)).not.toBeNull();
     expect(forbiddenView.queryByText('Retry loading settings')).toBeNull();
-    expect(forbiddenView.queryByText('Reload and sign in')).toBeNull();
+    expect(forbiddenView.getByText('Ignore this time and continue')).not.toBeNull();
     forbiddenView.unmount();
-  });
-
-  it('shows the sign-in gate when a ready session is rejected by the store', async () => {
-    const view = render(<Mastodon locale='en' />);
-    await bootReady();
-    const ui = view.getByTestId('webui');
-
-    mockFailure = 'unauthorized';
-    await phaseChanged('error');
-    await phaseChanged('error');
-
-    expect(view.queryByTestId('webui')).toBeNull();
-    expect(document.querySelector('.emoji-mutes-privacy-portal')).toBeNull();
-    expect(view.getByText(/session expired/i)).not.toBeNull();
-    expect(view.queryByText('Retry loading settings')).toBeNull();
-    expect(mockUiUnmounts).not.toHaveBeenCalled();
-
-    mockFailure = null;
-    await phaseChanged('ready');
-    expect(view.getByTestId('webui')).toBe(ui);
-    expect(mockUiMounts).toHaveBeenCalledTimes(1);
-    view.unmount();
   });
 
   it('ignores a retry click until the quiet period has elapsed, then allows one', async () => {
     const view = render(<Mastodon locale='en' />);
     await rejectBootstrap(new Error('offline'));
 
-    const callsBefore = mockDispatch.mock.calls.filter(call => typeof call[0] === 'function').length;
+    const callsBefore = retryEmojiMuteLoad.mock.calls.length;
     fireEvent.click(view.getByText('Retry loading settings'));
-    expect(mockDispatch.mock.calls.filter(call => typeof call[0] === 'function').length).toBe(callsBefore);
+    expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(callsBefore);
 
     allowRetry();
     mockRequest = deferred();
     fireEvent.click(view.getByText('Retry loading settings'));
-    expect(mockDispatch.mock.calls.filter(call => typeof call[0] === 'function').length).toBe(callsBefore + 1);
-    expect(view.queryByText('Retry loading settings')).toBeNull();
+    expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(callsBefore + 1);
     view.unmount();
   });
 
   it('removes the old viewer DOM before clearing a changed session', async () => {
     const view = render(<Mastodon locale='en' />);
     await bootReady();
+    fireEvent.change(view.getByTestId('compose-draft'), { target: { value: 'pending draft' } });
 
     act(() => {
       mockMe = 'another-account';
@@ -520,8 +326,8 @@ describe('authenticated emoji mute bootstrap and revision gate', () => {
     });
 
     expect(view.queryByTestId('webui')).toBeNull();
-    expect(view.container.querySelector('img')).toBeNull();
     expect(view.getByText(/Your account changed/)).not.toBeNull();
+    expect(view.queryByText('Ignore this time and continue')).toBeNull();
     expect(resetEmojiMuteSession).toHaveBeenCalled();
     expect(mockDispatch).toHaveBeenCalledWith({ type: 'EMOJI_MUTES_RESET' });
     view.unmount();
