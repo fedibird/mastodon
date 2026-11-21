@@ -19,6 +19,8 @@ import reducer from 'mastodon/reducers/emoji_mutes';
 import notificationsReducer from 'mastodon/reducers/notifications';
 import {
   applyRemoteEmojiMutePreference,
+  disableEmojiMuteFeature,
+  enableEmojiMuteLoading,
   ignoreEmojiMutesThisView,
   syncEmojiMutes,
 } from 'mastodon/actions/emoji_mutes';
@@ -284,6 +286,73 @@ describe('emoji mute preference flow', () => {
     expect(urls).toContain('/api/v1/fedibird/emoji_mutes');
     expect(currentEmojiMuteBoot().availability).toBe('enabled');
     expect(emojiMutes.get('display')).toBe('apply');
+  });
+
+  it('does not let an older preference read undo a mute saved in this tab', async () => {
+    const pending = deferred();
+
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        return pending.promise;
+      }
+
+      if (url === '/api/v1/fedibird/emoji_mutes') {
+        return Promise.resolve({ data: { revision: '3', enabled: true, emoji_mutes: [hideRule] } });
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    const older = dispatch(applyRemoteEmojiMutePreference());
+    dispatch(enableEmojiMuteLoading());
+    pending.resolve({ data: { enabled: false, explicit: true, known: true } });
+    await older;
+
+    expect(currentEmojiMuteBoot().availability).toBe('enabled');
+  });
+
+  it('does not let an older preference read turn the feature back on after this tab saves off', async () => {
+    noteEmojiMuteDisabledLocally();
+    const pending = deferred();
+
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        return pending.promise;
+      }
+
+      return Promise.resolve({ data: { revision: '3', enabled: true, emoji_mutes: [hideRule] } });
+    });
+    api().patch.mockResolvedValue({ data: { enabled: false, explicit: true } });
+
+    const older = dispatch(applyRemoteEmojiMutePreference());
+    await dispatch(disableEmojiMuteFeature());
+    pending.resolve({ data: { enabled: true, explicit: true, known: true } });
+    await older;
+
+    expect(currentEmojiMuteBoot().availability).toBe('disabled');
+    expect(api().get.mock.calls.map(call => call[0])).not.toContain('/api/v1/fedibird/emoji_mutes');
+  });
+
+  it('does not refresh notifications when the stream connects during the first fetch', async () => {
+    const pending = deferred();
+
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mutes') {
+        return pending.promise;
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    const boot = syncEmojiMutes({ bootstrap: true })(dispatch, root);
+    const connect = syncEmojiMutes()(dispatch, root);
+    pending.resolve({ data: { revision: '1', enabled: true, emoji_mutes: [] } });
+    await boot;
+    await connect;
+
+    const urls = api().get.mock.calls.map(call => call[0]);
+    expect(urls.filter(url => url === '/api/v1/fedibird/emoji_mutes')).toHaveLength(1);
+    expect(urls).not.toContain('/api/v1/notifications');
   });
 
   it('does not refresh notifications on the first document fetch', async () => {

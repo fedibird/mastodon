@@ -647,12 +647,18 @@ export function restoreVisibleEmojiMuteStatus(id) {
 }
 
 let documentSyncGeneration = 0;
+let initialDocumentSync = null;
+
+function plainInitialFollowUp(options) {
+  return !options.bootstrap && !options.reconnect && !options.changed && options.verify !== true;
+}
 
 // A viewer boundary invalidates both in-flight document continuations and
 // queued status/notification refreshes. Resetting only the document module
 // would leave stale surface work live in the previous viewer's Redux tree.
 export function invalidateEmojiMuteAsyncWork() {
   documentSyncGeneration += 1;
+  initialDocumentSync = null;
   resetEmojiMuteSurfaces();
 }
 
@@ -686,6 +692,13 @@ export function syncEmojiMutes(options = {}) {
       return Promise.resolve([]);
     }
 
+    // The user stream connects while the first fetch is still running.
+    // Joining it keeps that fetch from being superseded and refreshing
+    // notifications before the columns exist.
+    if (initialDocumentSync && plainInitialFollowUp(options)) {
+      return initialDocumentSync;
+    }
+
     const generation = ++documentSyncGeneration;
     const previousRevision = appliedEmojiMuteRevision();
     const previousSignature = hideReactionSignature(currentEmojiMutes());
@@ -700,7 +713,7 @@ export function syncEmojiMutes(options = {}) {
       dispatch({ type: EMOJI_MUTES_LOAD, verify: options.verify === true });
     }
 
-    return pending.then(mutes => {
+    const syncPromise = pending.then(mutes => {
       if (generation !== documentSyncGeneration) {
         return null;
       }
@@ -789,5 +802,18 @@ export function syncEmojiMutes(options = {}) {
 
       throw error;
     });
+
+    if (options.bootstrap === true && !options.changed && options.verify !== true && !options.reconnect) {
+      let tracked;
+      tracked = syncPromise.finally(() => {
+        if (initialDocumentSync === tracked) {
+          initialDocumentSync = null;
+        }
+      });
+      initialDocumentSync = tracked;
+      return tracked;
+    }
+
+    return syncPromise;
   };
 }

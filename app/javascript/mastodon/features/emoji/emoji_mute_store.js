@@ -160,6 +160,7 @@ export function resetEmojiMuteSession() {
 
 export function beginEmojiMuteEnabledFetch() {
   noteEmojiMuteEnabledLocally();
+  beginEmojiMutePreferenceRead();
   temporaryIgnore = false;
   requestVersion += 1;
   request = null;
@@ -172,6 +173,7 @@ export function beginEmojiMuteEnabledFetch() {
 
 export function applyEmojiMuteDisabledDocument() {
   noteEmojiMuteDisabledLocally();
+  beginEmojiMutePreferenceRead();
   temporaryIgnore = false;
   requestVersion += 1;
   request = null;

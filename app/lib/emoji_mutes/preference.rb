@@ -30,9 +30,20 @@ module EmojiMutes
       record&.value == true
     end
 
-    # Hot path. The cached getter is false for both unset and explicit false.
+    # The settings cache can be filled by a read that started before a newer
+    # commit. Reaction rejection uses the row, remembered for this request.
     def effects_enabled?
-      @user.setting_emoji_mute_enabled == true
+      self.class.read_value(@user) == true
+    end
+
+    def self.read_value(user)
+      flags = EmojiMutes::Store.effect_flags
+      return flags[user.id] if flags&.key?(user.id)
+
+      row = Setting.unscoped.find_by(thing_type: 'User', thing_id: user.id, var: KEY)
+      value = row ? row.value : false
+      (EmojiMutes::Store.effect_flags ||= {})[user.id] = value
+      value
     end
 
     def modal?
@@ -117,6 +128,7 @@ module EmojiMutes
 
     def forget_rules!
       EmojiMutes::Store.rule_sets&.delete(@user.id)
+      EmojiMutes::Store.effect_flags&.delete(@user.id)
     end
   end
 end
