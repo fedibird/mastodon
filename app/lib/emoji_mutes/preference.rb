@@ -59,27 +59,36 @@ module EmojiMutes
         'explicit' => explicit?,
         'known' => true,
         'modal' => modal?,
+        'revision' => self.class.revision_of(record),
       }
+    end
+
+    def self.revision_of(row)
+      return '0' if row.nil? || row.updated_at.nil?
+
+      format('%d', (row.updated_at.to_r * 1_000_000).round)
     end
 
     def update!(enabled)
       raise EmojiMutes::Invalid.new(KEY, 'invalid_type') unless [true, false].include?(enabled)
 
       changed = false
+      revision = '0'
       EmojiMute.transaction do
         User.lock.find(@user.id)
         row = Setting.lock.find_by(thing_type: 'User', thing_id: @user.id, var: KEY)
         if row.nil?
-          Setting.create!(thing_type: 'User', thing_id: @user.id, var: KEY, value: enabled)
+          row = Setting.create!(thing_type: 'User', thing_id: @user.id, var: KEY, value: enabled)
           changed = true
         elsif row.value != enabled
           row.update!(value: enabled)
           changed = true
         end
+        revision = self.class.revision_of(row)
       end
       forget_rules!
       self.class.publish!(@user, enabled) if changed
-      as_json
+      as_json.merge('enabled' => enabled, 'explicit' => true, 'revision' => revision)
     end
 
     # Inside the mute-create transaction. The caller already holds User.lock.

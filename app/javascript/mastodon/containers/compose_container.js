@@ -9,6 +9,7 @@ import Compose from '../features/standalone/compose';
 import initialState from '../initial_state';
 import { fetchCircles } from '../actions/circles';
 import { ensureCustomEmojis } from '../actions/custom_emojis';
+import { bootStandaloneEmojiMutes } from '../actions/emoji_mutes';
 import { preloadCustomEmojiCatalogIfNeeded, preloadStandardEmojiPickerIfNeeded } from '../features/emoji/emoji_picker_preferences';
 
 const { localeData, messages } = getLocale();
@@ -21,6 +22,7 @@ if (initialState) {
 }
 
 store.dispatch(fetchCircles());
+store.dispatch(bootStandaloneEmojiMutes());
 preloadStandardEmojiPickerIfNeeded();
 // Standalone compose needs the standard catalog but not the private stock.
 preloadCustomEmojiCatalogIfNeeded(() => store.dispatch(ensureCustomEmojis()));

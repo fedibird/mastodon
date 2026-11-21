@@ -1,5 +1,5 @@
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
-import { EMOJI_MUTES_APPLY, EMOJI_MUTES_IMPORT, EMOJI_MUTES_REVISION, EMOJI_MUTES_LOAD, EMOJI_MUTES_FAIL, EMOJI_MUTES_RESET, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_IGNORE } from '../actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_IMPORT, EMOJI_MUTES_REVISION, EMOJI_MUTES_LOAD, EMOJI_MUTES_FAIL, EMOJI_MUTES_RESET, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_CONFIRM } from '../actions/emoji_mutes';
 import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
 
 // revision is the newest *observed* revision; appliedRevision is the version
@@ -90,6 +90,12 @@ export default function emojiMutes(state = initialState, action) {
       .set('failure', null)
       .set('rules', ImmutableList())
       .set('appliedRevision', '0'));
+  case EMOJI_MUTES_CONFIRM:
+    return withDisplay(state
+      .set('availability', 'unknown')
+      .set('phase', 'loading')
+      .set('failure', null)
+      .set('rules', ImmutableList()));
   case EMOJI_MUTES_ENABLE:
     return withDisplay(state
       .set('availability', 'enabled')

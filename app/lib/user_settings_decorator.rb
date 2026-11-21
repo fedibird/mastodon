@@ -208,9 +208,8 @@ class UserSettingsDecorator
       end
     end
 
-    previous_emoji_mute_enabled = user.setting_emoji_mute_enabled if change?('setting_emoji_mute_enabled')
-
     BOOLEAN_KEYS.each do |key|
+      next if key == EmojiMutes::Preference::KEY
       next unless change?("setting_#{key}")
 
       if legacy_key?(key)
@@ -220,13 +219,12 @@ class UserSettingsDecorator
       end
     end
 
+    # The appearance form and the preference API share this locked write.
+    # It publishes the value that committed, not a before/after pair read
+    # outside the lock.
     return unless change?('setting_emoji_mute_enabled')
 
-    current_emoji_mute_enabled = user.setting_emoji_mute_enabled
-    return if current_emoji_mute_enabled == previous_emoji_mute_enabled
-
-    EmojiMutes::Store.rule_sets&.delete(user.id)
-    EmojiMutes::Preference.publish!(user, current_emoji_mute_enabled)
+    EmojiMutes::Preference.new(user).update!(boolean_cast_setting('setting_emoji_mute_enabled') == true)
   end
 
   # Reject an invalid enum before any other preference in the same form is

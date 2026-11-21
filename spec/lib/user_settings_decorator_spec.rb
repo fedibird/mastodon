@@ -240,5 +240,30 @@ describe UserSettingsDecorator do
       expect(user.settings['boost_modal']).to be true
       expect(UserPreferences::Revision.current(user.id)).to eq 4
     end
+
+    it 'publishes the form value committed after another request turned the switch off' do
+      EmojiMutes::Preference.new(user).update!(true)
+      published = []
+      allow(EmojiMutes::Preference).to receive(:publish!) { |_subject, enabled| published << enabled }
+      interleaved = false
+
+      allow(User).to receive(:lock).and_wrap_original do |method, *args|
+        relation = method.call(*args)
+        allow(relation).to receive(:find).and_wrap_original do |find, id|
+          unless interleaved
+            interleaved = true
+            Setting.unscoped.find_by!(thing_type: 'User', thing_id: user.id, var: 'emoji_mute_enabled').update_columns(value: false.to_yaml, updated_at: Time.current)
+            EmojiMutes::Preference.publish!(user, false)
+          end
+          find.call(id)
+        end
+        relation
+      end
+
+      described_class.new(user).update('setting_emoji_mute_enabled' => '1')
+
+      expect(EmojiMutes::Preference.new(user).enabled?).to eq(true)
+      expect(published).to eq([false, true])
+    end
   end
 end

@@ -242,10 +242,19 @@ const reconcileEmojiReactionNotifications = (state, rules) => {
     }
   });
 
-  return state
+  let next = state
     .set('items', items)
     .set('pendingItems', pendingItems)
     .set('emojiMuteWithheld', ImmutableList(withheld));
+
+  const lastReadId = next.get('lastReadId');
+  const readMarkerId = next.get('readMarkerId');
+
+  if (lastReadId !== null && lastReadId !== undefined && readMarkerId !== null && readMarkerId !== undefined && shouldCountUnreadNotifications(next)) {
+    next = recountUnread(next, next.get('lastReadId'));
+  }
+
+  return next;
 };
 
 const notificationMatches = (item, accountIds, type) => (

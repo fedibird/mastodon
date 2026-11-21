@@ -26,9 +26,11 @@ import {
   emojiMutePreferenceReadCurrent,
   emojiMutePreferenceGeneration,
   emojiMuteRequestVersion,
+  notePreferenceRevision,
+  preferenceRevisionStale,
   loadEmojiMutePreference,
 } from '../features/emoji/emoji_mute_store';
-import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
+import { currentEmojiMuteBoot, noteEmojiMutePreferenceConfirming } from '../features/emoji/emoji_mute_availability';
 import { hideReactionSignature, hideSignatureGrew, hideSignatureShrunk, revisionStale } from '../features/emoji/emoji_mute_projection';
 import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
 import { emojiMuteBypassEnabled } from '../features/emoji/emoji_mute_boot_bypass';
@@ -44,6 +46,7 @@ export const EMOJI_MUTES_RESET = 'EMOJI_MUTES_RESET';
 export const EMOJI_MUTES_DISABLE = 'EMOJI_MUTES_DISABLE';
 export const EMOJI_MUTES_ENABLE = 'EMOJI_MUTES_ENABLE';
 export const EMOJI_MUTES_IGNORE = 'EMOJI_MUTES_IGNORE';
+export const EMOJI_MUTES_CONFIRM = 'EMOJI_MUTES_CONFIRM';
 
 export function enableEmojiMuteLoading() {
   return dispatch => {
@@ -89,8 +92,13 @@ export function disableEmojiMuteFeature() {
     const previousSignature = hideReactionSignature(currentEmojiMutes());
 
     return saveEmojiMuteEnabled(false).then(data => {
+      if (!data || data.applied === false || data.enabled !== false) {
+        return data;
+      }
+
       dispatch({ type: EMOJI_MUTES_DISABLE });
-      return dispatch(revealEmojiMuteEffects(previousSignature)).then(() => data);
+      dispatch(revealEmojiMuteEffects(previousSignature));
+      return data;
     });
   };
 }
@@ -133,10 +141,11 @@ export function applyRemoteEmojiMutePreference() {
     const generation = beginEmojiMutePreferenceRead();
 
     return loadEmojiMutePreference().then(data => {
-      if (!emojiMutePreferenceReadCurrent(generation) || !data) {
+      if (!emojiMutePreferenceReadCurrent(generation) || !data || preferenceRevisionStale(data.revision)) {
         return null;
       }
 
+      notePreferenceRevision(data.revision);
       return dispatch(applyAuthoritativeEmojiMutePreference(data.enabled));
     });
   };
@@ -148,6 +157,16 @@ export function ignoreEmojiMutesThisView() {
     ignoreEmojiMutesForThisView();
     dispatch({ type: EMOJI_MUTES_IGNORE });
     return dispatch(revealEmojiMuteEffects(previousSignature));
+  };
+}
+
+export function bootStandaloneEmojiMutes() {
+  return dispatch => {
+    if (!currentEmojiMuteBoot().fetch) {
+      return Promise.resolve(null);
+    }
+
+    return dispatch(retryEmojiMuteLoad({ bootstrap: true })).catch(() => null);
   };
 }
 
@@ -694,7 +713,15 @@ export function syncEmojiMutes(options = {}) {
     }
 
     if (options.reconnect && currentEmojiMuteBoot().availability === 'disabled') {
-      return dispatch(applyRemoteEmojiMutePreference());
+      noteEmojiMutePreferenceConfirming();
+      dispatch({ type: EMOJI_MUTES_CONFIRM });
+      return dispatch(applyRemoteEmojiMutePreference()).catch(error => {
+        dispatch({
+          type: EMOJI_MUTES_FAIL,
+          failure: classifyEmojiMuteFetchError(error),
+        });
+        return null;
+      });
     }
 
     if (currentEmojiMuteBoot().availability === 'disabled') {
@@ -786,10 +813,11 @@ export function syncEmojiMutes(options = {}) {
         recovered: true,
       });
 
-      // The first mount skips the notification round trip. Statuses imported
-      // with their reactions withheld still need a refetch once the rules
-      // exist. A retry after the UI exists restores both.
-      if (options.bootstrap) {
+      // The first mount skips the notification round trip. A stream connect
+      // that finds the same document does too: the column loads that list
+      // itself. A changed document or a reconnect still refreshes it.
+      // Statuses imported with reactions withheld are restored either way.
+      if (options.bootstrap || (sameDocument && !options.reconnect && !hideShrunk && !hideGrew)) {
         return refreshEmojiMuteSurfaces({
           restoreWithheld: true,
           skipNotifications: true,

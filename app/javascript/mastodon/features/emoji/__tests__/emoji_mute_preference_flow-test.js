@@ -19,6 +19,7 @@ import reducer from 'mastodon/reducers/emoji_mutes';
 import notificationsReducer from 'mastodon/reducers/notifications';
 import {
   applyRemoteEmojiMutePreference,
+  bootStandaloneEmojiMutes,
   disableEmojiMuteFeature,
   enableEmojiMuteLoading,
   ignoreEmojiMutesThisView,
@@ -420,6 +421,87 @@ describe('emoji mute preference flow', () => {
     await older;
 
     expect(currentEmojiMuteBoot().availability).toBe('enabled');
+  });
+
+  it('does not let a delayed off save replace a newer confirmed on', async () => {
+    noteEmojiMuteEnabledLocally();
+    const patch = deferred();
+    api().patch.mockImplementation(() => patch.promise);
+    api().get.mockImplementation(url => {
+      if (url === '/api/v1/fedibird/emoji_mute_preference') {
+        return Promise.resolve({ data: { enabled: true, explicit: true, known: true, revision: '9' } });
+      }
+
+      if (url === '/api/v1/fedibird/emoji_mutes') {
+        return Promise.resolve({ data: { revision: '3', enabled: true, emoji_mutes: [] } });
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+
+    const saving = dispatch(disableEmojiMuteFeature());
+    await dispatch(applyRemoteEmojiMutePreference());
+    expect(currentEmojiMuteBoot().availability).toBe('enabled');
+
+    patch.resolve({ data: { enabled: false, explicit: true, known: true, revision: '4' } });
+    await saving;
+
+    expect(currentEmojiMuteBoot().availability).toBe('enabled');
+  });
+
+  it('reads the current preference when the save response is lost', async () => {
+    noteEmojiMuteEnabledLocally();
+    api().patch.mockRejectedValueOnce(Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }));
+    api().get.mockResolvedValueOnce({ data: { enabled: true, explicit: true, known: true, revision: '6' } });
+
+    const saved = await dispatch(disableEmojiMuteFeature());
+
+    expect(saved.enabled).toBe(true);
+    expect(currentEmojiMuteBoot().availability).toBe('enabled');
+    expect(emojiMutes.get('availability')).not.toBe('disabled');
+  });
+
+  it('hides emoji when a known-off tab cannot confirm the preference after reconnect', async () => {
+    noteEmojiMuteDisabledLocally();
+    api().get.mockRejectedValueOnce(Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }));
+
+    await syncEmojiMutes({ reconnect: true })(dispatch, root);
+
+    expect(emojiMutes.get('display')).toBe('suppress');
+    expect(emojiMutes.get('phase')).toBe('error');
+    expect(emojiMutes.get('availability')).toBe('unknown');
+  });
+
+  it('does not fetch a preference while a known-off tab is loading for the first time', async () => {
+    noteEmojiMuteDisabledLocally();
+
+    await syncEmojiMutes({ bootstrap: true })(dispatch, root);
+
+    expect(api().get).not.toHaveBeenCalled();
+    expect(currentEmojiMuteBoot().availability).toBe('disabled');
+  });
+
+  it('loads standalone compose rules without blocking the composer', async () => {
+    noteEmojiMuteEnabledLocally();
+    const list = deferred();
+    api().get.mockImplementation(url => (
+      url === '/api/v1/fedibird/emoji_mutes' ? list.promise : Promise.resolve({ data: [] })
+    ));
+
+    const loading = dispatch(bootStandaloneEmojiMutes());
+    expect(api().get.mock.calls.map(call => call[0])).toContain('/api/v1/fedibird/emoji_mutes');
+
+    list.resolve({
+      data: {
+        revision: '2',
+        enabled: true,
+        emoji_mutes: [hideRule],
+      },
+    });
+    await loading;
+
+    expect(currentEmojiMutes()).toEqual([hideRule]);
+    expect(emojiMuteDocumentReady()).toBe(true);
   });
 
   it('does not let an older preference read undo a mute saved in this tab', async () => {

@@ -17,6 +17,7 @@ const REVISION = /^(?:0|[1-9]\d*)$/;
 // Axios has no request timeout by default. A stalled request must release
 // the initial/stream revision gate to a retryable error state.
 const EMOJI_MUTES_GET_TIMEOUT_MS = 20000;
+const EMOJI_MUTE_PREFERENCE_TIMEOUT_MS = 20000;
 
 let observedRevision = null;
 let appliedRevision = null;
@@ -147,6 +148,7 @@ export function emojiMuteDocumentReady() {
 export function resetEmojiMuteSession() {
   sessionVersion += 1;
   requestVersion += 1;
+  appliedPreferenceRevision = '0';
   beginEmojiMutePreferenceRead();
   observedRevision = null;
   appliedRevision = null;
@@ -400,12 +402,14 @@ export function resetEmojiMuteStoreForTests() {
   viewerSignedInOverride = null;
   temporaryIgnore = false;
   preferenceReadGeneration = 0;
+  appliedPreferenceRevision = '0';
   resetEmojiMuteBootForTests();
   resetEmojiMuteSession();
   notificationFetchEpoch = 0;
 }
 
 let preferenceReadGeneration = 0;
+let appliedPreferenceRevision = '0';
 
 export function emojiMuteRequestVersion() {
   return requestVersion;
@@ -424,6 +428,54 @@ export function emojiMutePreferenceReadCurrent(generation) {
   return generation === preferenceReadGeneration;
 }
 
+export function preferenceRevisionStale(revision) {
+  if (revision === undefined || revision === null || revision === '') {
+    return false;
+  }
+
+  return compareRevision(String(revision), appliedPreferenceRevision) < 0;
+}
+
+export function notePreferenceRevision(revision) {
+  if (revision === undefined || revision === null || revision === '') {
+    return;
+  }
+
+  const next = String(revision);
+
+  if (compareRevision(next, appliedPreferenceRevision) > 0) {
+    appliedPreferenceRevision = next;
+  }
+}
+
+function acceptablePreference(data) {
+  return !!(data && data.explicit === true && (data.enabled === true || data.enabled === false));
+}
+
+function applySavedPreference(data) {
+  notePreferenceRevision(data.revision);
+
+  if (data.enabled === false) {
+    applyEmojiMuteDisabledDocument();
+  } else {
+    beginEmojiMuteEnabledFetch();
+  }
+
+  return { ...data, applied: true };
+}
+
+function preferenceResponseLost(error) {
+  const code = error && error.response && error.response.data && Array.isArray(error.response.data.errors)
+    ? error.response.data.errors[0] && error.response.data.errors[0].code
+    : null;
+
+  if (code === 'not_saved') {
+    return true;
+  }
+
+  return !error || !error.response;
+}
+
 export function loadEmojiMutePreference() {
   const headers = {};
 
@@ -431,32 +483,51 @@ export function loadEmojiMutePreference() {
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
-  return api().get('/api/v1/fedibird/emoji_mute_preference', { headers }).then(response => (
+  return api().get('/api/v1/fedibird/emoji_mute_preference', { headers, timeout: EMOJI_MUTE_PREFERENCE_TIMEOUT_MS }).then(response => (
     response && response.data
   ));
 }
 
+function confirmSavedPreference(generation) {
+  return loadEmojiMutePreference().then(data => {
+    if (!acceptablePreference(data)) {
+      throw new Error('Emoji mute preference was not saved');
+    }
+
+    if (!emojiMutePreferenceReadCurrent(generation) || preferenceRevisionStale(data.revision)) {
+      return { ...data, applied: false };
+    }
+
+    return applySavedPreference(data);
+  });
+}
+
 export function saveEmojiMuteEnabled(enabled) {
   const headers = { 'Content-Type': 'application/json' };
+  const generation = preferenceReadGeneration;
 
   if (accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
-  return api().patch('/api/v1/fedibird/emoji_mute_preference', { enabled }, { headers }).then(response => {
+  return api().patch('/api/v1/fedibird/emoji_mute_preference', { enabled }, { headers, timeout: EMOJI_MUTE_PREFERENCE_TIMEOUT_MS }).then(response => {
     const data = response && response.data;
 
-    if (!data || data.enabled !== enabled || data.explicit !== true) {
+    if (!acceptablePreference(data)) {
       throw new Error('Emoji mute preference was not saved');
     }
 
-    if (enabled === false) {
-      applyEmojiMuteDisabledDocument();
-    } else {
-      beginEmojiMuteEnabledFetch();
+    if (!emojiMutePreferenceReadCurrent(generation) || preferenceRevisionStale(data.revision)) {
+      return confirmSavedPreference(generation);
     }
 
-    return data;
+    return applySavedPreference(data);
+  }).catch(error => {
+    if (!preferenceResponseLost(error)) {
+      throw error;
+    }
+
+    return confirmSavedPreference(generation);
   });
 }
 

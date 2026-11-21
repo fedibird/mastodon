@@ -76,6 +76,18 @@ export function noteEmojiMuteEnabledLocally() {
   return runtime;
 }
 
+export function noteEmojiMutePreferenceConfirming() {
+  const current = currentEmojiMuteBoot();
+  runtime = {
+    ...current,
+    availability: 'unknown',
+    explicit: current.explicit,
+    fetch: true,
+    display: 'suppress',
+  };
+  return runtime;
+}
+
 export function noteEmojiMuteDisabledLocally() {
   const current = currentEmojiMuteBoot();
   runtime = {
