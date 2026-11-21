@@ -18,7 +18,7 @@ import { invalidateEmojiMuteAsyncWork, retryEmojiMuteLoad, ignoreEmojiMutesThisV
 import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
 import { resetEmojiMuteSession } from '../features/emoji/emoji_mute_store';
 import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
-import { scrubUnverifiedEmojiFromDocument } from '../features/emoji/emoji_mute_live_dom';
+import { createUnverifiedEmojiGuard } from '../features/emoji/emoji_mute_live_dom';
 import { setEmojiActionsOverlayPrivacyContainer } from '../features/emoji/emoji_actions/overlay_root';
 import { getLocale } from '../locales';
 import initialState from '../initial_state';
@@ -33,16 +33,16 @@ const hydrateAction = hydrateStore(initialState);
 store.dispatch(hydrateAction);
 store.dispatch(prefetchCircles());
 
-// Registered before any connected component. A stream revision can mark the
-// document unverified in this same turn; the visible emoji nodes are removed
-// before React applies the next render. Compose fields are not text nodes.
-export function scrubVisibleEmojiIfUnverified() {
-  const state = store.getState();
+// Registered before any connected component. The walk runs only when display
+// enters suppress, and it leaves React's nodes in place. Compose fields are
+// skipped because their values are not text nodes.
+const unverifiedEmojiGuard = createUnverifiedEmojiGuard();
 
-  if (state && typeof state.getIn === 'function' && state.getIn(['emojiMutes', 'display']) === 'suppress') {
-    scrubUnverifiedEmojiFromDocument();
-  }
+export function scrubVisibleEmojiIfUnverified() {
+  unverifiedEmojiGuard(store.getState());
 }
+
+scrubVisibleEmojiIfUnverified.reset = () => unverifiedEmojiGuard.reset();
 
 store.subscribe(scrubVisibleEmojiIfUnverified);
 // Share the catalog request/result with the first standard picker open.
@@ -213,10 +213,6 @@ export default class Mastodon extends React.PureComponent {
     }
 
     const state = store.getState();
-
-    if (state.getIn(['emojiMutes', 'display']) === 'suppress') {
-      scrubUnverifiedEmojiFromDocument();
-    }
 
     if (!sessionMatches(state)) {
       this.detachUiPortal();

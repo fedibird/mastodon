@@ -134,6 +134,7 @@ import { currentEmojiMuteBoot } from 'mastodon/features/emoji/emoji_mute_availab
 
 const Mastodon = require('../mastodon').default;
 const { scrubVisibleEmojiIfUnverified } = require('../mastodon');
+const { resetEmojiMuteLiveDomProbe } = require('mastodon/features/emoji/emoji_mute_live_dom');
 const { retryEmojiMuteLoad, ignoreEmojiMutesThisView, disableEmojiMuteFeature } = require('mastodon/actions/emoji_mutes');
 
 const clock = { now: 1_000_000 };
@@ -176,6 +177,8 @@ describe('authenticated emoji mute bootstrap', () => {
     mockUiUnmounts.mockClear();
     resetEmojiMuteSession.mockClear();
     mockSubscribers.clear();
+    scrubVisibleEmojiIfUnverified.reset();
+    resetEmojiMuteLiveDomProbe();
     mockRequest = deferred();
     mockPhase = 'loading';
     mockFailure = null;
@@ -395,7 +398,10 @@ describe('authenticated emoji mute bootstrap', () => {
 
     scrubVisibleEmojiIfUnverified();
 
-    expect(surface.querySelector('img.emojione')).toBeNull();
+    const emoji = surface.querySelector('img.emojione');
+    expect(emoji).not.toBeNull();
+    expect(emoji.hasAttribute('src')).toBe(false);
+    expect(emoji.getAttribute('hidden')).toBe('');
     expect(surface.innerHTML).not.toContain('/emoji/1f44c.svg');
     expect(surface.querySelector('p').textContent).toBe('Hello ◻');
     expect(surface.querySelector('img[src="/media/x.jpg"]').getAttribute('alt')).toBe('photo ◻');
@@ -405,7 +411,7 @@ describe('authenticated emoji mute bootstrap', () => {
 
     mockPhase = 'stale';
     scrubVisibleEmojiIfUnverified();
-    expect(surface.querySelector('img.emojione')).toBeNull();
+    expect(surface.querySelector('img.emojione')).toBe(emoji);
     expect(surface.querySelector('img[src="/media/x.jpg"]')).not.toBeNull();
     view.unmount();
   });
@@ -422,7 +428,7 @@ describe('authenticated emoji mute bootstrap', () => {
     scrubVisibleEmojiIfUnverified();
 
     expect(view.getByTestId('webui')).toBe(surface);
-    expect(surface.querySelector('img')).toBeNull();
+    expect(surface.querySelector('img.custom-emoji').hasAttribute('src')).toBe(false);
     expect(surface.innerHTML).not.toContain('secret.svg');
     expect(draft.value).toBe('still drafting');
     view.unmount();
