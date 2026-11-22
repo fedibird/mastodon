@@ -279,9 +279,16 @@ class StatusContent extends React.PureComponent {
     this._updateEmojiLinks();
   }
 
-  componentDidUpdate () {
+  componentDidUpdate (prevProps) {
     this._updateStatusLinks();
     this._updateEmojiLinks();
+
+    // The badge callback stays stable, so React does not call it again when
+    // only the mute display changes. Bind the mounted nodes after the new
+    // attribute value is committed.
+    if (prevProps.emojiMuteTextIndex !== this.props.emojiMuteTextIndex) {
+      this.syncHashtagBadges();
+    }
   }
 
   componentWillUnmount () {
@@ -603,14 +610,34 @@ class StatusContent extends React.PureComponent {
 
     if (!ref) {
       ref = node => {
-        if (node) {
-          bindHashtagMenuName(node, name, this.props.emojiMuteTextIndex);
+        if (!this._badgeNodes) {
+          this._badgeNodes = new Map();
         }
+
+        if (!node) {
+          this._badgeNodes.delete(key);
+          return;
+        }
+
+        this._badgeNodes.set(key, { node, name });
+        bindHashtagMenuName(node, name, this.props.emojiMuteTextIndex);
       };
       this._badgeRefs.set(key, ref);
     }
 
     return ref;
+  }
+
+  syncHashtagBadges () {
+    if (!this._badgeNodes) {
+      return;
+    }
+
+    this._badgeNodes.forEach(({ node, name }) => {
+      if (node.isConnected) {
+        bindHashtagMenuName(node, name, this.props.emojiMuteTextIndex);
+      }
+    });
   }
 
   renderHashtagBadges (hashtags, visible) {

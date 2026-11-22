@@ -1249,4 +1249,140 @@ describe('HashtagMenuController', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
     await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/api/v1/favourite_tags', { name: plain }));
   });
+
+  it('rebinds a trailing badge that was already mounted when display enters suppress', async () => {
+    const native = '👍';
+    const wave = `wave${native}`;
+    const gamma = `gamma${native}`;
+    const party = `party${native}`;
+    const link = (href, name) => `<a href="${href}" class="mention hashtag" rel="tag">#<span>${name}</span></a>`;
+    const waveHref = 'https://remote.example/topics/wave';
+    const gammaHref = 'https://remote.example/topics/gamma';
+    const gardenHref = 'https://remote.example/topics/garden';
+    const cwHref = 'https://remote.example/topics/party-cw';
+    const sourceHtml = `<p>Hello ${link(gardenHref, 'garden')} stays<br><br>${link(waveHref, wave)} ${link('https://remote.example/topics/alpha', 'alpha')} ${link('https://remote.example/topics/beta', 'beta')} ${link(gammaHref, gamma)} ${link('https://remote.example/topics/delta', 'delta')}</p>`;
+    const spoilerHtml = `<p>CW ${link(cwHref, party)} note</p>`;
+    const targetHtml = `<p>庭 ${link(gardenHref, '庭園')} です</p>`;
+    const { container, store } = renderMenu({
+      signedIn: true,
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'ready',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'apply',
+      },
+      status: buildStatus({
+        contentHtml: sourceHtml,
+        spoilerHtml,
+        spoiler_text: 'CW note',
+        language: 'en',
+        tags: [],
+        translationMode: 'bilingual',
+        translation: {
+          contentHtml: targetHtml,
+          spoilerHtml: '',
+          language: 'ja',
+          detected_source_language: 'en',
+          requested_source_language: 'en',
+          requested_target_language: 'ja',
+          provider: 'test',
+        },
+      }),
+    });
+    const useMenu = async (node, label, payload) => {
+      click(node);
+      expect(screen.getByRole('button', { name: `View posts with #${label}` })).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+      expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#${payload}`);
+      click(node);
+      fireEvent.click(screen.getByRole('button', { name: `Mute #${label}` }));
+      expect(store.getState().getIn(['modal', 'hashtag'])).toBe(payload);
+      click(node);
+      fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
+      await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/api/v1/favourite_tags', { name: payload }));
+    };
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+    expect(container.querySelectorAll('a.status__content__hashtag-badge')).toHaveLength(3);
+    fireEvent.click(container.querySelector('.status__content__hashtag-more'));
+
+    const badge = container.querySelector(`a.status__content__hashtag-badge[href="${waveHref}"]`);
+    const later = container.querySelector(`a.status__content__hashtag-badge[href="${gammaHref}"]`);
+
+    expect(container.querySelectorAll('a.status__content__hashtag-badge')).toHaveLength(5);
+    expect(badge.hasAttribute('data-menu-hashtag-token')).toBe(false);
+    expect(badge.getAttribute('data-menu-hashtag')).toBe(wave);
+    expect(badge.textContent).toContain(native);
+    await useMenu(badge, wave, wave);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(container.querySelector(`a.status__content__hashtag-badge[href="${waveHref}"]`)).toBe(badge);
+    expect(container.querySelector(`a.status__content__hashtag-badge[href="${gammaHref}"]`)).toBe(later);
+    expect(badge.hasAttribute('data-menu-hashtag-token')).toBe(true);
+    expect(later.hasAttribute('data-menu-hashtag-token')).toBe(true);
+    const cw = container.querySelector(`a[href="${cwHref}"]`);
+    const garden = container.querySelector(`.status__content__text a[href="${gardenHref}"]`);
+
+    expect(badge.outerHTML).not.toContain(native);
+    expect(later.outerHTML).not.toContain(native);
+    expect(cw.outerHTML).not.toContain(native);
+    expect(hashtagMenuStoredName(badge)).toBe(wave);
+    expect(hashtagMenuStoredName(later)).toBe(gamma);
+    expect(hashtagMenuStoredName(cw)).toBe(party);
+    expect(cw.hasAttribute('data-menu-hashtag-token')).toBe(true);
+    expect(garden.hasAttribute('data-menu-hashtag-token')).toBe(false);
+    expect(garden.getAttribute('data-menu-hashtag')).toBe('garden');
+    expect(container.querySelector('.status-translation-pair__target a').getAttribute('data-menu-hashtag')).toBe('garden');
+    await useMenu(badge, `wave${'\u25FB'}`, wave);
+    click(garden);
+    expect(screen.getByRole('button', { name: 'View posts with #garden' })).toBeTruthy();
+    click(garden);
+
+    const restored = () => {
+      const node = container.querySelector(`a.status__content__hashtag-badge[href="${waveHref}"]`);
+
+      expect(node).toBe(badge);
+      expect(node.hasAttribute('data-menu-hashtag-token')).toBe(false);
+      expect(node.getAttribute('data-menu-hashtag')).toBe(wave);
+      expect(node.textContent).toContain(native);
+    };
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+    restored();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+    restored();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_DISABLE });
+    });
+    restored();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_ENABLE });
+      store.dispatch({ type: EMOJI_MUTES_FAIL, failure: 'unavailable' });
+    });
+
+    expect(badge.hasAttribute('data-menu-hashtag-token')).toBe(true);
+    expect(badge.outerHTML).not.toContain(native);
+    expect(badge.getAttribute('title') || '').not.toContain(native);
+    expect(badge.getAttribute('aria-label') || '').not.toContain(native);
+    expect(hashtagMenuStoredName(badge)).toBe(wave);
+    await useMenu(badge, `wave${'\u25FB'}`, wave);
+  });
 });
