@@ -171,6 +171,84 @@ describe('StatusContent replace_in_text', () => {
     expect(link.getAttribute('href')).toBe(href);
   });
 
+  it('keeps a singular /tag/ URL as the menu identity while the label stays projected', () => {
+    const native = '👍';
+    const tag = `party${native}`;
+    const href = `https://remote.example/tag/${encodeURIComponent(tag)}`;
+    const status = buildStatus({
+      contentHtml: emojify(`<p><a href="${href}" class="mention hashtag" rel="tag">#<span>${tag}</span></a></p>`, {}, ''),
+      tags: [{ name: tag, url: href }],
+    });
+    const mount = display => fromJS({
+      server: { translationLanguages: { items: { en: ['ja'] } } },
+      emojiMutes: {
+        revision: '1',
+        display,
+        availability: display === 'show' ? 'temporary_ignore' : 'enabled',
+        rules: display === 'apply' ? [{
+          id: 'm-up',
+          revision: '1',
+          emoji: { kind: 'unicode', native },
+          replacement: '[up]',
+          effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+        }] : [],
+      },
+    });
+    const renderAt = display => {
+      const view = render(
+        <Provider store={createStore(reducer, mount(display))}>
+          <StatusContent status={status} onTranslate={jest.fn()} onClick={jest.fn()} />
+        </Provider>,
+      );
+      const link = view.container.querySelector('a.mention.hashtag');
+
+      return { view, link };
+    };
+
+    const suppressed = renderAt('suppress');
+
+    expect(suppressed.link.textContent).toBe(`#party${'\u25FB'}`);
+    expect(suppressed.link.getAttribute('data-menu-hashtag')).toBe(tag);
+    expect(suppressed.link.getAttribute('aria-label') || '').not.toContain(native);
+    suppressed.view.unmount();
+
+    const applied = renderAt('apply');
+
+    expect(applied.link.textContent).toBe('#party[up]');
+    expect(applied.link.getAttribute('data-menu-hashtag')).toBe(tag);
+    applied.view.unmount();
+
+    const shown = renderAt('show');
+
+    expect(shown.link.querySelector('img').getAttribute('alt')).toBe(native);
+    expect(shown.link.getAttribute('data-menu-hashtag')).toBe(tag);
+    shown.view.unmount();
+  });
+
+  it('does not store the projected label when the href has no tag segment', () => {
+    const native = '👍';
+    const tag = `party${native}`;
+    const href = 'https://remote.example/users/alice';
+    const status = buildStatus({
+      contentHtml: `<p><a href="${href}" class="mention hashtag" rel="tag">#<span>${tag}</span></a></p>`,
+      tags: [{ name: tag, url: href }],
+    });
+    const { container } = render(
+      <Provider
+        store={createStore(reducer, fromJS({
+          server: { translationLanguages: { items: { en: ['ja'] } } },
+          emojiMutes: { revision: '1', display: 'suppress', rules: [] },
+        }))}
+      >
+        <StatusContent status={status} onTranslate={jest.fn()} onClick={jest.fn()} />
+      </Provider>,
+    );
+    const link = container.querySelector('a.mention.hashtag');
+
+    expect(link.textContent).toBe(`#party${'\u25FB'}`);
+    expect(link.getAttribute('data-menu-hashtag')).toBe(tag);
+  });
+
   it('replaces emoji in the stored body without rewriting that html', () => {
     const status = buildStatus();
     const { container } = renderStatus(status, [muteRule(), unicodeRule]);

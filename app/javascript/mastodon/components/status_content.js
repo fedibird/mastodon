@@ -332,7 +332,9 @@ class StatusContent extends React.PureComponent {
       const url = new URL(href, window.location.origin);
       const parts = url.pathname.split('/').filter(Boolean);
       const tagsAt = parts.lastIndexOf('tags');
-      const encoded = tagsAt === -1 ? '' : parts[tagsAt + 1];
+      const tagAt = parts.lastIndexOf('tag');
+      const at = Math.max(tagsAt, tagAt);
+      const encoded = at === -1 ? '' : parts[at + 1];
 
       return encoded ? decodeURIComponent(encoded).replace(/^[#＃]/, '') : '';
     } catch (error) {
@@ -340,9 +342,27 @@ class StatusContent extends React.PureComponent {
     }
   }
 
+  // The visible label is already projected. A missing tags/tag segment must
+  // not copy that label into the menu identity.
+  hashtagNameFromTags (link) {
+    const tags = this.props.status && this.props.status.get('tags');
+    const href = link.getAttribute('href') || '';
+
+    if (!tags || typeof tags.find !== 'function' || !href) {
+      return '';
+    }
+
+    const match = tags.find(tag => {
+      const url = tag.get('url') || '';
+
+      return url !== '' && url === href;
+    });
+
+    return match ? String(match.get('name') || '').replace(/^[#＃]/, '') : '';
+  }
+
   markHashtagLink (link) {
-    const fromHref = this.hashtagNameFromHref(link);
-    const name = fromHref || (link.textContent || '').trim().replace(/^[#＃]/, '');
+    const name = this.hashtagNameFromHref(link) || this.hashtagNameFromTags(link);
 
     if (!name) {
       return;

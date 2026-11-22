@@ -4765,7 +4765,8 @@ body.app-body.layout-single-column.status-timeline-split {
   }
 
   // 240px cannot show the notice and two readable panes at once. Keep a
-  // 220px split, tall enough for a line in each pane, and let the page scroll.
+  // 470px split so ratio 20 and ratio 80 still leave an 88px pane, and let
+  // the page scroll.
   @media screen and (max-height: 400px) {
     height: auto;
     max-height: none;
@@ -4793,10 +4794,11 @@ body.app-body.layout-single-column.status-timeline-split {
       overflow: visible;
     }
 
+    // 470px keeps an 88px pane at both ratio 20 and ratio 80. The page scrolls.
     .columns-area--mobile .timeline-split {
       flex: none;
-      height: 220px;
-      min-height: 220px;
+      height: 470px;
+      min-height: 470px;
       overflow: hidden;
     }
 

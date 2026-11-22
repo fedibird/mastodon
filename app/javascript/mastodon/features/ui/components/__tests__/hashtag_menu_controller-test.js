@@ -747,4 +747,33 @@ describe('HashtagMenuController', () => {
     click(restored.querySelector('span') || restored);
     expect(screen.getByRole('button', { name: `View posts with #${tag}` })).toHaveAttribute('href', `${window.location.origin}/tags/${encodeURIComponent(tag)}`);
   });
+
+  it('opens mute from a singular /tag/ URL with the original tag, not the projected label', () => {
+    const native = '👍';
+    const tag = `party${native}`;
+    const href = `https://remote.example/tag/${encodeURIComponent(tag)}`;
+    const html = `<p>Hello <a href="${href}" class="mention hashtag" rel="tag">#<span>${tag}</span></a></p>`;
+    const { container, store } = renderMenu({
+      signedIn: true,
+      contentHtml: html,
+      emojiMutes: {
+        revision: '2',
+        appliedRevision: '1',
+        phase: 'stale',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'suppress',
+      },
+      status: buildStatus({ contentHtml: html, tags: [{ name: tag, url: href }] }),
+    });
+    const link = container.querySelector('a[data-menu-hashtag]');
+
+    expect(link.textContent).toBe(`#party${'\u25FB'}`);
+    expect(link.getAttribute('data-menu-hashtag')).toBe(tag);
+    click(link.querySelector('span') || link);
+    fireEvent.click(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` }));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
+    expect(store.getState().getIn(['modal', 'hashtag'])).not.toContain('\u25FB');
+  });
 });

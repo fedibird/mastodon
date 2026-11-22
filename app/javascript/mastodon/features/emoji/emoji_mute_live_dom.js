@@ -170,23 +170,47 @@ const attributeStillOwned = record => {
   return has && record.element.getAttribute(record.name) === record.writtenValue;
 };
 
-const recordedValue = (records, element, name) => {
-  const found = records.find(record => record.kind === 'attribute' && record.element === element && record.name === name);
+const indexRecordedAttributes = records => {
+  const byElement = new Map();
+
+  records.forEach(record => {
+    if (record.kind !== 'attribute') {
+      return;
+    }
+
+    let attrs = byElement.get(record.element);
+
+    if (!attrs) {
+      attrs = new Map();
+      byElement.set(record.element, attrs);
+    }
+
+    if (!attrs.has(record.name)) {
+      attrs.set(record.name, record);
+    }
+  });
+
+  return byElement;
+};
+
+const recordedValue = (byElement, element, name) => {
+  const attrs = byElement.get(element);
+  const found = attrs && attrs.get(name);
 
   return found && found.had ? found.value : '';
 };
 
 // Identity comes from the snapshot. The live host has already lost these
 // attributes, and reactionNameHidden cannot see a local custom id.
-const reactionHostHidden = (records, host, rules) => {
+const reactionHostHidden = (byElement, host, rules) => {
   if (!host) {
     return false;
   }
 
   return storedReactionHidden({
-    custom_emoji_id: recordedValue(records, host, 'data-emoji-custom-emoji-id'),
-    domain: recordedValue(records, host, 'data-emoji-reaction-domain') || recordedValue(records, host, 'data-emoji-domain'),
-    name: recordedValue(records, host, 'data-emoji-reaction-name') || recordedValue(records, host, 'data-emoji-shortcode') || recordedValue(records, host, 'data-emoji-native'),
+    custom_emoji_id: recordedValue(byElement, host, 'data-emoji-custom-emoji-id'),
+    domain: recordedValue(byElement, host, 'data-emoji-reaction-domain') || recordedValue(byElement, host, 'data-emoji-domain'),
+    name: recordedValue(byElement, host, 'data-emoji-reaction-name') || recordedValue(byElement, host, 'data-emoji-shortcode') || recordedValue(byElement, host, 'data-emoji-native'),
   }, rules);
 };
 
@@ -216,6 +240,8 @@ const writeRecordedAttribute = (record, index, raw) => {
 const releaseScrub = (records, state) => {
   const index = emojiMuteTextIndexFromState(state);
   const rules = state && typeof state.getIn === 'function' ? state.getIn(['emojiMutes', 'rules']) : null;
+  const reactionRulesApply = state && typeof state.getIn === 'function' && state.getIn(['emojiMutes', 'display']) === 'apply';
+  const recorded = indexRecordedAttributes(records);
   const grouped = new Map();
 
   records.forEach(record => {
@@ -264,7 +290,7 @@ const releaseScrub = (records, state) => {
     const chip = host === element;
     const reactionImage = Boolean(host && host !== element);
 
-    if ((chip || reactionImage) && reactionHostHidden(records, host, rules)) {
+    if ((chip || reactionImage) && reactionRulesApply && reactionHostHidden(recorded, host, rules)) {
       return;
     }
 

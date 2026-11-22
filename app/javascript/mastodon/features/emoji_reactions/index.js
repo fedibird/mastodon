@@ -104,8 +104,27 @@ class Reaction extends ImmutablePureComponent {
       glyph = <Emoji className='reaction' hovered={this.state.hovered} emoji={emojiReaction.get('name')} url={emojiReaction.get('url')} static_url={emojiReaction.get('static_url')} domain={emojiReaction.get('domain')} title={title} onClick={this.handleEmojiClick} />;
     }
 
+    const name = emojiReaction.get('name') || '';
+    const domain = emojiReaction.get('domain') || '';
+    const customEmojiId = emojiReaction.get('custom_emoji_id') || '';
+    const identity = {
+      'data-emoji-reaction-name': name,
+    };
+
+    if (domain) {
+      identity['data-emoji-reaction-domain'] = domain;
+    }
+
+    if (customEmojiId) {
+      identity['data-emoji-custom-emoji-id'] = String(customEmojiId);
+    }
+
+    if (!domain && !customEmojiId && name) {
+      identity['data-emoji-native'] = name;
+    }
+
     return (
-      <div className='account__emoji_reaction' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave} ref={this.setRef}>
+      <div className='account__emoji_reaction' {...identity} onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave} ref={this.setRef}>
         {glyph}
       </div>
     );
