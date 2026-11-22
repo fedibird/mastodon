@@ -5,7 +5,7 @@ import { IntlProvider } from 'react-intl';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
 import { EMOJI_MUTES_APPLY, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
-import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
+import { createUnverifiedEmojiGuard, emojiMuteLiveDomProbe, resetEmojiMuteLiveDomProbe } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
 
 jest.mock('mastodon/initial_state', () => ({
@@ -57,30 +57,30 @@ describe('account gallery image alt during an unverified mute sync', () => {
     const store = createStore(reducer);
     const guard = createUnverifiedEmojiGuard();
     const stopGuard = store.subscribe(() => guard(store.getState()));
-    const view = render(
+    resetEmojiMuteLiveDomProbe();
+    const draw = description => (
       <Provider store={store}>
         <IntlProvider locale='en'>
-          <MediaItem attachment={attachment(`Hi ${thumb}`)} onOpenMedia={jest.fn()} visibility='show_all' />
+          <div className='emoji-mutes-privacy-portal'>
+            <MediaItem attachment={attachment(description)} onOpenMedia={jest.fn()} visibility='show_all' />
+          </div>
         </IntlProvider>
-      </Provider>,
+      </Provider>
     );
+    const view = render(draw(`Hi ${thumb}`));
     const image = () => view.container.querySelector('img');
 
     expect(image().getAttribute('alt')).toBe(`Hi ${thumb}`);
+    expect(emojiMuteLiveDomProbe.scans).toBe(0);
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
     });
 
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
     expect(image().getAttribute('alt')).not.toContain(thumb);
 
-    view.rerender(
-      <Provider store={store}>
-        <IntlProvider locale='en'>
-          <MediaItem attachment={attachment(`Hi ${placeholder}`)} onOpenMedia={jest.fn()} visibility='show_all' />
-        </IntlProvider>
-      </Provider>,
-    );
+    view.rerender(draw(`Hi ${placeholder}`));
 
     act(() => {
       store.dispatch({
