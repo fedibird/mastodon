@@ -348,6 +348,49 @@ class StatusContent extends React.PureComponent {
 
   // The visible label is already projected. A missing tags/tag segment must
   // not copy that label into the menu identity.
+  hashtagAnchorsFromHtml (html) {
+    if (typeof html !== 'string' || html === '') {
+      return [];
+    }
+
+    const template = document.createElement('template');
+
+    template.innerHTML = html;
+
+    return Array.from(template.content.querySelectorAll('a')).filter(isHashtagMenuLink);
+  }
+
+  hashtagNameFromAnchor (anchor) {
+    return (anchor.textContent || '').replace(/^[#＃]/, '').trim();
+  }
+
+  // Pair a live anchor with the same href in stored HTML. That HTML is not
+  // the projected label, so an emoji in the tag survives suppression.
+  hashtagNameFromUnprojectedHtml (link) {
+    const status = this.props.status;
+    const sources = status ? [status.get('contentHtml'), status.get('spoilerHtml')] : [];
+
+    for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+      const same = this.hashtagAnchorsFromHtml(sources[sourceIndex]).filter(anchor => anchor.href === link.href);
+
+      if (same.length === 0) {
+        continue;
+      }
+
+      const region = link.closest('.status__content__text') || link.closest('.status__content') || link.ownerDocument;
+      const live = Array.from(region.querySelectorAll('a')).filter(item => isHashtagMenuLink(item) && item.href === link.href);
+      const occurrence = live.indexOf(link);
+      const anchor = occurrence >= 0 ? same[occurrence] : null;
+      const name = anchor ? this.hashtagNameFromAnchor(anchor) : '';
+
+      if (name) {
+        return name;
+      }
+    }
+
+    return '';
+  }
+
   hashtagNameFromTags (link) {
     const tags = this.props.status && this.props.status.get('tags');
     const href = link.getAttribute('href') || '';
@@ -366,8 +409,10 @@ class StatusContent extends React.PureComponent {
   }
 
   markHashtagLink (link) {
-    const name = this.hashtagNameFromHref(link) || this.hashtagNameFromTags(link);
+    const name = this.hashtagNameFromHref(link) || this.hashtagNameFromTags(link) || this.hashtagNameFromUnprojectedHtml(link);
 
+    // No trusted name. Leave the anchor as a normal link: the menu does not
+    // claim it, and its href still opens.
     if (!name) {
       return;
     }

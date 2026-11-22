@@ -813,4 +813,69 @@ describe('HashtagMenuController', () => {
       expect(link.getAttribute('href')).toBe(`https://example.com${routes[index]}`);
     });
   });
+
+  it('opens a non-tag route from the stored hashtag text and keeps an unnamed link ordinary', () => {
+    const native = '👍';
+    const tag = `party${native}`;
+    const topic = 'https://remote.example/topics/gardening';
+    const emojiTopic = `https://remote.example/topics/${encodeURIComponent(tag)}`;
+    const unnamed = 'https://remote.example/topics/mystery';
+    const html = `<p>before <a href="${topic}" class="mention hashtag" rel="tag">#<span>gardening</span></a> mid <a href="${emojiTopic}" class="mention hashtag" rel="tag">#<span>${tag}</span></a> and <a href="${unnamed}" class="mention hashtag" rel="tag">#</a> after</p>`;
+    const { container, store } = renderMenu({
+      signedIn: true,
+      contentHtml: html,
+      emojiMutes: {
+        revision: '2',
+        appliedRevision: '1',
+        phase: 'stale',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'suppress',
+      },
+      status: buildStatus({ contentHtml: html, tags: [] }),
+    });
+    const links = container.querySelectorAll('a.mention.hashtag');
+    const gardening = links[0];
+    const emoji = links[1];
+    const plain = links[2];
+    const withoutIdentity = emoji.cloneNode(true);
+
+    withoutIdentity.removeAttribute('data-menu-hashtag');
+
+    expect(container.querySelector('.status__content__hashtag-badge')).toBeNull();
+    expect(gardening.getAttribute('data-menu-hashtag')).toBe('gardening');
+    expect(gardening.getAttribute('href')).toBe(topic);
+    expect(emoji.getAttribute('data-menu-hashtag')).toBe(tag);
+    expect(emoji.getAttribute('href')).toBe(emojiTopic);
+    expect(emoji.textContent).toBe(`#party${'\u25FB'}`);
+    expect(withoutIdentity.outerHTML).not.toContain(native);
+    expect(emoji.getAttribute('title') || '').not.toContain(native);
+    expect(emoji.getAttribute('aria-label') || '').not.toContain(native);
+    expect(plain.hasAttribute('data-menu-hashtag')).toBe(false);
+    expect(plain.getAttribute('href')).toBe(unnamed);
+
+    const open = click(gardening.querySelector('span') || gardening);
+
+    expect(open.defaultPrevented).toBe(true);
+    expect(screen.getByRole('button', { name: 'View posts with #gardening' })).toBeTruthy();
+    click(gardening.querySelector('span') || gardening);
+
+    const modified = click(gardening, { ctrlKey: true });
+
+    expect(modified.defaultPrevented).toBe(false);
+    expect(gardening.getAttribute('href')).toBe(topic);
+
+    click(emoji.querySelector('span') || emoji);
+    expect(screen.getByRole('button', { name: `View posts with #party${'\u25FB'}` })).toBeTruthy();
+    expect(document.querySelector('.dropdown-menu').textContent).not.toContain(native);
+    fireEvent.click(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` }));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
+
+    const ordinary = click(plain);
+
+    expect(ordinary.defaultPrevented).toBe(false);
+    expect(plain.getAttribute('href')).toBe(unnamed);
+    expect(screen.queryByRole('button', { name: 'View posts with #' })).toBeNull();
+  });
 });
