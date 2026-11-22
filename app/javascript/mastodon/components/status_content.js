@@ -13,7 +13,7 @@ import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'ma
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
-import { hashtagMenuDomName } from 'mastodon/features/emoji/hashtag_menu_names';
+import { bindHashtagMenuName, hashtagMenuDomName } from 'mastodon/features/emoji/hashtag_menu_names';
 import { emojiMuteTextIndexFromState, linkTargetEmojiRemains, presentEmojiMutePlain, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
@@ -451,7 +451,7 @@ class StatusContent extends React.PureComponent {
 
     const { id, name: accountName } = this.statusAccountIdentity();
 
-    link.setAttribute('data-menu-hashtag', hashtagMenuDomName(name, this.props.emojiMuteTextIndex));
+    link.setAttribute('data-menu-hashtag', bindHashtagMenuName(link, name, this.props.emojiMuteTextIndex));
 
     if (id) {
       link.setAttribute('data-account-id', id);
@@ -593,6 +593,26 @@ class StatusContent extends React.PureComponent {
     this.setState({ hashtagsExpanded: true });
   }
 
+  badgeRefFor (name, index) {
+    if (!this._badgeRefs) {
+      this._badgeRefs = new Map();
+    }
+
+    const key = `${index}:${name}`;
+    let ref = this._badgeRefs.get(key);
+
+    if (!ref) {
+      ref = node => {
+        if (node) {
+          bindHashtagMenuName(node, name, this.props.emojiMuteTextIndex);
+        }
+      };
+      this._badgeRefs.set(key, ref);
+    }
+
+    return ref;
+  }
+
   renderHashtagBadges (hashtags, visible) {
     if (!visible || !hashtags || hashtags.length === 0) {
       return null;
@@ -616,6 +636,7 @@ class StatusContent extends React.PureComponent {
               className='status__content__hashtag-badge status-link'
               target='_blank'
               rel='noopener noreferrer'
+              ref={this.badgeRefFor(name, index)}
               data-menu-hashtag={hashtagMenuDomName(name, this.props.emojiMuteTextIndex)}
               data-account-id={accountId || undefined}
               data-account-name={accountName || undefined}

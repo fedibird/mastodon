@@ -712,7 +712,7 @@ describe('HashtagMenuController', () => {
 
     expect(link.textContent).toBe(`#party${'\u25FB'}`);
     expect(link.outerHTML).not.toContain(native);
-    expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
+    expect(hashtagMenuStoredName(link)).toBe(tag);
     click(link.querySelector('span') || link);
 
     const menu = document.querySelector('.dropdown-menu');
@@ -725,7 +725,7 @@ describe('HashtagMenuController', () => {
     expect(browse).toHaveAttribute('href', `${window.location.origin}/tags/${encodeURIComponent(tag)}`);
     expect(account).toHaveAttribute('href', `${window.location.origin}/@alice/tagged/${encodeURIComponent(tag)}`);
     expect(browse.outerHTML).not.toContain(native);
-    expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
+    expect(hashtagMenuStoredName(link)).toBe(tag);
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`#${tag}`);
@@ -774,7 +774,7 @@ describe('HashtagMenuController', () => {
 
     expect(link.textContent).toBe(`#party${'\u25FB'}`);
     expect(link.outerHTML).not.toContain(native);
-    expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
+    expect(hashtagMenuStoredName(link)).toBe(tag);
     click(link.querySelector('span') || link);
     fireEvent.click(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` }));
     expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
@@ -846,7 +846,7 @@ describe('HashtagMenuController', () => {
     expect(container.querySelector('.status__content__hashtag-badge')).toBeNull();
     expect(gardening.getAttribute('data-menu-hashtag')).toBe('gardening');
     expect(gardening.getAttribute('href')).toBe(topic);
-    expect(hashtagMenuStoredName(emoji.getAttribute('data-menu-hashtag'))).toBe(tag);
+    expect(hashtagMenuStoredName(emoji)).toBe(tag);
     expect(emoji.getAttribute('href')).toBe(emojiTopic);
     expect(emoji.textContent).toBe(`#party${'\u25FB'}`);
     expect(emoji.outerHTML).not.toContain(native);
@@ -920,7 +920,7 @@ describe('HashtagMenuController', () => {
     expect(target.textContent).toBe('#園芸');
     [source, target].forEach(link => {
       expect(link.getAttribute('href')).toBe(href);
-      expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
+      expect(hashtagMenuStoredName(link)).toBe(tag);
       expect(link.outerHTML).not.toContain(native);
       expect(link.getAttribute('title') || '').not.toContain(native);
       expect(link.getAttribute('aria-label') || '').not.toContain(native);
@@ -1100,9 +1100,9 @@ describe('HashtagMenuController', () => {
 
     expectConcealed(badge);
     expect(badge.getAttribute('href')).toBe(badgeHref);
-    expect(hashtagMenuStoredName(badge.getAttribute('data-menu-hashtag'))).toBe(badgeTag);
+    expect(hashtagMenuStoredName(badge)).toBe(badgeTag);
     byHref(inlineHref).forEach(link => {
-      expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
+      expect(hashtagMenuStoredName(link)).toBe(tag);
     });
 
     const garden = container.querySelector(`a[href="${plainHref}"]`);
@@ -1159,7 +1159,7 @@ describe('HashtagMenuController', () => {
     const failed = container.querySelector(`.status-translation-pair__source a[href="${inlineHref}"]`);
 
     expectConcealed(failed);
-    expect(hashtagMenuStoredName(failed.getAttribute('data-menu-hashtag'))).toBe(tag);
+    expect(hashtagMenuStoredName(failed)).toBe(tag);
     expect(click(failed).defaultPrevented).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` }));
     expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
@@ -1188,5 +1188,65 @@ describe('HashtagMenuController', () => {
     expect(disabled.getAttribute('data-menu-hashtag')).toBe(tag);
     expect(disabled.textContent).toContain(native);
     expect(container.querySelector(`a[href="${plainHref}"]`).getAttribute('data-menu-hashtag')).toBe('garden');
+  });
+
+  it('does not treat a plain hmtoken-1 tag as the concealed party emoji', async () => {
+    const native = '👍';
+    const tag = `party${native}`;
+    const plain = 'hmtoken-1';
+    const emojiHref = 'https://remote.example/topics/party';
+    const plainHref = `https://remote.example/tags/${plain}`;
+    const html = `<p>First <a href="${emojiHref}" class="mention hashtag" rel="tag">#<span>${tag}</span></a> then <a href="${plainHref}" class="mention hashtag" rel="tag">#<span>${plain}</span></a> stays</p>`;
+    const { container, store } = renderMenu({
+      signedIn: true,
+      contentHtml: html,
+      emojiMutes: {
+        revision: '2',
+        appliedRevision: '1',
+        phase: 'stale',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'suppress',
+      },
+      status: buildStatus({ contentHtml: html, tags: [] }),
+    });
+    const emoji = container.querySelector(`a[href="${emojiHref}"]`);
+    const literal = container.querySelector(`a[href="${plainHref}"]`);
+
+    expect(emoji.hasAttribute('data-menu-hashtag-token')).toBe(true);
+    expect(emoji.getAttribute('data-menu-hashtag')).toBe('');
+    expect(hashtagMenuStoredName(emoji)).toBe(tag);
+    expect(emoji.outerHTML).not.toContain(native);
+    expect(literal.hasAttribute('data-menu-hashtag-token')).toBe(false);
+    expect(literal.getAttribute('data-menu-hashtag')).toBe(plain);
+    expect(literal.outerHTML).not.toContain(native);
+
+    const openEmoji = click(emoji.querySelector('span') || emoji);
+
+    expect(openEmoji.defaultPrevented).toBe(true);
+    expect(screen.getByRole('button', { name: `View posts with #party${'\u25FB'}` }).outerHTML).not.toContain(native);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#${tag}`);
+    click(emoji.querySelector('span') || emoji);
+    fireEvent.click(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` }));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
+    click(emoji.querySelector('span') || emoji);
+    fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/api/v1/favourite_tags', { name: tag }));
+
+    const openPlain = click(literal.querySelector('span') || literal);
+
+    expect(openPlain.defaultPrevented).toBe(true);
+    expect(screen.getByRole('button', { name: 'View posts with #hmtoken-1' })).toBeTruthy();
+    expect(document.querySelector('.dropdown-menu').outerHTML).not.toContain(native);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith('#hmtoken-1');
+    click(literal.querySelector('span') || literal);
+    fireEvent.click(screen.getByRole('button', { name: 'Mute #hmtoken-1' }));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(plain);
+    click(literal.querySelector('span') || literal);
+    fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/api/v1/favourite_tags', { name: plain }));
   });
 });

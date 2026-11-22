@@ -169,7 +169,7 @@ describe('StatusContent replace_in_text', () => {
     expect(link.textContent).toBe('#party◻');
     expect(link.outerHTML).not.toContain(native);
     expect(link.getAttribute('data-menu-hashtag')).not.toContain(native);
-    expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(`party${native}`);
+    expect(hashtagMenuStoredName(link)).toBe(`party${native}`);
     expect(link.getAttribute('href')).toBe(href);
   });
 
@@ -211,7 +211,7 @@ describe('StatusContent replace_in_text', () => {
 
     expect(suppressed.link.textContent).toBe(`#party${'\u25FB'}`);
     expect(suppressed.link.outerHTML).not.toContain(native);
-    expect(hashtagMenuStoredName(suppressed.link.getAttribute('data-menu-hashtag'))).toBe(tag);
+    expect(hashtagMenuStoredName(suppressed.link)).toBe(tag);
     expect(suppressed.link.getAttribute('aria-label') || '').not.toContain(native);
     suppressed.view.unmount();
 
@@ -250,7 +250,7 @@ describe('StatusContent replace_in_text', () => {
 
     expect(link.textContent).toBe(`#party${'\u25FB'}`);
     expect(link.outerHTML).not.toContain(native);
-    expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
+    expect(hashtagMenuStoredName(link)).toBe(tag);
   });
 
   it('replaces emoji in the stored body without rewriting that html', () => {

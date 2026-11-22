@@ -1,11 +1,8 @@
 import { presentEmojiMutePlain } from './emoji_mute_text';
 
-// While settings are unverified, a hashtag name that still contains a user
-// emoji cannot sit in a DOM attribute. The menu keeps the original string
-// here and the attribute carries only this token.
-const namesByToken = new Map();
-const tokensByName = new Map();
-let sequence = 0;
+// The original name stays on the live element. A detached node can be
+// collected, so an account switch does not keep the previous viewer's tags.
+const namesByElement = new WeakMap();
 
 const concealsName = (name, index) => {
   if (!name || !index || index.suppressAll !== true) {
@@ -17,30 +14,39 @@ const concealsName = (name, index) => {
   return typeof shown === 'string' && shown !== name;
 };
 
+// The attribute the menu selector requires. A concealed name is an empty
+// value plus data-menu-hashtag-token, never a string a real tag could share.
 export function hashtagMenuDomName(name, index) {
+  return concealsName(name, index) ? '' : name;
+}
+
+export function bindHashtagMenuName(element, name, index) {
+  if (!element) {
+    return hashtagMenuDomName(name, index);
+  }
+
   if (!concealsName(name, index)) {
+    namesByElement.delete(element);
+    element.removeAttribute('data-menu-hashtag-token');
     return name;
   }
 
-  const cached = tokensByName.get(name);
+  namesByElement.set(element, name);
+  element.setAttribute('data-menu-hashtag-token', '');
 
-  if (cached) {
-    return cached;
-  }
-
-  sequence += 1;
-  const token = `hmtoken-${sequence}`;
-
-  namesByToken.set(token, name);
-  tokensByName.set(name, token);
-
-  return token;
+  return '';
 }
 
-export function hashtagMenuStoredName(value) {
-  if (namesByToken.has(value)) {
-    return namesByToken.get(value);
+// Only an element that opted into the token is resolved. A plain tag whose
+// text happens to match some other token keeps that text.
+export function hashtagMenuStoredName(element) {
+  if (!element || typeof element.getAttribute !== 'function') {
+    return '';
   }
 
-  return value || '';
+  if (element.hasAttribute('data-menu-hashtag-token')) {
+    return namesByElement.get(element) || '';
+  }
+
+  return element.getAttribute('data-menu-hashtag') || '';
 }

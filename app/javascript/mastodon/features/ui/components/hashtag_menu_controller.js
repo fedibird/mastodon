@@ -97,7 +97,7 @@ class HashtagMenuController extends React.PureComponent {
       return;
     }
 
-    const hashtag = hashtagMenuStoredName(link.getAttribute('data-menu-hashtag') || '');
+    const hashtag = hashtagMenuStoredName(link);
 
     if (!hashtag) {
       return;
