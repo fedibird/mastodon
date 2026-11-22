@@ -40,6 +40,12 @@ export function logicalEmojiMuteAttribute(element, name, fallback) {
   return fallback;
 }
 
+export function hasEmojiMuteAttributeSource(element, name) {
+  const sources = element && attributeSources.get(element);
+
+  return !!(sources && sources.has(name));
+}
+
 const textNodesIn = root => {
   const nodes = [];
 
@@ -83,8 +89,61 @@ export function bindEmojiMuteElementSource(element, source) {
   });
 }
 
+const READABLE_SOURCE_ATTRIBUTES = ['title', 'aria-label', 'aria-description', 'aria-valuetext', 'alt'];
+
+const rememberElementSources = (original, live) => {
+  READABLE_SOURCE_ATTRIBUTES.forEach(name => {
+    if (original.hasAttribute(name)) {
+      rememberEmojiMuteAttributeSource(live, name, original.getAttribute(name) || '');
+    }
+  });
+};
+
+// Walk both trees together. A paragraph that projects to nothing does not
+// drop the source of the paragraph after it, and an image replaced by text
+// keeps that text tied to the image alt.
+const bindHtmlChildren = (original, live) => {
+  const originalChildren = Array.from(original.childNodes || []);
+  const liveChildren = Array.from(live.childNodes || []);
+  let liveIndex = 0;
+
+  originalChildren.forEach(child => {
+    if (child.nodeType === Node.TEXT_NODE) {
+      if (liveIndex < liveChildren.length && liveChildren[liveIndex].nodeType === Node.TEXT_NODE) {
+        rememberEmojiMuteTextSource(liveChildren[liveIndex], child.nodeValue || '');
+        liveIndex += 1;
+      }
+
+      return;
+    }
+
+    if (child.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    }
+
+    if (child.tagName === 'IMG' && liveIndex < liveChildren.length && liveChildren[liveIndex].nodeType === Node.TEXT_NODE) {
+      rememberEmojiMuteTextSource(liveChildren[liveIndex], child.getAttribute('alt') || '');
+      liveIndex += 1;
+      return;
+    }
+
+    while (liveIndex < liveChildren.length && liveChildren[liveIndex].nodeType === Node.TEXT_NODE) {
+      liveIndex += 1;
+    }
+
+    const next = liveChildren[liveIndex];
+
+    if (!next || next.nodeType !== Node.ELEMENT_NODE || next.tagName !== child.tagName) {
+      return;
+    }
+
+    rememberElementSources(child, next);
+    bindHtmlChildren(child, next);
+    liveIndex += 1;
+  });
+};
+
 // Pair a stored HTML fragment with the nodes React inserted from its projection.
-// The walk stops when the trees disagree, instead of guessing a match.
 export function bindEmojiMuteHtmlSources(liveRoot, originalHtml) {
   if (!liveRoot) {
     return;
@@ -95,34 +154,5 @@ export function bindEmojiMuteHtmlSources(liveRoot, originalHtml) {
     : document.createElement('template');
 
   template.innerHTML = originalHtml || '';
-  const originalTexts = textNodesIn(template.content);
-  const liveTexts = textNodesIn(liveRoot);
-
-  if (originalTexts.length === liveTexts.length) {
-    originalTexts.forEach((node, index) => {
-      rememberEmojiMuteTextSource(liveTexts[index], node.nodeValue || '');
-    });
-  }
-
-  const readable = ['title', 'aria-label', 'aria-description', 'aria-valuetext', 'alt'];
-  const originalElements = Array.from(template.content.querySelectorAll(readable.map(name => `[${name}]`).join(',')));
-  const liveElements = Array.from(liveRoot.querySelectorAll(readable.map(name => `[${name}]`).join(',')));
-
-  if (originalElements.length !== liveElements.length) {
-    return;
-  }
-
-  originalElements.forEach((element, index) => {
-    const live = liveElements[index];
-
-    if (!live || live.tagName !== element.tagName) {
-      return;
-    }
-
-    readable.forEach(name => {
-      if (element.hasAttribute(name)) {
-        rememberEmojiMuteAttributeSource(live, name, element.getAttribute(name) || '');
-      }
-    });
-  });
+  bindHtmlChildren(template.content, liveRoot);
 }

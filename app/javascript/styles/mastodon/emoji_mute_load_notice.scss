@@ -185,6 +185,20 @@
   align-self: stretch;
 }
 
+// The notice is only a child of the compose drawer. On a short viewport the
+// header, the notice, and search would otherwise shrink .drawer__pager to
+// nothing, and the composer has no other scroll path. Search results stay
+// stacked above the composer inside that pager.
+.drawer:has(> .emoji-mute-load-notice) {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.drawer > .emoji-mute-load-notice ~ .drawer__pager {
+  flex: 1 0 220px;
+  min-height: 220px;
+}
+
 @media screen and (max-width: 895px) {
   .emoji-mute-load-notice {
     &__title strong {

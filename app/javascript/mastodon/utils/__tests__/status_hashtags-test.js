@@ -1,5 +1,7 @@
 import { fromJS } from 'immutable';
 
+import { concealImageDerivedSegments, hashtagIdentityFromNode } from 'mastodon/features/emoji/hashtag_menu_names';
+
 import { collectCopyHashtags, collectStatusHashtags, computeStatusHashtagBadges, isHashtagMenuLink, localeAwareInclude, splitTrailingHashtags, stripMatchingTrailingHashtags, trailingHashtagsEqual, uniqueHashtagsWithCaseHandling } from '../status_hashtags';
 
 function anchor(name, { href, rel = 'tag', classes = 'mention hashtag' } = {}) {
@@ -747,5 +749,30 @@ describe('collectCopyHashtags', () => {
       { name: 'a', url: 'https://example.com/tags/a' },
       { name: 'bar', url: 'https://example.com/tags/bar' },
     ])).map(hashtag => hashtag.text)).toEqual(['#FediBird', '#Ａ', '#bar']);
+  });
+
+  it('drops leading space before the hash and does not copy that tag twice', () => {
+    const spaced = document.createElement('a');
+    const wide = document.createElement('a');
+
+    spaced.innerHTML = ' #tag ';
+    wide.innerHTML = ' ＃tag';
+
+    expect(hashtagIdentityFromNode(spaced)).toEqual(expect.objectContaining({ name: 'tag', mark: '#' }));
+    expect(hashtagIdentityFromNode(wide)).toEqual(expect.objectContaining({ name: 'tag', mark: '＃' }));
+
+    const html = '<p><a href="https://example.com/tags/tag" class="mention hashtag" rel="tag"> #tag </a></p>';
+
+    expect(collectCopyHashtags(html, fromJS([
+      { name: 'tag', url: 'https://example.com/tags/tag' },
+    ])).map(hashtag => hashtag.text)).toEqual(['#tag']);
+  });
+});
+
+describe('overlapping hashtag image ranges', () => {
+  it('hides each image-derived copy when the name overlaps itself', () => {
+    const hidden = concealImageDerivedSegments('a:blob:a:blob:a', 'a:blob:a', [[1, 7]]);
+
+    expect(hidden).toBe(`a${'\u25FB'}a${'\u25FB'}a`);
   });
 });

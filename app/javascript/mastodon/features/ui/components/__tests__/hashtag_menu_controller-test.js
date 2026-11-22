@@ -1129,16 +1129,55 @@ describe('HashtagMenuController', () => {
     expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
     expect(store.getState().getIn(['modal', 'hashtag'])).not.toContain('\u25FB');
 
-    let beforeCommit = null;
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
 
-    const unsubscribe = store.subscribe(() => {
+    const exposed = container.querySelector(`.status-translation-pair__source a[href="${inlineHref}"]`);
+
+    expect(exposed.textContent).toContain(native);
+    expect(click(exposed).defaultPrevented).toBe(true);
+    expect(document.querySelector('.dropdown-menu').textContent).toContain(native);
+
+    container.classList.add('emoji-mutes-privacy-portal');
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let beforeCommit = null;
+    let menuAtSuppress = null;
+    const stopWatch = store.subscribe(() => {
       if (store.getState().getIn(['emojiMutes', 'revision']) === '3' && store.getState().getIn(['emojiMutes', 'phase']) === 'stale') {
         beforeCommit = container.querySelector('.status__content').outerHTML;
+        const menu = document.querySelector('.dropdown-menu');
+
+        menuAtSuppress = menu ? menu.textContent : '';
       }
     });
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+    });
+    stopGuard();
+    stopWatch();
+
+    expect(beforeCommit).not.toBeNull();
+    expect(beforeCommit).not.toContain(native);
+    expect(menuAtSuppress).not.toContain(native);
+    expect(document.querySelector('.dropdown-menu').textContent).not.toContain(native);
+
+    const liveInline = container.querySelector(`.status-translation-pair__source a[href="${inlineHref}"]`);
+
+    click(liveInline);
+
+    if (document.querySelector('.dropdown-menu')) {
+      click(liveInline);
+    }
+
+    act(() => {
       store.dispatch({
         type: EMOJI_MUTES_APPLY,
         revision: '3',
@@ -1146,7 +1185,6 @@ describe('HashtagMenuController', () => {
         mutes: [],
       });
     });
-    unsubscribe();
 
     expect(beforeCommit).not.toBeNull();
     expect(beforeCommit).not.toContain(native);

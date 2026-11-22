@@ -1,6 +1,6 @@
 import { storedReactionHidden } from './emoji_mute_projection';
-import { logicalEmojiMuteAttribute, logicalEmojiMuteText } from './emoji_mute_sources';
-import { bindHashtagMenuName, concealImageDerivedSegments, hashtagMenuStoredIdentity, projectHashtagLabel } from './hashtag_menu_names';
+import { hasEmojiMuteAttributeSource, logicalEmojiMuteAttribute, logicalEmojiMuteText } from './emoji_mute_sources';
+import { bindHashtagMenuName, concealOpenHashtagMenus, hashtagMenuStoredIdentity, projectConcealedHashtagText, projectHashtagLabel } from './hashtag_menu_names';
 import { emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
 // One selector for both the clear and the record. A host cleared here has to
@@ -271,9 +271,15 @@ const writeRecordedAttribute = (record, index, raw) => {
   }
 
   // Reaction glyphs follow hide_reactions. A replace_in_text rule must not
-  // rewrite the alt or label that this restore puts back.
+  // rewrite the alt or label that this restore puts back. A photo alt has
+  // no registered source: the HTML renderer leaves it unchanged, so release
+  // puts that same string back. A surface that registered the source is
+  // projected once from the current value.
+  const registered = hasEmojiMuteAttributeSource(element, name);
+  const logical = registered ? logicalEmojiMuteAttribute(element, name, value) : value;
+  const plainImage = element.tagName === 'IMG' && !record.emojiImage && !registered;
   const readable = !raw && READABLE_ATTRIBUTES.indexOf(name) !== -1;
-  const next = readable ? presentEmojiMutePlain(value, index) : value;
+  const next = readable && !plainImage ? presentEmojiMutePlain(logical, index) : logical;
 
   element.setAttribute(name, next === undefined || next === null ? value : next);
 };
@@ -304,8 +310,16 @@ const releaseScrub = (records, state) => {
         return;
       }
 
-      const next = presentEmojiMutePlain(record.value || '', index);
-      record.node.nodeValue = next === undefined || next === null ? record.value : next;
+      // The source can change while the placeholder stays the same.
+      // Project the current logical string once; the scrub snapshot is only
+      // the fallback for a node that never registered one.
+      const source = logicalEmojiMuteText(record.node, record.value || '');
+      const next = presentEmojiMutePlain(source, index);
+      record.node.nodeValue = next === undefined || next === null ? source : next;
+      return;
+    }
+
+    if (record.emojiLinkLabel) {
       return;
     }
 
@@ -396,6 +410,23 @@ const releaseScrub = (records, state) => {
       writeRecordedAttribute(record, index);
     }
   });
+
+  // A custom-emoji link title is ASCII. Restore it only when every emoji
+  // image in that link is still allowed. A muted image keeps the tooltip clear.
+  records.forEach(record => {
+    if (!record.emojiLinkLabel || !record.element.isConnected) {
+      return;
+    }
+
+    const images = Array.from(record.element.querySelectorAll('img'));
+    const muted = images.some(img => isUserEmojiImage(img) && !img.getAttribute('src'));
+
+    if (muted) {
+      return;
+    }
+
+    writeRecordedAttribute(record, index, true);
+  });
 };
 
 export function scrubUnverifiedEmojiFrom(root, sink) {
@@ -418,6 +449,20 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
 
     if (host && host !== img) {
       REACTION_HOST_ATTRIBUTES.forEach(name => noteAttribute(sink, host, name));
+    }
+
+    const emojiLink = img.closest && img.closest('a.custom-emoji-url-link');
+
+    if (emojiLink && emojiLink !== img) {
+      ['title', 'aria-label', 'aria-description'].forEach(name => {
+        if (!emojiLink.hasAttribute(name)) {
+          return;
+        }
+
+        noteAttribute(sink, emojiLink, name);
+        sink[sink.length - 1].emojiLinkLabel = true;
+        emojiLink.removeAttribute(name);
+      });
     }
 
     const picture = img.parentElement && img.parentElement.tagName === 'PICTURE' ? img.parentElement : null;
@@ -525,7 +570,9 @@ const concealHashtagMenuLink = (sink, link) => {
       return;
     }
 
-    const next = concealImageDerivedSegments(value, name, ranges);
+    const noted = sink.find(record => record.kind === 'attribute' && record.element === link && record.name === attr);
+    const base = noted ? noted.value : value;
+    const next = projectConcealedHashtagText(base, name, ranges);
 
     if (next === value) {
       return;
@@ -550,7 +597,9 @@ const concealHashtagMenuLink = (sink, link) => {
 
   nodes.forEach(node => {
     const value = node.nodeValue || '';
-    const next = concealImageDerivedSegments(value, name, ranges);
+    const noted = sink.find(record => record.kind === 'text' && record.node === node);
+    const base = noted ? noted.value : value;
+    const next = projectConcealedHashtagText(base, name, ranges);
 
     if (next === value) {
       return;
@@ -603,6 +652,10 @@ export function createUnverifiedEmojiGuard() {
     if (root) {
       scrubUnverifiedEmojiFrom(root, records);
     }
+
+    // The menu portal is outside the privacy root. Conceal it in this same
+    // turn so an ASCII shortcode is not readable before React commits.
+    concealOpenHashtagMenus();
   };
 
   guard.reset = () => {

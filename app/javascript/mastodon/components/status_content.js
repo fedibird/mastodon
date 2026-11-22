@@ -13,7 +13,7 @@ import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'ma
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
-import { bindHashtagMenuName, concealImageDerivedSegments, hashtagIdentityFromNode, hashtagMenuDomName, projectHashtagLabel } from 'mastodon/features/emoji/hashtag_menu_names';
+import { bindHashtagMenuName, hashtagIdentityFromNode, hashtagMenuDomName, projectConcealedHashtagText, projectHashtagLabel, syncOpenHashtagMenu } from 'mastodon/features/emoji/hashtag_menu_names';
 import { emojiMuteTextIndexFromState, linkTargetEmojiRemains, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { computeStatusHashtagBadges, isHashtagMenuLink, localeAwareInclude, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
@@ -224,6 +224,8 @@ class StatusContent extends React.PureComponent {
     const { intl, status, collapsable, onClick, onCollapsedToggle } = this.props;
     const node = this.node;
 
+    this._hashtagAnchorCache = new Map();
+
     if (!node) {
       return;
     }
@@ -416,11 +418,132 @@ class StatusContent extends React.PureComponent {
       return [];
     }
 
+    if (this._hashtagAnchorCache && this._hashtagAnchorCache.has(html)) {
+      return this._hashtagAnchorCache.get(html);
+    }
+
     const template = document.createElement('template');
 
     template.innerHTML = html;
+    const anchors = Array.from(template.content.querySelectorAll('a')).filter(isHashtagMenuLink);
 
-    return Array.from(template.content.querySelectorAll('a')).filter(isHashtagMenuLink);
+    if (this._hashtagAnchorCache) {
+      this._hashtagAnchorCache.set(html, anchors);
+    }
+
+    return anchors;
+  }
+
+  anchorsWithHref (html, href) {
+    const cacheKey = `all:${html}`;
+    let anchors = this._hashtagAnchorCache && this._hashtagAnchorCache.get(cacheKey);
+
+    if (!anchors) {
+      if (typeof html !== 'string' || html === '') {
+        anchors = [];
+      } else {
+        const template = document.createElement('template');
+
+        template.innerHTML = html;
+        anchors = Array.from(template.content.querySelectorAll('a'));
+      }
+
+      if (this._hashtagAnchorCache) {
+        this._hashtagAnchorCache.set(cacheKey, anchors);
+      }
+    }
+
+    return anchors.filter(anchor => anchor.href === href);
+  }
+
+  // Same href, in the order the original HTML rendered them. Projected text
+  // is not classified again: a concealed label no longer starts with #.
+  hashtagLiveIndex (link) {
+    const inTarget = !!link.closest('.status-translation-pair__target');
+    const inBody = !!link.closest('.status__content__text');
+    const region = inBody ? link.closest('.status__content__text') : link.closest('.status__content');
+
+    if (!region) {
+      return 0;
+    }
+
+    const live = Array.from(region.querySelectorAll('a')).filter(item => {
+      if (item.href !== link.href) {
+        return false;
+      }
+
+      if (inTarget) {
+        return !!item.closest('.status-translation-pair__target');
+      }
+
+      if (item.closest('.status-translation-pair__target')) {
+        return false;
+      }
+
+      return inBody || !item.closest('.status__content__text');
+    });
+    return live.indexOf(link);
+  }
+
+  hashtagOccurrenceIdentity (link) {
+    const status = this.props.status;
+    const translated = this._hashtagViewMode === 'translated' || (link && link.closest('.status-translation-pair__target'));
+
+    if (!status || !link || translated) {
+      return null;
+    }
+
+    const html = link.closest('.status__content__text') ? status.get('contentHtml') : status.get('spoilerHtml');
+    const index = this.hashtagLiveIndex(link);
+    const anchor = index < 0 ? null : this.anchorsWithHref(html, link.href)[index];
+
+    if (!anchor || !isHashtagMenuLink(anchor)) {
+      return null;
+    }
+
+    return hashtagIdentityFromNode(anchor);
+  }
+
+  renderedHashtagAttribute (link, name) {
+    const inSpoiler = !link.closest('.status__content__text');
+    const inTarget = !!link.closest('.status-translation-pair__target');
+    const translated = inTarget || this._hashtagViewMode === 'translated';
+    let html;
+
+    if (link.closest('.status-translation-pair__source')) {
+      html = inSpoiler ? this._sourceSpoilerHtml : this._sourceBodyHtml;
+    } else if (translated) {
+      html = inSpoiler ? this._targetSpoilerHtml : this._targetBodyHtml;
+    } else {
+      html = inSpoiler ? this._sourceSpoilerHtml : this._sourceBodyHtml;
+    }
+
+    if (typeof html !== 'string' || html === '') {
+      return null;
+    }
+
+    const cacheKey = `rendered:${html}`;
+    let anchors = this._hashtagAnchorCache && this._hashtagAnchorCache.get(cacheKey);
+
+    if (!anchors) {
+      const template = document.createElement('template');
+
+      template.innerHTML = html;
+      anchors = Array.from(template.content.querySelectorAll('a'));
+
+      if (this._hashtagAnchorCache) {
+        this._hashtagAnchorCache.set(cacheKey, anchors);
+      }
+    }
+
+    const index = this.hashtagLiveIndex(link);
+    const source = index < 0 ? null : anchors.filter(anchor => anchor.href === link.href)[index];
+
+    if (!source || !source.hasAttribute(name)) {
+      return null;
+    }
+
+    return source.getAttribute(name) || '';
   }
 
   hashtagNameFromAnchor (anchor) {
@@ -467,22 +590,15 @@ class StatusContent extends React.PureComponent {
     // Count the original side of this content area, not one source paragraph.
     // A later paragraph is also index 0 inside its own pair, but it is not
     // the first name in the stored HTML. The spoiler stays out of the body.
-    const inBody = !!link.closest('.status__content__text');
-    const region = inBody ? link.closest('.status__content__text') : link.closest('.status__content');
+    const nameIndex = this.hashtagLiveIndex(link);
+    const htmlAnchors = this.anchorsWithHref(html, link.href);
+    const anchor = nameIndex < 0 ? null : htmlAnchors[nameIndex];
 
-    if (!region) {
+    if (!anchor || !isHashtagMenuLink(anchor)) {
       return '';
     }
 
-    const live = Array.from(region.querySelectorAll('a')).filter(item => (
-      isHashtagMenuLink(item)
-      && item.href === link.href
-      && !item.closest('.status-translation-pair__target')
-      && (inBody || !item.closest('.status__content__text'))
-    ));
-    const anchor = same[live.indexOf(link)];
-
-    return anchor ? this.hashtagNameFromAnchor(anchor) : '';
+    return this.hashtagNameFromAnchor(anchor);
   }
 
   hashtagNameFromTags (link) {
@@ -558,38 +674,43 @@ class StatusContent extends React.PureComponent {
       return first;
     }
 
-    const inBody = !!link.closest('.status__content__text');
-    const region = inBody ? link.closest('.status__content__text') : link.closest('.status__content');
+    const rangeIndex = this.hashtagLiveIndex(link);
+    const anchor = rangeIndex < 0 ? null : this.anchorsWithHref(html, link.href)[rangeIndex];
 
-    if (!region) {
-      return rangesFor(identities[0]);
+    if (!anchor || !isHashtagMenuLink(anchor)) {
+      return [];
     }
 
-    const live = Array.from(region.querySelectorAll('a')).filter(item => (
-      isHashtagMenuLink(item)
-      && item.href === link.href
-      && !item.closest('.status-translation-pair__target')
-      && (inBody || !item.closest('.status__content__text'))
-    ));
-
-    return rangesFor(identities[live.indexOf(link)]);
+    return rangesFor(hashtagIdentityFromNode(anchor));
   }
 
   projectHashtagLinkLabels (link, name, imageRanges) {
-    if (!link || !name || !imageRanges || imageRanges.length === 0 || !this.props.emojiMuteTextIndex || this.props.emojiMuteTextIndex.suppressAll !== true) {
+    if (!link) {
       return;
     }
 
-    ['title', 'aria-label', 'aria-description', 'aria-valuetext'].forEach(attr => {
-      const value = link.getAttribute(attr);
+    const suppressing = !!(this.props.emojiMuteTextIndex && this.props.emojiMuteTextIndex.suppressAll === true);
 
-      if (!value) {
+    ['title', 'aria-label', 'aria-description', 'aria-valuetext'].forEach(attr => {
+      const original = this.renderedHashtagAttribute(link, attr);
+      const current = link.getAttribute(attr);
+      const base = original === null ? current : original;
+
+      if (!base) {
         return;
       }
 
-      const next = concealImageDerivedSegments(value, name, imageRanges);
+      if (!suppressing) {
+        if (original !== null && original !== current) {
+          link.setAttribute(attr, original);
+        }
 
-      if (next !== value) {
+        return;
+      }
+
+      const next = projectConcealedHashtagText(base, name, imageRanges || []);
+
+      if (next !== current) {
         link.setAttribute(attr, next);
       }
     });
@@ -610,7 +731,14 @@ class StatusContent extends React.PureComponent {
     const { id, name: accountName } = this.statusAccountIdentity();
 
     link.setAttribute('data-menu-hashtag', bindHashtagMenuName(link, name, this.props.emojiMuteTextIndex, imageRanges));
-    this.projectHashtagLinkLabels(link, name, imageRanges);
+    const occurrence = this.hashtagOccurrenceIdentity(link);
+    const labelName = occurrence && occurrence.name ? occurrence.name : name;
+    const labelRanges = occurrence && occurrence.imageRanges && occurrence.imageRanges.length > 0
+      ? occurrence.imageRanges
+      : imageRanges;
+
+    this.projectHashtagLinkLabels(link, labelName, labelRanges);
+    syncOpenHashtagMenu(link);
 
     if (id) {
       link.setAttribute('data-account-id', id);
@@ -800,6 +928,7 @@ class StatusContent extends React.PureComponent {
       if (entry.node.isConnected) {
         bindHashtagMenuName(entry.node, entry.name, this.props.emojiMuteTextIndex, imageRanges);
         this._badgeNodes.set(key, { node: entry.node, name: entry.name, imageRanges });
+        syncOpenHashtagMenu(entry.node);
       }
     });
   }
@@ -942,6 +1071,11 @@ class StatusContent extends React.PureComponent {
     const hashtagBadges = this.renderHashtagBadges(sourceHashtagParts.hashtags, contentVisible);
     const sourceSpoilerHtml = status.get('spoilerHtml');
     const targetSpoilerHtml = translated.getIn(['translation', 'spoilerHtml']);
+
+    this._sourceBodyHtml = sourceBodyHtml;
+    this._sourceSpoilerHtml = sourceSpoilerHtml;
+    this._targetBodyHtml = targetBodyHtml;
+    this._targetSpoilerHtml = targetSpoilerHtml;
     // Mute replacement is a view of the stored HTML. Hashtag badges stay on
     // the original string, and the status record is not rewritten.
     const presentHtml = html => replaceEmojiInDisplayHtml(html, this.props.emojiMuteTextIndex);

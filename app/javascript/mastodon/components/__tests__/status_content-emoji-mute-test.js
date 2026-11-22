@@ -877,6 +877,89 @@ describe('StatusContent unverified emoji suppression', () => {
     expect(hashtagMenuStoredName(mixedWarning)).toBe('party:blob:');
     mixed.unmount();
   });
+
+  it('keeps each shared href on its original occurrence', () => {
+    const href = 'https://example.test/topics/common';
+    const html = `<p><a href="${href}">plain</a> <a href="${href}">#👍alpha</a> <a href="${href}" class="mention hashtag" rel="tag">#<span>beta</span></a></p>`;
+    const status = buildStatus({ contentHtml: html, tags: [] });
+    const store = createStore(reducer, baseState([]).set('emojiMutes', fromJS(suppressedState)));
+    const view = render(
+      <Provider store={store}>
+        <StatusContent status={status} onTranslate={jest.fn()} onClick={jest.fn()} />
+      </Provider>,
+    );
+    const links = Array.from(view.container.querySelectorAll(`a[href="${href}"]`));
+
+    expect(hashtagMenuStoredName(links[1])).toBe('👍alpha');
+    expect(hashtagMenuStoredName(links[2])).toBe('beta');
+    expect(links[0].hasAttribute('data-menu-hashtag')).toBe(false);
+    view.unmount();
+  });
+
+  it('projects the source label when the tag URL names a different tag', () => {
+    const href = 'https://example.test/tags/other';
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
+    const html = `<p><a href="${href}" class="mention hashtag" rel="tag" title="#party:blob:" aria-label="#party:blob:">#<span>party${custom}</span></a></p>`;
+    const store = createStore(reducer, baseState([]).set('emojiMutes', fromJS(suppressedState)));
+    const view = render(
+      <Provider store={store}>
+        <StatusContent status={buildStatus({ contentHtml: html, tags: [] })} onTranslate={jest.fn()} onClick={jest.fn()} />
+      </Provider>,
+    );
+    const link = view.container.querySelector('a.mention.hashtag');
+
+    expect(hashtagMenuStoredName(link)).toBe('other');
+    expect(link.getAttribute('data-menu-hashtag') || '').not.toContain(':blob:');
+    expect(link.getAttribute('title') || '').not.toContain(':blob:');
+    expect(link.getAttribute('aria-label') || '').not.toContain(':blob:');
+    expect(link.getAttribute('title') || '').toContain('\u25FB');
+    view.unmount();
+  });
+
+  it('restores a translated hashtag title from the target HTML', () => {
+    const href = 'https://example.test/tags/party%3Ablob%3A';
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
+    const target = `<p><a href="${href}" class="mention hashtag" rel="tag" title="#party:blob:" aria-label="tag party:blob:">#<span>訳</span></a></p>`;
+    const store = createStore(reducer, baseState([]).set('emojiMutes', fromJS(suppressedState)));
+    const view = render(
+      <Provider store={store}>
+        <StatusContent
+          status={buildStatus({
+            contentHtml: `<p><a href="${href}" class="mention hashtag" rel="tag">#<span>party${custom}</span></a></p>`,
+            language: 'en',
+            translationMode: 'translated',
+            translation: {
+              contentHtml: target,
+              language: 'ja',
+              detected_source_language: 'en',
+              requested_source_language: 'en',
+              requested_target_language: 'ja',
+              provider: 'test',
+            },
+          })}
+          onTranslate={jest.fn()}
+          onClick={jest.fn()}
+        />
+      </Provider>,
+    );
+
+    fireEvent.click(view.container.querySelector('button'));
+    const link = view.container.querySelector('.status__content__text a.mention.hashtag');
+
+    expect(link.getAttribute('title') || '').not.toContain(':blob:');
+    expect(hashtagMenuStoredName(link)).toBe('party:blob:');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    const restored = view.container.querySelector('.status__content__text a.mention.hashtag');
+
+    expect(restored.getAttribute('title')).toBe('#party:blob:');
+    expect(restored.getAttribute('aria-label')).toBe('tag party:blob:');
+    expect(hashtagMenuStoredName(restored)).toBe('party:blob:');
+    view.unmount();
+  });
 });
 
 describe('inline emoji actions from a status body', () => {

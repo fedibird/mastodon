@@ -1,4 +1,4 @@
-import { isUserEmojiImage, presentEmojiMutePlain, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
+import { isUserEmojiImage, presentEmojiMutePlain, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
 // The original name stays on the live element. A detached node can be
 // collected, so an account switch does not keep the previous viewer's tags.
@@ -50,9 +50,14 @@ export function hashtagIdentityFromNode(anchor) {
     }
   });
 
-  const lead = raw.match(/^([#＃])\s*/);
+  // " #tag " is the tag "tag". The hash can be fullwidth, and the spaces
+  // before it are not part of the name or the image offsets.
+  const leading = raw.match(/^\s*/);
+  const leadCut = leading ? leading[0].length : 0;
+  const body = raw.slice(leadCut);
+  const lead = body.match(/^([#＃])\s*/);
   const mark = lead ? lead[1] : '#';
-  const cut = lead ? lead[0].length : 0;
+  const cut = leadCut + (lead ? lead[0].length : 0);
   const trimmedEnd = raw.match(/\s*$/);
   const end = trimmedEnd ? raw.length - trimmedEnd[0].length : raw.length;
   const name = raw.slice(cut, end);
@@ -117,7 +122,6 @@ const alignedNameOffsets = (value, name) => {
     }
 
     offsets.push(index);
-    index += name.length - 1;
   }
 
   return offsets;
@@ -170,10 +174,35 @@ export function concealImageDerivedSegments(value, name, imageRanges) {
   const offsets = alignedNameOffsets(value, name);
 
   if (offsets.length > 0) {
-    return offsets.slice().sort((left, right) => right - left).reduce(
-      (next, offset) => concealAlignedSegments(next, imageRanges, offset),
-      value,
-    );
+    const absolute = [];
+
+    offsets.forEach(offset => {
+      imageRanges.forEach(([start, end]) => {
+        absolute.push([offset + start, offset + end]);
+      });
+    });
+    absolute.sort((left, right) => left[0] - right[0] || left[1] - right[1]);
+
+    const merged = [];
+
+    absolute.forEach(([start, end]) => {
+      const last = merged[merged.length - 1];
+
+      if (last && start <= last[1]) {
+        last[1] = Math.max(last[1], end);
+        return;
+      }
+
+      merged.push([start, end]);
+    });
+
+    return merged.sort((left, right) => right[0] - left[0]).reduce((next, [start, end]) => {
+      if (start < 0 || end <= start || end > next.length) {
+        return next;
+      }
+
+      return `${next.slice(0, start)}${UNVERIFIED_EMOJI_PLACEHOLDER}${next.slice(end)}`;
+    }, value);
   }
 
   // A second pass sees the placeholder already sitting in the image range.
@@ -185,6 +214,14 @@ export function concealImageDerivedSegments(value, name, imageRanges) {
   }
 
   return concealUnmappedSegments(value, name, imageRanges);
+}
+
+// Image slices first, then Unicode. Doing Unicode first moves the stored
+// name, and the fallback then hides a typed shortcode as well.
+export function projectConcealedHashtagText(value, name, imageRanges) {
+  const base = typeof value === 'string' ? value : '';
+
+  return suppressUnicodeEmoji(concealImageDerivedSegments(base, name, imageRanges || []));
 }
 
 export function projectHashtagLabel(name, imageRanges, index) {
@@ -275,4 +312,30 @@ export function hashtagMenuStoredIdentity(element) {
 // text happens to match some other token keeps that text.
 export function hashtagMenuStoredName(element) {
   return hashtagMenuStoredIdentity(element).name;
+}
+
+// The open menu is portaled to document.body, outside the privacy root.
+// The controller registers a concealer; the suppress walk calls it in the
+// same turn, before React commits the menu.
+const hashtagMenuConcealers = new Set();
+const hashtagMenuBindings = new Set();
+
+export function registerHashtagMenuConcealer(conceal) {
+  hashtagMenuConcealers.add(conceal);
+
+  return () => hashtagMenuConcealers.delete(conceal);
+}
+
+export function concealOpenHashtagMenus() {
+  hashtagMenuConcealers.forEach(conceal => conceal());
+}
+
+export function registerHashtagMenuBinding(sync) {
+  hashtagMenuBindings.add(sync);
+
+  return () => hashtagMenuBindings.delete(sync);
+}
+
+export function syncOpenHashtagMenu(link) {
+  hashtagMenuBindings.forEach(sync => sync(link));
 }

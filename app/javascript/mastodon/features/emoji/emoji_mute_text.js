@@ -489,6 +489,34 @@ export function linkTargetEmojiRemains(link) {
 
 const LABEL_ATTRIBUTES = ['title', 'aria-label', 'aria-labelledby', 'aria-describedby'];
 
+// Real tag links keep range-aware labels. A normal link whose text happens
+// to start with # still has its image shortcode and domain removed.
+const hashtagLabelExempt = link => {
+  if (link.classList.contains('mention') && link.classList.contains('hashtag')) {
+    return true;
+  }
+
+  if (link.hasAttribute('data-menu-hashtag') || link.hasAttribute('data-menu-hashtag-token')) {
+    return true;
+  }
+
+  const href = link.getAttribute('href') || '';
+
+  try {
+    const parts = new URL(href, 'https://example.invalid').pathname.split('/').filter(Boolean);
+
+    if (parts.length === 2 && (parts[0] === 'tags' || parts[0] === 'tag')) {
+      return true;
+    }
+  } catch (error) {
+    // A relative or empty href is not a tag route.
+  }
+
+  const previous = link.previousSibling;
+
+  return !!(previous && previous.textContent && /[#＃]$/.test(previous.textContent));
+};
+
 // Drop labels that name the muted emoji. Another emoji image in the same
 // link does not keep those labels, and an unrelated word such as "category"
 // is left in place. href and data-* stay so the existing detail link works.
@@ -499,9 +527,7 @@ const scrubMutedEmojiLink = (link, replacement, identity) => {
 
   // A hashtag label can repeat the shortcode, with only one copy coming from
   // the image. The hashtag projection knows which copy that is.
-  const hashtagText = link.textContent || '';
-
-  if (link.classList.contains('hashtag') || hashtagText[0] === '#' || hashtagText[0] === '＃') {
+  if (hashtagLabelExempt(link)) {
     return;
   }
 
