@@ -11,9 +11,10 @@ import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
 import { accountUrlForHashtag } from 'mastodon/utils/account_tag_url';
 import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
-import { hashtagMenuStoredIdentity, projectHashtagLabel, registerHashtagMenuBinding, registerHashtagMenuConcealer } from 'mastodon/features/emoji/hashtag_menu_names';
+import { hashtagMenuStoredIdentity, projectHashtagLabel, registerHashtagMenuBinding, registerHashtagMenuConcealer, unprojectHashtagSentence } from 'mastodon/features/emoji/hashtag_menu_names';
 import { recordEmojiMuteText } from 'mastodon/features/emoji/emoji_mute_live_dom';
-import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
+import { rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
+import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   browse: { id: 'hashtag.browse', defaultMessage: 'View posts with #{hashtag}' },
@@ -132,7 +133,9 @@ class HashtagMenuController extends React.PureComponent {
     const label = shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
     const needles = [];
 
-    [rendered, raw].forEach(value => {
+    // The privacy walk may already have turned the projected emoji into a
+    // placeholder. Match that form too, or the image shortcode stays visible.
+    [rendered, raw, suppressUnicodeEmoji(rendered), suppressUnicodeEmoji(raw)].forEach(value => {
       if (value && value !== label && needles.indexOf(value) === -1) {
         needles.push(value);
       }
@@ -157,7 +160,18 @@ class HashtagMenuController extends React.PureComponent {
       });
 
       if (next !== value) {
-        recordEmojiMuteText(sink, node);
+        const noted = sink && sink.find(record => record.kind === 'text' && record.node === node);
+        const base = noted && typeof noted.value === 'string' ? noted.value : value;
+        const logical = unprojectHashtagSentence(base, rendered, raw);
+
+        rememberEmojiMuteTextSource(node, logical);
+
+        if (noted) {
+          noted.value = logical;
+        } else {
+          recordEmojiMuteText(sink, node);
+        }
+
         node.nodeValue = next;
       }
 

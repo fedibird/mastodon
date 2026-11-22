@@ -301,6 +301,25 @@ export function concealImageDerivedSegments(value, name, imageRanges, options) {
 
 // Image slices first, then Unicode. Doing Unicode first moves the stored
 // name, and the fallback then hides a typed shortcode as well.
+// The open menu shows one projection. Recovery must start from the raw tag,
+// or a later rule treats that projection as new input.
+export function unprojectHashtagSentence(displayed, projected, raw) {
+  if (typeof displayed !== 'string' || typeof projected !== 'string' || typeof raw !== 'string' || projected === '') {
+    return displayed;
+  }
+
+  let next = projected === raw ? displayed : displayed.split(projected).join(raw);
+  const suppressed = suppressUnicodeEmoji(projected);
+
+  // The privacy walk replaces Unicode before the menu or dialog concealer
+  // runs. That placeholder form is still the same projected label.
+  if (suppressed && suppressed !== projected && suppressed !== raw) {
+    next = next.split(suppressed).join(raw);
+  }
+
+  return next;
+}
+
 export function projectConcealedHashtagText(value, name, imageRanges, options) {
   const base = typeof value === 'string' ? value : '';
 

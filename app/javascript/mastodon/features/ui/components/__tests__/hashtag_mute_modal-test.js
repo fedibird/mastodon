@@ -237,6 +237,65 @@ describe('HashtagMuteModal', () => {
     stopLiteralWatch();
   });
 
+  it('restores one projection when a replaced dialog returns in the same batch', async () => {
+    const thumb = '👍';
+    const spark = '✨';
+    const tag = `party:blob::typed:${thumb}`;
+    const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
+    const rules = [
+      { id: 'up', revision: '1', emoji: { kind: 'unicode', native: thumb }, replacement: spark, effects },
+      { id: 'spark', revision: '1', emoji: { kind: 'unicode', native: spark }, replacement: '[sparkles]', effects },
+    ];
+    const store = renderModal(tag, {
+      revision: '1',
+      appliedRevision: '1',
+      phase: 'ready',
+      failure: null,
+      rules,
+      availability: 'enabled',
+      display: 'apply',
+    }, [[5, 11]]);
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let atSuppress = null;
+    let atRelease = null;
+    const stopWatch = store.subscribe(() => {
+      const display = store.getState().getIn(['emojiMutes', 'display']);
+      const title = document.getElementById('hashtag-mute-title');
+
+      if (display === 'suppress' && !atSuppress) {
+        atSuppress = title.textContent;
+      }
+
+      if (display === 'apply' && store.getState().getIn(['emojiMutes', 'revision']) === '2' && !atRelease) {
+        atRelease = title.textContent;
+      }
+    });
+
+    await screen.findByRole('dialog');
+    expect(document.getElementById('hashtag-mute-title').textContent).toBe(`Mute #party:blob::typed:${spark}?`);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: rules,
+      });
+    });
+
+    expect(atSuppress).toBe(`Mute #party${'\u25FB'}:typed:${'\u25FB'}?`);
+    expect(atSuppress).not.toContain(':blob:');
+    expect(atRelease).toBe(`Mute #party:blob::typed:${spark}?`);
+    expect(atRelease).not.toContain('[sparkles]');
+    expect(document.getElementById('hashtag-mute-title').textContent).toBe(`Mute #party:blob::typed:${spark}?`);
+    fireEvent.click(await screen.findByRole('button', { name: 'Mute' }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/v1/hashtag_mutes', { name: tag }));
+    stopGuard();
+    stopWatch();
+  });
+
   it('uses a neutral heading when the replacement is empty and saves the original tag', async () => {
     const native = '👍';
     renderModal(native, {

@@ -9,8 +9,9 @@ import { closeModal } from '../../../actions/modal';
 import { fetchFilters } from '../../../actions/filters';
 import { muteHashtag, unmuteHashtag, updateHashtagMute } from '../../../actions/hashtag_mutes';
 import { HASHTAG_MUTE_CONTEXTS, HASHTAG_MUTE_DURATIONS, findHashtagMute } from '../../../utils/hashtag_mute';
-import { projectHashtagLabel, registerHashtagDialogConcealer } from 'mastodon/features/emoji/hashtag_menu_names';
+import { projectHashtagLabel, registerHashtagDialogConcealer, unprojectHashtagSentence } from 'mastodon/features/emoji/hashtag_menu_names';
 import { recordEmojiMuteText } from 'mastodon/features/emoji/emoji_mute_live_dom';
+import { rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
 import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
@@ -165,8 +166,14 @@ class HashtagMuteModal extends React.PureComponent {
 
       if (next !== value) {
         const noted = sink && sink.find(record => record.kind === 'text' && record.node === node);
+        const base = noted && typeof noted.value === 'string' ? noted.value : value;
+        const logical = unprojectHashtagSentence(base, rendered, raw);
 
-        if (!noted) {
+        rememberEmojiMuteTextSource(node, logical);
+
+        if (noted) {
+          noted.value = logical;
+        } else {
           recordEmojiMuteText(sink, node);
         }
 

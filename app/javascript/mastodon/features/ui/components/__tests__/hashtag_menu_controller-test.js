@@ -2494,6 +2494,89 @@ describe('open hashtag menu beside another dropdown', () => {
     stopWatch();
   });
 
+  it('restores one projection when a replaced menu returns in the same batch', () => {
+    const thumb = '👍';
+    const spark = '✨';
+    const href = 'https://remote.example/topics/thumb';
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
+    const html = `<p><a href="${href}" class="mention hashtag" rel="tag">#<span>party${custom}:typed:${thumb}</span></a></p>`;
+    const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
+    const rules = [
+      { id: 'up', revision: '1', emoji: { kind: 'unicode', native: thumb }, replacement: spark, effects },
+      { id: 'spark', revision: '1', emoji: { kind: 'unicode', native: spark }, replacement: '[sparkles]', effects },
+    ];
+    const general = document.createElement('div');
+
+    general.className = 'dropdown-menu';
+    general.innerHTML = '<button type="button">Boost</button><button type="button">Mute #party:blob::typed:</button>';
+    document.body.prepend(general);
+
+    const { container, store } = renderMenu({
+      signedIn: true,
+      contentHtml: html,
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'ready',
+        failure: null,
+        rules,
+        availability: 'enabled',
+        display: 'apply',
+      },
+      status: buildStatus({ contentHtml: html, tags: [] }),
+    });
+    const hashtagMenu = () => Array.from(document.querySelectorAll('.dropdown-menu')).find(menu => menu !== general);
+
+    container.classList.add('emoji-mutes-privacy-portal');
+    expect(hashtagMenuStoredIdentity(container.querySelector('a.mention.hashtag'))).toEqual({
+      name: `party:blob::typed:${thumb}`,
+      imageRanges: [[5, 11]],
+    });
+    click(container.querySelector('a.mention.hashtag'));
+    expect(screen.getByRole('button', { name: `Mute #party:blob::typed:${spark}` })).toBeTruthy();
+
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let atSuppress = null;
+    let atRelease = null;
+    const stopWatch = store.subscribe(() => {
+      const display = store.getState().getIn(['emojiMutes', 'display']);
+
+      if (display === 'suppress' && !atSuppress) {
+        atSuppress = hashtagMenu().textContent;
+      }
+
+      if (display === 'apply' && store.getState().getIn(['emojiMutes', 'revision']) === '2' && !atRelease) {
+        atRelease = hashtagMenu().textContent;
+      }
+    });
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: rules,
+      });
+    });
+
+    expect(atSuppress).toContain(`Mute #party${placeholder}:typed:${placeholder}`);
+    expect(atSuppress).not.toContain(':blob:');
+    expect(atSuppress).not.toContain(thumb);
+    expect(atRelease).toContain(`Mute #party:blob::typed:${spark}`);
+    expect(atRelease).not.toContain('[sparkles]');
+    expect(hashtagMenu().textContent).toContain(`Mute #party:blob::typed:${spark}`);
+    expect(hashtagMenu().textContent).not.toContain('[sparkles]');
+    expect(general.textContent).toBe('BoostMute #party:blob::typed:');
+    const mute = Array.from(hashtagMenu().querySelectorAll('a')).find(link => (link.textContent || '').startsWith('Mute #'));
+    fireEvent.click(mute);
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(`party:blob::typed:${thumb}`);
+    general.remove();
+    stopGuard();
+    stopWatch();
+  });
+
   it('closes an open menu when the same anchor names a different tag', () => {
     const href = 'https://example.com/topics/common';
     const html = `<p><a href="${href}" class="mention hashtag" rel="tag">#<span>garden</span></a></p>`;
