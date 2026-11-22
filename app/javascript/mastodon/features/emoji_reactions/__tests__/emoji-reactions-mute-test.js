@@ -177,6 +177,8 @@ describe('emoji reaction overview mute state', () => {
     expect(view.container.querySelector('[data-emoji-reaction-name="blob"] img').getAttribute('src')).toBe('https://cdn.example/blob.png');
     expect(view.container.querySelector('[data-emoji-reaction-domain="remote.example"]')).not.toBeNull();
 
+    const blobImage = view.container.querySelector('[data-emoji-reaction-name="blob"] img');
+    const blobHost = blobImage.closest('.account__emoji_reaction');
     let hiddenBeforeCommit = null;
 
     store.subscribe(() => {
@@ -184,9 +186,17 @@ describe('emoji reaction overview mute state', () => {
         return;
       }
 
-      const blob = document.querySelector('[data-emoji-reaction-name="blob"] img');
-
-      hiddenBeforeCommit = blob && blob.getAttribute('src');
+      hiddenBeforeCommit = {
+        src: blobImage.getAttribute('src'),
+        hidden: blobImage.hasAttribute('hidden'),
+        ariaHidden: blobImage.getAttribute('aria-hidden'),
+        hostName: blobHost.getAttribute('data-emoji-reaction-name'),
+        hostDomain: blobHost.getAttribute('data-emoji-reaction-domain'),
+        hostId: blobHost.getAttribute('data-emoji-custom-emoji-id'),
+        hostNative: blobHost.getAttribute('data-emoji-native'),
+        shortcode: blobImage.getAttribute('data-shortcode'),
+        domain: blobImage.getAttribute('data-domain'),
+      };
     });
 
     act(() => {
@@ -199,7 +209,17 @@ describe('emoji reaction overview mute state', () => {
       });
     });
 
-    expect(hiddenBeforeCommit).toBeNull();
+    expect(hiddenBeforeCommit.src).toBeNull();
+    expect(hiddenBeforeCommit.hidden).toBe(true);
+    expect(hiddenBeforeCommit.ariaHidden).toBe('true');
+    expect(hiddenBeforeCommit.hostName).toBeNull();
+    expect(hiddenBeforeCommit.hostDomain).toBeNull();
+    expect(hiddenBeforeCommit.hostId).toBeNull();
+    expect(hiddenBeforeCommit.hostNative).toBeNull();
+    expect(hiddenBeforeCommit.shortcode).toBeNull();
+    expect(hiddenBeforeCommit.domain).toBeNull();
+    expect(blobImage.getAttribute('src')).toBeNull();
+    expect(view.container.innerHTML).not.toContain('https://cdn.example/blob.png');
     expect(view.container.querySelector('[data-emoji-reaction-name="star"] img').getAttribute('src')).toBe('https://cdn.example/keep.png');
     view.unmount();
   });

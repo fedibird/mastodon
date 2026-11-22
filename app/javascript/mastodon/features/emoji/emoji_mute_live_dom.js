@@ -202,6 +202,40 @@ const recordedValue = (byElement, element, name) => {
 
 // Identity comes from the snapshot. The live host has already lost these
 // attributes, and reactionNameHidden cannot see a local custom id.
+// Scrub removes the attributes that REACTION_HOST_SELECTOR matches, so a
+// later release has to recognize the host from the snapshot.
+const recordedAsReactionHost = (byElement, element) => {
+  const attrs = byElement.get(element);
+
+  if (!attrs) {
+    return false;
+  }
+
+  return REACTION_HOST_ATTRIBUTES.some(name => {
+    const record = attrs.get(name);
+
+    return record && record.had && name.indexOf('data-emoji-') === 0;
+  });
+};
+
+const reactionHostFor = (element, byElement) => {
+  if (element.matches && element.matches(REACTION_HOST_SELECTOR)) {
+    return element;
+  }
+
+  let current = element;
+
+  while (current) {
+    if (recordedAsReactionHost(byElement, current)) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return element.closest ? element.closest(REACTION_HOST_SELECTOR) : null;
+};
+
 const reactionHostHidden = (byElement, host, rules) => {
   if (!host) {
     return false;
@@ -269,7 +303,8 @@ const releaseScrub = (records, state) => {
       return;
     }
 
-    const chip = record.element.matches && record.element.matches(REACTION_HOST_SELECTOR);
+    const chip = (record.element.matches && record.element.matches(REACTION_HOST_SELECTOR))
+      || recordedAsReactionHost(recorded, record.element);
 
     // Classification is from the snapshot. The live src is already gone, so
     // a classless /emoji/<hex>.svg image would otherwise look like a photo.
@@ -286,7 +321,7 @@ const releaseScrub = (records, state) => {
   const keptImages = new Set();
 
   grouped.forEach((bucket, element) => {
-    const host = element.closest ? element.closest(REACTION_HOST_SELECTOR) : null;
+    const host = reactionHostFor(element, recorded);
     const chip = host === element;
     const reactionImage = Boolean(host && host !== element);
 
