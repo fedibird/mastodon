@@ -134,6 +134,8 @@ import { currentEmojiMuteBoot } from 'mastodon/features/emoji/emoji_mute_availab
 
 const Mastodon = require('../mastodon').default;
 const { scrubVisibleEmojiIfUnverified } = require('../mastodon');
+
+const registeredEmojiMuteGuard = Array.from(mockSubscribers).find(listener => listener === scrubVisibleEmojiIfUnverified);
 const { resetEmojiMuteLiveDomProbe } = require('mastodon/features/emoji/emoji_mute_live_dom');
 const { retryEmojiMuteLoad, ignoreEmojiMutesThisView, disableEmojiMuteFeature } = require('mastodon/actions/emoji_mutes');
 
@@ -383,6 +385,31 @@ describe('authenticated emoji mute bootstrap', () => {
     expect(view.queryByText('Ignore this time')).toBeNull();
     expect(resetEmojiMuteSession).toHaveBeenCalled();
     expect(mockDispatch).toHaveBeenCalledWith({ type: 'EMOJI_MUTES_RESET' });
+    view.unmount();
+  });
+
+  it('scrubs through the registered subscriber before React commits a suppress transition', async () => {
+    expect(registeredEmojiMuteGuard).toBe(scrubVisibleEmojiIfUnverified);
+    mockDisplay = 'apply';
+    const view = render(<Mastodon locale='en' />);
+    await bootReady();
+    const surface = view.getByTestId('webui');
+
+    surface.insertAdjacentHTML('beforeend', '<p>Hello 👌</p><img alt="👍" src="/emoji/1f44d.svg">');
+    mockDisplay = 'suppress';
+    mockPhase = 'stale';
+
+    let srcBeforeCommit = 'unset';
+
+    act(() => {
+      registeredEmojiMuteGuard();
+      srcBeforeCommit = surface.querySelector('img').getAttribute('src');
+    });
+
+    expect(srcBeforeCommit).toBeNull();
+    expect(surface.innerHTML).not.toContain('/emoji/1f44d.svg');
+    expect(surface.querySelector('p').textContent).toBe('Hello ◻');
+    expect(view.getByTestId('webui')).toBe(surface);
     view.unmount();
   });
 

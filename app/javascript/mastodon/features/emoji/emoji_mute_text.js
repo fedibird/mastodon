@@ -202,7 +202,7 @@ const mappedReplacement = (index, reference) => {
   return index.replacements.get(key);
 };
 
-const EMOJI_ASSET_SRC = /(?:^|[\s/])emoji\/[0-9a-f][0-9a-f-]*\.svg(?:$|[\s,])/i;
+const EMOJI_ASSET_SRC = /(?:^|[\s/"'(])emoji\/[0-9a-f][0-9a-f-]*\.svg(?=$|[\s,"')])/i;
 
 // A user emoji image is the glyph itself. A normal attachment can keep its
 // URL; only its readable text is scrubbed while verification is pending.
@@ -566,7 +566,7 @@ const transformHtml = (html, index) => {
   parseCount += 1;
   const template = document.createElement('template');
   template.innerHTML = html;
-  const images = template.content.querySelectorAll(index && index.suppressAll === true ? 'img' : 'img.emojione');
+  const images = template.content.querySelectorAll('img');
   let changed = false;
 
   for (let indexInHtml = 0; indexInHtml < images.length; indexInHtml += 1) {
@@ -577,7 +577,7 @@ const transformHtml = (html, index) => {
     }
 
     // Attachment photos stay. Their alt is handled with the other labels.
-    if (index && index.suppressAll === true && !isUserEmojiImage(img)) {
+    if (!isUserEmojiImage(img)) {
       continue;
     }
 
@@ -674,7 +674,7 @@ export function replaceEmojiInDisplayHtml(html, index) {
     return html;
   }
 
-  if (index.suppressAll !== true && html.indexOf('emojione') === -1) {
+  if (index.suppressAll !== true && html.indexOf('emojione') === -1 && !EMOJI_ASSET_SRC.test(html)) {
     return html;
   }
 

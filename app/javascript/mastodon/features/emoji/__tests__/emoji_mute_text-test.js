@@ -70,6 +70,20 @@ describe('replace_in_text display transform', () => {
     resetEmojiMuteTextForTests();
   });
 
+  it('replaces a classless emoji svg and leaves an attachment image', () => {
+    const html = `<p><picture><source srcset="/emoji/1f44d.svg" src="/emoji/1f44d.svg"><img src="/emoji/1f44d.svg" alt="${THUMBS}"></picture><img src="/media/photo.jpg" alt="a ${THUMBS} photo"></p>`;
+    const result = show(html, [unicodeRule(THUMBS, '[up]')]);
+    const template = document.createElement('template');
+    template.innerHTML = result;
+    const photo = template.content.querySelector('img');
+
+    expect(textOf(result)).toBe('[up]');
+    expect(template.content.querySelector('picture, source')).toBeNull();
+    expect(photo.getAttribute('src')).toBe('/media/photo.jpg');
+    expect(photo.getAttribute('alt')).toBe(`a ${THUMBS} photo`);
+    expect(show(html, [])).toBe(html);
+  });
+
   it('replaces a whole unicode sequence and leaves a different sequence', () => {
     const html = `<p>${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })}${img({ alt: THUMBS_LIGHT, src: '/emoji/1f44d-1f3fb.svg' })}${img({ alt: FAMILY, src: '/emoji/family.svg' })}</p>`;
     const result = show(html, [unicodeRule(THUMBS_LIGHT, '[skin]'), unicodeRule(FAMILY, '[family]')]);

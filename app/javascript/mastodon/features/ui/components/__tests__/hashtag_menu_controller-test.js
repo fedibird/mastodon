@@ -70,6 +70,7 @@ jest.mock('mastodon/components/icon', () => () => null);
 import Overlay from 'react-overlays/Overlay';
 import { fetchFavouriteTagSuccess } from 'mastodon/actions/favourite_tags';
 import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_FAIL, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import emojify from 'mastodon/features/emoji/emoji';
 import { hashtagMenuStoredName } from 'mastodon/features/emoji/hashtag_menu_names';
 import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import favouriteTagsReducer from 'mastodon/reducers/favourite_tags';
@@ -1124,7 +1125,7 @@ describe('HashtagMenuController', () => {
     expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
     expect(store.getState().getIn(['modal', 'hashtag'])).not.toContain('\u25FB');
 
-    let beforeCommit = '';
+    let beforeCommit = null;
 
     const unsubscribe = store.subscribe(() => {
       if (store.getState().getIn(['emojiMutes', 'revision']) === '3' && store.getState().getIn(['emojiMutes', 'phase']) === 'stale') {
@@ -1143,6 +1144,7 @@ describe('HashtagMenuController', () => {
     });
     unsubscribe();
 
+    expect(beforeCommit).not.toBeNull();
     expect(beforeCommit).not.toContain(native);
 
     const verified = container.querySelector(`.status-translation-pair__source a[href="${inlineHref}"]`);
@@ -1251,6 +1253,47 @@ describe('HashtagMenuController', () => {
     await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/api/v1/favourite_tags', { name: plain }));
   });
 
+  it('keeps an emojified suffix in the hashtag identity from the stored html', async () => {
+    const native = '👍';
+    const href = 'https://remote.example/topics/party';
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/blob.svg" data-shortcode="blob">';
+    const html = `<p>See <a href="${href}" class="mention hashtag" rel="tag">#${emojify(`<span>party${native}</span>`)}</a> and <a href="https://remote.example/topics/custom" class="mention hashtag" rel="tag">#<span>party${custom}</span></a> stays</p>`;
+    const { container, store } = renderMenu({
+      signedIn: true,
+      contentHtml: html,
+      emojiMutes: {
+        revision: '2',
+        appliedRevision: '1',
+        phase: 'stale',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'suppress',
+      },
+      status: buildStatus({ contentHtml: html, tags: [] }),
+    });
+    const unicode = container.querySelector(`a[href="${href}"]`);
+    const customLink = container.querySelector('a[href="https://remote.example/topics/custom"]');
+
+    expect(hashtagMenuStoredName(unicode)).toBe(`party${native}`);
+    expect(unicode.getAttribute('data-menu-hashtag') || '').not.toContain(native);
+    expect(unicode.outerHTML).not.toContain(native);
+    expect(hashtagMenuStoredName(customLink)).toBe('party:blob:');
+    expect(customLink.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+    expect(customLink.querySelector('img')).toBeNull();
+    expect(customLink.outerHTML).not.toContain('cdn.example/blob.svg');
+
+    const clipboardCalls = navigator.clipboard.writeText.mock.calls.length;
+
+    click(unicode);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+    expect(navigator.clipboard.writeText.mock.calls.length).toBe(clipboardCalls + 1);
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#party${native}`);
+    click(unicode);
+    fireEvent.click(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` }));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(`party${native}`);
+  });
+
   it('matches shared-href names across original paragraphs and not inside one pair', () => {
     const href = 'https://remote.example/topics/common';
     const sourceHtml = `<p>First <a href="${href}" class="mention hashtag" rel="tag">#<span>alpha</span></a> stays</p><p>Second <a href="${href}" class="mention hashtag" rel="tag">#<span>beta</span></a> stays</p>`;
@@ -1345,16 +1388,31 @@ describe('HashtagMenuController', () => {
       }),
     });
     const useMenu = async (node, label, payload) => {
+      const clipboardCalls = navigator.clipboard.writeText.mock.calls.length;
+      const postCalls = mockApiPost.mock.calls.length;
+
+      act(() => {
+        store.dispatch({ type: 'MODAL_OPEN', modalType: 'TEST', modalProps: { hashtag: `unset-${payload}` } });
+      });
       click(node);
       expect(screen.getByRole('button', { name: `View posts with #${label}` })).toBeTruthy();
       fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+      expect(navigator.clipboard.writeText.mock.calls.length).toBe(clipboardCalls + 1);
       expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#${payload}`);
       click(node);
       fireEvent.click(screen.getByRole('button', { name: `Mute #${label}` }));
       expect(store.getState().getIn(['modal', 'hashtag'])).toBe(payload);
       click(node);
       fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
-      await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/api/v1/favourite_tags', { name: payload }));
+
+      const alreadySaved = store.getState().getIn(['favourite_tags']) && store.getState().get('favourite_tags').some(tag => tag.get('name') === payload);
+
+      if (alreadySaved) {
+        expect(mockApiPost.mock.calls.length).toBe(postCalls);
+      } else {
+        await waitFor(() => expect(mockApiPost.mock.calls.length).toBe(postCalls + 1));
+        expect(mockApiPost).toHaveBeenLastCalledWith('/api/v1/favourite_tags', { name: payload });
+      }
     };
 
     fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
@@ -1430,11 +1488,22 @@ describe('HashtagMenuController', () => {
     });
     restored();
 
+    const concealAgain = () => {
+      act(() => {
+        store.dispatch({ type: EMOJI_MUTES_ENABLE });
+      });
+      expect(badge.hasAttribute('data-menu-hashtag-token')).toBe(true);
+      expect(badge.outerHTML).not.toContain(native);
+      expect(badge.getAttribute('data-menu-hashtag') || '').not.toContain(native);
+    };
+
+    concealAgain();
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_IGNORE });
     });
     restored();
 
+    concealAgain();
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_DISABLE });
     });

@@ -11,6 +11,7 @@ import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
 import { debounce } from 'lodash';
 import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { bindEmojiMuteElementSource, bindEmojiMuteHtmlSources } from 'mastodon/features/emoji/emoji_mute_sources';
 import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const IDNA_PREFIX = 'xn--';
@@ -163,10 +164,34 @@ class Card extends React.PureComponent {
 
       this.setState(nextState);
     }
+
+    this.bindEmojiMuteSources();
+  }
+
+  bindEmojiMuteSources () {
+    const { card, maxDescription } = this.props;
+
+    if (!this.node || !card) {
+      return;
+    }
+
+    const providerName = card.get('provider_name') || '';
+    const providerSource = providerName.length === 0 ? decodeIDNA(getHostname(card.get('url'))) : providerName;
+
+    bindEmojiMuteElementSource(this.node.querySelector('.status-card__title'), card.get('title') || '');
+    bindEmojiMuteElementSource(this.node.querySelector('.status-card__description'), trim(card.get('description') || '', maxDescription));
+    bindEmojiMuteElementSource(this.node.querySelector('.status-card__host'), providerSource);
+
+    const embed = this.node.querySelector('.status-card-video');
+
+    if (embed) {
+      bindEmojiMuteHtmlSources(embed, card.get('html') || '');
+    }
   }
 
   componentDidMount () {
     window.addEventListener('resize', this.handleResize, { passive: true });
+    this.bindEmojiMuteSources();
   }
 
   componentWillUnmount () {

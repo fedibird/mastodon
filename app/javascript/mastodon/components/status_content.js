@@ -374,7 +374,34 @@ class StatusContent extends React.PureComponent {
   }
 
   hashtagNameFromAnchor (anchor) {
-    return (anchor.textContent || '').replace(/^[#＃]/, '').trim();
+    const parts = [];
+    const walk = node => {
+      if (!node) {
+        return;
+      }
+
+      if (node.nodeType === Node.TEXT_NODE) {
+        parts.push(node.nodeValue || '');
+        return;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return;
+      }
+
+      // The stored HTML still has the emoji image. Its alt is the character
+      // textContent drops. The live projected label is not this anchor.
+      if (node.tagName === 'IMG') {
+        parts.push(node.getAttribute('alt') || '');
+        return;
+      }
+
+      Array.from(node.childNodes).forEach(walk);
+    };
+
+    walk(anchor);
+
+    return parts.join('').replace(/^[#＃]/, '').trim();
   }
 
   // The stored original, not the projected label or the translated wording.

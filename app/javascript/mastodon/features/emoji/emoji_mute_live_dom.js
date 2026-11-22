@@ -1,4 +1,5 @@
 import { storedReactionHidden } from './emoji_mute_projection';
+import { logicalEmojiMuteAttribute, logicalEmojiMuteText } from './emoji_mute_sources';
 import { bindHashtagMenuName } from './hashtag_menu_names';
 import { emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
@@ -124,12 +125,14 @@ const noteAttribute = (sink, element, name, emojiImage) => {
     return;
   }
 
+  const visible = element.getAttribute(name);
+
   sink.push({
     kind: 'attribute',
     element,
     name,
     had: element.hasAttribute(name),
-    value: element.getAttribute(name),
+    value: logicalEmojiMuteAttribute(element, name, visible),
     emojiImage: !!emojiImage,
     writtenHad: null,
     writtenValue: null,
@@ -144,7 +147,7 @@ const noteText = (sink, node) => {
   sink.push({
     kind: 'text',
     node,
-    value: node.nodeValue,
+    value: logicalEmojiMuteText(node, node.nodeValue),
     written: null,
   });
 };

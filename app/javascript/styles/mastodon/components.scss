@@ -5159,6 +5159,14 @@ body.app-body.layout-single-column.status-timeline-split {
     }
   }
 
+  // The short split is taller than the viewport and the page scrolls.
+  // A touch that starts in the live pane has to reach the document.
+  @media screen and (max-height: 400px) {
+    .timeline-split .scrollable {
+      overscroll-behavior-y: auto;
+    }
+  }
+
   @media screen and (min-width: $no-gap-breakpoint) {
     padding: 10px 0;
     padding-top: 0;
