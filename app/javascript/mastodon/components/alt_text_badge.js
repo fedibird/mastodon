@@ -22,6 +22,8 @@ class AltTextBadge extends React.PureComponent {
     description: PropTypes.string,
     originalDescription: PropTypes.string,
     translatedDescription: PropTypes.string,
+    rawOriginal: PropTypes.string,
+    rawTranslated: PropTypes.string,
     sourceLang: PropTypes.string,
     targetLang: PropTypes.string,
     mode: PropTypes.oneOf(['original', 'translated', 'bilingual']),
@@ -47,9 +49,9 @@ class AltTextBadge extends React.PureComponent {
 
   handleMouseUp = (e) => {
     const maxDelta = 5;
-    const {clientX: startX, clientY: startY} = this.state;
+    const { clientX: startX, clientY: startY } = this.state;
 
-    if (startX == null) {
+    if (startX === null) {
       return;
     }
 
@@ -91,6 +93,8 @@ class AltTextBadge extends React.PureComponent {
     const { open } = this.state;
     const original = this.props.originalDescription ?? this.props.description ?? '';
     const translated = this.props.translatedDescription || '';
+    const rawOriginal = this.props.rawOriginal ?? this.props.originalDescription ?? this.props.description ?? '';
+    const rawTranslated = this.props.rawTranslated ?? this.props.translatedDescription ?? '';
     const mode = this.props.mode || (translated ? 'translated' : 'original');
     const sourceLang = this.props.sourceLang || '';
     const targetLang = this.props.targetLang || '';
@@ -142,11 +146,11 @@ class AltTextBadge extends React.PureComponent {
                 )}
                 {showBilingual ? (
                   <React.Fragment>
-                    <p className='status-translation-pair__source' lang={sourceLang} dir='auto'>{original}</p>
-                    <p className='status-translation-pair__target' lang={targetLang} dir='auto'>{translated}</p>
+                    <p className='status-translation-pair__source' lang={sourceLang} dir='auto' data-emoji-mute-source={rawOriginal}>{original}</p>
+                    <p className='status-translation-pair__target' lang={targetLang} dir='auto' data-emoji-mute-source={rawTranslated}>{translated}</p>
                   </React.Fragment>
                 ) : (
-                  <p lang={shownLang || undefined} dir='auto'>{shown}</p>
+                  <p lang={shownLang || undefined} dir='auto' data-emoji-mute-source={showTranslated ? rawTranslated : rawOriginal}>{shown}</p>
                 )}
               </div>
             </div>

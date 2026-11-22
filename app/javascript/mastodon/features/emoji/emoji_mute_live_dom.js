@@ -1,5 +1,5 @@
 import { storedReactionHidden } from './emoji_mute_projection';
-import { emojiMuteAttributeSourceKind, logicalEmojiMuteAttribute, logicalEmojiMuteText } from './emoji_mute_sources';
+import { emojiMuteAttributeSourceKind, logicalEmojiMuteAttribute, logicalEmojiMuteText, rememberEmojiMuteTextSource } from './emoji_mute_sources';
 import { bindHashtagMenuName, concealOpenHashtagDialogs, concealOpenHashtagMenus, hashtagMenuLabelIdentity, hashtagMenuStoredIdentity, projectConcealedHashtagText, projectHashtagLabel } from './hashtag_menu_names';
 import { displayTextForEmojiMuteHtml, emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
@@ -436,7 +436,13 @@ const releaseScrub = (records, state) => {
     }
 
     const images = Array.from(record.element.querySelectorAll('img'));
-    const muted = images.some(img => isUserEmojiImage(img) && !img.getAttribute('src'));
+    // concealEmojiImage already removed src, so a classless emoji no longer
+    // looks like one. The keep set is the decision made for that image.
+    const muted = images.some(img => {
+      const recorded = records.some(item => item.emojiImage && item.element === img);
+
+      return recorded && !keptImages.has(img);
+    });
 
     if (muted) {
       return;
@@ -452,9 +458,30 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
   }
 
   emojiMuteLiveDomProbe.scans += 1;
+  const pollTokens = new Map();
+
   root.querySelectorAll('img').forEach(img => {
     if (!img.isConnected || !isUserEmojiImage(img)) {
       return;
+    }
+
+    const pollText = img.closest && img.closest('.poll__option__text');
+    const pollInput = pollText && pollText.parentElement && pollText.parentElement.querySelector('.poll__input');
+
+    if (pollInput) {
+      const tokens = pollTokens.get(pollInput) || [];
+      const alt = img.getAttribute('alt') || '';
+      const code = img.getAttribute('data-shortcode') || '';
+
+      if (alt) {
+        tokens.push(alt);
+      }
+
+      if (code) {
+        tokens.push(`:${code}:`);
+      }
+
+      pollTokens.set(pollInput, tokens);
     }
 
     EMOJI_IDENTITY_ATTRIBUTES.forEach(name => noteAttribute(sink, img, name, true));
@@ -519,6 +546,26 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
     concealEmojiImage(img);
   });
 
+  pollTokens.forEach((tokens, input) => {
+    const value = input.getAttribute('aria-label') || '';
+    let next = value;
+
+    tokens.forEach(token => {
+      const at = token ? next.indexOf(token) : -1;
+
+      if (at >= 0) {
+        next = `${next.slice(0, at)}${UNVERIFIED_EMOJI_PLACEHOLDER}${next.slice(at + token.length)}`;
+      }
+    });
+
+    if (next === value) {
+      return;
+    }
+
+    noteAttribute(sink, input, 'aria-label');
+    input.setAttribute('aria-label', next);
+  });
+
   root.querySelectorAll('[alt], [title], [aria-label], [aria-description], [aria-valuetext]').forEach(element => {
     READABLE_ATTRIBUTES.forEach(name => {
       const value = element.getAttribute(name);
@@ -564,6 +611,36 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
   // came from an emoji image. Clear that link in this same walk.
   root.querySelectorAll('a[data-menu-hashtag]').forEach(link => {
     concealHashtagMenuLink(sink, link);
+  });
+  // A translated link can have an image label and still not be a menu target.
+  // The stored label identity is not a menu name.
+  root.querySelectorAll('a').forEach(link => {
+    if (link.hasAttribute('data-menu-hashtag') || link.hasAttribute('data-menu-hashtag-token')) {
+      return;
+    }
+
+    const label = hashtagMenuLabelIdentity(link);
+
+    if (!label || !label.imageRanges || label.imageRanges.length === 0) {
+      return;
+    }
+
+    READABLE_ATTRIBUTES.forEach(attr => {
+      const value = link.getAttribute(attr);
+
+      if (!value) {
+        return;
+      }
+
+      const next = projectConcealedHashtagText(value, label.name, label.imageRanges);
+
+      if (next === value) {
+        return;
+      }
+
+      noteAttribute(sink, link, attr);
+      link.setAttribute(attr, next);
+    });
   });
   stampScrubWrites(sink);
 }
@@ -665,6 +742,32 @@ const concealHashtagMenuLink = (sink, link) => {
   });
 };
 
+export function concealOpenAltPopovers(sink) {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  document.querySelectorAll('.media-gallery__alt__popover [data-emoji-mute-source]').forEach(node => {
+    const raw = node.getAttribute('data-emoji-mute-source') || '';
+    const shown = typeof raw === 'string' ? presentEmojiMutePlain(raw, SUPPRESS_UNVERIFIED_INDEX) : '';
+    const owner = node.ownerDocument || document;
+    const walker = owner.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
+    let text = walker.nextNode();
+
+    while (text) {
+      const value = text.nodeValue || '';
+
+      if (value !== shown) {
+        rememberEmojiMuteTextSource(text, raw);
+        noteText(sink, text);
+        text.nodeValue = shown === undefined || shown === null ? value : shown;
+      }
+
+      text = walker.nextNode();
+    }
+  });
+}
+
 export function unverifiedEmojiRoot() {
   if (typeof document === 'undefined') {
     return null;
@@ -710,6 +813,7 @@ export function createUnverifiedEmojiGuard() {
     // put the label back. A later React write no longer matches `written`.
     concealOpenHashtagMenus(records);
     concealOpenHashtagDialogs(records);
+    concealOpenAltPopovers(records);
     stampScrubWrites(records);
   };
 

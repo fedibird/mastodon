@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { ReactReduxContext } from 'react-redux';
 import { emojiMutedPlainLabel, emojiMutedPlainText, emojiMuteTextIndexFromState, replaceEmojiInDisplayHtml, replaceUnicodeEmojiInPreviewHtml, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
+import { bindEmojiMuteHtmlSources } from 'mastodon/features/emoji/emoji_mute_sources';
 
 // One Redux subscription per mounted display node. The shared account and
 // status records keep the emojify HTML. A rules change re-renders only these
@@ -187,6 +188,18 @@ class EmojiMutedHtmlInner extends React.PureComponent {
     emojiMuteTextIndex: PropTypes.object,
   };
 
+  bindSource = node => {
+    this.node = node;
+
+    if (node && typeof this.props.html === 'string') {
+      bindEmojiMuteHtmlSources(node, this.props.html);
+    }
+  };
+
+  componentDidUpdate() {
+    this.bindSource(this.node);
+  }
+
   render() {
     const { tag: Tag = 'span', html, className, plain, lang, dir, id, emojiMuteTextIndex } = this.props;
     const source = typeof html === 'string' ? html : '';
@@ -209,7 +222,7 @@ class EmojiMutedHtmlInner extends React.PureComponent {
       extra.title = emojiMutedPlainLabel(plain, source, emojiMuteTextIndex);
     }
 
-    return <Tag className={className} {...extra} dangerouslySetInnerHTML={{ __html: presented }} />;
+    return <Tag className={className} {...extra} ref={this.bindSource} dangerouslySetInnerHTML={{ __html: presented }} />;
   }
 
 }

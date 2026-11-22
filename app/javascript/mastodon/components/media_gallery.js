@@ -198,6 +198,8 @@ class Item extends React.PureComponent {
           description={description}
           originalDescription={originalDescription}
           translatedDescription={translatedDescription}
+          rawOriginal={typeof accessible.original === 'string' ? accessible.original : descriptionSource}
+          rawTranslated={typeof accessible.translated === 'string' ? accessible.translated : ''}
           sourceLang={this.props.sourceLang || this.props.lang}
           targetLang={this.props.targetLang}
           mode={this.props.translationMode || (accessible.translated ? 'translated' : 'original')}

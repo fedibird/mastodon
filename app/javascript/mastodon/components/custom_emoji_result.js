@@ -7,6 +7,7 @@ import { injectIntl, defineMessages, FormattedMessage } from 'react-intl';
 import Emoji from './emoji';
 import { attachInlineEmojiMenus, handleInlineEmojiClick, openInlineEmojiMenu } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import { emojiMuteTextIndexFromState, replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
+import { bindEmojiMuteHtmlSources } from 'mastodon/features/emoji/emoji_mute_sources';
 
 const messages = defineMessages({
   linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
@@ -98,14 +99,26 @@ class CustomEmojiResult extends React.PureComponent {
     this.node = c;
   }
 
+  bindSummary () {
+    const emoji = this.props.custom_emoji;
+    const summary = emoji && (emoji.get('summary') ?? emoji.get('misskey_license'));
+    const node = this.node && this.node.querySelector('.custom-emoji__summary');
+
+    if (node && typeof summary === 'string') {
+      bindEmojiMuteHtmlSources(node, summary);
+    }
+  }
+
   componentDidMount () {
     this._updateLinks();
     this.updateEmojiMenu();
+    this.bindSummary();
   }
 
   componentDidUpdate () {
     this._updateLinks();
     this.updateEmojiMenu();
+    this.bindSummary();
   }
 
   componentWillUnmount () {

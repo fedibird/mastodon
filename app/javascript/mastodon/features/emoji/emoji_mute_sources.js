@@ -117,7 +117,7 @@ export function bindEmojiMuteElementSource(element, source) {
     rememberEmojiMuteTextSource(texts[0], source);
   }
 
-  ['title', 'aria-label', 'aria-description', 'aria-valuetext'].forEach(name => {
+  ['alt', 'title', 'aria-label', 'aria-description', 'aria-valuetext'].forEach(name => {
     if (element.hasAttribute(name)) {
       rememberEmojiMuteAttributeSource(element, name, source);
     }

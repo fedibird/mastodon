@@ -9,7 +9,7 @@ import { closeModal } from '../../../actions/modal';
 import { fetchFilters } from '../../../actions/filters';
 import { muteHashtag, unmuteHashtag, updateHashtagMute } from '../../../actions/hashtag_mutes';
 import { HASHTAG_MUTE_CONTEXTS, HASHTAG_MUTE_DURATIONS, findHashtagMute } from '../../../utils/hashtag_mute';
-import { projectHashtagLabel, registerHashtagDialogConcealer, unprojectHashtagSentence } from 'mastodon/features/emoji/hashtag_menu_names';
+import { projectHashtagLabel, registerHashtagDialogConcealer, replaceHashtagSlot } from 'mastodon/features/emoji/hashtag_menu_names';
 import { recordEmojiMuteText } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import { rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
 import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
@@ -114,6 +114,7 @@ class HashtagMuteModal extends React.PureComponent {
     onUnmute: PropTypes.func.isRequired,
     emojiMuteTextIndex: PropTypes.object,
     imageRanges: PropTypes.array,
+    hashtagImages: PropTypes.array,
   };
 
   imageRanges() {
@@ -126,6 +127,16 @@ class HashtagMuteModal extends React.PureComponent {
     return typeof ranges.toJS === 'function' ? ranges.toJS() : ranges;
   }
 
+  hashtagImages() {
+    const images = this.props.hashtagImages;
+
+    if (!images) {
+      return [];
+    }
+
+    return typeof images.toJS === 'function' ? images.toJS() : images;
+  }
+
   concealForSuppress = sink => {
     const heading = document.getElementById('hashtag-mute-title');
 
@@ -134,22 +145,12 @@ class HashtagMuteModal extends React.PureComponent {
     }
 
     const ranges = this.imageRanges();
+    const images = this.hashtagImages();
     const raw = this.props.hashtag;
-    const rendered = projectHashtagLabel(raw, ranges, this.props.emojiMuteTextIndex);
-    const shown = projectHashtagLabel(raw, ranges, SUPPRESS_UNVERIFIED_INDEX);
+    const rendered = projectHashtagLabel(raw, ranges, this.props.emojiMuteTextIndex, images);
+    const shown = projectHashtagLabel(raw, ranges, SUPPRESS_UNVERIFIED_INDEX, images);
     const label = shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
-    const needles = [];
-
-    [rendered, raw, suppressUnicodeEmoji(rendered), suppressUnicodeEmoji(raw)].forEach(value => {
-      if (value && value !== label && needles.indexOf(value) === -1) {
-        needles.push(value);
-      }
-    });
-
-    if (needles.length === 0) {
-      return;
-    }
-
+    const forms = [rendered, raw, suppressUnicodeEmoji(rendered), suppressUnicodeEmoji(raw)].filter((value, index, list) => value && list.indexOf(value) === index);
     const owner = heading.ownerDocument || document;
     const walker = owner.createTreeWalker(heading, NodeFilter.SHOW_TEXT, null);
     let node = walker.nextNode();
@@ -157,17 +158,15 @@ class HashtagMuteModal extends React.PureComponent {
     while (node) {
       const value = node.nodeValue || '';
       let next = value;
+      let logical = value;
 
-      needles.forEach(needle => {
-        if (next.includes(needle)) {
-          next = next.split(needle).join(label);
-        }
+      forms.forEach(form => {
+        next = replaceHashtagSlot(next, form, label);
+        logical = replaceHashtagSlot(logical, form, raw);
       });
 
       if (next !== value) {
         const noted = sink && sink.find(record => record.kind === 'text' && record.node === node);
-        const base = noted && typeof noted.value === 'string' ? noted.value : value;
-        const logical = unprojectHashtagSentence(base, rendered, raw);
 
         rememberEmojiMuteTextSource(node, logical);
 
@@ -185,7 +184,7 @@ class HashtagMuteModal extends React.PureComponent {
   }
 
   visibleHashtag() {
-    const shown = projectHashtagLabel(this.props.hashtag, this.imageRanges(), this.props.emojiMuteTextIndex);
+    const shown = projectHashtagLabel(this.props.hashtag, this.imageRanges(), this.props.emojiMuteTextIndex, this.hashtagImages());
 
     if (typeof shown !== 'string') {
       return this.props.hashtag;

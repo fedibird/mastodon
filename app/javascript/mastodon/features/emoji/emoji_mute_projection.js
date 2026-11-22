@@ -222,6 +222,39 @@ const projectable = (group, rules) => {
   return !group.domain && !group.url && !group.static_url;
 };
 
+// Status groups often have no top-level custom_emoji_id. The local id lives
+// on parts[]. A name group keeps the parts the rules do not hide. A group
+// with no parts still uses the notification-style id or unicode check.
+// Count 0 with nothing hidden stays, so an ordinary removal can leave.
+export const barVisibleReaction = (reaction, rules) => {
+  if (!reaction) {
+    return null;
+  }
+
+  const parts = read(reaction, 'parts');
+
+  const partsAreList = !!parts && (Array.isArray(parts) || typeof parts.toArray === 'function');
+
+  if (!partsAreList) {
+    return storedReactionHidden(reaction, rules) ? null : reaction;
+  }
+
+  const list = typeof parts.toArray === 'function' ? parts.toArray() : parts;
+  const plain = typeof reaction.toJS === 'function' ? reaction.toJS() : { ...reaction, parts: list };
+  const result = projectStreamReaction(plain, rules);
+  const kept = result.payload && Array.isArray(result.payload.parts) ? result.payload.parts.length : list.length;
+
+  if (kept === list.length) {
+    return reaction;
+  }
+
+  if (result.hidden || !result.payload || result.payload.count <= 0) {
+    return null;
+  }
+
+  return result.payload;
+};
+
 export const projectStatusReactions = (groups, rules) => {
   if (!Array.isArray(groups) || groups.some(group => !projectable(group, rules))) {
     return null;

@@ -11,7 +11,7 @@ import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
 import { accountUrlForHashtag } from 'mastodon/utils/account_tag_url';
 import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
-import { hashtagMenuStoredIdentity, projectHashtagLabel, registerHashtagMenuBinding, registerHashtagMenuConcealer, unprojectHashtagSentence } from 'mastodon/features/emoji/hashtag_menu_names';
+import { hashtagMenuStoredIdentity, projectHashtagLabel, registerHashtagMenuBinding, registerHashtagMenuConcealer, replaceHashtagSlot } from 'mastodon/features/emoji/hashtag_menu_names';
 import { recordEmojiMuteText } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import { rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
 import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
@@ -49,6 +49,7 @@ class HashtagMenuController extends React.PureComponent {
     element: null,
     hashtag: '',
     imageRanges: [],
+    hashtagImages: [],
     hashtagUrl: '',
     accountId: '',
     statusId: '',
@@ -127,23 +128,12 @@ class HashtagMenuController extends React.PureComponent {
     }
 
     const ranges = this.actionRanges();
+    const images = this.actionImages();
     const raw = this.state.hashtag;
-    const rendered = projectHashtagLabel(raw, ranges, this.props.emojiMuteTextIndex);
-    const shown = projectHashtagLabel(raw, ranges, SUPPRESS_UNVERIFIED_INDEX);
+    const rendered = projectHashtagLabel(raw, ranges, this.props.emojiMuteTextIndex, images);
+    const shown = projectHashtagLabel(raw, ranges, SUPPRESS_UNVERIFIED_INDEX, images);
     const label = shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
-    const needles = [];
-
-    // The privacy walk may already have turned the projected emoji into a
-    // placeholder. Match that form too, or the image shortcode stays visible.
-    [rendered, raw, suppressUnicodeEmoji(rendered), suppressUnicodeEmoji(raw)].forEach(value => {
-      if (value && value !== label && needles.indexOf(value) === -1) {
-        needles.push(value);
-      }
-    });
-
-    if (needles.length === 0) {
-      return;
-    }
+    const forms = [rendered, raw, suppressUnicodeEmoji(rendered), suppressUnicodeEmoji(raw)].filter((value, index, list) => value && list.indexOf(value) === index);
 
     const owner = menu.ownerDocument || document;
     const walker = owner.createTreeWalker(menu, NodeFilter.SHOW_TEXT, null);
@@ -152,17 +142,15 @@ class HashtagMenuController extends React.PureComponent {
     while (node) {
       const value = node.nodeValue || '';
       let next = value;
+      let logical = value;
 
-      needles.forEach(needle => {
-        if (next.includes(needle)) {
-          next = next.split(needle).join(label);
-        }
+      forms.forEach(form => {
+        next = replaceHashtagSlot(next, form, label);
+        logical = replaceHashtagSlot(logical, form, raw);
       });
 
       if (next !== value) {
         const noted = sink && sink.find(record => record.kind === 'text' && record.node === node);
-        const base = noted && typeof noted.value === 'string' ? noted.value : value;
-        const logical = unprojectHashtagSentence(base, rendered, raw);
 
         rememberEmojiMuteTextSource(node, logical);
 
@@ -179,6 +167,20 @@ class HashtagMenuController extends React.PureComponent {
     }
   }
 
+  actionImages () {
+    const link = this.state.element;
+
+    if (link && link.isConnected) {
+      const identity = hashtagMenuStoredIdentity(link);
+
+      if (identity && identity.name === this.state.hashtag && identity.images && identity.images.length > 0) {
+        return identity.images;
+      }
+    }
+
+    return this.state.hashtagImages || [];
+  }
+
   isSignedIn () {
     if (typeof this.props.signedIn === 'boolean') {
       return this.props.signedIn;
@@ -192,6 +194,7 @@ class HashtagMenuController extends React.PureComponent {
       element: null,
       hashtag: '',
       imageRanges: [],
+      hashtagImages: [],
       hashtagUrl: '',
       accountId: '',
       statusId: '',
@@ -236,6 +239,7 @@ class HashtagMenuController extends React.PureComponent {
       element: link,
       hashtag,
       imageRanges: identity.imageRanges,
+      hashtagImages: identity.images || [],
       hashtagUrl: link.href || '',
       accountId: link.getAttribute('data-account-id') || '',
       statusId: link.getAttribute('data-status-id') || '',
@@ -333,7 +337,7 @@ class HashtagMenuController extends React.PureComponent {
   }
 
   visibleHashtag () {
-    const shown = projectHashtagLabel(this.state.hashtag, this.actionRanges(), this.props.emojiMuteTextIndex);
+    const shown = projectHashtagLabel(this.state.hashtag, this.actionRanges(), this.props.emojiMuteTextIndex, this.actionImages());
 
     // An empty replacement is a real projection. The action value stays original.
     return shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
@@ -382,7 +386,7 @@ class HashtagMenuController extends React.PureComponent {
         text: intl.formatMessage(messages.mute, { hashtag: label }),
         href: null,
         target: null,
-        action: () => this.props.onMuteHashtag(hashtag, this.actionRanges()),
+        action: () => this.props.onMuteHashtag(hashtag, this.actionRanges(), this.actionImages()),
         dangerous: true,
       });
     }
@@ -456,8 +460,8 @@ const mapDispatchToProps = dispatch => ({
     dispatch(createFavouriteTag(name));
   },
 
-  onMuteHashtag(hashtag, imageRanges) {
-    dispatch(openModal('HASHTAG_MUTE', { hashtag, imageRanges: imageRanges || [] }));
+  onMuteHashtag(hashtag, imageRanges, hashtagImages) {
+    dispatch(openModal('HASHTAG_MUTE', { hashtag, imageRanges: imageRanges || [], hashtagImages: hashtagImages || [] }));
   },
 });
 

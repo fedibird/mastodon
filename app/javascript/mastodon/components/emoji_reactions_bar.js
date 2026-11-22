@@ -3,9 +3,23 @@ import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { List as ImmutableList } from 'immutable';
-import { storedReactionHidden } from 'mastodon/features/emoji/emoji_mute_projection';
+import { List as ImmutableList, fromJS } from 'immutable';
+import { barVisibleReaction } from 'mastodon/features/emoji/emoji_mute_projection';
 import { emojiReactionsForStatus, emojiReactionAccountIds } from '../utils/emoji_reactions';
+
+const shownReaction = (reaction, rules) => {
+  const next = barVisibleReaction(reaction, rules);
+
+  if (!next) {
+    return null;
+  }
+
+  if (next === reaction) {
+    return reaction;
+  }
+
+  return fromJS(next);
+};
 import TransitionMotion from 'react-motion/lib/TransitionMotion';
 import { reduceMotion, me, hideReactionCounter, hideListOfEmojiReactionsToPosts } from 'mastodon/initial_state';
 import { reduceMotionNow, watchReduceMotion } from 'mastodon/utils/appearance_preferences';
@@ -27,7 +41,7 @@ const mapStateToProps = (state, { status }) => {
   const rules = state.getIn(['emojiMutes', 'rules']);
 
   return {
-    emojiReactions: reactions.filter(reaction => !storedReactionHidden(reaction, rules)),
+    emojiReactions: reactions.map(reaction => shownReaction(reaction, rules)).filter(reaction => reaction && reaction.get('count') > 0),
     reactionRules: rules,
   };
 };
@@ -92,20 +106,28 @@ class EmojiReactionsBar extends ImmutablePureComponent {
       <TransitionMotion styles={styles} willEnter={this.willEnter} willLeave={this.willLeave}>
         {items => (
           <div className='reactions-bar emoji-reactions-bar'>
-            {items.filter(({ data }) => !storedReactionHidden(data.emojiReaction, reactionRules)).map(({ key, data, style }) => (
-              <EmojiReaction
-                key={key}
-                emojiReaction={data.emojiReaction}
-                myReaction={data.myReaction}
-                style={{ transform: `scale(${style.scale})`, position: style.scale < 0.5 ? 'absolute' : 'static' }}
-                status={status}
-                addEmojiReaction={addEmojiReaction}
-                removeEmojiReaction={removeEmojiReaction}
-                reactionLimitReached={reactionLimitReached}
-                hideCount={hideReactionCounter}
-                hideAccountList={hideListOfEmojiReactionsToPosts}
-              />
-            ))}
+            {items.map(({ key, data, style }) => {
+              const emojiReaction = shownReaction(data.emojiReaction, reactionRules);
+
+              if (!emojiReaction) {
+                return null;
+              }
+
+              return (
+                <EmojiReaction
+                  key={key}
+                  emojiReaction={emojiReaction}
+                  myReaction={emojiReactionAccountIds(emojiReaction).includes(me)}
+                  style={{ transform: `scale(${style.scale})`, position: style.scale < 0.5 ? 'absolute' : 'static' }}
+                  status={status}
+                  addEmojiReaction={addEmojiReaction}
+                  removeEmojiReaction={removeEmojiReaction}
+                  reactionLimitReached={reactionLimitReached}
+                  hideCount={hideReactionCounter}
+                  hideAccountList={hideListOfEmojiReactionsToPosts}
+                />
+              );
+            })}
           </div>
         )}
       </TransitionMotion>

@@ -633,8 +633,8 @@ describe('emoji mute source restore', () => {
     );
     const embed = view.container.querySelector('.status-card-video');
 
-    embed.innerHTML = `<p></p><p>${OK}</p>`;
-    bindEmojiMuteHtmlSources(embed, `<p>${OK}</p><p>${SPARKLE}</p>`);
+    embed.innerHTML = `<p></p><p>${SPARKLE}</p>`;
+    bindEmojiMuteHtmlSources(embed, `<p>${OK}</p><p>${SMILE}</p>`, { readableKind: 'plain', textKind: 'plain' });
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
@@ -653,15 +653,15 @@ describe('emoji mute source restore', () => {
           {
             id: 'm2',
             revision: '3',
-            emoji: { kind: 'unicode', native: SPARKLE },
-            replacement: OK,
+            emoji: { kind: 'unicode', native: SMILE },
+            replacement: SPARKLE,
             effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
           },
           {
             id: 'm3',
             revision: '3',
-            emoji: { kind: 'unicode', native: OK },
-            replacement: '[ok]',
+            emoji: { kind: 'unicode', native: SPARKLE },
+            replacement: '[sparkles]',
             effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
           },
         ],
@@ -669,7 +669,7 @@ describe('emoji mute source restore', () => {
     });
 
     expect(embed.querySelectorAll('p')[1].textContent).toBe(SPARKLE);
-    expect(embed.textContent).not.toContain('[ok]');
+    expect(embed.textContent).not.toContain('[sparkles]');
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
     view.unmount();
   });

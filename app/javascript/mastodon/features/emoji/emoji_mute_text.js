@@ -731,7 +731,11 @@ export function replaceEmojiInDisplayHtml(html, index) {
     return html;
   }
 
-  if (index.suppressAll !== true && html.indexOf('emojione') === -1 && html.indexOf('custom-emoji') === -1 && !EMOJI_ASSET_SRC.test(html)) {
+  // A character reference such as &#100; is still an emoji asset URL once the
+  // browser decodes the attribute. The raw fast path would skip that img.
+  const encodedEmojiUrl = /<img\b[^>]*\bemoji\/[^"' >]*&(?:#|amp;#)/i.test(html);
+
+  if (index.suppressAll !== true && html.indexOf('emojione') === -1 && html.indexOf('custom-emoji') === -1 && !EMOJI_ASSET_SRC.test(html) && !encodedEmojiUrl) {
     return html;
   }
 

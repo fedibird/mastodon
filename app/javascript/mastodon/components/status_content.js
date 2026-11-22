@@ -74,6 +74,71 @@ const rangesAgree = (left, right) => (
 // Case-only spelling keeps the image offsets. A length change can still place
 // a shortcode that occurs once. Anything else hides the whole tag name so the
 // raw shortcode is not written into an attribute.
+const normalizationOffsets = text => {
+  const offsets = new Array(text.length + 1);
+  let normalized = 0;
+  let index = 0;
+
+  while (index < text.length) {
+    const chunk = String.fromCodePoint(text.codePointAt(index));
+
+    offsets[index] = normalized;
+
+    if (chunk.length === 2) {
+      offsets[index + 1] = normalized;
+    }
+
+    normalized += chunk.normalize('NFKC').length;
+    index += chunk.length;
+  }
+
+  offsets[text.length] = normalized;
+
+  return offsets;
+};
+
+// ﬁle and file are the same tag, but the ligature moves every later index.
+// A repeated :blob: must not make the typed copy look image-derived.
+const mapNormalizedHashtagRanges = (sourceName, targetName, ranges) => {
+  if (sourceName.normalize('NFKC').toLowerCase() !== targetName.normalize('NFKC').toLowerCase()) {
+    return null;
+  }
+
+  if (sourceName.normalize('NFKC').length !== targetName.normalize('NFKC').length) {
+    return null;
+  }
+
+  const sourceOffsets = normalizationOffsets(sourceName);
+  const targetOffsets = normalizationOffsets(targetName);
+  const targetAt = [];
+
+  for (let index = 0; index <= targetName.length; index += 1) {
+    const normalized = targetOffsets[index];
+
+    if (targetAt[normalized] === undefined) {
+      targetAt[normalized] = index;
+    }
+  }
+
+  const mapped = [];
+
+  for (let index = 0; index < ranges.length; index += 1) {
+    const [start, end] = ranges[index];
+    const normalizedStart = sourceOffsets[start];
+    const normalizedEnd = sourceOffsets[end];
+    const targetStart = targetAt[normalizedStart];
+    const targetEnd = targetAt[normalizedEnd];
+
+    if (normalizedStart === undefined || normalizedEnd === undefined || targetStart === undefined || targetEnd === undefined) {
+      return null;
+    }
+
+    mapped.push([targetStart, targetEnd]);
+  }
+
+  return mapped;
+};
+
 const alignHashtagRanges = (sourceName, targetName, ranges) => {
   const sourceRanges = ranges || [];
 
@@ -109,7 +174,9 @@ const alignHashtagRanges = (sourceName, targetName, ranges) => {
     const again = found < 0 ? -1 : targetName.indexOf(slice, found + slice.length);
 
     if (!slice || found < 0 || again !== -1) {
-      return [[0, targetName.length]];
+      const mapped = mapNormalizedHashtagRanges(sourceName, targetName, sourceRanges);
+
+      return mapped || [[0, targetName.length]];
     }
 
     placed.push([found, found + slice.length]);
@@ -537,8 +604,9 @@ class StatusContent extends React.PureComponent {
       }
     }
 
+    const blockAnchor = link.closest('.status-translation-pair__target') ? this.translatedBlockAnchor(link) : null;
     const index = this.hashtagLiveIndex(link);
-    const source = index < 0 ? null : anchors.filter(anchor => anchor.href === link.href)[index];
+    const source = blockAnchor || (index < 0 ? null : anchors.filter(anchor => anchor.href === link.href)[index]);
 
     if (!source || !source.hasAttribute(name)) {
       return null;
@@ -602,6 +670,21 @@ class StatusContent extends React.PureComponent {
     return this.hashtagNameFromAnchor(anchor);
   }
 
+  hashtagMenuImages (link) {
+    const status = this.props.status;
+
+    if (!status || !link) {
+      return [];
+    }
+
+    const html = link.closest('.status__content__text') ? status.get('contentHtml') : status.get('spoilerHtml');
+    const index = this.hashtagLiveIndex(link);
+    const anchor = index < 0 ? null : this.anchorsWithHref(html, link.href)[index];
+    const identity = anchor ? hashtagIdentityFromNode(anchor) : null;
+
+    return identity && identity.images ? identity.images : [];
+  }
+
   hashtagNameFromTags (link) {
     const tags = this.props.status && this.props.status.get('tags');
     const href = link.getAttribute('href') || '';
@@ -616,7 +699,21 @@ class StatusContent extends React.PureComponent {
       return url !== '' && url === href;
     });
 
-    return match ? String(match.get('name') || '').replace(/^[#＃]/, '') : '';
+    if (!match) {
+      return '';
+    }
+
+    const fromTags = String(match.get('name') || '').replace(/^[#＃]/, '');
+    const html = link.closest('.status__content__text') ? this.props.status.get('contentHtml') : this.props.status.get('spoilerHtml');
+    const shared = this.hashtagAnchorsFromHtml(html).filter(anchor => anchor.href === link.href).length > 1;
+
+    if (!shared) {
+      return fromTags;
+    }
+
+    const fromHtml = this.hashtagNameFromUnprojectedHtml(link);
+
+    return fromHtml && sameHashtagName(fromHtml, fromTags) ? fromTags : '';
   }
 
   hashtagImageRanges (link) {
@@ -780,8 +877,9 @@ class StatusContent extends React.PureComponent {
     // The href stays, so an ordinary or modified click still opens it.
     if (!name) {
       link.removeAttribute('data-menu-hashtag');
-      bindHashtagMenuName(link, '', this.props.emojiMuteTextIndex, []);
       const translatedImages = this.translatedImageIdentity(link);
+
+      bindHashtagMenuName(link, '', this.props.emojiMuteTextIndex, [], translatedImages);
 
       if (translatedImages) {
         this.projectHashtagLinkLabels(link, translatedImages.name, translatedImages.imageRanges);
@@ -794,7 +892,12 @@ class StatusContent extends React.PureComponent {
     const { id, name: accountName } = this.statusAccountIdentity();
     const translatedImages = this.translatedImageIdentity(link);
 
-    link.setAttribute('data-menu-hashtag', bindHashtagMenuName(link, name, this.props.emojiMuteTextIndex, imageRanges, translatedImages));
+    const menuImages = this.hashtagMenuImages(link);
+    const menuLabel = translatedImages
+      ? { ...translatedImages, images: (translatedImages.images && translatedImages.images.length > 0) ? translatedImages.images : menuImages }
+      : { name, imageRanges, images: menuImages };
+
+    link.setAttribute('data-menu-hashtag', bindHashtagMenuName(link, name, this.props.emojiMuteTextIndex, imageRanges, menuLabel));
     const occurrence = this.hashtagOccurrenceIdentity(link);
     let labelName = occurrence && occurrence.name ? occurrence.name : name;
     let labelRanges = occurrence && occurrence.imageRanges && occurrence.imageRanges.length > 0

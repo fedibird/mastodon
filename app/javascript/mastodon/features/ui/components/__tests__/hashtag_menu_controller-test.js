@@ -1450,9 +1450,9 @@ describe('HashtagMenuController', () => {
       fireEvent.click(screen.getByRole('button', { name: `Mute #${label}` }));
       expect(store.getState().getIn(['modal', 'hashtag'])).toBe(payload);
       click(node);
-      fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
-
       const alreadySaved = store.getState().getIn(['favourite_tags']) && store.getState().get('favourite_tags').some(tag => tag.get('name') === payload);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
 
       if (alreadySaved) {
         expect(mockApiPost.mock.calls.length).toBe(postCalls);
@@ -1965,9 +1965,9 @@ describe('HashtagMenuController', () => {
     expect(beforeCommit.literalAttr).toBe('kept:blob:');
     expect(beforeCommit.literalText).toContain(':blob:');
     expect(beforeCommit.literalTitle).toBe('#kept:blob:');
-    expect(hashtagMenuStoredIdentity(body)).toEqual({ name: 'party:blob:', imageRanges: [[5, 11]] });
-    expect(hashtagMenuStoredIdentity(cw)).toEqual({ name: 'cw:blob:', imageRanges: [[2, 8]] });
-    expect(hashtagMenuStoredIdentity(badge)).toEqual({ name: 'badge:blob:', imageRanges: [[5, 11]] });
+    expect(hashtagMenuStoredIdentity(body)).toEqual(expect.objectContaining({ name: 'party:blob:', imageRanges: [[5, 11]] }));
+    expect(hashtagMenuStoredIdentity(cw)).toEqual(expect.objectContaining({ name: 'cw:blob:', imageRanges: [[2, 8]] }));
+    expect(hashtagMenuStoredIdentity(badge)).toEqual(expect.objectContaining({ name: 'badge:blob:', imageRanges: [[5, 11]] }));
 
     const live = () => ({
       body: container.querySelector(`a[href="${bodyHref}"]`),
@@ -1980,12 +1980,12 @@ describe('HashtagMenuController', () => {
 
       expect(node.body.getAttribute('data-menu-hashtag')).toBe('party:blob:');
       expect(node.body.hasAttribute('data-menu-hashtag-token')).toBe(false);
-      expect(hashtagMenuStoredIdentity(node.body)).toEqual({ name: 'party:blob:', imageRanges: [[5, 11]] });
+      expect(hashtagMenuStoredIdentity(node.body)).toEqual(expect.objectContaining({ name: 'party:blob:', imageRanges: [[5, 11]] }));
       expect(node.badge.getAttribute('data-menu-hashtag')).toBe('badge:blob:');
       expect(node.badge.hasAttribute('data-menu-hashtag-token')).toBe(false);
-      expect(hashtagMenuStoredIdentity(node.badge)).toEqual({ name: 'badge:blob:', imageRanges: [[5, 11]] });
+      expect(hashtagMenuStoredIdentity(node.badge)).toEqual(expect.objectContaining({ name: 'badge:blob:', imageRanges: [[5, 11]] }));
       expect(node.cw.getAttribute('data-menu-hashtag')).toBe('cw:blob:');
-      expect(hashtagMenuStoredIdentity(node.cw)).toEqual({ name: 'cw:blob:', imageRanges: [[2, 8]] });
+      expect(hashtagMenuStoredIdentity(node.cw)).toEqual(expect.objectContaining({ name: 'cw:blob:', imageRanges: [[2, 8]] }));
       expect(node.literal.getAttribute('data-menu-hashtag')).toBe('kept:blob:');
       expect(node.literal.textContent).toContain(':blob:');
     };
@@ -1993,7 +1993,7 @@ describe('HashtagMenuController', () => {
       const node = live();
 
       expect(node.body.getAttribute('data-menu-hashtag') || '').not.toContain(':blob:');
-      expect(hashtagMenuStoredIdentity(node.body)).toEqual({ name: 'party:blob:', imageRanges: [[5, 11]] });
+      expect(hashtagMenuStoredIdentity(node.body)).toEqual(expect.objectContaining({ name: 'party:blob:', imageRanges: [[5, 11]] }));
       expect(node.literal.getAttribute('data-menu-hashtag')).toBe('kept:blob:');
       expect(node.literal.textContent).toContain(':blob:');
     };
@@ -2113,7 +2113,7 @@ describe('HashtagMenuController', () => {
     expect(beforeCommit).toBe('');
     expect(first.getAttribute('data-menu-hashtag')).toBe('');
     expect(first.textContent).toBe(`#party${'\u25FB'}`);
-    expect(hashtagMenuStoredIdentity(first)).toEqual({ name: 'party:blob:', imageRanges: [[5, 11]] });
+    expect(hashtagMenuStoredIdentity(first)).toEqual(expect.objectContaining({ name: 'party:blob:', imageRanges: [[5, 11]] }));
 
     act(() => {
       store.dispatch({
@@ -2213,7 +2213,7 @@ describe('HashtagMenuController', () => {
     expect(concealImageDerivedSegments('#Party:blob::blob: #party:blob::blob:', 'party:blob::blob:', [[5, 11]])).toBe(`#Party${'\u25FB'}:blob: #party${'\u25FB'}:blob:`);
     expect(concealImageDerivedSegments(`#Party${'\u25FB'}:blob: #party${'\u25FB'}:blob:`, 'party:blob::blob:', [[5, 11]])).toBe(`#Party${'\u25FB'}:blob: #party${'\u25FB'}:blob:`);
     expect(mixedLink.getAttribute('title')).toBe(mixedTitle);
-    expect(hashtagMenuStoredIdentity(mixedLink)).toEqual({ name: 'party:blob::blob:', imageRanges: [[5, 11]] });
+    expect(hashtagMenuStoredIdentity(mixedLink)).toEqual(expect.objectContaining({ name: 'party:blob::blob:', imageRanges: [[5, 11]] }));
     expect(casedLink.getAttribute('data-menu-hashtag')).toBe('party:blob:');
 
     act(() => {
@@ -2528,10 +2528,10 @@ describe('open hashtag menu beside another dropdown', () => {
     const hashtagMenu = () => Array.from(document.querySelectorAll('.dropdown-menu')).find(menu => menu !== general);
 
     container.classList.add('emoji-mutes-privacy-portal');
-    expect(hashtagMenuStoredIdentity(container.querySelector('a.mention.hashtag'))).toEqual({
+    expect(hashtagMenuStoredIdentity(container.querySelector('a.mention.hashtag'))).toEqual(expect.objectContaining({
       name: `party:blob::typed:${thumb}`,
       imageRanges: [[5, 11]],
-    });
+    }));
     click(container.querySelector('a.mention.hashtag'));
     expect(screen.getByRole('button', { name: `Mute #party:blob::typed:${spark}` })).toBeTruthy();
 

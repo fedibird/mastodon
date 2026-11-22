@@ -727,7 +727,7 @@ describe('StatusContent unverified emoji suppression', () => {
     const expectConcealed = link => {
       expect(link.getAttribute('data-menu-hashtag') || '').not.toContain(':blob:');
       expect(link.hasAttribute('data-menu-hashtag-token')).toBe(true);
-      expect(hashtagMenuStoredIdentity(link)).toEqual({ name: 'party:blob:', imageRanges: [[5, 11]] });
+      expect(hashtagMenuStoredIdentity(link)).toEqual(expect.objectContaining({ name: 'party:blob:', imageRanges: [[5, 11]] }));
       expect(link.getAttribute('title') || '').not.toContain(':blob:');
       expect(link.getAttribute('aria-label') || '').not.toContain(':blob:');
       expect(link.outerHTML).not.toContain('cdn.example/blob.svg');

@@ -5,7 +5,7 @@ import { isUserEmojiImage, presentEmojiMutePlain, replacementForCustomEmoji, sup
 const namesByElement = new WeakMap();
 const labelIdentities = new WeakMap();
 
-const emptyIdentity = () => ({ name: '', imageRanges: [] });
+const emptyIdentity = () => ({ name: '', imageRanges: [], images: [] });
 
 const externalMarkFromAnchor = anchor => {
   if (!anchor || !anchor.previousSibling) {
@@ -303,6 +303,15 @@ export function concealImageDerivedSegments(value, name, imageRanges, options) {
 // name, and the fallback then hides a typed shortcode as well.
 // The open menu shows one projection. Recovery must start from the raw tag,
 // or a later rule treats that projection as new input.
+// Only the #tag slot. A replacement of "Copy" must not rewrite "Copy hashtag".
+export function replaceHashtagSlot(text, from, to) {
+  if (typeof text !== 'string' || typeof from !== 'string' || from === '' || from === to || text.indexOf(`#${from}`) === -1) {
+    return text;
+  }
+
+  return text.split(`#${from}`).join(`#${to}`);
+}
+
 export function unprojectHashtagSentence(displayed, projected, raw) {
   if (typeof displayed !== 'string' || typeof projected !== 'string' || typeof raw !== 'string' || projected === '') {
     return displayed;
@@ -396,7 +405,11 @@ const rememberLabelIdentity = (element, label) => {
   }
 
   if (label && label.name) {
-    labelIdentities.set(element, { name: label.name, imageRanges: label.imageRanges || [] });
+    labelIdentities.set(element, {
+      name: label.name,
+      imageRanges: label.imageRanges || [],
+      images: label.images || [],
+    });
     return;
   }
 
@@ -428,8 +441,10 @@ export function bindHashtagMenuName(element, name, index, imageRanges, label) {
 
   // Keep image ranges while the tag is verified. An open menu reads them
   // once, and still projects them after the display becomes unverified.
-  if (ranges.length > 0 || concealsName(name, ranges, index)) {
-    namesByElement.set(element, { name, imageRanges: ranges });
+  const images = (label && label.images) || [];
+
+  if (ranges.length > 0 || images.length > 0 || concealsName(name, ranges, index)) {
+    namesByElement.set(element, { name, imageRanges: ranges, images });
   } else {
     namesByElement.delete(element);
   }
@@ -453,17 +468,17 @@ export function hashtagMenuStoredIdentity(element) {
 
   if (element.hasAttribute('data-menu-hashtag-token')) {
     if (stored && typeof stored === 'object') {
-      return { name: stored.name || '', imageRanges: stored.imageRanges || [] };
+      return { name: stored.name || '', imageRanges: stored.imageRanges || [], images: stored.images || [] };
     }
 
-    return { name: typeof stored === 'string' ? stored : '', imageRanges: [] };
+    return { name: typeof stored === 'string' ? stored : '', imageRanges: [], images: [] };
   }
 
-  if (stored && typeof stored === 'object' && stored.imageRanges && stored.imageRanges.length > 0) {
-    return { name: stored.name || '', imageRanges: stored.imageRanges };
+  if (stored && typeof stored === 'object' && ((stored.imageRanges && stored.imageRanges.length > 0) || (stored.images && stored.images.length > 0))) {
+    return { name: stored.name || '', imageRanges: stored.imageRanges || [], images: stored.images || [] };
   }
 
-  return { name: element.getAttribute('data-menu-hashtag') || '', imageRanges: [] };
+  return { name: element.getAttribute('data-menu-hashtag') || '', imageRanges: [], images: [] };
 }
 
 // Only an element that opted into the token is resolved. A plain tag whose
