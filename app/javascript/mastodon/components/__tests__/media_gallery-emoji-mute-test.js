@@ -1,8 +1,11 @@
-import { render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
+import emojiMutes from 'mastodon/reducers/emoji_mutes';
 
 jest.mock('../../initial_state', () => ({
   displayMedia: 'show_all',
@@ -79,5 +82,138 @@ describe('MediaGallery unverified descriptions', () => {
     const { container } = renderGallery('show', [attachment('image', 'cat 👌')]);
 
     expect(container.querySelector('img').getAttribute('alt')).toBe('cat 👌');
+  });
+});
+
+describe('open ALT popover while emoji mutes are unverified', () => {
+  const thumb = '👍';
+  const placeholder = '◻';
+
+  const muteReducer = (state, action) => {
+    if (!state) {
+      return fromJS({
+        emojiMutes: {
+          revision: '1',
+          appliedRevision: '1',
+          phase: 'ready',
+          failure: null,
+          rules: [],
+          availability: 'enabled',
+          display: 'apply',
+        },
+      });
+    }
+
+    return state.set('emojiMutes', emojiMutes(state.get('emojiMutes'), action));
+  };
+
+  const gallery = (description, extra = {}) => (
+    <MediaGallery
+      media={fromJS([attachment('image', description).merge(fromJS(extra))])}
+      height={110}
+      visible
+      defaultWidth={300}
+      onOpenMedia={jest.fn()}
+      lang='en'
+    />
+  );
+
+  it('keeps the raw description out of the open popover and restores the latest text', () => {
+    const store = createStore(muteReducer);
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let beforeCommit = null;
+    const stopWatch = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !beforeCommit) {
+        beforeCommit = document.querySelector('.media-gallery__alt__popover').outerHTML;
+      }
+    });
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          {gallery(`photo ${thumb}`)}
+        </div>
+      </Provider>,
+    );
+
+    fireEvent.click(view.container.querySelector('.media-gallery__alt__label'));
+    const popover = () => document.querySelector('.media-gallery__alt__popover');
+
+    expect(popover().textContent).toContain(`photo ${thumb}`);
+    expect(popover().outerHTML).not.toContain('data-emoji-mute-source');
+    expect(popover().getAttribute('role')).toBe('region');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(beforeCommit).not.toContain(thumb);
+    expect(beforeCommit).toContain(`photo ${placeholder}`);
+    expect(beforeCommit).not.toContain('data-emoji-mute-source');
+    expect(popover().outerHTML).not.toContain(thumb);
+    expect(popover().textContent).toContain(`photo ${placeholder}`);
+
+    view.rerender(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          {gallery(`photo ${placeholder}`)}
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+
+    expect(popover().textContent).toContain(`photo ${placeholder}`);
+    expect(popover().outerHTML).not.toContain(thumb);
+    expect(popover().getAttribute('class')).toContain('dropdown-animation');
+    stopGuard();
+    stopWatch();
+    view.unmount();
+  });
+
+  it('does not put the raw description in original, translated, or bilingual popovers', () => {
+    const store = createStore(muteReducer);
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    const described = attachment('image', `photo ${thumb}`).set('translation', fromJS({ description: `訳 ${thumb}` }));
+
+    ['original', 'translated', 'bilingual'].forEach(mode => {
+      const view = render(
+        <Provider store={store}>
+          <MediaGallery
+            media={fromJS([described])}
+            height={110}
+            visible
+            defaultWidth={300}
+            onOpenMedia={jest.fn()}
+            lang='en'
+            translationMode={mode}
+            sourceLang='en'
+            targetLang='ja'
+          />
+        </Provider>,
+      );
+
+      fireEvent.click(view.container.querySelector('.media-gallery__alt__label'));
+      const popover = document.querySelector('.media-gallery__alt__popover');
+
+      act(() => {
+        store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '9' });
+      });
+
+      expect(popover.outerHTML).not.toContain(thumb);
+      expect(popover.outerHTML).not.toContain('data-emoji-mute-source');
+      view.unmount();
+      document.querySelectorAll('.media-gallery__alt__popover').forEach(node => node.remove());
+    });
+
+    stopGuard();
   });
 });

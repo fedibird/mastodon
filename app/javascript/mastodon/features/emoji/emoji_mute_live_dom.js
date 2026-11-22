@@ -742,14 +742,44 @@ const concealHashtagMenuLink = (sink, link) => {
   });
 };
 
+// The raw alt description is not an attribute. A data attribute would stay
+// readable while the popover text is concealed.
+const altPopoverSources = new WeakMap();
+
+export function rememberAltPopoverSource(element, source) {
+  if (!element || typeof source !== 'string') {
+    return;
+  }
+
+  altPopoverSources.set(element, source);
+
+  const owner = element.ownerDocument || document;
+  const walker = owner.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+  let text = walker.nextNode();
+
+  while (text) {
+    rememberEmojiMuteTextSource(text, source);
+    text = walker.nextNode();
+  }
+}
+
 export function concealOpenAltPopovers(sink) {
   if (typeof document === 'undefined') {
     return;
   }
 
-  document.querySelectorAll('.media-gallery__alt__popover [data-emoji-mute-source]').forEach(node => {
-    const raw = node.getAttribute('data-emoji-mute-source') || '';
-    const shown = typeof raw === 'string' ? presentEmojiMutePlain(raw, SUPPRESS_UNVERIFIED_INDEX) : '';
+  document.querySelectorAll('.media-gallery__alt__popover p').forEach(node => {
+    if (node.classList.contains('media-gallery__alt__meta')) {
+      return;
+    }
+
+    const raw = altPopoverSources.get(node);
+
+    if (typeof raw !== 'string') {
+      return;
+    }
+
+    const shown = presentEmojiMutePlain(raw, SUPPRESS_UNVERIFIED_INDEX);
     const owner = node.ownerDocument || document;
     const walker = owner.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
     let text = walker.nextNode();
