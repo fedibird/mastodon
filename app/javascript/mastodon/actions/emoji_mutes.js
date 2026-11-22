@@ -726,6 +726,10 @@ let emojiMuteCurrentSyncPending = false;
 export function emojiMuteSyncInFlight() {
   return emojiMuteCurrentSyncPending;
 }
+
+export function emojiMuteSyncGeneration() {
+  return documentSyncGeneration;
+}
 let initialDocumentRequestVersion = null;
 
 function plainInitialFollowUp(options) {

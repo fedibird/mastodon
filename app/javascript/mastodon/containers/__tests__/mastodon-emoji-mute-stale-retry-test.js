@@ -382,6 +382,40 @@ describe('obsolete emoji mute retry', () => {
     view.unmount();
   });
 
+  it('starts another retry while the older request is still pending, and that request does not change it', async () => {
+    const view = render(<Mastodon locale='en' />);
+    const older = await failNewerFirst(view);
+    const started = gets.length;
+
+    await act(async () => {
+      fireEvent.click(view.getByText('Try again'));
+    });
+
+    expect(gets.length).toBe(started + 1);
+    expect(notice(view)).toBeNull();
+    const phaseWhileCurrent = mockHarness.getState().getIn(['emojiMutes', 'phase']);
+    const failureWhileCurrent = mockHarness.getState().getIn(['emojiMutes', 'failure']);
+
+    await act(async () => {
+      older.resolve(documentFor('1'));
+      await older.promise;
+      await flush();
+    });
+
+    expect(notice(view)).toBeNull();
+    expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).toBe(phaseWhileCurrent);
+    expect(mockHarness.getState().getIn(['emojiMutes', 'failure'])).toBe(failureWhileCurrent);
+    expect(view.container.textContent).not.toContain('Reload and sign in');
+
+    await act(async () => {
+      gets[started].reject(new Error('offline'));
+      await flush();
+    });
+
+    expectNewerFailureUnchanged(view);
+    view.unmount();
+  });
+
   it('shows the newer failure before an older 401, and does not ask for sign-in', async () => {
     const view = render(<Mastodon locale='en' />);
     const older = await failNewerFirst(view);

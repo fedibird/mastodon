@@ -14,7 +14,7 @@ import { hydrateStore } from '../actions/store';
 import { startMastodonSubscriptions } from './mastodon_subscriptions';
 import { IntlProvider, addLocaleData } from 'react-intl';
 import EmojiMuteLoadNotice, { EmojiMuteNoticeContext } from '../components/emoji_mute_load_notice';
-import { invalidateEmojiMuteAsyncWork, retryEmojiMuteLoad, ignoreEmojiMutesThisView, disableEmojiMuteFeature, emojiMuteSyncInFlight, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
+import { invalidateEmojiMuteAsyncWork, retryEmojiMuteLoad, ignoreEmojiMutesThisView, disableEmojiMuteFeature, emojiMuteSyncGeneration, emojiMuteSyncInFlight, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
 import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
 import { resetEmojiMuteSession } from '../features/emoji/emoji_mute_store';
 import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
@@ -273,7 +273,13 @@ export default class Mastodon extends React.PureComponent {
   };
 
   bootstrapEmojiMutes = () => {
-    if (this.emojiMuteRequestInFlight || Date.now() < (this.retryReadyAt || 0)) {
+    // A click owns its sync only while that sync is still the newest one.
+    // An older click must not block the button after a later sync has finished.
+    if (this.emojiMuteRequestInFlight && this.emojiMuteOwnedSyncGeneration !== emojiMuteSyncGeneration() && !emojiMuteSyncInFlight()) {
+      this.emojiMuteRequestInFlight = false;
+    }
+
+    if (this.emojiMuteRequestInFlight || emojiMuteSyncInFlight() || Date.now() < (this.retryReadyAt || 0)) {
       return;
     }
 
@@ -287,7 +293,9 @@ export default class Mastodon extends React.PureComponent {
     // refresh because the columns are mounting. A later retry must restore them.
     const initialDocumentFetch = !this.emojiMuteInitialFetchStarted;
     this.emojiMuteInitialFetchStarted = true;
-    store.dispatch(retryEmojiMuteLoad({ bootstrap: initialDocumentFetch })).then(result => {
+    const request = store.dispatch(retryEmojiMuteLoad({ bootstrap: initialDocumentFetch }));
+    this.emojiMuteOwnedSyncGeneration = emojiMuteSyncGeneration();
+    request.then(result => {
       if (generation !== this.bootstrapGeneration) {
         return;
       }
