@@ -5,12 +5,12 @@ import escapeTextContentForBrowser from 'escape-html';
 
 import emojify, { buildCustomEmojiMap } from 'mastodon/features/emoji/emoji';
 import { replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
-import { bindEmojiMuteHtmlSources, rememberEmojiMuteDisplayHtml, rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
+import { bindEmojiMuteHtmlSources } from 'mastodon/features/emoji/emoji_mute_sources';
 import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
 
-// One live text node is the display of the original HTML, including a custom
-// emoji image that the renderer replaced. The raw prop is only the source
-// when that HTML has no image for the display renderer to project.
+// The live nodes are paired with the original HTML. A text node keeps only
+// the images that were replaced into it. An image that is still showing
+// stays on that image.
 class CustomEmojiText extends React.PureComponent {
 
   static propTypes = {
@@ -38,31 +38,6 @@ class CustomEmojiText extends React.PureComponent {
     const root = this.node;
 
     if (!root) {
-      return;
-    }
-
-    const texts = [];
-    const owner = root.ownerDocument || document;
-    const walker = owner.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
-    let current = walker.nextNode();
-
-    while (current) {
-      if ((current.nodeValue || '') !== '') {
-        texts.push(current);
-      }
-
-      current = walker.nextNode();
-    }
-
-    if (texts.length === 1) {
-      const html = this.originalHtml();
-
-      if (html.indexOf('<img') !== -1) {
-        rememberEmojiMuteDisplayHtml(texts[0], html);
-      } else {
-        rememberEmojiMuteTextSource(texts[0], this.props.text || '');
-      }
-
       return;
     }
 

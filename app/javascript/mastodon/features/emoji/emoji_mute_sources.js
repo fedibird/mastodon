@@ -114,10 +114,29 @@ const isTextOrEmojiImage = node => node && (
   || (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'IMG')
 );
 
+const imageIdentity = node => [
+  node.getAttribute('data-emoji-id') || '',
+  node.getAttribute('data-domain') || '',
+  node.getAttribute('data-shortcode') || '',
+  node.getAttribute('src') || '',
+].join('\0');
+
+// The live image is the same emoji that was not replaced. A photo with no
+// identity is not treated as that emoji.
+const sameSurvivingImage = (original, live) => {
+  if (!original || !live || original.tagName !== 'IMG' || live.tagName !== 'IMG') {
+    return false;
+  }
+
+  const identity = imageIdentity(original);
+
+  return identity !== '\0\0\0' && identity === imageIdentity(live);
+};
+
 // Walk both trees together. A paragraph that projects to nothing does not
-// drop the source of the paragraph after it. Text and emoji images that
-// collapsed into one live text node keep the original HTML, so release can
-// project the custom emoji instead of writing its shortcode back.
+// drop the source of the paragraph after it. A text node keeps only the
+// original text and images that folded into it. An image that is still in
+// the live tree stays on that image, not inside the text source.
 const bindHtmlChildren = (original, live) => {
   const originalChildren = Array.from(original.childNodes || []);
   const liveChildren = Array.from(live.childNodes || []);
@@ -126,19 +145,27 @@ const bindHtmlChildren = (original, live) => {
 
   while (originalIndex < originalChildren.length) {
     const child = originalChildren[originalIndex];
+    const liveNode = liveChildren[liveIndex];
 
-    if (isTextOrEmojiImage(child)) {
-      const liveNode = liveChildren[liveIndex];
+    if (sameSurvivingImage(child, liveNode)) {
+      rememberElementSources(child, liveNode);
+      bindHtmlChildren(child, liveNode);
+      originalIndex += 1;
+      liveIndex += 1;
+      continue;
+    }
 
-      if (!liveNode || liveNode.nodeType !== Node.TEXT_NODE) {
-        originalIndex += 1;
-        continue;
-      }
-
+    if (isTextOrEmojiImage(child) && liveNode && liveNode.nodeType === Node.TEXT_NODE) {
       const fragment = child.ownerDocument.createElement('div');
 
       while (originalIndex < originalChildren.length && isTextOrEmojiImage(originalChildren[originalIndex])) {
-        fragment.appendChild(originalChildren[originalIndex].cloneNode(true));
+        const piece = originalChildren[originalIndex];
+
+        if (sameSurvivingImage(piece, liveChildren[liveIndex + 1])) {
+          break;
+        }
+
+        fragment.appendChild(piece.cloneNode(true));
         originalIndex += 1;
       }
 

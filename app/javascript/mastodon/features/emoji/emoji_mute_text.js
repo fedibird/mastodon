@@ -735,19 +735,46 @@ export function replaceEmojiInDisplayHtml(html, index) {
   return next;
 }
 
-// The text a surface would show for stored HTML. Null means an emoji image
-// is still part of that display, so a text node must not be given its alt.
+// Text that belongs to this node. A later emoji image stays on its own node,
+// so its alt is not copied into the text. Null means the projection is only
+// that image and there is no text to write.
 export function displayTextForEmojiMuteHtml(html, index) {
   const next = replaceEmojiInDisplayHtml(typeof html === 'string' ? html : '', index);
   const template = document.createElement('template');
 
   template.innerHTML = next || '';
 
-  if (Array.from(template.content.querySelectorAll('img')).some(isUserEmojiImage)) {
+  let text = '';
+  let sawEmojiImage = false;
+  const walk = node => {
+    if (sawEmojiImage || !node) {
+      return;
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.nodeValue || '';
+      return;
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    }
+
+    if (node.tagName === 'IMG' && isUserEmojiImage(node)) {
+      sawEmojiImage = true;
+      return;
+    }
+
+    Array.from(node.childNodes).forEach(walk);
+  };
+
+  Array.from(template.content.childNodes).forEach(walk);
+
+  if (text === '' && sawEmojiImage) {
     return null;
   }
 
-  return template.content.textContent;
+  return text;
 }
 
 const visibleText = html => {

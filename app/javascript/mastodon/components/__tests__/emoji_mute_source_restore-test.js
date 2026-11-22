@@ -299,6 +299,169 @@ describe('emoji mute source restore', () => {
     view.unmount();
   });
 
+  it('restores only the replaced emoji when another emoji image stays', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    const emojis = fromJS([
+      { id: '10', shortcode: 'blob', url: 'https://cdn.example/blob.svg', static_url: 'https://cdn.example/blob.png', domain: null },
+      { id: '11', shortcode: 'other', url: 'https://cdn.example/other.svg', static_url: 'https://cdn.example/other.png', domain: null },
+    ]);
+    const rule = {
+      id: 'mb',
+      revision: '2',
+      emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' },
+      replacement: SPARKLE,
+      effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+    };
+    let atSuppress = null;
+    let atRelease = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      const root = document.querySelector('.emoji-mutes-privacy-portal');
+      const display = store.getState().getIn(['emojiMutes', 'display']);
+      const revision = store.getState().getIn(['emojiMutes', 'revision']);
+      const snap = {
+        text: root.textContent,
+        html: root.innerHTML,
+      };
+
+      if (display === 'suppress' && revision === '3' && !atSuppress) {
+        atSuppress = snap;
+      }
+
+      if (display === 'apply' && revision === '4') {
+        atRelease = snap;
+      }
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <CustomEmojiText text='Hi :blob: :other:' customEmojis={emojis} />
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [rule],
+      });
+    });
+
+    const shown = view.container.querySelector('.emoji-mutes-privacy-portal span');
+    const kept = () => shown.querySelector('img');
+
+    expect(shown.firstChild.nodeType).toBe(Node.TEXT_NODE);
+    expect(shown.firstChild.nodeValue).toContain(SPARKLE);
+    expect(shown.firstChild.nodeValue).not.toContain(':blob:');
+    expect(shown.firstChild.nodeValue).not.toContain(':other:');
+    expect(kept().getAttribute('data-emoji-id')).toBe('11');
+    expect(kept().getAttribute('src')).toBe('https://cdn.example/other.png');
+    expect(shown.querySelectorAll('img')).toHaveLength(1);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '4',
+        availability: 'enabled',
+        mutes: [{ ...rule, revision: '4' }],
+      });
+    });
+
+    expect(atSuppress.text).toContain('\u25FB');
+    expect(atSuppress.text).not.toContain(SPARKLE);
+    expect(atSuppress.html).not.toContain('cdn.example/blob');
+    expect(atSuppress.html).not.toContain('cdn.example/other');
+    expect(atSuppress.html).not.toContain(':blob:');
+    expect(atSuppress.html).not.toContain(':other:');
+    expect(atRelease.text).toContain(`Hi ${SPARKLE}`);
+    expect(atRelease.text).not.toContain(':blob:');
+    expect(atRelease.text).not.toContain(':other:');
+    expect(atRelease.html).toContain('cdn.example/other');
+    expect(atRelease.html).not.toContain('cdn.example/blob');
+    expect(shown.firstChild.nodeValue).toContain(SPARKLE);
+    expect(kept().getAttribute('src')).toBe('https://cdn.example/other.png');
+    expect(shown.querySelectorAll('img')).toHaveLength(1);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    expect(shown.querySelectorAll('img.custom-emoji')).toHaveLength(2);
+    expect(shown.innerHTML).toContain('cdn.example/blob');
+    expect(shown.innerHTML).toContain('cdn.example/other');
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '5',
+        availability: 'enabled',
+        mutes: [{ ...rule, revision: '5' }],
+      });
+    });
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_DISABLE });
+    });
+
+    expect(shown.querySelectorAll('img.custom-emoji')).toHaveLength(2);
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+    view.unmount();
+  });
+
+  it('restores a mixed embed text node without taking the surviving image alt', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    const rule = {
+      id: 'mb',
+      revision: '4',
+      emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' },
+      replacement: SPARKLE,
+      effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+    };
+    const blob = '<img class="emojione custom-emoji" alt=":blob:" data-shortcode="blob" data-domain="" data-emoji-id="10" src="https://cdn.example/blob.svg">';
+    const other = '<img class="emojione custom-emoji" alt=":other:" data-shortcode="other" data-domain="" data-emoji-id="11" src="https://cdn.example/other.svg">';
+
+    store.subscribe(() => guard(store.getState()));
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <div className='status-card-video' />
+        </div>
+      </Provider>,
+    );
+    const embed = view.container.querySelector('.status-card-video');
+
+    embed.innerHTML = `<p></p><p>Hi ${SPARKLE} ${other}</p>`;
+    bindEmojiMuteHtmlSources(embed, `<p>${OK}</p><p>Hi ${blob} ${other}</p>`);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '4',
+        availability: 'enabled',
+        mutes: [rule],
+      });
+    });
+
+    const paragraph = embed.querySelectorAll('p')[1];
+
+    expect(paragraph.firstChild.nodeValue).toContain(`Hi ${SPARKLE}`);
+    expect(paragraph.firstChild.nodeValue).not.toContain(':other:');
+    expect(paragraph.firstChild.nodeValue).not.toContain(':blob:');
+    expect(paragraph.querySelector('img').getAttribute('src')).toBe('https://cdn.example/other.svg');
+    expect(paragraph.querySelectorAll('img')).toHaveLength(1);
+    view.unmount();
+  });
+
   it('restores an ordinary photo alt without a second replacement', () => {
     resetEmojiMuteLiveDomProbe();
     const guard = createUnverifiedEmojiGuard();
