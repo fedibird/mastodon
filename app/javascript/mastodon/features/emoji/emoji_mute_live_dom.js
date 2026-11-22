@@ -1,5 +1,6 @@
 import { storedReactionHidden } from './emoji_mute_projection';
-import { emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
+import { bindHashtagMenuName } from './hashtag_menu_names';
+import { emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
 // One selector for both the clear and the record. A host cleared here has to
 // be in the snapshot, or a same-batch success cannot put it back.
@@ -467,6 +468,20 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
     noteText(sink, node);
   });
   concealText(root);
+  // The badge attribute still has the original name until React commits.
+  // Clear it in this same walk so suppress does not leave the glyph behind.
+  root.querySelectorAll('a[data-menu-hashtag]').forEach(link => {
+    const name = link.getAttribute('data-menu-hashtag') || '';
+
+    if (!name || suppressUnicodeEmoji(name) === name) {
+      return;
+    }
+
+    noteAttribute(sink, link, 'data-menu-hashtag');
+    noteAttribute(sink, link, 'data-menu-hashtag-token');
+    bindHashtagMenuName(link, name, SUPPRESS_UNVERIFIED_INDEX);
+    link.setAttribute('data-menu-hashtag', '');
+  });
   stampScrubWrites(sink);
 }
 

@@ -414,16 +414,21 @@ class StatusContent extends React.PureComponent {
       return '';
     }
 
-    const region = link.closest('.status-translation-pair__source')
-      || link.closest('.status__content__text')
-      || link.closest('.status__content');
+    // Count the original side of this content area, not one source paragraph.
+    // A later paragraph is also index 0 inside its own pair, but it is not
+    // the first name in the stored HTML. The spoiler stays out of the body.
+    const inBody = !!link.closest('.status__content__text');
+    const region = inBody ? link.closest('.status__content__text') : link.closest('.status__content');
 
     if (!region) {
       return '';
     }
 
     const live = Array.from(region.querySelectorAll('a')).filter(item => (
-      isHashtagMenuLink(item) && item.href === link.href && !item.closest('.status-translation-pair__target')
+      isHashtagMenuLink(item)
+      && item.href === link.href
+      && !item.closest('.status-translation-pair__target')
+      && (inBody || !item.closest('.status__content__text'))
     ));
     const anchor = same[live.indexOf(link)];
 

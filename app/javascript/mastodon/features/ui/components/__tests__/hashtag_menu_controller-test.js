@@ -71,6 +71,7 @@ import Overlay from 'react-overlays/Overlay';
 import { fetchFavouriteTagSuccess } from 'mastodon/actions/favourite_tags';
 import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_FAIL, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
 import { hashtagMenuStoredName } from 'mastodon/features/emoji/hashtag_menu_names';
+import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import favouriteTagsReducer from 'mastodon/reducers/favourite_tags';
 import emojiMutesReducer from 'mastodon/reducers/emoji_mutes';
 import StatusContent from 'mastodon/components/status_content';
@@ -1250,6 +1251,57 @@ describe('HashtagMenuController', () => {
     await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/api/v1/favourite_tags', { name: plain }));
   });
 
+  it('matches shared-href names across original paragraphs and not inside one pair', () => {
+    const href = 'https://remote.example/topics/common';
+    const sourceHtml = `<p>First <a href="${href}" class="mention hashtag" rel="tag">#<span>alpha</span></a> stays</p><p>Second <a href="${href}" class="mention hashtag" rel="tag">#<span>beta</span></a> stays</p>`;
+    const targetHtml = `<p>後で <a href="${href}" class="mention hashtag" rel="tag">#<span>ベータ</span></a> です</p><p>先に <a href="${href}" class="mention hashtag" rel="tag">#<span>アルファ</span></a> です</p>`;
+    const { container, store } = renderMenu({
+      signedIn: true,
+      status: buildStatus({
+        contentHtml: sourceHtml,
+        language: 'en',
+        tags: [],
+        translationMode: 'bilingual',
+        translation: {
+          contentHtml: targetHtml,
+          spoilerHtml: '',
+          language: 'ja',
+          detected_source_language: 'en',
+          requested_source_language: 'en',
+          requested_target_language: 'ja',
+          provider: 'test',
+        },
+      }),
+    });
+    const sources = container.querySelectorAll('.status-translation-pair__source a.mention.hashtag');
+    const targets = container.querySelectorAll('.status-translation-pair__target a.mention.hashtag');
+
+    expect(container.querySelectorAll('.status-translation-pair')).toHaveLength(2);
+    expect(sources).toHaveLength(2);
+    expect(targets).toHaveLength(2);
+    expect(sources[0].getAttribute('data-menu-hashtag')).toBe('alpha');
+    expect(sources[1].getAttribute('data-menu-hashtag')).toBe('beta');
+    targets.forEach(link => {
+      expect(link.hasAttribute('data-menu-hashtag')).toBe(false);
+      expect(link.getAttribute('href')).toBe(href);
+      expect(click(link, { ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(click(link).defaultPrevented).toBe(false);
+    });
+
+    ['alpha', 'beta'].forEach((name, index) => {
+      const link = sources[index];
+
+      expect(click(link, { ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(link.getAttribute('href')).toBe(href);
+      click(link);
+      fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+      expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#${name}`);
+      click(link);
+      fireEvent.click(screen.getByRole('button', { name: `Mute #${name}` }));
+      expect(store.getState().getIn(['modal', 'hashtag'])).toBe(name);
+    });
+  });
+
   it('rebinds a trailing badge that was already mounted when display enters suppress', async () => {
     const native = '👍';
     const wave = `wave${native}`;
@@ -1318,9 +1370,24 @@ describe('HashtagMenuController', () => {
     expect(badge.textContent).toContain(native);
     await useMenu(badge, wave, wave);
 
+    container.className = 'emoji-mutes-privacy-portal';
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let beforeCommit = null;
+    const stopWatch = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !beforeCommit) {
+        beforeCommit = badge.getAttribute('data-menu-hashtag');
+      }
+    });
+
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
     });
+    stopGuard();
+    stopWatch();
+
+    expect(beforeCommit).toBe('');
+    expect(beforeCommit).not.toContain(native);
 
     expect(container.querySelector(`a.status__content__hashtag-badge[href="${waveHref}"]`)).toBe(badge);
     expect(container.querySelector(`a.status__content__hashtag-badge[href="${gammaHref}"]`)).toBe(later);
