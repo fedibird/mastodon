@@ -71,7 +71,7 @@ import Overlay from 'react-overlays/Overlay';
 import { fetchFavouriteTagSuccess } from 'mastodon/actions/favourite_tags';
 import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_FAIL, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
 import emojify from 'mastodon/features/emoji/emoji';
-import { hashtagMenuStoredIdentity, hashtagMenuStoredName } from 'mastodon/features/emoji/hashtag_menu_names';
+import { concealImageDerivedSegments, hashtagMenuStoredIdentity, hashtagMenuStoredName } from 'mastodon/features/emoji/hashtag_menu_names';
 import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import favouriteTagsReducer from 'mastodon/reducers/favourite_tags';
 import emojiMutesReducer from 'mastodon/reducers/emoji_mutes';
@@ -2127,7 +2127,10 @@ describe('HashtagMenuController', () => {
     const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
     const mixedHref = 'https://remote.example/topics/mixed';
     const casedHref = 'https://remote.example/tags/party%3Ablob%3A';
-    const mixed = `<a href="${mixedHref}" class="mention hashtag" rel="tag" title="#party:blob::blob:" aria-label="tag party:blob::blob:">#<span>party${custom}:blob:</span></a>`;
+    const mixedTitle = '#Party:blob::blob: #party:blob::blob:';
+    const mixedLabel = 'tag Party:blob::blob:';
+    const mixedDescription = 'desc Party:blob::blob:';
+    const mixed = `<a href="${mixedHref}" class="mention hashtag" rel="tag" title="${mixedTitle}" aria-label="${mixedLabel}" aria-description="${mixedDescription}">#<span>party${custom}:blob:</span></a>`;
     const cased = `<a href="${casedHref}" class="mention hashtag" rel="tag" title="#Party:blob:" aria-label="tag Party:blob:">#<span>Party${custom}</span></a>`;
     const sourceHtml = `<p>See ${mixed} ${cased} stays</p>`;
     const { container, store } = renderMenu({
@@ -2158,6 +2161,7 @@ describe('HashtagMenuController', () => {
         beforeCommit = {
           mixedTitle: mixedLink.getAttribute('title'),
           mixedAria: mixedLink.getAttribute('aria-label'),
+          mixedDescription: mixedLink.getAttribute('aria-description'),
           mixedAttr: mixedLink.getAttribute('data-menu-hashtag'),
           mixedHtml: mixedLink.outerHTML,
           casedTitle: casedLink.getAttribute('title'),
@@ -2168,15 +2172,19 @@ describe('HashtagMenuController', () => {
       }
     });
 
-    expect(mixedLink.getAttribute('title')).toBe('#party:blob::blob:');
+    expect(concealImageDerivedSegments('#Party:blob::blob: #party:blob::blob:', 'party:blob::blob:', [[5, 11]])).toBe(`#Party${'\u25FB'}:blob: #party${'\u25FB'}:blob:`);
+    expect(concealImageDerivedSegments(`#Party${'\u25FB'}:blob: #party${'\u25FB'}:blob:`, 'party:blob::blob:', [[5, 11]])).toBe(`#Party${'\u25FB'}:blob: #party${'\u25FB'}:blob:`);
+    expect(mixedLink.getAttribute('title')).toBe(mixedTitle);
+    expect(hashtagMenuStoredIdentity(mixedLink)).toEqual({ name: 'party:blob::blob:', imageRanges: [[5, 11]] });
     expect(casedLink.getAttribute('data-menu-hashtag')).toBe('party:blob:');
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
     });
 
-    expect(beforeCommit.mixedTitle).toBe(`#party${'\u25FB'}:blob:`);
-    expect(beforeCommit.mixedAria).toBe(`tag party${'\u25FB'}:blob:`);
+    expect(beforeCommit.mixedTitle).toBe(`#Party${'\u25FB'}:blob: #party${'\u25FB'}:blob:`);
+    expect(beforeCommit.mixedAria).toBe(`tag Party${'\u25FB'}:blob:`);
+    expect(beforeCommit.mixedDescription).toBe(`desc Party${'\u25FB'}:blob:`);
     expect(beforeCommit.mixedAttr || '').not.toContain(':blob:');
     expect(beforeCommit.mixedHtml).not.toContain('cdn.example/blob.svg');
     expect(beforeCommit.casedTitle).toBe(`#Party${'\u25FB'}`);
@@ -2185,12 +2193,25 @@ describe('HashtagMenuController', () => {
     expect(beforeCommit.casedHtml).not.toContain(':blob:');
     expect(hashtagMenuStoredName(casedLink)).toBe('party:blob:');
 
+    const liveDuringSuppress = container.querySelector(`a[href="${mixedHref}"]`);
+
+    expect(liveDuringSuppress.getAttribute('title')).toBe(`#Party${'\u25FB'}:blob: #party${'\u25FB'}:blob:`);
+    expect(liveDuringSuppress.getAttribute('aria-label')).toBe(`tag Party${'\u25FB'}:blob:`);
+    expect(liveDuringSuppress.getAttribute('aria-description')).toBe(`desc Party${'\u25FB'}:blob:`);
+    click(liveDuringSuppress);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith('#party:blob::blob:');
+    click(liveDuringSuppress);
+    fireEvent.click(screen.getAllByRole('button').find(button => (button.textContent || '').startsWith('Mute #')));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe('party:blob::blob:');
+
     const restored = () => {
       const liveMixed = container.querySelector(`a[href="${mixedHref}"]`);
-      const liveCased = Array.from(container.querySelectorAll('a.mention.hashtag')).find(link => (link.getAttribute('title') || '').includes('Party') || link.textContent.includes('Party'));
+      const liveCased = Array.from(container.querySelectorAll('a.mention.hashtag')).find(link => link !== liveMixed && (link.getAttribute('href') || '').includes('/tags/'));
 
-      expect(liveMixed.getAttribute('title')).toBe('#party:blob::blob:');
-      expect(liveMixed.getAttribute('aria-label')).toBe('tag party:blob::blob:');
+      expect(liveMixed.getAttribute('title')).toBe(mixedTitle);
+      expect(liveMixed.getAttribute('aria-label')).toBe(mixedLabel);
+      expect(liveMixed.getAttribute('aria-description')).toBe(mixedDescription);
       expect(liveMixed.getAttribute('data-menu-hashtag')).toBe('party:blob::blob:');
       expect(liveCased.getAttribute('data-menu-hashtag')).toBe('party:blob:');
       expect(liveCased.getAttribute('title')).toBe('#Party:blob:');

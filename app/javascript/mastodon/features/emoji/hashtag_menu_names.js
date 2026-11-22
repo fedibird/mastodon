@@ -74,19 +74,65 @@ export function hashtagIdentityFromNode(anchor) {
 
 const shortcodesIn = text => text.match(/:[^:\s]+:/g) || [];
 
-// The name occurs once, so each image range maps to one span. A second copy
-// of the same shortcode is typed text and stays.
-const concealAlignedSegments = (value, name, imageRanges, offset) => {
-  const ordered = imageRanges.slice().sort((left, right) => right[0] - left[0]);
-  const fits = ordered.every(([start, end]) => value.slice(offset + start, offset + end) === name.slice(start, end));
-
-  if (!fits) {
-    return null;
+// Case and 1:1 NFKC. A fold that changes the length would move the ranges,
+// so that character does not count as the same position.
+const foldsToSame = (left, right) => {
+  if (!left || !right || left.length !== 1 || right.length !== 1) {
+    return false;
   }
 
-  return ordered.reduce((next, [start, end]) => (
-    `${next.slice(0, offset + start)}${UNVERIFIED_EMOJI_PLACEHOLDER}${next.slice(offset + end)}`
-  ), value);
+  if (left === right || left.toLowerCase() === right.toLowerCase()) {
+    return true;
+  }
+
+  const foldedLeft = left.normalize('NFKC');
+  const foldedRight = right.normalize('NFKC');
+
+  return foldedLeft.length === 1
+    && foldedRight.length === 1
+    && foldedLeft.toLowerCase() === foldedRight.toLowerCase();
+};
+
+// Every copy of the stored name, including a different casing. Ranges then
+// hit only the image-derived slice inside that copy.
+const alignedNameOffsets = (value, name) => {
+  const offsets = [];
+
+  if (!name || value.length < name.length) {
+    return offsets;
+  }
+
+  for (let index = 0; index <= value.length - name.length; index += 1) {
+    let matches = true;
+
+    for (let cursor = 0; cursor < name.length; cursor += 1) {
+      if (!foldsToSame(value[index + cursor], name[cursor])) {
+        matches = false;
+        break;
+      }
+    }
+
+    if (!matches) {
+      continue;
+    }
+
+    offsets.push(index);
+    index += name.length - 1;
+  }
+
+  return offsets;
+};
+
+const concealAlignedSegments = (value, imageRanges, offset) => {
+  const ordered = imageRanges.slice().sort((left, right) => right[0] - left[0]);
+
+  return ordered.reduce((next, [start, end]) => {
+    if (start < 0 || end <= start || offset + end > next.length) {
+      return next;
+    }
+
+    return `${next.slice(0, offset + start)}${UNVERIFIED_EMOJI_PLACEHOLDER}${next.slice(offset + end)}`;
+  }, value);
 };
 
 // The label is not the stored name at a known offset. Hide the image
@@ -121,26 +167,21 @@ export function concealImageDerivedSegments(value, name, imageRanges) {
     return value;
   }
 
-  const offsets = [];
-  let from = 0;
+  const offsets = alignedNameOffsets(value, name);
 
-  while (from <= value.length) {
-    const found = value.indexOf(name, from);
-
-    if (found < 0) {
-      break;
-    }
-
-    offsets.push(found);
-    from = found + name.length;
+  if (offsets.length > 0) {
+    return offsets.slice().sort((left, right) => right - left).reduce(
+      (next, offset) => concealAlignedSegments(next, imageRanges, offset),
+      value,
+    );
   }
 
-  if (offsets.length === 1) {
-    const aligned = concealAlignedSegments(value, name, imageRanges, offsets[0]);
+  // A second pass sees the placeholder already sitting in the image range.
+  // Leave the typed shortcode that follows it.
+  const projectedName = concealAlignedSegments(name, imageRanges, 0);
 
-    if (aligned !== null) {
-      return aligned;
-    }
+  if (projectedName !== name && alignedNameOffsets(value, projectedName).length > 0) {
+    return value;
   }
 
   return concealUnmappedSegments(value, name, imageRanges);

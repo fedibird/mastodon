@@ -497,6 +497,14 @@ const scrubMutedEmojiLink = (link, replacement, identity) => {
     return;
   }
 
+  // A hashtag label can repeat the shortcode, with only one copy coming from
+  // the image. The hashtag projection knows which copy that is.
+  const hashtagText = link.textContent || '';
+
+  if (link.classList.contains('hashtag') || hashtagText[0] === '#' || hashtagText[0] === '＃') {
+    return;
+  }
+
   const target = linkIdentity(link);
 
   LABEL_ATTRIBUTES.forEach(name => {
