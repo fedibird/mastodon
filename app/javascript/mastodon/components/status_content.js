@@ -735,7 +735,7 @@ class StatusContent extends React.PureComponent {
               data-account-name={accountName || undefined}
               data-status-id={statusId || undefined}
             >
-              {`#${projectHashtagLabel(name, imageRanges, this.props.emojiMuteTextIndex)}`}
+              {`${((hashtag.text || '').match(/^[#＃]/) || ['#'])[0]}${projectHashtagLabel(name, imageRanges, this.props.emojiMuteTextIndex)}`}
             </a>
           );
         })}

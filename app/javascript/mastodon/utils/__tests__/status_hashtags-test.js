@@ -380,7 +380,7 @@ describe('collectStatusHashtags', () => {
 
     expect(collectStatusHashtags(html).map(hashtag => hashtag.text)).toEqual([
       '#one',
-      '#two',
+      '＃two',
       '#three',
     ]);
   });
@@ -390,6 +390,16 @@ describe('collectStatusHashtags', () => {
 
     expect(collectStatusHashtags(html)).toEqual([]);
     expect(isHashtagMenuLink(null)).toBe(false);
+  });
+
+  it('keeps an emoji image alt and skips a photo alt', () => {
+    const html = `<p><a class="mention hashtag" href="https://example.com/topics/party">#<span>party<img class="emojione" alt="👍" src="/emoji/1f44d.svg"><img src="/media/photo.jpg" alt="landscape"></span></a> ${anchor('garden')}</p>`;
+
+    expect(collectStatusHashtags(html).map(hashtag => hashtag.text)).toEqual(['#party👍', '#garden']);
+    expect(collectCopyHashtags(html, [
+      { name: 'party👍', url: 'https://example.com/topics/party' },
+      { name: 'garden', url: 'https://example.com/tags/garden' },
+    ]).map(hashtag => hashtag.text)).toEqual(['#party👍', '#garden']);
   });
 
   it('does not execute scripts while collecting hashtags', () => {

@@ -50,7 +50,8 @@ export function hashtagIdentityFromNode(anchor) {
     }
   });
 
-  const lead = raw.match(/^[#＃]\s*/);
+  const lead = raw.match(/^([#＃])\s*/);
+  const mark = lead ? lead[1] : '#';
   const cut = lead ? lead[0].length : 0;
   const trimmedEnd = raw.match(/\s*$/);
   const end = trimmedEnd ? raw.length - trimmedEnd[0].length : raw.length;
@@ -68,7 +69,7 @@ export function hashtagIdentityFromNode(anchor) {
     imageRanges.push([Math.max(0, nextStart), Math.min(name.length, nextEnd)]);
   });
 
-  return { name, imageRanges };
+  return { name, imageRanges, mark };
 }
 
 export function projectHashtagLabel(name, imageRanges, index) {

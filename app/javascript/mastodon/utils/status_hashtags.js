@@ -293,14 +293,19 @@ function collectTrailingRun(container) {
 function hashtagData(anchor) {
   const identity = hashtagIdentityFromNode(anchor);
   const name = identity.name;
-  const text = name ? `#${name}` : (anchor.textContent || '');
+  const text = name ? `${identity.mark}${name}` : (anchor.textContent || '');
 
-  return {
+  const data = {
     name,
     text,
     href: anchor.getAttribute('href'),
-    imageRanges: identity.imageRanges,
   };
+
+  if (identity.imageRanges.length > 0) {
+    data.imageRanges = identity.imageRanges;
+  }
+
+  return data;
 }
 
 function pruneTrailingChrome(node) {
@@ -491,9 +496,9 @@ function rememberHashtag(seen, hashtags, hashtag) {
 }
 
 function hashtagLabel(anchor) {
-  const raw = (anchor.textContent || '').trim().replace(/^[#＃]/, '');
+  const identity = hashtagIdentityFromNode(anchor);
 
-  return raw ? `#${raw}` : '';
+  return identity.name ? `${identity.mark}${identity.name}` : '';
 }
 
 // Hashtag anchors in document order. NFKC case-insensitive duplicates keep

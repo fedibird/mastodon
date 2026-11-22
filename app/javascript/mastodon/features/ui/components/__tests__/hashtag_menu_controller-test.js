@@ -1699,6 +1699,50 @@ describe('HashtagMenuController', () => {
     expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith('#party:blob:');
   });
 
+  it('copies emojified and plain tags from the original html in a translated view', () => {
+    const native = '👍';
+    const emoji = `<img class="emojione" alt="${native}" src="/emoji/1f44d.svg">`;
+    const photo = `<img src="/media/photo.jpg" alt="landscape ${native}">`;
+    const party = `<a href="https://remote.example/topics/party" class="mention hashtag" rel="tag">#<span>party${emoji}${photo}</span></a>`;
+    const garden = '<a href="https://remote.example/tags/garden" class="mention hashtag" rel="tag">#<span>garden</span></a>';
+    const html = `<p>See ${party} ${garden} stays</p>`;
+    const target = '<p>訳 <a href="https://remote.example/topics/party" class="mention hashtag" rel="tag">#<span>パーティー</span></a></p>';
+    const tags = [
+      { name: `party${native}`, url: 'https://remote.example/topics/party' },
+      { name: 'garden', url: 'https://remote.example/tags/garden' },
+    ];
+    const { container } = renderMenu({
+      contentHtml: html,
+      tags,
+      status: buildStatus({
+        contentHtml: html,
+        tags,
+        language: 'en',
+        translationMode: 'translated',
+        translation: {
+          contentHtml: target,
+          spoilerHtml: '',
+          language: 'ja',
+          detected_source_language: 'en',
+          requested_source_language: 'en',
+          requested_target_language: 'ja',
+          provider: 'test',
+        },
+      }),
+    });
+    const translated = container.querySelector('.status__content__text a.mention.hashtag');
+
+    expect(translated.textContent).toContain('パーティー');
+    click(translated);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#party${native}`);
+    click(translated);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtags' }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#party${native} #garden`);
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(expect.stringContaining('landscape'));
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(expect.stringContaining('パーティー'));
+  });
+
   it('keeps an empty emoji replacement out of the menu labels', () => {
     const native = '👍';
     const href = 'https://remote.example/topics/thumb';
