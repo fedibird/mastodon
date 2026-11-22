@@ -11,6 +11,7 @@ import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
 import { accountUrlForHashtag } from 'mastodon/utils/account_tag_url';
 import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
+import { hashtagMenuStoredName } from 'mastodon/features/emoji/hashtag_menu_names';
 import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
@@ -96,7 +97,7 @@ class HashtagMenuController extends React.PureComponent {
       return;
     }
 
-    const hashtag = link.getAttribute('data-menu-hashtag') || '';
+    const hashtag = hashtagMenuStoredName(link.getAttribute('data-menu-hashtag') || '');
 
     if (!hashtag) {
       return;

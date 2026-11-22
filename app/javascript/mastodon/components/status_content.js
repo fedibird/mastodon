@@ -13,6 +13,7 @@ import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'ma
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
+import { hashtagMenuDomName } from 'mastodon/features/emoji/hashtag_menu_names';
 import { emojiMuteTextIndexFromState, linkTargetEmojiRemains, presentEmojiMutePlain, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
@@ -186,6 +187,11 @@ class StatusContent extends React.PureComponent {
     for (var i = 0; i < links.length; ++i) {
       let link = links[i];
       if (link.classList.contains('status-link')) {
+        // The node survives a display change. Refresh the menu attribute so a
+        // concealed name does not stay on screen, and a verified name returns.
+        if (this.isHashtagLink(link) && !link.classList.contains('status__content__hashtag-badge')) {
+          this.markHashtagLink(link);
+        }
         continue;
       }
       link.classList.add('status-link');
@@ -445,7 +451,7 @@ class StatusContent extends React.PureComponent {
 
     const { id, name: accountName } = this.statusAccountIdentity();
 
-    link.setAttribute('data-menu-hashtag', name);
+    link.setAttribute('data-menu-hashtag', hashtagMenuDomName(name, this.props.emojiMuteTextIndex));
 
     if (id) {
       link.setAttribute('data-account-id', id);
@@ -610,7 +616,7 @@ class StatusContent extends React.PureComponent {
               className='status__content__hashtag-badge status-link'
               target='_blank'
               rel='noopener noreferrer'
-              data-menu-hashtag={name}
+              data-menu-hashtag={hashtagMenuDomName(name, this.props.emojiMuteTextIndex)}
               data-account-id={accountId || undefined}
               data-account-name={accountName || undefined}
               data-status-id={statusId || undefined}

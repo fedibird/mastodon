@@ -69,7 +69,8 @@ jest.mock('mastodon/components/icon', () => () => null);
 
 import Overlay from 'react-overlays/Overlay';
 import { fetchFavouriteTagSuccess } from 'mastodon/actions/favourite_tags';
-import { EMOJI_MUTES_APPLY } from 'mastodon/actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_FAIL, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { hashtagMenuStoredName } from 'mastodon/features/emoji/hashtag_menu_names';
 import favouriteTagsReducer from 'mastodon/reducers/favourite_tags';
 import emojiMutesReducer from 'mastodon/reducers/emoji_mutes';
 import StatusContent from 'mastodon/components/status_content';
@@ -710,7 +711,8 @@ describe('HashtagMenuController', () => {
     const link = container.querySelector('a[data-menu-hashtag]');
 
     expect(link.textContent).toBe(`#party${'\u25FB'}`);
-    expect(link.getAttribute('data-menu-hashtag')).toBe(tag);
+    expect(link.outerHTML).not.toContain(native);
+    expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
     click(link.querySelector('span') || link);
 
     const menu = document.querySelector('.dropdown-menu');
@@ -722,7 +724,8 @@ describe('HashtagMenuController', () => {
     expect(browse.getAttribute('aria-label') || browse.textContent).not.toContain(native);
     expect(browse).toHaveAttribute('href', `${window.location.origin}/tags/${encodeURIComponent(tag)}`);
     expect(account).toHaveAttribute('href', `${window.location.origin}/@alice/tagged/${encodeURIComponent(tag)}`);
-    expect(link.getAttribute('data-menu-hashtag')).toBe(tag);
+    expect(browse.outerHTML).not.toContain(native);
+    expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`#${tag}`);
@@ -770,7 +773,8 @@ describe('HashtagMenuController', () => {
     const link = container.querySelector('a[data-menu-hashtag]');
 
     expect(link.textContent).toBe(`#party${'\u25FB'}`);
-    expect(link.getAttribute('data-menu-hashtag')).toBe(tag);
+    expect(link.outerHTML).not.toContain(native);
+    expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
     click(link.querySelector('span') || link);
     fireEvent.click(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` }));
     expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
@@ -839,17 +843,13 @@ describe('HashtagMenuController', () => {
     const gardening = links[0];
     const emoji = links[1];
     const plain = links[2];
-    const withoutIdentity = emoji.cloneNode(true);
-
-    withoutIdentity.removeAttribute('data-menu-hashtag');
-
     expect(container.querySelector('.status__content__hashtag-badge')).toBeNull();
     expect(gardening.getAttribute('data-menu-hashtag')).toBe('gardening');
     expect(gardening.getAttribute('href')).toBe(topic);
-    expect(emoji.getAttribute('data-menu-hashtag')).toBe(tag);
+    expect(hashtagMenuStoredName(emoji.getAttribute('data-menu-hashtag'))).toBe(tag);
     expect(emoji.getAttribute('href')).toBe(emojiTopic);
     expect(emoji.textContent).toBe(`#party${'\u25FB'}`);
-    expect(withoutIdentity.outerHTML).not.toContain(native);
+    expect(emoji.outerHTML).not.toContain(native);
     expect(emoji.getAttribute('title') || '').not.toContain(native);
     expect(emoji.getAttribute('aria-label') || '').not.toContain(native);
     expect(plain.hasAttribute('data-menu-hashtag')).toBe(false);
@@ -919,12 +919,9 @@ describe('HashtagMenuController', () => {
     expect(source.textContent).toBe(`#party${'\u25FB'}`);
     expect(target.textContent).toBe('#園芸');
     [source, target].forEach(link => {
-      const visible = link.cloneNode(true);
-
-      visible.removeAttribute('data-menu-hashtag');
       expect(link.getAttribute('href')).toBe(href);
-      expect(link.getAttribute('data-menu-hashtag')).toBe(tag);
-      expect(visible.outerHTML).not.toContain(native);
+      expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
+      expect(link.outerHTML).not.toContain(native);
       expect(link.getAttribute('title') || '').not.toContain(native);
       expect(link.getAttribute('aria-label') || '').not.toContain(native);
 
@@ -1037,5 +1034,159 @@ describe('HashtagMenuController', () => {
     expect(links[1].textContent).toBe('#beta');
     expectNamed(links[0], 'alpha');
     expectNamed(links[1], 'beta');
+  });
+
+  it('keeps a raw hashtag emoji out of the DOM during suppress and restores the original name', () => {
+    const native = '👍';
+    const tag = `party${native}`;
+    const badgeTag = `wave${native}`;
+    const inlineHref = 'https://remote.example/topics/party';
+    const badgeHref = 'https://remote.example/topics/wave';
+    const cwHref = 'https://remote.example/topics/party-cw';
+    const plainHref = 'https://remote.example/topics/garden';
+    const sourceHtml = `<p>Hello <a href="${inlineHref}" class="mention hashtag" rel="tag">#<span>${tag}</span></a> and <a href="${plainHref}" class="mention hashtag" rel="tag">#<span>garden</span></a> stays<br><br><a href="${badgeHref}" class="mention hashtag" rel="tag">#<span>${badgeTag}</span></a></p>`;
+    const spoilerHtml = `<p>CW <a href="${cwHref}" class="mention hashtag" rel="tag">#<span>${tag}</span></a> note</p>`;
+    const targetHtml = `<p>訳 <a href="${inlineHref}" class="mention hashtag" rel="tag">#<span>パーティ</span></a> です</p>`;
+    const targetSpoiler = `<p>警告 <a href="${cwHref}" class="mention hashtag" rel="tag">#<span>パーティ</span></a> 注</p>`;
+    const { container, store } = renderMenu({
+      signedIn: true,
+      emojiMutes: {
+        revision: '2',
+        appliedRevision: '1',
+        phase: 'stale',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'suppress',
+      },
+      status: buildStatus({
+        contentHtml: sourceHtml,
+        spoilerHtml,
+        spoiler_text: 'CW note',
+        language: 'en',
+        tags: [],
+        translationMode: 'bilingual',
+        translation: {
+          contentHtml: targetHtml,
+          spoilerHtml: targetSpoiler,
+          language: 'ja',
+          detected_source_language: 'en',
+          requested_source_language: 'en',
+          requested_target_language: 'ja',
+          provider: 'test',
+        },
+      }),
+    });
+    const expectConcealed = node => {
+      expect(node).toBeTruthy();
+      expect(node.outerHTML).not.toContain(native);
+      Array.from(node.attributes).forEach(attribute => {
+        if (attribute.name.indexOf('data-') === 0 || attribute.name === 'title' || attribute.name.indexOf('aria-') === 0) {
+          expect(attribute.value).not.toContain(native);
+        }
+      });
+      expect(node.getAttribute('title') || '').not.toContain(native);
+      expect(node.getAttribute('aria-label') || '').not.toContain(native);
+    };
+    const byHref = href => container.querySelectorAll(`a[href="${href}"]`);
+
+    expect(byHref(inlineHref).length).toBe(2);
+    expect(byHref(cwHref).length).toBe(2);
+    byHref(inlineHref).forEach(expectConcealed);
+    byHref(cwHref).forEach(expectConcealed);
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+
+    const badge = container.querySelector('a.status__content__hashtag-badge');
+
+    expectConcealed(badge);
+    expect(badge.getAttribute('href')).toBe(badgeHref);
+    expect(hashtagMenuStoredName(badge.getAttribute('data-menu-hashtag'))).toBe(badgeTag);
+    byHref(inlineHref).forEach(link => {
+      expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
+    });
+
+    const garden = container.querySelector(`a[href="${plainHref}"]`);
+
+    expect(garden.getAttribute('data-menu-hashtag')).toBe('garden');
+    expect(click(garden, { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(click(garden).defaultPrevented).toBe(true);
+    expect(screen.getByRole('button', { name: 'Mute #garden' })).toBeTruthy();
+    click(garden);
+
+    const inline = container.querySelector(`.status-translation-pair__source a[href="${inlineHref}"]`);
+
+    expect(click(inline, { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(inline.getAttribute('href')).toBe(inlineHref);
+    expect(click(inline).defaultPrevented).toBe(true);
+    expect(document.querySelector('.dropdown-menu').outerHTML).not.toContain(native);
+    fireEvent.click(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` }));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
+    expect(store.getState().getIn(['modal', 'hashtag'])).not.toContain('\u25FB');
+
+    let beforeCommit = '';
+
+    const unsubscribe = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'revision']) === '3' && store.getState().getIn(['emojiMutes', 'phase']) === 'stale') {
+        beforeCommit = container.querySelector('.status__content').outerHTML;
+      }
+    });
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+    unsubscribe();
+
+    expect(beforeCommit).not.toContain(native);
+
+    const verified = container.querySelector(`.status-translation-pair__source a[href="${inlineHref}"]`);
+
+    expect(verified.getAttribute('data-menu-hashtag')).toBe(tag);
+    expect(verified.textContent).toContain(native);
+    expect(click(verified).defaultPrevented).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: `Mute #${tag}` }));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_FAIL, failure: 'unavailable' });
+    });
+
+    const failed = container.querySelector(`.status-translation-pair__source a[href="${inlineHref}"]`);
+
+    expectConcealed(failed);
+    expect(hashtagMenuStoredName(failed.getAttribute('data-menu-hashtag'))).toBe(tag);
+    expect(click(failed).defaultPrevented).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` }));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    const ignored = container.querySelector(`.status-translation-pair__source a[href="${inlineHref}"]`);
+
+    expect(ignored.getAttribute('data-menu-hashtag')).toBe(tag);
+    expect(ignored.textContent).toContain(native);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_ENABLE });
+    });
+
+    expectConcealed(container.querySelector(`.status-translation-pair__source a[href="${inlineHref}"]`));
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_DISABLE });
+    });
+
+    const disabled = container.querySelector(`.status-translation-pair__source a[href="${inlineHref}"]`);
+
+    expect(disabled.getAttribute('data-menu-hashtag')).toBe(tag);
+    expect(disabled.textContent).toContain(native);
+    expect(container.querySelector(`a[href="${plainHref}"]`).getAttribute('data-menu-hashtag')).toBe('garden');
   });
 });

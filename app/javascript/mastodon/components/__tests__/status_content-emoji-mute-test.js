@@ -54,6 +54,7 @@ jest.mock('mastodon/components/icon', () => () => null);
 import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from '../../actions/emoji_mutes';
 import { normalizeStatus, normalizeStatusTranslation } from '../../actions/importer/normalizer';
 import emojify from '../../features/emoji/emoji';
+import { hashtagMenuStoredName } from '../../features/emoji/hashtag_menu_names';
 import { resetEmojiMuteTextForTests } from '../../features/emoji/emoji_mute_text';
 import { resetEmojiActionsBusForTests, setEmojiActionsListener } from '../../features/emoji/emoji_actions/bus';
 import emojiMutesReducer from '../../reducers/emoji_mutes';
@@ -166,8 +167,9 @@ describe('StatusContent replace_in_text', () => {
     const link = container.querySelector('a.mention.hashtag');
 
     expect(link.textContent).toBe('#party◻');
-    expect(link.textContent).not.toContain(native);
-    expect(link.getAttribute('data-menu-hashtag')).toBe(`party${native}`);
+    expect(link.outerHTML).not.toContain(native);
+    expect(link.getAttribute('data-menu-hashtag')).not.toContain(native);
+    expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(`party${native}`);
     expect(link.getAttribute('href')).toBe(href);
   });
 
@@ -208,7 +210,8 @@ describe('StatusContent replace_in_text', () => {
     const suppressed = renderAt('suppress');
 
     expect(suppressed.link.textContent).toBe(`#party${'\u25FB'}`);
-    expect(suppressed.link.getAttribute('data-menu-hashtag')).toBe(tag);
+    expect(suppressed.link.outerHTML).not.toContain(native);
+    expect(hashtagMenuStoredName(suppressed.link.getAttribute('data-menu-hashtag'))).toBe(tag);
     expect(suppressed.link.getAttribute('aria-label') || '').not.toContain(native);
     suppressed.view.unmount();
 
@@ -246,7 +249,8 @@ describe('StatusContent replace_in_text', () => {
     const link = container.querySelector('a.mention.hashtag');
 
     expect(link.textContent).toBe(`#party${'\u25FB'}`);
-    expect(link.getAttribute('data-menu-hashtag')).toBe(tag);
+    expect(link.outerHTML).not.toContain(native);
+    expect(hashtagMenuStoredName(link.getAttribute('data-menu-hashtag'))).toBe(tag);
   });
 
   it('replaces emoji in the stored body without rewriting that html', () => {
