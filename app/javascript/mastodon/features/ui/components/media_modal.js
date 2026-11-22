@@ -295,6 +295,7 @@ class MediaModal extends ImmutablePureComponent {
             width={width}
             height={height}
             alt={description}
+            emojiMuteSource={accessible.text || ''}
             lang={lang}
             key={`${image.get('url')}:${imageIndex}`}
             onClick={this.toggleNavigation}

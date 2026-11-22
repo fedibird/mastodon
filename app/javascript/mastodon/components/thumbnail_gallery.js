@@ -9,6 +9,7 @@ import Thumbhash from 'mastodon/components/thumbhash';
 import { FormattedMessage } from 'react-intl';
 import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
 import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
+import { bindEmojiMuteElementSource } from 'mastodon/features/emoji/emoji_mute_sources';
 
 class Item extends React.PureComponent {
 
@@ -27,6 +28,24 @@ class Item extends React.PureComponent {
     this.setState({ loaded: true });
   }
 
+  bindDescription = node => {
+    if (node) {
+      this.mediaNode = node;
+    }
+
+    if (this.mediaNode && typeof this.descriptionSource === 'string') {
+      bindEmojiMuteElementSource(this.mediaNode, this.descriptionSource);
+    }
+  }
+
+  componentDidMount () {
+    this.bindDescription(this.mediaNode);
+  }
+
+  componentDidUpdate () {
+    this.bindDescription(this.mediaNode);
+  }
+
   render () {
     const { attachment, visible } = this.props;
 
@@ -39,6 +58,7 @@ class Item extends React.PureComponent {
     const thumbhash   = attachment.get('thumbhash');
     const preview     = attachment.get('preview_url');
     const rawDescription = attachment.get('description');
+    this.descriptionSource = typeof rawDescription === 'string' ? rawDescription : '';
     const description = typeof rawDescription === 'string' ? presentEmojiMutePlain(rawDescription, this.props.emojiMuteTextIndex) : rawDescription;
 
     switch(type) {
@@ -54,6 +74,7 @@ class Item extends React.PureComponent {
           src={preview}
           alt={description}
           title={description}
+          ref={this.bindDescription}
           style={{ objectPosition: `${x}% ${y}%` }}
           onLoad={this.handleImageLoad}
         />
@@ -67,6 +88,7 @@ class Item extends React.PureComponent {
             className='thumbnail-gallery__item-gifv-thumbnail'
             aria-label={description}
             title={description}
+            ref={this.bindDescription}
             role='application'
             src={attachment.get('url')}
             autoPlay={false}

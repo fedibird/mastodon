@@ -243,7 +243,7 @@ const concealUnmappedSegments = (value, name, imageRanges) => {
 
 // Replace only the slices that came from emoji images. A typed :blob: that
 // is not one of those slices stays in the string.
-export function concealImageDerivedSegments(value, name, imageRanges) {
+export function concealImageDerivedSegments(value, name, imageRanges, options) {
   if (typeof value !== 'string' || value === '' || typeof name !== 'string' || name === '' || !imageRanges || imageRanges.length === 0) {
     return value;
   }
@@ -290,15 +290,21 @@ export function concealImageDerivedSegments(value, name, imageRanges) {
     return value;
   }
 
+  // A single text node is not the whole label. The shortcode fallback is for
+  // a readable attribute that still contains the image shortcode.
+  if (options && options.shortcodeFallback === false) {
+    return value;
+  }
+
   return concealUnmappedSegments(value, name, imageRanges);
 }
 
 // Image slices first, then Unicode. Doing Unicode first moves the stored
 // name, and the fallback then hides a typed shortcode as well.
-export function projectConcealedHashtagText(value, name, imageRanges) {
+export function projectConcealedHashtagText(value, name, imageRanges, options) {
   const base = typeof value === 'string' ? value : '';
 
-  return suppressUnicodeEmoji(concealImageDerivedSegments(base, name, imageRanges || []));
+  return suppressUnicodeEmoji(concealImageDerivedSegments(base, name, imageRanges || [], options));
 }
 
 const projectPieces = (source, index, images) => {

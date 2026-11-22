@@ -779,7 +779,9 @@ describe('collectCopyHashtags', () => {
     expect(collectStatusHashtags(inside)).toEqual([
       expect.objectContaining({ name: '#️⃣fun', text: '##️⃣fun' }),
     ]);
-    expect(collectCopyHashtags(html, fromJS([])).map(hashtag => hashtag.text)).toEqual(['##️⃣fun']);
+    expect(collectCopyHashtags(html, fromJS([
+      { name: '#️⃣fun', url: 'https://example.com/tags/fun' },
+    ])).map(hashtag => hashtag.text)).toEqual(['##️⃣fun']);
   });
 });
 

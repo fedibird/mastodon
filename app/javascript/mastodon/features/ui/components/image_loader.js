@@ -4,11 +4,13 @@ import classNames from 'classnames';
 import { LoadingBar } from 'react-redux-loading-bar';
 import ZoomableImage from './zoomable_image';
 import { FormattedMessage } from 'react-intl';
+import { bindEmojiMuteElementSource } from 'mastodon/features/emoji/emoji_mute_sources';
 
 export default class ImageLoader extends React.PureComponent {
 
   static propTypes = {
     alt: PropTypes.string,
+    emojiMuteSource: PropTypes.string,
     lang: PropTypes.string,
     src: PropTypes.string.isRequired,
     previewSrc: PropTypes.string,
@@ -152,6 +154,18 @@ export default class ImageLoader extends React.PureComponent {
     return typeof width === 'number' && typeof height === 'number';
   }
 
+  bindAlt = node => {
+    this.altNode = node;
+
+    if (node && typeof this.props.emojiMuteSource === 'string') {
+      bindEmojiMuteElementSource(node, this.props.emojiMuteSource);
+    }
+  }
+
+  componentDidUpdate () {
+    this.bindAlt(this.altNode);
+  }
+
   setCanvasRef = c => {
     if (this.canvas !== c) this._canvasContext = null;
     this.canvas = c;
@@ -178,7 +192,7 @@ export default class ImageLoader extends React.PureComponent {
             {alt && (
               <div className='image-loader__error-alt'>
                 <span>ALT</span>
-                <p lang={lang || undefined} dir='auto'>{alt}</p>
+                <p lang={lang || undefined} dir='auto' ref={this.bindAlt}>{alt}</p>
               </div>
             )}
           </div>

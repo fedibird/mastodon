@@ -13,6 +13,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
 import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
+import { rememberEmojiMuteAttributeSource } from 'mastodon/features/emoji/emoji_mute_sources';
 
 const messages = defineMessages({
   reveal: { id: 'timeline.media.reveal', defaultMessage: 'Reveal media' },
@@ -72,6 +73,27 @@ class MediaItem extends ImmutablePureComponent {
     return !autoPlayMedia && ['gifv', 'video'].includes(this.props.attachment.get('type'));
   }
 
+  setOpen = node => {
+    this.openNode = node;
+    this.bindOpenLabel();
+  }
+
+  bindOpenLabel = () => {
+    if (!this.openNode || this.isConcealed() || typeof this.rawDescription !== 'string') {
+      return;
+    }
+
+    rememberEmojiMuteAttributeSource(this.openNode, 'aria-label', this.rawDescription);
+  }
+
+  componentDidMount () {
+    this.bindOpenLabel();
+  }
+
+  componentDidUpdate () {
+    this.bindOpenLabel();
+  }
+
   handleClick = e => {
     if (e.button !== 0 || e.ctrlKey || e.metaKey) {
       return;
@@ -98,6 +120,7 @@ class MediaItem extends ImmutablePureComponent {
     const { attachment, shape, intl } = this.props;
     const status = attachment.get('status');
     const rawDescription = attachment.get('description');
+    this.rawDescription = typeof rawDescription === 'string' ? rawDescription : undefined;
     const description = typeof rawDescription === 'string' ? presentEmojiMutePlain(rawDescription, this.props.emojiMuteTextIndex) : rawDescription;
     const type = attachment.get('type');
     const original = shape === 'original';
@@ -145,6 +168,7 @@ class MediaItem extends ImmutablePureComponent {
             onClick={this.handleClick}
             target='_blank'
             rel='noopener noreferrer'
+            ref={this.setOpen}
             aria-label={concealed ? intl.formatMessage(messages.reveal) : (description || intl.formatMessage(messages.open))}
           >
             {blurred && (attachment.get('blurhash') ?

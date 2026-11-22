@@ -126,10 +126,13 @@ export function bindEmojiMuteElementSource(element, source) {
 
 const READABLE_SOURCE_ATTRIBUTES = ['title', 'aria-label', 'aria-description', 'aria-valuetext', 'alt'];
 
-const rememberElementSources = (original, live) => {
+const rememberElementSources = (original, live, readableKind) => {
+  const photo = live && live.tagName === 'IMG' && !isUserEmojiImage(live);
+  const kind = readableKind === 'plain' && !photo ? 'plain' : 'html';
+
   READABLE_SOURCE_ATTRIBUTES.forEach(name => {
     if (original.hasAttribute(name)) {
-      rememberEmojiMuteAttributeSource(live, name, original.getAttribute(name) || '', 'html');
+      rememberEmojiMuteAttributeSource(live, name, original.getAttribute(name) || '', kind);
     }
   });
 };
@@ -189,7 +192,7 @@ const foldablePiece = node => isTextOrEmojiImage(node) || replacedPicture(node);
 // drop the source of the paragraph after it. A text node keeps only the
 // original text and images that folded into it. An image that is still in
 // the live tree stays on that image, not inside the text source.
-const bindHtmlChildren = (original, live) => {
+const bindHtmlChildren = (original, live, readableKind, textKind) => {
   const originalChildren = Array.from(original.childNodes || []);
   const liveChildren = Array.from(live.childNodes || []);
   let liveIndex = 0;
@@ -200,8 +203,8 @@ const bindHtmlChildren = (original, live) => {
     const liveNode = liveChildren[liveIndex];
 
     if (sameSurvivingImage(child, liveNode)) {
-      rememberElementSources(child, liveNode);
-      bindHtmlChildren(child, liveNode);
+      rememberElementSources(child, liveNode, readableKind);
+      bindHtmlChildren(child, liveNode, readableKind, textKind);
       originalIndex += 1;
       liveIndex += 1;
       continue;
@@ -222,10 +225,12 @@ const bindHtmlChildren = (original, live) => {
         originalIndex += 1;
       }
 
-      if (fragment.querySelector('img')) {
-        rememberEmojiMuteDisplayHtml(liveNode, fragment.innerHTML);
-      } else {
+      // Text-only status HTML keeps the HTML renderer. An embed that already
+      // projects its text asks for plain text so the same rules apply once.
+      if (!fragment.querySelector('img') && textKind === 'plain') {
         rememberEmojiMuteTextSource(liveNode, fragment.textContent || '');
+      } else {
+        rememberEmojiMuteDisplayHtml(liveNode, fragment.innerHTML);
       }
 
       liveIndex += 1;
@@ -250,9 +255,14 @@ const bindHtmlChildren = (original, live) => {
       continue;
     }
 
+    if (replacedPicture(child) && next && next.tagName === 'PICTURE' && !sameSurvivingPicture(child, next)) {
+      originalIndex += 1;
+      continue;
+    }
+
     if (next && next.nodeType === Node.ELEMENT_NODE && next.tagName === child.tagName) {
-      rememberElementSources(child, next);
-      bindHtmlChildren(child, next);
+      rememberElementSources(child, next, readableKind);
+      bindHtmlChildren(child, next, readableKind, textKind);
       liveIndex += 1;
     }
 
@@ -261,7 +271,7 @@ const bindHtmlChildren = (original, live) => {
 };
 
 // Pair a stored HTML fragment with the nodes React inserted from its projection.
-export function bindEmojiMuteHtmlSources(liveRoot, originalHtml) {
+export function bindEmojiMuteHtmlSources(liveRoot, originalHtml, options) {
   if (!liveRoot) {
     return;
   }
@@ -271,5 +281,5 @@ export function bindEmojiMuteHtmlSources(liveRoot, originalHtml) {
     : document.createElement('template');
 
   template.innerHTML = originalHtml || '';
-  bindHtmlChildren(template.content, liveRoot);
+  bindHtmlChildren(template.content, liveRoot, options && options.readableKind, options && options.textKind);
 }

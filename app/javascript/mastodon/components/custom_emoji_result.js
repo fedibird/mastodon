@@ -6,6 +6,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { injectIntl, defineMessages, FormattedMessage } from 'react-intl';
 import Emoji from './emoji';
 import { attachInlineEmojiMenus, handleInlineEmojiClick, openInlineEmojiMenu } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
+import { emojiMuteTextIndexFromState, replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
@@ -16,6 +17,7 @@ const messages = defineMessages({
 
 const mapStateToProps = (state, { shortcode_with_domain }) => ({
   custom_emoji: state.getIn(['custom_emojis_detail', shortcode_with_domain]),
+  emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
 });
 
 class CustomEmojiResult extends React.PureComponent {
@@ -27,6 +29,7 @@ class CustomEmojiResult extends React.PureComponent {
   static propTypes = {
     shortcode_with_domain: PropTypes.string.isRequired,
     custom_emoji: ImmutablePropTypes.map.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
     intl: PropTypes.object.isRequired,
   };
 
@@ -188,7 +191,7 @@ class CustomEmojiResult extends React.PureComponent {
         {summary &&
           <div className='custom-emoji__summary_wrapper' ref={this.setRef}>
             <div className='custom-emoji__label'><FormattedMessage id='search_results.custom_emojis.summary' defaultMessage='License summary' /></div>
-            <div className='custom-emoji__summary' dangerouslySetInnerHTML={{ __html: summary }} />
+            <div className='custom-emoji__summary' dangerouslySetInnerHTML={{ __html: replaceEmojiInDisplayHtml(String(summary), this.props.emojiMuteTextIndex) }} />
           </div>
         }
       </div>

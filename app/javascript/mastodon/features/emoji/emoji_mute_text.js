@@ -512,7 +512,7 @@ export function linkTargetEmojiRemains(link) {
   return false;
 }
 
-const LABEL_ATTRIBUTES = ['title', 'aria-label', 'aria-labelledby', 'aria-describedby'];
+const LABEL_ATTRIBUTES = ['title', 'aria-label', 'aria-description', 'aria-labelledby', 'aria-describedby'];
 
 // Real tag links keep range-aware labels. A normal link whose text happens
 // to start with # still has its image shortcode and domain removed.
@@ -537,9 +537,7 @@ const hashtagLabelExempt = link => {
     // A relative or empty href is not a tag route.
   }
 
-  const previous = link.previousSibling;
-
-  return !!(previous && previous.textContent && /[#＃]$/.test(previous.textContent));
+  return false;
 };
 
 // Drop labels that name the muted emoji. Another emoji image in the same

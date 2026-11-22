@@ -8,6 +8,7 @@ import Permalink from './permalink';
 import ShortNumber from 'mastodon/components/short_number';
 import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
 import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
+import { bindEmojiMuteElementSource } from 'mastodon/features/emoji/emoji_mute_sources';
 
 class SilentErrorBoundary extends React.Component {
 
@@ -49,8 +50,40 @@ const accountsCountRenderer = (displayNumber, pluralReady) => (
   />
 );
 
+class EmojiMuteSpan extends React.PureComponent {
+
+  static propTypes = {
+    source: PropTypes.string,
+    children: PropTypes.node,
+  };
+
+  setNode = node => {
+    this.node = node;
+  }
+
+  bind () {
+    if (this.node) {
+      bindEmojiMuteElementSource(this.node, this.props.source || '');
+    }
+  }
+
+  componentDidMount () {
+    this.bind();
+  }
+
+  componentDidUpdate () {
+    this.bind();
+  }
+
+  render () {
+    return <span ref={this.setNode}>{this.props.children}</span>;
+  }
+
+}
+
 const Hashtag = ({ hashtag, emojiMuteTextIndex }) => {
-  const name = presentEmojiMutePlain(hashtag.get('name') || '', emojiMuteTextIndex);
+  const rawName = hashtag.get('name') || '';
+  const name = presentEmojiMutePlain(rawName, emojiMuteTextIndex);
 
   return (
     <div className='trends__item'>
@@ -59,7 +92,7 @@ const Hashtag = ({ hashtag, emojiMuteTextIndex }) => {
           href={hashtag.get('url')}
           to={`/timelines/tag/${hashtag.get('name')}`}
         >
-          #<span>{name}</span>
+          #<EmojiMuteSpan source={rawName}>{name}</EmojiMuteSpan>
         </Permalink>
 
         <ShortNumber

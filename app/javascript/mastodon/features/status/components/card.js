@@ -183,7 +183,7 @@ class Card extends React.PureComponent {
     bindEmojiMuteElementSource(this.node.querySelector('.status-card__host'), providerSource);
 
     if (this.embedNode) {
-      bindEmojiMuteHtmlSources(this.embedNode, card.get('html') || '');
+      bindEmojiMuteHtmlSources(this.embedNode, card.get('html') || '', { readableKind: 'plain', textKind: 'plain' });
     }
   }
 

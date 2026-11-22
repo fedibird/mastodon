@@ -131,7 +131,9 @@ class Audio extends React.PureComponent {
   }
 
   componentDidUpdate (prevProps, prevState) {
-    this.bindEmojiMuteSource();
+    if (prevProps.emojiMuteSource !== this.props.emojiMuteSource || prevProps.alt !== this.props.alt) {
+      this.bindEmojiMuteSource();
+    }
 
     if (prevProps.src !== this.props.src || this.state.width !== prevState.width || this.state.height !== prevState.height || prevProps.accentColor !== this.props.accentColor) {
       this._clear();

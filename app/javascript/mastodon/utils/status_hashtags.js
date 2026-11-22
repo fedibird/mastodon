@@ -456,7 +456,7 @@ function readStatusTag(tag) {
   }
 
   const read = typeof tag.get === 'function' ? key => tag.get(key) : key => tag[key];
-  const name = String(read('name') || '').trim().replace(/^[#＃]/, '');
+  const name = String(read('name') || '').trim().replace(/^(?:[#＃](?!\uFE0F?\u20E3))/, '');
 
   if (!name) {
     return null;

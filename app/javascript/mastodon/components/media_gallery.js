@@ -25,8 +25,22 @@ class WithEmojiMuteSource extends React.PureComponent {
   };
 
   bind = node => {
-    if (node && typeof this.props.source === 'string') {
-      bindEmojiMuteElementSource(node, this.props.source);
+    if (node) {
+      this.node = node;
+    }
+
+    if (this.node && typeof this.props.source === 'string') {
+      bindEmojiMuteElementSource(this.node, this.props.source);
+    }
+  }
+
+  componentDidMount () {
+    this.bind(this.node);
+  }
+
+  componentDidUpdate (prevProps) {
+    if (prevProps.source !== this.props.source) {
+      this.bind(this.node);
     }
   }
 

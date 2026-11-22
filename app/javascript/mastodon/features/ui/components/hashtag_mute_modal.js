@@ -11,7 +11,7 @@ import { muteHashtag, unmuteHashtag, updateHashtagMute } from '../../../actions/
 import { HASHTAG_MUTE_CONTEXTS, HASHTAG_MUTE_DURATIONS, findHashtagMute } from '../../../utils/hashtag_mute';
 import { projectHashtagLabel, registerHashtagDialogConcealer } from 'mastodon/features/emoji/hashtag_menu_names';
 import { recordEmojiMuteText } from 'mastodon/features/emoji/emoji_mute_live_dom';
-import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   minutes: { id: 'intervals.full.minutes', defaultMessage: '{number, plural, one {# minute} other {# minutes}}' },
@@ -139,7 +139,7 @@ class HashtagMuteModal extends React.PureComponent {
     const label = shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
     const needles = [];
 
-    [rendered, raw].forEach(value => {
+    [rendered, raw, suppressUnicodeEmoji(rendered), suppressUnicodeEmoji(raw)].forEach(value => {
       if (value && value !== label && needles.indexOf(value) === -1) {
         needles.push(value);
       }
@@ -164,7 +164,12 @@ class HashtagMuteModal extends React.PureComponent {
       });
 
       if (next !== value) {
-        recordEmojiMuteText(sink, node);
+        const noted = sink && sink.find(record => record.kind === 'text' && record.node === node);
+
+        if (!noted) {
+          recordEmojiMuteText(sink, node);
+        }
+
         node.nodeValue = next;
       }
 

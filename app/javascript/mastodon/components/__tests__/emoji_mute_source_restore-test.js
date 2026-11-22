@@ -668,7 +668,7 @@ describe('emoji mute source restore', () => {
       });
     });
 
-    expect(embed.querySelectorAll('p')[1].textContent).toBe(OK);
+    expect(embed.querySelectorAll('p')[1].textContent).toBe(SPARKLE);
     expect(embed.textContent).not.toContain('[ok]');
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
     view.unmount();
@@ -714,13 +714,10 @@ describe('emoji mute source restore', () => {
   it('keeps an HTML photo alt and applies a gallery description once', () => {
     const thumb = '👍';
     const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
-    const rules = [{
-      id: 'up',
-      revision: '1',
-      emoji: { kind: 'unicode', native: thumb },
-      replacement: '[up]',
-      effects,
-    }];
+    const rules = [
+      { id: 'up', revision: '1', emoji: { kind: 'unicode', native: thumb }, replacement: SPARKLE, effects },
+      { id: 'spark', revision: '1', emoji: { kind: 'unicode', native: SPARKLE }, replacement: '[sparkles]', effects },
+    ];
     const store = createStore(reducer, fromJS({
       emojiMutes: {
         revision: '1',
@@ -786,7 +783,19 @@ describe('emoji mute source restore', () => {
     const gallery = view.container.querySelector('img[src="/photos/2.jpg"]');
 
     expect(photo.getAttribute('alt')).toBe(`photo ${thumb}`);
-    expect(gallery.getAttribute('alt')).toBe('photo [up]');
+    expect(gallery.getAttribute('alt')).toBe(`photo ${SPARKLE}`);
+    expect(gallery.getAttribute('title')).toBe(`photo ${SPARKLE}`);
+
+    let duringSuppress = null;
+
+    store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !duringSuppress) {
+        duringSuppress = {
+          alt: gallery.getAttribute('alt'),
+          title: gallery.getAttribute('title'),
+        };
+      }
+    });
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
@@ -798,9 +807,11 @@ describe('emoji mute source restore', () => {
       });
     });
 
+    expect(duringSuppress).toEqual({ alt: 'photo \u25FB', title: 'photo \u25FB' });
     expect(photo.getAttribute('alt')).toBe(`photo ${thumb}`);
-    expect(gallery.getAttribute('alt')).toBe('photo [up]');
-    expect(gallery.getAttribute('title')).toBe('photo [up]');
+    expect(gallery.getAttribute('alt')).toBe(`photo ${SPARKLE}`);
+    expect(gallery.getAttribute('title')).toBe(`photo ${SPARKLE}`);
+    expect(gallery.getAttribute('alt')).not.toContain('[sparkles]');
     view.unmount();
   });
 
@@ -1048,6 +1059,114 @@ describe('emoji mute source restore', () => {
     expect(video.getAttribute('aria-label')).toBe(`Hi ${SPARKLE}`);
     expect(video.getAttribute('title')).toBe(`Hi ${SPARKLE}`);
     expect(video.getAttribute('aria-label')).not.toContain('[sparkles]');
+    view.unmount();
+  });
+
+  it('leaves a text-only HTML fragment on the HTML projection', () => {
+    const thumb = '👍';
+    const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
+    const rules = [{ id: 'up', revision: '1', emoji: { kind: 'unicode', native: thumb }, replacement: '[up]', effects }];
+    const original = `<p>Watch ${thumb}</p>`;
+    const store = createStore(reducer, fromJS({
+      emojiMutes: {
+        revision: '1', appliedRevision: '1', phase: 'ready', failure: null, rules, availability: 'enabled', display: 'apply',
+      },
+      title: '',
+    }));
+    const guard = createUnverifiedEmojiGuard();
+
+    store.subscribe(() => guard(store.getState()));
+
+    const Block = connect(state => ({ index: emojiMuteTextIndexFromState(state) }))(class HtmlBlock extends React.Component {
+
+      componentDidMount () {
+        bindEmojiMuteHtmlSources(this.node, original);
+      }
+
+      componentDidUpdate () {
+        bindEmojiMuteHtmlSources(this.node, original);
+      }
+
+      setNode = node => {
+        this.node = node;
+      }
+
+      render () {
+        return <div ref={this.setNode} dangerouslySetInnerHTML={{ __html: replaceEmojiInDisplayHtml(original, this.props.index) }} />;
+      }
+
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'><Block /></div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '2', availability: 'enabled', mutes: rules });
+    });
+
+    expect(view.container.textContent).toBe(`Watch ${thumb}`);
+    expect(view.container.textContent).not.toContain('[up]');
+    view.unmount();
+  });
+
+  it('clears an ordinary link label that names the emoji before React commits', () => {
+    const store = createStore(reducer, fromJS({
+      emojiMutes: {
+        revision: '1', appliedRevision: '1', phase: 'ready', failure: null, rules: [], availability: 'enabled', display: 'apply',
+      },
+      title: '',
+    }));
+    const guard = createUnverifiedEmojiGuard();
+    let before = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !before) {
+        const ordinary = document.querySelector('a.ordinary');
+        const tagged = document.querySelector('a.mention.hashtag');
+        const emoji = document.querySelector('a.custom-emoji-url-link');
+
+        before = {
+          ordinaryTitle: ordinary.getAttribute('title'),
+          ordinaryAria: ordinary.getAttribute('aria-label'),
+          ordinaryDescription: ordinary.getAttribute('aria-description'),
+          keep: ordinary.getAttribute('data-keep'),
+          tagged: tagged.getAttribute('title'),
+          emoji: emoji.getAttribute('title'),
+        };
+      }
+    });
+
+    const view = render(
+      <div className='emoji-mutes-privacy-portal'>
+        <a className='ordinary' href='/page' title=':blob:' aria-label='blob at remote.example' data-keep='category'>
+          #<img className='emojione custom-emoji' alt=':blob:' data-shortcode='blob' data-domain='remote.example' src='https://cdn.example/blob.svg' />
+        </a>
+        <a className='mention hashtag' href='https://example.com/tags/party' title='#party:blob:' data-menu-hashtag='party:blob:'>
+          #party<img className='emojione custom-emoji' alt=':blob:' data-shortcode='blob' data-domain='' src='https://cdn.example/party.svg' />
+        </a>
+        <a className='custom-emoji-url-link' href='https://remote.example/emoji/blob' title=':blob:' data-shortcode='blob' data-domain='remote.example'>
+          <img className='emojione custom-emoji' alt=':blob:' data-shortcode='blob' data-domain='remote.example' src='https://cdn.example/blob.svg' />
+        </a>
+      </div>,
+    );
+
+    view.container.querySelector('a.ordinary').setAttribute('aria-description', 'blob at remote.example');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(before.ordinaryTitle).toBeNull();
+    expect(before.ordinaryAria).toBeNull();
+    expect(before.ordinaryDescription).toBeNull();
+    expect(before.keep).toBe('category');
+    expect(before.emoji).toBeNull();
+    expect(before.tagged).toBe('#party:blob:');
     view.unmount();
   });
 });

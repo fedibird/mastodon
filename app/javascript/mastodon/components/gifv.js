@@ -23,9 +23,29 @@ export default class GIFV extends React.PureComponent {
   }
 
   bindEmojiMuteSource = node => {
-    if (node && typeof this.props.emojiMuteSource === 'string') {
-      bindEmojiMuteElementSource(node, this.props.emojiMuteSource);
+    if (node) {
+      if (node.tagName === 'CANVAS') {
+        this.canvasNode = node;
+      }
+
+      if (node.tagName === 'VIDEO') {
+        this.videoNode = node;
+      }
     }
+
+    [this.canvasNode, this.videoNode].forEach(bound => {
+      if (bound && typeof this.props.emojiMuteSource === 'string') {
+        bindEmojiMuteElementSource(bound, this.props.emojiMuteSource);
+      }
+    });
+  }
+
+  componentDidMount () {
+    this.bindEmojiMuteSource();
+  }
+
+  componentDidUpdate () {
+    this.bindEmojiMuteSource();
   }
 
   componentWillReceiveProps (nextProps) {

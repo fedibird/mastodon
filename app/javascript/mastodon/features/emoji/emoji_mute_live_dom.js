@@ -468,11 +468,36 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
       REACTION_HOST_ATTRIBUTES.forEach(name => noteAttribute(sink, host, name));
     }
 
-    const emojiLink = img.closest && img.closest('a.custom-emoji-url-link');
+    const emojiLink = img.closest && img.closest('a');
+    const hashtagLink = emojiLink && (
+      (emojiLink.classList.contains('mention') && emojiLink.classList.contains('hashtag'))
+      || emojiLink.hasAttribute('data-menu-hashtag')
+      || emojiLink.hasAttribute('data-menu-hashtag-token')
+    );
 
-    if (emojiLink && emojiLink !== img) {
+    if (emojiLink && emojiLink !== img && !hashtagLink) {
+      const shortcode = img.getAttribute('data-shortcode') || '';
+      const alt = img.getAttribute('alt') || '';
+      const namesImage = value => {
+        if (!value) {
+          return false;
+        }
+
+        if (alt && value.indexOf(alt) !== -1) {
+          return true;
+        }
+
+        if (!shortcode) {
+          return false;
+        }
+
+        return new RegExp(`(?:^|[^A-Za-z0-9_])${shortcode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[^A-Za-z0-9_]|$)`).test(value);
+      };
+
       ['title', 'aria-label', 'aria-description'].forEach(name => {
-        if (!emojiLink.hasAttribute(name)) {
+        const value = emojiLink.getAttribute(name);
+
+        if (!namesImage(value) || attributeNoted(sink, emojiLink, name)) {
           return;
         }
 
@@ -626,7 +651,7 @@ const concealHashtagMenuLink = (sink, link) => {
     const value = node.nodeValue || '';
     const noted = sink.find(record => record.kind === 'text' && record.node === node);
     const base = noted ? noted.value : value;
-    const next = projectConcealedHashtagText(base, projectionName, projectionRanges);
+    const next = projectConcealedHashtagText(base, projectionName, projectionRanges, { shortcodeFallback: false });
 
     if (next === value) {
       return;

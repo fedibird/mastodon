@@ -14,6 +14,7 @@ import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translat
 import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { bindHashtagMenuName, hashtagIdentityFromNode, hashtagMenuDomName, projectConcealedHashtagText, projectHashtagLabel, syncOpenHashtagMenu } from 'mastodon/features/emoji/hashtag_menu_names';
+import { pairTranslationBlocks } from 'mastodon/utils/translation_blocks';
 import { emojiMuteTextIndexFromState, linkTargetEmojiRemains, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { computeStatusHashtagBadges, isHashtagMenuLink, localeAwareInclude, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
@@ -684,6 +685,28 @@ class StatusContent extends React.PureComponent {
     return rangesFor(hashtagIdentityFromNode(anchor));
   }
 
+  // A omitted identical target shifts later links. The pair index is the block
+  // that actually rendered this link.
+  translatedBlockAnchor (link) {
+    const pair = link && link.closest && link.closest('.status-translation-pair');
+    const blockIndex = pair ? Number(pair.getAttribute('data-block-index')) : NaN;
+
+    if (!pair || Number.isNaN(blockIndex) || typeof this._sourceBodyHtml !== 'string' || typeof this._targetBodyHtml !== 'string') {
+      return null;
+    }
+
+    const pairs = pairTranslationBlocks(this._sourceBodyHtml, this._targetBodyHtml, '', '');
+    const block = pairs[blockIndex];
+
+    if (!block || typeof block.targetHtml !== 'string') {
+      return null;
+    }
+
+    const anchors = this.anchorsWithHref(block.targetHtml, link.href);
+
+    return anchors.length === 1 ? anchors[0] : null;
+  }
+
   // The translated anchor can be the only place an emoji image appears.
   // Its ranges describe that label. The menu action keeps the source name.
   translatedImageIdentity (link) {
@@ -700,8 +723,9 @@ class StatusContent extends React.PureComponent {
       return null;
     }
 
+    const blockAnchor = this.translatedBlockAnchor(link);
     const index = this.hashtagLiveIndex(link);
-    const anchor = index < 0 ? null : this.anchorsWithHref(html, link.href)[index];
+    const anchor = blockAnchor || (index < 0 ? null : this.anchorsWithHref(html, link.href)[index]);
 
     if (!anchor || !isHashtagMenuLink(anchor)) {
       return null;
@@ -757,6 +781,13 @@ class StatusContent extends React.PureComponent {
     if (!name) {
       link.removeAttribute('data-menu-hashtag');
       bindHashtagMenuName(link, '', this.props.emojiMuteTextIndex, []);
+      const translatedImages = this.translatedImageIdentity(link);
+
+      if (translatedImages) {
+        this.projectHashtagLinkLabels(link, translatedImages.name, translatedImages.imageRanges);
+      }
+
+      syncOpenHashtagMenu(link);
       return;
     }
 

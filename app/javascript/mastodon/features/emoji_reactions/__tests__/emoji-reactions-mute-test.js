@@ -30,7 +30,7 @@ jest.mock('mastodon/components/scrollable_list', () => ({ children }) => <div>{c
 jest.mock('mastodon/components/icon', () => () => null);
 jest.mock('mastodon/features/reactioned/containers/header_container', () => () => null);
 
-import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
 import Emoji from 'mastodon/components/emoji';
 import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
@@ -340,6 +340,13 @@ describe('emoji reaction overview mute state', () => {
     expect(openedLater.container.querySelector('[data-emoji-reaction-name="blob"] img')).not.toBeNull();
     expect(openedLater.container.querySelector('[data-emoji-custom-emoji-id="42"]')).not.toBeNull();
     expect(openedLater.container.querySelector(`[data-emoji-native="${native}"]`)).not.toBeNull();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_ENABLE });
+    });
+
+    expect(openedLater.container.querySelector('[data-emoji-reaction-name="blob"] img')).toBeNull();
+    expect(openedLater.container.querySelector(`[data-emoji-native="${native}"]`)).toBeNull();
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_DISABLE });
