@@ -4763,6 +4763,47 @@ body.app-body.layout-single-column.status-timeline-split {
     height: 100%;
     min-height: 0;
   }
+
+  // 240px cannot show the notice and two readable panes at once. Keep a
+  // 220px split, tall enough for a line in each pane, and let the page scroll.
+  @media screen and (max-height: 400px) {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+
+    .app-holder,
+    .app-holder > div,
+    .app-holder .emoji-mutes-privacy-portal > .emoji-mutes-webui-hotkeys,
+    .ui,
+    .columns-area__panels,
+    .columns-area__panels__main,
+    .swipeable-view__wrapper,
+    .columns-area__panels__main > .columns-area--mobile,
+    .react-swipeable-view-container,
+    .react-swipeable-view-container > div,
+    .columns-area--mobile,
+    .column {
+      height: auto !important;
+      max-height: none;
+      overflow: visible;
+    }
+
+    .columns-area__panels__main > .emoji-mute-load-notice {
+      max-height: none;
+      overflow: visible;
+    }
+
+    .columns-area--mobile .timeline-split {
+      flex: none;
+      height: 220px;
+      min-height: 220px;
+      overflow: hidden;
+    }
+
+    .columns-area--mobile .timeline-split .timeline-split__pane {
+      min-height: 88px;
+    }
+  }
 }
 
 .column-header__button.column-header__split-button {
