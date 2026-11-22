@@ -152,6 +152,10 @@ const noteText = (sink, node) => {
   });
 };
 
+export function recordEmojiMuteText(sink, node) {
+  noteText(sink, node);
+}
+
 // Capture the value this scrub left behind. A later React commit replaces it,
 // and release must not put the pre-suppress string back over that commit.
 const stampScrubWrites = sink => {
@@ -653,9 +657,11 @@ export function createUnverifiedEmojiGuard() {
       scrubUnverifiedEmojiFrom(root, records);
     }
 
-    // The menu portal is outside the privacy root. Conceal it in this same
-    // turn so an ASCII shortcode is not readable before React commits.
-    concealOpenHashtagMenus();
+    // The menu portal is outside the privacy root. Conceal that menu in this
+    // same turn, and stamp the text it rewrote so a same-batch success can
+    // put the label back. A later React write no longer matches `written`.
+    concealOpenHashtagMenus(records);
+    stampScrubWrites(records);
   };
 
   guard.reset = () => {

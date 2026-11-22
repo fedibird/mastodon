@@ -2288,3 +2288,162 @@ describe('HashtagMenuController', () => {
     stopWatch();
   });
 });
+
+describe('open hashtag menu beside another dropdown', () => {
+  const placeholder = '\u25FB';
+  const verified = {
+    revision: '1',
+    appliedRevision: '1',
+    phase: 'ready',
+    failure: null,
+    rules: [],
+    availability: 'enabled',
+    display: 'apply',
+  };
+
+  const mountOpen = () => {
+    const href = 'https://example.com/tags/party%3Ablob%3A';
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
+    const html = `<p><a href="${href}" class="mention hashtag" rel="tag">#<span>party${custom}</span></a></p>`;
+    const general = document.createElement('div');
+
+    general.className = 'dropdown-menu';
+    general.innerHTML = '<button type="button">Boost</button><button type="button">Mute #party:blob:</button>';
+    document.body.prepend(general);
+
+    const { container, store } = renderMenu({
+      signedIn: true,
+      emojiMutes: verified,
+      status: buildStatus({ contentHtml: html, tags: [] }),
+    });
+
+    container.classList.add('emoji-mutes-privacy-portal');
+    click(container.querySelector('a.mention.hashtag'));
+
+    return { container, store, general };
+  };
+
+  const hashtagMenu = general => Array.from(document.querySelectorAll('.dropdown-menu')).find(menu => menu !== general);
+
+  afterEach(() => {
+    document.querySelectorAll('body > .dropdown-menu').forEach(menu => menu.remove());
+  });
+
+  it('conceals the hashtag menu when a general menu is already first in the document', () => {
+    const { store, general } = mountOpen();
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    const before = general.textContent;
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(general.textContent).toBe(before);
+    expect(general.textContent).toContain('party:blob:');
+    expect(hashtagMenu(general).textContent).toContain(`party${placeholder}`);
+    expect(hashtagMenu(general).textContent).not.toContain('party:blob:');
+    stopGuard();
+  });
+
+  it('restores the same open menu after a same-batch success and leaves a newer write alone', () => {
+    const { store, general } = mountOpen();
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let atSuppress = null;
+    const stopWatch = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) !== 'suppress' || atSuppress) {
+        return;
+      }
+
+      const menu = hashtagMenu(general);
+      const written = menu.textContent;
+
+      menu.querySelector('a').firstChild.nodeValue = 'React wrote this';
+      atSuppress = written;
+    });
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+    stopGuard();
+    stopWatch();
+
+    expect(atSuppress).toContain(`party${placeholder}`);
+    expect(atSuppress).not.toContain('party:blob:');
+    expect(general.textContent).toContain('party:blob:');
+    expect(hashtagMenu(general).textContent).toContain('React wrote this');
+    expect(hashtagMenu(general).textContent).not.toContain(`party${placeholder}`);
+  });
+
+  it('puts the scrubbed label back when the menu text is still the scrub write', () => {
+    const { store, general } = mountOpen();
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let atSuppress = null;
+    const stopWatch = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !atSuppress) {
+        atSuppress = hashtagMenu(general).textContent;
+      }
+    });
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+    stopGuard();
+    stopWatch();
+
+    expect(atSuppress).toContain(`Mute #party${placeholder}`);
+    expect(hashtagMenu(general).textContent).toContain('Mute #party:blob:');
+    expect(general.textContent).toContain('Mute #party:blob:');
+  });
+
+  it('does not rewrite a menu that was closed before release', () => {
+    const { container, store, general } = mountOpen();
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    const muted = Array.from(hashtagMenu(general).querySelectorAll('a')).find(link => link.textContent.includes(placeholder));
+    const node = muted.firstChild;
+
+    expect(node.nodeValue).toContain(placeholder);
+    const live = container.querySelector('a.mention.hashtag');
+
+    click(live);
+
+    if (node.isConnected) {
+      click(live);
+    }
+
+    expect(node.isConnected).toBe(false);
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+
+    expect(node.nodeValue).toContain(placeholder);
+    expect(node.nodeValue).not.toContain('party:blob:');
+    stopGuard();
+  });
+});

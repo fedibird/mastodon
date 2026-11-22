@@ -326,8 +326,8 @@ export function registerHashtagMenuConcealer(conceal) {
   return () => hashtagMenuConcealers.delete(conceal);
 }
 
-export function concealOpenHashtagMenus() {
-  hashtagMenuConcealers.forEach(conceal => conceal());
+export function concealOpenHashtagMenus(sink) {
+  hashtagMenuConcealers.forEach(conceal => conceal(sink));
 }
 
 export function registerHashtagMenuBinding(sync) {

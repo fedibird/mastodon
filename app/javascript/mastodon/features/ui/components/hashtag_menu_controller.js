@@ -12,6 +12,7 @@ import { copyText } from 'mastodon/utils/clipboard';
 import { accountUrlForHashtag } from 'mastodon/utils/account_tag_url';
 import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
 import { hashtagMenuStoredIdentity, projectHashtagLabel, registerHashtagMenuBinding, registerHashtagMenuConcealer } from 'mastodon/features/emoji/hashtag_menu_names';
+import { recordEmojiMuteText } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
@@ -99,14 +100,16 @@ class HashtagMenuController extends React.PureComponent {
     }
   }
 
-  concealForSuppress = () => {
-    if (!this.state.element || !this.state.hashtag) {
-      return;
-    }
+  setMenuNode = node => {
+    this.menuNode = node;
+  }
 
-    const menu = document.querySelector('.dropdown-menu');
+  // Only the menu this controller opened. Post and profile menus use the
+  // same dropdown class and can still be in the document.
+  concealForSuppress = sink => {
+    const menu = this.menuNode;
 
-    if (!menu) {
+    if (!menu || !menu.isConnected || !this.state.element || !this.state.hashtag) {
       return;
     }
 
@@ -123,8 +126,11 @@ class HashtagMenuController extends React.PureComponent {
     let node = walker.nextNode();
 
     while (node) {
-      if ((node.nodeValue || '').includes(raw)) {
-        node.nodeValue = node.nodeValue.split(raw).join(label);
+      const value = node.nodeValue || '';
+
+      if (value.includes(raw)) {
+        recordEmojiMuteText(sink, node);
+        node.nodeValue = value.split(raw).join(label);
       }
 
       node = walker.nextNode();
@@ -381,7 +387,7 @@ class HashtagMenuController extends React.PureComponent {
       <Overlay show offset={[5, 5]} placement='bottom' flip target={this.findTarget} popperConfig={popperConfig}>
         {({ props, arrowProps, placement }) => (
           <div {...props}>
-            <div className={`dropdown-animation dropdown-menu ${placement}`}>
+            <div className={`dropdown-animation dropdown-menu ${placement}`} ref={this.setMenuNode}>
               <div className={`dropdown-menu__arrow ${placement}`} {...arrowProps} />
               <DropdownMenu
                 items={this.menuItems()}
