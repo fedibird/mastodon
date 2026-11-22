@@ -43,12 +43,22 @@ reviews:
         visibility before reads or mutations. Check HTTP status and response
         compatibility on error paths; avoid leaking private/direct content,
         credentials, or another account's settings through caches or logs.
-    - path: "app/{lib,services}/activitypub/**"
+    - path: "app/{lib,services,serializers,workers}/activitypub/**"
       instructions: |
         Check canonical actor/object URIs, signature and authorization
         boundaries, JSON-LD contexts, accepted remote input, and compatibility
         with non-Fedibird servers. A capability advertisement must not imply
         unsupported semantics or accidentally expose posting permissions.
+    - path: "app/models/**"
+      instructions: |
+        Review tenant/user ownership and visibility invariants, validation,
+        callbacks and cache invalidation for behavioral changes. Look for
+        N+1 or unbounded queries on high-volume associations.
+    - path: "app/workers/**"
+      instructions: |
+        Review idempotency under Sidekiq retry, safe handling of duplicate or
+        out-of-order jobs, visibility of delivered data, and bounded work per
+        job. Do not assume one delivery or successful execution.
     - path: "db/{migrate,post_migrate}/**"
       instructions: |
         Assume very large production tables. Flag blocking DDL, long-running
