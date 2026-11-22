@@ -244,7 +244,7 @@ export default class Mastodon extends React.PureComponent {
 
     if (availability === 'temporary_ignore') {
       next = 'ignored';
-    } else if (phase === 'loading') {
+    } else if (phase === 'loading' && this.emojiMuteRequestInFlight) {
       next = 'loading';
     } else if (phase === 'error') {
       next = 'error';

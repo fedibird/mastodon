@@ -307,7 +307,10 @@ describe('authenticated emoji mute bootstrap', () => {
     await rejectBootstrap(new Error('offline'));
     expect(view.container.querySelector('.emoji-mute-load-notice')).not.toBeNull();
 
+    mockRequest = deferred();
+    allowRetry();
     await act(async () => {
+      fireEvent.click(view.getByText('Try again'));
       mockPhase = 'loading';
       mockFailure = null;
       mockSubscribers.forEach(listener => listener());
@@ -318,11 +321,24 @@ describe('authenticated emoji mute bootstrap', () => {
     await act(async () => {
       mockPhase = 'error';
       mockFailure = 'unavailable';
+      mockRequest.reject(new Error('offline'));
+      try {
+        await mockRequest.promise;
+      } catch (error) {
+        // The retry handler owns the rejection.
+      }
       mockSubscribers.forEach(listener => listener());
     });
 
     expect(view.container.querySelector('.emoji-mute-load-notice')).not.toBeNull();
     expect(view.getByText('Try again')).not.toBeNull();
+
+    await act(async () => {
+      mockPhase = 'loading';
+      mockSubscribers.forEach(listener => listener());
+    });
+
+    expect(view.container.querySelector('.emoji-mute-load-notice')).not.toBeNull();
     view.unmount();
   });
 
