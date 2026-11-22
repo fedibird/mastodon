@@ -47,5 +47,5 @@ ruby script/check_settings_service_catalog.rb
 git diff --check
 ```
 
-- Only run the catalog scripts for relevant settings changes. Redirect verbose lint logs to a file when helpful. If a check cannot run, state the reason and leave it unverified; never report an unrun check as passing.
+- Only run the catalog scripts for relevant settings changes. For changes to `.coderabbit.yaml`, run `coderabbit config validate .coderabbit.yaml` when the CodeRabbit CLI is available; this checks the current CodeRabbit schema, unlike YAML parsing alone. Redirect verbose lint logs to a file when helpful. If a check cannot run, state the reason and leave it unverified; never report an unrun check as passing.
 - Consult the relevant `docs/` design for the feature being changed (for example ActivityPub Group, composer drafts, emoji mutes or Settings Service). Existing CI workflow and repository configuration take precedence over generic upstream instructions.
