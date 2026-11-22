@@ -244,13 +244,15 @@ export default class Mastodon extends React.PureComponent {
 
     if (availability === 'temporary_ignore') {
       next = 'ignored';
+    } else if (phase === 'loading') {
+      next = 'loading';
     } else if (phase === 'error') {
       next = 'error';
     } else if (phase === 'ready') {
       next = 'ready';
     }
 
-    if (next !== 'ready' && next !== 'error' && next !== 'ignored') {
+    if (next !== 'ready' && next !== 'error' && next !== 'ignored' && next !== 'loading') {
       return;
     }
 

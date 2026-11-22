@@ -189,7 +189,7 @@
 // header, the notice, and search would otherwise shrink .drawer__pager to
 // nothing, and the composer has no other scroll path. Search results stay
 // stacked above the composer inside that pager.
-.drawer:has(> .emoji-mute-load-notice) {
+.drawer.drawer--emoji-mute-notice {
   min-height: 0;
   overflow-y: auto;
 }
