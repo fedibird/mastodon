@@ -123,7 +123,11 @@ function reducer(state, action) {
   next = next.set('favourite_tags', favouriteTagsReducer(next.get('favourite_tags'), action));
 
   if (action.type === 'MODAL_OPEN') {
-    return next.set('modal', fromJS({ modalType: action.modalType, hashtag: action.modalProps.hashtag }));
+    return next.set('modal', fromJS({
+      modalType: action.modalType,
+      hashtag: action.modalProps.hashtag,
+      imageRanges: action.modalProps.imageRanges || [],
+    }));
   }
 
   if (action.type !== 'ALERT_SHOW') {
@@ -1741,6 +1745,57 @@ describe('HashtagMenuController', () => {
     expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#party${native} #garden`);
     expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(expect.stringContaining('landscape'));
     expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(expect.stringContaining('パーティー'));
+  });
+
+  it('projects an open menu when verification is lost and passes image ranges to mute', () => {
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
+    const image = `<a href="https://remote.example/topics/image" class="mention hashtag" rel="tag">#<span>party${custom}</span></a>`;
+    const literal = '<a href="https://remote.example/topics/literal" class="mention hashtag" rel="tag">#<span>party:blob:</span></a>';
+    const html = `<p>See ${image} and ${literal} stays</p>`;
+    const emojiMutes = {
+      revision: '1',
+      appliedRevision: '1',
+      phase: 'ready',
+      failure: null,
+      rules: [],
+      availability: 'enabled',
+      display: 'apply',
+    };
+    const { container, store } = renderMenu({
+      signedIn: true,
+      contentHtml: html,
+      emojiMutes,
+      status: buildStatus({ contentHtml: html, tags: [] }),
+    });
+    const imageLink = container.querySelector('a[href="https://remote.example/topics/image"]');
+
+    const muteLabel = () => screen.getAllByRole('button').find(button => button.textContent.startsWith('Mute #'));
+
+    click(imageLink);
+    expect(muteLabel().textContent).toBe('Mute #party:blob:');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(muteLabel().textContent).toBe(`Mute #party${'\u25FB'}`);
+    const openMenu = document.querySelector('.dropdown-menu');
+    expect(openMenu.textContent).toContain(`party${'\u25FB'}`);
+    expect(openMenu.textContent).not.toContain(':blob:');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith('#party:blob:');
+
+    const literalNow = container.querySelector('a[href="https://remote.example/topics/literal"]');
+    const imageNow = container.querySelector('a[href="https://remote.example/topics/image"]');
+
+    click(literalNow);
+    expect(muteLabel().textContent).toBe('Mute #party:blob:');
+    click(literalNow);
+
+    click(imageNow);
+    fireEvent.click(muteLabel());
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe('party:blob:');
+    expect(store.getState().getIn(['modal', 'imageRanges']).toJS()).toEqual([[5, 11]]);
   });
 
   it('keeps an empty emoji replacement out of the menu labels', () => {

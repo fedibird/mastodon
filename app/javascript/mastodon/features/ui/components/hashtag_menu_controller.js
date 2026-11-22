@@ -264,7 +264,7 @@ class HashtagMenuController extends React.PureComponent {
         text: intl.formatMessage(messages.mute, { hashtag: label }),
         href: null,
         target: null,
-        action: () => this.props.onMuteHashtag(hashtag),
+        action: () => this.props.onMuteHashtag(hashtag, this.state.imageRanges),
         dangerous: true,
       });
     }
@@ -338,8 +338,8 @@ const mapDispatchToProps = dispatch => ({
     dispatch(createFavouriteTag(name));
   },
 
-  onMuteHashtag(hashtag) {
-    dispatch(openModal('HASHTAG_MUTE', { hashtag }));
+  onMuteHashtag(hashtag, imageRanges) {
+    dispatch(openModal('HASHTAG_MUTE', { hashtag, imageRanges: imageRanges || [] }));
   },
 });
 

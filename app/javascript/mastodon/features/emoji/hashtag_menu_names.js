@@ -110,13 +110,25 @@ export function bindHashtagMenuName(element, name, index, imageRanges) {
     return hashtagMenuDomName(name, index, ranges);
   }
 
-  if (!concealsName(name, ranges, index)) {
+  if (!name) {
     namesByElement.delete(element);
     element.removeAttribute('data-menu-hashtag-token');
-    return name || '';
+    return '';
   }
 
-  namesByElement.set(element, { name, imageRanges: ranges });
+  // Keep image ranges while the tag is verified. An open menu reads them
+  // once, and still projects them after the display becomes unverified.
+  if (ranges.length > 0 || concealsName(name, ranges, index)) {
+    namesByElement.set(element, { name, imageRanges: ranges });
+  } else {
+    namesByElement.delete(element);
+  }
+
+  if (!concealsName(name, ranges, index)) {
+    element.removeAttribute('data-menu-hashtag-token');
+    return name;
+  }
+
   element.setAttribute('data-menu-hashtag-token', '');
 
   return '';
@@ -127,14 +139,18 @@ export function hashtagMenuStoredIdentity(element) {
     return emptyIdentity();
   }
 
-  if (element.hasAttribute('data-menu-hashtag-token')) {
-    const stored = namesByElement.get(element);
+  const stored = namesByElement.get(element);
 
+  if (element.hasAttribute('data-menu-hashtag-token')) {
     if (stored && typeof stored === 'object') {
       return { name: stored.name || '', imageRanges: stored.imageRanges || [] };
     }
 
     return { name: typeof stored === 'string' ? stored : '', imageRanges: [] };
+  }
+
+  if (stored && typeof stored === 'object' && stored.imageRanges && stored.imageRanges.length > 0) {
+    return { name: stored.name || '', imageRanges: stored.imageRanges };
   }
 
   return { name: element.getAttribute('data-menu-hashtag') || '', imageRanges: [] };

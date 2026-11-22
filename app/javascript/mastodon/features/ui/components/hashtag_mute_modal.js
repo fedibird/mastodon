@@ -9,7 +9,8 @@ import { closeModal } from '../../../actions/modal';
 import { fetchFilters } from '../../../actions/filters';
 import { muteHashtag, unmuteHashtag, updateHashtagMute } from '../../../actions/hashtag_mutes';
 import { HASHTAG_MUTE_CONTEXTS, HASHTAG_MUTE_DURATIONS, findHashtagMute } from '../../../utils/hashtag_mute';
-import { emojiMuteTextIndexFromState, presentEmojiMutePlain, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
+import { projectHashtagLabel } from 'mastodon/features/emoji/hashtag_menu_names';
+import { emojiMuteTextIndexFromState, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   minutes: { id: 'intervals.full.minutes', defaultMessage: '{number, plural, one {# minute} other {# minutes}}' },
@@ -110,10 +111,21 @@ class HashtagMuteModal extends React.PureComponent {
     onUpdate: PropTypes.func.isRequired,
     onUnmute: PropTypes.func.isRequired,
     emojiMuteTextIndex: PropTypes.object,
+    imageRanges: PropTypes.array,
   };
 
+  imageRanges() {
+    const ranges = this.props.imageRanges;
+
+    if (!ranges) {
+      return [];
+    }
+
+    return typeof ranges.toJS === 'function' ? ranges.toJS() : ranges;
+  }
+
   visibleHashtag() {
-    const shown = presentEmojiMutePlain(this.props.hashtag, this.props.emojiMuteTextIndex);
+    const shown = projectHashtagLabel(this.props.hashtag, this.imageRanges(), this.props.emojiMuteTextIndex);
 
     if (typeof shown !== 'string') {
       return this.props.hashtag;
