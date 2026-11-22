@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render, waitFor } from '@testing-library/react';
 import React from 'react';
 
 let mockRequest;
@@ -72,7 +72,11 @@ jest.mock('mastodon/actions/emoji_mutes', () => ({
   EMOJI_MUTES_RESET: 'EMOJI_MUTES_RESET',
   invalidateEmojiMuteAsyncWork: jest.fn(),
   retryEmojiMuteLoad: jest.fn(() => () => mockRequest.promise),
-  ignoreEmojiMutesThisView: jest.fn(() => ({ type: 'EMOJI_MUTES_IGNORE' })),
+  ignoreEmojiMutesThisView: jest.fn(() => () => {
+    mockAvailability = 'temporary_ignore';
+    mockDisplay = 'show';
+    mockSubscribers.forEach(listener => listener());
+  }),
   disableEmojiMuteFeature: jest.fn(() => () => Promise.resolve({ enabled: false, explicit: true, applied: true })),
 }));
 jest.mock('mastodon/locales', () => ({ getLocale: () => ({ localeData: [], messages: {} }) }));
@@ -266,8 +270,23 @@ describe('authenticated emoji mute bootstrap', () => {
     expect(view.getByText('Ignoring this also shows emoji you muted.')).not.toBeNull();
     expect(view.getByText('Turn the feature off')).not.toBeNull();
 
+    const fetchesBeforeIgnore = retryEmojiMuteLoad.mock.calls.length;
+
     fireEvent.click(view.getByText('Ignore this time'));
     expect(ignoreEmojiMutesThisView).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(view.getByText(/ignored in this tab for this account/)).not.toBeNull());
+    expect(view.queryByText('Try again')).toBeNull();
+    expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(fetchesBeforeIgnore);
+    expect(view.getByTestId('webui')).toBe(ui);
+    view.unmount();
+  });
+
+  it('retries a failed load while the notice is still an error', async () => {
+    const view = render(<Mastodon locale='en' />);
+    const ui = view.getByTestId('webui');
+
+    await rejectBootstrap(new Error('offline'));
+    expect(view.getByText('Try again')).not.toBeNull();
 
     mockRequest = deferred();
     allowRetry();

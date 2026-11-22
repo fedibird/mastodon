@@ -1,11 +1,13 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import { bindEmojiMuteElementSource } from 'mastodon/features/emoji/emoji_mute_sources';
 
 export default class GIFV extends React.PureComponent {
 
   static propTypes = {
     src: PropTypes.string.isRequired,
     alt: PropTypes.string,
+    emojiMuteSource: PropTypes.string,
     lang: PropTypes.string,
     width: PropTypes.number,
     height: PropTypes.number,
@@ -18,6 +20,12 @@ export default class GIFV extends React.PureComponent {
 
   handleLoadedData = () => {
     this.setState({ loading: false });
+  }
+
+  bindEmojiMuteSource = node => {
+    if (node && typeof this.props.emojiMuteSource === 'string') {
+      bindEmojiMuteElementSource(node, this.props.emojiMuteSource);
+    }
   }
 
   componentWillReceiveProps (nextProps) {
@@ -50,6 +58,7 @@ export default class GIFV extends React.PureComponent {
             aria-label={alt}
             title={alt}
             lang={lang}
+            ref={this.bindEmojiMuteSource}
             onClick={this.handleClick}
           />
         )}
@@ -61,6 +70,7 @@ export default class GIFV extends React.PureComponent {
           aria-label={alt}
           title={alt}
           lang={lang}
+          ref={this.bindEmojiMuteSource}
           muted
           loop
           autoPlay

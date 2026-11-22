@@ -779,6 +779,32 @@ describe('StatusContent unverified emoji suppression', () => {
 
     expect(translatedBody.textContent).toContain('パーティー');
     expectConcealed(translatedBody);
+
+    const plainHref = 'https://example.com/tags/party';
+    const imageOnly = mount(buildStatus({
+      contentHtml: `<p><a href="${plainHref}" class="mention hashtag" rel="tag">#<span>party</span></a></p>`,
+      tags: [{ name: 'party', url: plainHref }],
+      language: 'en',
+      translationMode: 'translated',
+      translation: {
+        contentHtml: `<p><a href="${plainHref}" class="mention hashtag" rel="tag" title="Details: :blob:" aria-label="Details: :blob:">#${custom}パーティー</a></p>`,
+        spoilerHtml: '',
+        language: 'ja',
+        detected_source_language: 'en',
+        requested_source_language: 'en',
+        requested_target_language: 'ja',
+        provider: 'test',
+      },
+    }));
+    const imageLink = imageOnly.container.querySelector('.status__content__text a.mention.hashtag');
+
+    expect(imageLink.getAttribute('data-menu-hashtag')).toBe('party');
+    expect(hashtagMenuStoredName(imageLink)).toBe('party');
+    expect(imageLink.getAttribute('title') || '').not.toContain(':blob:');
+    expect(imageLink.getAttribute('aria-label') || '').not.toContain(':blob:');
+    expect(imageLink.outerHTML).not.toContain(':blob:');
+    expect(imageLink.outerHTML).not.toContain('cdn.example/blob.svg');
+    imageOnly.unmount();
     expect(translatedCw.textContent).toContain('秘密');
     expectConcealed(translatedCw);
     translated.unmount();

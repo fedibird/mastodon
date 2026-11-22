@@ -684,6 +684,38 @@ class StatusContent extends React.PureComponent {
     return rangesFor(hashtagIdentityFromNode(anchor));
   }
 
+  // The translated anchor can be the only place an emoji image appears.
+  // Its ranges describe that label. The menu action keeps the source name.
+  translatedImageIdentity (link) {
+    const translated = this._hashtagViewMode === 'translated' || (link && link.closest('.status-translation-pair__target'));
+
+    if (!translated || !link) {
+      return null;
+    }
+
+    const inSpoiler = !link.closest('.status__content__text');
+    const html = inSpoiler ? this._targetSpoilerHtml : this._targetBodyHtml;
+
+    if (typeof html !== 'string' || html === '') {
+      return null;
+    }
+
+    const index = this.hashtagLiveIndex(link);
+    const anchor = index < 0 ? null : this.anchorsWithHref(html, link.href)[index];
+
+    if (!anchor || !isHashtagMenuLink(anchor)) {
+      return null;
+    }
+
+    const identity = hashtagIdentityFromNode(anchor);
+
+    if (!identity.imageRanges || identity.imageRanges.length === 0) {
+      return null;
+    }
+
+    return identity;
+  }
+
   projectHashtagLinkLabels (link, name, imageRanges) {
     if (!link) {
       return;
@@ -729,13 +761,19 @@ class StatusContent extends React.PureComponent {
     }
 
     const { id, name: accountName } = this.statusAccountIdentity();
+    const translatedImages = this.translatedImageIdentity(link);
 
-    link.setAttribute('data-menu-hashtag', bindHashtagMenuName(link, name, this.props.emojiMuteTextIndex, imageRanges));
+    link.setAttribute('data-menu-hashtag', bindHashtagMenuName(link, name, this.props.emojiMuteTextIndex, imageRanges, translatedImages));
     const occurrence = this.hashtagOccurrenceIdentity(link);
-    const labelName = occurrence && occurrence.name ? occurrence.name : name;
-    const labelRanges = occurrence && occurrence.imageRanges && occurrence.imageRanges.length > 0
+    let labelName = occurrence && occurrence.name ? occurrence.name : name;
+    let labelRanges = occurrence && occurrence.imageRanges && occurrence.imageRanges.length > 0
       ? occurrence.imageRanges
       : imageRanges;
+
+    if (translatedImages) {
+      labelName = translatedImages.name;
+      labelRanges = translatedImages.imageRanges;
+    }
 
     this.projectHashtagLinkLabels(link, labelName, labelRanges);
     syncOpenHashtagMenu(link);
@@ -963,7 +1001,7 @@ class StatusContent extends React.PureComponent {
               data-account-name={accountName || undefined}
               data-status-id={statusId || undefined}
             >
-              {`${((hashtag.text || '').match(/^[#＃]/) || ['#'])[0]}${projectHashtagLabel(name, imageRanges, this.props.emojiMuteTextIndex)}`}
+              {`${((hashtag.text || '').match(/^[#＃]/) || ['#'])[0]}${projectHashtagLabel(name, imageRanges, this.props.emojiMuteTextIndex, hashtag.images)}`}
             </a>
           );
         })}

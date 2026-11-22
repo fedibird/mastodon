@@ -1,6 +1,6 @@
 import { storedReactionHidden } from './emoji_mute_projection';
-import { hasEmojiMuteAttributeSource, logicalEmojiMuteAttribute, logicalEmojiMuteText } from './emoji_mute_sources';
-import { bindHashtagMenuName, concealOpenHashtagMenus, hashtagMenuStoredIdentity, projectConcealedHashtagText, projectHashtagLabel } from './hashtag_menu_names';
+import { emojiMuteAttributeSourceKind, logicalEmojiMuteAttribute, logicalEmojiMuteText } from './emoji_mute_sources';
+import { bindHashtagMenuName, concealOpenHashtagDialogs, concealOpenHashtagMenus, hashtagMenuLabelIdentity, hashtagMenuStoredIdentity, projectConcealedHashtagText, projectHashtagLabel } from './hashtag_menu_names';
 import { displayTextForEmojiMuteHtml, emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
 // One selector for both the clear and the record. A host cleared here has to
@@ -275,15 +275,14 @@ const writeRecordedAttribute = (record, index, raw) => {
   }
 
   // Reaction glyphs follow hide_reactions. A replace_in_text rule must not
-  // rewrite the alt or label that this restore puts back. A photo alt has
-  // no registered source: the HTML renderer leaves it unchanged, so release
-  // puts that same string back. A surface that registered the source is
-  // projected once from the current value.
-  const registered = hasEmojiMuteAttributeSource(element, name);
-  const logical = registered ? logicalEmojiMuteAttribute(element, name, value) : value;
-  const plainImage = element.tagName === 'IMG' && !record.emojiImage && !registered;
+  // rewrite the alt or label that this restore puts back. HTML photo alts
+  // stay the original markup. A surface that projects the description itself
+  // is applied once from that original string.
+  const kind = emojiMuteAttributeSourceKind(element, name);
+  const logical = kind ? logicalEmojiMuteAttribute(element, name, value) : value;
+  const plainImage = element.tagName === 'IMG' && !record.emojiImage && kind !== 'plain';
   const readable = !raw && READABLE_ATTRIBUTES.indexOf(name) !== -1;
-  const next = readable && !plainImage ? presentEmojiMutePlain(logical, index) : logical;
+  const next = readable && !plainImage && kind !== 'html' ? presentEmojiMutePlain(logical, index) : logical;
 
   element.setAttribute(name, next === undefined || next === null ? value : next);
 };
@@ -559,27 +558,37 @@ const concealHashtagMenuLink = (sink, link) => {
   const identity = hashtagMenuStoredIdentity(link);
   const ranges = identity.imageRanges || [];
   const name = identity.name || attributeName;
+  const labelIdentity = hashtagMenuLabelIdentity(link);
+  const labelName = (labelIdentity && labelIdentity.name) || name;
+  const labelRanges = (labelIdentity && labelIdentity.imageRanges) || ranges;
   const unicodeChanges = attributeName !== '' && suppressUnicodeEmoji(attributeName) !== attributeName;
-  const imageConceals = ranges.length > 0 && projectHashtagLabel(name, ranges, SUPPRESS_UNVERIFIED_INDEX) !== name;
+  const actionConceals = ranges.length > 0 && projectHashtagLabel(name, ranges, SUPPRESS_UNVERIFIED_INDEX) !== name;
+  const labelConceals = labelRanges.length > 0 && projectHashtagLabel(labelName, labelRanges, SUPPRESS_UNVERIFIED_INDEX) !== labelName;
+  const imageConceals = actionConceals || labelConceals;
 
   if (!unicodeChanges && !imageConceals) {
     return;
   }
 
-  if (!attributeNoted(sink, link, 'data-menu-hashtag')) {
-    noteAttribute(sink, link, 'data-menu-hashtag');
-  }
+  if (unicodeChanges || actionConceals) {
+    if (!attributeNoted(sink, link, 'data-menu-hashtag')) {
+      noteAttribute(sink, link, 'data-menu-hashtag');
+    }
 
-  if (!attributeNoted(sink, link, 'data-menu-hashtag-token')) {
-    noteAttribute(sink, link, 'data-menu-hashtag-token');
-  }
+    if (!attributeNoted(sink, link, 'data-menu-hashtag-token')) {
+      noteAttribute(sink, link, 'data-menu-hashtag-token');
+    }
 
-  bindHashtagMenuName(link, name, SUPPRESS_UNVERIFIED_INDEX, ranges);
-  link.setAttribute('data-menu-hashtag', '');
+    bindHashtagMenuName(link, name, SUPPRESS_UNVERIFIED_INDEX, ranges, labelIdentity);
+    link.setAttribute('data-menu-hashtag', '');
+  }
 
   if (!imageConceals) {
     return;
   }
+
+  const projectionName = labelConceals ? labelName : name;
+  const projectionRanges = labelConceals ? labelRanges : ranges;
 
   READABLE_ATTRIBUTES.forEach(attr => {
     const value = link.getAttribute(attr);
@@ -590,7 +599,7 @@ const concealHashtagMenuLink = (sink, link) => {
 
     const noted = sink.find(record => record.kind === 'attribute' && record.element === link && record.name === attr);
     const base = noted ? noted.value : value;
-    const next = projectConcealedHashtagText(base, name, ranges);
+    const next = projectConcealedHashtagText(base, projectionName, projectionRanges);
 
     if (next === value) {
       return;
@@ -617,7 +626,7 @@ const concealHashtagMenuLink = (sink, link) => {
     const value = node.nodeValue || '';
     const noted = sink.find(record => record.kind === 'text' && record.node === node);
     const base = noted ? noted.value : value;
-    const next = projectConcealedHashtagText(base, name, ranges);
+    const next = projectConcealedHashtagText(base, projectionName, projectionRanges);
 
     if (next === value) {
       return;
@@ -675,6 +684,7 @@ export function createUnverifiedEmojiGuard() {
     // same turn, and stamp the text it rewrote so a same-batch success can
     // put the label back. A later React write no longer matches `written`.
     concealOpenHashtagMenus(records);
+    concealOpenHashtagDialogs(records);
     stampScrubWrites(records);
   };
 

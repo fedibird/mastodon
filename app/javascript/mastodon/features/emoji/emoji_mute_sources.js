@@ -1,5 +1,10 @@
+import { isUserEmojiImage } from './emoji_mute_text';
+
 // The string a surface projected from. The live DOM holds the projection,
 // so release must not run the rules on that projection again.
+// Attribute entries remember where the string came from. `html` is the
+// original markup, which does not run plain-text rules on a photo alt.
+// `plain` is a surface that already projects that text itself.
 const textSources = new WeakMap();
 const attributeSources = new WeakMap();
 
@@ -21,7 +26,7 @@ export function rememberEmojiMuteDisplayHtml(node, html) {
   textSources.set(node, { displayHtml: html });
 }
 
-export function rememberEmojiMuteAttributeSource(element, name, source) {
+export function rememberEmojiMuteAttributeSource(element, name, source, kind = 'plain') {
   if (!element || typeof source !== 'string') {
     return;
   }
@@ -33,21 +38,41 @@ export function rememberEmojiMuteAttributeSource(element, name, source) {
     attributeSources.set(element, sources);
   }
 
-  sources.set(name, source);
+  sources.set(name, { value: source, kind: kind === 'html' ? 'html' : 'plain' });
 }
 
 export function logicalEmojiMuteText(node, fallback) {
   return textSources.has(node) ? textSources.get(node) : fallback;
 }
 
-export function logicalEmojiMuteAttribute(element, name, fallback) {
-  const sources = attributeSources.get(element);
+const storedAttribute = (element, name) => {
+  const sources = element && attributeSources.get(element);
 
-  if (sources && sources.has(name)) {
-    return sources.get(name);
+  if (!sources || !sources.has(name)) {
+    return null;
+  }
+
+  return sources.get(name);
+};
+
+export function logicalEmojiMuteAttribute(element, name, fallback) {
+  const stored = storedAttribute(element, name);
+
+  if (stored && typeof stored.value === 'string') {
+    return stored.value;
   }
 
   return fallback;
+}
+
+export function emojiMuteAttributeSourceKind(element, name) {
+  const stored = storedAttribute(element, name);
+
+  if (!stored) {
+    return null;
+  }
+
+  return stored.kind === 'html' ? 'html' : 'plain';
 }
 
 export function hasEmojiMuteAttributeSource(element, name) {
@@ -104,7 +129,7 @@ const READABLE_SOURCE_ATTRIBUTES = ['title', 'aria-label', 'aria-description', '
 const rememberElementSources = (original, live) => {
   READABLE_SOURCE_ATTRIBUTES.forEach(name => {
     if (original.hasAttribute(name)) {
-      rememberEmojiMuteAttributeSource(live, name, original.getAttribute(name) || '');
+      rememberEmojiMuteAttributeSource(live, name, original.getAttribute(name) || '', 'html');
     }
   });
 };
@@ -134,10 +159,31 @@ const sameSurvivingImage = (original, live) => {
 };
 
 const isEmojiImage = node => !!(node && node.tagName === 'IMG' && (
-  node.getAttribute('data-emoji-id')
+  isUserEmojiImage(node)
+  || node.getAttribute('data-emoji-id')
   || node.getAttribute('data-shortcode')
-  || (node.classList && (node.classList.contains('emojione') || node.classList.contains('custom-emoji')))
 ));
+
+// The HTML projector replaces the whole picture when its img is a user emoji.
+const replacedPicture = node => {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE || node.tagName !== 'PICTURE') {
+    return false;
+  }
+
+  const img = node.querySelector && node.querySelector('img');
+
+  return !!(img && isUserEmojiImage(img));
+};
+
+const sameSurvivingPicture = (original, live) => {
+  if (!original || !live || original.tagName !== 'PICTURE' || live.tagName !== 'PICTURE') {
+    return false;
+  }
+
+  return sameSurvivingImage(original.querySelector('img'), live.querySelector('img'));
+};
+
+const foldablePiece = node => isTextOrEmojiImage(node) || replacedPicture(node);
 
 // Walk both trees together. A paragraph that projects to nothing does not
 // drop the source of the paragraph after it. A text node keeps only the
@@ -161,13 +207,14 @@ const bindHtmlChildren = (original, live) => {
       continue;
     }
 
-    if (isTextOrEmojiImage(child) && liveNode && liveNode.nodeType === Node.TEXT_NODE) {
+    if (foldablePiece(child) && liveNode && liveNode.nodeType === Node.TEXT_NODE) {
       const fragment = child.ownerDocument.createElement('div');
 
-      while (originalIndex < originalChildren.length && isTextOrEmojiImage(originalChildren[originalIndex])) {
+      while (originalIndex < originalChildren.length && foldablePiece(originalChildren[originalIndex])) {
         const piece = originalChildren[originalIndex];
+        const ahead = liveChildren[liveIndex + 1];
 
-        if (sameSurvivingImage(piece, liveChildren[liveIndex + 1])) {
+        if (sameSurvivingImage(piece, ahead) || sameSurvivingPicture(piece, ahead)) {
           break;
         }
 

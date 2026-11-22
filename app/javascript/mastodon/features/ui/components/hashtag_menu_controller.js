@@ -91,6 +91,18 @@ class HashtagMenuController extends React.PureComponent {
       return;
     }
 
+    if (!link.isConnected) {
+      this.handleClose();
+      return;
+    }
+
+    const identity = hashtagMenuStoredIdentity(link);
+
+    if (!identity.name || identity.name !== this.state.hashtag) {
+      this.handleClose();
+      return;
+    }
+
     const next = this.actionRanges();
     const prev = this.state.imageRanges || [];
     const same = next.length === prev.length && next.every((range, index) => range[0] === prev[index][0] && range[1] === prev[index][1]);
@@ -113,11 +125,20 @@ class HashtagMenuController extends React.PureComponent {
       return;
     }
 
-    const shown = projectHashtagLabel(this.state.hashtag, this.actionRanges(), SUPPRESS_UNVERIFIED_INDEX);
-    const label = shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
+    const ranges = this.actionRanges();
     const raw = this.state.hashtag;
+    const rendered = projectHashtagLabel(raw, ranges, this.props.emojiMuteTextIndex);
+    const shown = projectHashtagLabel(raw, ranges, SUPPRESS_UNVERIFIED_INDEX);
+    const label = shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
+    const needles = [];
 
-    if (!raw || label === raw) {
+    [rendered, raw].forEach(value => {
+      if (value && value !== label && needles.indexOf(value) === -1) {
+        needles.push(value);
+      }
+    });
+
+    if (needles.length === 0) {
       return;
     }
 
@@ -127,10 +148,17 @@ class HashtagMenuController extends React.PureComponent {
 
     while (node) {
       const value = node.nodeValue || '';
+      let next = value;
 
-      if (value.includes(raw)) {
+      needles.forEach(needle => {
+        if (next.includes(needle)) {
+          next = next.split(needle).join(label);
+        }
+      });
+
+      if (next !== value) {
         recordEmojiMuteText(sink, node);
-        node.nodeValue = value.split(raw).join(label);
+        node.nodeValue = next;
       }
 
       node = walker.nextNode();

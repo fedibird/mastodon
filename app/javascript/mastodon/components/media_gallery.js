@@ -15,6 +15,26 @@ import Thumbhash from 'mastodon/components/thumbhash';
 import { mediaGalleryAspectRatio } from 'mastodon/utils/media_gallery_layout';
 import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
 import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
+import { bindEmojiMuteElementSource } from 'mastodon/features/emoji/emoji_mute_sources';
+
+class WithEmojiMuteSource extends React.PureComponent {
+
+  static propTypes = {
+    source: PropTypes.string,
+    children: PropTypes.element,
+  };
+
+  bind = node => {
+    if (node && typeof this.props.source === 'string') {
+      bindEmojiMuteElementSource(node, this.props.source);
+    }
+  }
+
+  render () {
+    return React.cloneElement(this.props.children, { ref: this.bind });
+  }
+
+}
 
 const messages = defineMessages({
   toggle_visible: { id: 'media_gallery.toggle_visible', defaultMessage: '{number, plural, one {Hide image} other {Hide images}}' },
@@ -155,6 +175,7 @@ class Item extends React.PureComponent {
     const originalDescription = presentEmojiMutePlain(accessible.original, this.props.emojiMuteTextIndex);
     const translatedDescription = presentEmojiMutePlain(accessible.translated, this.props.emojiMuteTextIndex);
     const descriptionLang = accessible.lang || this.props.lang;
+    const descriptionSource = typeof accessible.text === 'string' ? accessible.text : '';
 
     if (description?.length > 0) {
       badges.push(
@@ -175,22 +196,24 @@ class Item extends React.PureComponent {
     if (attachment.get('type') === 'unknown') {
       return (
         <div className={classNames('media-gallery__item', { standalone })} key={attachment.get('id')} style={{ left: left, top: top, right: right, bottom: bottom, width: `${width}%`, height: size > 4 ? `calc(${height}% - 4px)` : `${height}%` }}>
-          <a className='media-gallery__item-thumbnail' href={attachment.get('remote_url') || attachment.get('url')} style={{ cursor: 'pointer' }} title={description} lang={descriptionLang} target='_blank' rel='noopener noreferrer'>
-            {attachment.get('thumbhash') ?
-              <Thumbhash
-                hash={attachment.get('thumbhash')}
-                className='media-gallery__preview'
-                dummy={!useBlurhash}
-              />
-              : attachment.get('blurhash') ?
-                <Blurhash
-                  hash={attachment.get('blurhash')}
+          <WithEmojiMuteSource source={descriptionSource}>
+            <a className='media-gallery__item-thumbnail' href={attachment.get('remote_url') || attachment.get('url')} style={{ cursor: 'pointer' }} title={description} lang={descriptionLang} target='_blank' rel='noopener noreferrer'>
+              {attachment.get('thumbhash') ?
+                <Thumbhash
+                  hash={attachment.get('thumbhash')}
                   className='media-gallery__preview'
                   dummy={!useBlurhash}
                 />
-                : null
-            }
-          </a>
+                : attachment.get('blurhash') ?
+                  <Blurhash
+                    hash={attachment.get('blurhash')}
+                    className='media-gallery__preview'
+                    dummy={!useBlurhash}
+                  />
+                  : null
+              }
+            </a>
+          </WithEmojiMuteSource>
         </div>
       );
     } else if (attachment.get('type') === 'image') {
@@ -218,16 +241,18 @@ class Item extends React.PureComponent {
           target='_blank'
           rel='noopener noreferrer'
         >
-          <img
-            src={previewUrl}
-            srcSet={srcSet}
-            sizes={sizes}
-            alt={description}
-            title={description}
-            lang={descriptionLang}
-            style={{ objectPosition: `${x}% ${y}%` }}
-            onLoad={this.handleImageLoad}
-          />
+          <WithEmojiMuteSource source={descriptionSource}>
+            <img
+              src={previewUrl}
+              srcSet={srcSet}
+              sizes={sizes}
+              alt={description}
+              title={description}
+              lang={descriptionLang}
+              style={{ objectPosition: `${x}% ${y}%` }}
+              onLoad={this.handleImageLoad}
+            />
+          </WithEmojiMuteSource>
         </a>
       );
     } else if (attachment.get('type') === 'gifv') {
@@ -237,20 +262,22 @@ class Item extends React.PureComponent {
 
       thumbnail = (
         <div className={classNames('media-gallery__gifv', { autoplay: autoPlay })}>
-          <video
-            className='media-gallery__item-gifv-thumbnail'
-            aria-label={description}
-            title={description}
-            lang={descriptionLang}
-            role='application'
-            src={attachment.get('url')}
-            onClick={this.handleClick}
-            onMouseEnter={this.handleMouseEnter}
-            onMouseLeave={this.handleMouseLeave}
-            autoPlay={autoPlay}
-            loop
-            muted
-          />
+          <WithEmojiMuteSource source={descriptionSource}>
+            <video
+              className='media-gallery__item-gifv-thumbnail'
+              aria-label={description}
+              title={description}
+              lang={descriptionLang}
+              role='application'
+              src={attachment.get('url')}
+              onClick={this.handleClick}
+              onMouseEnter={this.handleMouseEnter}
+              onMouseLeave={this.handleMouseLeave}
+              autoPlay={autoPlay}
+              loop
+              muted
+            />
+          </WithEmojiMuteSource>
         </div>
       );
     }

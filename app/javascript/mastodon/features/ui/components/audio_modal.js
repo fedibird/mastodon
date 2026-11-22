@@ -75,6 +75,7 @@ class AudioModal extends ImmutablePureComponent {
           <Audio
             src={media.get('url')}
             alt={description}
+            emojiMuteSource={accessible.text || ''}
             lang={lang}
             duration={media.getIn(['meta', 'original', 'duration'], 0)}
             height={150}

@@ -305,6 +305,10 @@ function hashtagData(anchor) {
     data.imageRanges = identity.imageRanges;
   }
 
+  if (identity.images && identity.images.length > 0) {
+    data.images = identity.images;
+  }
+
   return data;
 }
 

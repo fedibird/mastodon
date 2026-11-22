@@ -78,6 +78,7 @@ class VideoModal extends ImmutablePureComponent {
             onCloseVideo={onClose}
             detailed
             alt={description}
+            emojiMuteSource={accessible.text || ''}
             lang={lang}
           />
         </div>

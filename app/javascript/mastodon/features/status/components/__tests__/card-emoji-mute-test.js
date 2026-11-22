@@ -74,6 +74,7 @@ describe('link card unverified text', () => {
     const html = container.innerHTML;
     expect(html).toContain('src="https://player.example/embed?v=1&amp;autoplay=1&amp;auto_play=1"');
     expect(html).not.toContain('👌');
+    expect(container.querySelector('.status-card').contains(container.querySelector('.status-card-video'))).toBe(true);
     expect(container.querySelector('.status-card__host').textContent).toBe('◻.example');
     expect(container.querySelector('iframe').getAttribute('title')).toBe('Play ◻');
     expect(container.querySelector('p').textContent).toBe('Watch ◻');
@@ -259,5 +260,61 @@ describe('link card unverified text', () => {
     expect(title.textContent).toBe('Hi [ok]');
     expect(title.getAttribute('title')).toBe('Hi [ok]');
     expect(description.textContent).toBe('Note [ok]');
+  });
+
+  it('keeps the card root when an embed opens and projects that embed once', () => {
+    const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
+    const rules = [
+      { id: 'ok', revision: '1', emoji: { kind: 'unicode', native: '👌' }, replacement: '✨', effects },
+      { id: 'spark', revision: '1', emoji: { kind: 'unicode', native: '✨' }, replacement: '[sparkles]', effects },
+    ];
+    const video = card.merge({
+      provider_name: 'News',
+      type: 'video',
+      html: '<p>Watch 👌</p>',
+    });
+    const store = createStore((state, action) => state.set('emojiMutes', emojiMutesReducer(state.get('emojiMutes'), action)), fromJS({
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'ready',
+        failure: null,
+        rules,
+        availability: 'enabled',
+        display: 'apply',
+      },
+    }));
+    const guard = createUnverifiedEmojiGuard();
+
+    store.subscribe(() => guard(store.getState()));
+    const { container } = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <Card card={video} onOpenMedia={jest.fn()} />
+        </div>
+      </Provider>,
+    );
+    const root = container.querySelector('.status-card');
+
+    fireEvent.click(container.querySelector('button'));
+
+    const embed = container.querySelector('.status-card-video');
+
+    expect(root.contains(embed)).toBe(true);
+    expect(embed.textContent).toBe('Watch ✨');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: rules,
+      });
+    });
+
+    expect(container.querySelector('.status-card-video').textContent).toBe('Watch ✨');
+    expect(container.querySelector('.status-card-video').textContent).not.toContain('[sparkles]');
+    expect(container.querySelector('.status-card').contains(container.querySelector('.status-card-video'))).toBe(true);
   });
 });

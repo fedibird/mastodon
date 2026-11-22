@@ -321,6 +321,7 @@ class MediaModal extends ImmutablePureComponent {
               onCloseVideo={onClose}
               detailed
               alt={description}
+              emojiMuteSource={accessible.text || ''}
               lang={lang}
             />
           </div>
@@ -333,6 +334,7 @@ class MediaModal extends ImmutablePureComponent {
             height={height}
             key={`${image.get('preview_url')}:${imageIndex}`}
             alt={description}
+            emojiMuteSource={accessible.text || ''}
             lang={lang}
             onClick={this.toggleNavigation}
           />

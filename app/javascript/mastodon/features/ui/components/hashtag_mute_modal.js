@@ -9,8 +9,9 @@ import { closeModal } from '../../../actions/modal';
 import { fetchFilters } from '../../../actions/filters';
 import { muteHashtag, unmuteHashtag, updateHashtagMute } from '../../../actions/hashtag_mutes';
 import { HASHTAG_MUTE_CONTEXTS, HASHTAG_MUTE_DURATIONS, findHashtagMute } from '../../../utils/hashtag_mute';
-import { projectHashtagLabel } from 'mastodon/features/emoji/hashtag_menu_names';
-import { emojiMuteTextIndexFromState, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
+import { projectHashtagLabel, registerHashtagDialogConcealer } from 'mastodon/features/emoji/hashtag_menu_names';
+import { recordEmojiMuteText } from 'mastodon/features/emoji/emoji_mute_live_dom';
+import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   minutes: { id: 'intervals.full.minutes', defaultMessage: '{number, plural, one {# minute} other {# minutes}}' },
@@ -124,6 +125,53 @@ class HashtagMuteModal extends React.PureComponent {
     return typeof ranges.toJS === 'function' ? ranges.toJS() : ranges;
   }
 
+  concealForSuppress = sink => {
+    const heading = document.getElementById('hashtag-mute-title');
+
+    if (!heading || !heading.isConnected || !this.props.hashtag) {
+      return;
+    }
+
+    const ranges = this.imageRanges();
+    const raw = this.props.hashtag;
+    const rendered = projectHashtagLabel(raw, ranges, this.props.emojiMuteTextIndex);
+    const shown = projectHashtagLabel(raw, ranges, SUPPRESS_UNVERIFIED_INDEX);
+    const label = shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
+    const needles = [];
+
+    [rendered, raw].forEach(value => {
+      if (value && value !== label && needles.indexOf(value) === -1) {
+        needles.push(value);
+      }
+    });
+
+    if (needles.length === 0) {
+      return;
+    }
+
+    const owner = heading.ownerDocument || document;
+    const walker = owner.createTreeWalker(heading, NodeFilter.SHOW_TEXT, null);
+    let node = walker.nextNode();
+
+    while (node) {
+      const value = node.nodeValue || '';
+      let next = value;
+
+      needles.forEach(needle => {
+        if (next.includes(needle)) {
+          next = next.split(needle).join(label);
+        }
+      });
+
+      if (next !== value) {
+        recordEmojiMuteText(sink, node);
+        node.nodeValue = next;
+      }
+
+      node = walker.nextNode();
+    }
+  }
+
   visibleHashtag() {
     const shown = projectHashtagLabel(this.props.hashtag, this.imageRanges(), this.props.emojiMuteTextIndex);
 
@@ -143,7 +191,14 @@ class HashtagMuteModal extends React.PureComponent {
   };
 
   componentDidMount() {
+    this.unregisterDialogConcealer = registerHashtagDialogConcealer(this.concealForSuppress);
     return this.loadFilters();
+  }
+
+  componentWillUnmount() {
+    if (this.unregisterDialogConcealer) {
+      this.unregisterDialogConcealer();
+    }
   }
 
   componentDidUpdate(_prevProps, prevState) {

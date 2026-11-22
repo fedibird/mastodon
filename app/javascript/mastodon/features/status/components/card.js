@@ -182,10 +182,8 @@ class Card extends React.PureComponent {
     bindEmojiMuteElementSource(this.node.querySelector('.status-card__description'), trim(card.get('description') || '', maxDescription));
     bindEmojiMuteElementSource(this.node.querySelector('.status-card__host'), providerSource);
 
-    const embed = this.node.querySelector('.status-card-video');
-
-    if (embed) {
-      bindEmojiMuteHtmlSources(embed, card.get('html') || '');
+    if (this.embedNode) {
+      bindEmojiMuteHtmlSources(this.embedNode, card.get('html') || '');
     }
   }
 
@@ -255,6 +253,11 @@ class Card extends React.PureComponent {
     }
   }
 
+  setEmbedRef = c => {
+    this.embedNode = c;
+    this.bindEmojiMuteSources();
+  }
+
   handleImageLoad = () => {
     this.setState({ previewLoaded: true });
   }
@@ -292,7 +295,7 @@ class Card extends React.PureComponent {
 
     return (
       <div
-        ref={this.setRef}
+        ref={this.setEmbedRef}
         className='status-card__image status-card-video'
         dangerouslySetInnerHTML={content}
         style={{ height }}

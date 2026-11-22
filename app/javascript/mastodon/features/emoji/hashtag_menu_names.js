@@ -1,14 +1,33 @@
-import { isUserEmojiImage, presentEmojiMutePlain, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
+import { isUserEmojiImage, presentEmojiMutePlain, replacementForCustomEmoji, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
 // The original name stays on the live element. A detached node can be
 // collected, so an account switch does not keep the previous viewer's tags.
 const namesByElement = new WeakMap();
+const labelIdentities = new WeakMap();
 
 const emptyIdentity = () => ({ name: '', imageRanges: [] });
 
+const externalMarkFromAnchor = anchor => {
+  if (!anchor || !anchor.previousSibling) {
+    return '';
+  }
+
+  const visible = anchor.textContent || '';
+
+  if (visible[0] === '#' || visible[0] === '＃') {
+    return '';
+  }
+
+  const previous = anchor.previousSibling.textContent || '';
+  const mark = previous[previous.length - 1];
+
+  return mark === '#' || mark === '＃' ? mark : '';
+};
+
 // Text plus the alt of a real emoji image. A photo alt is not the tag.
 // imageRanges mark shortcodes that came from those images, not typed text.
-export function hashtagIdentityFromNode(anchor) {
+// An external hash is the separator and is not taken from an image alt.
+export function hashtagIdentityFromNode(anchor, options) {
   const segments = [];
 
   const walk = node => {
@@ -27,7 +46,16 @@ export function hashtagIdentityFromNode(anchor) {
 
     if (node.tagName === 'IMG') {
       if (isUserEmojiImage(node)) {
-        segments.push({ text: node.getAttribute('alt') || '', fromImage: true });
+        segments.push({
+          text: node.getAttribute('alt') || '',
+          fromImage: true,
+          image: {
+            custom: !!(node.classList && node.classList.contains('custom-emoji')),
+            id: node.getAttribute('data-emoji-id') || '',
+            domain: node.getAttribute('data-domain') || '',
+            shortcode: node.getAttribute('data-shortcode') || '',
+          },
+        });
       }
       return;
     }
@@ -39,6 +67,7 @@ export function hashtagIdentityFromNode(anchor) {
 
   let raw = '';
   const rawRanges = [];
+  const rawImages = [];
 
   segments.forEach(segment => {
     const start = raw.length;
@@ -47,37 +76,85 @@ export function hashtagIdentityFromNode(anchor) {
 
     if (segment.fromImage && segment.text) {
       rawRanges.push([start, raw.length]);
+      rawImages.push({ ...segment.image, start, end: raw.length });
     }
   });
 
   // " #tag " is the tag "tag". The hash can be fullwidth, and the spaces
-  // before it are not part of the name or the image offsets.
+  // before it are not part of the name or the image offsets. A hash that
+  // sits outside the anchor is not read from a keycap alt.
+  const passedMark = options && options.externalMark;
+  const externalMark = passedMark === '#' || passedMark === '＃' ? passedMark : externalMarkFromAnchor(anchor);
   const leading = raw.match(/^\s*/);
   const leadCut = leading ? leading[0].length : 0;
   const body = raw.slice(leadCut);
-  const lead = body.match(/^([#＃])\s*/);
-  const mark = lead ? lead[1] : '#';
+  const lead = externalMark ? null : body.match(/^([#＃])\s*/);
+  const mark = externalMark || (lead ? lead[1] : '#');
   const cut = leadCut + (lead ? lead[0].length : 0);
   const trimmedEnd = raw.match(/\s*$/);
   const end = trimmedEnd ? raw.length - trimmedEnd[0].length : raw.length;
   const name = raw.slice(cut, end);
   const imageRanges = [];
+  const images = [];
 
-  rawRanges.forEach(([start, rangeEnd]) => {
+  const keepRange = (start, rangeEnd) => {
     const nextStart = start - cut;
     const nextEnd = rangeEnd - cut;
 
     if (nextEnd <= 0 || nextStart >= name.length) {
+      return null;
+    }
+
+    return [Math.max(0, nextStart), Math.min(name.length, nextEnd)];
+  };
+
+  rawRanges.forEach(([start, rangeEnd]) => {
+    const next = keepRange(start, rangeEnd);
+
+    if (next) {
+      imageRanges.push(next);
+    }
+  });
+
+  rawImages.forEach(image => {
+    const next = keepRange(image.start, image.end);
+
+    if (!next) {
       return;
     }
 
-    imageRanges.push([Math.max(0, nextStart), Math.min(name.length, nextEnd)]);
+    images.push({
+      start: next[0],
+      end: next[1],
+      custom: image.custom,
+      id: image.id,
+      domain: image.domain,
+      shortcode: image.shortcode,
+    });
   });
 
-  return { name, imageRanges, mark };
+  return { name, imageRanges, images, mark };
 }
 
-const shortcodesIn = text => text.match(/:[^:\s]+:/g) || [];
+const shortcodesInsideRanges = (name, imageRanges) => {
+  const found = [];
+  const pattern = /:[^:\s]+:/g;
+  let match = pattern.exec(name);
+
+  while (match) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const inside = imageRanges.some(([rangeStart, rangeEnd]) => start < rangeEnd && end > rangeStart);
+
+    if (inside && found.indexOf(match[0]) === -1) {
+      found.push(match[0]);
+    }
+
+    match = pattern.exec(name);
+  }
+
+  return found;
+};
 
 // Case and 1:1 NFKC. A fold that changes the length would move the ranges,
 // so that character does not count as the same position.
@@ -155,7 +232,7 @@ const concealUnmappedSegments = (value, name, imageRanges) => {
     return next;
   }
 
-  shortcodesIn(name).forEach(code => {
+  shortcodesInsideRanges(name, imageRanges).forEach(code => {
     if (next.includes(code)) {
       next = next.split(code).join(UNVERIFIED_EMOJI_PLACEHOLDER);
     }
@@ -224,8 +301,41 @@ export function projectConcealedHashtagText(value, name, imageRanges) {
   return suppressUnicodeEmoji(concealImageDerivedSegments(base, name, imageRanges || []));
 }
 
-export function projectHashtagLabel(name, imageRanges, index) {
+const projectPieces = (source, index, images) => {
+  const ordered = images.slice().sort((left, right) => left.start - right.start);
+  const pieces = [];
+  let cursor = 0;
+
+  ordered.forEach(image => {
+    if (image.start < cursor || image.end <= image.start) {
+      return;
+    }
+
+    pieces.push(presentEmojiMutePlain(source.slice(cursor, image.start), index) || '');
+
+    if (index && index.suppressAll === true) {
+      pieces.push(UNVERIFIED_EMOJI_PLACEHOLDER);
+    } else {
+      const replacement = replacementForCustomEmoji(image, index);
+
+      pieces.push(replacement === undefined ? (presentEmojiMutePlain(source.slice(image.start, image.end), index) || '') : replacement);
+    }
+
+    cursor = image.end;
+  });
+
+  pieces.push(presentEmojiMutePlain(source.slice(cursor), index) || '');
+
+  return pieces.join('');
+};
+
+export function projectHashtagLabel(name, imageRanges, index, images) {
   const source = typeof name === 'string' ? name : '';
+
+  if (images && images.length > 0) {
+    return projectPieces(source, index, images);
+  }
+
   let projected = source;
 
   if (index && index.suppressAll === true && imageRanges && imageRanges.length > 0) {
@@ -255,12 +365,35 @@ export function hashtagMenuDomName(name, index, imageRanges) {
   return concealsName(name, imageRanges, index) ? '' : name;
 }
 
-export function bindHashtagMenuName(element, name, index, imageRanges) {
+const rememberLabelIdentity = (element, label) => {
+  if (!element) {
+    return;
+  }
+
+  if (label && label.name) {
+    labelIdentities.set(element, { name: label.name, imageRanges: label.imageRanges || [] });
+    return;
+  }
+
+  labelIdentities.delete(element);
+};
+
+export function hashtagMenuLabelIdentity(element) {
+  if (!element) {
+    return null;
+  }
+
+  return labelIdentities.get(element) || null;
+}
+
+export function bindHashtagMenuName(element, name, index, imageRanges, label) {
   const ranges = imageRanges || [];
 
   if (!element) {
     return hashtagMenuDomName(name, index, ranges);
   }
+
+  rememberLabelIdentity(element, label);
 
   if (!name) {
     namesByElement.delete(element);
@@ -328,6 +461,18 @@ export function registerHashtagMenuConcealer(conceal) {
 
 export function concealOpenHashtagMenus(sink) {
   hashtagMenuConcealers.forEach(conceal => conceal(sink));
+}
+
+const hashtagDialogConcealers = new Set();
+
+export function registerHashtagDialogConcealer(conceal) {
+  hashtagDialogConcealers.add(conceal);
+
+  return () => hashtagDialogConcealers.delete(conceal);
+}
+
+export function concealOpenHashtagDialogs(sink) {
+  hashtagDialogConcealers.forEach(conceal => conceal(sink));
 }
 
 export function registerHashtagMenuBinding(sync) {

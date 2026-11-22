@@ -42,6 +42,7 @@ class StatusCheckBox extends React.PureComponent {
                 blurhash={video.get('blurhash')}
                 src={video.get('url')}
                 alt={presentEmojiMutePlain(video.get('description') || '', this.props.emojiMuteTextIndex)}
+                emojiMuteSource={video.get('description') || ''}
                 width={239}
                 height={110}
                 inline

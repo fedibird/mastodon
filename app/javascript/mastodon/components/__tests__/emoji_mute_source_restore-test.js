@@ -16,7 +16,7 @@ import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES
 import CustomEmojiText from 'mastodon/components/custom_emoji_text';
 import { createUnverifiedEmojiGuard, emojiMuteLiveDomProbe, resetEmojiMuteLiveDomProbe } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import { bindEmojiMuteElementSource, bindEmojiMuteHtmlSources } from 'mastodon/features/emoji/emoji_mute_sources';
-import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMuteTextIndexFromState, presentEmojiMutePlain, replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
 
 const OK = '👌';
@@ -708,6 +708,346 @@ describe('emoji mute source restore', () => {
     expect(titleAtSuppress).toBeNull();
     expect(view.container.querySelector('a').getAttribute('aria-label')).toBeNull();
     expect(view.container.querySelector('a').getAttribute('title')).toBeNull();
+    view.unmount();
+  });
+
+  it('keeps an HTML photo alt and applies a gallery description once', () => {
+    const thumb = '👍';
+    const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
+    const rules = [{
+      id: 'up',
+      revision: '1',
+      emoji: { kind: 'unicode', native: thumb },
+      replacement: '[up]',
+      effects,
+    }];
+    const store = createStore(reducer, fromJS({
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'ready',
+        failure: null,
+        rules,
+        availability: 'enabled',
+        display: 'apply',
+      },
+      title: '',
+    }));
+    const guard = createUnverifiedEmojiGuard();
+
+    store.subscribe(() => guard(store.getState()));
+
+    const PhotoAndGallery = connect(state => ({
+      index: emojiMuteTextIndexFromState(state),
+    }))(class BoundMedia extends React.Component {
+
+      componentDidMount () {
+        this.bind();
+      }
+
+      componentDidUpdate () {
+        this.bind();
+      }
+
+      bind () {
+        bindEmojiMuteHtmlSources(this.photo, `<img alt="photo ${thumb}" src="/photos/1.jpg">`);
+        bindEmojiMuteElementSource(this.gallery, `photo ${thumb}`);
+      }
+
+      setPhoto = node => {
+        this.photo = node;
+      }
+
+      setGallery = node => {
+        this.gallery = node;
+      }
+
+      render () {
+        const description = presentEmojiMutePlain(`photo ${thumb}`, this.props.index);
+
+        return (
+          <div>
+            <div ref={this.setPhoto} dangerouslySetInnerHTML={{ __html: `<img alt="photo ${thumb}" src="/photos/1.jpg">` }} />
+            <img alt={description} title={description} src='/photos/2.jpg' ref={this.setGallery} />
+          </div>
+        );
+      }
+
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <PhotoAndGallery />
+        </div>
+      </Provider>,
+    );
+    const photo = view.container.querySelector('img[src="/photos/1.jpg"]');
+    const gallery = view.container.querySelector('img[src="/photos/2.jpg"]');
+
+    expect(photo.getAttribute('alt')).toBe(`photo ${thumb}`);
+    expect(gallery.getAttribute('alt')).toBe('photo [up]');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: rules,
+      });
+    });
+
+    expect(photo.getAttribute('alt')).toBe(`photo ${thumb}`);
+    expect(gallery.getAttribute('alt')).toBe('photo [up]');
+    expect(gallery.getAttribute('title')).toBe('photo [up]');
+    view.unmount();
+  });
+
+  it('does not give a removed classless emoji to the next image', () => {
+    const thumb = '👍';
+    const spark = '✨';
+    const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
+    const rules = [{
+      id: 'up',
+      revision: '1',
+      emoji: { kind: 'unicode', native: thumb },
+      replacement: '',
+      effects,
+    }];
+    const original = `<img alt="${thumb}" src="/emoji/1f44d.svg"><img alt="${spark}" src="/emoji/2728.svg">`;
+    const store = createStore(reducer, fromJS({
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'ready',
+        failure: null,
+        rules,
+        availability: 'enabled',
+        display: 'apply',
+      },
+      title: '',
+    }));
+    const guard = createUnverifiedEmojiGuard();
+
+    store.subscribe(() => guard(store.getState()));
+
+    const Block = connect(state => ({
+      index: emojiMuteTextIndexFromState(state),
+    }))(class HtmlBlock extends React.Component {
+
+      componentDidMount () {
+        bindEmojiMuteHtmlSources(this.node, original);
+      }
+
+      componentDidUpdate () {
+        bindEmojiMuteHtmlSources(this.node, original);
+      }
+
+      setNode = node => {
+        this.node = node;
+      }
+
+      render () {
+        return (
+          <div
+            ref={this.setNode}
+            dangerouslySetInnerHTML={{ __html: replaceEmojiInDisplayHtml(original, this.props.index) }}
+          />
+        );
+      }
+
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <Block />
+        </div>
+      </Provider>,
+    );
+    const image = view.container.querySelector('img');
+
+    expect(image.getAttribute('src')).toBe('/emoji/2728.svg');
+    expect(image.getAttribute('alt')).toBe(spark);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: rules,
+      });
+    });
+
+    expect(view.container.querySelector('img').getAttribute('src')).toBe('/emoji/2728.svg');
+    expect(view.container.querySelector('img').getAttribute('alt')).toBe(spark);
+    expect(view.container.querySelector('img').getAttribute('src')).not.toBe('/emoji/1f44d.svg');
+    view.unmount();
+  });
+
+  it('keeps text after a replaced picture', () => {
+    const thumb = '👍';
+    const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
+    const rules = [
+      { id: 'up', revision: '1', emoji: { kind: 'unicode', native: thumb }, replacement: SPARKLE, effects },
+      { id: 'spark', revision: '1', emoji: { kind: 'unicode', native: SPARKLE }, replacement: '[sparkles]', effects },
+    ];
+    const original = `Hello <picture><source srcset="/emoji/1f44d.svg"><img alt="${thumb}" src="/emoji/1f44d.svg"></picture> there`;
+    const store = createStore(reducer, fromJS({
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'ready',
+        failure: null,
+        rules,
+        availability: 'enabled',
+        display: 'apply',
+      },
+      title: '',
+    }));
+    const guard = createUnverifiedEmojiGuard();
+
+    store.subscribe(() => guard(store.getState()));
+
+    const Block = connect(state => ({
+      index: emojiMuteTextIndexFromState(state),
+    }))(class HtmlBlock extends React.Component {
+
+      componentDidMount () {
+        bindEmojiMuteHtmlSources(this.node, original);
+      }
+
+      componentDidUpdate () {
+        bindEmojiMuteHtmlSources(this.node, original);
+      }
+
+      setNode = node => {
+        this.node = node;
+      }
+
+      render () {
+        return (
+          <div
+            ref={this.setNode}
+            dangerouslySetInnerHTML={{ __html: replaceEmojiInDisplayHtml(original, this.props.index) }}
+          />
+        );
+      }
+
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <Block />
+        </div>
+      </Provider>,
+    );
+
+    expect(view.container.textContent).toBe(`Hello ${SPARKLE} there`);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: rules,
+      });
+    });
+
+    expect(view.container.textContent).toBe(`Hello ${SPARKLE} there`);
+    expect(view.container.textContent).not.toContain('[sparkles]');
+    view.unmount();
+  });
+
+  it('projects a custom-emoji image that is not marked emojione', () => {
+    const html = '<img class="custom-emoji" alt=":blob:" data-shortcode="blob" data-domain="" data-emoji-id="10" src="https://cdn.example/blob.png">';
+    const index = {
+      signature: 'custom-only',
+      active: true,
+      replacements: new Map([['l:10', '[blob]']]),
+    };
+
+    expect(replaceEmojiInDisplayHtml(html, index)).toBe('[blob]');
+    expect(replaceEmojiInDisplayHtml('<img alt="photo" src="/photos/1.jpg">', index)).toBe('<img alt="photo" src="/photos/1.jpg">');
+  });
+
+  it('projects a video description once from the original text', () => {
+    const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
+    const rules = [
+      { id: 'ok', revision: '1', emoji: { kind: 'unicode', native: OK }, replacement: SPARKLE, effects },
+      { id: 'spark', revision: '1', emoji: { kind: 'unicode', native: SPARKLE }, replacement: '[sparkles]', effects },
+    ];
+    const store = createStore(reducer, fromJS({
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'ready',
+        failure: null,
+        rules,
+        availability: 'enabled',
+        display: 'apply',
+      },
+      title: `Hi ${OK}`,
+    }));
+    const guard = createUnverifiedEmojiGuard();
+
+    store.subscribe(() => guard(store.getState()));
+
+    const Player = connect(state => ({
+      index: emojiMuteTextIndexFromState(state),
+      source: state.get('title'),
+    }))(class VideoLabel extends React.Component {
+
+      componentDidMount () {
+        bindEmojiMuteElementSource(this.node, this.props.source);
+      }
+
+      componentDidUpdate () {
+        bindEmojiMuteElementSource(this.node, this.props.source);
+      }
+
+      setNode = node => {
+        this.node = node;
+      }
+
+      render () {
+        const label = presentEmojiMutePlain(this.props.source, this.props.index);
+
+        return (
+          <video aria-label={label} title={label} ref={this.setNode} />
+        );
+      }
+
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <Player />
+        </div>
+      </Provider>,
+    );
+    const video = view.container.querySelector('video');
+
+    expect(video.getAttribute('aria-label')).toBe(`Hi ${SPARKLE}`);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: rules,
+      });
+    });
+
+    expect(video.getAttribute('aria-label')).toBe(`Hi ${SPARKLE}`);
+    expect(video.getAttribute('title')).toBe(`Hi ${SPARKLE}`);
+    expect(video.getAttribute('aria-label')).not.toContain('[sparkles]');
     view.unmount();
   });
 });

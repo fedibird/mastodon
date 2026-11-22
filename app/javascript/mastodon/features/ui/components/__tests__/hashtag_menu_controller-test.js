@@ -2446,4 +2446,77 @@ describe('open hashtag menu beside another dropdown', () => {
     expect(node.nodeValue).not.toContain('party:blob:');
     stopGuard();
   });
+
+  it('conceals a menu opened under a verified replacement before React commits', () => {
+    const native = '👍';
+    const href = 'https://remote.example/topics/thumb';
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
+    const html = `<p><a href="${href}" class="mention hashtag" rel="tag">#<span>party${custom}${native}</span></a></p>`;
+    const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
+    const { container, store } = renderMenu({
+      signedIn: true,
+      contentHtml: html,
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'ready',
+        failure: null,
+        rules: [{ id: 'up', revision: '1', emoji: { kind: 'unicode', native }, replacement: '[up]', effects }],
+        availability: 'enabled',
+        display: 'apply',
+      },
+      status: buildStatus({ contentHtml: html, tags: [] }),
+    });
+
+    container.classList.add('emoji-mutes-privacy-portal');
+    click(container.querySelector('a.mention.hashtag'));
+    expect(screen.getByRole('button', { name: 'Mute #party:blob:[up]' })).toBeTruthy();
+
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let beforeCommit = null;
+    const stopWatch = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !beforeCommit) {
+        beforeCommit = document.querySelector('.dropdown-menu').textContent;
+      }
+    });
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(beforeCommit).not.toContain(':blob:');
+    expect(beforeCommit).not.toContain(native);
+    expect(beforeCommit).toContain(`Mute #party${placeholder}`);
+    fireEvent.click(screen.getByRole('button', { name: /Mute #/ }));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(`party:blob:${native}`);
+    stopGuard();
+    stopWatch();
+  });
+
+  it('closes an open menu when the same anchor names a different tag', () => {
+    const href = 'https://example.com/topics/common';
+    const html = `<p><a href="${href}" class="mention hashtag" rel="tag">#<span>garden</span></a></p>`;
+    const view = renderMenu({
+      signedIn: true,
+      contentHtml: html,
+      tags: [{ name: 'garden', url: href }],
+      status: buildStatus({ contentHtml: html, tags: [{ name: 'garden', url: href }] }),
+    });
+
+    click(view.container.querySelector('a.mention.hashtag'));
+    expect(screen.getByRole('button', { name: 'Mute #garden' })).toBeTruthy();
+
+    view.rerender(
+      <Provider store={view.store}>
+        <RouterProvider>
+          <StatusContent status={buildStatus({ contentHtml: html, tags: [{ name: 'herbs', url: href }] })} onTranslate={jest.fn()} onClick={jest.fn()} />
+          <HashtagMenuController signedIn />
+        </RouterProvider>
+      </Provider>,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Mute #garden' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mute #herbs' })).toBeNull();
+  });
 });

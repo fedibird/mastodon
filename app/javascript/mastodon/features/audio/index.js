@@ -8,6 +8,7 @@ import { throttle } from 'lodash';
 import { getPointerPosition, fileNameFromURL } from 'mastodon/features/video';
 import { debounce } from 'lodash';
 import Visualizer from './visualizer';
+import { bindEmojiMuteElementSource } from 'mastodon/features/emoji/emoji_mute_sources';
 
 const messages = defineMessages({
   play: { id: 'video.play', defaultMessage: 'Play' },
@@ -26,6 +27,7 @@ class Audio extends React.PureComponent {
   static propTypes = {
     src: PropTypes.string.isRequired,
     alt: PropTypes.string,
+    emojiMuteSource: PropTypes.string,
     lang: PropTypes.string,
     poster: PropTypes.string,
     duration: PropTypes.number,
@@ -109,18 +111,28 @@ class Audio extends React.PureComponent {
     }
   }
 
+  bindEmojiMuteSource () {
+    if (this.canvas && typeof this.props.emojiMuteSource === 'string') {
+      bindEmojiMuteElementSource(this.canvas, this.props.emojiMuteSource);
+    }
+  }
+
   setCanvasRef = c => {
     this.canvas = c;
+    this.bindEmojiMuteSource();
 
     this.visualizer.setCanvas(c);
   }
 
   componentDidMount () {
+    this.bindEmojiMuteSource();
     window.addEventListener('scroll', this.handleScroll);
     window.addEventListener('resize', this.handleResize, { passive: true });
   }
 
   componentDidUpdate (prevProps, prevState) {
+    this.bindEmojiMuteSource();
+
     if (prevProps.src !== this.props.src || this.state.width !== prevState.width || this.state.height !== prevState.height || prevProps.accentColor !== this.props.accentColor) {
       this._clear();
       this._draw();

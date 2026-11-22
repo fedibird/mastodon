@@ -263,6 +263,31 @@ const replacementForImage = (img, index) => {
   return mappedReplacement(index, { kind: 'custom', scope: 'local', custom_emoji_id: id, shortcode });
 };
 
+// A badge or other plain label that still knows which image the slice came
+// from. The replacement is not scanned again.
+export function replacementForCustomEmoji(emoji, index) {
+  if (!emoji || !index || index.active !== true || index.suppressAll === true) {
+    return undefined;
+  }
+
+  const shortcode = typeof emoji.shortcode === 'string' ? emoji.shortcode : '';
+  const domain = typeof emoji.domain === 'string' ? emoji.domain : '';
+
+  if (shortcode === '' || !emoji.custom) {
+    return undefined;
+  }
+
+  if (domain !== '') {
+    return mappedReplacement(index, { kind: 'custom', scope: 'remote', domain, shortcode });
+  }
+
+  if (!emoji.id) {
+    return undefined;
+  }
+
+  return mappedReplacement(index, { kind: 'custom', scope: 'local', custom_emoji_id: emoji.id, shortcode });
+}
+
 // `keep` means the verified document still shows this image. A replacement
 // is the mute text, never the original glyph.
 export function projectedEmojiImage(img, index) {
@@ -708,7 +733,7 @@ export function replaceEmojiInDisplayHtml(html, index) {
     return html;
   }
 
-  if (index.suppressAll !== true && html.indexOf('emojione') === -1 && !EMOJI_ASSET_SRC.test(html)) {
+  if (index.suppressAll !== true && html.indexOf('emojione') === -1 && html.indexOf('custom-emoji') === -1 && !EMOJI_ASSET_SRC.test(html)) {
     return html;
   }
 
