@@ -324,6 +324,11 @@ export default class Mastodon extends React.PureComponent {
 
       this.emojiMuteRequestInFlight = false;
 
+      // A newer sync already replaced this GET. Its completion owns the card.
+      if (error && error.superseded) {
+        return;
+      }
+
       if (!this.mounted || this.sessionChanged) {
         return;
       }

@@ -882,6 +882,9 @@ export function syncEmojiMutes(options = {}) {
       })(dispatch, getState);
     }).catch(error => {
       if (generation !== documentSyncGeneration) {
+        // The component that started this request has its own counter. Mark
+        // the rejection so a newer sync can own the notice.
+        error.superseded = true;
         throw error;
       }
 
