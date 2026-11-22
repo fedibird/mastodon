@@ -112,7 +112,7 @@ const concealText = root => {
   });
 };
 
-const noteAttribute = (sink, element, name) => {
+const noteAttribute = (sink, element, name, emojiImage) => {
   if (!sink) {
     return;
   }
@@ -123,6 +123,9 @@ const noteAttribute = (sink, element, name) => {
     name,
     had: element.hasAttribute(name),
     value: element.getAttribute(name),
+    emojiImage: !!emojiImage,
+    writtenHad: null,
+    writtenValue: null,
   });
 };
 
@@ -131,7 +134,40 @@ const noteText = (sink, node) => {
     return;
   }
 
-  sink.push({ kind: 'text', node, value: node.nodeValue });
+  sink.push({
+    kind: 'text',
+    node,
+    value: node.nodeValue,
+    written: null,
+  });
+};
+
+// Capture the value this scrub left behind. A later React commit replaces it,
+// and release must not put the pre-suppress string back over that commit.
+const stampScrubWrites = sink => {
+  if (!sink) {
+    return;
+  }
+
+  sink.forEach(record => {
+    if (record.kind === 'text') {
+      record.written = record.node.nodeValue;
+      return;
+    }
+
+    record.writtenHad = record.element.hasAttribute(record.name);
+    record.writtenValue = record.element.getAttribute(record.name);
+  });
+};
+
+const attributeStillOwned = record => {
+  const has = record.element.hasAttribute(record.name);
+
+  if (!record.writtenHad) {
+    return !has;
+  }
+
+  return has && record.element.getAttribute(record.name) === record.writtenValue;
 };
 
 const recordedValue = (records, element, name) => {
@@ -157,7 +193,7 @@ const reactionHostHidden = (records, host, rules) => {
 const writeRecordedAttribute = (record, index) => {
   const { element, name, had, value } = record;
 
-  if (!element.isConnected) {
+  if (!element.isConnected || !attributeStillOwned(record)) {
     return;
   }
 
@@ -192,6 +228,10 @@ const releaseScrub = (records, state) => {
         return;
       }
 
+      if (record.node.nodeValue !== record.written) {
+        return;
+      }
+
       const next = presentEmojiMutePlain(record.value || '', index);
       record.node.nodeValue = next === undefined || next === null ? record.value : next;
       return;
@@ -203,7 +243,9 @@ const releaseScrub = (records, state) => {
 
     const chip = record.element.matches && record.element.matches(REACTION_HOST_SELECTOR);
 
-    if (isUserEmojiImage(record.element) || chip) {
+    // Classification is from the snapshot. The live src is already gone, so
+    // a classless /emoji/<hex>.svg image would otherwise look like a photo.
+    if (record.emojiImage || chip) {
       const bucket = grouped.get(record.element) || [];
       bucket.push(record);
       grouped.set(record.element, bucket);
@@ -241,7 +283,9 @@ const releaseScrub = (records, state) => {
     const projected = projectedEmojiImage(probe, index);
 
     if (!projected.keep) {
-      if (projected.replacement) {
+      const altRecord = bucket.find(item => item.name === 'alt');
+
+      if (projected.replacement && altRecord && attributeStillOwned(altRecord)) {
         element.setAttribute('alt', projected.replacement);
       }
 
@@ -251,11 +295,14 @@ const releaseScrub = (records, state) => {
     bucket.forEach(record => writeRecordedAttribute(record, index));
     keptImages.add(element);
 
-    if (!bucket.some(record => record.name === 'hidden' && record.had)) {
+    const hiddenRecord = bucket.find(item => item.name === 'hidden');
+    const ariaRecord = bucket.find(item => item.name === 'aria-hidden');
+
+    if (hiddenRecord && !hiddenRecord.had && attributeStillOwned(hiddenRecord)) {
       element.removeAttribute('hidden');
     }
 
-    if (!bucket.some(record => record.name === 'aria-hidden' && record.had)) {
+    if (ariaRecord && !ariaRecord.had && attributeStillOwned(ariaRecord)) {
       element.removeAttribute('aria-hidden');
     }
   });
@@ -285,11 +332,11 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
       return;
     }
 
-    EMOJI_IDENTITY_ATTRIBUTES.forEach(name => noteAttribute(sink, img, name));
-    noteAttribute(sink, img, 'alt');
-    noteAttribute(sink, img, 'title');
-    noteAttribute(sink, img, 'hidden');
-    noteAttribute(sink, img, 'aria-hidden');
+    EMOJI_IDENTITY_ATTRIBUTES.forEach(name => noteAttribute(sink, img, name, true));
+    noteAttribute(sink, img, 'alt', true);
+    noteAttribute(sink, img, 'title', true);
+    noteAttribute(sink, img, 'hidden', true);
+    noteAttribute(sink, img, 'aria-hidden', true);
     const host = img.closest(REACTION_HOST_SELECTOR);
 
     if (host && host !== img) {
@@ -347,6 +394,7 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
     noteText(sink, node);
   });
   concealText(root);
+  stampScrubWrites(sink);
 }
 
 export function unverifiedEmojiRoot() {

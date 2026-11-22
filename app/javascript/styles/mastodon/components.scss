@@ -4737,6 +4737,16 @@ body.app-body.layout-single-column.status-timeline-split {
     flex: 0 0 auto;
   }
 
+  // The notice sits in the same column as a split timeline. Cap it and
+  // scroll the card itself so a short viewport still leaves both panes.
+  .columns-area__panels__main > .emoji-mute-load-notice {
+    flex: 0 0 auto;
+    min-height: 0;
+    max-height: 40%;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
   .swipeable-view__wrapper,
   .columns-area__panels__main > .columns-area--mobile {
     box-sizing: border-box;

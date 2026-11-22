@@ -563,4 +563,191 @@ describe('mounted suppress transition', () => {
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
     expect(() => view.unmount()).not.toThrow();
   });
+
+  it('keeps a card title React committed during suppression and projects classless emoji urls from the snapshot', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    let beforeCommit = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) !== 'apply' || !document.querySelector('.classless-muted')) {
+        return;
+      }
+
+      const muted = document.querySelector('.classless-muted');
+      const kept = document.querySelector('.classless-kept');
+      beforeCommit = {
+        mutedSrc: muted.getAttribute('src'),
+        mutedAlt: muted.getAttribute('alt'),
+        keptSrc: kept.getAttribute('src'),
+        keptAlt: kept.getAttribute('alt'),
+        title: document.querySelector('.status-card__title').textContent,
+        titleAttr: document.querySelector('.status-card__title').getAttribute('title'),
+        label: document.querySelector('.status-card__title').getAttribute('aria-label'),
+      };
+    });
+
+    const THUMBS = '👍';
+    const CardTitle = ({ text }) => (
+      <strong className='status-card__title' title={text} aria-label={text}>{text}</strong>
+    );
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <CardTitle text={`Hello ${OK}`} />
+          <img className='classless-muted' src='/emoji/1f44d.svg' alt={THUMBS} />
+          <img className='classless-kept' src='/emoji/2728.svg' alt={KEEP} />
+          <input aria-label='draft' defaultValue='draft stays' />
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    view.rerender(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <CardTitle text='Updated' />
+          <img className='classless-muted' src='/emoji/1f44d.svg' alt={THUMBS} />
+          <img className='classless-kept' src='/emoji/2728.svg' alt={KEEP} />
+          <input aria-label='draft' defaultValue='draft stays' />
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [{
+          id: 'm-thumbs',
+          revision: '3',
+          emoji: { kind: 'unicode', native: THUMBS },
+          replacement: '[up]',
+          effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+        }],
+      });
+    });
+
+    expect(beforeCommit.title).toBe('Updated');
+    expect(beforeCommit.titleAttr).toBe('Updated');
+    expect(beforeCommit.label).toBe('Updated');
+    expect(beforeCommit.mutedSrc).toBeNull();
+    expect(beforeCommit.mutedAlt).not.toBe(THUMBS);
+    expect(beforeCommit.keptSrc).toBe('/emoji/2728.svg');
+    expect(beforeCommit.keptAlt).toBe(KEEP);
+    expect(view.container.querySelector('.status-card__title').textContent).toBe('Updated');
+    expect(view.container.querySelector('.status-card__title').getAttribute('title')).toBe('Updated');
+    expect(view.container.querySelector('.status-card__title').getAttribute('aria-label')).toBe('Updated');
+    expect(view.container.querySelector('.classless-muted').getAttribute('src')).toBeNull();
+    expect(view.container.querySelector('.classless-kept').getAttribute('src')).toBe('/emoji/2728.svg');
+    expect(view.getByLabelText('draft').value).toBe('draft stays');
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+    expect(() => view.unmount()).not.toThrow();
+  });
+
+  it('projects classless emoji urls from the recorded src in the same act', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    let atSuppress = null;
+    let beforeCommit = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      const display = store.getState().getIn(['emojiMutes', 'display']);
+      const muted = document.querySelector('.classless-muted');
+      const kept = document.querySelector('.classless-kept');
+      const mutedSource = document.querySelector('.classless-muted-picture source');
+      const keptSource = document.querySelector('.classless-kept-picture source');
+
+      if (!muted) {
+        return;
+      }
+
+      const shot = {
+        mutedSrc: muted.getAttribute('src'),
+        mutedAlt: muted.getAttribute('alt'),
+        keptSrc: kept.getAttribute('src'),
+        keptAlt: kept.getAttribute('alt'),
+        mutedSourceSrc: mutedSource.getAttribute('src'),
+        mutedSourceSet: mutedSource.getAttribute('srcset'),
+        keptSourceSrc: keptSource.getAttribute('src'),
+        keptSourceSet: keptSource.getAttribute('srcset'),
+        draft: document.querySelector('input').value,
+      };
+
+      if (display === 'suppress') {
+        atSuppress = shot;
+      }
+
+      if (display === 'apply' && store.getState().getIn(['emojiMutes', 'revision']) === '3') {
+        beforeCommit = shot;
+      }
+    });
+
+    const THUMBS = '👍';
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <img className='classless-muted' src='/emoji/1f44d.svg' alt={THUMBS} />
+          <img className='classless-kept' src='/emoji/2728.svg' alt={KEEP} />
+          <picture className='classless-muted-picture'>
+            <source src='/emoji/1f44d.svg' srcSet='/emoji/1f44d.svg 2x' />
+            <img src='/emoji/1f44d.svg' alt={THUMBS} />
+          </picture>
+          <picture className='classless-kept-picture'>
+            <source src='/emoji/2728.svg' srcSet='/emoji/2728.svg 2x' />
+            <img src='/emoji/2728.svg' alt={KEEP} />
+          </picture>
+          <input aria-label='draft' defaultValue='draft stays' />
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [{
+          id: 'm-thumbs',
+          revision: '3',
+          emoji: { kind: 'unicode', native: THUMBS },
+          replacement: '[up]',
+          effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+        }],
+      });
+    });
+
+    expect(atSuppress.mutedSrc).toBeNull();
+    expect(atSuppress.keptSrc).toBeNull();
+    expect(atSuppress.mutedSourceSrc).toBeNull();
+    expect(atSuppress.keptSourceSrc).toBeNull();
+    expect(beforeCommit.mutedSrc).toBeNull();
+    expect(beforeCommit.mutedAlt).toBe('[up]');
+    expect(beforeCommit.keptSrc).toBe('/emoji/2728.svg');
+    expect(beforeCommit.keptAlt).toBe(KEEP);
+    expect(beforeCommit.mutedSourceSrc).toBeNull();
+    expect(beforeCommit.mutedSourceSet).toBeNull();
+    expect(beforeCommit.keptSourceSrc).toBe('/emoji/2728.svg');
+    expect(beforeCommit.keptSourceSet).toBe('/emoji/2728.svg 2x');
+    expect(beforeCommit.draft).toBe('draft stays');
+    expect(view.container.querySelector('.classless-muted').getAttribute('src')).toBeNull();
+    expect(view.container.querySelector('.classless-muted').getAttribute('alt')).toBe('[up]');
+    expect(view.container.querySelector('.classless-kept').getAttribute('src')).toBe('/emoji/2728.svg');
+    expect(view.container.querySelector('.classless-muted-picture source').getAttribute('src')).toBeNull();
+    expect(view.container.querySelector('.classless-muted-picture source').getAttribute('srcset')).toBeNull();
+    expect(view.container.querySelector('.classless-kept-picture source').getAttribute('src')).toBe('/emoji/2728.svg');
+    expect(view.container.querySelector('.classless-kept-picture img').getAttribute('src')).toBe('/emoji/2728.svg');
+    expect(view.getByLabelText('draft').value).toBe('draft stays');
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+    expect(() => view.unmount()).not.toThrow();
+  });
 });
