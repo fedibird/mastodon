@@ -3,7 +3,13 @@ import { emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, p
 
 // One selector for both the clear and the record. A host cleared here has to
 // be in the snapshot, or a same-batch success cannot put it back.
-const REACTION_HOST_SELECTOR = '.reactions-bar__item, [data-emoji-reaction-name], [data-emoji-reaction-url], [data-emoji-reaction-static-url], [data-emoji-shortcode], [data-emoji-domain], [data-emoji-native], [data-emoji-custom-emoji-id]';
+const REACTION_HOST_SELECTOR = '.reactions-bar__item, .account__emoji_reaction, [data-emoji-reaction-name], [data-emoji-reaction-domain], [data-emoji-reaction-url], [data-emoji-reaction-static-url]';
+const REACTION_SNAPSHOT_ATTRIBUTES = [
+  'data-emoji-reaction-name',
+  'data-emoji-reaction-domain',
+  'data-emoji-reaction-url',
+  'data-emoji-reaction-static-url',
+];
 const REACTION_HOST_ATTRIBUTES = [
   'title',
   'aria-label',
@@ -211,10 +217,10 @@ const recordedAsReactionHost = (byElement, element) => {
     return false;
   }
 
-  return REACTION_HOST_ATTRIBUTES.some(name => {
+  return REACTION_SNAPSHOT_ATTRIBUTES.some(name => {
     const record = attrs.get(name);
 
-    return record && record.had && name.indexOf('data-emoji-') === 0;
+    return record && record.had;
   });
 };
 

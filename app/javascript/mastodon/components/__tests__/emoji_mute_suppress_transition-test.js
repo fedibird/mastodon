@@ -21,6 +21,7 @@ import DisplayName from 'mastodon/components/display_name';
 import Emoji from 'mastodon/components/emoji';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import { createUnverifiedEmojiGuard, emojiMuteLiveDomProbe, resetEmojiMuteLiveDomProbe } from 'mastodon/features/emoji/emoji_mute_live_dom';
+import { attachInlineEmojiMenus } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
 
 const OK = '👌';
@@ -61,6 +62,13 @@ const reducer = (state, action) => {
 
   if (action.type === 'UNRELATED') {
     return state;
+  }
+
+  if (action.type === 'SHOW_KEEP_RULES') {
+    return state
+      .setIn(['emojiMutes', 'display'], 'show')
+      .setIn(['emojiMutes', 'revision'], '3')
+      .setIn(['emojiMutes', 'rules'], fromJS(action.rules || []));
   }
 
   return state.set('emojiMutes', emojiMutes(state.get('emojiMutes'), action));
@@ -909,5 +917,151 @@ describe('mounted suppress transition', () => {
     expect(view.getByLabelText('draft').value).toBe('draft stays');
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
     expect(() => view.unmount()).not.toThrow();
+  });
+
+  it('projects a menu-decorated body and display-name emoji instead of treating it as a reaction', () => {
+    const blobImg = '<img class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/blob.png" data-shortcode="blob" data-domain="remote.example" data-original="https://cdn.example/blob.svg" data-static="https://cdn.example/blob.png">';
+    const displayAccount = fromJS({ id: 'a9', acct: 'alice', display_name_html: blobImg });
+
+    class InlineBody extends React.PureComponent {
+
+      setRef = node => {
+        this.node = node;
+      };
+
+      componentDidMount () {
+        this.detach = attachInlineEmojiMenus(this.node, { source: 'inline_status', statusId: 's9' });
+      }
+
+      componentWillUnmount () {
+        this.detach?.();
+      }
+
+      render () {
+        return <div className='status__content__text' ref={this.setRef} dangerouslySetInnerHTML={{ __html: `<p>Hello ${blobImg} there</p>` }} />;
+      }
+
+    }
+
+    const rule = (replaceInText, hideReactions) => ({
+      id: 'm-blob',
+      revision: '3',
+      emoji: { kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' },
+      replacement: '[blob]',
+      effects: {
+        replace_in_text: replaceInText,
+        hide_reactions: hideReactions,
+        hide_in_picker: false,
+        reject_reactions_to_own_posts: false,
+      },
+    });
+
+    const run = (mutes, show) => {
+      const guard = createUnverifiedEmojiGuard();
+      const store = createStore(reducer);
+      let beforeCommit = null;
+
+      store.subscribe(() => guard(store.getState()));
+      store.subscribe(() => {
+        if (store.getState().getIn(['emojiMutes', 'revision']) !== '3') {
+          return;
+        }
+
+        const imgs = document.querySelectorAll('img.custom-emoji');
+        const shots = [];
+
+        for (let index = 0; index < imgs.length; index += 1) {
+          const img = imgs[index];
+
+          shots.push({
+            src: img.getAttribute('src'),
+            alt: img.getAttribute('alt'),
+            title: img.getAttribute('title'),
+            hidden: img.hasAttribute('hidden'),
+            ariaHidden: img.getAttribute('aria-hidden'),
+          });
+        }
+
+        beforeCommit = shots;
+      });
+
+      const view = render(
+        <Provider store={store}>
+          <div className='emoji-mutes-privacy-portal'>
+            <DisplayName account={displayAccount} />
+            <InlineBody />
+          </div>
+        </Provider>,
+      );
+      const painted = view.container.querySelectorAll('img.custom-emoji');
+
+      expect(painted.length).toBe(2);
+      painted.forEach(img => {
+        expect(img.getAttribute('data-emoji-shortcode')).toBe('blob');
+        expect(img.getAttribute('data-emoji-domain')).toBe('remote.example');
+      });
+
+      act(() => {
+        store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+        if (show) {
+          store.dispatch({ type: 'SHOW_KEEP_RULES', rules: mutes });
+        } else {
+          store.dispatch({
+            type: EMOJI_MUTES_APPLY,
+            revision: '3',
+            availability: 'enabled',
+            mutes,
+          });
+        }
+      });
+
+      return { view, beforeCommit };
+    };
+
+    [
+      [true, false],
+      [true, true],
+      [false, false],
+      [false, true],
+    ].forEach(([replaceInText, hideReactions]) => {
+      const { view, beforeCommit } = run([rule(replaceInText, hideReactions)], false);
+
+      expect(beforeCommit).toHaveLength(2);
+      beforeCommit.forEach(shot => {
+        if (replaceInText) {
+          expect(shot.src).toBeNull();
+          expect(shot.alt).toBe('[blob]');
+          expect(shot.title).toBeNull();
+          expect(shot.hidden).toBe(true);
+          expect(shot.ariaHidden).toBe('true');
+        } else {
+          expect(shot.src).toBe('https://cdn.example/blob.png');
+          expect(shot.alt).toBe(':blob:');
+          expect(shot.title).toBe('blob');
+          expect(shot.hidden).toBe(false);
+          expect(shot.ariaHidden).toBeNull();
+        }
+      });
+
+      if (replaceInText) {
+        expect(view.container.innerHTML).not.toContain('https://cdn.example/blob.png');
+        expect(view.container.textContent).toContain('[blob]');
+      } else {
+        expect(view.container.querySelectorAll('img.custom-emoji[src="https://cdn.example/blob.png"]')).toHaveLength(2);
+      }
+
+      view.unmount();
+    });
+
+    const shown = run([rule(true, true)], true);
+
+    expect(shown.beforeCommit).toHaveLength(2);
+    shown.beforeCommit.forEach(shot => {
+      expect(shot.src).toBe('https://cdn.example/blob.png');
+      expect(shot.hidden).toBe(false);
+      expect(shot.ariaHidden).toBeNull();
+    });
+    expect(shown.view.container.querySelectorAll('img.custom-emoji[src="https://cdn.example/blob.png"]')).toHaveLength(2);
+    shown.view.unmount();
   });
 });

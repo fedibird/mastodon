@@ -395,9 +395,9 @@ class StatusContent extends React.PureComponent {
       return names[0];
     }
 
-    // Several original names share this href. The translation is not a
-    // second copy of that list, so it stays a normal link.
-    if (link.closest('.status-translation-pair__target')) {
+    // Several original names share this href. Translated text is not in the
+    // original order, whether it is the bilingual target or the only view.
+    if (this._hashtagViewMode === 'translated' || link.closest('.status-translation-pair__target')) {
       return '';
     }
 
@@ -706,6 +706,8 @@ class StatusContent extends React.PureComponent {
 
     const translationView = statusTranslationView(translated);
     const viewMode = pairMatchesRequest ? translationView.mode : 'original';
+
+    this._hashtagViewMode = viewMode;
     const sourceLang = pairMatchesRequest ? (translationView.sourceLang || status.get('language') || '') : (status.get('language') || '');
     const targetLang = translationView.targetLang;
     const sourceHtml = status.get('contentHtml');

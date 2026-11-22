@@ -938,4 +938,42 @@ describe('HashtagMenuController', () => {
       expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
     });
   });
+
+  it('does not assign reordered translated-only hashtags by original position', () => {
+    const href = 'https://remote.example/topics/shared';
+    const sourceHtml = `<p>First <a href="${href}" class="mention hashtag" rel="tag">#<span>alpha</span></a> then <a href="${href}" class="mention hashtag" rel="tag">#<span>beta</span></a> stays</p>`;
+    const targetHtml = `<p>後で <a href="${href}" class="mention hashtag" rel="tag">#<span>ベータ</span></a> 先に <a href="${href}" class="mention hashtag" rel="tag">#<span>アルファ</span></a> です</p>`;
+    const { container } = renderMenu({
+      signedIn: true,
+      status: buildStatus({
+        contentHtml: sourceHtml,
+        language: 'en',
+        tags: [],
+        translationMode: 'translated',
+        translation: {
+          contentHtml: targetHtml,
+          spoilerHtml: '',
+          language: 'ja',
+          detected_source_language: 'en',
+          requested_source_language: 'en',
+          requested_target_language: 'ja',
+          provider: 'test',
+        },
+      }),
+    });
+    const links = container.querySelectorAll('.status__content__text a.mention.hashtag');
+
+    expect(container.querySelector('.status-translation-pair')).toBeNull();
+    expect(links).toHaveLength(2);
+    links.forEach(link => {
+      expect(link.getAttribute('href')).toBe(href);
+      expect(link.hasAttribute('data-menu-hashtag')).toBe(false);
+
+      const open = click(link.querySelector('span') || link);
+
+      expect(open.defaultPrevented).toBe(false);
+    });
+    expect(screen.queryByRole('button', { name: 'Mute #alpha' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mute #beta' })).toBeNull();
+  });
 });
