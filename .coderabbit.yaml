@@ -1,6 +1,6 @@
-# CodeRabbit V2 (V3 is a limited preview). Keep review policy review-only:
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit V2 (the omitted version defaults to V2). Keep review policy review-only:
 # a human maintainer authorizes readiness, merge, deployment, and production changes.
-version: 2
 language: "ja-JP"
 
 reviews:
