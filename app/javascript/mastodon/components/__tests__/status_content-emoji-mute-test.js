@@ -809,6 +809,73 @@ describe('StatusContent unverified emoji suppression', () => {
     expectConcealed(links[0]);
     expect(hashtagMenuStoredIdentity(links[1]).imageRanges).toEqual([]);
     ambiguous.unmount();
+
+    const cased = `<a href="${href}" class="mention hashtag" rel="tag" title="#Party:blob:" aria-label="tag Party:blob:">#<span>Party${custom}</span></a>`;
+    const casedView = mount(buildStatus({
+      contentHtml: `<p>See ${cased} stays</p>`,
+      spoilerHtml: `<p>CW ${cased} note</p>`,
+      spoiler_text: 'CW note',
+      tags: [{ name: 'party:blob:', url: href }],
+    }));
+
+    fireEvent.click(casedView.container.querySelector('button'));
+    const casedBody = casedView.container.querySelector('.status__content__text a.mention.hashtag');
+    const casedCw = Array.from(casedView.container.querySelectorAll('a.mention.hashtag')).find(link => (
+      link.closest('p') && link.closest('p').textContent.includes('CW')
+    ));
+
+    expectConcealed(casedBody);
+    expect(casedBody.getAttribute('title')).toBe(`#Party${'\u25FB'}`);
+    expectConcealed(casedCw);
+    casedView.unmount();
+
+    const ligature = '\uFB01le';
+    const fileHref = `https://remote.example/tags/${encodeURIComponent('file:blob:')}`;
+    const folded = mount(buildStatus({
+      contentHtml: `<p><a href="${fileHref}" class="mention hashtag" rel="tag" title="#${ligature}:blob:">#<span>${ligature}${custom}</span></a></p>`,
+      tags: [{ name: 'file:blob:', url: fileHref }],
+    }));
+    const foldedLink = folded.container.querySelector('a.mention.hashtag');
+
+    expect(foldedLink.getAttribute('data-menu-hashtag') || '').not.toContain(':blob:');
+    expect(foldedLink.getAttribute('title') || '').not.toContain(':blob:');
+    expect(hashtagMenuStoredName(foldedLink)).toBe('file:blob:');
+    folded.unmount();
+
+    const sharedTag = 'https://remote.example/tags/party%3Ablob%3A';
+    const mixedSource = `<p><a href="${sharedTag}" class="mention hashtag" rel="tag">#<span>party${custom}</span></a> <a href="${sharedTag}" class="mention hashtag" rel="tag">#<span>party:blob:</span></a></p>`;
+    const mixedTarget = `<p><a href="${sharedTag}" class="mention hashtag" rel="tag" title="#party:blob:" aria-label="tag party:blob:">#<span>訳語</span></a></p>`;
+    const mixedCw = `<p><a href="${sharedTag}" class="mention hashtag" rel="tag" title="#party:blob:">#<span>警告</span></a></p>`;
+    const mixed = mount(buildStatus({
+      contentHtml: mixedSource,
+      spoilerHtml: `<p>CW <a href="${sharedTag}" class="mention hashtag" rel="tag">#<span>party${custom}</span></a> <a href="${sharedTag}" class="mention hashtag" rel="tag">#<span>party:blob:</span></a></p>`,
+      spoiler_text: 'CW note',
+      tags: [{ name: 'party:blob:', url: sharedTag }],
+      language: 'en',
+      translationMode: 'translated',
+      translation: {
+        contentHtml: mixedTarget,
+        spoilerHtml: mixedCw,
+        language: 'ja',
+        detected_source_language: 'en',
+        requested_source_language: 'en',
+        requested_target_language: 'ja',
+        provider: 'test',
+      },
+    }));
+
+    fireEvent.click(mixed.container.querySelector('button'));
+    const mixedBody = mixed.container.querySelector('.status__content__text a.mention.hashtag');
+    const mixedWarning = Array.from(mixed.container.querySelectorAll('a.mention.hashtag')).find(link => link.textContent.includes('警告'));
+
+    expect(mixedBody.textContent).toContain('訳語');
+    expect(mixedBody.outerHTML).not.toContain(':blob:');
+    expect(mixedBody.getAttribute('title') || '').not.toContain(':blob:');
+    expect(mixedBody.getAttribute('aria-label') || '').not.toContain(':blob:');
+    expect(hashtagMenuStoredName(mixedBody)).toBe('party:blob:');
+    expect(mixedWarning.outerHTML).not.toContain(':blob:');
+    expect(hashtagMenuStoredName(mixedWarning)).toBe('party:blob:');
+    mixed.unmount();
   });
 });
 

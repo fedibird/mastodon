@@ -2122,4 +2122,110 @@ describe('HashtagMenuController', () => {
     stopGuard();
     stopWatch();
   });
+
+  it('hides one image shortcode inside a repeated tag and a differently cased name', () => {
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
+    const mixedHref = 'https://remote.example/topics/mixed';
+    const casedHref = 'https://remote.example/tags/party%3Ablob%3A';
+    const mixed = `<a href="${mixedHref}" class="mention hashtag" rel="tag" title="#party:blob::blob:" aria-label="tag party:blob::blob:">#<span>party${custom}:blob:</span></a>`;
+    const cased = `<a href="${casedHref}" class="mention hashtag" rel="tag" title="#Party:blob:" aria-label="tag Party:blob:">#<span>Party${custom}</span></a>`;
+    const sourceHtml = `<p>See ${mixed} ${cased} stays</p>`;
+    const { container, store } = renderMenu({
+      signedIn: true,
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'ready',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'apply',
+      },
+      status: buildStatus({
+        contentHtml: sourceHtml,
+        tags: [{ name: 'party:blob:', url: casedHref }],
+      }),
+    });
+
+    container.className = 'emoji-mutes-privacy-portal';
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    const mixedLink = container.querySelector(`a[href="${mixedHref}"]`);
+    const casedLink = Array.from(container.querySelectorAll('a.mention.hashtag')).find(link => link.textContent.includes('Party'));
+    let beforeCommit = null;
+    const stopWatch = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !beforeCommit) {
+        beforeCommit = {
+          mixedTitle: mixedLink.getAttribute('title'),
+          mixedAria: mixedLink.getAttribute('aria-label'),
+          mixedAttr: mixedLink.getAttribute('data-menu-hashtag'),
+          mixedHtml: mixedLink.outerHTML,
+          casedTitle: casedLink.getAttribute('title'),
+          casedAria: casedLink.getAttribute('aria-label'),
+          casedAttr: casedLink.getAttribute('data-menu-hashtag'),
+          casedHtml: casedLink.outerHTML,
+        };
+      }
+    });
+
+    expect(mixedLink.getAttribute('title')).toBe('#party:blob::blob:');
+    expect(casedLink.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(beforeCommit.mixedTitle).toBe(`#party${'\u25FB'}:blob:`);
+    expect(beforeCommit.mixedAria).toBe(`tag party${'\u25FB'}:blob:`);
+    expect(beforeCommit.mixedAttr || '').not.toContain(':blob:');
+    expect(beforeCommit.mixedHtml).not.toContain('cdn.example/blob.svg');
+    expect(beforeCommit.casedTitle).toBe(`#Party${'\u25FB'}`);
+    expect(beforeCommit.casedAria).toBe(`tag Party${'\u25FB'}`);
+    expect(beforeCommit.casedAttr || '').not.toContain(':blob:');
+    expect(beforeCommit.casedHtml).not.toContain(':blob:');
+    expect(hashtagMenuStoredName(casedLink)).toBe('party:blob:');
+
+    const restored = () => {
+      const liveMixed = container.querySelector(`a[href="${mixedHref}"]`);
+      const liveCased = Array.from(container.querySelectorAll('a.mention.hashtag')).find(link => (link.getAttribute('title') || '').includes('Party') || link.textContent.includes('Party'));
+
+      expect(liveMixed.getAttribute('title')).toBe('#party:blob::blob:');
+      expect(liveMixed.getAttribute('aria-label')).toBe('tag party:blob::blob:');
+      expect(liveMixed.getAttribute('data-menu-hashtag')).toBe('party:blob::blob:');
+      expect(liveCased.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+      expect(liveCased.getAttribute('title')).toBe('#Party:blob:');
+      expect(hashtagMenuStoredName(liveCased)).toBe('party:blob:');
+    };
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+    restored();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+    });
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+    expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('show');
+    restored();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_ENABLE });
+    });
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_DISABLE });
+    });
+    expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('show');
+    restored();
+
+    stopGuard();
+    stopWatch();
+  });
 });

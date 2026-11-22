@@ -72,27 +72,78 @@ export function hashtagIdentityFromNode(anchor) {
   return { name, imageRanges, mark };
 }
 
-// Replace only the slices that came from emoji images. A typed :blob: that
-// is not one of those slices stays in the string.
-export function concealImageDerivedSegments(value, name, imageRanges) {
-  if (typeof value !== 'string' || value === '' || typeof name !== 'string' || !imageRanges || imageRanges.length === 0) {
-    return value;
+const shortcodesIn = text => text.match(/:[^:\s]+:/g) || [];
+
+// The name occurs once, so each image range maps to one span. A second copy
+// of the same shortcode is typed text and stays.
+const concealAlignedSegments = (value, name, imageRanges, offset) => {
+  const ordered = imageRanges.slice().sort((left, right) => right[0] - left[0]);
+  const fits = ordered.every(([start, end]) => value.slice(offset + start, offset + end) === name.slice(start, end));
+
+  if (!fits) {
+    return null;
   }
 
-  const ordered = imageRanges.slice().sort((left, right) => right[0] - left[0]);
+  return ordered.reduce((next, [start, end]) => (
+    `${next.slice(0, offset + start)}${UNVERIFIED_EMOJI_PLACEHOLDER}${next.slice(offset + end)}`
+  ), value);
+};
+
+// The label is not the stored name at a known offset. Hide the image
+// shortcode rather than leave it readable.
+const concealUnmappedSegments = (value, name, imageRanges) => {
+  const segments = imageRanges.map(([start, end]) => name.slice(start, end)).filter(Boolean);
   let next = value;
 
-  ordered.forEach(([start, end]) => {
-    const segment = name.slice(start, end);
-
-    if (!segment) {
-      return;
+  segments.forEach(segment => {
+    if (next.includes(segment)) {
+      next = next.split(segment).join(UNVERIFIED_EMOJI_PLACEHOLDER);
     }
+  });
 
-    next = next.split(segment).join(UNVERIFIED_EMOJI_PLACEHOLDER);
+  if (next !== value) {
+    return next;
+  }
+
+  shortcodesIn(name).forEach(code => {
+    if (next.includes(code)) {
+      next = next.split(code).join(UNVERIFIED_EMOJI_PLACEHOLDER);
+    }
   });
 
   return next;
+};
+
+// Replace only the slices that came from emoji images. A typed :blob: that
+// is not one of those slices stays in the string.
+export function concealImageDerivedSegments(value, name, imageRanges) {
+  if (typeof value !== 'string' || value === '' || typeof name !== 'string' || name === '' || !imageRanges || imageRanges.length === 0) {
+    return value;
+  }
+
+  const offsets = [];
+  let from = 0;
+
+  while (from <= value.length) {
+    const found = value.indexOf(name, from);
+
+    if (found < 0) {
+      break;
+    }
+
+    offsets.push(found);
+    from = found + name.length;
+  }
+
+  if (offsets.length === 1) {
+    const aligned = concealAlignedSegments(value, name, imageRanges, offsets[0]);
+
+    if (aligned !== null) {
+      return aligned;
+    }
+  }
+
+  return concealUnmappedSegments(value, name, imageRanges);
 }
 
 export function projectHashtagLabel(name, imageRanges, index) {

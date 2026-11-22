@@ -15,7 +15,7 @@ import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_pr
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { bindHashtagMenuName, concealImageDerivedSegments, hashtagIdentityFromNode, hashtagMenuDomName, projectHashtagLabel } from 'mastodon/features/emoji/hashtag_menu_names';
 import { emojiMuteTextIndexFromState, linkTargetEmojiRemains, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
-import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
+import { computeStatusHashtagBadges, isHashtagMenuLink, localeAwareInclude, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 import { attachInlineEmojiMenus, isInlineEmojiLongPressClick, openInlineEmojiMenu } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 
@@ -63,6 +63,59 @@ const mapDispatchToProps = dispatch => ({
     dispatch(setTranslationTargetLanguage(target));
   },
 });
+
+const sameHashtagName = (left, right) => localeAwareInclude([left || ''], right || '');
+
+const rangesAgree = (left, right) => (
+  left.length === right.length && left.every((range, index) => range[0] === right[index][0] && range[1] === right[index][1])
+);
+
+// Case-only spelling keeps the image offsets. A length change can still place
+// a shortcode that occurs once. Anything else hides the whole tag name so the
+// raw shortcode is not written into an attribute.
+const alignHashtagRanges = (sourceName, targetName, ranges) => {
+  const sourceRanges = ranges || [];
+
+  if (!targetName) {
+    return [];
+  }
+
+  if (!sourceName || sourceName === targetName) {
+    return sourceRanges;
+  }
+
+  if (!sameHashtagName(sourceName, targetName)) {
+    return [];
+  }
+
+  if (!sourceRanges.length) {
+    return [];
+  }
+
+  const sameOffsets = sourceName.length === targetName.length && sourceRanges.every(([start, end]) => (
+    sourceName.slice(start, end) === targetName.slice(start, end)
+  ));
+
+  if (sameOffsets) {
+    return sourceRanges;
+  }
+
+  const placed = [];
+
+  for (let index = 0; index < sourceRanges.length; index += 1) {
+    const slice = sourceName.slice(sourceRanges[index][0], sourceRanges[index][1]);
+    const found = slice ? targetName.indexOf(slice) : -1;
+    const again = found < 0 ? -1 : targetName.indexOf(slice, found + slice.length);
+
+    if (!slice || found < 0 || again !== -1) {
+      return [[0, targetName.length]];
+    }
+
+    placed.push([found, found + slice.length]);
+  }
+
+  return placed;
+};
 
 class StatusContent extends React.PureComponent {
 
@@ -466,36 +519,43 @@ class StatusContent extends React.PureComponent {
         return [];
       }
 
-      // A tag or /tags URL can name this link. Keep the image slices only
-      // when that name is the saved HTML at this occurrence.
-      if (trusted && identity.name !== trusted) {
-        return [];
+      if (!trusted) {
+        return identity.imageRanges || [];
       }
 
-      return identity.imageRanges || [];
+      return alignHashtagRanges(identity.name, trusted, identity.imageRanges || []);
     };
+    const concealed = name => (name ? [[0, name.length]] : []);
 
     if (translated) {
-      const names = identities.map(identity => identity.name).filter(Boolean);
-      const unique = names.filter((entry, index) => names.indexOf(entry) === index);
+      const pool = trusted
+        ? identities.filter(identity => identity.name && sameHashtagName(identity.name, trusted))
+        : identities.filter(identity => identity.name);
 
-      if (names.length !== identities.length || unique.length !== 1) {
+      if (pool.length === 0) {
         return [];
       }
 
-      if (trusted && unique[0] !== trusted) {
-        return [];
+      // A translation can reuse one source spelling. Different tags stay unnamed.
+      if (!trusted) {
+        const unique = pool.map(identity => identity.name).filter((entry, index, list) => list.indexOf(entry) === index);
+
+        if (unique.length !== 1 || pool.length !== identities.length) {
+          return [];
+        }
       }
 
-      const matched = identities.filter(identity => identity.name === unique[0]);
-      const first = matched[0] ? (matched[0].imageRanges || []) : [];
-      const agree = matched.every(identity => {
-        const ranges = identity.imageRanges || [];
+      const aligned = pool.map(identity => alignHashtagRanges(identity.name, trusted || identity.name, identity.imageRanges || []));
+      const withImages = pool.some(identity => (identity.imageRanges || []).length > 0);
+      const first = aligned[0] || [];
 
-        return ranges.length === first.length && ranges.every((range, index) => range[0] === first[index][0] && range[1] === first[index][1]);
-      });
+      // Same name, different image positions: do not guess, and do not write
+      // the raw shortcode into the translated link.
+      if (!aligned.every(ranges => rangesAgree(ranges, first))) {
+        return withImages ? concealed(trusted || pool[0].name) : [];
+      }
 
-      return agree ? first : [];
+      return first;
     }
 
     const inBody = !!link.closest('.status__content__text');
