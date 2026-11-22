@@ -1257,7 +1257,7 @@ describe('HashtagMenuController', () => {
     const native = '👍';
     const href = 'https://remote.example/topics/party';
     const custom = '<img class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/blob.svg" data-shortcode="blob">';
-    const html = `<p>See <a href="${href}" class="mention hashtag" rel="tag">#${emojify(`<span>party${native}</span>`)}</a> and <a href="https://remote.example/topics/custom" class="mention hashtag" rel="tag">#<span>party${custom}</span></a> stays</p>`;
+    const html = `<p>See <a href="${href}" class="mention hashtag" rel="tag">#${emojify(`<span>party${native}</span>`)}<img src="/media/photo.jpg" alt="landscape ${native}"></a> and <a href="https://remote.example/topics/custom" class="mention hashtag" rel="tag">#<span>party${custom}</span></a> stays</p>`;
     const { container, store } = renderMenu({
       signedIn: true,
       contentHtml: html,
@@ -1276,8 +1276,11 @@ describe('HashtagMenuController', () => {
     const customLink = container.querySelector('a[href="https://remote.example/topics/custom"]');
 
     expect(hashtagMenuStoredName(unicode)).toBe(`party${native}`);
+    expect(unicode.textContent).toBe(`#party${'\u25FB'}`);
     expect(unicode.getAttribute('data-menu-hashtag') || '').not.toContain(native);
     expect(unicode.outerHTML).not.toContain(native);
+    expect(unicode.querySelector('img[src="/media/photo.jpg"]')).not.toBeNull();
+    expect(hashtagMenuStoredName(unicode)).not.toContain('landscape');
     expect(hashtagMenuStoredName(customLink)).toBe('party:blob:');
     expect(customLink.getAttribute('data-menu-hashtag')).toBe('party:blob:');
     expect(customLink.querySelector('img')).toBeNull();
@@ -1428,6 +1431,13 @@ describe('HashtagMenuController', () => {
     expect(badge.textContent).toContain(native);
     await useMenu(badge, wave, wave);
 
+    const gammaPosts = mockApiPost.mock.calls.length;
+
+    click(later);
+    fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
+    await waitFor(() => expect(mockApiPost.mock.calls.length).toBe(gammaPosts + 1));
+    expect(mockApiPost).toHaveBeenLastCalledWith('/api/v1/favourite_tags', { name: gamma });
+
     container.className = 'emoji-mutes-privacy-portal';
     const guard = createUnverifiedEmojiGuard();
     const stopGuard = store.subscribe(() => guard(store.getState()));
@@ -1478,6 +1488,9 @@ describe('HashtagMenuController', () => {
       expect(node.textContent).toContain(native);
     };
 
+    expect(badge.hasAttribute('data-menu-hashtag-token')).toBe(true);
+    expect(badge.outerHTML).not.toContain(native);
+    expect(badge.getAttribute('data-menu-hashtag') || '').not.toContain(native);
     act(() => {
       store.dispatch({
         type: EMOJI_MUTES_APPLY,

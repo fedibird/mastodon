@@ -21,6 +21,7 @@ import DisplayName from 'mastodon/components/display_name';
 import Emoji from 'mastodon/components/emoji';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import { createUnverifiedEmojiGuard, emojiMuteLiveDomProbe, resetEmojiMuteLiveDomProbe } from 'mastodon/features/emoji/emoji_mute_live_dom';
+import { buildReplaceInTextIndex, replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
 import { attachInlineEmojiMenus } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
 
@@ -755,6 +756,22 @@ describe('mounted suppress transition', () => {
     expect(view.container.querySelector('.classless-kept-picture source').getAttribute('src')).toBe('/emoji/2728.svg');
     expect(view.container.querySelector('.classless-kept-picture img').getAttribute('src')).toBe('/emoji/2728.svg');
     expect(view.getByLabelText('draft').value).toBe('draft stays');
+
+    const direct = replaceEmojiInDisplayHtml(
+      '<p><picture><source srcset="/emoji/1f44d.svg" src="/emoji/1f44d.svg"><img src="/emoji/1f44d.svg" alt="👍"></picture><img src="/media/photo.jpg" alt="a 👍 photo"></p>',
+      buildReplaceInTextIndex([{
+        id: 'm-thumbs',
+        revision: '3',
+        emoji: { kind: 'unicode', native: THUMBS },
+        replacement: '[up]',
+        effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+      }]),
+    );
+
+    expect(direct).toContain('[up]');
+    expect(direct).toContain('/media/photo.jpg');
+    expect(direct).not.toContain('/emoji/1f44d.svg');
+    expect(beforeCommit.mutedAlt).toBe('[up]');
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
     expect(() => view.unmount()).not.toThrow();
   });

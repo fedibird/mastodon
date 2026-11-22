@@ -390,6 +390,16 @@ describe('authenticated emoji mute bootstrap', () => {
 
   it('scrubs through the registered subscriber before React commits a suppress transition', async () => {
     expect(registeredEmojiMuteGuard).toBe(scrubVisibleEmojiIfUnverified);
+    const previousDispatch = mockDispatch.getMockImplementation();
+
+    mockDispatch.mockImplementation(action => {
+      if (typeof action === 'function') {
+        return action(mockDispatch, () => mockState);
+      }
+
+      registeredEmojiMuteGuard();
+      return action;
+    });
     mockDisplay = 'apply';
     const view = render(<Mastodon locale='en' />);
     await bootReady();
@@ -402,9 +412,10 @@ describe('authenticated emoji mute bootstrap', () => {
     let srcBeforeCommit = 'unset';
 
     act(() => {
-      registeredEmojiMuteGuard();
+      mockDispatch({ type: 'EMOJI_MUTES_REVISION', revision: '2' });
       srcBeforeCommit = surface.querySelector('img').getAttribute('src');
     });
+    mockDispatch.mockImplementation(previousDispatch);
 
     expect(srcBeforeCommit).toBeNull();
     expect(surface.innerHTML).not.toContain('/emoji/1f44d.svg');

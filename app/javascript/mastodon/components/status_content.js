@@ -14,7 +14,7 @@ import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translat
 import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { bindHashtagMenuName, hashtagMenuDomName } from 'mastodon/features/emoji/hashtag_menu_names';
-import { emojiMuteTextIndexFromState, linkTargetEmojiRemains, presentEmojiMutePlain, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMuteTextIndexFromState, isUserEmojiImage, linkTargetEmojiRemains, presentEmojiMutePlain, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 import { attachInlineEmojiMenus, isInlineEmojiLongPressClick, openInlineEmojiMenu } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
@@ -390,9 +390,12 @@ class StatusContent extends React.PureComponent {
       }
 
       // The stored HTML still has the emoji image. Its alt is the character
-      // textContent drops. The live projected label is not this anchor.
+      // textContent drops. An attachment alt and the live projected label
+      // are not part of the hashtag name.
       if (node.tagName === 'IMG') {
-        parts.push(node.getAttribute('alt') || '');
+        if (isUserEmojiImage(node)) {
+          parts.push(node.getAttribute('alt') || '');
+        }
         return;
       }
 

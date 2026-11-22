@@ -175,4 +175,89 @@ describe('link card unverified text', () => {
     expect(title.textContent).toBe('Hi [ok]');
     expect(title.getAttribute('title')).toBe('Hi [ok]');
   });
+
+  it('projects the title and description once when the rules change and keeps a React write', () => {
+    const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
+    const rule = (id, revision, native, replacement) => ({
+      id, revision, emoji: { kind: 'unicode', native }, replacement, effects,
+    });
+    const titled = card.set('title', 'Hi 👌').set('description', 'Note 👌');
+    const store = createStore((state, action) => state.set('emojiMutes', emojiMutesReducer(state.get('emojiMutes'), action)), fromJS({
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'ready',
+        failure: null,
+        rules: [rule('ok', '1', '👌', '✨'), rule('spark', '1', '✨', '[sparkles]')],
+        availability: 'enabled',
+        display: 'apply',
+      },
+    }));
+    const guard = createUnverifiedEmojiGuard();
+    let duringApply = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'revision']) === '3' && store.getState().getIn(['emojiMutes', 'display']) === 'apply') {
+        const titleNode = document.querySelector('.status-card__title');
+        const description = document.querySelector('.status-card__description');
+
+        duringApply = {
+          title: titleNode.textContent,
+          titleAttr: titleNode.getAttribute('title'),
+          description: description.textContent,
+        };
+      }
+    });
+
+    const { container } = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <Card card={titled} onOpenMedia={jest.fn()} />
+        </div>
+      </Provider>,
+    );
+    const title = container.querySelector('.status-card__title');
+    const description = container.querySelector('.status-card__description');
+
+    expect(title.textContent).toBe('Hi ✨');
+    expect(title.getAttribute('title')).toBe('Hi ✨');
+    expect(description.textContent).toBe('Note ✨');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [rule('ok', '2', '👌', '✨'), rule('spark', '2', '✨', '[sparkles]')],
+      });
+    });
+
+    expect(title.textContent).toBe('Hi ✨');
+    expect(title.getAttribute('title')).toBe('Hi ✨');
+    expect(description.textContent).toBe('Note ✨');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      title.firstChild.nodeValue = 'React wrote this';
+      title.setAttribute('title', 'React wrote this');
+      description.firstChild.nodeValue = 'React wrote the note';
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [rule('ok', '3', '👌', '[ok]'), rule('spark', '3', '✨', '[sparkles]')],
+      });
+    });
+
+    expect(duringApply).toEqual({
+      title: 'React wrote this',
+      titleAttr: 'React wrote this',
+      description: 'React wrote the note',
+    });
+    expect(title.textContent).toBe('Hi [ok]');
+    expect(title.getAttribute('title')).toBe('Hi [ok]');
+    expect(description.textContent).toBe('Note [ok]');
+  });
 });
